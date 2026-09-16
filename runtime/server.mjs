@@ -30,18 +30,21 @@ function scheduleRuntimeRestart() {
 }
 
 async function pickLocalDirectory() {
+  if (process.platform !== 'darwin') {
+    return { unavailable: true, error: 'dir_picker_unavailable' }
+  }
   try {
     const { stdout } = await execFileAsync('osascript', ['-e', 'POSIX path of (choose folder with prompt "选择工作区目录")'], { timeout: 120000 })
     const path = String(stdout || '').trim().replace(/\/$/, '')
-    if (path.startsWith('/')) return path
+    if (path.startsWith('/')) return { path }
   } catch (error) {
-    if (error && (error.code === '1' || error.code === 1)) return null
+    if (error && (error.code === '1' || error.code === 1)) return { path: null }
   }
   try {
     const picked = await aiRuntime.call('directoryPicker/pick', {})
-    if (typeof picked === 'string' && picked.startsWith('/')) return picked.replace(/\/$/, '')
+    if (typeof picked === 'string' && picked.startsWith('/')) return { path: picked.replace(/\/$/, '') }
   } catch { /* 没有原生选择器就放弃 */ }
-  return null
+  return { path: null }
 }
 import {
   appendAudit,
@@ -66,16 +69,25 @@ import {
 import { inspectAdapters } from './adapters.mjs'
 import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
+import {
+  FDE_AI_WORKSPACE,
+  FDE_ALLOWED_ORIGINS,
+  FDE_DATABASE_PATH,
+  FDE_OFFICIAL_DSH_HOME,
+  FDE_RUNTIME_DIR,
+  FDE_RUNTIME_HOST,
+  FDE_RUNTIME_PORT,
+  FDE_WEB_PORT,
+} from './config.mjs'
 
-const runtimeDirectory = fileURLToPath(new URL('.', import.meta.url))
-const databasePath = process.env.FDE_DATABASE_PATH ?? resolve(runtimeDirectory, 'data', 'fde-workstation.sqlite')
+const runtimeDirectory = FDE_RUNTIME_DIR
+const databasePath = FDE_DATABASE_PATH
 const migrationsDirectory = resolve(runtimeDirectory, 'migrations')
-const port = Number(process.env.FDE_RUNTIME_PORT ?? 4318)
-const host = process.env.FDE_RUNTIME_HOST ?? '127.0.0.1'
+const port = FDE_RUNTIME_PORT
+const host = FDE_RUNTIME_HOST
 const db = openDatabase(databasePath, migrationsDirectory)
 const aiRuntime = createCoreConnector({
-  cwd: process.env.FDE_AI_WORKSPACE ?? resolve(runtimeDirectory, '..'),
-  patchFile: process.env.FDE_DSH_PATCH ?? resolve(runtimeDirectory, 'dsh-core.patch.yml'),
+  cwd: FDE_AI_WORKSPACE,
 })
 
 function normalizeBaseUrl(raw) {
@@ -195,10 +207,7 @@ async function resolveFileRoot(sessionId) {
   return resolve(aiRuntime.cwd)
 }
 
-const allowedOrigins = new Set((process.env.FDE_ALLOWED_ORIGINS ?? 'http://127.0.0.1:4173,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://127.0.0.1:4318,http://127.0.0.1:4319,http://localhost:4173,http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:4318,http://localhost:4319')
-  .split(',')
-  .map((value) => value.trim())
-  .filter(Boolean))
+const allowedOrigins = new Set(FDE_ALLOWED_ORIGINS)
 
 function corsHeaders(response) {
   const origin = response.req?.headers.origin
@@ -904,7 +913,7 @@ const server = createServer(async (request, response) => {
       }
       sendJson(response, 200, {
         service: 'fde-x-runtime',
-        hint: '这是 API，不是页面。请打开 http://127.0.0.1:5174',
+        hint: `这是 API，不是页面。请打开 http://127.0.0.1:${FDE_WEB_PORT}`,
         health: '/health',
       })
       return
@@ -932,7 +941,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/v1/runtime/config') {
       const home = aiRuntime.dshHome
-      const official = join(homedir(), '.dsh')
+      const official = FDE_OFFICIAL_DSH_HOME
       const sessionRoot = process.env.FDE_DSH_SESSION_ROOT || join(home, 'sessions')
       const officialSessions = join(official, 'sessions')
       const count = async (dir) => {
@@ -962,7 +971,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/runtime/attach-sessions') {
       const home = aiRuntime.dshHome
-      const src = join(homedir(), '.dsh', 'sessions')
+      const src = join(FDE_OFFICIAL_DSH_HOME, 'sessions')
       const dest = process.env.FDE_DSH_SESSION_ROOT || join(home, 'sessions')
       if (!existsSync(src)) {
         sendError(response, 404, 'not_found', '旧会话目录不存在（~/.dsh/sessions）', currentCorrelationId)
@@ -1366,7 +1375,12 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && url.pathname === '/api/v1/ai/workspaces/pick') {
-      const path = await pickLocalDirectory()
+      const picked = await pickLocalDirectory()
+      if (picked?.unavailable) {
+        sendError(response, 501, 'dir_picker_unavailable', '本机目录选择器不可用（非 macOS 或未集成原生对话框）', currentCorrelationId)
+        return
+      }
+      const path = picked?.path ?? null
       if (!path) {
         sendJson(response, 200, { data: { path: null }, correlationId: currentCorrelationId })
         return
@@ -1380,7 +1394,7 @@ const server = createServer(async (request, response) => {
       const path = String(body.path || '').trim()
       const title = String(body.title || '').trim()
       if (!path || !path.startsWith('/')) {
-        sendError(response, 400, 'validation_error', '需要本机绝对路径，例如 /Users/你/项目', currentCorrelationId)
+        sendError(response, 400, 'validation_error', '需要本机绝对路径，例如 /home/你/项目 或 C:\\Users\\你\\项目', currentCorrelationId)
         return
       }
       const created = await aiRuntime.call('workspace/create', { request: { path } })

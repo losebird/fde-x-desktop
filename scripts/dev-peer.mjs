@@ -2,17 +2,35 @@ import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, symlinkSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import {
+  FDE_APP_ROOT,
+  FDE_DSH_HOME,
+  FDE_OFFICIAL_DSH_HOME,
+  FDE_RUNTIME_HOST,
+  FDE_VENDOR_DIR,
+} from '../runtime/config.mjs'
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const host = '127.0.0.1'
+const root = FDE_APP_ROOT
+const host = FDE_RUNTIME_HOST
 const runtimePort = Number(process.env.FDE_PEER_RUNTIME_PORT ?? 4319)
 const webPort = Number(process.env.FDE_PEER_WEB_PORT ?? 5175)
 const lanPort = Number(process.env.FDE_PEER_LAN_PORT ?? 18528)
 const peerHome = process.env.FDE_PEER_DSH_HOME || join(homedir(), '.dsh-fde-peer')
-const officialHome = join(homedir(), '.dsh')
-const mainHome = process.env.FDE_DSH_HOME || join(homedir(), '.dsh-fde-x')
+const officialHome = FDE_OFFICIAL_DSH_HOME
+const mainHome = FDE_DSH_HOME
+
+function linkVendorTarget(target, linkPath) {
+  if (process.platform === 'win32') {
+    try {
+      symlinkSync(target, linkPath, 'junction')
+      return
+    } catch {
+      return
+    }
+  }
+  symlinkSync(target, linkPath)
+}
 
 function portOpen(port, timeoutMs = 400) {
   return new Promise((resolveOpen) => {
@@ -49,8 +67,10 @@ function preparePeerHome() {
   const dest = join(peerHome, '.credentials.yaml')
   if (existsSync(cred) && !existsSync(dest)) copyFileSync(cred, dest)
   const vendor = join(peerHome, 'vendor')
-  const shared = existsSync(join(officialHome, 'vendor')) ? join(officialHome, 'vendor') : join(mainHome, 'vendor')
-  if (existsSync(shared) && !existsSync(vendor)) symlinkSync(shared, vendor)
+  const shared = existsSync(FDE_VENDOR_DIR)
+    ? FDE_VENDOR_DIR
+    : (existsSync(join(officialHome, 'vendor')) ? join(officialHome, 'vendor') : join(mainHome, 'vendor'))
+  if (existsSync(shared) && !existsSync(vendor)) linkVendorTarget(shared, vendor)
   const storages = join(peerHome, 'storages')
   mkdirSync(storages, { recursive: true })
   const wsSrc = join(mainHome, 'storages', 'workspace.json')
@@ -115,13 +135,15 @@ if (!await waitFor(runtimePort, 20_000)) {
   process.exit(1)
 }
 
+const peerRuntimeUrl = `http://${host}:${runtimePort}`
 console.log(`[fde-x] 对端界面 http://127.0.0.1:${webPort}`)
 console.log('[fde-x] 配对：填对面 IM 显示的本机门牌（主环境 127.0.0.1:19527，对端 127.0.0.1:18528）')
 run(process.execPath, [
-  resolve(root, 'node_modules/vite/bin/vite.js'),
+  join(root, 'node_modules/vite/bin/vite.js'),
   '--host', '127.0.0.1',
   '--port', String(webPort),
 ], {
-  FDE_RUNTIME_URL: `http://${host}:${runtimePort}`,
+  FDE_RUNTIME_URL: peerRuntimeUrl,
+  VITE_FDE_RUNTIME_URL: peerRuntimeUrl,
   FDE_SKIP_RUNTIME_SPAWN: '1',
 })

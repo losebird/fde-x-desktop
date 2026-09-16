@@ -3,9 +3,16 @@ import react from '@vitejs/plugin-react'
 import { spawn } from 'node:child_process'
 import { createConnection } from 'node:net'
 import { fileURLToPath, URL } from 'node:url'
+import {
+  FDE_ALLOWED_ORIGINS,
+  FDE_RUNTIME_HOST,
+  FDE_RUNTIME_PORT,
+  defaultRuntimeUrl,
+} from './runtime/config.mjs'
 
-const runtimeUrl = process.env.FDE_RUNTIME_URL ?? process.env.VITE_FDE_RUNTIME_URL ?? 'http://127.0.0.1:4318'
-const runtimePort = Number(new URL(runtimeUrl).port || 4318)
+const runtimeUrl = process.env.FDE_RUNTIME_URL ?? process.env.VITE_FDE_RUNTIME_URL ?? defaultRuntimeUrl()
+const runtimePort = Number(new URL(runtimeUrl).port || FDE_RUNTIME_PORT)
+const devAllowedOrigins = FDE_ALLOWED_ORIGINS
 
 function waitForPort(port: number, host: string, timeoutMs = 4000) {
   return new Promise<boolean>((resolve) => {
@@ -30,12 +37,17 @@ function fdeRuntimePlugin(): Plugin {
   return {
     name: 'fde-x-runtime',
     async configureServer(server) {
-      const host = '127.0.0.1'
+      const host = FDE_RUNTIME_HOST
       if (process.env.FDE_SKIP_RUNTIME_SPAWN === '1') return
       if (await waitForPort(runtimePort, host, 400)) return
       const child = spawn(process.execPath, ['runtime/server.mjs'], {
         cwd: fileURLToPath(new URL('.', import.meta.url)),
-        env: { ...process.env, FDE_RUNTIME_PORT: String(runtimePort), FDE_RUNTIME_HOST: host },
+        env: {
+          ...process.env,
+          FDE_RUNTIME_PORT: String(runtimePort),
+          FDE_RUNTIME_HOST: host,
+          FDE_ALLOWED_ORIGINS: devAllowedOrigins.join(','),
+        },
         stdio: 'inherit',
       })
       child.on('error', (error) => {
@@ -46,7 +58,7 @@ function fdeRuntimePlugin(): Plugin {
       })
       const ready = await waitForPort(runtimePort, host, 8000)
       if (!ready) {
-        server.config.logger.warn('[fde-x] 本地核心 4318 尚未就绪，AI 页会提示连接。')
+        server.config.logger.warn(`[fde-x] 本地核心 ${runtimePort} 尚未就绪，AI 页会提示连接。`)
       }
     },
   }
@@ -93,6 +105,10 @@ const runtimeProxy = {
 
 export default defineConfig({
   plugins: [react(), fdeRuntimePlugin()],
+  envPrefix: ['VITE_', 'FDE_'],
+  define: {
+    'import.meta.env.VITE_FDE_RUNTIME_URL': JSON.stringify(runtimeUrl),
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

@@ -23,11 +23,19 @@ function displayError(error: unknown) {
 }
 
 function defaultBffOrigin() {
-  const protocol = window.location.protocol
-  const hostname = window.location.hostname || '127.0.0.1'
-  const pagePort = window.location.port
-  const runtimePort = pagePort === '5175' ? '4319' : '4318'
-  return `${protocol}//${hostname}:${runtimePort}`
+  const fromEnv = import.meta.env.VITE_FDE_RUNTIME_URL
+  if (typeof fromEnv === 'string' && fromEnv.trim()) {
+    return fromEnv.replace(/\/$/, '')
+  }
+  const loc = window.location
+  const host = loc.hostname || '127.0.0.1'
+  const pagePort = Number(loc.port || (loc.protocol === 'https:' ? 443 : 80))
+  const webToRuntimeDelta = 856
+  const runtimePort = pagePort - webToRuntimeDelta
+  if (runtimePort >= 1 && runtimePort <= 65535) {
+    return `${loc.protocol}//${host}:${runtimePort}`
+  }
+  return loc.origin
 }
 
 function runtimeOrigin(bffOrigin?: string | null) {

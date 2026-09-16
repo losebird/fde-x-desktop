@@ -1,22 +1,39 @@
 import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, symlinkSync } from 'node:fs'
 import { createConnection } from 'node:net'
-import { homedir } from 'node:os'
-import { fileURLToPath } from 'node:url'
-import { dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
+import {
+  DSH_LAN_ASSIST_PORT,
+  FDE_APP_ROOT,
+  FDE_DSH_BIN,
+  FDE_DSH_HOME,
+  FDE_OFFICIAL_DSH_HOME,
+  FDE_RUNTIME_HOST,
+  FDE_RUNTIME_PORT,
+  FDE_VENDOR_DIR,
+  FDE_WEB_PORT,
+  resolveDshBin,
+} from '../runtime/config.mjs'
 
-function resolveDshBin() {
-  const fromPath = String(process.env.PATH || '').split(':').map((dir) => join(dir, 'dsh'))
-  const candidates = [process.env.FDE_DSH_BIN, '/opt/homebrew/bin/dsh', '/usr/local/bin/dsh', ...fromPath].filter(Boolean)
-  return candidates.find((item) => existsSync(item)) || ''
+const root = FDE_APP_ROOT
+const host = FDE_RUNTIME_HOST
+const runtimePort = FDE_RUNTIME_PORT
+const webPort = FDE_WEB_PORT
+const fdeHome = FDE_DSH_HOME
+const officialHome = FDE_OFFICIAL_DSH_HOME
+
+function linkVendorTarget(target, linkPath) {
+  if (process.platform === 'win32') {
+    try {
+      symlinkSync(target, linkPath, 'junction')
+      return
+    } catch {
+      // dev 启动阶段不拷贝整棵 vendor；失败时留给 runtime 插件逻辑处理
+      return
+    }
+  }
+  symlinkSync(target, linkPath)
 }
-
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const host = process.env.FDE_RUNTIME_HOST ?? '127.0.0.1'
-const runtimePort = Number(process.env.FDE_RUNTIME_PORT ?? 4318)
-const webPort = Number(process.env.FDE_WEB_PORT ?? 5174)
-const officialHome = join(homedir(), '.dsh')
-const fdeHome = process.env.FDE_DSH_HOME || join(homedir(), '.dsh-fde-x')
 
 function prepareFdeHome() {
   mkdirSync(fdeHome, { recursive: true })
@@ -24,8 +41,8 @@ function prepareFdeHome() {
   const dest = join(fdeHome, '.credentials.yaml')
   if (existsSync(cred) && !existsSync(dest)) copyFileSync(cred, dest)
   const vendor = join(fdeHome, 'vendor')
-  const shared = join(officialHome, 'vendor')
-  if (existsSync(shared) && !existsSync(vendor)) symlinkSync(shared, vendor)
+  const shared = existsSync(FDE_VENDOR_DIR) ? FDE_VENDOR_DIR : join(officialHome, 'vendor')
+  if (existsSync(shared) && !existsSync(vendor)) linkVendorTarget(shared, vendor)
 }
 
 function portOpen(port, timeoutMs = 400) {
@@ -97,13 +114,13 @@ prepareFdeHome()
 
 if (!await portOpen(runtimePort)) {
   console.log(`[fde-x] 正在启动本地核心 http://${host}:${runtimePort}`)
-  const dshBin = resolveDshBin()
+  const dshBin = FDE_DSH_BIN || resolveDshBin()
   runRuntime({
     FDE_RUNTIME_PORT: String(runtimePort),
     FDE_RUNTIME_HOST: host,
     ...(dshBin ? { FDE_DSH_BIN: dshBin } : {}),
     FDE_DSH_HOME: fdeHome,
-    DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || '19527',
+    DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || DSH_LAN_ASSIST_PORT,
   })
   const ready = await waitFor(runtimePort, 12_000)
   if (!ready) {
@@ -116,7 +133,7 @@ if (!await portOpen(runtimePort)) {
 
 console.log(`[fde-x] 打开界面 http://127.0.0.1:${webPort}`)
 run(process.execPath, [
-  resolve(root, 'node_modules/vite/bin/vite.js'),
+  join(root, 'node_modules/vite/bin/vite.js'),
   '--host', '127.0.0.1',
   '--port', String(webPort),
 ])
