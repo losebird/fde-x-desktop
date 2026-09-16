@@ -7,7 +7,7 @@ import { X, Minus, Maximize2, GripVertical } from 'lucide-react'
 import clsx from 'clsx'
 import { useApp } from '@/store/app'
 import { PanelContent } from './PanelContent'
-import type { SidePanelItem } from '@/store/app'
+import type { FloatingBox, SidePanelItem } from '@/store/app'
 
 // 浮窗的最小尺寸和最小可见边距(防止拖出屏外后找不回)
 const MIN_W = 420
@@ -16,21 +16,46 @@ const EDGE = 32
 
 type DragKind = 'move' | 'resize' | null
 
-export function FloatingPanel() {
-  const floating = useApp((s) => s.floating)
+function clampBox(box: FloatingBox): FloatingBox {
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const width = Math.max(MIN_W, Math.min(box.width, vw - EDGE))
+  const height = Math.max(MIN_H, Math.min(box.height, vh - 28))
+  const x = Math.max(EDGE - width + 100, Math.min(box.x, vw - EDGE))
+  const y = Math.max(0, Math.min(box.y, vh - 28))
+  return { ...box, x, y, width, height }
+}
+
+function FloatingWindow({
+  view,
+  box,
+  panelMeta,
+}: {
+  view: SidePanelItem['view']
+  box: FloatingBox
+  panelMeta?: SidePanelItem
+}) {
   const closeFloating = useApp((s) => s.closeFloating)
   const setFloatingBox = useApp((s) => s.setFloatingBox)
   const focusFloating = useApp((s) => s.focusFloating)
-  const panels = useApp((s) => s.panels)
   const closePanel = useApp((s) => s.closePanel)
   const [drag, setDrag] = useState<DragKind>(null)
-  const dragRef = useRef<{ kind: DragKind; startX: number; startY: number; x: number; y: number; w: number; h: number }>({
-    kind: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0,
-  })
+  const dragRef = useRef<{
+    kind: DragKind
+    startX: number
+    startY: number
+    x: number
+    y: number
+    w: number
+    h: number
+  }>({ kind: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 })
+
+  const label = panelMeta?.label ?? view
+  const accent = panelMeta?.accent ?? 'bg-slate-500'
 
   useEffect(() => {
     if (!drag) return
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       const dx = e.clientX - dragRef.current.startX
       const dy = e.clientY - dragRef.current.startY
       if (dragRef.current.kind === 'move') {
@@ -38,85 +63,78 @@ export function FloatingPanel() {
         const vh = window.innerHeight
         const nextX = Math.max(EDGE - dragRef.current.w + 100, Math.min(vw - EDGE, dragRef.current.x + dx))
         const nextY = Math.max(0, Math.min(vh - 28, dragRef.current.y + dy))
-        setFloatingBox({ x: nextX, y: nextY })
+        setFloatingBox(view, { x: nextX, y: nextY })
       } else if (dragRef.current.kind === 'resize') {
         const nextW = Math.max(MIN_W, Math.min(window.innerWidth - dragRef.current.x - EDGE, dragRef.current.w + dx))
         const nextH = Math.max(MIN_H, Math.min(window.innerHeight - dragRef.current.y - 28, dragRef.current.h + dy))
-        setFloatingBox({ width: nextW, height: nextH })
+        setFloatingBox(view, { width: nextW, height: nextH })
       }
     }
     const onUp = () => setDrag(null)
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
     return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
     }
-  }, [drag, setFloatingBox])
+  }, [drag, setFloatingBox, view])
 
-  if (!floating) return null
-
-  const panelMeta = panels.find((p) => p.view === floating.panelId)
-  const label = panelMeta?.label ?? floating.panelId
-  const accent = panelMeta?.accent ?? 'bg-slate-500'
-
-  const startDrag = (kind: DragKind) => (e: React.MouseEvent) => {
+  const startDrag = (kind: DragKind) => (e: React.PointerEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    focusFloating()
+    focusFloating(view)
     dragRef.current = {
       kind,
       startX: e.clientX,
       startY: e.clientY,
-      x: floating.x,
-      y: floating.y,
-      w: floating.width,
-      h: floating.height,
+      x: box.x,
+      y: box.y,
+      w: box.width,
+      h: box.height,
     }
     setDrag(kind)
   }
 
   const toggleMaximize = () => {
-    if (!floating) return
-    // 若当前未最大化,最大化;反之恢复
-    const isMax = floating.x <= 8 && floating.y <= 8 && floating.width >= window.innerWidth - 16
+    const isMax = box.x <= 8 && box.y <= 8 && box.width >= window.innerWidth - 16
     if (isMax) {
-      setFloatingBox({ x: 80, y: 80, width: 800, height: 600 })
+      setFloatingBox(view, { x: 80, y: 80, width: 800, height: 600 })
     } else {
-      setFloatingBox({ x: 12, y: 12, width: window.innerWidth - 24, height: window.innerHeight - 60 })
+      setFloatingBox(view, { x: 12, y: 12, width: window.innerWidth - 24, height: window.innerHeight - 60 })
     }
   }
 
   const item: SidePanelItem = panelMeta ?? {
-    id: floating.panelId,
+    id: view,
     label,
     icon: 'Folder',
     emoji: '',
     accent,
     state: 'full',
-    width: floating.width,
-    view: floating.panelId,
+    width: box.width,
+    view,
   }
 
-  const node = (
+  return (
     <div
       role="dialog"
       aria-label={`浮窗 · ${label}`}
-      onMouseDown={() => focusFloating()}
+      onPointerDown={() => focusFloating(view)}
       className="fixed rounded-xl bg-surface border border-line shadow-2xl flex flex-col overflow-hidden"
       style={{
-        left: floating.x,
-        top: floating.y,
-        width: floating.width,
-        height: floating.height,
-        zIndex: floating.zIndex,
+        left: box.x,
+        top: box.y,
+        width: box.width,
+        height: box.height,
+        zIndex: box.zIndex,
       }}
     >
-      {/* 标题栏(拖拽区) */}
       <div
-        onMouseDown={startDrag('move')}
+        onPointerDown={startDrag('move')}
         onDoubleClick={toggleMaximize}
-        className="h-10 px-3 border-b border-line flex items-center gap-2 cursor-move select-none bg-surface-2 shrink-0"
+        className="h-10 px-3 border-b border-line flex items-center gap-2 cursor-move select-none bg-surface-2 shrink-0 touch-none"
       >
         <GripVertical size={12} className="text-ink-subtle" />
         <div className={clsx('w-1 self-stretch my-1.5 rounded-full', accent)} />
@@ -124,15 +142,15 @@ export function FloatingPanel() {
         <span className="text-[10px] text-ink-subtle ml-1 px-1.5 py-0.5 rounded bg-line/60">浮窗</span>
         <div className="flex-1" />
         <button
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); closeFloating() }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); closeFloating(view) }}
           className="p-1.5 rounded hover:bg-line text-ink-muted"
           title="隐藏浮窗(保留 tab)"
         >
           <Minus size={14} />
         </button>
         <button
-          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); toggleMaximize() }}
           className="p-1.5 rounded hover:bg-line text-ink-muted"
           title="最大化 / 还原"
@@ -140,8 +158,8 @@ export function FloatingPanel() {
           <Maximize2 size={14} />
         </button>
         <button
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); closeFloating(); closePanel(floating.panelId) }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); closeFloating(view); closePanel(view) }}
           className="p-1.5 rounded hover:bg-line text-ink-muted"
           title="关闭(同时关掉 tab)"
         >
@@ -149,15 +167,13 @@ export function FloatingPanel() {
         </button>
       </div>
 
-      {/* 内容 */}
       <div className={clsx('flex-1 min-h-0', item.view === 'im' || item.view === 'memory' ? 'overflow-hidden' : 'overflow-auto')}>
         <PanelContent item={item} />
       </div>
 
-      {/* 右下角缩放手柄 */}
       <div
-        onMouseDown={startDrag('resize')}
-        className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10"
+        onPointerDown={startDrag('resize')}
+        className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10 touch-none"
         title="拖拽缩放"
       >
         <svg viewBox="0 0 16 16" className="absolute inset-0 text-ink-subtle">
@@ -166,6 +182,42 @@ export function FloatingPanel() {
       </div>
     </div>
   )
+}
 
-  return createPortal(node, document.body)
+export function FloatingPanel() {
+  const floating = useApp((s) => s.floating)
+  const setFloatingBox = useApp((s) => s.setFloatingBox)
+  const panels = useApp((s) => s.panels)
+
+  useEffect(() => {
+    const onResize = () => {
+      const entries = Object.entries(floating) as [SidePanelItem['view'], FloatingBox][]
+      for (const [view, box] of entries) {
+        if (!box) continue
+        const next = clampBox(box)
+        if (next.x !== box.x || next.y !== box.y || next.width !== box.width || next.height !== box.height) {
+          setFloatingBox(view, next)
+        }
+      }
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [floating, setFloatingBox])
+
+  const entries = Object.entries(floating) as [SidePanelItem['view'], FloatingBox][]
+  if (!entries.length) return null
+
+  return createPortal(
+    <>
+      {entries.map(([view, box]) => (
+        <FloatingWindow
+          key={view}
+          view={view}
+          box={box}
+          panelMeta={panels.find((p) => p.view === view)}
+        />
+      ))}
+    </>,
+    document.body,
+  )
 }

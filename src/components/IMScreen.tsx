@@ -93,10 +93,17 @@ export function IMScreen() {
         event.preventDefault()
         setPaletteOpen(true)
       }
-      if (event.key === 'Escape') setPaletteOpen(false)
+      if (event.key === 'Escape') {
+        setPaletteOpen(false)
+        const state = useApp.getState()
+        if (Object.keys(state.floating).length > 0) {
+          event.preventDefault()
+          state.closeFloating()
+        }
+      }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [setPaletteOpen])
 
   return (

@@ -30,6 +30,14 @@ export const MAX_FILE_VERSIONS = 20
 
 export type PanelState = 'closed' | 'tab' | 'half' | 'full'
 
+export type FloatingBox = {
+  x: number
+  y: number
+  width: number
+  height: number
+  zIndex: number
+}
+
 export interface SidePanelItem {
   id: string
   // 显示用
@@ -90,19 +98,13 @@ interface UIState {
   setPanelBadge: (id: string, badge: number | undefined) => void
   setPanelDirty: (id: string, dirty: boolean | undefined) => void
 
-  // ===== 撕出浮窗(独立可拖拽、可缩放、不占侧栏)=====
-  floating: {
-    panelId: SidePanelItem['view']
-    x: number
-    y: number
-    width: number
-    height: number
-    zIndex: number
-  } | null
+  // ===== 撕出浮窗(独立可拖拽、可缩放、不占侧栏; 每 view 最多一窗)=====
+  floating: Partial<Record<SidePanelItem['view'], FloatingBox>>
+  floatingZTop: number
   openFloating: (view: SidePanelItem['view'], opts?: { width?: number; height?: number; x?: number; y?: number }) => void
-  closeFloating: () => void
-  setFloatingBox: (patch: Partial<{ x: number; y: number; width: number; height: number }>) => void
-  focusFloating: () => void
+  closeFloating: (view?: SidePanelItem['view']) => void
+  setFloatingBox: (view: SidePanelItem['view'], patch: Partial<Pick<FloatingBox, 'x' | 'y' | 'width' | 'height'>>) => void
+  focusFloating: (view: SidePanelItem['view']) => void
   filesBrowse: { workspaceId: string | null; parentId: string | null; selectedId: string | null }
   setFilesBrowse: (patch: Partial<AppState['filesBrowse']>) => void
 
@@ -281,8 +283,37 @@ const findPanelByView = (panels: SidePanelItem[], view: SidePanelItem['view']) =
 // 浮窗 z-index 单调递增,保证最近点击永远在最上层
 const FLOATING_BASE_Z = 60
 
-function nextZ(state: AppState): number {
-  return (state.floating?.zIndex ?? FLOATING_BASE_Z) + 1
+function maxFloatingZ(floating: Partial<Record<SidePanelItem['view'], FloatingBox>>, zTop: number): number {
+  const peaks = Object.values(floating).map((b) => b?.zIndex ?? 0)
+  return Math.max(zTop, FLOATING_BASE_Z, ...peaks)
+}
+
+function nextZ(state: Pick<AppState, 'floating' | 'floatingZTop'>): number {
+  return maxFloatingZ(state.floating, state.floatingZTop) + 1
+}
+
+export function getTopFloatingView(
+  floating: Partial<Record<SidePanelItem['view'], FloatingBox>>,
+): SidePanelItem['view'] | null {
+  let top: SidePanelItem['view'] | null = null
+  let max = -1
+  for (const [view, box] of Object.entries(floating) as [SidePanelItem['view'], FloatingBox | undefined][]) {
+    if (box && box.zIndex > max) {
+      max = box.zIndex
+      top = view
+    }
+  }
+  return top
+}
+
+function omitFloating(
+  floating: Partial<Record<SidePanelItem['view'], FloatingBox>>,
+  view: SidePanelItem['view'],
+): Partial<Record<SidePanelItem['view'], FloatingBox>> {
+  if (!floating[view]) return floating
+  const next = { ...floating }
+  delete next[view]
+  return next
 }
 
 export const useApp = create<AppState>()(
@@ -401,17 +432,21 @@ export const useApp = create<AppState>()(
             return p
           }),
           // 如果该面板已撕出为浮窗,切回嵌入态时应关闭浮窗,避免重叠
-          floating: s.floating?.panelId === id ? null : s.floating,
+          floating: omitFloating(s.floating, id as SidePanelItem['view']),
         })),
       closePanel: (id) =>
-        set((s) => ({ panels: s.panels.map((p) => (p.id === id ? { ...p, state: 'closed' } : p)) })),
+        set((s) => ({
+          panels: s.panels.map((p) => (p.id === id ? { ...p, state: 'closed' } : p)),
+          floating: omitFloating(s.floating, id as SidePanelItem['view']),
+        })),
       setPanelBadge: (id, badge) =>
         set((s) => ({ panels: s.panels.map((p) => (p.id === id ? { ...p, badge } : p)) })),
       setPanelDirty: (id, dirty) =>
         set((s) => ({ panels: s.panels.map((p) => (p.id === id ? { ...p, dirty } : p)) })),
 
       // ===== 撕出浮窗 =====
-      floating: null,
+      floating: {},
+      floatingZTop: FLOATING_BASE_Z,
       openFloating: (view, opts) => {
         const w = opts?.width ?? 720
         const h = opts?.height ?? 560
@@ -420,19 +455,57 @@ export const useApp = create<AppState>()(
         const vh = typeof window !== 'undefined' ? window.innerHeight - 40 : 800
         const x = opts?.x ?? Math.max(40, Math.round((vw - w) / 2) + offset - 30)
         const y = opts?.y ?? Math.max(40, Math.round((vh - h) / 2) + offset - 30)
-        set((s) => ({
-          floating: {
-            panelId: view,
-            x, y, width: w, height: h,
-            zIndex: nextZ(s),
-          },
-        }))
+        set((s) => {
+          const existing = s.floating[view]
+          if (existing) {
+            const z = nextZ(s)
+            return {
+              floating: {
+                ...s.floating,
+                [view]: {
+                  ...existing,
+                  ...(opts?.x != null ? { x: opts.x } : {}),
+                  ...(opts?.y != null ? { y: opts.y } : {}),
+                  ...(opts?.width != null ? { width: opts.width } : {}),
+                  ...(opts?.height != null ? { height: opts.height } : {}),
+                  zIndex: z,
+                },
+              },
+              floatingZTop: z,
+            }
+          }
+          const z = nextZ(s)
+          return {
+            floating: {
+              ...s.floating,
+              [view]: { x, y, width: w, height: h, zIndex: z },
+            },
+            floatingZTop: z,
+          }
+        })
       },
-      closeFloating: () => set({ floating: null }),
-      setFloatingBox: (patch) =>
-        set((s) => (s.floating ? { floating: { ...s.floating, ...patch } } : {})),
-      focusFloating: () =>
-        set((s) => (s.floating ? { floating: { ...s.floating, zIndex: nextZ(s) } } : {})),
+      closeFloating: (view) =>
+        set((s) => {
+          const target = view ?? getTopFloatingView(s.floating)
+          if (!target || !s.floating[target]) return {}
+          return { floating: omitFloating(s.floating, target) }
+        }),
+      setFloatingBox: (view, patch) =>
+        set((s) => {
+          const box = s.floating[view]
+          if (!box) return {}
+          return { floating: { ...s.floating, [view]: { ...box, ...patch } } }
+        }),
+      focusFloating: (view) =>
+        set((s) => {
+          const box = s.floating[view]
+          if (!box) return {}
+          const z = nextZ(s)
+          return {
+            floating: { ...s.floating, [view]: { ...box, zIndex: z } },
+            floatingZTop: z,
+          }
+        }),
       filesBrowse: { workspaceId: null, parentId: null, selectedId: null },
       setFilesBrowse: (patch) =>
         set((s) => ({ filesBrowse: { ...s.filesBrowse, ...patch } })),
@@ -795,11 +868,12 @@ export const useApp = create<AppState>()(
     {
       name: 'scene-39-workstation',
       storage: createJSONStorage(() => localStorage),
-      version: 16,
+      version: 17,
       partialize: (state) => ({
         panels: state.panels,
         drawers: state.drawers,
         floating: state.floating,
+        floatingZTop: state.floatingZTop,
         workspaces: state.workspaces,
         activeWorkspaceId: state.activeWorkspaceId,
         imMuted: state.imMuted,
@@ -856,6 +930,21 @@ export const useApp = create<AppState>()(
           const imPanel = defaultPanels().find((panel) => panel.id === 'im')!
           persisted.panels = current.some((panel: SidePanelItem) => panel.id === 'im') ? current : [imPanel, ...current]
           if (persisted.floating?.panelId === 'ai') persisted.floating = null
+        }
+        if (from < 17) {
+          const raw = persisted.floating
+          if (raw && typeof raw === 'object' && 'panelId' in raw) {
+            const { panelId, ...box } = raw as { panelId: SidePanelItem['view']; x: number; y: number; width: number; height: number; zIndex: number }
+            if ((panelId as string) !== 'ai') persisted.floating = { [panelId]: box }
+            else persisted.floating = {}
+            persisted.floatingZTop = box.zIndex ?? FLOATING_BASE_Z
+          } else if (!raw || raw === null) {
+            persisted.floating = {}
+          }
+          if (typeof persisted.floatingZTop !== 'number') {
+            const vals = Object.values(persisted.floating ?? {}) as FloatingBox[]
+            persisted.floatingZTop = vals.length ? Math.max(...vals.map((b) => b.zIndex)) : FLOATING_BASE_Z
+          }
         }
         if (from < 15) {
           persisted.panels = (persisted.panels ?? defaultPanels()).map((panel: SidePanelItem) => (

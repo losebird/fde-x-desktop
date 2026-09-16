@@ -14,6 +14,7 @@ const ICONS: Record<string, LucideIcon> = {
 
 export function ThumbnailStack() {
   const panels = useApp((state) => state.panels)
+  const floating = useApp((state) => state.floating)
   const togglePanel = useApp((state) => state.togglePanel)
   const closePanel = useApp((state) => state.closePanel)
   const visible = panels.filter((panel) => panel.state !== 'closed')
@@ -29,7 +30,11 @@ export function ThumbnailStack() {
         {visible.map((panel) => {
           const Icon = ICONS[panel.icon] ?? Folder
           const isActive = panel.state === 'full' || panel.state === 'half'
+          const isFloating = Boolean(floating[panel.view])
           const badge = panel.badge
+          const titleParts = [panel.label]
+          if (isFloating) titleParts.push('（浮窗中）')
+          if (panel.dirty) titleParts.push('（有未保存内容）')
           return (
             <div
               key={panel.id}
@@ -39,7 +44,7 @@ export function ThumbnailStack() {
                   ? 'bg-surface border-2 border-brand shadow-sm ring-2 ring-brand/20'
                   : 'bg-surface border border-line hover:border-ink-muted hover:shadow-sm',
               )}
-              title={`${panel.label}${panel.dirty ? '（有未保存内容）' : ''}`}
+              title={titleParts.join('')}
             >
               <button
                 className="absolute top-0.5 right-0.5 z-10 w-4 h-4 rounded-full bg-ink/70 hover:bg-accent-red text-white flex items-center justify-center"
