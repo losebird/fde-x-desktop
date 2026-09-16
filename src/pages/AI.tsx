@@ -30,12 +30,9 @@ function defaultBffOrigin() {
   const loc = window.location
   const host = loc.hostname || '127.0.0.1'
   const pagePort = Number(loc.port || (loc.protocol === 'https:' ? 443 : 80))
-  const webToRuntimeDelta = 856
-  const runtimePort = pagePort - webToRuntimeDelta
-  if (runtimePort >= 1 && runtimePort <= 65535) {
-    return `${loc.protocol}//${host}:${runtimePort}`
-  }
-  return loc.origin
+  const webToRuntimePort: Record<number, number> = { 5174: 4318, 5175: 4319 }
+  const runtimePort = webToRuntimePort[pagePort] ?? 4318
+  return `${loc.protocol}//${host}:${runtimePort}`
 }
 
 function runtimeOrigin(bffOrigin?: string | null) {

@@ -6,7 +6,7 @@ FDE-X 本地 BFF（`runtime/server.mjs`）与 DSH 核心连接器从 `runtime/co
 |------|------|------|
 | `FDE_APP_ROOT` | 应用根目录（仓库或 asar 解包根） | `runtime/..` |
 | `FDE_RESOURCES` | 捆绑资源根（含 `dsh/bin`） | 同 `FDE_APP_ROOT` |
-| `FDE_DSH_BIN` | `dsh` 可执行文件 | `$FDE_RESOURCES/dsh/bin/dsh` → PATH → Homebrew 兜底 |
+| `FDE_DSH_BIN` | `dsh` 可执行文件 | 包内 `$FDE_RESOURCES/dsh/bin/dsh` → `/opt/homebrew`/`/usr/local` → PATH |
 | `FDE_DSH_HOME` | 隔离 DSH 状态目录 | `~/.dsh-fde-x` |
 | `FDE_VENDOR_DIR` | 官方插件 vendor 源 | `~/.dsh/vendor` |
 | `FDE_DSH_PATCH` | 核心 patch 文件 | `runtime/dsh-core.patch.yml` |

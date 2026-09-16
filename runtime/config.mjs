@@ -57,12 +57,12 @@ export function resolveDshBin(explicit) {
   if (existsSync(bundled)) candidates.push(bundled)
   if (bundled !== bundledUnix && existsSync(bundledUnix)) candidates.push(bundledUnix)
 
+  candidates.push(...MAC_DSH_FALLBACKS)
+
   for (const dir of String(process.env.PATH || '').split(delimiter).filter(Boolean)) {
     candidates.push(join(dir, 'dsh'))
     if (process.platform === 'win32') candidates.push(join(dir, 'dsh.cmd'))
   }
-
-  candidates.push(...MAC_DSH_FALLBACKS)
 
   for (const candidate of candidates) {
     if (candidate && existsSync(candidate)) return candidate

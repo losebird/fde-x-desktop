@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { promisify } from 'node:util'
 import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { constants, existsSync, realpathSync, symlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -21,6 +22,72 @@ import {
 } from './config.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
+const execFileAsync = promisify(execFile)
+
+function warnReclaim(message) {
+  console.warn(`[fde-x] ${message}`)
+}
+
+async function pidsMatchingProfile(profileName) {
+  const pattern = `profile ${profileName} --patch`
+  if (process.platform === 'win32') {
+    try {
+      const { stdout } = await execFileAsync('wmic', ['process', 'where', `CommandLine like '%${profileName}%'`, 'get', 'ProcessId'], { timeout: 5000 })
+      return String(stdout || '').split(/\r?\n/u)
+        .map((line) => Number(line.trim()))
+        .filter((pid) => Number.isInteger(pid) && pid > 1)
+    } catch (error) {
+      warnReclaim(`Windows 下无法用 wmic 查找 profile 残留：${errorMessage(error)}`)
+      return []
+    }
+  }
+  try {
+    const { stdout } = await execFileAsync('pgrep', ['-f', pattern], { timeout: 3000 })
+    return String(stdout || '').trim().split(/\s+/u).map(Number).filter((pid) => Number.isInteger(pid) && pid > 1)
+  } catch (error) {
+    const code = error && typeof error === 'object' ? error.code : undefined
+    if (code !== 1 && code !== '1') {
+      warnReclaim(`pgrep 不可用，跳过 profile 残留扫描：${errorMessage(error)}`)
+    }
+    return []
+  }
+}
+
+async function pidsListeningOnPort(port) {
+  const n = Number(port)
+  if (!Number.isInteger(n) || n < 1) return []
+  if (process.platform === 'win32') {
+    try {
+      const { stdout } = await execFileAsync('netstat', ['-ano'], { timeout: 5000 })
+      const pids = []
+      for (const line of String(stdout || '').split(/\r?\n/u)) {
+        if (!line.includes('LISTENING')) continue
+        const match = line.match(new RegExp(`:${n}\\s+\\S+\\s+(\\d+)\\s*$`, 'u'))
+        if (match) pids.push(Number(match[1]))
+      }
+      return pids.filter((pid) => Number.isInteger(pid) && pid > 1)
+    } catch (error) {
+      warnReclaim(`netstat 不可用，无法解析 LAN 门牌 ${n} 占用：${errorMessage(error)}`)
+      return []
+    }
+  }
+  try {
+    const { stdout } = await execFileAsync('lsof', ['-nP', `-iTCP:${n}`, '-sTCP:LISTEN', '-t'], { timeout: 3000 })
+    return String(stdout || '').trim().split(/\s+/u).map(Number).filter((pid) => Number.isInteger(pid) && pid > 1)
+  } catch (error) {
+    const code = error && typeof error === 'object' ? error.code : undefined
+    if (code !== 1 && code !== '1') {
+      warnReclaim(`lsof 不可用，无法解析 LAN 门牌 ${n} 占用：${errorMessage(error)}`)
+    }
+    return []
+  }
+}
+
+async function discoverOsStrayPids(profileName, lanPort, keep) {
+  const profilePids = await pidsMatchingProfile(profileName)
+  const lanPids = await pidsListeningOnPort(lanPort)
+  return [...new Set([...profilePids, ...lanPids])].filter((pid) => !keep.has(pid) && isPidAlive(pid))
+}
 
 function isPidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 1) return false
@@ -971,14 +1038,34 @@ export class DshCoreConnector {
   async reclaimStrayProcesses() {
     const keep = new Set([process.pid, this.child?.pid].filter(Boolean))
     const recorded = await readRecordedPids(this.runDirectory)
-    const stray = [...new Set(recorded)].filter((pid) => !keep.has(pid) && isPidAlive(pid))
+    let stray = [...new Set(recorded)].filter((pid) => !keep.has(pid) && isPidAlive(pid))
     const lanPort = process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT
-    if (stray.length === 0 && !(await isTcpPortListening(lanPort))) return
-    if (stray.length === 0 && this.child?.pid) return
-    if (stray.length > 0) {
-      this.logs.push(`[fde-x] 清掉残留核心 ${stray.join(',')}`)
-      await terminatePids(stray)
+    const lanBusy = await isTcpPortListening(lanPort)
+    const hasLiveChild = Boolean(this.child?.pid && isPidAlive(this.child.pid))
+    const recordedAlive = recorded.some((pid) => isPidAlive(pid) && !keep.has(pid))
+
+    if (!hasLiveChild && stray.length === 0 && (lanBusy || !recordedAlive)) {
+      const profilePids = await pidsMatchingProfile(this.profileName)
+      const needOsScan = lanBusy || profilePids.length > 0
+      if (needOsScan) {
+        const osStrays = await discoverOsStrayPids(this.profileName, lanPort, keep)
+        if (osStrays.length > 0) {
+          const line = `[fde-x] 通过系统工具发现残留核心 ${osStrays.join(',')}`
+          this.logs.push(line)
+          warnReclaim(`通过系统工具发现残留核心 ${osStrays.join(',')}`)
+          stray = osStrays
+        } else if (lanBusy) {
+          warnReclaim(`LAN 门牌 ${lanPort} 被占用，但未能解析监听进程（可能需手动释放端口）`)
+        }
+      }
     }
+
+    if (stray.length === 0) return
+
+    const killLine = `[fde-x] 清掉残留核心 ${stray.join(',')}`
+    this.logs.push(killLine)
+    warnReclaim(`清掉残留核心 ${stray.join(',')}`)
+    await terminatePids(stray)
     for (const name of [this.corePidFile, 'dsh-lan-assist.pid']) {
       await removePidFile(this.runDirectory, name)
     }
