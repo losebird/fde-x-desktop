@@ -1,0 +1,159 @@
+- generic [ref=e3]:
+  - complementary "工作区切换" [ref=e4]:
+    - generic [ref=e5]: FDE-X
+    - generic [ref=e6]:
+      - button "AI" [active] [ref=e7] [cursor=pointer]
+      - button "消息 1" [ref=e323] [cursor=pointer]:
+        - generic [ref=e14]: 消息
+        - generic [ref=e15]: "1"
+    - generic [ref=e16]: 工具
+    - generic "早报" [ref=e18]:
+      - button "关闭早报" [ref=e19] [cursor=pointer]
+      - button "早报" [ref=e23] [cursor=pointer]
+    - generic [ref=e39]: ⌘K
+  - generic [ref=e40]:
+    - generic [ref=e41]:
+      - generic "回工作台主页" [ref=e42] [cursor=pointer]:
+        - generic [ref=e43]: F
+        - generic [ref=e44]: FDE-X Desktop
+      - button "搜索 ⌘K" [ref=e46] [cursor=pointer]:
+        - text: 搜索
+        - generic [ref=e50]: ⌘K
+      - button "IM 已静音,点击恢复" [ref=e51] [cursor=pointer]
+      - button "5" [ref=e57] [cursor=pointer]
+      - button "新建" [ref=e62] [cursor=pointer]
+    - generic [ref=e66]:
+      - button "🧑‍💻 个人项目" [ref=e68] [cursor=pointer]:
+        - generic [ref=e70]: 🧑‍💻
+        - generic [ref=e71]: 个人项目
+      - button "AI" [ref=e75] [cursor=pointer]
+      - button "早报" [ref=e80] [cursor=pointer]
+      - button "计划" [ref=e85] [cursor=pointer]
+      - button "文件" [ref=e90] [cursor=pointer]
+      - button "数据" [ref=e94] [cursor=pointer]
+      - button "MCP" [ref=e100] [cursor=pointer]
+      - button "Skills" [ref=e104] [cursor=pointer]
+      - button "记忆" [ref=e109] [cursor=pointer]
+      - button "设置" [ref=e121] [cursor=pointer]
+      - button "⌘K" [ref=e127] [cursor=pointer]
+    - generic [ref=e131]:
+      - main [ref=e132]:
+        - generic [ref=e664]:
+          - complementary [ref=e665]:
+            - generic [ref=e666]:
+              - generic [ref=e667]: 会话
+              - button "收起会话栏" [ref=e668] [cursor=pointer]
+            - list [ref=e673]:
+              - listitem [ref=e674]:
+                - button "🧠 scene#39 落地思路 主助手 · 09/08 11:40" [ref=e675] [cursor=pointer]:
+                  - generic [ref=e676]: 🧠
+                  - generic [ref=e677]:
+                    - generic [ref=e678]: scene#39 落地思路
+                    - generic [ref=e681]: 主助手 · 09/08 11:40
+                  - button "管理会话" [ref=e683]
+              - listitem [ref=e688]:
+                - button "📊 Q3 收入复盘 数据分析师 · 09/08 10:05" [ref=e689] [cursor=pointer]:
+                  - generic [ref=e690]: 📊
+                  - generic [ref=e691]:
+                    - generic [ref=e692]: Q3 收入复盘
+                    - generic [ref=e693]: 数据分析师 · 09/08 10:05
+                  - button "管理会话" [ref=e695]
+              - listitem [ref=e700]:
+                - button "✍️ scene 模板设计 文案编辑 · 09/08 09:20" [ref=e701] [cursor=pointer]:
+                  - generic [ref=e702]: ✍️
+                  - generic [ref=e703]:
+                    - generic [ref=e704]: scene 模板设计
+                    - generic [ref=e705]: 文案编辑 · 09/08 09:20
+                  - button "管理会话" [ref=e707]
+            - button "新会话" [ref=e713] [cursor=pointer]
+          - main [ref=e718]:
+            - generic [ref=e719]:
+              - generic [ref=e720]: 🧠
+              - generic [ref=e721]:
+                - textbox [ref=e722]: scene#39 落地思路
+                - generic [ref=e723]: 主助手 · 5 工具 · 3 Skill
+              - generic [ref=e724]: 5 工具
+              - button "取消置顶" [ref=e725] [cursor=pointer]
+              - button "管理会话" [ref=e729] [cursor=pointer]
+            - generic [ref=e734]:
+              - generic [ref=e735]:
+                - generic [ref=e736]: 帮我列下 scene#39「个人工作台」要解决的 3 个核心矛盾。
+                - generic [ref=e737]: 我
+              - generic [ref=e738]:
+                - generic [ref=e739]: AI
+                - generic [ref=e740]: 1) 入口单一 vs 能力繁多 — 用早报作为唯一入口 2) 模块独立 vs 数据互通 — 所有模块挂在统一 store 下 3) 真业务 vs demo 体感 — 用 mock + localStorage 持久化做"看起来真"
+              - generic [ref=e741]: "memory.recall → 找到 3 条相关记忆: 关于 scene 模板/工作台架构/IM 抢注意力"
+              - generic [ref=e745]:
+                - generic [ref=e746]: AI
+                - generic [ref=e747]: 加上 IM 这个点 — 我从记忆里捞到一个老问题:IM 抢走主注意力。所以早报默认应该是低 IM 噪音状态。
+              - generic [ref=e748]:
+                - generic [ref=e749]: 好。把早报做成 IM 静音模式。顺手出一版海报、落地页和路演 PPT。
+                - generic [ref=e750]: 我
+              - generic [ref=e751]:
+                - generic [ref=e752]: AI
+                - generic [ref=e753]:
+                  - text: 三份产物已经生成，点击卡片就能在会话里预览，也可以转到文件面板继续编辑。
+                  - generic [ref=e754]:
+                    - button "scene39 发布海报 scene39 发布海报 海报 · 900 × 1200 · PNG 预览" [ref=e755] [cursor=pointer]:
+                      - img "scene39 发布海报" [ref=e756]
+                      - generic [ref=e757]:
+                        - generic [ref=e763]:
+                          - generic [ref=e764]: scene39 发布海报
+                          - generic [ref=e765]: 海报 · 900 × 1200 · PNG
+                        - generic [ref=e766]: 预览
+                    - button "工作台落地页 Web 页面 · HTML · 可直接预览 预览" [ref=e767] [cursor=pointer]:
+                      - generic [ref=e768]:
+                        - generic [ref=e772]:
+                          - generic [ref=e773]: 工作台落地页
+                          - generic [ref=e774]: Web 页面 · HTML · 可直接预览
+                        - generic [ref=e775]: 预览
+                    - button "scene39 路演 PPT · 3 页 · PPT 预览" [ref=e776] [cursor=pointer]:
+                      - generic [ref=e777]:
+                        - generic [ref=e782]:
+                          - generic [ref=e783]: scene39 路演
+                          - generic [ref=e784]: PPT · 3 页 · PPT
+                        - generic [ref=e785]: 预览
+            - generic [ref=e786]:
+              - generic [ref=e787]:
+                - textbox "问 主助手 任何事…" [ref=e788]
+                - button "发送" [disabled] [ref=e789]
+              - generic [ref=e793]: "回车发送 · Shift+回车换行 · 当前 Agent: 主助手"
+          - complementary [ref=e794]:
+            - generic [ref=e795]:
+              - generic [ref=e796]: Agent
+              - button "收起 Agent 栏" [ref=e797] [cursor=pointer]
+            - generic [ref=e802]:
+              - generic [ref=e803]:
+                - generic [ref=e804]: 🧠
+                - generic [ref=e805]:
+                  - generic [ref=e806]: 主助手
+                  - generic [ref=e807]: 通用任务编排 / 写作 / 总结
+              - generic [ref=e808]:
+                - generic [ref=e809]: 可用工具
+                - generic [ref=e810]:
+                  - generic [ref=e811]: search
+                  - generic [ref=e814]: read_file
+                  - generic [ref=e817]: calendar
+                  - generic [ref=e820]: task
+                  - generic [ref=e823]: memory
+              - generic [ref=e826]:
+                - generic [ref=e827]: 绑定 Skills
+                - generic [ref=e828]:
+                  - generic [ref=e829]: 📈 数据早报
+                  - generic [ref=e830]: 💬 IM 语气优化
+                  - generic [ref=e831]: 📑 PPT 大纲
+              - generic [ref=e832]:
+                - generic [ref=e833]: 上下文
+                - list [ref=e836]:
+                  - listitem [ref=e837]: · 工具白名单 5 项
+                  - listitem [ref=e838]: · 绑定 Skill 3 项
+                  - listitem [ref=e839]: · 记忆策略：工作区记忆
+              - generic [ref=e840]:
+                - generic [ref=e841]: 提示词技巧
+                - list [ref=e842]:
+                  - listitem [ref=e843]: · 给具体场景,而不是"帮我优化"
+                  - listitem [ref=e844]: · 给出约束(字数/语气/读者)
+                  - listitem [ref=e845]: · 让 AI 引用记忆
+                  - listitem [ref=e846]: · 让 AI 自检:列 3 个反对意见
+              - button "管理 Agents" [ref=e847] [cursor=pointer]
+      - button "IM 会话" [ref=e851] [cursor=pointer]

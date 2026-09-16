@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* lan-assist overlay must never appear; IM/业务应用 own those surfaces. */
+.dla-overlay,
+.dla-badge {
+  display: none !important;
+}
+
+body {
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Notion-style scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #e3e3e0;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #d1d1cc;
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-line rounded-lg shadow-card;
+  }
+  .card-2 {
+    @apply bg-surface-2 border border-line rounded-lg;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded
+           text-sm font-medium border border-line bg-surface
+           hover:bg-surface-2 transition-colors
+           text-ink disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-ink text-white border-ink hover:bg-ink/90;
+  }
+  .btn-brand {
+    @apply btn bg-brand text-white border-brand hover:bg-brand/90;
+  }
+  .btn-ghost {
+    @apply btn border-transparent bg-transparent hover:bg-surface-2;
+  }
+  .input {
+    @apply w-full px-3 py-1.5 rounded border border-line bg-surface
+           text-sm placeholder:text-ink-subtle
+           focus:outline-none focus:border-ink/40 focus:ring-2 focus:ring-ink/5;
+  }
+  .tag {
+    @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+           text-xs font-medium;
+  }
+  .kbd {
+    @apply px-1.5 py-0.5 rounded border border-line bg-surface-2
+           text-[11px] font-mono text-ink-muted;
+  }
+  .nav-item {
+    @apply flex items-center gap-2 px-2 py-1.5 rounded
+           text-sm text-ink-muted hover:bg-surface-2 hover:text-ink
+           transition-colors cursor-pointer;
+  }
+  .nav-item-active {
+    @apply bg-brand-soft text-brand font-medium;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Stage Manager 内嵌:只隐藏 PageTitle 的标题文字,保留 actions(Tab 切换器等)。 */
+.stage-content [data-page-title="true"] {
+  margin-bottom: 0.75rem;
+  align-items: center;
+}
+.stage-content [data-page-title-text="true"] {
+  display: none;
+}
+
+/* 抽屉拖拽手柄视觉提示 */
+.resize-handle {
+  /* position 由使用处决定(absolute/relative),这里不覆盖 */
+}
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 1px;
+  height: 24px;
+  background: transparent;
+  border-radius: 1px;
+  transition: background 0.15s, width 0.15s, height 0.15s;
+}
+.resize-handle:hover::before,
+.resize-handle.dragging::before {
+  background: #2F6B3A;
+  width: 2px;
+  height: 36px;
+}
+
+/* 水平手柄(舞台 modal 左右边缘):竖线贴外侧 */
+.resize-handle-h::before {
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.resize-handle-h:hover::before,
+.resize-handle-h.dragging::before {
+  width: 3px;
+  height: 36px;
+}
+
+/* 整体 hover 给个浅蓝/绿铺底 */
+.resize-handle:hover {
+  background: rgba(47, 107, 58, 0.08);
+}
+.resize-handle.dragging {
+  background: rgba(47, 107, 58, 0.15);
+}

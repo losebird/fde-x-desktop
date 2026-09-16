@@ -1,0 +1,36 @@
+# FDE-X AI core adapter: isolate mutable credentials and keep semantic memory
+# behind its own adapter. The source credential document is never modified.
+- id: credentials
+  config:
+    path: !!js process.env.FDE_DSH_CREDENTIALS_PATH
+    watch: false
+
+- id: session-persistence-jsonl
+  config:
+    root: !!js process.env.FDE_DSH_SESSION_ROOT || dshHomePath('sessions')
+
+- id: storage-json
+  config:
+    root: !!js process.env.FDE_DSH_STORAGE_ROOT || dshHomePath('storages')
+
+- id: ui-brand-official
+  disabled: true
+
+- id: ui-settings-general
+  disabled: true
+
+- id: ui-settings-models
+  disabled: true
+
+- id: ui-settings-plugins
+  disabled: true
+
+- id: ui-settings-plugin-inventory
+  disabled: true
+
+- id: ui-open-in-app
+  disabled: true
+
+- insert:
+    - id: fde-x-dsh-bridge
+      name: fde-x-dsh-bridge

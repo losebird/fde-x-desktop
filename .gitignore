@@ -1,0 +1,15 @@
+node_modules/
+dist/
+runtime/data/*.sqlite*
+runtime/data/*.db*
+runtime/data/semantic-os/
+.dsh/
+*.log
+.DS_Store
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+.vite/
+coverage/
+*.local
+.playwright-cli/
+outputs/

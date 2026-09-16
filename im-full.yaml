@@ -1,0 +1,118 @@
+- generic [ref=e3]:
+  - complementary "工作区切换" [ref=e4]:
+    - generic [ref=e5]: FDE-X
+    - generic [ref=e6]:
+      - button "AI" [ref=e7] [cursor=pointer]
+      - button "消息 1" [active] [ref=e323] [cursor=pointer]:
+        - generic [ref=e14]: 消息
+        - generic [ref=e15]: "1"
+    - generic [ref=e16]: 工具
+    - generic "早报" [ref=e18]:
+      - button "关闭早报" [ref=e19] [cursor=pointer]
+      - button "早报" [ref=e23] [cursor=pointer]
+    - generic [ref=e39]: ⌘K
+  - generic [ref=e40]:
+    - generic [ref=e41]:
+      - generic "回工作台主页" [ref=e42] [cursor=pointer]:
+        - generic [ref=e43]: F
+        - generic [ref=e44]: FDE-X Desktop
+      - button "搜索 ⌘K" [ref=e46] [cursor=pointer]:
+        - text: 搜索
+        - generic [ref=e50]: ⌘K
+      - button "IM 已静音,点击恢复" [ref=e51] [cursor=pointer]
+      - button "5" [ref=e57] [cursor=pointer]
+      - button "新建" [ref=e62] [cursor=pointer]
+    - generic [ref=e66]:
+      - button "🧑‍💻 个人项目" [ref=e68] [cursor=pointer]:
+        - generic [ref=e70]: 🧑‍💻
+        - generic [ref=e71]: 个人项目
+      - button "AI" [ref=e75] [cursor=pointer]
+      - button "早报" [ref=e80] [cursor=pointer]
+      - button "计划" [ref=e85] [cursor=pointer]
+      - button "文件" [ref=e90] [cursor=pointer]
+      - button "数据" [ref=e94] [cursor=pointer]
+      - button "MCP" [ref=e100] [cursor=pointer]
+      - button "Skills" [ref=e104] [cursor=pointer]
+      - button "记忆" [ref=e109] [cursor=pointer]
+      - button "设置" [ref=e121] [cursor=pointer]
+      - button "⌘K" [ref=e127] [cursor=pointer]
+    - main [ref=e132]:
+      - generic [ref=e511]:
+        - generic [ref=e512]:
+          - generic [ref=e513]:
+            - textbox "搜索联系人或话题群" [ref=e518]
+            - button "联系人和群管理" [ref=e519] [cursor=pointer]
+          - generic [ref=e523]:
+            - generic [ref=e524]: 联系人 · 5
+            - button "阿 阿宁 顺的。我有个点 — 早起应该默认关 IM?" [ref=e528] [cursor=pointer]:
+              - generic [ref=e529]: 阿
+              - generic [ref=e530]:
+                - generic [ref=e531]: 阿宁
+                - generic [ref=e535]: 顺的。我有个点 — 早起应该默认关 IM?
+            - button "小 小航 评审资料我先发你,你看下是否要提前看 1" [ref=e536] [cursor=pointer]:
+              - generic [ref=e537]: 小
+              - generic [ref=e538]:
+                - generic [ref=e539]: 小航
+                - generic [ref=e541]: 评审资料我先发你,你看下是否要提前看
+              - generic [ref=e542]: "1"
+            - button "林 林总 @linzong" [ref=e543] [cursor=pointer]:
+              - generic [ref=e544]: 林
+              - generic [ref=e545]:
+                - generic [ref=e546]: 林总
+                - generic [ref=e548]: "@linzong"
+            - button "张 张姐 @zhang" [ref=e549] [cursor=pointer]:
+              - generic [ref=e550]: 张
+              - generic [ref=e551]:
+                - generic [ref=e552]: 张姐
+                - generic [ref=e554]: "@zhang"
+            - button "王 王律师 @wlaw" [ref=e555] [cursor=pointer]:
+              - generic [ref=e556]: 王
+              - generic [ref=e557]:
+                - generic [ref=e558]: 王律师
+                - generic [ref=e565]: "@wlaw"
+            - generic [ref=e566]: 话题群 · 1
+            - button "产品话题群 我加一个议题——scene#40 客户成功看板" [ref=e572] [cursor=pointer]:
+              - generic [ref=e579]:
+                - generic [ref=e580]: 产品话题群
+                - generic [ref=e584]: 我加一个议题——scene#40 客户成功看板
+          - button "新建联系人或话题群" [ref=e586] [cursor=pointer]
+        - generic [ref=e588]:
+          - generic [ref=e589]:
+            - generic [ref=e590]: 阿
+            - generic [ref=e591]:
+              - generic [ref=e592]:
+                - text: 阿宁
+                - generic [ref=e593]: 联系人
+              - generic [ref=e594]: 在线 · @anning
+            - button "记录" [ref=e595] [cursor=pointer]
+            - button "会话设置" [ref=e600] [cursor=pointer]
+          - generic [ref=e604]:
+            - generic [ref=e606]:
+              - generic [ref=e607]: 阿宁
+              - generic [ref=e608]: scene#39 我先看了下,整体方向对的 👍
+              - generic [ref=e610]: 11:30
+            - generic [ref=e613]:
+              - generic [ref=e614]: 早报那块是个入口,你看下顺不顺
+              - generic [ref=e616]: 11:32
+            - generic [ref=e619]:
+              - generic [ref=e620]: 阿宁
+              - generic [ref=e621]: 顺的。我有个点 — 早起应该默认关 IM?
+              - generic [ref=e623]: 11:33
+          - generic [ref=e625]:
+            - generic "向上拖动放大输入区" [ref=e626]
+            - generic [ref=e628]:
+              - generic [ref=e629]:
+                - button "拟回" [ref=e630] [cursor=pointer]
+                - button "采纳" [ref=e633] [cursor=pointer]
+                - button "先例" [ref=e634] [cursor=pointer]
+                - button "交接" [ref=e635] [cursor=pointer]
+                - button "问本机" [ref=e636] [cursor=pointer]
+                - button "摘要" [ref=e637] [cursor=pointer]
+                - button "表情" [ref=e639] [cursor=pointer]
+                - button "文件" [ref=e643] [cursor=pointer]
+                - button "记录" [ref=e646] [cursor=pointer]
+                - button "更多" [ref=e652] [cursor=pointer]
+              - textbox "发给 阿宁… Enter 发送，Shift+Enter 换行" [ref=e657]
+              - generic [ref=e658]:
+                - generic [ref=e659]: AI 结果会先回填，不会自动发送
+                - button "发送" [disabled] [ref=e660]

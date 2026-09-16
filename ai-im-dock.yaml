@@ -1,0 +1,185 @@
+- generic [ref=e3]:
+  - complementary "工作区切换" [ref=e4]:
+    - generic [ref=e5]: FDE-X
+    - generic [ref=e6]:
+      - button "AI" [ref=e7] [cursor=pointer]
+      - button "消息 1" [ref=e323] [cursor=pointer]:
+        - generic [ref=e14]: 消息
+        - generic [ref=e15]: "1"
+    - generic [ref=e16]: 工具
+    - generic "早报" [ref=e18]:
+      - button "关闭早报" [ref=e19] [cursor=pointer]
+      - button "早报" [ref=e23] [cursor=pointer]
+    - generic [ref=e39]: ⌘K
+  - generic [ref=e40]:
+    - generic [ref=e41]:
+      - generic "回工作台主页" [ref=e42] [cursor=pointer]:
+        - generic [ref=e43]: F
+        - generic [ref=e44]: FDE-X Desktop
+      - button "搜索 ⌘K" [ref=e46] [cursor=pointer]:
+        - text: 搜索
+        - generic [ref=e50]: ⌘K
+      - button "IM 已静音,点击恢复" [ref=e51] [cursor=pointer]
+      - button "5" [ref=e57] [cursor=pointer]
+      - button "新建" [ref=e62] [cursor=pointer]
+    - generic [ref=e66]:
+      - button "🧑‍💻 个人项目" [ref=e68] [cursor=pointer]:
+        - generic [ref=e70]: 🧑‍💻
+        - generic [ref=e71]: 个人项目
+      - button "AI" [ref=e75] [cursor=pointer]
+      - button "早报" [ref=e80] [cursor=pointer]
+      - button "计划" [ref=e85] [cursor=pointer]
+      - button "文件" [ref=e90] [cursor=pointer]
+      - button "数据" [ref=e94] [cursor=pointer]
+      - button "MCP" [ref=e100] [cursor=pointer]
+      - button "Skills" [ref=e104] [cursor=pointer]
+      - button "记忆" [ref=e109] [cursor=pointer]
+      - button "设置" [ref=e121] [cursor=pointer]
+      - button "⌘K" [ref=e127] [cursor=pointer]
+    - generic [ref=e131]:
+      - main [ref=e132]:
+        - generic [ref=e133]:
+          - complementary [ref=e134]:
+            - generic [ref=e135]:
+              - generic [ref=e136]: 会话
+              - button "收起会话栏" [ref=e137] [cursor=pointer]
+            - list [ref=e142]:
+              - listitem [ref=e143]:
+                - button "🧠 scene#39 落地思路 主助手 · 09/08 11:40" [ref=e144] [cursor=pointer]:
+                  - generic [ref=e145]: 🧠
+                  - generic [ref=e146]:
+                    - generic [ref=e147]: scene#39 落地思路
+                    - generic [ref=e150]: 主助手 · 09/08 11:40
+                  - button "管理会话" [ref=e152]
+              - listitem [ref=e157]:
+                - button "📊 Q3 收入复盘 数据分析师 · 09/08 10:05" [ref=e158] [cursor=pointer]:
+                  - generic [ref=e159]: 📊
+                  - generic [ref=e160]:
+                    - generic [ref=e161]: Q3 收入复盘
+                    - generic [ref=e162]: 数据分析师 · 09/08 10:05
+                  - button "管理会话" [ref=e164]
+              - listitem [ref=e169]:
+                - button "✍️ scene 模板设计 文案编辑 · 09/08 09:20" [ref=e170] [cursor=pointer]:
+                  - generic [ref=e171]: ✍️
+                  - generic [ref=e172]:
+                    - generic [ref=e173]: scene 模板设计
+                    - generic [ref=e174]: 文案编辑 · 09/08 09:20
+                  - button "管理会话" [ref=e176]
+            - button "新会话" [ref=e182] [cursor=pointer]
+          - main [ref=e187]:
+            - generic [ref=e188]:
+              - generic [ref=e189]: 🧠
+              - generic [ref=e190]:
+                - textbox [ref=e191]: scene#39 落地思路
+                - generic [ref=e192]: 主助手 · 5 工具 · 3 Skill
+              - generic [ref=e193]: 5 工具
+              - button "取消置顶" [ref=e194] [cursor=pointer]
+              - button "管理会话" [ref=e198] [cursor=pointer]
+            - generic [ref=e203]:
+              - generic [ref=e204]:
+                - generic [ref=e205]: 帮我列下 scene#39「个人工作台」要解决的 3 个核心矛盾。
+                - generic [ref=e206]: 我
+              - generic [ref=e207]:
+                - generic [ref=e208]: AI
+                - generic [ref=e209]: 1) 入口单一 vs 能力繁多 — 用早报作为唯一入口 2) 模块独立 vs 数据互通 — 所有模块挂在统一 store 下 3) 真业务 vs demo 体感 — 用 mock + localStorage 持久化做"看起来真"
+              - generic [ref=e210]: "memory.recall → 找到 3 条相关记忆: 关于 scene 模板/工作台架构/IM 抢注意力"
+              - generic [ref=e214]:
+                - generic [ref=e215]: AI
+                - generic [ref=e216]: 加上 IM 这个点 — 我从记忆里捞到一个老问题:IM 抢走主注意力。所以早报默认应该是低 IM 噪音状态。
+              - generic [ref=e217]:
+                - generic [ref=e218]: 好。把早报做成 IM 静音模式。顺手出一版海报、落地页和路演 PPT。
+                - generic [ref=e219]: 我
+              - generic [ref=e220]:
+                - generic [ref=e221]: AI
+                - generic [ref=e222]:
+                  - text: 三份产物已经生成，点击卡片就能在会话里预览，也可以转到文件面板继续编辑。
+                  - generic [ref=e223]:
+                    - button "scene39 发布海报 scene39 发布海报 海报 · 900 × 1200 · PNG 预览" [ref=e224] [cursor=pointer]:
+                      - img "scene39 发布海报" [ref=e225]
+                      - generic [ref=e226]:
+                        - generic [ref=e232]:
+                          - generic [ref=e233]: scene39 发布海报
+                          - generic [ref=e234]: 海报 · 900 × 1200 · PNG
+                        - generic [ref=e235]: 预览
+                    - button "工作台落地页 Web 页面 · HTML · 可直接预览 预览" [ref=e236] [cursor=pointer]:
+                      - generic [ref=e237]:
+                        - generic [ref=e241]:
+                          - generic [ref=e242]: 工作台落地页
+                          - generic [ref=e243]: Web 页面 · HTML · 可直接预览
+                        - generic [ref=e244]: 预览
+                    - button "scene39 路演 PPT · 3 页 · PPT 预览" [ref=e245] [cursor=pointer]:
+                      - generic [ref=e246]:
+                        - generic [ref=e251]:
+                          - generic [ref=e252]: scene39 路演
+                          - generic [ref=e253]: PPT · 3 页 · PPT
+                        - generic [ref=e254]: 预览
+            - generic [ref=e255]:
+              - generic [ref=e256]:
+                - textbox "问 主助手 任何事…" [ref=e257]
+                - button "发送" [disabled] [ref=e258]
+              - generic [ref=e262]: "回车发送 · Shift+回车换行 · 当前 Agent: 主助手"
+          - complementary [ref=e263]:
+            - button "展开 Agent 栏" [ref=e324] [cursor=pointer]
+            - generic [ref=e271]:
+              - button "🧠" [ref=e328] [cursor=pointer]
+              - button "📊" [ref=e329] [cursor=pointer]
+              - button "💻" [ref=e330] [cursor=pointer]
+              - button "✍️" [ref=e331] [cursor=pointer]
+              - button "🛡️" [ref=e332] [cursor=pointer]
+              - button "管理 Agents" [ref=e333] [cursor=pointer]
+      - complementary [ref=e337]:
+        - generic [ref=e338]:
+          - generic [ref=e341]: IM 协作
+          - button "全屏打开" [ref=e342] [cursor=pointer]
+          - button "关闭 IM 侧栏" [ref=e343] [cursor=pointer]
+        - generic [ref=e351]:
+          - generic [ref=e352]:
+            - button "展开会话列表" [ref=e353] [cursor=pointer]
+            - button "阿" [ref=e358] [cursor=pointer]
+            - button "产品话题群" [ref=e360] [cursor=pointer]
+            - button "小 1" [ref=e367] [cursor=pointer]:
+              - generic [ref=e368]: 小
+              - generic [ref=e369]: "1"
+            - button "林" [ref=e370] [cursor=pointer]
+            - button "张" [ref=e372] [cursor=pointer]
+            - button "王" [ref=e374] [cursor=pointer]
+          - generic [ref=e376]:
+            - generic [ref=e377]:
+              - generic [ref=e378]: 阿
+              - generic [ref=e379]:
+                - generic [ref=e380]:
+                  - text: 阿宁
+                  - generic [ref=e381]: 联系人
+                - generic [ref=e382]: 在线 · @anning
+              - button "记录" [ref=e383] [cursor=pointer]
+              - button "会话设置" [ref=e388] [cursor=pointer]
+            - generic [ref=e392]:
+              - generic [ref=e394]:
+                - generic [ref=e395]: 阿宁
+                - generic [ref=e396]: scene#39 我先看了下,整体方向对的 👍
+                - generic [ref=e398]: 11:30
+              - generic [ref=e401]:
+                - generic [ref=e402]: 早报那块是个入口,你看下顺不顺
+                - generic [ref=e404]: 11:32
+              - generic [ref=e407]:
+                - generic [ref=e408]: 阿宁
+                - generic [ref=e409]: 顺的。我有个点 — 早起应该默认关 IM?
+                - generic [ref=e411]: 11:33
+            - generic [ref=e413]:
+              - generic "向上拖动放大输入区" [ref=e414]
+              - generic [ref=e416]:
+                - generic [ref=e417]:
+                  - button "拟回" [ref=e418] [cursor=pointer]
+                  - button "采纳" [ref=e421] [cursor=pointer]
+                  - button "先例" [ref=e422] [cursor=pointer]
+                  - button "交接" [ref=e423] [cursor=pointer]
+                  - button "问本机" [ref=e424] [cursor=pointer]
+                  - button "摘要" [ref=e425] [cursor=pointer]
+                  - button "表情" [ref=e427] [cursor=pointer]
+                  - button "文件" [ref=e431] [cursor=pointer]
+                  - button "记录" [ref=e434] [cursor=pointer]
+                  - button "更多" [ref=e440] [cursor=pointer]
+                - textbox "发给 阿宁… Enter 发送，Shift+Enter 换行" [ref=e445]
+                - generic [ref=e446]:
+                  - generic [ref=e447]: AI 结果会先回填，不会自动发送
+                  - button "发送" [disabled] [ref=e448]
