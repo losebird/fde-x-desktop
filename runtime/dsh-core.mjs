@@ -1,34 +1,105 @@
-import { spawn, execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
-import { constants, existsSync, realpathSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { constants, existsSync, realpathSync, symlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { homedir, tmpdir } from 'node:os'
+import { createServer, createConnection } from 'node:net'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
+import {
+  DSH_LAN_ASSIST_PORT as CONFIG_LAN_PORT,
+  FDE_DSH_HOME as CONFIG_DSH_HOME,
+  FDE_DSH_PATCH as CONFIG_DSH_PATCH,
+  FDE_RUNTIME_DIR,
+  FDE_VENDOR_DIR,
+  fdeRunDirectory,
+  officialSemanticInstallState,
+  officialSemanticRuntimeRoot,
+  resolveDshBin,
+  vendorSemanticRuntimeDist,
+} from './config.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
-const execFileAsync = promisify(execFile)
 
-async function pidsMatching(args) {
+function isPidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 1) return false
   try {
-    const { stdout } = await execFileAsync('pgrep', ['-f', args], { timeout: 3000 })
-    return String(stdout || '').trim().split(/\s+/u).map(Number).filter((pid) => Number.isInteger(pid) && pid > 1)
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function isTcpPortListening(port, host = '127.0.0.1') {
+  const n = Number(port)
+  if (!Number.isInteger(n) || n < 1) return false
+  const connected = await new Promise((resolveConnect) => {
+    const socket = createConnection({ port: n, host })
+    const timer = setTimeout(() => {
+      socket.destroy()
+      resolveConnect(false)
+    }, 400)
+    socket.once('connect', () => {
+      clearTimeout(timer)
+      socket.end()
+      resolveConnect(true)
+    })
+    socket.once('error', () => {
+      clearTimeout(timer)
+      resolveConnect(false)
+    })
+  })
+  if (connected) return true
+  return new Promise((resolveListen) => {
+    const server = createServer()
+    server.once('error', () => resolveListen(true))
+    server.listen(n, host, () => {
+      server.close(() => resolveListen(false))
+    })
+  })
+}
+
+async function readRecordedPids(runDir) {
+  try {
+    const names = await readdir(runDir)
+    const pids = []
+    for (const name of names) {
+      if (!name.endsWith('.pid')) continue
+      try {
+        const raw = await readFile(join(runDir, name), 'utf8')
+        const pid = Number(String(raw).trim())
+        if (Number.isInteger(pid) && pid > 1) pids.push(pid)
+      } catch { /* ignore unreadable pid file */ }
+    }
+    return pids
   } catch {
     return []
   }
 }
 
-async function pidsListening(port) {
-  const n = Number(port)
-  if (!Number.isInteger(n) || n < 1) return []
-  try {
-    const { stdout } = await execFileAsync('lsof', ['-nP', `-iTCP:${n}`, '-sTCP:LISTEN', '-t'], { timeout: 3000 })
-    return String(stdout || '').trim().split(/\s+/u).map(Number).filter((pid) => Number.isInteger(pid) && pid > 1)
-  } catch {
-    return []
+async function writePidFile(runDir, name, pid) {
+  await mkdir(runDir, { recursive: true })
+  await writeFile(join(runDir, name), `${pid}\n`, 'utf8')
+}
+
+async function removePidFile(runDir, name) {
+  await rm(join(runDir, name), { force: true })
+}
+
+async function linkPath(target, linkPath) {
+  await rm(linkPath, { recursive: true, force: true })
+  if (process.platform === 'win32') {
+    try {
+      symlinkSync(target, linkPath, 'junction')
+      return
+    } catch {
+      await cp(target, linkPath, { recursive: true, dereference: true })
+      return
+    }
   }
+  await symlink(target, linkPath)
 }
 
 async function terminatePids(pids) {
@@ -46,20 +117,6 @@ async function terminatePids(pids) {
   }
 }
 
-function resolveDshBin(explicit) {
-  const fromPath = String(process.env.PATH || '').split(':').map((dir) => join(dir, 'dsh'))
-  const candidates = [
-    explicit,
-    process.env.FDE_DSH_BIN,
-    '/opt/homebrew/bin/dsh',
-    '/usr/local/bin/dsh',
-    ...fromPath,
-  ].filter(Boolean)
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate
-  }
-  return ''
-}
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
 const DEFAULT_START_TIMEOUT_MS = 90_000
 const MAX_LOG_LINES = 40
@@ -137,12 +194,14 @@ export class AiRemoteError extends Error {
 export class DshCoreConnector {
   constructor(options = {}) {
     this.bin = resolveDshBin(options.bin)
-    this.dshHome = options.dshHome ?? process.env.FDE_DSH_HOME ?? resolve(homedir(), '.dsh-fde-x')
+    this.dshHome = options.dshHome ?? process.env.FDE_DSH_HOME ?? CONFIG_DSH_HOME
     this.cwd = options.cwd ?? process.env.FDE_AI_WORKSPACE ?? process.cwd()
     this.version = null
-    this.patchFile = options.patchFile ?? process.env.FDE_DSH_PATCH ?? resolve(process.cwd(), 'runtime', 'dsh-core.patch.yml')
+    this.patchFile = options.patchFile ?? CONFIG_DSH_PATCH
     this.profileName = options.profileName ?? process.env.FDE_DSH_PROFILE ?? 'fde-x'
-    this.runtimeDirectory = dirname(fileURLToPath(import.meta.url))
+    this.runtimeDirectory = FDE_RUNTIME_DIR
+    this.runDirectory = fdeRunDirectory(this.dshHome)
+    this.corePidFile = `dsh-core-${this.profileName}.pid`
     this.startTimeoutMs = options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS
     this.child = null
     this.origin = null
@@ -185,7 +244,7 @@ export class DshCoreConnector {
       workspace: this.cwd,
       dshHome: this.dshHome,
       profile: this.profileName,
-      lanPort: process.env.DSH_LAN_ASSIST_PORT || '19527',
+      lanPort: process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT,
       sessionRoot: process.env.FDE_DSH_SESSION_ROOT || join(this.dshHome, 'sessions'),
       storageRoot: process.env.FDE_DSH_STORAGE_ROOT || join(this.dshHome, 'storages'),
       semanticMemoryMode: 'external-adapter',
@@ -223,8 +282,14 @@ export class DshCoreConnector {
     this.state = 'starting'
     this.lastError = null
     this.logs = []
-    if (!this.bin) throw new Error('找不到 dsh。请安装 DeepSeek Harness，或设置 FDE_DSH_BIN 指向 dsh 可执行文件。')
-    await access(this.bin, constants.R_OK)
+    if (!this.bin) {
+      throw new Error('找不到 dsh。请安装 DeepSeek Harness，或设置 FDE_DSH_BIN 指向 dsh 可执行文件。')
+    }
+    try {
+      await access(this.bin, constants.R_OK)
+    } catch {
+      throw new Error(`FDE_DSH_BIN 指向的文件不可用：${this.bin}`)
+    }
     try {
       const require = createRequire(realpathSync(this.bin))
       this.version = require('@deepseek-ai/dsh/package.json').version ?? null
@@ -252,7 +317,7 @@ export class DshCoreConnector {
         ...process.env,
         DSH_HOME: this.dshHome,
         DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE || 'danger-full-access',
-        DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || '19527',
+        DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT,
         FDE_AI_WORKSPACE: this.cwd,
         FDE_DSH_CREDENTIALS_PATH: this.credentialsPath,
         ...(process.env.DSH_SEMANTICA_PYTHON || semanticaPython ? { DSH_SEMANTICA_PYTHON: process.env.DSH_SEMANTICA_PYTHON || semanticaPython } : {}),
@@ -263,6 +328,9 @@ export class DshCoreConnector {
       windowsHide: true,
     })
     this.child = child
+    if (child.pid) {
+      await writePidFile(this.runDirectory, this.corePidFile, child.pid)
+    }
 
     child.stdout?.setEncoding('utf8')
     child.stderr?.setEncoding('utf8')
@@ -319,6 +387,7 @@ export class DshCoreConnector {
     const webLink = join(this.dshHome, 'profiles', 'web', 'node_modules', name)
     const candidates = []
     if (fromEnv) candidates.push(fromEnv)
+    candidates.push(join(FDE_VENDOR_DIR, name))
     try {
       if (existsSync(webLink)) candidates.push(realpathSync(webLink))
     } catch {
@@ -346,8 +415,7 @@ export class DshCoreConnector {
       }
     }
     if (!existsSync(vendor)) return false
-    await rm(link, { recursive: true, force: true })
-    await symlink(vendor, link)
+    await linkPath(vendor, link)
     return true
   }
 
@@ -377,8 +445,7 @@ export class DshCoreConnector {
     }
     const bridgeSource = resolve(this.runtimeDirectory, 'fde-x-dsh-bridge')
     const bridgeLink = join(modules, 'fde-x-dsh-bridge')
-    await rm(bridgeLink, { recursive: true, force: true })
-    await symlink(bridgeSource, bridgeLink)
+    await linkPath(bridgeSource, bridgeLink)
   }
 
   async ensureSharedSemanticRuntime() {
@@ -414,7 +481,7 @@ export class DshCoreConnector {
     try {
       await access(destState, constants.R_OK)
     } catch {
-      const officialState = join(homedir(), '.dsh', 'semantic-os', 'install-state.json')
+      const officialState = officialSemanticInstallState()
       try {
         const raw = JSON.parse(await readFile(officialState, 'utf8'))
         if (raw && raw.status) {
@@ -442,8 +509,8 @@ export class DshCoreConnector {
   }
 
   async findSemanticRuntimeSource() {
-    const officialRuntime = join(homedir(), '.dsh', 'semantic-os', 'runtime')
-    const vendorDist = join(this.dshHome, 'vendor', 'dsh-semantic-os', 'runtime-dist')
+    const officialRuntime = officialSemanticRuntimeRoot()
+    const vendorDist = vendorSemanticRuntimeDist(this.dshHome)
     const officialCurrent = join(officialRuntime, 'current.json')
     try {
       const current = JSON.parse(await readFile(officialCurrent, 'utf8'))
@@ -903,12 +970,18 @@ export class DshCoreConnector {
 
   async reclaimStrayProcesses() {
     const keep = new Set([process.pid, this.child?.pid].filter(Boolean))
-    const profilePids = await pidsMatching(`--profile ${this.profileName} --patch`)
-    const lanPids = await pidsListening(process.env.DSH_LAN_ASSIST_PORT || '19527')
-    const stray = [...profilePids, ...lanPids].filter((pid) => !keep.has(pid))
-    if (stray.length === 0) return
-    this.logs.push(`[fde-x] 清掉残留核心 ${stray.join(',')}`)
-    await terminatePids(stray)
+    const recorded = await readRecordedPids(this.runDirectory)
+    const stray = [...new Set(recorded)].filter((pid) => !keep.has(pid) && isPidAlive(pid))
+    const lanPort = process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT
+    if (stray.length === 0 && !(await isTcpPortListening(lanPort))) return
+    if (stray.length === 0 && this.child?.pid) return
+    if (stray.length > 0) {
+      this.logs.push(`[fde-x] 清掉残留核心 ${stray.join(',')}`)
+      await terminatePids(stray)
+    }
+    for (const name of [this.corePidFile, 'dsh-lan-assist.pid']) {
+      await removePidFile(this.runDirectory, name)
+    }
   }
 
   async stop() {
@@ -949,6 +1022,7 @@ export class DshCoreConnector {
       }
     })
     await this.cleanupCredentialsCopy()
+    await removePidFile(this.runDirectory, this.corePidFile)
   }
 }
 
