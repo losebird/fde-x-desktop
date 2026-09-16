@@ -16,6 +16,18 @@ const EDGE = 32
 
 type DragKind = 'move' | 'resize' | null
 
+let floatingDragSessions = 0
+
+function beginFloatingDrag() {
+  floatingDragSessions += 1
+  document.body.setAttribute('data-floating-drag', '1')
+}
+
+function endFloatingDragSession() {
+  floatingDragSessions = Math.max(0, floatingDragSessions - 1)
+  if (floatingDragSessions === 0) document.body.removeAttribute('data-floating-drag')
+}
+
 function clampBox(box: FloatingBox): FloatingBox {
   const vw = window.innerWidth
   const vh = window.innerHeight
@@ -53,6 +65,16 @@ function FloatingWindow({
   const label = panelMeta?.label ?? view
   const accent = panelMeta?.accent ?? 'bg-slate-500'
 
+  const draggingRef = useRef(false)
+
+  const stopDrag = () => {
+    if (!draggingRef.current) return
+    draggingRef.current = false
+    dragRef.current.kind = null
+    setDrag(null)
+    endFloatingDragSession()
+  }
+
   useEffect(() => {
     if (!drag) return
     const onMove = (e: PointerEvent) => {
@@ -70,21 +92,27 @@ function FloatingWindow({
         setFloatingBox(view, { width: nextW, height: nextH })
       }
     }
-    const onUp = () => setDrag(null)
+    const onBlur = () => stopDrag()
     window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
+    window.addEventListener('blur', onBlur)
     return () => {
       window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
+      window.removeEventListener('blur', onBlur)
     }
   }, [drag, setFloatingBox, view])
+
+  const finishPointer = (e: React.PointerEvent) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    }
+    stopDrag()
+  }
 
   const startDrag = (kind: DragKind) => (e: React.PointerEvent) => {
     e.preventDefault()
     e.stopPropagation()
     focusFloating(view)
+    e.currentTarget.setPointerCapture(e.pointerId)
     dragRef.current = {
       kind,
       startX: e.clientX,
@@ -94,6 +122,8 @@ function FloatingWindow({
       w: box.width,
       h: box.height,
     }
+    draggingRef.current = true
+    beginFloatingDrag()
     setDrag(kind)
   }
 
@@ -132,7 +162,10 @@ function FloatingWindow({
       }}
     >
       <div
+        data-floating-title
         onPointerDown={startDrag('move')}
+        onPointerUp={finishPointer}
+        onPointerCancel={finishPointer}
         onDoubleClick={toggleMaximize}
         className="h-10 px-3 border-b border-line flex items-center gap-2 cursor-move select-none bg-surface-2 shrink-0 touch-none"
       >
@@ -173,6 +206,8 @@ function FloatingWindow({
 
       <div
         onPointerDown={startDrag('resize')}
+        onPointerUp={finishPointer}
+        onPointerCancel={finishPointer}
         className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10 touch-none"
         title="拖拽缩放"
       >

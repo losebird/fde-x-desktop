@@ -94,10 +94,17 @@ export function IMScreen() {
         setPaletteOpen(true)
       }
       if (event.key === 'Escape') {
-        setPaletteOpen(false)
         const state = useApp.getState()
+        if (state.paletteOpen) {
+          setPaletteOpen(false)
+          return
+        }
+        const target = event.target
+        if (target instanceof Element) {
+          const field = target.closest('input, textarea, [contenteditable="true"], [contenteditable=""]')
+          if (field && !field.closest('[data-floating-title]')) return
+        }
         if (Object.keys(state.floating).length > 0) {
-          event.preventDefault()
           state.closeFloating()
         }
       }
