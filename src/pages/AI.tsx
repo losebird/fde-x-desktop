@@ -231,7 +231,19 @@ export default function AI() {
         nav(`/ai/${sid}`)
         const origin = bffOriginRef.current || defaultBffOrigin()
         setDshFrameSrc(`${dshAppSrc(origin)}?restore=${Date.now()}#fde-session=${encodeURIComponent(sid)}`)
+        const select = () => tellDsh('select', {
+          sessionId: sid,
+          ...(title ? { title } : {}),
+          ...(workspaceCwdRef.current ? { cwd: workspaceCwdRef.current } : {}),
+        })
         if (title) tellDsh('rename', { sessionId: sid, title })
+        select()
+        for (const ms of [1500, 4000, 8000, 16000]) {
+          window.setTimeout(() => {
+            select()
+            if (title) tellDsh('rename', { sessionId: sid, title })
+          }, ms)
+        }
         setSessionNotice('已复原交接会话')
       })()
     }
