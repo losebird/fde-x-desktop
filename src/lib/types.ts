@@ -154,6 +154,10 @@ export interface IMHandoffPackage {
     title: string
     files: Array<{ name: string; size?: number; data: string }>
   }>
+  /** 交接包 sessions 正在从 imAttach 懒加载 */
+  sessionsLoading?: boolean
+  /** imAttach 下标（thread 原始 attachments 顺序） */
+  attachIndex?: number
   createdAt: string
   status: 'sent' | 'opened' | 'accepted'
 }

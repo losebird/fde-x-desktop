@@ -178,6 +178,14 @@ function handoffSessionIdsFromPack(parsed: Record<string, unknown> | null): stri
   return parsed.sessionIds.map((item) => String(item)).filter(Boolean)
 }
 
+function isHandoffSummaryText(text: string) {
+  return String(text || '').trimStart().startsWith('交接概述')
+}
+
+function rowHandoffFlagTrue(value: unknown) {
+  return value === true || value === 'true' || value === 1
+}
+
 function mergeHandoffPackages(
   next?: IMHandoffPackage,
   prev?: IMHandoffPackage,
@@ -187,7 +195,71 @@ function mergeHandoffPackages(
   if (!prev) return next
   const sessions = next.sessions?.length ? next.sessions : prev.sessions
   const sourceChatIds = next.sourceChatIds?.length ? next.sourceChatIds : prev.sourceChatIds
-  return { ...prev, ...next, ...(sessions ? { sessions } : {}), ...(sourceChatIds?.length ? { sourceChatIds } : {}) }
+  const sessionsLoading = sessions?.length
+    ? false
+    : (next.sessionsLoading ?? prev.sessionsLoading)
+  return {
+    ...prev,
+    ...next,
+    ...(sessions ? { sessions } : {}),
+    ...(sourceChatIds?.length ? { sourceChatIds } : {}),
+    ...(sessionsLoading ? { sessionsLoading: true } : { sessionsLoading: false }),
+  }
+}
+
+function buildThreadHandoff(input: {
+  row: Record<string, unknown>
+  threadId: string
+  text: string
+  rawAttach: Array<Record<string, unknown>>
+  files: IMAttachment[]
+  created: number
+}): IMHandoffPackage | undefined {
+  const { row, threadId, text, rawAttach, files, created } = input
+  const packedAttach = rawAttach.find((item) => isHandoffAttach(item))
+  const handoffAttachIndex = rawAttach.findIndex((item) => isHandoffAttach(item))
+  const hasPack = Boolean(packedAttach) || rowHandoffFlagTrue(row.handoff) || isHandoffSummaryText(text)
+  if (!hasPack && !(row.handoff && typeof row.handoff === 'object')) return undefined
+  const parsedPack = packedAttach && typeof packedAttach.data === 'string' && packedAttach.data
+    ? parseHandoffPack(String(packedAttach.data))
+    : null
+  const packSessions = handoffSessionsFromPack(parsedPack)
+  const packSessionIds = handoffSessionIdsFromPack(parsedPack)
+  const packTitle = parsedPack && typeof parsedPack.title === 'string' && parsedPack.title.trim()
+    ? String(parsedPack.title).trim()
+    : '工作交接'
+  const needsLazySessions = !packSessions?.length && (Boolean(packedAttach) || rowHandoffFlagTrue(row.handoff) || isHandoffSummaryText(text))
+  return {
+    id: `${row.id || threadId}-handoff`,
+    title: packTitle,
+    summary: text,
+    sourceWorkspaceId: String(row.workspace || parsedPack?.workspace || ''),
+    sourceChatIds: packSessionIds,
+    fileIds: files.filter((item) => item.name !== HANDOFF_NAME).map((item) => item.fileId),
+    ...(packSessions?.length ? { sessions: packSessions } : {}),
+    ...(handoffAttachIndex >= 0 ? { attachIndex: handoffAttachIndex } : {}),
+    ...(needsLazySessions ? { sessionsLoading: false } : {}),
+    createdAt: created ? new Date(created).toISOString() : new Date().toISOString(),
+    status: 'sent',
+  }
+}
+
+function handoffPackSessionLine(pkg: IMHandoffPackage) {
+  if (pkg.sessionsLoading && !pkg.sessions?.length) return '正在读取会话文件…'
+  const files = handoffSessionFiles(pkg)
+  if (!files.length) return '0 个会话文件'
+  const kb = files.reduce((sum, file) => sum + Number(file.size || 0), 0)
+  return `${files.length} 个会话文件 · ${Math.max(1, Math.round(kb / 1024))} KB`
+}
+
+function handoffAttachIndices(message: IMMessage): number[] {
+  const preferred = message.handoff?.attachIndex
+  const out: number[] = []
+  if (typeof preferred === 'number' && preferred >= 0) out.push(preferred)
+  for (let index = 0; index < 12; index += 1) {
+    if (!out.includes(index)) out.push(index)
+  }
+  return out
 }
 
 function messageBody(message: IMMessage) {
@@ -383,7 +455,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const markedReadRef = useRef(new Set<string>())
   const pendingPresendRef = useRef<{ id: string; threadId: string; text: string } | null>(null)
   const seenPresendIdRef = useRef('')
-  const handoffSessionsCacheRef = useRef(new Map<string, NonNullable<IMHandoffPackage['sessions']>>())
   const handoffSessionsFetchRef = useRef(new Set<string>())
   const openContactRef = useRef<IMContact | undefined>(undefined)
   const messages = liveMessages ?? []
@@ -402,41 +473,67 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   }, [params.threadId, activeThreadId, setActiveThread])
 
   useEffect(() => {
-    const pending = messages.filter((row) => row.handoff && !row.handoff.sessions?.length)
-    if (!pending.length) return
-    for (const message of pending) {
-      const cached = handoffSessionsCacheRef.current.get(message.id)
-      if (cached?.length) {
-        setLiveMessages((prev) => (prev ?? []).map((row) => (
-          row.id === message.id && row.handoff
-            ? { ...row, handoff: { ...row.handoff, sessions: cached } }
-            : row
-        )))
-        continue
-      }
+    const needsSessions = (row: IMMessage) => {
+      if (row.handoff?.sessions?.length) return false
+      if (row.handoff) return true
+      return isHandoffSummaryText(row.text || '')
+    }
+    for (const message of messages.filter(needsSessions)) {
       if (handoffSessionsFetchRef.current.has(message.id)) continue
       handoffSessionsFetchRef.current.add(message.id)
       void (async () => {
-        for (let index = 0; index < 12; index += 1) {
-          const got = await runtimeApi.imAttach(message.id, index).catch(() => null)
-          if (!got || got.ok === false || !got.data) continue
-          const parsed = parseHandoffPack(String(got.data))
-          const rows = handoffSessionsFromPack(parsed)
-          if (!rows?.length) continue
-          handoffSessionsCacheRef.current.set(message.id, rows)
-          const sessionIds = handoffSessionIdsFromPack(parsed)
+        try {
           setLiveMessages((prev) => (prev ?? []).map((row) => {
-            if (row.id !== message.id || !row.handoff) return row
-            return {
-              ...row,
-              handoff: {
-                ...row.handoff,
-                sessions: rows,
-                ...(sessionIds.length && !row.handoff.sourceChatIds.length ? { sourceChatIds: sessionIds } : {}),
-              },
-            }
+            if (row.id !== message.id) return row
+            const handoff = row.handoff || buildThreadHandoff({
+              row: { id: row.id, handoff: true },
+              threadId: row.threadId,
+              text: row.text,
+              rawAttach: [],
+              files: row.attachments || [],
+              created: new Date(row.ts).getTime(),
+            })
+            if (!handoff) return row
+            return { ...row, handoff: { ...handoff, sessionsLoading: true } }
           }))
-          break
+          for (const index of handoffAttachIndices(message)) {
+            const got = await runtimeApi.imAttach(message.id, index).catch(() => null)
+            const raw = got && typeof got.data === 'string' ? got.data : ''
+            if (!raw) continue
+            const parsed = parseHandoffPack(raw)
+            const rows = handoffSessionsFromPack(parsed)
+            if (!rows?.length) continue
+            const sessionIds = handoffSessionIdsFromPack(parsed)
+            setLiveMessages((prev) => (prev ?? []).map((row) => {
+              if (row.id !== message.id) return row
+              const base = row.handoff || buildThreadHandoff({
+                row: { id: row.id, handoff: true },
+                threadId: row.threadId,
+                text: row.text,
+                rawAttach: [],
+                files: row.attachments || [],
+                created: new Date(row.ts).getTime(),
+              })
+              if (!base) return row
+              return {
+                ...row,
+                handoff: {
+                  ...base,
+                  sessions: rows,
+                  sessionsLoading: false,
+                  ...(sessionIds.length && !base.sourceChatIds.length ? { sourceChatIds: sessionIds } : {}),
+                },
+              }
+            }))
+            return
+          }
+          setLiveMessages((prev) => (prev ?? []).map((row) => (
+            row.id === message.id && row.handoff && !row.handoff.sessions?.length
+              ? { ...row, handoff: { ...row.handoff, sessionsLoading: false } }
+              : row
+          )))
+        } finally {
+          handoffSessionsFetchRef.current.delete(message.id)
         }
       })()
     }
@@ -529,28 +626,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           })).filter((item) => item.name)
         }
       }
-      const packedAttach = rawAttach.find((item) => isHandoffAttach(item))
-      const parsedPack = packedAttach && typeof packedAttach.data === 'string' && packedAttach.data
-        ? parseHandoffPack(String(packedAttach.data))
-        : null
-      const packSessions = handoffSessionsFromPack(parsedPack)
-      const packSessionIds = handoffSessionIdsFromPack(parsedPack)
-      const packTitle = parsedPack && typeof parsedPack.title === 'string' && parsedPack.title.trim()
-        ? String(parsedPack.title).trim()
-        : '工作交接'
-      const handoff = packedAttach || row.handoff
-        ? {
-            id: `${row.id || threadId}-handoff`,
-            title: packTitle,
-            summary: text,
-            sourceWorkspaceId: String(row.workspace || parsedPack?.workspace || ''),
-            sourceChatIds: packSessionIds,
-            fileIds: files.filter((item) => item.name !== HANDOFF_NAME).map((item) => item.fileId),
-            ...(packSessions?.length ? { sessions: packSessions } : {}),
-            createdAt: created ? new Date(created).toISOString() : new Date().toISOString(),
-            status: 'sent' as const,
-          }
-        : undefined
+      const handoff = buildThreadHandoff({ row, threadId, text, rawAttach, files, created })
       if (outgoing && row.status === 'presend') {
         latestPresend = { id: String(row.id || ''), threadId, text }
         continue
@@ -596,7 +672,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
             ? old.text
             : (row.text.length >= old.text.length ? row.text : old.text),
           attachments: row.attachments?.length ? row.attachments : old.attachments,
-          handoff: mergeHandoffPackages(row.handoff, old.handoff),
+          handoff: mergeHandoffPackages(row.handoff, old.handoff) ?? row.handoff ?? old.handoff,
           read: markedReadRef.current.has(row.id) || row.read || old.read,
         })
       }
@@ -1468,7 +1544,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                           <div className={clsx('px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words', isMe ? 'bg-brand text-white' : isAssistant ? 'bg-amber-50 border border-amber-200 text-amber-900' : 'bg-surface-2 text-ink')}>
                             {!m.recalledAt && m.text && !(m.attachments?.length && (/^附件\s+/u.test(m.text) || m.text === '（附件）' || m.attachments.every((att) => m.text.includes(att.name)))) && <div>{m.text}</div>}
                             {m.attachments?.length ? <div className={clsx('mt-2 grid gap-1.5', m.text && !(/^附件\s+/u.test(m.text) || m.text === '（附件）' || m.attachments.every((att) => m.text.includes(att.name))) && 'pt-2 border-t')}>{m.attachments.map((att, index) => <button key={att.id} type="button" onClick={() => previewLetterAttach(m, att)} className={clsx('rounded text-left overflow-hidden', att.kind === 'image' ? '' : (isMe ? 'px-2 py-1.5 bg-white/12 hover:bg-white/20 flex items-center gap-2' : 'px-2 py-1.5 bg-white border border-line hover:border-brand flex items-center gap-2'))}>{att.kind === 'image' ? <LetterThumb requestId={m.id} index={letterIndexOf(att, index)} name={att.name} /> : <><span>{fileIcon(att.kind)}</span><span className="min-w-0 flex-1"><span className="block text-xs truncate">{att.name}</span><span className={clsx('block text-[9px]', isMe ? 'text-white/65' : 'text-ink-subtle')}>{att.size ? `${Math.max(1, Math.round(att.size / 1024))} KB` : '附件'}</span></span></>}</button>)}</div> : null}
-                            {m.handoff && <div className={clsx('mt-2 rounded-lg overflow-hidden text-left', isMe ? 'bg-white text-ink' : 'bg-white border border-line')}><div className="px-3 py-2 bg-ink text-white flex items-center gap-2"><MessageSquareText size={14} /><div className="flex-1"><div className="text-xs font-semibold">{m.handoff.title}</div><div className="text-[9px] text-white/65">交接包 · {handoffSessionCount(m.handoff)} 个 Agent 会话 · {handoffSessionFiles(m.handoff).length} 个会话文件 · {m.handoff.fileIds.length} 个工作区文件</div></div></div><div className="p-3 text-xs whitespace-pre-wrap leading-5">{m.handoff.summary}</div><div className="px-3 pb-3 flex gap-2"><button onClick={() => previewHandoff(m.handoff!)} className="flex-1 px-2 py-1.5 rounded border border-line hover:bg-surface-2">打开详情</button><button onClick={() => continueHandoff(m)} className="flex-1 px-2 py-1.5 rounded bg-brand text-white flex items-center justify-center gap-1"><Play size={11} /> 接着做</button></div></div>}
+                            {m.handoff && <div className={clsx('mt-2 rounded-lg overflow-hidden text-left', isMe ? 'bg-white text-ink' : 'bg-white border border-line')}><div className="px-3 py-2 bg-ink text-white flex items-center gap-2"><MessageSquareText size={14} /><div className="flex-1"><div className="text-xs font-semibold">{m.handoff.title}</div><div className="text-[9px] text-white/65">交接包 · {handoffSessionCount(m.handoff)} 个 Agent 会话 · {handoffPackSessionLine(m.handoff)}{m.handoff.fileIds.length ? ` · ${m.handoff.fileIds.length} 个工作区文件` : ''}</div></div></div><div className="p-3 text-xs whitespace-pre-wrap leading-5">{m.handoff.summary}</div><div className="px-3 pb-3 flex gap-2"><button onClick={() => previewHandoff(m.handoff!)} className="flex-1 px-2 py-1.5 rounded border border-line hover:bg-surface-2">打开详情</button><button onClick={() => continueHandoff(m)} className="flex-1 px-2 py-1.5 rounded bg-brand text-white flex items-center justify-center gap-1"><Play size={11} /> 接着做</button></div></div>}
                             {(m.translation || translations[m.id]) && <div className={clsx('mt-2 pt-2 border-t text-xs leading-5', isMe ? 'border-white/20 text-white/85' : 'border-line text-ink-muted')}><span className="text-[9px] uppercase tracking-wide opacity-70">English</span><div>{m.translation || translations[m.id]}</div></div>}
                             {m.recalledAt && <div className={clsx('italic text-xs', isMe ? 'text-white/70' : 'text-ink-subtle')}>{isMe ? '你撤回了一条消息' : '对方撤回了一条消息'}</div>}
                           </div>
