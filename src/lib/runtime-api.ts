@@ -1115,6 +1115,31 @@ export class RuntimeApi {
     return result.data
   }
 
+  async fetchContextPack(input: {
+    workspaceCwd: string
+    scopes: string[]
+    query?: string
+    entity?: Record<string, unknown>
+    intentKind?: 'decision' | 'draft' | 'lookup'
+    sessionId?: string
+  }, signal?: AbortSignal): Promise<{ pack: Record<string, unknown>; warnings: string[] }> {
+    const result = await this.request<{ data: Record<string, unknown>; warnings?: string[] }>('/api/v1/context/pack', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return { pack: result.data, warnings: result.warnings ?? [] }
+  }
+
+  async fetchCorpus(id: string, signal?: AbortSignal): Promise<{ ok: boolean; id: string; title?: string; text?: string; href?: Record<string, unknown> }> {
+    const result = await this.request<{ ok: boolean; id: string; title?: string; text?: string; href?: Record<string, unknown> }>(
+      `/api/v1/corpus/${encodeURIComponent(id)}`,
+      { signal },
+    )
+    return result
+  }
+
   async imState(sessionId?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''
     const result = await this.request<{ data: Record<string, unknown> }>(`/api/v1/im/state${query}`, { signal })
@@ -1393,6 +1418,129 @@ export class RuntimeApi {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     })
+    return result.data
+  }
+
+  async getDeclarativeApp(appId: string, signal?: AbortSignal) {
+    const result = await this.request<{ ok: boolean; data: import('@/lib/app-spec').FdeAppDetail }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}`,
+      { signal },
+    )
+    return result.data
+  }
+
+  async createDeclarativeApp(input: { workspaceCwd: string; workspaceId?: string; spec: JsonValue }, signal?: AbortSignal) {
+    const result = await this.request<{ ok: boolean; data: { appId: string; revision: number }; errors?: { path: string; message: string }[] }>(
+      '/api/v1/apps',
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      },
+    )
+    return result
+  }
+
+  async putDeclarativeAppSpec(appId: string, input: { spec: JsonValue; changeNote?: string }, signal?: AbortSignal) {
+    return this.request<{ ok: boolean; data?: { revision: number }; errors?: { path: string; message: string }[]; error?: string }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}/spec`,
+      {
+        method: 'PUT',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      },
+    )
+  }
+
+  async activateDeclarativeApp(appId: string, signal?: AbortSignal) {
+    return this.request<{ ok: boolean; data?: { status: string }; errors?: { path: string; message: string }[] }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}/activate`,
+      { method: 'POST', signal },
+    )
+  }
+
+  async archiveDeclarativeApp(appId: string, signal?: AbortSignal) {
+    return this.request<{ ok: boolean }>(`/api/v1/apps/${encodeURIComponent(appId)}/archive`, { method: 'POST', signal })
+  }
+
+  async rollbackDeclarativeApp(appId: string, revision: number, signal?: AbortSignal) {
+    return this.request<{ ok: boolean; data: { revision: number } }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}/rollback`,
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision }),
+      },
+    )
+  }
+
+  async listAppRecords(
+    slug: string,
+    entity: string,
+    workspaceCwd: string,
+    query?: { filter?: Record<string, unknown>; page?: number; size?: number; sort?: string; dir?: string },
+    signal?: AbortSignal,
+  ) {
+    const params = new URLSearchParams({ workspace: workspaceCwd })
+    if (query?.filter) params.set('filter', JSON.stringify(query.filter))
+    if (query?.page) params.set('page', String(query.page))
+    if (query?.size) params.set('size', String(query.size))
+    if (query?.sort) params.set('sort', query.sort)
+    if (query?.dir) params.set('dir', query.dir)
+    const result = await this.request<{ ok: boolean; data: import('@/lib/app-spec').AppRecordList }>(
+      `/api/v1/apps/${encodeURIComponent(slug)}/${encodeURIComponent(entity)}?${params}`,
+      { signal },
+    )
+    return result.data
+  }
+
+  async createAppRecord(slug: string, entity: string, workspaceCwd: string, body: Record<string, unknown>, signal?: AbortSignal) {
+    const result = await this.request<{ ok: boolean; data: Record<string, unknown>; errors?: { path: string; message: string }[] }>(
+      `/api/v1/apps/${encodeURIComponent(slug)}/${encodeURIComponent(entity)}`,
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, workspace: workspaceCwd, workspaceCwd }),
+      },
+    )
+    return result
+  }
+
+  async patchAppRecord(slug: string, entity: string, rid: string, workspaceCwd: string, body: Record<string, unknown>, signal?: AbortSignal) {
+    const params = new URLSearchParams({ workspace: workspaceCwd })
+    return this.request<{ ok: boolean; data: Record<string, unknown>; errors?: { path: string; message: string }[] }>(
+      `/api/v1/apps/${encodeURIComponent(slug)}/${encodeURIComponent(entity)}/${encodeURIComponent(rid)}?${params}`,
+      {
+        method: 'PATCH',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    )
+  }
+
+  async runAppAction(slug: string, actionName: string, workspaceCwd: string, rids: string[], signal?: AbortSignal) {
+    return this.request<{ ok: boolean; data: unknown }>(
+      `/api/v1/apps/${encodeURIComponent(slug)}/actions/${encodeURIComponent(actionName)}`,
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rids, workspaceCwd, workspace: workspaceCwd }),
+      },
+    )
+  }
+
+  async getAppStat(slug: string, viewId: string, workspaceCwd: string, signal?: AbortSignal) {
+    const params = new URLSearchParams({ workspace: workspaceCwd })
+    const result = await this.request<{ ok: boolean; data: { value: number; label: string } }>(
+      `/api/v1/apps/${encodeURIComponent(slug)}/stats/${encodeURIComponent(viewId)}?${params}`,
+      { signal },
+    )
     return result.data
   }
 

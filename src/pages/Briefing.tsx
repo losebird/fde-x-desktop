@@ -89,12 +89,23 @@ export default function Briefing() {
               onClick={() => {
                 const summary = `请根据当前工作区整理今日早报。待办 ${openTasks.length}，逾期 ${overdueTasks.length}，今日事件 ${todayEvents.length}。`
                 setAiNote('')
-                void loadCurrentAiTarget().then((target) => {
+                void loadCurrentAiTarget().then(async (target) => {
                   if (!target.ok) {
                     setAiNote(target.error)
                     return
                   }
-                  return runtimeApi.promptAi(target.sessionId, { text: `【早报】\n${summary}` })
+                  const { buildContextPack, renderContextForPrompt } = await import('@/lib/context-pack')
+                  let contextText = ''
+                  try {
+                    const packed = await buildContextPack({
+                      scopes: ['workspace', 'tasks', 'memory'],
+                      query: summary,
+                      intentKind: 'draft',
+                    })
+                    contextText = renderContextForPrompt(packed.pack)
+                  } catch { /* 早报仍可生成 */ }
+                  const text = [contextText, `【早报】\n${summary}`].filter(Boolean).join('\n\n')
+                  return runtimeApi.promptAi(target.sessionId, { text })
                 }).catch((cause) => setAiNote(cause instanceof Error ? cause.message : '早报生成失败'))
               }}
             >

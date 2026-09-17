@@ -13,6 +13,8 @@ import { runtimeApi } from '@/lib/runtime-api'
 import { isPrimarySession, loadCurrentAiTarget, loadCurrentWorkspaceCwd, sessionMatchesCwd } from '@/lib/ai-target'
 import { IM_AVATARS, imAvatar } from '@/lib/im-avatar'
 import { buildImAiPrompt, extractComposerBody, isUnsafeToSend, lastIncomingText, threadExcerpt } from '@/lib/im-ai'
+import { buildContextPack, renderContextForPrompt, type ContextPack } from '@/lib/context-pack'
+import { ContextChips } from '@/components/ai/ContextChips'
 import type {
   ChatThread, FileNode, IMAIAction, IMAttachment, IMContact, IMHandoffPackage, IMMessage,
 } from '@/lib/types'
@@ -451,6 +453,10 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const [pairWait, setPairWait] = useState('')
   const [pairBusy, setPairBusy] = useState(false)
   const [aiHint, setAiHint] = useState('')
+  const [ctxPack, setCtxPack] = useState<ContextPack | null>(null)
+  const [ctxWarnings, setCtxWarnings] = useState<string[]>([])
+  const [ctxOmit, setCtxOmit] = useState<Set<string>>(() => new Set())
+  const lastImPromptBodyRef = useRef('')
   const [imBanner, setImBanner] = useState<{ kind: 'working' | 'ok' | 'err'; text: string } | null>(null)
   const [translations, setTranslations] = useState<Record<string, string>>({})
   const [selfName, setSelfName] = useState('本机')
@@ -1170,9 +1176,38 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         extra: action === 'precedent' || action === 'local' ? (quote || input) : '',
         workspace: target.cwd,
       })
+      const memoryQuery = action === 'precedent'
+        ? (quote || incoming || thread)
+        : (incoming || quote || thread)
+      const intentKind = action === 'precedent' ? 'lookup' : 'draft'
+      const scopes = action === 'precedent'
+        ? (['memory'] as const)
+        : (['workspace', 'im', 'memory'] as const)
+      let contextText = ''
+      try {
+        const packed = await buildContextPack({
+          scopes: [...scopes],
+          query: memoryQuery,
+          intentKind,
+          entity: {
+            kind: 'im',
+            ref: activeContact.id,
+            fields: { peer: activeContact.name, excerpt: incoming || quote },
+          },
+        })
+        setCtxPack(packed.pack)
+        setCtxWarnings(packed.warnings)
+        setCtxOmit(new Set())
+        contextText = renderContextForPrompt(packed.pack, new Set())
+      } catch {
+        setCtxPack(null)
+        setCtxWarnings(['memory_engine_not_ready'])
+      }
+      lastImPromptBodyRef.current = built.text
+      const promptText = [contextText, built.text].filter(Boolean).join('\n\n')
       window.dispatchEvent(new CustomEvent('fde-x-ai-prompt', {
         detail: {
-          text: built.text,
+          text: promptText,
           fillThreadId: built.fill ? activeContact.id : '',
         },
       }))
@@ -1607,6 +1642,29 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                     >
                       <div className="px-2 py-1.5 border-b border-line bg-surface-2/55 flex items-center gap-1 flex-wrap">
                         {AI_ACTIONS.map((action) => <button key={action.id} onClick={() => runAIAction(action.id)} title={action.hint} className="px-2 py-1 text-[11px] rounded border border-line bg-white text-ink hover:border-brand hover:text-brand hover:bg-brand-soft flex items-center gap-1">{action.id === 'draft' && <Sparkles size={10} />}{action.label}</button>)}
+                        <ContextChips
+                          pack={ctxPack}
+                          warnings={ctxWarnings}
+                          omit={ctxOmit}
+                          onToggleOmit={(key) => {
+                            setCtxOmit((prev) => {
+                              const next = new Set(prev)
+                              if (next.has(key)) next.delete(key)
+                              else next.add(key)
+                              if (ctxPack && lastImPromptBodyRef.current) {
+                                const contextText = renderContextForPrompt(ctxPack, next)
+                                const promptText = [contextText, lastImPromptBodyRef.current].filter(Boolean).join('\n\n')
+                                window.dispatchEvent(new CustomEvent('fde-x-ai-prompt', {
+                                  detail: {
+                                    text: promptText,
+                                    fillThreadId: activeContact?.id || '',
+                                  },
+                                }))
+                              }
+                              return next
+                            })
+                          }}
+                        />
                         <div className="relative"><button onClick={() => setEmojiOpen((v) => !v)} className="px-2 py-1 text-[11px] rounded border border-line bg-white hover:border-brand flex items-center gap-1"><Smile size={11} /> 表情</button>{emojiOpen && <div className="absolute bottom-full mb-1 left-0 bg-white border border-line rounded-md shadow-lg p-1.5 z-30 flex gap-0.5">{EMOJIS.map((emo) => <button key={emo} className="w-7 h-7 rounded hover:bg-surface-2 text-base" onClick={() => { setComposer(`${input}${emo}`); setEmojiOpen(false) }}>{emo}</button>)}</div>}</div>
                         <button onClick={() => setFilePickerOpen(true)} className="px-2 py-1 text-[11px] rounded border border-line bg-white hover:border-brand flex items-center gap-1"><Paperclip size={11} /> 文件</button>
                         <button onClick={() => setHistoryOpen(true)} className="px-2 py-1 text-[11px] rounded border border-line bg-white hover:border-brand flex items-center gap-1"><History size={11} /> 记录</button>

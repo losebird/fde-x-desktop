@@ -766,6 +766,31 @@ export default function Files() {
                   >
                     <Star size={14} /> 仅收藏
                   </button>
+                  <button
+                    type="button"
+                    className="btn h-8"
+                    onClick={() => {
+                      const cwd = listingRef.current.cwd
+                      if (!cwd) {
+                        setFilesError('当前顶栏没有绑定本机目录')
+                        return
+                      }
+                      const path = validParentId || '.'
+                      setFileNotice('正在摄取此目录到记忆…')
+                      void fetch('/semantic-os/ingest/start', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({ cwd, path }),
+                      }).then((r) => r.json()).then((job) => {
+                        const state = String(job?.state || '')
+                        setFileNotice(state === 'failed' ? String(job.detail || job.error || '摄取失败') : '已开始摄取，可在记忆页看进度')
+                      }).catch((error) => {
+                        setFilesError(error instanceof Error ? error.message : '摄取失败')
+                      })
+                    }}
+                  >
+                    摄取此目录到记忆
+                  </button>
                 </div>
               </div>
             </Card>

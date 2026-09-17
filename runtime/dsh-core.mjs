@@ -731,7 +731,18 @@ export class DshCoreConnector {
     this.assertConnected()
     if (path === '/python') {
       const op = options.op
-      if (op !== 'list_memory_cards' && op !== 'draft_memory_card') {
+      const allowedOps = new Set([
+        'list_memory_cards',
+        'draft_memory_card',
+        'nod_memory_card',
+        'record_decision',
+        'index_passages',
+        'find_precedents',
+        'brief_for_decision',
+        'query_decisions',
+        'lineage',
+      ])
+      if (!allowedOps.has(op)) {
         throw new AiRemoteError('ai/forbidden', '记忆操作不允许')
       }
       const { cwd, ascii } = semanticCwd(options, this.cwd)

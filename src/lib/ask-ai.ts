@@ -1,10 +1,11 @@
 import { loadCurrentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { buildContextPack, renderContextForPrompt, type ContextScope } from '@/lib/context-pack'
 import { waitForFdeEvent } from '@/lib/events'
 import { validateJsonSchemaLite, type JsonSchemaLite } from '@/lib/json-schema-lite'
 import { runtimeApi } from '@/lib/runtime-api'
 import { useApp } from '@/store/app'
 
-export type ContextScope = 'workspace' | 'tasks' | 'im' | 'biz' | 'apps'
+export type { ContextScope }
 
 export type AskAiOptions = {
   intent: string
@@ -122,11 +123,6 @@ async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId:
   return { ok: true, sessionId: target.sessionId, cwd: target.cwd }
 }
 
-function buildContextLine(scopes: ContextScope[]): string {
-  const list = scopes.length ? scopes.join(', ') : 'workspace'
-  return `上下文范围：${list}（摘要；完整包由 fde_context_get 拉取）`
-}
-
 export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult<T>> {
   const requestId = ulid()
   const timeoutMs = opts.timeoutMs ?? 120_000
@@ -140,10 +136,21 @@ export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult
   const schemaHint = opts.schema
     ? '\n完成后用 fde_submit_result 提交符合给定 JSON Schema 的 JSON（kind=json）。'
     : ''
+  let contextBlock = ''
+  try {
+    const packed = await buildContextPack({
+      scopes,
+      query: opts.prompt,
+      intentKind: 'lookup',
+    })
+    contextBlock = renderContextForPrompt(packed.pack)
+  } catch (cause) {
+    console.warn('ask_ai_context_pack_failed', cause)
+  }
   const prompt = [
     `[fde-request:${requestId}]`,
     opts.intent,
-    buildContextLine(scopes),
+    contextBlock,
     opts.prompt,
     `完成后调用 fde_submit_result(requestId="${requestId}", kind="json", data=…)。${schemaHint}`,
   ].filter(Boolean).join('\n')

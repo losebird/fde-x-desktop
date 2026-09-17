@@ -18,6 +18,7 @@ export const FDE_EVENT_TYPES_V1 = [
   'biz.sheet.pending',
   'biz.write.done',
   'im.message.received',
+  'im.message.sent',
   'im.unread.changed',
   'app.spec.submitted',
   'app.activated',
