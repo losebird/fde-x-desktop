@@ -527,6 +527,32 @@ export class DshCoreConnector {
     const source = await this.findSemanticRuntimeSource()
     if (!source) return ''
 
+    if (process.env.FDE_SEMANTIC_RUNTIME_MODE === 'readonly') {
+      const exe = process.platform === 'win32' ? 'python.exe' : 'python3'
+      const python = join(source.tree, 'python', 'bin', exe)
+      try {
+        await access(python, constants.X_OK)
+        await mkdir(destDir, { recursive: true })
+        const destState = join(destDir, 'install-state.json')
+        try {
+          await access(destState, constants.R_OK)
+        } catch {
+          const officialState = officialSemanticInstallState()
+          try {
+            const raw = JSON.parse(await readFile(officialState, 'utf8'))
+            if (raw && raw.status) {
+              raw.status.python = python
+              if (raw.status.semantica) raw.status.semantica.python = python
+            }
+            await writeFile(destState, `${JSON.stringify(raw, null, 2)}\n`)
+          } catch { /* sidecar 自己探 */ }
+        }
+        return python
+      } catch {
+        return ''
+      }
+    }
+
     await mkdir(destDir, { recursive: true })
     const staging = `${destRuntime}.staging-${process.pid}`
     await rm(staging, { recursive: true, force: true })
@@ -586,6 +612,11 @@ export class DshCoreConnector {
       const tree = join(officialRuntime, version, key)
       await access(join(tree, 'runtime-manifest.json'), constants.R_OK)
       return { version, key, tree, digest: String(current.manifestDigest || '') }
+    } catch { /* flat staged tree (Electron resources) */ }
+    try {
+      const key = `${process.platform}-${process.arch}`
+      await access(join(officialRuntime, 'runtime-manifest.json'), constants.R_OK)
+      return { version: '0.1.1', key, tree: officialRuntime, digest: '' }
     } catch { /* 没有官方已装 runtime 就用插件自带的 dist */ }
     try {
       const key = `${process.platform}-${process.arch}`
