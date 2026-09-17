@@ -1,40 +1,76 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { platformRuntimeKey } from './paths.js'
+import {
+  buildInstallStatePayload,
+  installSemanticRuntimeFromBundled,
+  probeInstalledSemanticRuntime,
+  readBundledRuntimeManifest,
+  shouldRunSemanticInstall,
+} from './semantic-runtime.js'
+import { readInstallState } from './install-state.js'
 
 export type FirstRunProgress = (step: string, detail?: string) => void
 
-export async function ensureFirstRun(
-  dshHome: string,
-  installStatePath: string,
-  onProgress: FirstRunProgress = () => undefined,
-): Promise<{ fresh: boolean }> {
+export type EnsureFirstRunOptions = {
+  dshHome: string
+  installStatePath: string
+  semanticRuntimeSrc: string
+  vendorDir: string
+  platform: string
+  skipSemanticCopy: boolean
+  onProgress?: FirstRunProgress
+}
+
+export async function ensureFirstRun(options: EnsureFirstRunOptions): Promise<{ fresh: boolean }> {
+  const {
+    dshHome,
+    installStatePath,
+    semanticRuntimeSrc,
+    vendorDir,
+    platform,
+    skipSemanticCopy,
+    onProgress = () => undefined,
+  } = options
+
   await mkdir(dshHome, { recursive: true })
   await mkdir(join(dshHome, 'profiles'), { recursive: true })
-
-  if (existsSync(installStatePath)) {
-    return { fresh: false }
-  }
-
   onProgress('create_dirs', dshHome)
-  const payload = {
-    schemaVersion: 1,
-    initializedAt: new Date().toISOString(),
-    platform: platformRuntimeKey(),
-    semanticRuntimeMode: 'readonly',
-    note: 'P1 POC：跳过 1.8GB 拷贝，使用 resources 内只读 semantic runtime（若已 stage）',
+
+  const existing = await readInstallState(installStatePath)
+  const bundled = skipSemanticCopy ? null : await readBundledRuntimeManifest(semanticRuntimeSrc)
+
+  let installedRuntimeOk = false
+  if (!skipSemanticCopy && bundled) {
+    onProgress('semantic_probe')
+    installedRuntimeOk = await probeInstalledSemanticRuntime(dshHome, vendorDir)
   }
-  await writeFile(installStatePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
+
+  const runInstall = bundled
+    ? shouldRunSemanticInstall(existing, bundled.treeHash, skipSemanticCopy, installedRuntimeOk)
+    : false
+
+  if (runInstall && bundled) {
+    onProgress('semantic_verify_source', bundled.treeHash)
+    onProgress('semantic_install')
+    const installed = await installSemanticRuntimeFromBundled(dshHome, semanticRuntimeSrc, vendorDir)
+    onProgress('semantic_tree_hash', installed.treeHash)
+    onProgress('write_install_state')
+    const payload = buildInstallStatePayload(platform, installed, false)
+    await writeFile(installStatePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
+    onProgress('complete')
+    return { fresh: true }
+  }
+
+  if (!existing) {
+    onProgress('write_install_state')
+    const payload = buildInstallStatePayload(platform, bundled, skipSemanticCopy)
+    await writeFile(installStatePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
+    onProgress('complete')
+    return { fresh: true }
+  }
+
   onProgress('complete')
-  return { fresh: true }
+  return { fresh: false }
 }
 
-export async function readInstallState(path: string): Promise<Record<string, unknown> | null> {
-  try {
-    const raw = await readFile(path, 'utf8')
-    return JSON.parse(raw) as Record<string, unknown>
-  } catch {
-    return null
-  }
-}
+export { readInstallState } from './install-state.js'

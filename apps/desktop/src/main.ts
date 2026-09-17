@@ -29,7 +29,6 @@ function buildBffEnv(resources: string, appRoot: string) {
     FDE_DSH_BIN: join(resources, 'dsh', 'bin', process.platform === 'win32' ? 'dsh.cmd' : 'dsh'),
     FDE_VENDOR_DIR: join(resources, 'plugins'),
     FDE_SEMANTIC_RUNTIME_SRC: join(resources, 'semantic-runtime', runtimeKey),
-    FDE_SEMANTIC_RUNTIME_MODE: 'readonly',
     FDE_DSH_HOME: roots.dshHome,
     FDE_DATABASE_PATH: roots.databasePath,
     FDE_RUNTIME_PORT: '0',
@@ -53,15 +52,30 @@ async function createWindow() {
     title: 'FDE-X 初始化',
     webPreferences: { nodeIntegration: false, contextIsolation: true },
   })
-  initWindow.loadURL(`data:text/html,<html><body style="font-family:system-ui;padding:24px"><h2>正在初始化…</h2><p id="s">创建用户目录</p></body></html>`)
+  initWindow.loadURL(`data:text/html,<html><body style="font-family:system-ui;padding:24px"><h2>正在初始化…</h2><p id="s">准备中…</p></body></html>`)
 
   const setStep = (text: string) => {
     initWindow.webContents.executeJavaScript(`document.getElementById('s').textContent=${JSON.stringify(text)}`).catch(() => undefined)
   }
 
-  await ensureFirstRun(roots.dshHome, roots.installState, (step) => {
-    if (step === 'create_dirs') setStep('创建用户目录…')
-    if (step === 'complete') setStep('完成')
+  const skipSemanticCopy = process.env.FDE_DESKTOP_DEV === '1'
+
+  await ensureFirstRun({
+    dshHome: roots.dshHome,
+    installStatePath: roots.installState,
+    semanticRuntimeSrc: join(resources, 'semantic-runtime', platformRuntimeKey()),
+    vendorDir: join(resources, 'plugins'),
+    platform: platformRuntimeKey(),
+    skipSemanticCopy,
+    onProgress: (step, detail) => {
+      if (step === 'create_dirs') setStep('创建用户目录…')
+      if (step === 'semantic_probe') setStep('检查语义引擎安装状态…')
+      if (step === 'semantic_verify_source') setStep('校验语义引擎包…')
+      if (step === 'semantic_install') setStep('正在安装语义引擎（约 1.8 GB）…')
+      if (step === 'semantic_tree_hash') setStep(detail ? `校验 treeHash…` : '校验 treeHash…')
+      if (step === 'write_install_state') setStep('写入安装状态…')
+      if (step === 'complete') setStep('完成')
+    },
   })
 
   const { child, port } = await spawnBff(
