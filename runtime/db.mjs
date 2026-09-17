@@ -249,14 +249,33 @@ export function listPendingEvents(db, limit = 50) {
   }))
 }
 
+/** Seed/runtime rows for lan-assist stay on ws_personal; every active workspace should see them in list. */
+const SHARED_BUSINESS_CONNECTION_PROVIDERS = ['lan-assist']
+
 export function listBusinessConnections(db, { workspaceId = 'ws_personal' } = {}) {
-  return db.prepare(`
-    SELECT id, workspace_id, name, provider, connection_kind, status, config_json,
-           credential_ref, capabilities_json, last_health_json, created_at, updated_at
-    FROM business_connections
-    WHERE workspace_id = ?
-    ORDER BY name ASC
-  `).all(workspaceId).map((row) => ({
+  const rows = workspaceId === 'ws_personal'
+    ? db.prepare(`
+        SELECT id, workspace_id, name, provider, connection_kind, status, config_json,
+               credential_ref, capabilities_json, last_health_json, created_at, updated_at
+        FROM business_connections
+        WHERE workspace_id = ?
+        ORDER BY name ASC
+      `).all(workspaceId)
+    : db.prepare(`
+        SELECT id, workspace_id, name, provider, connection_kind, status, config_json,
+               credential_ref, capabilities_json, last_health_json, created_at, updated_at
+        FROM business_connections
+        WHERE workspace_id = ?
+           OR (workspace_id = 'ws_personal' AND provider IN (${SHARED_BUSINESS_CONNECTION_PROVIDERS.map(() => '?').join(', ')}))
+        ORDER BY name ASC
+      `).all(workspaceId, ...SHARED_BUSINESS_CONNECTION_PROVIDERS)
+
+  const byId = new Map()
+  for (const row of rows) {
+    const prev = byId.get(row.id)
+    if (!prev || row.workspace_id === workspaceId) byId.set(row.id, row)
+  }
+  return [...byId.values()].sort((a, b) => String(a.name).localeCompare(String(b.name))).map((row) => ({
     id: row.id,
     workspaceId: row.workspace_id,
     name: row.name,

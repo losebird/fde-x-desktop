@@ -9,6 +9,7 @@ import {
   insertBizSurface,
   insertOperationStep,
   listBizSurfaces,
+  listBusinessConnections,
   openDatabase,
 } from '../db.mjs'
 
@@ -26,6 +27,16 @@ describe('biz surfaces and live execute', () => {
     assert.match(source, /lanAssist\('\/catalog',\s*\{\s*search:\s*\{\s*workspace/)
     assert.match(source, /lanAssist\('\/traces',\s*\{\s*search:\s*\{\s*workspace/)
     assert.doesNotMatch(source, /\/catalog',\s*\{\s*search:\s*\{\s*sessionId/)
+  })
+
+  test('listBusinessConnections merges ws_personal lan-assist into active workspace', () => {
+    const db = openDatabase(`/tmp/fde-biz-conn-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
+    const wsId = '1985293d-03bb-496f-ad69-5c7f2ac23149'
+    const personal = listBusinessConnections(db, { workspaceId: 'ws_personal' })
+    const scoped = listBusinessConnections(db, { workspaceId: wsId })
+    assert.ok(personal.some((c) => c.id === 'conn_lan_assist'))
+    assert.equal(scoped.filter((c) => c.id === 'conn_lan_assist').length, 1)
+    db.close()
   })
 
   test('biz_surfaces insert and list', () => {
