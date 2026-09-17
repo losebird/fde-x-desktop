@@ -229,6 +229,24 @@ export interface BusinessConnectionRecord {
   updatedAt: string
 }
 
+export interface BizConnectionWithHealth extends BusinessConnectionRecord {
+  lanAssistOnline?: boolean
+  catalogVersion?: unknown
+}
+
+export interface BizSurfaceRecord {
+  id: string
+  workspaceCwd: string
+  connectionId: string | null
+  kind: string
+  action: string
+  previewId: string | null
+  sessionId: string | null
+  rowCount: number | null
+  columns: JsonValue[]
+  createdAt: number
+}
+
 export interface BusinessAppRecord {
   id: string
   workspaceId: string
@@ -1674,7 +1692,7 @@ export class RuntimeApi {
     return result.items
   }
 
-  async planOperation(intent: OperationIntent, signal?: AbortSignal): Promise<RuntimeOperation> {
+  async planOperation(intent: OperationIntent & { plan?: Record<string, unknown> }, signal?: AbortSignal): Promise<RuntimeOperation> {
     const result = await this.request<{ data: RuntimeOperation }>('/api/v1/operations', {
       method: 'POST',
       signal,

@@ -1,0 +1,490 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Bot, CircleAlert, Loader2, Plus, Search, ShieldCheck, X } from 'lucide-react'
+import clsx from 'clsx'
+import { Card, Empty, Tag } from '@/components/ui'
+import { SpecTable } from '@/components/apps/SpecTable'
+import { ContextChips } from '@/components/ai/ContextChips'
+import { buildContextPack, renderContextForPrompt, type ContextPack } from '@/lib/context-pack'
+import { loadCurrentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import {
+  RuntimeApiError,
+  runtimeApi,
+  type BizSurfaceRecord,
+  type BusinessAppRecord,
+  type BusinessConnectionRecord,
+} from '@/lib/runtime-api'
+import { isFdeAppSpec } from '@/lib/app-spec'
+import { useEvents } from '@/lib/events'
+
+const KINDS_CACHE_KEY = 'fde-biz-kinds-cache'
+
+type SheetColumn = { key: string; label?: string }
+type SheetRow = Record<string, unknown>
+type PendingSurface = {
+  kind: string
+  action: string
+  previewId?: string
+  rows: number
+  canWrite?: boolean
+  source?: string
+  sessionId?: string
+  at: number
+}
+
+type Props = {
+  connections: BusinessConnectionRecord[]
+  apps: BusinessAppRecord[]
+  runtimeReady: boolean
+  onPlan: () => void
+  onPlanWithTarget?: (target: { targetRef: string; kind: string; no?: string }) => void
+}
+
+function normalizeRows(raw: unknown): SheetRow[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((row) => {
+    if (!row || typeof row !== 'object') return {}
+    const r = row as { no?: string; status?: string; fields?: Record<string, unknown> }
+    return { orderId: r.no, status: r.status, ...(r.fields ?? {}), ...row }
+  })
+}
+
+function formatSurfaceTime(at: number) {
+  const mins = Math.max(0, Math.round((Date.now() - at) / 60_000))
+  if (mins < 1) return '刚刚'
+  if (mins < 60) return `${mins} 分钟前`
+  return `${Math.round(mins / 60)} 小时前`
+}
+
+export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWithTarget }: Props) {
+  const [workspaceCwd, setWorkspaceCwd] = useState('')
+  const [kinds, setKinds] = useState<{ kind: string; label: string }[]>([])
+  const [lanReady, setLanReady] = useState(true)
+  const [gateHint, setGateHint] = useState('')
+  const [connectionId, setConnectionId] = useState('')
+  const [kind, setKind] = useState('')
+  const [query, setQuery] = useState('')
+  const [columns, setColumns] = useState<SheetColumn[]>([])
+  const [rows, setRows] = useState<SheetRow[]>([])
+  const [sourceLabel, setSourceLabel] = useState('')
+  const [pending, setPending] = useState<PendingSurface | null>(null)
+  const [surfaces, setSurfaces] = useState<BizSurfaceRecord[]>([])
+  const [loading, setLoading] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const [selectedRow, setSelectedRow] = useState<SheetRow | null>(null)
+  const [drawer, setDrawer] = useState<{ previewId: string; sheet: Record<string, unknown>; canWrite: boolean; gateReason?: string } | null>(null)
+  const [contextPack, setContextPack] = useState<ContextPack | null>(null)
+  const [contextWarnings, setContextWarnings] = useState<string[]>([])
+  const [omit, setOmit] = useState<Set<string>>(new Set())
+
+  const localApps = useMemo(
+    () => apps.filter((app) => isFdeAppSpec(app.definition)),
+    [apps],
+  )
+  const connectorOptions = useMemo(() => {
+    const external = connections.map((c) => ({ id: c.id, label: c.name }))
+    const local = localApps.map((a) => ({ id: `local:${a.id}`, label: `本地 · ${a.name}` }))
+    return [...external, ...local]
+  }, [connections, localApps])
+
+  const activeLocalApp = useMemo(() => {
+    if (!connectionId.startsWith('local:')) return null
+    const appId = connectionId.slice('local:'.length)
+    const app = localApps.find((a) => a.id === appId)
+    if (!app || !isFdeAppSpec(app.definition)) return null
+    const spec = app.definition
+    const tableView = spec.views.find((v) => v.type === 'table') || spec.views[0]
+    return { app, spec, tableView }
+  }, [connectionId, localApps])
+
+  useEffect(() => {
+    const ws = loadCurrentWorkspaceCwd()
+    if (ws.ok) setWorkspaceCwd(ws.cwd)
+  }, [])
+
+  const loadKinds = useCallback(async () => {
+    try {
+      const data = await runtimeApi.listBizKinds()
+      const next = data.kinds.map((k) => ({ kind: k.kind, label: k.label || k.kind }))
+      setKinds(next)
+      sessionStorage.setItem(KINDS_CACHE_KEY, JSON.stringify(next))
+      setLanReady(true)
+      setGateHint('')
+      if (!kind && next[0]) setKind(next[0].kind)
+    } catch {
+      setLanReady(false)
+      try {
+        const cached = sessionStorage.getItem(KINDS_CACHE_KEY)
+        if (cached) {
+          const parsed = JSON.parse(cached) as { kind: string; label: string }[]
+          setKinds(parsed)
+          if (!kind && parsed[0]) setKind(parsed[0].kind)
+        }
+      } catch { /* ignore */ }
+      setGateHint('事务底座未就绪')
+    }
+  }, [kind])
+
+  const loadSurfaces = useCallback(async () => {
+    if (!workspaceCwd) return
+    try {
+      setSurfaces(await runtimeApi.listBizSurfaces(workspaceCwd, 20))
+    } catch { /* ignore */ }
+  }, [workspaceCwd])
+
+  useEffect(() => {
+    if (!connectionId && connectorOptions[0]) setConnectionId(connectorOptions[0].id)
+  }, [connectionId, connectorOptions])
+
+  useEffect(() => {
+    if (runtimeReady) void loadKinds()
+  }, [loadKinds, runtimeReady])
+
+  useEffect(() => {
+    void loadSurfaces()
+  }, [loadSurfaces])
+
+  useEvents(['biz.sheet.pending'], (event) => {
+    const payload = event.payload as PendingSurface & { rows?: number }
+    const rowCount = typeof payload.rows === 'number' ? payload.rows : 0
+    setPending({
+      kind: String(payload.kind || ''),
+      action: String(payload.action || ''),
+      previewId: payload.previewId,
+      rows: rowCount,
+      canWrite: payload.canWrite,
+      source: payload.source,
+      sessionId: payload.sessionId,
+      at: Date.now(),
+    })
+    void loadSurfaces()
+  })
+
+  const applySheet = useCallback((sheet: Record<string, unknown>, connName: string) => {
+    const cols = Array.isArray(sheet.columns) ? sheet.columns as SheetColumn[] : []
+    const normalizedCols = cols.map((c) => ({
+      key: String(c.key || c.label || ''),
+      label: String(c.label || c.key || ''),
+    }))
+    setColumns(normalizedCols.length ? normalizedCols : [])
+    setRows(normalizeRows(sheet.rows))
+    const action = String(sheet.action || '现查')
+    const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date())
+    setSourceLabel(`${connName} · ${action} ${time}`)
+  }, [])
+
+  const runPreview = useCallback(async (action: string, extra: Record<string, unknown> = {}) => {
+    if (!lanReady || activeLocalApp) return
+    setLoading(true)
+    setError('')
+    try {
+      const conn = connections.find((c) => c.id === connectionId)
+      const system = conn?.provider || 'NocoBase'
+      const data = await runtimeApi.bizPreview({
+        kind,
+        action,
+        system,
+        connectionId,
+        speech: `${action}${kind}`,
+        ...extra,
+      })
+      const sheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
+      applySheet(sheet, conn?.name || '连接器')
+      const previewId = String(sheet.preview_id || sheet.previewId || data.preview_id || '')
+      const canWrite = Boolean(sheet.canWrite ?? sheet.can_write ?? data.canWrite)
+      if (action !== '现查' && previewId) {
+        setDrawer({
+          previewId,
+          sheet,
+          canWrite,
+          gateReason: typeof data.hint === 'string' ? data.hint : undefined,
+        })
+      }
+      void loadSurfaces()
+    } catch (cause) {
+      setError(cause instanceof RuntimeApiError ? cause.message : cause instanceof Error ? cause.message : '预览失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [activeLocalApp, applySheet, connectionId, connections, kind, lanReady, loadSurfaces])
+
+  useEffect(() => {
+    if (!runtimeReady || !lanReady || !kind || activeLocalApp) return
+    void runPreview('现查')
+  }, [runtimeReady, lanReady, kind, connectionId, activeLocalApp, runPreview])
+
+  const filteredRows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((row) => Object.values(row).some((v) => String(v).toLowerCase().includes(q)))
+  }, [query, rows])
+
+  const tableColumns = useMemo(() => {
+    if (columns.length) return columns
+    const sample = filteredRows[0]
+    if (sample) return Object.keys(sample).slice(0, 8).map((key) => ({ key, label: key }))
+    return []
+  }, [columns, filteredRows])
+
+  const confirmWrite = async () => {
+    if (!drawer?.previewId) return
+    setLoading(true)
+    setError('')
+    try {
+      await runtimeApi.bizWrite(drawer.previewId)
+      setNotice('已过账，正在刷新现查结果')
+      setDrawer(null)
+      await runPreview('现查')
+    } catch (cause) {
+      setError(cause instanceof RuntimeApiError ? cause.message : cause instanceof Error ? cause.message : '过账失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const askAiForRow = async () => {
+    if (!selectedRow) return
+    const target = await loadCurrentAiTarget()
+    if (!target.ok) {
+      setError(target.error)
+      return
+    }
+    const entity = {
+      kind: 'biz-row' as const,
+      ref: `fde://external/table/${kind}/${String(selectedRow.orderId ?? selectedRow.no ?? '')}`,
+      fields: selectedRow,
+    }
+    try {
+      const packed = await buildContextPack({ scopes: ['workspace', 'biz', 'memory'], entity })
+      setContextPack(packed.pack)
+      setContextWarnings(packed.warnings)
+      const text = [
+        renderContextForPrompt(packed.pack, omit),
+        `请结合上述业务记录行协助我（型：${kind}）。`,
+      ].join('\n')
+      await runtimeApi.promptAi(target.sessionId, { text })
+      setNotice('已交给当前 AI')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '发给 AI 失败')
+    }
+  }
+
+  const loadSurface = async (surface: BizSurfaceRecord) => {
+    setKind(surface.kind)
+    if (surface.connectionId) setConnectionId(surface.connectionId)
+    if (surface.previewId) {
+      setDrawer({
+        previewId: surface.previewId,
+        sheet: { kind: surface.kind, action: surface.action, columns: surface.columns, rows: [] },
+        canWrite: surface.action !== '现查',
+      })
+    }
+    await runPreview('现查')
+  }
+
+  if (!connectorOptions.length) {
+    return <Empty title="先在设置登记业务连接器" hint="登记后可在此现查与过账" />
+  }
+
+  if (activeLocalApp && workspaceCwd) {
+    const { app, spec, tableView } = activeLocalApp
+    if (!tableView) {
+      return <Empty title="该应用没有表格视图" hint="在应用编辑器中添加 table 视图" />
+    }
+    return (
+      <div className="space-y-3">
+        <Card className="!p-3 flex items-center gap-2 flex-wrap">
+          {connectorOptions.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className={clsx('btn !py-1', connectionId === opt.id && '!bg-ink !text-white !border-ink')}
+              onClick={() => setConnectionId(opt.id)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </Card>
+        <SpecTable
+          app={{ id: app.id, spec, status: app.status }}
+          view={tableView}
+          workspaceCwd={workspaceCwd}
+          onRefresh={() => undefined}
+        />
+      </div>
+    )
+  }
+
+  const pendingText = pending
+    ? pending.action === '现查' || pending.source === 'ai'
+      ? `AI 刚查了 ${pending.kind} · ${pending.rows} 行${pending.sessionId ? ` · 会话 ${pending.sessionId.slice(0, 8)}` : ''} · ${formatSurfaceTime(pending.at)}`
+      : `AI 拟改 ${pending.kind} ${pending.rows} 行 · 待确认`
+    : ''
+
+  return (
+    <div className="space-y-3">
+      {gateHint && (
+        <div className="border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 flex items-start gap-2">
+          <CircleAlert size={13} className="mt-0.5 shrink-0" />
+          <span>{gateHint}。型芯片来自上次缓存，动作已禁用直至底座恢复。</span>
+        </div>
+      )}
+      {error && <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-accent-red">{error}</div>}
+      {notice && <div className="border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">{notice}</div>}
+
+      <Card className="!p-3 flex items-center gap-2 flex-wrap">
+        {connectorOptions.length > 1 && connectorOptions.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            className={clsx('btn !py-1', connectionId === opt.id && '!bg-ink !text-white !border-ink')}
+            onClick={() => setConnectionId(opt.id)}
+          >
+            {opt.label}
+          </button>
+        ))}
+        <div className="flex items-center gap-1 flex-wrap">
+          {kinds.map((k) => (
+            <button
+              key={k.kind}
+              type="button"
+              disabled={!lanReady}
+              className={clsx('btn !py-1', kind === k.kind && '!bg-ink !text-white !border-ink')}
+              onClick={() => setKind(k.kind)}
+            >
+              {k.label}<span className="text-[10px] opacity-70 ml-1">{kind === k.kind ? filteredRows.length : ''}</span>
+            </button>
+          ))}
+        </div>
+        <div className="ml-auto relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
+          <input className="input h-8 pl-8 w-48" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索当前记录" />
+        </div>
+        <button type="button" className="btn-brand !py-1" disabled={!lanReady || loading} onClick={() => void runPreview('新建', { input: {} })}>
+          <Plus size={13} /> 新建
+        </button>
+        <button type="button" className="btn-brand !py-1" onClick={onPlan}><ShieldCheck size={13} /> 规划数据操作</button>
+      </Card>
+
+      {(pendingText || surfaces.length > 0) && (
+        <div className="px-3 py-2 border border-blue-200 bg-blue-50 text-xs text-blue-800 flex flex-wrap items-center gap-2">
+          {pendingText && (
+            <button type="button" className="underline" onClick={() => pending && setKind(pending.kind)}>
+              {pendingText}
+            </button>
+          )}
+          {surfaces.length > 0 && (
+            <select
+              className="input h-7 text-xs ml-auto max-w-[200px]"
+              defaultValue=""
+              onChange={(e) => {
+                const row = surfaces.find((s) => s.id === e.target.value)
+                if (row) void loadSurface(row)
+              }}
+            >
+              <option value="">浮现历史</option>
+              {surfaces.map((s) => (
+                <option key={s.id} value={s.id}>{s.kind} · {s.action} · {new Date(s.createdAt).toLocaleString('zh-CN')}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+
+      <Card className="!p-0 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-ink-muted border-b border-line bg-surface-2">
+              {tableColumns.map((column) => <th key={column.key} className="px-3 py-2.5 font-medium">{column.label}</th>)}
+              <th className="px-3 py-2.5 font-medium text-right">操作</th>
+              <th className="px-3 py-2.5 font-medium text-right">来源</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.map((row, index) => {
+              const rowKey = String(row.orderId ?? row.no ?? index)
+              const isPending = pending?.action && pending.action !== '现查' && pending.kind === kind
+              return (
+                <tr
+                  key={rowKey}
+                  className={clsx(
+                    'border-b border-line last:border-0 hover:bg-surface-2/60',
+                    isPending && 'bg-brand-soft/40',
+                    selectedRow === row && 'bg-brand-soft/70',
+                  )}
+                  onClick={() => setSelectedRow(row)}
+                >
+                  {tableColumns.map((column) => (
+                    <td key={column.key} className="px-3 py-2.5 whitespace-nowrap">{String(row[column.key] ?? '')}</td>
+                  ))}
+                  <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                    <button type="button" className="btn !py-0.5 !text-[11px] mr-1" disabled={!lanReady} onClick={(e) => { e.stopPropagation(); void runPreview('改行', { no: rowKey, input: row }) }}>改行</button>
+                    <button type="button" className="btn !py-0.5 !text-[11px] mr-1" disabled={!lanReady} onClick={(e) => { e.stopPropagation(); void runPreview('删除', { no: rowKey }) }}>删除</button>
+                    <button type="button" className="btn !py-0.5 !text-[11px]" disabled={!lanReady} onClick={(e) => { e.stopPropagation(); void runPreview('过审', { no: rowKey }) }}>过审</button>
+                  </td>
+                  <td className="px-3 py-2.5 text-right"><Tag>{sourceLabel || '现查'}</Tag></td>
+                </tr>
+              )
+            })}
+            {filteredRows.length === 0 && (
+              <tr><td colSpan={tableColumns.length + 2} className="px-3 py-12 text-center text-sm text-ink-muted">{loading ? '加载中…' : '没有匹配记录'}</td></tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className="btn-brand !py-1" disabled={!selectedRow} onClick={() => void askAiForRow()}>
+          <Bot size={13} /> 交给当前 AI
+        </button>
+        <ContextChips
+          pack={contextPack}
+          warnings={contextWarnings}
+          omit={omit}
+          onToggleOmit={(key) => setOmit((prev) => {
+            const next = new Set(prev)
+            if (next.has(key)) next.delete(key)
+            else next.add(key)
+            return next
+          })}
+        />
+        {selectedRow && onPlanWithTarget && (
+          <button
+            type="button"
+            className="btn !py-1"
+            onClick={() => onPlanWithTarget({
+              targetRef: `fde://external/NocoBase/table/${kind}/${String(selectedRow.orderId ?? '')}`,
+              kind,
+              no: String(selectedRow.orderId ?? ''),
+            })}
+          >
+            带入操作控制
+          </button>
+        )}
+      </div>
+
+      {drawer && (
+        <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white border-l border-line shadow-lg z-40 flex flex-col">
+          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+            <div className="text-sm font-medium">预览确认</div>
+            <button type="button" className="btn !py-1" onClick={() => setDrawer(null)}><X size={14} /></button>
+          </div>
+          <div className="p-4 flex-1 overflow-auto text-xs">
+            <pre className="font-mono whitespace-pre-wrap break-all">{JSON.stringify(drawer.sheet, null, 2)}</pre>
+          </div>
+          <div className="p-4 border-t border-line">
+            <button
+              type="button"
+              className="btn-brand w-full"
+              disabled={!drawer.canWrite || loading}
+              title={drawer.canWrite ? '' : (drawer.gateReason || '当前令牌不允许写入')}
+              onClick={() => void confirmWrite()}
+            >
+              {loading ? <Loader2 size={14} className="animate-spin" /> : '确认过账'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
