@@ -176,7 +176,19 @@ export async function handleBridgeRoutes(request, response, url, deps) {
     return true
   }
   if (sub === 'briefing-submit') {
-    notImplemented(response, correlationId, '06')
+    const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : ''
+    const sections = Array.isArray(body.sections) ? body.sections : null
+    if (!requestId || !sections) {
+      bridgeError(response, 400, 'validation_error', '需要 requestId、sections', correlationId)
+      return true
+    }
+    const { mergeBriefingSubmit } = await import('../briefing/run.mjs')
+    const result = mergeBriefingSubmit(db, requestId, sections)
+    if (!result.ok) {
+      bridgeError(response, 404, result.error || 'not_found', '找不到对应早报任务', correlationId)
+      return true
+    }
+    bridgeOk(response, 200, result, correlationId)
     return true
   }
   if (sub === 'memory-draft') {
