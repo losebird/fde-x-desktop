@@ -130,6 +130,10 @@ interface UIState {
   // 计划页面当前 Tab
   activePlanTab: 'todo' | 'schedule' | 'workflow'
   setActivePlanTab: (t: 'todo' | 'schedule' | 'workflow') => void
+  // 业务应用内子视图（AI 浮现业务记录时自动切到 records）
+  activeDataSubview: 'overview' | 'records' | 'operations'
+  setActiveDataSubview: (v: 'overview' | 'records' | 'operations') => void
+  focusBizRecordsPanel: () => void
 
   // 命令面板
   paletteOpen: boolean
@@ -537,6 +541,17 @@ export const useApp = create<AppState>()(
       setActiveBusinessTable: (id) => set({ activeBusinessTable: id }),
       activePlanTab: 'todo',
       setActivePlanTab: (t) => set({ activePlanTab: t }),
+      activeDataSubview: 'overview',
+      setActiveDataSubview: (v) => set({ activeDataSubview: v }),
+      focusBizRecordsPanel: () => {
+        const s = get()
+        s.setActiveDataSubview('records')
+        if (s.floating.data) {
+          s.focusFloating('data')
+          return
+        }
+        s.togglePanel('data', 'full')
+      },
 
       paletteOpen: false,
       setPaletteOpen: (v) => set({ paletteOpen: v }),

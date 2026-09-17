@@ -14,6 +14,7 @@ import {
   type BusinessConnectionRecord,
 } from '@/lib/runtime-api'
 import { isFdeAppSpec } from '@/lib/app-spec'
+import { peekBizPendingSheet, rememberBizPendingSheet } from '@/lib/biz-session-sheet'
 import { useEvents } from '@/lib/events'
 
 type SheetColumn = { key: string; label?: string }
@@ -27,6 +28,10 @@ type PendingSurface = {
   source?: string
   sessionId?: string
   at: number
+}
+
+type PendingSheetEvent = PendingSurface & {
+  sheet?: Record<string, unknown>
 }
 
 type SheetSnapshot = {
@@ -114,7 +119,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     return [...byKind.values()].sort((a, b) => b.latestAt - a.latestAt)
   }, [surfaces, pending])
 
-  const hasSurfacedData = surfacedKinds.length > 0 || rows.length > 0
+  const pendingRowTotal = pending?.rows ?? 0
+  const hasSurfacedData = rows.length > 0
+    || (pendingRowTotal > 0 && Boolean(pending?.kind))
+    || surfaces.some((s) => (s.rowCount ?? 0) > 0)
 
   const activeLocalApp = useMemo(() => {
     if (!connectionId.startsWith('local:')) return null
@@ -174,27 +182,34 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     } catch { /* ignore */ }
   }, [workspaceCwd])
 
+  const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
+    const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
+    if (!rowCount && !sheet.kind) return false
+    rememberBizPendingSheet(sheet)
+    const conn = connections.find((c) => c.id === connectionId) || connections[0]
+    applySheet(sheet, conn?.name || '连接器', surfaceId)
+    const previewId = sheetPreviewId(sheet)
+    if (previewId && String(sheet.action || '') !== '现查') {
+      setDrawer({
+        previewId,
+        sheet,
+        canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+      })
+    }
+    return rowCount > 0 || Boolean(sheet.kind)
+  }, [applySheet, connectionId, connections])
+
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
+    const cached = peekBizPendingSheet()
+    if (cached && applyPendingSheet(cached, surfaceId)) return true
     try {
       const { sheet } = await runtimeApi.getBizPendingSheet()
       if (!sheet || typeof sheet !== 'object') return false
-      const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
-      if (!rowCount && !sheet.kind) return false
-      const conn = connections.find((c) => c.id === connectionId) || connections[0]
-      applySheet(sheet, conn?.name || '连接器', surfaceId)
-      const previewId = sheetPreviewId(sheet)
-      if (previewId && String(sheet.action || '') !== '现查') {
-        setDrawer({
-          previewId,
-          sheet,
-          canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
-        })
-      }
-      return true
+      return applyPendingSheet(sheet, surfaceId)
     } catch {
       return false
     }
-  }, [applySheet, connectionId, connections])
+  }, [applyPendingSheet])
 
   useEffect(() => {
     if (!connectionId && connectorOptions[0]) setConnectionId(connectorOptions[0].id)
@@ -207,6 +222,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   useEffect(() => {
     void loadSurfaces()
   }, [loadSurfaces])
+
+  useEffect(() => {
+    if (!runtimeReady || !workspaceCwd || activeLocalApp) return
+    void hydrateFromPending()
+  }, [activeLocalApp, hydrateFromPending, runtimeReady, workspaceCwd])
 
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd || activeLocalApp) return
@@ -231,9 +251,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }, [activeLocalApp, applySheet, hydrateFromPending, kind, runtimeReady, surfaces, workspaceCwd])
 
   useEvents(['biz.sheet.pending'], (event) => {
-    const payload = event.payload as PendingSurface & { rows?: number }
+    const payload = event.payload as PendingSheetEvent
     const rowCount = typeof payload.rows === 'number' ? payload.rows : 0
-    setPending({
+    const nextPending: PendingSurface = {
       kind: String(payload.kind || ''),
       action: String(payload.action || ''),
       previewId: payload.previewId,
@@ -242,9 +262,14 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       source: payload.source,
       sessionId: payload.sessionId,
       at: Date.now(),
-    })
+    }
+    setPending(nextPending)
+    if (payload.sheet && typeof payload.sheet === 'object') {
+      applyPendingSheet(payload.sheet)
+    } else {
+      void hydrateFromPending()
+    }
     void loadSurfaces()
-    void hydrateFromPending()
   })
 
   const runPreview = useCallback(async (action: string, extra: Record<string, unknown> = {}) => {
@@ -477,7 +502,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
               onClick={() => selectKind(k.kind)}
             >
               {k.label}
-              <span className="text-[10px] opacity-70 ml-1">{kind === k.kind ? filteredRows.length : ''}</span>
+              <span className="text-[10px] opacity-70 ml-1">
+                {kind === k.kind ? (filteredRows.length || (pending?.kind === k.kind ? pending.rows : 0) || surfaces.find((s) => s.kind === k.kind)?.rowCount || 0) : ''}
+              </span>
             </button>
           ))}
         </div>

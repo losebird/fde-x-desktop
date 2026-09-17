@@ -76,6 +76,16 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source) {
     columns,
     canWrite: Boolean(sheet?.canWrite ?? sheet?.can_write ?? preview?.canWrite),
     source,
+    sheet: {
+      kind,
+      action,
+      preview_id: typeof previewId === 'string' ? previewId : null,
+      previewId: typeof previewId === 'string' ? previewId : null,
+      rows,
+      columns,
+      canWrite: Boolean(sheet?.canWrite ?? sheet?.can_write ?? preview?.canWrite),
+      sessionId,
+    },
   }, {
     workspaceCwd,
     sessionId,

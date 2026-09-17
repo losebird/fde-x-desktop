@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { useEvents } from '@/lib/events'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '@/store/app'
+import { rememberBizPendingSheet } from '@/lib/biz-session-sheet'
 import { runtimeApi } from '@/lib/runtime-api'
 import AI from '@/pages/AI'
 import { CommandPalette } from './CommandPalette'
@@ -86,6 +87,14 @@ export function IMScreen() {
 
   useEvents(['im.unread.changed'], () => {
     void runtimeApi.imState().then(applyImUnreadBadge).catch(() => undefined)
+  })
+
+  useEvents(['biz.sheet.pending'], (event) => {
+    const payload = event.payload as { sheet?: Record<string, unknown> }
+    if (payload.sheet && typeof payload.sheet === 'object') {
+      rememberBizPendingSheet(payload.sheet)
+    }
+    useApp.getState().focusBizRecordsPanel()
   })
 
   useEffect(() => {

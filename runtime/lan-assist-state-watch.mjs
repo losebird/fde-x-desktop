@@ -84,14 +84,26 @@ export function startLanAssistStateWatch(deps) {
       const sheetFp = fingerprintPendingSheet(sheet)
       if (sheetFp && sheetFp !== lastSheetFp) {
         lastSheetFp = sheetFp
+        const rowList = Array.isArray(sheet.rows) ? sheet.rows : []
+        const columnList = Array.isArray(sheet.columns) ? sheet.columns : []
         emit('biz.sheet.pending', {
           kind: String(sheet.kind || ''),
           action: String(sheet.action || ''),
           previewId: sheet.preview_id ?? sheet.previewId ?? undefined,
-          rows: Array.isArray(sheet.rows) ? sheet.rows.length : 0,
-          columns: Array.isArray(sheet.columns) ? sheet.columns : [],
+          rows: rowList.length,
+          columns: columnList,
           canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
           source: 'ai',
+          sheet: {
+            kind: String(sheet.kind || ''),
+            action: String(sheet.action || ''),
+            preview_id: sheet.preview_id ?? sheet.previewId ?? null,
+            previewId: sheet.preview_id ?? sheet.previewId ?? null,
+            rows: rowList,
+            columns: columnList,
+            canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+            sessionId: typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined,
+          },
         }, {
           workspaceCwd: cwd,
           sessionId: typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined,
