@@ -1,3 +1,4 @@
+import { resolveAllowedRequestOrigin } from '../config.mjs'
 import {
   configureEventBus,
   emit,
@@ -33,8 +34,8 @@ export async function handleEventsRoutes(request, response, url, deps) {
   if (pathname === '/api/v1/events/pending') return false
   if (!pathname.startsWith('/api/v1/events')) return false
 
-  const origin = request.headers.origin
-  if (typeof origin !== 'string' || !allowedOrigins.has(origin)) {
+  const origin = resolveAllowedRequestOrigin(request, allowedOrigins)
+  if (!origin) {
     sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', correlationId)
     return true
   }

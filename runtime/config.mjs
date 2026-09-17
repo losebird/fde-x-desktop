@@ -110,6 +110,32 @@ export function parseAllowedOrigins(raw) {
 
 export const FDE_ALLOWED_ORIGINS = parseAllowedOrigins(process.env.FDE_ALLOWED_ORIGINS)
 
+/**
+ * Resolve an allowed page origin for CORS / SSE reads.
+ * Browsers omit `Origin` on same-origin GET (e.g. EventSource via Vite proxy); use `Referer` then.
+ *
+ * @param {import('node:http').IncomingMessage} request
+ * @param {Set<string> | string[]} allowedOrigins
+ * @returns {string | null}
+ */
+export function resolveAllowedRequestOrigin(request, allowedOrigins) {
+  const allowed = allowedOrigins instanceof Set ? allowedOrigins : new Set(allowedOrigins)
+  const origin = request.headers.origin
+  if (typeof origin === 'string' && origin.length > 0) {
+    return allowed.has(origin) ? origin : null
+  }
+  const referer = request.headers.referer
+  if (typeof referer === 'string' && referer.length > 0) {
+    try {
+      const fromReferer = new URL(referer).origin
+      if (allowed.has(fromReferer)) return fromReferer
+    } catch {
+      // ignore malformed referer
+    }
+  }
+  return null
+}
+
 export function defaultRuntimeUrl() {
   return `http://${FDE_RUNTIME_HOST}:${FDE_RUNTIME_PORT}`
 }

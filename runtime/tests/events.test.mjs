@@ -96,6 +96,22 @@ test('SSE origin 403 and connection limit 429', { timeout: 45_000 }, async () =>
     const forbidden = await fetch(`${base}/api/v1/events`, { headers: { Origin: 'http://evil.example' } })
     assert.equal(forbidden.status, 403)
 
+    const sameOriginViaReferer = await new Promise((resolve, reject) => {
+      const req = httpRequest({
+        hostname: '127.0.0.1',
+        port,
+        path: '/api/v1/events?workspace=/tmp/ws',
+        headers: { Referer: `${origin}/ai` },
+      }, (res) => {
+        res.resume()
+        resolve(res.statusCode)
+        req.destroy()
+      })
+      req.on('error', reject)
+      req.end()
+    })
+    assert.equal(sameOriginViaReferer, 200)
+
     const openSse = () => new Promise((resolve, reject) => {
       const req = httpRequest({
         hostname: '127.0.0.1',
