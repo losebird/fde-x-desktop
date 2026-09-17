@@ -88,14 +88,18 @@ export function startLanAssistStateWatch(deps) {
           kind: String(sheet.kind || ''),
           action: String(sheet.action || ''),
           previewId: sheet.preview_id ?? sheet.previewId ?? undefined,
-          rows: Array.isArray(sheet.rows) ? sheet.rows : [],
+          rows: Array.isArray(sheet.rows) ? sheet.rows.length : 0,
           columns: Array.isArray(sheet.columns) ? sheet.columns : [],
           canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+          source: 'ai',
         }, {
           workspaceCwd: cwd,
           sessionId: typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined,
           source: 'lan-assist',
         })
+        if (typeof deps.onPendingSheet === 'function') {
+          deps.onPendingSheet(sheet, typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined)
+        }
       }
 
       const unread = buildUnread(state)

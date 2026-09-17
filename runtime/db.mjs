@@ -125,7 +125,7 @@ export function appendAudit(db, entry) {
     entry.targetRef ?? null,
     entry.outcome,
     entry.riskLevel ?? 'low',
-    entry.correlationId,
+    entry.correlationId ?? '',
     JSON.stringify(entry.details ?? {}),
     entry.occurredAt ?? isoNow(),
   )
@@ -518,6 +518,7 @@ export function approveOperation(db, id, { actorId = 'actor_local_user', note = 
       WHERE operation_id = ? AND decision = 'pending'
     `).run(note, now, id)
     db.prepare(`UPDATE operations SET state = 'approved', updated_at = ? WHERE id = ?`).run(now, id)
+    insertOperationStep(db, id, 1, 'approve', 'succeeded', { note })
     appendAudit(db, {
       workspaceId: operation.workspaceId,
       actorId,
@@ -590,6 +591,162 @@ export function executeDryRun(db, id, { actorId = 'actor_local_user', correlatio
     throw error
   }
   return { kind: 'ok', operation: getOperation(db, id), receipt: result }
+}
+
+export function insertOperationStep(db, operationId, sequenceNo, stepKind, state, input = {}, output = null, error = null) {
+  const now = isoNow()
+  db.prepare(`
+    INSERT INTO operation_steps
+      (id, operation_id, sequence_no, step_kind, state, tool_ref, input_json, output_json, error_json, started_at, finished_at)
+    VALUES (?, ?, ?, ?, ?, 'biz/gate', ?, ?, ?, ?, ?)
+  `).run(
+    createId('opstep'),
+    operationId,
+    sequenceNo,
+    stepKind,
+    state,
+    JSON.stringify(input),
+    output ? JSON.stringify(output) : null,
+    error ? JSON.stringify(error) : null,
+    now,
+    state === 'succeeded' || state === 'failed' ? now : null,
+  )
+}
+
+export function insertBizSurface(db, row) {
+  const id = createId('bsurf')
+  db.prepare(`
+    INSERT INTO biz_surfaces
+      (id, workspace_cwd, connection_id, kind, action, preview_id, session_id, row_count, columns_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    row.workspaceCwd,
+    row.connectionId ?? null,
+    row.kind,
+    row.action,
+    row.previewId ?? null,
+    row.sessionId ?? null,
+    row.rowCount ?? null,
+    row.columnsJson ?? null,
+    row.createdAt ?? Date.now(),
+  )
+  return id
+}
+
+export function listBizSurfaces(db, workspaceCwd, limit = 20) {
+  const rows = db.prepare(`
+    SELECT id, workspace_cwd, connection_id, kind, action, preview_id, session_id, row_count, columns_json, created_at
+    FROM biz_surfaces
+    WHERE workspace_cwd = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(workspaceCwd, Math.max(1, Math.min(100, limit)))
+  return rows.map((row) => ({
+    id: row.id,
+    workspaceCwd: row.workspace_cwd,
+    connectionId: row.connection_id,
+    kind: row.kind,
+    action: row.action,
+    previewId: row.preview_id,
+    sessionId: row.session_id,
+    rowCount: row.row_count,
+    columns: row.columns_json ? JSON.parse(row.columns_json) : [],
+    createdAt: row.created_at,
+  }))
+}
+
+/**
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {string} id
+ * @param {{ actorId?: string, correlationId?: string, writePreview: (previewId: string) => Promise<Record<string, unknown>> }} deps
+ */
+export async function executeOperationLive(db, id, { actorId = 'actor_local_user', correlationId, writePreview }) {
+  const operation = getOperation(db, id)
+  if (!operation) return { kind: 'not_found' }
+  if (operation.executionMode !== 'live') return { kind: 'live_not_supported', operation }
+  if (operation.state !== 'approved') return { kind: 'invalid_state', operation }
+
+  const plan = operation.plan && typeof operation.plan === 'object' ? operation.plan : {}
+  const previewId = typeof plan.previewId === 'string' ? plan.previewId : ''
+  if (!previewId) return { kind: 'preview_expired', operation }
+
+  const now = isoNow()
+  db.exec('BEGIN IMMEDIATE;')
+  try {
+    db.prepare(`UPDATE operations SET state = 'executing', started_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
+    insertOperationStep(db, id, 2, 'write', 'running', { previewId })
+    db.exec('COMMIT;')
+  } catch (error) {
+    db.exec('ROLLBACK;')
+    throw error
+  }
+
+  let written
+  try {
+    written = await writePreview(previewId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+    const expired = code === 'preview_expired' || /expir|过期/i.test(message)
+    db.exec('BEGIN IMMEDIATE;')
+    try {
+      db.prepare(`
+        UPDATE operation_steps SET state = 'failed', error_json = ?, finished_at = ?
+        WHERE operation_id = ? AND sequence_no = 2 AND step_kind = 'write'
+      `).run(JSON.stringify({ message }), now, id)
+      db.prepare(`UPDATE operations SET state = 'failed', finished_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
+      db.exec('COMMIT;')
+    } catch (inner) {
+      db.exec('ROLLBACK;')
+      throw inner
+    }
+    if (expired) return { kind: 'preview_expired', operation: getOperation(db, id), message }
+    return { kind: 'write_failed', operation: getOperation(db, id), message }
+  }
+
+  const receipt = {
+    receiptId: String(written?.receipt_id || written?.receiptId || ''),
+    traceId: String(written?.trace_id || written?.traceId || ''),
+    kind: String(written?.kind || ''),
+    action: String(written?.action || ''),
+  }
+
+  db.exec('BEGIN IMMEDIATE;')
+  try {
+    db.prepare(`
+      UPDATE operation_steps SET state = 'succeeded', output_json = ?, finished_at = ?
+      WHERE operation_id = ? AND sequence_no = 2 AND step_kind = 'write'
+    `).run(JSON.stringify(written), now, id)
+    insertOperationStep(db, id, 3, 'receipt', 'succeeded', {}, receipt)
+    db.prepare(`UPDATE operations SET state = 'succeeded', finished_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
+    db.prepare(`
+      INSERT INTO operation_receipts (id, operation_id, receipt_kind, result_json, received_at)
+      VALUES (?, ?, 'executed', ?, ?)
+    `).run(createId('receipt'), id, JSON.stringify(receipt), now)
+    appendAudit(db, {
+      workspaceId: operation.workspaceId,
+      actorId,
+      action: 'operation.execute_live',
+      targetRef: `fde://workstation/operation/${id}`,
+      outcome: 'succeeded',
+      riskLevel: operation.riskLevel,
+      correlationId,
+      details: receipt,
+    })
+    enqueueEvent(db, {
+      type: 'operation.executed',
+      sourceRef: `fde://workstation/operation/${id}`,
+      subjectRef: operation.targetRef,
+      correlationId,
+      payload: { operationId: id, receipt },
+    })
+    db.exec('COMMIT;')
+  } catch (error) {
+    db.exec('ROLLBACK;')
+    throw error
+  }
+  return { kind: 'ok', operation: getOperation(db, id), receipt }
 }
 
 export function databaseHealth(db, databasePath) {
