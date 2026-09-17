@@ -1,13 +1,19 @@
 // 早报 / 主仪表盘:全工作台默认入口,聚合今日关键信息
 import {
-  Circle, Clock, Sparkles, ArrowUpRight, MessageSquare, Bell, Calendar, ListTodo, FileText,
+  Circle, Clock, Sparkles, ArrowUpRight, MessageSquare, Calendar, ListTodo, FileText, Settings2, Loader2,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useApp } from '@/store/app'
-import { runtimeApi } from '@/lib/runtime-api'
+import {
+  runtimeApi,
+  type BriefingDefinition,
+  type BriefingSectionResult,
+  type BriefingSnapshot,
+} from '@/lib/runtime-api'
 import { useEvents } from '@/lib/events'
-import { loadCurrentAiTarget } from '@/lib/ai-target'
+import { openRef, type OpenRefHref } from '@/lib/open-ref'
+import { BriefingSettingsDrawer } from '@/components/briefing/BriefingSettingsDrawer'
 import { PageTitle, SectionTitle, Card, Stat, Tag } from '@/components/ui'
 import clsx from 'clsx'
 
@@ -16,339 +22,318 @@ function fmtTime(iso: string) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function fmtFetchedAt(iso?: string) {
+  if (!iso) return ''
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.round(diff / 60000)
+  if (mins < 60) return `${mins} 分钟前`
+  const hrs = Math.round(mins / 60)
+  return `${hrs} 小时前`
+}
+
 const priorityDot: Record<string, string> = {
   urgent: 'bg-accent-red',
-  high:   'bg-accent-amber',
-  med:    'bg-accent-blue',
-  low:    'bg-ink-subtle',
+  high: 'bg-accent-amber',
+  med: 'bg-accent-blue',
+  low: 'bg-ink-subtle',
+}
+
+function sectionById(sections: BriefingSectionResult[], id: string) {
+  return sections.find((s) => s.id === id)
+}
+
+function buildImComposeBody(briefing: BriefingSnapshot | null, sections: BriefingSectionResult[]) {
+  const lines: string[] = []
+  const ai = sections.find((s) => s.type === 'ai')
+  const aiText = ai?.items?.[0]?.text || ai?.body || briefing?.summary
+  if (aiText) lines.push(String(aiText))
+  for (const section of sections) {
+    if (section.type === 'ai') continue
+    const items = section.items || []
+    if (!items.length && !section.error) continue
+    lines.push(`\n【${section.title}】`)
+    if (section.error) {
+      lines.push(`（${section.error}）`)
+      continue
+    }
+    for (const item of items.slice(0, 5)) {
+      lines.push(`· ${item.text}${item.href && typeof item.href === 'object' && 'url' in item.href ? ` ${String((item.href as { url?: string }).url || '')}` : ''}`)
+    }
+  }
+  return lines.join('\n').trim()
 }
 
 export default function Briefing() {
   const nav = useNavigate()
-  const tasks = useApp((s) => s.tasks)
-  const events = useApp((s) => s.events)
-  const metrics = useApp((s) => s.metrics)
-  const news = useApp((s) => s.news)
-  const notifs = useApp((s) => s.notifications)
   const ws = useApp((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
-  const markAllNotifRead = useApp((s) => s.markAllNotifRead)
   const [aiNote, setAiNote] = useState('')
-  const [unreadIM, setUnreadIM] = useState<Array<{ id: string; from: string; text: string }>>([])
+  const [definition, setDefinition] = useState<BriefingDefinition | null>(null)
+  const [briefing, setBriefing] = useState<BriefingSnapshot | null>(null)
+  const [running, setRunning] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [imPeerId, setImPeerId] = useState('')
 
-  const pullImState = () => {
+  const refresh = useCallback((onOpen = true) => {
+    void runtimeApi.getLatestBriefing(onOpen).then((data) => {
+      setDefinition(data.definition)
+      setBriefing(data.briefing)
+    }).catch((cause) => {
+      setAiNote(cause instanceof Error ? cause.message : '加载早报失败')
+    })
+  }, [])
+
+  useEffect(() => {
+    refresh(true)
     void runtimeApi.imState().then((data) => {
-      const requests = Array.isArray(data.requests) ? data.requests as Array<Record<string, unknown>> : []
-      setUnreadIM(requests.filter((row) => row.unread && row.kind !== 'outgoing').map((row) => ({
-        id: String(row.id || ''),
-        from: String(row.fromName || row.from || ''),
-        text: String(row.body || row.excerpt || row.last || ''),
-      })))
       const peers = Array.isArray(data.peers) ? data.peers as Array<Record<string, unknown>> : []
       const first = peers.find((peer) => !peer.unpaired)
       setImPeerId(first ? String(first.id || '') : '')
-    }).catch(() => {
-      setUnreadIM([])
-      setImPeerId('')
-    })
+    }).catch(() => setImPeerId(''))
+  }, [refresh])
+
+  useEvents(['briefing.ready'], () => {
+    refresh(false)
+  })
+
+  const enabledDefs = useMemo(
+    () => (definition?.sections || []).filter((s) => s.enabled),
+    [definition],
+  )
+
+  const resultSections = useMemo(() => {
+    const results = briefing?.sections || []
+    const order = enabledDefs.map((d) => d.id)
+    return [...results].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
+  }, [briefing, enabledDefs])
+
+  const statSections = resultSections.filter((s) => s.render === 'stat' && s.stat)
+  const mainSections = resultSections.filter((s) => s.render !== 'stat' && s.type !== 'ai')
+  const aiSection = resultSections.find((s) => s.type === 'ai')
+
+  const statusLine = useMemo(() => {
+    const at = definition?.schedule?.at || '08:30'
+    const last = briefing?.generatedAt ? fmtTime(briefing.generatedAt) : '—'
+    const failed = resultSections.filter((s) => s.error)
+    const failHint = failed.length ? ` · ${failed.map((s) => `${s.title}失败`).join('、')}` : ''
+    return `${at} 自动 · 上次 ${last}${failHint}`
+  }, [definition, briefing, resultSections])
+
+  const runFull = () => {
+    setRunning(true)
+    setAiNote('')
+    void runtimeApi.runBriefing('full').then((data) => {
+      setBriefing(data.briefing)
+      refresh(false)
+    }).catch((cause) => {
+      setAiNote(cause instanceof Error ? cause.message : '生成失败')
+    }).finally(() => setRunning(false))
   }
 
-  useEffect(() => {
-    pullImState()
-  }, [])
-
-  useEvents(['im.unread.changed', 'im.message.received'], () => {
-    pullImState()
-  })
+  const openItem = (href?: OpenRefHref | Record<string, unknown>) => {
+    if (!href || typeof href !== 'object') return
+    openRef(href as OpenRefHref)
+  }
 
   const now = new Date()
-  const todayKey = (iso: string) => new Date(iso).toDateString() === now.toDateString()
-  const todayTasks = tasks.filter((t) => t.status !== 'archived' && t.due && todayKey(t.due))
-  const overdueTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'archived' && t.due && new Date(t.due) < now)
-  const openTasks = tasks.filter((t) => t.status === 'todo' || t.status === 'doing')
-  const todayEvents = events.filter((e) => todayKey(e.start)).sort((a, b) => a.start.localeCompare(b.start))
-  const currentMinutes = now.getHours() * 60 + now.getMinutes()
-  const clockLabel = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  const nowEvent = todayEvents.find((e) => {
-    const s = new Date(e.start).getHours() * 60 + new Date(e.start).getMinutes()
-    const en = new Date(e.end).getHours() * 60 + new Date(e.end).getMinutes()
-    return currentMinutes >= s && currentMinutes < en
-  })
+  const dateLabel = now.toLocaleDateString('zh-CN', { weekday: 'long', month: 'long', day: 'numeric' })
+
+  const tasksSection = sectionById(resultSections, 'tasks-today') || resultSections.find((s) => s.type === 'tasks')
+  const eventsSection = resultSections.find((s) => s.type === 'events')
 
   return (
     <div>
       <PageTitle
         title={`早上好 · ${ws?.emoji ?? '🧭'}  ${ws?.name ?? '工作台'}`}
-        subtitle="由主助手自动整理的今日视图。IM 已按「早间计划」静音,可在顶栏恢复。"
+        subtitle={dateLabel}
         actions={
           <>
-            <button className="btn"><Calendar size={14} /> 今日 {clockLabel}</button>
+            <span className="text-xs text-ink-muted mr-2">{statusLine}</span>
             {aiNote && <div className="text-xs text-accent-red mr-2">{aiNote}</div>}
+            <button type="button" className="btn" onClick={() => setSettingsOpen(true)}>
+              <Settings2 size={14} /> 自定义
+            </button>
             <button
+              type="button"
               className="btn-primary"
-              onClick={() => {
-                const summary = `请根据当前工作区整理今日早报。待办 ${openTasks.length}，逾期 ${overdueTasks.length}，今日事件 ${todayEvents.length}。`
-                setAiNote('')
-                void loadCurrentAiTarget().then(async (target) => {
-                  if (!target.ok) {
-                    setAiNote(target.error)
-                    return
-                  }
-                  const { buildContextPack, renderContextForPrompt } = await import('@/lib/context-pack')
-                  let contextText = ''
-                  try {
-                    const packed = await buildContextPack({
-                      scopes: ['workspace', 'tasks', 'memory'],
-                      query: summary,
-                      intentKind: 'draft',
-                    })
-                    contextText = renderContextForPrompt(packed.pack)
-                  } catch { /* 早报仍可生成 */ }
-                  const text = [contextText, `【早报】\n${summary}`].filter(Boolean).join('\n\n')
-                  return runtimeApi.promptAi(target.sessionId, { text })
-                }).catch((cause) => setAiNote(cause instanceof Error ? cause.message : '早报生成失败'))
-              }}
+              disabled={running}
+              onClick={runFull}
             >
-              <Sparkles size={14} /> 生成新早报
+              {running ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              生成新早报
             </button>
           </>
         }
       />
 
-      {/* 关键指标:使用容器查询,避免在窄 Stage 面板里被挤爆 */}
-      <div className="grid grid-cols-2 @md:grid-cols-3 @3xl:grid-cols-6 gap-3 mb-8">
-        {metrics.map((m) => (
-          <Stat
-            key={m.id}
-            label={m.label}
-            value="—"
-            hint="无业务连接器，不显示假数字"
-            unit={m.unit}
-          />
-        ))}
-      </div>
+      {statSections.length > 0 && (
+        <div className="grid grid-cols-2 @md:grid-cols-3 @3xl:grid-cols-6 gap-3 mb-8">
+          {statSections.map((m) => (
+            <Stat
+              key={m.id}
+              label={m.stat?.label || m.title}
+              value={String(m.stat?.value ?? '—')}
+              unit={m.stat?.unit}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 @3xl:grid-cols-3 gap-6">
-        {/* 今日三件事 — 主线 */}
         <div className="@3xl:col-span-2 space-y-6">
-          {nowEvent && (
-            <Card className="border-brand/30 bg-brand-soft/40">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs text-brand font-medium">进行中</div>
-                  <div className="mt-1 text-lg font-medium">{nowEvent.title}</div>
-                  <div className="text-sm text-ink-muted mt-0.5">
-                    {fmtTime(nowEvent.start)} – {fmtTime(nowEvent.end)} · {nowEvent.location ?? '无地点'}
-                  </div>
+          {mainSections.map((section) => {
+            if (section.render === 'timeline' || section.type === 'events') {
+              return (
+                <div key={section.id}>
+                  <SectionTitle title={section.title} right={<Link to="/schedule" className="btn-ghost">完整日程 <ArrowUpRight size={12} /></Link>} />
+                  <Card>
+                    {section.error && (
+                      <div className="text-sm text-accent-red mb-2 flex items-center justify-between">
+                        <span>{section.title} {fmtFetchedAt(section.fetchedAt)}失败：{section.error}</span>
+                        <button type="button" className="btn-ghost text-xs" onClick={runFull}>重试</button>
+                      </div>
+                    )}
+                    <ol className="relative pl-6">
+                      <span className="absolute left-2 top-1 bottom-1 w-px bg-line" />
+                      {(section.items || []).map((e) => (
+                        <li key={e.ref || e.text} className="relative py-2.5 pl-3">
+                          <span className="absolute -left-[19px] top-3 w-3 h-3 rounded-full border-2 border-surface bg-brand" />
+                          <button type="button" className="text-sm font-medium text-left w-full" onClick={() => openItem(e.href)}>
+                            {e.text}
+                          </button>
+                          {e.sub && <div className="text-xs text-ink-muted mt-0.5">{e.sub}</div>}
+                        </li>
+                      ))}
+                    </ol>
+                  </Card>
                 </div>
+              )
+            }
+
+            if (section.type === 'tasks') {
+              return (
+                <div key={section.id}>
+                  <SectionTitle
+                    title={section.title}
+                    right={<Link to="/tasks" className="btn-ghost">查看全部 <ArrowUpRight size={12} /></Link>}
+                  />
+                  <Card>
+                    {section.error && (
+                      <div className="text-sm text-accent-red mb-2">{section.error}</div>
+                    )}
+                    <ul className="divide-y divide-line">
+                      {(section.items || []).map((t) => (
+                        <li key={t.ref || t.text} className="py-2.5 first:pt-0 last:pb-0 flex items-center gap-3">
+                          <span className={clsx('w-2 h-2 rounded-full shrink-0', priorityDot.med)} />
+                          <button type="button" className="flex-1 truncate text-sm text-left" onClick={() => openItem(t.href)}>{t.text}</button>
+                        </li>
+                      ))}
+                    </ul>
+                    {section.overdue && section.overdue.length > 0 && (
+                      <ul className="mt-3 space-y-2 border-t border-line pt-3">
+                        {section.overdue.map((t) => (
+                          <li key={t.ref || t.text} className="text-sm flex items-center gap-2">
+                            <Circle size={14} className="text-accent-red" />
+                            <span className="flex-1">{t.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Card>
+                </div>
+              )
+            }
+
+            return (
+              <div key={section.id}>
+                <SectionTitle title={section.title} count={(section.items || []).length} />
+                <Card>
+                  {section.error && (
+                    <div className="text-sm text-accent-red mb-2 flex items-center justify-between gap-2">
+                      <span>{section.title} {fmtFetchedAt(section.fetchedAt)}失败：{section.error}</span>
+                      <button type="button" className="btn-ghost text-xs" onClick={runFull}>重试</button>
+                    </div>
+                  )}
+                  <ul className="space-y-3">
+                    {(section.items || []).length === 0 && !section.error && (
+                      <li className="text-sm text-ink-muted">暂无内容</li>
+                    )}
+                    {(section.items || []).map((item) => (
+                      <li key={item.ref || item.text} className="flex items-start gap-2">
+                        {section.type === 'im' ? <MessageSquare size={14} className="text-accent-blue mt-0.5" /> : <FileText size={14} className="text-ink-muted mt-0.5" />}
+                        <button type="button" className="text-sm flex-1 text-left" onClick={() => openItem(item.href)}>
+                          {item.sub && <span className="font-medium">{item.sub} </span>}
+                          {item.text}
+                        </button>
+                        <Clock size={12} className="text-ink-subtle mt-1" />
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              </div>
+            )
+          })}
+
+          {!mainSections.length && !tasksSection && !eventsSection && (
+            <Card className="text-sm text-ink-muted">打开自定义或生成新早报以加载区块。</Card>
+          )}
+        </div>
+
+        <div className="space-y-6">
+          {(aiSection || enabledDefs.some((d) => d.type === 'ai')) && (
+            <Card>
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles size={16} className="text-brand" />
+                <div className="text-sm font-medium">AI 早报 · 主助手</div>
+              </div>
+              <div className="text-sm leading-6 text-ink space-y-2">
+                {aiSection?.error && (
+                  <p className="text-accent-red">{aiSection.error}</p>
+                )}
+                <p>{aiSection?.items?.[0]?.text || aiSection?.body || briefing?.summary || '点右上角「生成新早报」获取 AI 摘要。'}</p>
+              </div>
+              <div className="mt-3 flex gap-2">
                 <button
-                  className="btn-brand"
+                  type="button"
+                  className="btn"
                   onClick={() => {
-                    if (!nowEvent) return
-                    useApp.getState().addEvent({
-                      title: `专注: ${nowEvent.title}`,
-                      start: new Date(Date.now()).toISOString(),
-                      end: new Date(Date.now() + 25 * 60 * 1000).toISOString(),
-                      kind: 'focus',
-                    })
+                    const text = buildImComposeBody(briefing, resultSections)
+                    if (!text) {
+                      setAiNote('还没有可发送的早报内容')
+                      return
+                    }
+                    if (!imPeerId) {
+                      setAiNote('还没有配对的联系人，可先打开 IM 配对')
+                      return
+                    }
+                    setAiNote('')
+                    void runtimeApi.imCompose({ text, peerId: imPeerId }).then(() => {
+                      useApp.getState().setActiveThread(imPeerId)
+                      useApp.getState().togglePanel('im', 'full')
+                    }).catch((cause) => setAiNote(cause instanceof Error ? cause.message : '写入输入框失败'))
                   }}
                 >
-                  加入专注
+                  发往 IM
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    const title = `早报 · ${new Date().toLocaleDateString('zh-CN')}`
+                    const body = buildImComposeBody(briefing, resultSections)
+                    if (!body) {
+                      setAiNote('还没有可保存的早报内容')
+                      return
+                    }
+                    void runtimeApi.draftMemoryCard(`${title}\n${body}`, 'correction')
+                      .catch((cause) => setAiNote(cause instanceof Error ? cause.message : '保存到记忆失败'))
+                    nav('/memory')
+                  }}
+                >
+                  保存到记忆
                 </button>
               </div>
             </Card>
           )}
-
-          <div>
-            <SectionTitle
-              title="今日三件事"
-              right={<Link to="/tasks" className="btn-ghost">查看全部 <ArrowUpRight size={12} /></Link>}
-            />
-            <Card>
-              <ul className="divide-y divide-line">
-                {(todayTasks.length ? todayTasks : openTasks.slice(0, 3)).slice(0, 3).map((t) => (
-                  <li key={t.id} className="py-2.5 first:pt-0 last:pb-0 flex items-center gap-3">
-                    <span className={clsx('w-2 h-2 rounded-full shrink-0', priorityDot[t.priority])} />
-                    <span className="flex-1 truncate text-sm">{t.title}</span>
-                    {t.due && <Tag kind="default">{t.due}</Tag>}
-                    <Tag kind={t.priority === 'urgent' ? 'red' : t.priority === 'high' ? 'amber' : 'blue'}>
-                      {t.priority}
-                    </Tag>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          </div>
-
-          {overdueTasks.length > 0 && (
-            <div>
-              <SectionTitle title="逾期未完" count={overdueTasks.length} />
-              <Card>
-                <ul className="space-y-2">
-                  {overdueTasks.slice(0, 3).map((t) => (
-                    <li key={t.id} className="text-sm flex items-center gap-2">
-                      <Circle size={14} className="text-accent-red" />
-                      <span className="flex-1">{t.title}</span>
-                      <Tag kind="red">应于 {t.due}</Tag>
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            </div>
-          )}
-
-          <div>
-            <SectionTitle title="今日时间线" right={<Link to="/schedule" className="btn-ghost">完整日程 <ArrowUpRight size={12} /></Link>} />
-            <Card>
-              <ol className="relative pl-6">
-                <span className="absolute left-2 top-1 bottom-1 w-px bg-line" />
-                {todayEvents.map((e) => {
-                  const s = new Date(e.start).getHours() * 60 + new Date(e.start).getMinutes()
-                  const isPast = currentMinutes > s
-                  const isNow = nowEvent?.id === e.id
-                  return (
-                    <li key={e.id} className={clsx('relative py-2.5 pl-3', isPast && 'opacity-60')}>
-                      <span className={clsx(
-                        'absolute -left-[19px] top-3 w-3 h-3 rounded-full border-2 border-surface',
-                        e.kind === 'meeting' && 'bg-accent-blue',
-                        e.kind === 'focus' && 'bg-brand',
-                        e.kind === 'reminder' && 'bg-accent-amber',
-                        e.kind === 'external' && 'bg-accent-purple',
-                        isNow && 'ring-2 ring-brand ring-offset-2 ring-offset-surface',
-                      )} />
-                      <div className="flex items-baseline justify-between gap-3">
-                        <div className="text-sm font-medium">
-                          {fmtTime(e.start)}–{fmtTime(e.end)} · {e.title}
-                        </div>
-                        <Tag kind={e.kind === 'meeting' ? 'blue' : e.kind === 'focus' ? 'green' : e.kind === 'reminder' ? 'amber' : 'purple'}>
-                          {e.kind}
-                        </Tag>
-                      </div>
-                      {e.location && (
-                        <div className="text-xs text-ink-muted mt-0.5">{e.location}</div>
-                      )}
-                    </li>
-                  )
-                })}
-              </ol>
-            </Card>
-          </div>
-        </div>
-
-        {/* 右栏: 早报、通知、IM */}
-        <div className="space-y-6">
-          <Card>
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles size={16} className="text-brand" />
-              <div className="text-sm font-medium">AI 早报 · 主助手</div>
-            </div>
-            <div className="text-sm leading-6 text-ink space-y-2">
-              <p>点右上角「生成新早报」，由当前 AI 会话整理今日事项。没有连接器时指标为 —。</p>
-            </div>
-            <div className="mt-3 flex gap-2">
-              <button
-                className="btn"
-                onClick={() => {
-                  const summary = `🤖 AI 早报自动推送:\n\n主线:把 scene#39 收口成可演示版本\n今日 3 件事:${(todayTasks.length ? todayTasks : openTasks.slice(0, 3)).slice(0, 3).map((t) => t.title).join(' / ')}\n逾期:${overdueTasks.length} 件\n时间线:${todayEvents.length} 个事件`
-                  if (!imPeerId) {
-                    setAiNote('还没有配对的联系人，无法发到 IM')
-                    return
-                  }
-                  void runtimeApi.imCompose({ text: summary, peerId: imPeerId }).then(async (composed) => {
-                    const requestId = String(composed.requestId || composed.id || '')
-                    if (requestId) await runtimeApi.imSend({ requestId })
-                    useApp.getState().setActiveThread(imPeerId)
-                    useApp.getState().togglePanel('im', 'full')
-                  }).catch((cause) => setAiNote(cause instanceof Error ? cause.message : '发到 IM 失败'))
-                }}
-              >
-                发往 IM
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  const title = `早报 · ${new Date().toLocaleDateString('zh-CN')}`
-                  const body = `主线:把 scene#39 收口成可演示版本\n3 件事:${(todayTasks.length ? todayTasks : openTasks.slice(0, 3)).slice(0, 3).map((t) => t.title).join(' / ')}`
-                  void runtimeApi.draftMemoryCard(`${title}\n${body}`, 'correction')
-                    .catch(() => undefined)
-                  nav('/memory')
-                }}
-              >
-                保存到记忆
-              </button>
-            </div>
-          </Card>
-
-          <div>
-            <SectionTitle title="通知" count={notifs.length} right={
-              <>
-                <button onClick={markAllNotifRead} className="btn-ghost mr-2">全部已读</button>
-                <Link to="/settings" className="btn-ghost">偏好</Link>
-              </>
-            } />
-            <Card>
-              <ul className="space-y-3">
-                {notifs.slice(0, 5).map((n) => (
-                  <li key={n.id} className="flex items-start gap-2">
-                    <Bell size={14} className={clsx(
-                      'mt-0.5',
-                      n.kind === 'warning' && 'text-accent-amber',
-                      n.kind === 'error' && 'text-accent-red',
-                      n.kind === 'success' && 'text-brand',
-                      n.kind === 'info' && 'text-accent-blue',
-                    )} />
-                    <div className="text-sm flex-1">
-                      <div className="font-medium">{n.title}</div>
-                      {n.body && <div className="text-xs text-ink-muted mt-0.5">{n.body}</div>}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          </div>
-
-          <div>
-            <SectionTitle title="未读 IM" count={unreadIM.length} right={<button type="button" onClick={() => useApp.getState().togglePanel('im', 'full')} className="btn-ghost">进入 <ArrowUpRight size={12} /></button>} />
-            <Card>
-              <ul className="space-y-3">
-                {unreadIM.length === 0 && (
-                  <li className="text-sm text-ink-muted">🎉 暂时没有未读。</li>
-                )}
-                {unreadIM.slice(0, 4).map((m) => (
-                    <li key={m.id} className="flex items-start gap-2">
-                      <MessageSquare size={14} className="text-accent-blue mt-0.5" />
-                      <div className="text-sm flex-1">
-                        <span className="font-medium">{m.from || '同事'}</span>
-                        <span className="text-ink-muted ml-1">{m.text.slice(0, 60)}</span>
-                      </div>
-                      <Clock size={12} className="text-ink-subtle mt-1" />
-                    </li>
-                ))}
-              </ul>
-            </Card>
-          </div>
-
-          <div>
-            <SectionTitle title="今日新闻/资讯" count={news.length} />
-            <Card>
-              <ul className="space-y-3">
-                {news.map((n) => (
-                  <li key={n.id} className="flex items-start gap-2">
-                    <FileText size={14} className="text-ink-muted mt-0.5" />
-                    <div className="flex-1 text-sm">
-                      <div className="font-medium">{n.title}</div>
-                      <div className="text-xs text-ink-muted mt-0.5">
-                        {n.source} · {fmtTime(n.ts)}
-                        {typeof n.delta === 'number' && (
-                          <Tag kind={n.delta > 0 ? 'red' : 'teal'}> {n.delta > 0 ? '+' : ''}{(n.delta * 100).toFixed(1)}%</Tag>
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          </div>
 
           <div>
             <SectionTitle title="快捷" />
@@ -377,6 +362,16 @@ export default function Briefing() {
           </div>
         </div>
       </div>
+
+      <BriefingSettingsDrawer
+        open={settingsOpen}
+        definition={definition}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={(def) => {
+          setDefinition(def)
+          refresh(false)
+        }}
+      />
     </div>
   )
 }

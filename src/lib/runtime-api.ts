@@ -250,6 +250,64 @@ export interface OperationTrace {
   compensations: JsonValue[]
 }
 
+export type BriefingSectionDef = {
+  id: string
+  type: string
+  title: string
+  enabled: boolean
+  render: string
+  params?: Record<string, unknown>
+}
+
+export type BriefingSchedule = {
+  at?: string
+  days?: number[]
+  onOpen?: boolean
+  tz?: string
+}
+
+export type BriefingItem = {
+  text: string
+  sub?: string
+  href?: Record<string, unknown>
+  ref?: string
+}
+
+export type BriefingSectionResult = {
+  id: string
+  title: string
+  render: string
+  type?: string
+  items?: BriefingItem[]
+  stat?: { value?: unknown; label?: string; unit?: string }
+  error?: string
+  fetchedAt?: string
+  body?: string
+  overdue?: BriefingItem[]
+}
+
+export type BriefingDefinition = {
+  id: string
+  workspaceId: string
+  workspaceCwd: string
+  name: string
+  sections: BriefingSectionDef[]
+  schedule: BriefingSchedule
+  sources: Array<Record<string, unknown>>
+  updatedAt?: string
+}
+
+export type BriefingSnapshot = {
+  id: string
+  definitionId: string
+  workspaceCwd: string
+  generatedAt: string
+  status: string
+  sections: BriefingSectionResult[]
+  summary?: string
+  sessionId?: string
+}
+
 export class RuntimeApiError extends Error {
   status: number
   code: string
@@ -1100,6 +1158,47 @@ export class RuntimeApi {
     return result.data
   }
 
+  async getBriefingDefinition(signal?: AbortSignal): Promise<BriefingDefinition> {
+    const result = await this.request<{ ok: true; data: BriefingDefinition }>(withWorkspaceCwd('/api/v1/briefing/definition'), { signal })
+    return result.data
+  }
+
+  async putBriefingDefinition(body: {
+    workspaceCwd?: string
+    sections: BriefingSectionDef[]
+    schedule: BriefingSchedule
+    sources?: Array<Record<string, unknown>>
+  }, signal?: AbortSignal): Promise<BriefingDefinition> {
+    const result = await this.request<{ ok: true; data: BriefingDefinition }>('/api/v1/briefing/definition', {
+      method: 'PUT',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, workspaceCwd: currentWorkspaceCwd() }),
+    })
+    return result.data
+  }
+
+  async runBriefing(mode: 'full' | 'internal-only' = 'full', signal?: AbortSignal): Promise<{ briefingId: string; briefing: BriefingSnapshot }> {
+    const result = await this.request<{ ok: true; data: { briefingId: string; briefing: BriefingSnapshot } }>('/api/v1/briefing/run', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, workspaceCwd: currentWorkspaceCwd() }),
+    })
+    return result.data
+  }
+
+  async getLatestBriefing(onOpen = false, signal?: AbortSignal): Promise<{ definition: BriefingDefinition; briefing: BriefingSnapshot | null; schedule: BriefingSchedule }> {
+    const path = withWorkspaceCwd(`/api/v1/briefing/latest${onOpen ? '&onOpen=1' : ''}`)
+    const result = await this.request<{ ok: true; data: { definition: BriefingDefinition; briefing: BriefingSnapshot | null; schedule: BriefingSchedule } }>(path, { signal })
+    return result.data
+  }
+
+  async listBriefingMcpSources(signal?: AbortSignal): Promise<{ servers: McpServerV2[]; configured: string[] }> {
+    const result = await this.request<{ ok: true; data: { servers: McpServerV2[]; configured: string[] } }>(withWorkspaceCwd('/api/v1/briefing/sources/mcp'), { signal })
+    return result.data
+  }
+
   async draftMemoryCard(label: string, cause: 'correction' | 'choice' = 'correction', signal?: AbortSignal): Promise<Record<string, unknown>> {
     const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd('/api/v1/memory/cards'), {
       method: 'POST',
@@ -1627,6 +1726,28 @@ export class RuntimeApi {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ preview_id: previewId, ...(traceId ? { trace_id: traceId } : {}) }),
     })
+    return result.data
+  }
+
+  async listBizKinds(signal?: AbortSignal): Promise<{ kinds: { kind: string; label: string; fields: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown }> {
+    const result = await this.request<{ data: { kinds: { kind: string; label: string; fields: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown } }>('/api/v1/biz/kinds', { signal })
+    return result.data
+  }
+
+  async listBizSurfaces(workspaceCwd: string, limit = 20, signal?: AbortSignal): Promise<BizSurfaceRecord[]> {
+    const q = new URLSearchParams({ workspace: workspaceCwd, limit: String(limit) })
+    const result = await this.request<{ items: BizSurfaceRecord[] }>(`/api/v1/biz/surfaces?${q}`, { signal })
+    return result.items
+  }
+
+  async listBizConnections(workspaceId: string, signal?: AbortSignal): Promise<BizConnectionWithHealth[]> {
+    const q = new URLSearchParams({ workspace: workspaceId })
+    const result = await this.request<{ items: BizConnectionWithHealth[] }>(`/api/v1/biz/connections?${q}`, { signal })
+    return result.items
+  }
+
+  async listBizTraces(limit = 50, signal?: AbortSignal): Promise<{ rows: JsonValue[]; receipt: unknown }> {
+    const result = await this.request<{ data: { rows: JsonValue[]; receipt: unknown } }>(`/api/v1/biz/traces?limit=${limit}`, { signal })
     return result.data
   }
 
