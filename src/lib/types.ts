@@ -156,6 +156,8 @@ export interface IMHandoffPackage {
   }>
   /** 交接包 sessions 正在从 imAttach 懒加载 */
   sessionsLoading?: boolean
+  /** 已读过 dsh-handoff.json（即使 sessions 为空也不再扫附件） */
+  sessionsResolved?: boolean
   /** imAttach 下标（thread 原始 attachments 顺序） */
   attachIndex?: number
   createdAt: string

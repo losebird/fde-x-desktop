@@ -186,6 +186,13 @@ function rowHandoffFlagTrue(value: unknown) {
   return value === true || value === 'true' || value === 1
 }
 
+function attachBytes(got: Record<string, unknown> | null | undefined): string {
+  if (!got) return ''
+  if (typeof got.data === 'string') return got.data
+  const nested = got.data && typeof got.data === 'object' ? got.data as Record<string, unknown> : null
+  return nested && typeof nested.data === 'string' ? nested.data : ''
+}
+
 function mergeHandoffPackages(
   next?: IMHandoffPackage,
   prev?: IMHandoffPackage,
@@ -195,15 +202,14 @@ function mergeHandoffPackages(
   if (!prev) return next
   const sessions = next.sessions?.length ? next.sessions : prev.sessions
   const sourceChatIds = next.sourceChatIds?.length ? next.sourceChatIds : prev.sourceChatIds
-  const sessionsLoading = sessions?.length
-    ? false
-    : (next.sessionsLoading ?? prev.sessionsLoading)
+  const sessionsResolved = Boolean(sessions?.length || next.sessionsResolved || prev.sessionsResolved)
   return {
     ...prev,
     ...next,
     ...(sessions ? { sessions } : {}),
     ...(sourceChatIds?.length ? { sourceChatIds } : {}),
-    ...(sessionsLoading ? { sessionsLoading: true } : { sessionsLoading: false }),
+    sessionsResolved,
+    sessionsLoading: Boolean(!sessions?.length && !sessionsResolved && (next.sessionsLoading || prev.sessionsLoading)),
   }
 }
 
@@ -474,7 +480,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
 
   useEffect(() => {
     const needsSessions = (row: IMMessage) => {
-      if (row.handoff?.sessions?.length) return false
+      if (row.handoff?.sessions?.length || row.handoff?.sessionsResolved) return false
       if (row.handoff) return true
       return isHandoffSummaryText(row.text || '')
     }
@@ -496,14 +502,15 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
             if (!handoff) return row
             return { ...row, handoff: { ...handoff, sessionsLoading: true } }
           }))
+          let resolved = false
           for (const index of handoffAttachIndices(message)) {
-            const got = await runtimeApi.imAttach(message.id, index).catch(() => null)
-            const raw = got && typeof got.data === 'string' ? got.data : ''
+            const raw = attachBytes(await runtimeApi.imAttach(message.id, index).catch(() => null))
             if (!raw) continue
             const parsed = parseHandoffPack(raw)
+            if (!parsed) continue
             const rows = handoffSessionsFromPack(parsed)
-            if (!rows?.length) continue
             const sessionIds = handoffSessionIdsFromPack(parsed)
+            resolved = true
             setLiveMessages((prev) => (prev ?? []).map((row) => {
               if (row.id !== message.id) return row
               const base = row.handoff || buildThreadHandoff({
@@ -519,8 +526,9 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                 ...row,
                 handoff: {
                   ...base,
-                  sessions: rows,
+                  ...(rows?.length ? { sessions: rows } : {}),
                   sessionsLoading: false,
+                  sessionsResolved: true,
                   ...(sessionIds.length && !base.sourceChatIds.length ? { sourceChatIds: sessionIds } : {}),
                 },
               }
@@ -528,8 +536,8 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
             return
           }
           setLiveMessages((prev) => (prev ?? []).map((row) => (
-            row.id === message.id && row.handoff && !row.handoff.sessions?.length
-              ? { ...row, handoff: { ...row.handoff, sessionsLoading: false } }
+            row.id === message.id && row.handoff
+              ? { ...row, handoff: { ...row.handoff, sessionsLoading: false, ...(resolved ? { sessionsResolved: true } : {}) } }
               : row
           )))
         } finally {
@@ -1212,12 +1220,13 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     void (async () => {
       let sessions = message.handoff?.sessions || []
       if (!sessions.length) {
-        for (let index = 0; index < 12 && !sessions.length; index += 1) {
-          const got = await runtimeApi.imAttach(message.id, index).catch(() => null)
-          if (!got || got.ok === false) continue
-          const parsed = parseHandoffPack(String(got.data || ''))
-          const rows = parsed && Array.isArray(parsed.sessions) ? parsed.sessions as IMHandoffPackage['sessions'] : []
-          if (rows?.length) sessions = rows
+        for (const index of handoffAttachIndices(message)) {
+          const raw = attachBytes(await runtimeApi.imAttach(message.id, index).catch(() => null))
+          if (!raw) continue
+          const parsed = parseHandoffPack(raw)
+          if (!parsed) continue
+          sessions = handoffSessionsFromPack(parsed) || []
+          break
         }
       }
       if (!sessions.length) throw new Error('交接包里没有 AI 会话文件（请确认发出时预览里已有 session.v3.jsonl.zstd）')
