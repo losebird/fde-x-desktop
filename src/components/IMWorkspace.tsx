@@ -168,6 +168,28 @@ function parseHandoffPack(raw: string) {
   }
 }
 
+function handoffSessionsFromPack(parsed: Record<string, unknown> | null): IMHandoffPackage['sessions'] | undefined {
+  if (!parsed || !Array.isArray(parsed.sessions)) return undefined
+  return parsed.sessions as IMHandoffPackage['sessions']
+}
+
+function handoffSessionIdsFromPack(parsed: Record<string, unknown> | null): string[] {
+  if (!parsed || !Array.isArray(parsed.sessionIds)) return []
+  return parsed.sessionIds.map((item) => String(item)).filter(Boolean)
+}
+
+function mergeHandoffPackages(
+  next?: IMHandoffPackage,
+  prev?: IMHandoffPackage,
+): IMHandoffPackage | undefined {
+  if (!next && !prev) return undefined
+  if (!next) return prev
+  if (!prev) return next
+  const sessions = next.sessions?.length ? next.sessions : prev.sessions
+  const sourceChatIds = next.sourceChatIds?.length ? next.sourceChatIds : prev.sourceChatIds
+  return { ...prev, ...next, ...(sessions ? { sessions } : {}), ...(sourceChatIds?.length ? { sourceChatIds } : {}) }
+}
+
 function messageBody(message: IMMessage) {
   const text = String(message.text || '').trim()
   if (text && text !== '（附件）' && !/^附件\s+/u.test(text)) return text
@@ -361,6 +383,8 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const markedReadRef = useRef(new Set<string>())
   const pendingPresendRef = useRef<{ id: string; threadId: string; text: string } | null>(null)
   const seenPresendIdRef = useRef('')
+  const handoffSessionsCacheRef = useRef(new Map<string, NonNullable<IMHandoffPackage['sessions']>>())
+  const handoffSessionsFetchRef = useRef(new Set<string>())
   const openContactRef = useRef<IMContact | undefined>(undefined)
   const messages = liveMessages ?? []
   const topics = useApp((s) => s.imTopics)
@@ -376,6 +400,47 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     if (params.threadId && params.threadId !== activeThreadId) setActiveThread(params.threadId)
   }, [params.threadId, activeThreadId, setActiveThread])
+
+  useEffect(() => {
+    const pending = messages.filter((row) => row.handoff && !row.handoff.sessions?.length)
+    if (!pending.length) return
+    for (const message of pending) {
+      const cached = handoffSessionsCacheRef.current.get(message.id)
+      if (cached?.length) {
+        setLiveMessages((prev) => (prev ?? []).map((row) => (
+          row.id === message.id && row.handoff
+            ? { ...row, handoff: { ...row.handoff, sessions: cached } }
+            : row
+        )))
+        continue
+      }
+      if (handoffSessionsFetchRef.current.has(message.id)) continue
+      handoffSessionsFetchRef.current.add(message.id)
+      void (async () => {
+        for (let index = 0; index < 12; index += 1) {
+          const got = await runtimeApi.imAttach(message.id, index).catch(() => null)
+          if (!got || got.ok === false || !got.data) continue
+          const parsed = parseHandoffPack(String(got.data))
+          const rows = handoffSessionsFromPack(parsed)
+          if (!rows?.length) continue
+          handoffSessionsCacheRef.current.set(message.id, rows)
+          const sessionIds = handoffSessionIdsFromPack(parsed)
+          setLiveMessages((prev) => (prev ?? []).map((row) => {
+            if (row.id !== message.id || !row.handoff) return row
+            return {
+              ...row,
+              handoff: {
+                ...row.handoff,
+                sessions: rows,
+                ...(sessionIds.length && !row.handoff.sourceChatIds.length ? { sourceChatIds: sessionIds } : {}),
+              },
+            }
+          }))
+          break
+        }
+      })()
+    }
+  }, [messages])
 
   const applyMailbox = (data: Record<string, unknown>) => {
     const self = data.self && typeof data.self === 'object' ? data.self as Record<string, unknown> : null
@@ -464,15 +529,24 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           })).filter((item) => item.name)
         }
       }
-      const packed = rawAttach.find((item) => isHandoffAttach(item))
-      const handoff = packed || row.handoff
+      const packedAttach = rawAttach.find((item) => isHandoffAttach(item))
+      const parsedPack = packedAttach && typeof packedAttach.data === 'string' && packedAttach.data
+        ? parseHandoffPack(String(packedAttach.data))
+        : null
+      const packSessions = handoffSessionsFromPack(parsedPack)
+      const packSessionIds = handoffSessionIdsFromPack(parsedPack)
+      const packTitle = parsedPack && typeof parsedPack.title === 'string' && parsedPack.title.trim()
+        ? String(parsedPack.title).trim()
+        : '工作交接'
+      const handoff = packedAttach || row.handoff
         ? {
             id: `${row.id || threadId}-handoff`,
-            title: '工作交接',
+            title: packTitle,
             summary: text,
-            sourceWorkspaceId: String(row.workspace || ''),
-            sourceChatIds: [] as string[],
+            sourceWorkspaceId: String(row.workspace || parsedPack?.workspace || ''),
+            sourceChatIds: packSessionIds,
             fileIds: files.filter((item) => item.name !== HANDOFF_NAME).map((item) => item.fileId),
+            ...(packSessions?.length ? { sessions: packSessions } : {}),
             createdAt: created ? new Date(created).toISOString() : new Date().toISOString(),
             status: 'sent' as const,
           }
@@ -522,7 +596,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
             ? old.text
             : (row.text.length >= old.text.length ? row.text : old.text),
           attachments: row.attachments?.length ? row.attachments : old.attachments,
-          handoff: row.handoff || old.handoff,
+          handoff: mergeHandoffPackages(row.handoff, old.handoff),
           read: markedReadRef.current.has(row.id) || row.read || old.read,
         })
       }
@@ -1062,8 +1136,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     void (async () => {
       let sessions = message.handoff?.sessions || []
       if (!sessions.length) {
-        const guesses = Math.max(6, (message.attachments || []).length + 2)
-        for (let index = 0; index < guesses && !sessions.length; index += 1) {
+        for (let index = 0; index < 12 && !sessions.length; index += 1) {
           const got = await runtimeApi.imAttach(message.id, index).catch(() => null)
           if (!got || got.ok === false) continue
           const parsed = parseHandoffPack(String(got.data || ''))
