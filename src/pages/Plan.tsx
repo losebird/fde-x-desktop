@@ -2,8 +2,10 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
-  Clock, MapPin, Calendar as CalIcon, Repeat, Zap, Play, Power,
+  Clock, MapPin, Calendar as CalIcon, Repeat, Zap, Play, Power, Sparkles,
 } from 'lucide-react'
+import { askAiForResult } from '@/lib/ask-ai'
+import type { JsonSchemaLite } from '@/lib/json-schema-lite'
 import clsx from 'clsx'
 import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
 import type { Task, ScheduleEvent, Workflow, WorkflowStep } from '@/lib/types'
@@ -115,10 +117,56 @@ const PRIORITY_TAG: Record<Task['priority'], { kind: 'red'|'amber'|'blue'|'defau
   low:    { kind: 'default',label: '低' },
 }
 
+type TaskAdvicePatch = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'priority' | 'due' | 'tags'>>
+type TaskAdviceSuggestion = { taskId: string; reason: string; patch: TaskAdvicePatch }
+type TaskAdviceResult = { summary?: string; suggestions: TaskAdviceSuggestion[] }
+
+const TaskAdviceSchema: JsonSchemaLite = {
+  type: 'object',
+  required: ['suggestions'],
+  properties: {
+    summary: { type: 'string' },
+    suggestions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['taskId', 'reason', 'patch'],
+        properties: {
+          taskId: { type: 'string' },
+          reason: { type: 'string' },
+          patch: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              notes: { type: 'string' },
+              status: { enum: ['todo', 'doing', 'done', 'archived'] },
+              priority: { enum: ['urgent', 'high', 'med', 'low'] },
+              due: { type: 'string' },
+              tags: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+    },
+  },
+}
+
+function formatAdvicePatch(patch: TaskAdvicePatch): string {
+  const parts: string[] = []
+  if (patch.title !== undefined) parts.push(`标题 → ${patch.title}`)
+  if (patch.notes !== undefined) parts.push(`备注 → ${patch.notes}`)
+  if (patch.status !== undefined) parts.push(`状态 → ${patch.status}`)
+  if (patch.priority !== undefined) parts.push(`优先级 → ${patch.priority}`)
+  if (patch.due !== undefined) parts.push(`截止 → ${patch.due || '—'}`)
+  if (patch.tags !== undefined) parts.push(`标签 → ${patch.tags.join(', ') || '—'}`)
+  return parts.length ? parts.join('；') : '（无字段变更）'
+}
+
 function TodoTab() {
   const tasks = useCurrentTasks()
   const addTask = useApp((s) => s.addTask)
   const removeTask = useApp((s) => s.removeTask)
+  const updateTask = useApp((s) => s.updateTask)
   const cycleStatus = useApp((s) => s.cycleTaskStatus)
   const selectedTaskId = useApp((s) => s.selectedTaskId)
 
@@ -126,6 +174,12 @@ function TodoTab() {
   const [q, setQ] = useState('')
   const [tag, setTag] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
+  const [organizeOpen, setOrganizeOpen] = useState(false)
+  const [organizeLoading, setOrganizeLoading] = useState(false)
+  const [organizeError, setOrganizeError] = useState('')
+  const [organizeAdvice, setOrganizeAdvice] = useState<TaskAdviceResult | null>(null)
+  const [appliedKeys, setAppliedKeys] = useState<Set<string>>(() => new Set())
+  const [applyingKey, setApplyingKey] = useState<string | null>(null)
   const [draft, setDraft] = useState<Pick<Task, 'title'|'priority'|'due'|'tags'>>({
     title: '', priority: 'med', due: '', tags: [],
   })
@@ -169,6 +223,54 @@ function TodoTab() {
     }).catch(() => undefined)
   }
 
+  async function runOrganizeTodos() {
+    setOrganizeOpen(true)
+    setOrganizeLoading(true)
+    setOrganizeError('')
+    setOrganizeAdvice(null)
+    setAppliedKeys(new Set())
+    const result = await askAiForResult<TaskAdviceResult>({
+      intent: '整理待办',
+      prompt: '根据以下待办给出去重/合并/优先级建议，用 fde_submit_result 提交',
+      schema: TaskAdviceSchema,
+      context: ['tasks'],
+    })
+    setOrganizeLoading(false)
+    if (!result.ok) {
+      if (result.error === 'timeout') {
+        setOrganizeError('AI 没有提交结构化结果，可在 AI 页查看它说了什么')
+      } else if (result.error === 'schema_mismatch' && result.raw && typeof result.raw === 'object') {
+        setOrganizeAdvice(result.raw as TaskAdviceResult)
+        setOrganizeError('返回结构与约定不完全一致，请谨慎应用')
+      } else {
+        setOrganizeError(result.error === '核心未连接' ? result.error : `整理失败：${result.error}`)
+      }
+      return
+    }
+    setOrganizeAdvice(result.data)
+  }
+
+  async function applySuggestion(suggestion: TaskAdviceSuggestion, key: string) {
+    if (appliedKeys.has(key) || applyingKey) return
+    const patch = suggestion.patch
+    if (!patch || !Object.keys(patch).length) return
+    const task = tasks.find((t) => t.id === suggestion.taskId)
+    if (!task) {
+      setOrganizeError('任务已不存在，请刷新列表后重试')
+      return
+    }
+    setApplyingKey(key)
+    setOrganizeError('')
+    try {
+      await updateTask(suggestion.taskId, patch)
+      setAppliedKeys((prev) => new Set(prev).add(key))
+    } catch (cause) {
+      setOrganizeError(cause instanceof Error ? cause.message : '应用建议失败')
+    } finally {
+      setApplyingKey(null)
+    }
+  }
+
   return (
     <div>
       <Card className="mb-4">
@@ -203,6 +305,15 @@ function TodoTab() {
               </select>
               <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-subtle pointer-events-none" />
             </div>
+            <button
+              type="button"
+              className="btn h-8"
+              disabled={organizeLoading}
+              title="整理待办"
+              onClick={() => void runOrganizeTodos()}
+            >
+              <Sparkles size={14} /> {organizeLoading ? '整理中…' : '整理待办'}
+            </button>
           </div>
         </div>
       </Card>
@@ -282,6 +393,53 @@ function TodoTab() {
             <button className="btn-primary" onClick={submit}>创建</button>
           </div>
         </div>
+      </RightDrawer>
+
+      <RightDrawer
+        open={organizeOpen}
+        onClose={() => {
+          if (!organizeLoading) setOrganizeOpen(false)
+        }}
+        title="整理建议"
+      >
+        {organizeLoading && (
+          <p className="text-sm text-ink-muted">已向当前 AI 会话发送整理请求，等待结构化结果…</p>
+        )}
+        {!organizeLoading && organizeError && (
+          <div className="text-sm text-amber-900 bg-amber-50 border border-amber-100 rounded px-3 py-2 mb-4">{organizeError}</div>
+        )}
+        {!organizeLoading && organizeAdvice?.summary && (
+          <p className="text-sm text-ink-muted mb-4">{organizeAdvice.summary}</p>
+        )}
+        {!organizeLoading && organizeAdvice?.suggestions?.length ? (
+          <ul className="space-y-3">
+            {organizeAdvice.suggestions.map((suggestion, index) => {
+              const key = `${suggestion.taskId}:${index}`
+              const task = tasks.find((t) => t.id === suggestion.taskId)
+              const applied = appliedKeys.has(key)
+              const busy = applyingKey === key
+              return (
+                <li key={key} className="border border-line rounded-lg p-3 bg-surface-2/30">
+                  <div className="text-sm font-medium truncate">{task?.title ?? `任务 ${suggestion.taskId}`}</div>
+                  <p className="text-xs text-ink-muted mt-1">{suggestion.reason}</p>
+                  <p className="text-xs text-ink-subtle mt-2">{formatAdvicePatch(suggestion.patch)}</p>
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={applied || busy || !task || !Object.keys(suggestion.patch || {}).length}
+                      onClick={() => void applySuggestion(suggestion, key)}
+                    >
+                      {applied ? '已应用' : busy ? '应用中…' : '应用'}
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          !organizeLoading && !organizeError && <p className="text-sm text-ink-muted">暂无建议</p>
+        )}
       </RightDrawer>
     </div>
   )
