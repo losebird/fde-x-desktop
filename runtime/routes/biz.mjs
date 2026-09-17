@@ -1,5 +1,6 @@
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { loadMemoryWorkspaceVocab } from '../biz/memory-vocab.mjs'
+import { normalizePreviewWhere } from '../biz/where.mjs'
 import { insertBizSurface, listBizSurfaces, listBusinessConnections } from '../db.mjs'
 import { emit } from '../events.mjs'
 
@@ -42,7 +43,9 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
     ...(no ? { no } : {}),
     ...(cwd ? { workspace: cwd } : {}),
     ...(action === '改行' || action === '新建' ? { patch: input } : {}),
-    ...(action === '现查' || action === '删除' || action === '过审' ? { where: body.where || [] } : {}),
+    ...(action === '现查' || action === '删除' || action === '过审'
+      ? { where: normalizePreviewWhere(body.where) }
+      : {}),
   }
   return { payload }
 }

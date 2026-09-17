@@ -107,7 +107,7 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
       if (!aiRuntime?.status?.().connected) {
         return baseSection(def, { error: '核心未连接，无法查询业务待审' })
       }
-      const where = Object.entries(filter).map(([field, value]) => ({ field, op: 'eq', value }))
+      const where = Object.entries(filter).map(([field, value]) => ({ keys: [field], values: [value] }))
       const preview = await aiRuntime.lanAssist('/preview', {
         method: 'POST',
         body: {

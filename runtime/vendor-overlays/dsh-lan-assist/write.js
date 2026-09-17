@@ -1,0 +1,1314 @@
+/**
+ * Preview, receipt and compensate speak.
+ * Secretary never posts; the write mouth consumes a preview token.
+ * @module dsh-lan-assist/write
+ */
+
+import { randomHex } from './crypto.js'
+import { mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
+import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
+import { ensureSpoken } from './vocab/spoken.js'
+import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
+import { previewRowCap } from './where-pass.js'
+import { createTraceLog } from './traces.js'
+import { speakLookup } from './probe.js'
+import { redactEnvelopeText, refLabel } from './ref.js'
+
+export const SYSTEM_TABLES = ['users', 'fields', 'aiMessages']
+export const PREVIEW_TTL_MS = 90_000
+
+/**
+ * @param {{ kind?: string, no?: string } | null | undefined} ref
+ * @param {{ status?: string, fingerprint?: string } | null | undefined} found
+ */
+export function speakPreview(ref, found) {
+  const label = refLabel(ref) || '这张单'
+  if (!found || found.ok === false) {
+    return {
+      speak: `${label}：没连业务，不能装成已过账。信还能寄，点头还只是调度进会话。`,
+      fresh: false,
+    }
+  }
+  const status = String(found.status || '未知').trim() || '未知'
+  const next = String(found.to || '').trim()
+  const action = String(found.action || '').trim()
+  const from = String(found.from || '').trim()
+  let speak = `将改${label}，${next && next !== status ? `从${status} → ${next}` : `现在是${status}`}。这是预览，不是过账。`
+  if (action === '删除') speak = `将删${label}，现在是${status}。这是预览，不是过账。`
+  if (action === '新建') speak = `将新建${label}。这是预览，不是过账。`
+  if (action === '改行' && next) speak = `将改${label}：${next}。这是预览，不是过账。`
+  if (found.mine === false) speak += '负责人不是这台号。'
+  return {
+    speak: redactEnvelopeText(speak),
+    fresh: true,
+    status,
+    from: from || status,
+    to: next,
+    fingerprint: String(found.fingerprint || status),
+  }
+}
+
+/**
+ * Page payload for the secretary 业务 face. Not a write.
+ * 0 / 1 / many rows; canWrite only when one row and a live preview_id.
+ */
+export function packSheet(spec = {}) {
+  const kind = String(spec.kind || '').trim()
+  const action = String(spec.action || '').trim() || '现查'
+  const patch = spec.patch && typeof spec.patch === 'object' ? spec.patch : {}
+  const fields = spec.fields && typeof spec.fields === 'object' ? spec.fields : null
+  const matches = Array.isArray(spec.matches) ? spec.matches : []
+  let rows = []
+  if (matches.length) {
+    rows = matches.map((item) => {
+      const own = item && item.fields && typeof item.fields === 'object' ? item.fields : null
+      const fallback = fields && String(item && item.no || '') === String(spec.no || '') ? fields : null
+      const packedFields = own && Object.keys(own).length ? own : (fallback || {})
+      const no = String((item && item.no) || packedFields.code || packedFields.name || packedFields.title || '')
+      return {
+        no,
+        status: String((item && item.status) || packedFields.status || ''),
+        fields: packedFields,
+      }
+    })
+  } else if (fields && Object.keys(fields).length) {
+    rows = [{
+      no: String(spec.no || fields.code || fields.name || ''),
+      status: String(spec.status || fields.status || ''),
+      fields,
+    }]
+  }
+  const columns = []
+  const seen = new Set()
+  const schemaFields = Array.isArray(spec.schemaFields) ? spec.schemaFields : []
+  function schemaEnums(key) {
+    const hit = schemaFields.find((item) => {
+      const name = typeof item === 'string' ? item : (item && item.name)
+      return String(name || '') === String(key || '')
+    })
+    if (!hit || typeof hit !== 'object') return undefined
+    const packed = (hit.enums && typeof hit.enums === 'object' && !Array.isArray(hit.enums) && Object.keys(hit.enums).length)
+      ? hit.enums
+      : enumMap(hit)
+    return packed && Object.keys(packed).length ? packed : undefined
+  }
+  function addCol(key, label, enums) {
+    const name = String(key || '').trim()
+    if (!name || seen.has(name)) return
+    seen.add(name)
+    const col = { key: name, label: label || fieldSpeak(name) }
+    if (enums && typeof enums === 'object' && Object.keys(enums).length) col.enums = enums
+    columns.push(col)
+  }
+  addCol('index', '序号')
+  addCol('no', '单号')
+  const hasStatus = rows.some((row) => {
+    const status = String(row.status || '').trim()
+    return status && status !== '未知'
+  })
+  if (hasStatus || action === '新建' || action === '改行') addCol('status', '状态', schemaEnums('status'))
+  const usedLabels = new Set(['序号', '单号', '状态'])
+  for (const row of rows) {
+    for (const key of Object.keys(row.fields || {})) {
+      if (key === 'no' || key === 'status' || key === 'state' || key === 'stage' || key === 'id') continue
+      if (/^(orderNo|code|ticketNo|contractNo)$/.test(key) && rows.some((item) => String(item.fields[key] || '') === String(item.no || ''))) continue
+      if (/^(name|title)$/i.test(key) && rows.every((item) => String(item.fields[key] || '') === String(item.no || ''))) continue
+      if (hideDisplayKey(key, row.fields[key])) continue
+      const label = displayColumnLabel(key, schemaFields, usedLabels)
+      if (!label) continue
+      usedLabels.add(label)
+      addCol(key, label, schemaEnums(key))
+    }
+  }
+  if (action === '新建' || action === '改行') {
+    for (const row of writableFieldChoices(schemaFields)) {
+      if (!row || !row.name) continue
+      const label = displayColumnLabel(row.name, schemaFields, usedLabels)
+      if (!label) continue
+      usedLabels.add(label)
+      addCol(row.name, label, schemaEnums(row.name))
+    }
+  }
+  const lead = rows[0] || { fields: {} }
+  const changes = Object.keys(patch).map((key) => ({
+    field: key,
+    label: displayColumnLabel(key, schemaFields) || fieldSpeak(key),
+    from: fieldValue(lead.fields, key) || String(spec.from || ''),
+    to: String(patch[key] ?? ''),
+  }))
+  const many = rows.length > 1
+  const previewId = String(spec.preview_id || '').trim()
+  return {
+    kind,
+    action,
+    clue: String(spec.clue || spec.no || '').trim(),
+    no: String(spec.no || '').trim(),
+    rows,
+    columns,
+    changes,
+    preview_id: previewId,
+    canWrite: !!previewId && action !== '现查' && (!many || !!spec.batch),
+    batch: !!spec.batch,
+    nos: Array.isArray(spec.nos) ? spec.nos : undefined,
+    speak: String(spec.speak || spec.hint || '').trim(),
+    workspace: String(spec.workspace || '').trim(),
+    sessionId: String(spec.sessionId || '').trim(),
+    nextKind: sheetNextKind(kind, spec),
+    hopWhere: Array.isArray(spec.hopWhere) ? spec.hopWhere : undefined,
+    speech: String(spec.speech || '').trim(),
+    fieldChoices: Array.isArray(spec.fieldChoices) ? spec.fieldChoices : undefined,
+    pendingValue: spec.pendingValue,
+    pickField: !!spec.pickField,
+    askRest: String(spec.askRest || '').trim(),
+  }
+}
+
+function hopRelatedIds(fromKind, toKind, matches, extra) {
+  if (!toKind) return []
+  return [...new Set((Array.isArray(matches) ? matches : []).map((item) => (
+    relatedHopId(fromKind, toKind, item && item.fields, extra)
+  )).filter(Boolean))]
+}
+
+function hopRelatedField(fromKind, toKind, _matches, extra) {
+  return relatedField(fromKind, toKind, extra)
+}
+
+function catalogVersionOf(vocab) {
+  for (const row of Array.isArray(vocab) ? vocab : []) {
+    const version = String((row && row.catalogVersion) || '').trim()
+    if (version) return version
+  }
+  return ''
+}
+
+function sheetNextKind(kind, spec = {}) {
+  const next = String(spec.nextKind || spec.via || '').trim()
+  if (!next || next === String(kind || '').trim()) return ''
+  return next
+}
+
+function keepHoppedMatches(rows, hopIds, fromKind, toKind, extra) {
+  const idSet = new Set((Array.isArray(hopIds) ? hopIds : []).map((item) => String(item)))
+  if (!idSet.size) return []
+  return (Array.isArray(rows) ? rows : []).filter((row) => {
+    const id = relatedChildId(fromKind, toKind, row && row.fields, extra)
+    return id && idSet.has(String(id))
+  })
+}
+
+export function stampParentLabels(fromKind, parents, children, toKind, extra) {
+  const byId = new Map()
+  for (const parent of Array.isArray(parents) ? parents : []) {
+    const id = relatedHopId(fromKind, toKind, parent && parent.fields, extra)
+    if (id) byId.set(String(id), parent)
+  }
+  const fk = relatedField(fromKind, toKind, extra)
+  const labelKey = fk && /Id$/.test(fk) ? fk.slice(0, -2) : (fromKind || 'parent')
+  return (Array.isArray(children) ? children : []).map((child) => {
+    const fields = child && child.fields && typeof child.fields === 'object' ? { ...child.fields } : {}
+    const id = relatedHopId(fromKind, toKind, fields, extra) || String(fields[relatedField(fromKind, toKind, extra)] || '').trim()
+    const parent = id ? byId.get(String(id)) : null
+    if (parent && !String(fields[labelKey] || '').trim()) {
+      const label = String((parent.no) || (parent.fields && (parent.fields.code || parent.fields.name || parent.fields.title)) || '').trim()
+      if (label) fields[labelKey] = label
+    }
+    return { ...child, fields }
+  })
+}
+
+async function withSheet(result, extra = {}) {
+  let schemaFields = extra.schemaFields
+  const sheetKind = String((result && result.kind) || extra.kind || '').trim()
+  if (typeof extra.fieldsOf === 'function' && sheetKind) {
+    try {
+      const loaded = await extra.fieldsOf(sheetKind, extra.vocab)
+      if (Array.isArray(loaded) && loaded.length) schemaFields = loaded
+    } catch { /* keep the already loaded schema */ }
+  }
+  const sheet = packSheet({ ...result, ...extra, schemaFields })
+  const out = { ...result, sheet }
+  delete out.vocab
+  return out
+}
+
+function hideDisplayKey(key, value) {
+  const name = String(key || '')
+  if (name === 'id' || /Id$|_id$/.test(name)) return true
+  if (/^(createdAt)$/i.test(name)) return true
+  const text = value != null && typeof value !== 'object' ? String(value) : ''
+  if (/^(owner|assignee|createdBy|updatedBy)$/i.test(name) && /^\d+$/.test(text)) return true
+  if (text && /^\d{12,}$/.test(text) && !/no|code|ticket/i.test(name)) return true
+  return false
+}
+
+function displayColumnLabel(key, schemaFields, usedLabels) {
+  const list = Array.isArray(schemaFields) ? schemaFields : []
+  const hit = list.find((item) => {
+    const name = typeof item === 'string' ? item : (item && item.name)
+    return String(name || '') === String(key || '')
+  })
+  const title = hit && typeof hit === 'object' ? String(hit.title || '').trim() : ''
+  const label = (title && /[\u4e00-\u9fff]/.test(title)) ? title : fieldSpeak(key)
+  if (usedLabels && usedLabels.has(label)) return ''
+  return label
+}
+
+/**
+ * @param {{ fingerprint?: string } | null | undefined} preview
+ * @param {{ fingerprint?: string, status?: string, ok?: boolean } | null | undefined} next
+ */
+export function previewStillHolds(preview, next) {
+  if (!preview || !preview.fingerprint) return { ok: false, error: 'NEED_PREVIEW', hint: '先预览。旧画面不能拿去写。' }
+  if (!next || next.ok === false) {
+    return { ok: false, error: 'NO_LOOKUP', hint: '点头前再查失败。没连上，不能装成已过账。' }
+  }
+  const fingerprint = String(next.fingerprint || next.status || '')
+  if (fingerprint !== String(preview.fingerprint)) {
+    return { ok: false, error: 'STALE', hint: '刚才那版不是现在这版。不要拿旧预览去写。' }
+  }
+  return { ok: true, fingerprint, status: next.status || preview.status || '' }
+}
+
+/**
+ * @param {{ kind?: string, no?: string } | null | undefined} ref
+ * @param {{ receiptId?: string, ok?: boolean, failed?: boolean } | null | undefined} result
+ */
+export function speakReceipt(ref, result) {
+  const label = refLabel(ref) || '这张单'
+  if (result && result.failed) {
+    return {
+      kind: 'compensate',
+      speak: `刚才那笔业务侧失败了：${label}。要不要走冲正。秘书不执行冲正。`,
+    }
+  }
+  const receiptId = result && String(result.receiptId || '').trim()
+  if (!receiptId) {
+    return {
+      kind: 'receipt',
+      speak: `写了但没回执：${label}。不能记已处理。`,
+    }
+  }
+  return {
+    kind: 'receipt',
+    speak: `库里已改上：${label}。有回执才算写上了。`,
+    receiptId,
+  }
+}
+
+export function speakBundlePreview(lines, extra = {}) {
+  const rows = Array.isArray(lines) ? lines.filter(Boolean) : []
+  if (!rows.length) return extra.replaced ? '上一笔没写，已被这开口换掉。' : '先预览。'
+  const body = rows.map((row) => String(row.speak || row.hint || '').replace(/。这是预览，不是过账。?$/, '')).filter(Boolean)
+  const head = extra.replaced ? '上一笔没写，已被这开口换掉。' : ''
+  const tail = rows.some((row) => row.ok !== false && row.preview_id) ? '这是预览，不是过账。' : ''
+  return redactEnvelopeText([head, ...body, tail].filter(Boolean).join('\n'))
+}
+
+export function speakBundleReceipt(results) {
+  const rows = Array.isArray(results) ? results : []
+  if (!rows.length) return '没有可写的行。'
+  const lines = rows.map((row) => {
+    if (!row) return ''
+    const label = [row.kind, row.no].filter(Boolean).join(' ') || '这张单'
+    const change = patchChange(row.patch, null)
+    if (row.failed || row.ok === false) {
+      return row.speak || (change && change.speak
+        ? `${label}没写成：${change.speak}`
+        : `没写成：${label}`)
+    }
+    return change && change.speak
+      ? `库里已改上：${label}。${change.speak}。有回执才算写上了。`
+      : (row.speak || `库里已改上：${label}。有回执才算写上了。`)
+  }).filter(Boolean)
+  return lines.join('\n')
+}
+
+export function speakAlreadyWritten(ref) {
+  const label = refLabel(ref) || '这张单'
+  return `同一封再点，不会二次过账。${label}已经有回执。`
+}
+
+/**
+ * @param {unknown} kind
+ */
+export function isSystemTable(kind) {
+  return SYSTEM_TABLES.includes(String(kind || '').trim())
+}
+
+/**
+ * @param {unknown} kind
+ * @param {Array<{ kind?: string, label?: string, can?: string[] }>} [vocab]
+ */
+function pickProp(node, props, keys) {
+  for (const key of keys) {
+    if (node && node[key] != null && node[key] !== '') return node[key]
+    if (props && props[key] != null && props[key] !== '') return props[key]
+  }
+  return undefined
+}
+
+function conceptLabel(node, props) {
+  return String(pickProp(node, props, [
+    'content',
+    'prefLabel',
+    'skos:prefLabel',
+    'label',
+    'rdfs:label',
+  ]) || '').trim()
+}
+
+export function stringList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean)
+  if (typeof value === 'string') {
+    return value.split(/[,，、\s]+/).map((item) => item.trim()).filter(Boolean)
+  }
+  return []
+}
+
+export function kindsFromGraphNodes(nodes) {
+  const out = []
+  for (const node of Array.isArray(nodes) ? nodes : []) {
+    if (!node || String(node.type || '') !== 'skos:Concept') continue
+    const props = node.properties && typeof node.properties === 'object' ? node.properties : {}
+    const kind = conceptLabel(node, props)
+    if (!kind) continue
+    const fields = stringList(pickProp(node, props, ['fields']))
+    const can = stringList(pickProp(node, props, ['can']))
+    const rawResource = String(pickProp(node, props, ['resource', 'collection']) || '').trim()
+    const ticketField = String(pickProp(node, props, ['ticketField', 'ticket_field']) || '').trim()
+    const dateField = String(pickProp(node, props, ['dateField', 'date_field']) || '').trim()
+    if (ticketField) fields.unshift(ticketField)
+    if (!fields.length && !can.length && !rawResource) continue
+    const packed = {
+      kind,
+      fields: [...new Set(fields.filter(Boolean))],
+      can: can.length ? can : ['现查'],
+    }
+    const uri = String(node.id || pickProp(node, props, ['id', 'uri']) || '').trim()
+    const slug = uri.includes('#') ? uri.split('#').pop() : uri
+    if (uri.includes('#') || /^[A-Za-z][A-Za-z0-9_-]{0,48}$/.test(slug)) packed.id = slug
+    if (rawResource) packed.resource = rawResource
+    if (ticketField) packed.ticketField = ticketField
+    if (dateField) packed.dateField = dateField
+    const clues = pickProp(node, props, ['clues'])
+    if (clues != null) packed.clues = clues
+    const catalogVersion = String(pickProp(node, props, ['catalogVersion', 'catalog_version']) || '').trim()
+    if (catalogVersion) packed.catalogVersion = catalogVersion
+    const relations = pickProp(node, props, ['relations'])
+    if (Array.isArray(relations) && relations.length) packed.relations = relations
+    if (kind === '口语' || packed.id === 'spoken') packed.spoken = true
+    out.push(packed)
+  }
+  return out
+}
+
+export function vocabRow(kind, vocab) {
+  const key = String(kind || '').trim()
+  if (!key) return null
+  for (const row of vocab || []) {
+    if (!row) continue
+    const name = String(row.kind || row.label || '').trim()
+    if (name === key) {
+      const can = Array.isArray(row.can) ? row.can.map((item) => String(item).trim()).filter(Boolean) : []
+      const packed = { kind: name, can, fields: Array.isArray(row.fields) ? row.fields : [] }
+      if (row.id) packed.id = row.id
+      if (row.clues != null) packed.clues = row.clues
+      if (row.resource) packed.resource = row.resource
+      if (row.ticketField) packed.ticketField = row.ticketField
+      return packed
+    }
+  }
+  return null
+}
+
+/**
+ * @param {unknown} action
+ * @param {{ can?: string[] } | null} row
+ */
+export function actionAllowed(action, row) {
+  const act = String(action || '').trim()
+  const can = (row && row.can) || []
+  if (act === '过审') return can.includes('过审')
+  if (act === '改行' || act === '删除' || act === '新建' || act === '现查') {
+    return can.includes('现查') || can.includes('改行') || can.includes('过审') || can.includes(act)
+  }
+  return false
+}
+
+export function nextStatus(action, status) {
+  if (String(action || '') === '过审') return '已过'
+  return String(status || '未知').trim() || '未知'
+}
+
+/**
+ * Write mouth. Lookup stays GET-only. Secretary mailbox never calls this.
+ * @param {{
+ *   vocab?: Array<Record<string, unknown>>,
+ *   lookupTodo?: Function,
+ *   postWrite?: Function,
+ *   now?: () => number,
+ * }} [opts]
+ */
+export function createGate(opts = {}) {
+  const staticVocab = Array.isArray(opts.vocab) && opts.vocab.length ? opts.vocab : null
+  const now = opts.now || (() => Date.now())
+  /** @type {Map<string, Record<string, unknown>>} */
+  const tokens = new Map()
+  const traces = opts.traces || createTraceLog()
+  const rememberedAsk = new Map()
+
+  function refuse(error, hint) {
+    return { ok: false, error, hint }
+  }
+
+  function noteAsk(workspace, rest) {
+    const cwd = String(workspace || '').trim()
+    const bit = String(rest || '').trim()
+    if (!cwd || !bit) return
+    const list = rememberedAsk.get(cwd) || []
+    if (!list.includes(bit)) list.push(bit)
+    rememberedAsk.set(cwd, list)
+  }
+
+  function applyRememberedAsk(vocab, workspace) {
+    const list = rememberedAsk.get(String(workspace || '').trim()) || []
+    if (!list.length) return vocab
+    const rows = Array.isArray(vocab) ? vocab.slice() : []
+    const i = rows.findIndex((row) => row && (row.spoken || row.kind === '口语' || row.id === 'spoken'))
+    if (i < 0) return rows
+    let clues = rows[i].clues
+    for (const rest of list) clues = mergeAskClue(clues, rest)
+    rows[i] = { ...rows[i], clues, spoken: true }
+    return rows
+  }
+
+  async function vocabFor(workspace) {
+    if (typeof opts.loadVocab === 'function') {
+      const cwd = String(workspace || '').trim()
+      if (!cwd) return { ok: false, error: 'NO_CWD', hint: '这封没绑工作区，读不了词表。' }
+      try {
+        const loaded = await opts.loadVocab(cwd)
+        return { ok: true, vocab: applyRememberedAsk(Array.isArray(loaded) ? loaded : [], cwd) }
+      } catch {
+        return { ok: false, error: 'NO_VOCAB', hint: '词表没读成。不能装成能写。' }
+      }
+    }
+    if (staticVocab) return { ok: true, vocab: applyRememberedAsk(staticVocab, workspace) }
+    return { ok: false, error: 'NO_VOCAB', hint: '词表没读成。不能装成能写。' }
+  }
+
+  function recognize(kind, action, patch, vocab) {
+    const name = String(kind || '').trim()
+    if (isSystemTable(name)) return refuse('SYSTEM_TABLE', `${name}是系统表，不能写。`)
+    const row = vocabRow(name, vocab)
+    const mapped = mapKind(name, { vocab })
+    if (!row || !mapped) return refuse('UNKNOWN_KIND', `${name || '这个型'}没登记。词表和连接器都要有，不能装成能写。`)
+    const act = String(action || '').trim() || '现查'
+    if (!actionAllowed(act, row)) {
+      if (act === '过审') return refuse('ACTION_DENIED', `${name}词表没有「过审」，不能预览过审。`)
+      return refuse('ACTION_DENIED', `${name}现在只许现查，不能预览这个动作。`)
+    }
+    return { ok: true, kind: name, action: act, mapped, row }
+  }
+
+  async function probe(spec) {
+    if (typeof opts.lookupTodo !== 'function') return { ok: false, error: 'NO_CONNECTOR' }
+    try {
+      return await opts.lookupTodo({
+        kind: spec.kind,
+        no: spec.no,
+        line: spec.line,
+        workspace: spec.workspace || '',
+        staffId: spec.staffId || '',
+        vocab: spec.vocab,
+        mapped: spec.mapped,
+        speech: '',
+        related: spec.related,
+        asAsk: !!spec.asAsk,
+        where: spec.where,
+        join: spec.join,
+      })
+    } catch {
+      return { ok: false, error: 'LOOKUP' }
+    }
+  }
+
+  async function previewStructured(plan, spec, loaded) {
+    const extra = { vocab: loaded.vocab }
+    const start = plan.steps[0]
+    const target = plan.steps[plan.targetIndex] || start
+    if (!start || !start.kind) return refuse('UNKNOWN_KIND', '没有型，预览走不了。')
+    const recognized = recognize(target.kind, plan.action, plan.patch, loaded.vocab)
+    if (!recognized.ok) return recognized
+    let schemaFields = []
+    if (typeof opts.fieldsOf === 'function') {
+      try { schemaFields = await opts.fieldsOf(recognized.kind, loaded.vocab) } catch { schemaFields = [] }
+    }
+    if (!Array.isArray(schemaFields)) schemaFields = []
+    async function sheet(result, more = {}) {
+      return withSheet(result, { vocab: loaded.vocab, schemaFields, fieldsOf: opts.fieldsOf, ...more })
+    }
+    let writePatch = (recognized.action === '改行' || recognized.action === '新建')
+      ? bindPatchEnums({ ...plan.patch }, schemaFields)
+      : {}
+    if (schemaFields.length && writePatch && Object.keys(writePatch).length) {
+      writePatch = Object.fromEntries(Object.entries(writePatch).filter(([key]) => schemaHasField(schemaFields, key)))
+    }
+    if (spec.related && spec.related.kind) {
+      const hopped = await probe({
+        kind: recognized.kind, no: plan.no, line: plan.line, workspace: spec.workspace, staffId: spec.staffId,
+        vocab: loaded.vocab, structured: true, speech: '', where: (target && target.where) || start.where,
+        related: spec.related, asAsk: !!spec.asAsk,
+      })
+      const rows = (hopped && hopped.ok && hopped.matches && hopped.matches.length)
+        ? hopped.matches
+        : (hopped && hopped.ok && hopped.no ? [{ no: hopped.no, status: hopped.status, fields: hopped.fields || {} }] : [])
+      if (!rows.length) {
+        const hopSpeak = speakLookup({ kind: recognized.kind, no: '' }, hopped && hopped.ok === false ? hopped : { ok: false, error: 'NOT_FOUND' })
+        return await sheet(refuse('NOT_FOUND', hopSpeak), {
+          kind: recognized.kind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
+        })
+      }
+      return finishStructured(recognized, rows, hopped, writePatch, plan, spec, loaded, schemaFields, recognized.kind)
+    }
+    if (recognized.action === '新建') {
+      const labelNo = looksLikeTicket(plan.no) ? plan.no : '新单'
+      const spoken = speakPreview({ kind: recognized.kind, no: labelNo }, {
+        ok: true, status: '未建', to: '新建', action: '新建', fingerprint: `new:${recognized.kind}:${labelNo}`, mine: true,
+      })
+      const previewId = `pv_${randomHex(8)}`
+      const token = {
+        preview_id: previewId, kind: recognized.kind, no: String(plan.no || labelNo).trim(), line: plan.line,
+        action: '新建', patch: writePatch, from: '未建', to: '新建', fingerprint: spoken.fingerprint,
+        expiresAt: now() + PREVIEW_TTL_MS, used: false, speak: spoken.speak, vocab: loaded.vocab, mapped: recognized.mapped,
+      }
+      tokens.set(previewId, token)
+      return await sheet({
+        ok: true, ...token, speak: spoken.speak, status: '未建', fields: { ...writePatch },
+        matches: [{ no: labelNo, status: '未建', fields: { ...writePatch } }],
+      }, { action: '新建', no: labelNo, speech: plan.speech })
+    }
+    const parentFound = await probe({
+      ...spec,
+      kind: start.kind,
+      no: start.no || (plan.steps.length === 1 ? plan.no : ''),
+      line: plan.line,
+      vocab: loaded.vocab,
+      structured: true,
+      speech: '',
+      where: start.where,
+      join: start.join,
+    })
+    if (!parentFound || parentFound.ok === false) {
+      const emptyKind = target.kind
+      const speak = (parentFound && parentFound.error === 'NO_CONNECTOR')
+        ? `${emptyKind}：没连业务，不能装成已查。`
+        : speakLookup({ kind: emptyKind, no: '' }, parentFound && parentFound.ok === false ? parentFound : { ok: false, error: 'NOT_FOUND' })
+      return await sheet(refuse(parentFound && parentFound.error ? parentFound.error : 'NOT_FOUND', speak), {
+        kind: emptyKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak, matches: [],
+      })
+    }
+    const parentMatches = parentFound.matches && parentFound.matches.length
+      ? parentFound.matches
+      : [{ no: parentFound.no, status: parentFound.status, fields: parentFound.fields || {} }]
+    const hopKind = plan.steps.length > 1 ? target.kind : ''
+    if (hopKind && hopKind !== start.kind) {
+      if (parentMatches.length !== 1) {
+        const page = parentMatches.slice(0, PAGE_SIZE)
+        const speak = speakLookup({ kind: start.kind, no: '' }, { ...parentFound, matches: page, listed: true, ambiguous: true })
+        const listed = {
+          kind: start.kind, no: '', action: recognized.action, speak, nextKind: hopKind, vocab: loaded.vocab,
+          status: parentFound.status, fields: {}, matches: page, fingerprint: parentFound.fingerprint,
+          ambiguous: true, workspace: parentFound.workspace || spec.workspace || '',
+        }
+        return await sheet(
+          recognized.action === '现查' ? { ok: true, ...listed } : { ...refuse('AMBIGUOUS', speak), ...listed },
+          { clue: plan.no, speech: plan.speech, via: hopKind, hopWhere: target.where },
+        )
+      }
+      const hopIds = hopRelatedIds(start.kind, hopKind, parentMatches, extra)
+      const hopped = hopIds.length
+        ? await probe({
+          kind: hopKind, no: '', workspace: spec.workspace, staffId: spec.staffId, vocab: loaded.vocab,
+          structured: true, speech: '', where: target.where,
+          related: { kind: start.kind, ids: hopIds, field: hopRelatedField(start.kind, hopKind, parentMatches, extra) },
+        })
+        : { ok: false, error: 'NOT_FOUND', matches: [] }
+      const kept = keepHoppedMatches(hopped && hopped.matches, hopIds, start.kind, hopKind, extra)
+      if (!kept.length) {
+        const hopSpeak = speakLookup({ kind: hopKind, no: '' }, hopped && hopped.ok === false ? hopped : { ok: false, error: 'NOT_FOUND' })
+        return await sheet(refuse('NOT_FOUND', hopSpeak), {
+          kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
+        })
+      }
+      const stamped = stampParentLabels(start.kind, parentMatches, kept, hopKind, extra)
+      return finishStructured(recognized, stamped, hopped, writePatch, plan, spec, loaded, schemaFields, hopKind)
+    }
+    return finishStructured(recognized, parentMatches, parentFound, writePatch, plan, spec, loaded, schemaFields, recognized.kind)
+  }
+
+  async function finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, kind) {
+    const sheetKind = kind || recognized.kind
+    const rowCap = previewRowCap(plan.structured)
+    const rows = (Array.isArray(matches) ? matches : []).slice(0, rowCap)
+    const speak = speakLookup({ kind: sheetKind, no: rows.length === 1 ? rows[0].no : '' }, {
+      ...found, matches: rows, listed: rows.length > 1, ambiguous: rows.length > 1,
+    })
+    async function sheet(result, more = {}) {
+      return withSheet(result, { vocab: loaded.vocab, schemaFields, fieldsOf: opts.fieldsOf, ...more })
+    }
+    if (recognized.action === '现查') {
+      return await sheet({
+        ok: true, kind: sheetKind, no: rows.length === 1 ? rows[0].no : '',
+        action: recognized.action, speak, status: found && found.status, fields: rows[0] && rows[0].fields || {},
+        matches: rows, fingerprint: found && found.fingerprint,
+        listed: rows.length > 1, ambiguous: rows.length > 1,
+        workspace: (found && found.workspace) || spec.workspace || '',
+      }, { clue: plan.no, speech: plan.speech })
+    }
+    if (rows.length !== 1) {
+      const writeable = spec.batch === true && (
+        recognized.action === '删除' || recognized.action === '过审'
+        || (recognized.action === '改行' && writePatch && Object.keys(writePatch).length)
+      )
+      if (!writeable || !rows.length) {
+        return await sheet({
+          ok: true, kind: sheetKind, no: '', action: recognized.action, speak,
+          patch: recognized.action === '现查' ? undefined : writePatch,
+          status: found && found.status, fields: {}, matches: rows,
+          fingerprint: found && found.fingerprint, listed: true, ambiguous: true,
+          workspace: (found && found.workspace) || spec.workspace || '',
+        }, { clue: plan.no, speech: plan.speech })
+      }
+      if (rows.length > BATCH_LIMIT) {
+        return await sheet(refuse('TOO_MANY', `${sheetKind}一次最多改 ${BATCH_LIMIT} 条。勾少一点再预览。`), {
+          kind: sheetKind, action: recognized.action, matches: rows.slice(0, BATCH_LIMIT), speech: plan.speech,
+        })
+      }
+      const nos = rows.map((row) => String(row.no || '').trim()).filter(Boolean)
+      const catalogVersion = catalogVersionOf(loaded.vocab)
+      const previewId = `pv_${randomHex(8)}`
+      const token = {
+        preview_id: previewId, kind: recognized.kind, no: '', nos, batch: true, line: plan.line,
+        action: recognized.action, patch: recognized.action === '改行' ? { ...(writePatch || {}) } : undefined,
+        vocab: loaded.vocab, mapped: recognized.mapped, catalogVersion,
+        workspace: spec.workspace || '',
+        system: String(spec.system || (found && found.system) || '').trim(),
+        env: String(spec.env || (found && found.env) || '').trim(),
+        connectionId: String((found && found.connectionId) || spec.connectionId || '').trim(),
+        from: rows.length, to: recognized.action, fingerprint: `batch:${recognized.kind}:${nos.join(',')}`,
+        expiresAt: now() + PREVIEW_TTL_MS, used: false,
+        speak: `${recognized.action}${sheetKind}${nos.length}条。这是预览，不是过账。`,
+      }
+      tokens.set(previewId, token)
+      return await sheet({
+        ok: true, ...token, speak: token.speak, matches: rows, listed: true,
+        workspace: (found && found.workspace) || spec.workspace || '',
+      }, { clue: plan.no, speech: plan.speech, batch: true, nos })
+    }
+    if (recognized.action === '改行' && !(writePatch && Object.keys(writePatch).length)) {
+      return await sheet(refuse('NO_PATCH', '改行要指出字段。'), {
+        kind: sheetKind, no: rows[0].no, action: recognized.action, speech: plan.speech, matches: rows,
+      })
+    }
+    const row = rows[0]
+    const resolvedNo = String(row.no || plan.no).trim()
+    const change = recognized.action === '改行' ? patchChange(writePatch, row.fields) : null
+    const to = recognized.action === '过审'
+      ? nextStatus('过审', row.status)
+      : recognized.action === '删除' ? '删除' : (change && change.speak) || patchSpeak(writePatch)
+    const spoken = speakPreview({ kind: recognized.kind, no: resolvedNo }, {
+      ok: true, status: row.status, from: change ? change.from : row.status, to,
+      action: recognized.action, fingerprint: found && found.fingerprint, mine: found && found.mine,
+    })
+    const previewId = `pv_${randomHex(8)}`
+    const token = {
+      preview_id: previewId, kind: recognized.kind, no: resolvedNo, line: plan.line, action: recognized.action,
+      patch: recognized.action === '改行' ? { ...(writePatch || {}) } : undefined,
+      vocab: loaded.vocab, mapped: recognized.mapped, catalogVersion: catalogVersionOf(loaded.vocab),
+      workspace: spec.workspace || '',
+      system: String(spec.system || (found && found.system) || '').trim(),
+      env: String(spec.env || (found && found.env) || '').trim(),
+      connectionId: String((found && found.connectionId) || spec.connectionId || '').trim(),
+      from: spoken.from, to: spoken.to || to, fingerprint: spoken.fingerprint,
+      expiresAt: now() + PREVIEW_TTL_MS, used: false, speak: spoken.speak,
+    }
+    tokens.set(previewId, token)
+    return await sheet({
+      ok: true, ...token, speak: spoken.speak, fields: row.fields || {}, status: row.status, matches: rows,
+    }, { clue: plan.no, speech: plan.speech })
+  }
+
+  async function preview(spec = {}) {
+    const kind = String(spec.kind || '').trim()
+    const no = String(spec.no || spec.ticket || '').trim()
+    const line = String(spec.line || spec.行号 || '').trim()
+    const loaded = await vocabFor(spec.workspace)
+    if (!loaded.ok) return refuse(loaded.error, loaded.hint)
+    if (spec.saveAsk) {
+      const rest = String(spec.askRest || spec.rest || '').trim()
+      if (!rest) return refuse('NO_REF', '没有要记的问句。')
+      noteAsk(spec.workspace, rest)
+      const spoken = loaded.vocab.find((row) => row && (row.spoken || row.kind === '口语' || row.id === 'spoken'))
+      const row = spoken || vocabRow(kind, loaded.vocab)
+      if (row) row.clues = mergeAskClue(row.clues, rest)
+      if (typeof opts.saveVocab === 'function' && row) {
+        try {
+          await opts.saveVocab(spec.workspace, {
+            id: row.id || row.kind || 'spoken',
+            label: row.kind || '口语',
+            clues: row.clues,
+            resource: row.resource,
+            ticketField: row.ticketField,
+            fields: row.fields,
+            can: row.can,
+          })
+        } catch { /* graph may refuse python upsert; in-memory 问句 still peels */ }
+      }
+      const again = await vocabFor(spec.workspace)
+      if (again.ok) loaded.vocab = again.vocab
+      spec.asAsk = true
+    }
+    const plan = normalizePlan(spec)
+    return previewStructured(plan, spec, loaded)
+  }
+
+  async function write(spec = {}) {
+    const previewId = String(spec.preview_id || spec.previewId || '').trim()
+    if (!previewId) return refuse('NEED_PREVIEW', '先预览。旧画面不能拿去写。')
+    const token = tokens.get(previewId)
+    if (!token) return refuse('NEED_PREVIEW', '先预览。没有这张令牌，不能写。')
+    if (token.used) return refuse('USED', '这张预览已经用过。要写再预览一次。')
+    if (now() > Number(token.expiresAt || 0)) return refuse('EXPIRED', '预览过期了。要写再预览一次。')
+    const traceId = String(spec.trace_id || spec.traceId || '').trim()
+    if (traceId && await traces.seen(traceId, spec.workspace || token.workspace)) {
+      return refuse('DUP_TRACE', '同一笔只许成功一次。')
+    }
+    if (token.action === '改行' && (!token.patch || !Object.keys(token.patch).length)) {
+      return refuse('NO_PATCH', '改行要指出字段。')
+    }
+    if (token.catalogVersion) {
+      const live = await vocabFor(spec.workspace || token.workspace)
+      const nowVersion = live && live.ok ? catalogVersionOf(live.vocab) : catalogVersionOf(token.vocab)
+      if (nowVersion && nowVersion !== token.catalogVersion) {
+        return refuse('STALE_CATALOG', '目录已发布新版本。要写再预览一次。')
+      }
+    }
+    if (token.batch && Array.isArray(token.nos)) {
+      if (token.action === '删除' && spec.confirm !== true && spec.confirmDelete !== true) {
+        return refuse('NEED_CONFIRM', '批量删除要单独确认。')
+      }
+      const nos = token.nos.map((item) => String(item || '').trim()).filter(Boolean).slice(0, BATCH_LIMIT)
+      token.used = true
+      tokens.set(previewId, token)
+      const done = []
+      const failed = []
+      if (typeof opts.postWrite !== 'function') {
+        if (traceId) await traces.remember(traceId, spec.workspace || token.workspace, {
+          kind: token.kind, action: token.action, no: nos.join(','), sessionId: spec.sessionId || token.sessionId,
+        })
+        return { ok: true, preview_id: previewId, trace_id: traceId, nos, done: nos, speak: `已按预览处理${nos.length}条。` }
+      }
+      for (const no of nos) {
+        try {
+          const posted = await opts.postWrite({ ...token, no, batch: false, nos: undefined, preview_id: previewId, trace_id: traceId ? `${traceId}:${no}` : '' })
+          if (!posted || posted.ok === false || posted.failed) failed.push(no)
+          else done.push(no)
+        } catch {
+          failed.push(no)
+        }
+      }
+      if (failed.length) {
+        return {
+          ok: false, error: 'WRITE_FAILED', failed: true, preview_id: previewId, done, nos: failed,
+          hint: `写到一半停了。成了 ${done.length} 条，没成 ${failed.join('、')}。`,
+          speak: `写到一半停了。成了 ${done.length} 条，没成 ${failed.join('、')}。`,
+        }
+      }
+      if (traceId) await traces.remember(traceId, spec.workspace || token.workspace, {
+        kind: token.kind, action: token.action, no: done.join(','), sessionId: spec.sessionId || token.sessionId,
+      })
+      return { ok: true, preview_id: previewId, trace_id: traceId, nos, done, speak: `已按预览处理${done.length}条。` }
+    }
+    if (token.action !== '新建') {
+      const found = await probe(token)
+      const gate = previewStillHolds(token, found)
+      if (!gate.ok) return { ok: false, error: gate.error, hint: gate.hint }
+    }
+    token.used = true
+    tokens.set(previewId, token)
+    const ref = { kind: token.kind, no: token.no }
+    if (typeof opts.postWrite !== 'function') {
+      const spoken = speakReceipt(ref, {})
+      return { ok: true, receiptId: '', preview_id: previewId, trace_id: traceId, speak: spoken.speak, kind: spoken.kind }
+    }
+    let posted
+    try {
+      posted = await opts.postWrite({
+        ...token,
+        preview_id: previewId,
+        trace_id: traceId,
+      })
+    } catch (error) {
+      posted = { ok: false, failed: true, error: error instanceof Error ? error.message : String(error) }
+    }
+    if (posted && posted.ok !== false && !posted.failed && token.action === '新建' && posted.no) {
+      token.no = posted.no
+      ref.no = posted.no
+      tokens.set(previewId, token)
+    }
+    if (!posted || posted.ok === false || posted.failed) {
+      const spoken = speakReceipt(ref, { failed: true })
+      const hint = String((posted && posted.hint) || spoken.speak)
+      return {
+        ok: false,
+        error: 'WRITE_FAILED',
+        failed: true,
+        hint,
+        speak: hint,
+        kind: spoken.kind,
+        preview_id: previewId,
+      }
+    }
+    if (token.action === '改行' && token.patch && Object.keys(token.patch).length) {
+      const after = await probe(token)
+      if (!patchApplied(token.patch, after && after.fields)) {
+        const spoken = speakReceipt(ref, { failed: true })
+        return {
+          ok: false,
+          error: 'WRITE_FAILED',
+          failed: true,
+          hint: '业务回了，但字段还是旧的。不能记已处理。',
+          speak: '业务回了，但字段还是旧的。不能记已处理。',
+          kind: spoken.kind,
+          preview_id: previewId,
+        }
+      }
+    }
+    const receiptId = String(posted.receiptId || '').trim()
+    if (traceId) await traces.remember(traceId, spec.workspace || token.workspace, {
+      kind: token.kind, no: ref.no, action: token.action, receiptId, sessionId: spec.sessionId || token.sessionId,
+    })
+    const spoken = speakReceipt(ref, { receiptId, ok: true })
+    return {
+      ok: true,
+      receiptId,
+      no: ref.no,
+      preview_id: previewId,
+      trace_id: traceId,
+      speak: spoken.speak,
+      kind: spoken.kind,
+    }
+  }
+
+  async function fileAskClue(spec = {}) {
+    const rest = String(spec.rest || spec.askRest || '').trim()
+    const kind = String(spec.kind || '').trim()
+    const speech = String(spec.speech || spec.quote || '').trim()
+    if (!rest || !kind) return refuse('NO_REF', '没有要记的问句。')
+    const loaded = await vocabFor(spec.workspace)
+    if (!loaded.ok) return refuse(loaded.error, loaded.hint)
+    const row = vocabRow(kind, loaded.vocab)
+    if (!row) return refuse('UNKNOWN_KIND', `${kind}没登记。词表和连接器都要有，不能装成能写。`)
+    const clues = mergeAskClue(row.clues, rest)
+    if (typeof opts.saveVocab === 'function') {
+      const saved = await opts.saveVocab(spec.workspace, {
+        id: row.id || kind,
+        label: kind,
+        clues,
+        resource: row.resource,
+        ticketField: row.ticketField,
+        fields: row.fields,
+        can: row.can,
+      })
+      if (saved && saved.ok === false) return refuse(saved.error || 'NO_VOCAB', saved.hint || '问句没记上。')
+    }
+    return preview({
+      kind,
+      no: '',
+      action: spec.action || '现查',
+      speech,
+      patch: spec.patch,
+      workspace: spec.workspace,
+      staffId: spec.staffId,
+      sessionId: spec.sessionId,
+      asAsk: true,
+      saveAsk: false,
+      askRest: rest,
+    })
+  }
+
+  return { preview, write, fileAskClue, tokens }
+}
+
+const FIELD_SPEAK = new Map([
+  ['phone', '电话'], ['mobile', '电话'], ['电话', '电话'], ['手机', '电话'],
+  ['remark', '备注'], ['remarks', '备注'], ['notes', '备注'], ['备注', '备注'],
+  ['status', '状态'], ['状态', '状态'],
+  ['address', '地址'], ['地址', '地址'],
+  ['warehouse', '仓库'], ['仓库', '仓库'],
+  ['supplier', '供应商'], ['供应商', '供应商'],
+  ['customer', '客户'], ['客户', '客户'],
+  ['contract', '合同'], ['合同', '合同'],
+  ['employee', '员工'], ['员工', '员工'],
+  ['contact', '联系人'], ['联系人', '联系人'],
+  ['position', '职位'], ['职位', '职位'],
+  ['name', '名称'], ['title', '名称'], ['名称', '名称'],
+  ['owner', '负责人'], ['负责人', '负责人'],
+  ['assignee', '负责人'], ['createdBy', '用户'], ['updatedBy', '用户'],
+  ['updatedAt', '更新时间'], ['updated_at', '更新时间'],
+  ['priority', '优先级'], ['优先级', '优先级'],
+  ['category', '类别'], ['类别', '类别'], ['分类', '类别'],
+  ['amount', '金额'], ['total', '金额'], ['金额', '金额'],
+  ['qty', '数量'], ['quantity', '数量'], ['数量', '数量'],
+  ['enddate', '到期日'], ['duedate', '到期日'], ['expire', '到期日'], ['到期日', '到期日'],
+])
+
+function fieldSpeak(key) {
+  const name = String(key || '').trim()
+  if (!name) return '该行'
+  const hit = FIELD_SPEAK.get(name) || FIELD_SPEAK.get(name.toLowerCase())
+  if (hit) return hit
+  if (/电话|手机/.test(name)) return '电话'
+  if (/remark|notes|备注/i.test(name)) return '备注'
+  if (/status|状态/i.test(name)) return '状态'
+  if (/address|地址/i.test(name)) return '地址'
+  if (/warehouse/i.test(name)) return '仓库'
+  if (/contact/i.test(name)) return '联系人'
+  if (/position|职位/i.test(name)) return '职位'
+  if (/名称|title/i.test(name)) return '名称'
+  if (/owner|负责人/i.test(name)) return '负责人'
+  if (/priority|优先级/i.test(name)) return '优先级'
+  if (/category|类别|分类/i.test(name)) return '类别'
+  if (/amount|金额|total/i.test(name)) return '金额'
+  if (/qty|quantity|数量/i.test(name)) return '数量'
+  if (/endDate|dueDate|expire/i.test(name)) return '到期日'
+  return name
+}
+
+function fieldValue(fields, key) {
+  if (!fields || typeof fields !== 'object') return ''
+  const want = String(key || '').trim()
+  if (fields[want] != null && fields[want] !== '') return String(fields[want])
+  const aliases = {
+    phone: ['phone', 'mobile', 'tel', 'telephone', '电话', '手机'],
+    mobile: ['mobile', 'phone', 'tel', '电话', '手机'],
+    remark: ['remark', 'remarks', 'notes', 'note', '备注'],
+    remarks: ['remarks', 'remark', 'notes', 'note', '备注'],
+    notes: ['notes', 'note', 'remarks', 'remark', '备注'],
+    备注: ['备注', 'remarks', 'remark', 'notes', 'note'],
+    address: ['address', 'addr', '地址'],
+    地址: ['地址', 'address', 'addr'],
+  }
+  for (const name of aliases[want] || []) {
+    if (fields[name] != null && fields[name] !== '') return String(fields[name])
+  }
+  return ''
+}
+
+function patchChange(patch, fields) {
+  if (!patch || typeof patch !== 'object') return null
+  const keys = Object.keys(patch)
+  if (!keys.length) return null
+  const parts = keys.map((key) => {
+    const label = fieldSpeak(key)
+    const next = String(patch[key] ?? '').trim()
+    const prev = fieldValue(fields, key)
+    if (prev && next) return `将${label}从 ${prev} 改为 ${next}`
+    if (next) return `将${label}改为 ${next}`
+    return `将改${label}`
+  })
+  return {
+    speak: parts.join('；'),
+    from: fieldValue(fields, keys[0]) || '',
+    to: String(patch[keys[0]] ?? '').trim(),
+  }
+}
+
+function rowHasField(fields, key) {
+  if (!fields || typeof fields !== 'object') return false
+  const want = String(key || '').trim()
+  if (!want) return false
+  if (Object.prototype.hasOwnProperty.call(fields, want)) return true
+  const aliases = {
+    phone: ['phone', 'mobile', 'tel', 'telephone', '电话', '手机'],
+    mobile: ['mobile', 'phone', 'tel', '电话', '手机'],
+    remark: ['remark', 'remarks', 'notes', 'note', '备注'],
+    remarks: ['remarks', 'remark', 'notes', 'note', '备注'],
+    notes: ['notes', 'note', 'remarks', 'remark', '备注'],
+    备注: ['备注', 'remarks', 'remark', 'notes', 'note'],
+    address: ['address', 'addr', '地址'],
+    地址: ['地址', 'address', 'addr'],
+  }
+  return (aliases[want] || []).some((name) => Object.prototype.hasOwnProperty.call(fields, name))
+}
+
+function patchApplied(patch, fields) {
+  if (!patch || typeof patch !== 'object') return true
+  if (!fields || typeof fields !== 'object') return false
+  return Object.keys(patch).every((key) => {
+    if (!rowHasField(fields, key)) return false
+    return fieldValue(fields, key) === String(patch[key] ?? '')
+  })
+}
+
+function patchSpeak(patch) {
+  if (!patch || typeof patch !== 'object') return '该行'
+  const keys = Object.keys(patch)
+  return keys.length ? keys.map((key) => fieldSpeak(key)).join('、') : '该行'
+}
+
+/**
+ * Optional write mouth. Never used by lookup GET.
+ * @param {{
+ *   resolve?: () => Promise<Record<string, unknown>>,
+ *   fetchImpl?: typeof fetch,
+ * }} [opts]
+ */
+export function createNocoWrite(opts = {}) {
+  const fetchImpl = opts.fetchImpl || (typeof fetch === 'function' ? fetch : null)
+  return {
+    async write(spec) {
+      const resolved = typeof opts.resolve === 'function' ? await opts.resolve() : {}
+      const extra = { ...resolved, vocab: ensureSpoken(spec.vocab || resolved.vocab) }
+      const listed = Array.isArray(extra.connections) ? extra.connections : []
+      const wanted = String(spec.connectionId || '').trim()
+      const conn = listed.find((row) => row && row.baseUrl && (!wanted || row.id === wanted)) || listed.find((row) => row && row.baseUrl) || extra
+      const baseUrl = String((conn && conn.baseUrl) || '').replace(/\/+$/, '')
+      const token = String((conn && conn.token) || extra.token || '')
+      if (!baseUrl) return { ok: false, error: 'NO_CONNECTOR' }
+      if (!fetchImpl) return { ok: false, error: 'NO_FETCH' }
+      const vocab = spec.vocab || extra.vocab
+      const mapped = spec.mapped && spec.mapped.resource
+        ? spec.mapped
+        : mapKind(spec.kind, { vocab, kinds: conn && conn.kinds, collections: conn && conn.collections })
+      if (!mapped) return { ok: false, error: 'UNKNOWN_KIND' }
+      const look = spec.line || spec.no
+      if (spec.action !== '新建' && !look) return { ok: false, error: 'NO_REF' }
+      const values = spec.action === '过审'
+        ? { [statusColumn(mapped, spec.kind, conn)]: spec.to || '已过' }
+        : spec.action === '删除'
+          ? undefined
+          : await shapePatch(spec.patch, { ...spec, vocab }, { extra: { ...extra, vocab }, conn, fetchImpl })
+      const dest = writeDest(conn, mapped, look, spec.action, spec.kind)
+      if (!dest) return { ok: false, error: 'NO_WRITE_PATH', failed: true }
+      const dialect = String((conn && conn.dialect) || 'nocobase') === 'rest' ? 'rest' : 'nocobase'
+      const body = dest.method === 'GET' || dest.method === 'DELETE' || !values
+        ? undefined
+        : JSON.stringify(dialect === 'rest' ? { values } : values)
+      let res
+      try {
+        res = await fetchImpl(dest.url, {
+          method: dest.method,
+          headers: {
+            accept: 'application/json',
+            'content-type': 'application/json',
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+          },
+          body,
+        })
+      } catch {
+        return { ok: false, failed: true, error: 'UNREACHABLE' }
+      }
+      if (!res || !res.ok) {
+        let reply = {}
+        try { reply = await res.json() } catch { reply = {} }
+        return { ok: false, failed: true, error: 'WRITE', hint: writeFailSpeak(reply) }
+      }
+      let reply = {}
+      try { reply = await res.json() } catch { reply = {} }
+      const receiptId = pickReceiptId(reply)
+      const created = createdNo(reply, mapped, extra)
+      return { ok: true, receiptId, no: created || receiptId }
+    },
+  }
+}
+
+async function shapePatch(patch, spec, ctx = {}) {
+  if (!patch || typeof patch !== 'object') return {}
+  const extra = ctx.extra || spec
+  const ident = new Set(saysOf(extra, '单号列').filter((item) => /No$|^code$|^no$|^id$/i.test(item)).map((item) => String(item).toLowerCase()).concat(['no']))
+  const out = {}
+  for (const [key, value] of Object.entries(patch)) {
+    const name = String(key || '').trim()
+    if (!name) continue
+    if (/^(customer|supplier|owner|assignee)(Phone|Mobile|Tel|Telephone)$/i.test(name)) continue
+    if (/phone|mobile|tel|telephone|电话|手机/i.test(name) && !contactKind(spec)) continue
+    if (ident.has(name.toLowerCase()) && !looksLikeRef(value)) continue
+    if (ident.has(name.toLowerCase()) && looksLikeRef(value)) {
+      const field = ticketColumn(spec.mapped, spec.kind) || name
+      if (field && field !== 'no') out[field] = value
+      else if (name !== 'no') out[name] = value
+      continue
+    }
+    if (/Id$/i.test(name)) {
+      if (/^\d+$/.test(String(value))) out[name] = String(value)
+      else {
+        const id = await resolveRelatedId(name, value, spec, ctx)
+        if (id) out[name] = id
+      }
+      continue
+    }
+    if ((relationStemOf(name, extra) || kindForFkName(name, extra)) && value != null && value !== '') {
+      const id = await resolveRelatedId(name, value, spec, ctx)
+      if (id) out[`${name}Id`] = id
+      continue
+    }
+    if (/^(备注|remark|remarks|notes)$/i.test(name) && orderLike(spec)) {
+      out.remarks = value
+      continue
+    }
+    out[name] = value
+  }
+  return out
+}
+
+function writeFailSpeak(reply) {
+  if (!reply || typeof reply !== 'object') return ''
+  const bits = []
+  if (Array.isArray(reply.errors)) {
+    for (const row of reply.errors) {
+      if (typeof row === 'string') bits.push(row)
+      else if (row && typeof row === 'object') bits.push(String(row.message || row.field || '').trim())
+    }
+  }
+  const msg = String(reply.message || reply.error || '').trim()
+  if (msg) bits.push(msg)
+  return [...new Set(bits.filter(Boolean))].join('；')
+}
+
+function contactKind(spec) {
+  const resource = String((spec && spec.mapped && spec.mapped.resource) || '').toLowerCase()
+  return /customer|contact|supplier/.test(resource)
+}
+
+function orderLike(spec) {
+  const resource = String((spec && spec.mapped && spec.mapped.resource) || '').toLowerCase()
+  return /order/.test(resource) && !/item/.test(resource)
+}
+
+function kindForFkName(name, extra) {
+  const stem = String(name || '').replace(/Id$/i, '')
+  if (!stem) return ''
+  for (const kind of registeredKinds(extra)) {
+    const mapped = mapKind(kind, extra)
+    const want = String((mapped && mapped.resource) || '').toLowerCase()
+    if (want && resourceStemOf(want) === stem.toLowerCase()) return kind
+  }
+  return ''
+}
+
+function resourceStemOf(resource) {
+  const last = String(resource || '').split('/').pop() || ''
+  const parts = last.replace(/^(biz|crm|erp|oa)_/i, '').split(/[_-]/).filter(Boolean)
+  if (/^(records|items|logs|movements)$/i.test(parts[parts.length - 1] || '')) parts.pop()
+  const end = String(parts.pop() || '').replace(/ies$/i, 'y').replace(/s$/i, '')
+  return end.toLowerCase()
+}
+
+async function resolveRelatedId(name, value, spec, ctx) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  if (/^\d+$/.test(raw)) return raw
+  const extra = { vocab: spec.vocab, kinds: (ctx.conn && ctx.conn.kinds), collections: (ctx.conn && ctx.conn.collections), ...(ctx.extra || {}) }
+  extra.vocab = ensureSpoken(extra.vocab)
+  const kind = kindForFkName(name, extra)
+  if (!kind) return ''
+  const conn = ctx.conn || {}
+  const mapped = mapKind(kind, extra)
+  if (!mapped || !mapped.resource) return ''
+  const fetchImpl = ctx.fetchImpl
+  const baseUrl = String(conn.baseUrl || '').replace(/\/+$/, '')
+  const token = String(conn.token || extra.token || '')
+  if (!baseUrl || !fetchImpl) return ''
+  const tf = ticketColumn(mapped, kind)
+  const ors = []
+  if (tf) ors.push({ [tf]: raw })
+  ors.push({ name: { $includes: raw } })
+  ors.push({ title: { $includes: raw } })
+  if (tf !== 'code') ors.push({ code: raw })
+  const filter = encodeURIComponent(JSON.stringify(ors.length === 1 ? ors[0] : { $or: ors }))
+  try {
+    const res = await fetchImpl(`${baseUrl}/api/${mapped.resource}:list?pageSize=5&filter=${filter}`, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+    })
+    const body = await res.json().catch(() => ({}))
+    const rows = Array.isArray(body.data) ? body.data : (body.data ? [body.data] : [])
+    const hit = rows.filter((row) => row && row.id != null && /^\d+$/.test(String(row.id)))
+    if (hit.length !== 1) return ''
+    return String(hit[0].id)
+  } catch {
+    return ''
+  }
+}
+
+function relationStemOf(key, extra) {
+  const name = String(key || '').replace(/Id$/i, '')
+  if (!name) return ''
+  const listed = saysOf(extra, '关联列')
+  if (!listed.length) return ''
+  return listed.some((item) => item.toLowerCase() === name.toLowerCase()) ? name.toLowerCase() : ''
+}
+
+function createdNo(reply, mapped, extra) {
+  const first = reply && (Array.isArray(reply.data) ? reply.data[0] : (reply.data && typeof reply.data === 'object' ? reply.data : reply))
+  if (!first || typeof first !== 'object') return String(pickReceiptId(reply) || '').trim()
+  return pickNo(first, mapped && mapped.fields, extra) || String(first.id != null ? first.id : '').trim() || pickReceiptId(reply)
+}
+
+function pickReceiptId(reply) {
+  if (!reply || typeof reply !== 'object') return ''
+  if (reply.data != null && typeof reply.data !== 'object') return String(reply.data).trim()
+  const first = Array.isArray(reply.data) ? reply.data[0] : reply.data
+  const raw = reply.receiptId
+    || reply.id
+    || (first && typeof first === 'object' && (first.receiptId || first.id))
+    || ''
+  return String(raw || '').trim()
+}
+
+function statusColumn(mapped, kind, conn) {
+  const named = String((conn && conn.statusField) || '').trim()
+  if (named) return named
+  const fields = Array.isArray(mapped && mapped.fields) ? mapped.fields : []
+  for (const item of fields) {
+    const name = String(item || '').trim()
+    if (/^(status|stage|state|workflowStatus)$/i.test(name)) return name
+  }
+  const resource = String((mapped && mapped.resource) || '').toLowerCase()
+  if (/opportunit|lead/.test(resource)) return 'stage'
+  return 'status'
+}
+
+function writeDest(conn, mapped, look, action, kind) {
+  const baseUrl = String((conn && conn.baseUrl) || '').replace(/\/+$/, '')
+  if (!baseUrl) return null
+  const dialect = String((conn && conn.dialect) || 'nocobase') === 'rest' ? 'rest' : 'nocobase'
+  const act = String(action || '').trim()
+  const field = String((conn && conn.ticketField) || ticketColumn(mapped, kind))
+  if (dialect === 'rest') {
+    const raw = String((conn && (conn.writePath || conn.updatePath)) || '').trim()
+    if (!raw) return null
+    const path = raw
+      .replace(/\{no\}|\{ticket\}/g, encodeURIComponent(look))
+      .replace(/\{kind\}/g, encodeURIComponent(mapped.resource || ''))
+      .replace(/\{field\}/g, encodeURIComponent(field))
+    const method = act === '删除'
+      ? 'DELETE'
+      : act === '新建'
+        ? 'POST'
+        : (String(conn.writeMethod || 'POST').toUpperCase() || 'POST')
+    return { url: `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`, method }
+  }
+  if (act === '新建') {
+    return { url: `${baseUrl}/api/${mapped.resource}:create`, method: 'POST' }
+  }
+  const filter = encodeURIComponent(JSON.stringify({ [field]: look }))
+  const verb = act === '删除' ? 'destroy' : 'update'
+  return { url: `${baseUrl}/api/${mapped.resource}:${verb}?filter=${filter}`, method: 'POST' }
+}
