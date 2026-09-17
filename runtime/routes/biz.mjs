@@ -1,0 +1,280 @@
+import { FDE_AI_WORKSPACE } from '../config.mjs'
+import { insertBizSurface, listBizSurfaces, listBusinessConnections } from '../db.mjs'
+import { emit } from '../events.mjs'
+
+export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
+  const actionMap = {
+    'record.update': '改行',
+    'record.create': '新建',
+    'record.delete': '删除',
+    'record.read': '现查',
+    现查: '现查',
+    过审: '过审',
+    改行: '改行',
+    删除: '删除',
+    新建: '新建',
+  }
+  const rawAction = typeof body.action === 'string' ? body.action.trim() : ''
+  const action = actionMap[rawAction]
+  if (!action) return { error: '操作无法翻译成业务闸动作（现查/改行/新建/删除/过审）' }
+
+  let kind = typeof body.kind === 'string' ? body.kind.trim() : ''
+  let system = typeof body.system === 'string' ? body.system : ''
+  let no = typeof body.no === 'string' ? body.no : ''
+  const targetRef = typeof body.targetRef === 'string' ? body.targetRef : ''
+  const match = targetRef.match(/^fde:\/\/external\/([^/]+)\/table\/([^/]+)(?:\/([^/]+))?$/u)
+  if (match) {
+    system = system || match[1]
+    kind = kind || match[2]
+    no = no || match[3] || ''
+  }
+  if (!kind) return { error: '缺少业务型（kind）。targetRef 需为 fde://external/{system}/table/{kind}' }
+
+  const input = body.input && typeof body.input === 'object' ? body.input : {}
+  no = no || input.no || input.orderNo || input.orderId || ''
+  const payload = {
+    kind,
+    action,
+    speech: typeof body.speech === 'string' ? body.speech : rawAction,
+    ...(system ? { system } : {}),
+    ...(typeof body.env === 'string' && body.env ? { env: body.env } : {}),
+    ...(no ? { no } : {}),
+    ...(cwd ? { workspace: cwd } : {}),
+    ...(action === '改行' || action === '新建' ? { patch: input } : {}),
+    ...(action === '现查' || action === '删除' || action === '过审' ? { where: body.where || [] } : {}),
+  }
+  return { payload }
+}
+
+function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source) {
+  const sheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
+  const kind = String(sheet?.kind || body.kind || '')
+  const action = String(sheet?.action || body.action || '')
+  const previewId = sheet?.preview_id ?? sheet?.previewId ?? preview?.preview_id ?? preview?.previewId
+  const rows = Array.isArray(sheet?.rows) ? sheet.rows : []
+  const columns = Array.isArray(sheet?.columns) ? sheet.columns : []
+  const sessionId = typeof body.sessionId === 'string' ? body.sessionId : undefined
+  const connectionId = typeof body.connectionId === 'string' ? body.connectionId : undefined
+  if (!kind || !action) return
+
+  insertBizSurface(db, {
+    workspaceCwd,
+    connectionId,
+    kind,
+    action,
+    previewId: typeof previewId === 'string' ? previewId : undefined,
+    sessionId,
+    rowCount: rows.length,
+    columnsJson: JSON.stringify(columns),
+  })
+  emit('biz.sheet.pending', {
+    kind,
+    action,
+    previewId: typeof previewId === 'string' ? previewId : undefined,
+    rows: rows.length,
+    columns,
+    canWrite: Boolean(sheet?.canWrite ?? sheet?.can_write ?? preview?.canWrite),
+    source,
+  }, {
+    workspaceCwd,
+    sessionId,
+    source: 'bff',
+  })
+}
+
+function mapKindsFromCatalog(catalogPayload) {
+  const kindsRaw = Array.isArray(catalogPayload?.kinds) ? catalogPayload.kinds : []
+  const kinds = kindsRaw.map((row) => {
+    if (typeof row === 'string') return { kind: row, label: row, fields: [] }
+    const kind = String(row.kind || row.name || '')
+    const label = String(row.label || row.speak || kind)
+    const fields = Array.isArray(row.fields) ? row.fields : []
+    return { kind, label, fields }
+  })
+  return {
+    kinds,
+    relations: Array.isArray(catalogPayload?.relations) ? catalogPayload.relations : [],
+    catalogVersion: catalogPayload?.catalogVersion ?? catalogPayload?.catalog_version ?? null,
+  }
+}
+
+/**
+ * @param {import('node:http').IncomingMessage} request
+ * @param {import('node:http').ServerResponse} response
+ * @param {URL} url
+ */
+export async function handleBizRoutes(request, response, url, deps) {
+  const {
+    db,
+    aiRuntime,
+    readJson,
+    sendJson,
+    sendError,
+    correlationId,
+    stripSecrets,
+    normalizeBaseUrl,
+    exchangeNocoBaseToken,
+    requestMemoryCwd,
+  } = deps
+
+  if (!url.pathname.startsWith('/api/v1/biz')) return false
+
+  if (request.method === 'GET' && url.pathname === '/api/v1/biz/kinds') {
+    try {
+      const catalog = await aiRuntime.lanAssist('/catalog', { search: { sessionId: '' } })
+      if (catalog && catalog.ok === false) {
+        sendError(response, 503, catalog.error || 'NO_CATALOG', catalog.hint || '事务底座未就绪', correlationId)
+        return true
+      }
+      sendJson(response, 200, { data: mapKindsFromCatalog(catalog), correlationId })
+    } catch (error) {
+      sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
+    }
+    return true
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/v1/biz/traces') {
+    const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 50)))
+    try {
+      const traces = await aiRuntime.lanAssist('/traces', { search: { limit: String(limit) } })
+      const rows = Array.isArray(traces?.rows) ? traces.rows : []
+      sendJson(response, 200, { data: { rows, receipt: traces?.receipt ?? null }, correlationId })
+    } catch (error) {
+      sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
+    }
+    return true
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/v1/biz/surfaces') {
+    const workspace = String(url.searchParams.get('workspace') || url.searchParams.get('cwd') || '').trim()
+    const workspaceCwd = workspace.startsWith('/') ? workspace : FDE_AI_WORKSPACE
+    const limit = Number(url.searchParams.get('limit') ?? 20)
+    const items = listBizSurfaces(db, workspaceCwd, limit)
+    sendJson(response, 200, { items, correlationId })
+    return true
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/v1/biz/connections') {
+    const workspaceId = url.searchParams.get('workspace') ?? url.searchParams.get('workspaceId') ?? 'ws_personal'
+    const items = listBusinessConnections(db, { workspaceId })
+    let online = false
+    let catalogVersion = null
+    try {
+      const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+      online = Boolean(state && state.ok !== false)
+      catalogVersion = state?.catalogVersion ?? state?.catalog_version ?? null
+    } catch {
+      online = false
+    }
+    sendJson(response, 200, {
+      items: items.map((row) => ({ ...row, lanAssistOnline: online, catalogVersion })),
+      correlationId,
+    })
+    return true
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v1/biz/preview') {
+    const body = await readJson(request)
+    const described = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+    if (described && described.ok === false) {
+      sendError(response, 400, described.error || 'NO_CATALOG', described.hint || '目录没读成', correlationId)
+      return true
+    }
+    const translated = translateBizIntent(body, aiRuntime.cwd)
+    if (translated.error) {
+      sendError(response, 400, 'validation_error', translated.error, correlationId)
+      return true
+    }
+    const preview = await aiRuntime.lanAssist('/preview', { method: 'POST', body: translated.payload })
+    const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
+    recordSurfaceFromPreview(db, bizCwd, body, preview, 'ui')
+    sendJson(response, 200, { data: preview, correlationId })
+    return true
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/v1/biz/catalog') {
+    const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+    const items = Array.isArray(state.catalog) ? state.catalog : []
+    sendJson(response, 200, { data: { items }, correlationId })
+    return true
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v1/biz/catalog') {
+    const body = await readJson(request)
+    const result = await aiRuntime.lanAssist('/catalog/publish', {
+      method: 'POST',
+      body: { ...body, workspace: body.workspace || aiRuntime.cwd, confirm: body.confirm === true },
+    })
+    sendJson(response, 200, { data: stripSecrets(result), correlationId })
+    return true
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v1/biz/lookup') {
+    const body = await readJson(request)
+    if (!aiRuntime.status().connected) {
+      try {
+        await aiRuntime.start()
+      } catch {
+        sendError(response, 503, 'ai/not-connected', '请先在运行环境连接本地核心', correlationId)
+        return true
+      }
+    }
+    const baseUrl = normalizeBaseUrl(body.baseUrl)
+    const account = typeof body.account === 'string' ? body.account.trim() : ''
+    const password = typeof body.password === 'string' ? body.password : ''
+    let token = typeof body.token === 'string' ? body.token.trim() : ''
+    if (account && password) {
+      try {
+        token = await exchangeNocoBaseToken(baseUrl, account, password)
+      } catch (error) {
+        if (!token) {
+          sendError(response, 401, error.code || 'EXPIRED', error.message || '业务系统登录失败', correlationId)
+          return true
+        }
+      }
+    }
+    if (!baseUrl) {
+      sendError(response, 400, 'validation_error', '地址不能为空', correlationId)
+      return true
+    }
+    if (!token) {
+      sendError(response, 400, 'validation_error', '需要 API Key，或账号加密码用来换 token', correlationId)
+      return true
+    }
+    const saved = await aiRuntime.lanAssist('/lookup/config', {
+      method: 'POST',
+      body: {
+        system: body.system,
+        env: body.env,
+        dialect: body.dialect || 'nocobase',
+        baseUrl,
+        token,
+      },
+    })
+    sendJson(response, 200, { data: stripSecrets(saved), correlationId })
+    return true
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v1/biz/write') {
+    const body = await readJson(request)
+    if (typeof body.preview_id !== 'string' || !body.preview_id) {
+      sendError(response, 400, 'validation_error', 'preview_id 不能为空', correlationId)
+      return true
+    }
+    const written = await aiRuntime.lanAssist('/write', { method: 'POST', body: { preview_id: body.preview_id, trace_id: body.trace_id } })
+    const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
+    emit('biz.write.done', {
+      kind: String(written?.kind || ''),
+      action: String(written?.action || ''),
+      traceId: String(body.trace_id || written?.trace_id || written?.traceId || ''),
+      receiptId: String(written?.receipt_id || written?.receiptId || ''),
+      operationId: typeof body.operationId === 'string' ? body.operationId : undefined,
+    }, { workspaceCwd: bizCwd, source: 'bff' })
+    sendJson(response, 200, { data: written, correlationId })
+    return true
+  }
+
+  return false
+}
+
+export { recordSurfaceFromPreview }
