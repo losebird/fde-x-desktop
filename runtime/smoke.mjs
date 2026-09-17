@@ -164,7 +164,7 @@ try {
   if (approveResponse.status !== 200) throw new Error(`operation approval failed: ${approveResponse.status}`)
 
   const liveExecuteResponse = await post(`/api/v1/operations/${operationBody.data.id}/execute`)
-  if (liveExecuteResponse.status !== 501) throw new Error('live operation was not blocked while adapter is unavailable')
+  if (liveExecuteResponse.status !== 409) throw new Error(`live operation without preview_id should be 409 preview_expired, got ${liveExecuteResponse.status}`)
 
   const dryRunResponse = await post('/api/v1/operations', {
     workspaceId: workspaceBody.data.id,
