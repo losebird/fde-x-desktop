@@ -556,8 +556,8 @@ export class RuntimeApi {
     workspaceId?: string
     cwd?: string
     sessions: Array<{ title?: string; files: Array<{ name: string; size?: number; data: string }> }>
-  }, signal?: AbortSignal): Promise<{ sessions: Array<{ sessionId: string; title: string }> }> {
-    const result = await this.request<{ data: { sessions: Array<{ sessionId: string; title: string }> } }>('/api/v1/ai/sessions/restore', {
+  }, signal?: AbortSignal): Promise<{ sessions: Array<{ sessionId: string; title: string }>; warnings?: string[] }> {
+    const result = await this.request<{ data: { sessions: Array<{ sessionId: string; title: string }>; warnings?: string[] } }>('/api/v1/ai/sessions/restore', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },

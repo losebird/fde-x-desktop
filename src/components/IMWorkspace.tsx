@@ -1161,7 +1161,9 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           sessions: restored.sessions || [],
         },
       }))
-      const ok = `已复原 ${ids.length} 个 AI 会话，请看左边会话列表`
+      const ok = restored.warnings?.length
+        ? `复原成功，但：${restored.warnings.join('；')}`
+        : `已复原 ${ids.length} 个 AI 会话，请看左边会话列表`
       setAiHint(ok)
       setImBanner({ kind: 'ok', text: ok })
     })().catch((cause) => {

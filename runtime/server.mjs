@@ -1490,6 +1490,7 @@ const server = createServer(async (request, response) => {
         return
       }
       const restored = []
+      const warnings = []
       for (const row of rows) {
         const files = Array.isArray(row?.files) ? row.files : []
         if (!files.length) continue
@@ -1504,7 +1505,9 @@ const server = createServer(async (request, response) => {
         if (workspaceId) {
           try {
             await aiRuntime.call('workspace/insertSessionBefore', { request: { workspaceId, sessionId: sid } })
-          } catch { /* 绑不上也先把文件写上 */ }
+          } catch (error) {
+            warnings.push(`会话 ${sid} 未能挂到工作区：${error instanceof Error ? error.message : String(error)}`)
+          }
         }
         let dir = await findSessionDir(sid)
         if (!dir) {
@@ -1531,9 +1534,11 @@ const server = createServer(async (request, response) => {
         if (!row.title || row.title === row.sessionId) continue
         try {
           await aiRuntime.call('session/rename', { request: { sessionId: row.sessionId, title: row.title } })
-        } catch { /* 标题失败不影响正文 */ }
+        } catch (error) {
+          warnings.push(`会话 ${row.sessionId} 标题没改成功：${error instanceof Error ? error.message : String(error)}`)
+        }
       }
-      sendJson(response, 200, { data: { sessions: restored }, correlationId: currentCorrelationId })
+      sendJson(response, 200, { data: { sessions: restored, ...(warnings.length ? { warnings } : {}) }, correlationId: currentCorrelationId })
       return
     }
 
