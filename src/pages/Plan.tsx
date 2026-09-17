@@ -1,11 +1,11 @@
 // 计划模块:三 Tab 合并 —— 待办 / 日程 / 工作流
-import { useState, useMemo, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
-  Clock, MapPin, Calendar as CalIcon, Repeat, Zap, History, Play, Power, Bot,
+  Clock, MapPin, Calendar as CalIcon, Repeat, Zap, Play, Power,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { useApp, useCurrentWorkflows } from '@/store/app'
+import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
 import type { Task, ScheduleEvent, Workflow, WorkflowStep } from '@/lib/types'
 import { Card, Tag, Empty, PageTitle } from '@/components/ui'
 
@@ -32,8 +32,26 @@ type Tab = 'todo' | 'schedule' | 'workflow'
 export default function Plan() {
   const active = useApp((s) => s.activePlanTab)
   const setActive = useApp((s) => s.setActivePlanTab)
+  const activeWorkspaceId = useApp((s) => s.activeWorkspaceId)
+  const workspaces = useApp((s) => s.workspaces)
+  const hydratePlan = useApp((s) => s.hydratePlan)
+  const planServiceError = useApp((s) => s.planServiceError)
+
+  useEffect(() => {
+    if (activeWorkspaceId) void hydratePlan(activeWorkspaceId)
+  }, [activeWorkspaceId, hydratePlan])
+
+  if (!activeWorkspaceId || !workspaces.some((w) => w.id === activeWorkspaceId)) {
+    return <Empty title="先在顶栏选择工作区" hint="计划数据按工作区隔离，需要先有可用工作区。" />
+  }
+
   return (
     <div>
+      {planServiceError && (
+        <div className="mb-3 text-sm px-3 py-2 rounded border bg-amber-50 text-amber-900 border-amber-100">
+          {planServiceError}
+        </div>
+      )}
       <PageTitle
         title="计划"
         subtitle="待办 + 日程 + 自动化工作流 —— 一次性动作、有时间锚点的事、重复触发的规则。"
@@ -83,10 +101,11 @@ const PRIORITY_TAG: Record<Task['priority'], { kind: 'red'|'amber'|'blue'|'defau
 }
 
 function TodoTab() {
-  const tasks = useApp((s) => s.tasks)
+  const tasks = useCurrentTasks()
   const addTask = useApp((s) => s.addTask)
   const removeTask = useApp((s) => s.removeTask)
   const cycleStatus = useApp((s) => s.cycleTaskStatus)
+  const selectedTaskId = useApp((s) => s.selectedTaskId)
 
   const [tab, setTab] = useState<Task['status']>('todo')
   const [q, setQ] = useState('')
@@ -123,15 +142,16 @@ function TodoTab() {
 
   function submit() {
     if (!draft.title.trim()) return
-    addTask({
+    void addTask({
       title: draft.title,
       priority: draft.priority,
       due: draft.due || undefined,
       tags: draft.tags,
       status: 'todo',
-    })
-    setDraft({ title: '', priority: 'med', due: '', tags: [] })
-    setShowNew(false)
+    }).then(() => {
+      setDraft({ title: '', priority: 'med', due: '', tags: [] })
+      setShowNew(false)
+    }).catch(() => undefined)
   }
 
   return (
@@ -188,8 +208,11 @@ function TodoTab() {
             <div></div>
           </div>
           {filtered.map((t) => (
-            <div key={t.id} className="min-w-[280px] grid grid-cols-[28px_minmax(0,1fr)_28px] @md:grid-cols-[28px_minmax(0,1fr)_80px_60px_28px] @xl:grid-cols-[28px_minmax(0,1fr)_96px_64px_minmax(0,1.2fr)_28px] items-center px-3 py-2.5 border-b border-line last:border-b-0 hover:bg-surface-2/40 group">
-              <button onClick={() => cycleStatus(t.id)} className="text-ink-muted hover:text-brand flex items-center justify-center" title="切换状态">
+            <div key={t.id} className={clsx(
+              'min-w-[280px] grid grid-cols-[28px_minmax(0,1fr)_28px] @md:grid-cols-[28px_minmax(0,1fr)_80px_60px_28px] @xl:grid-cols-[28px_minmax(0,1fr)_96px_64px_minmax(0,1.2fr)_28px] items-center px-3 py-2.5 border-b border-line last:border-b-0 hover:bg-surface-2/40 group',
+              selectedTaskId === t.id && 'bg-brand-soft/40 ring-1 ring-brand/30',
+            )}>
+              <button onClick={() => void cycleStatus(t.id)} className="text-ink-muted hover:text-brand flex items-center justify-center" title="切换状态">
                 {t.status === 'done' && <CheckCircle2 size={16} className="text-brand" />}
                 {t.status === 'doing' && <CircleDot size={16} className="text-accent-amber" />}
                 {t.status === 'todo'  && <Circle size={16} />}
@@ -202,7 +225,7 @@ function TodoTab() {
               <div className="hidden @md:block text-xs text-ink-muted truncate">{t.due ?? '—'}</div>
               <div className="hidden @md:block"><Tag kind={PRIORITY_TAG[t.priority].kind}>{PRIORITY_TAG[t.priority].label}</Tag></div>
               <div className="hidden @xl:flex gap-1 flex-wrap min-w-0 overflow-hidden"><div className="flex gap-1 flex-wrap">{t.tags.slice(0, 2).map((g) => <Tag key={g}>#{g}</Tag>)}{t.tags.length > 2 && <Tag>+{t.tags.length - 2}</Tag>}</div></div>
-              <button onClick={() => removeTask(t.id)} className="btn-ghost p-1 text-ink-subtle hover:text-accent-red flex items-center justify-center" title="删除">
+              <button onClick={() => void removeTask(t.id)} className="btn-ghost p-1 text-ink-subtle hover:text-accent-red flex items-center justify-center" title="删除">
                 <Trash2 size={14} />
               </button>
             </div>
@@ -279,6 +302,33 @@ function ScheduleTab() {
     const d = new Date(start)
     return d.getHours() * 60 + d.getMinutes()
   }
+  const weekStart = useMemo(() => {
+    const d = new Date()
+    const weekday = d.getDay()
+    const mondayOffset = weekday === 0 ? -6 : 1 - weekday
+    d.setDate(d.getDate() + mondayOffset)
+    d.setHours(0, 0, 0, 0)
+    return d
+  }, [])
+
+  const weekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => {
+      const day = new Date(weekStart)
+      day.setDate(weekStart.getDate() + i)
+      return day
+    }),
+    [weekStart],
+  )
+
+  const dayLabel = (d: Date) => new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(d)
+
+  const eventsOnDay = (d: Date) => events.filter((e) => {
+    const start = new Date(e.start)
+    return start.getFullYear() === d.getFullYear()
+      && start.getMonth() === d.getMonth()
+      && start.getDate() === d.getDate()
+  })
+
   function submit() {
     if (!draft.title.trim()) return
     const base = new Date()
@@ -286,9 +336,12 @@ function ScheduleTab() {
     base.setHours(draft.startH, draft.startM, 0, 0)
     const end = new Date(base)
     end.setHours(draft.endH, draft.endM, 0, 0)
-    addEvent({ title: draft.title, start: base.toISOString(), end: end.toISOString(), kind: draft.kind, location: draft.location || undefined })
-    setDraft({ title: '', startH: 14, startM: 0, endH: 14, endM: 30, kind: 'focus', location: '' })
-    setOpenNew(false)
+    void addEvent({ title: draft.title, start: base.toISOString(), end: end.toISOString(), kind: draft.kind, location: draft.location || undefined })
+      .then(() => {
+        setDraft({ title: '', startH: 14, startM: 0, endH: 14, endM: 30, kind: 'focus', location: '' })
+        setOpenNew(false)
+      })
+      .catch(() => undefined)
   }
 
   return (
@@ -351,7 +404,7 @@ function ScheduleTab() {
                         {e.location && <><MapPin size={10} /> {e.location}</>}
                       </div>
                     </div>
-                    <button className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100" onClick={() => removeEvent(e.id)}>
+                    <button className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100" onClick={() => void removeEvent(e.id)}>
                       <Trash2 size={14} />
                     </button>
                   </li>
@@ -365,24 +418,29 @@ function ScheduleTab() {
       {view === 'week' && (
         <Card className="overflow-x-auto">
           <div className="min-w-[760px] grid grid-cols-7 gap-px bg-line border border-line rounded overflow-hidden">
-            {['周一','周二','周三','周四','周五','周六','周日'].map((d, idx) => (
-              <div key={d} className="bg-surface-2 p-3">
-                <div className="text-xs font-medium">{d}</div>
-                <div className="text-[11px] text-ink-subtle">9 月 {7 + idx} 日</div>
+            {['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label, idx) => (
+              <div key={label} className="bg-surface-2 p-3">
+                <div className="text-xs font-medium">{label}</div>
+                <div className="text-[11px] text-ink-subtle">{dayLabel(weekDays[idx])}</div>
               </div>
             ))}
-            {Array.from({ length: 7 }).map((_, i) => (
-              <div key={i} className="bg-surface min-h-[120px] p-2 space-y-1">
-                {(events.slice(0, 2 + (i % 3))).map((e, j) => (
-                  <div key={j} className={clsx('p-1.5 rounded border text-[11px]', KIND_TONE[e.kind].bg)}>
-                    <div className="font-medium truncate">{e.title}</div>
-                    <div className="opacity-70">
-                      {new Date(e.start).getHours().toString().padStart(2, '0')}:{new Date(e.start).getMinutes().toString().padStart(2, '0')}
+            {weekDays.map((day) => {
+              const dayEvents = eventsOnDay(day)
+              return (
+                <div key={day.toISOString()} className="bg-surface min-h-[120px] p-2 space-y-1">
+                  {dayEvents.length === 0 ? (
+                    <div className="text-[11px] text-ink-subtle px-1 py-2">暂无日程</div>
+                  ) : dayEvents.map((e) => (
+                    <div key={e.id} className={clsx('p-1.5 rounded border text-[11px]', KIND_TONE[e.kind].bg)}>
+                      <div className="font-medium truncate">{e.title}</div>
+                      <div className="opacity-70">
+                        {new Date(e.start).getHours().toString().padStart(2, '0')}:{new Date(e.start).getMinutes().toString().padStart(2, '0')}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            ))}
+                  ))}
+                </div>
+              )
+            })}
           </div>
         </Card>
       )}
@@ -450,7 +508,6 @@ const WORKFLOW_EMOJIS = ['🤖', '⚡', '🔁', '📬', '📝', '🗃️', '📊
 function WorkflowTab() {
   const workflows = useCurrentWorkflows()
   const toggleWorkflow = useApp((s) => s.toggleWorkflow)
-  const runWorkflow = useApp((s) => s.runWorkflow)
   const removeWorkflow = useApp((s) => s.removeWorkflow)
   const addWorkflow = useApp((s) => s.addWorkflow)
   const [q, setQ] = useState('')
@@ -496,7 +553,7 @@ function WorkflowTab() {
     const steps: WorkflowStep[] = [
       { id: uid('s'), kind: 'delay', label: '本版不自动跑 AI 或记忆', config: {} },
     ]
-    addWorkflow({
+    void addWorkflow({
       name: draft.name.trim(),
       description: draft.description.trim() || '自动创建的工作流',
       category: draft.category,
@@ -504,12 +561,13 @@ function WorkflowTab() {
       emoji: draft.emoji,
       status: 'paused',
       steps,
-    })
-    setDraft({
-      name: '', description: '', category: 'system', triggerKind: 'manual',
-      triggerExpr: '0 9 * * *', triggerPatterns: '', triggerOn: 'task.done', emoji: '🤖',
-    })
-    setShowNew(false)
+    }).then(() => {
+      setDraft({
+        name: '', description: '', category: 'system', triggerKind: 'manual',
+        triggerExpr: '0 9 * * *', triggerPatterns: '', triggerOn: 'task.done', emoji: '🤖',
+      })
+      setShowNew(false)
+    }).catch(() => undefined)
   }
 
   return (
@@ -590,17 +648,16 @@ function WorkflowTab() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
-                  <button type="button" className="btn" disabled title="没有工作流 Remote，不能本地假装跑完"><Play size={12} /> 运行</button>
+                  <button type="button" className="btn" disabled title="本版不自动运行"><Play size={12} /> 运行</button>
                   <button
                     type="button"
-                    onClick={() => { if (w.status === 'active') toggleWorkflow(w.id) }}
+                    onClick={() => void toggleWorkflow(w.id)}
                     className="btn"
-                    disabled={w.status !== 'active'}
-                    title={w.status === 'active' ? '暂停' : '本版工作流不会调用 AI 或记忆，保持暂停'}
+                    title={w.status === 'active' ? '暂停' : '启用'}
                   >
                     <Power size={12} /> {w.status === 'active' ? '暂停' : '启用'}
                   </button>
-                  <button onClick={() => removeWorkflow(w.id)} className="btn-ghost p-1 text-ink-subtle hover:text-accent-red" title="删除">
+                  <button onClick={() => void removeWorkflow(w.id)} className="btn-ghost p-1 text-ink-subtle hover:text-accent-red" title="删除">
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -679,7 +736,7 @@ function WorkflowTab() {
             </div>
           </div>
           <div className="text-xs text-ink-muted p-3 rounded bg-surface-2 border border-line">
-            新建后默认 paused,可到列表点击"启用"开始运行。
+            新建后默认 paused，可到列表点击「启用」。本版不自动运行。
           </div>
           <div className="flex justify-end gap-2 pt-4 border-t border-line">
             <button className="btn" onClick={() => setShowNew(false)}>取消</button>

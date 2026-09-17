@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { runtimeApi } from '@/lib/runtime-api'
 import { loadCurrentAiTarget } from '@/lib/ai-target'
 import { Search, FileText, MessageSquare, Bot, CheckSquare, LayoutGrid, Repeat, Brain } from 'lucide-react'
-import { useApp, useCurrentFiles, useCurrentAgents, useCurrentWorkflows } from '@/store/app'
+import { useApp, useCurrentFiles, useCurrentAgents, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
 import { useNavigate } from 'react-router-dom'
 
 type Result = {
@@ -74,14 +74,16 @@ export function CommandPalette() {
     })()
   }, [open])
   const contacts = liveContacts
-  const tasks: Array<{ id: string; title: string; status: string; priority: string }> = []
-  const workflows: Array<{ id: string; name: string; emoji?: string; description: string }> = []
+  const tasks = useCurrentTasks()
+  const workflows = useCurrentWorkflows()
 
   const setActiveFile = useApp((s) => s.setActiveFile)
   const setActiveAgent = useApp((s) => s.setActiveAgent)
   const setActiveChat = useApp((s) => s.setActiveChat)
   const openIMPanel = useApp((s) => s.openIMPanel)
   const togglePanel = useApp((s) => s.togglePanel)
+  const setActivePlanTab = useApp((s) => s.setActivePlanTab)
+  const selectTask = useApp((s) => s.selectTask)
 
   const navigate = useNavigate()
   const [q, setQ] = useState('')
@@ -161,7 +163,13 @@ export function CommandPalette() {
       list.push({
         group: '任务', icon: CheckSquare, id: `t_${t.id}`, title: t.title,
         hint: `${t.status} · ${t.priority}`,
-        action: () => { togglePanel('plan', 'full'); close(); navigate('/ai') },
+        action: () => {
+          setActivePlanTab('todo')
+          selectTask(t.id)
+          togglePanel('plan', 'full')
+          close()
+          navigate('/ai')
+        },
       })
     })
     workflows.filter((w) => !q || w.name.includes(q)).slice(0, 5).forEach((w) => {
