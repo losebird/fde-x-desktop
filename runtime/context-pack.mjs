@@ -92,7 +92,7 @@ function mapPrecedents(data, limit = 3) {
   }))
 }
 
-function buildMemoryQuery({ query, entity, intentKind }) {
+function buildMemoryQuery({ query, entity, intentKind, workspaceCwd }) {
   const parts = []
   if (query) parts.push(String(query).trim())
   if (entity && typeof entity === 'object') {
@@ -105,7 +105,10 @@ function buildMemoryQuery({ query, entity, intentKind }) {
     }
   }
   if (intentKind) parts.push(String(intentKind))
-  return parts.join(' ').trim()
+  const joined = parts.join(' ').trim()
+  if (joined) return joined
+  const ambient = folderName(workspaceCwd)
+  return ambient === '工作区' ? '' : ambient
 }
 
 async function fillWorkspace(db, pack, workspaceCwd, sessionId) {
@@ -202,7 +205,7 @@ async function fillMemory(aiRuntime, pack, { workspaceCwd, query, entity, intent
     warnings.push('memory_engine_not_ready')
     return
   }
-  const memoryQuery = buildMemoryQuery({ query, entity, intentKind })
+  const memoryQuery = buildMemoryQuery({ query, entity, intentKind, workspaceCwd })
   if (!memoryQuery) {
     warnings.push('memory_query_missing')
     return

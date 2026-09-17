@@ -27,6 +27,36 @@ test('renderContextForPrompt respects 1500 char cap', () => {
   assert.match(text, /【相关记忆】/)
 })
 
+test('memory scope without explicit query uses workspace folder name', async () => {
+  await rm(dbPath, { force: true }).catch(() => undefined)
+  await mkdir('/tmp/fde-x-context-pack-ws', { recursive: true })
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  let findQuery = ''
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    lanAssist: async () => ({ unreadTotal: 0, requests: [] }),
+    semanticOs: async (path, options) => {
+      if (path === '/ready') return { ready: true }
+      if (path === '/find') {
+        findQuery = options.query
+        return { items: [] }
+      }
+      if (path === '/python') return { precedents: [] }
+      throw new Error(`unexpected ${path}`)
+    },
+  }
+  const { pack, warnings } = await buildContextPack(
+    { db, aiRuntime },
+    {
+      workspaceCwd: '/tmp/fde-x-context-pack-ws',
+      scopes: ['memory'],
+    },
+  )
+  assert.equal(findQuery, 'fde-x-context-pack-ws')
+  assert.ok(pack.memory)
+  assert.equal(warnings.includes('memory_query_missing'), false)
+})
+
 test('memory scope failure does not break other scopes', async () => {
   await rm(dbPath, { force: true }).catch(() => undefined)
   await mkdir('/tmp/fde-x-context-pack-ws', { recursive: true })
