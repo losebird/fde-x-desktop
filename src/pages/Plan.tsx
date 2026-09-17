@@ -8,6 +8,7 @@ import clsx from 'clsx'
 import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
 import type { Task, ScheduleEvent, Workflow, WorkflowStep } from '@/lib/types'
 import { Card, Tag, Empty, PageTitle } from '@/components/ui'
+import { useEvents } from '@/lib/events'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -37,9 +38,23 @@ export default function Plan() {
   const hydratePlan = useApp((s) => s.hydratePlan)
   const planServiceError = useApp((s) => s.planServiceError)
 
+  const workspaceCwd = useMemo(() => {
+    const row = workspaces.find((w) => w.id === activeWorkspaceId)
+    const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
+    return cwd.startsWith('/') ? cwd : undefined
+  }, [workspaces, activeWorkspaceId])
+
   useEffect(() => {
     if (activeWorkspaceId) void hydratePlan(activeWorkspaceId)
   }, [activeWorkspaceId, hydratePlan])
+
+  useEvents(
+    ['task.changed'],
+    () => {
+      if (activeWorkspaceId) void hydratePlan(activeWorkspaceId)
+    },
+    workspaceCwd ? { workspace: workspaceCwd } : undefined,
+  )
 
   if (!activeWorkspaceId || !workspaces.some((w) => w.id === activeWorkspaceId)) {
     return <Empty title="先在顶栏选择工作区" hint="计划数据按工作区隔离，需要先有可用工作区。" />
