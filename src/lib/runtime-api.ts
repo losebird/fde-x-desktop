@@ -340,10 +340,16 @@ export class RuntimeApi {
     })
   }
 
+  /** Plan routes write JSON without BFF CORS headers; in the browser use same-origin (Vite proxy). */
+  private planFetchUrl(path: string): string {
+    if (typeof window !== 'undefined') return path
+    return `${this.baseUrl}${path}`
+  }
+
   private async planRequest<T>(path: string, init?: RequestInit): Promise<T> {
     let response: Response
     try {
-      response = await fetch(`${this.baseUrl}${path}`, init)
+      response = await fetch(this.planFetchUrl(path), init)
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }
