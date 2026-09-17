@@ -1,4 +1,5 @@
 import type { JsonValue, OperationIntent, OperationRecord } from './contracts'
+import type { Task, PlanEvent, Workflow, ScheduleEvent } from './types'
 import { useApp } from '@/store/app'
 
 function currentWorkspaceCwd(): string {
@@ -27,6 +28,45 @@ export interface RuntimeAdapterStatus {
   version?: string
   detail?: string
   checkedAt: string
+}
+
+export interface AiPresetRecord {
+  id: string
+  name?: string
+  description?: string
+  trust?: string
+  isDefault?: boolean
+  source: 'shipped' | 'user' | 'root' | 'fde'
+  path?: string
+  hasLocalCode?: boolean
+}
+
+export interface PresetImportPreview {
+  id: string
+  name: string
+  description: string
+  files: string[]
+  hasLocalCode: boolean
+  warnings: string[]
+}
+
+export interface McpServerV2 {
+  serverName: string
+  transport: 'stdio' | 'streamable-http'
+  command?: string
+  url?: string
+  headers?: Record<string, string>
+  status: 'configured' | 'live' | 'needs-reload'
+  tools: string[]
+}
+
+export interface McpConnectorCard {
+  id: string
+  name: string
+  provider: string
+  online: boolean
+  catalogVersion: string
+  lookupRegistered: boolean
 }
 
 export interface RuntimeHealth {
@@ -300,6 +340,221 @@ export class RuntimeApi {
     })
   }
 
+  private async planRequest<T>(path: string, init?: RequestInit): Promise<T> {
+    let response: Response
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, init)
+    } catch (error) {
+      throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
+    }
+    const payload = await response.json().catch(() => ({})) as { ok?: boolean; data?: T; error?: string; message?: string }
+    if (!response.ok || payload.ok === false) {
+      throw new RuntimeApiError(
+        response.status,
+        String(payload.error ?? 'runtime_error'),
+        String(payload.message ?? `请求失败 (${response.status})`),
+      )
+    }
+    return payload.data as T
+  }
+
+  private mapPlanTask(row: Record<string, unknown>): Task {
+    return {
+      id: String(row.id),
+      title: String(row.title),
+      notes: typeof row.notes === 'string' ? row.notes : '',
+      status: row.status as Task['status'],
+      priority: row.priority as Task['priority'],
+      due: typeof row.dueAt === 'string' ? row.dueAt : undefined,
+      tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
+      createdAt: String(row.createdAt),
+      workspaceId: typeof row.workspaceId === 'string' ? row.workspaceId : undefined,
+      sourceRef: typeof row.sourceRef === 'string' ? row.sourceRef : undefined,
+      completedAt: typeof row.completedAt === 'string' ? row.completedAt : undefined,
+    }
+  }
+
+  private mapPlanEvent(row: PlanEvent): ScheduleEvent {
+    return {
+      id: row.id,
+      title: row.title,
+      start: row.startAt,
+      end: row.endAt,
+      location: row.location ?? undefined,
+      kind: row.kind,
+    }
+  }
+
+  private normalizeWorkflowTrigger(value: unknown): Workflow['trigger'] {
+    if (!value || typeof value !== 'object') return { kind: 'manual' }
+    const kind = (value as { kind?: string }).kind
+    if (kind === 'cron' || kind === 'keyword' || kind === 'event' || kind === 'manual') {
+      return value as Workflow['trigger']
+    }
+    return { kind: 'manual' }
+  }
+
+  private mapPlanWorkflow(row: Record<string, unknown>): Workflow {
+    const trigger = this.normalizeWorkflowTrigger(row.trigger)
+    const steps = Array.isArray(row.steps) ? row.steps as Workflow['steps'] : []
+    return {
+      id: String(row.id),
+      name: String(row.name),
+      description: typeof row.description === 'string' ? row.description : '',
+      status: row.status === 'active' ? 'active' : 'paused',
+      trigger,
+      steps,
+      category: (row.category as Workflow['category']) ?? 'system',
+      emoji: typeof row.emoji === 'string' ? row.emoji : '🤖',
+      createdAt: String(row.createdAt),
+      workspaceId: typeof row.workspaceId === 'string' ? row.workspaceId : undefined,
+    }
+  }
+
+  async listTasks(workspaceId: string, opts?: { status?: string; q?: string }, signal?: AbortSignal): Promise<Task[]> {
+    const params = new URLSearchParams({ workspaceId })
+    if (opts?.status) params.set('status', opts.status)
+    if (opts?.q) params.set('q', opts.q)
+    const rows = await this.planRequest<Array<Record<string, unknown>>>(`/api/v1/plan/tasks?${params}`, { signal })
+    return rows.map((row) => this.mapPlanTask(row))
+  }
+
+  async createTask(input: {
+    workspaceId: string
+    title: string
+    priority?: Task['priority']
+    dueAt?: string
+    tags?: string[]
+    sourceRef?: string
+    status?: Task['status']
+  }, signal?: AbortSignal): Promise<Task> {
+    const row = await this.planRequest<Record<string, unknown>>('/api/v1/plan/tasks', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return this.mapPlanTask(row)
+  }
+
+  async updateTask(id: string, patch: Partial<{
+    title: string
+    notes: string
+    status: Task['status']
+    priority: Task['priority']
+    dueAt: string | null
+    tags: string[]
+    workspaceId: string
+  }>, signal?: AbortSignal): Promise<Task> {
+    const row = await this.planRequest<Record<string, unknown>>(`/api/v1/plan/tasks/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    return this.mapPlanTask(row)
+  }
+
+  async deleteTask(id: string, signal?: AbortSignal): Promise<void> {
+    await this.planRequest(`/api/v1/plan/tasks/${encodeURIComponent(id)}`, { method: 'DELETE', signal })
+  }
+
+  async listEvents(workspaceId: string, fromMs: number, toMs: number, signal?: AbortSignal): Promise<ScheduleEvent[]> {
+    const params = new URLSearchParams({
+      workspaceId,
+      from: String(fromMs),
+      to: String(toMs),
+    })
+    const rows = await this.planRequest<PlanEvent[]>(`/api/v1/plan/events?${params}`, { signal })
+    return rows.map((row) => this.mapPlanEvent(row))
+  }
+
+  async createEvent(input: {
+    workspaceId: string
+    title: string
+    startAt: string
+    endAt: string
+    kind?: ScheduleEvent['kind']
+    location?: string
+    allDay?: boolean
+  }, signal?: AbortSignal): Promise<ScheduleEvent> {
+    const row = await this.planRequest<PlanEvent>('/api/v1/plan/events', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return this.mapPlanEvent(row)
+  }
+
+  async updateEvent(id: string, patch: Partial<{
+    title: string
+    startAt: string
+    endAt: string
+    kind: ScheduleEvent['kind']
+    location: string | null
+    allDay: boolean
+  }>, signal?: AbortSignal): Promise<ScheduleEvent> {
+    const row = await this.planRequest<PlanEvent>(`/api/v1/plan/events/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    return this.mapPlanEvent(row)
+  }
+
+  async deleteEvent(id: string, signal?: AbortSignal): Promise<void> {
+    await this.planRequest(`/api/v1/plan/events/${encodeURIComponent(id)}`, { method: 'DELETE', signal })
+  }
+
+  async listWorkflows(workspaceId: string, signal?: AbortSignal): Promise<Workflow[]> {
+    const params = new URLSearchParams({ workspaceId })
+    const rows = await this.planRequest<Array<Record<string, unknown>>>(`/api/v1/plan/workflows?${params}`, { signal })
+    return rows.map((row) => this.mapPlanWorkflow(row))
+  }
+
+  async createWorkflow(input: {
+    workspaceId: string
+    name: string
+    description?: string
+    status?: Workflow['status']
+    trigger?: Workflow['trigger']
+    steps?: Workflow['steps']
+    category?: Workflow['category']
+    emoji?: string
+  }, signal?: AbortSignal): Promise<Workflow> {
+    const row = await this.planRequest<Record<string, unknown>>('/api/v1/plan/workflows', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return this.mapPlanWorkflow(row)
+  }
+
+  async updateWorkflow(id: string, patch: Partial<{
+    name: string
+    status: Workflow['status']
+    description: string
+    trigger: Workflow['trigger']
+    steps: Workflow['steps']
+    category: Workflow['category']
+    emoji: string
+  }>, signal?: AbortSignal): Promise<Workflow> {
+    const row = await this.planRequest<Record<string, unknown>>(`/api/v1/plan/workflows/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    return this.mapPlanWorkflow(row)
+  }
+
+  async deleteWorkflow(id: string, signal?: AbortSignal): Promise<void> {
+    await this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}`, { method: 'DELETE', signal })
+  }
+
   async aiStatus(signal?: AbortSignal): Promise<AiRuntimeStatus> {
     const result = await this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/status', { signal })
     return result.data
@@ -391,13 +646,13 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listAiPresets(signal?: AbortSignal): Promise<{ presets: Array<{ id: string; name?: string; description?: string; trust?: string; isDefault?: boolean }>; authorable?: boolean }> {
-    const result = await this.request<{ data: { presets: Array<{ id: string; name?: string; description?: string; trust?: string; isDefault?: boolean }>; authorable?: boolean } }>('/api/v1/ai/presets', { signal })
+  async listAiPresets(signal?: AbortSignal): Promise<{ presets: AiPresetRecord[]; authorable?: boolean }> {
+    const result = await this.request<{ data: { presets: AiPresetRecord[]; authorable?: boolean } }>('/api/v1/ai/presets', { signal })
     return result.data
   }
 
-  async copyAiPreset(body: { from: string; id: string; name?: string }, signal?: AbortSignal): Promise<{ presets: Array<{ id: string; name?: string; description?: string }> }> {
-    const result = await this.request<{ data: { presets: Array<{ id: string; name?: string; description?: string }> } }>('/api/v1/ai/presets/copy', {
+  async previewImportPresetDir(body: { path: string }, signal?: AbortSignal): Promise<{ preview: PresetImportPreview }> {
+    const result = await this.request<{ data: { ok: boolean; preview: PresetImportPreview } }>('/api/v1/ai/presets/import-dir', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -406,8 +661,48 @@ export class RuntimeApi {
     return result.data
   }
 
-  async deleteAiPreset(id: string, signal?: AbortSignal): Promise<{ presets: Array<{ id: string; name?: string; description?: string }> }> {
-    const result = await this.request<{ data: { presets: Array<{ id: string; name?: string; description?: string }> } }>('/api/v1/ai/presets/delete', {
+  async confirmImportPresetDir(body: { path: string; id?: string }, signal?: AbortSignal): Promise<{ ok: boolean; id: string; hint?: string }> {
+    const result = await this.request<{ data: { ok: boolean; id: string; hint?: string } }>('/api/v1/ai/presets/import-dir/confirm', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return result.data
+  }
+
+  async previewImportPresetGit(body: { url: string; subdir?: string }, signal?: AbortSignal): Promise<{ preview: PresetImportPreview; tempPath?: string; cloneRoot?: string }> {
+    const result = await this.request<{ data: { ok: boolean; preview: PresetImportPreview; tempPath?: string; cloneRoot?: string } }>('/api/v1/ai/presets/import-git', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return result.data
+  }
+
+  async confirmImportPresetGit(body: { tempPath: string; cloneRoot?: string; id?: string }, signal?: AbortSignal): Promise<{ ok: boolean; id: string; hint?: string }> {
+    const result = await this.request<{ data: { ok: boolean; id: string; hint?: string } }>('/api/v1/ai/presets/import-git/confirm', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return result.data
+  }
+
+  async copyAiPreset(body: { from: string; id: string; name?: string }, signal?: AbortSignal): Promise<{ presets: AiPresetRecord[] }> {
+    const result = await this.request<{ data: { presets: AiPresetRecord[] } }>('/api/v1/ai/presets/copy', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return result.data
+  }
+
+  async deleteAiPreset(id: string, signal?: AbortSignal): Promise<{ presets: AiPresetRecord[] }> {
+    const result = await this.request<{ data: { presets: AiPresetRecord[] } }>('/api/v1/ai/presets/delete', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1021,18 +1316,26 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listMcpServers(signal?: AbortSignal): Promise<Array<{ id: string; name: string; desc: string; category: string; status: string; tools: string[] }>> {
-    const result = await this.request<{ data: { items: Array<{ id: string; name: string; desc: string; category: string; status: string; tools: string[] }> } }>('/api/v1/mcp/servers', { signal })
-    return result.data.items
+  async listMcpServers(signal?: AbortSignal): Promise<{ mcp: McpServerV2[]; connectors: McpConnectorCard[] }> {
+    const result = await this.request<{ data: { mcp: McpServerV2[]; connectors: McpConnectorCard[] } }>('/api/v1/mcp/servers', { signal })
+    return result.data
   }
 
-  async addMcpServer(input: { serverName: string; command: string }, signal?: AbortSignal): Promise<{ serverName: string; needsRestart: boolean }> {
-    const result = await this.request<{ data: { serverName: string; needsRestart: boolean } }>('/api/v1/mcp/servers', {
+  async addMcpServer(
+    input: { serverName: string; command?: string; transport?: 'stdio' | 'streamable-http'; url?: string; headers?: Record<string, string> },
+    signal?: AbortSignal,
+  ): Promise<{ serverName: string; needsRestart: boolean; note?: string }> {
+    const result = await this.request<{ data: { serverName: string; needsRestart: boolean }; note?: string }>('/api/v1/mcp/servers', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     })
+    return { ...result.data, note: result.note }
+  }
+
+  async checkMcpHealth(serverName: string, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+    const result = await this.request<{ data: { ok: boolean; message: string } }>(`/api/v1/mcp/health?serverName=${encodeURIComponent(serverName)}`, { signal })
     return result.data
   }
 

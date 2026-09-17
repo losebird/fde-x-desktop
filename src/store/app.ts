@@ -9,6 +9,9 @@ import type {
   IMAttachment, IMTopic, IMHandoffPackage,
 } from '@/lib/types'
 import { seedUser } from '@/data/seed'
+import { runtimeApi } from '@/lib/runtime-api'
+
+const PLAN_UNAVAILABLE = '计划服务未就绪'
 
 // 文件历史保留上限。超出后丢弃最旧的(FIFO)。
 export const MAX_FILE_VERSIONS = 20
@@ -161,16 +164,20 @@ interface State {
   notifications: Notification[]
   news: NewsItem[]
   metrics: MetricCard[]
+  planServiceError: string | null
+  selectedTaskId: ID | null
+  hydratePlan: (workspaceId: ID) => Promise<void>
+  selectTask: (id: ID | null) => void
 
   // tasks
-  addTask: (t: Omit<Task, 'id' | 'createdAt'>) => void
-  updateTask: (id: ID, patch: Partial<Task>) => void
-  removeTask: (id: ID) => void
-  cycleTaskStatus: (id: ID) => void
+  addTask: (t: Omit<Task, 'id' | 'createdAt'> & { sourceRef?: string }) => Promise<void>
+  updateTask: (id: ID, patch: Partial<Task>) => Promise<void>
+  removeTask: (id: ID) => Promise<void>
+  cycleTaskStatus: (id: ID) => Promise<void>
   // events
-  addEvent: (e: Omit<ScheduleEvent, 'id'>) => void
-  updateEvent: (id: ID, patch: Partial<ScheduleEvent>) => void
-  removeEvent: (id: ID) => void
+  addEvent: (e: Omit<ScheduleEvent, 'id'>) => Promise<void>
+  updateEvent: (id: ID, patch: Partial<ScheduleEvent>) => Promise<void>
+  removeEvent: (id: ID) => Promise<void>
   // files
   addFile: (f: Omit<FileNode, 'id' | 'updatedAt'>) => void
   removeFile: (id: ID) => void
@@ -191,10 +198,9 @@ interface State {
   updateAgent: (id: ID, patch: Partial<Agent>) => void
   removeAgent: (id: ID) => void
   // workflows
-  toggleWorkflow: (id: ID) => void
-  runWorkflow: (id: ID) => void
-  addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt'>) => void
-  removeWorkflow: (id: ID) => void
+  toggleWorkflow: (id: ID) => Promise<void>
+  addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt'>) => Promise<void>
+  removeWorkflow: (id: ID) => Promise<void>
   // im
   sendIM: (threadId: ID, text: string, opts?: { attachments?: IMAttachment[]; handoff?: IMHandoffPackage; topicId?: ID; replyToId?: ID; aiChatId?: ID }) => void
   updateIMContact: (id: ID, patch: Partial<IMContact>) => void
@@ -324,7 +330,7 @@ export const useApp = create<AppState>()(
       activeWorkspaceId: '',
       // 切工作区:清掉 ws 内的"当前选择",避免指向另一个 ws 的对象。
       // activeAgentId 重置为目标工作区的第一个运行中 Agent(旧值 'a_main' 在别的 ws 不存在)。
-      setActiveWorkspace: (id) =>
+      setActiveWorkspace: (id) => {
         set((s) => {
           if (!s.workspaces.some((w) => w.id === id)) return {}
           const wsAgents = s.agents.filter((a) => a.workspaceId === id)
@@ -336,8 +342,11 @@ export const useApp = create<AppState>()(
             activeAiSessionId: null,
             activeFileId: null,
             activeAgentId: nextAgent,
+            selectedTaskId: null,
           }
-        }),
+        })
+        void get().hydratePlan(id)
+      },
       replaceWorkspaces: (workspaces) =>
         set((s) => {
           if (!workspaces.length) return {}
@@ -559,23 +568,122 @@ export const useApp = create<AppState>()(
         set((s) => ({ drawers: { ...s.drawers, [k]: { ...s.drawers[k], width: w } } }))
       },
 
-      // ===== Data mutations =====
-      addTask: (t) => set((s) => ({ tasks: [{ ...t, id: uid('t'), createdAt: now() }, ...s.tasks] })),
-      updateTask: (id, patch) => set((s) => ({ tasks: s.tasks.map((x) => (x.id === id ? { ...x, ...patch } : x)) })),
-      removeTask: (id) => set((s) => ({ tasks: s.tasks.filter((x) => x.id !== id) })),
-      cycleTaskStatus: (id) =>
-        set((s) => ({
-          tasks: s.tasks.map((x) => {
-            if (x.id !== id) return x
-            const order: Task['status'][] = ['todo', 'doing', 'done', 'archived']
-            const i = order.indexOf(x.status)
-            return { ...x, status: order[(i + 1) % order.length] }
-          }),
-        })),
+      planServiceError: null,
+      selectedTaskId: null,
+      selectTask: (id) => set({ selectedTaskId: id }),
+      hydratePlan: async (workspaceId) => {
+        const ws = get().workspaces.find((w) => w.id === workspaceId)
+        if (!ws) return
+        try {
+          await runtimeApi.ensureWorkspace({ id: workspaceId, name: ws.name, description: ws.desc })
+          const from = Date.now() - 366 * 24 * 60 * 60 * 1000
+          const to = Date.now() + 366 * 24 * 60 * 60 * 1000
+          const [tasks, events, workflows] = await Promise.all([
+            runtimeApi.listTasks(workspaceId),
+            runtimeApi.listEvents(workspaceId, from, to),
+            runtimeApi.listWorkflows(workspaceId),
+          ])
+          set({ tasks, events, workflows, planServiceError: null })
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+        }
+      },
 
-      addEvent: (e) => set((s) => ({ events: [...s.events, { ...e, id: uid('e') }] })),
-      updateEvent: (id, patch) => set((s) => ({ events: s.events.map((x) => (x.id === id ? { ...x, ...patch } : x)) })),
-      removeEvent: (id) => set((s) => ({ events: s.events.filter((x) => x.id !== id) })),
+      // ===== Data mutations =====
+      addTask: async (t) => {
+        const workspaceId = get().activeWorkspaceId
+        if (!workspaceId) return
+        try {
+          const created = await runtimeApi.createTask({
+            workspaceId,
+            title: t.title,
+            priority: t.priority,
+            dueAt: t.due,
+            tags: t.tags,
+            sourceRef: t.sourceRef,
+            status: t.status,
+          })
+          set((s) => ({ tasks: [created, ...s.tasks], planServiceError: null }))
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+          throw new Error(PLAN_UNAVAILABLE)
+        }
+      },
+      updateTask: async (id, patch) => {
+        try {
+          const updated = await runtimeApi.updateTask(id, {
+            title: patch.title,
+            notes: patch.notes,
+            status: patch.status,
+            priority: patch.priority,
+            dueAt: patch.due === undefined ? undefined : patch.due || null,
+            tags: patch.tags,
+          })
+          set((s) => ({ tasks: s.tasks.map((x) => (x.id === id ? updated : x)), planServiceError: null }))
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+          throw new Error(PLAN_UNAVAILABLE)
+        }
+      },
+      removeTask: async (id) => {
+        try {
+          await runtimeApi.deleteTask(id)
+          set((s) => ({ tasks: s.tasks.filter((x) => x.id !== id), planServiceError: null }))
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+          throw new Error(PLAN_UNAVAILABLE)
+        }
+      },
+      cycleTaskStatus: async (id) => {
+        const task = get().tasks.find((x) => x.id === id)
+        if (!task) return
+        const order: Task['status'][] = ['todo', 'doing', 'done', 'archived']
+        const next = order[(order.indexOf(task.status) + 1) % order.length]
+        await get().updateTask(id, { status: next })
+      },
+
+      addEvent: async (e) => {
+        const workspaceId = get().activeWorkspaceId
+        if (!workspaceId) return
+        try {
+          const created = await runtimeApi.createEvent({
+            workspaceId,
+            title: e.title,
+            startAt: e.start,
+            endAt: e.end,
+            kind: e.kind,
+            location: e.location,
+          })
+          set((s) => ({ events: [...s.events, created], planServiceError: null }))
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+          throw new Error(PLAN_UNAVAILABLE)
+        }
+      },
+      updateEvent: async (id, patch) => {
+        try {
+          const updated = await runtimeApi.updateEvent(id, {
+            title: patch.title,
+            startAt: patch.start,
+            endAt: patch.end,
+            kind: patch.kind,
+            location: patch.location === undefined ? undefined : patch.location || null,
+          })
+          set((s) => ({ events: s.events.map((x) => (x.id === id ? updated : x)), planServiceError: null }))
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+          throw new Error(PLAN_UNAVAILABLE)
+        }
+      },
+      removeEvent: async (id) => {
+        try {
+          await runtimeApi.deleteEvent(id)
+          set((s) => ({ events: s.events.filter((x) => x.id !== id), planServiceError: null }))
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+          throw new Error(PLAN_UNAVAILABLE)
+        }
+      },
 
       addFile: (f) => set((s) => ({ files: [{ ...f, id: uid('f'), updatedAt: now(), workspaceId: s.activeWorkspaceId }, ...s.files] })),
       removeFile: (id) => set((s) => ({
@@ -734,32 +842,50 @@ export const useApp = create<AppState>()(
           }
         }),
 
-      toggleWorkflow: (id) =>
-        set((s) => ({
-          workflows: s.workflows.map((w) =>
-            w.id === id ? { ...w, status: w.status === 'active' ? 'paused' : 'active' } : w,
-          ),
-        })),
-      runWorkflow: (id) => {
-        const ts = now()
-        set((s) => ({
-          workflows: s.workflows.map((w) =>
-            w.id === id ? { ...w, lastRunAt: ts, lastRunStatus: 'running' } : w,
-          ),
-        }))
-        // 模拟完成
-        setTimeout(() => {
+      toggleWorkflow: async (id) => {
+        const wf = get().workflows.find((w) => w.id === id)
+        if (!wf) return
+        const status = wf.status === 'active' ? 'paused' : 'active'
+        try {
+          const updated = await runtimeApi.updateWorkflow(id, { status })
           set((s) => ({
-            workflows: s.workflows.map((w) =>
-              w.id === id ? { ...w, lastRunStatus: 'success' } : w,
-            ),
+            workflows: s.workflows.map((w) => (w.id === id ? updated : w)),
+            planServiceError: null,
           }))
-        }, 800)
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+          throw new Error(PLAN_UNAVAILABLE)
+        }
       },
-      addWorkflow: (w) =>
-        set((s) => ({ workflows: [{ ...w, id: uid('wf'), createdAt: now(), workspaceId: s.activeWorkspaceId }, ...s.workflows] })),
-      removeWorkflow: (id) =>
-        set((s) => ({ workflows: s.workflows.filter((w) => w.id !== id) })),
+      addWorkflow: async (w) => {
+        const workspaceId = get().activeWorkspaceId
+        if (!workspaceId) return
+        try {
+          const created = await runtimeApi.createWorkflow({
+            workspaceId,
+            name: w.name,
+            description: w.description,
+            status: w.status,
+            trigger: w.trigger,
+            steps: w.steps,
+            category: w.category,
+            emoji: w.emoji,
+          })
+          set((s) => ({ workflows: [created, ...s.workflows], planServiceError: null }))
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+          throw new Error(PLAN_UNAVAILABLE)
+        }
+      },
+      removeWorkflow: async (id) => {
+        try {
+          await runtimeApi.deleteWorkflow(id)
+          set((s) => ({ workflows: s.workflows.filter((w) => w.id !== id), planServiceError: null }))
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+          throw new Error(PLAN_UNAVAILABLE)
+        }
+      },
 
       sendIM: (threadId, text, opts) =>
         set((s) => ({
@@ -981,6 +1107,9 @@ export function useCurrentFiles(): FileNode[] {
 }
 export function useCurrentWorkflows(): Workflow[] {
   return useApp(useShallow((s) => s.workflows.filter((w) => w.workspaceId === s.activeWorkspaceId)))
+}
+export function useCurrentTasks(): Task[] {
+  return useApp(useShallow((s) => s.tasks))
 }
 
 function mockAssistantReply(prompt: string, agents: Agent[], agentId?: ID): { content: string; artifacts?: ChatArtifact[] } {

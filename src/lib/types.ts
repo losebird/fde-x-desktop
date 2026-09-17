@@ -33,6 +33,25 @@ export interface Task {
   tags: string[]
   project?: string
   createdAt: string
+  workspaceId?: ID
+  sourceRef?: string
+  completedAt?: string
+}
+
+/** BFF /api/v1/plan/events 与 store 日程缓存 */
+export interface PlanEvent {
+  id: ID
+  workspaceId: ID
+  title: string
+  startAt: string
+  endAt: string
+  timezone: string
+  location?: string | null
+  kind: ScheduleEvent['kind']
+  allDay?: boolean
+  sourceRef?: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface ScheduleEvent {
