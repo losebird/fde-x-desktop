@@ -160,6 +160,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const [omit, setOmit] = useState<Set<string>>(new Set())
   const sheetSnapshots = useRef<Map<string, SheetSnapshot>>(new Map())
   const dismissedPreviewIds = useRef<Set<string>>(new Set())
+  const listRestoreRef = useRef<ListRestoreSnapshot | null>(null)
 
   const localApps = useMemo(
     () => apps.filter((app) => isFdeAppSpec(app.definition)),
@@ -233,29 +234,60 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     }
   }, [columns, draftEdits, kind, page, rows, sourceLabel])
 
-  const restoreRecordsList = useCallback(() => {
-    if (!listRestore) return
-    setColumns(listRestore.columns)
-    setRows(listRestore.rows)
-    setDraftEdits(listRestore.draftEdits)
-    setPage(listRestore.page)
-    setSourceLabel(listRestore.sourceLabel)
-    rememberSheet({
-      sheet: listRestore.sheet,
-      connName: listRestore.connName,
-      surfaceId: listRestore.surfaceId,
-    })
-    setListRestore(null)
-  }, [listRestore, rememberSheet])
+  const commitListRestore = useCallback((snap: ListRestoreSnapshot | null) => {
+    listRestoreRef.current = snap
+    setListRestore(snap)
+  }, [])
 
-  const dismissPreviewDrawer = useCallback(() => {
+  const shouldSaveListRestore = useCallback((incomingSheet: Record<string, unknown>) => {
+    const currentRows = rows.length
+    if (currentRows === 0) return false
+    const action = String(incomingSheet.action || '')
+    const incomingCount = Array.isArray(incomingSheet.rows) ? incomingSheet.rows.length : 0
+    const postAction = action !== '现查'
+    const narrowing = incomingCount < currentRows
+    if (listRestoreRef.current) {
+      return currentRows > 1 && (postAction || narrowing)
+    }
+    if (currentRows > 1 && (postAction || narrowing)) return true
+    return narrowing
+  }, [rows.length])
+
+  const maybeSaveListRestore = useCallback((incomingSheet: Record<string, unknown>) => {
+    if (!shouldSaveListRestore(incomingSheet)) return
+    commitListRestore(captureListRestore())
+  }, [captureListRestore, commitListRestore, shouldSaveListRestore])
+
+  const restoreRecordsList = useCallback(() => {
+    const snap = listRestoreRef.current
+    if (!snap) return false
+    setColumns(snap.columns)
+    setRows(snap.rows)
+    setDraftEdits(snap.draftEdits)
+    setPage(snap.page)
+    setSourceLabel(snap.sourceLabel)
+    rememberSheet({
+      sheet: snap.sheet,
+      connName: snap.connName,
+      surfaceId: snap.surfaceId,
+    })
+    rememberBizPendingSheet(snap.sheet)
+    commitListRestore(null)
+    return true
+  }, [commitListRestore, rememberSheet])
+
+  const handleRecordsBack = useCallback(() => {
     const previewId = drawer?.previewId
+    const restored = restoreRecordsList()
     if (previewId) dismissedPreviewIds.current.add(previewId)
     setDrawer(null)
-    restoreRecordsList()
-    clearBizPendingSheet()
+    if (!restored) clearBizPendingSheet()
     void runtimeApi.bizDismissPreview().catch(() => undefined)
   }, [drawer?.previewId, restoreRecordsList])
+
+  const dismissPreviewDrawer = useCallback(() => {
+    handleRecordsBack()
+  }, [handleRecordsBack])
 
   const applySheet = useCallback((sheet: Record<string, unknown>, connName: string, surfaceId?: string) => {
     const normalizedCols = normalizeSheetColumns(sheet.columns)
@@ -297,9 +329,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     const conn = connections.find((c) => c.id === connectionId) || connections[0]
     const previewId = sheetPreviewId(sheet)
     const action = String(sheet.action || '')
-    if (previewId && action !== '现查' && rows.length > 0) {
-      setListRestore(captureListRestore())
-    }
+    maybeSaveListRestore(sheet)
     applySheet(sheet, conn?.name || '连接器', surfaceId)
     if (previewId && action !== '现查' && !dismissedPreviewIds.current.has(previewId)) {
       setDrawer({
@@ -309,7 +339,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       })
     }
     return rowCount > 0 || Boolean(sheet.kind)
-  }, [applySheet, captureListRestore, connectionId, connections, rows.length])
+  }, [applySheet, connectionId, connections, maybeSaveListRestore])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     const cached = peekBizPendingSheet()
@@ -407,9 +437,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       const sheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
       const previewId = sheetPreviewId(sheet)
       const canWrite = Boolean(sheet.canWrite ?? sheet.can_write ?? data.canWrite)
-      if (action !== '现查' && previewId && rows.length > 0) {
-        setListRestore(captureListRestore())
-      }
+      maybeSaveListRestore(sheet)
       applySheet(sheet, conn?.name || '连接器')
       if (action !== '现查' && previewId) {
         dismissedPreviewIds.current.delete(previewId)
@@ -428,7 +456,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     } finally {
       setLoading(false)
     }
-  }, [activeLocalApp, applySheet, captureListRestore, connectionId, connections, kind, lanReady, loadSurfaces, rows.length])
+  }, [activeLocalApp, applySheet, connectionId, connections, kind, lanReady, loadSurfaces, maybeSaveListRestore])
 
   const loadSurface = useCallback(async (surface: BizSurfaceRecord) => {
     setKind(surface.kind)
@@ -436,9 +464,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     setStaleHint('')
     const cached = sheetSnapshots.current.get(`surface:${surface.id}`) || sheetSnapshots.current.get(`kind:${surface.kind}`)
     if (cached) {
-      if (surface.previewId && surface.action !== '现查' && rows.length > 0) {
-        setListRestore(captureListRestore())
-      }
+      maybeSaveListRestore(cached.sheet)
       applySheet(cached.sheet, cached.connName, surface.id)
       if (surface.previewId && surface.action !== '现查' && !dismissedPreviewIds.current.has(surface.previewId)) {
         setDrawer({
@@ -462,7 +488,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
         canWrite: true,
       })
     }
-  }, [applySheet, captureListRestore, hydrateFromPending, rows.length])
+  }, [applySheet, hydrateFromPending, maybeSaveListRestore])
 
   const selectKind = useCallback((nextKind: string) => {
     setKind(nextKind)
@@ -543,7 +569,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       clearBizPendingSheet()
       setNotice('已过账，表格保留本次预览行供核对')
       setDrawer(null)
-      setListRestore(null)
+      commitListRestore(null)
       void loadSurfaces()
     } catch (cause) {
       setError(formatBizPanelError(cause, '过账失败，请重新预览后再试'))
@@ -742,7 +768,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
         {(listRestore || sourceLabel) && (
           <div className="px-3 py-2 border-b border-line text-xs text-ink-muted bg-surface-2 flex flex-wrap items-center gap-2">
             {listRestore && (
-              <button type="button" className="btn !py-0.5 !text-[11px]" onClick={dismissPreviewDrawer}>
+              <button type="button" className="btn !py-0.5 !text-[11px]" onClick={handleRecordsBack}>
                 <ArrowLeft size={12} /> 返回
               </button>
             )}
