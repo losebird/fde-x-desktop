@@ -23,6 +23,8 @@ import { AppCreateWizard } from '@/components/apps/AppCreateWizard'
 import { AppRuntime } from '@/components/apps/AppRuntime'
 import { isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { RecordsPanel } from '@/components/biz/RecordsPanel'
+import { OperationControlPanel } from '@/components/biz/OperationControlPanel'
 
 type View = 'overview' | 'records' | 'operations'
 type Tone = 'default' | 'red' | 'amber' | 'blue' | 'purple' | 'teal' | 'green'
@@ -81,6 +83,7 @@ export default function Data() {
   const [catalogCount, setCatalogCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [planTarget, setPlanTarget] = useState<{ targetRef: string; kind: string; no?: string } | undefined>()
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -152,15 +155,25 @@ export default function Data() {
         />
       )}
       {view === 'records' && (
-        <RecordBrowser tables={tables} runtimeReady={!error} onPlan={() => setView('operations')} />
+        <RecordsPanel
+          connections={connections}
+          apps={apps}
+          runtimeReady={!error}
+          onPlan={() => setView('operations')}
+          onPlanWithTarget={(target) => {
+            setPlanTarget(target)
+            setView('operations')
+          }}
+        />
       )}
       {view === 'operations' && (
-        <OperationControl
+        <OperationControlPanel
           workspaceId={activeWorkspaceId}
           tables={tables}
           operations={operations}
           runtimeReady={!error}
           onChanged={refresh}
+          initialTarget={planTarget}
         />
       )}
     </div>
@@ -452,305 +465,6 @@ function Metric({ icon: Icon, label, value, hint, tone = 'default' }: { icon: ty
       <div className="text-xs text-ink-muted mt-1 truncate">{hint}</div>
     </Card>
   )
-}
-
-function RecordBrowser({ tables, runtimeReady, onPlan }: { tables: BusinessTable[]; runtimeReady: boolean; onPlan: () => void }) {
-  const [tableId, setTableId] = useState(tables[0]?.id ?? '')
-  const [query, setQuery] = useState('')
-  const [liveRows, setLiveRows] = useState<Array<Record<string, unknown>> | null>(null)
-  useEffect(() => {
-    if (!runtimeReady) {
-      setLiveRows([])
-      return
-    }
-    void runtimeApi.bizPreview({ kind: '采购单', action: '现查', speech: '现查采购单' }).then((data) => {
-      const sheet = data.sheet && typeof data.sheet === 'object' ? data.sheet as { rows?: Array<{ no?: string; status?: string; fields?: Record<string, unknown> }> } : null
-      setLiveRows((sheet?.rows ?? []).map((row) => ({ orderId: row.no, status: row.status, ...(row.fields ?? {}) })))
-    }).catch(() => setLiveRows([]))
-  }, [runtimeReady])
-  const table = tables.find((item) => item.id === tableId) ?? tables[0]
-  const rows = useMemo(() => {
-    const source = liveRows ?? []
-    const normalized = query.trim().toLowerCase()
-    if (!normalized) return source
-    return source.filter((row) => Object.values(row).some((value) => String(value).toLowerCase().includes(normalized)))
-  }, [query, liveRows])
-
-  const columns = useMemo(() => {
-    const sample = rows[0]
-    if (sample) return Object.keys(sample).slice(0, 8).map((key) => ({ key, label: key }))
-    return (table?.columns ?? []).map((column) => ({ key: column.key, label: column.label }))
-  }, [rows, table])
-
-  return (
-    <div className="space-y-3">
-      <Card className="!p-3 flex items-center gap-2 flex-wrap">
-        <div className="flex items-center gap-1">
-          <button type="button" className="btn !py-1 !bg-ink !text-white !border-ink">
-            采购单<span className="text-[10px] opacity-70">{liveRows?.length ?? 0}</span>
-          </button>
-        </div>
-        <div className="ml-auto relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
-          <input className="input h-8 pl-8 w-48" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索当前记录" />
-        </div>
-        <button type="button" className="btn-brand !py-1" onClick={onPlan}><ShieldCheck size={13} /> 规划数据操作</button>
-      </Card>
-
-      <div className="px-3 py-2 border border-blue-200 bg-blue-50 text-xs text-blue-800 flex items-start gap-2">
-        <CircleAlert size={13} className="mt-0.5 shrink-0" />
-        <span>这里是闸现查结果，不是原型表。修改必须从“操作控制”发起。</span>
-      </div>
-
-      <Card className="!p-0 overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-ink-muted border-b border-line bg-surface-2">
-              {columns.map((column) => <th key={column.key} className="px-3 py-2.5 font-medium">{column.label}</th>)}
-              <th className="px-3 py-2.5 font-medium text-right">来源</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={String(row.orderId ?? index)} className="border-b border-line last:border-0 hover:bg-surface-2/60">
-                {columns.map((column) => (
-                  <td key={column.key} className="px-3 py-2.5 whitespace-nowrap">
-                    {String(row[column.key] ?? '')}
-                  </td>
-                ))}
-                <td className="px-3 py-2.5 text-right"><Tag>现查</Tag></td>
-              </tr>
-            ))}
-            {rows.length === 0 && <tr><td colSpan={columns.length + 1} className="px-3 py-12 text-center text-sm text-ink-muted">没有匹配记录</td></tr>}
-          </tbody>
-        </table>
-      </Card>
-    </div>
-  )
-}
-
-function OperationControl({ workspaceId, tables, operations, runtimeReady, onChanged }: {
-  workspaceId: string
-  tables: BusinessTable[]
-  operations: RuntimeOperation[]
-  runtimeReady: boolean
-  onChanged: () => Promise<void>
-}) {
-  const defaultTable = tables[0]
-  const [targetRef, setTargetRef] = useState('fde://external/NocoBase/table/采购单')
-  const [action, setAction] = useState('record.update')
-  const [operationKind, setOperationKind] = useState<'read' | 'write'>('write')
-  const [riskLevel, setRiskLevel] = useState<RiskLevel>('high')
-  const [executionMode, setExecutionMode] = useState<'dry_run' | 'live'>('dry_run')
-  const [payload, setPayload] = useState('{\n  "status": "approved"\n}')
-  const [submitting, setSubmitting] = useState(false)
-  const [actionId, setActionId] = useState('')
-  const [error, setError] = useState('')
-  const [previewId, setPreviewId] = useState('')
-  const [selectedId, setSelectedId] = useState(operations[0]?.id ?? '')
-  const [trace, setTrace] = useState<OperationTrace | null>(null)
-  const [traceLoading, setTraceLoading] = useState(false)
-
-  useEffect(() => {
-    if (!selectedId && operations[0]) setSelectedId(operations[0].id)
-  }, [operations, selectedId])
-
-  const selected = operations.find((item) => item.id === selectedId)
-
-  const loadTrace = useCallback(async (id: string) => {
-    setTraceLoading(true)
-    setError('')
-    try {
-      setTrace(await runtimeApi.getOperationTrace(id))
-    } catch (cause) {
-      setError(formatError(cause))
-      setTrace(null)
-    } finally {
-      setTraceLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (selectedId) void loadTrace(selectedId)
-    else setTrace(null)
-  }, [loadTrace, selectedId])
-
-  const plan = async () => {
-    setSubmitting(true)
-    setError('')
-    try {
-      let input: JsonValue
-      try {
-        input = JSON.parse(payload) as JsonValue
-      } catch {
-        setError('输入数据不是有效 JSON')
-        return
-      }
-      const operation = await runtimeApi.planOperation({
-        workspaceId,
-        targetRef: targetRef as `fde://external/${string}/${string}`,
-        action,
-        operationKind,
-        riskLevel,
-        executionMode,
-        input,
-      })
-      setSelectedId(operation.id)
-      await onChanged()
-      await loadTrace(operation.id)
-    } catch (cause) {
-      setError(formatError(cause))
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const runAction = async (kind: 'approve' | 'execute' | 'write') => {
-    if (!selected) return
-    setActionId(selected.id)
-    setError('')
-    try {
-      if (kind === 'approve') await runtimeApi.approveOperation(selected.id, '由本机用户在业务应用控制面确认')
-      else if (kind === 'write') {
-        if (!previewId) throw new Error('请先预览拿到 preview_id')
-        await runtimeApi.bizWrite(previewId)
-        setPreviewId('')
-      } else if (selected.executionMode === 'live') {
-        const preview = await runtimeApi.bizPreview({
-          targetRef: selected.targetRef,
-          action: selected.action,
-          input: selected.input,
-          speech: selected.action,
-        })
-        const id = typeof preview.preview_id === 'string' ? preview.preview_id : ''
-        if (!id) throw new Error(typeof preview.hint === 'string' ? preview.hint : '预览未返回 preview_id，未写入源系统')
-        setPreviewId(id)
-      } else {
-        await runtimeApi.executeOperation(selected.id)
-      }
-      await onChanged()
-      await loadTrace(selected.id)
-    } catch (cause) {
-      setError(formatError(cause))
-    } finally {
-      setActionId('')
-    }
-  }
-
-  return (
-    <div className="grid grid-cols-1 @4xl:grid-cols-[340px_minmax(0,1fr)] gap-4 items-start">
-      <div className="space-y-3">
-        <Card>
-          <div className="flex items-center gap-2 mb-3"><ShieldCheck size={15} className="text-brand" /><div className="text-sm font-medium">新建操作计划</div></div>
-          <div className="space-y-2.5">
-            <Field label="目标对象"><input className="input font-mono text-xs" value={targetRef} onChange={(event) => setTargetRef(event.target.value)} /></Field>
-            <Field label="操作"><input className="input font-mono text-xs" value={action} onChange={(event) => setAction(event.target.value)} /></Field>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="类型"><Select value={operationKind} onChange={(value) => setOperationKind(value as 'read' | 'write')} options={[['read', '读取'], ['write', '写入']]} /></Field>
-              <Field label="风险"><Select value={riskLevel} onChange={(value) => setRiskLevel(value as RiskLevel)} options={Object.entries(RISK_LABEL)} /></Field>
-            </div>
-            <Field label="执行方式"><Select value={executionMode} onChange={(value) => setExecutionMode(value as 'dry_run' | 'live')} options={[['dry_run', '仅验证，不产生副作用'], ['live', '真实执行（先预览再过账）']]} /></Field>
-            <Field label="输入 JSON"><textarea className="input min-h-24 font-mono text-xs resize-y" value={payload} onChange={(event) => setPayload(event.target.value)} /></Field>
-            <button type="button" className="btn-brand w-full" disabled={submitting || !runtimeReady || !targetRef.trim() || !action.trim()} onClick={() => void plan()}>
-              {submitting ? <Loader2 size={14} className="animate-spin" /> : <FileClock size={14} />} 生成可审计计划
-            </button>
-          </div>
-        </Card>
-        <div className="border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 leading-relaxed">
-          中风险及以上写入必须审批。真实执行先预览拿到 preview_id，再确认过账；闸拒绝时不会伪造成功。
-        </div>
-      </div>
-
-      <div className="space-y-3 min-w-0">
-        {error && <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-accent-red">{error}</div>}
-        <Card className="!p-0 overflow-hidden">
-          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">操作记录</div>
-              <div className="text-xs text-ink-muted mt-0.5">意图、审批、步骤、快照、回执与回退共用同一关联 ID</div>
-            </div>
-            <span className="text-xs text-ink-muted">{operations.length} 条</span>
-          </div>
-          {operations.length === 0 ? (
-            <div className="py-12 text-center text-sm text-ink-muted">还没有操作记录。左侧创建的第一条记录会保存在事务数据库中。</div>
-          ) : (
-            <div className="divide-y divide-line">
-              {operations.map((operation) => (
-                <button key={operation.id} type="button" onClick={() => setSelectedId(operation.id)} className={clsx('w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-surface-2', selectedId === operation.id && 'bg-brand-soft/70')}>
-                  <div className={clsx('w-7 h-7 border flex items-center justify-center shrink-0', operation.operationKind === 'write' ? 'border-amber-200 bg-amber-50 text-accent-amber' : 'border-blue-200 bg-blue-50 text-accent-blue')}>
-                    {operation.operationKind === 'write' ? <Workflow size={13} /> : <Search size={13} />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate">{operation.action}</div>
-                    <div className="text-[11px] text-ink-muted mt-0.5 truncate font-mono">{operation.targetRef}</div>
-                  </div>
-                  <Tag kind={RISK_TONE[operation.riskLevel]}>{RISK_LABEL[operation.riskLevel]}</Tag>
-                  <Tag kind={STATE_TONE[operation.state] ?? 'default'}>{STATE_LABEL[operation.state] ?? operation.state}</Tag>
-                  <ChevronRight size={13} className="text-ink-subtle" />
-                </button>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        {selected && (
-          <Card>
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div className="min-w-0">
-                <div className="text-sm font-medium flex items-center gap-2">操作详情 <span className="font-mono text-[10px] text-ink-subtle">{selected.id}</span></div>
-                <div className="text-xs text-ink-muted mt-1">关联 ID：<span className="font-mono">{selected.correlationId}</span></div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {selected.state === 'awaiting_approval' && <button type="button" className="btn !py-1" disabled={actionId === selected.id} onClick={() => void runAction('approve')}><Check size={12} /> 审批</button>}
-                {['draft', 'approved'].includes(selected.state) && <button type="button" className="btn-brand !py-1" disabled={actionId === selected.id} onClick={() => void runAction('execute')}><Play size={12} /> {selected.executionMode === 'dry_run' ? '执行验证' : '预览写入'}</button>}
-                {previewId && <button type="button" className="btn-brand !py-1" disabled={actionId === selected.id} onClick={() => void runAction('write')}>确认过账</button>}
-                <button type="button" className="btn !py-1" disabled={traceLoading} onClick={() => void loadTrace(selected.id)}><RefreshCw size={12} className={traceLoading ? 'animate-spin' : ''} /> Trace</button>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 @2xl:grid-cols-5 gap-2 mb-4">
-              <TraceMetric label="审批" value={trace?.approvals.length ?? 0} />
-              <TraceMetric label="步骤" value={trace?.steps.length ?? 0} />
-              <TraceMetric label="快照" value={trace?.snapshots.length ?? 0} />
-              <TraceMetric label="回执" value={trace?.receipts.length ?? 0} />
-              <TraceMetric label="回退" value={trace?.compensations.length ?? 0} />
-            </div>
-            <div className="border border-line bg-surface-2 px-3 py-2.5 text-xs">
-              <div className="grid grid-cols-[90px_1fr] gap-x-3 gap-y-2">
-                <span className="text-ink-muted">当前状态</span><span><Tag kind={STATE_TONE[selected.state] ?? 'default'}>{STATE_LABEL[selected.state] ?? selected.state}</Tag></span>
-                <span className="text-ink-muted">执行方式</span><span>{selected.executionMode === 'dry_run' ? '验证模式，不产生副作用' : '真实执行，必须等待连接器回执'}</span>
-                <span className="text-ink-muted">幂等键</span><span className="font-mono break-all">{selected.idempotencyKey}</span>
-                <span className="text-ink-muted">输入</span><pre className="font-mono whitespace-pre-wrap break-all">{JSON.stringify(selected.input, null, 2)}</pre>
-              </div>
-            </div>
-            {trace && trace.receipts.length > 0 && (
-              <div className="mt-3 px-3 py-2.5 border border-brand/25 bg-brand-soft text-xs text-brand flex items-start gap-2">
-                <ShieldCheck size={13} className="mt-0.5 shrink-0" /><span>已保存验证回执。此回执只证明计划通过本地验证，不代表外部业务系统已经发生变更。</span>
-              </div>
-            )}
-          </Card>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="block text-xs text-ink-muted">{label}<div className="mt-1">{children}</div></label>
-}
-
-function Select({ value, options, onChange }: { value: string; options: string[][]; onChange: (value: string) => void }) {
-  return (
-    <div className="relative">
-      <select className="input appearance-none pr-8" value={value} onChange={(event) => onChange(event.target.value)}>
-        {options.map(([optionValue, label]) => <option key={optionValue} value={optionValue}>{label}</option>)}
-      </select>
-      <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-subtle pointer-events-none" />
-    </div>
-  )
-}
-
-function TraceMetric({ label, value }: { label: string; value: number }) {
-  return <div className="border border-line bg-surface-2 px-3 py-2"><div className="text-[10px] text-ink-muted">{label}</div><div className="text-lg font-semibold tabular-nums mt-0.5">{value}</div></div>
 }
 
 function formatTime(value: string) {
