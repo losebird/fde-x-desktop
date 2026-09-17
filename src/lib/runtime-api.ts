@@ -898,6 +898,10 @@ export class RuntimeApi {
   }
 
   async pickAiWorkspaceDirectory(signal?: AbortSignal): Promise<string | null> {
+    if (typeof window !== 'undefined' && window.fdeDesktop) {
+      const picked = await window.fdeDesktop.pickDirectory()
+      return picked.path
+    }
     const result = await this.request<{ data: { path: string | null } }>('/api/v1/ai/workspaces/pick', { method: 'POST', signal })
     return result.data.path
   }
