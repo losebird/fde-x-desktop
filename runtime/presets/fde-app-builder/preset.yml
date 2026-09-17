@@ -1,0 +1,3 @@
+name: FDE 应用构建
+description: 声明式应用构建 preset；具体 Skill 由规格 04 补全。
+order: 90

@@ -68,7 +68,7 @@ import {
 } from './db.mjs'
 import { inspectAdapters } from './adapters.mjs'
 import { handlePlanRequest } from './routes/plan.mjs'
-import { handlePresetRoutes } from './routes/presets.mjs'
+import { ensurePresets, handlePresetRoutes } from './routes/presets.mjs'
 import { handleMcpRoutes } from './routes/mcp.mjs'
 import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
@@ -2572,6 +2572,9 @@ server.on('upgrade', (request, socket, head) => {
 server.listen(port, host, () => {
   console.log(`FDE-X runtime listening on http://${host}:${port}`)
   console.log(`SQLite authority: ${databasePath}`)
+  void ensurePresets(aiRuntime.dshHome || FDE_DSH_HOME).catch((error) => {
+    console.warn('ensurePresets_failed', error)
+  })
   startLanAssistStateWatch({
     lanAssist: (path, options) => aiRuntime.lanAssist(path, options),
     cwd: FDE_AI_WORKSPACE,
