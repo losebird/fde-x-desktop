@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useApp } from '@/store/app'
+import { clearAskAiNotice, getAskAiNotice, subscribeAskAiNotice } from '@/lib/ask-ai'
 import { extractComposerBody } from '@/lib/im-ai'
 import {
   runtimeApi,
@@ -73,6 +74,7 @@ export default function AI() {
   const [width, setWidth] = useState(1200)
   const [dropActive, setDropActive] = useState(false)
   const [memoryReady, setMemoryReady] = useState<Record<string, unknown> | null>(null)
+  const [askAiNotice, setAskAiNotice] = useState(() => getAskAiNotice())
 
   const rootRef = useRef<HTMLDivElement>(null)
   const dshFrameRef = useRef<HTMLIFrameElement>(null)
@@ -481,6 +483,8 @@ export default function AI() {
     return () => window.removeEventListener('click', close)
   }, [])
 
+  useEffect(() => subscribeAskAiNotice(() => setAskAiNotice(getAskAiNotice())), [])
+
   const selectChat = (sessionId: string) => {
     nav(`/ai/${sessionId}`)
     const row = visibleSessions.find((session) => session.sessionId === sessionId)
@@ -577,7 +581,14 @@ export default function AI() {
   const statusBanner = loadingRuntime
     ? { tone: 'info' as const, icon: LoaderCircle, text: '正在连接本地核心运行时…', spinning: true }
     : runtimeConnected
-      ? {
+      ? askAiNotice
+        ? {
+            tone: 'warn' as const,
+            icon: CircleAlert,
+            text: askAiNotice.text,
+            spinning: false,
+          }
+        : {
           tone: (sessionNotice || runtimeError || memoryReady?.ready === false) ? 'warn' as const : 'ok' as const,
           icon: (sessionNotice || runtimeError || memoryReady?.ready === false) ? CircleAlert : Wifi,
           text: sessionNotice || runtimeError || (activeSession && !activeSession.cwd
@@ -607,6 +618,18 @@ export default function AI() {
           return <StatusIcon size={12} className={statusBanner.spinning ? 'animate-spin' : ''} />
         })()}
         <span className="truncate">{statusBanner.text}</span>
+        {askAiNotice?.sessionId ? (
+          <button
+            type="button"
+            className="shrink-0 btn h-7 px-2 ml-auto"
+            onClick={() => {
+              selectChat(askAiNotice.sessionId!)
+              clearAskAiNotice()
+            }}
+          >
+            打开会话
+          </button>
+        ) : null}
       </div>
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {!runtimeConnected ? (
