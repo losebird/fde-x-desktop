@@ -40,7 +40,11 @@ export function pickCurrentAiSession(
   return [...primary].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0] || null
 }
 
-export async function loadCurrentAiTarget(signal?: AbortSignal): Promise<AiTargetResult> {
+export type WorkspaceCwdResult =
+  | { ok: true; cwd: string; workspaceId: string }
+  | { ok: false; error: string }
+
+export function loadCurrentWorkspaceCwd(): WorkspaceCwdResult {
   const state = useApp.getState()
   const workspace = state.workspaces.find((row) => row.id === state.activeWorkspaceId)
   const cwd = workspace?.cwd && workspace.cwd.startsWith('/') ? workspace.cwd : ''
@@ -48,6 +52,14 @@ export async function loadCurrentAiTarget(signal?: AbortSignal): Promise<AiTarge
   if (!cwd || !workspaceId || workspaceId.startsWith('ws_')) {
     return { ok: false, error: '当前顶栏工作区没有本机目录' }
   }
+  return { ok: true, cwd, workspaceId }
+}
+
+export async function loadCurrentAiTarget(signal?: AbortSignal): Promise<AiTargetResult> {
+  const workspace = loadCurrentWorkspaceCwd()
+  if (!workspace.ok) return workspace
+  const { cwd, workspaceId } = workspace
+  const state = useApp.getState()
   let sessions: AiSessionSummary[]
   try {
     sessions = await runtimeApi.listAiSessions({ includeBlank: true }, signal)

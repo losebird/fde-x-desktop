@@ -10,7 +10,7 @@ import clsx from 'clsx'
 import { useParams } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { runtimeApi } from '@/lib/runtime-api'
-import { isPrimarySession, loadCurrentAiTarget, sessionMatchesCwd } from '@/lib/ai-target'
+import { isPrimarySession, loadCurrentAiTarget, loadCurrentWorkspaceCwd, sessionMatchesCwd } from '@/lib/ai-target'
 import { IM_AVATARS, imAvatar } from '@/lib/im-avatar'
 import { buildImAiPrompt, extractComposerBody, isUnsafeToSend, lastIncomingText, threadExcerpt } from '@/lib/im-ai'
 import type {
@@ -1072,12 +1072,12 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         }
       }
       if (!sessions.length) throw new Error('交接包里没有 AI 会话文件（请确认发出时预览里已有 session.v3.jsonl.zstd）')
-      const target = await loadCurrentAiTarget()
-      if (!target.ok) throw new Error(target.error)
-      const workspaceId = activeWorkspaceId.startsWith('ws_') ? '' : activeWorkspaceId
+      const workspace = loadCurrentWorkspaceCwd()
+      if (!workspace.ok) throw new Error(workspace.error)
+      const workspaceId = workspace.workspaceId.startsWith('ws_') ? '' : workspace.workspaceId
       const restored = await runtimeApi.restoreAiSessions({
         ...(workspaceId ? { workspaceId } : {}),
-        cwd: target.cwd,
+        cwd: workspace.cwd,
         sessions: sessions.map((row) => ({ title: row.title, files: row.files })),
       })
       const ids = (restored.sessions || []).map((row) => row.sessionId).filter(Boolean)
