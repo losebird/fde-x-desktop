@@ -19,6 +19,10 @@ import {
 import { loadCurrentAiTarget } from '@/lib/ai-target'
 import type { BusinessTable } from '@/lib/types'
 import type { JsonValue, RiskLevel } from '@/lib/contracts'
+import { AppCreateWizard } from '@/components/apps/AppCreateWizard'
+import { AppRuntime } from '@/components/apps/AppRuntime'
+import { isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
+import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 
 type View = 'overview' | 'records' | 'operations'
 type Tone = 'default' | 'red' | 'amber' | 'blue' | 'purple' | 'teal' | 'green'
@@ -332,48 +336,20 @@ function Overview({
   onOpenOperations: () => void
 }) {
   const [showCreate, setShowCreate] = useState(false)
-  const [appName, setAppName] = useState('')
-  const [appGoal, setAppGoal] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState('')
   const [selectedId, setSelectedId] = useState('')
+  const [declarativeApp, setDeclarativeApp] = useState<FdeAppDetail | null>(null)
+  const [workspaceCwd, setWorkspaceCwd] = useState('')
   const selected = apps.find((app) => app.id === selectedId) || null
 
-  const createApp = async () => {
-    if (!appName.trim()) return
-    setCreating(true)
-    setCreateError('')
-    try {
-      await runtimeApi.createBusinessApp({
-        workspaceId,
-        name: appName.trim(),
-        definition: {
-          kind: 'ai-generated-draft',
-          goal: appGoal.trim(),
-          screens: [],
-          dataSources: [],
-          permissions: [],
-        },
-        changeNote: '从业务应用中心创建初始草稿',
-      })
-      const target = await loadCurrentAiTarget()
-      if (target.ok && appGoal.trim()) {
-        await runtimeApi.promptAi(target.sessionId, {
-          text: `【业务应用草稿】名称：${appName.trim()}\n目标：${appGoal.trim()}\n请给出 screens / dataSources / permissions 草案。不要过账。`,
-        })
-        setCreateError('草稿已建，目标已发给当前 AI 会话。确认后的屏幕不会自动写入，过账仍走操作控制。')
-      } else if (!target.ok) {
-        setCreateError(`草稿已建。${target.error}。到 AI 页开会话后再生成屏幕。`)
-      }
-      setAppName('')
-      setAppGoal('')
-      await onCreated()
-    } catch (cause) {
-      setCreateError(formatError(cause))
-    } finally {
-      setCreating(false)
+  useEffect(() => {
+    if (!selected || !isFdeAppSpec(selected.definition)) {
+      setDeclarativeApp(null)
+      return
     }
-  }
+    const cwd = loadCurrentWorkspaceCwd()
+    if (cwd.ok) setWorkspaceCwd(cwd.cwd)
+    void runtimeApi.getDeclarativeApp(selected.id).then(setDeclarativeApp).catch(() => setDeclarativeApp(null))
+  }, [selected?.id, selected?.currentRevision, selected?.definition])
 
   return (
     <div className="space-y-4">
@@ -394,16 +370,11 @@ function Overview({
             <button type="button" className="btn-primary !py-1" onClick={() => setShowCreate((value) => !value)}><Plus size={12} /> AI 创建应用</button>
           </div>
           {showCreate && (
-            <div className="px-4 py-3 border-b border-line bg-surface-2">
-              <div className="grid grid-cols-1 @xl:grid-cols-[.7fr_1.3fr_auto] gap-2 items-end">
-                <label className="text-xs text-ink-muted">应用名称<input className="input mt-1" value={appName} onChange={(event) => setAppName(event.target.value)} placeholder="例如：客户续费看板" /></label>
-                <label className="text-xs text-ink-muted">希望它完成什么<input className="input mt-1" value={appGoal} onChange={(event) => setAppGoal(event.target.value)} placeholder="汇总待续费客户，并生成跟进清单" /></label>
-                <button type="button" className="btn-brand h-[34px]" disabled={creating || !appName.trim()} onClick={() => void createApp()}>
-                  {creating ? <Loader2 size={13} className="animate-spin" /> : <Bot size={13} />} 创建草稿
-                </button>
-              </div>
-              {createError && <div className="text-xs text-accent-red mt-2">{createError}</div>}
-            </div>
+            <AppCreateWizard
+              workspaceId={workspaceId}
+              onCreated={onCreated}
+              onClose={() => setShowCreate(false)}
+            />
           )}
           <div className="divide-y divide-line">
             {apps.length === 0 ? (
@@ -415,14 +386,23 @@ function Overview({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium truncate">{app.name}</div>
-                  <div className="text-xs text-ink-muted mt-0.5">修订 {app.currentRevision} · {app.appKind === 'generated' ? '草稿' : '系统应用'} · {formatTime(app.updatedAt)}</div>
+                  <div className="text-xs text-ink-muted mt-0.5">修订 {app.currentRevision} · {isFdeAppSpec(app.definition) ? app.status : app.appKind === 'generated' ? '草稿' : '系统应用'} · {formatTime(app.updatedAt)}</div>
                 </div>
-                <Tag kind={app.status === 'active' ? 'green' : 'amber'}>{app.status === 'active' ? '运行中' : '草稿'}</Tag>
+                <Tag kind={app.status === 'active' ? 'green' : app.status === 'archived' ? 'default' : 'amber'}>
+                  {app.status === 'active' ? '运行中' : app.status === 'archived' ? '已归档' : '草稿'}
+                </Tag>
                 <ChevronRight size={14} className="text-ink-subtle" />
               </button>
             ))}
           </div>
-          {selected && (
+          {selected && declarativeApp && workspaceCwd && (
+            <AppRuntime
+              app={declarativeApp}
+              workspaceCwd={workspaceCwd}
+              onChanged={() => { void onCreated(); void runtimeApi.getDeclarativeApp(selected.id).then(setDeclarativeApp) }}
+            />
+          )}
+          {selected && !isFdeAppSpec(selected.definition) && (
             <AppDraftEditor
               app={selected}
               connections={connections}

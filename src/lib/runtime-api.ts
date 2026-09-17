@@ -1443,15 +1443,40 @@ export class RuntimeApi {
   }
 
   async putDeclarativeAppSpec(appId: string, input: { spec: JsonValue; changeNote?: string }, signal?: AbortSignal) {
-    return this.request<{ ok: boolean; data?: { revision: number }; errors?: { path: string; message: string }[]; error?: string }>(
-      `/api/v1/apps/${encodeURIComponent(appId)}/spec`,
-      {
+    let response: Response
+    try {
+      response = await fetch(`${this.baseUrl}/api/v1/apps/${encodeURIComponent(appId)}/spec`, {
         method: 'PUT',
         signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
-      },
-    )
+      })
+    } catch (error) {
+      throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
+    }
+    const payload = await response.json().catch(() => ({})) as {
+      ok?: boolean
+      data?: { revision: number }
+      errors?: { path: string; message: string }[]
+      error?: string
+      correlationId?: string
+    }
+    if (response.status === 422) {
+      return {
+        ok: false,
+        errors: payload.errors,
+        error: payload.error,
+      }
+    }
+    if (!response.ok) {
+      throw new RuntimeApiError(
+        response.status,
+        (payload as { error?: { code?: string } })?.error?.code ?? 'runtime_error',
+        (payload as { error?: { message?: string } })?.error?.message ?? `请求失败 (${response.status})`,
+        payload.correlationId,
+      )
+    }
+    return { ok: true, data: payload.data, errors: payload.errors, error: payload.error }
   }
 
   async activateDeclarativeApp(appId: string, signal?: AbortSignal) {
