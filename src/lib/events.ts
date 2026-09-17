@@ -25,6 +25,7 @@ export const FDE_EVENT_TYPES_V1 = [
   'task.changed',
   'briefing.ready',
   'memory.card.drafted',
+  'ai.result.ready',
 ] as const
 
 const SESSION_SINCE_KEY = 'fde-x-events-since'
@@ -221,6 +222,30 @@ export function useEvents(
       listeners.delete(listener)
     }
   }, [Array.isArray(types) ? types.join('\0') : types, opts?.workspace])
+}
+
+export function waitForFdeEvent(
+  type: string,
+  match: (event: FdeEvent) => boolean,
+  timeoutMs: number,
+): Promise<FdeEvent | null> {
+  ensureStreamSubscription()
+  return new Promise((resolve) => {
+    const listener: Listener = {
+      types: [type],
+      handler: (event) => {
+        if (!match(event)) return
+        listeners.delete(listener)
+        clearTimeout(timer)
+        resolve(event)
+      },
+    }
+    listeners.add(listener)
+    const timer = window.setTimeout(() => {
+      listeners.delete(listener)
+      resolve(null)
+    }, timeoutMs)
+  })
 }
 
 export function useEventStreamStatus(): StreamStatus {

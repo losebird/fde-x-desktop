@@ -933,6 +933,25 @@ export class RuntimeApi {
     return result.data
   }
 
+  async getAiResult(requestId: string, signal?: AbortSignal): Promise<{
+    status: 'pending' | 'ready' | 'expired'
+    requestId?: string
+    kind?: string
+    data?: unknown
+    summary?: string
+    sessionId?: string
+  }> {
+    const result = await this.request<{ data: {
+      status: 'pending' | 'ready' | 'expired'
+      requestId?: string
+      kind?: string
+      data?: unknown
+      summary?: string
+      sessionId?: string
+    } }>(`/api/v1/ai/results/${encodeURIComponent(requestId)}`, { signal })
+    return result.data
+  }
+
   async decideAiApproval(sessionId: string, outcome: 'allowed-once' | 'rejected', signal?: AbortSignal): Promise<{ eventId: string; outcome: string }> {
     const result = await this.request<{ data: { eventId: string; outcome: string } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/approval`, {
       method: 'POST',
