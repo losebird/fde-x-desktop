@@ -15,6 +15,9 @@ const required = [
   join(resources, 'NOTICE.md'),
 ]
 
+const requireSemanticRuntimeComplete =
+  process.env.CI === 'true' || process.env.FDE_DOWNLOAD_SEMANTIC_RUNTIME === '1'
+
 function dshTreeReal(dshRoot) {
   return (
     existsSync(join(dshRoot, 'bin', 'dsh'))
@@ -34,6 +37,12 @@ async function main() {
   const dshReal = dshTreeReal(dshRoot) && versions.dsh?.staged === true
 
   if (!versions.semanticRuntime?.complete) {
+    if (requireSemanticRuntimeComplete) {
+      console.error(
+        'verify failed — semantic runtime incomplete (required when CI=true or FDE_DOWNLOAD_SEMANTIC_RUNTIME=1)',
+      )
+      process.exit(1)
+    }
     console.warn('verify: semantic runtime is stub/incomplete')
   }
 

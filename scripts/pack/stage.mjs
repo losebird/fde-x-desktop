@@ -31,6 +31,9 @@ const shouldDownloadSemantic =
   process.env.FDE_DOWNLOAD_SEMANTIC_RUNTIME === '1'
   || (process.env.FDE_DOWNLOAD_SEMANTIC_RUNTIME !== '0' && process.env.CI === 'true')
 
+const requireSemanticRuntimeComplete =
+  process.env.CI === 'true' || process.env.FDE_DOWNLOAD_SEMANTIC_RUNTIME === '1'
+
 async function copyIfExists(from, to, label) {
   if (!existsSync(from)) {
     console.warn(`[stage] skip ${label}: missing ${from}`)
@@ -301,6 +304,7 @@ async function stageSemantic() {
       return { complete: digest !== 'stub', digest }
     } catch (error) {
       console.warn('[stage] semantic download failed', error)
+      if (requireSemanticRuntimeComplete) throw error
     }
   }
 
