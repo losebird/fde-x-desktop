@@ -406,8 +406,13 @@ export default function AI() {
       setDshFrameSrc('')
       return
     }
-    setDshFrameSrc(`${dshAppSrc(runtimeStatus?.bffOrigin)}#fde-session=${encodeURIComponent(sid)}`)
-  }, [runtimeConnected, loadingRuntime, activeWorkspaceId, runtimeStatus?.bffOrigin, chatId, activeId])
+    const base = dshAppSrc(runtimeStatus?.bffOrigin)
+    setDshFrameSrc((prev) => {
+      const prevRoot = prev.split('#')[0].split('?')[0]
+      if (prev && prevRoot === base.replace(/\/$/, '')) return prev
+      return `${base}#fde-session=${encodeURIComponent(sid)}`
+    })
+  }, [runtimeConnected, loadingRuntime, runtimeStatus?.bffOrigin, chatId, activeId])
 
   useEffect(() => {
     const text = aiInboxDraft.trim()
@@ -742,7 +747,6 @@ export default function AI() {
                 </div>
               ) : dshFrameSrc ? (
                 <iframe
-                  key={dshFrameSrc}
                   ref={dshFrameRef}
                   title="DSH 会话"
                   src={dshFrameSrc}

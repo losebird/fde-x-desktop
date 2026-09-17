@@ -494,6 +494,7 @@ function safeSemanticOsUpstreamPath(request) {
 }
 
 function shouldProxyDsh(url) {
+  if (url.pathname === '/dsh-app' || url.pathname.startsWith('/dsh-app/')) return true
   if (!aiRuntime.origin) return false
   if (url.pathname.startsWith('/api/v1')) return false
   if (isSemanticOsPath(url.pathname)) return false
@@ -508,6 +509,24 @@ function outboundProxyHeaders(incoming) {
     delete headers[key]
   }
   return headers
+}
+
+function destroySocketPair(a, b) {
+  if (a && !a.destroyed) a.destroy()
+  if (b && !b.destroyed) b.destroy()
+}
+
+function pipeProxyStreams(src, dest) {
+  src.on('error', () => destroySocketPair(src, dest))
+  dest.on('error', () => destroySocketPair(src, dest))
+  return src.pipe(dest)
+}
+
+function duplexProxySockets(client, upstream) {
+  client.on('error', () => destroySocketPair(client, upstream))
+  upstream.on('error', () => destroySocketPair(client, upstream))
+  client.pipe(upstream)
+  upstream.pipe(client)
 }
 
 function isLatin1HeaderValue(value) {
@@ -577,7 +596,7 @@ function proxySemanticOs(request, response, url) {
         headers,
       }, (incoming) => {
         response.writeHead(incoming.statusCode || 200, outboundProxyHeaders(incoming))
-        incoming.pipe(response)
+        pipeProxyStreams(incoming, response)
       })
     } catch {
       if (!response.headersSent) sendError(response, 502, 'semantic_proxy', '无法打开语义系统')
@@ -587,7 +606,7 @@ function proxySemanticOs(request, response, url) {
       if (!response.headersSent) sendError(response, 502, 'semantic_proxy', '无法打开语义系统')
     })
     if (body) up.end(body)
-    else request.pipe(up)
+    else pipeProxyStreams(request, up)
   }
   if (['POST', 'PUT', 'PATCH'].includes(method) && /json/i.test(String(request.headers['content-type'] || ''))) {
     const chunks = []
@@ -611,6 +630,10 @@ function proxySemanticOs(request, response, url) {
 }
 
 function proxyDsh(request, response, url) {
+  if (!aiRuntime.origin || !aiRuntime.cookie) {
+    sendError(response, 503, 'ai/not-connected', '核心未接通，无法打开 DSH 页面')
+    return
+  }
   const target = new URL(aiRuntime.origin)
   const path = dshProxyPath(url) || '/'
   const headers = { ...request.headers, host: target.host, cookie: aiRuntime.cookie, origin: aiRuntime.origin }
@@ -652,12 +675,12 @@ function proxyDsh(request, response, url) {
       return
     }
     response.writeHead(incoming.statusCode || 200, headersOut)
-    incoming.pipe(response)
+    pipeProxyStreams(incoming, response)
   })
   up.on('error', () => {
     if (!response.headersSent) sendError(response, 502, 'dsh_proxy', '无法打开 DSH 页面')
   })
-  request.pipe(up)
+  pipeProxyStreams(request, up)
 }
 
 const SKIP_SESSION_FILES = new Set(['session.lock'])
@@ -1473,6 +1496,20 @@ const server = createServer(async (request, response) => {
           .filter((item) => !archived.has(item.sessionId) && (includeBlank || !item.blank) && (includeSubagents || !isSubagentSession(item)))
         : []
       sendJson(response, 200, { data: { items }, correlationId: currentCorrelationId })
+      return
+    }
+
+    const aiSessionGetMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)$/)
+    if (request.method === 'GET' && aiSessionGetMatch) {
+      const sessionId = decodeURIComponent(aiSessionGetMatch[1])
+      const sessions = await aiRuntime.call('session/list', { _request: {} })
+      const items = Array.isArray(sessions?.items) ? sessions.items : []
+      const item = items.find((row) => row.sessionId === sessionId)
+      if (!item) {
+        sendError(response, 404, 'not_found', '会话不存在', currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, { data: toAiSessionSummary(item), correlationId: currentCorrelationId })
       return
     }
 
@@ -2582,9 +2619,9 @@ server.on('upgrade', (request, socket, head) => {
     socket.write(`${lines.join('\r\n')}\r\n\r\n`)
     if (head.length) upSocket.write(head)
     if (upHead.length) socket.write(upHead)
-    upSocket.pipe(socket)
-    socket.pipe(upSocket)
+    duplexProxySockets(socket, upSocket)
   })
+  socket.on('error', () => socket.destroy())
   up.on('error', () => socket.destroy())
   up.end()
 })
