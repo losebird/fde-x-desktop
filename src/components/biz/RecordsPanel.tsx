@@ -23,7 +23,7 @@ import {
   type BusinessConnectionRecord,
 } from '@/lib/runtime-api'
 import { isFdeAppSpec } from '@/lib/app-spec'
-import { peekBizPendingSheet, rememberBizPendingSheet } from '@/lib/biz-session-sheet'
+import { clearBizPendingSheet, peekBizPendingSheet, rememberBizPendingSheet } from '@/lib/biz-session-sheet'
 import { useEvents } from '@/lib/events'
 
 const PAGE_SIZE = 10
@@ -66,6 +66,16 @@ type Props = {
   runtimeReady: boolean
   onPlan: () => void
   onPlanWithTarget?: (target: { targetRef: string; kind: string; no?: string }) => void
+}
+
+function formatBizPanelError(cause: unknown, fallback: string) {
+  if (cause instanceof RuntimeApiError) {
+    const msg = cause.message.trim()
+    if (msg && !msg.includes('IM 调用失败')) return msg
+    return fallback
+  }
+  if (cause instanceof Error && cause.message.trim()) return cause.message
+  return fallback
 }
 
 function formatSurfaceTime(at: number) {
@@ -149,6 +159,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [omit, setOmit] = useState<Set<string>>(new Set())
   const sheetSnapshots = useRef<Map<string, SheetSnapshot>>(new Map())
+  const dismissedPreviewIds = useRef<Set<string>>(new Set())
 
   const localApps = useMemo(
     () => apps.filter((app) => isFdeAppSpec(app.definition)),
@@ -238,9 +249,13 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }, [listRestore, rememberSheet])
 
   const dismissPreviewDrawer = useCallback(() => {
+    const previewId = drawer?.previewId
+    if (previewId) dismissedPreviewIds.current.add(previewId)
     setDrawer(null)
     restoreRecordsList()
-  }, [restoreRecordsList])
+    clearBizPendingSheet()
+    void runtimeApi.bizDismissPreview().catch(() => undefined)
+  }, [drawer?.previewId, restoreRecordsList])
 
   const applySheet = useCallback((sheet: Record<string, unknown>, connName: string, surfaceId?: string) => {
     const normalizedCols = normalizeSheetColumns(sheet.columns)
@@ -286,7 +301,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       setListRestore(captureListRestore())
     }
     applySheet(sheet, conn?.name || '连接器', surfaceId)
-    if (previewId && action !== '现查') {
+    if (previewId && action !== '现查' && !dismissedPreviewIds.current.has(previewId)) {
       setDrawer({
         previewId,
         sheet,
@@ -397,6 +412,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       }
       applySheet(sheet, conn?.name || '连接器')
       if (action !== '现查' && previewId) {
+        dismissedPreviewIds.current.delete(previewId)
         setDrawer({
           previewId,
           sheet,
@@ -424,7 +440,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
         setListRestore(captureListRestore())
       }
       applySheet(cached.sheet, cached.connName, surface.id)
-      if (surface.previewId && surface.action !== '现查') {
+      if (surface.previewId && surface.action !== '现查' && !dismissedPreviewIds.current.has(surface.previewId)) {
         setDrawer({
           previewId: surface.previewId,
           sheet: cached.sheet,
@@ -438,7 +454,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       setRows([])
       setColumns(Array.isArray(surface.columns) ? surface.columns as SheetColumn[] : [])
       setStaleHint('该条浮现的行已不在待确认区；请在 AI 会话里重新现查或改行。')
-    } else if (surface.previewId && surface.action !== '现查') {
+    } else if (surface.previewId && surface.action !== '现查' && !dismissedPreviewIds.current.has(surface.previewId)) {
       const snap = sheetSnapshots.current.get(`surface:${surface.id}`)
       setDrawer({
         previewId: surface.previewId,
@@ -514,17 +530,23 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }
 
   const confirmWrite = async () => {
-    if (!drawer?.previewId) return
+    if (!drawer?.previewId) {
+      setError('缺少预览令牌，请重新改行预览后再过账')
+      return
+    }
     setLoading(true)
     setError('')
     try {
-      await runtimeApi.bizWrite(drawer.previewId)
+      const sheetWorkspace = typeof drawer.sheet.workspace === 'string' ? drawer.sheet.workspace : undefined
+      await runtimeApi.bizWrite(drawer.previewId, undefined, sheetWorkspace)
+      dismissedPreviewIds.current.delete(drawer.previewId)
+      clearBizPendingSheet()
       setNotice('已过账，表格保留本次预览行供核对')
       setDrawer(null)
       setListRestore(null)
       void loadSurfaces()
     } catch (cause) {
-      setError(cause instanceof RuntimeApiError ? cause.message : cause instanceof Error ? cause.message : '过账失败')
+      setError(formatBizPanelError(cause, '过账失败，请重新预览后再试'))
     } finally {
       setLoading(false)
     }

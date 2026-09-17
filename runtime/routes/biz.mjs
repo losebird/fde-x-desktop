@@ -2,7 +2,17 @@ import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { loadMemoryWorkspaceVocab } from '../biz/memory-vocab.mjs'
 import { normalizePreviewWhere } from '../biz/where.mjs'
 import { insertBizSurface, listBizSurfaces, listBusinessConnections } from '../db.mjs'
+import { AiRemoteError } from '../dsh-core.mjs'
 import { emit } from '../events.mjs'
+
+function bizWriteFailureMessage(error, fallback = '过账失败，请重新预览后再试') {
+  if (error instanceof AiRemoteError) {
+    const msg = String(error.message || '').trim()
+    if (msg && !msg.startsWith('IM 调用失败')) return msg
+    return fallback
+  }
+  return error instanceof Error ? error.message : fallback
+}
 
 export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
   const actionMap = {
@@ -340,13 +350,59 @@ export async function handleBizRoutes(request, response, url, deps) {
     return true
   }
 
+  if (request.method === 'POST' && url.pathname === '/api/v1/biz/preview/dismiss') {
+    try {
+      const dismissed = await aiRuntime.lanAssist('/write/cancel', { method: 'POST', body: {} })
+      sendJson(response, 200, { data: dismissed, correlationId })
+    } catch (error) {
+      sendError(
+        response,
+        503,
+        'biz_dismiss_failed',
+        bizWriteFailureMessage(error, '无法关闭预览，请稍后重试'),
+        correlationId,
+      )
+    }
+    return true
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/v1/biz/write') {
     const body = await readJson(request)
     if (typeof body.preview_id !== 'string' || !body.preview_id) {
       sendError(response, 400, 'validation_error', 'preview_id 不能为空', correlationId)
       return true
     }
-    const written = await aiRuntime.lanAssist('/write', { method: 'POST', body: { preview_id: body.preview_id, trace_id: body.trace_id } })
+    const bizWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    let written
+    try {
+      written = await aiRuntime.lanAssist('/write', {
+        method: 'POST',
+        body: {
+          preview_id: body.preview_id,
+          trace_id: body.trace_id,
+          ...(bizWorkspace ? { workspace: bizWorkspace } : {}),
+        },
+      })
+    } catch (error) {
+      sendError(
+        response,
+        400,
+        error instanceof AiRemoteError ? (error.code || 'biz_write_failed') : 'biz_write_failed',
+        bizWriteFailureMessage(error),
+        correlationId,
+      )
+      return true
+    }
+    if (written && written.ok === false) {
+      sendError(
+        response,
+        400,
+        String(written.error || 'biz_write_failed'),
+        String(written.hint || written.speak || written.error || '过账失败，请重新预览后再试'),
+        correlationId,
+      )
+      return true
+    }
     const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
     emit('biz.write.done', {
       kind: String(written?.kind || ''),

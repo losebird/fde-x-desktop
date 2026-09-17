@@ -1741,12 +1741,31 @@ export class RuntimeApi {
     return result.data
   }
 
-  async bizWrite(previewId: string, traceId?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  async bizWrite(
+    previewId: string,
+    traceId?: string,
+    workspace?: string,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> {
     const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/biz/write', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ preview_id: previewId, ...(traceId ? { trace_id: traceId } : {}) }),
+      body: JSON.stringify({
+        preview_id: previewId,
+        ...(traceId ? { trace_id: traceId } : {}),
+        ...(workspace ? { workspace, cwd: workspace } : {}),
+      }),
+    })
+    return result.data
+  }
+
+  async bizDismissPreview(signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/biz/preview/dismiss', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
     })
     return result.data
   }
