@@ -25,7 +25,6 @@ import { isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { RecordsPanel } from '@/components/biz/RecordsPanel'
 import { OperationControlPanel } from '@/components/biz/OperationControlPanel'
-import { peekBizPendingSheet } from '@/lib/biz-session-sheet'
 
 type View = 'overview' | 'records' | 'operations'
 type Tone = 'default' | 'red' | 'amber' | 'blue' | 'purple' | 'teal' | 'green'
@@ -78,7 +77,6 @@ export default function Data() {
   const workspace = useApp((state) => state.workspaces.find((item) => item.id === state.activeWorkspaceId))
   const view = useApp((state) => state.activeDataSubview)
   const setView = useApp((state) => state.setActiveDataSubview)
-  const dataPanelState = useApp((state) => state.panels.find((panel) => panel.id === 'data')?.state)
   const [health, setHealth] = useState<RuntimeHealth | null>(null)
   const [connections, setConnections] = useState<BusinessConnectionRecord[]>([])
   const [apps, setApps] = useState<BusinessAppRecord[]>([])
@@ -124,13 +122,6 @@ export default function Data() {
   useEffect(() => {
     void refresh()
   }, [refresh])
-
-  useEffect(() => {
-    if (dataPanelState !== 'full' && dataPanelState !== 'half') return
-    if (view === 'records') return
-    if (!peekBizPendingSheet()) return
-    setView('records')
-  }, [dataPanelState, setView, view])
 
   const pendingApproval = operations.filter((item) => item.state === 'awaiting_approval').length
   const unresolved = operations.filter((item) => ['failed', 'uncertain', 'compensation_failed'].includes(item.state)).length
