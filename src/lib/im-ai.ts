@@ -133,7 +133,7 @@ export function buildImAiPrompt(kind: ImAiKind, input: {
 
   if (kind === 'precedent') {
     lines.push('这是查当时口径，不是寄信。')
-    lines.push('先 search_text 查本工作区类似沟通、口径、拍板。没有命中就明说没有先例，再给一条可改的建议。')
+    lines.push('下面「相关记忆 / 先例」段已用本工作区检索结果预填；仍可自行 search_text 复核。没有命中就明说没有先例，再给一条可改的建议。')
     lines.push('建议正文放在两行 --- 之间。')
     withWorkspace(lines, input.workspace)
     if (thread) {
