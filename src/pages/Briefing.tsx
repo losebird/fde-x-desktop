@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { runtimeApi } from '@/lib/runtime-api'
+import { useEvents } from '@/lib/events'
 import { loadCurrentAiTarget } from '@/lib/ai-target'
 import { PageTitle, SectionTitle, Card, Stat, Tag } from '@/components/ui'
 import clsx from 'clsx'
@@ -35,34 +36,30 @@ export default function Briefing() {
   const [unreadIM, setUnreadIM] = useState<Array<{ id: string; from: string; text: string }>>([])
   const [imPeerId, setImPeerId] = useState('')
 
+  const pullImState = () => {
+    void runtimeApi.imState().then((data) => {
+      const requests = Array.isArray(data.requests) ? data.requests as Array<Record<string, unknown>> : []
+      setUnreadIM(requests.filter((row) => row.unread && row.kind !== 'outgoing').map((row) => ({
+        id: String(row.id || ''),
+        from: String(row.fromName || row.from || ''),
+        text: String(row.body || row.excerpt || row.last || ''),
+      })))
+      const peers = Array.isArray(data.peers) ? data.peers as Array<Record<string, unknown>> : []
+      const first = peers.find((peer) => !peer.unpaired)
+      setImPeerId(first ? String(first.id || '') : '')
+    }).catch(() => {
+      setUnreadIM([])
+      setImPeerId('')
+    })
+  }
+
   useEffect(() => {
-    let alive = true
-    const pull = () => {
-      void runtimeApi.imState().then((data) => {
-        if (!alive) return
-        const requests = Array.isArray(data.requests) ? data.requests as Array<Record<string, unknown>> : []
-        setUnreadIM(requests.filter((row) => row.unread && row.kind !== 'outgoing').map((row) => ({
-          id: String(row.id || ''),
-          from: String(row.fromName || row.from || ''),
-          text: String(row.body || row.excerpt || row.last || ''),
-        })))
-        const peers = Array.isArray(data.peers) ? data.peers as Array<Record<string, unknown>> : []
-        const first = peers.find((peer) => !peer.unpaired)
-        setImPeerId(first ? String(first.id || '') : '')
-      }).catch(() => {
-        if (alive) {
-          setUnreadIM([])
-          setImPeerId('')
-        }
-      })
-    }
-    pull()
-    const timer = window.setInterval(pull, 8000)
-    return () => {
-      alive = false
-      window.clearInterval(timer)
-    }
+    pullImState()
   }, [])
+
+  useEvents(['im.unread.changed', 'im.message.received'], () => {
+    pullImState()
+  })
 
   const now = new Date()
   const todayKey = (iso: string) => new Date(iso).toDateString() === now.toDateString()

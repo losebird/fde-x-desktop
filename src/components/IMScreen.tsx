@@ -1,5 +1,6 @@
 // 工作台主壳：AI 永久作为主工作区，IM 与业务能力统一从右侧功能面板打开。
 import { useEffect } from 'react'
+import { useEvents } from '@/lib/events'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { runtimeApi } from '@/lib/runtime-api'
@@ -65,27 +66,27 @@ export function IMScreen() {
     navigate('/ai', { replace: true })
   }, [navigate, routeKey])
 
+  const applyImUnreadBadge = (data: Record<string, unknown>) => {
+    const im = useApp.getState().panels.find((panel) => panel.id === 'im')
+    if (im && (im.state === 'full' || im.state === 'half')) return
+    const rows = Array.isArray(data.requests) ? data.requests as Array<Record<string, unknown>> : []
+    const n = rows.filter((row) => row.unread && row.kind === 'incoming').length
+    const badge = n || undefined
+    if (im?.badge === badge) return
+    useApp.getState().setPanelBadge('im', badge)
+  }
+
   useEffect(() => {
     let alive = true
-    const tick = () => {
-      void runtimeApi.imState().then((data) => {
-        if (!alive) return
-        const im = useApp.getState().panels.find((panel) => panel.id === 'im')
-        if (im && (im.state === 'full' || im.state === 'half')) return
-        const rows = Array.isArray(data.requests) ? data.requests as Array<Record<string, unknown>> : []
-        const n = rows.filter((row) => row.unread && row.kind === 'incoming').length
-        const badge = n || undefined
-        if (im?.badge === badge) return
-        useApp.getState().setPanelBadge('im', badge)
-      }).catch(() => undefined)
-    }
-    tick()
-    const timer = window.setInterval(tick, 4000)
-    return () => {
-      alive = false
-      window.clearInterval(timer)
-    }
+    void runtimeApi.imState().then((data) => {
+      if (alive) applyImUnreadBadge(data)
+    }).catch(() => undefined)
+    return () => { alive = false }
   }, [])
+
+  useEvents(['im.unread.changed'], () => {
+    void runtimeApi.imState().then(applyImUnreadBadge).catch(() => undefined)
+  })
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
