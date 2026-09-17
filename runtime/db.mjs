@@ -604,3 +604,25 @@ export function databaseHealth(db, databasePath) {
     migrations,
   }
 }
+
+const DDL_ALLOWED = [
+  /^CREATE TABLE IF NOT EXISTS (?:"app_[^"]+"|app_[a-z0-9-]+__[a-z][a-z0-9_]*)\s/i,
+  /^ALTER TABLE (?:"app_[^"]+"|app_[a-z0-9-]+__[a-z][a-z0-9_]*)\s+ADD COLUMN\s/i,
+  /^CREATE UNIQUE INDEX\s+(?:"[^"]+"|[^\s]+)\s+ON\s+(?:"app_[^"]+"|app_[a-z0-9-]+__[a-z][a-z0-9_]*)\s/i,
+]
+
+/**
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {string} sql
+ * @param {{ allowPrefix?: string }} [_opts]
+ */
+export function execControlledDdl(db, sql, _opts = {}) {
+  const trimmed = sql.trim()
+  if (!DDL_ALLOWED.some((re) => re.test(trimmed))) {
+    throw Object.assign(new Error('ddl_not_allowed'), { code: 'ddl_not_allowed' })
+  }
+  if (/;.*\S/.test(trimmed.replace(/;+\s*$/, ''))) {
+    throw Object.assign(new Error('ddl_multi_statement'), { code: 'ddl_not_allowed' })
+  }
+  db.exec(trimmed)
+}
