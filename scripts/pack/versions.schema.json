@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde-x.local/schemas/resources-versions.json",
+  "title": "FDE-X bundled resources versions",
+  "description": "Written by scripts/pack/stage.mjs; consumed by scripts/pack/verify.mjs and apps/desktop.",
+  "type": "object",
+  "required": ["stagedAt", "platformKey", "dsh", "plugins", "semanticRuntime"],
+  "properties": {
+    "stagedAt": { "type": "string", "format": "date-time" },
+    "platformKey": {
+      "type": "string",
+      "description": "process.platform-process.arch, e.g. darwin-arm64"
+    },
+    "dsh": {
+      "type": "object",
+      "required": ["version", "staged"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "Pinned @deepseek-ai/dsh npm version (see scripts/pack/pins.mjs)"
+        },
+        "staged": {
+          "type": "boolean",
+          "description": "true when resources/dsh is a full npm tree (bin/dsh present), not README-STUB"
+        }
+      }
+    },
+    "plugins": {
+      "type": "object",
+      "properties": {
+        "dsh-lan-assist": { "type": "boolean" },
+        "dsh-semantic-os": { "type": "boolean" }
+      }
+    },
+    "semanticRuntime": {
+      "type": "object",
+      "required": ["runtimeVersion", "key", "digest", "complete"],
+      "properties": {
+        "runtimeVersion": { "type": "string" },
+        "key": { "type": "string" },
+        "digest": {
+          "type": "string",
+          "description": "runtime-manifest.json treeHash when complete, else stub"
+        },
+        "complete": { "type": "boolean" }
+      }
+    }
+  }
+}
