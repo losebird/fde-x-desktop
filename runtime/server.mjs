@@ -75,6 +75,7 @@ import { createFollowNormalizer } from './ai-stream.mjs'
 import { configureEventBus, emit } from './events.mjs'
 import { startLanAssistStateWatch } from './lan-assist-state-watch.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
+import { handleAppsRoutes } from './routes/apps.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleCorpusRoute } from './routes/corpus.mjs'
@@ -960,6 +961,15 @@ const server = createServer(async (request, response) => {
       db,
       aiRuntime,
       correlationId: currentCorrelationId,
+    })) return
+
+    if (await handleAppsRoutes(request, response, url, {
+      db,
+      allowedOrigins,
+      correlationId: currentCorrelationId,
+      sendError,
+      sendJson,
+      readJson,
     })) return
 
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/favicon.ico')) {
