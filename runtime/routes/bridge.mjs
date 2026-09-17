@@ -3,8 +3,10 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { emit } from '../events.mjs'
+import { buildContextPack } from '../context-pack.mjs'
+import { draftMemoryFromBridge } from '../memory/writer.mjs'
 import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
-import { listWorkspaces } from '../db.mjs'
+import { handleAppsBridge } from './apps.mjs'
 
 const READY_TTL_MS = 10 * 60 * 1000
 
@@ -76,54 +78,11 @@ function notImplemented(response, correlationId, owner) {
   )
 }
 
-function mapTaskRow(row) {
-  let tags = []
-  try {
-    tags = JSON.parse(row.tags_json || '[]')
-  } catch {
-    tags = []
-  }
-  return {
-    id: row.id,
-    title: row.title,
-    status: row.status,
-    priority: row.priority,
-    dueAt: row.due_at ?? null,
-    tags,
-  }
-}
-
-function buildMinimalContext(db, workspaceCwd, scopes) {
-  const scopeSet = new Set(Array.isArray(scopes) ? scopes.map(String) : [])
-  const pack = {}
-  if (scopeSet.has('workspace')) {
-    pack.workspace = {
-      cwd: workspaceCwd,
-      workspaces: listWorkspaces(db),
-    }
-  }
-  if (scopeSet.has('tasks')) {
-    const workspaceId = 'ws_personal'
-    const rows = db.prepare(`
-      SELECT id, title, status, priority, due_at, tags_json
-      FROM tasks
-      WHERE workspace_id = ? AND status IN ('todo', 'doing')
-      ORDER BY updated_at DESC
-      LIMIT 50
-    `).all(workspaceId)
-    pack.tasks = { workspaceId, items: rows.map(mapTaskRow) }
-  }
-  if (scopeSet.has('im') || scopeSet.has('biz') || scopeSet.has('apps')) {
-    pack.partial = '规格 07 将补全 im/biz/apps 上下文'
-  }
-  return pack
-}
-
 /**
  * Bridge token routes (no Origin gate). Returns true when handled.
  */
 export async function handleBridgeRoutes(request, response, url, deps) {
-  const { db, bridgeToken, correlationId, readJson } = deps
+  const { db, bridgeToken, correlationId, readJson, aiRuntime } = deps
   if (!url.pathname.startsWith('/api/v1/bridge/')) return false
 
   if (!verifyBridgeToken(request, bridgeToken)) {
@@ -193,12 +152,26 @@ export async function handleBridgeRoutes(request, response, url, deps) {
       bridgeError(response, 400, 'validation_error', 'scope 不能为空', correlationId)
       return true
     }
-    const pack = buildMinimalContext(db, workspaceCwd, scope)
-    bridgeOk(response, 200, pack, correlationId)
+    const { pack, warnings } = await buildContextPack(
+      { db, aiRuntime },
+      {
+        workspaceCwd,
+        scopes: scope,
+        sessionId,
+        query: typeof body.query === 'string' ? body.query : undefined,
+        intentKind: body.intentKind,
+      },
+    )
+    bridgeOk(response, 200, { ...pack, warnings }, correlationId)
     return true
   }
 
   if (sub === 'app-spec-submit' || sub === 'app-records-query' || sub === 'app-records-propose') {
+    const bridgeResult = handleAppsBridge(sub, body, db, workspaceCwd)
+    if (bridgeResult) {
+      bridgeOk(response, bridgeResult.ok === false ? 422 : 200, bridgeResult, correlationId)
+      return true
+    }
     notImplemented(response, correlationId, '04')
     return true
   }
@@ -207,7 +180,26 @@ export async function handleBridgeRoutes(request, response, url, deps) {
     return true
   }
   if (sub === 'memory-draft') {
-    notImplemented(response, correlationId, '07')
+    if (!workspaceCwd) {
+      bridgeError(response, 400, 'validation_error', '需要工作区 cwd', correlationId)
+      return true
+    }
+    const title = typeof body.title === 'string' ? body.title.trim() : ''
+    const cardBody = typeof body.body === 'string' ? body.body.trim() : ''
+    const layer = typeof body.layer === 'string' ? body.layer.trim() : 'project'
+    const refs = Array.isArray(body.refs) ? body.refs.map(String) : []
+    if (!title || !cardBody || !refs.length) {
+      bridgeError(response, 400, 'validation_error', '需要 title、body、refs', correlationId)
+      return true
+    }
+    const result = await draftMemoryFromBridge({ db, aiRuntime }, {
+      workspaceCwd,
+      title,
+      body: cardBody,
+      layer,
+      refs,
+    })
+    bridgeOk(response, 200, result, correlationId)
     return true
   }
 

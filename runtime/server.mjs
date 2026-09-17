@@ -76,6 +76,9 @@ import { configureEventBus, emit } from './events.mjs'
 import { startLanAssistStateWatch } from './lan-assist-state-watch.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes } from './routes/bridge.mjs'
+import { handleContextPackRoute } from './routes/context.mjs'
+import { handleCorpusRoute } from './routes/corpus.mjs'
+import { startMemoryWriter } from './memory/writer.mjs'
 import {
   FDE_AI_WORKSPACE,
   FDE_ALLOWED_ORIGINS,
@@ -98,6 +101,7 @@ configureEventBus(db)
 const aiRuntime = createCoreConnector({
   cwd: FDE_AI_WORKSPACE,
 })
+startMemoryWriter({ db, aiRuntime })
 let bridgeToken = ''
 void ensureBridgeToken(aiRuntime.dshHome || FDE_DSH_HOME).then((token) => {
   bridgeToken = token
@@ -915,6 +919,7 @@ const server = createServer(async (request, response) => {
     bridgeToken,
     correlationId: currentCorrelationId,
     readJson,
+    aiRuntime,
   })) return
 
   const writeMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method ?? '')
@@ -941,6 +946,20 @@ const server = createServer(async (request, response) => {
       correlationId: currentCorrelationId,
       sendJson,
       sendError,
+    })) return
+
+    if (await handleContextPackRoute(request, response, url, {
+      db,
+      aiRuntime,
+      readJson,
+      correlationId: currentCorrelationId,
+      sendError,
+    })) return
+
+    if (await handleCorpusRoute(request, response, url, {
+      db,
+      aiRuntime,
+      correlationId: currentCorrelationId,
     })) return
 
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/favicon.ico')) {
@@ -1793,12 +1812,13 @@ const server = createServer(async (request, response) => {
         return
       }
       const written = await aiRuntime.lanAssist('/write', { method: 'POST', body: { preview_id: body.preview_id, trace_id: body.trace_id } })
+      const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
       emit('biz.write.done', {
         kind: String(written?.kind || ''),
         action: String(written?.action || ''),
         traceId: String(body.trace_id || written?.trace_id || written?.traceId || ''),
         receiptId: String(written?.receipt_id || written?.receiptId || ''),
-      }, { workspaceCwd: FDE_AI_WORKSPACE, source: 'bff' })
+      }, { workspaceCwd: bizCwd, source: 'bff' })
       sendJson(response, 200, { data: written, correlationId: currentCorrelationId })
       return
     }
@@ -1896,6 +1916,17 @@ const server = createServer(async (request, response) => {
       const body = await readJson(request)
       await aiRuntime.lanAssist('/sleep', { method: 'POST', body: { on: false } }).catch(() => undefined)
       const result = await aiRuntime.lanAssist('/send', { method: 'POST', body })
+      const imCwd = typeof body.workspace === 'string' && body.workspace.startsWith('/')
+        ? body.workspace
+        : FDE_AI_WORKSPACE
+      const requestId = String(body.requestId || result?.requestId || result?.id || '')
+      if (result?.ok !== false && requestId) {
+        emit('im.message.sent', {
+          requestId,
+          text: String(body.excerpt || body.text || ''),
+          peer: String(body.peerName || body.peer || ''),
+        }, { workspaceCwd: imCwd, source: 'bff' })
+      }
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
       return
     }
@@ -2373,6 +2404,7 @@ const server = createServer(async (request, response) => {
 
     const executeMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)\/execute$/)
     if (request.method === 'POST' && executeMatch) {
+      const operationBefore = getOperation(db, executeMatch[1])
       const result = executeDryRun(db, executeMatch[1], {
         actorId: 'actor_local_user',
         correlationId: currentCorrelationId,
@@ -2391,6 +2423,19 @@ const server = createServer(async (request, response) => {
       if (result.kind === 'invalid_state') {
         sendError(response, 409, 'invalid_state', '当前状态不能执行', currentCorrelationId, { state: result.operation.state })
         return
+      }
+      if (operationBefore?.state === 'approved' && result.kind === 'ok') {
+        const wsRow = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(operationBefore.workspaceId)
+        let workspaceCwd = FDE_AI_WORKSPACE
+        try {
+          const meta = JSON.parse(wsRow?.metadata_json || '{}')
+          const raw = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
+          if (raw.startsWith('/')) workspaceCwd = raw
+        } catch { /* default cwd */ }
+        emit('operation.executed', {
+          operationId: operationBefore.id,
+          receipt: result.receipt,
+        }, { workspaceCwd, source: 'bff' })
       }
       sendJson(response, 200, { data: result.operation, receipt: result.receipt, correlationId: currentCorrelationId })
       return
