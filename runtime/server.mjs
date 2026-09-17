@@ -72,6 +72,8 @@ import { handlePresetRoutes } from './routes/presets.mjs'
 import { handleMcpRoutes } from './routes/mcp.mjs'
 import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
+import { configureEventBus, emit } from './events.mjs'
+import { startLanAssistStateWatch } from './lan-assist-state-watch.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
 import {
   FDE_AI_WORKSPACE,
@@ -90,6 +92,7 @@ const migrationsDirectory = resolve(runtimeDirectory, 'migrations')
 const port = FDE_RUNTIME_PORT
 const host = FDE_RUNTIME_HOST
 const db = openDatabase(databasePath, migrationsDirectory)
+configureEventBus(db)
 const aiRuntime = createCoreConnector({
   cwd: FDE_AI_WORKSPACE,
 })
@@ -1767,6 +1770,12 @@ const server = createServer(async (request, response) => {
         return
       }
       const written = await aiRuntime.lanAssist('/write', { method: 'POST', body: { preview_id: body.preview_id, trace_id: body.trace_id } })
+      emit('biz.write.done', {
+        kind: String(written?.kind || ''),
+        action: String(written?.action || ''),
+        traceId: String(body.trace_id || written?.trace_id || written?.traceId || ''),
+        receiptId: String(written?.receipt_id || written?.receiptId || ''),
+      }, { workspaceCwd: FDE_AI_WORKSPACE, source: 'bff' })
       sendJson(response, 200, { data: written, correlationId: currentCorrelationId })
       return
     }
@@ -2540,6 +2549,10 @@ server.on('upgrade', (request, socket, head) => {
 server.listen(port, host, () => {
   console.log(`FDE-X runtime listening on http://${host}:${port}`)
   console.log(`SQLite authority: ${databasePath}`)
+  startLanAssistStateWatch({
+    lanAssist: (path, options) => aiRuntime.lanAssist(path, options),
+    cwd: FDE_AI_WORKSPACE,
+  })
 })
 
 let closing = false

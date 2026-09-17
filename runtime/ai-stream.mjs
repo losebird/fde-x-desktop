@@ -1,3 +1,5 @@
+import { emit } from './events.mjs'
+
 const MAX_TEXT_CHARS = 20_000
 const MAX_TOOL_RESULT_CHARS = 4_000
 const MAX_TRACE_ITEMS = 300
@@ -69,6 +71,47 @@ function readUsage(data) {
   const total = Number(usage.totalTokens ?? usage.total ?? 0) || (prompt + completion)
   if (!prompt && !completion && !total) return null
   return { prompt, completion, total }
+}
+
+function summarizeToolArgs(data) {
+  if (!isRecord(data)) return ''
+  const raw = data.arguments ?? data.args ?? data.input
+  if (typeof raw === 'string') return boundedText(raw, 500)
+  try {
+    return boundedText(JSON.stringify(raw ?? {}), 500)
+  } catch {
+    return ''
+  }
+}
+
+function emitToolBusEvents(event, toolNames, meta) {
+  if (!isRecord(event) || typeof event.type !== 'string' || !isRecord(event.data)) return
+  const workspaceCwd = meta?.workspaceCwd ?? null
+  const sessionId = meta?.sessionId
+  if (event.type === 'tool/call') {
+    const tool = typeof event.data.name === 'string' && event.data.name ? event.data.name : 'tool'
+    const callId = typeof event.data.callId === 'string' ? event.data.callId : ''
+    if (callId) toolNames.set(callId, tool)
+    emit('ai.tool.called', {
+      tool,
+      argsSummary: summarizeToolArgs(event.data),
+      runId: meta?.runId ?? callId ?? String(event.seq ?? ''),
+    }, { workspaceCwd, sessionId, source: 'dsh' })
+    return
+  }
+  if (event.type === 'tool/result') {
+    const message = isRecord(event.data.message) ? event.data.message : {}
+    const source = isRecord(message.source) ? message.source : {}
+    const callId = typeof source.callId === 'string' ? source.callId : ''
+    const tool = callId ? (toolNames.get(callId) ?? 'tool') : 'tool'
+    const resultBlock = Array.isArray(message.content) && isRecord(message.content[0]) ? message.content[0] : {}
+    const ok = !event.data.error && !resultBlock.isError
+    emit('ai.tool.finished', {
+      tool,
+      ok,
+      runId: meta?.runId ?? callId ?? String(event.seq ?? ''),
+    }, { workspaceCwd, sessionId, source: 'dsh' })
+  }
 }
 
 function traceDetail(type, data, toolNames) {
@@ -226,7 +269,7 @@ function applySurface(messages, message) {
   messages.set(message.seq, message)
 }
 
-function normalizeFollowFrameWithState(frame, toolNames) {
+function normalizeFollowFrameWithState(frame, toolNames, meta) {
   if (!isRecord(frame) || typeof frame.type !== 'string') return null
   if (frame.type === 'snapshot') {
     toolNames.clear()
@@ -300,6 +343,7 @@ function normalizeFollowFrameWithState(frame, toolNames) {
     }
   }
   if (frame.type === 'event' && isRecord(frame.event)) {
+    emitToolBusEvents(frame.event, toolNames, meta)
     return {
       type: 'event',
       cursor: Number.isSafeInteger(frame.event.seq) ? frame.event.seq : -1,
@@ -314,7 +358,12 @@ function normalizeFollowFrameWithState(frame, toolNames) {
   return null
 }
 
-export function createFollowNormalizer() {
+export function createFollowNormalizer(options = {}) {
   const toolNames = new Map()
-  return (frame) => normalizeFollowFrameWithState(frame, toolNames)
+  const meta = {
+    workspaceCwd: options.workspaceCwd ?? null,
+    sessionId: options.sessionId,
+    runId: options.runId,
+  }
+  return (frame) => normalizeFollowFrameWithState(frame, toolNames, meta)
 }
