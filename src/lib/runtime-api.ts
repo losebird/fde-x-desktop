@@ -1722,11 +1722,11 @@ export class RuntimeApi {
   }
 
   async bizPreview(body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/biz/preview', {
+    const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd('/api/v1/biz/preview'), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(workspaceCwdBody(body)),
     })
     return result.data
   }
@@ -1752,7 +1752,7 @@ export class RuntimeApi {
   }
 
   async listBizKinds(signal?: AbortSignal): Promise<{ kinds: { kind: string; label: string; fields: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown }> {
-    const result = await this.request<{ data: { kinds: { kind: string; label: string; fields: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown } }>('/api/v1/biz/kinds', { signal })
+    const result = await this.request<{ data: { kinds: { kind: string; label: string; fields: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown } }>(withWorkspaceCwd('/api/v1/biz/kinds'), { signal })
     return result.data
   }
 
@@ -1774,7 +1774,7 @@ export class RuntimeApi {
   }
 
   async listBizTraces(limit = 50, signal?: AbortSignal): Promise<{ rows: JsonValue[]; receipt: unknown }> {
-    const result = await this.request<{ data: { rows: JsonValue[]; receipt: unknown } }>(`/api/v1/biz/traces?limit=${limit}`, { signal })
+    const result = await this.request<{ data: { rows: JsonValue[]; receipt: unknown } }>(withWorkspaceCwd(`/api/v1/biz/traces?limit=${limit}`), { signal })
     return result.data
   }
 

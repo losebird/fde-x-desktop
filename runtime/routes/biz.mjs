@@ -90,6 +90,12 @@ function resolveBizWorkspace(url, aiRuntime) {
   return FDE_AI_WORKSPACE
 }
 
+function resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd) {
+  const explicit = requestMemoryCwd(url, body)
+  if (explicit) return explicit
+  return resolveBizWorkspace(url, aiRuntime)
+}
+
 function mapKindsFromCatalog(catalogPayload) {
   const kindsRaw = Array.isArray(catalogPayload?.kinds) ? catalogPayload.kinds : []
   const kinds = kindsRaw.map((row) => {
@@ -128,7 +134,7 @@ export async function handleBizRoutes(request, response, url, deps) {
   if (!url.pathname.startsWith('/api/v1/biz')) return false
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/kinds') {
-    const workspace = resolveBizWorkspace(url, aiRuntime)
+    const workspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
     try {
       const catalog = await aiRuntime.lanAssist('/catalog', { search: { workspace } })
       if (catalog && catalog.ok === false) {
@@ -143,7 +149,7 @@ export async function handleBizRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/traces') {
-    const workspace = resolveBizWorkspace(url, aiRuntime)
+    const workspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
     const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 50)))
     try {
       const traces = await aiRuntime.lanAssist('/traces', { search: { workspace, limit: String(limit) } })
@@ -219,7 +225,8 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendError(response, 400, described.error || 'NO_CATALOG', described.hint || '目录没读成', correlationId)
       return true
     }
-    const translated = translateBizIntent(body, aiRuntime.cwd)
+    const bizWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const translated = translateBizIntent(body, bizWorkspace)
     if (translated.error) {
       sendError(response, 400, 'validation_error', translated.error, correlationId)
       return true
