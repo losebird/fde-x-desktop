@@ -48,22 +48,78 @@ async function pickAgentId(aiRuntime) {
   }
 }
 
-async function listMcpToolNames(aiRuntime, serverName) {
+function toolNameFromSchema(item) {
+  if (typeof item === 'string') return item
+  if (item && typeof item === 'object') {
+    if (typeof item.name === 'string') return item.name
+    const fn = item.function
+    if (fn && typeof fn === 'object' && typeof fn.name === 'string') return fn.name
+  }
+  return ''
+}
+
+function foldRequestHeaderFromRecords(records) {
+  let header = null
+  for (const record of Array.isArray(records) ? records : []) {
+    const event = record?.type === 'event' ? record.event : null
+    if (event?.type === 'request/header' && event.data?.header) header = event.data.header
+  }
+  return header
+}
+
+export function toolNamesFromFollowSnapshot(frame) {
+  const names = []
+  const pushTools = (tools) => {
+    if (!Array.isArray(tools)) return
+    for (const item of tools) {
+      const name = toolNameFromSchema(item)
+      if (name) names.push(name)
+    }
+  }
+  if (frame?.type !== 'snapshot') return []
+  pushTools(frame.header?.tools)
+  pushTools(foldRequestHeaderFromRecords(frame.records)?.tools)
+  return [...new Set(names)]
+}
+
+export function groupMcpToolsByServer(allToolNames, serverNames) {
+  const byServer = new Map(serverNames.map((serverName) => [serverName, []]))
+  for (const name of allToolNames) {
+    if (!name.startsWith('mcp__')) continue
+    for (const serverName of serverNames) {
+      const prefix = `mcp__${serverName}__`
+      if (name.startsWith(prefix)) {
+        byServer.get(serverName).push(name)
+        break
+      }
+    }
+  }
+  for (const serverName of serverNames) {
+    byServer.set(serverName, (byServer.get(serverName) || []).sort())
+  }
+  return byServer
+}
+
+async function listSessionProjectedToolNames(aiRuntime) {
   const agentId = await pickAgentId(aiRuntime)
   if (!agentId) return []
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 8000)
   try {
-    const commands = await aiRuntime.call('commands/list', { agentId })
-    const names = []
-    const rows = Array.isArray(commands) ? commands : commands?.commands || commands?.items || []
-    for (const row of rows) {
-      const name = typeof row === 'string' ? row : row?.name || row?.id || ''
-      if (name.startsWith(`mcp__${serverName}__`)) names.push(name)
+    for await (const frame of aiRuntime.stream('session/follow', {
+      request: {
+        address: { kind: 'session', sessionId: agentId },
+        maxMessages: 80,
+      },
+    }, abort.signal)) {
+      if (frame?.type === 'snapshot') return toolNamesFromFollowSnapshot(frame)
     }
-    return names.sort()
   } catch (error) {
-    console.warn('mcp tools projection commands/list failed', error)
-    return []
+    console.warn('mcp tools projection session/follow failed', error)
+  } finally {
+    clearTimeout(timer)
   }
+  return []
 }
 
 function mapServerStatus(connected, tools) {
@@ -75,9 +131,12 @@ function mapServerStatus(connected, tools) {
 export async function buildMcpServersV2(aiRuntime, patchText) {
   const connected = aiRuntime.status().connected
   const configured = parseMcpPatchEntries(patchText)
+  const serverNames = configured.map((row) => row.serverName)
+  const projected = connected ? await listSessionProjectedToolNames(aiRuntime) : []
+  const toolsByServer = groupMcpToolsByServer(projected, serverNames)
   const mcp = []
   for (const row of configured) {
-    const tools = connected ? await listMcpToolNames(aiRuntime, row.serverName) : []
+    const tools = toolsByServer.get(row.serverName) || []
     mcp.push({
       serverName: row.serverName,
       transport: row.transport,

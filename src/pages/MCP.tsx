@@ -42,7 +42,7 @@ export default function MCP() {
     headers: '',
   })
 
-  const filteredMcp = mcp.filter((m) => m.serverName.includes(q) || (m.command || '').includes(q) || (m.url || '').includes(q))
+  const filteredMcp = mcp.filter((m) => m.serverName.includes(q) || (m.command || '').includes(q) || (m.url || '').includes(q) || m.tools.some((t) => t.includes(q)))
   const liveCount = mcp.filter((m) => m.status === 'live').length
 
   const runHealth = (serverName: string) => {
