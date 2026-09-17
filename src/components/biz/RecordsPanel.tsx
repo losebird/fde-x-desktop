@@ -24,6 +24,10 @@ import {
 } from '@/lib/runtime-api'
 import { isFdeAppSpec } from '@/lib/app-spec'
 import {
+  peekBizKindListSheet,
+  rememberBizKindListSheet,
+} from '@/lib/biz-kind-list-cache'
+import {
   clearBizPendingSheet,
   clearBizPreviewDismissed,
   dismissBizPreviewId,
@@ -213,6 +217,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const sheetSnapshots = useRef<Map<string, SheetSnapshot>>(new Map())
   const priorListSheetByKind = useRef<Map<string, SheetSnapshot>>(new Map())
   const listRestoreRef = useRef<ListRestoreSnapshot | null>(null)
+  const listRestoreHydrateRef = useRef(false)
   const showRecordsBack = Boolean(listRestore)
 
   const localApps = useMemo(
@@ -262,16 +267,28 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     if (ws.ok) setWorkspaceCwd(ws.cwd)
   }, [])
 
+  const seedKindListSnapshot = useCallback((snapshot: SheetSnapshot) => {
+    const k = String(snapshot.sheet.kind || '')
+    if (!k) return
+    sheetSnapshots.current.set(`kind:${k}`, snapshot)
+    priorListSheetByKind.current.set(k, snapshot)
+    if (snapshot.surfaceId) {
+      sheetSnapshots.current.set(`surface:${snapshot.surfaceId}`, snapshot)
+    }
+    if (workspaceCwd) {
+      rememberBizKindListSheet(workspaceCwd, snapshot.sheet, snapshot.connName, snapshot.surfaceId)
+    }
+  }, [workspaceCwd])
+
   const rememberSheet = useCallback((snapshot: SheetSnapshot) => {
     const k = String(snapshot.sheet.kind || '')
     const previewId = sheetPreviewId(snapshot.sheet)
     if (k && !isSingleRowWritePreview(snapshot.sheet)) {
-      sheetSnapshots.current.set(`kind:${k}`, snapshot)
-      priorListSheetByKind.current.set(k, snapshot)
+      seedKindListSnapshot(snapshot)
     }
     if (previewId) sheetSnapshots.current.set(`preview:${previewId}`, snapshot)
     if (snapshot.surfaceId) sheetSnapshots.current.set(`surface:${snapshot.surfaceId}`, snapshot)
-  }, [])
+  }, [seedKindListSnapshot])
 
   const captureListRestore = useCallback((): ListRestoreSnapshot => {
     const kindSnap = kind ? sheetSnapshots.current.get(`kind:${kind}`) : undefined
@@ -358,6 +375,20 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       if (listRestoreRef.current) return
     }
 
+    if (workspaceCwd && incomingKind) {
+      const sessionList = peekBizKindListSheet(workspaceCwd, incomingKind)
+      if (sessionList) {
+        const snap: SheetSnapshot = {
+          sheet: sessionList.sheet,
+          connName: sessionList.connName,
+          surfaceId: sessionList.surfaceId,
+        }
+        seedKindListSnapshot(snap)
+        tryCommit(listRestoreFromSnapshot(snap))
+        if (listRestoreRef.current) return
+      }
+    }
+
     for (const surface of surfaces) {
       if (surface.kind !== incomingKind) continue
       const isListSurface = surface.action === '现查' || (surface.rowCount ?? 0) > 1
@@ -367,7 +398,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       tryCommit(listRestoreFromSnapshot(cached))
       if (listRestoreRef.current) break
     }
-  }, [captureListRestore, commitListRestore, kind, rows, surfaces])
+  }, [captureListRestore, commitListRestore, kind, rows, seedKindListSnapshot, surfaces, workspaceCwd])
 
   const restoreRecordsList = useCallback(() => {
     const snap = listRestoreRef.current
@@ -399,8 +430,14 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }, [drawer?.previewId, restoreRecordsList])
 
   const dismissPreviewDrawer = useCallback(() => {
-    handleRecordsBack()
-  }, [handleRecordsBack])
+    const pendingSheet = peekBizPendingSheet()
+    const previewId = drawer?.previewId
+      || (pendingSheet ? sheetPreviewId(pendingSheet) : '')
+    if (previewId) dismissBizPreviewId(previewId)
+    setDrawer(null)
+    clearBizPendingSheet()
+    void runtimeApi.bizDismissPreview().catch(() => undefined)
+  }, [drawer?.previewId])
 
   const applySheet = useCallback((sheet: Record<string, unknown>, connName: string, surfaceId?: string) => {
     const normalizedCols = normalizeSheetColumns(sheet.columns)
@@ -502,7 +539,54 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     if (!sheet || !isWritePreviewSheet(sheet)) return
     if (surfaces.length === 0) return
     ensureListRestoreBeforeWritePreview(sheet)
-  }, [drawer?.sheet, ensureListRestoreBeforeWritePreview, surfaces])
+    if (listRestoreRef.current || listRestoreHydrateRef.current) return
+
+    const incomingKind = String(sheet.kind || kind || '')
+    const incomingCount = normalizeSheetRows(sheet.rows).length
+    const listSurface = surfaces.find((surface) => (
+      surface.kind === incomingKind
+      && surface.action === '现查'
+      && (surface.rowCount ?? 0) > incomingCount
+    ))
+    if (!listSurface || !workspaceCwd || !connectionId) return
+
+    listRestoreHydrateRef.current = true
+    void (async () => {
+      try {
+        const conn = connections.find((c) => c.id === (listSurface.connectionId || connectionId)) || connections[0]
+        const data = await runtimeApi.bizPreview({
+          kind: incomingKind,
+          action: '现查',
+          system: conn?.provider || 'NocoBase',
+          connectionId: listSurface.connectionId || connectionId,
+          speech: `现查${incomingKind}`,
+        })
+        const listSheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
+        const rowCount = Array.isArray(listSheet.rows) ? listSheet.rows.length : 0
+        if (rowCount <= incomingCount) return
+        const snap: SheetSnapshot = {
+          sheet: listSheet,
+          connName: conn?.name || '连接器',
+          surfaceId: listSurface.id,
+        }
+        seedKindListSnapshot(snap)
+        ensureListRestoreBeforeWritePreview(sheet)
+      } catch {
+        // no prior list — do not fake 返回
+      } finally {
+        listRestoreHydrateRef.current = false
+      }
+    })()
+  }, [
+    connectionId,
+    connections,
+    drawer?.sheet,
+    ensureListRestoreBeforeWritePreview,
+    kind,
+    seedKindListSnapshot,
+    surfaces,
+    workspaceCwd,
+  ])
 
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd || activeLocalApp) return

@@ -1,3 +1,6 @@
+import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { rememberBizKindListSheet } from '@/lib/biz-kind-list-cache'
+
 /** In-memory pending preview sheet for the current browser session (not persisted). */
 let lastPending: { sheet: Record<string, unknown>; at: number } | null = null
 
@@ -25,6 +28,12 @@ export function clearBizPreviewDismissed(previewId: string) {
 export function rememberBizPendingSheet(sheet: Record<string, unknown>) {
   if (!sheet || typeof sheet !== 'object') return
   if (isBizPreviewDismissed(sheet)) return
+  const action = String(sheet.action || '')
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  if (action === '现查' && rows.length > 1) {
+    const ws = loadCurrentWorkspaceCwd()
+    if (ws.ok) rememberBizKindListSheet(ws.cwd, sheet)
+  }
   lastPending = { sheet, at: Date.now() }
 }
 
