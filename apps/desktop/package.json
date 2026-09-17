@@ -1,0 +1,20 @@
+{
+  "name": "@fde-x/desktop",
+  "private": true,
+  "version": "0.1.0-poc",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "pnpm run build && electron .",
+    "start:dev": "FDE_DESKTOP_DEV=1 pnpm run start"
+  },
+  "dependencies": {
+    "electron": "^33.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2"
+  }
+}

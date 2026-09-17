@@ -1,0 +1,18 @@
+appId: com.fde-x.workstation
+productName: FDE-X
+directories:
+  output: dist-pack
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+extraResources:
+  - from: ../../resources
+    to: resources
+    filter:
+      - "**/*"
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
