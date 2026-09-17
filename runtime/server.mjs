@@ -57,7 +57,9 @@ import {
   enqueueEvent,
   ensureWorkspace,
   executeDryRun,
+  executeOperationLive,
   getOperation,
+  insertOperationStep,
   getOperationTrace,
   listBusinessApps,
   listBusinessConnections,
@@ -76,9 +78,12 @@ import { configureEventBus, emit } from './events.mjs'
 import { startLanAssistStateWatch } from './lan-assist-state-watch.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
 import { handleAppsRoutes } from './routes/apps.mjs'
+import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleCorpusRoute } from './routes/corpus.mjs'
+import { handleBriefingRoutes } from './routes/briefing.mjs'
+import { startBriefingScheduler } from './briefing/scheduler.mjs'
 import { startMemoryWriter } from './memory/writer.mjs'
 import {
   FDE_AI_WORKSPACE,
@@ -157,50 +162,6 @@ function stripSecrets(value) {
     return next
   }
   return value
-}
-
-function translateBizIntent(body) {
-  const actionMap = {
-    'record.update': '改行',
-    'record.create': '新建',
-    'record.delete': '删除',
-    'record.read': '现查',
-    现查: '现查',
-    过审: '过审',
-    改行: '改行',
-    删除: '删除',
-    新建: '新建',
-  }
-  const rawAction = typeof body.action === 'string' ? body.action.trim() : ''
-  const action = actionMap[rawAction]
-  if (!action) return { error: '操作无法翻译成业务闸动作（现查/改行/新建/删除/过审）' }
-
-  let kind = typeof body.kind === 'string' ? body.kind.trim() : ''
-  let system = typeof body.system === 'string' ? body.system : ''
-  let no = typeof body.no === 'string' ? body.no : ''
-  const targetRef = typeof body.targetRef === 'string' ? body.targetRef : ''
-  const match = targetRef.match(/^fde:\/\/external\/([^/]+)\/table\/([^/]+)(?:\/([^/]+))?$/u)
-  if (match) {
-    system = system || match[1]
-    kind = kind || match[2]
-    no = no || match[3] || ''
-  }
-  if (!kind) return { error: '缺少业务型（kind）。targetRef 需为 fde://external/{system}/table/{kind}' }
-
-  const input = body.input && typeof body.input === 'object' ? body.input : {}
-  no = no || input.no || input.orderNo || input.orderId || ''
-  const payload = {
-    kind,
-    action,
-    speech: typeof body.speech === 'string' ? body.speech : rawAction,
-    ...(system ? { system } : {}),
-    ...(typeof body.env === 'string' && body.env ? { env: body.env } : {}),
-    ...(no ? { no } : {}),
-    ...(aiRuntime.cwd ? { workspace: aiRuntime.cwd } : {}),
-    ...(action === '改行' || action === '新建' ? { patch: input } : {}),
-    ...(action === '现查' || action === '删除' || action === '过审' ? { where: body.where || [] } : {}),
-  }
-  return { payload }
 }
 
 function safeWorkspaceRel(name) {
@@ -972,6 +933,19 @@ const server = createServer(async (request, response) => {
       readJson,
     })) return
 
+    if (await handleBizRoutes(request, response, url, {
+      db,
+      aiRuntime,
+      readJson,
+      sendJson,
+      sendError,
+      correlationId: currentCorrelationId,
+      stripSecrets,
+      normalizeBaseUrl,
+      exchangeNocoBaseToken,
+      requestMemoryCwd,
+    })) return
+
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/favicon.ico')) {
       if (url.pathname === '/favicon.ico') {
         response.writeHead(204)
@@ -1735,104 +1709,6 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    if (request.method === 'POST' && url.pathname === '/api/v1/biz/preview') {
-      const body = await readJson(request)
-      const described = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
-      if (described && described.ok === false) {
-        sendError(response, 400, described.error || 'NO_CATALOG', described.hint || '目录没读成', currentCorrelationId)
-        return
-      }
-      const translated = translateBizIntent(body)
-      if (translated.error) {
-        sendError(response, 400, 'validation_error', translated.error, currentCorrelationId)
-        return
-      }
-      const preview = await aiRuntime.lanAssist('/preview', { method: 'POST', body: translated.payload })
-      sendJson(response, 200, { data: preview, correlationId: currentCorrelationId })
-      return
-    }
-
-    if (request.method === 'GET' && url.pathname === '/api/v1/biz/catalog') {
-      const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
-      const items = Array.isArray(state.catalog) ? state.catalog : []
-      sendJson(response, 200, { data: { items }, correlationId: currentCorrelationId })
-      return
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/v1/biz/catalog') {
-      const body = await readJson(request)
-      const result = await aiRuntime.lanAssist('/catalog/publish', {
-        method: 'POST',
-        body: { ...body, workspace: body.workspace || aiRuntime.cwd, confirm: body.confirm === true },
-      })
-      sendJson(response, 200, { data: stripSecrets(result), correlationId: currentCorrelationId })
-      return
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/v1/biz/lookup') {
-      const body = await readJson(request)
-      if (!aiRuntime.status().connected) {
-        try {
-          await aiRuntime.start()
-        } catch {
-          sendError(response, 503, 'ai/not-connected', '请先在运行环境连接本地核心', currentCorrelationId)
-          return
-        }
-      }
-      const baseUrl = normalizeBaseUrl(body.baseUrl)
-      const account = typeof body.account === 'string' ? body.account.trim() : ''
-      const password = typeof body.password === 'string' ? body.password : ''
-      let token = typeof body.token === 'string' ? body.token.trim() : ''
-      if (account && password) {
-        try {
-          token = await exchangeNocoBaseToken(baseUrl, account, password)
-        } catch (error) {
-          if (!token) {
-            sendError(response, 401, error.code || 'EXPIRED', error.message || '业务系统登录失败', currentCorrelationId)
-            return
-          }
-        }
-      }
-      if (!baseUrl) {
-        sendError(response, 400, 'validation_error', '地址不能为空', currentCorrelationId)
-        return
-      }
-      if (!token) {
-        sendError(response, 400, 'validation_error', '需要 API Key，或账号加密码用来换 token', currentCorrelationId)
-        return
-      }
-      const saved = await aiRuntime.lanAssist('/lookup/config', {
-        method: 'POST',
-        body: {
-          system: body.system,
-          env: body.env,
-          dialect: body.dialect || 'nocobase',
-          baseUrl,
-          token,
-        },
-      })
-      sendJson(response, 200, { data: stripSecrets(saved), correlationId: currentCorrelationId })
-      return
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/v1/biz/write') {
-      const body = await readJson(request)
-      if (typeof body.preview_id !== 'string' || !body.preview_id) {
-        sendError(response, 400, 'validation_error', 'preview_id 不能为空', currentCorrelationId)
-        return
-      }
-      const written = await aiRuntime.lanAssist('/write', { method: 'POST', body: { preview_id: body.preview_id, trace_id: body.trace_id } })
-      const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
-      emit('biz.write.done', {
-        kind: String(written?.kind || ''),
-        action: String(written?.action || ''),
-        traceId: String(body.trace_id || written?.trace_id || written?.traceId || ''),
-        receiptId: String(written?.receipt_id || written?.receiptId || ''),
-      }, { workspaceCwd: bizCwd, source: 'bff' })
-      sendJson(response, 200, { data: written, correlationId: currentCorrelationId })
-      return
-    }
-
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/search') {
       const query = url.searchParams.get('q') || ''
       const cwd = requestMemoryCwd(url)
@@ -2415,6 +2291,43 @@ const server = createServer(async (request, response) => {
     const executeMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)\/execute$/)
     if (request.method === 'POST' && executeMatch) {
       const operationBefore = getOperation(db, executeMatch[1])
+      if (!operationBefore) {
+        sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
+        return
+      }
+      if (operationBefore.executionMode === 'live') {
+        const result = await executeOperationLive(db, executeMatch[1], {
+          actorId: 'actor_local_user',
+          correlationId: currentCorrelationId,
+          writePreview: async (previewId) => aiRuntime.lanAssist('/write', {
+            method: 'POST',
+            body: { preview_id: previewId, trace_id: currentCorrelationId },
+          }),
+        })
+        if (result.kind === 'not_found') {
+          sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
+          return
+        }
+        if (result.kind === 'invalid_state') {
+          sendError(response, 409, 'invalid_state', '当前状态不能执行', currentCorrelationId, { state: result.operation.state })
+          return
+        }
+        if (result.kind === 'preview_expired') {
+          sendError(response, 409, 'preview_expired', '预览已过期，请重新预览后再执行', currentCorrelationId, { operationId: result.operation.id })
+          return
+        }
+        if (result.kind === 'write_failed') {
+          sendError(response, 422, 'biz_write_failed', result.message || '过账失败', currentCorrelationId, { operationId: result.operation.id })
+          return
+        }
+        if (result.kind === 'live_not_supported') {
+          sendError(response, 501, 'live_adapter_not_ready', '真实写入适配器尚未启用', currentCorrelationId)
+          return
+        }
+        sendJson(response, 200, { data: result.operation, receipt: result.receipt, correlationId: currentCorrelationId })
+        return
+      }
+
       const result = executeDryRun(db, executeMatch[1], {
         actorId: 'actor_local_user',
         correlationId: currentCorrelationId,
@@ -2476,6 +2389,7 @@ const server = createServer(async (request, response) => {
       const idempotencyKey = typeof body.idempotencyKey === 'string' && body.idempotencyKey.length > 0
         ? body.idempotencyKey
         : createId('idem')
+      const planJson = body.plan && typeof body.plan === 'object' ? JSON.stringify(body.plan) : '{}'
 
       db.exec('BEGIN IMMEDIATE;')
       try {
@@ -2484,7 +2398,7 @@ const server = createServer(async (request, response) => {
             (id, workspace_id, connection_id, app_id, requested_by, target_ref, action, operation_kind,
              risk_level, execution_mode, state, idempotency_key, expected_version, input_json, plan_json,
              correlation_id, causation_id, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           id,
           body.workspaceId ?? 'ws_personal',
@@ -2500,11 +2414,15 @@ const server = createServer(async (request, response) => {
           idempotencyKey,
           body.expectedVersion ?? null,
           JSON.stringify(body.input),
+          planJson,
           currentCorrelationId,
           body.causationId ?? null,
           now,
           now,
         )
+        if (body.plan && typeof body.plan === 'object' && typeof body.plan.previewId === 'string' && body.plan.previewId) {
+          insertOperationStep(db, id, 0, 'preview', 'succeeded', { previewId: body.plan.previewId }, body.plan)
+        }
         if (writeNeedsApproval) {
           db.prepare(`
             INSERT INTO approvals
@@ -2541,6 +2459,19 @@ const server = createServer(async (request, response) => {
         note: '本端点只创建可审计的操作计划，不直接调用外部业务系统。',
         correlationId: currentCorrelationId,
       })
+      return
+    }
+
+    if (await handleBriefingRoutes(request, response, url, {
+      db,
+      aiRuntime,
+      allowedOrigins: FDE_ALLOWED_ORIGINS,
+      correlationId: currentCorrelationId,
+      sendError,
+      readJson,
+      defaultWorkspaceCwd: FDE_AI_WORKSPACE,
+      runBriefingDeps: { db, aiRuntime },
+    })) {
       return
     }
 
@@ -2633,7 +2564,15 @@ server.listen(port, host, () => {
   startLanAssistStateWatch({
     lanAssist: (path, options) => aiRuntime.lanAssist(path, options),
     cwd: FDE_AI_WORKSPACE,
+    onPendingSheet: (sheet, sessionId) => {
+      recordSurfaceFromPreview(db, FDE_AI_WORKSPACE, {
+        kind: sheet.kind,
+        action: sheet.action,
+        sessionId,
+      }, { sheet }, 'ai')
+    },
   })
+  startBriefingScheduler({ db, aiRuntime, defaultCwd: FDE_AI_WORKSPACE })
 })
 
 let closing = false
