@@ -1675,11 +1675,22 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         }} />
         <ContextButton icon={<Languages size={13} />} label="翻译这条" onClick={() => { translateMessage(contextMenu.message); setContextMenu(null) }} />
         <ContextButton icon={<ListTodo size={13} />} label="摘成待办" onClick={() => {
-          const title = messageBody(contextMenu.message).slice(0, 60) || 'IM 待办'
-          useApp.getState().addTask({ title, status: 'todo', priority: 'med', tags: ['IM'] })
-          useApp.getState().setActivePlanTab('todo')
-          useApp.getState().togglePanel('plan', 'full')
-          setImBanner({ kind: 'ok', text: '已放进待办' })
+          const row = contextMenu.message
+          const title = messageBody(row).slice(0, 60) || 'IM 待办'
+          const requestId = String(row.id || `im_${Date.now()}`)
+          void useApp.getState().addTask({
+            title,
+            status: 'todo',
+            priority: 'med',
+            tags: ['IM'],
+            sourceRef: `im:${requestId}`,
+          }).then(() => {
+            useApp.getState().setActivePlanTab('todo')
+            useApp.getState().togglePanel('plan', 'full')
+            setImBanner({ kind: 'ok', text: '已加入计划' })
+          }).catch(() => {
+            setImBanner({ kind: 'err', text: '加入计划失败，请确认计划服务已就绪' })
+          })
           setContextMenu(null)
         }} />
         <ContextButton icon={<Forward size={13} />} label="转发给……" onClick={() => { setForwardMessage(contextMenu.message); setContextMenu(null) }} />
