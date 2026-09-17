@@ -83,6 +83,7 @@ import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes } from './rout
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleCorpusRoute } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
+import { tryServeStatic } from './routes/static.mjs'
 import { startBriefingScheduler } from './briefing/scheduler.mjs'
 import { startMemoryWriter } from './memory/writer.mjs'
 import {
@@ -94,6 +95,7 @@ import {
   FDE_RUNTIME_DIR,
   FDE_RUNTIME_HOST,
   FDE_RUNTIME_PORT,
+  FDE_STATIC_DIR,
   FDE_WEB_PORT,
 } from './config.mjs'
 
@@ -947,6 +949,12 @@ const server = createServer(async (request, response) => {
     })) return
 
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/favicon.ico')) {
+      if (url.pathname === '/favicon.ico' && !FDE_STATIC_DIR) {
+        response.writeHead(204)
+        response.end()
+        return
+      }
+      if (FDE_STATIC_DIR && tryServeStatic(FDE_STATIC_DIR, request, response)) return
       if (url.pathname === '/favicon.ico') {
         response.writeHead(204)
         response.end()
@@ -1078,6 +1086,24 @@ const server = createServer(async (request, response) => {
         details: { pid: status.pid, version: status.version },
       })
       sendJson(response, 200, { data: status, correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/ai/shutdown') {
+      try {
+        appendAudit(db, {
+          workspaceId: 'ws_personal',
+          actorId: 'actor_local_user',
+          action: 'ai.runtime.shutdown',
+          targetRef: 'fde://workstation/ai-runtime/core',
+          outcome: 'succeeded',
+          riskLevel: 'low',
+          correlationId: currentCorrelationId,
+          details: {},
+        })
+      } catch { /* 审计失败仍要退出 */ }
+      sendJson(response, 200, { data: { shuttingDown: true }, correlationId: currentCorrelationId })
+      setTimeout(() => { void close() }, 100)
       return
     }
 
@@ -1386,6 +1412,10 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && url.pathname === '/api/v1/ai/workspaces/pick') {
+      if (String(request.headers['x-fde-desktop'] || '') === '1') {
+        sendError(response, 501, 'use_desktop_picker', '请使用桌面版目录选择器', currentCorrelationId)
+        return
+      }
       const picked = await pickLocalDirectory()
       if (picked?.unavailable) {
         sendError(response, 501, 'dir_picker_unavailable', '本机目录选择器不可用（非 macOS 或未集成原生对话框）', currentCorrelationId)
@@ -2479,6 +2509,10 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (FDE_STATIC_DIR && tryServeStatic(FDE_STATIC_DIR, request, response)) {
+      return
+    }
+
     sendError(response, 404, 'not_found', '接口不存在', currentCorrelationId)
   } catch (error) {
     const code = error?.code ?? error?.cause?.code
@@ -2556,7 +2590,12 @@ server.on('upgrade', (request, socket, head) => {
 })
 
 server.listen(port, host, () => {
-  console.log(`FDE-X runtime listening on http://${host}:${port}`)
+  const bound = server.address()
+  const actualPort = typeof bound === 'object' && bound ? bound.port : port
+  allowedOrigins.add(`http://127.0.0.1:${actualPort}`)
+  allowedOrigins.add(`http://localhost:${actualPort}`)
+  console.log(`FDE_LISTENING ${actualPort}`)
+  console.log(`FDE-X runtime listening on http://${host}:${actualPort}`)
   console.log(`SQLite authority: ${databasePath}`)
   void ensurePresets(aiRuntime.dshHome || FDE_DSH_HOME).catch((error) => {
     console.warn('ensurePresets_failed', error)

@@ -42,6 +42,15 @@ export const FDE_DATABASE_PATH = process.env.FDE_DATABASE_PATH
   ? resolve(process.env.FDE_DATABASE_PATH)
   : resolve(FDE_RUNTIME_DIR, 'data', 'fde-workstation.sqlite')
 
+export const FDE_STATIC_DIR = process.env.FDE_STATIC_DIR
+  ? resolve(expandHome(process.env.FDE_STATIC_DIR))
+  : ''
+
+/** @type {'copy' | 'readonly'} */
+export const FDE_SEMANTIC_RUNTIME_MODE = process.env.FDE_SEMANTIC_RUNTIME_MODE === 'readonly'
+  ? 'readonly'
+  : 'copy'
+
 const MAC_DSH_FALLBACKS = ['/opt/homebrew/bin/dsh', '/usr/local/bin/dsh']
 
 export function resolveDshBin(explicit) {

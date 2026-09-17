@@ -17,6 +17,8 @@ FDE-X 本地 BFF（`runtime/server.mjs`）与 DSH 核心连接器从 `runtime/co
 | `FDE_WEB_PORT` | 开发 UI 端口（提示文案） | `5174` |
 | `FDE_DATABASE_PATH` | SQLite 路径 | `runtime/data/fde-workstation.sqlite` |
 | `FDE_ALLOWED_ORIGINS` | CORS 白名单（逗号分隔） | 本机 4173/5173/5174/5175 + 4318/4319 |
+| `FDE_STATIC_DIR` | 生产静态前端根（`dist/`）；设置后 BFF 提供 SPA | 未设置（开发仍走 Vite） |
+| `FDE_SEMANTIC_RUNTIME_MODE` | `readonly` 时跳过 1.8GB 自有拷贝，直接用 `FDE_SEMANTIC_RUNTIME_SRC` | `copy`（默认，与现网 dev 一致） |
 | `DSH_LAN_ASSIST_PORT` | IM 门牌 LAN 端口 | `19527` |
 | `FDE_RUNTIME_SUPERVISED` | `1` 时退出由 dev 脚本拉起 | 未设置 |
 | `FDE_RUNTIME_URL` / `VITE_FDE_RUNTIME_URL` | 前端直连 BFF（iframe） | `http://127.0.0.1:4318` |
