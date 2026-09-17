@@ -75,10 +75,12 @@ import { createFollowNormalizer } from './ai-stream.mjs'
 import { configureEventBus, emit } from './events.mjs'
 import { startLanAssistStateWatch } from './lan-assist-state-watch.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
+import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes } from './routes/bridge.mjs'
 import {
   FDE_AI_WORKSPACE,
   FDE_ALLOWED_ORIGINS,
   FDE_DATABASE_PATH,
+  FDE_DSH_HOME,
   FDE_OFFICIAL_DSH_HOME,
   FDE_RUNTIME_DIR,
   FDE_RUNTIME_HOST,
@@ -95,6 +97,10 @@ const db = openDatabase(databasePath, migrationsDirectory)
 configureEventBus(db)
 const aiRuntime = createCoreConnector({
   cwd: FDE_AI_WORKSPACE,
+})
+let bridgeToken = ''
+void ensureBridgeToken(aiRuntime.dshHome || FDE_DSH_HOME).then((token) => {
+  bridgeToken = token
 })
 
 function normalizeBaseUrl(raw) {
@@ -901,6 +907,16 @@ const server = createServer(async (request, response) => {
     return
   }
 
+  if (!bridgeToken) {
+    bridgeToken = await ensureBridgeToken(aiRuntime.dshHome || FDE_DSH_HOME)
+  }
+  if (await handleBridgeRoutes(request, response, url, {
+    db,
+    bridgeToken,
+    correlationId: currentCorrelationId,
+    readJson,
+  })) return
+
   const writeMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method ?? '')
   if (writeMethod) {
     const origin = request.headers.origin
@@ -918,6 +934,13 @@ const server = createServer(async (request, response) => {
       correlationId: currentCorrelationId,
       sendError,
       sendJson,
+    })) return
+
+    if (handleAiResultGet(request, response, url, {
+      db,
+      correlationId: currentCorrelationId,
+      sendJson,
+      sendError,
     })) return
 
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/favicon.ico')) {
