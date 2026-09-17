@@ -732,11 +732,19 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     }
   }, [applySheet, loadSurface, surfaces])
 
+  const tableRows = useMemo(() => {
+    const previewSheet = drawer?.sheet
+    if (previewSheet && isWritePreviewSheet(previewSheet)) {
+      return normalizeSheetRows(previewSheet.rows)
+    }
+    return rows
+  }, [drawer?.sheet, rows])
+
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((row) => Object.values(row).some((v) => String(v).toLowerCase().includes(q)))
-  }, [query, rows])
+    if (!q) return tableRows
+    return tableRows.filter((row) => Object.values(row).some((v) => String(v).toLowerCase().includes(q)))
+  }, [query, tableRows])
 
   useEffect(() => {
     setPage(1)
