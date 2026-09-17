@@ -97,6 +97,51 @@ function sheetPreviewId(sheet: Record<string, unknown>) {
   return typeof id === 'string' ? id : ''
 }
 
+function isWritePreviewSheet(sheet: Record<string, unknown>) {
+  const action = String(sheet.action || '')
+  return Boolean(sheetPreviewId(sheet) && action !== '现查')
+}
+
+function isSingleRowWritePreview(sheet: Record<string, unknown>) {
+  if (!isWritePreviewSheet(sheet)) return false
+  const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
+  return rowCount <= 1
+}
+
+function sameSheetRowKeySet(a: SheetRow[], b: SheetRow[]) {
+  const keysA = new Set(a.map((row, index) => sheetRowKey(row, index)))
+  const keysB = new Set(b.map((row, index) => sheetRowKey(row, index)))
+  if (keysA.size !== keysB.size) return false
+  for (const key of keysB) if (!keysA.has(key)) return false
+  return true
+}
+
+function listRestoreDiffersFromIncoming(restore: ListRestoreSnapshot, incoming: Record<string, unknown>) {
+  const incomingRows = normalizeSheetRows(incoming.rows)
+  const restoreRows = restore.rows
+  if (restoreRows.length > incomingRows.length) return true
+  if (!sameSheetRowKeySet(restoreRows, incomingRows)) return true
+  if (isWritePreviewSheet(incoming) && !isWritePreviewSheet(restore.sheet)) return true
+  return false
+}
+
+function listRestoreFromSnapshot(snap: SheetSnapshot): ListRestoreSnapshot {
+  const sheet = snap.sheet
+  const restoreRows = normalizeSheetRows(sheet.rows)
+  const restoreColumns = normalizeSheetColumns(sheet.columns)
+  const action = String(sheet.action || '现查')
+  return {
+    rows: restoreRows,
+    columns: restoreColumns,
+    page: 1,
+    draftEdits: {},
+    sourceLabel: snap.connName ? `${snap.connName} · ${action}` : '',
+    connName: snap.connName || '连接器',
+    surfaceId: snap.surfaceId,
+    sheet: { ...sheet, rows: restoreRows, columns: restoreColumns },
+  }
+}
+
 function EditableSheetCell({
   value,
   onChange,
@@ -166,6 +211,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [omit, setOmit] = useState<Set<string>>(new Set())
   const sheetSnapshots = useRef<Map<string, SheetSnapshot>>(new Map())
+  const priorListSheetByKind = useRef<Map<string, SheetSnapshot>>(new Map())
   const listRestoreRef = useRef<ListRestoreSnapshot | null>(null)
   const showRecordsBack = Boolean(listRestore)
 
@@ -219,7 +265,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const rememberSheet = useCallback((snapshot: SheetSnapshot) => {
     const k = String(snapshot.sheet.kind || '')
     const previewId = sheetPreviewId(snapshot.sheet)
-    if (k) sheetSnapshots.current.set(`kind:${k}`, snapshot)
+    if (k && !isSingleRowWritePreview(snapshot.sheet)) {
+      sheetSnapshots.current.set(`kind:${k}`, snapshot)
+      priorListSheetByKind.current.set(k, snapshot)
+    }
     if (previewId) sheetSnapshots.current.set(`preview:${previewId}`, snapshot)
     if (snapshot.surfaceId) sheetSnapshots.current.set(`surface:${snapshot.surfaceId}`, snapshot)
   }, [])
@@ -272,6 +321,53 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     if (!shouldSaveListRestore(incomingSheet)) return
     commitListRestore(captureListRestore())
   }, [captureListRestore, commitListRestore, shouldSaveListRestore])
+
+  const ensureListRestoreBeforeWritePreview = useCallback((incomingSheet: Record<string, unknown>) => {
+    if (listRestoreRef.current) return
+    const incomingKind = String(incomingSheet.kind || kind || '')
+    const incomingRows = normalizeSheetRows(incomingSheet.rows)
+    const incomingCount = incomingRows.length
+
+    const tryCommit = (candidate: ListRestoreSnapshot) => {
+      if (listRestoreDiffersFromIncoming(candidate, incomingSheet)) {
+        commitListRestore(candidate)
+      }
+    }
+
+    if (rows.length > 0) {
+      const larger = rows.length > incomingCount
+      const different = incomingCount > 0 && !sameSheetRowKeySet(rows, incomingRows)
+      if (larger || different) {
+        tryCommit(captureListRestore())
+        return
+      }
+    }
+
+    const kindSnap = incomingKind ? sheetSnapshots.current.get(`kind:${incomingKind}`) : undefined
+    if (kindSnap) {
+      const snapRows = normalizeSheetRows(kindSnap.sheet.rows)
+      if (snapRows.length > incomingCount || (snapRows.length > 0 && !sameSheetRowKeySet(snapRows, incomingRows))) {
+        tryCommit(listRestoreFromSnapshot(kindSnap))
+        if (listRestoreRef.current) return
+      }
+    }
+
+    const prior = incomingKind ? priorListSheetByKind.current.get(incomingKind) : undefined
+    if (prior) {
+      tryCommit(listRestoreFromSnapshot(prior))
+      if (listRestoreRef.current) return
+    }
+
+    for (const surface of surfaces) {
+      if (surface.kind !== incomingKind) continue
+      const isListSurface = surface.action === '现查' || (surface.rowCount ?? 0) > 1
+      if (!isListSurface) continue
+      const cached = sheetSnapshots.current.get(`surface:${surface.id}`)
+      if (!cached || isSingleRowWritePreview(cached.sheet)) continue
+      tryCommit(listRestoreFromSnapshot(cached))
+      if (listRestoreRef.current) break
+    }
+  }, [captureListRestore, commitListRestore, kind, rows, surfaces])
 
   const restoreRecordsList = useCallback(() => {
     const snap = listRestoreRef.current
@@ -346,6 +442,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     const previewId = sheetPreviewId(sheet)
     const action = String(sheet.action || '')
     const isWritePreview = Boolean(previewId && action !== '现查')
+    if (isWritePreview) ensureListRestoreBeforeWritePreview(sheet)
     if (isWritePreview && isBizPreviewDismissed(sheet)) {
       if (listRestoreRef.current) return true
       maybeSaveListRestore(sheet)
@@ -363,7 +460,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       })
     }
     return rowCount > 0 || Boolean(sheet.kind)
-  }, [applySheet, connectionId, connections, maybeSaveListRestore])
+  }, [applySheet, connectionId, connections, ensureListRestoreBeforeWritePreview, maybeSaveListRestore])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     const cached = peekBizPendingSheet()
@@ -398,6 +495,14 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   useEffect(() => {
     void loadSurfaces()
   }, [loadSurfaces])
+
+  useEffect(() => {
+    if (listRestoreRef.current) return
+    const sheet = drawer?.sheet ?? peekBizPendingSheet()
+    if (!sheet || !isWritePreviewSheet(sheet)) return
+    if (surfaces.length === 0) return
+    ensureListRestoreBeforeWritePreview(sheet)
+  }, [drawer?.sheet, ensureListRestoreBeforeWritePreview, surfaces])
 
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd || activeLocalApp) return
@@ -471,6 +576,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       const sheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
       const previewId = sheetPreviewId(sheet)
       const canWrite = Boolean(sheet.canWrite ?? sheet.can_write ?? data.canWrite)
+      if (action !== '现查' && previewId) ensureListRestoreBeforeWritePreview(sheet)
       maybeSaveListRestore(sheet)
       applySheet(sheet, conn?.name || '连接器')
       if (action !== '现查' && previewId) {
@@ -490,7 +596,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     } finally {
       setLoading(false)
     }
-  }, [activeLocalApp, applySheet, connectionId, connections, kind, lanReady, loadSurfaces, maybeSaveListRestore])
+  }, [activeLocalApp, applySheet, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, loadSurfaces, maybeSaveListRestore])
 
   const loadSurface = useCallback(async (surface: BizSurfaceRecord) => {
     setKind(surface.kind)
