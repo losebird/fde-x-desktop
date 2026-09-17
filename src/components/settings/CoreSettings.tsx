@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Bot, ChevronDown, Copy, Trash2 } from 'lucide-react'
+import { Bot, ChevronDown, Copy, Trash2, Upload } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Tag } from '@/components/ui'
-import { runtimeApi } from '@/lib/runtime-api'
+import { runtimeApi, type AiPresetRecord } from '@/lib/runtime-api'
+import { PresetImportDrawer, sourceLabel } from '@/components/settings/PresetImportDrawer'
 
 const PROVIDER_LIST_COLLAPSE_AT = 4
 
@@ -36,12 +37,13 @@ export function CoreSettings() {
   })
   const [foundModels, setFoundModels] = useState<Array<{ id: string; name: string }>>([])
   const [pickedModels, setPickedModels] = useState<string[]>([])
-  const [presets, setPresets] = useState<Array<{ id: string; name?: string; description?: string; trust?: string; isDefault?: boolean }>>([])
+  const [presets, setPresets] = useState<AiPresetRecord[]>([])
   const [copyFrom, setCopyFrom] = useState('')
   const [copyId, setCopyId] = useState('')
   const [copyName, setCopyName] = useState('')
   const [busy, setBusy] = useState(false)
   const [providersOpen, setProvidersOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   const load = () => {
     void runtimeApi.aiStatus().then((status) => setConnected(Boolean(status.connected))).catch(() => setConnected(false))
@@ -302,20 +304,27 @@ export function CoreSettings() {
       </Card>
 
       <Card>
-        <div className="text-base font-medium mb-1">Agent 预设</div>
-        <div className="text-xs text-ink-muted mb-4">系统预设只能复制成自己的。用户预设可以删。</div>
-        <div className="space-y-2 mb-4">
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <div>
+            <div className="text-base font-medium">Agent 预设</div>
+            <div className="text-xs text-ink-muted mt-0.5">可导入开源 preset；用户来源可删，随包与 FDE 预设不可删。</div>
+          </div>
+          <button type="button" className="btn h-8 px-2 shrink-0" onClick={() => setImportOpen(true)}><Upload size={14} /> 导入</button>
+        </div>
+        <div className="space-y-2 mb-4 mt-3">
           {presets.map((preset) => (
             <div key={preset.id} className="flex items-start gap-3 px-3 py-2.5 rounded-lg border border-line">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium">{preset.name || preset.id}</span>
                   {preset.isDefault && <Tag kind="blue">默认</Tag>}
+                  <Tag kind="default">{sourceLabel(preset.source)}</Tag>
+                  {preset.hasLocalCode && <Tag kind="amber">含本地代码</Tag>}
                   <Tag kind={preset.trust === 'system' ? 'green' : 'amber'}>{preset.trust === 'system' ? '系统' : '我的'}</Tag>
                 </div>
                 <div className="text-[11px] text-ink-subtle mt-0.5 font-mono">{preset.id}</div>
               </div>
-              {preset.trust !== 'system' && (
+              {preset.source === 'user' && (
                 <button
                   type="button"
                   className="btn-ghost h-8 px-2 text-accent-red"
@@ -359,6 +368,16 @@ export function CoreSettings() {
           }}
         ><Copy size={14} /> 复制为新预设</button>
       </Card>
+      <PresetImportDrawer
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => {
+          void runtimeApi.listAiPresets().then((data) => {
+            setPresets(data.presets || [])
+            setNote('已导入 preset。新会话时可见；若未出现请重载核心。')
+          })
+        }}
+      />
     </div>
   )
 }
