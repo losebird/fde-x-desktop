@@ -463,6 +463,16 @@ export class DshCoreConnector {
     return candidates
   }
 
+  async applyVendorOverlay(name, vendorDir) {
+    const overlay = join(this.runtimeDirectory, 'vendor-overlays', name)
+    try {
+      await access(overlay, constants.R_OK)
+      await cp(overlay, vendorDir, { recursive: true, force: true })
+    } catch {
+      /* no overlay for this plugin */
+    }
+  }
+
   async linkReadablePlugin(name, modulesDir) {
     const vendor = join(this.dshHome, 'vendor', name)
     const link = join(modulesDir, name)
@@ -482,6 +492,7 @@ export class DshCoreConnector {
       }
     }
     if (!existsSync(vendor)) return false
+    await this.applyVendorOverlay(name, vendor)
     await linkPath(vendor, link)
     return true
   }
@@ -772,6 +783,7 @@ export class DshCoreConnector {
         'brief_for_decision',
         'query_decisions',
         'lineage',
+        'list_graph_nodes',
       ])
       if (!allowedOps.has(op)) {
         throw new AiRemoteError('ai/forbidden', '记忆操作不允许')

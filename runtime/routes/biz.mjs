@@ -1,4 +1,5 @@
 import { FDE_AI_WORKSPACE } from '../config.mjs'
+import { loadMemoryWorkspaceVocab } from '../biz/memory-vocab.mjs'
 import { insertBizSurface, listBizSurfaces, listBusinessConnections } from '../db.mjs'
 import { emit } from '../events.mjs'
 
@@ -141,7 +142,12 @@ export async function handleBizRoutes(request, response, url, deps) {
         sendError(response, 503, catalog.error || 'NO_CATALOG', catalog.hint || '事务底座未就绪', correlationId)
         return true
       }
-      sendJson(response, 200, { data: mapKindsFromCatalog(catalog), correlationId })
+      let data = mapKindsFromCatalog(catalog)
+      if (!data.kinds.length && workspace.startsWith('/')) {
+        const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
+        if (fromMemory.kinds.length) data = fromMemory
+      }
+      sendJson(response, 200, { data, correlationId })
     } catch (error) {
       sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
     }
