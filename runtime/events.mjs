@@ -1,4 +1,12 @@
-import { createId } from './db.mjs'
+/** Monotonic event ids (time + sequence) so same-ms rows sort in emit order. */
+let eventOrdinal = 0n
+
+function createEventId(ts) {
+  eventOrdinal += 1n
+  const timePart = BigInt(ts).toString(36).padStart(9, '0')
+  const seqPart = eventOrdinal.toString(36).padStart(9, '0')
+  return `evt_${timePart}_${seqPart}`
+}
 
 /** @typedef {{ id: string, ts: number, type: string, workspaceCwd: string | null, sessionId?: string, source: string, payload: unknown }} FdeEnvelope */
 
@@ -74,8 +82,8 @@ export function envelopeFromRow(row) {
  * @param {{ workspaceCwd?: string | null, sessionId?: string, source?: string }} [meta]
  */
 export function emit(type, payload, { workspaceCwd = null, sessionId, source = 'bff' } = {}) {
-  const id = createId('evt')
   const ts = Date.now()
+  const id = createEventId(ts)
   const occurredAt = new Date(ts).toISOString()
   const envelope = {
     id,

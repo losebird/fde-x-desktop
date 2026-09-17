@@ -20,7 +20,7 @@ import {
 const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)), '..')
 const origin = 'http://127.0.0.1:5173'
 
-describe('event bus', { concurrency: 1 }, () => {
+describe('event bus', () => {
 test('emit persists and subscribe receives', async () => {
   const dbPath = `/tmp/fde-events-unit-${Date.now()}.sqlite`
   const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
