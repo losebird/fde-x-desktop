@@ -34,6 +34,7 @@ function buildBffEnv(resources: string, appRoot: string) {
     FDE_DATABASE_PATH: roots.databasePath,
     FDE_RUNTIME_PORT: '0',
     FDE_RUNTIME_HOST: '127.0.0.1',
+    FDE_ALLOWED_ORIGINS: 'app://fde-x',
     FDE_STATIC_DIR: staticDir,
     FDE_AI_WORKSPACE: appRoot,
   }
