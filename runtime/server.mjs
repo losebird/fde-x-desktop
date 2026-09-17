@@ -67,8 +67,12 @@ import {
   openDatabase,
 } from './db.mjs'
 import { inspectAdapters } from './adapters.mjs'
+import { handlePlanRequest } from './routes/plan.mjs'
+import { handlePresetRoutes } from './routes/presets.mjs'
+import { handleMcpRoutes } from './routes/mcp.mjs'
 import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
+import { handleEventsRoutes } from './routes/events.mjs'
 import {
   FDE_AI_WORKSPACE,
   FDE_ALLOWED_ORIGINS,
@@ -905,6 +909,14 @@ const server = createServer(async (request, response) => {
 
   try {
 
+    if (await handleEventsRoutes(request, response, url, {
+      db,
+      allowedOrigins,
+      correlationId: currentCorrelationId,
+      sendError,
+      sendJson,
+    })) return
+
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/favicon.ico')) {
       if (url.pathname === '/favicon.ico') {
         response.writeHead(204)
@@ -1259,39 +1271,9 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    if (request.method === 'GET' && url.pathname === '/api/v1/ai/presets') {
-      const roster = await aiRuntime.call('agentPresets/list')
-      sendJson(response, 200, { data: roster, correlationId: currentCorrelationId })
-      return
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/v1/ai/presets/copy') {
-      const body = await readJson(request)
-      const from = String(body.from || '').trim()
-      const id = String(body.id || '').trim()
-      const name = typeof body.name === 'string' ? body.name.trim() : ''
-      if (!from || !id) {
-        sendError(response, 400, 'validation_error', 'from 和 id 不能为空', currentCorrelationId)
-        return
-      }
-      await aiRuntime.call('agentPresets/copy', { from, id, name: name || undefined })
-      const roster = await aiRuntime.call('agentPresets/list')
-      sendJson(response, 200, { data: roster, correlationId: currentCorrelationId })
-      return
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/v1/ai/presets/delete') {
-      const body = await readJson(request)
-      const id = String(body.id || '').trim()
-      if (!id) {
-        sendError(response, 400, 'validation_error', 'id 不能为空', currentCorrelationId)
-        return
-      }
-      await aiRuntime.call('agentPresets/deletePreset', { id })
-      const roster = await aiRuntime.call('agentPresets/list')
-      sendJson(response, 200, { data: roster, correlationId: currentCorrelationId })
-      return
-    }
+    if (await handlePresetRoutes(request, response, url, {
+      aiRuntime, db, currentCorrelationId, sendJson, sendError, readJson,
+    })) return
 
     if (request.method === 'GET' && url.pathname === '/api/v1/ai/credentials') {
       const filePath = join(aiRuntime.dshHome, '.credentials.yaml')
@@ -2214,62 +2196,9 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    if (request.method === 'GET' && url.pathname === '/api/v1/mcp/servers') {
-      let text = ''
-      try {
-        text = await readFile(aiRuntime.patchFile, 'utf8')
-      } catch {
-        text = ''
-      }
-      const connected = aiRuntime.status().connected
-      const items = [...text.matchAll(/serverName:\s*([A-Za-z0-9_-]+)/gu)].map((match) => ({
-        id: match[1],
-        name: match[1],
-        desc: `mcp__${match[1]}__*`,
-        category: 'MCP',
-        status: connected ? 'connected' : 'pending',
-        tools: connected ? [`mcp__${match[1]}`] : [],
-      }))
-      sendJson(response, 200, { data: { items }, correlationId: currentCorrelationId })
-      return
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/v1/mcp/servers') {
-      const body = await readJson(request)
-      const serverName = typeof body.serverName === 'string' ? body.serverName.trim() : ''
-      const commandLine = typeof body.command === 'string' ? body.command.trim() : ''
-      if (!/^[A-Za-z0-9_-]{1,32}$/u.test(serverName) || !commandLine) {
-        sendError(response, 400, 'validation_error', 'serverName 或启动命令不合法', currentCorrelationId)
-        return
-      }
-      const parts = commandLine.split(/\s+/u)
-      const command = parts[0]
-      const args = parts.slice(1)
-      const block = [
-        '',
-        `- id: mcp-${serverName}`,
-        '  package: @deepseek-ai/dsh-mcp-client',
-        '  config:',
-        '    transport: stdio',
-        `    serverName: ${serverName}`,
-        `    command: ${JSON.stringify(command)}`,
-        `    args: ${JSON.stringify(args)}`,
-        '',
-      ].join('\n')
-      await appendFile(aiRuntime.patchFile, block, 'utf8')
-      let reloaded = false
-      if (aiRuntime.status().connected) {
-        await aiRuntime.stop()
-        await aiRuntime.start()
-        reloaded = aiRuntime.status().connected
-      }
-      sendJson(response, 201, {
-        data: { serverName, needsRestart: !reloaded },
-        note: reloaded ? '已写入 patch 并重新拉起核心。' : '已写入 DSH patch。请连接本地核心后生效。',
-        correlationId: currentCorrelationId,
-      })
-      return
-    }
+    if (await handleMcpRoutes(request, response, url, {
+      aiRuntime, db, currentCorrelationId, sendJson, sendError, readJson,
+    })) return
 
     if (request.method === 'GET' && url.pathname === '/api/v1/workspaces') {
       sendJson(response, 200, { items: listWorkspaces(db), correlationId: currentCorrelationId })
@@ -2525,6 +2454,10 @@ const server = createServer(async (request, response) => {
         note: '本端点只创建可审计的操作计划，不直接调用外部业务系统。',
         correlationId: currentCorrelationId,
       })
+      return
+    }
+
+    if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson }, currentCorrelationId)) {
       return
     }
 
