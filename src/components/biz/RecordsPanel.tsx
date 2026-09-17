@@ -23,7 +23,14 @@ import {
   type BusinessConnectionRecord,
 } from '@/lib/runtime-api'
 import { isFdeAppSpec } from '@/lib/app-spec'
-import { clearBizPendingSheet, peekBizPendingSheet, rememberBizPendingSheet } from '@/lib/biz-session-sheet'
+import {
+  clearBizPendingSheet,
+  clearBizPreviewDismissed,
+  dismissBizPreviewId,
+  isBizPreviewDismissed,
+  peekBizPendingSheet,
+  rememberBizPendingSheet,
+} from '@/lib/biz-session-sheet'
 import { useEvents } from '@/lib/events'
 
 const PAGE_SIZE = 10
@@ -159,8 +166,8 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [omit, setOmit] = useState<Set<string>>(new Set())
   const sheetSnapshots = useRef<Map<string, SheetSnapshot>>(new Map())
-  const dismissedPreviewIds = useRef<Set<string>>(new Set())
   const listRestoreRef = useRef<ListRestoreSnapshot | null>(null)
+  const showRecordsBack = Boolean(listRestore)
 
   const localApps = useMemo(
     () => apps.filter((app) => isFdeAppSpec(app.definition)),
@@ -219,15 +226,19 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
 
   const captureListRestore = useCallback((): ListRestoreSnapshot => {
     const kindSnap = kind ? sheetSnapshots.current.get(`kind:${kind}`) : undefined
+    const snapRows = kindSnap?.sheet ? normalizeSheetRows(kindSnap.sheet.rows) : []
+    const snapCols = kindSnap?.sheet ? normalizeSheetColumns(kindSnap.sheet.columns) : []
+    const restoreRows = rows.length > 0 ? rows : snapRows
+    const restoreColumns = columns.length > 0 ? columns : snapCols
     const sheet = kindSnap?.sheet
-      ? { ...kindSnap.sheet, rows, columns }
-      : { kind, rows, columns, action: '现查' }
+      ? { ...kindSnap.sheet, rows: restoreRows, columns: restoreColumns }
+      : { kind, rows: restoreRows, columns: restoreColumns, action: '现查' }
     return {
-      rows,
-      columns,
+      rows: restoreRows,
+      columns: restoreColumns,
       page,
       draftEdits,
-      sourceLabel,
+      sourceLabel: sourceLabel || (kindSnap?.connName ? `${kindSnap.connName} · 现查` : ''),
       connName: kindSnap?.connName || '连接器',
       surfaceId: kindSnap?.surfaceId,
       sheet,
@@ -240,18 +251,22 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }, [])
 
   const shouldSaveListRestore = useCallback((incomingSheet: Record<string, unknown>) => {
-    const currentRows = rows.length
+    const kindSnap = kind ? sheetSnapshots.current.get(`kind:${kind}`) : undefined
+    const snapRowCount = kindSnap?.sheet && Array.isArray(kindSnap.sheet.rows)
+      ? kindSnap.sheet.rows.length
+      : 0
+    const currentRows = rows.length > 0 ? rows.length : snapRowCount
     if (currentRows === 0) return false
     const action = String(incomingSheet.action || '')
     const incomingCount = Array.isArray(incomingSheet.rows) ? incomingSheet.rows.length : 0
     const postAction = action !== '现查'
-    const narrowing = incomingCount < currentRows
+    const narrowing = incomingCount > 0 && incomingCount < currentRows
     if (listRestoreRef.current) {
       return currentRows > 1 && (postAction || narrowing)
     }
     if (currentRows > 1 && (postAction || narrowing)) return true
     return narrowing
-  }, [rows.length])
+  }, [kind, rows.length])
 
   const maybeSaveListRestore = useCallback((incomingSheet: Record<string, unknown>) => {
     if (!shouldSaveListRestore(incomingSheet)) return
@@ -277,11 +292,13 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }, [commitListRestore, rememberSheet])
 
   const handleRecordsBack = useCallback(() => {
+    const pendingSheet = peekBizPendingSheet()
     const previewId = drawer?.previewId
-    const restored = restoreRecordsList()
-    if (previewId) dismissedPreviewIds.current.add(previewId)
+      || (pendingSheet ? sheetPreviewId(pendingSheet) : '')
+    if (previewId) dismissBizPreviewId(previewId)
     setDrawer(null)
-    if (!restored) clearBizPendingSheet()
+    clearBizPendingSheet()
+    restoreRecordsList()
     void runtimeApi.bizDismissPreview().catch(() => undefined)
   }, [drawer?.previewId, restoreRecordsList])
 
@@ -325,13 +342,20 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
     const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
     if (!rowCount && !sheet.kind) return false
-    rememberBizPendingSheet(sheet)
     const conn = connections.find((c) => c.id === connectionId) || connections[0]
     const previewId = sheetPreviewId(sheet)
     const action = String(sheet.action || '')
+    const isWritePreview = Boolean(previewId && action !== '现查')
+    if (isWritePreview && isBizPreviewDismissed(sheet)) {
+      if (listRestoreRef.current) return true
+      maybeSaveListRestore(sheet)
+      applySheet(sheet, conn?.name || '连接器', surfaceId)
+      return rowCount > 0 || Boolean(sheet.kind)
+    }
+    rememberBizPendingSheet(sheet)
     maybeSaveListRestore(sheet)
     applySheet(sheet, conn?.name || '连接器', surfaceId)
-    if (previewId && action !== '现查' && !dismissedPreviewIds.current.has(previewId)) {
+    if (isWritePreview) {
       setDrawer({
         previewId,
         sheet,
@@ -343,10 +367,20 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     const cached = peekBizPendingSheet()
-    if (cached && applyPendingSheet(cached, surfaceId)) return true
+    if (cached) {
+      if (isBizPreviewDismissed(cached)) {
+        if (listRestoreRef.current) return true
+      } else if (applyPendingSheet(cached, surfaceId)) {
+        return true
+      }
+    }
     try {
       const { sheet } = await runtimeApi.getBizPendingSheet()
       if (!sheet || typeof sheet !== 'object') return false
+      if (isBizPreviewDismissed(sheet)) {
+        if (listRestoreRef.current) return true
+        return applyPendingSheet(sheet, surfaceId)
+      }
       return applyPendingSheet(sheet, surfaceId)
     } catch {
       return false
@@ -440,7 +474,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       maybeSaveListRestore(sheet)
       applySheet(sheet, conn?.name || '连接器')
       if (action !== '现查' && previewId) {
-        dismissedPreviewIds.current.delete(previewId)
+        clearBizPreviewDismissed(previewId)
         setDrawer({
           previewId,
           sheet,
@@ -466,7 +500,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     if (cached) {
       maybeSaveListRestore(cached.sheet)
       applySheet(cached.sheet, cached.connName, surface.id)
-      if (surface.previewId && surface.action !== '现查' && !dismissedPreviewIds.current.has(surface.previewId)) {
+      if (surface.previewId && surface.action !== '现查' && !isBizPreviewDismissed({ previewId: surface.previewId, action: surface.action })) {
         setDrawer({
           previewId: surface.previewId,
           sheet: cached.sheet,
@@ -480,7 +514,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       setRows([])
       setColumns(Array.isArray(surface.columns) ? surface.columns as SheetColumn[] : [])
       setStaleHint('该条浮现的行已不在待确认区；请在 AI 会话里重新现查或改行。')
-    } else if (surface.previewId && surface.action !== '现查' && !dismissedPreviewIds.current.has(surface.previewId)) {
+    } else if (surface.previewId && surface.action !== '现查' && !isBizPreviewDismissed({ previewId: surface.previewId, action: surface.action })) {
       const snap = sheetSnapshots.current.get(`surface:${surface.id}`)
       setDrawer({
         previewId: surface.previewId,
@@ -565,7 +599,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     try {
       const sheetWorkspace = typeof drawer.sheet.workspace === 'string' ? drawer.sheet.workspace : undefined
       await runtimeApi.bizWrite(drawer.previewId, undefined, sheetWorkspace)
-      dismissedPreviewIds.current.delete(drawer.previewId)
+      clearBizPreviewDismissed(drawer.previewId)
       clearBizPendingSheet()
       setNotice('已过账，表格保留本次预览行供核对')
       setDrawer(null)
@@ -765,9 +799,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       )}
 
       <Card className="!p-0 overflow-x-auto">
-        {(listRestore || sourceLabel) && (
+        {(showRecordsBack || sourceLabel) && (
           <div className="px-3 py-2 border-b border-line text-xs text-ink-muted bg-surface-2 flex flex-wrap items-center gap-2">
-            {listRestore && (
+            {showRecordsBack && (
               <button type="button" className="btn !py-0.5 !text-[11px]" onClick={handleRecordsBack}>
                 <ArrowLeft size={12} /> 返回
               </button>
