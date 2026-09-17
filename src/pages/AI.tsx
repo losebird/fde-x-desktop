@@ -50,6 +50,7 @@ export default function AI() {
   const activeWorkspaceId = useApp((s) => s.activeWorkspaceId)
   const replaceWorkspaces = useApp((s) => s.replaceWorkspaces)
   const setActiveAiSessionId = useApp((s) => s.setActiveAiSessionId)
+  const storedActiveAiSessionId = useApp((s) => s.activeAiSessionId)
   const aiInboxDraft = useApp((s) => s.aiInboxDraft)
   const setAiInboxDraft = useApp((s) => s.setAiInboxDraft)
   const workspaceCwd = liveWorkspaces.find((item) => item.id === activeWorkspaceId)?.cwd
@@ -97,7 +98,10 @@ export default function AI() {
     [remoteSessions, workspaceCwd, hiddenSessionIds],
   )
   const activeId = runtimeConnected
-    ? (chatId || visibleSessions[0]?.sessionId)
+    ? (chatId
+      || (storedActiveAiSessionId && visibleSessions.some((session) => session.sessionId === storedActiveAiSessionId)
+        ? storedActiveAiSessionId
+        : undefined))
     : undefined
 
   const leftOpen = leftForced ?? width >= MIN_LEFT_OPEN
@@ -208,9 +212,22 @@ export default function AI() {
       restoreHoldUntilRef.current = Date.now() + 60_000
       setSessionNotice('正在打开复原后的会话…')
       void (async () => {
-        const rows = await runtimeApi.listAiSessions({ includeBlank: true }).catch(() => [])
-        setRemoteSessions(rows.map((row) => (titles.get(row.sessionId) ? { ...row, title: titles.get(row.sessionId)! } : row)))
-        const title = titles.get(sid) || ''
+        const deadline = Date.now() + 10_000
+        let found: AiSessionSummary | undefined
+        while (Date.now() < deadline) {
+          const rows = await runtimeApi.listAiSessions({ includeBlank: true }).catch(() => [])
+          found = rows.find((row) => row.sessionId === sid)
+          if (found) {
+            setRemoteSessions(rows.map((row) => (titles.get(row.sessionId) ? { ...row, title: titles.get(row.sessionId)! } : row)))
+            break
+          }
+          await new Promise((wait) => { window.setTimeout(wait, 500) })
+        }
+        if (!found) {
+          setSessionNotice('复原已写盘，但列表尚未刷新')
+          return
+        }
+        const title = titles.get(sid) || found.title || ''
         nav(`/ai/${sid}`)
         const origin = bffOriginRef.current || defaultBffOrigin()
         setDshFrameSrc(`${dshAppSrc(origin)}?restore=${Date.now()}#fde-session=${encodeURIComponent(sid)}`)
@@ -371,7 +388,11 @@ export default function AI() {
       return
     }
     const sid = chatId || activeId || ''
-    setDshFrameSrc(`${dshAppSrc(runtimeStatus?.bffOrigin)}${sid ? `#fde-session=${encodeURIComponent(sid)}` : ''}`)
+    if (!sid) {
+      setDshFrameSrc('')
+      return
+    }
+    setDshFrameSrc(`${dshAppSrc(runtimeStatus?.bffOrigin)}#fde-session=${encodeURIComponent(sid)}`)
   }, [runtimeConnected, loadingRuntime, activeWorkspaceId, runtimeStatus?.bffOrigin, chatId, activeId])
 
   useEffect(() => {
@@ -680,7 +701,11 @@ export default function AI() {
               </div>
             </aside>
             <div className="flex-1 min-h-0 min-w-0 relative">
-              {dshFrameSrc ? (
+              {!activeId ? (
+                <div className="absolute inset-0 flex items-center justify-center text-sm text-ink-muted px-6 text-center">
+                  当前工作区还没有会话
+                </div>
+              ) : dshFrameSrc ? (
                 <iframe
                   key={dshFrameSrc}
                   ref={dshFrameRef}
