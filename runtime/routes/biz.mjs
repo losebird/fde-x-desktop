@@ -164,6 +164,35 @@ export async function handleBizRoutes(request, response, url, deps) {
     return true
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/v1/biz/pending-sheet') {
+    try {
+      const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+      if (!state || state.ok === false) {
+        sendJson(response, 200, { data: { sheet: null }, correlationId })
+        return true
+      }
+      const raw = state.pendingSheet ?? state.pendingWrite
+      if (!raw || typeof raw !== 'object') {
+        sendJson(response, 200, { data: { sheet: null }, correlationId })
+        return true
+      }
+      const sheet = {
+        kind: String(raw.kind || ''),
+        action: String(raw.action || ''),
+        preview_id: raw.preview_id ?? raw.previewId ?? null,
+        previewId: raw.preview_id ?? raw.previewId ?? null,
+        rows: Array.isArray(raw.rows) ? raw.rows : [],
+        columns: Array.isArray(raw.columns) ? raw.columns : [],
+        canWrite: Boolean(raw.canWrite ?? raw.can_write),
+        sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
+      }
+      sendJson(response, 200, { data: { sheet: stripSecrets(sheet) }, correlationId })
+    } catch (error) {
+      sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
+    }
+    return true
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/connections') {
     const workspaceId = url.searchParams.get('workspace') ?? url.searchParams.get('workspaceId') ?? 'ws_personal'
     const items = listBusinessConnections(db, { workspaceId })

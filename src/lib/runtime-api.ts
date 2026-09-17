@@ -1762,6 +1762,11 @@ export class RuntimeApi {
     return result.items
   }
 
+  async getBizPendingSheet(signal?: AbortSignal): Promise<{ sheet: Record<string, unknown> | null }> {
+    const result = await this.request<{ data: { sheet: Record<string, unknown> | null } }>('/api/v1/biz/pending-sheet', { signal })
+    return result.data
+  }
+
   async listBizConnections(workspaceId: string, signal?: AbortSignal): Promise<BizConnectionWithHealth[]> {
     const q = new URLSearchParams({ workspace: workspaceId })
     const result = await this.request<{ items: BizConnectionWithHealth[] }>(`/api/v1/biz/connections?${q}`, { signal })

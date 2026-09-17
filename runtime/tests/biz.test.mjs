@@ -29,6 +29,12 @@ describe('biz surfaces and live execute', () => {
     assert.doesNotMatch(source, /\/catalog',\s*\{\s*search:\s*\{\s*sessionId/)
   })
 
+  test('biz pending-sheet reads lan-assist state pendingSheet only', () => {
+    const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
+    assert.match(source, /\/api\/v1\/biz\/pending-sheet/)
+    assert.match(source, /state\.pendingSheet/)
+  })
+
   test('listBusinessConnections merges ws_personal lan-assist into active workspace', () => {
     const db = openDatabase(`/tmp/fde-biz-conn-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const wsId = '1985293d-03bb-496f-ad69-5c7f2ac23149'
