@@ -201,6 +201,19 @@ function ensureStreamSubscription() {
   }
 }
 
+export function registerFdeEventListener(
+  types: string[] | '*',
+  handler: (event: FdeEvent) => void,
+  opts?: { workspace?: string },
+): () => void {
+  ensureStreamSubscription()
+  const listener: Listener = { types, workspace: opts?.workspace, handler }
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
 export function useEvents(
   types: string[] | '*',
   handler: (event: FdeEvent) => void,

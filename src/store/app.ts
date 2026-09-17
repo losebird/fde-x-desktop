@@ -544,13 +544,28 @@ export const useApp = create<AppState>()(
       activeDataSubview: 'overview',
       setActiveDataSubview: (v) => set({ activeDataSubview: v }),
       focusBizRecordsPanel: () => {
-        const s = get()
-        s.setActiveDataSubview('records')
-        if (s.floating.data) {
-          s.focusFloating('data')
-          return
-        }
-        s.togglePanel('data', 'full')
+        set((s) => {
+          if (s.floating.data) {
+            const z = nextZ(s)
+            return {
+              activeDataSubview: 'records',
+              floating: {
+                ...s.floating,
+                data: { ...s.floating.data, zIndex: z },
+              },
+              floatingZTop: z,
+            }
+          }
+          return {
+            activeDataSubview: 'records',
+            panels: s.panels.map((p) => {
+              if (p.id === 'data') return { ...p, state: 'full' }
+              if (p.state === 'full' || p.state === 'half') return { ...p, state: 'tab' }
+              return p
+            }),
+            floating: omitFloating(s.floating, 'data'),
+          }
+        })
       },
 
       paletteOpen: false,

@@ -1,15 +1,20 @@
 import { emit } from './events.mjs'
+import { emitBizSheetPending } from './routes/biz.mjs'
 
-const POLL_MS = 3000
+const POLL_MS = 1000
 
 function fingerprintPendingSheet(sheet) {
   if (!sheet || typeof sheet !== 'object') return ''
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  const previewId = sheet.preview_id ?? sheet.previewId ?? ''
+  const firstNo = rows[0] && typeof rows[0] === 'object' ? String(rows[0].no || '') : ''
   return JSON.stringify({
     kind: sheet.kind,
     action: sheet.action,
-    previewId: sheet.preview_id ?? sheet.previewId,
-    rowCount: Array.isArray(sheet.rows) ? sheet.rows.length : 0,
-    columns: sheet.columns,
+    previewId,
+    rowCount: rows.length,
+    firstNo,
+    columnsLen: Array.isArray(sheet.columns) ? sheet.columns.length : 0,
     canWrite: sheet.canWrite ?? sheet.can_write,
   })
 }
@@ -65,8 +70,38 @@ function newIncomingMessages(state, knownIds) {
   return messages
 }
 
+function sheetFromState(state) {
+  const raw = state?.pendingSheet ?? state?.pendingWrite
+  if (!raw || typeof raw !== 'object') return null
+  const rowList = Array.isArray(raw.rows) ? raw.rows : []
+  const columnList = Array.isArray(raw.columns) ? raw.columns : []
+  return {
+    kind: String(raw.kind || ''),
+    action: String(raw.action || ''),
+    preview_id: raw.preview_id ?? raw.previewId ?? null,
+    previewId: raw.preview_id ?? raw.previewId ?? null,
+    rows: rowList,
+    columns: columnList,
+    canWrite: Boolean(raw.canWrite ?? raw.can_write),
+    sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
+    workspace: typeof raw.workspace === 'string' ? raw.workspace : undefined,
+  }
+}
+
+function emitPendingSheet(sheet, deps, source = 'lan-assist') {
+  const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
+    ? sheet.workspace
+    : deps.cwd
+  const sessionId = typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined
+  const emitted = emitBizSheetPending(sheet, { sessionId, source, workspaceCwd })
+  if (emitted && typeof deps.onPendingSheet === 'function') {
+    deps.onPendingSheet(sheet, sessionId)
+  }
+  return emitted
+}
+
 /**
- * @param {{ lanAssist: Function, cwd: string }} deps
+ * @param {{ lanAssist: Function, cwd: string, onPendingSheet?: Function }} deps
  */
 export function startLanAssistStateWatch(deps) {
   const { lanAssist, cwd } = deps
@@ -75,44 +110,21 @@ export function startLanAssistStateWatch(deps) {
   let knownIncomingIds = new Set()
   let bootstrapped = false
 
+  const processPendingSheet = (sheet, { force = false } = {}) => {
+    const sheetFp = fingerprintPendingSheet(sheet)
+    if (!sheetFp) return false
+    if (!force && sheetFp === lastSheetFp) return false
+    lastSheetFp = sheetFp
+    return emitPendingSheet(sheet, deps)
+  }
+
   const tick = async () => {
     try {
       const state = await lanAssist('/state', { search: { sessionId: '' } })
       if (!state || state.ok === false) return
 
-      const sheet = state.pendingSheet ?? state.pendingWrite
-      const sheetFp = fingerprintPendingSheet(sheet)
-      if (sheetFp && sheetFp !== lastSheetFp) {
-        lastSheetFp = sheetFp
-        const rowList = Array.isArray(sheet.rows) ? sheet.rows : []
-        const columnList = Array.isArray(sheet.columns) ? sheet.columns : []
-        emit('biz.sheet.pending', {
-          kind: String(sheet.kind || ''),
-          action: String(sheet.action || ''),
-          previewId: sheet.preview_id ?? sheet.previewId ?? undefined,
-          rows: rowList.length,
-          columns: columnList,
-          canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
-          source: 'ai',
-          sheet: {
-            kind: String(sheet.kind || ''),
-            action: String(sheet.action || ''),
-            preview_id: sheet.preview_id ?? sheet.previewId ?? null,
-            previewId: sheet.preview_id ?? sheet.previewId ?? null,
-            rows: rowList,
-            columns: columnList,
-            canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
-            sessionId: typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined,
-          },
-        }, {
-          workspaceCwd: cwd,
-          sessionId: typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined,
-          source: 'lan-assist',
-        })
-        if (typeof deps.onPendingSheet === 'function') {
-          deps.onPendingSheet(sheet, typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined)
-        }
-      }
+      const sheet = sheetFromState(state)
+      if (sheet) processPendingSheet(sheet)
 
       const unread = buildUnread(state)
       const unreadFp = JSON.stringify(unread)
@@ -136,8 +148,20 @@ export function startLanAssistStateWatch(deps) {
     }
   }
 
+  const flushPendingSheet = async () => {
+    try {
+      const state = await lanAssist('/state', { search: { sessionId: '' } })
+      if (!state || state.ok === false) return false
+      const sheet = sheetFromState(state)
+      if (!sheet) return false
+      return processPendingSheet(sheet, { force: true })
+    } catch {
+      return false
+    }
+  }
+
   void tick()
   const timer = setInterval(() => { void tick() }, POLL_MS)
   if (typeof timer.unref === 'function') timer.unref()
-  return () => clearInterval(timer)
+  return { stop: () => clearInterval(timer), flushPendingSheet }
 }

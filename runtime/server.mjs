@@ -2641,11 +2641,14 @@ server.listen(port, host, () => {
     lanAssist: (path, options) => aiRuntime.lanAssist(path, options),
     cwd: FDE_AI_WORKSPACE,
     onPendingSheet: (sheet, sessionId) => {
-      recordSurfaceFromPreview(db, FDE_AI_WORKSPACE, {
+      const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
+        ? sheet.workspace
+        : FDE_AI_WORKSPACE
+      recordSurfaceFromPreview(db, workspaceCwd, {
         kind: sheet.kind,
         action: sheet.action,
         sessionId,
-      }, { sheet }, 'ai')
+      }, { sheet }, 'ai', { emitEvent: false })
     },
   })
   startBriefingScheduler({ db, aiRuntime, defaultCwd: FDE_AI_WORKSPACE })

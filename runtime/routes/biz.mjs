@@ -50,7 +50,49 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
   return { payload }
 }
 
-function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source) {
+/**
+ * Emit biz.sheet.pending for all SSE clients (workspaceCwd null avoids cwd mismatch drops).
+ * @param {Record<string, unknown>} sheet
+ * @param {{ sessionId?: string, source?: string, workspaceCwd?: string }} [meta]
+ */
+export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd } = {}) {
+  if (!sheet || typeof sheet !== 'object') return false
+  const kind = String(sheet.kind || '')
+  const action = String(sheet.action || '')
+  const previewId = sheet.preview_id ?? sheet.previewId
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  const columns = Array.isArray(sheet.columns) ? sheet.columns : []
+  if (!kind || !action) return false
+
+  emit('biz.sheet.pending', {
+    kind,
+    action,
+    previewId: typeof previewId === 'string' ? previewId : undefined,
+    rows: rows.length,
+    columns,
+    canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+    source,
+    sessionId,
+    workspaceCwd: typeof workspaceCwd === 'string' ? workspaceCwd : undefined,
+    sheet: {
+      kind,
+      action,
+      preview_id: typeof previewId === 'string' ? previewId : null,
+      previewId: typeof previewId === 'string' ? previewId : null,
+      rows,
+      columns,
+      canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+      sessionId,
+    },
+  }, {
+    workspaceCwd: null,
+    sessionId,
+    source,
+  })
+  return true
+}
+
+function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emitEvent = true } = {}) {
   const sheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
   const kind = String(sheet?.kind || body.kind || '')
   const action = String(sheet?.action || body.action || '')
@@ -71,29 +113,7 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source) {
     rowCount: rows.length,
     columnsJson: JSON.stringify(columns),
   })
-  emit('biz.sheet.pending', {
-    kind,
-    action,
-    previewId: typeof previewId === 'string' ? previewId : undefined,
-    rows: rows.length,
-    columns,
-    canWrite: Boolean(sheet?.canWrite ?? sheet?.can_write ?? preview?.canWrite),
-    source,
-    sheet: {
-      kind,
-      action,
-      preview_id: typeof previewId === 'string' ? previewId : null,
-      previewId: typeof previewId === 'string' ? previewId : null,
-      rows,
-      columns,
-      canWrite: Boolean(sheet?.canWrite ?? sheet?.can_write ?? preview?.canWrite),
-      sessionId,
-    },
-  }, {
-    workspaceCwd,
-    sessionId,
-    source: 'bff',
-  })
+  if (emitEvent) emitBizSheetPending(sheet, { sessionId, source, workspaceCwd })
 }
 
 function resolveBizWorkspace(url, aiRuntime) {
