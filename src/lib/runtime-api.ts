@@ -840,7 +840,8 @@ export class RuntimeApi {
 
   async imAttach(requestId: string, index: number, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const query = new URLSearchParams({ requestId, index: String(index) })
-    return this.lanAssist(`/attach?${query.toString()}`, { signal })
+    const result = await this.request<{ data: Record<string, unknown> }>(`/api/v1/im/attach?${query.toString()}`, { signal })
+    return result.data
   }
 
   async imThread(input: { peerId?: string; groupId?: string; requestId?: string } = {}, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -848,7 +849,8 @@ export class RuntimeApi {
     if (input.peerId) query.set('peerId', input.peerId)
     if (input.groupId) query.set('groupId', input.groupId)
     if (input.requestId) query.set('requestId', input.requestId)
-    return this.lanAssist(`/thread?${query.toString()}`, { signal })
+    const result = await this.request<{ data: Record<string, unknown> }>(`/api/v1/im/thread?${query.toString()}`, { signal })
+    return result.data
   }
 
   async imTranslate(text: string, signal?: AbortSignal): Promise<{ ok?: boolean; out?: string; lang?: string; error?: string; hint?: string }> {
@@ -1139,7 +1141,7 @@ export class RuntimeApi {
     const route = path.startsWith('/') ? path : `/${path}`
     let response: Response
     try {
-      response = await fetch(`${this.baseUrl}/lan-assist${route}`, {
+      response = await fetch(`/lan-assist${route}`, {
         method: init.method || (init.body ? 'POST' : 'GET'),
         signal: init.signal,
         headers: init.body ? { 'Content-Type': 'application/json' } : undefined,
