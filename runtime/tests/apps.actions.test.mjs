@@ -6,7 +6,14 @@ import { openDatabase } from '../db.mjs'
 import { applyMaterialize } from '../apps/materialize.mjs'
 import { SUPPLIER_VISITS_SPEC } from '../apps/fixtures.mjs'
 import { insertRecord } from '../apps/records.mjs'
-import { buildBizPreviewIntents, executeSetAction, findAction, planSetActionWithApproval } from '../apps/actions.mjs'
+import {
+  buildAgentActionJobs,
+  buildBizPreviewIntents,
+  executeSetAction,
+  findAction,
+  planSetActionWithApproval,
+  renderRowTemplate,
+} from '../apps/actions.mjs'
 
 const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)), '..')
 const CWD = '/tmp/workspace-actions'
@@ -48,6 +55,24 @@ describe('apps actions', () => {
     const step = db.prepare('SELECT * FROM operation_steps WHERE operation_id = ?').get(planned.operationId)
     assert.ok(step)
     db.close()
+  })
+
+  test('agent prompt template renders row fields', () => {
+    const text = renderRowTemplate('跟进 $supplier 于 $visit_date', { supplier: 'ACME', visit_date: '2026-09-01' })
+    assert.equal(text, '跟进 ACME 于 2026-09-01')
+  })
+
+  test('agent builds jobs', () => {
+    const action = {
+      name: 'ai',
+      kind: 'agent',
+      entity: 'visit',
+      agent: { preset: 'fde-app-builder', prompt: '总结 $summary', writeBack: 'summary' },
+    }
+    const jobs = buildAgentActionJobs(action, [{ id: 'r1', summary: '见面聊价' }])
+    assert.equal(jobs[0].preset, 'fde-app-builder')
+    assert.equal(jobs[0].prompt, '总结 见面聊价')
+    assert.equal(jobs[0].writeBack, 'summary')
   })
 
   test('biz builds preview intents', () => {

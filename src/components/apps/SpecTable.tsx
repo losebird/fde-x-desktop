@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { fieldLabel } from '@/components/apps/SpecForm'
-import { type FdeAppSpec, type FdeAppView } from '@/lib/app-spec'
+import { type FdeAppAction, type FdeAppSpec, type FdeAppView } from '@/lib/app-spec'
+import { type AgentWriteBackPrompt, isAgentActionStep, runAppAgentJobs } from '@/lib/app-agent-action'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -21,6 +22,9 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
   const [selected, setSelected] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [actionBusy, setActionBusy] = useState(false)
+  const [writeBackPrompt, setWriteBackPrompt] = useState<AgentWriteBackPrompt | null>(null)
+  const writeBackResolveRef = useRef<((accepted: boolean) => void) | null>(null)
   const columns = view.columns?.length ? view.columns : app.spec.entities.find((e) => e.name === view.entity)?.fields.map((f) => f.name) ?? []
   const entityActions = (app.spec.actions ?? []).filter((a) => a.entity === view.entity)
 
@@ -54,10 +58,53 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
     void load()
   }, [load])
 
-  const runAction = async (name: string) => {
-    if (!selected.length || previewRows) return
+  const promptWriteBack = (next: AgentWriteBackPrompt) => new Promise<boolean>((resolve) => {
+    writeBackResolveRef.current = resolve
+    setWriteBackPrompt(next)
+  })
+
+  const finishWriteBack = (accepted: boolean) => {
+    writeBackResolveRef.current?.(accepted)
+    writeBackResolveRef.current = null
+    setWriteBackPrompt(null)
+  }
+
+  const runAgentAction = async (action: FdeAppAction) => {
+    setActionBusy(true)
+    setError('')
     try {
-      await runtimeApi.runAppAction(app.spec.slug, name, workspaceCwd, selected)
+      const res = await runtimeApi.runAppAction(app.spec.slug, action.name, workspaceCwd, selected)
+      if (!isAgentActionStep(res.data)) {
+        setError('动作响应无效')
+        return
+      }
+      await runAppAgentJobs(res.data.jobs, {
+        appName: app.spec.name,
+        actionLabel: action.label,
+        slug: app.spec.slug,
+        entity: action.entity,
+        workspaceCwd,
+        promptWriteBack,
+        onError: (message) => setError(message),
+      })
+      setSelected([])
+      await load()
+      onRefresh?.()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '动作失败')
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const runAction = async (action: FdeAppAction) => {
+    if (!selected.length || previewRows || actionBusy) return
+    if (action.kind === 'agent') {
+      await runAgentAction(action)
+      return
+    }
+    try {
+      await runtimeApi.runAppAction(app.spec.slug, action.name, workspaceCwd, selected)
       setSelected([])
       await load()
       onRefresh?.()
@@ -94,6 +141,14 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
         )
       })}
       {error && <div className="text-xs text-accent-red">{error}</div>}
+      {writeBackPrompt && (
+        <div className="text-xs flex flex-wrap items-center gap-2">
+          <span className="text-ink-muted">AI 建议（{fieldLabel(app.spec, view.entity, writeBackPrompt.field)}）：</span>
+          <span>{String(writeBackPrompt.value ?? '')}</span>
+          <button type="button" className="btn h-7" onClick={() => finishWriteBack(true)}>写入</button>
+          <button type="button" className="btn h-7" onClick={() => finishWriteBack(false)}>取消</button>
+        </div>
+      )}
       <div className="border border-line overflow-auto">
         <table className="w-full text-xs">
           <thead className="bg-surface-2 border-b border-line">
@@ -149,8 +204,8 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
               key={action.name}
               type="button"
               className="btn h-7"
-              disabled={!selected.length || Boolean(previewRows)}
-              onClick={() => void runAction(action.name)}
+              disabled={!selected.length || Boolean(previewRows) || actionBusy}
+              onClick={() => void runAction(action)}
             >
               {action.label}
             </button>

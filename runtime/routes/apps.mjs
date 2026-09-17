@@ -2,6 +2,7 @@ import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE } from '../config.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { emit } from '../events.mjs'
 import {
+  buildAgentActionJobs,
   buildBizPreviewIntents,
   executeSetAction,
   findAction,
@@ -326,10 +327,11 @@ export async function handleAppsRoutes(request, response, url, deps) {
       return true
     }
     if (action.kind === 'agent') {
-      sendJson(response, 501, {
-        ok: false,
-        error: 'agent_action_deferred',
-        message: 'agent 动作请在前端通过 askAiForResult 执行',
+      const rows = rids.map((rid) => getRecord(db, app.spec, String(action.entity), workspaceCwd, rid)).filter(Boolean)
+      const jobs = buildAgentActionJobs(action, rows)
+      sendJson(response, 200, {
+        ok: true,
+        data: { step: 'agent', jobs },
         correlationId,
       })
       return true

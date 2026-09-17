@@ -121,3 +121,34 @@ function applyBizMap(map, row) {
   }
   return out
 }
+
+/**
+ * Replace `$field` tokens in a prompt template with row values.
+ * @param {string} template
+ * @param {Record<string, unknown>} row
+ */
+export function renderRowTemplate(template, row) {
+  if (typeof template !== 'string') return ''
+  return template.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_match, key) => {
+    const value = row[key]
+    if (value === undefined || value === null) return ''
+    return String(value)
+  })
+}
+
+/**
+ * @param {Record<string, unknown>} action
+ * @param {Record<string, unknown>[]} rows
+ */
+export function buildAgentActionJobs(action, rows) {
+  const agent = action.agent && typeof action.agent === 'object' ? action.agent : {}
+  const preset = String(agent.preset ?? '')
+  const promptTemplate = String(agent.prompt ?? '')
+  const writeBack = typeof agent.writeBack === 'string' && agent.writeBack ? agent.writeBack : undefined
+  return rows.map((row) => ({
+    rid: String(row.id),
+    preset,
+    prompt: renderRowTemplate(promptTemplate, row),
+    writeBack,
+  }))
+}

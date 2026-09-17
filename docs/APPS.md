@@ -22,7 +22,7 @@
 
 - `set`：直接 PATCH 行；`approval:required` → `operations` 待批
 - `biz`：返回 preview intents，前端走 `biz/preview` → `biz/write`
-- `agent`：前端 `askAiForResult`（BFF 501 占位）
+- `agent`：BFF 返回 `{ step:'agent', jobs }`；前端 `askAiForResult` + 可选 `writeBack` 人确认写入
 
 ## 修订
 
