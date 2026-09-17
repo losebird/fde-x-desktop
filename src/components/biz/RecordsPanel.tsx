@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, CircleAlert, Loader2, Plus, Search, ShieldCheck, X } from 'lucide-react'
+import { Bot, CircleAlert, Plus, Search, ShieldCheck } from 'lucide-react'
 import clsx from 'clsx'
-import { Card, Empty, Tag } from '@/components/ui'
+import { Card, Empty } from '@/components/ui'
+import { BizPreviewDrawer } from '@/components/biz/BizPreviewDrawer'
 import { SpecTable } from '@/components/apps/SpecTable'
+import {
+  formatSheetCellValue,
+  normalizeSheetColumns,
+  normalizeSheetRows,
+  sheetRowKey,
+  type SheetColumn,
+  type SheetRow,
+} from '@/lib/biz-sheet-display'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, renderContextForPrompt, type ContextPack } from '@/lib/context-pack'
 import { loadCurrentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
@@ -17,8 +26,8 @@ import { isFdeAppSpec } from '@/lib/app-spec'
 import { peekBizPendingSheet, rememberBizPendingSheet } from '@/lib/biz-session-sheet'
 import { useEvents } from '@/lib/events'
 
-type SheetColumn = { key: string; label?: string }
-type SheetRow = Record<string, unknown>
+const PAGE_SIZE = 10
+
 type PendingSurface = {
   kind: string
   action: string
@@ -48,15 +57,6 @@ type Props = {
   onPlanWithTarget?: (target: { targetRef: string; kind: string; no?: string }) => void
 }
 
-function normalizeRows(raw: unknown): SheetRow[] {
-  if (!Array.isArray(raw)) return []
-  return raw.map((row) => {
-    if (!row || typeof row !== 'object') return {}
-    const r = row as { no?: string; status?: string; fields?: Record<string, unknown> }
-    return { orderId: r.no, status: r.status, ...(r.fields ?? {}), ...row }
-  })
-}
-
 function formatSurfaceTime(at: number) {
   const mins = Math.max(0, Math.round((Date.now() - at) / 60_000))
   if (mins < 1) return '刚刚'
@@ -67,6 +67,43 @@ function formatSurfaceTime(at: number) {
 function sheetPreviewId(sheet: Record<string, unknown>) {
   const id = sheet.preview_id ?? sheet.previewId
   return typeof id === 'string' ? id : ''
+}
+
+function EditableSheetCell({
+  value,
+  onChange,
+}: {
+  value: unknown
+  onChange: (next: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const raw = value == null ? '' : String(value)
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="w-full min-h-8 rounded border border-transparent px-2 py-1.5 text-left text-sm hover:border-line hover:bg-white"
+        onClick={(event) => {
+          event.stopPropagation()
+          setEditing(true)
+        }}
+      >
+        {formatSheetCellValue(value)}
+      </button>
+    )
+  }
+
+  return (
+    <input
+      autoFocus
+      className="input h-8 w-full text-xs"
+      value={raw}
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => onChange(event.target.value)}
+      onBlur={() => setEditing(false)}
+    />
+  )
 }
 
 export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWithTarget }: Props) {
@@ -86,7 +123,16 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const [error, setError] = useState('')
   const [staleHint, setStaleHint] = useState('')
   const [selectedRow, setSelectedRow] = useState<SheetRow | null>(null)
-  const [drawer, setDrawer] = useState<{ previewId: string; sheet: Record<string, unknown>; canWrite: boolean; gateReason?: string } | null>(null)
+  const [page, setPage] = useState(1)
+  const [draftEdits, setDraftEdits] = useState<Record<string, SheetRow>>({})
+  const [createDraft, setCreateDraft] = useState<Record<string, string> | null>(null)
+  const [drawer, setDrawer] = useState<{
+    previewId: string
+    sheet: Record<string, unknown>
+    canWrite: boolean
+    gateReason?: string
+    originalRow?: SheetRow
+  } | null>(null)
   const [contextPack, setContextPack] = useState<ContextPack | null>(null)
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [omit, setOmit] = useState<Set<string>>(new Set())
@@ -148,13 +194,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }, [])
 
   const applySheet = useCallback((sheet: Record<string, unknown>, connName: string, surfaceId?: string) => {
-    const cols = Array.isArray(sheet.columns) ? sheet.columns as SheetColumn[] : []
-    const normalizedCols = cols.map((c) => ({
-      key: String(c.key || c.label || ''),
-      label: String(c.label || c.key || ''),
-    }))
-    setColumns(normalizedCols.length ? normalizedCols : [])
-    setRows(normalizeRows(sheet.rows))
+    const normalizedCols = normalizeSheetColumns(sheet.columns)
+    setColumns(normalizedCols)
+    setRows(normalizeSheetRows(sheet.rows))
+    setDraftEdits({})
+    setPage(1)
     const action = String(sheet.action || '现查')
     const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date())
     setSourceLabel(`${connName} · ${action} ${time}`)
@@ -272,11 +316,15 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     void loadSurfaces()
   })
 
-  const runPreview = useCallback(async (action: string, extra: Record<string, unknown> = {}) => {
+  const runPreview = useCallback(async (
+    action: string,
+    extra: Record<string, unknown> & { originalRow?: SheetRow } = {},
+  ) => {
     if (!lanReady || activeLocalApp || !kind) return
     setLoading(true)
     setError('')
     setStaleHint('')
+    const { originalRow, ...payloadExtra } = extra
     try {
       const conn = connections.find((c) => c.id === connectionId)
       const system = conn?.provider || 'NocoBase'
@@ -286,7 +334,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
         system,
         connectionId,
         speech: `${action}${kind}`,
-        ...extra,
+        ...payloadExtra,
       })
       const sheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
       applySheet(sheet, conn?.name || '连接器')
@@ -298,8 +346,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
           sheet,
           canWrite,
           gateReason: typeof data.hint === 'string' ? data.hint : undefined,
+          originalRow,
         })
       }
+      if (action === '新建') setCreateDraft(null)
       void loadSurfaces()
     } catch (cause) {
       setError(cause instanceof RuntimeApiError ? cause.message : cause instanceof Error ? cause.message : '预览失败')
@@ -363,12 +413,46 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     return rows.filter((row) => Object.values(row).some((v) => String(v).toLowerCase().includes(q)))
   }, [query, rows])
 
+  useEffect(() => {
+    setPage(1)
+  }, [kind, query])
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return filteredRows.slice(start, start + PAGE_SIZE)
+  }, [filteredRows, page])
+
   const tableColumns = useMemo(() => {
     if (columns.length) return columns
     const sample = filteredRows[0]
-    if (sample) return Object.keys(sample).slice(0, 8).map((key) => ({ key, label: key }))
+    if (sample) {
+      return Object.keys(sample)
+        .filter((key) => !['fields', 'preview_id', 'previewId', 'canWrite', 'can_write'].includes(key))
+        .slice(0, 8)
+        .map((key) => ({ key, label: key }))
+    }
     return []
   }, [columns, filteredRows])
+
+  const getRowDraft = useCallback((row: SheetRow, index: number) => {
+    const key = sheetRowKey(row, index)
+    return { ...row, ...(draftEdits[key] ?? {}) }
+  }, [draftEdits])
+
+  const updateDraftCell = useCallback((row: SheetRow, index: number, columnKey: string, value: string) => {
+    const key = sheetRowKey(row, index)
+    setDraftEdits((prev) => ({
+      ...prev,
+      [key]: { ...(prev[key] ?? row), [columnKey]: value },
+    }))
+  }, [])
+
+  const openCreateForm = () => {
+    const next: Record<string, string> = {}
+    for (const column of tableColumns) next[column.key] = ''
+    setCreateDraft(next)
+  }
 
   const confirmWrite = async () => {
     if (!drawer?.previewId) return
@@ -512,7 +596,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
           <input className="input h-8 pl-8 w-48" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索当前记录" />
         </div>
-        <button type="button" className="btn-brand !py-1" disabled={!lanReady || loading || !kind} onClick={() => void runPreview('新建', { input: {} })}>
+        <button type="button" className="btn-brand !py-1" disabled={!lanReady || loading || !kind} onClick={openCreateForm}>
           <Plus size={13} /> 新建
         </button>
         <button type="button" className="btn-brand !py-1" onClick={onPlan}><ShieldCheck size={13} /> 规划数据操作</button>
@@ -543,18 +627,53 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
         </div>
       )}
 
+      {createDraft && (
+        <Card className="!p-3 space-y-3">
+          <div className="text-sm font-medium">新建{kind ? ` · ${kind}` : ''}</div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {tableColumns.map((column) => (
+              <label key={column.key} className="space-y-1">
+                <span className="text-xs text-ink-muted">{column.label || column.key}</span>
+                <input
+                  className="input h-8 w-full text-xs"
+                  value={createDraft[column.key] ?? ''}
+                  onChange={(e) => setCreateDraft((prev) => prev ? { ...prev, [column.key]: e.target.value } : prev)}
+                />
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-brand !py-1"
+              disabled={!lanReady || loading}
+              onClick={() => void runPreview('新建', { input: createDraft })}
+            >
+              预览新建
+            </button>
+            <button type="button" className="btn !py-1" onClick={() => setCreateDraft(null)}>取消</button>
+          </div>
+        </Card>
+      )}
+
       <Card className="!p-0 overflow-x-auto">
+        {sourceLabel && (
+          <div className="px-3 py-2 border-b border-line text-xs text-ink-muted bg-surface-2">
+            来源：{sourceLabel}
+          </div>
+        )}
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-ink-muted border-b border-line bg-surface-2">
-              {tableColumns.map((column) => <th key={column.key} className="px-3 py-2.5 font-medium">{column.label}</th>)}
-              <th className="px-3 py-2.5 font-medium text-right">操作</th>
-              <th className="px-3 py-2.5 font-medium text-right">来源</th>
+              {tableColumns.map((column) => <th key={column.key} className="px-3 py-2.5 font-medium whitespace-nowrap">{column.label || column.key}</th>)}
+              <th className="px-3 py-2.5 font-medium text-right whitespace-nowrap">操作</th>
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((row, index) => {
-              const rowKey = String(row.orderId ?? row.no ?? index)
+            {paginatedRows.map((row, index) => {
+              const absoluteIndex = (page - 1) * PAGE_SIZE + index
+              const rowKey = sheetRowKey(row, absoluteIndex)
+              const draftRow = getRowDraft(row, absoluteIndex)
               const isPending = pending?.action && pending.action !== '现查' && pending.kind === kind
               return (
                 <tr
@@ -567,23 +686,46 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
                   onClick={() => setSelectedRow(row)}
                 >
                   {tableColumns.map((column) => (
-                    <td key={column.key} className="px-3 py-2.5 whitespace-nowrap">{String(row[column.key] ?? '')}</td>
+                    <td key={column.key} className="px-3 py-2 align-top min-w-[120px]">
+                      <EditableSheetCell
+                        value={draftRow[column.key]}
+                        onChange={(next) => updateDraftCell(row, absoluteIndex, column.key, next)}
+                      />
+                    </td>
                   ))}
-                  <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                    <button type="button" className="btn !py-0.5 !text-[11px] mr-1" disabled={!lanReady} onClick={(e) => { e.stopPropagation(); void runPreview('改行', { no: rowKey, input: row }) }}>改行</button>
-                    <button type="button" className="btn !py-0.5 !text-[11px] mr-1" disabled={!lanReady} onClick={(e) => { e.stopPropagation(); void runPreview('删除', { no: rowKey }) }}>删除</button>
-                    <button type="button" className="btn !py-0.5 !text-[11px]" disabled={!lanReady} onClick={(e) => { e.stopPropagation(); void runPreview('过审', { no: rowKey }) }}>过审</button>
+                  <td className="px-3 py-2 text-right whitespace-nowrap align-top">
+                    <button
+                      type="button"
+                      className="btn !py-0.5 !text-[11px] mr-1"
+                      disabled={!lanReady || loading}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void runPreview('改行', { no: rowKey, input: draftRow, originalRow: row })
+                      }}
+                    >
+                      改行
+                    </button>
+                    <button type="button" className="btn !py-0.5 !text-[11px] mr-1" disabled={!lanReady || loading} onClick={(e) => { e.stopPropagation(); void runPreview('删除', { no: rowKey }) }}>删除</button>
+                    <button type="button" className="btn !py-0.5 !text-[11px]" disabled={!lanReady || loading} onClick={(e) => { e.stopPropagation(); void runPreview('过审', { no: rowKey }) }}>过审</button>
                   </td>
-                  <td className="px-3 py-2.5 text-right"><Tag>{sourceLabel || 'AI 浮现'}</Tag></td>
                 </tr>
               )
             })}
-            {filteredRows.length === 0 && (
-              <tr><td colSpan={tableColumns.length + 2} className="px-3 py-12 text-center text-sm text-ink-muted">{loading ? '加载中…' : (staleHint || '当前型还没有可展示的行')}</td></tr>
+            {paginatedRows.length === 0 && (
+              <tr><td colSpan={tableColumns.length + 1} className="px-3 py-12 text-center text-sm text-ink-muted">{loading ? '加载中…' : (staleHint || '当前型还没有可展示的行')}</td></tr>
             )}
           </tbody>
         </table>
       </Card>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
+        <span>共 {filteredRows.length} 条{sourceLabel ? ` · ${sourceLabel}` : ''}</span>
+        <div className="flex items-center gap-2">
+          <span>第 {page} / {totalPages} 页</span>
+          <button type="button" className="btn h-7" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>上一页</button>
+          <button type="button" className="btn h-7" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>下一页</button>
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="btn-brand !py-1" disabled={!selectedRow} onClick={() => void askAiForRow()}>
@@ -616,26 +758,16 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       </div>
 
       {drawer && (
-        <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white border-l border-line shadow-lg z-40 flex flex-col">
-          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-            <div className="text-sm font-medium">预览确认</div>
-            <button type="button" className="btn !py-1" onClick={() => setDrawer(null)}><X size={14} /></button>
-          </div>
-          <div className="p-4 flex-1 overflow-auto text-xs">
-            <pre className="font-mono whitespace-pre-wrap break-all">{JSON.stringify(drawer.sheet, null, 2)}</pre>
-          </div>
-          <div className="p-4 border-t border-line">
-            <button
-              type="button"
-              className="btn-brand w-full"
-              disabled={!drawer.canWrite || loading}
-              title={drawer.canWrite ? '' : (drawer.gateReason || '当前令牌不允许写入')}
-              onClick={() => void confirmWrite()}
-            >
-              {loading ? <Loader2 size={14} className="animate-spin" /> : '确认过账'}
-            </button>
-          </div>
-        </div>
+        <BizPreviewDrawer
+          sheet={drawer.sheet}
+          canWrite={drawer.canWrite}
+          loading={loading}
+          gateReason={drawer.gateReason}
+          originalRow={drawer.originalRow}
+          columns={columns}
+          onClose={() => setDrawer(null)}
+          onConfirm={() => void confirmWrite()}
+        />
       )}
     </div>
   )
