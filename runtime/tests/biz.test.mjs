@@ -21,6 +21,13 @@ describe('biz surfaces and live execute', () => {
     assert.match(source, /'\/traces'/)
   })
 
+  test('biz kinds/traces forward workspace to lan-assist catalog/traces', () => {
+    const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
+    assert.match(source, /lanAssist\('\/catalog',\s*\{\s*search:\s*\{\s*workspace/)
+    assert.match(source, /lanAssist\('\/traces',\s*\{\s*search:\s*\{\s*workspace/)
+    assert.doesNotMatch(source, /\/catalog',\s*\{\s*search:\s*\{\s*sessionId/)
+  })
+
   test('biz_surfaces insert and list', () => {
     const db = openDatabase(`/tmp/fde-biz-surface-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     insertBizSurface(db, {

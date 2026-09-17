@@ -82,6 +82,14 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source) {
   })
 }
 
+function resolveBizWorkspace(url, aiRuntime) {
+  const fromQuery = String(url.searchParams.get('workspace') || url.searchParams.get('cwd') || '').trim()
+  if (fromQuery.startsWith('/')) return fromQuery
+  const fromRuntime = typeof aiRuntime?.cwd === 'string' ? aiRuntime.cwd.trim() : ''
+  if (fromRuntime.startsWith('/')) return fromRuntime
+  return FDE_AI_WORKSPACE
+}
+
 function mapKindsFromCatalog(catalogPayload) {
   const kindsRaw = Array.isArray(catalogPayload?.kinds) ? catalogPayload.kinds : []
   const kinds = kindsRaw.map((row) => {
@@ -120,8 +128,9 @@ export async function handleBizRoutes(request, response, url, deps) {
   if (!url.pathname.startsWith('/api/v1/biz')) return false
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/kinds') {
+    const workspace = resolveBizWorkspace(url, aiRuntime)
     try {
-      const catalog = await aiRuntime.lanAssist('/catalog', { search: { sessionId: '' } })
+      const catalog = await aiRuntime.lanAssist('/catalog', { search: { workspace } })
       if (catalog && catalog.ok === false) {
         sendError(response, 503, catalog.error || 'NO_CATALOG', catalog.hint || '事务底座未就绪', correlationId)
         return true
@@ -134,9 +143,10 @@ export async function handleBizRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/traces') {
+    const workspace = resolveBizWorkspace(url, aiRuntime)
     const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 50)))
     try {
-      const traces = await aiRuntime.lanAssist('/traces', { search: { limit: String(limit) } })
+      const traces = await aiRuntime.lanAssist('/traces', { search: { workspace, limit: String(limit) } })
       const rows = Array.isArray(traces?.rows) ? traces.rows : []
       sendJson(response, 200, { data: { rows, receipt: traces?.receipt ?? null }, correlationId })
     } catch (error) {
