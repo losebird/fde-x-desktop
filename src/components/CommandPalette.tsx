@@ -5,6 +5,7 @@ import { loadCurrentAiTarget } from '@/lib/ai-target'
 import { Search, FileText, MessageSquare, Bot, CheckSquare, LayoutGrid, Repeat, Brain } from 'lucide-react'
 import { useApp, useCurrentFiles, useCurrentAgents, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
 import { useNavigate } from 'react-router-dom'
+import { openRef, type OpenRefHref } from '@/lib/open-ref'
 
 type Result = {
   group: string
@@ -183,7 +184,18 @@ export function CommandPalette() {
       list.push({
         group: '记忆', icon: Brain, id: `m_${row.id}`, title: row.snippet.slice(0, 40) || row.title,
         hint: row.title,
-        action: () => { togglePanel('memory', 'full'); close(); navigate('/ai') },
+        action: () => {
+          close()
+          navigate('/ai')
+          if (row.id && !row.id.startsWith('session:')) {
+            void runtimeApi.fetchCorpus(row.id).then((doc) => {
+              if (doc.href) openRef(doc.href as OpenRefHref)
+              else togglePanel('memory', 'full')
+            }).catch(() => togglePanel('memory', 'full'))
+            return
+          }
+          togglePanel('memory', 'full')
+        },
       })
     })
     pages.filter((p) => !q || p.title.includes(q)).forEach((p) => list.push(p))

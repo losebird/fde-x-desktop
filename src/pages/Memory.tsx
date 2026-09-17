@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loadCurrentAiTarget } from '@/lib/ai-target'
+import { openRef } from '@/lib/open-ref'
 import { PageTitle, Empty } from '@/components/ui'
 import { runtimeApi } from '@/lib/runtime-api'
 import { useApp, useCurrentWorkspace, useWorkspaces } from '@/store/app'
@@ -649,7 +650,10 @@ function FindPanel() {
     <div className="min-w-0">
       <input className="input w-full mb-3" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜当前工作区" />
       {note && !hits.length && <div className="text-xs text-ink-muted">{note}</div>}
-      {hits.map((row, index) => (
+      {hits.map((row, index) => {
+        const hitId = String(row.id || '')
+        const isSession = hitId.startsWith('session:')
+        return (
         <div key={String(row.id || index)} className="text-xs border border-line rounded p-2 mb-2 break-words min-w-0">
           <div className="text-ink-subtle mb-1">{hitWhen(row) || String(row.title || row.id || '')}</div>
           {String(row.snippet || row.excerpt || row.text || row.content || '')}
@@ -661,12 +665,20 @@ function FindPanel() {
                   setNote(target.error)
                   return
                 }
-                return runtimeApi.promptAi(target.sessionId, { text: `【记忆摘录】\n${snippet}\n出处 ${String(row.id || '')}` })
+                return runtimeApi.promptAi(target.sessionId, { text: `【记忆摘录】\n${snippet}\n出处 ${hitId}` })
               }).then(() => {
                 useApp.getState().togglePanel('memory', 'tab')
                 nav('/ai')
               }).catch((cause) => setNote(cause instanceof Error ? cause.message : '没问出去'))
-            }}>问这条</button>
+            }}>问 AI</button>
+            {!isSession && hitId && (
+              <button type="button" className="btn h-7 px-2" onClick={() => {
+                void runtimeApi.fetchCorpus(hitId).then((doc) => {
+                  if (doc.href) openRef(doc.href)
+                  else setNote('找不到来源跳转')
+                }).catch((cause) => setNote(cause instanceof Error ? cause.message : '读不出来源'))
+              }}>打开来源</button>
+            )}
             {sessionIdFromHit(row) && (
               <button type="button" className="btn h-7 px-2" onClick={() => {
                 const sid = sessionIdFromHit(row)
@@ -677,7 +689,8 @@ function FindPanel() {
             )}
           </div>
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
