@@ -138,8 +138,22 @@ function apply(ctx) {
       handler,
     }))
   }
+  void (async () => {
+    try {
+      const { defineTool } = await import('@deepseek-ai/dsh-tools')
+      const { registerTools } = require('./tools.js')
+      registerTools(ctx, { defineTool })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (ctx.logger && typeof ctx.logger.warn === 'function') {
+        ctx.logger.warn(`[fde-x-dsh-bridge] tools: ${message}`)
+      } else {
+        console.warn(`[fde-x-dsh-bridge] tools: ${message}`)
+      }
+    }
+  })()
 }
 
-module.exports = { apply, inject: ['webServer'] }
+module.exports = { apply, inject: ['webServer', 'tools'] }
 exports.apply = apply
-exports.inject = ['webServer']
+exports.inject = ['webServer', 'tools']
