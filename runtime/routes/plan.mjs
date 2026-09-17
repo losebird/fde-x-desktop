@@ -1,4 +1,5 @@
 import { createId } from '../db.mjs'
+import { emit } from '../events.mjs'
 
 const TASK_STATUSES = new Set(['todo', 'doing', 'done', 'archived'])
 const WORKFLOW_WRITE_STATUSES = new Set(['active', 'paused'])
@@ -104,14 +105,21 @@ function requireWorkspaceId(workspaceId, response, correlationId) {
   return workspaceId.trim()
 }
 
-function emitTaskChanged(db, enqueueEvent, { id, op, workspaceId, correlationId }) {
-  enqueueEvent(db, {
-    type: 'task.changed',
-    sourceRef: `fde://workstation/task/${id}`,
-    subjectRef: `fde://workstation/workspace/${workspaceId}`,
-    correlationId,
-    payload: { id, op },
-  })
+function workspaceCwdForEmit(db, workspaceId) {
+  const row = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(workspaceId)
+  if (!row) return null
+  try {
+    const meta = JSON.parse(row.metadata_json ?? '{}')
+    const raw = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
+    const cwd = String(raw).trim()
+    return cwd.startsWith('/') ? cwd : null
+  } catch {
+    return null
+  }
+}
+
+function emitTaskChanged(db, { id, op, workspaceId }) {
+  emit('task.changed', { id, op }, { workspaceCwd: workspaceCwdForEmit(db, workspaceId) })
 }
 
 function workspaceExists(db, workspaceId) {
@@ -172,7 +180,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       VALUES (?, ?, ?, '', ?, ?, ?, ?, '{}', ?, ?, ?, ?)
     `).run(id, workspaceId, title, status, priority, dueAt, completedAt, sourceRef, JSON.stringify(tags), now, now)
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
-    emitTaskChanged(db, enqueueEvent, { id, op: 'insert', workspaceId, correlationId })
+    emitTaskChanged(db, { id, op: 'insert', workspaceId })
     planOk(response, 201, mapTask(row), correlationId)
     return true
   }
@@ -214,7 +222,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const sets = keys.map((k) => `${k} = ?`).join(', ')
     db.prepare(`UPDATE tasks SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k]), now, id)
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
-    emitTaskChanged(db, enqueueEvent, { id, op: 'update', workspaceId: row.workspace_id, correlationId })
+    emitTaskChanged(db, { id, op: 'update', workspaceId: row.workspace_id })
     planOk(response, 200, mapTask(row), correlationId)
     return true
   }
@@ -228,7 +236,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       return true
     }
     db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
-    emitTaskChanged(db, enqueueEvent, { id, op: 'delete', workspaceId: existing.workspace_id, correlationId })
+    emitTaskChanged(db, { id, op: 'delete', workspaceId: existing.workspace_id })
     planOk(response, 200, { id }, correlationId)
     return true
   }
