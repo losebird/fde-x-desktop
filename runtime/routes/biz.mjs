@@ -14,21 +14,33 @@ function bizWriteFailureMessage(error, fallback = '过账失败，请重新预�
   return error instanceof Error ? error.message : fallback
 }
 
+const RECORD_ACTION_ALIASES = {
+  'record.update': '改行',
+  'record.create': '新建',
+  'record.delete': '删除',
+  'record.read': '现查',
+}
+
+function resolveGateAction(rawAction) {
+  const trimmed = typeof rawAction === 'string' ? rawAction.trim() : ''
+  if (!trimmed) return ''
+  if (RECORD_ACTION_ALIASES[trimmed]) return RECORD_ACTION_ALIASES[trimmed]
+  if (trimmed.startsWith('record.')) return ''
+  return trimmed
+}
+
+function actionUsesPreviewWhere(action) {
+  return action === '现查' || action === '删除' || action === '过审'
+}
+
+function actionUsesPreviewPatch(action) {
+  return action === '改行' || action === '新建'
+}
+
 export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
-  const actionMap = {
-    'record.update': '改行',
-    'record.create': '新建',
-    'record.delete': '删除',
-    'record.read': '现查',
-    现查: '现查',
-    过审: '过审',
-    改行: '改行',
-    删除: '删除',
-    新建: '新建',
-  }
   const rawAction = typeof body.action === 'string' ? body.action.trim() : ''
-  const action = actionMap[rawAction]
-  if (!action) return { error: '操作无法翻译成业务闸动作（现查/改行/新建/删除/过审）' }
+  const action = resolveGateAction(rawAction)
+  if (!action) return { error: '操作无法翻译成业务闸动作' }
 
   let kind = typeof body.kind === 'string' ? body.kind.trim() : ''
   let system = typeof body.system === 'string' ? body.system : ''
@@ -52,8 +64,11 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
     ...(typeof body.env === 'string' && body.env ? { env: body.env } : {}),
     ...(no ? { no } : {}),
     ...(cwd ? { workspace: cwd } : {}),
-    ...(action === '改行' || action === '新建' ? { patch: input } : {}),
-    ...(action === '现查' || action === '删除' || action === '过审'
+    ...(actionUsesPreviewPatch(action)
+      || (!actionUsesPreviewWhere(action) && action !== '现查' && Object.keys(input).length)
+      ? { patch: input }
+      : {}),
+    ...(actionUsesPreviewWhere(action)
       ? { where: normalizePreviewWhere(body.where) }
       : {}),
   }
@@ -147,7 +162,15 @@ function mapKindsFromCatalog(catalogPayload) {
     const kind = String(row.kind || row.name || '')
     const label = String(row.label || row.speak || kind)
     const fields = Array.isArray(row.fields) ? row.fields : []
-    return { kind, label, fields }
+    const can = Array.isArray(row.can) ? row.can : undefined
+    const relations = Array.isArray(row.relations) ? row.relations : undefined
+    return {
+      kind,
+      label,
+      fields,
+      ...(can ? { can } : {}),
+      ...(relations ? { relations } : {}),
+    }
   })
   return {
     kinds,

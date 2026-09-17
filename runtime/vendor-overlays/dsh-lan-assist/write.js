@@ -429,11 +429,8 @@ export function vocabRow(kind, vocab) {
 export function actionAllowed(action, row) {
   const act = String(action || '').trim()
   const can = (row && row.can) || []
-  if (act === '过审') return can.includes('过审')
-  if (act === '改行' || act === '删除' || act === '新建' || act === '现查') {
-    return can.includes('现查') || can.includes('改行') || can.includes('过审') || can.includes(act)
-  }
-  return false
+  if (!act) return false
+  return can.includes(act)
 }
 
 export function nextStatus(action, status) {

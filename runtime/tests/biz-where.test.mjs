@@ -33,4 +33,10 @@ describe('biz preview where pass-through', () => {
     assert.equal(out.payload.action, '现查')
     assert.deepEqual(out.payload.where, [{ dateAfter: ['日期'], values: ['2026'] }])
   })
+
+  test('translateBizIntent passes through gate action tokens from vocab', () => {
+    const out = translateBizIntent({ kind: '采购单', action: '过审', no: 'PO-1' }, '/tmp/ws')
+    assert.equal(out.payload.action, '过审')
+    assert.equal(out.payload.no, 'PO-1')
+  })
 })

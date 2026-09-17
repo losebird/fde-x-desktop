@@ -7,6 +7,7 @@ import { normalizeAliasWhere } from './where-pass.js'
 
 export const PAGE_SIZE = 20
 export const BATCH_LIMIT = 100
+/** @deprecated Prefer each kind's `can`; kept for callers that union catalog actions. */
 export const PLAN_ACTIONS = ['现查', '改行', '删除', '新建', '过审']
 
 function list(value) {
@@ -75,7 +76,7 @@ function defaultSteps(spec, where) {
  */
 export function normalizePlan(spec = {}) {
   const actionRaw = String(spec.action || '').trim()
-  const action = PLAN_ACTIONS.includes(actionRaw) ? actionRaw : '现查'
+  const action = actionRaw || '现查'
   const where = normalizeWhere(spec.where)
   const steps = Array.isArray(spec.steps) && spec.steps.length
     ? spec.steps.map((row) => normalizeStep(row, spec.kind)).filter((step) => step.kind)

@@ -1,6 +1,10 @@
 export type SheetColumn = { key: string; label?: string }
 export type SheetRow = Record<string, unknown>
 
+export function isBizListQueryAction(action: string) {
+  return String(action || '').trim() === '现查'
+}
+
 const INTERNAL_KEYS = new Set([
   'fields',
   'preview_id',

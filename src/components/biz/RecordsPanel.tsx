@@ -6,6 +6,7 @@ import { BizPreviewDrawer } from '@/components/biz/BizPreviewDrawer'
 import { SpecTable } from '@/components/apps/SpecTable'
 import {
   formatSheetCellValue,
+  isBizListQueryAction,
   normalizeSheetColumns,
   normalizeSheetRows,
   sheetRowKey,
@@ -103,7 +104,7 @@ function sheetPreviewId(sheet: Record<string, unknown>) {
 
 function isWritePreviewSheet(sheet: Record<string, unknown>) {
   const action = String(sheet.action || '')
-  return Boolean(sheetPreviewId(sheet) && action !== '现查')
+  return Boolean(sheetPreviewId(sheet) && !isBizListQueryAction(action))
 }
 
 function isSingleRowWritePreview(sheet: Record<string, unknown>) {
@@ -214,6 +215,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const [contextPack, setContextPack] = useState<ContextPack | null>(null)
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [omit, setOmit] = useState<Set<string>>(new Set())
+  const [kindCatalog, setKindCatalog] = useState<Array<{ kind: string; label: string; can: string[] }>>([])
   const sheetSnapshots = useRef<Map<string, SheetSnapshot>>(new Map())
   const priorListSheetByKind = useRef<Map<string, SheetSnapshot>>(new Map())
   const listRestoreRef = useRef<ListRestoreSnapshot | null>(null)
@@ -247,6 +249,16 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     return [...byKind.values()].sort((a, b) => b.latestAt - a.latestAt)
   }, [surfaces, pending])
 
+  const currentKindCan = useMemo(() => {
+    const row = kindCatalog.find((item) => item.kind === kind)
+    return row?.can?.length ? row.can : []
+  }, [kind, kindCatalog])
+
+  const rowActions = useMemo(
+    () => currentKindCan.filter((action) => action !== '现查' && action !== '新建'),
+    [currentKindCan],
+  )
+
   const pendingRowTotal = pending?.rows ?? 0
   const hasSurfacedData = rows.length > 0
     || (pendingRowTotal > 0 && Boolean(pending?.kind))
@@ -266,6 +278,22 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     const ws = loadCurrentWorkspaceCwd()
     if (ws.ok) setWorkspaceCwd(ws.cwd)
   }, [])
+
+  useEffect(() => {
+    if (!runtimeReady || !workspaceCwd) return
+    let cancelled = false
+    void runtimeApi.listBizKinds().then((data) => {
+      if (cancelled) return
+      setKindCatalog(data.kinds.map((row) => ({
+        kind: row.kind,
+        label: row.label,
+        can: Array.isArray(row.can) ? row.can.map(String) : [],
+      })))
+    }).catch(() => {
+      if (!cancelled) setKindCatalog([])
+    })
+    return () => { cancelled = true }
+  }, [runtimeReady, workspaceCwd])
 
   const seedKindListSnapshot = useCallback((snapshot: SheetSnapshot) => {
     const k = String(snapshot.sheet.kind || '')
@@ -325,7 +353,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     if (currentRows === 0) return false
     const action = String(incomingSheet.action || '')
     const incomingCount = Array.isArray(incomingSheet.rows) ? incomingSheet.rows.length : 0
-    const postAction = action !== '现查'
+    const postAction = !isBizListQueryAction(action)
     const narrowing = incomingCount > 0 && incomingCount < currentRows
     if (listRestoreRef.current) {
       return currentRows > 1 && (postAction || narrowing)
@@ -478,7 +506,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     const conn = connections.find((c) => c.id === connectionId) || connections[0]
     const previewId = sheetPreviewId(sheet)
     const action = String(sheet.action || '')
-    const isWritePreview = Boolean(previewId && action !== '现查')
+    const isWritePreview = Boolean(previewId && !isBizListQueryAction(action))
     if (isWritePreview) ensureListRestoreBeforeWritePreview(sheet)
     if (isWritePreview && isBizPreviewDismissed(sheet)) {
       if (listRestoreRef.current) return true
@@ -660,10 +688,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       const sheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
       const previewId = sheetPreviewId(sheet)
       const canWrite = Boolean(sheet.canWrite ?? sheet.can_write ?? data.canWrite)
-      if (action !== '现查' && previewId) ensureListRestoreBeforeWritePreview(sheet)
+      if (!isBizListQueryAction(action) && previewId) ensureListRestoreBeforeWritePreview(sheet)
       maybeSaveListRestore(sheet)
       applySheet(sheet, conn?.name || '连接器')
-      if (action !== '现查' && previewId) {
+      if (!isBizListQueryAction(action) && previewId) {
         clearBizPreviewDismissed(previewId)
         setDrawer({
           previewId,
@@ -690,7 +718,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     if (cached) {
       maybeSaveListRestore(cached.sheet)
       applySheet(cached.sheet, cached.connName, surface.id)
-      if (surface.previewId && surface.action !== '现查' && !isBizPreviewDismissed({ previewId: surface.previewId, action: surface.action })) {
+      if (surface.previewId && !isBizListQueryAction(surface.action) && !isBizPreviewDismissed({ previewId: surface.previewId, action: surface.action })) {
         setDrawer({
           previewId: surface.previewId,
           sheet: cached.sheet,
@@ -704,7 +732,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       setRows([])
       setColumns(Array.isArray(surface.columns) ? surface.columns as SheetColumn[] : [])
       setStaleHint('该条浮现的行已不在待确认区；请在 AI 会话里重新现查或改行。')
-    } else if (surface.previewId && surface.action !== '现查' && !isBizPreviewDismissed({ previewId: surface.previewId, action: surface.action })) {
+    } else if (surface.previewId && !isBizListQueryAction(surface.action) && !isBizPreviewDismissed({ previewId: surface.previewId, action: surface.action })) {
       const snap = sheetSnapshots.current.get(`surface:${surface.id}`)
       setDrawer({
         previewId: surface.previewId,
@@ -871,7 +899,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }
 
   const pendingText = pending
-    ? pending.action === '现查' || pending.source === 'ai'
+    ? isBizListQueryAction(pending.action) || pending.source === 'ai'
       ? `AI 刚查了 ${pending.kind} · ${pending.rows} 行${pending.sessionId ? ` · 会话 ${pending.sessionId.slice(0, 8)}` : ''} · ${formatSurfaceTime(pending.at)}`
       : `AI 拟改 ${pending.kind} ${pending.rows} 行 · 待确认`
     : ''
@@ -936,9 +964,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
           <input className="input h-8 pl-8 w-48" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索当前记录" />
         </div>
+        {currentKindCan.includes('新建') && (
         <button type="button" className="btn-brand !py-1" disabled={!lanReady || loading || !kind} onClick={openCreateForm}>
           <Plus size={13} /> 新建
         </button>
+        )}
         <button type="button" className="btn-brand !py-1" onClick={onPlan}><ShieldCheck size={13} /> 规划数据操作</button>
       </Card>
 
@@ -1019,7 +1049,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
               const absoluteIndex = (page - 1) * PAGE_SIZE + index
               const rowKey = sheetRowKey(row, absoluteIndex)
               const draftRow = getRowDraft(row, absoluteIndex)
-              const isPending = pending?.action && pending.action !== '现查' && pending.kind === kind
+              const isPending = pending?.action && !isBizListQueryAction(pending.action) && pending.kind === kind
               return (
                 <tr
                   key={rowKey}
@@ -1039,19 +1069,23 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
                     </td>
                   ))}
                   <td className="px-3 py-2 text-right whitespace-nowrap align-top">
-                    <button
-                      type="button"
-                      className="btn !py-0.5 !text-[11px] mr-1"
-                      disabled={!lanReady || loading}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void runPreview('改行', { no: rowKey, input: draftRow, originalRow: row })
-                      }}
-                    >
-                      改行
-                    </button>
-                    <button type="button" className="btn !py-0.5 !text-[11px] mr-1" disabled={!lanReady || loading} onClick={(e) => { e.stopPropagation(); void runPreview('删除', { no: rowKey }) }}>删除</button>
-                    <button type="button" className="btn !py-0.5 !text-[11px]" disabled={!lanReady || loading} onClick={(e) => { e.stopPropagation(); void runPreview('过审', { no: rowKey }) }}>过审</button>
+                    {rowActions.map((rowAction, actionIndex) => (
+                      <button
+                        key={rowAction}
+                        type="button"
+                        className={clsx('btn !py-0.5 !text-[11px]', actionIndex < rowActions.length - 1 && 'mr-1')}
+                        disabled={!lanReady || loading}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const extra = rowAction === '改行'
+                            ? { no: rowKey, input: draftRow, originalRow: row }
+                            : { no: rowKey }
+                          void runPreview(rowAction, extra)
+                        }}
+                      >
+                        {rowAction}
+                      </button>
+                    ))}
                   </td>
                 </tr>
               )

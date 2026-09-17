@@ -7,27 +7,42 @@
 import { ensureSpoken } from './vocab/spoken.js'
 
 const SPEAK_ONLY = new Set(['问句', '型', '动作', '列举', '助词', '标点', '连接', '改写', '焦点', '口语', '单号列', '关联列', '时间', '交接'])
-const WRITE_CODES = ['删除', '新建', '过审', '改行', '现查']
+const ACTION_PRIORITY = ['删除', '新建', '过审', '改行', '现查']
+
+function collectActionCodes(extra) {
+  const codes = new Set()
+  for (const row of vocabRows(extra)) {
+    for (const item of Array.isArray(row.can) ? row.can : []) {
+      const s = String(item || '').trim()
+      if (s) codes.add(s)
+    }
+  }
+  for (const clue of actionClues(extra)) {
+    for (const item of clue.values || []) {
+      const s = String(item || '').trim()
+      if (s) codes.add(s)
+    }
+  }
+  return codes
+}
 
 export function parseWriteAction(text, extra) {
   const s = String(text || '')
   if (!s.trim()) return null
+  const allowed = collectActionCodes(extra)
   const rows = actionClues(extra)
   const hit = []
   for (const row of rows) {
     if (!row.re) continue
     row.re.lastIndex = 0
     if (!row.re.test(s)) continue
-    const code = WRITE_CODES.find((item) => (row.values || []).includes(item))
+    const code = (row.values || []).find((item) => allowed.has(String(item || '').trim()))
     if (code) hit.push(code)
   }
-  if (hit.includes('删除')) return '删除'
-  if (hit.includes('新建')) return '新建'
-  if (hit.includes('过审')) return '过审'
-  if (hit.includes('改行') && !hit.includes('过审')) return '改行'
-  if (hit.includes('现查') && !hit.some((item) => item !== '现查')) return '现查'
-  if (hit.includes('现查')) return '现查'
-  return null
+  for (const code of ACTION_PRIORITY) {
+    if (hit.includes(code)) return code
+  }
+  return hit[0] || null
 }
 
 export function looksLikeTicket(value) {

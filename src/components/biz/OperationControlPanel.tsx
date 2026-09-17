@@ -10,6 +10,7 @@ import {
   type OperationTrace,
   type RuntimeOperation,
 } from '@/lib/runtime-api'
+import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import type { BusinessTable } from '@/lib/types'
 import type { JsonValue, RiskLevel } from '@/lib/contracts'
 
@@ -65,6 +66,19 @@ const ACTION_OPTIONS: Array<[string, string]> = [
   ['过审', '过审'],
 ]
 
+function kindFromTargetRef(targetRef: string) {
+  const match = targetRef.match(/\/table\/([^/]+)/u)
+  return match ? decodeURIComponent(match[1]) : ''
+}
+
+function gateActionToRecordAction(action: string) {
+  if (action === '现查') return 'record.read'
+  if (action === '改行') return 'record.update'
+  if (action === '新建') return 'record.create'
+  if (action === '删除') return 'record.delete'
+  return action
+}
+
 function planSummary(operation: RuntimeOperation): string {
   const plan = operation.plan && typeof operation.plan === 'object' ? operation.plan as Record<string, unknown> : {}
   const kind = String(plan.kind || '')
@@ -106,6 +120,38 @@ export function OperationControlPanel({
   const [selectedId, setSelectedId] = useState(operations[0]?.id ?? '')
   const [trace, setTrace] = useState<OperationTrace | null>(null)
   const [traceLoading, setTraceLoading] = useState(false)
+  const [kindCatalog, setKindCatalog] = useState<Array<{ kind: string; can: string[] }>>([])
+
+  useEffect(() => {
+    if (!runtimeReady) return
+    let cancelled = false
+    const ws = loadCurrentWorkspaceCwd()
+    if (!ws.ok) return
+    void runtimeApi.listBizKinds().then((data) => {
+      if (cancelled) return
+      setKindCatalog(data.kinds.map((row) => ({
+        kind: row.kind,
+        can: Array.isArray(row.can) ? row.can.map(String) : [],
+      })))
+    }).catch(() => {
+      if (!cancelled) setKindCatalog([])
+    })
+    return () => { cancelled = true }
+  }, [runtimeReady])
+
+  const actionOptions = useMemo(() => {
+    const kindName = kindFromTargetRef(targetRef) || defaultTable?.name || ''
+    const row = kindCatalog.find((item) => item.kind === kindName)
+    const can = row?.can?.length ? row.can : ACTION_OPTIONS.map(([value]) => value)
+    return can.map((value) => [value, value] as [string, string])
+  }, [defaultTable?.name, kindCatalog, targetRef])
+
+  useEffect(() => {
+    if (!actionOptions.length) return
+    if (!actionOptions.some(([value]) => value === action)) {
+      setAction(actionOptions[0][0])
+    }
+  }, [action, actionOptions])
 
   useEffect(() => {
     if (initialTarget) {
@@ -158,11 +204,7 @@ export function OperationControlPanel({
         setError('输入数据不是有效 JSON')
         return
       }
-      const recordAction = action === '现查' ? 'record.read'
-        : action === '改行' ? 'record.update'
-          : action === '新建' ? 'record.create'
-            : action === '删除' ? 'record.delete'
-              : '过审'
+      const recordAction = gateActionToRecordAction(action)
       let planPayload: Record<string, unknown> | undefined
       if (executionMode === 'live' && operationKind === 'write') {
         const preview = await runtimeApi.bizPreview({
@@ -257,7 +299,7 @@ export function OperationControlPanel({
           <div className="space-y-2.5">
             <Field label="目标对象"><input className="input font-mono text-xs" value={targetRef} onChange={(event) => setTargetRef(event.target.value)} /></Field>
             <Field label="操作">
-              <Select value={action} onChange={setAction} options={ACTION_OPTIONS} />
+              <Select value={action} onChange={setAction} options={actionOptions} />
             </Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="类型"><Select value={operationKind} onChange={(value) => setOperationKind(value as 'read' | 'write')} options={[['read', '读取'], ['write', '写入']]} /></Field>

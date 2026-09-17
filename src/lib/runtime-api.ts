@@ -1770,8 +1770,8 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listBizKinds(signal?: AbortSignal): Promise<{ kinds: { kind: string; label: string; fields: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown }> {
-    const result = await this.request<{ data: { kinds: { kind: string; label: string; fields: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown } }>(withWorkspaceCwd('/api/v1/biz/kinds'), { signal })
+  async listBizKinds(signal?: AbortSignal): Promise<{ kinds: { kind: string; label: string; fields: JsonValue[]; can?: string[]; relations?: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown }> {
+    const result = await this.request<{ data: { kinds: { kind: string; label: string; fields: JsonValue[]; can?: string[]; relations?: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown } }>(withWorkspaceCwd('/api/v1/biz/kinds'), { signal })
     return result.data
   }
 

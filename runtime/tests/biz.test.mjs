@@ -26,6 +26,7 @@ describe('biz surfaces and live execute', () => {
     const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
     assert.match(source, /lanAssist\('\/catalog',\s*\{\s*search:\s*\{\s*workspace/)
     assert.match(source, /lanAssist\('\/traces',\s*\{\s*search:\s*\{\s*workspace/)
+    assert.match(source, /row\.can/)
     assert.doesNotMatch(source, /\/catalog',\s*\{\s*search:\s*\{\s*sessionId/)
   })
 
