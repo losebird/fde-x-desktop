@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, CircleAlert, Plus, Search, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Bot, CircleAlert, Plus, Search, ShieldCheck } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Empty } from '@/components/ui'
 import { BizPreviewDrawer } from '@/components/biz/BizPreviewDrawer'
@@ -47,6 +47,17 @@ type SheetSnapshot = {
   sheet: Record<string, unknown>
   connName: string
   surfaceId?: string
+}
+
+type ListRestoreSnapshot = {
+  rows: SheetRow[]
+  columns: SheetColumn[]
+  page: number
+  draftEdits: Record<string, SheetRow>
+  sourceLabel: string
+  connName: string
+  surfaceId?: string
+  sheet: Record<string, unknown>
 }
 
 type Props = {
@@ -133,6 +144,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     gateReason?: string
     originalRow?: SheetRow
   } | null>(null)
+  const [listRestore, setListRestore] = useState<ListRestoreSnapshot | null>(null)
   const [contextPack, setContextPack] = useState<ContextPack | null>(null)
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [omit, setOmit] = useState<Set<string>>(new Set())
@@ -193,6 +205,43 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     if (snapshot.surfaceId) sheetSnapshots.current.set(`surface:${snapshot.surfaceId}`, snapshot)
   }, [])
 
+  const captureListRestore = useCallback((): ListRestoreSnapshot => {
+    const kindSnap = kind ? sheetSnapshots.current.get(`kind:${kind}`) : undefined
+    const sheet = kindSnap?.sheet
+      ? { ...kindSnap.sheet, rows, columns }
+      : { kind, rows, columns, action: '现查' }
+    return {
+      rows,
+      columns,
+      page,
+      draftEdits,
+      sourceLabel,
+      connName: kindSnap?.connName || '连接器',
+      surfaceId: kindSnap?.surfaceId,
+      sheet,
+    }
+  }, [columns, draftEdits, kind, page, rows, sourceLabel])
+
+  const restoreRecordsList = useCallback(() => {
+    if (!listRestore) return
+    setColumns(listRestore.columns)
+    setRows(listRestore.rows)
+    setDraftEdits(listRestore.draftEdits)
+    setPage(listRestore.page)
+    setSourceLabel(listRestore.sourceLabel)
+    rememberSheet({
+      sheet: listRestore.sheet,
+      connName: listRestore.connName,
+      surfaceId: listRestore.surfaceId,
+    })
+    setListRestore(null)
+  }, [listRestore, rememberSheet])
+
+  const dismissPreviewDrawer = useCallback(() => {
+    setDrawer(null)
+    restoreRecordsList()
+  }, [restoreRecordsList])
+
   const applySheet = useCallback((sheet: Record<string, unknown>, connName: string, surfaceId?: string) => {
     const normalizedCols = normalizeSheetColumns(sheet.columns)
     setColumns(normalizedCols)
@@ -231,9 +280,13 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     if (!rowCount && !sheet.kind) return false
     rememberBizPendingSheet(sheet)
     const conn = connections.find((c) => c.id === connectionId) || connections[0]
-    applySheet(sheet, conn?.name || '连接器', surfaceId)
     const previewId = sheetPreviewId(sheet)
-    if (previewId && String(sheet.action || '') !== '现查') {
+    const action = String(sheet.action || '')
+    if (previewId && action !== '现查' && rows.length > 0) {
+      setListRestore(captureListRestore())
+    }
+    applySheet(sheet, conn?.name || '连接器', surfaceId)
+    if (previewId && action !== '现查') {
       setDrawer({
         previewId,
         sheet,
@@ -241,7 +294,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       })
     }
     return rowCount > 0 || Boolean(sheet.kind)
-  }, [applySheet, connectionId, connections])
+  }, [applySheet, captureListRestore, connectionId, connections, rows.length])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     const cached = peekBizPendingSheet()
@@ -337,9 +390,12 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
         ...payloadExtra,
       })
       const sheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
-      applySheet(sheet, conn?.name || '连接器')
       const previewId = sheetPreviewId(sheet)
       const canWrite = Boolean(sheet.canWrite ?? sheet.can_write ?? data.canWrite)
+      if (action !== '现查' && previewId && rows.length > 0) {
+        setListRestore(captureListRestore())
+      }
+      applySheet(sheet, conn?.name || '连接器')
       if (action !== '现查' && previewId) {
         setDrawer({
           previewId,
@@ -356,7 +412,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     } finally {
       setLoading(false)
     }
-  }, [activeLocalApp, applySheet, connectionId, connections, kind, lanReady, loadSurfaces])
+  }, [activeLocalApp, applySheet, captureListRestore, connectionId, connections, kind, lanReady, loadSurfaces, rows.length])
 
   const loadSurface = useCallback(async (surface: BizSurfaceRecord) => {
     setKind(surface.kind)
@@ -364,6 +420,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     setStaleHint('')
     const cached = sheetSnapshots.current.get(`surface:${surface.id}`) || sheetSnapshots.current.get(`kind:${surface.kind}`)
     if (cached) {
+      if (surface.previewId && surface.action !== '现查' && rows.length > 0) {
+        setListRestore(captureListRestore())
+      }
       applySheet(cached.sheet, cached.connName, surface.id)
       if (surface.previewId && surface.action !== '现查') {
         setDrawer({
@@ -387,7 +446,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
         canWrite: true,
       })
     }
-  }, [applySheet, hydrateFromPending])
+  }, [applySheet, captureListRestore, hydrateFromPending, rows.length])
 
   const selectKind = useCallback((nextKind: string) => {
     setKind(nextKind)
@@ -462,6 +521,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       await runtimeApi.bizWrite(drawer.previewId)
       setNotice('已过账，表格保留本次预览行供核对')
       setDrawer(null)
+      setListRestore(null)
       void loadSurfaces()
     } catch (cause) {
       setError(cause instanceof RuntimeApiError ? cause.message : cause instanceof Error ? cause.message : '过账失败')
@@ -657,9 +717,14 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       )}
 
       <Card className="!p-0 overflow-x-auto">
-        {sourceLabel && (
-          <div className="px-3 py-2 border-b border-line text-xs text-ink-muted bg-surface-2">
-            来源：{sourceLabel}
+        {(listRestore || sourceLabel) && (
+          <div className="px-3 py-2 border-b border-line text-xs text-ink-muted bg-surface-2 flex flex-wrap items-center gap-2">
+            {listRestore && (
+              <button type="button" className="btn !py-0.5 !text-[11px]" onClick={dismissPreviewDrawer}>
+                <ArrowLeft size={12} /> 返回
+              </button>
+            )}
+            {sourceLabel && <span>来源：{sourceLabel}</span>}
           </div>
         )}
         <table className="w-full text-sm">
@@ -765,7 +830,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
           gateReason={drawer.gateReason}
           originalRow={drawer.originalRow}
           columns={columns}
-          onClose={() => setDrawer(null)}
+          onClose={dismissPreviewDrawer}
           onConfirm={() => void confirmWrite()}
         />
       )}

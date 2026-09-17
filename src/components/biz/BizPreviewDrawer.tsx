@@ -36,6 +36,7 @@ export function BizPreviewDrawer({
         </div>
         <button type="button" className="btn !py-1 shrink-0" onClick={onClose} aria-label="关闭预览">
           <X size={14} />
+          <span className="ml-1">关闭</span>
         </button>
       </div>
 
@@ -75,15 +76,20 @@ export function BizPreviewDrawer({
             {gateReason || '当前预览不允许写入，请先在 AI 会话获取写入令牌。'}
           </div>
         )}
-        <button
-          type="button"
-          className="btn-brand w-full"
-          disabled={!canWrite || loading}
-          title={canWrite ? '' : (gateReason || '当前令牌不允许写入')}
-          onClick={onConfirm}
-        >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : '确认过账'}
-        </button>
+        <div className="flex gap-2">
+          <button type="button" className="btn flex-1" disabled={loading} onClick={onClose}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn-brand flex-1"
+            disabled={!canWrite || loading}
+            title={canWrite ? '' : (gateReason || '当前令牌不允许写入')}
+            onClick={onConfirm}
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : '确认过账'}
+          </button>
+        </div>
       </div>
     </div>
   )
