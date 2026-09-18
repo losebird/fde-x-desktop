@@ -2,7 +2,15 @@ import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { loadMemoryWorkspaceVocab } from '../biz/memory-vocab.mjs'
 import { generateWorkspaceVocabFromConnector } from '../biz/vocab-from-connector.mjs'
 import { normalizePreviewWhere } from '../biz/where.mjs'
-import { insertBizSurface, listBizSurfaces, listBusinessConnections } from '../db.mjs'
+import {
+  createId,
+  getBizWriteAuditByTraceId,
+  insertBizSurface,
+  insertBizWriteAudit,
+  listBizSurfaces,
+  listBizWriteAudits,
+  listBusinessConnections,
+} from '../db.mjs'
 import { AiRemoteError } from '../dsh-core.mjs'
 import { emit } from '../events.mjs'
 
@@ -178,6 +186,94 @@ async function runConnectorVocabGenerate(aiRuntime, {
   })
 }
 
+function summarizeAuditChanges(changes) {
+  const list = Array.isArray(changes) ? changes : []
+  if (!list.length) return '—'
+  const labels = list
+    .map((item) => String((item && (item.label || item.field || item.key)) || '').trim())
+    .filter(Boolean)
+  if (!labels.length) return `${list.length} 项变更`
+  const head = labels.slice(0, 3).join('、')
+  return labels.length > 3 ? `${head} 等 ${labels.length} 项` : head
+}
+
+function canRollbackAudit(action, changes) {
+  return String(action || '') === '改行' && Array.isArray(changes) && changes.length > 0
+}
+
+function patchFromRollbackChanges(changes) {
+  const patch = {}
+  for (const item of Array.isArray(changes) ? changes : []) {
+    const key = String((item && (item.field || item.key)) || '').trim()
+    if (!key) continue
+    patch[key] = item.from
+  }
+  return patch
+}
+
+async function capturePendingSheet(aiRuntime, previewId) {
+  try {
+    const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+    const raw = state?.pendingSheet ?? state?.pendingWrite
+    const sheet = raw?.sheet && typeof raw.sheet === 'object' ? raw.sheet : raw
+    if (!sheet || typeof sheet !== 'object') return null
+    const pid = String(sheet.preview_id || sheet.previewId || '').trim()
+    if (pid && previewId && pid !== previewId) return null
+    return sheet
+  } catch {
+    return null
+  }
+}
+
+function enrichTraceRows(db, workspace, traceRows, limit) {
+  const audits = listBizWriteAudits(db, workspace, limit)
+  const auditByTrace = new Map(audits.map((row) => [row.traceId, row]))
+  const seen = new Set()
+  const enriched = []
+  for (const row of Array.isArray(traceRows) ? traceRows : []) {
+    const traceId = String(row?.id || row?.traceId || '').trim()
+    if (!traceId) continue
+    seen.add(traceId)
+    const audit = auditByTrace.get(traceId)
+    const changes = audit?.changes?.length ? audit.changes : []
+    const action = String(row?.action || audit?.action || '')
+    enriched.push({
+      ...row,
+      id: traceId,
+      traceId,
+      at: Number(row?.at || audit?.writtenAt || 0),
+      kind: String(row?.kind || audit?.kind || ''),
+      no: String(row?.no || audit?.recordNo || ''),
+      action,
+      receiptId: String(row?.receipt_id || row?.receiptId || audit?.receiptId || ''),
+      sessionId: String(row?.sessionId || row?.session_id || audit?.sessionId || ''),
+      source: String(audit?.source || (row?.sessionId || row?.session_id ? 'ai' : 'workstation')),
+      changes,
+      changesSummary: summarizeAuditChanges(changes),
+      canRollback: canRollbackAudit(action, changes),
+    })
+  }
+  for (const audit of audits) {
+    if (seen.has(audit.traceId)) continue
+    enriched.push({
+      id: audit.traceId,
+      traceId: audit.traceId,
+      at: audit.writtenAt,
+      kind: audit.kind,
+      no: audit.recordNo,
+      action: audit.action,
+      receiptId: audit.receiptId,
+      sessionId: audit.sessionId,
+      source: audit.source,
+      changes: audit.changes,
+      changesSummary: summarizeAuditChanges(audit.changes),
+      canRollback: canRollbackAudit(audit.action, audit.changes),
+    })
+  }
+  enriched.sort((a, b) => Number(b.at || 0) - Number(a.at || 0))
+  return enriched.slice(0, limit)
+}
+
 function mapKindsFromCatalog(catalogPayload) {
   const kindsRaw = Array.isArray(catalogPayload?.kinds) ? catalogPayload.kinds : []
   const kinds = kindsRaw.map((row) => {
@@ -187,12 +283,18 @@ function mapKindsFromCatalog(catalogPayload) {
     const fields = Array.isArray(row.fields) ? row.fields : []
     const can = Array.isArray(row.can) ? row.can : undefined
     const relations = Array.isArray(row.relations) ? row.relations : undefined
+    const fieldLabels = row.fieldLabels && typeof row.fieldLabels === 'object' && !Array.isArray(row.fieldLabels)
+      ? row.fieldLabels
+      : undefined
+    const ticketField = typeof row.ticketField === 'string' && row.ticketField.trim() ? row.ticketField.trim() : undefined
     return {
       kind,
       label,
       fields,
       ...(can ? { can } : {}),
       ...(relations ? { relations } : {}),
+      ...(ticketField ? { ticketField } : {}),
+      ...(fieldLabels ? { fieldLabels } : {}),
     }
   })
   return {
@@ -286,10 +388,112 @@ export async function handleBizRoutes(request, response, url, deps) {
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/traces') {
     const workspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
     const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 50)))
+    const traceId = String(url.searchParams.get('id') || url.searchParams.get('traceId') || '').trim()
+    if (traceId) {
+      const audit = getBizWriteAuditByTraceId(db, traceId)
+      if (audit) {
+        sendJson(response, 200, {
+          data: {
+            row: {
+              id: audit.traceId,
+              traceId: audit.traceId,
+              at: audit.writtenAt,
+              kind: audit.kind,
+              no: audit.recordNo,
+              action: audit.action,
+              receiptId: audit.receiptId,
+              sessionId: audit.sessionId,
+              source: audit.source,
+              changes: audit.changes,
+              columns: audit.columns,
+              changesSummary: summarizeAuditChanges(audit.changes),
+              canRollback: canRollbackAudit(audit.action, audit.changes),
+            },
+          },
+          correlationId,
+        })
+        return true
+      }
+      try {
+        const traces = await aiRuntime.lanAssist('/traces', { search: { workspace, id: traceId } })
+        const row = traces?.row || (Array.isArray(traces?.rows) ? traces.rows[0] : null)
+        if (row) {
+          sendJson(response, 200, { data: { row: enrichTraceRows(db, workspace, [row], 1)[0] }, correlationId })
+          return true
+        }
+      } catch { /* fall through */ }
+      sendError(response, 404, 'not_found', '找不到该操作记录', correlationId)
+      return true
+    }
     try {
       const traces = await aiRuntime.lanAssist('/traces', { search: { workspace, limit: String(limit) } })
-      const rows = Array.isArray(traces?.rows) ? traces.rows : []
+      const traceRows = Array.isArray(traces?.rows) ? traces.rows : []
+      const rows = enrichTraceRows(db, workspace, traceRows, limit)
       sendJson(response, 200, { data: { rows, receipt: traces?.receipt ?? null }, correlationId })
+    } catch (error) {
+      const rows = enrichTraceRows(db, workspace, [], limit)
+      if (rows.length) {
+        sendJson(response, 200, { data: { rows, receipt: null }, correlationId })
+        return true
+      }
+      sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
+    }
+    return true
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v1/biz/rollback/preview') {
+    const body = await readJson(request)
+    const traceId = String(body.trace_id || body.traceId || '').trim()
+    if (!traceId) {
+      sendError(response, 400, 'validation_error', 'trace_id 不能为空', correlationId)
+      return true
+    }
+    const workspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const audit = getBizWriteAuditByTraceId(db, traceId)
+    if (!audit || !Array.isArray(audit.changes) || !audit.changes.length) {
+      sendError(response, 404, 'not_found', '找不到可回退的字段记录', correlationId)
+      return true
+    }
+    if (!canRollbackAudit(audit.action, audit.changes)) {
+      sendError(response, 400, 'rollback_unsupported', '当前仅支持带字段差异的改行回退', correlationId)
+      return true
+    }
+    const patch = patchFromRollbackChanges(audit.changes)
+    if (!Object.keys(patch).length) {
+      sendError(response, 400, 'rollback_unsupported', '没有可恢复的字段值', correlationId)
+      return true
+    }
+    try {
+      const preview = await aiRuntime.lanAssist('/preview', {
+        method: 'POST',
+        body: {
+          kind: audit.kind,
+          action: '改行',
+          no: audit.recordNo,
+          workspace,
+          patch,
+          speech: '回退',
+        },
+      })
+      if (preview && preview.ok === false) {
+        sendError(response, 400, String(preview.error || 'preview_failed'), String(preview.hint || preview.speak || '回退预览失败'), correlationId)
+        return true
+      }
+      const sheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
+      sendJson(response, 200, {
+        data: {
+          audit,
+          preview,
+          sheet,
+          rollbackChanges: audit.changes.map((item) => ({
+            label: String(item.label || item.field || item.key || ''),
+            from: item.to,
+            to: item.from,
+            field: item.field || item.key,
+          })),
+        },
+        correlationId,
+      })
     } catch (error) {
       sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
     }
@@ -485,6 +689,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       return true
     }
     const bizWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const pendingSheet = await capturePendingSheet(aiRuntime, body.preview_id)
     let written
     try {
       written = await aiRuntime.lanAssist('/write', {
@@ -515,15 +720,34 @@ export async function handleBizRoutes(request, response, url, deps) {
       )
       return true
     }
-    const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
+    const bizCwd = requestMemoryCwd(url, body) || bizWorkspace || FDE_AI_WORKSPACE
+    const sheet = pendingSheet && typeof pendingSheet === 'object' ? pendingSheet : null
+    const auditChanges = Array.isArray(body.changes)
+      ? body.changes
+      : (Array.isArray(sheet?.changes) ? sheet.changes : [])
+    const traceId = String(body.trace_id || written?.trace_id || written?.traceId || createId('trace'))
+    try {
+      insertBizWriteAudit(db, {
+        workspaceCwd: bizCwd,
+        traceId,
+        kind: String(written?.kind || sheet?.kind || body.kind || ''),
+        action: String(written?.action || sheet?.action || body.action || ''),
+        recordNo: String(written?.no || sheet?.no || body.no || ''),
+        receiptId: String(written?.receipt_id || written?.receiptId || ''),
+        sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || ''),
+        source: String(body.source || (sheet?.sessionId ? 'ai' : 'workstation')),
+        changes: auditChanges,
+        columns: Array.isArray(sheet?.columns) ? sheet.columns : (Array.isArray(body.columns) ? body.columns : []),
+      })
+    } catch { /* audit must not block write */ }
     emit('biz.write.done', {
       kind: String(written?.kind || ''),
       action: String(written?.action || ''),
-      traceId: String(body.trace_id || written?.trace_id || written?.traceId || ''),
+      traceId,
       receiptId: String(written?.receipt_id || written?.receiptId || ''),
       operationId: typeof body.operationId === 'string' ? body.operationId : undefined,
     }, { workspaceCwd: bizCwd, source: 'bff' })
-    sendJson(response, 200, { data: written, correlationId })
+    sendJson(response, 200, { data: { ...written, trace_id: traceId, traceId }, correlationId })
     return true
   }
 

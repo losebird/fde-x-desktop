@@ -1,4 +1,5 @@
 import { Loader2, X } from 'lucide-react'
+import { PreviewChangesList } from '@/components/biz/PreviewChangesList'
 import { buildPreviewSummary, normalizeSheetColumns, type SheetRow } from '@/lib/biz-sheet-display'
 
 type Props = {
@@ -46,28 +47,7 @@ export function BizPreviewDrawer({
           {summary.kind ? <> · 业务型：<span className="text-ink">{summary.kind}</span></> : null}
         </div>
 
-        {summary.changes.length === 0 ? (
-          <div className="text-sm text-ink-muted">没有可展示的变更内容。</div>
-        ) : (
-          <div className="border border-line divide-y divide-line">
-            {summary.changes.map((change) => (
-              <div key={change.label} className="px-3 py-2.5">
-                <div className="text-xs text-ink-muted">{change.label}</div>
-                {change.from !== undefined && change.to !== undefined ? (
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <span className="text-ink-muted line-through">{change.from}</span>
-                    <span className="text-ink-subtle">→</span>
-                    <span className="text-ink font-medium">{change.to}</span>
-                  </div>
-                ) : change.to !== undefined ? (
-                  <div className="mt-1 text-ink font-medium">{change.to}</div>
-                ) : (
-                  <div className="mt-1 text-ink">{change.value ?? '—'}</div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        <PreviewChangesList changes={summary.changes} />
       </div>
 
       <div className="p-4 border-t border-line space-y-2">

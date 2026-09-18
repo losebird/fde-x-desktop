@@ -15,6 +15,74 @@ const INTERNAL_KEYS = new Set([
   'sessionId',
 ])
 
+const PREVIEW_META_KEYS = new Set([
+  ...INTERNAL_KEYS,
+  'index',
+  'orderId',
+  'no',
+  'id',
+  'fields',
+])
+
+export function isBlankSheetValue(value: unknown) {
+  return value == null || value === ''
+}
+
+function normalizeCompareValue(value: unknown): string {
+  if (value == null || value === '') return ''
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'string') return value.trim()
+  return String(value)
+}
+
+export function sheetFieldValuesEqual(a: unknown, b: unknown) {
+  return normalizeCompareValue(a) === normalizeCompareValue(b)
+}
+
+function previewFieldKeys(columns: SheetColumn[], ...rows: Array<SheetRow | undefined>) {
+  const keys = new Set<string>()
+  for (const column of columns) {
+    if (column.key && !PREVIEW_META_KEYS.has(column.key)) keys.add(column.key)
+  }
+  for (const row of rows) {
+    if (!row) continue
+    for (const key of Object.keys(row)) {
+      if (!PREVIEW_META_KEYS.has(key)) keys.add(key)
+    }
+    const fields = row.fields
+    if (fields && typeof fields === 'object' && !Array.isArray(fields)) {
+      for (const key of Object.keys(fields as Record<string, unknown>)) {
+        if (!PREVIEW_META_KEYS.has(key)) keys.add(key)
+      }
+    }
+  }
+  return [...keys]
+}
+
+export function pickSheetRowPatch(
+  before: SheetRow,
+  after: SheetRow,
+  columns: SheetColumn[] = [],
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {}
+  for (const key of previewFieldKeys(columns, before, after)) {
+    const next = rowFieldValue(after, key)
+    const prev = rowFieldValue(before, key)
+    if (!sheetFieldValuesEqual(prev, next)) patch[key] = next
+  }
+  return patch
+}
+
+export function pickFilledSheetInput(input: Record<string, unknown>) {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(input)) {
+    if (PREVIEW_META_KEYS.has(key)) continue
+    if (!isBlankSheetValue(value)) out[key] = value
+  }
+  return out
+}
+
 export function normalizeSheetColumns(raw: unknown): SheetColumn[] {
   if (!Array.isArray(raw)) return []
   const columns: SheetColumn[] = []
@@ -107,13 +175,59 @@ function rowFieldValue(row: SheetRow | undefined, key: string) {
   return undefined
 }
 
-function summarizeRow(row: SheetRow | undefined, columns: SheetColumn[]) {
-  if (!row) return '—'
-  const parts = columns
-    .slice(0, 4)
-    .map((column) => `${column.label || column.key}：${formatSheetCellValue(rowFieldValue(row, column.key))}`)
-    .filter((part) => !part.endsWith('：—'))
-  return parts.length ? parts.join(' · ') : sheetRowKey(row)
+function previewChangesFromSheetPayload(
+  sheet: Record<string, unknown>,
+  columns: SheetColumn[],
+): PreviewChange[] {
+  const raw = sheet.changes
+  if (!Array.isArray(raw)) return []
+  const changes: PreviewChange[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as { field?: string; key?: string; label?: string; from?: unknown; to?: unknown }
+    const key = String(row.field || row.key || '').trim()
+    const label = String(row.label || columnLabel(columns, key) || key).trim()
+    if (!label) continue
+    const fromRaw = row.from
+    const toRaw = row.to
+    if (sheetFieldValuesEqual(fromRaw, toRaw)) continue
+    if (isBlankSheetValue(fromRaw) && !isBlankSheetValue(toRaw)) {
+      changes.push({ label, to: formatSheetCellValue(toRaw) })
+      continue
+    }
+    changes.push({
+      label,
+      from: formatSheetCellValue(fromRaw),
+      to: formatSheetCellValue(toRaw),
+    })
+  }
+  return changes
+}
+
+function buildPreviewFieldChanges(
+  columns: SheetColumn[],
+  primary: SheetRow | undefined,
+  original: SheetRow | undefined,
+  mode: 'update' | 'create',
+) {
+  const changes: PreviewChange[] = []
+  for (const key of previewFieldKeys(columns, primary, original)) {
+    const label = columnLabel(columns, key) || key
+    const toRaw = rowFieldValue(primary, key)
+    const fromRaw = rowFieldValue(original, key)
+    if (mode === 'create') {
+      if (isBlankSheetValue(toRaw)) continue
+      changes.push({ label, to: formatSheetCellValue(toRaw) })
+      continue
+    }
+    if (sheetFieldValuesEqual(fromRaw, toRaw)) continue
+    changes.push({
+      label,
+      from: formatSheetCellValue(fromRaw),
+      to: formatSheetCellValue(toRaw),
+    })
+  }
+  return changes
 }
 
 export function buildPreviewSummary(
@@ -134,10 +248,7 @@ export function buildPreviewSummary(
       kind,
       title: '删除确认',
       subtitle: `将删除 1 条${kind ? ` ${kind}` : ''}记录`,
-      changes: columns.map((column) => ({
-        label: column.label || column.key,
-        value: formatSheetCellValue(rowFieldValue(primary, column.key)),
-      })),
+      changes: buildPreviewFieldChanges(columns, primary, undefined, 'create').slice(0, 5),
       rows,
     }
   }
@@ -148,50 +259,32 @@ export function buildPreviewSummary(
       kind,
       title: '过审确认',
       subtitle: `将把${kind ? ` ${kind}` : ''}记录标记为已过审`,
-      changes: columns.map((column) => ({
-        label: column.label || column.key,
-        value: formatSheetCellValue(rowFieldValue(primary, column.key)),
-      })),
+      changes: [],
       rows,
     }
   }
 
   if (action === '新建') {
+    const payloadChanges = previewChangesFromSheetPayload(sheet, columns)
     return {
       action,
       kind,
       title: '新建确认',
       subtitle: `将新建 1 条${kind ? ` ${kind}` : ''}记录`,
-      changes: columns.map((column) => ({
-        label: column.label || column.key,
-        to: formatSheetCellValue(rowFieldValue(primary, column.key)),
-      })),
+      changes: payloadChanges.length
+        ? payloadChanges
+        : buildPreviewFieldChanges(columns, primary, undefined, 'create'),
       rows,
     }
   }
 
   const original = options.originalRow
-  const changes: PreviewChange[] = []
-  for (const column of columns) {
-    const fromRaw = rowFieldValue(original, column.key)
-    const toRaw = rowFieldValue(primary, column.key)
-    const from = formatSheetCellValue(fromRaw)
-    const to = formatSheetCellValue(toRaw)
-    if (from === to && from === '—') continue
-    if (from === to) continue
-    changes.push({
-      label: column.label || column.key,
-      from,
-      to,
-    })
-  }
-
-  if (!changes.length && primary) {
-    changes.push({
-      label: '记录',
-      value: summarizeRow(primary, columns),
-    })
-  }
+  const payloadChanges = previewChangesFromSheetPayload(sheet, columns)
+  const changes = original
+    ? buildPreviewFieldChanges(columns, primary, original, 'update')
+    : payloadChanges.length
+      ? payloadChanges
+      : buildPreviewFieldChanges(columns, primary, undefined, 'update')
 
   return {
     action,

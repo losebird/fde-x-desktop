@@ -675,6 +675,81 @@ export function listBizSurfaces(db, workspaceCwd, limit = 20) {
   }))
 }
 
+export function insertBizWriteAudit(db, row) {
+  const id = createId('bwa')
+  const traceId = String(row.traceId || '').trim() || id
+  db.prepare(`
+    INSERT INTO biz_write_audit
+      (id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, written_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(trace_id) DO UPDATE SET
+      receipt_id = excluded.receipt_id,
+      changes_json = CASE WHEN length(excluded.changes_json) > 2 THEN excluded.changes_json ELSE biz_write_audit.changes_json END,
+      columns_json = CASE WHEN length(excluded.columns_json) > 2 THEN excluded.columns_json ELSE biz_write_audit.columns_json END,
+      written_at = excluded.written_at
+  `).run(
+    id,
+    row.workspaceCwd,
+    traceId,
+    String(row.kind || ''),
+    String(row.action || ''),
+    String(row.recordNo || ''),
+    String(row.receiptId || ''),
+    String(row.sessionId || ''),
+    String(row.source || 'workstation'),
+    JSON.stringify(Array.isArray(row.changes) ? row.changes : []),
+    JSON.stringify(Array.isArray(row.columns) ? row.columns : []),
+    Number(row.writtenAt || Date.now()),
+  )
+  return traceId
+}
+
+export function getBizWriteAuditByTraceId(db, traceId) {
+  const row = db.prepare(`
+    SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, written_at
+    FROM biz_write_audit WHERE trace_id = ?
+  `).get(String(traceId || '').trim())
+  if (!row) return null
+  return {
+    id: row.id,
+    workspaceCwd: row.workspace_cwd,
+    traceId: row.trace_id,
+    kind: row.kind,
+    action: row.action,
+    recordNo: row.record_no,
+    receiptId: row.receipt_id,
+    sessionId: row.session_id,
+    source: row.source,
+    changes: row.changes_json ? JSON.parse(row.changes_json) : [],
+    columns: row.columns_json ? JSON.parse(row.columns_json) : [],
+    writtenAt: row.written_at,
+  }
+}
+
+export function listBizWriteAudits(db, workspaceCwd, limit = 50) {
+  const rows = db.prepare(`
+    SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, written_at
+    FROM biz_write_audit
+    WHERE workspace_cwd = ?
+    ORDER BY written_at DESC
+    LIMIT ?
+  `).all(workspaceCwd, Math.max(1, Math.min(200, limit)))
+  return rows.map((row) => ({
+    id: row.id,
+    workspaceCwd: row.workspace_cwd,
+    traceId: row.trace_id,
+    kind: row.kind,
+    action: row.action,
+    recordNo: row.record_no,
+    receiptId: row.receipt_id,
+    sessionId: row.session_id,
+    source: row.source,
+    changes: row.changes_json ? JSON.parse(row.changes_json) : [],
+    columns: row.columns_json ? JSON.parse(row.columns_json) : [],
+    writtenAt: row.written_at,
+  }))
+}
+
 /**
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {string} id

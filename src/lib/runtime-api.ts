@@ -1745,9 +1745,24 @@ export class RuntimeApi {
     previewId: string,
     traceId?: string,
     workspace?: string,
-    signal?: AbortSignal,
+    extraOrSignal?: AbortSignal | {
+      source?: string
+      changes?: JsonValue[]
+      columns?: JsonValue[]
+      kind?: string
+      action?: string
+      no?: string
+      sessionId?: string
+    },
   ): Promise<Record<string, unknown>> {
-    const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/biz/write', {
+    let signal: AbortSignal | undefined
+    let extra: Record<string, unknown> = {}
+    if (extraOrSignal && typeof extraOrSignal === 'object' && 'aborted' in extraOrSignal) {
+      signal = extraOrSignal as AbortSignal
+    } else if (extraOrSignal && typeof extraOrSignal === 'object') {
+      extra = extraOrSignal as Record<string, unknown>
+    }
+    const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd('/api/v1/biz/write'), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1755,7 +1770,30 @@ export class RuntimeApi {
         preview_id: previewId,
         ...(traceId ? { trace_id: traceId } : {}),
         ...(workspace ? { workspace, cwd: workspace } : {}),
+        ...extra,
       }),
+    })
+    return result.data
+  }
+
+  async bizRollbackPreview(traceId: string, signal?: AbortSignal): Promise<{
+    audit: Record<string, unknown>
+    preview: Record<string, unknown>
+    sheet: Record<string, unknown>
+    rollbackChanges: JsonValue[]
+  }> {
+    const result = await this.request<{
+      data: {
+        audit: Record<string, unknown>
+        preview: Record<string, unknown>
+        sheet: Record<string, unknown>
+        rollbackChanges: JsonValue[]
+      }
+    }>(withWorkspaceCwd('/api/v1/biz/rollback/preview'), {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trace_id: traceId }),
     })
     return result.data
   }

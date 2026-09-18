@@ -9,6 +9,8 @@ import {
   isBizListQueryAction,
   normalizeSheetColumns,
   normalizeSheetRows,
+  pickFilledSheetInput,
+  pickSheetRowPatch,
   sheetRowKey,
   type SheetColumn,
   type SheetRow,
@@ -875,7 +877,16 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     setError('')
     try {
       const sheetWorkspace = typeof drawer.sheet.workspace === 'string' ? drawer.sheet.workspace : undefined
-      await runtimeApi.bizWrite(drawer.previewId, undefined, sheetWorkspace)
+      const sheetChanges = Array.isArray(drawer.sheet.changes) ? drawer.sheet.changes : []
+      const sheetColumns = Array.isArray(drawer.sheet.columns) ? drawer.sheet.columns : []
+      await runtimeApi.bizWrite(drawer.previewId, undefined, sheetWorkspace, {
+        source: 'workstation',
+        changes: sheetChanges,
+        columns: sheetColumns,
+        kind: String(drawer.sheet.kind || ''),
+        action: String(drawer.sheet.action || ''),
+        no: String(drawer.sheet.no || drawer.sheet.clue || ''),
+      })
       clearBizPreviewDismissed(drawer.previewId)
       clearBizPendingSheet()
       setNotice('已过账，表格保留本次预览行供核对')
@@ -1068,7 +1079,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
               type="button"
               className="btn-brand !py-1"
               disabled={!lanReady || loading}
-              onClick={() => void runPreview('新建', { input: createDraft })}
+              onClick={() => void runPreview('新建', { input: pickFilledSheetInput(createDraft) })}
             >
               预览新建
             </button>
@@ -1146,7 +1157,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
                           onClick={(e) => {
                             e.stopPropagation()
                             const extra = rowAction === '改行'
-                              ? { no: rowKey, input: draftRow, originalRow: row }
+                              ? {
+                                no: rowKey,
+                                input: pickSheetRowPatch(row, draftRow, tableColumns),
+                                originalRow: row,
+                              }
                               : { no: rowKey }
                             void runPreview(rowAction, extra)
                           }}
@@ -1204,7 +1219,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
               no: String(selectedRow.orderId ?? ''),
             })}
           >
-            带入操作控制
+            查看操作记录
           </button>
         )}
       </div>

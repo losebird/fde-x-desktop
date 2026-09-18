@@ -72,7 +72,6 @@ const RISK_TONE: Record<RiskLevel, Tone> = {
 }
 
 export default function Data() {
-  const tables = useApp((state) => state.businessTables)
   const activeWorkspaceId = useApp((state) => state.activeWorkspaceId)
   const workspace = useApp((state) => state.workspaces.find((item) => item.id === state.activeWorkspaceId))
   const view = useApp((state) => state.activeDataSubview)
@@ -84,7 +83,6 @@ export default function Data() {
   const [catalogCount, setCatalogCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [planTarget, setPlanTarget] = useState<{ targetRef: string; kind: string; no?: string } | undefined>()
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -135,7 +133,7 @@ export default function Data() {
           <div className="flex items-center rounded border border-line bg-surface p-0.5">
             <ViewButton active={view === 'overview'} onClick={() => setView('overview')}>应用</ViewButton>
             <ViewButton active={view === 'records'} onClick={() => setView('records')}>业务记录</ViewButton>
-            <ViewButton active={view === 'operations'} onClick={() => setView('operations')} badge={pendingApproval}>操作控制</ViewButton>
+            <ViewButton active={view === 'operations'} onClick={() => setView('operations')}>操作记录</ViewButton>
           </div>
         }
       />
@@ -161,21 +159,11 @@ export default function Data() {
           apps={apps}
           runtimeReady={!error}
           onPlan={() => setView('operations')}
-          onPlanWithTarget={(target) => {
-            setPlanTarget(target)
-            setView('operations')
-          }}
+          onPlanWithTarget={() => setView('operations')}
         />
       )}
       {view === 'operations' && (
-        <OperationControlPanel
-          workspaceId={activeWorkspaceId}
-          tables={tables}
-          operations={operations}
-          runtimeReady={!error}
-          onChanged={refresh}
-          initialTarget={planTarget}
-        />
+        <OperationControlPanel runtimeReady={!error} />
       )}
     </div>
   )
@@ -331,7 +319,7 @@ function AppDraftEditor({
           问当前 AI
         </button>
       </div>
-      <div className="text-[11px] text-ink-subtle">过账仍走「操作控制」，不会因为保存草稿而写外部系统。</div>
+      <div className="text-[11px] text-ink-subtle">过账在业务记录确认；历史与回退见「操作记录」。</div>
     </div>
   )
 }
@@ -447,7 +435,7 @@ function Overview({
           </div>
           <div className="p-3 border-t border-line bg-surface-2 grid grid-cols-2 gap-2">
             <button type="button" className="btn justify-between" onClick={onOpenRecords}><span className="inline-flex items-center gap-1.5"><Table2 size={13} /> 浏览记录</span><ArrowRight size={12} /></button>
-            <button type="button" className="btn justify-between" onClick={onOpenOperations}><span className="inline-flex items-center gap-1.5"><Workflow size={13} /> 操作控制</span><ArrowRight size={12} /></button>
+            <button type="button" className="btn justify-between" onClick={onOpenOperations}><span className="inline-flex items-center gap-1.5"><Workflow size={13} /> 操作记录</span><ArrowRight size={12} /></button>
           </div>
         </Card>
       </div>
