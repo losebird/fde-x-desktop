@@ -1,6 +1,6 @@
 import { resolveBizCorpusOrigin } from '../biz/corpus-origin.mjs'
 
-function sendJson(response, status, body) {
+function fallbackSendJson(response, status, body) {
   const raw = JSON.stringify(body)
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -8,15 +8,6 @@ function sendJson(response, status, body) {
     'Cache-Control': 'no-store',
   })
   response.end(raw)
-}
-
-function notFound(response, correlationId, message) {
-  sendJson(response, 404, {
-    ok: false,
-    error: { code: 'not_found', message },
-    message,
-    correlationId,
-  })
 }
 
 async function resolveImMessage(aiRuntime, requestId) {
@@ -88,6 +79,13 @@ export async function handleCorpusRoute(request, response, url, deps) {
   const match = url.pathname.match(/^\/api\/v1\/corpus\/([^/]+)$/)
   if (!match || request.method !== 'GET') return false
   const { db, aiRuntime, correlationId } = deps
+  const sendJson = typeof deps.sendJson === 'function' ? deps.sendJson : fallbackSendJson
+  const notFound = (message) => sendJson(response, 404, {
+    ok: false,
+    error: { code: 'not_found', message },
+    message,
+    correlationId,
+  })
   const id = decodeURIComponent(match[1])
 
   try {
@@ -118,7 +116,7 @@ export async function handleCorpusRoute(request, response, url, deps) {
       const requestId = id.slice(3)
       const resolved = await resolveImMessage(aiRuntime, requestId)
       if (!resolved) {
-        notFound(response, correlationId, '找不到该 IM 消息')
+        notFound('找不到该 IM 消息')
         return true
       }
       sendJson(response, 200, { ok: true, id, ...resolved, correlationId })
@@ -127,7 +125,7 @@ export async function handleCorpusRoute(request, response, url, deps) {
     if (id.startsWith('task:')) {
       const resolved = resolveTask(db, id.slice(5))
       if (!resolved) {
-        notFound(response, correlationId, '找不到该任务')
+        notFound('找不到该任务')
         return true
       }
       sendJson(response, 200, { ok: true, id, ...resolved, correlationId })
@@ -136,7 +134,7 @@ export async function handleCorpusRoute(request, response, url, deps) {
     if (id.startsWith('briefing:')) {
       const resolved = resolveBriefing(db, id.slice(9))
       if (!resolved) {
-        notFound(response, correlationId, '找不到该早报')
+        notFound('找不到该早报')
         return true
       }
       if (resolved.unreadable) {
@@ -167,7 +165,7 @@ export async function handleCorpusRoute(request, response, url, deps) {
         }
       }
     }
-    notFound(response, correlationId, '不支持的 corpus id')
+    notFound('不支持的 corpus id')
     return true
   } catch (error) {
     console.warn('corpus_resolve_failed', id, error)

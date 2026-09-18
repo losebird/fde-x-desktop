@@ -1286,11 +1286,40 @@ export class RuntimeApi {
 
   async fetchCorpus(id: string, signal?: AbortSignal): Promise<{ ok: boolean; id: string; title?: string; text?: string; message?: string; href?: Record<string, unknown> }> {
     const safeId = String(id || '').replace(/[^A-Za-z0-9:_-]/g, '')
-    const result = await this.request<{ ok: boolean; id: string; title?: string; text?: string; message?: string; href?: Record<string, unknown> }>(
-      withWorkspaceCwd(`/api/v1/corpus/${safeId}`),
-      { signal },
-    )
-    return result
+    const path = withWorkspaceCwd(`/api/v1/corpus/${safeId}`)
+    let response: Response
+    try {
+      response = await fetch(this.uiFetchUrl(path), { signal })
+    } catch (error) {
+      throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
+    }
+    const payload = await response.json().catch(() => ({})) as {
+      ok?: boolean
+      id?: string
+      title?: string
+      text?: string
+      message?: string
+      href?: Record<string, unknown>
+      error?: { code?: string; message?: string } | string
+      correlationId?: string
+    }
+    if (!response.ok) {
+      const nested = payload?.error && typeof payload.error === 'object' ? payload.error : null
+      throw new RuntimeApiError(
+        response.status,
+        nested?.code ?? (typeof payload?.error === 'string' ? payload.error : 'runtime_error'),
+        nested?.message ?? payload?.message ?? `请求失败 (${response.status})`,
+        payload?.correlationId,
+      )
+    }
+    return {
+      ok: Boolean(payload.ok),
+      id: String(payload.id || id),
+      title: payload.title,
+      text: payload.text,
+      message: payload.message,
+      href: payload.href,
+    }
   }
 
   async imState(sessionId?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {

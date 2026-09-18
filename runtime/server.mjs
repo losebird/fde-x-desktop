@@ -945,6 +945,7 @@ const server = createServer(async (request, response) => {
       db,
       aiRuntime,
       correlationId: currentCorrelationId,
+      sendJson,
     })) return
 
     if (await handleAppsRoutes(request, response, url, {
