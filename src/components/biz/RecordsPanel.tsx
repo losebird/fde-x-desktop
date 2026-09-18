@@ -141,6 +141,19 @@ function listRestoreDiffersFromIncoming(restore: ListRestoreSnapshot, incoming: 
   return false
 }
 
+function peekListPendingSheet() {
+  const sheet = peekBizPendingSheet()
+  if (!sheet) return null
+  if (!isBizListQueryAction(String(sheet.action || ''))) return null
+  const k = String(sheet.kind || '')
+  return k ? sheet : null
+}
+
+function findSurfaceForKind(surfaces: BizSurfaceRecord[], k: string) {
+  return surfaces.find((s) => s.kind === k && isBizListQueryAction(s.action))
+    || surfaces.find((s) => s.kind === k)
+}
+
 function listRestoreFromSnapshot(snap: SheetSnapshot): ListRestoreSnapshot {
   const sheet = snap.sheet
   const restoreRows = normalizeSheetRows(sheet.rows)
@@ -662,18 +675,29 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd || activeLocalApp) return
     if (surfaces.length === 0) return
-    const latest = surfaces[0]
     if (kind) return
-    setKind(latest.kind)
-    if (latest.connectionId) setConnectionId(latest.connectionId)
+    const latest = surfaces[0]
     void (async () => {
-      const pendingSheet = peekBizPendingSheet()
-      if (
-        pendingSheet
-        && String(pendingSheet.kind || '') === latest.kind
-        && isBizListQueryAction(String(pendingSheet.action || latest.action || ''))
-      ) {
-        applyPendingSheet(pendingSheet, latest.id)
+      let listPending = peekListPendingSheet()
+      if (!listPending) {
+        try {
+          const { sheet } = await runtimeApi.getBizPendingSheet()
+          if (sheet && typeof sheet === 'object') {
+            rememberBizPendingSheet(sheet)
+            listPending = peekListPendingSheet()
+          }
+        } catch {
+          listPending = null
+        }
+      }
+      const seedKind = listPending ? String(listPending.kind || '') : latest.kind
+      const connSurface = listPending
+        ? (findSurfaceForKind(surfaces, seedKind) || latest)
+        : latest
+      setKind(seedKind)
+      if (connSurface.connectionId) setConnectionId(connSurface.connectionId)
+      if (listPending) {
+        applyPendingSheet(listPending, connSurface.id)
         return
       }
       const cached = sheetSnapshots.current.get(`surface:${latest.id}`) || sheetSnapshots.current.get(`kind:${latest.kind}`)
