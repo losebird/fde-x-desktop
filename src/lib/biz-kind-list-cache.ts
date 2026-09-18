@@ -109,6 +109,11 @@ export function peekBizKindListSheetForOperation(
     .filter((row) => row.workspaceCwd === workspaceCwd && row.kind === kind)
     .sort((a, b) => b.at - a.at)
   if (!anchor) return null
+  const anchorFp = listQueryFingerprint(anchor)
+  if (anchorFp) {
+    const exact = rows.find((row) => listQueryFingerprint(row.sheet) === anchorFp)
+    if (exact) return { sheet: exact.sheet, connName: exact.connName, surfaceId: exact.surfaceId }
+  }
   const hit = rows.find((row) => operationBundlesAlign(anchor, row.sheet))
   if (!hit) return null
   return { sheet: hit.sheet, connName: hit.connName, surfaceId: hit.surfaceId }

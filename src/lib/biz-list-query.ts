@@ -126,8 +126,10 @@ export function listQueryFingerprint(sheet: Record<string, unknown> | null | und
   if (!sheet || typeof sheet !== 'object') return ''
   const kind = String(sheet.kind || '').trim()
   const action = String(sheet.action || '').trim()
-  const where = stableWhereSlice(extractSheetListWhere(sheet))
-  return JSON.stringify({ kind, action, where })
+  const direct = sheet.where ?? sheet.listWhere
+  const where = stableWhereSlice(Array.isArray(direct) ? direct : [])
+  const hopWhere = stableWhereSlice(Array.isArray(sheet.hopWhere) ? sheet.hopWhere : [])
+  return JSON.stringify({ kind, action, where, hopWhere })
 }
 
 export function listSnapshotCacheKey(kind: string, sheet: Record<string, unknown>): string {

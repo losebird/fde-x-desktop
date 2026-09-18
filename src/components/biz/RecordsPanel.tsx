@@ -343,15 +343,17 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       return [...byKind.values()]
     }
 
+    const anchorFp = listQueryFingerprint(anchor)
     const pool: Record<string, unknown>[] = [anchor]
+    const pushIfSameOperation = (sheet: Record<string, unknown> | undefined) => {
+      if (!sheet || typeof sheet !== 'object') return
+      const fp = listQueryFingerprint(sheet)
+      if (anchorFp && fp && fp === anchorFp) pool.push(sheet)
+    }
     if (bizCwd) {
-      for (const snap of listBizKindListSnapshots(bizCwd)) {
-        if (operationBundlesAlign(anchor, snap.sheet)) pool.push(snap.sheet)
-      }
+      for (const snap of listBizKindListSnapshots(bizCwd)) pushIfSameOperation(snap.sheet)
     }
-    for (const snap of sheetSnapshots.current.values()) {
-      if (snap?.sheet && operationBundlesAlign(anchor, snap.sheet)) pool.push(snap.sheet)
-    }
+    for (const snap of sheetSnapshots.current.values()) pushIfSameOperation(snap?.sheet)
 
     const allowedKinds = new Set<string>()
     for (const hint of extractBoundKindHints(anchor)) allowedKinds.add(hint)

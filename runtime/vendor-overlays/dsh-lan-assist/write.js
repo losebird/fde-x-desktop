@@ -172,6 +172,7 @@ export function packSheet(spec = {}) {
     nextKind: sheetNextKind(kind, spec),
     hopWhere: Array.isArray(spec.hopWhere) ? spec.hopWhere : undefined,
     where: Array.isArray(spec.where) && spec.where.length ? spec.where : undefined,
+    ...(spec.from && typeof spec.from === 'object' && !Array.isArray(spec.from) ? { from: spec.from } : {}),
     speech: String(spec.speech || '').trim(),
     fieldChoices: Array.isArray(spec.fieldChoices) ? spec.fieldChoices : undefined,
     pendingValue: spec.pendingValue,
@@ -706,13 +707,25 @@ export function createGate(opts = {}) {
     }
     if (recognized.action === '现查') {
       const { where: listWhere, hopWhere } = sheetWhereFromPlan(plan, spec)
+      const hopFrom = plan.steps && plan.steps.length > 1
+        ? String(plan.steps[0].kind || '').trim()
+        : ''
+      const hopFromWhere = hopFrom && plan.steps[0].where && plan.steps[0].where.length
+        ? plan.steps[0].where
+        : undefined
       return await sheet({
         ok: true, kind: sheetKind, no: rows.length === 1 ? rows[0].no : '',
         action: recognized.action, speak, status: found && found.status, fields: rows[0] && rows[0].fields || {},
         matches: rows, fingerprint: found && found.fingerprint,
         listed: rows.length > 1, ambiguous: rows.length > 1,
         workspace: (found && found.workspace) || spec.workspace || '',
-      }, { clue: plan.no, speech: plan.speech, where: listWhere, hopWhere })
+      }, {
+        clue: plan.no,
+        speech: plan.speech,
+        where: listWhere,
+        hopWhere,
+        ...(hopFrom ? { from: { kind: hopFrom, ...(hopFromWhere ? { where: hopFromWhere } : {}) } } : {}),
+      })
     }
     if (rows.length !== 1) {
       const writeable = spec.batch === true && (

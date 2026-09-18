@@ -148,6 +148,24 @@ function relationsFromVocab(vocab, extra = {}) {
   return out
 }
 
+function hopParentKindForTarget(targetKind, speech, extra) {
+  const bag = { vocab: extra.vocab, ...extra }
+  const kinds = registeredKinds(bag)
+  const mentioned = [...new Set(kindMentions(speech, kinds).map((row) => row.kind))]
+  const target = String(targetKind || '').trim()
+  if (!target || mentioned.length < 2) return ''
+  const parents = parentKindsOf(target, bag)
+  for (const parent of parents) {
+    if (mentioned.includes(parent)) return parent
+  }
+  for (const other of mentioned) {
+    if (other === target) continue
+    const reversed = parentKindsOf(other, bag)
+    if (reversed.includes(target)) return other
+  }
+  return ''
+}
+
 function parentKindsOf(targetKind, extra) {
   const target = String(targetKind || '').trim()
   if (!target) return []
@@ -334,9 +352,10 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     ...(Array.isArray(base.where) ? base.where : []),
   ])
   const parents = parentKindsOf(targetKind, bag)
-  const parent = parents.find((kind) => termsForKind(hits, kind).length) || parents.find((kind) => (
+  let parent = parents.find((kind) => termsForKind(hits, kind).length) || parents.find((kind) => (
     kindMentions(speech, [kind]).length
   ))
+  if (!parent) parent = hopParentKindForTarget(targetKind, speech, bag)
   const parentWhereRaw = parent ? termsForKind(hits, parent) : []
   const parentWhere = compressStatusWhere(parentWhereRaw)
   const parentValues = new Set(parentWhere.flatMap((term) => term.values || []))
@@ -346,11 +365,11 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     return !vals.every((value) => parentValues.has(value))
   })
 
-  if (!parentWhere.length && !childFiltered.length) return base
+  if (!parent && !parentWhere.length && !childFiltered.length) return base
 
   const next = { ...base }
-  if (parent && parentWhere.length) {
-    next.from = { kind: parent, where: parentWhere }
+  if (parent) {
+    next.from = parentWhere.length ? { kind: parent, where: parentWhere } : { kind: parent }
   }
   if (childFiltered.length) next.where = childFiltered
   return next

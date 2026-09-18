@@ -38,6 +38,34 @@ test('clueHitsInSpeech assigns 停用 to 客户 and 没关 to 工单 by proximit
   assert.equal(hitOpen?.not, true)
 })
 
+const hopVocab = [
+  {
+    kind: 'ParentA',
+    resource: 'parent_a',
+    can: ['现查'],
+    relations: [{ from: 'ParentA', to: 'ChildB', field: 'parentRef' }],
+    clues: [{ say: ['pending'], keys: ['status'], values: ['pending'] }],
+  },
+  {
+    kind: 'ChildB',
+    resource: 'child_b',
+    can: ['现查'],
+    clues: [{ say: ['expired'], keys: ['status'], values: ['expired'] }],
+  },
+]
+
+test('enrichStructuredSlots links two mentioned kinds via graph relation', () => {
+  const speech = 'ParentA pending rows tied to ChildB expired — list ChildB hits'
+  const out = enrichStructuredSlots({
+    kind: 'ChildB',
+    action: '现查',
+    speech,
+    where: [{ keys: ['status'], values: ['expired'] }],
+  }, hopVocab)
+  assert.equal(out.from?.kind, 'ParentA')
+  assert.ok(Array.isArray(out.where) && out.where.length)
+})
+
 test('enrichStructuredSlots adds from hop without utterance literals', () => {
   const spec = {
     kind: '工单',

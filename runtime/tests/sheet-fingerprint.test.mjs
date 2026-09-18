@@ -16,6 +16,22 @@ test('listQueryFingerprint differs when where differs', () => {
   assert.notEqual(a, b)
 })
 
+test('listQueryFingerprint differs when hopWhere differs', () => {
+  const a = listQueryFingerprint({
+    kind: 'T',
+    action: '现查',
+    where: [{ keys: ['status'], values: ['open'] }],
+    hopWhere: [{ keys: ['role'], values: ['a'] }],
+  })
+  const b = listQueryFingerprint({
+    kind: 'T',
+    action: '现查',
+    where: [{ keys: ['status'], values: ['open'] }],
+    hopWhere: [{ keys: ['role'], values: ['b'] }],
+  })
+  assert.notEqual(a, b)
+})
+
 test('pendingSheetWatchFingerprint changes when query changes even if rowCount matches', () => {
   const row = { no: '1', status: 'x' }
   const fp1 = pendingSheetWatchFingerprint({
