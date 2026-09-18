@@ -145,6 +145,26 @@ test('empty write previews are not confirmable; payload diffs are', async () => 
   }), true)
 })
 
+test('approve preview uses sheet.changes for confirmable from→to diffs', async () => {
+  const { sheetHasConfirmablePreviewChanges, buildPreviewSummary } = await import('../../src/lib/biz-sheet-display.ts')
+  const fieldKey = 'phase'
+  const fieldLabel = '阶段'
+  const sheet = {
+    action: '过审',
+    kind: 'KindA',
+    preview_id: 'pv_phase',
+    rows: [{ no: 'R-1', fields: { [fieldKey]: 'open' } }],
+    columns: [{ key: fieldKey, label: fieldLabel }],
+    changes: [{ field: fieldKey, label: fieldLabel, from: 'open', to: 'closed' }],
+  }
+  assert.equal(sheetHasConfirmablePreviewChanges(sheet), true)
+  const summary = buildPreviewSummary(sheet)
+  assert.equal(summary.changes.length, 1)
+  assert.equal(summary.changes[0].label, fieldLabel)
+  assert.equal(summary.changes[0].from, 'open')
+  assert.equal(summary.changes[0].to, 'closed')
+})
+
 test('matchSurfaceIdForSheet no longer impersonates kind+action[0]', () => {
   const src = readFileSync(join(repoRoot, 'src/lib/biz-surface-cache.ts'), 'utf8')
   assert.doesNotMatch(src, /return candidates\[0\]\?\.id/)

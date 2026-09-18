@@ -308,12 +308,17 @@ export function buildPreviewSummary(
   }
 
   if (action === '过审') {
+    const payloadChanges = previewChangesFromSheetPayload(sheet, columns)
+    const original = options.originalRow
+    const changes = payloadChanges.length
+      ? payloadChanges
+      : (original ? buildPreviewFieldChanges(columns, primary, original, 'update') : [])
     return {
       action,
       kind,
       title: '过审确认',
       subtitle: `将把${kind ? ` ${kind}` : ''}记录标记为已过审`,
-      changes: [],
+      changes,
       rows,
     }
   }

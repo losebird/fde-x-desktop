@@ -147,9 +147,28 @@ export function packSheet(spec = {}) {
     }
   }
   const lead = rows[0] || { fields: {} }
-  const fromFallback = String(spec.from || '').trim()
-  const changes = Object.keys(patch).flatMap((key) => {
-    const to = String(patch[key] ?? '').trim()
+  const fromFallback = typeof spec.from === 'string'
+    ? spec.from.trim()
+    : String(spec.status || lead.status || '').trim()
+  let changePatch = patch
+  if (action === '过审') {
+    if (!Object.keys(patch).length) {
+      const toStr = String(spec.to || '').trim()
+      const col = statusColumn(spec.mapped, kind, spec)
+      const fromStr = (col && fieldValue(lead.fields, col)) || fromFallback
+      if (col && fromStr && toStr && fromStr !== toStr) {
+        changePatch = { [col]: toStr }
+      }
+    }
+    for (const key of Object.keys(changePatch)) {
+      const label = displayColumnLabel(key, schemaFields, usedLabels)
+      if (!label) continue
+      usedLabels.add(label)
+      addCol(key, label, schemaEnums(key))
+    }
+  }
+  const changes = Object.keys(changePatch).flatMap((key) => {
+    const to = String(changePatch[key] ?? '').trim()
     const from = (fieldValue(lead.fields, key) || fromFallback).trim()
     if (action === '新建') {
       if (!to) return []
@@ -851,7 +870,7 @@ export function createGate(opts = {}) {
     const previewId = `pv_${randomHex(8)}`
     const token = {
       preview_id: previewId, kind: recognized.kind, no: resolvedNo, line: plan.line, action: recognized.action,
-      patch: recognized.action === '改行' ? { ...(writePatch || {}) } : undefined,
+      patch: buildPreviewPatch(recognized, writePatch, found, to),
       vocab: loaded.vocab, mapped: recognized.mapped, catalogVersion: catalogVersionOf(loaded.vocab),
       workspace: spec.workspace || '',
       system: String(spec.system || (found && found.system) || '').trim(),
@@ -1467,6 +1486,18 @@ function pickReceiptId(reply) {
     || (first && typeof first === 'object' && (first.receiptId || first.id))
     || ''
   return String(raw || '').trim()
+}
+
+function buildPreviewPatch(recognized, writePatch, found, toStatus) {
+  const act = String(recognized.action || '').trim()
+  if (act === '改行') return { ...(writePatch || {}) }
+  if (act === '过审') {
+    const col = statusColumn(recognized.mapped, recognized.kind, found)
+    const to = String(toStatus ?? '').trim()
+    if (!col || !to) return undefined
+    return { [col]: to }
+  }
+  return undefined
 }
 
 function statusColumn(mapped, kind, conn) {

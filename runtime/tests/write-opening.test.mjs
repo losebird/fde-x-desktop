@@ -17,6 +17,7 @@ const {
   livePendingSheet,
   latestLiveLine,
 } = await import(pathToFileURL(join(staged, 'gate.js')).href)
+const { packSheet } = await import(pathToFileURL(join(staged, 'write.js')).href)
 
 const WRITE_CAN = ['改行', '删除', '过审', '新建']
 const sessionId = 'sess-opening'
@@ -153,6 +154,29 @@ test('same-session write previews follow the latest action instead of the first 
     assert.match(String(row.previewId), new RegExp(`pv_${action}_`))
   }
   assert.equal(new Set(seen.map((row) => row.openingId)).size, WRITE_CAN.length)
+})
+
+test('packSheet 过审 diffs use schema field, not hop from object', () => {
+  const fieldKey = 'phase'
+  const fieldLabel = '阶段'
+  const sheet = packSheet({
+    kind: 'KindA',
+    action: '过审',
+    status: 'open',
+    to: 'closed',
+    from: { kind: 'KindB' },
+    patch: { [fieldKey]: 'closed' },
+    mapped: { fields: [fieldKey] },
+    schemaFields: [{ name: fieldKey, title: fieldLabel }],
+    matches: [{ no: 'R-1', status: 'open', fields: { [fieldKey]: 'open' } }],
+    preview_id: 'pv_phase',
+  })
+  assert.equal(sheet.changes.length, 1)
+  assert.equal(sheet.changes[0].field, fieldKey)
+  assert.equal(sheet.changes[0].label, fieldLabel)
+  assert.equal(sheet.changes[0].from, 'open')
+  assert.equal(sheet.changes[0].to, 'closed')
+  assert.equal(sheet.from && sheet.from.kind, 'KindB')
 })
 
 test('cancel drops only that preview_id and keeps the later hop', async () => {
