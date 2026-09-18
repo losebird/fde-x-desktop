@@ -9,7 +9,7 @@ import { mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, s
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
-import { enrichStructuredSlots, nestFromSteps } from './slots.js'
+import { enrichStructuredSlots, kindMentions, nestFromSteps } from './slots.js'
 import { previewRowCap } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -904,10 +904,9 @@ export function createGate(opts = {}) {
       const mentioned = new Set()
       const speech = String(spec.speech || spec.quote || '').trim()
       if (kind) mentioned.add(kind)
-      for (const row of loaded.vocab) {
-        const kindName = String(row && row.kind || '').trim()
-        if (!kindName || kindName === '口语') continue
-        if (speech && speech.includes(kindName)) mentioned.add(kindName)
+      const registered = registeredKinds({ vocab: loaded.vocab })
+      for (const row of kindMentions(speech, registered, { vocab: loaded.vocab })) {
+        mentioned.add(row.kind)
       }
       const schemaByKind = {}
       for (const kindName of mentioned) {

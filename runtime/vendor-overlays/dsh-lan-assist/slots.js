@@ -98,33 +98,165 @@ function findClueHit(speech, clue, extra) {
   }
 }
 
-function kindMentions(text, kinds) {
-  const speech = String(text || '')
-  const hits = []
-  const labels = [...new Set((Array.isArray(kinds) ? kinds : []).map((kind) => String(kind || '').trim()).filter((label) => label.length >= 2))]
-  labels.sort((a, b) => b.length - a.length)
-  const taken = new Array(speech.length).fill(false)
-  for (const label of labels) {
-    let from = 0
-    while (from <= speech.length) {
-      const idx = speech.indexOf(label, from)
-      if (idx < 0) break
-      let blocked = false
-      for (let i = idx; i < idx + label.length; i += 1) {
-        if (taken[i]) {
-          blocked = true
-          break
-        }
-      }
-      if (!blocked) {
-        hits.push({ kind: label, index: idx, end: idx + label.length })
-        for (let i = idx; i < idx + label.length; i += 1) taken[i] = true
-      }
-      from = idx + label.length
+function isLeftoverShortKind(kind, labels) {
+  const name = String(kind || '').trim()
+  if (!name) return false
+  return labels.some((other) => other !== name && other.endsWith(name))
+}
+
+function titleSuffixTokens(title) {
+  const out = []
+  const label = String(title || '').trim()
+  for (let len = label.length - 1; len >= 2; len -= 1) {
+    out.push(label.slice(label.length - len))
+  }
+  return out
+}
+
+function spokenAliasTokens(kind, vocab) {
+  const row = vocabRow(kind, vocab)
+  if (!row) return []
+  const says = []
+  for (const clue of cluesOfRow(row)) {
+    if (String(clue.role || '').trim() !== '型') continue
+    for (const say of stringList(clue.say || clue.says)) {
+      const alias = String(say || '').trim()
+      if (alias && alias !== kind) says.push(alias)
     }
+  }
+  return says
+}
+
+function pushGraphAliasFields(obj, kind, out) {
+  if (!obj || typeof obj !== 'object') return
+  for (const key of ['alias', 'aliases', 'label', 'say']) {
+    for (const item of stringList(obj[key])) {
+      if (item && item !== kind) out.push(item)
+    }
+  }
+}
+
+function graphAliasTokens(kind, extra = {}) {
+  const tokens = []
+  const row = vocabRow(kind, extra.vocab)
+  if (row) {
+    for (const item of stringList(row.aliases)) {
+      if (item && item !== kind) tokens.push(item)
+    }
+    for (const rel of Array.isArray(row.relations) ? row.relations : []) {
+      pushGraphAliasFields(rel, kind, tokens)
+    }
+  }
+  for (const rel of Array.isArray(extra.relations) ? extra.relations : []) {
+    if (rel.from !== kind && rel.to !== kind) continue
+    pushGraphAliasFields(rel, kind, tokens)
+  }
+  return tokens
+}
+
+function tokensForKindLabel(label, extra) {
+  const tokens = new Set()
+  if (label.length >= 2) tokens.add(label)
+  for (const suffix of titleSuffixTokens(label)) tokens.add(suffix)
+  if (extra && extra.vocab) {
+    for (const alias of spokenAliasTokens(label, extra.vocab)) {
+      if (alias.length >= 2) tokens.add(alias)
+    }
+    for (const alias of graphAliasTokens(label, extra)) {
+      if (alias.length >= 2) tokens.add(alias)
+    }
+  }
+  return [...tokens].filter((token) => token.length >= 2)
+}
+
+function kindMentions(text, kinds, extra) {
+  const speech = String(text || '')
+  const labels = [...new Set((Array.isArray(kinds) ? kinds : []).map((kind) => String(kind || '').trim()).filter((label) => label.length >= 2))]
+  const candidates = []
+  for (const kind of labels) {
+    const tokens = tokensForKindLabel(kind, extra)
+    for (const token of tokens) {
+      let from = 0
+      while (from <= speech.length) {
+        const idx = speech.indexOf(token, from)
+        if (idx < 0) break
+        candidates.push({ kind, token, index: idx, end: idx + token.length })
+        from = idx + 1
+      }
+    }
+  }
+  candidates.sort((a, b) => {
+    const byToken = b.token.length - a.token.length
+    if (byToken !== 0) return byToken
+    const aLeft = isLeftoverShortKind(a.kind, labels) ? 1 : 0
+    const bLeft = isLeftoverShortKind(b.kind, labels) ? 1 : 0
+    if (aLeft !== bLeft) return aLeft - bLeft
+    return b.kind.length - a.kind.length
+  })
+  const taken = new Array(speech.length).fill(false)
+  const hits = []
+  for (const row of candidates) {
+    let blocked = false
+    for (let i = row.index; i < row.end; i += 1) {
+      if (taken[i]) {
+        blocked = true
+        break
+      }
+    }
+    if (blocked) continue
+    hits.push({ kind: row.kind, index: row.index, end: row.end })
+    for (let i = row.index; i < row.end; i += 1) taken[i] = true
   }
   hits.sort((a, b) => a.index - b.index)
   return hits
+}
+
+function spokenAndGraphAliasTokens(kind, extra) {
+  const out = new Set()
+  if (!extra || !extra.vocab) return out
+  for (const alias of spokenAliasTokens(kind, extra.vocab)) {
+    if (alias.length >= 2) out.add(alias)
+  }
+  for (const alias of graphAliasTokens(kind, extra)) {
+    if (alias.length >= 2) out.add(alias)
+  }
+  return out
+}
+
+function sharesFragmentWithSpec(mentionedKind, specKind, extra) {
+  const M = String(mentionedKind || '').trim()
+  const spec = String(specKind || '').trim()
+  if (!M || !spec) return false
+  if (M.endsWith(spec)) return true
+  for (const suffix of titleSuffixTokens(M)) {
+    if (spec.startsWith(suffix)) return true
+  }
+  if (spokenAndGraphAliasTokens(M, extra).has(spec)) return true
+  return false
+}
+
+function remapEnrichTargetKind(specKind, speech, bag) {
+  const spec = String(specKind || '').trim()
+  if (!spec) return spec
+  const kinds = registeredKinds(bag)
+  const mentioned = [...new Set(kindMentions(speech, kinds, bag).map((row) => row.kind))]
+  const needRemap = isLeftoverShortKind(spec, kinds) || !mentioned.includes(spec)
+  if (!needRemap) return spec
+  const candidates = mentioned.filter((M) => sharesFragmentWithSpec(M, spec, bag))
+  if (!candidates.length) return spec
+  const mentionedSet = new Set(mentioned)
+  const score = (M) => {
+    const neighbors = graphNeighbors(M, bag)
+    if (neighbors.some((n) => mentionedSet.has(n))) return 3
+    if (neighbors.length) return 2
+    return 1
+  }
+  candidates.sort((a, b) => {
+    const byGraph = score(b) - score(a)
+    if (byGraph !== 0) return byGraph
+    return b.length - a.length
+  })
+  return candidates[0]
 }
 
 function nearestKindForHit(hitIndex, mentions) {
@@ -140,6 +272,23 @@ function nearestKindForHit(hitIndex, mentions) {
     }
   }
   return best.kind
+}
+
+function kindAfterClueInSpeech(speech, hitIndex, sayText, mentions) {
+  const hitEnd = hitIndex + String(sayText || '').length
+  let bestKind = ''
+  let bestGap = Infinity
+  for (const row of mentions) {
+    if (row.index < hitEnd) continue
+    const between = speech.slice(hitEnd, row.index)
+    if (!/^[\s∩、，,；;：:·\-—]*$/u.test(between)) continue
+    const gap = row.index - hitEnd
+    if (gap < bestGap) {
+      bestGap = gap
+      bestKind = row.kind
+    }
+  }
+  return bestKind || nearestKindForHit(hitIndex, mentions)
 }
 
 function relationsFromVocab(vocab, extra = {}) {
@@ -191,7 +340,7 @@ function relatedKindChain(targetKind, speech, extra) {
   const target = String(targetKind || '').trim()
   if (!target) return []
   const kinds = registeredKinds(extra)
-  const mentioned = [...new Set(kindMentions(speech, kinds).map((row) => row.kind))]
+  const mentioned = [...new Set(kindMentions(speech, kinds, extra).map((row) => row.kind))]
   const bag = new Set(mentioned)
   bag.add(target)
   const undirected = new Map()
@@ -344,23 +493,26 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
   if (!text.trim()) return []
   const mergedVocab = vocabWithSpoken(vocab)
   const kinds = registeredKinds({ vocab: mergedVocab })
-  const mentions = kindMentions(text, kinds)
+  const mentions = kindMentions(text, kinds, { vocab: mergedVocab, ...extra })
   const bag = { vocab: mergedVocab, ...extra }
   const synthetic = syntheticCluesByKind(mergedVocab, extra)
   const hits = []
   for (const row of mergedVocab) {
     if (!row) continue
     const owner = String(row.kind || row.label || '').trim()
+    const explicit = cluesOfRow(row)
     const clues = [
-      ...cluesOfRow(row),
+      ...explicit,
       ...(synthetic.get(owner) || []),
     ]
     for (const clue of clues) {
       const packed = findClueHit(text, clue, bag)
       if (!packed) continue
-      const assign = owner && owner !== '口语' && mentions.some((m) => m.kind === owner)
+      const ownerMentioned = owner && owner !== '口语' && mentions.some((m) => m.kind === owner)
+      const fromSynthetic = !(explicit.includes(clue))
+      const assign = ownerMentioned && !fromSynthetic
         ? owner
-        : nearestKindForHit(packed.hitIndex, mentions)
+        : kindAfterClueInSpeech(text, packed.hitIndex, packed.say, mentions)
       hits.push({ ...packed, assignKind: assign || owner || '' })
     }
   }
@@ -371,7 +523,7 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
     if (!inferred) continue
     hits.push({
       ...inferred,
-      assignKind: nearestKindForHit(inferred.hitIndex, mentions) || kind,
+      assignKind: kindAfterClueInSpeech(text, inferred.hitIndex, inferred.say, mentions) || kind,
     })
   }
   return hits
@@ -470,7 +622,7 @@ function whereForKind(hits, kind, extraWhere) {
 export function enrichStructuredSlots(spec, vocab, extra = {}) {
   const base = spec && typeof spec === 'object' ? { ...spec } : {}
   const speech = String(base.speech || base.quote || '').trim()
-  const targetKind = String(base.kind || '').trim()
+  let targetKind = String(base.kind || '').trim()
   if (!speech || !targetKind) return base
 
   const bag = {
@@ -480,6 +632,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     relations: extra.relations,
     schemaByKind: extra.schemaByKind,
   }
+  targetKind = remapEnrichTargetKind(targetKind, speech, bag)
   const hits = clueHitsInSpeech(speech, vocab, bag)
   const chainKinds = relatedKindChain(targetKind, speech, bag)
   const existingSteps = Array.isArray(base.steps) ? base.steps.filter((row) => row && row.kind) : []
@@ -502,7 +655,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
       if (!ancestorValues.size || !vals.length) return true
       return !vals.every((value) => ancestorValues.has(value))
     })
-    const next = { ...base, steps }
+    const next = { ...base, kind: targetKind, steps }
     const from = nestFromSteps(steps)
     if (from) next.from = from
     if (last.where.length) next.where = last.where
@@ -516,7 +669,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   const childWhere = whereForKind(hits, targetKind, base.where)
   const parents = parentKindsOf(targetKind, bag)
   let parent = parents.find((kind) => termsForKind(hits, kind).length) || parents.find((kind) => (
-    kindMentions(speech, [kind]).length
+    kindMentions(speech, [kind], bag).length
   ))
   if (!parent) parent = hopParentKindForTarget(targetKind, speech, bag)
   const parentWhere = parent ? whereForKind(hits, parent) : []
@@ -529,7 +682,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
 
   if (!parent && !parentWhere.length && !childFiltered.length) return base
 
-  const next = { ...base }
+  const next = { ...base, kind: targetKind }
   if (parent) {
     next.from = parentWhere.length ? { kind: parent, where: parentWhere } : { kind: parent }
   }

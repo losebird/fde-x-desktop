@@ -150,3 +150,79 @@ test('enrichStructuredSlots chains three kinds via schema FK when vocab has no r
   assert.equal(out.from?.from?.kind, 'MidB')
   assert.deepEqual(out.steps.map((row) => row.kind), ['ParentA', 'MidB', 'ChildC'])
 })
+
+const intersectionKinds = ['AlphaWidget', 'Widget', 'AlphaGadget', 'Gadget']
+
+const intersectionVocab = [
+  {
+    kind: 'AlphaWidget',
+    resource: 'alpha_widget',
+    can: ['现查'],
+    relations: [{ from: 'AlphaGadget', to: 'AlphaWidget', field: 'gadgetRef' }],
+    clues: [
+      { say: ['pending'], keys: ['status'], values: ['pending'] },
+      { role: '型', say: ['wid'] },
+    ],
+  },
+  { kind: 'Widget', resource: 'widget', can: ['现查'] },
+  {
+    kind: 'AlphaGadget',
+    resource: 'alpha_gadget',
+    can: ['现查'],
+    aliases: ['gad'],
+    clues: [{ say: ['expired'], keys: ['status'], values: ['expired'] }],
+  },
+  { kind: 'Gadget', resource: 'gadget', can: ['现查'] },
+  { kind: 'WidgetSlip', resource: 'widget_slip', can: ['现查'] },
+]
+
+const intersectionSpeech = 'pending Widget ∩ expired Gadget'
+
+test('kindMentions prefers vocab kinds over leftover isolated short names', () => {
+  const hits = kindMentions(intersectionSpeech, intersectionKinds)
+  assert.deepEqual(hits.map((row) => row.kind), ['AlphaWidget', 'AlphaGadget'])
+})
+
+test('kindMentions binds spoken slot and graph alias tokens with vocab extra', () => {
+  const speech = 'pending wid ∩ expired gad'
+  const hits = kindMentions(speech, intersectionKinds, { vocab: intersectionVocab })
+  assert.deepEqual(hits.map((row) => row.kind), ['AlphaWidget', 'AlphaGadget'])
+})
+
+test('enrichStructuredSlots assigns clues per remapped vocab kind on intersection speech', () => {
+  const out = enrichStructuredSlots({
+    kind: 'AlphaWidget',
+    action: '现查',
+    speech: intersectionSpeech,
+  }, intersectionVocab)
+  assert.equal(out.kind, 'AlphaWidget')
+  assert.equal(out.from?.kind, 'AlphaGadget')
+  assert.deepEqual(out.steps?.map((row) => row.kind), ['AlphaGadget', 'AlphaWidget'])
+  const gadgetStep = out.steps.find((row) => row.kind === 'AlphaGadget')
+  const widgetStep = out.steps.find((row) => row.kind === 'AlphaWidget')
+  assert.ok(gadgetStep?.where?.some((term) => (term.values || []).includes('expired')))
+  assert.ok(widgetStep?.where?.some((term) => (term.values || []).includes('pending')))
+  assert.ok(!gadgetStep?.where?.some((term) => (term.values || []).includes('pending')))
+  assert.ok(!widgetStep?.where?.some((term) => (term.values || []).includes('expired')))
+})
+
+test('enrichStructuredSlots remaps leftover target kind to owning vocab kind', () => {
+  const out = enrichStructuredSlots({
+    kind: 'Widget',
+    action: '现查',
+    speech: intersectionSpeech,
+  }, intersectionVocab)
+  assert.equal(out.kind, 'AlphaWidget')
+  assert.equal(out.from?.kind, 'AlphaGadget')
+  assert.deepEqual(out.steps?.map((row) => row.kind), ['AlphaGadget', 'AlphaWidget'])
+})
+
+test('enrichStructuredSlots remaps kind whose prefix shares suffix of vocab kind', () => {
+  const out = enrichStructuredSlots({
+    kind: 'WidgetSlip',
+    action: '现查',
+    speech: intersectionSpeech,
+  }, intersectionVocab)
+  assert.equal(out.kind, 'AlphaWidget')
+  assert.equal(out.from?.kind, 'AlphaGadget')
+})
