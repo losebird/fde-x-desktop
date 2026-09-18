@@ -1,4 +1,8 @@
-export type SheetColumn = { key: string; label?: string }
+export type SheetColumn = {
+  key: string
+  label?: string
+  enums?: Record<string, string>
+}
 export type SheetRow = Record<string, unknown>
 
 export function isBizListQueryAction(action: string) {
@@ -88,10 +92,18 @@ export function normalizeSheetColumns(raw: unknown): SheetColumn[] {
   const columns: SheetColumn[] = []
   for (const column of raw) {
     if (!column || typeof column !== 'object') continue
-    const item = column as { key?: string; label?: string }
+    const item = column as { key?: string; label?: string; enums?: Record<string, unknown> }
     const key = String(item.key || item.label || '').trim()
     if (!key || INTERNAL_KEYS.has(key)) continue
-    columns.push({ key, label: String(item.label || item.key || key) })
+    const next: SheetColumn = { key, label: String(item.label || item.key || key) }
+    if (item.enums && typeof item.enums === 'object' && !Array.isArray(item.enums)) {
+      const enums: Record<string, string> = {}
+      for (const [enumKey, enumLabel] of Object.entries(item.enums)) {
+        enums[String(enumKey)] = String(enumLabel ?? enumKey)
+      }
+      if (Object.keys(enums).length) next.enums = enums
+    }
+    columns.push(next)
   }
   return columns
 }
@@ -112,6 +124,27 @@ export function normalizeSheetRows(raw: unknown): SheetRow[] {
 
 export function sheetRowKey(row: SheetRow, index = 0) {
   return String(row.orderId ?? row.no ?? row.id ?? index)
+}
+
+export function resolveSheetEnumLabel(column: SheetColumn | undefined, value: unknown): string | null {
+  const enums = column?.enums
+  if (!enums || value == null || value === '') return null
+  const raw = normalizeCompareValue(value)
+  if (!raw) return null
+  if (Object.prototype.hasOwnProperty.call(enums, raw)) return enums[raw]
+  const lower = raw.toLowerCase()
+  for (const [enumKey, enumLabel] of Object.entries(enums)) {
+    if (String(enumKey).toLowerCase() === lower) return enumLabel
+  }
+  return null
+}
+
+/** Display text for grid cells: schema enum labels + generic date/boolean formatting. */
+export function formatSheetCellDisplayValue(value: unknown, column?: SheetColumn): string {
+  if (value == null || value === '') return '—'
+  const enumLabel = resolveSheetEnumLabel(column, value)
+  if (enumLabel != null) return enumLabel
+  return formatSheetCellValue(value)
 }
 
 export function formatSheetCellValue(value: unknown): string {
@@ -192,13 +225,14 @@ function previewChangesFromSheetPayload(
     const toRaw = row.to
     if (sheetFieldValuesEqual(fromRaw, toRaw)) continue
     if (isBlankSheetValue(fromRaw) && !isBlankSheetValue(toRaw)) {
-      changes.push({ label, to: formatSheetCellValue(toRaw) })
+      changes.push({ label, to: formatSheetCellDisplayValue(toRaw, columns.find((c) => c.key === key)) })
       continue
     }
+    const col = columns.find((c) => c.key === key)
     changes.push({
       label,
-      from: formatSheetCellValue(fromRaw),
-      to: formatSheetCellValue(toRaw),
+      from: formatSheetCellDisplayValue(fromRaw, col),
+      to: formatSheetCellDisplayValue(toRaw, col),
     })
   }
   return changes
@@ -212,19 +246,20 @@ function buildPreviewFieldChanges(
 ) {
   const changes: PreviewChange[] = []
   for (const key of previewFieldKeys(columns, primary, original)) {
+    const col = columns.find((column) => column.key === key)
     const label = columnLabel(columns, key) || key
     const toRaw = rowFieldValue(primary, key)
     const fromRaw = rowFieldValue(original, key)
     if (mode === 'create') {
       if (isBlankSheetValue(toRaw)) continue
-      changes.push({ label, to: formatSheetCellValue(toRaw) })
+      changes.push({ label, to: formatSheetCellDisplayValue(toRaw, col) })
       continue
     }
     if (sheetFieldValuesEqual(fromRaw, toRaw)) continue
     changes.push({
       label,
-      from: formatSheetCellValue(fromRaw),
-      to: formatSheetCellValue(toRaw),
+      from: formatSheetCellDisplayValue(fromRaw, col),
+      to: formatSheetCellDisplayValue(toRaw, col),
     })
   }
   return changes

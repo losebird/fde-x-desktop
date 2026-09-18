@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Bot, CircleAlert, Plus, Search, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Bot, CircleAlert, Plus, Search } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Empty } from '@/components/ui'
 import { BizPreviewDrawer } from '@/components/biz/BizPreviewDrawer'
 import { SpecTable } from '@/components/apps/SpecTable'
 import {
-  formatSheetCellValue,
+  formatSheetCellDisplayValue,
+  type SheetColumn,
   isBizListQueryAction,
   normalizeSheetColumns,
   normalizeSheetRows,
   pickFilledSheetInput,
   pickSheetRowPatch,
   sheetRowKey,
-  type SheetColumn,
   type SheetRow,
 } from '@/lib/biz-sheet-display'
 import { ContextChips } from '@/components/ai/ContextChips'
@@ -28,13 +28,18 @@ import {
 } from '@/lib/runtime-api'
 import { isFdeAppSpec } from '@/lib/app-spec'
 import {
+  listBizKindListSnapshots,
   peekBizKindListSheet,
+  peekBizKindListSheetForOperation,
   rememberBizKindListSheet,
 } from '@/lib/biz-kind-list-cache'
 import {
   extractSheetListWhere,
+  briefQueryScopeLabel,
+  extractBoundKindHints,
   listQueryFingerprint,
   listSnapshotCacheKey,
+  operationBundlesAlign,
   sheetRowsFingerprint,
 } from '@/lib/biz-list-query'
 import {
@@ -173,25 +178,35 @@ function listRestoreFromSnapshot(snap: SheetSnapshot): ListRestoreSnapshot {
 
 function EditableSheetCell({
   value,
+  column,
   onChange,
 }: {
   value: unknown
+  column?: SheetColumn
   onChange: (next: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const raw = value == null ? '' : String(value)
+  const display = formatSheetCellDisplayValue(value, column)
+  const isEmpty = value == null || value === ''
 
   if (!editing) {
     return (
       <button
         type="button"
-        className="w-full min-h-7 rounded-none border-0 bg-transparent px-1.5 py-1 text-left text-xs hover:bg-surface-2/80"
+        title={display}
+        className={clsx(
+          'w-full min-h-8 rounded-sm border-0 bg-transparent px-2.5 py-1.5 text-left text-xs leading-snug',
+          'hover:bg-surface-2/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/30',
+          isEmpty ? 'text-ink-subtle' : 'text-ink',
+          !isEmpty && 'truncate',
+        )}
         onClick={(event) => {
           event.stopPropagation()
           setEditing(true)
         }}
       >
-        {formatSheetCellValue(value)}
+        {display}
       </button>
     )
   }
@@ -199,7 +214,7 @@ function EditableSheetCell({
   return (
     <input
       autoFocus
-      className="input h-7 w-full rounded-none border-0 text-xs shadow-none ring-1 ring-line"
+      className="input h-8 w-full rounded-sm border-0 text-xs shadow-none ring-1 ring-brand/25 bg-white px-2"
       value={raw}
       onClick={(event) => event.stopPropagation()}
       onChange={(event) => onChange(event.target.value)}
@@ -208,7 +223,7 @@ function EditableSheetCell({
   )
 }
 
-export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWithTarget }: Props) {
+export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget }: Props) {
   const activeWorkspaceCwd = useApp((state) => {
     const row = state.workspaces.find((item) => item.id === state.activeWorkspaceId)
     const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
@@ -230,6 +245,8 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const [error, setError] = useState('')
   const [staleHint, setStaleHint] = useState('')
   const [selectedRow, setSelectedRow] = useState<SheetRow | null>(null)
+  const [selectedRowKey, setSelectedRowKey] = useState('')
+  const [listSheetMeta, setListSheetMeta] = useState<Record<string, unknown> | null>(null)
   const [page, setPage] = useState(1)
   const [draftEdits, setDraftEdits] = useState<Record<string, SheetRow>>({})
   const [createDraft, setCreateDraft] = useState<Record<string, string> | null>(null)
@@ -253,6 +270,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const appliedSheetFpRef = useRef('')
   const activeListQueryFpRef = useRef('')
   const showRecordsBack = Boolean(listRestore)
+  const bizCwd = workspaceCwd || activeWorkspaceCwd
 
   const localApps = useMemo(
     () => apps.filter((app) => isFdeAppSpec(app.definition)),
@@ -264,22 +282,93 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     return [...external, ...local]
   }, [connections, localApps])
 
-  const surfacedKinds = useMemo(() => {
-    const byKind = new Map<string, { kind: string; label: string; latestAt: number }>()
-    for (const surface of surfaces) {
-      const k = surface.kind
-      if (!k) continue
-      const at = surface.createdAt || 0
+  const kindLabel = useCallback((k: string) => {
+    const row = kindCatalog.find((item) => item.kind === k)
+    return row?.label || k
+  }, [kindCatalog])
+
+  const operationAnchor = useMemo(() => {
+    const pendingSheet = peekBizPendingSheet()
+    if (pendingSheet) return pendingSheet
+    if (listSheetMeta && typeof listSheetMeta === 'object') return listSheetMeta
+    if (kind) {
+      const snap = sheetSnapshots.current.get(`kind:${kind}`)
+      if (snap?.sheet) return snap.sheet
+    }
+    return null
+  }, [kind, listSheetMeta, pending?.at, pending?.kind, rows.length])
+
+  const surfacedKindChips = useMemo(() => {
+    const anchor = operationAnchor
+    const byKind = new Map<string, { kind: string; label: string; count: number; latestAt: number }>()
+    const add = (k: string, count: number, at: number) => {
+      if (!k) return
       const prev = byKind.get(k)
-      if (!prev || at > prev.latestAt) {
-        byKind.set(k, { kind: k, label: k, latestAt: at })
+      const nextCount = count > 0 ? count : (prev?.count ?? 0)
+      if (!prev || at >= prev.latestAt) {
+        byKind.set(k, { kind: k, label: kindLabel(k), count: nextCount, latestAt: at })
+      } else if (count > 0) {
+        byKind.set(k, { ...prev, count })
       }
     }
-    if (pending?.kind && !byKind.has(pending.kind)) {
-      byKind.set(pending.kind, { kind: pending.kind, label: pending.kind, latestAt: pending.at })
+
+    if (!anchor) {
+      if (kind) add(kind, rows.length, Date.now())
+      return [...byKind.values()]
     }
+
+    const pool: Record<string, unknown>[] = [anchor]
+    if (bizCwd) {
+      for (const snap of listBizKindListSnapshots(bizCwd)) {
+        if (operationBundlesAlign(anchor, snap.sheet)) pool.push(snap.sheet)
+      }
+    }
+    for (const snap of sheetSnapshots.current.values()) {
+      if (snap?.sheet && operationBundlesAlign(anchor, snap.sheet)) pool.push(snap.sheet)
+    }
+
+    const allowedKinds = new Set<string>()
+    for (const hint of extractBoundKindHints(anchor)) allowedKinds.add(hint)
+    if (!allowedKinds.size) {
+      const only = String(anchor.kind || kind || '').trim()
+      if (only) allowedKinds.add(only)
+    }
+
+    for (const sheet of pool) {
+      const k = String(sheet.kind || '').trim()
+      if (!k || !allowedKinds.has(k)) continue
+      const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
+      add(k, rowCount, Date.now())
+    }
+
+    if (kind && allowedKinds.has(kind) && rows.length > 0) {
+      add(kind, rows.length, Date.now())
+    }
+
     return [...byKind.values()].sort((a, b) => b.latestAt - a.latestAt)
-  }, [surfaces, pending])
+  }, [bizCwd, kind, kindLabel, operationAnchor, rows.length])
+
+  const sessionSurfaces = useMemo(() => {
+    const sorted = [...surfaces].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    const sessionKey = pending?.sessionId?.trim() || ''
+    if (!sessionKey) return sorted
+    const scoped = sorted.filter((row) => row.sessionId === sessionKey)
+    return scoped.length ? scoped : sorted
+  }, [pending?.sessionId, surfaces])
+
+  const surfaceHistoryLabel = useCallback((surface: BizSurfaceRecord) => {
+    const cached = sheetSnapshots.current.get(`surface:${surface.id}`)
+    const sheet = cached?.sheet
+      ?? (bizCwd ? peekBizKindListSheet(bizCwd, surface.kind)?.sheet : undefined)
+    const scope = sheet ? briefQueryScopeLabel(sheet) : ''
+    const time = new Date(surface.createdAt).toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    return [surface.kind, surface.action, scope || time].filter(Boolean).join(' · ')
+  }, [bizCwd])
 
   const currentKindCan = useMemo(() => {
     const row = kindCatalog.find((item) => item.kind === kind)
@@ -311,9 +400,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }, [activeWorkspaceCwd])
 
   useEffect(() => {
-    if (!runtimeReady || !workspaceCwd) return
+    if (!runtimeReady || !bizCwd) return
     let cancelled = false
-    void runtimeApi.listBizKinds().then((data) => {
+    void runtimeApi.listBizKinds(undefined, bizCwd).then((data) => {
       if (cancelled) return
       setKindCatalog(data.kinds.map((row) => ({
         kind: row.kind,
@@ -324,7 +413,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       if (!cancelled) setKindCatalog([])
     })
     return () => { cancelled = true }
-  }, [runtimeReady, workspaceCwd])
+  }, [bizCwd, runtimeReady])
 
   const seedKindListSnapshot = useCallback((snapshot: SheetSnapshot) => {
     const k = String(snapshot.sheet.kind || '')
@@ -518,6 +607,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     const nextKind = String(sheet.kind || '')
     if (nextKind) setKind(nextKind)
     setStaleHint('')
+    setListSheetMeta(sheet)
     rememberSheet({ sheet, connName, surfaceId })
   }, [rememberSheet])
 
@@ -533,11 +623,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }, [])
 
   const loadSurfaces = useCallback(async () => {
-    if (!workspaceCwd) return
+    if (!bizCwd) return
     try {
-      setSurfaces(await runtimeApi.listBizSurfaces(workspaceCwd, 20))
+      setSurfaces(await runtimeApi.listBizSurfaces(bizCwd, 40))
     } catch { /* ignore */ }
-  }, [workspaceCwd])
+  }, [bizCwd])
 
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
     const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
@@ -856,10 +946,20 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const selectKind = useCallback((nextKind: string) => {
     setKind(nextKind)
     setStaleHint('')
+    setSelectedRow(null)
+    setSelectedRowKey('')
     const pendingSheet = peekBizPendingSheet()
     if (pendingSheet && String(pendingSheet.kind || '') === nextKind) {
       applyPendingSheet(pendingSheet)
       return
+    }
+    const anchor = peekBizPendingSheet() || listSheetMeta
+    if (bizCwd) {
+      const scoped = peekBizKindListSheetForOperation(bizCwd, nextKind, anchor)
+      if (scoped) {
+        applySheet(scoped.sheet, scoped.connName, scoped.surfaceId)
+        return
+      }
     }
     const queryFp = activeListQueryFpRef.current
     let keyed: SheetSnapshot | undefined
@@ -877,12 +977,29 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
         keyed = undefined
       }
     }
-    const cached = keyed || sheetSnapshots.current.get(`kind:${nextKind}`)
-    if (cached) {
+    let cached: SheetSnapshot | undefined = keyed
+    if (!cached && anchor) {
+      for (const snap of sheetSnapshots.current.values()) {
+        const sheet = snap?.sheet
+        if (!sheet || String(sheet.kind || '') !== nextKind) continue
+        if (operationBundlesAlign(anchor, sheet)) {
+          cached = snap
+          break
+        }
+      }
+    } else if (!cached && !anchor) {
+      cached = sheetSnapshots.current.get(`kind:${nextKind}`)
+    }
+    if (cached?.sheet && (!anchor || operationBundlesAlign(anchor, cached.sheet))) {
       applySheet(cached.sheet, cached.connName, cached.surfaceId)
       return
     }
-    const surface = surfaces.find((s) => s.kind === nextKind)
+    const surface = surfaces.find((s) => {
+      if (s.kind !== nextKind) return false
+      if (!anchor) return true
+      const cached = sheetSnapshots.current.get(`surface:${s.id}`)
+      return cached?.sheet ? operationBundlesAlign(anchor, cached.sheet) : false
+    })
     if (surface) {
       void loadSurface(surface)
     } else {
@@ -890,7 +1007,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
       setColumns([])
       setStaleHint('还没有该型的行快照；请在 AI 会话里操作该业务后回到此页。')
     }
-  }, [applySheet, loadSurface, surfaces])
+  }, [applySheet, bizCwd, listSheetMeta, loadSurface, surfaces])
 
   const tableRows = useMemo(() => {
     const previewSheet = drawer?.sheet
@@ -1091,7 +1208,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
           </button>
         ))}
         <div className="flex items-center gap-1 flex-wrap">
-          {surfacedKinds.map((k) => (
+          {surfacedKindChips.map((k) => (
             <button
               key={k.kind}
               type="button"
@@ -1100,9 +1217,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
               onClick={() => selectKind(k.kind)}
             >
               {k.label}
-              <span className="text-[10px] opacity-70 ml-1">
-                {kind === k.kind ? (filteredRows.length || (pending?.kind === k.kind ? pending.rows : 0) || surfaces.find((s) => s.kind === k.kind)?.rowCount || 0) : ''}
-              </span>
+              {k.count > 0 && (
+                <span className="text-[10px] opacity-70 ml-1 tabular-nums">{k.count}</span>
+              )}
             </button>
           ))}
         </div>
@@ -1115,28 +1232,27 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
           <Plus size={13} /> 新建
         </button>
         )}
-        <button type="button" className="btn-brand !py-1" onClick={onPlan}><ShieldCheck size={13} /> 规划数据操作</button>
       </Card>
 
-      {(pendingText || surfaces.length > 0) && (
+      {(pendingText || sessionSurfaces.length > 0) && (
         <div className="px-3 py-2 border border-blue-200 bg-blue-50 text-xs text-blue-800 flex flex-wrap items-center gap-2">
           {pendingText && (
             <button type="button" className="underline" onClick={() => { if (pending) void selectKind(pending.kind) }}>
               {pendingText}
             </button>
           )}
-          {surfaces.length > 0 && (
+          {sessionSurfaces.length > 0 && (
             <select
-              className="input h-7 text-xs ml-auto max-w-[240px]"
+              className="input h-7 text-xs ml-auto max-w-[320px]"
               defaultValue=""
               onChange={(e) => {
-                const row = surfaces.find((s) => s.id === e.target.value)
+                const row = sessionSurfaces.find((s) => s.id === e.target.value)
                 if (row) void loadSurface(row)
               }}
             >
               <option value="">本会话浮现历史</option>
-              {surfaces.map((s) => (
-                <option key={s.id} value={s.id}>{s.kind} · {s.action} · {new Date(s.createdAt).toLocaleString('zh-CN')}</option>
+              {sessionSurfaces.map((s) => (
+                <option key={s.id} value={s.id}>{surfaceHistoryLabel(s)}</option>
               ))}
             </select>
           )}
@@ -1184,21 +1300,21 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
           </div>
         )}
         <div className="overflow-x-auto overflow-y-auto max-h-[min(70vh,560px)] [-webkit-overflow-scrolling:touch]">
-          <table className="w-full min-w-max border-collapse text-xs text-ink">
+          <table className="w-full min-w-max border-separate border-spacing-0 text-xs text-ink">
             <thead>
-              <tr className="text-left text-ink-muted bg-surface-2">
-                <th className="sticky top-0 left-0 z-20 bg-surface-2 border border-line px-2 py-1.5 font-medium whitespace-nowrap w-12 min-w-12 text-center">
+              <tr className="text-left">
+                <th className="sticky top-0 left-0 z-20 border-b-2 border-r border-line bg-surface-2 px-2 py-2 font-semibold text-ink-subtle whitespace-nowrap w-12 min-w-12 text-center">
                   {ROW_DISPLAY_INDEX_LABEL}
                 </th>
                 {gridColumns.map((column) => (
                   <th
                     key={column.key}
-                    className="sticky top-0 z-10 bg-surface-2 border border-line px-2 py-1.5 font-medium whitespace-nowrap min-w-[100px]"
+                    className="sticky top-0 z-10 border-b-2 border-r border-line bg-surface-2 px-3 py-2 font-semibold text-ink whitespace-nowrap min-w-[108px]"
                   >
                     {column.label || column.key}
                   </th>
                 ))}
-                <th className="sticky top-0 z-10 bg-surface-2 border border-line px-2 py-1.5 font-medium text-right whitespace-nowrap min-w-[88px]">
+                <th className="sticky top-0 z-10 border-b-2 border-line bg-surface-2 px-3 py-2 font-semibold text-ink whitespace-nowrap min-w-[96px] text-right">
                   操作
                 </th>
               </tr>
@@ -1210,28 +1326,50 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
                 const rowKey = sheetRowKey(row, absoluteIndex)
                 const draftRow = getRowDraft(row, absoluteIndex)
                 const isPending = pending?.action && !isBizListQueryAction(pending.action) && pending.kind === kind
+                const isSelected = selectedRowKey === rowKey
+                const zebra = index % 2 === 1
+                const rowBg = isSelected
+                  ? 'bg-brand-soft/80'
+                  : isPending
+                    ? 'bg-brand-soft/40'
+                    : zebra
+                      ? 'bg-surface-2/35'
+                      : 'bg-white'
                 return (
                   <tr
                     key={rowKey}
                     className={clsx(
-                      'hover:bg-surface-2/50',
-                      isPending && 'bg-brand-soft/40',
-                      selectedRow === row && 'bg-brand-soft/70',
+                      rowBg,
+                      !isSelected && 'hover:bg-surface-2/60',
                     )}
-                    onClick={() => setSelectedRow(row)}
+                    onClick={() => {
+                      setSelectedRow(row)
+                      setSelectedRowKey(rowKey)
+                    }}
                   >
-                    <td className="sticky left-0 z-[1] border border-line bg-white px-2 py-1 text-center tabular-nums text-ink-muted align-middle">
-                      {displayIndex}
+                    <td className={clsx('sticky left-0 z-[1] border-b border-r border-line/80 px-2 py-1 text-center tabular-nums text-ink-muted align-middle', rowBg)}>
+                      <button
+                        type="button"
+                        className="w-full min-h-6 rounded-sm hover:bg-surface-2/50"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setSelectedRow(row)
+                          setSelectedRowKey(rowKey)
+                        }}
+                      >
+                        {displayIndex}
+                      </button>
                     </td>
                     {gridColumns.map((column) => (
-                      <td key={column.key} className="border border-line bg-white px-0 py-0 align-top min-w-[100px] max-w-[280px]">
+                      <td key={column.key} className={clsx('border-b border-r border-line/80 px-0 py-0 align-middle min-w-[108px] max-w-[300px]', rowBg)}>
                         <EditableSheetCell
+                          column={column}
                           value={draftRow[column.key]}
                           onChange={(next) => updateDraftCell(row, absoluteIndex, column.key, next)}
                         />
                       </td>
                     ))}
-                    <td className="border border-line bg-white px-2 py-1 text-right whitespace-nowrap align-middle">
+                    <td className={clsx('border-b border-line/80 px-2.5 py-1.5 text-right whitespace-nowrap align-middle', rowBg)}>
                       {rowActions.map((rowAction, actionIndex) => (
                         <button
                           key={rowAction}

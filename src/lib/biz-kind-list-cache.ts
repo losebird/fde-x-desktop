@@ -1,4 +1,4 @@
-import { listQueryFingerprint } from '@/lib/biz-list-query'
+import { listQueryFingerprint, operationBundlesAlign } from '@/lib/biz-list-query'
 
 const STORAGE_KEY = 'fde:biz:kind-list-cache'
 
@@ -66,6 +66,13 @@ export function rememberBizKindListSheet(
   writeAll(entries)
 }
 
+export function listBizKindListSnapshots(workspaceCwd: string): BizKindListSnapshot[] {
+  if (!workspaceCwd) return []
+  return readAll()
+    .filter((row) => row.workspaceCwd === workspaceCwd)
+    .sort((a, b) => b.at - a.at)
+}
+
 export function peekBizKindListSheet(
   workspaceCwd: string,
   kind: string,
@@ -78,6 +85,21 @@ export function peekBizKindListSheet(
   const hit = queryFingerprint
     ? rows.find((row) => row.queryFingerprint === queryFingerprint) || rows[0]
     : rows[0]
+  if (!hit) return null
+  return { sheet: hit.sheet, connName: hit.connName, surfaceId: hit.surfaceId }
+}
+
+export function peekBizKindListSheetForOperation(
+  workspaceCwd: string,
+  kind: string,
+  anchor: Record<string, unknown> | null | undefined,
+): { sheet: Record<string, unknown>; connName: string; surfaceId?: string } | null {
+  if (!workspaceCwd || !kind) return null
+  const rows = readAll()
+    .filter((row) => row.workspaceCwd === workspaceCwd && row.kind === kind)
+    .sort((a, b) => b.at - a.at)
+  if (!anchor) return rows[0] ? { sheet: rows[0].sheet, connName: rows[0].connName, surfaceId: rows[0].surfaceId } : null
+  const hit = rows.find((row) => operationBundlesAlign(anchor, row.sheet))
   if (!hit) return null
   return { sheet: hit.sheet, connName: hit.connName, surfaceId: hit.surfaceId }
 }

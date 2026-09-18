@@ -1808,8 +1808,12 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listBizKinds(signal?: AbortSignal): Promise<{ kinds: { kind: string; label: string; fields: JsonValue[]; can?: string[]; relations?: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown }> {
-    const result = await this.request<{ data: { kinds: { kind: string; label: string; fields: JsonValue[]; can?: string[]; relations?: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown } }>(withWorkspaceCwd('/api/v1/biz/kinds'), { signal })
+  async listBizKinds(signal?: AbortSignal, workspaceCwd?: string): Promise<{ kinds: { kind: string; label: string; fields: JsonValue[]; can?: string[]; relations?: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown }> {
+    const cwd = workspaceCwd?.trim().startsWith('/') ? workspaceCwd.trim() : currentWorkspaceCwd()
+    const path = cwd
+      ? `/api/v1/biz/kinds?cwd=${encodeURIComponent(cwd)}`
+      : withWorkspaceCwd('/api/v1/biz/kinds')
+    const result = await this.request<{ data: { kinds: { kind: string; label: string; fields: JsonValue[]; can?: string[]; relations?: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown } }>(path, { signal })
     return result.data
   }
 
