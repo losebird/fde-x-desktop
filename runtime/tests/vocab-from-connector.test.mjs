@@ -46,7 +46,7 @@ describe('vocab from connector', () => {
     assert.equal(child.ticketField, 'code')
   })
 
-  test('line-item kinds omit 金额 field to pass semantic kind gate', () => {
+  test('concept fields come from writable scalar schema rows only', () => {
     const collections = [
       {
         name: 'biz_order_items',
@@ -55,13 +55,24 @@ describe('vocab from connector', () => {
           { name: 'id', interface: 'id' },
           { name: 'amount', interface: 'number', uiSchema: { title: '金额' } },
           { name: 'code', interface: 'input', uiSchema: { title: '编号' } },
+          { name: 'parentId', interface: 'm2o', target: 'biz_parents', uiSchema: { title: '父表' } },
         ],
+      },
+      {
+        name: 'biz_parents',
+        title: '父表',
+        fields: [{ name: 'id', interface: 'id' }],
       },
     ]
     const built = buildVocabFromNocoCollections(collections)
-    assert.equal(built.concepts[0].ticketField, 'code')
-    assert.ok(built.concepts[0].fields.includes('code'))
-    assert.equal(built.concepts[0].fields.includes('金额'), false)
+    const item = built.concepts.find((row) => row.resource === 'biz_order_items')
+    assert.ok(item)
+    assert.equal(item.label, '采购订单明细')
+    assert.equal(item.ticketField, 'code')
+    assert.ok(item.fields.includes('code'))
+    assert.ok(item.fields.includes('金额'))
+    assert.equal(item.fields.includes('父表'), false)
+    assert.ok(built.relations.some((rel) => rel.field === 'parentId'))
   })
 
   test('empty association schema yields zero relations', () => {

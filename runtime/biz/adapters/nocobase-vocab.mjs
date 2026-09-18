@@ -74,9 +74,7 @@ function shapeFields(fields, ticketField) {
   for (const field of fields) {
     const name = String((field && field.name) || '').trim()
     if (!name || seen.has(name) || !isWritableField(field)) continue
-    const title = fieldTitle(field)
-    if (title === '金额' || title === '单号') continue
-    out.push(title || name)
+    out.push(fieldTitle(field) || name)
     seen.add(name)
   }
   return out.slice(0, 24)
