@@ -16,6 +16,7 @@ import {
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, renderContextForPrompt, type ContextPack } from '@/lib/context-pack'
 import { loadCurrentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { useApp } from '@/store/app'
 import {
   RuntimeApiError,
   runtimeApi,
@@ -185,6 +186,11 @@ function EditableSheetCell({
 }
 
 export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWithTarget }: Props) {
+  const activeWorkspaceCwd = useApp((state) => {
+    const row = state.workspaces.find((item) => item.id === state.activeWorkspaceId)
+    const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
+    return cwd.startsWith('/') ? cwd : ''
+  })
   const [workspaceCwd, setWorkspaceCwd] = useState('')
   const [lanReady, setLanReady] = useState(true)
   const [gateHint, setGateHint] = useState('')
@@ -275,9 +281,8 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }, [connectionId, localApps])
 
   useEffect(() => {
-    const ws = loadCurrentWorkspaceCwd()
-    if (ws.ok) setWorkspaceCwd(ws.cwd)
-  }, [])
+    if (activeWorkspaceCwd) setWorkspaceCwd(activeWorkspaceCwd)
+  }, [activeWorkspaceCwd])
 
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd) return

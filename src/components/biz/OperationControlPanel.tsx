@@ -117,8 +117,6 @@ export function OperationControlPanel({
   useEffect(() => {
     if (!runtimeReady) return
     let cancelled = false
-    const ws = loadCurrentWorkspaceCwd()
-    if (!ws.ok) return
     void runtimeApi.listBizKinds().then((data) => {
       if (cancelled) return
       setKindCatalog(data.kinds.map((row) => ({
