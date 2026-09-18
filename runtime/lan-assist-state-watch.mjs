@@ -85,6 +85,8 @@ function sheetFromState(state) {
     canWrite: Boolean(raw.canWrite ?? raw.can_write),
     sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
     workspace: typeof raw.workspace === 'string' ? raw.workspace : undefined,
+    ...(Array.isArray(raw.where) && raw.where.length ? { where: raw.where } : {}),
+    ...(Array.isArray(raw.hopWhere) && raw.hopWhere.length ? { hopWhere: raw.hopWhere } : {}),
   }
 }
 

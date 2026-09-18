@@ -30,6 +30,12 @@ import {
   rememberBizKindListSheet,
 } from '@/lib/biz-kind-list-cache'
 import {
+  extractSheetListWhere,
+  listQueryFingerprint,
+  listSnapshotCacheKey,
+  sheetRowsFingerprint,
+} from '@/lib/biz-list-query'
+import {
   clearBizPendingSheet,
   clearBizPreviewDismissed,
   dismissBizPreviewId,
@@ -227,6 +233,8 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const priorListSheetByKind = useRef<Map<string, SheetSnapshot>>(new Map())
   const listRestoreRef = useRef<ListRestoreSnapshot | null>(null)
   const listRestoreHydrateRef = useRef(false)
+  const appliedSheetFpRef = useRef('')
+  const activeListQueryFpRef = useRef('')
   const showRecordsBack = Boolean(listRestore)
 
   const localApps = useMemo(
@@ -304,8 +312,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const seedKindListSnapshot = useCallback((snapshot: SheetSnapshot) => {
     const k = String(snapshot.sheet.kind || '')
     if (!k) return
+    const cacheKey = listSnapshotCacheKey(k, snapshot.sheet)
+    sheetSnapshots.current.set(cacheKey, snapshot)
     sheetSnapshots.current.set(`kind:${k}`, snapshot)
     priorListSheetByKind.current.set(k, snapshot)
+    activeListQueryFpRef.current = listQueryFingerprint(snapshot.sheet)
     if (snapshot.surfaceId) {
       sheetSnapshots.current.set(`surface:${snapshot.surfaceId}`, snapshot)
     }
@@ -474,6 +485,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   }, [drawer?.previewId])
 
   const applySheet = useCallback((sheet: Record<string, unknown>, connName: string, surfaceId?: string) => {
+    const nextFp = sheetRowsFingerprint(sheet)
+    const sameSheet = nextFp && nextFp === appliedSheetFpRef.current
+    if (sameSheet) return
+    appliedSheetFpRef.current = nextFp
+    activeListQueryFpRef.current = listQueryFingerprint(sheet)
     const normalizedCols = normalizeSheetColumns(sheet.columns)
     setColumns(normalizedCols)
     setRows(normalizeSheetRows(sheet.rows))
@@ -509,6 +525,8 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
     const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
     if (!rowCount && !sheet.kind) return false
+    const incomingFp = sheetRowsFingerprint(sheet)
+    if (incomingFp && incomingFp === appliedSheetFpRef.current) return rowCount > 0 || Boolean(sheet.kind)
     const conn = connections.find((c) => c.id === connectionId) || connections[0]
     const previewId = sheetPreviewId(sheet)
     const action = String(sheet.action || '')
@@ -588,12 +606,18 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     void (async () => {
       try {
         const conn = connections.find((c) => c.id === (listSurface.connectionId || connectionId)) || connections[0]
+        const listWhere = extractSheetListWhere(sheet)
+        const kindSnap = sheetSnapshots.current.get(
+          listSnapshotCacheKey(incomingKind, { kind: incomingKind, action: '现查', where: listWhere }),
+        ) || sheetSnapshots.current.get(`kind:${incomingKind}`)
+        const restoreWhere = extractSheetListWhere(kindSnap?.sheet ?? sheet)
         const data = await runtimeApi.bizPreview({
           kind: incomingKind,
           action: '现查',
           system: conn?.provider || 'NocoBase',
           connectionId: listSurface.connectionId || connectionId,
           speech: `现查${incomingKind}`,
+          ...(restoreWhere.length ? { where: restoreWhere } : {}),
         })
         const listSheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
         const rowCount = Array.isArray(listSheet.rows) ? listSheet.rows.length : 0
@@ -751,7 +775,23 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const selectKind = useCallback((nextKind: string) => {
     setKind(nextKind)
     setStaleHint('')
-    const cached = sheetSnapshots.current.get(`kind:${nextKind}`)
+    const queryFp = activeListQueryFpRef.current
+    let keyed: SheetSnapshot | undefined
+    if (queryFp) {
+      try {
+        const parsed = JSON.parse(queryFp) as { kind?: string; where?: unknown[] }
+        if (!parsed.kind || parsed.kind === nextKind) {
+          keyed = sheetSnapshots.current.get(listSnapshotCacheKey(nextKind, {
+            kind: nextKind,
+            action: '现查',
+            where: parsed.where,
+          }))
+        }
+      } catch {
+        keyed = undefined
+      }
+    }
+    const cached = keyed || sheetSnapshots.current.get(`kind:${nextKind}`)
     if (cached) {
       applySheet(cached.sheet, cached.connName, cached.surfaceId)
       return

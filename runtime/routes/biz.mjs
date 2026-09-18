@@ -57,6 +57,9 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
 
   const input = body.input && typeof body.input === 'object' ? body.input : {}
   no = no || input.no || input.orderNo || input.orderId || ''
+  const previewWhere = actionUsesPreviewWhere(action)
+    ? normalizePreviewWhere(body.where ?? input.where ?? input.filter)
+    : []
   const payload = {
     kind,
     action,
@@ -69,9 +72,7 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
       || (!actionUsesPreviewWhere(action) && action !== '现查' && Object.keys(input).length)
       ? { patch: input }
       : {}),
-    ...(actionUsesPreviewWhere(action)
-      ? { where: normalizePreviewWhere(body.where) }
-      : {}),
+    ...(previewWhere.length ? { where: previewWhere } : {}),
   }
   return { payload }
 }
@@ -109,6 +110,8 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
       columns,
       canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
       sessionId,
+      ...(Array.isArray(sheet.where) && sheet.where.length ? { where: sheet.where } : {}),
+      ...(Array.isArray(sheet.hopWhere) && sheet.hopWhere.length ? { hopWhere: sheet.hopWhere } : {}),
     },
   }, {
     workspaceCwd: null,
@@ -323,6 +326,8 @@ export async function handleBizRoutes(request, response, url, deps) {
         columns: Array.isArray(raw.columns) ? raw.columns : [],
         canWrite: Boolean(raw.canWrite ?? raw.can_write),
         sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
+        ...(Array.isArray(raw.where) && raw.where.length ? { where: raw.where } : {}),
+        ...(Array.isArray(raw.hopWhere) && raw.hopWhere.length ? { hopWhere: raw.hopWhere } : {}),
       }
       sendJson(response, 200, { data: { sheet: stripSecrets(sheet) }, correlationId })
     } catch (error) {

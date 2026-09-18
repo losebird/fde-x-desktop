@@ -339,7 +339,16 @@ export function createLookup(opts = {}) {
     clues.terms = bindClueEnums(clues.terms || [], schemaFields)
     clues.terms = bindWhereKeys(clues.terms, kind, vocab || conn.vocab, schemaFields)
     clues.terms = clues.terms.filter((term) => termFitsCollection(term, schemaFields))
-    const whereLimit = listLimitForWhere(where)
+    if (Array.isArray(where) && where.length && !clues.terms.length && !looksLikeRef(ticket)) {
+      return {
+        ok: false,
+        error: 'WHERE_UNBOUND',
+        status: '没有',
+        matches: [],
+        hint: '筛选条件没对上词表列名，不能整表现查。',
+      }
+    }
+    const whereLimit = listLimitForWhere(clues.terms.length ? where : [])
     const fields = clueFields(conn, spec)
     const ids = ticketColumns(spec)
     const relatedIds = relatedIdsOf(related)
@@ -677,12 +686,13 @@ export function bindClueEnums(terms, schemaFields) {
 export function termFitsCollection(term, schemaFields) {
   const keys = Array.isArray(term && term.keys) ? term.keys : []
   const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const hasDate = (Array.isArray(term.dateBefore) && term.dateBefore.length)
+    || (Array.isArray(term.dateAfter) && term.dateAfter.length)
+  if (hasDate) return true
+  if (!keys.length) return true
   const hit = fields.find((row) => row && keys.includes(row.name))
-  if (!hit) return !fields.length || !keys.length
-  const enums = hit.enums && typeof hit.enums === 'object' && Object.keys(hit.enums).length ? hit.enums : enumMap(hit)
-  const names = new Set([...Object.keys(enums || {}), ...Object.values(enums || {})].map((item) => String(item)))
-  if (!names.size) return true
-  return (term.values || []).some((item) => names.has(String(item || '')))
+  if (!hit) return !fields.length
+  return true
 }
 
 export function relationAppends(collections, resource) {

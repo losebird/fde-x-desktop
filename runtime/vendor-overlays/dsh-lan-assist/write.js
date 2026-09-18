@@ -155,6 +155,7 @@ export function packSheet(spec = {}) {
     sessionId: String(spec.sessionId || '').trim(),
     nextKind: sheetNextKind(kind, spec),
     hopWhere: Array.isArray(spec.hopWhere) ? spec.hopWhere : undefined,
+    where: Array.isArray(spec.where) && spec.where.length ? spec.where : undefined,
     speech: String(spec.speech || '').trim(),
     fieldChoices: Array.isArray(spec.fieldChoices) ? spec.fieldChoices : undefined,
     pendingValue: spec.pendingValue,
@@ -656,13 +657,14 @@ export function createGate(opts = {}) {
       return withSheet(result, { vocab: loaded.vocab, schemaFields, fieldsOf: opts.fieldsOf, ...more })
     }
     if (recognized.action === '现查') {
+      const listWhere = (plan.steps[0] && plan.steps[0].where) || spec.where
       return await sheet({
         ok: true, kind: sheetKind, no: rows.length === 1 ? rows[0].no : '',
         action: recognized.action, speak, status: found && found.status, fields: rows[0] && rows[0].fields || {},
         matches: rows, fingerprint: found && found.fingerprint,
         listed: rows.length > 1, ambiguous: rows.length > 1,
         workspace: (found && found.workspace) || spec.workspace || '',
-      }, { clue: plan.no, speech: plan.speech })
+      }, { clue: plan.no, speech: plan.speech, where: listWhere })
     }
     if (rows.length !== 1) {
       const writeable = spec.batch === true && (
