@@ -189,6 +189,10 @@ function hopRelatedIds(fromKind, toKind, matches, extra) {
   )).filter(Boolean))]
 }
 
+function hopRelatedField(fromKind, toKind, _matches, extra) {
+  return relatedField(fromKind, toKind, extra)
+}
+
 function hopLinkIds(fromKind, toKind, matches, extra) {
   const forward = hopRelatedIds(fromKind, toKind, matches, extra)
   if (forward.length) {
