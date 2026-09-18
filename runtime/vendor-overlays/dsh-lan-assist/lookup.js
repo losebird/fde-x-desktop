@@ -829,7 +829,12 @@ function relationFieldFromCollections(fromKind, toKind, extra) {
     const iface = String(row.interface || row.type || '').trim()
     if (!/^(m2o|o2o|belongsTo|select)$/i.test(iface)) continue
     const name = String(row.name || '').trim()
-    if (name && !/^(createdBy|updatedBy)$/i.test(name)) return name
+    if (name && !/^(createdBy|updatedBy)$/i.test(name)) {
+      const fields = collectionFields(childResource, extra && extra.collections)
+      const idName = name.endsWith('Id') ? name : `${name}Id`
+      if (fields.some((f) => String(f && f.name || '') === idName)) return idName
+      return name
+    }
   }
   return ''
 }
@@ -954,6 +959,9 @@ function relatedIdOf(row, field) {
   const direct = unwrapRelatedId(row[field])
   if (direct) return direct
   if (/Id$/.test(field)) return unwrapRelatedId(row[field.slice(0, -2)])
+  const idField = `${field}Id`
+  const viaId = unwrapRelatedId(row[idField])
+  if (viaId) return viaId
   return ''
 }
 

@@ -569,6 +569,11 @@ export function createGate(opts = {}) {
 
   async function previewStructured(plan, spec, loaded) {
     const extra = { vocab: loaded.vocab }
+    if (typeof opts.collectionsOf === 'function') {
+      try {
+        extra.collections = await opts.collectionsOf(spec.workspace)
+      } catch { /* collections optional for hop FK */ }
+    }
     const start = plan.steps[0]
     const target = plan.steps[plan.targetIndex] || start
     if (!start || !start.kind) return refuse('UNKNOWN_KIND', '没有型，预览走不了。')

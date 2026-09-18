@@ -75,7 +75,18 @@ function findClueHit(speech, clue, extra) {
   if (!match) return null
   const hitIndex = match.index
   const negRole = String(clue.role || clue.slot || '').trim() === '否定'
-  const not = clue.not === true || negRole || negatedInSpeech(speech, hitIndex, extra)
+  let not = clue.not === true || negRole || negatedInSpeech(speech, hitIndex, extra)
+  if (!not && spokenSeed && Array.isArray(spokenSeed.clues)) {
+    const hitText = String(match[0] || '')
+    for (const seed of spokenSeed.clues) {
+      if (!seed || seed.not !== true) continue
+      const says = stringList(seed.say || seed.says)
+      if (says.some((item) => item === hitText || (item.length > 1 && hitText.includes(item)))) {
+        not = true
+        break
+      }
+    }
+  }
   const dateBefore = stringList(clue.dateBefore || clue.date_before)
   return {
     hitIndex,
@@ -271,6 +282,23 @@ function dedupeNegatedClosedHits(hits) {
   return list.filter((row) => !(row && !row.not && closedLikeValues(row.values)))
 }
 
+function compressStatusWhere(terms) {
+  const list = Array.isArray(terms) ? terms : []
+  if (list.length <= 1) return list
+  const statusLike = list.every((term) => (
+    (term.keys || []).some((key) => /^(status|state|stage|状态)$/i.test(String(key || '')))
+  ))
+  if (!statusLike) return list
+  const values = [...new Set(list.flatMap((term) => term.values || []))]
+  const not = list.some((term) => term && term.not)
+  return [{
+    keys: [...(list[0].keys || [])],
+    values,
+    not,
+    ...(Array.isArray(list[0].dateBefore) && list[0].dateBefore.length ? { dateBefore: list[0].dateBefore } : {}),
+  }]
+}
+
 function termsForKind(hits, kind) {
   const want = String(kind || '').trim()
   return mergeTerms(dedupeNegatedClosedHits(hits).filter((row) => row.assignKind === want && isFilterableHit(row)).map((row) => ({
@@ -309,7 +337,8 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   const parent = parents.find((kind) => termsForKind(hits, kind).length) || parents.find((kind) => (
     kindMentions(speech, [kind]).length
   ))
-  const parentWhere = parent ? termsForKind(hits, parent) : []
+  const parentWhereRaw = parent ? termsForKind(hits, parent) : []
+  const parentWhere = compressStatusWhere(parentWhereRaw)
   const parentValues = new Set(parentWhere.flatMap((term) => term.values || []))
   const childFiltered = childWhere.filter((term) => {
     const vals = term.values || []
