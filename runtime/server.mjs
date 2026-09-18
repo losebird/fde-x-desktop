@@ -15,18 +15,16 @@ const ZSTD_MAGIC = 4247762216
 
 function scheduleRuntimeRestart() {
   const delayMs = 200
-  if (process.env.FDE_RUNTIME_SUPERVISED === '1') {
-    setTimeout(() => process.exit(0), delayMs)
-    return
+  if (process.env.FDE_RUNTIME_SUPERVISED !== '1') {
+    const child = spawn(process.execPath, process.argv.slice(1), {
+      cwd: process.cwd(),
+      env: process.env,
+      detached: true,
+      stdio: 'inherit',
+    })
+    child.unref()
   }
-  const child = spawn(process.execPath, process.argv.slice(1), {
-    cwd: process.cwd(),
-    env: process.env,
-    detached: true,
-    stdio: 'inherit',
-  })
-  child.unref()
-  setTimeout(() => process.exit(0), delayMs)
+  setTimeout(() => { void close() }, delayMs)
 }
 
 async function pickLocalDirectory() {

@@ -19,6 +19,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 export function CoreSettings() {
   const [connected, setConnected] = useState(false)
+  const [bffOrigin, setBffOrigin] = useState('')
   const [note, setNote] = useState('')
   const [providers, setProviders] = useState<Array<{ provider: string; displayName: string; active: boolean; configured: boolean; keyRef: string }>>([])
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
@@ -46,7 +47,10 @@ export function CoreSettings() {
   const [importOpen, setImportOpen] = useState(false)
 
   const load = () => {
-    void runtimeApi.aiStatus().then((status) => setConnected(Boolean(status.connected))).catch(() => setConnected(false))
+    void runtimeApi.aiStatus().then((status) => {
+      setConnected(Boolean(status.connected))
+      if (status.bffOrigin) setBffOrigin(String(status.bffOrigin))
+    }).catch(() => setConnected(false))
     void runtimeApi.listAiProviders().then((data) => {
       setProviders(data.providers || [])
       const next = (data.providers || []).find((row) => !row.configured)
@@ -89,7 +93,9 @@ export function CoreSettings() {
               setNote('正在重载核心…')
               void runtimeApi.reloadAi().then((status) => {
                 setConnected(Boolean(status.connected))
-                setNote(status.connected ? '4318 与 DSH 已重载' : '核心已停下')
+                if (status.bffOrigin) setBffOrigin(String(status.bffOrigin))
+                const label = status.bffOrigin || bffOrigin || '本地 BFF'
+                setNote(status.connected ? `${label} 与 DSH 已重载` : '核心已停下')
                 load()
               }).catch((cause) => {
                 setNote(cause instanceof Error ? cause.message : '重载失败')
@@ -98,7 +104,9 @@ export function CoreSettings() {
           >
             重载核心
           </button>
-          <span className="text-[11px] text-ink-subtle">停掉再拉起 4318 本地核心和 DSH。界面不用关，对话会短暂断开。</span>
+          <span className="text-[11px] text-ink-subtle">
+            停掉再拉起{bffOrigin ? ` ${bffOrigin} ` : ' '}本地 BFF 和 DSH。界面不用关，对话会短暂断开。
+          </span>
         </div>
         {providers.length > 0 && (
           <div className="mb-4">

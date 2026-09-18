@@ -94,20 +94,69 @@ function run(command, args, extraEnv = {}) {
 
 function runRuntime(extraEnv = {}) {
   const env = { ...process.env, ...extraEnv, FDE_RUNTIME_SUPERVISED: '1' }
+  let child = null
+  let portWatch = null
   const boot = () => {
-    const child = spawn(process.execPath, ['runtime/server.mjs'], {
+    if (shuttingDown) return
+    child = spawn(process.execPath, ['runtime/server.mjs'], {
       cwd: root,
       env,
       stdio: 'inherit',
     })
+    if (portWatch) clearInterval(portWatch)
+    portWatch = setInterval(async () => {
+      if (shuttingDown || !child) return
+      if (!(await portOpen(runtimePort, 250))) {
+        console.warn(`[fde-x] 本地核心进程还在但 ${runtimePort} 不可用，强制重启`)
+        child.kill('SIGKILL')
+      }
+    }, 2000)
     child.on('exit', (code, signal) => {
+      if (portWatch) clearInterval(portWatch)
+      portWatch = null
+      child = null
       if (shuttingDown) return
       console.log(`[fde-x] 本地核心退出 (${signal || code || 0})，正在重新拉起`)
       setTimeout(boot, 400)
     })
-    return child
   }
   return boot()
+}
+
+function watchRuntimePortAndSupervise(port, extraEnv = {}) {
+  const env = {
+    FDE_RUNTIME_PORT: String(runtimePort),
+    FDE_RUNTIME_HOST: host,
+    FDE_DSH_HOME: fdeHome,
+    DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || DSH_LAN_ASSIST_PORT,
+    ...(extraEnv.FDE_DSH_BIN ? { FDE_DSH_BIN: extraEnv.FDE_DSH_BIN } : {}),
+  }
+  let child = null
+  let spawning = false
+  const boot = () => {
+    if (shuttingDown || child) return
+    spawning = true
+    child = spawn(process.execPath, ['runtime/server.mjs'], {
+      cwd: root,
+      env: { ...process.env, ...env, FDE_RUNTIME_SUPERVISED: '1' },
+      stdio: 'inherit',
+    })
+    child.on('exit', (code, signal) => {
+      child = null
+      spawning = false
+      if (shuttingDown) return
+      console.log(`[fde-x] 本地核心退出 (${signal || code || 0})，正在重新拉起`)
+      setTimeout(boot, 400)
+    })
+    spawning = false
+  }
+  const watch = async () => {
+    while (!shuttingDown) {
+      if (!child && !(await portOpen(port, 300))) boot()
+      await new Promise((resolveWait) => setTimeout(resolveWait, 400))
+    }
+  }
+  void watch()
 }
 
 prepareFdeHome()
@@ -129,6 +178,9 @@ if (!await portOpen(runtimePort)) {
   }
 } else {
   console.log(`[fde-x] 复用已有本地核心 http://${host}:${runtimePort}`)
+  console.log('[fde-x] 已挂监督：设置里「重载核心」退出后会自动再拉起')
+  const dshBin = FDE_DSH_BIN || resolveDshBin()
+  watchRuntimePortAndSupervise(runtimePort, dshBin ? { FDE_DSH_BIN: dshBin } : {})
 }
 
 console.log(`[fde-x] 打开界面 http://127.0.0.1:${webPort}`)

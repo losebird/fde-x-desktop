@@ -7,6 +7,7 @@ import {
   FDE_ALLOWED_ORIGINS,
   FDE_RUNTIME_HOST,
   FDE_RUNTIME_PORT,
+  FDE_RUNTIME_RELOAD_WAIT_MS,
   defaultRuntimeUrl,
 } from './runtime/config.mjs'
 
@@ -34,27 +35,45 @@ function waitForPort(port: number, host: string, timeoutMs = 4000) {
 }
 
 function fdeRuntimePlugin(): Plugin {
+  let runtimeChild: ReturnType<typeof spawn> | null = null
+  let shuttingDown = false
+
+  function spawnSupervisedRuntime(server: Parameters<NonNullable<Plugin['configureServer']>>[0]) {
+    if (shuttingDown || runtimeChild) return
+    const host = FDE_RUNTIME_HOST
+    const child = spawn(process.execPath, ['runtime/server.mjs'], {
+      cwd: fileURLToPath(new URL('.', import.meta.url)),
+      env: {
+        ...process.env,
+        FDE_RUNTIME_PORT: String(runtimePort),
+        FDE_RUNTIME_HOST: host,
+        FDE_RUNTIME_SUPERVISED: '1',
+        FDE_ALLOWED_ORIGINS: devAllowedOrigins.join(','),
+      },
+      stdio: 'inherit',
+    })
+    runtimeChild = child
+    child.on('error', (error) => {
+      server.config.logger.error(`[fde-x] 无法启动本地核心：${error.message}`)
+    })
+    child.on('exit', (code, signal) => {
+      runtimeChild = null
+      if (shuttingDown) return
+      server.config.logger.warn(`[fde-x] 本地核心退出 (${signal || code || 0})，400ms 后重新拉起`)
+      setTimeout(() => spawnSupervisedRuntime(server), 400)
+    })
+  }
+
   return {
     name: 'fde-x-runtime',
     async configureServer(server) {
       const host = FDE_RUNTIME_HOST
       if (process.env.FDE_SKIP_RUNTIME_SPAWN === '1') return
       if (await waitForPort(runtimePort, host, 400)) return
-      const child = spawn(process.execPath, ['runtime/server.mjs'], {
-        cwd: fileURLToPath(new URL('.', import.meta.url)),
-        env: {
-          ...process.env,
-          FDE_RUNTIME_PORT: String(runtimePort),
-          FDE_RUNTIME_HOST: host,
-          FDE_ALLOWED_ORIGINS: devAllowedOrigins.join(','),
-        },
-        stdio: 'inherit',
-      })
-      child.on('error', (error) => {
-        server.config.logger.error(`[fde-x] 无法启动本地核心：${error.message}`)
-      })
+      spawnSupervisedRuntime(server)
       server.httpServer?.once('close', () => {
-        if (!child.killed) child.kill('SIGTERM')
+        shuttingDown = true
+        if (runtimeChild && !runtimeChild.killed) runtimeChild.kill('SIGTERM')
       })
       const ready = await waitForPort(runtimePort, host, 8000)
       if (!ready) {
@@ -108,6 +127,7 @@ export default defineConfig({
   envPrefix: ['VITE_', 'FDE_'],
   define: {
     'import.meta.env.VITE_FDE_RUNTIME_URL': JSON.stringify(runtimeUrl),
+    'import.meta.env.VITE_FDE_RUNTIME_RELOAD_WAIT_MS': JSON.stringify(String(FDE_RUNTIME_RELOAD_WAIT_MS)),
   },
   resolve: {
     alias: {

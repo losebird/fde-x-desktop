@@ -422,6 +422,11 @@ export class RuntimeApi {
     return `${this.baseUrl}${path}`
   }
 
+  /** BFF routes with CORS: direct baseUrl works, but reload wait uses same-origin so Vite stays up when BFF respawns. */
+  private uiFetchUrl(path: string): string {
+    return this.planFetchUrl(path)
+  }
+
   private async planRequest<T>(path: string, init?: RequestInit): Promise<T> {
     let response: Response
     try {
@@ -653,23 +658,49 @@ export class RuntimeApi {
   }
 
   async reloadAi(signal?: AbortSignal): Promise<AiRuntimeStatus> {
+    const waitMs = Number(import.meta.env.VITE_FDE_RUNTIME_RELOAD_WAIT_MS ?? 90_000)
+    const waitSec = Math.round(waitMs / 1000)
     try {
       await this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/reload', { method: 'POST', signal })
     } catch {
       /* 4318 正在退出，连不上也算已经开始重载 */
     }
-    const deadline = Date.now() + 20_000
+    const deadline = Date.now() + waitMs
+    let bffUp = false
     while (Date.now() < deadline) {
       if (signal?.aborted) throw new RuntimeApiError(0, 'aborted', '重载已取消')
       try {
-        const health = await fetch(`${this.baseUrl}/health`, { signal })
-        if (health.ok) return await this.connectAi(signal)
+        const health = await fetch(this.uiFetchUrl('/health'), { signal })
+        if (health.ok) {
+          bffUp = true
+          break
+        }
       } catch {
         /* 还没起来 */
       }
       await new Promise((resolve) => setTimeout(resolve, 300))
     }
-    throw new RuntimeApiError(0, 'runtime_unreachable', '本地核心没有在 20 秒内回来')
+    if (!bffUp) {
+      throw new RuntimeApiError(0, 'runtime_unreachable', `本地核心没有在 ${waitSec} 秒内回来`)
+    }
+
+    while (Date.now() < deadline) {
+      if (signal?.aborted) throw new RuntimeApiError(0, 'aborted', '重载已取消')
+      try {
+        const status = await this.connectAi(signal)
+        if (status.connected) return status
+      } catch {
+        /* DSH 还在冷启动 */
+      }
+      try {
+        const snap = await this.aiStatus(signal)
+        if (snap.connected) return snap
+      } catch {
+        /* BFF 刚起来，status 可能还不稳 */
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    throw new RuntimeApiError(0, 'runtime_unreachable', `DSH 没有在 ${waitSec} 秒内连上`)
   }
 
   async listAiProviders(signal?: AbortSignal): Promise<{
