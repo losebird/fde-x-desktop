@@ -667,6 +667,15 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     setKind(latest.kind)
     if (latest.connectionId) setConnectionId(latest.connectionId)
     void (async () => {
+      const pendingSheet = peekBizPendingSheet()
+      if (
+        pendingSheet
+        && String(pendingSheet.kind || '') === latest.kind
+        && isBizListQueryAction(String(pendingSheet.action || latest.action || ''))
+      ) {
+        applyPendingSheet(pendingSheet, latest.id)
+        return
+      }
       const cached = sheetSnapshots.current.get(`surface:${latest.id}`) || sheetSnapshots.current.get(`kind:${latest.kind}`)
       if (cached) {
         applySheet(cached.sheet, cached.connName, latest.id)
@@ -679,7 +688,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
         setColumns(Array.isArray(latest.columns) ? latest.columns as SheetColumn[] : [])
       }
     })()
-  }, [activeLocalApp, applySheet, hydrateFromPending, kind, runtimeReady, surfaces, workspaceCwd])
+  }, [activeLocalApp, applyPendingSheet, applySheet, hydrateFromPending, kind, runtimeReady, surfaces, workspaceCwd])
 
   useEvents(['biz.sheet.pending'], (event) => {
     const payload = event.payload as PendingSheetEvent
