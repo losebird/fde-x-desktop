@@ -26,8 +26,8 @@ export function hallPreviewIdFromState(state) {
 export function dismissShouldClearHall(livePreviewId, dismissedPreviewId) {
   const wanted = String(dismissedPreviewId || '').trim()
   const live = String(livePreviewId || '').trim()
-  if (!wanted) return true
-  if (!live) return true
+  if (!wanted) return false
+  if (!live) return false
   return live === wanted
 }
 

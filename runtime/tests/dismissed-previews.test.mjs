@@ -55,8 +55,8 @@ test('sheetPayloadFromRaw keeps speech, nested from, and hop steps', () => {
 test('dismiss does not clear hall when a newer preview already replaced the token', () => {
   assert.equal(dismissShouldClearHall('pv_new', 'pv_old'), false)
   assert.equal(dismissShouldClearHall('pv_old', 'pv_old'), true)
-  assert.equal(dismissShouldClearHall('', 'pv_old'), true)
-  assert.equal(dismissShouldClearHall('pv_live', ''), true)
+  assert.equal(dismissShouldClearHall('', 'pv_old'), false)
+  assert.equal(dismissShouldClearHall('pv_live', ''), false)
   assert.equal(
     hallPreviewIdFromState({
       pendingSheet: { action: '删除', preview_id: 'pv_del' },
