@@ -40,6 +40,7 @@ import {
 import { useEvents } from '@/lib/events'
 
 const PAGE_SIZE = 10
+const ROW_DISPLAY_INDEX_LABEL = '序号'
 
 type PendingSurface = {
   kind: string
@@ -162,7 +163,7 @@ function EditableSheetCell({
     return (
       <button
         type="button"
-        className="w-full min-h-8 rounded border border-transparent px-2 py-1.5 text-left text-sm hover:border-line hover:bg-white"
+        className="w-full min-h-7 rounded-none border-0 bg-transparent px-1.5 py-1 text-left text-xs hover:bg-surface-2/80"
         onClick={(event) => {
           event.stopPropagation()
           setEditing(true)
@@ -176,7 +177,7 @@ function EditableSheetCell({
   return (
     <input
       autoFocus
-      className="input h-8 w-full text-xs"
+      className="input h-7 w-full rounded-none border-0 text-xs shadow-none ring-1 ring-line"
       value={raw}
       onClick={(event) => event.stopPropagation()}
       onChange={(event) => onChange(event.target.value)}
@@ -801,6 +802,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     return []
   }, [columns, filteredRows])
 
+  const gridColumns = useMemo(
+    () => tableColumns.filter((column) => column.key !== 'index'),
+    [tableColumns],
+  )
+
   const getRowDraft = useCallback((row: SheetRow, index: number) => {
     const key = sheetRowKey(row, index)
     return { ...row, ...(draftEdits[key] ?? {}) }
@@ -1031,7 +1037,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
         </Card>
       )}
 
-      <Card className="!p-0 overflow-x-auto">
+      <Card className="!p-0 overflow-hidden border-line">
         {(showRecordsBack || sourceLabel) && (
           <div className="px-3 py-2 border-b border-line text-xs text-ink-muted bg-surface-2 flex flex-wrap items-center gap-2">
             {showRecordsBack && (
@@ -1042,64 +1048,86 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
             {sourceLabel && <span>来源：{sourceLabel}</span>}
           </div>
         )}
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-ink-muted border-b border-line bg-surface-2">
-              {tableColumns.map((column) => <th key={column.key} className="px-3 py-2.5 font-medium whitespace-nowrap">{column.label || column.key}</th>)}
-              <th className="px-3 py-2.5 font-medium text-right whitespace-nowrap">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedRows.map((row, index) => {
-              const absoluteIndex = (page - 1) * PAGE_SIZE + index
-              const rowKey = sheetRowKey(row, absoluteIndex)
-              const draftRow = getRowDraft(row, absoluteIndex)
-              const isPending = pending?.action && !isBizListQueryAction(pending.action) && pending.kind === kind
-              return (
-                <tr
-                  key={rowKey}
-                  className={clsx(
-                    'border-b border-line last:border-0 hover:bg-surface-2/60',
-                    isPending && 'bg-brand-soft/40',
-                    selectedRow === row && 'bg-brand-soft/70',
-                  )}
-                  onClick={() => setSelectedRow(row)}
-                >
-                  {tableColumns.map((column) => (
-                    <td key={column.key} className="px-3 py-2 align-top min-w-[120px]">
-                      <EditableSheetCell
-                        value={draftRow[column.key]}
-                        onChange={(next) => updateDraftCell(row, absoluteIndex, column.key, next)}
-                      />
+        <div className="overflow-x-auto overflow-y-auto max-h-[min(70vh,560px)] [-webkit-overflow-scrolling:touch]">
+          <table className="w-full min-w-max border-collapse text-xs text-ink">
+            <thead>
+              <tr className="text-left text-ink-muted bg-surface-2">
+                <th className="sticky top-0 left-0 z-20 bg-surface-2 border border-line px-2 py-1.5 font-medium whitespace-nowrap w-12 min-w-12 text-center">
+                  {ROW_DISPLAY_INDEX_LABEL}
+                </th>
+                {gridColumns.map((column) => (
+                  <th
+                    key={column.key}
+                    className="sticky top-0 z-10 bg-surface-2 border border-line px-2 py-1.5 font-medium whitespace-nowrap min-w-[100px]"
+                  >
+                    {column.label || column.key}
+                  </th>
+                ))}
+                <th className="sticky top-0 z-10 bg-surface-2 border border-line px-2 py-1.5 font-medium text-right whitespace-nowrap min-w-[88px]">
+                  操作
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedRows.map((row, index) => {
+                const absoluteIndex = (page - 1) * PAGE_SIZE + index
+                const displayIndex = absoluteIndex + 1
+                const rowKey = sheetRowKey(row, absoluteIndex)
+                const draftRow = getRowDraft(row, absoluteIndex)
+                const isPending = pending?.action && !isBizListQueryAction(pending.action) && pending.kind === kind
+                return (
+                  <tr
+                    key={rowKey}
+                    className={clsx(
+                      'hover:bg-surface-2/50',
+                      isPending && 'bg-brand-soft/40',
+                      selectedRow === row && 'bg-brand-soft/70',
+                    )}
+                    onClick={() => setSelectedRow(row)}
+                  >
+                    <td className="sticky left-0 z-[1] border border-line bg-white px-2 py-1 text-center tabular-nums text-ink-muted align-middle">
+                      {displayIndex}
                     </td>
-                  ))}
-                  <td className="px-3 py-2 text-right whitespace-nowrap align-top">
-                    {rowActions.map((rowAction, actionIndex) => (
-                      <button
-                        key={rowAction}
-                        type="button"
-                        className={clsx('btn !py-0.5 !text-[11px]', actionIndex < rowActions.length - 1 && 'mr-1')}
-                        disabled={!lanReady || loading}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          const extra = rowAction === '改行'
-                            ? { no: rowKey, input: draftRow, originalRow: row }
-                            : { no: rowKey }
-                          void runPreview(rowAction, extra)
-                        }}
-                      >
-                        {rowAction}
-                      </button>
+                    {gridColumns.map((column) => (
+                      <td key={column.key} className="border border-line bg-white px-0 py-0 align-top min-w-[100px] max-w-[280px]">
+                        <EditableSheetCell
+                          value={draftRow[column.key]}
+                          onChange={(next) => updateDraftCell(row, absoluteIndex, column.key, next)}
+                        />
+                      </td>
                     ))}
+                    <td className="border border-line bg-white px-2 py-1 text-right whitespace-nowrap align-middle">
+                      {rowActions.map((rowAction, actionIndex) => (
+                        <button
+                          key={rowAction}
+                          type="button"
+                          className={clsx('btn !py-0.5 !text-[11px]', actionIndex < rowActions.length - 1 && 'mr-1')}
+                          disabled={!lanReady || loading}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const extra = rowAction === '改行'
+                              ? { no: rowKey, input: draftRow, originalRow: row }
+                              : { no: rowKey }
+                            void runPreview(rowAction, extra)
+                          }}
+                        >
+                          {rowAction}
+                        </button>
+                      ))}
+                    </td>
+                  </tr>
+                )
+              })}
+              {paginatedRows.length === 0 && (
+                <tr>
+                  <td colSpan={gridColumns.length + 2} className="border border-line px-3 py-12 text-center text-sm text-ink-muted bg-white">
+                    {loading ? '加载中…' : (staleHint || '当前型还没有可展示的行')}
                   </td>
                 </tr>
-              )
-            })}
-            {paginatedRows.length === 0 && (
-              <tr><td colSpan={tableColumns.length + 1} className="px-3 py-12 text-center text-sm text-ink-muted">{loading ? '加载中…' : (staleHint || '当前型还没有可展示的行')}</td></tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
