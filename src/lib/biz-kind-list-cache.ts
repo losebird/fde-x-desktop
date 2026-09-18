@@ -89,6 +89,16 @@ export function peekBizKindListSheet(
   return { sheet: hit.sheet, connName: hit.connName, surfaceId: hit.surfaceId }
 }
 
+export function peekBizKindListSheetBySurfaceId(
+  workspaceCwd: string,
+  surfaceId: string,
+): { sheet: Record<string, unknown>; connName: string; surfaceId?: string } | null {
+  if (!workspaceCwd || !surfaceId) return null
+  const hit = readAll().find((row) => row.workspaceCwd === workspaceCwd && row.surfaceId === surfaceId)
+  if (!hit) return null
+  return { sheet: hit.sheet, connName: hit.connName, surfaceId: hit.surfaceId }
+}
+
 export function peekBizKindListSheetForOperation(
   workspaceCwd: string,
   kind: string,

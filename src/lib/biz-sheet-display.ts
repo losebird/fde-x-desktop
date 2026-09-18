@@ -313,12 +313,31 @@ export function buildPreviewSummary(
     }
   }
 
-  const original = options.originalRow
   const payloadChanges = previewChangesFromSheetPayload(sheet, columns)
-  let changes = buildPreviewFieldChanges(columns, primary, original, 'update')
-  if (!changes.length && payloadChanges.length) changes = payloadChanges
-  if (!changes.length && options.patch && original) {
-    changes = buildPreviewFieldChanges(columns, { ...original, ...options.patch }, original, 'update')
+  const original = options.originalRow
+  if (payloadChanges.length) {
+    return {
+      action,
+      kind,
+      title: '改行确认',
+      subtitle: kind ? `将更新 ${kind} 记录` : '将更新所选记录',
+      changes: payloadChanges,
+      rows,
+    }
+  }
+  if (original) {
+    let changes = buildPreviewFieldChanges(columns, primary, original, 'update')
+    if (!changes.length && options.patch) {
+      changes = buildPreviewFieldChanges(columns, { ...original, ...options.patch }, original, 'update')
+    }
+    return {
+      action,
+      kind,
+      title: '改行确认',
+      subtitle: kind ? `将更新 ${kind} 记录` : '将更新所选记录',
+      changes,
+      rows,
+    }
   }
 
   return {
@@ -326,7 +345,7 @@ export function buildPreviewSummary(
     kind,
     title: '改行确认',
     subtitle: kind ? `将更新 ${kind} 记录` : '将更新所选记录',
-    changes,
+    changes: [],
     rows,
   }
 }

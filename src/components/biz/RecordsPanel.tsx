@@ -30,6 +30,7 @@ import { isFdeAppSpec } from '@/lib/app-spec'
 import {
   listBizKindListSnapshots,
   peekBizKindListSheet,
+  peekBizKindListSheetBySurfaceId,
   peekBizKindListSheetForOperation,
   rememberBizKindListSheet,
 } from '@/lib/biz-kind-list-cache'
@@ -42,6 +43,11 @@ import {
   operationBundlesAlign,
   sheetRowsFingerprint,
 } from '@/lib/biz-list-query'
+import {
+  matchSurfaceIdForSheet,
+  peekBizSurfaceSheet,
+  rememberBizSurfaceSheet,
+} from '@/lib/biz-surface-cache'
 import {
   clearBizPendingSheet,
   clearBizPreviewDismissed,
@@ -69,6 +75,7 @@ type PendingSurface = {
 
 type PendingSheetEvent = PendingSurface & {
   sheet?: Record<string, unknown>
+  surfaceId?: string
 }
 
 type SheetSnapshot = {
@@ -235,6 +242,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   const [connectionId, setConnectionId] = useState('')
   const [kind, setKind] = useState('')
   const [query, setQuery] = useState('')
+  const [historySurfaceId, setHistorySurfaceId] = useState('')
   const [columns, setColumns] = useState<SheetColumn[]>([])
   const [rows, setRows] = useState<SheetRow[]>([])
   const [sourceLabel, setSourceLabel] = useState('')
@@ -439,7 +447,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     }
     if (previewId) sheetSnapshots.current.set(`preview:${previewId}`, snapshot)
     if (snapshot.surfaceId) sheetSnapshots.current.set(`surface:${snapshot.surfaceId}`, snapshot)
-  }, [seedKindListSnapshot])
+    if (snapshot.surfaceId && workspaceCwd) {
+      rememberBizSurfaceSheet(workspaceCwd, snapshot.surfaceId, snapshot.sheet, snapshot.connName)
+    }
+  }, [seedKindListSnapshot, workspaceCwd])
 
   const captureListRestore = useCallback((): ListRestoreSnapshot => {
     const kindSnap = kind ? sheetSnapshots.current.get(`kind:${kind}`) : undefined
@@ -564,7 +575,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       connName: snap.connName,
       surfaceId: snap.surfaceId,
     })
-    rememberBizPendingSheet(snap.sheet)
+    if (!isWritePreviewSheet(snap.sheet)) {
+      rememberBizPendingSheet(snap.sheet)
+    }
     commitListRestore(null)
     return true
   }, [commitListRestore, rememberSheet])
@@ -577,7 +590,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     setDrawer(null)
     clearBizPendingSheet()
     restoreRecordsList()
-    void runtimeApi.bizDismissPreview().catch(() => undefined)
+    void runtimeApi.bizDismissPreview(previewId || undefined).catch(() => undefined)
   }, [drawer?.previewId, restoreRecordsList])
 
   const dismissPreviewDrawer = useCallback(() => {
@@ -587,10 +600,16 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     if (previewId) dismissBizPreviewId(previewId)
     setDrawer(null)
     clearBizPendingSheet()
-    void runtimeApi.bizDismissPreview().catch(() => undefined)
-  }, [drawer?.previewId])
+    if (listRestoreRef.current) restoreRecordsList()
+    void runtimeApi.bizDismissPreview(previewId || undefined).catch(() => undefined)
+  }, [drawer?.previewId, restoreRecordsList])
 
-  const applySheet = useCallback((sheet: Record<string, unknown>, connName: string, surfaceId?: string) => {
+  const applySheet = useCallback((
+    sheet: Record<string, unknown>,
+    connName: string,
+    surfaceId?: string,
+    surfacedAt?: number,
+  ) => {
     const nextFp = sheetRowsFingerprint(sheet)
     const sameSheet = nextFp && nextFp === appliedSheetFpRef.current
     if (sameSheet) return
@@ -602,7 +621,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     setDraftEdits({})
     setPage(1)
     const action = String(sheet.action || '现查')
-    const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date())
+    const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(
+      surfacedAt ? new Date(surfacedAt) : new Date(),
+    )
     setSourceLabel(`${connName} · ${action} ${time}`)
     const nextKind = String(sheet.kind || '')
     if (nextKind) setKind(nextKind)
@@ -632,23 +653,32 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
     const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
     if (!rowCount && !sheet.kind) return false
+    const previewId = sheetPreviewId(sheet)
+    const action = String(sheet.action || '')
+    const isWritePreview = Boolean(previewId && !isBizListQueryAction(action))
+
+    if (isWritePreview && isBizPreviewDismissed(sheet)) {
+      if (listRestoreRef.current) restoreRecordsList()
+      return true
+    }
+
     const incomingQueryFp = listQueryFingerprint(sheet)
     if (incomingQueryFp && incomingQueryFp !== activeListQueryFpRef.current) {
       appliedSheetFpRef.current = ''
     }
     const incomingFp = sheetRowsFingerprint(sheet)
-    if (incomingFp && incomingFp === appliedSheetFpRef.current) return rowCount > 0 || Boolean(sheet.kind)
-    const conn = connections.find((c) => c.id === connectionId) || connections[0]
-    const previewId = sheetPreviewId(sheet)
-    const action = String(sheet.action || '')
-    const isWritePreview = Boolean(previewId && !isBizListQueryAction(action))
-    if (isWritePreview) ensureListRestoreBeforeWritePreview(sheet)
-    if (isWritePreview && isBizPreviewDismissed(sheet)) {
-      if (listRestoreRef.current) return true
-      maybeSaveListRestore(sheet)
-      applySheet(sheet, conn?.name || '连接器', surfaceId)
+    if (incomingFp && incomingFp === appliedSheetFpRef.current) {
+      if (isWritePreview) {
+        setDrawer((prev) => prev ?? {
+          previewId,
+          sheet,
+          canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+        })
+      }
       return rowCount > 0 || Boolean(sheet.kind)
     }
+    const conn = connections.find((c) => c.id === connectionId) || connections[0]
+    if (isWritePreview) ensureListRestoreBeforeWritePreview(sheet)
     rememberBizPendingSheet(sheet)
     maybeSaveListRestore(sheet)
     applySheet(sheet, conn?.name || '连接器', surfaceId)
@@ -660,29 +690,29 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       })
     }
     return rowCount > 0 || Boolean(sheet.kind)
-  }, [applySheet, connectionId, connections, ensureListRestoreBeforeWritePreview, maybeSaveListRestore])
+  }, [applySheet, connectionId, connections, ensureListRestoreBeforeWritePreview, maybeSaveListRestore, restoreRecordsList])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     const cached = peekBizPendingSheet()
     if (cached) {
       if (isBizPreviewDismissed(cached)) {
-        if (listRestoreRef.current) return true
-      } else if (applyPendingSheet(cached, surfaceId)) {
+        if (listRestoreRef.current) restoreRecordsList()
         return true
       }
+      if (applyPendingSheet(cached, surfaceId)) return true
     }
     try {
       const { sheet } = await runtimeApi.getBizPendingSheet()
       if (!sheet || typeof sheet !== 'object') return false
       if (isBizPreviewDismissed(sheet)) {
-        if (listRestoreRef.current) return true
-        return applyPendingSheet(sheet, surfaceId)
+        if (listRestoreRef.current) restoreRecordsList()
+        return true
       }
       return applyPendingSheet(sheet, surfaceId)
     } catch {
       return false
     }
-  }, [applyPendingSheet])
+  }, [applyPendingSheet, restoreRecordsList])
 
   useEffect(() => {
     if (!connectionId && connectorOptions[0]) setConnectionId(connectorOptions[0].id)
@@ -820,11 +850,32 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     setPending(nextPending)
     if (payload.sheet && typeof payload.sheet === 'object') {
       rememberBizPendingSheet(payload.sheet)
-      applyPendingSheet(payload.sheet)
+      let surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : undefined
+      applyPendingSheet(payload.sheet, surfaceId)
+      void (async () => {
+        if (!bizCwd) return
+        try {
+          const items = await runtimeApi.listBizSurfaces(bizCwd, 40)
+          setSurfaces(items)
+          if (!surfaceId) {
+            surfaceId = matchSurfaceIdForSheet(items, payload.sheet as Record<string, unknown>, {
+              sessionId: payload.sessionId,
+              previewId: payload.previewId,
+            })
+          }
+          if (!surfaceId) return
+          const conn = connections.find((c) => c.id === connectionId) || connections[0]
+          const connName = conn?.name || '连接器'
+          rememberBizSurfaceSheet(bizCwd, surfaceId, payload.sheet as Record<string, unknown>, connName)
+          rememberSheet({ sheet: payload.sheet as Record<string, unknown>, connName, surfaceId })
+        } catch {
+          // ignore list failure — in-memory cache still updated via applyPendingSheet
+        }
+      })()
     } else {
       void hydrateFromPending()
+      void loadSurfaces()
     }
-    void loadSurfaces()
   })
 
   useEvents(['ai.tool.finished'], (event) => {
@@ -902,46 +953,83 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     }
   }, [activeLocalApp, applySheet, columns, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, loadSurfaces, maybeSaveListRestore])
 
+  const resolveSurfaceSheet = useCallback((surface: BizSurfaceRecord): SheetSnapshot | null => {
+    const mem = sheetSnapshots.current.get(`surface:${surface.id}`)
+    if (mem?.sheet) return mem
+
+    if (bizCwd) {
+      const cached = peekBizSurfaceSheet(bizCwd, surface.id)
+      if (cached) {
+        return { sheet: cached.sheet, connName: cached.connName, surfaceId: surface.id }
+      }
+      const session = peekBizKindListSheetBySurfaceId(bizCwd, surface.id)
+      if (session) {
+        return { sheet: session.sheet, connName: session.connName, surfaceId: surface.id }
+      }
+    }
+
+    if (surface.previewId) {
+      const previewSnap = sheetSnapshots.current.get(`preview:${surface.previewId}`)
+      if (previewSnap?.sheet) {
+        return { ...previewSnap, surfaceId: surface.id }
+      }
+    }
+
+    if (bizCwd && surface.previewId) {
+      const byPreview = listBizKindListSnapshots(bizCwd).find((row) => {
+        const pid = row.sheet.preview_id ?? row.sheet.previewId
+        return typeof pid === 'string' && pid === surface.previewId
+      })
+      if (byPreview) {
+        return { sheet: byPreview.sheet, connName: byPreview.connName, surfaceId: surface.id }
+      }
+    }
+
+    return null
+  }, [bizCwd])
+
   const loadSurface = useCallback(async (surface: BizSurfaceRecord) => {
+    setHistorySurfaceId(surface.id)
+    setDrawer(null)
+    commitListRestore(null)
+    appliedSheetFpRef.current = ''
+    setRows([])
+    setColumns([])
+    setSourceLabel('')
     setKind(surface.kind)
     if (surface.connectionId) setConnectionId(surface.connectionId)
     setStaleHint('')
-    const pendingSheet = peekBizPendingSheet()
-    if (
-      pendingSheet
-      && String(pendingSheet.kind || '') === surface.kind
-      && isBizListQueryAction(String(pendingSheet.action || surface.action || ''))
-    ) {
-      applyPendingSheet(pendingSheet, surface.id)
-      return
-    }
-    const cached = sheetSnapshots.current.get(`surface:${surface.id}`) || sheetSnapshots.current.get(`kind:${surface.kind}`)
-    if (cached) {
-      maybeSaveListRestore(cached.sheet)
-      applySheet(cached.sheet, cached.connName, surface.id)
-      if (surface.previewId && !isBizListQueryAction(surface.action) && !isBizPreviewDismissed({ previewId: surface.previewId, action: surface.action })) {
-        setDrawer({
-          previewId: surface.previewId,
-          sheet: cached.sheet,
-          canWrite: true,
-        })
-      }
-      return
-    }
-    const hydrated = await hydrateFromPending(surface.id)
-    if (!hydrated) {
+    setSelectedRow(null)
+    setSelectedRowKey('')
+
+    const snap = resolveSurfaceSheet(surface)
+    if (!snap?.sheet) {
       setRows([])
       setColumns(Array.isArray(surface.columns) ? surface.columns as SheetColumn[] : [])
       setStaleHint('该条浮现的行已不在待确认区；请在 AI 会话里重新现查或改行。')
-    } else if (surface.previewId && !isBizListQueryAction(surface.action) && !isBizPreviewDismissed({ previewId: surface.previewId, action: surface.action })) {
-      const snap = sheetSnapshots.current.get(`surface:${surface.id}`)
+      return
+    }
+
+    const sheet = snap.sheet
+    const incomingQueryFp = listQueryFingerprint(sheet)
+    if (incomingQueryFp) activeListQueryFpRef.current = incomingQueryFp
+    appliedSheetFpRef.current = ''
+    applySheet(sheet, snap.connName, surface.id, surface.createdAt)
+
+    const action = String(sheet.action || surface.action || '')
+    const writePreviewId = surface.previewId || sheetPreviewId(sheet)
+    if (
+      writePreviewId
+      && !isBizListQueryAction(action)
+      && !isBizPreviewDismissed({ previewId: writePreviewId, action })
+    ) {
       setDrawer({
-        previewId: surface.previewId,
-        sheet: snap?.sheet || { kind: surface.kind, action: surface.action },
-        canWrite: true,
+        previewId: writePreviewId,
+        sheet,
+        canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
       })
     }
-  }, [applySheet, hydrateFromPending, maybeSaveListRestore])
+  }, [applySheet, commitListRestore, resolveSurfaceSheet])
 
   const selectKind = useCallback((nextKind: string) => {
     setKind(nextKind)
@@ -1244,9 +1332,12 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
           {sessionSurfaces.length > 0 && (
             <select
               className="input h-7 text-xs ml-auto max-w-[320px]"
-              defaultValue=""
+              value={historySurfaceId}
               onChange={(e) => {
-                const row = sessionSurfaces.find((s) => s.id === e.target.value)
+                const id = e.target.value
+                setHistorySurfaceId(id)
+                if (!id) return
+                const row = sessionSurfaces.find((s) => s.id === id)
                 if (row) void loadSurface(row)
               }}
             >

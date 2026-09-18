@@ -1829,12 +1829,12 @@ export class RuntimeApi {
     return result.data
   }
 
-  async bizDismissPreview(signal?: AbortSignal): Promise<Record<string, unknown>> {
+  async bizDismissPreview(previewId?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/biz/preview/dismiss', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ preview_id: previewId?.trim() || '' }),
     })
     return result.data
   }

@@ -1,0 +1,32 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  clearBizPreviewDismissed,
+  isBizPreviewDismissed,
+  rememberBizPreviewDismissed,
+} from '../biz/dismissed-previews.mjs'
+import { sheetPayloadFromRaw } from '../biz/sheet-payload.mjs'
+
+test('dismissed preview ids suppress re-emit eligibility', () => {
+  const id = 'pv_test1234'
+  clearBizPreviewDismissed(id)
+  assert.equal(isBizPreviewDismissed(id), false)
+  rememberBizPreviewDismissed(id)
+  assert.equal(isBizPreviewDismissed(id), true)
+  clearBizPreviewDismissed(id)
+  assert.equal(isBizPreviewDismissed(id), false)
+})
+
+test('sheetPayloadFromRaw keeps changes array for preview diff', () => {
+  const sheet = sheetPayloadFromRaw({
+    kind: '示例型',
+    action: '改行',
+    preview_id: 'pv_abcd1234',
+    rows: [{ no: '1', fields: { title: 'a' } }],
+    columns: [{ key: 'title', label: '标题' }],
+    changes: [{ field: 'title', label: '标题', from: '旧', to: '新' }],
+  })
+  assert.ok(sheet)
+  assert.equal(sheet.changes.length, 1)
+  assert.equal(sheet.changes[0].field, 'title')
+})

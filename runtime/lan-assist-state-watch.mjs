@@ -1,6 +1,8 @@
 import { emit } from './events.mjs'
 import { emitBizSheetPending } from './routes/biz.mjs'
 import { pendingSheetWatchFingerprint } from './biz/sheet-fingerprint.mjs'
+import { isBizPreviewDismissed, sheetPreviewIdFromRecord } from './biz/dismissed-previews.mjs'
+import { sheetPayloadFromRaw } from './biz/sheet-payload.mjs'
 
 const POLL_MS = 1000
 
@@ -61,22 +63,11 @@ function newIncomingMessages(state, knownIds) {
 
 function sheetFromState(state) {
   const raw = state?.pendingSheet ?? state?.pendingWrite
-  if (!raw || typeof raw !== 'object') return null
-  const rowList = Array.isArray(raw.rows) ? raw.rows : []
-  const columnList = Array.isArray(raw.columns) ? raw.columns : []
-  return {
-    kind: String(raw.kind || ''),
-    action: String(raw.action || ''),
-    preview_id: raw.preview_id ?? raw.previewId ?? null,
-    previewId: raw.preview_id ?? raw.previewId ?? null,
-    rows: rowList,
-    columns: columnList,
-    canWrite: Boolean(raw.canWrite ?? raw.can_write),
-    sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
-    workspace: typeof raw.workspace === 'string' ? raw.workspace : undefined,
-    ...(Array.isArray(raw.where) && raw.where.length ? { where: raw.where } : {}),
-    ...(Array.isArray(raw.hopWhere) && raw.hopWhere.length ? { hopWhere: raw.hopWhere } : {}),
-  }
+  const sheet = sheetPayloadFromRaw(raw)
+  if (!sheet) return null
+  const previewId = sheetPreviewIdFromRecord(sheet)
+  if (previewId && isBizPreviewDismissed(previewId)) return null
+  return sheet
 }
 
 function emitPendingSheet(sheet, deps, source = 'lan-assist') {

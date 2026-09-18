@@ -14,6 +14,12 @@ import {
 } from '../db.mjs'
 import { AiRemoteError } from '../dsh-core.mjs'
 import { emit } from '../events.mjs'
+import {
+  isBizPreviewDismissed,
+  rememberBizPreviewDismissed,
+  sheetPreviewIdFromRecord,
+} from '../biz/dismissed-previews.mjs'
+import { sheetPayloadFromRaw, sheetPreviewIdFromRaw } from '../biz/sheet-payload.mjs'
 
 function bizWriteFailureMessage(error, fallback = '过账失败，请重新预览后再试') {
   if (error instanceof AiRemoteError) {
@@ -125,34 +131,41 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
  * @param {Record<string, unknown>} sheet
  * @param {{ sessionId?: string, source?: string, workspaceCwd?: string }} [meta]
  */
-export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd } = {}) {
+export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId } = {}) {
   if (!sheet || typeof sheet !== 'object') return false
+  const previewId = sheetPreviewIdFromRecord(sheet)
+  if (previewId && isBizPreviewDismissed(previewId)) return false
   const kind = String(sheet.kind || '')
   const action = String(sheet.action || '')
-  const previewId = sheet.preview_id ?? sheet.previewId
   const rows = Array.isArray(sheet.rows) ? sheet.rows : []
   const columns = Array.isArray(sheet.columns) ? sheet.columns : []
+  const changes = Array.isArray(sheet.changes) ? sheet.changes : []
   if (!kind || !action) return false
 
   emit('biz.sheet.pending', {
     kind,
     action,
-    previewId: typeof previewId === 'string' ? previewId : undefined,
+    previewId: previewId || undefined,
     rows: rows.length,
     columns,
     canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
     source,
     sessionId,
+    surfaceId: typeof surfaceId === 'string' ? surfaceId : undefined,
     workspaceCwd: typeof workspaceCwd === 'string' ? workspaceCwd : undefined,
     sheet: {
       kind,
       action,
-      preview_id: typeof previewId === 'string' ? previewId : null,
-      previewId: typeof previewId === 'string' ? previewId : null,
+      preview_id: previewId || null,
+      previewId: previewId || null,
       rows,
       columns,
+      changes,
       canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
       sessionId,
+      ...(typeof sheet.workspace === 'string' ? { workspace: sheet.workspace } : {}),
+      ...(typeof sheet.no === 'string' ? { no: sheet.no } : {}),
+      ...(typeof sheet.clue === 'string' ? { clue: sheet.clue } : {}),
       ...(Array.isArray(sheet.where) && sheet.where.length ? { where: sheet.where } : {}),
       ...(Array.isArray(sheet.hopWhere) && sheet.hopWhere.length ? { hopWhere: sheet.hopWhere } : {}),
     },
@@ -175,7 +188,7 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emi
   const connectionId = typeof body.connectionId === 'string' ? body.connectionId : undefined
   if (!kind || !action) return
 
-  insertBizSurface(db, {
+  const surfaceId = insertBizSurface(db, {
     workspaceCwd,
     connectionId,
     kind,
@@ -185,7 +198,7 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emi
     rowCount: rows.length,
     columnsJson: JSON.stringify(columns),
   })
-  if (emitEvent) emitBizSheetPending(sheet, { sessionId, source, workspaceCwd })
+  if (emitEvent) emitBizSheetPending(sheet, { sessionId, source, workspaceCwd, surfaceId })
 }
 
 function resolveBizWorkspace(url, aiRuntime) {
@@ -552,21 +565,15 @@ export async function handleBizRoutes(request, response, url, deps) {
         return true
       }
       const raw = state.pendingSheet ?? state.pendingWrite
-      if (!raw || typeof raw !== 'object') {
+      const sheet = sheetPayloadFromRaw(raw)
+      if (!sheet) {
         sendJson(response, 200, { data: { sheet: null }, correlationId })
         return true
       }
-      const sheet = {
-        kind: String(raw.kind || ''),
-        action: String(raw.action || ''),
-        preview_id: raw.preview_id ?? raw.previewId ?? null,
-        previewId: raw.preview_id ?? raw.previewId ?? null,
-        rows: Array.isArray(raw.rows) ? raw.rows : [],
-        columns: Array.isArray(raw.columns) ? raw.columns : [],
-        canWrite: Boolean(raw.canWrite ?? raw.can_write),
-        sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
-        ...(Array.isArray(raw.where) && raw.where.length ? { where: raw.where } : {}),
-        ...(Array.isArray(raw.hopWhere) && raw.hopWhere.length ? { hopWhere: raw.hopWhere } : {}),
+      const previewId = sheetPreviewIdFromRaw(sheet)
+      if (previewId && isBizPreviewDismissed(previewId)) {
+        sendJson(response, 200, { data: { sheet: null }, correlationId })
+        return true
       }
       sendJson(response, 200, { data: { sheet: stripSecrets(sheet) }, correlationId })
     } catch (error) {
@@ -707,9 +714,21 @@ export async function handleBizRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'POST' && url.pathname === '/api/v1/biz/preview/dismiss') {
+    const body = await readJson(request).catch(() => ({}))
+    let previewId = typeof body.preview_id === 'string' ? body.preview_id.trim() : ''
+    if (!previewId) {
+      try {
+        const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+        const raw = state?.pendingSheet ?? state?.pendingWrite
+        previewId = sheetPreviewIdFromRaw(raw)
+      } catch {
+        previewId = ''
+      }
+    }
+    if (previewId) rememberBizPreviewDismissed(previewId)
     try {
       const dismissed = await aiRuntime.lanAssist('/write/cancel', { method: 'POST', body: {} })
-      sendJson(response, 200, { data: dismissed, correlationId })
+      sendJson(response, 200, { data: { ...dismissed, preview_id: previewId || undefined }, correlationId })
     } catch (error) {
       sendError(
         response,

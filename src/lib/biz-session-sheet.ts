@@ -5,6 +5,34 @@ import { rememberBizKindListSheet } from '@/lib/biz-kind-list-cache'
 let lastPending: { sheet: Record<string, unknown>; at: number } | null = null
 
 const dismissedPreviewIds = new Set<string>()
+const DISMISSED_STORAGE_KEY = 'fde.biz.dismissedPreviewIds'
+
+function loadDismissedFromStorage() {
+  if (typeof sessionStorage === 'undefined') return
+  try {
+    const raw = sessionStorage.getItem(DISMISSED_STORAGE_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return
+    for (const id of parsed) {
+      const next = String(id || '').trim()
+      if (next) dismissedPreviewIds.add(next)
+    }
+  } catch {
+    // ignore corrupt storage
+  }
+}
+
+function persistDismissedToStorage() {
+  if (typeof sessionStorage === 'undefined') return
+  try {
+    sessionStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...dismissedPreviewIds]))
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+loadDismissedFromStorage()
 
 export function sheetPreviewIdFromRecord(sheet: Record<string, unknown>) {
   const id = sheet.preview_id ?? sheet.previewId
@@ -18,11 +46,17 @@ export function isBizPreviewDismissed(sheet: Record<string, unknown>) {
 }
 
 export function dismissBizPreviewId(previewId: string) {
-  if (previewId) dismissedPreviewIds.add(previewId)
+  if (previewId) {
+    dismissedPreviewIds.add(previewId)
+    persistDismissedToStorage()
+  }
 }
 
 export function clearBizPreviewDismissed(previewId: string) {
-  if (previewId) dismissedPreviewIds.delete(previewId)
+  if (previewId) {
+    dismissedPreviewIds.delete(previewId)
+    persistDismissedToStorage()
+  }
 }
 
 export function rememberBizPendingSheet(sheet: Record<string, unknown>) {

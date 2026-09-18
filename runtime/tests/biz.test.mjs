@@ -40,6 +40,8 @@ describe('biz surfaces and live execute', () => {
     const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
     assert.match(source, /\/api\/v1\/biz\/preview\/dismiss/)
     assert.match(source, /lanAssist\('\/write\/cancel'/)
+    assert.match(source, /rememberBizPreviewDismissed/)
+    assert.match(source, /isBizPreviewDismissed/)
     assert.match(source, /biz_write_failed|bizWriteFailureMessage/)
     assert.doesNotMatch(source, /lanAssist\('\/send'/)
   })
