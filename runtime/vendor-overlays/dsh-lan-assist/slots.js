@@ -771,4 +771,24 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   return next
 }
 
+/**
+ * After kind resolve: leftover short names that are not in the connector catalog
+ * cannot be preview/write targets. Not a denylist — leftover means a registered
+ * kind is a suffix of a longer registered kind. No catalog → do not refuse.
+ */
+export function leftoverKindMissingFromCatalog(kind, extra = {}) {
+  const name = String(kind || '').trim()
+  if (!name) return false
+  const labels = registeredKinds(extra)
+  if (!isLeftoverShortKind(name, labels)) return false
+  const collections = extra.collections
+  const kinds = extra.kinds
+  const maps = extra.maps
+  const hasCatalog = (Array.isArray(collections) && collections.length)
+    || (Array.isArray(kinds) && kinds.length)
+    || (Array.isArray(maps) && maps.length)
+  if (!hasCatalog) return false
+  return !mapKind(name, { collections, kinds, maps })
+}
+
 export { clueHitsInSpeech, parentKindsOf, kindMentions, relatedKindChain, nestFromSteps, relatedMentionedKinds }

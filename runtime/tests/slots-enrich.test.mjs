@@ -4,6 +4,7 @@ import {
   enrichStructuredSlots,
   clueHitsInSpeech,
   kindMentions,
+  leftoverKindMissingFromCatalog,
   pickHopSpeech,
   relatedMentionedKinds,
   rememberUserSpeech,
@@ -254,3 +255,32 @@ test('rememberUserSpeech recalls the last line for a session', () => {
   assert.equal(recalledUserSpeech('sess-hop'), intersectionSpeech)
   assert.equal(pickHopSpeech('list WidgetSlip', recalledUserSpeech('sess-hop'), intersectionVocab), intersectionSpeech)
 })
+
+const catalogExtra = {
+  vocab: intersectionVocab,
+  collections: [
+    { name: 'alpha_widget', title: 'AlphaWidget' },
+    { name: 'alpha_gadget', title: 'AlphaGadget' },
+  ],
+}
+
+test('leftoverKindMissingFromCatalog refuses leftover only after catalog miss', () => {
+  assert.equal(leftoverKindMissingFromCatalog('Widget', catalogExtra), true)
+  assert.equal(leftoverKindMissingFromCatalog('Gadget', catalogExtra), true)
+  assert.equal(leftoverKindMissingFromCatalog('AlphaWidget', catalogExtra), false)
+  assert.equal(leftoverKindMissingFromCatalog('AlphaGadget', catalogExtra), false)
+  assert.equal(leftoverKindMissingFromCatalog('Widget', { vocab: intersectionVocab }), false)
+})
+
+test('spoken fragments still bind to connected vocab kinds with catalog present', () => {
+  const hits = kindMentions('pending Widget ∩ expired Gadget', intersectionKinds, catalogExtra)
+  assert.deepEqual(hits.map((row) => row.kind), ['AlphaWidget', 'AlphaGadget'])
+  const remapped = enrichStructuredSlots({
+    kind: 'Widget',
+    action: '现查',
+    speech: intersectionSpeech,
+  }, intersectionVocab, catalogExtra)
+  assert.equal(remapped.kind, 'AlphaWidget')
+  assert.equal(leftoverKindMissingFromCatalog(remapped.kind, catalogExtra), false)
+})
+

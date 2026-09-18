@@ -9,7 +9,7 @@ import { mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, s
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, bindPatchEnums, normalizePlan } from './plan.js'
-import { enrichStructuredSlots, kindMentions, nestFromSteps, pickHopSpeech, recalledUserSpeech, relatedMentionedKinds } from './slots.js'
+import { enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, nestFromSteps, pickHopSpeech, recalledUserSpeech, relatedMentionedKinds } from './slots.js'
 import { previewRowCap } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -924,6 +924,15 @@ export function createGate(opts = {}) {
     }
     const enriched = enrichStructuredSlots(spec, loaded.vocab, enrichExtra)
     const plan = normalizePlan(enriched)
+    const resolvedKind = String(
+      (plan.steps[plan.targetIndex] && plan.steps[plan.targetIndex].kind)
+      || enriched.kind
+      || spec.kind
+      || ''
+    ).trim()
+    if (leftoverKindMissingFromCatalog(resolvedKind, { vocab: loaded.vocab, ...enrichExtra })) {
+      return refuse('NO_CONNECTOR', `${resolvedKind}：没连业务，不能装成已查。`)
+    }
     const sessionId = String(spec.sessionId || '').trim()
     const workspaceKey = String(spec.workspace || '')
     const speechForHop = String(plan.speech || '').trim()
@@ -966,6 +975,15 @@ export function createGate(opts = {}) {
     }
     if (token.action === '改行' && (!token.patch || !Object.keys(token.patch).length)) {
       return refuse('NO_PATCH', '改行要指出字段。')
+    }
+    const writeExtra = { vocab: token.vocab }
+    if (typeof opts.collectionsOf === 'function') {
+      try {
+        writeExtra.collections = await opts.collectionsOf(spec.workspace || token.workspace)
+      } catch { /* catalog optional */ }
+    }
+    if (leftoverKindMissingFromCatalog(token.kind, writeExtra)) {
+      return refuse('NO_CONNECTOR', `${token.kind}：没连业务，不能装成已过账。`)
     }
     if (token.catalogVersion) {
       const live = await vocabFor(spec.workspace || token.workspace)
