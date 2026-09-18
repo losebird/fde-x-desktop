@@ -39,6 +39,7 @@ describe('vocab from connector', () => {
     const built = buildVocabFromNocoCollections(collections, { catalogVersion: 't1' })
     assert.equal(built.concepts.length, 2)
     const child = built.concepts.find((row) => row.resource === 'biz_children')
+    assert.ok(child?.fieldLabels?.编号 === 'code')
     assert.ok(child)
     assert.deepEqual(child.relations, [{ from: '父表', to: '子表', field: 'parentId' }])
     assert.deepEqual(built.relations, [{ from: '父表', to: '子表', field: 'parentId' }])

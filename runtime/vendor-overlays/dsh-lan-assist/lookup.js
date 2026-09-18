@@ -8,7 +8,14 @@
 
 import { enumMap, groupClueTerms, looksLikeRef, looksLikeTicket, listRows, pickNo, resolveRows, rowMatches, rowMatchesAll } from './resolve.js'
 import { PAGE_SIZE, cluesFromWhere } from './plan.js'
-import { bindWhereKeys, listLimitForWhere, termFilterPart as whereTermFilterPart } from './where-pass.js'
+import {
+  bindWhereKeys,
+  fieldLabelsFromRawCollection,
+  listLimitForWhere,
+  resolveShapeKey,
+  termFilterPart as whereTermFilterPart,
+  vocabRow,
+} from './where-pass.js'
 
 const WRITE = /(?:^|\/|:)(?:create|update|destroy|remove|delete|approve|reject|post|submit|publish|execute|resource_create|resource_update|resource_destroy)(?:$|[/?])/i
 
@@ -336,9 +343,16 @@ export function createLookup(opts = {}) {
     })
     if (!spec && conn.dialect !== 'rest') return { ok: false, error: 'UNKNOWN_KIND' }
     const schemaFields = collectionFields(spec && spec.resource, collections)
-    clues.terms = bindClueEnums(clues.terms || [], schemaFields)
-    clues.terms = bindWhereKeys(clues.terms, kind, vocab || conn.vocab, schemaFields)
-    clues.terms = clues.terms.filter((term) => termFitsCollection(term, schemaFields))
+    const vocabRows = [
+      ...(Array.isArray(vocab) ? vocab : []),
+      ...(Array.isArray(conn.vocab) ? conn.vocab : []),
+      ...(Array.isArray(conn.kinds) ? conn.kinds : []),
+    ]
+    const vocabHit = vocabRow(kind, vocabRows)
+    const rawFieldLabels = fieldLabelsFromRawCollection(spec && spec.resource, collections)
+    clues.terms = bindWhereKeys(clues.terms || [], kind, vocabRows, schemaFields, rawFieldLabels)
+    clues.terms = bindClueEnums(clues.terms, schemaFields)
+    clues.terms = clues.terms.filter((term) => termFitsCollection(term, schemaFields, vocabHit, rawFieldLabels))
     if (Array.isArray(where) && where.length && !clues.terms.length && !looksLikeRef(ticket)) {
       return {
         ok: false,
@@ -683,14 +697,17 @@ export function bindClueEnums(terms, schemaFields) {
   })
 }
 
-export function termFitsCollection(term, schemaFields) {
+export function termFitsCollection(term, schemaFields, vocabHit, extraLabels) {
   const keys = Array.isArray(term && term.keys) ? term.keys : []
   const fields = Array.isArray(schemaFields) ? schemaFields : []
   const hasDate = (Array.isArray(term.dateBefore) && term.dateBefore.length)
     || (Array.isArray(term.dateAfter) && term.dateAfter.length)
   if (hasDate) return true
   if (!keys.length) return true
-  const hit = fields.find((row) => row && keys.includes(row.name))
+  const hit = fields.find((row) => row && keys.some((key) => {
+    const resolved = resolveShapeKey(key, fields, vocabHit, extraLabels)
+    return row.name === resolved || row.name === key
+  }))
   if (!hit) return !fields.length
   return true
 }

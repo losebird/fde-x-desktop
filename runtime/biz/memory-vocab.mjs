@@ -49,6 +49,9 @@ export async function loadMemoryWorkspaceVocab(aiRuntime, workspaceCwd) {
       ...(row.id ? { id: row.id } : {}),
       ...(row.resource ? { resource: row.resource } : {}),
       ...(row.ticketField ? { ticketField: row.ticketField } : {}),
+      ...(row.fieldLabels && typeof row.fieldLabels === 'object' && !Array.isArray(row.fieldLabels)
+        ? { fieldLabels: row.fieldLabels }
+        : {}),
       ...(row.can ? { can: row.can } : {}),
       ...(Array.isArray(row.relations) && row.relations.length ? { relations: row.relations } : {}),
     })),

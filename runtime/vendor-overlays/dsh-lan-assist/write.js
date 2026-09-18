@@ -130,12 +130,27 @@ export function packSheet(spec = {}) {
     }
   }
   const lead = rows[0] || { fields: {} }
-  const changes = Object.keys(patch).map((key) => ({
-    field: key,
-    label: displayColumnLabel(key, schemaFields) || fieldSpeak(key),
-    from: fieldValue(lead.fields, key) || String(spec.from || ''),
-    to: String(patch[key] ?? ''),
-  }))
+  const fromFallback = String(spec.from || '').trim()
+  const changes = Object.keys(patch).flatMap((key) => {
+    const to = String(patch[key] ?? '').trim()
+    const from = (fieldValue(lead.fields, key) || fromFallback).trim()
+    if (action === '新建') {
+      if (!to) return []
+      return [{
+        field: key,
+        label: displayColumnLabel(key, schemaFields) || fieldSpeak(key),
+        from: '',
+        to,
+      }]
+    }
+    if (to === from) return []
+    return [{
+      field: key,
+      label: displayColumnLabel(key, schemaFields) || fieldSpeak(key),
+      from,
+      to,
+    }]
+  })
   const many = rows.length > 1
   const previewId = String(spec.preview_id || '').trim()
   return {
@@ -379,6 +394,7 @@ export function kindsFromGraphNodes(nodes) {
     const rawResource = String(pickProp(node, props, ['resource', 'collection']) || '').trim()
     const ticketField = String(pickProp(node, props, ['ticketField', 'ticket_field']) || '').trim()
     const dateField = String(pickProp(node, props, ['dateField', 'date_field']) || '').trim()
+    const fieldLabels = pickProp(node, props, ['fieldLabels', 'field_labels'])
     if (ticketField) fields.unshift(ticketField)
     if (!fields.length && !can.length && !rawResource) continue
     const packed = {
@@ -392,6 +408,9 @@ export function kindsFromGraphNodes(nodes) {
     if (rawResource) packed.resource = rawResource
     if (ticketField) packed.ticketField = ticketField
     if (dateField) packed.dateField = dateField
+    if (fieldLabels && typeof fieldLabels === 'object' && !Array.isArray(fieldLabels)) {
+      packed.fieldLabels = fieldLabels
+    }
     const clues = pickProp(node, props, ['clues'])
     if (clues != null) packed.clues = clues
     const catalogVersion = String(pickProp(node, props, ['catalogVersion', 'catalog_version']) || '').trim()
@@ -417,6 +436,9 @@ export function vocabRow(kind, vocab) {
       if (row.clues != null) packed.clues = row.clues
       if (row.resource) packed.resource = row.resource
       if (row.ticketField) packed.ticketField = row.ticketField
+      if (row.fieldLabels && typeof row.fieldLabels === 'object' && !Array.isArray(row.fieldLabels)) {
+        packed.fieldLabels = row.fieldLabels
+      }
       return packed
     }
   }

@@ -80,6 +80,27 @@ function shapeFields(fields, ticketField) {
   return out.slice(0, 24)
 }
 
+/** Display label (词表 fields / ui title) → NocoBase field name */
+export function buildFieldLabelMap(fields, ticketField) {
+  const map = {}
+  const rows = Array.isArray(fields) ? fields : []
+  if (ticketField) {
+    const ticket = String(ticketField).trim()
+    const row = rows.find((item) => String((item && item.name) || '').trim() === ticket)
+    const title = fieldTitle(row)
+    map[ticket] = ticket
+    if (title) map[title] = ticket
+  }
+  for (const field of rows) {
+    const name = String((field && field.name) || '').trim()
+    if (!name || !isWritableField(field)) continue
+    const title = fieldTitle(field)
+    map[name] = name
+    if (title) map[title] = name
+  }
+  return map
+}
+
 function canForCollection(fields) {
   const can = [READ_ACTION]
   const writable = fields.some((field) => isWritableField(field))
@@ -141,6 +162,7 @@ export function buildVocabFromNocoCollections(collections, opts = {}) {
       }
     }
 
+    const fieldLabels = buildFieldLabelMap(fields, ticketField)
     const concept = {
       id: slugId(resource),
       label,
@@ -148,6 +170,7 @@ export function buildVocabFromNocoCollections(collections, opts = {}) {
       fields: shapeFields(fields, ticketField),
       can: canForCollection(fields),
       ...(ticketField ? { ticketField } : {}),
+      ...(Object.keys(fieldLabels).length ? { fieldLabels } : {}),
       ...(relations.length ? { relations } : {}),
       ...(catalogVersion ? { catalogVersion } : {}),
     }
