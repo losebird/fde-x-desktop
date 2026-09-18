@@ -5,6 +5,7 @@ import { Card, Empty } from '@/components/ui'
 import { BizPreviewDrawer } from '@/components/biz/BizPreviewDrawer'
 import { SpecTable } from '@/components/apps/SpecTable'
 import {
+  cloneSheetRows,
   formatSheetCellDisplayValue,
   type SheetColumn,
   isBizListQueryAction,
@@ -12,7 +13,9 @@ import {
   normalizeSheetRows,
   pickFilledSheetInput,
   pickSheetRowPatch,
+  sheetRowBusinessNo,
   sheetRowKey,
+  sheetRowRenderKey,
   type SheetRow,
 } from '@/lib/biz-sheet-display'
 import { ContextChips } from '@/components/ai/ContextChips'
@@ -47,6 +50,11 @@ import {
   peekBizSurfaceSheet,
   rememberBizSurfaceSheet,
 } from '@/lib/biz-surface-cache'
+import {
+  historyMissHint,
+  selectSessionHistorySurfaces,
+  shouldBlockIncomingSheetForHistoryPin,
+} from '@/lib/biz-records-history'
 import {
   clearBizPendingSheet,
   clearBizPreviewDismissed,
@@ -177,14 +185,9 @@ function peekListPendingSheet() {
   return k ? sheet : null
 }
 
-function findSurfaceForKind(surfaces: BizSurfaceRecord[], k: string) {
-  return surfaces.find((s) => s.kind === k && isBizListQueryAction(s.action))
-    || surfaces.find((s) => s.kind === k)
-}
-
 function listRestoreFromSnapshot(snap: SheetSnapshot): ListRestoreSnapshot {
   const sheet = snap.sheet
-  const restoreRows = normalizeSheetRows(sheet.rows)
+  const restoreRows = cloneSheetRows(sheet.rows)
   const restoreColumns = normalizeSheetColumns(sheet.columns)
   const action = String(sheet.action || '现查')
   return {
@@ -283,6 +286,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     patch?: Record<string, unknown>
   } | null>(null)
   const [listRestore, setListRestore] = useState<ListRestoreSnapshot | null>(null)
+  const [sheetIdentity, setSheetIdentity] = useState('')
   const [contextPack, setContextPack] = useState<ContextPack | null>(null)
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [omit, setOmit] = useState<Set<string>>(new Set())
@@ -314,15 +318,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   }, [kindCatalog])
 
   const operationAnchor = useMemo(() => {
-    const pendingSheet = peekBizPendingSheet()
-    if (pendingSheet) return pendingSheet
     if (listSheetMeta && typeof listSheetMeta === 'object') return listSheetMeta
-    if (kind) {
-      const snap = sheetSnapshots.current.get(`kind:${kind}`)
-      if (snap?.sheet) return snap.sheet
-    }
     return null
-  }, [kind, listSheetMeta, pending?.at, pending?.kind, rows.length])
+  }, [listSheetMeta])
 
   const surfacedKindChips = useMemo(() => {
     const anchor = operationAnchor
@@ -369,7 +367,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       add(k, rowCount, Date.now())
     }
 
-    if (kind && allowedKinds.has(kind) && rows.length > 0) {
+    if (kind && allowedKinds.has(kind)) {
       add(kind, rows.length, Date.now())
     }
 
@@ -377,12 +375,22 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   }, [bizCwd, kind, kindLabel, operationAnchor, rows.length])
 
   const sessionSurfaces = useMemo(() => {
-    const sorted = [...surfaces].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    const sessionKey = pending?.sessionId?.trim() || ''
-    if (!sessionKey) return sorted
-    const scoped = sorted.filter((row) => row.sessionId === sessionKey)
-    return scoped.length ? scoped : sorted
-  }, [pending?.sessionId, surfaces])
+    const cachedIds = new Set<string>()
+    for (const [key, snap] of sheetSnapshots.current.entries()) {
+      if (key.startsWith('surface:') && snap?.sheet) cachedIds.add(key.slice('surface:'.length))
+    }
+    if (bizCwd) {
+      for (const surface of surfaces) {
+        if (peekBizSurfaceSheet(bizCwd, surface.id) || peekBizKindListSheetBySurfaceId(bizCwd, surface.id)) {
+          cachedIds.add(surface.id)
+        }
+      }
+    }
+    return selectSessionHistorySurfaces(surfaces, {
+      sessionId: pending?.sessionId,
+      cachedIds,
+    })
+  }, [bizCwd, pending?.sessionId, surfaces, sheetIdentity, listSheetMeta])
 
   const surfaceHistoryLabel = useCallback((surface: BizSurfaceRecord) => {
     const cached = sheetSnapshots.current.get(`surface:${surface.id}`)
@@ -475,9 +483,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
 
   const captureListRestore = useCallback((): ListRestoreSnapshot => {
     const kindSnap = kind ? sheetSnapshots.current.get(`kind:${kind}`) : undefined
-    const snapRows = kindSnap?.sheet ? normalizeSheetRows(kindSnap.sheet.rows) : []
+    const snapRows = kindSnap?.sheet ? cloneSheetRows(kindSnap.sheet.rows) : []
     const snapCols = kindSnap?.sheet ? normalizeSheetColumns(kindSnap.sheet.columns) : []
-    const restoreRows = rows.length > 0 ? rows : snapRows
+    const restoreRows = rows.length > 0 ? cloneSheetRows(rows) : snapRows
     const restoreColumns = columns.length > 0 ? columns : snapCols
     const sheet = kindSnap?.sheet
       ? { ...kindSnap.sheet, rows: restoreRows, columns: restoreColumns }
@@ -587,18 +595,26 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     const snap = listRestoreRef.current
     if (!snap) return false
     setColumns(snap.columns)
-    setRows(snap.rows)
+    const nextRows = cloneSheetRows(snap.rows)
+    setRows(nextRows)
+    displayedRowCountRef.current = nextRows.length
+    const restoreSheet = { ...snap.sheet, rows: nextRows, columns: snap.columns }
+    const nextFp = sheetRowsFingerprint(restoreSheet)
+    appliedSheetFpRef.current = nextFp
+    setSheetIdentity(nextFp)
     setDraftEdits(snap.draftEdits)
     setPage(snap.page)
     setSourceLabel(snap.sourceLabel)
+    setListSheetMeta(restoreSheet)
     rememberSheet({
-      sheet: snap.sheet,
+      sheet: restoreSheet,
       connName: snap.connName,
       surfaceId: snap.surfaceId,
     })
-    if (!isWritePreviewSheet(snap.sheet)) {
-      rememberBizPendingSheet(snap.sheet)
+    if (!isWritePreviewSheet(restoreSheet)) {
+      rememberBizPendingSheet(restoreSheet)
     }
+    if (snap.surfaceId) setHistorySurfaceId(snap.surfaceId)
     commitListRestore(null)
     return true
   }, [commitListRestore, rememberSheet])
@@ -637,8 +653,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     appliedSheetFpRef.current = nextFp
     activeListQueryFpRef.current = listQueryFingerprint(sheet)
     const normalizedCols = normalizeSheetColumns(sheet.columns)
+    const normalizedRows = cloneSheetRows(sheet.rows)
+    const appliedSheet = { ...sheet, rows: normalizedRows, columns: normalizedCols }
+    setSheetIdentity(nextFp)
     setColumns(normalizedCols)
-    const normalizedRows = normalizeSheetRows(sheet.rows)
     setRows(normalizedRows)
     displayedRowCountRef.current = normalizedRows.length
     setDraftEdits({})
@@ -651,8 +669,12 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     const nextKind = String(sheet.kind || '')
     if (nextKind) setKind(nextKind)
     setStaleHint('')
-    setListSheetMeta(sheet)
-    rememberSheet({ sheet, connName, surfaceId })
+    setListSheetMeta(appliedSheet)
+    rememberSheet({ sheet: appliedSheet, connName, surfaceId })
+    if (!isWritePreviewSheet(appliedSheet)) {
+      rememberBizPendingSheet(appliedSheet)
+    }
+    if (surfaceId) setHistorySurfaceId(surfaceId)
     setPending({
       kind: String(sheet.kind || ''),
       action: String(sheet.action || ''),
@@ -687,18 +709,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     const rowCount = incomingSheetRowCount(sheet)
     if (!rowCount && !sheet.kind) return false
     if (shouldRejectEmptyIncomingSheet(sheet, displayedRowCountRef.current)) return false
-    if (
-      historyPinnedSurfaceIdRef.current
-      && surfaceId
-      && surfaceId !== historyPinnedSurfaceIdRef.current
-    ) {
-      return false
-    }
-    if (
-      historyPinnedSurfaceIdRef.current
-      && !surfaceId
-      && isBizListQueryAction(String(sheet.action || ''))
-    ) {
+    if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId)) {
       return false
     }
     const previewId = sheetPreviewId(sheet)
@@ -850,7 +861,6 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     if (!runtimeReady || !workspaceCwd || activeLocalApp) return
     if (surfaces.length === 0) return
     if (kind) return
-    const latest = surfaces[0]
     void (async () => {
       let listPending = peekListPendingSheet()
       if (!listPending) {
@@ -864,36 +874,24 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
           listPending = null
         }
       }
-      const seedKind = listPending ? String(listPending.kind || '') : latest.kind
-      const connSurface = listPending
-        ? (findSurfaceForKind(surfaces, seedKind) || latest)
-        : latest
-      setKind(seedKind)
-      if (connSurface.connectionId) setConnectionId(connSurface.connectionId)
       if (listPending) {
-        applyPendingSheet(listPending, connSurface.id)
+        const seedKind = String(listPending.kind || '')
+        if (seedKind) setKind(seedKind)
+        applyPendingSheet(listPending)
         return
-      }
-      const cached = sheetSnapshots.current.get(`surface:${latest.id}`) || sheetSnapshots.current.get(`kind:${latest.kind}`)
-      if (cached) {
-        applySheet(cached.sheet, cached.connName, latest.id)
-        return
-      }
-      const matchedPending = await hydrateFromPending(latest.id)
-      if (!matchedPending) {
-        setStaleHint('该条浮现的行已不在待确认区；请在 AI 会话里重新现查或改行，不要在此整表浏览。')
-        setRows([])
-        setColumns(Array.isArray(latest.columns) ? latest.columns as SheetColumn[] : [])
       }
     })()
-  }, [activeLocalApp, applyPendingSheet, applySheet, hydrateFromPending, kind, runtimeReady, surfaces, workspaceCwd])
+  }, [activeLocalApp, applyPendingSheet, runtimeReady, surfaces, workspaceCwd])
 
   useEvents(['biz.sheet.pending'], (event) => {
     const payload = event.payload as PendingSheetEvent
     if (payload.sheet && typeof payload.sheet === 'object') {
-      historyPinnedSurfaceIdRef.current = ''
+      const incomingSurfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : undefined
+      if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, incomingSurfaceId)) {
+        return
+      }
       rememberBizPendingSheet(payload.sheet)
-      let surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : undefined
+      let surfaceId = incomingSurfaceId
       applyPendingSheet(payload.sheet, surfaceId)
       void (async () => {
         if (!bizCwd) return
@@ -907,15 +905,18 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
             })
           }
           if (!surfaceId) return
+          if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId)) return
           const conn = connections.find((c) => c.id === connectionId) || connections[0]
           const connName = conn?.name || '连接器'
           rememberBizSurfaceSheet(bizCwd, surfaceId, payload.sheet as Record<string, unknown>, connName)
           rememberSheet({ sheet: payload.sheet as Record<string, unknown>, connName, surfaceId })
+          if (!historyPinnedSurfaceIdRef.current) setHistorySurfaceId(surfaceId)
         } catch {
           // ignore list failure — in-memory cache still updated via applyPendingSheet
         }
       })()
     } else {
+      if (historyPinnedSurfaceIdRef.current) return
       void hydrateFromPending()
       void loadSurfaces()
     }
@@ -925,7 +926,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     const payload = event.payload as { tool?: string; ok?: boolean }
     if (!payload.ok) return
     if (!isBizSurfaceTool(String(payload.tool || ''))) return
-    historyPinnedSurfaceIdRef.current = ''
+    if (historyPinnedSurfaceIdRef.current) return
     const cached = peekBizPendingSheet()
     if (cached) {
       applyPendingSheet(cached)
@@ -1046,11 +1047,18 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   }, [bizCwd])
 
   const loadSurface = useCallback(async (surface: BizSurfaceRecord) => {
+    const openPreviewId = drawer?.previewId
+      || sheetPreviewId(peekBizPendingSheet() || {})
+    if (openPreviewId) {
+      dismissBizPreviewId(openPreviewId)
+      void runtimeApi.bizDismissPreview(openPreviewId).catch(() => undefined)
+    }
     setHistorySurfaceId(surface.id)
     historyPinnedSurfaceIdRef.current = surface.id
     setDrawer(null)
     commitListRestore(null)
     appliedSheetFpRef.current = ''
+    setSheetIdentity('')
     setRows([])
     setColumns([])
     setSourceLabel('')
@@ -1063,8 +1071,21 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     const snap = resolveSurfaceSheet(surface)
     if (!snap?.sheet) {
       setRows([])
+      displayedRowCountRef.current = 0
       setColumns(Array.isArray(surface.columns) ? surface.columns as SheetColumn[] : [])
-      setStaleHint('该条浮现的行已不在待确认区；请在 AI 会话里重新现查或改行。')
+      setListSheetMeta({ kind: surface.kind, action: surface.action, rows: [] })
+      setPending({
+        kind: surface.kind,
+        action: surface.action,
+        previewId: surface.previewId || undefined,
+        rows: 0,
+        source: 'ai',
+        sessionId: surface.sessionId || undefined,
+        at: surface.createdAt,
+      })
+      setStaleHint(historyMissHint({
+        scope: surfaceHistoryLabel(surface),
+      }))
       return
     }
 
@@ -1090,7 +1111,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
         canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
       })
     }
-  }, [applySheet, commitListRestore, resolveSurfaceSheet])
+  }, [applySheet, commitListRestore, drawer?.previewId, resolveSurfaceSheet, surfaceHistoryLabel])
 
   const selectKind = useCallback((nextKind: string) => {
     setKind(nextKind)
@@ -1141,8 +1162,6 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
           break
         }
       }
-    } else if (!cached && !anchor) {
-      cached = sheetSnapshots.current.get(`kind:${nextKind}`)
     }
     if (cached?.sheet && (!anchor || operationBundlesAlign(anchor, cached.sheet))) {
       applySheet(cached.sheet, cached.connName, cached.surfaceId)
@@ -1150,9 +1169,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     }
     const surface = surfaces.find((s) => {
       if (s.kind !== nextKind) return false
-      if (!anchor) return true
-      const cached = sheetSnapshots.current.get(`surface:${s.id}`)
-      return cached?.sheet ? operationBundlesAlign(anchor, cached.sheet) : false
+      const cachedSheet = sheetSnapshots.current.get(`surface:${s.id}`)
+      if (!cachedSheet?.sheet) return false
+      if (!anchor) return false
+      return operationBundlesAlign(anchor, cachedSheet.sheet)
     })
     if (surface) {
       void loadSurface(surface)
@@ -1163,13 +1183,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     }
   }, [applySheet, bizCwd, listSheetMeta, loadSurface, surfaces])
 
-  const tableRows = useMemo(() => {
-    const previewSheet = drawer?.sheet
-    if (previewSheet && isWritePreviewSheet(previewSheet)) {
-      return normalizeSheetRows(previewSheet.rows)
-    }
-    return rows
-  }, [drawer?.sheet, rows])
+  const tableRows = rows
 
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -1402,7 +1416,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
               onChange={(e) => {
                 const id = e.target.value
                 setHistorySurfaceId(id)
-                if (!id) return
+                if (!id) {
+                  historyPinnedSurfaceIdRef.current = ''
+                  void hydrateFromPending()
+                  return
+                }
                 const row = sessionSurfaces.find((s) => s.id === id)
                 if (row) void loadSurface(row)
               }}
@@ -1476,11 +1494,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
                 </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody key={sheetIdentity || 'empty'} data-sheet-fp={sheetIdentity || undefined}>
               {paginatedRows.map((row, index) => {
                 const absoluteIndex = (page - 1) * PAGE_SIZE + index
                 const displayIndex = absoluteIndex + 1
-                const rowKey = sheetRowKey(row, absoluteIndex)
+                const rowKey = sheetRowRenderKey(row, absoluteIndex, sheetIdentity)
                 const draftRow = getRowDraft(row, absoluteIndex)
                 const isPending = pending?.action && !isBizListQueryAction(pending.action) && pending.kind === kind
                 const isSelected = selectedRowKey === rowKey
@@ -1537,11 +1555,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
                             e.stopPropagation()
                             const extra = rowAction === '改行'
                               ? {
-                                no: rowKey,
+                                no: sheetRowBusinessNo(row),
                                 input: pickSheetRowPatch(row, draftRow, tableColumns),
                                 originalRow: row,
                               }
-                              : { no: rowKey }
+                              : { no: sheetRowBusinessNo(row) }
                             void runPreview(rowAction, extra)
                           }}
                         >

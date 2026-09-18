@@ -61,25 +61,15 @@ export function peekBizSurfaceSheet(
 export function matchSurfaceIdForSheet(
   surfaces: BizSurfaceRecord[],
   sheet: Record<string, unknown>,
-  meta: { sessionId?: string; previewId?: string },
+  meta: { sessionId?: string; previewId?: string; surfaceId?: string },
 ): string | undefined {
-  const kind = String(sheet.kind || '')
-  const action = String(sheet.action || '')
   const previewId = meta.previewId
     || (typeof sheet.preview_id === 'string' ? sheet.preview_id : undefined)
     || (typeof sheet.previewId === 'string' ? sheet.previewId : undefined)
-  const sessionId = meta.sessionId?.trim() || ''
-
-  const candidates = surfaces.filter((row) => row.kind === kind && row.action === action)
-  if (!candidates.length) return undefined
-
-  if (previewId) {
-    const hit = candidates.find((row) => row.previewId === previewId)
-    if (hit) return hit.id
-  }
-  if (sessionId) {
-    const scoped = candidates.filter((row) => row.sessionId === sessionId)
-    if (scoped.length) return scoped[0].id
-  }
-  return candidates[0]?.id
+  const surfaceId = String(meta.surfaceId || '').trim()
+  if (surfaceId && surfaces.some((row) => row.id === surfaceId)) return surfaceId
+  const pid = String(previewId || '').trim()
+  if (!pid) return undefined
+  const hit = surfaces.find((row) => row.previewId === pid)
+  return hit?.id
 }

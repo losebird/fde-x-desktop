@@ -122,8 +122,27 @@ export function normalizeSheetRows(raw: unknown): SheetRow[] {
   })
 }
 
+/** Always a new array of new row objects so footer `.length` cannot share a mutated slice. */
+export function cloneSheetRows(raw: unknown): SheetRow[] {
+  return normalizeSheetRows(raw).map((row) => ({ ...row }))
+}
+
+export function sheetRowIdentity(row: SheetRow, index = 0) {
+  const id = String(row.orderId ?? row.no ?? row.id ?? '').trim()
+  return id ? `${id}#${index}` : `#${index}`
+}
+
+export function sheetRowRenderKey(row: SheetRow, index = 0, sheetIdentity = '') {
+  const identity = sheetRowIdentity(row, index)
+  return sheetIdentity ? `${sheetIdentity}::${identity}` : identity
+}
+
 export function sheetRowKey(row: SheetRow, index = 0) {
-  return String(row.orderId ?? row.no ?? row.id ?? index)
+  return sheetRowIdentity(row, index)
+}
+
+export function sheetRowBusinessNo(row: SheetRow) {
+  return String(row.no ?? row.orderId ?? row.id ?? '').trim()
 }
 
 export function resolveSheetEnumLabel(column: SheetColumn | undefined, value: unknown): string | null {

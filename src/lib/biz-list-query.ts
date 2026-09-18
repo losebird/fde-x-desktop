@@ -71,7 +71,7 @@ function stableFromSlice(raw: unknown, depth = 0): unknown {
   const where = stableWhereSlice(Array.isArray(row.where) ? row.where : [])
   return {
     kind,
-    ...(where.length ? { where } : {}),
+    ...(Array.isArray(where) && where.length ? { where } : {}),
     ...(nested ? { from: nested } : {}),
   }
 }
@@ -134,23 +134,44 @@ export function listQueryScopeKey(sheet: Record<string, unknown> | null | undefi
 }
 
 export function briefQueryScopeLabel(sheet: Record<string, unknown> | null | undefined): string {
+  if (!sheet || typeof sheet !== 'object') return ''
+  const speech = String(sheet.speech || '').trim()
+  if (speech) return speech
+
+  const hopBits: string[] = []
+  const from = sheet.from && typeof sheet.from === 'object' && !Array.isArray(sheet.from)
+    ? sheet.from as Record<string, unknown>
+    : null
+  const fromKind = from ? String(from.kind || '').trim() : ''
+  if (fromKind) hopBits.push(`从${fromKind}`)
+  const steps = Array.isArray(sheet.steps)
+    ? sheet.steps
+      .map((row) => {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) return ''
+        return String((row as Record<string, unknown>).kind || '').trim()
+      })
+      .filter(Boolean)
+    : []
+  if (steps.length > 1) hopBits.push(steps.join('→'))
+
   const where = extractSheetListWhere(sheet)
-  if (!where.length) return ''
-  const parts = where.slice(0, 2).map((row) => {
-    if (!row || typeof row !== 'object') return ''
+  const values: string[] = []
+  for (const row of where.slice(0, 3)) {
+    if (!row || typeof row !== 'object') continue
     const item = row as Record<string, unknown>
-    const keys = Array.isArray(item.keys) ? item.keys.map(String).join(',') : ''
-    const field = item.field ?? item.fieldName ?? item.key
-    const label = keys || (field ? String(field) : '')
-    const values = Array.isArray(item.values) ? item.values.map(String).join(',') : ''
-    const value = values || (item.value != null ? String(item.value) : '')
-    if (!label && !value) return ''
-    if (!value) return label
-    return `${label}=${value}`
-  }).filter(Boolean)
-  if (!parts.length) return `${where.length} 项条件`
-  const more = where.length > 2 ? ` +${where.length - 2}` : ''
-  return `${parts.join(' · ')}${more}`
+    if (Array.isArray(item.values)) {
+      for (const value of item.values) {
+        const text = String(value || '').trim()
+        if (text) values.push(text)
+      }
+    } else if (item.value != null && item.value !== '') {
+      values.push(String(item.value))
+    }
+  }
+  const whereBit = values.length
+    ? values.slice(0, 4).join('、')
+    : (where.length ? `${where.length} 项条件` : '')
+  return [...hopBits, whereBit].filter(Boolean).join(' · ')
 }
 
 export function listQueryFingerprint(sheet: Record<string, unknown> | null | undefined): string {
