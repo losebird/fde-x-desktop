@@ -1285,8 +1285,9 @@ export class RuntimeApi {
   }
 
   async fetchCorpus(id: string, signal?: AbortSignal): Promise<{ ok: boolean; id: string; title?: string; text?: string; message?: string; href?: Record<string, unknown> }> {
+    const safeId = String(id || '').replace(/[^A-Za-z0-9:_-]/g, '')
     const result = await this.request<{ ok: boolean; id: string; title?: string; text?: string; message?: string; href?: Record<string, unknown> }>(
-      withWorkspaceCwd(`/api/v1/corpus/${encodeURIComponent(id)}`),
+      withWorkspaceCwd(`/api/v1/corpus/${safeId}`),
       { signal },
     )
     return result

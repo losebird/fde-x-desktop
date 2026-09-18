@@ -129,6 +129,35 @@ test('biz corpus explains when there is no session or noted speech', async () =>
   assert.equal(String(body.text || '').startsWith('{'), false)
 })
 
+test('biz corpus does not treat rollback marker speech as original text', async () => {
+  await rm('/tmp/fde-x-corpus-rollback-speech.sqlite', { force: true }).catch(() => undefined)
+  const db = openDatabase('/tmp/fde-x-corpus-rollback-speech.sqlite', join(repoRoot, 'runtime/migrations'))
+  const { insertBizWriteAudit } = await import('../db.mjs')
+  insertBizWriteAudit(db, {
+    workspaceCwd: '/tmp/ws-corpus',
+    traceId: 'trace_rollback_marker',
+    kind: '项目任务',
+    action: '回退',
+    recordNo: 'row_pk_6',
+    sessionId: '',
+    source: 'workstation',
+    changes: [{ field: 'status', from: 'b', to: 'a' }],
+    lookupBind: { speech: '回退' },
+  })
+  const aiRuntime = { lanAssist: async () => ({}) }
+  const { base, close } = await withServer(async (request, response) => {
+    const url = new URL(request.url, base)
+    await handleCorpusRoute(request, response, url, { db, aiRuntime, correlationId: 'corr' })
+  })
+  const res = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('biz:trace_rollback_marker')}`)
+  const body = await res.json()
+  await close()
+  assert.equal(res.status, 200)
+  assert.equal(body.ok, false)
+  assert.equal(body.text, '')
+  assert.match(String(body.message || ''), /工作台写入|读不出/)
+})
+
 test('biz corpus reads session user turns and skips JSON dumps', async () => {
   const { mkdir, writeFile, rm } = await import('node:fs/promises')
   const sessionRoot = '/tmp/fde-x-corpus-sessions'

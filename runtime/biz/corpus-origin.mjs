@@ -12,7 +12,7 @@ function workspaceOf(url, audit) {
 function notedSpeech(audit) {
   const bind = parseLookupBind(audit)
   const speech = String(bind.speech || '').trim()
-  if (!speech || looksLikeJsonDump(speech)) return ''
+  if (!speech || speech === '回退' || looksLikeJsonDump(speech)) return ''
   return speech
 }
 
