@@ -853,6 +853,34 @@ export class DshCoreConnector {
     return payload
   }
 
+  /** Persist workspace SKOS concepts (same path as Memory vocabulary UI). */
+  async patchWorkspaceVocab(cwd, body) {
+    this.assertConnected()
+    const workspace = typeof cwd === 'string' && cwd.startsWith('/') ? cwd : this.cwd
+    const { cwd: requestCwd, ascii } = semanticCwd({ cwd: workspace }, this.cwd)
+    if (!requestCwd) throw new AiRemoteError('ai/forbidden', '工作区路径无效')
+    const url = new URL('/semantic-os/api/vocabulary/concepts', this.origin)
+    const headers = {
+      'content-type': 'application/json',
+      cookie: this.cookie,
+      origin: this.origin,
+    }
+    if (ascii) headers['x-dsh-cwd'] = ascii
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...body, cwd: requestCwd }),
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || payload.ok === false) {
+      throw new AiRemoteError(
+        payload.error || 'ai/vocab-error',
+        payload.hint || payload.error || `词表写入失败：HTTP ${response.status}`,
+      )
+    }
+    return payload
+  }
+
   async lanAssist(path, options = {}) {
     this.assertConnected()
     const allowed = new Set(['/state', '/thread', '/attach', '/attach/copy', '/send', '/reply', '/reply/draft', '/compose', '/read', '/shout', '/sleep', '/withdraw', '/presend/cancel', '/pair/mint', '/pair/handshake', '/pair/accept', '/pair/reject', '/name', '/note', '/unpair', '/peer/flags', '/door', '/group/create', '/group/update', '/group/dissolve', '/preview', '/translate', '/write', '/lookup/config', '/catalog/publish', '/catalog', '/traces'])

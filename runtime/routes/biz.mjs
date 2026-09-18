@@ -1,5 +1,6 @@
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { loadMemoryWorkspaceVocab } from '../biz/memory-vocab.mjs'
+import { generateWorkspaceVocabFromConnector } from '../biz/vocab-from-connector.mjs'
 import { normalizePreviewWhere } from '../biz/where.mjs'
 import { insertBizSurface, listBizSurfaces, listBusinessConnections } from '../db.mjs'
 import { AiRemoteError } from '../dsh-core.mjs'
@@ -152,7 +153,26 @@ function resolveBizWorkspace(url, aiRuntime) {
 function resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd) {
   const explicit = requestMemoryCwd(url, body)
   if (explicit) return explicit
+  const fromBodyWorkspace = body && typeof body.workspace === 'string' ? body.workspace.trim() : ''
+  if (fromBodyWorkspace.startsWith('/')) return fromBodyWorkspace
   return resolveBizWorkspace(url, aiRuntime)
+}
+
+async function runConnectorVocabGenerate(aiRuntime, {
+  workspace,
+  dialect,
+  baseUrl,
+  token,
+  catalogVersion,
+}) {
+  return generateWorkspaceVocabFromConnector({
+    workspace,
+    dialect,
+    baseUrl,
+    token,
+    catalogVersion,
+    persistBatch: (batch) => aiRuntime.patchWorkspaceVocab(workspace, batch),
+  })
 }
 
 function mapKindsFromCatalog(catalogPayload) {
@@ -199,6 +219,46 @@ export async function handleBizRoutes(request, response, url, deps) {
   } = deps
 
   if (!url.pathname.startsWith('/api/v1/biz')) return false
+
+  if (request.method === 'POST' && url.pathname === '/api/v1/biz/vocab/generate') {
+    const body = await readJson(request)
+    const workspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const baseUrl = normalizeBaseUrl(body.baseUrl)
+    let token = typeof body.token === 'string' ? body.token.trim() : ''
+    const account = typeof body.account === 'string' ? body.account.trim() : ''
+    const password = typeof body.password === 'string' ? body.password : ''
+    if (account && password && baseUrl) {
+      try {
+        token = await exchangeNocoBaseToken(baseUrl, account, password)
+      } catch (error) {
+        if (!token) {
+          sendError(response, 401, error.code || 'EXPIRED', error.message || '业务系统登录失败', correlationId)
+          return true
+        }
+      }
+    }
+    if (!token && !baseUrl) {
+      sendError(response, 400, 'validation_error', '需要已登记的连接器 token，或同时提供 baseUrl 与 token（或账号密码）', correlationId)
+      return true
+    }
+    try {
+      const result = await runConnectorVocabGenerate(aiRuntime, {
+        workspace,
+        dialect: body.dialect || 'nocobase',
+        baseUrl,
+        token,
+        catalogVersion: body.catalogVersion,
+      })
+      if (result && result.ok === false) {
+        sendError(response, 400, String(result.error || 'vocab_generate_failed'), String(result.hint || result.error || '词表生成失败'), correlationId)
+        return true
+      }
+      sendJson(response, 200, { data: stripSecrets(result), correlationId })
+    } catch (error) {
+      sendError(response, 503, 'vocab_generate_failed', error instanceof Error ? error.message : '词表生成失败', correlationId)
+    }
+    return true
+  }
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/kinds') {
     const workspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
@@ -369,7 +429,31 @@ export async function handleBizRoutes(request, response, url, deps) {
         token,
       },
     })
-    sendJson(response, 200, { data: stripSecrets(saved), correlationId })
+    let vocabGenerated = null
+    const shouldGenerate = body.generateVocab !== false && body.syncVocab !== false
+    if (shouldGenerate && token && baseUrl) {
+      const workspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+      try {
+        vocabGenerated = await runConnectorVocabGenerate(aiRuntime, {
+          workspace,
+          dialect: body.dialect || 'nocobase',
+          baseUrl,
+          token,
+        })
+      } catch (error) {
+        vocabGenerated = {
+          ok: false,
+          error: error instanceof Error ? error.message : 'vocab_generate_failed',
+        }
+      }
+    }
+    sendJson(response, 200, {
+      data: stripSecrets({
+        ...saved,
+        ...(vocabGenerated ? { vocabGenerate: vocabGenerated } : {}),
+      }),
+      correlationId,
+    })
     return true
   }
 

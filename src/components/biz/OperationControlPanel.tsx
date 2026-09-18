@@ -58,14 +58,6 @@ const RISK_TONE: Record<RiskLevel, Tone> = {
   critical: 'red',
 }
 
-const ACTION_OPTIONS: Array<[string, string]> = [
-  ['现查', '现查'],
-  ['改行', '改行'],
-  ['新建', '新建'],
-  ['删除', '删除'],
-  ['过审', '过审'],
-]
-
 function kindFromTargetRef(targetRef: string) {
   const match = targetRef.match(/\/table\/([^/]+)/u)
   return match ? decodeURIComponent(match[1]) : ''
@@ -142,7 +134,7 @@ export function OperationControlPanel({
   const actionOptions = useMemo(() => {
     const kindName = kindFromTargetRef(targetRef) || defaultTable?.name || ''
     const row = kindCatalog.find((item) => item.kind === kindName)
-    const can = row?.can?.length ? row.can : ACTION_OPTIONS.map(([value]) => value)
+    const can = row?.can?.length ? row.can : []
     return can.map((value) => [value, value] as [string, string])
   }, [defaultTable?.name, kindCatalog, targetRef])
 
