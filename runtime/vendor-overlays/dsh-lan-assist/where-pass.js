@@ -22,6 +22,34 @@ function isDateField(row) {
   return t.includes('date') || t.includes('time')
 }
 
+function statusShapeLabel(label) {
+  const want = String(label || '').trim()
+  if (!want) return false
+  if (want === '状态') return true
+  return /^(status|state|stage)$/i.test(want)
+}
+
+function resolveStatusShapeKey(label, schemaFields, mappedKeys) {
+  if (!statusShapeLabel(label)) return ''
+  const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const mapped = mappedKeys instanceof Set ? mappedKeys : new Set()
+  const statusNamed = fields.filter((row) => {
+    const name = String((row && row.name) || '').trim()
+    return name && /^(status|state|stage)$/i.test(name) && !mapped.has(name)
+  })
+  if (statusNamed.length === 1) return statusNamed[0].name
+  const want = String(label || '').trim()
+  const byTitle = fields.find((row) => {
+    const name = String((row && row.name) || '').trim()
+    if (!name || mapped.has(name)) return false
+    const title = schemaTitle(row)
+    if (!title) return false
+    return title === want || title.endsWith(want) || title.includes(want)
+  })
+  if (byTitle && byTitle.name) return byTitle.name
+  return statusNamed[0] && statusNamed[0].name ? statusNamed[0].name : ''
+}
+
 export function vocabRow(kind, vocab) {
   const key = String(kind || '').trim()
   if (!key) return null
@@ -113,6 +141,11 @@ function inferLabelsFromVocabAndSchema(vocabHit, schemaFields) {
       continue
     }
     const mappedKeys = new Set(Object.values(map))
+    const statusKey = resolveStatusShapeKey(label, schemaFields, mappedKeys)
+    if (statusKey) {
+      map[label] = statusKey
+      continue
+    }
     const enumKey = (Array.isArray(schemaFields) ? schemaFields : []).find((row) => {
       const name = String((row && row.name) || '').trim()
       if (!name || mappedKeys.has(name)) return false
@@ -162,6 +195,13 @@ function labelsFromVocabFieldList(vocabHit, schemaFields) {
       const keyHit = entries.find((item) => item.key === label)
       map[label] = keyHit ? keyHit.key : label
       continue
+    }
+    if (statusShapeLabel(label)) {
+      const statusKey = resolveStatusShapeKey(label, schemaFields)
+      if (statusKey) {
+        map[label] = statusKey
+        continue
+      }
     }
     if (i > 0) {
       const prev = String(vocabFields[i - 1] || '').trim()
@@ -238,6 +278,8 @@ export function resolveShapeKey(label, schemaFields, vocabHit, extraLabels) {
   const want = String(label || '').trim()
   if (!want) return want
   const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const statusKey = resolveStatusShapeKey(want, fields)
+  if (statusKey) return statusKey
   const labels = fieldLabelMap(vocabHit, fields, extraLabels)
   if (labels[want]) return labels[want]
   const vocabFields = Array.isArray(vocabHit?.fields) ? vocabHit.fields : []
@@ -358,11 +400,11 @@ export function bindWhereKeys(terms, kind, vocab, schemaFields, extraLabels) {
   const out = []
   for (const term of Array.isArray(terms) ? terms : []) {
     if (!term || typeof term !== 'object') continue
-    if (term.dateAfter) {
+    if (Array.isArray(term.dateAfter) && term.dateAfter.length) {
       out.push(...expandYearOnDateSlot(term, 'dateAfter', fields, vocabHit))
       continue
     }
-    if (term.dateBefore) {
+    if (Array.isArray(term.dateBefore) && term.dateBefore.length) {
       out.push(...expandYearOnDateSlot(term, 'dateBefore', fields, vocabHit))
       continue
     }

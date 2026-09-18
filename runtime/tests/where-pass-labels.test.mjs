@@ -39,6 +39,33 @@ describe('where-pass field label binding', () => {
     assert.deepEqual(bound, [{ keys: ['status'], values: ['processing'], not: false }])
   })
 
+  test('bindWhereKeys resolves keys on normalized clue terms with empty date slots', () => {
+    const schema = [
+      { name: 'status', title: '工单状态', enums: { processing: '处理中' } },
+    ]
+    const term = {
+      keys: ['状态'],
+      values: ['processing'],
+      not: false,
+      dateBefore: [],
+      dateAfter: [],
+    }
+    const bound = bindWhereKeys([term], '工单', vocab, schema)
+    assert.deepEqual(bound, [{ ...term, keys: ['status'] }])
+  })
+
+  test('bindWhereKeys maps shape 状态 to status when connector title is 工单状态', () => {
+    const schema = [
+      { name: 'ticketNo', title: '单号' },
+      { name: 'category', title: '工单类型', enums: { incident: '故障' } },
+      { name: 'priority', title: '优先级', enums: { high: '高' } },
+      { name: 'status', title: '工单状态', enums: { processing: '处理中' } },
+    ]
+    const term = { keys: ['状态'], values: ['processing'], not: false }
+    const bound = bindWhereKeys([term], '工单', vocab, schema)
+    assert.deepEqual(bound, [{ keys: ['status'], values: ['processing'], not: false }])
+  })
+
   test('bindWhereKeys resolves Chinese field via raw collection titles', () => {
     const schema = [
       { name: 'ticketNo', title: '' },
