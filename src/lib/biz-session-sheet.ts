@@ -64,7 +64,7 @@ export function rememberBizPendingSheet(sheet: Record<string, unknown>) {
   if (isBizPreviewDismissed(sheet)) return
   const action = String(sheet.action || '')
   const rows = Array.isArray(sheet.rows) ? sheet.rows : []
-  if (action === '现查' && rows.length > 1) {
+  if (action === '现查' && rows.length > 0) {
     const ws = loadCurrentWorkspaceCwd()
     if (ws.ok) rememberBizKindListSheet(ws.cwd, sheet)
   }

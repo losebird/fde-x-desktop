@@ -35,8 +35,8 @@ function isListSheet(sheet: Record<string, unknown>) {
   const action = String(sheet.action || '')
   const rows = Array.isArray(sheet.rows) ? sheet.rows : []
   const previewId = sheet.preview_id ?? sheet.previewId
+  if (action === '现查' && rows.length > 0) return true
   if (rows.length <= 1) return false
-  if (action === '现查') return true
   return !previewId
 }
 
@@ -83,8 +83,8 @@ export function peekBizKindListSheet(
     .filter((row) => row.workspaceCwd === workspaceCwd && row.kind === kind)
     .sort((a, b) => b.at - a.at)
   const hit = queryFingerprint
-    ? rows.find((row) => row.queryFingerprint === queryFingerprint) || rows[0]
-    : rows[0]
+    ? rows.find((row) => row.queryFingerprint === queryFingerprint)
+    : undefined
   if (!hit) return null
   return { sheet: hit.sheet, connName: hit.connName, surfaceId: hit.surfaceId }
 }
@@ -108,7 +108,7 @@ export function peekBizKindListSheetForOperation(
   const rows = readAll()
     .filter((row) => row.workspaceCwd === workspaceCwd && row.kind === kind)
     .sort((a, b) => b.at - a.at)
-  if (!anchor) return rows[0] ? { sheet: rows[0].sheet, connName: rows[0].connName, surfaceId: rows[0].surfaceId } : null
+  if (!anchor) return null
   const hit = rows.find((row) => operationBundlesAlign(anchor, row.sheet))
   if (!hit) return null
   return { sheet: hit.sheet, connName: hit.connName, surfaceId: hit.surfaceId }

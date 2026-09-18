@@ -231,15 +231,21 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
  * @param {{ sessionId?: string, source?: string, workspaceCwd?: string }} [meta]
  */
 export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId } = {}) {
-  if (!sheet || typeof sheet !== 'object') return false
-  const previewId = sheetPreviewIdFromRecord(sheet)
+  const normalized = sheetPayloadFromRaw(sheet)
+  if (!normalized) return false
+  const previewId = sheetPreviewIdFromRecord(normalized)
   if (previewId && isBizPreviewDismissed(previewId)) return false
-  const kind = String(sheet.kind || '')
-  const action = String(sheet.action || '')
-  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
-  const columns = Array.isArray(sheet.columns) ? sheet.columns : []
-  const changes = Array.isArray(sheet.changes) ? sheet.changes : []
+  const kind = String(normalized.kind || '')
+  const action = String(normalized.action || '')
+  const rows = Array.isArray(normalized.rows) ? normalized.rows : []
+  const columns = Array.isArray(normalized.columns) ? normalized.columns : []
   if (!kind || !action) return false
+
+  const payloadSheet = {
+    ...normalized,
+    sessionId,
+    ...(typeof sheet.speech === 'string' && sheet.speech ? { speech: sheet.speech } : {}),
+  }
 
   emit('biz.sheet.pending', {
     kind,
@@ -247,27 +253,12 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
     previewId: previewId || undefined,
     rows: rows.length,
     columns,
-    canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+    canWrite: Boolean(normalized.canWrite ?? normalized.can_write),
     source,
     sessionId,
     surfaceId: typeof surfaceId === 'string' ? surfaceId : undefined,
     workspaceCwd: typeof workspaceCwd === 'string' ? workspaceCwd : undefined,
-    sheet: {
-      kind,
-      action,
-      preview_id: previewId || null,
-      previewId: previewId || null,
-      rows,
-      columns,
-      changes,
-      canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
-      sessionId,
-      ...(typeof sheet.workspace === 'string' ? { workspace: sheet.workspace } : {}),
-      ...(typeof sheet.no === 'string' ? { no: sheet.no } : {}),
-      ...(typeof sheet.clue === 'string' ? { clue: sheet.clue } : {}),
-      ...(Array.isArray(sheet.where) && sheet.where.length ? { where: sheet.where } : {}),
-      ...(Array.isArray(sheet.hopWhere) && sheet.hopWhere.length ? { hopWhere: sheet.hopWhere } : {}),
-    },
+    sheet: payloadSheet,
   }, {
     workspaceCwd: null,
     sessionId,
