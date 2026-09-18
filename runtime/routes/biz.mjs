@@ -588,6 +588,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       const audit = getBizWriteAuditByTraceId(db, traceId)
       if (audit) {
         const resolvedKind = await resolveAuditBizKind(aiRuntime, workspace, audit, null)
+        const action = enrichAuditAction(audit.action)
         sendJson(response, 200, {
           data: {
             row: {
@@ -596,14 +597,16 @@ export async function handleBizRoutes(request, response, url, deps) {
               at: audit.writtenAt,
               kind: resolvedKind || audit.kind,
               no: audit.recordNo,
-              action: enrichAuditAction(audit.action),
+              action,
               receiptId: audit.receiptId,
               sessionId: audit.sessionId,
               source: audit.source,
               changes: audit.changes,
               columns: audit.columns,
               changesSummary: summarizeAuditChanges(audit.changes),
-              canRollback: canRollbackAudit(enrichAuditAction(audit.action), audit.changes),
+              rollbackState: String(audit.rollbackState || 'none'),
+              rollbackBadge: rollbackBadgeFromAudit(action, audit.changes, audit.rollbackState),
+              canRollback: rollbackBadgeFromAudit(action, audit.changes, audit.rollbackState) === 'can',
             },
           },
           correlationId,
@@ -689,9 +692,16 @@ export async function handleBizRoutes(request, response, url, deps) {
       if (preview && preview.ok === false) {
         const previewCode = String(preview.error || 'preview_failed')
         const speak = String(preview.hint || preview.speak || preview.sheet?.speak || '').trim()
-        const wrongBind = previewCode === 'NOT_FOUND' && !Object.keys(lookupBind).length
-        const hint = wrongBind
-          ? `按审计里的型「${rollbackKind}」和主键「${lookupNo}」回查为空；若业务里仍有这条，多半是写入时未记下 where/hop 绑定，请重新改行过账后再试。`
+        const hasLookupBind = Boolean(
+          (Array.isArray(lookupBind.where) && lookupBind.where.length)
+          || (Array.isArray(lookupBind.hopWhere) && lookupBind.hopWhere.length)
+          || (lookupBind.from && typeof lookupBind.from === 'object')
+          || (lookupBind.related && typeof lookupBind.related === 'object'),
+        )
+        const hint = previewCode === 'NOT_FOUND'
+          ? (hasLookupBind
+            ? `按当时写入的对象「${rollbackKind}」和行主键「${lookupNo}」在源系统没有找到同一条。`
+            : `按当时写入的对象「${rollbackKind}」和行主键「${lookupNo}」回查为空。审计里没有记下 where/hop 绑定，可能绑错对象；若源系统仍有这条，请重新改行过账后再试。`)
           : (speak || '回退预览失败')
         markRollbackBlockedIfPermanent(db, traceId, previewCode, 400)
         sendError(response, 400, previewCode, hint, correlationId)
@@ -966,6 +976,18 @@ export async function handleBizRoutes(request, response, url, deps) {
       : (Array.isArray(sheet?.changes) ? sheet.changes : [])
     const traceId = String(body.trace_id || written?.trace_id || written?.traceId || createId('trace'))
     const isRollbackWrite = Boolean(rollbackOfTraceId)
+    const lookupBind = captureLookupBind(sheet, body)
+    if (isRollbackWrite) {
+      const original = getBizWriteAuditByTraceId(db, rollbackOfTraceId)
+      const originalBind = parseLookupBind(original)
+      const rollbackMarker = String(lookupBind.speech || '').trim()
+      const originalSpeech = String(originalBind.speech || '').trim()
+      if ((!rollbackMarker || rollbackMarker === '回退') && originalSpeech && originalSpeech !== '回退') {
+        lookupBind.speech = originalSpeech
+      }
+      if (!lookupBind.sessionId && originalBind.sessionId) lookupBind.sessionId = originalBind.sessionId
+      if (!lookupBind.sessionId && original?.sessionId) lookupBind.sessionId = original.sessionId
+    }
     try {
       insertBizWriteAudit(db, {
         workspaceCwd: bizCwd,
@@ -976,11 +998,11 @@ export async function handleBizRoutes(request, response, url, deps) {
           : String(sheet?.action || body.action || written?.action || ''),
         recordNo: auditRecordNo(sheet, body, written),
         receiptId: String(written?.receipt_id || written?.receiptId || ''),
-        sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || ''),
+        sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || lookupBind.sessionId || ''),
         source: String(body.source || (sheet?.sessionId ? 'ai' : 'workstation')),
         changes: auditChanges,
         columns: Array.isArray(sheet?.columns) ? sheet.columns : (Array.isArray(body.columns) ? body.columns : []),
-        lookupBind: captureLookupBind(sheet, body),
+        lookupBind,
       })
     } catch { /* audit must not block write */ }
     if (rollbackOfTraceId) {

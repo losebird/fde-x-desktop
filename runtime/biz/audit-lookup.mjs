@@ -47,6 +47,10 @@ export function captureLookupBind(sheet, body) {
   }
   const bizKind = effectiveBizKind(src?.kind, body?.kind)
   if (bizKind) bind.bizKind = bizKind
+  const speech = String(src.speech ?? body?.speech ?? '').trim()
+  if (speech) bind.speech = speech
+  const sessionId = String(src.sessionId ?? body?.sessionId ?? body?.session_id ?? '').trim()
+  if (sessionId) bind.sessionId = sessionId
   return bind
 }
 

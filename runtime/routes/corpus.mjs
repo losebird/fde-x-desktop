@@ -1,3 +1,5 @@
+import { resolveBizCorpusOrigin } from '../biz/corpus-origin.mjs'
+
 function sendJson(response, status, body) {
   const raw = JSON.stringify(body)
   response.writeHead(status, {
@@ -9,24 +11,12 @@ function sendJson(response, status, body) {
 }
 
 function notFound(response, correlationId, message) {
-  sendJson(response, 404, { ok: false, error: 'not_found', message, correlationId })
-}
-
-async function resolveBizTrace(aiRuntime, traceId) {
-  const payload = await aiRuntime.lanAssist('/traces', {
-    search: { traceId, id: traceId },
+  sendJson(response, 404, {
+    ok: false,
+    error: { code: 'not_found', message },
+    message,
+    correlationId,
   })
-  const rows = Array.isArray(payload?.traces) ? payload.traces
-    : Array.isArray(payload?.items) ? payload.items
-      : Array.isArray(payload) ? payload
-        : []
-  const row = rows.find((item) => String(item?.traceId || item?.id || '') === traceId) || rows[0]
-  if (!row) return null
-  return {
-    title: String(row.title || row.kind || `业务过账 ${traceId}`),
-    text: String(row.summary || row.receipt || row.message || JSON.stringify(row)).slice(0, 8000),
-    href: { panel: 'data', tab: 'records', traceId },
-  }
 }
 
 async function resolveImMessage(aiRuntime, requestId) {
@@ -59,9 +49,17 @@ function resolveBriefing(db, briefingId) {
   let ai = ''
   try {
     const content = JSON.parse(row.content_json || '{}')
-    ai = String(content.ai || content.aiBlock || content.summary || JSON.stringify(content)).slice(0, 8000)
+    ai = String(content.ai || content.aiBlock || content.summary || '').slice(0, 8000)
   } catch {
-    ai = String(row.content_json || '').slice(0, 8000)
+    ai = ''
+  }
+  if (!ai) {
+    return {
+      title: '早报',
+      text: '',
+      unreadable: '暂时读不出这篇早报的原文。',
+      href: { panel: 'briefing', briefingId: row.id },
+    }
   }
   return {
     title: '早报',
@@ -95,12 +93,25 @@ export async function handleCorpusRoute(request, response, url, deps) {
   try {
     if (id.startsWith('biz:')) {
       const traceId = id.slice(4)
-      const resolved = await resolveBizTrace(aiRuntime, traceId)
-      if (!resolved) {
-        notFound(response, correlationId, '找不到该过账回执')
+      const resolved = await resolveBizCorpusOrigin({
+        db,
+        aiRuntime,
+        traceId,
+        url,
+      })
+      if (resolved.ok) {
+        sendJson(response, 200, { ok: true, id, title: resolved.title, text: resolved.text, href: resolved.href, correlationId })
         return true
       }
-      sendJson(response, 200, { ok: true, id, ...resolved, correlationId })
+      sendJson(response, 200, {
+        ok: false,
+        id,
+        title: '当时原文',
+        text: '',
+        message: resolved.message || '暂时读不出原文',
+        href: resolved.href,
+        correlationId,
+      })
       return true
     }
     if (id.startsWith('im:')) {
@@ -128,6 +139,18 @@ export async function handleCorpusRoute(request, response, url, deps) {
         notFound(response, correlationId, '找不到该早报')
         return true
       }
+      if (resolved.unreadable) {
+        sendJson(response, 200, {
+          ok: false,
+          id,
+          title: resolved.title,
+          text: '',
+          message: resolved.unreadable,
+          href: resolved.href,
+          correlationId,
+        })
+        return true
+      }
       sendJson(response, 200, { ok: true, id, ...resolved, correlationId })
       return true
     }
@@ -150,7 +173,7 @@ export async function handleCorpusRoute(request, response, url, deps) {
     console.warn('corpus_resolve_failed', id, error)
     sendJson(response, 503, {
       ok: false,
-      error: 'corpus_unavailable',
+      error: { code: 'corpus_unavailable', message: '暂时读不出原文' },
       message: '暂时读不出原文',
       correlationId,
     })

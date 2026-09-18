@@ -109,6 +109,30 @@ function listChangeDetail(row: BizTraceRow): string {
   return parts.join('；')
 }
 
+function looksLikeJsonDump(text: string) {
+  const raw = String(text || '').trim()
+  if (!raw) return false
+  if (!(raw.startsWith('{') || raw.startsWith('['))) return false
+  try {
+    JSON.parse(raw)
+    return true
+  } catch {
+    return /"(ok|error|traceId|receipt)"\s*:/.test(raw)
+  }
+}
+
+function originTextFromCorpus(result: { ok?: boolean; title?: string; text?: string; message?: string }) {
+  const text = String(result.text || '').trim()
+  if (result.ok && text && !looksLikeJsonDump(text)) {
+    return { ok: true as const, title: String(result.title || '当时原文'), text }
+  }
+  const message = String(result.message || '').trim()
+  return {
+    ok: false as const,
+    message: message || '暂时读不出当时对话或记下的文本。不是回退，也不是业务表。',
+  }
+}
+
 type CorpusView =
   | { state: 'idle' }
   | { state: 'loading' }
@@ -228,18 +252,18 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
     setCorpusView({ state: 'loading' })
     try {
       const result = await runtimeApi.fetchCorpus(`biz:${traceId}`)
-      if (result.ok) {
-        setCorpusView({
-          state: 'ok',
-          title: String(result.title || '过账回执'),
-          text: String(result.text || '（无正文）'),
-        })
+      const origin = originTextFromCorpus(result)
+      if (origin.ok) {
+        setCorpusView({ state: 'ok', title: origin.title, text: origin.text })
         return
       }
-      setCorpusView({ state: 'error', message: '暂时读不出原文' })
+      setCorpusView({ state: 'error', message: origin.message })
     } catch (cause) {
       const message = cause instanceof RuntimeApiError ? cause.message : formatError(cause)
-      setCorpusView({ state: 'error', message: message || '暂时读不出原文' })
+      setCorpusView({
+        state: 'error',
+        message: message || '暂时读不出当时对话或记下的文本。不是回退，也不是业务表。',
+      })
     }
   }
 
@@ -319,6 +343,7 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
       await runtimeApi.bizWrite(previewId, undefined, workspace, {
         source: 'workstation',
         rollback_of_trace_id: rollbackMeta.traceId,
+        sessionId: selected?.sessionId || '',
       })
       void runtimeApi.bizDismissPreview(previewId).catch(() => undefined)
       const successText = '已回退并写回。'
@@ -493,7 +518,7 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
 
                 {corpusView.state === 'ok' && (
                   <div className="rounded border border-line bg-surface-2 px-3 py-3 text-xs space-y-2">
-                    <div className="font-medium text-ink">{corpusView.title}</div>
+                    <div className="font-medium text-ink">{corpusView.title || '当时原文'}</div>
                     <pre className="whitespace-pre-wrap text-ink-muted font-sans leading-relaxed max-h-48 overflow-auto">{corpusView.text}</pre>
                   </div>
                 )}

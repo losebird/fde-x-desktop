@@ -21,13 +21,20 @@ describe('audit lookup bind', () => {
     assert.equal(auditRecordNo(null, { no: 'TK-22' }, { no: 'internal-1' }), 'TK-22')
   })
 
-  test('captureLookupBind keeps where and hop for rollback preview', () => {
+  test('captureLookupBind keeps where, hop, and original speech', () => {
     const bind = captureLookupBind(
-      { where: [{ field: 'id', op: 'eq', value: '9' }], hopWhere: [{ field: 'status', op: 'eq', value: 'open' }] },
+      {
+        where: [{ field: 'id', op: 'eq', value: '9' }],
+        hopWhere: [{ field: 'status', op: 'eq', value: 'open' }],
+        speech: '把那一行改回去',
+        sessionId: 'session-origin-1',
+      },
       {},
     )
     assert.equal(bind.where.length, 1)
     assert.equal(bind.hopWhere.length, 1)
+    assert.equal(bind.speech, '把那一行改回去')
+    assert.equal(bind.sessionId, 'session-origin-1')
     const body = rollbackPreviewBody(bind, '项目任务', '9', { title: '旧标题' }, '/tmp/ws')
     assert.equal(body.kind, '项目任务')
     assert.equal(body.no, '9')

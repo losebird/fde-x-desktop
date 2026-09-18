@@ -1284,9 +1284,9 @@ export class RuntimeApi {
     return { pack: result.data, warnings: result.warnings ?? [] }
   }
 
-  async fetchCorpus(id: string, signal?: AbortSignal): Promise<{ ok: boolean; id: string; title?: string; text?: string; href?: Record<string, unknown> }> {
-    const result = await this.request<{ ok: boolean; id: string; title?: string; text?: string; href?: Record<string, unknown> }>(
-      `/api/v1/corpus/${encodeURIComponent(id)}`,
+  async fetchCorpus(id: string, signal?: AbortSignal): Promise<{ ok: boolean; id: string; title?: string; text?: string; message?: string; href?: Record<string, unknown> }> {
+    const result = await this.request<{ ok: boolean; id: string; title?: string; text?: string; message?: string; href?: Record<string, unknown> }>(
+      withWorkspaceCwd(`/api/v1/corpus/${encodeURIComponent(id)}`),
       { signal },
     )
     return result
@@ -1784,6 +1784,7 @@ export class RuntimeApi {
       action?: string
       no?: string
       sessionId?: string
+      speech?: string
       rollback_of_trace_id?: string
       rollbackOfTraceId?: string
     },
@@ -1914,10 +1915,11 @@ export class RuntimeApi {
 
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) {
+      const nested = payload?.error && typeof payload.error === 'object' ? payload.error : null
       throw new RuntimeApiError(
         response.status,
-        payload?.error?.code ?? 'runtime_error',
-        payload?.error?.message ?? `请求失败 (${response.status})`,
+        nested?.code ?? (typeof payload?.error === 'string' ? payload.error : 'runtime_error'),
+        nested?.message ?? payload?.message ?? `请求失败 (${response.status})`,
         payload?.correlationId,
       )
     }

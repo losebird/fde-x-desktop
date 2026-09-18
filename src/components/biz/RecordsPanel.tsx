@@ -1345,6 +1345,8 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
         kind: String(drawer.sheet.kind || ''),
         action: String(drawer.sheet.action || ''),
         no: String(drawer.sheet.no || drawer.sheet.clue || ''),
+        sessionId: String(drawer.sheet.sessionId || ''),
+        speech: String(drawer.sheet.speech || ''),
       })
       clearBizPreviewDismissed(drawer.previewId)
       clearBizPendingSheet()
