@@ -47,15 +47,32 @@ export function historyMissHint(surface: {
   return `「${who}」的行已不在待确认区；请在 AI 会话里重新浮现这一次，不要在此整表浏览。`
 }
 
-export function matchExactSurfaceId(opts: {
-  surfaces: Array<{ id: string; previewId?: string | null }>
-  previewId?: string
-  surfaceId?: string
-}) {
-  const surfaceId = String(opts.surfaceId || '').trim()
-  if (surfaceId && opts.surfaces.some((row) => row.id === surfaceId)) return surfaceId
-  const previewId = String(opts.previewId || '').trim()
-  if (!previewId) return undefined
-  const hit = opts.surfaces.find((row) => row.previewId === previewId)
-  return hit?.id
+export function historyIdForSheet(
+  sheet: Record<string, unknown>,
+  surfaceId?: string,
+  fingerprint = '',
+) {
+  const known = String(surfaceId || '').trim()
+  if (known) return known
+  const fp = String(fingerprint || '').trim()
+  return fp ? `q:${fp}` : ''
 }
+
+export function isQueryHistoryId(id: string) {
+  return String(id || '').startsWith('q:')
+}
+
+export function mergeHistorySurfaces<T extends HistorySurfaceRow>(
+  sqlite: T[],
+  memory: T[],
+): T[] {
+  const merged = new Map<string, T>()
+  for (const row of memory) {
+    if (row.id) merged.set(row.id, row)
+  }
+  for (const row of sqlite) {
+    if (row.id) merged.set(row.id, row)
+  }
+  return [...merged.values()]
+}
+

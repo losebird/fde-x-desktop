@@ -81,6 +81,19 @@ test('RecordsPanel keeps history pin across SSE and clones applySheet rows', () 
   assert.doesNotMatch(src, /return scoped\.length \? scoped : sorted/)
 })
 
+test('query-fingerprint history ids are stable without sqlite surface id', async () => {
+  const { historyIdForSheet, mergeHistorySurfaces, selectSessionHistorySurfaces: select } = await import('../../src/lib/biz-records-history.ts')
+  const id = historyIdForSheet({ kind: 'T' }, '', '{"kind":"T"}')
+  assert.equal(id, 'q:{"kind":"T"}')
+  const merged = mergeHistorySurfaces(
+    [{ id: 'bsurf_1', createdAt: 1 }],
+    [{ id, createdAt: 2 }],
+  )
+  assert.equal(merged.length, 2)
+  const picked = select(merged, { cachedIds: new Set([id]) })
+  assert.deepEqual(picked.map((row) => row.id), [id])
+})
+
 test('matchSurfaceIdForSheet no longer impersonates kind+action[0]', () => {
   const src = readFileSync(join(repoRoot, 'src/lib/biz-surface-cache.ts'), 'utf8')
   assert.doesNotMatch(src, /return candidates\[0\]\?\.id/)

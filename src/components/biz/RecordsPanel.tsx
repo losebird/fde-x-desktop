@@ -51,7 +51,9 @@ import {
   rememberBizSurfaceSheet,
 } from '@/lib/biz-surface-cache'
 import {
+  historyIdForSheet,
   historyMissHint,
+  mergeHistorySurfaces,
   selectSessionHistorySurfaces,
   shouldBlockIncomingSheetForHistoryPin,
 } from '@/lib/biz-records-history'
@@ -375,10 +377,40 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   }, [bizCwd, kind, kindLabel, operationAnchor, rows.length])
 
   const sessionSurfaces = useMemo(() => {
+    const byFp = new Map<string, BizSurfaceRecord>()
+    const memory: BizSurfaceRecord[] = []
     const cachedIds = new Set<string>()
-    for (const [key, snap] of sheetSnapshots.current.entries()) {
-      if (key.startsWith('surface:') && snap?.sheet) cachedIds.add(key.slice('surface:'.length))
+    const take = (id: string, snap: SheetSnapshot, fp: string) => {
+      cachedIds.add(id)
+      const rec: BizSurfaceRecord = {
+        id,
+        workspaceCwd: bizCwd,
+        connectionId: null,
+        kind: String(snap.sheet.kind || ''),
+        action: String(snap.sheet.action || ''),
+        previewId: sheetPreviewId(snap.sheet) || null,
+        sessionId: typeof snap.sheet.sessionId === 'string' ? snap.sheet.sessionId : (pending?.sessionId || null),
+        rowCount: Array.isArray(snap.sheet.rows) ? snap.sheet.rows.length : 0,
+        columns: [],
+        createdAt: Date.now(),
+      }
+      if (fp) {
+        const prev = byFp.get(fp)
+        if (!prev) byFp.set(fp, rec)
+        else if (prev.id.startsWith('q:') && !id.startsWith('q:')) byFp.set(fp, rec)
+      } else {
+        memory.push(rec)
+      }
     }
+    for (const [key, snap] of sheetSnapshots.current.entries()) {
+      if (!snap?.sheet) continue
+      if (key.startsWith('kind:') && !key.includes(':q:')) continue
+      const fp = listQueryFingerprint(snap.sheet)
+      const id = snap.surfaceId || historyIdForSheet(snap.sheet, snap.surfaceId, fp)
+      if (!id) continue
+      take(id, snap, fp)
+    }
+    memory.push(...byFp.values())
     if (bizCwd) {
       for (const surface of surfaces) {
         if (peekBizSurfaceSheet(bizCwd, surface.id) || peekBizKindListSheetBySurfaceId(bizCwd, surface.id)) {
@@ -386,7 +418,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
         }
       }
     }
-    return selectSessionHistorySurfaces(surfaces, {
+    return selectSessionHistorySurfaces(mergeHistorySurfaces(surfaces, memory), {
       sessionId: pending?.sessionId,
       cachedIds,
     })
@@ -670,11 +702,12 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     if (nextKind) setKind(nextKind)
     setStaleHint('')
     setListSheetMeta(appliedSheet)
-    rememberSheet({ sheet: appliedSheet, connName, surfaceId })
+    rememberSheet({ sheet: appliedSheet, connName, surfaceId: historyIdForSheet(appliedSheet, surfaceId, listQueryFingerprint(appliedSheet)) || surfaceId })
     if (!isWritePreviewSheet(appliedSheet)) {
       rememberBizPendingSheet(appliedSheet)
     }
-    if (surfaceId) setHistorySurfaceId(surfaceId)
+    const historyId = historyIdForSheet(appliedSheet, surfaceId, listQueryFingerprint(appliedSheet))
+    if (historyId && !historyPinnedSurfaceIdRef.current) setHistorySurfaceId(historyId)
     setPending({
       kind: String(sheet.kind || ''),
       action: String(sheet.action || ''),
