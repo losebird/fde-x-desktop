@@ -653,6 +653,16 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     setStaleHint('')
     setListSheetMeta(sheet)
     rememberSheet({ sheet, connName, surfaceId })
+    setPending({
+      kind: String(sheet.kind || ''),
+      action: String(sheet.action || ''),
+      previewId: sheetPreviewId(sheet) || undefined,
+      rows: normalizedRows.length,
+      canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+      source: 'ai',
+      sessionId: typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined,
+      at: typeof surfacedAt === 'number' ? surfacedAt : Date.now(),
+    })
   }, [rememberSheet])
 
   const probeLanAssist = useCallback(async () => {
@@ -797,8 +807,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
           action: '现查',
           system: conn?.provider || 'NocoBase',
           connectionId: listSurface.connectionId || connectionId,
-          speech: `现查${incomingKind}`,
+          speech: String(sheet.speech || '').trim() || `现查${incomingKind}`,
           ...(restoreWhere.length ? { where: restoreWhere } : {}),
+          ...(sheet.from && typeof sheet.from === 'object' && !Array.isArray(sheet.from) ? { from: sheet.from } : {}),
+          ...(Array.isArray(sheet.steps) && sheet.steps.length ? { steps: sheet.steps } : {}),
         })
         const listSheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
         const rowCount = Array.isArray(listSheet.rows) ? listSheet.rows.length : 0
@@ -877,18 +889,6 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
 
   useEvents(['biz.sheet.pending'], (event) => {
     const payload = event.payload as PendingSheetEvent
-    const rowCount = typeof payload.rows === 'number' ? payload.rows : 0
-    const nextPending: PendingSurface = {
-      kind: String(payload.kind || ''),
-      action: String(payload.action || ''),
-      previewId: payload.previewId,
-      rows: rowCount,
-      canWrite: payload.canWrite,
-      source: payload.source,
-      sessionId: payload.sessionId,
-      at: Date.now(),
-    }
-    setPending(nextPending)
     if (payload.sheet && typeof payload.sheet === 'object') {
       historyPinnedSurfaceIdRef.current = ''
       rememberBizPendingSheet(payload.sheet)
@@ -960,12 +960,24 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       if (action === '新建') {
         previewBody = { ...payloadExtra, input: pickFilledSheetInput((payloadExtra.input || {}) as Record<string, unknown>) }
       }
+      const bindSheet = listSheetMeta || peekBizPendingSheet()
+      const hopBind: Record<string, unknown> = {}
+      if (bindSheet && typeof bindSheet === 'object') {
+        const boundSpeech = String(bindSheet.speech || '').trim()
+        if (boundSpeech) hopBind.speech = boundSpeech
+        if (bindSheet.from && typeof bindSheet.from === 'object' && !Array.isArray(bindSheet.from)) {
+          hopBind.from = bindSheet.from
+        }
+        if (Array.isArray(bindSheet.where) && bindSheet.where.length) hopBind.where = bindSheet.where
+        if (Array.isArray(bindSheet.steps) && bindSheet.steps.length) hopBind.steps = bindSheet.steps
+      }
       const data = await runtimeApi.bizPreview({
         kind,
         action,
         system,
         connectionId,
         speech: `${action}${kind}`,
+        ...hopBind,
         ...previewBody,
       })
       const sheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
@@ -994,7 +1006,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     } finally {
       setLoading(false)
     }
-  }, [activeLocalApp, applySheet, columns, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, loadSurfaces, maybeSaveListRestore])
+  }, [activeLocalApp, applySheet, columns, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, listSheetMeta, loadSurfaces, maybeSaveListRestore])
 
   const resolveSurfaceSheet = useCallback((surface: BizSurfaceRecord): SheetSnapshot | null => {
     const mem = sheetSnapshots.current.get(`surface:${surface.id}`)

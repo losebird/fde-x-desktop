@@ -78,6 +78,36 @@ describe('biz preview where pass-through', () => {
     assert.deepEqual(out.payload.patch, { title: 'new' })
   })
 
+  test('translateBizIntent keeps kind-only from and nested hop from', () => {
+    const from = {
+      kind: 'ParentA',
+      from: { kind: 'MidB', where: [{ keys: ['status'], values: ['open'] }] },
+    }
+    const out = translateBizIntent({
+      kind: 'ChildC',
+      action: '现查',
+      from,
+    }, '/tmp/ws')
+    assert.equal(out.payload.from.kind, 'ParentA')
+    assert.equal(out.payload.from.from.kind, 'MidB')
+    assert.equal(out.payload.from.from.where[0].values[0], 'open')
+  })
+
+  test('translateBizIntent passes steps for a chain longer than two', () => {
+    const steps = [
+      { kind: 'ParentA', where: [{ keys: ['status'], values: ['a'] }] },
+      { kind: 'MidB', where: [{ keys: ['status'], values: ['b'] }] },
+      { kind: 'ChildC' },
+    ]
+    const out = translateBizIntent({
+      kind: 'ChildC',
+      action: '删除',
+      steps,
+    }, '/tmp/ws')
+    assert.equal(out.payload.steps.length, 3)
+    assert.equal(out.payload.steps[1].kind, 'MidB')
+  })
+
   test('translateBizIntent passes where for kind can not in spoken seed', () => {
     const where = [{ keys: ['status'], values: ['archived'] }]
     const out = translateBizIntent({

@@ -38,19 +38,26 @@ export function extractSheetListWhere(sheet: Record<string, unknown> | null | un
 export function extractBoundKindHints(sheet: Record<string, unknown> | null | undefined): string[] {
   if (!sheet || typeof sheet !== 'object') return []
   const kinds = new Set<string>()
-  const k = String(sheet.kind || '').trim()
-  if (k) kinds.add(k)
-  const next = String(sheet.nextKind ?? sheet.via ?? '').trim()
-  if (next) kinds.add(next)
-  const from = sheet.from
-  if (from && typeof from === 'object' && !Array.isArray(from)) {
-    const fk = String((from as Record<string, unknown>).kind || '').trim()
-    if (fk) kinds.add(fk)
+  const add = (value: unknown) => {
+    const name = String(value || '').trim()
+    if (name) kinds.add(name)
   }
-  const related = sheet.related
-  if (related && typeof related === 'object' && !Array.isArray(related)) {
-    const rk = String((related as Record<string, unknown>).kind || '').trim()
-    if (rk) kinds.add(rk)
+  add(sheet.kind)
+  add(sheet.nextKind ?? sheet.via)
+  const walkFrom = (raw: unknown, depth = 0) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 8) return
+    const row = raw as Record<string, unknown>
+    add(row.kind)
+    walkFrom(row.from, depth + 1)
+  }
+  walkFrom(sheet.from)
+  walkFrom(sheet.related)
+  if (Array.isArray(sheet.steps)) {
+    for (const step of sheet.steps) {
+      if (step && typeof step === 'object' && !Array.isArray(step)) {
+        add((step as Record<string, unknown>).kind)
+      }
+    }
   }
   return [...kinds]
 }

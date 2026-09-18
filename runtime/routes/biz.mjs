@@ -179,6 +179,23 @@ function actionUsesPreviewPatch(action) {
   return action === '改行' || action === '新建'
 }
 
+function normalizeFromHop(raw, action, gateVocabExtra, depth = 0) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 8) return null
+  const kind = typeof raw.kind === 'string' ? raw.kind.trim() : ''
+  if (!kind) return null
+  if (!actionUsesStructuredBind(action, gateVocabExtra)) return null
+  const where = normalizePreviewWhere(raw.where)
+  const nested = normalizeFromHop(raw.from, action, gateVocabExtra, depth + 1)
+  return {
+    kind,
+    ...(where.length ? { where } : {}),
+    ...(nested ? { from: nested } : {}),
+    ...(typeof raw.no === 'string' && raw.no.trim() ? { no: raw.no.trim() } : {}),
+    ...(typeof raw.relation === 'string' && raw.relation.trim() ? { relation: raw.relation.trim() } : {}),
+    ...(raw.join === 'or' ? { join: 'or' } : {}),
+  }
+}
+
 export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}) {
   const rawAction = typeof body.action === 'string' ? body.action.trim() : ''
   const action = resolveGateAction(rawAction)
@@ -202,11 +219,20 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
   const previewWhere = actionUsesStructuredBind(action, gateVocabExtra)
     ? normalizePreviewWhere(body.where ?? input.where ?? input.filter)
     : []
-  const fromRaw = body.from && typeof body.from === 'object' ? body.from : null
-  const fromKind = fromRaw && typeof fromRaw.kind === 'string' ? fromRaw.kind.trim() : ''
-  const fromWhere = fromKind && actionUsesStructuredBind(action, gateVocabExtra)
-    ? normalizePreviewWhere(fromRaw.where)
-    : []
+  const fromRaw = (body.from && typeof body.from === 'object' && !Array.isArray(body.from))
+    ? body.from
+    : (input.from && typeof input.from === 'object' && !Array.isArray(input.from) ? input.from : null)
+  const fromHop = normalizeFromHop(fromRaw, action, gateVocabExtra)
+  const stepsRaw = Array.isArray(body.steps) ? body.steps
+    : (Array.isArray(input.steps) ? input.steps : [])
+  const steps = stepsRaw
+    .filter((row) => row && typeof row === 'object' && String(row.kind || '').trim())
+    .map((row) => ({
+      kind: String(row.kind).trim(),
+      ...(Array.isArray(row.where) ? { where: normalizePreviewWhere(row.where) } : {}),
+      ...(typeof row.no === 'string' && row.no.trim() ? { no: row.no.trim() } : {}),
+      ...(typeof row.from === 'string' && row.from.trim() ? { from: row.from.trim() } : {}),
+    }))
   const payload = {
     kind,
     action,
@@ -220,7 +246,8 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
       ? { patch: input }
       : {}),
     ...(previewWhere.length ? { where: previewWhere } : {}),
-    ...(fromKind && fromWhere.length ? { from: { kind: fromKind, where: fromWhere } } : {}),
+    ...(fromHop ? { from: fromHop } : {}),
+    ...(steps.length ? { steps } : {}),
   }
   return { payload }
 }

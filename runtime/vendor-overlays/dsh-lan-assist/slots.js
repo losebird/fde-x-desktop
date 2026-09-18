@@ -149,21 +149,114 @@ function relationsFromVocab(vocab, extra = {}) {
 }
 
 function hopParentKindForTarget(targetKind, speech, extra) {
-  const bag = { vocab: extra.vocab, ...extra }
-  const kinds = registeredKinds(bag)
-  const mentioned = [...new Set(kindMentions(speech, kinds).map((row) => row.kind))]
-  const target = String(targetKind || '').trim()
-  if (!target || mentioned.length < 2) return ''
-  const parents = parentKindsOf(target, bag)
-  for (const parent of parents) {
-    if (mentioned.includes(parent)) return parent
-  }
-  for (const other of mentioned) {
-    if (other === target) continue
-    const reversed = parentKindsOf(other, bag)
-    if (reversed.includes(target)) return other
-  }
+  const chain = relatedKindChain(targetKind, speech, extra)
+  if (chain.length >= 2) return chain[chain.length - 2]
   return ''
+}
+
+function graphNeighbors(kind, extra) {
+  const want = String(kind || '').trim()
+  if (!want) return []
+  const out = []
+  const seen = new Set()
+  const push = (other) => {
+    const name = String(other || '').trim()
+    if (!name || name === want || seen.has(name)) return
+    seen.add(name)
+    out.push(name)
+  }
+  for (const rel of relationsFromVocab(extra.vocab, extra)) {
+    if (rel.from === want) push(rel.to)
+    if (rel.to === want) push(rel.from)
+  }
+  return out
+}
+
+/**
+ * Mentioned related kinds, ordered from furthest graph ancestor toward target.
+ * Length is the number of kinds on the chain (2, 3, …) — never capped at a pair.
+ */
+function relatedKindChain(targetKind, speech, extra) {
+  const target = String(targetKind || '').trim()
+  if (!target) return []
+  const kinds = registeredKinds(extra)
+  const mentioned = [...new Set(kindMentions(speech, kinds).map((row) => row.kind))]
+  const bag = new Set(mentioned)
+  bag.add(target)
+  const undirected = new Map()
+  const addU = (a, b) => {
+    if (!undirected.has(a)) undirected.set(a, new Set())
+    undirected.get(a).add(b)
+  }
+  const seed = [...bag]
+  for (const kind of seed) {
+    for (const other of graphNeighbors(kind, extra)) {
+      if (!bag.has(other)) continue
+      addU(kind, other)
+      addU(other, kind)
+    }
+  }
+  const connected = new Set()
+  const queue = [target]
+  connected.add(target)
+  while (queue.length) {
+    const cur = queue.shift()
+    for (const next of (undirected.get(cur) || [])) {
+      if (connected.has(next)) continue
+      connected.add(next)
+      queue.push(next)
+    }
+  }
+  if (connected.size < 2) return [target]
+  const incoming = new Map()
+  const children = new Map()
+  for (const kind of connected) {
+    incoming.set(kind, 0)
+    children.set(kind, [])
+  }
+  for (const rel of relationsFromVocab(extra.vocab, extra)) {
+    if (!connected.has(rel.from) || !connected.has(rel.to)) continue
+    incoming.set(rel.to, (incoming.get(rel.to) || 0) + 1)
+    children.get(rel.from).push(rel.to)
+  }
+  const ready = [...connected].filter((kind) => (incoming.get(kind) || 0) === 0)
+  const ordered = []
+  const seen = new Set()
+  while (ready.length) {
+    let idx = 0
+    if (ready.length > 1) {
+      const skipTarget = ready.findIndex((kind) => kind !== target)
+      if (skipTarget >= 0) idx = skipTarget
+    }
+    const node = ready.splice(idx, 1)[0]
+    if (seen.has(node)) continue
+    seen.add(node)
+    ordered.push(node)
+    for (const child of (children.get(node) || [])) {
+      incoming.set(child, incoming.get(child) - 1)
+      if (incoming.get(child) === 0) ready.push(child)
+    }
+  }
+  for (const kind of connected) {
+    if (!seen.has(kind)) ordered.push(kind)
+  }
+  return [...ordered.filter((kind) => kind !== target), target]
+}
+
+function nestFromSteps(steps) {
+  const hops = (Array.isArray(steps) ? steps : []).slice(0, -1)
+  if (!hops.length) return undefined
+  let node = null
+  for (let i = hops.length - 1; i >= 0; i -= 1) {
+    const step = hops[i]
+    const next = {
+      kind: step.kind,
+      ...(Array.isArray(step.where) && step.where.length ? { where: step.where } : {}),
+    }
+    if (node) next.from = node
+    node = next
+  }
+  return node
 }
 
 function parentKindsOf(targetKind, extra) {
@@ -327,17 +420,24 @@ function termsForKind(hits, kind) {
   })))
 }
 
+function whereForKind(hits, kind, extraWhere) {
+  const merged = mergeTerms([
+    ...termsForKind(hits, kind),
+    ...(Array.isArray(extraWhere) ? extraWhere : []),
+  ])
+  return compressStatusWhere(merged)
+}
+
 /**
- * When the model only filled the child kind + partial where, recover parent hop slots
+ * When the model only filled the child kind + partial where, recover hop slots
  * from speech using vocab clues and graph/catalog relations (or collection FK inference).
+ * Mentioned related kinds (2 or more) become one chain of steps — not a single pair.
  */
 export function enrichStructuredSlots(spec, vocab, extra = {}) {
   const base = spec && typeof spec === 'object' ? { ...spec } : {}
   const speech = String(base.speech || base.quote || '').trim()
   const targetKind = String(base.kind || '').trim()
   if (!speech || !targetKind) return base
-  if (base.from && typeof base.from === 'object' && base.from.kind) return base
-  if (Array.isArray(base.steps) && base.steps.length) return base
 
   const bag = {
     vocab,
@@ -347,17 +447,45 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     schemaByKind: extra.schemaByKind,
   }
   const hits = clueHitsInSpeech(speech, vocab, bag)
-  const childWhere = mergeTerms([
-    ...termsForKind(hits, targetKind),
-    ...(Array.isArray(base.where) ? base.where : []),
-  ])
+  const chainKinds = relatedKindChain(targetKind, speech, bag)
+  const existingSteps = Array.isArray(base.steps) ? base.steps.filter((row) => row && row.kind) : []
+
+  if (chainKinds.length >= 2) {
+    const steps = chainKinds.map((kind, index) => {
+      const extraWhere = kind === targetKind && index === chainKinds.length - 1
+        ? (Array.isArray(base.where) ? base.where : [])
+        : []
+      const where = whereForKind(hits, kind, extraWhere)
+      const prev = index > 0 ? chainKinds[index - 1] : ''
+      return prev ? { kind, where, from: prev } : { kind, where }
+    })
+    const ancestorValues = new Set(steps.slice(0, -1).flatMap((step) => (
+      (step.where || []).flatMap((term) => term.values || [])
+    )))
+    const last = steps[steps.length - 1]
+    last.where = (last.where || []).filter((term) => {
+      const vals = term.values || []
+      if (!ancestorValues.size || !vals.length) return true
+      return !vals.every((value) => ancestorValues.has(value))
+    })
+    const next = { ...base, steps }
+    const from = nestFromSteps(steps)
+    if (from) next.from = from
+    if (last.where.length) next.where = last.where
+    else delete next.where
+    return next
+  }
+
+  if (base.from && typeof base.from === 'object' && base.from.kind) return base
+  if (existingSteps.length) return base
+
+  const childWhere = whereForKind(hits, targetKind, base.where)
   const parents = parentKindsOf(targetKind, bag)
   let parent = parents.find((kind) => termsForKind(hits, kind).length) || parents.find((kind) => (
     kindMentions(speech, [kind]).length
   ))
   if (!parent) parent = hopParentKindForTarget(targetKind, speech, bag)
-  const parentWhereRaw = parent ? termsForKind(hits, parent) : []
-  const parentWhere = compressStatusWhere(parentWhereRaw)
+  const parentWhere = parent ? whereForKind(hits, parent) : []
   const parentValues = new Set(parentWhere.flatMap((term) => term.values || []))
   const childFiltered = childWhere.filter((term) => {
     const vals = term.values || []
@@ -375,4 +503,4 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   return next
 }
 
-export { clueHitsInSpeech, parentKindsOf, kindMentions }
+export { clueHitsInSpeech, parentKindsOf, kindMentions, relatedKindChain, nestFromSteps }

@@ -30,3 +30,22 @@ test('sheetPayloadFromRaw keeps changes array for preview diff', () => {
   assert.equal(sheet.changes.length, 1)
   assert.equal(sheet.changes[0].field, 'title')
 })
+
+test('sheetPayloadFromRaw keeps speech, nested from, and hop steps', () => {
+  const sheet = sheetPayloadFromRaw({
+    kind: 'ChildC',
+    action: '现查',
+    rows: [{ no: '1' }],
+    columns: [],
+    speech: 'ParentA MidB ChildC',
+    from: { kind: 'ParentA', from: { kind: 'MidB' } },
+    hopWhere: [{ keys: ['status'], values: ['pending'] }],
+    steps: [{ kind: 'ParentA' }, { kind: 'MidB' }, { kind: 'ChildC' }],
+  })
+  assert.ok(sheet)
+  assert.equal(sheet.speech, 'ParentA MidB ChildC')
+  assert.equal(sheet.from.kind, 'ParentA')
+  assert.equal(sheet.from.from.kind, 'MidB')
+  assert.equal(sheet.steps.length, 3)
+  assert.equal(sheet.hopWhere.length, 1)
+})

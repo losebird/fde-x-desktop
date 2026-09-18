@@ -46,27 +46,66 @@ function normalizeStep(raw, fallbackKind) {
   }
 }
 
+function flattenFromChain(from) {
+  const parts = []
+  const seen = new Set()
+  let cur = from && typeof from === 'object' && !Array.isArray(from) ? from : null
+  while (cur) {
+    const kind = String(cur.kind || '').trim()
+    if (!kind || seen.has(kind)) break
+    seen.add(kind)
+    parts.push(cur)
+    const nested = cur.from
+    cur = nested && typeof nested === 'object' && !Array.isArray(nested) && String(nested.kind || '').trim()
+      ? nested
+      : null
+  }
+  return parts
+}
+
 function defaultSteps(spec, where) {
   const kind = String(spec.kind || '').trim()
   const from = spec.from && typeof spec.from === 'object' ? spec.from : null
-  const fromKind = String((from && from.kind) || spec.fromKind || '').trim()
-  const steps = []
-  if (fromKind) {
-    steps.push(normalizeStep({
-      kind: fromKind,
-      no: from && from.no,
-      where: (from && from.where) || spec.fromWhere,
-      join: from && from.join,
-    }, fromKind))
-    steps.push(normalizeStep({
-      kind,
-      no: spec.no,
-      where,
-      from: fromKind,
-      relation: (from && from.relation) || spec.relation || spec.via,
-    }, kind))
+  const chain = flattenFromChain(from)
+  if (!chain.length) {
+    const fromKind = String((from && from.kind) || spec.fromKind || '').trim()
+    if (fromKind) {
+      chain.push({
+        kind: fromKind,
+        no: from && from.no,
+        where: (from && from.where) || spec.fromWhere,
+        join: from && from.join,
+      })
+    }
+  }
+  if (chain.length) {
+    const steps = chain.map((row, index) => normalizeStep({
+      kind: row.kind,
+      no: row.no,
+      where: row.where,
+      from: index > 0 ? chain[index - 1].kind : '',
+      relation: row.relation,
+      join: row.join,
+    }, row.kind))
+    if (kind && kind !== steps[steps.length - 1].kind) {
+      steps.push(normalizeStep({
+        kind,
+        no: spec.no,
+        where,
+        from: steps[steps.length - 1].kind,
+        relation: (from && from.relation) || spec.relation || spec.via,
+      }, kind))
+    } else if (kind && steps.length) {
+      const last = steps[steps.length - 1]
+      steps[steps.length - 1] = normalizeStep({
+        ...last,
+        no: spec.no || last.no,
+        where: where.length ? where : last.where,
+      }, kind)
+    }
     return steps.filter((step) => step.kind)
   }
+  const steps = []
   if (kind) steps.push(normalizeStep({ kind, no: spec.no, where }, kind))
   return steps
 }

@@ -77,3 +77,39 @@ test('enrichStructuredSlots adds from hop without utterance literals', () => {
   assert.ok(Array.isArray(out.from?.where) && out.from.where.length)
   assert.ok(Array.isArray(out.where) && out.where.some((term) => term.not))
 })
+
+test('enrichStructuredSlots chains three mentioned related kinds along the graph', () => {
+  const chainVocab = [
+    {
+      kind: 'ParentA',
+      resource: 'parent_a',
+      can: ['现查'],
+      relations: [{ from: 'ParentA', to: 'MidB', field: 'parentRef' }],
+      clues: [{ say: ['pending'], keys: ['status'], values: ['pending'] }],
+    },
+    {
+      kind: 'MidB',
+      resource: 'mid_b',
+      can: ['现查'],
+      relations: [{ from: 'MidB', to: 'ChildC', field: 'midRef' }],
+      clues: [{ say: ['open'], keys: ['status'], values: ['open'] }],
+    },
+    {
+      kind: 'ChildC',
+      resource: 'child_c',
+      can: ['现查'],
+      clues: [{ say: ['expired'], keys: ['status'], values: ['expired'] }],
+    },
+  ]
+  const speech = 'ParentA pending MidB open ChildC expired — list ChildC hits'
+  const out = enrichStructuredSlots({
+    kind: 'ChildC',
+    action: '现查',
+    speech,
+  }, chainVocab)
+  assert.equal(out.from?.kind, 'ParentA')
+  assert.equal(out.from?.from?.kind, 'MidB')
+  assert.equal(out.steps?.length, 3)
+  assert.deepEqual(out.steps.map((row) => row.kind), ['ParentA', 'MidB', 'ChildC'])
+  assert.ok(Array.isArray(out.where) && out.where.length)
+})
