@@ -705,6 +705,31 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     } catch { /* ignore */ }
   }, [bizCwd])
 
+  const bindSurfaceIdIfKnown = useCallback(async (
+    sheet: Record<string, unknown>,
+    knownId?: string,
+  ) => {
+    if (!bizCwd) return
+    let surfaceId = String(knownId || '').trim()
+    try {
+      const items = await runtimeApi.listBizSurfaces(bizCwd, 40)
+      setSurfaces(items)
+      if (!surfaceId) {
+        surfaceId = matchSurfaceIdForSheet(items, sheet, {
+          previewId: sheetPreviewId(sheet),
+        }) || ''
+      }
+    } catch {
+      return
+    }
+    if (!surfaceId) return
+    const conn = connections.find((c) => c.id === connectionId) || connections[0]
+    const connName = conn?.name || '连接器'
+    rememberBizSurfaceSheet(bizCwd, surfaceId, sheet, connName)
+    rememberSheet({ sheet, connName, surfaceId })
+    if (!historyPinnedSurfaceIdRef.current) setHistorySurfaceId(surfaceId)
+  }, [bizCwd, connectionId, connections, rememberSheet])
+
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
     const rowCount = incomingSheetRowCount(sheet)
     if (!rowCount && !sheet.kind) return false
@@ -749,8 +774,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
         canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
       })
     }
+    void bindSurfaceIdIfKnown(sheet, surfaceId)
     return rowCount > 0 || Boolean(sheet.kind)
-  }, [applySheet, connectionId, connections, ensureListRestoreBeforeWritePreview, maybeSaveListRestore, restoreRecordsList])
+  }, [applySheet, bindSurfaceIdIfKnown, connectionId, connections, ensureListRestoreBeforeWritePreview, maybeSaveListRestore, restoreRecordsList])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     if (historyPinnedSurfaceIdRef.current && !surfaceId) return false
