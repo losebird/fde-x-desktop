@@ -68,6 +68,11 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
   const previewWhere = actionUsesPreviewWhere(action)
     ? normalizePreviewWhere(body.where ?? input.where ?? input.filter)
     : []
+  const fromRaw = body.from && typeof body.from === 'object' ? body.from : null
+  const fromKind = fromRaw && typeof fromRaw.kind === 'string' ? fromRaw.kind.trim() : ''
+  const fromWhere = fromKind && actionUsesPreviewWhere(action)
+    ? normalizePreviewWhere(fromRaw.where)
+    : []
   const payload = {
     kind,
     action,
@@ -81,6 +86,7 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
       ? { patch: input }
       : {}),
     ...(previewWhere.length ? { where: previewWhere } : {}),
+    ...(fromKind && fromWhere.length ? { from: { kind: fromKind, where: fromWhere } } : {}),
   }
   return { payload }
 }

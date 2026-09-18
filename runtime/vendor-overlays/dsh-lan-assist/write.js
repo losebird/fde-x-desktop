@@ -191,6 +191,18 @@ function hopRelatedField(fromKind, toKind, _matches, extra) {
   return relatedField(fromKind, toKind, extra)
 }
 
+function sheetWhereFromPlan(plan, spec = {}) {
+  const targetStep = (plan && plan.steps && plan.steps[plan.targetIndex]) || (plan && plan.steps && plan.steps[0])
+  const startStep = plan && plan.steps && plan.steps[0]
+  const listWhere = (targetStep && targetStep.where && targetStep.where.length)
+    ? targetStep.where
+    : (Array.isArray(spec.where) && spec.where.length ? spec.where : undefined)
+  const hopWhere = (plan && plan.steps && plan.steps.length > 1 && startStep && startStep.where && startStep.where.length)
+    ? startStep.where
+    : undefined
+  return { where: listWhere, hopWhere }
+}
+
 function catalogVersionOf(vocab) {
   for (const row of Array.isArray(vocab) ? vocab : []) {
     const version = String((row && row.catalogVersion) || '').trim()
@@ -628,6 +640,7 @@ export function createGate(opts = {}) {
         : speakLookup({ kind: emptyKind, no: '' }, parentFound && parentFound.ok === false ? parentFound : { ok: false, error: 'NOT_FOUND' })
       return await sheet(refuse(parentFound && parentFound.error ? parentFound.error : 'NOT_FOUND', speak), {
         kind: emptyKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak, matches: [],
+        ...sheetWhereFromPlan(plan, spec),
       })
     }
     const parentMatches = parentFound.matches && parentFound.matches.length
@@ -687,14 +700,14 @@ export function createGate(opts = {}) {
       return withSheet(result, { vocab: loaded.vocab, schemaFields, fieldsOf: opts.fieldsOf, ...more })
     }
     if (recognized.action === '现查') {
-      const listWhere = (plan.steps[0] && plan.steps[0].where) || spec.where
+      const { where: listWhere, hopWhere } = sheetWhereFromPlan(plan, spec)
       return await sheet({
         ok: true, kind: sheetKind, no: rows.length === 1 ? rows[0].no : '',
         action: recognized.action, speak, status: found && found.status, fields: rows[0] && rows[0].fields || {},
         matches: rows, fingerprint: found && found.fingerprint,
         listed: rows.length > 1, ambiguous: rows.length > 1,
         workspace: (found && found.workspace) || spec.workspace || '',
-      }, { clue: plan.no, speech: plan.speech, where: listWhere })
+      }, { clue: plan.no, speech: plan.speech, where: listWhere, hopWhere })
     }
     if (rows.length !== 1) {
       const writeable = spec.batch === true && (
@@ -799,7 +812,25 @@ export function createGate(opts = {}) {
       if (again.ok) loaded.vocab = again.vocab
       spec.asAsk = true
     }
-    const enriched = enrichStructuredSlots(spec, loaded.vocab, { vocab: loaded.vocab })
+    const enrichExtra = { vocab: loaded.vocab }
+    if (typeof opts.collectionsOf === 'function') {
+      try {
+        enrichExtra.collections = await opts.collectionsOf(spec.workspace)
+      } catch { /* collections optional for enrich */ }
+    }
+    if (typeof opts.fieldsOf === 'function') {
+      const schemaByKind = {}
+      for (const row of loaded.vocab) {
+        const kindName = String(row && row.kind || '').trim()
+        if (!kindName || kindName === '口语') continue
+        try {
+          const fields = await opts.fieldsOf(kindName, loaded.vocab)
+          if (Array.isArray(fields) && fields.length) schemaByKind[kindName] = fields
+        } catch { /* skip kind */ }
+      }
+      enrichExtra.schemaByKind = schemaByKind
+    }
+    const enriched = enrichStructuredSlots(spec, loaded.vocab, enrichExtra)
     const plan = normalizePlan(enriched)
     return previewStructured(plan, enriched, loaded)
   }

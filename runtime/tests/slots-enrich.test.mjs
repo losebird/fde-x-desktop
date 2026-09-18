@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { enrichStructuredSlots, clueHitsInSpeech } from '/Users/zxz/.dsh-fde-x/vendor/dsh-lan-assist/slots.js'
+import { enrichStructuredSlots, clueHitsInSpeech } from '../vendor-overlays/dsh-lan-assist/slots.js'
 
 const vocab = [
   {

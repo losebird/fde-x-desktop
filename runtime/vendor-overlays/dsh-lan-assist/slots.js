@@ -5,7 +5,17 @@
  */
 
 import { collectionFields, mapKind, registeredKinds, relatedField } from './lookup.js'
+import {
+  inferNegatedClosedHit,
+  schemaFieldsForKind,
+  syntheticEnumClues,
+} from './enum-clues.js'
 import { saysOf } from './resolve.js'
+import { vocabRow } from './where-pass.js'
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
+const spokenSeed = require('./vocab/spoken.json')
 
 function escapeRe(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -110,18 +120,20 @@ function nearestKindForHit(hitIndex, mentions) {
   return best.kind
 }
 
-function relationsFromVocab(vocab) {
+function relationsFromVocab(vocab, extra = {}) {
   const out = []
-  for (const row of Array.isArray(vocab) ? vocab : []) {
-    for (const rel of Array.isArray(row && row.relations) ? row.relations : []) {
-      if (!rel || typeof rel !== 'object') continue
-      const from = String(rel.from || rel.fromKind || '').trim()
-      const to = String(rel.to || rel.toKind || '').trim()
-      const field = String(rel.field || '').trim()
-      if (!from || !to) continue
-      out.push(field ? { from, to, field } : { from, to })
-    }
+  const push = (rel) => {
+    if (!rel || typeof rel !== 'object') return
+    const from = String(rel.from || rel.fromKind || '').trim()
+    const to = String(rel.to || rel.toKind || '').trim()
+    const field = String(rel.field || '').trim()
+    if (!from || !to) return
+    out.push(field ? { from, to, field } : { from, to })
   }
+  for (const row of Array.isArray(vocab) ? vocab : []) {
+    for (const rel of Array.isArray(row && row.relations) ? row.relations : []) push(rel)
+  }
+  for (const rel of Array.isArray(extra.relations) ? extra.relations : []) push(rel)
   return out
 }
 
@@ -130,7 +142,7 @@ function parentKindsOf(targetKind, extra) {
   if (!target) return []
   const out = []
   const seen = new Set()
-  for (const rel of relationsFromVocab(extra.vocab)) {
+  for (const rel of relationsFromVocab(extra.vocab, extra)) {
     if (rel.to === target && rel.from && !seen.has(rel.from)) {
       seen.add(rel.from)
       out.push(rel.from)
@@ -147,24 +159,64 @@ function parentKindsOf(targetKind, extra) {
   return out
 }
 
+function vocabWithSpoken(vocab) {
+  const rows = Array.isArray(vocab) ? vocab.slice() : []
+  if (!rows.some((row) => row && (row.spoken || row.kind === '口语'))) {
+    rows.push({
+      kind: '口语',
+      spoken: true,
+      clues: spokenSeed && Array.isArray(spokenSeed.clues) ? spokenSeed.clues : [],
+    })
+  }
+  return rows
+}
+
+function syntheticCluesByKind(vocab, extra) {
+  const map = new Map()
+  for (const row of Array.isArray(vocab) ? vocab : []) {
+    const kind = String(row && (row.kind || row.label) || '').trim()
+    if (!kind || kind === '口语') continue
+    const schemaFields = schemaFieldsForKind(kind, vocab, extra)
+    if (!schemaFields.length) continue
+    map.set(kind, syntheticEnumClues(kind, schemaFields, vocabRow(kind, vocab)))
+  }
+  return map
+}
+
 function clueHitsInSpeech(speech, vocab, extra = {}) {
   const text = String(speech || '')
   if (!text.trim()) return []
-  const kinds = registeredKinds({ vocab })
+  const mergedVocab = vocabWithSpoken(vocab)
+  const kinds = registeredKinds({ vocab: mergedVocab })
   const mentions = kindMentions(text, kinds)
-  const bag = { vocab, ...extra }
+  const bag = { vocab: mergedVocab, ...extra }
+  const synthetic = syntheticCluesByKind(mergedVocab, extra)
   const hits = []
-  for (const row of Array.isArray(vocab) ? vocab : []) {
+  for (const row of mergedVocab) {
     if (!row) continue
-    for (const clue of cluesOfRow(row)) {
+    const owner = String(row.kind || row.label || '').trim()
+    const clues = [
+      ...cluesOfRow(row),
+      ...(synthetic.get(owner) || []),
+    ]
+    for (const clue of clues) {
       const packed = findClueHit(text, clue, bag)
       if (!packed) continue
-      const owner = String(row.kind || row.label || '').trim()
       const assign = owner && owner !== '口语' && mentions.some((m) => m.kind === owner)
         ? owner
         : nearestKindForHit(packed.hitIndex, mentions)
       hits.push({ ...packed, assignKind: assign || owner || '' })
     }
+  }
+  for (const kind of kinds) {
+    if (kind === '口语') continue
+    const schemaFields = schemaFieldsForKind(kind, mergedVocab, extra)
+    const inferred = inferNegatedClosedHit(text, kind, schemaFields, mergedVocab)
+    if (!inferred) continue
+    hits.push({
+      ...inferred,
+      assignKind: nearestKindForHit(inferred.hitIndex, mentions) || kind,
+    })
   }
   return hits
 }
@@ -198,9 +250,30 @@ function mergeTerms(list) {
   return out
 }
 
+function isFilterableHit(hit) {
+  if (!hit || typeof hit !== 'object') return false
+  const keys = (hit.keys || []).map((item) => String(item || '').trim()).filter(Boolean)
+  if (!keys.length) return false
+  if (keys.every((key) => key === 'role' || key === 'action' || key === 'join')) return false
+  return keys.some((key) => /^(status|state|stage|priority|category|type|状态|优先级|类型)$/i.test(key))
+}
+
+function closedLikeValues(values) {
+  return (Array.isArray(values) ? values : []).some((item) => (
+    /关|关闭|resolved|closed|done|completed/i.test(String(item || ''))
+  ))
+}
+
+function dedupeNegatedClosedHits(hits) {
+  const list = Array.isArray(hits) ? hits : []
+  const hasNeg = list.some((row) => row && row.not && closedLikeValues(row.values))
+  if (!hasNeg) return list
+  return list.filter((row) => !(row && !row.not && closedLikeValues(row.values)))
+}
+
 function termsForKind(hits, kind) {
   const want = String(kind || '').trim()
-  return mergeTerms(hits.filter((row) => row.assignKind === want).map((row) => ({
+  return mergeTerms(dedupeNegatedClosedHits(hits).filter((row) => row.assignKind === want && isFilterableHit(row)).map((row) => ({
     keys: row.keys,
     values: row.values,
     not: row.not,
@@ -220,28 +293,37 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   if (base.from && typeof base.from === 'object' && base.from.kind) return base
   if (Array.isArray(base.steps) && base.steps.length) return base
 
-  const bag = { vocab, collections: extra.collections, kinds: extra.kinds }
-  const parents = parentKindsOf(targetKind, bag)
-  if (!parents.length) return base
-
-  const hits = clueHitsInSpeech(speech, vocab)
-  const parent = parents.find((kind) => termsForKind(hits, kind).length) || parents.find((kind) => (
-    kindMentions(speech, [kind]).length
-  ))
-  if (!parent) return base
-
-  const parentWhere = termsForKind(hits, parent)
+  const bag = {
+    vocab,
+    collections: extra.collections,
+    kinds: extra.kinds,
+    relations: extra.relations,
+    schemaByKind: extra.schemaByKind,
+  }
+  const hits = clueHitsInSpeech(speech, vocab, bag)
   const childWhere = mergeTerms([
     ...termsForKind(hits, targetKind),
     ...(Array.isArray(base.where) ? base.where : []),
   ])
-  if (!parentWhere.length && !childWhere.length) return base
+  const parents = parentKindsOf(targetKind, bag)
+  const parent = parents.find((kind) => termsForKind(hits, kind).length) || parents.find((kind) => (
+    kindMentions(speech, [kind]).length
+  ))
+  const parentWhere = parent ? termsForKind(hits, parent) : []
+  const parentValues = new Set(parentWhere.flatMap((term) => term.values || []))
+  const childFiltered = childWhere.filter((term) => {
+    const vals = term.values || []
+    if (!parentWhere.length || !vals.length) return true
+    return !vals.every((value) => parentValues.has(value))
+  })
+
+  if (!parentWhere.length && !childFiltered.length) return base
 
   const next = { ...base }
-  if (parentWhere.length) {
+  if (parent && parentWhere.length) {
     next.from = { kind: parent, where: parentWhere }
   }
-  if (childWhere.length) next.where = childWhere
+  if (childFiltered.length) next.where = childFiltered
   return next
 }
 

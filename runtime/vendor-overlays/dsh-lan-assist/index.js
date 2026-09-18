@@ -125,6 +125,7 @@ export async function apply(ctx, config) {
   const gate = createGate({
     lookupTodo: (spec) => lookup.lookupTodo(spec),
     fieldsOf: (kind, vocab) => lookup.fieldsOf(kind, vocab),
+    collectionsOf: () => lookup.collectionsFor(),
     postWrite: (spec) => writer.write(spec),
     loadVocab: async (workspace) => loadWorkspaceVocab(semantic, workspace),
     saveVocab: async (workspace, concept) => semantic.upsertVocab(workspace, concept),

@@ -322,14 +322,41 @@ function stripFillers(text, extra) {
   return s.replace(/\s+/g, ' ')
 }
 
+function resolveRowKeys(row, keys) {
+  const listed = Array.isArray(keys) && keys.length
+    ? keys
+    : Object.keys(row).filter((key) => !SKIP_KEY.test(key))
+  const out = []
+  for (const key of listed) {
+    const name = String(key || '').trim()
+    if (!name) continue
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      out.push(name)
+      continue
+    }
+    if (row[name] != null && String(row[name]) !== '') {
+      out.push(name)
+      continue
+    }
+    for (const alias of ['status', 'state', 'stage']) {
+      if (row[alias] != null && String(row[alias]) !== '') out.push(alias)
+    }
+  }
+  return out.length ? [...new Set(out)] : listed
+}
+
 function termHits(row, term) {
-  const keys = Array.isArray(term.keys) && term.keys.length ? term.keys : Object.keys(row).filter((key) => !SKIP_KEY.test(key))
+  const keys = resolveRowKeys(row, Array.isArray(term.keys) && term.keys.length ? term.keys : null)
   const values = Array.isArray(term.values) ? term.values.map((item) => String(item || '').toLowerCase()).filter(Boolean) : []
-  const hitValue = values.length && keys.some((key) => {
+  const readable = keys.filter((key) => fieldText(row, key) !== '')
+  const hitValue = values.length && readable.some((key) => {
     const text = fieldText(row, key).toLowerCase()
     return values.some((item) => text === item || text.includes(item))
   })
-  if (term.not) return values.length ? !hitValue : false
+  if (term.not) {
+    if (!values.length || !readable.length) return false
+    return !hitValue
+  }
   if (hitValue) return true
   if (Array.isArray(term.dateAfter) && term.dateAfter.length) {
     const bound = String((term.values || [])[0] || '').trim()

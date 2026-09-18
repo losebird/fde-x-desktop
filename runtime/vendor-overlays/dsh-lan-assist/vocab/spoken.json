@@ -1,0 +1,216 @@
+{
+  "id": "spoken",
+  "label": "口语",
+  "clues": [
+    {
+      "role": "问句",
+      "keys": ["role"],
+      "values": ["问句"],
+      "say": [
+        "是几号的", "几号的", "是哪个用户的", "哪个用户的", "是哪个用户", "是哪个", "是哪张",
+
+        "是哪一张", "是哪一单", "是哪一笔", "哪一张", "哪一单", "哪一笔", "哪一票",
+        "哪张", "哪个", "哪家", "哪家的", "是哪家", "哪号", "什么号", "什么单号", "单号是多少", "多少号", "有没有",
+        "状态是什么", "是什么状态", "什么状态", "是什么"
+      ]
+    },
+    {
+      "role": "问句",
+      "keys": ["role"],
+      "values": ["问句"],
+      "say": [
+        "最新一条", "最近一条", "最新一笔", "最新一张", "最近一张", "最新", "最近",
+        "一张", "一条", "一笔"
+      ]
+    },
+    {
+      "role": "列举",
+      "keys": ["role"],
+      "values": ["列举"],
+      "say": ["列出来", "列出", "摊开", "摊出来", "还有哪些", "有哪些", "哪些", "那些", "所有", "全部", "名下", "挂在", "看看"]
+    },
+    {
+      "role": "动作",
+      "keys": ["action"],
+      "values": ["现查"],
+      "say": ["查一下", "看一下", "查询", "帮我查", "现查", "发我看", "给我看", "发给我", "发我", "look up", "looking up", "check", "checking"]
+    },
+    {
+      "role": "动作",
+      "keys": ["action"],
+      "values": ["删除"],
+      "say": ["删一下", "删了这", "删除", "delete", "deleting", "remove"]
+    },
+    {
+      "role": "动作",
+      "keys": ["action"],
+      "values": ["新建"],
+      "say": ["新建一张", "新建一个", "新建", "新增一笔", "新增一张", "新增一个", "新增", "加一张", "建一张", "建个", "建一笔", "帮我建", "创建", "create"]
+    },
+    {
+      "role": "动作",
+      "keys": ["action"],
+      "values": ["改行"],
+      "say": ["改一下", "改这", "改成", "update", "change", "edit"]
+    },
+    {
+      "role": "动作",
+      "keys": ["action"],
+      "values": ["过审"],
+      "say": ["过一下", "过了这", "给它过", "帮我过", "approve"]
+    },
+    {
+      "role": "焦点",
+      "keys": ["role"],
+      "values": ["焦点"],
+      "say": ["这个", "这张", "该", "this"]
+    },
+    {
+      "role": "改写",
+      "keys": ["role"],
+      "values": ["改写"],
+      "say": ["改成", "写成", "改为", "换成"]
+    },
+    {
+      "role": "助词",
+      "keys": ["role"],
+      "values": ["助词"],
+      "say": ["把这些", "把这", "帮我", "给我", "的", "了", "把", "将", "请", "是", "还"]
+    },
+    {
+      "role": "连接",
+      "keys": ["join"],
+      "values": ["or"],
+      "say": ["或者", "或", "or"]
+    },
+    {
+      "role": "连接",
+      "keys": ["join"],
+      "values": ["and"],
+      "say": ["并且", "而且", "以及", "and", "且", "并"]
+    },
+    {
+      "role": "标点",
+      "keys": ["role"],
+      "values": ["标点"],
+      "say": ["？", "?", "。", "．", ".", "！", "!", "，", ",", "、", "；", ";", "：", ":"]
+    },
+    {
+      "role": "时间",
+      "keys": ["role"],
+      "values": ["时间"],
+      "say": ["今天", "昨天", "明天", "今晚", "上午", "下午", "中午", "凌晨", "点"]
+    },
+    {
+      "role": "交接",
+      "keys": ["role"],
+      "values": ["交接"],
+      "say": ["分享这次会话", "交接这次会话", "交接包", "接着聊", "用我的dsh接着聊", "打开全文"]
+    },
+    {
+      "say": ["处理中", "进行中", "processing", "in_progress", "in progress"],
+      "keys": ["status", "state", "stage"],
+      "values": ["processing", "处理中", "in_progress", "in progress"]
+    },
+    {
+      "say": ["待审", "待处理", "pending", "open", "submitted"],
+      "keys": ["status", "state", "stage"],
+      "values": ["pending", "open", "submitted", "待审"]
+    },
+    {
+      "say": ["已解决", "已完成", "已关闭", "resolved", "closed", "done"],
+      "keys": ["status", "state", "stage"],
+      "values": ["resolved", "closed", "done", "已解决", "已完成"]
+    },
+    {
+      "say": ["已到期", "到期", "过期", "expired"],
+      "keys": ["status", "state", "stage"],
+      "values": ["expired", "已到期", "到期", "过期"],
+      "dateBefore": ["endDate", "dueDate", "expireAt", "expiredAt", "end_date", "due_date"]
+    },
+    {
+      "say": ["生效中", "有效", "active"],
+      "keys": ["status", "state", "stage"],
+      "values": ["active", "生效", "有效"]
+    },
+    {
+      "say": ["已过账", "已过审", "已通过", "approved", "posted"],
+      "keys": ["status", "state", "stage"],
+      "values": ["approved", "posted", "已过", "已通过"]
+    },
+    {
+      "say": ["草稿", "draft"],
+      "keys": ["status", "state", "stage"],
+      "values": ["draft", "草稿"]
+    },
+    {
+      "say": ["作废", "取消", "cancelled", "canceled", "void"],
+      "keys": ["status", "state", "stage"],
+      "values": ["cancelled", "canceled", "void", "作废"]
+    },
+    {
+      "say": ["潜在", "potential"],
+      "keys": ["status", "state", "stage"],
+      "values": ["potential", "潜在"]
+    },
+    {
+      "say": ["停用", "停用中", "inactive"],
+      "keys": ["status", "state", "stage"],
+      "values": ["inactive", "停用"]
+    },
+    {
+      "say": ["未完成", "未完", "unfinished", "incomplete"],
+      "keys": ["status", "state", "stage"],
+      "values": ["resolved", "closed", "done", "completed", "cancelled", "canceled", "void", "已解决", "已完成", "已关闭", "作废", "已取消"],
+      "not": true
+    },
+    {
+      "say": ["没关", "未关", "未关闭"],
+      "keys": ["status", "state", "stage"],
+      "values": ["closed", "resolved", "done", "已关闭", "已解决", "已完成"],
+      "not": true
+    },
+    {
+      "say": ["紧急", "urgent"],
+      "keys": ["priority"],
+      "values": ["urgent", "紧急"]
+    },
+    {
+      "say": ["高优", "高优先级", "high"],
+      "keys": ["priority"],
+      "values": ["high", "高"]
+    },
+    {
+      "say": ["低优", "低优先级", "low"],
+      "keys": ["priority"],
+      "values": ["low", "低"]
+    },
+    {
+      "say": ["故障类", "故障", "incident"],
+      "keys": ["category", "type"],
+      "values": ["incident", "故障"]
+    },
+    {
+      "say": ["投诉类", "投诉", "complaint"],
+      "keys": ["category", "type"],
+      "values": ["complaint", "投诉"]
+    },
+    {
+      "say": ["咨询类", "咨询", "consulting"],
+      "keys": ["category", "type"],
+      "values": ["consulting", "咨询"]
+    },
+    {
+      "role": "单号列",
+      "keys": ["role"],
+      "values": ["单号列"],
+      "say": ["orderNo", "ticketNo", "contractNo", "code", "no", "voucherNo", "requestNo", "roundNo", "bizNo", "id"]
+    },
+    {
+      "role": "关联列",
+      "keys": ["role"],
+      "values": ["关联列"],
+      "say": ["customer", "supplier", "contact", "owner", "assignee", "warehouse"]
+    }
+  ]
+}

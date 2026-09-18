@@ -8,6 +8,7 @@
 
 import { enumMap, groupClueTerms, looksLikeRef, looksLikeTicket, listRows, pickNo, resolveRows, rowMatches, rowMatchesAll } from './resolve.js'
 import { PAGE_SIZE, cluesFromWhere } from './plan.js'
+import { expandNegatedClosedValues } from './enum-clues.js'
 import {
   bindWhereKeys,
   fieldLabelsFromRawCollection,
@@ -352,6 +353,7 @@ export function createLookup(opts = {}) {
     const rawFieldLabels = fieldLabelsFromRawCollection(spec && spec.resource, collections)
     clues.terms = bindWhereKeys(clues.terms || [], kind, vocabRows, schemaFields, rawFieldLabels)
     clues.terms = bindClueEnums(clues.terms, schemaFields)
+    clues.terms = expandNegatedClosedValues(clues.terms, schemaFields, kind, vocabRows)
     clues.terms = clues.terms.filter((term) => termFitsCollection(term, schemaFields, vocabHit, rawFieldLabels))
     if (Array.isArray(where) && where.length && !clues.terms.length && !looksLikeRef(ticket)) {
       return {
@@ -624,9 +626,17 @@ export function createLookup(opts = {}) {
     return collectionFields(mapped.resource, collections)
   }
 
+  async function collectionsFor() {
+    const rows = await connections()
+    const conn = rows[0]
+    if (!conn) return []
+    return collectionsOf(conn, { needEnums: true })
+  }
+
   return {
     lookupTodo,
     fieldsOf,
+    collectionsFor,
     isWritePath,
     async configured() {
       const rows = await connections()
@@ -708,7 +718,10 @@ export function termFitsCollection(term, schemaFields, vocabHit, extraLabels) {
     const resolved = resolveShapeKey(key, fields, vocabHit, extraLabels)
     return row.name === resolved || row.name === key
   }))
-  if (!hit) return !fields.length
+  if (!hit) {
+    if (keys.some((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(key || '')))) return true
+    return !fields.length
+  }
   return true
 }
 
@@ -960,8 +973,13 @@ function relatedListPath(resource, related, toKind, clues, extra) {
   if (!field) return ''
   const parts = [ids.length === 1 ? { [field]: ids[0] } : { [field]: { $in: ids } }]
   const terms = clues && Array.isArray(clues.terms) ? clues.terms : []
+  const schemaFields = collectionFields(resource, extra && extra.collections)
+  const vocabHit = vocabRow(toKind, extra && extra.vocab)
+  const rawFieldLabels = fieldLabelsFromRawCollection(resource, extra && extra.collections)
   for (const term of terms) {
-    const key = (term.keys || []).find((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
+    const key = (term.keys || [])
+      .map((item) => resolveShapeKey(item, schemaFields, vocabHit, rawFieldLabels))
+      .find((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
     const vals = (term.values || []).map((item) => String(item || '').trim()).filter(Boolean)
     if (!key || !vals.length) continue
     parts.push(term.not
