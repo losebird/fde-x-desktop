@@ -1,5 +1,7 @@
 /**
  * Preview then write. Token is not a post. Same opening merges; another replaces.
+ * A later write preview with a different action is another opening: pending / sheet
+ * follow that hop. Cancel drops only that preview_id.
  * @module dsh-lan-assist/gate
  */
 
@@ -19,6 +21,26 @@ export function mergePreviewLines(existing, next) {
   ))
   same >= 0 ? (rows[same] = next) : rows.push(next)
   return rows
+}
+
+export function lineAction(row) {
+  if (!row || typeof row !== 'object') return ''
+  return String(row.action || (row.sheet && row.sheet.action) || '').trim()
+}
+
+export function latestLiveLine(lines) {
+  const rows = Array.isArray(lines) ? lines : []
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i]
+    if (row && row.ok !== false && String(row.preview_id || '').trim()) return row
+  }
+  return rows.length ? rows[rows.length - 1] : null
+}
+
+function sameWriteAction(prev, incoming) {
+  const left = lineAction(prev)
+  const right = lineAction(incoming)
+  return !left || !right || left === right
 }
 
 export function livePendingWrite(state, gate, t) {
@@ -41,7 +63,17 @@ export function livePendingWrite(state, gate, t) {
     return null
   }
   const kept = live.concat(notes)
-  return { ...pending, lines: kept, preview_id: live[0].preview_id, speak: pending.speak || speakBundlePreview(kept) }
+  const latest = latestLiveLine(live) || live[live.length - 1]
+  return {
+    ...pending,
+    action: latest.action || pending.action,
+    kind: latest.kind || pending.kind,
+    no: Object.prototype.hasOwnProperty.call(latest, 'no') ? latest.no : pending.no,
+    preview_id: latest.preview_id,
+    sheet: latest.sheet || pending.sheet,
+    lines: kept,
+    speak: pending.speak || speakBundlePreview(kept),
+  }
 }
 
 export function livePendingWriteFor(state, gate, t, sessionId) {
@@ -60,7 +92,7 @@ export function livePendingSheet(state, gate, t, sessionId) {
   const sid = String(sessionId || '').trim()
   if (sid && sheet.sessionId && sheet.sessionId !== sid) return null
   const pending = livePendingWriteFor(state, gate, t, sessionId)
-  const coverWrite = !!(pending && String(sheet.action || '') !== '现查')
+  const coverWrite = !!(pending && lineAction(pending) && lineAction(pending) !== '现查')
   const raw = (coverWrite && pending.sheet && {
     ...pending.sheet,
     remainRows: sheet.remainRows || pending.sheet.remainRows,
@@ -168,9 +200,10 @@ export function createGate(bag) {
       const sid = letterSid || given
       const recent = prev && (now() - Number(prev.at || 0)) < OPENING_TTL_MS
       const sameSession = prev && sid && prev.sessionId === sid
+      const sameAct = sameWriteAction(prev, line || preview)
       const openingId = namedOpening
-        || liveOpening
-        || (mergeWindow && recent && sameSession && prev.openingId)
+        || (sameAct && liveOpening)
+        || (mergeWindow && recent && sameSession && sameAct && prev.openingId)
         || `${sid || 'open'}:${now()}:${randomHex(4)}`
       const sameOpening = !!(prev && prev.openingId && prev.openingId === openingId)
       const hadLive = !!(prev && ((prev.lines && prev.lines.length) || prev.preview_id))
@@ -181,7 +214,9 @@ export function createGate(bag) {
       const replaced = !!(hadLive && !sameOpening)
       const lines = sameOpening ? mergePreviewLines(prev.lines, line) : (line ? [line] : [])
       const speak = speakBundlePreview(lines, { replaced })
-      const lead = lines.find((row) => row && row.ok !== false && row.preview_id) || lines[0] || preview
+      const lead = (line && line.ok !== false && line.preview_id)
+        ? line
+        : (latestLiveLine(lines) || lines[lines.length - 1] || preview)
       s.pendingWrite = {
         ...lead,
         ok: lines.some((row) => row && row.ok !== false && row.preview_id),
@@ -197,9 +232,11 @@ export function createGate(bag) {
       const sheetSrc = packed && packed.sheet ? packed.sheet : packSheet({ ...packed, clue: spec.no })
       const prevSheet = s.pendingSheet
       const sameKind = prevSheet && String(prevSheet.kind || '') === String(sheetSrc.kind || '')
-      const remain = sameKind && Array.isArray(prevSheet.rows) && prevSheet.rows.length > 1
-        ? prevSheet.rows
-        : (sameKind && Array.isArray(prevSheet.remainRows) ? prevSheet.remainRows : null)
+      const remain = replaced
+        ? null
+        : (sameKind && Array.isArray(prevSheet.rows) && prevSheet.rows.length > 1
+          ? prevSheet.rows
+          : (sameKind && Array.isArray(prevSheet.remainRows) ? prevSheet.remainRows : null))
       rememberSheet(s, spec, false)
       s.pendingSheet = {
         ...sheetSrc,
@@ -319,18 +356,44 @@ export function createGate(bag) {
   async function dismissWrite(spec = {}) {
     const wanted = String((spec && (spec.preview_id || spec.previewId)) || '').trim()
     await store.update((s) => {
+      const pending = s.pendingWrite
+      const lines = pending && Array.isArray(pending.lines) ? pending.lines : []
+      const liveWrite = String((pending && pending.preview_id) || '').trim()
+      const liveSheet = String((s.pendingSheet && (s.pendingSheet.preview_id || s.pendingSheet.previewId)) || '').trim()
+      const ids = new Set(
+        [liveWrite, liveSheet, ...lines.map((row) => String((row && row.preview_id) || '').trim())].filter(Boolean),
+      )
+      if (wanted && ids.size && !ids.has(wanted)) return
       if (wanted) {
-        const liveWrite = String((s.pendingWrite && s.pendingWrite.preview_id) || '').trim()
-        const liveSheet = String((s.pendingSheet && s.pendingSheet.preview_id) || '').trim()
-        const lines = s.pendingWrite && Array.isArray(s.pendingWrite.lines) ? s.pendingWrite.lines : []
-        const ids = new Set(
-          [liveWrite, liveSheet, ...lines.map((row) => String((row && row.preview_id) || '').trim())].filter(Boolean),
-        )
-        if (ids.size && !ids.has(wanted)) return
+        const kept = lines.filter((row) => String((row && row.preview_id) || '').trim() !== wanted)
+        const leftover = latestLiveLine(kept)
+        if (leftover) {
+          s.pendingWrite = {
+            ...pending,
+            ...leftover,
+            ok: kept.some((row) => row && row.ok !== false && row.preview_id),
+            speak: speakBundlePreview(kept),
+            sessionId: pending.sessionId,
+            workspace: pending.workspace,
+            openingId: pending.openingId,
+            replaced: false,
+            lines: kept,
+            at: pending.at,
+          }
+          const sheetSrc = leftover.sheet ? leftover.sheet : packSheet({ ...leftover, clue: leftover.no })
+          s.pendingSheet = {
+            ...sheetSrc,
+            remainRows: s.pendingSheet && s.pendingSheet.remainRows,
+            at: now(),
+            sessionId: leftover.sessionId || pending.sessionId || (s.pendingSheet && s.pendingSheet.sessionId) || '',
+            workspace: leftover.workspace || pending.workspace || (s.pendingSheet && s.pendingSheet.workspace) || '',
+          }
+          note(s, '算了。没写。', now())
+          return
+        }
       }
       s.pendingWrite = null
-      s.pendingSheet = null
-      s.sheetTrail = []
+      if (!wanted || liveSheet === wanted) s.pendingSheet = null
       note(s, '算了。没写。', now())
     })
     return { ok: true, ...(await snapshot()) }

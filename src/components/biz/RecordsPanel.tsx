@@ -190,6 +190,16 @@ function listRestoreDiffersFromIncoming(restore: ListRestoreSnapshot, incoming: 
   return false
 }
 
+function listRestoreBelongsToIncoming(restore: ListRestoreSnapshot, incoming: Record<string, unknown>) {
+  const incomingKind = String(incoming.kind || '').trim()
+  const snapKind = String((restore.sheet && restore.sheet.kind) || '').trim()
+  if (incomingKind && snapKind && incomingKind !== snapKind) return false
+  const incomingSid = String(incoming.sessionId || '').trim()
+  const snapSid = String((restore.sheet && restore.sheet.sessionId) || '').trim()
+  if (incomingSid && snapSid && incomingSid !== snapSid) return false
+  return true
+}
+
 function peekListPendingSheet() {
   const sheet = peekBizPendingSheet()
   if (!sheet) return null
@@ -566,6 +576,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   }, [captureListRestore, commitListRestore, shouldSaveListRestore])
 
   const ensureListRestoreBeforeWritePreview = useCallback((incomingSheet: Record<string, unknown>) => {
+    if (listRestoreRef.current && !listRestoreBelongsToIncoming(listRestoreRef.current, incomingSheet)) {
+      commitListRestore(null)
+    }
     if (listRestoreRef.current) return
     const incomingKind = String(incomingSheet.kind || kind || '')
     const incomingRows = normalizeSheetRows(incomingSheet.rows)
@@ -629,6 +642,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   const restoreRecordsList = useCallback(() => {
     const snap = listRestoreRef.current
     if (!snap) return false
+    const liveSid = String(historySessionIdRef.current || activeAiSessionId || '').trim()
+    const snapSid = String((snap.sheet && snap.sheet.sessionId) || '').trim()
+    if (liveSid && snapSid && snapSid !== liveSid) return false
     setColumns(snap.columns)
     const nextRows = cloneSheetRows(snap.rows)
     setRows(nextRows)
@@ -652,7 +668,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     if (snap.surfaceId) setHistorySurfaceId(snap.surfaceId)
     commitListRestore(null)
     return true
-  }, [commitListRestore, rememberSheet])
+  }, [commitListRestore, rememberSheet, activeAiSessionId])
 
   const handleRecordsBack = useCallback(() => {
     const pendingSheet = peekBizPendingSheet()
@@ -794,10 +810,15 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     const historyPinned = Boolean(historyPinnedSurfaceIdRef.current)
     if (incomingFp && incomingFp === appliedSheetFpRef.current) {
       if (shouldOpenWritePreviewDrawer(sheet, historyPinned)) {
-        setDrawer((prev) => prev ?? {
-          previewId,
-          sheet,
-          canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+        setDrawer((prev) => {
+          const prevId = prev?.previewId || ''
+          const prevAction = String(prev?.sheet?.action || '')
+          if (prev && prevId === previewId && prevAction === action) return prev
+          return {
+            previewId,
+            sheet,
+            canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+          }
         })
       }
       return rowCount > 0 || Boolean(sheet.kind)

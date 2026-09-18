@@ -67,6 +67,8 @@ test('RecordsPanel keeps history pin, closes write preview, and skips empty draw
   assert.match(src, /shouldOpenWritePreviewDrawer/)
   assert.match(src, /sheetHasConfirmablePreviewChanges/)
   assert.match(src, /historyOptionLabel/)
+  assert.match(src, /listRestoreBelongsToIncoming/)
+  assert.doesNotMatch(src, /setDrawer\(\(prev\) => prev \?\?/)
   assert.doesNotMatch(src, /scope \|\| time/)
   assert.doesNotMatch(src, /return scoped\.length \? scoped : sorted/)
 })
