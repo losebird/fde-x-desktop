@@ -89,7 +89,7 @@ test('query-fingerprint history ids are stable without sqlite surface id', async
   assert.equal(kept[0]?.sessionId, 's1')
 })
 
-test('history option labels use speech or where/hop identity, never a clock', async () => {
+test('history option labels use speech, where/hop, or cached row identity, never a clock', async () => {
   const { historyOptionLabel, historyConditionLabel } = await import('../../src/lib/biz-list-query.ts')
   const clockFree = historyOptionLabel({ kind: 'KindA', action: 'ActX' }, { kind: 'KindA', action: 'ActX' })
   assert.equal(clockFree, 'KindA · ActX')
@@ -98,9 +98,23 @@ test('history option labels use speech or where/hop identity, never a clock', as
 
   const spoken = historyOptionLabel(
     { kind: 'KindA', action: 'ActX' },
-    { speech: '待审且已到期的那次' },
+    { speech: '待审且已到期的那次', rows: [{ no: 'X-1' }] },
   )
   assert.equal(spoken, 'KindA · ActX · 待审且已到期的那次')
+
+  const fromNo = historyOptionLabel(
+    { kind: 'KindA', action: 'ActX' },
+    { kind: 'KindA', action: 'ActX', rows: [{ no: 'X-1' }] },
+  )
+  assert.equal(fromNo, 'KindA · ActX · X-1')
+  assert.doesNotMatch(fromNo, /\d{2}\/\d{2}/)
+  assert.doesNotMatch(fromNo, /刚刚|分钟前|小时前/)
+
+  const fromPk = historyOptionLabel(
+    { kind: 'KindA', action: 'ActX' },
+    { rows: [{ id: 'pk-9' }] },
+  )
+  assert.equal(fromPk, 'KindA · ActX · pk-9')
 
   const hopped = historyConditionLabel({
     from: { kind: 'KindB' },

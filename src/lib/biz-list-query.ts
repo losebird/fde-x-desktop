@@ -201,13 +201,26 @@ export function historyConditionLabel(sheet: Record<string, unknown> | null | un
   return ''
 }
 
+/** Cached row no/pk for a surface. Never a clock. */
+export function historySheetRowIdentity(sheet: Record<string, unknown> | null | undefined): string {
+  if (!sheet || typeof sheet !== 'object') return ''
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue
+    const rec = row as Record<string, unknown>
+    const id = String(rec.no ?? rec.orderId ?? rec.id ?? '').trim()
+    if (id) return id
+  }
+  return String(sheet.no || '').trim()
+}
+
 export function historyOptionLabel(
   surface: { kind?: string; action?: string },
   sheet?: Record<string, unknown> | null,
 ): string {
   const kind = String(surface.kind || '').trim()
   const action = String(surface.action || '').trim()
-  const condition = historyConditionLabel(sheet)
+  const condition = historyConditionLabel(sheet) || historySheetRowIdentity(sheet)
   return [kind, action, condition].filter(Boolean).join(' · ')
 }
 
