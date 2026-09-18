@@ -262,7 +262,7 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
 
   return (
     <>
-      <Card className="!p-0 overflow-hidden min-w-0 max-w-3xl">
+      <Card className="!p-0 overflow-hidden min-w-0 w-full">
         <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-medium">操作历史</div>
