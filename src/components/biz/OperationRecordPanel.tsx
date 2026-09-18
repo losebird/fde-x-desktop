@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ExternalLink, FileClock, Loader2, RefreshCw, RotateCcw } from 'lucide-react'
-import clsx from 'clsx'
+import { FileClock, FileSearch, Loader2, RefreshCw, RotateCcw } from 'lucide-react'
 import { Card, Tag } from '@/components/ui'
+import { DrawerShell } from '@/components/DrawerShell'
 import { BizRollbackConfirmDrawer, rollbackDrawerChanges } from '@/components/biz/BizRollbackConfirmDrawer'
+import { PreviewChangesList, rollbackChangesFromAudit } from '@/components/biz/PreviewChangesList'
 import { RuntimeApiError, runtimeApi } from '@/lib/runtime-api'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import type { PreviewChange } from '@/lib/biz-sheet-display'
+import {
+  formatSheetCellDisplayValue,
+  normalizeSheetColumns,
+  type PreviewChange,
+} from '@/lib/biz-sheet-display'
 
 export type BizTraceRow = {
   id: string
@@ -20,10 +25,18 @@ export type BizTraceRow = {
   changesSummary?: string
   canRollback?: boolean
   changes?: Array<{ label?: string; field?: string; key?: string; from?: unknown; to?: unknown }>
+  columns?: Array<{ key?: string; label?: string; enums?: Record<string, string> }>
 }
 
 type Props = {
   runtimeReady: boolean
+}
+
+const RECORD_ACTION_ALIASES: Record<string, string> = {
+  'record.update': '改行',
+  'record.create': '新建',
+  'record.delete': '删除',
+  'record.read': '现查',
 }
 
 function formatTraceTime(at: number) {
@@ -44,21 +57,56 @@ function sourceLabel(source?: string) {
   return source || '—'
 }
 
+function normalizeTraceAction(action: string) {
+  const trimmed = String(action || '').trim()
+  if (RECORD_ACTION_ALIASES[trimmed]) return RECORD_ACTION_ALIASES[trimmed]
+  if (trimmed.startsWith('record.')) return trimmed
+  return trimmed || '写入'
+}
+
 function formatError(cause: unknown) {
   if (cause instanceof RuntimeApiError) return cause.message
   return cause instanceof Error ? cause.message : String(cause)
 }
 
+function traceDisplayChanges(row: BizTraceRow): PreviewChange[] {
+  const columns = normalizeSheetColumns(row.columns)
+  const changes = Array.isArray(row.changes) ? row.changes : []
+  return changes.map((item) => {
+    const key = String(item.field || item.key || '').trim()
+    const col = columns.find((c) => c.key === key)
+    const label = String(item.label || col?.label || key).trim() || '字段'
+    const from = formatSheetCellDisplayValue(item.from, col)
+    const to = formatSheetCellDisplayValue(item.to, col)
+    if (from === to) return null
+    return { label, from, to }
+  }).filter(Boolean) as PreviewChange[]
+}
+
+type CorpusView =
+  | { state: 'idle' }
+  | { state: 'loading' }
+  | { state: 'ok'; title: string; text: string }
+  | { state: 'error'; message: string }
+
 export function OperationRecordPanel({ runtimeReady }: Props) {
   const [rows, setRows] = useState<BizTraceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [selectedId, setSelectedId] = useState('')
+  const [kindCatalog, setKindCatalog] = useState<Array<{ kind: string; label: string }>>([])
+  const [traceOpen, setTraceOpen] = useState(false)
+  const [selected, setSelected] = useState<BizTraceRow | null>(null)
+  const [corpusView, setCorpusView] = useState<CorpusView>({ state: 'idle' })
   const [rollbackOpen, setRollbackOpen] = useState(false)
   const [rollbackChanges, setRollbackChanges] = useState<PreviewChange[]>([])
   const [rollbackMeta, setRollbackMeta] = useState<{ kind: string; no: string; action: string; traceId: string } | null>(null)
   const [rollbackBusy, setRollbackBusy] = useState(false)
   const [rollbackError, setRollbackError] = useState('')
+
+  const kindLabel = useCallback((k: string) => {
+    const row = kindCatalog.find((item) => item.kind === k)
+    return row?.label || k
+  }, [kindCatalog])
 
   const refresh = useCallback(async () => {
     if (!runtimeReady) {
@@ -79,17 +127,17 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
           at: Number(item.at || 0),
           kind: String(item.kind || ''),
           no: String(item.no || ''),
-          action: String(item.action || ''),
+          action: normalizeTraceAction(String(item.action || '')),
           receiptId: String(item.receiptId || item.receipt_id || ''),
           sessionId: String(item.sessionId || item.session_id || ''),
           source: String(item.source || ''),
           changesSummary: String(item.changesSummary || '—'),
           canRollback: Boolean(item.canRollback),
           changes: Array.isArray(item.changes) ? item.changes as BizTraceRow['changes'] : [],
+          columns: Array.isArray(item.columns) ? item.columns as BizTraceRow['columns'] : [],
         }
       }).filter((row) => row.traceId)
       setRows(mapped)
-      if (!selectedId && mapped[0]) setSelectedId(mapped[0].traceId)
     } catch (cause) {
       setError(formatError(cause))
       setRows([])
@@ -102,20 +150,71 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
     void refresh()
   }, [refresh])
 
-  const selected = useMemo(
-    () => rows.find((row) => row.traceId === selectedId) ?? rows[0],
-    [rows, selectedId],
-  )
+  useEffect(() => {
+    if (!runtimeReady) return
+    const workspace = loadCurrentWorkspaceCwd()
+    const cwd = workspace.ok ? workspace.cwd : undefined
+    void runtimeApi.listBizKinds(undefined, cwd).then((data) => {
+      const kinds = Array.isArray(data.kinds) ? data.kinds : []
+      setKindCatalog(kinds.map((k) => ({ kind: String(k.kind || ''), label: String(k.label || k.kind || '') })))
+    }).catch(() => undefined)
+  }, [runtimeReady])
+
+  const openTrace = (row: BizTraceRow) => {
+    setSelected(row)
+    setCorpusView({ state: 'idle' })
+    setRollbackError('')
+    setTraceOpen(true)
+  }
+
+  const closeTrace = () => {
+    setTraceOpen(false)
+    setSelected(null)
+    setCorpusView({ state: 'idle' })
+    setRollbackError('')
+  }
+
+  const reviewCorpus = async (traceId: string) => {
+    setCorpusView({ state: 'loading' })
+    try {
+      const result = await runtimeApi.fetchCorpus(`biz:${traceId}`)
+      if (result.ok) {
+        setCorpusView({
+          state: 'ok',
+          title: String(result.title || '过账回执'),
+          text: String(result.text || '（无正文）'),
+        })
+        return
+      }
+      setCorpusView({ state: 'error', message: '暂时读不出原文' })
+    } catch (cause) {
+      const message = cause instanceof RuntimeApiError ? cause.message : formatError(cause)
+      setCorpusView({ state: 'error', message: message || '暂时读不出原文' })
+    }
+  }
 
   const openRollback = (row: BizTraceRow) => {
     setRollbackError('')
-    const changes = rollbackDrawerChanges(row.changes || [])
-    if (!changes.length) {
+    const columns = normalizeSheetColumns(row.columns)
+    const changes = traceDisplayChanges(row)
+    const resolved = changes.length
+      ? changes
+      : rollbackChangesFromAudit((row.changes || []).map((item) => {
+        const key = String(item.field || item.key || '').trim()
+        const col = columns.find((c) => c.key === key)
+        return { ...item, label: item.label || col?.label || key }
+      }))
+    if (!resolved.length) {
       setRollbackError('没有可恢复的字段差异')
       return
     }
-    setRollbackMeta({ kind: row.kind, no: row.no, action: row.action, traceId: row.traceId })
-    setRollbackChanges(changes)
+    setRollbackMeta({
+      kind: kindLabel(row.kind),
+      no: row.no,
+      action: normalizeTraceAction(row.action),
+      traceId: row.traceId,
+    })
+    setRollbackChanges(resolved)
     setRollbackOpen(true)
   }
 
@@ -125,6 +224,11 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
     setRollbackError('')
     try {
       const data = await runtimeApi.bizRollbackPreview(rollbackMeta.traceId)
+      const serverChanges = rollbackDrawerChanges(
+        selected?.changes || [],
+        Array.isArray(data.rollbackChanges) ? data.rollbackChanges as Array<{ label?: string; field?: string; from?: unknown; to?: unknown }> : undefined,
+      )
+      if (serverChanges.length) setRollbackChanges(serverChanges)
       const sheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data.preview) as Record<string, unknown>
       const previewId = String(sheet?.preview_id || sheet?.previewId || '')
       if (!previewId) throw new Error('回退预览未返回 preview_id')
@@ -133,6 +237,7 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
       await runtimeApi.bizWrite(previewId, undefined, workspace, { source: 'workstation' })
       setRollbackOpen(false)
       setRollbackMeta(null)
+      closeTrace()
       await refresh()
     } catch (cause) {
       setRollbackError(formatError(cause))
@@ -141,13 +246,27 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
     }
   }
 
+  const listLine = useCallback((row: BizTraceRow) => {
+    const action = normalizeTraceAction(row.action)
+    const kind = kindLabel(row.kind)
+    const parts = [action]
+    if (kind) parts.push(kind)
+    if (row.no) parts.push(row.no)
+    return parts.join(' · ')
+  }, [kindLabel])
+
+  const selectedChanges = useMemo(
+    () => (selected ? traceDisplayChanges(selected) : []),
+    [selected],
+  )
+
   return (
-    <div className="grid grid-cols-1 @4xl:grid-cols-[minmax(0,1fr)_360px] gap-4 items-start">
-      <Card className="!p-0 overflow-hidden min-w-0">
+    <>
+      <Card className="!p-0 overflow-hidden min-w-0 max-w-3xl">
         <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-medium">操作历史</div>
-            <div className="text-xs text-ink-muted mt-0.5">本工作区 AI 与工作台写入记录（含 trace）</div>
+            <div className="text-xs text-ink-muted mt-0.5">本工作区 AI 与工作台写入记录；点一条可展开详情</div>
           </div>
           <button type="button" className="btn !py-1" disabled={loading} onClick={() => void refresh()}>
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
@@ -167,19 +286,14 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
               <button
                 key={row.traceId}
                 type="button"
-                onClick={() => setSelectedId(row.traceId)}
-                className={clsx(
-                  'w-full px-4 py-3 text-left flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-surface-2',
-                  selected?.traceId === row.traceId && 'bg-brand-soft/50',
-                )}
+                onClick={() => openTrace(row)}
+                className="w-full px-4 py-3 text-left flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-surface-2"
               >
                 <div className="w-8 h-8 rounded border border-line bg-surface-2 flex items-center justify-center shrink-0">
                   <FileClock size={14} className="text-ink-muted" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">
-                    {row.action || '写入'}{row.kind ? ` · ${row.kind}` : ''}{row.no ? ` · ${row.no}` : ''}
-                  </div>
+                  <div className="text-sm font-medium truncate">{listLine(row)}</div>
                   <div className="text-[11px] text-ink-muted mt-0.5 truncate">
                     {formatTraceTime(row.at)} · {sourceLabel(row.source)} · {row.changesSummary || '—'}
                   </div>
@@ -188,60 +302,90 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
                 {row.canRollback ? (
                   <Tag kind="amber">可回退</Tag>
                 ) : null}
-                <span className="font-mono text-[10px] text-ink-subtle truncate max-w-[120px]" title={row.traceId}>
-                  {row.traceId.slice(0, 10)}…
-                </span>
               </button>
             ))}
           </div>
         )}
       </Card>
 
-      <Card className="min-w-0">
-        <div className="text-sm font-medium mb-1">Trace 详情</div>
-        <div className="text-xs text-ink-muted mb-4">选中一行查看回执与审查链接</div>
-        {!selected ? (
-          <div className="text-sm text-ink-muted">选择左侧一条记录。</div>
-        ) : (
-          <div className="space-y-3 text-sm">
-            <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-2 text-xs">
-              <span className="text-ink-muted">时间</span><span>{formatTraceTime(selected.at)}</span>
-              <span className="text-ink-muted">来源</span><span>{sourceLabel(selected.source)}</span>
-              <span className="text-ink-muted">动作</span><span>{selected.action || '—'}</span>
-              <span className="text-ink-muted">业务型</span><span>{selected.kind || '—'}</span>
-              <span className="text-ink-muted">单号</span><span className="font-mono break-all">{selected.no || '—'}</span>
-              <span className="text-ink-muted">变更摘要</span><span>{selected.changesSummary || '—'}</span>
-              <span className="text-ink-muted">回执</span><span className="font-mono break-all">{selected.receiptId || '—'}</span>
-              <span className="text-ink-muted">Trace</span><span className="font-mono break-all text-[11px]">{selected.traceId}</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <a
-                className="btn !py-1 inline-flex items-center gap-1"
-                href={`/api/v1/corpus/biz:${encodeURIComponent(selected.traceId)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <ExternalLink size={12} /> 审查 corpus
-              </a>
-              {selected.canRollback ? (
-                <button
-                  type="button"
-                  className="btn-brand !py-1"
-                  disabled={rollbackBusy}
-                  onClick={() => openRollback(selected)}
-                >
-                  <RotateCcw size={12} /> 回退
-                </button>
-              ) : (
-                <span className="text-xs text-ink-muted self-center">无字段差异记录，不可回退</span>
-              )}
-            </div>
-            {rollbackError && !rollbackOpen && (
-              <div className="text-xs text-accent-red">{rollbackError}</div>
-            )}
+      {traceOpen && selected && (
+        <div
+          className="fixed inset-0 z-40 bg-ink/20 flex items-start justify-end"
+          onClick={closeTrace}
+          role="presentation"
+        >
+          <div
+            className="h-full w-full max-w-md shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <DrawerShell
+              title="操作 trace"
+              subtitle={`${formatTraceTime(selected.at)} · ${sourceLabel(selected.source)}`}
+              onClose={closeTrace}
+            >
+              <div className="flex-1 overflow-auto p-4 space-y-4 text-sm">
+                <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-2 text-xs">
+                  <span className="text-ink-muted">时间</span><span>{formatTraceTime(selected.at)}</span>
+                  <span className="text-ink-muted">来源</span><span>{sourceLabel(selected.source)}</span>
+                  <span className="text-ink-muted">动作</span><span>{normalizeTraceAction(selected.action)}</span>
+                  <span className="text-ink-muted">业务型</span><span>{kindLabel(selected.kind) || '—'}</span>
+                  <span className="text-ink-muted">单号</span><span className="font-mono break-all">{selected.no || '—'}</span>
+                  <span className="text-ink-muted">变更摘要</span><span>{selected.changesSummary || '—'}</span>
+                  <span className="text-ink-muted">回执</span><span className="font-mono break-all">{selected.receiptId || '—'}</span>
+                  <span className="text-ink-muted">Trace</span><span className="font-mono break-all text-[11px]">{selected.traceId}</span>
+                </div>
+
+                {selectedChanges.length > 0 && (
+                  <div>
+                    <div className="text-xs text-ink-muted mb-2">变更字段</div>
+                    <PreviewChangesList changes={selectedChanges} />
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn !py-1 inline-flex items-center gap-1"
+                    disabled={corpusView.state === 'loading'}
+                    onClick={() => void reviewCorpus(selected.traceId)}
+                  >
+                    {corpusView.state === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <FileSearch size={12} />}
+                    审查 corpus
+                  </button>
+                  {selected.canRollback ? (
+                    <button
+                      type="button"
+                      className="btn-brand !py-1"
+                      disabled={rollbackBusy}
+                      onClick={() => openRollback(selected)}
+                    >
+                      <RotateCcw size={12} /> 回退
+                    </button>
+                  ) : (
+                    <span className="text-xs text-ink-muted self-center">无字段差异记录，不可回退</span>
+                  )}
+                </div>
+
+                {corpusView.state === 'ok' && (
+                  <div className="rounded border border-line bg-surface-2 px-3 py-3 text-xs space-y-2">
+                    <div className="font-medium text-ink">{corpusView.title}</div>
+                    <pre className="whitespace-pre-wrap text-ink-muted font-sans leading-relaxed max-h-48 overflow-auto">{corpusView.text}</pre>
+                  </div>
+                )}
+                {corpusView.state === 'error' && (
+                  <div className="rounded border border-line bg-surface-2 px-3 py-3 text-xs text-ink-muted">
+                    {corpusView.message}
+                  </div>
+                )}
+
+                {rollbackError && !rollbackOpen && (
+                  <div className="text-xs text-accent-red">{rollbackError}</div>
+                )}
+              </div>
+            </DrawerShell>
           </div>
-        )}
-      </Card>
+        </div>
+      )}
 
       {rollbackOpen && rollbackMeta && (
         <BizRollbackConfirmDrawer
@@ -258,6 +402,6 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
           onConfirm={() => void confirmRollback()}
         />
       )}
-    </div>
+    </>
   )
 }

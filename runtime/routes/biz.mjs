@@ -37,6 +37,106 @@ const RECORD_ACTION_ALIASES = {
   'record.read': '现查',
 }
 
+/** lan-assist speakReceipt() meta kinds — not vocab gate kinds */
+const SPOKEN_META_KINDS = new Set(['receipt', 'compensate'])
+
+function isSpokenMetaKind(kind) {
+  return SPOKEN_META_KINDS.has(String(kind || '').trim())
+}
+
+function effectiveBizKind(...candidates) {
+  for (const raw of candidates) {
+    const k = String(raw || '').trim()
+    if (k && !isSpokenMetaKind(k)) return k
+  }
+  for (const raw of candidates) {
+    const k = String(raw || '').trim()
+    if (k) return k
+  }
+  return ''
+}
+
+function enrichAuditAction(action) {
+  const resolved = resolveGateAction(action)
+  return resolved || String(action || '').trim()
+}
+
+function columnKeysFromAudit(audit) {
+  const cols = Array.isArray(audit?.columns) ? audit.columns : []
+  const keys = new Set()
+  const labels = new Set()
+  for (const col of cols) {
+    if (!col || typeof col !== 'object') continue
+    const key = String(col.key || '').trim()
+    const label = String(col.label || '').trim()
+    if (key) keys.add(key)
+    if (label) labels.add(label)
+  }
+  for (const change of Array.isArray(audit?.changes) ? audit.changes : []) {
+    if (!change || typeof change !== 'object') continue
+    const label = String(change.label || '').trim()
+    if (label) labels.add(label)
+  }
+  return { keys, labels }
+}
+
+function inferKindFromCatalog(audit, kinds) {
+  const { keys, labels } = columnKeysFromAudit(audit)
+  if (!keys.size && !labels.size) return ''
+  let bestKind = ''
+  let bestScore = 0
+  for (const row of Array.isArray(kinds) ? kinds : []) {
+    const kind = String(row.kind || '').trim()
+    if (!kind || isSpokenMetaKind(kind)) continue
+    const fields = Array.isArray(row.fields) ? row.fields : []
+    let score = 0
+    for (const field of fields) {
+      if (typeof field === 'string') {
+        const token = field.trim()
+        if (!token) continue
+        if (keys.has(token)) score += 2
+        if (labels.has(token)) score += 2
+        continue
+      }
+      if (!field || typeof field !== 'object') continue
+      const fk = String(field.key || field.name || '').trim()
+      const fl = String(field.label || field.title || '').trim()
+      if (fk && keys.has(fk)) score += 2
+      if (fl && labels.has(fl)) score += 1
+    }
+    const ticketField = String(row.ticketField || '').trim()
+    if (ticketField && keys.has(ticketField)) score += 3
+    if (score > bestScore) {
+      bestScore = score
+      bestKind = kind
+    }
+  }
+  return bestScore >= 4 ? bestKind : ''
+}
+
+async function loadWorkspaceKinds(aiRuntime, workspace) {
+  try {
+    const catalog = await aiRuntime.lanAssist('/catalog', { search: { workspace } })
+    if (catalog && catalog.ok === false) return []
+    let kinds = mapKindsFromCatalog(catalog).kinds
+    if (!kinds.length && workspace.startsWith('/')) {
+      const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
+      kinds = fromMemory.kinds
+    }
+    return kinds
+  } catch {
+    return []
+  }
+}
+
+async function resolveAuditBizKind(aiRuntime, workspace, audit, traceRow) {
+  let kind = effectiveBizKind(traceRow?.kind, audit?.kind)
+  if (kind && !isSpokenMetaKind(kind)) return kind
+  const kinds = await loadWorkspaceKinds(aiRuntime, workspace)
+  kind = inferKindFromCatalog(audit, kinds)
+  return kind && !isSpokenMetaKind(kind) ? kind : effectiveBizKind(traceRow?.kind, audit?.kind)
+}
+
 function resolveGateAction(rawAction) {
   const trimmed = typeof rawAction === 'string' ? rawAction.trim() : ''
   if (!trimmed) return ''
@@ -284,19 +384,20 @@ function enrichTraceRows(db, workspace, traceRows, limit) {
     seen.add(traceId)
     const audit = auditByTrace.get(traceId)
     const changes = audit?.changes?.length ? audit.changes : []
-    const action = String(row?.action || audit?.action || '')
+    const action = enrichAuditAction(row?.action || audit?.action || '')
     enriched.push({
       ...row,
       id: traceId,
       traceId,
       at: Number(row?.at || audit?.writtenAt || 0),
-      kind: String(row?.kind || audit?.kind || ''),
+      kind: effectiveBizKind(audit?.kind, row?.kind),
       no: String(row?.no || audit?.recordNo || ''),
       action,
       receiptId: String(row?.receipt_id || row?.receiptId || audit?.receiptId || ''),
       sessionId: String(row?.sessionId || row?.session_id || audit?.sessionId || ''),
       source: String(audit?.source || (row?.sessionId || row?.session_id ? 'ai' : 'workstation')),
       changes,
+      columns: audit?.columns?.length ? audit.columns : (Array.isArray(row?.columns) ? row.columns : []),
       changesSummary: summarizeAuditChanges(changes),
       canRollback: canRollbackAudit(action, changes),
     })
@@ -307,19 +408,33 @@ function enrichTraceRows(db, workspace, traceRows, limit) {
       id: audit.traceId,
       traceId: audit.traceId,
       at: audit.writtenAt,
-      kind: audit.kind,
+      kind: effectiveBizKind(audit.kind),
       no: audit.recordNo,
-      action: audit.action,
+      action: enrichAuditAction(audit.action),
       receiptId: audit.receiptId,
       sessionId: audit.sessionId,
       source: audit.source,
       changes: audit.changes,
+      columns: audit.columns,
       changesSummary: summarizeAuditChanges(audit.changes),
-      canRollback: canRollbackAudit(audit.action, audit.changes),
+      canRollback: canRollbackAudit(enrichAuditAction(audit.action), audit.changes),
     })
   }
   enriched.sort((a, b) => Number(b.at || 0) - Number(a.at || 0))
   return enriched.slice(0, limit)
+}
+
+async function enrichTraceRowsAsync(db, aiRuntime, workspace, traceRows, limit) {
+  const enriched = enrichTraceRows(db, workspace, traceRows, limit)
+  if (!enriched.some((row) => isSpokenMetaKind(row.kind))) return enriched
+  const kinds = await loadWorkspaceKinds(aiRuntime, workspace)
+  if (!kinds.length) return enriched
+  return enriched.map((row) => {
+    if (!isSpokenMetaKind(row.kind)) return row
+    const audit = getBizWriteAuditByTraceId(db, row.traceId)
+    const inferred = inferKindFromCatalog(audit || { columns: row.columns }, kinds)
+    return inferred ? { ...row, kind: inferred } : row
+  })
 }
 
 function mapKindsFromCatalog(catalogPayload) {
@@ -440,22 +555,23 @@ export async function handleBizRoutes(request, response, url, deps) {
     if (traceId) {
       const audit = getBizWriteAuditByTraceId(db, traceId)
       if (audit) {
+        const resolvedKind = await resolveAuditBizKind(aiRuntime, workspace, audit, null)
         sendJson(response, 200, {
           data: {
             row: {
               id: audit.traceId,
               traceId: audit.traceId,
               at: audit.writtenAt,
-              kind: audit.kind,
+              kind: resolvedKind || audit.kind,
               no: audit.recordNo,
-              action: audit.action,
+              action: enrichAuditAction(audit.action),
               receiptId: audit.receiptId,
               sessionId: audit.sessionId,
               source: audit.source,
               changes: audit.changes,
               columns: audit.columns,
               changesSummary: summarizeAuditChanges(audit.changes),
-              canRollback: canRollbackAudit(audit.action, audit.changes),
+              canRollback: canRollbackAudit(enrichAuditAction(audit.action), audit.changes),
             },
           },
           correlationId,
@@ -466,7 +582,7 @@ export async function handleBizRoutes(request, response, url, deps) {
         const traces = await aiRuntime.lanAssist('/traces', { search: { workspace, id: traceId } })
         const row = traces?.row || (Array.isArray(traces?.rows) ? traces.rows[0] : null)
         if (row) {
-          sendJson(response, 200, { data: { row: enrichTraceRows(db, workspace, [row], 1)[0] }, correlationId })
+          sendJson(response, 200, { data: { row: (await enrichTraceRowsAsync(db, aiRuntime, workspace, [row], 1))[0] }, correlationId })
           return true
         }
       } catch { /* fall through */ }
@@ -476,10 +592,10 @@ export async function handleBizRoutes(request, response, url, deps) {
     try {
       const traces = await aiRuntime.lanAssist('/traces', { search: { workspace, limit: String(limit) } })
       const traceRows = Array.isArray(traces?.rows) ? traces.rows : []
-      const rows = enrichTraceRows(db, workspace, traceRows, limit)
+      const rows = await enrichTraceRowsAsync(db, aiRuntime, workspace, traceRows, limit)
       sendJson(response, 200, { data: { rows, receipt: traces?.receipt ?? null }, correlationId })
     } catch (error) {
-      const rows = enrichTraceRows(db, workspace, [], limit)
+      const rows = await enrichTraceRowsAsync(db, aiRuntime, workspace, [], limit)
       if (rows.length) {
         sendJson(response, 200, { data: { rows, receipt: null }, correlationId })
         return true
@@ -502,7 +618,8 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendError(response, 404, 'not_found', '找不到可回退的字段记录', correlationId)
       return true
     }
-    if (!canRollbackAudit(audit.action, audit.changes)) {
+    const auditAction = enrichAuditAction(audit.action)
+    if (!canRollbackAudit(auditAction, audit.changes)) {
       sendError(response, 400, 'rollback_unsupported', '当前仅支持带字段差异的改行回退', correlationId)
       return true
     }
@@ -511,11 +628,21 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendError(response, 400, 'rollback_unsupported', '没有可恢复的字段值', correlationId)
       return true
     }
+    let traceRow = null
+    try {
+      const traces = await aiRuntime.lanAssist('/traces', { search: { workspace, id: traceId } })
+      traceRow = traces?.row || (Array.isArray(traces?.rows) ? traces.rows[0] : null)
+    } catch { /* trace optional */ }
+    const rollbackKind = await resolveAuditBizKind(aiRuntime, workspace, audit, traceRow)
+    if (!rollbackKind || isSpokenMetaKind(rollbackKind)) {
+      sendError(response, 400, 'rollback_unsupported', '回退需要词表里的业务型；请确认该型已在词表与连接器登记', correlationId)
+      return true
+    }
     try {
       const preview = await aiRuntime.lanAssist('/preview', {
         method: 'POST',
         body: {
-          kind: audit.kind,
+          kind: rollbackKind,
           action: '改行',
           no: audit.recordNo,
           workspace,
@@ -789,8 +916,8 @@ export async function handleBizRoutes(request, response, url, deps) {
       insertBizWriteAudit(db, {
         workspaceCwd: bizCwd,
         traceId,
-        kind: String(written?.kind || sheet?.kind || body.kind || ''),
-        action: String(written?.action || sheet?.action || body.action || ''),
+        kind: effectiveBizKind(sheet?.kind, body.kind, written?.kind),
+        action: String(sheet?.action || body.action || written?.action || ''),
         recordNo: String(written?.no || sheet?.no || body.no || ''),
         receiptId: String(written?.receipt_id || written?.receiptId || ''),
         sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || ''),
