@@ -24,7 +24,7 @@ export function BizRollbackConfirmDrawer({
   onConfirm,
 }: Props) {
   return (
-    <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white border-l border-line shadow-lg z-40 flex flex-col">
+    <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white border-l border-line shadow-lg z-50 flex flex-col">
       <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-medium">回退确认</div>

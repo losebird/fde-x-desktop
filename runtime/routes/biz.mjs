@@ -11,7 +11,14 @@ import {
   listBizSurfaces,
   listBizWriteAudits,
   listBusinessConnections,
+  setBizWriteAuditRollbackState,
 } from '../db.mjs'
+import {
+  isPermanentRollbackError,
+  ROLLBACK_STATE_BLOCKED,
+  ROLLBACK_STATE_ROLLED_BACK,
+  rollbackBadgeFromAudit,
+} from '../biz/rollback-outcome.mjs'
 import { AiRemoteError } from '../dsh-core.mjs'
 import { emit } from '../events.mjs'
 import {
@@ -349,6 +356,13 @@ function canRollbackAudit(action, changes) {
   return String(action || '') === '改行' && Array.isArray(changes) && changes.length > 0
 }
 
+function markRollbackBlockedIfPermanent(db, traceId, code, status) {
+  if (!traceId) return
+  if (isPermanentRollbackError(code, status)) {
+    setBizWriteAuditRollbackState(db, traceId, ROLLBACK_STATE_BLOCKED)
+  }
+}
+
 function patchFromRollbackChanges(changes) {
   const patch = {}
   for (const item of Array.isArray(changes) ? changes : []) {
@@ -399,7 +413,9 @@ function enrichTraceRows(db, workspace, traceRows, limit) {
       changes,
       columns: audit?.columns?.length ? audit.columns : (Array.isArray(row?.columns) ? row.columns : []),
       changesSummary: summarizeAuditChanges(changes),
-      canRollback: canRollbackAudit(action, changes),
+      rollbackState: String(audit?.rollbackState || 'none'),
+      rollbackBadge: rollbackBadgeFromAudit(action, changes, audit?.rollbackState),
+      canRollback: rollbackBadgeFromAudit(action, changes, audit?.rollbackState) === 'can',
     })
   }
   for (const audit of audits) {
@@ -417,7 +433,9 @@ function enrichTraceRows(db, workspace, traceRows, limit) {
       changes: audit.changes,
       columns: audit.columns,
       changesSummary: summarizeAuditChanges(audit.changes),
-      canRollback: canRollbackAudit(enrichAuditAction(audit.action), audit.changes),
+      rollbackState: String(audit.rollbackState || 'none'),
+      rollbackBadge: rollbackBadgeFromAudit(enrichAuditAction(audit.action), audit.changes, audit.rollbackState),
+      canRollback: rollbackBadgeFromAudit(enrichAuditAction(audit.action), audit.changes, audit.rollbackState) === 'can',
     })
   }
   enriched.sort((a, b) => Number(b.at || 0) - Number(a.at || 0))
@@ -615,16 +633,19 @@ export async function handleBizRoutes(request, response, url, deps) {
     const workspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
     const audit = getBizWriteAuditByTraceId(db, traceId)
     if (!audit || !Array.isArray(audit.changes) || !audit.changes.length) {
+      markRollbackBlockedIfPermanent(db, traceId, 'not_found', 404)
       sendError(response, 404, 'not_found', '找不到可回退的字段记录', correlationId)
       return true
     }
     const auditAction = enrichAuditAction(audit.action)
     if (!canRollbackAudit(auditAction, audit.changes)) {
+      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400)
       sendError(response, 400, 'rollback_unsupported', '当前仅支持带字段差异的改行回退', correlationId)
       return true
     }
     const patch = patchFromRollbackChanges(audit.changes)
     if (!Object.keys(patch).length) {
+      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400)
       sendError(response, 400, 'rollback_unsupported', '没有可恢复的字段值', correlationId)
       return true
     }
@@ -635,6 +656,7 @@ export async function handleBizRoutes(request, response, url, deps) {
     } catch { /* trace optional */ }
     const rollbackKind = await resolveAuditBizKind(aiRuntime, workspace, audit, traceRow)
     if (!rollbackKind || isSpokenMetaKind(rollbackKind)) {
+      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400)
       sendError(response, 400, 'rollback_unsupported', '回退需要词表里的业务型；请确认该型已在词表与连接器登记', correlationId)
       return true
     }
@@ -651,7 +673,9 @@ export async function handleBizRoutes(request, response, url, deps) {
         },
       })
       if (preview && preview.ok === false) {
-        sendError(response, 400, String(preview.error || 'preview_failed'), String(preview.hint || preview.speak || '回退预览失败'), correlationId)
+        const previewCode = String(preview.error || 'preview_failed')
+        markRollbackBlockedIfPermanent(db, traceId, previewCode, 400)
+        sendError(response, 400, previewCode, String(preview.hint || preview.speak || '回退预览失败'), correlationId)
         return true
       }
       const sheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
@@ -874,6 +898,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendError(response, 400, 'validation_error', 'preview_id 不能为空', correlationId)
       return true
     }
+    const rollbackOfTraceId = String(body.rollback_of_trace_id || body.rollbackOfTraceId || '').trim()
     const bizWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
     const pendingSheet = await capturePendingSheet(aiRuntime, body.preview_id)
     let written
@@ -887,20 +912,24 @@ export async function handleBizRoutes(request, response, url, deps) {
         },
       })
     } catch (error) {
+      const code = error instanceof AiRemoteError ? (error.code || 'biz_write_failed') : 'biz_write_failed'
+      markRollbackBlockedIfPermanent(db, rollbackOfTraceId, code, 400)
       sendError(
         response,
         400,
-        error instanceof AiRemoteError ? (error.code || 'biz_write_failed') : 'biz_write_failed',
+        code,
         bizWriteFailureMessage(error),
         correlationId,
       )
       return true
     }
     if (written && written.ok === false) {
+      const code = String(written.error || 'biz_write_failed')
+      markRollbackBlockedIfPermanent(db, rollbackOfTraceId, code, 400)
       sendError(
         response,
         400,
-        String(written.error || 'biz_write_failed'),
+        code,
         String(written.hint || written.speak || written.error || '过账失败，请重新预览后再试'),
         correlationId,
       )
@@ -926,6 +955,9 @@ export async function handleBizRoutes(request, response, url, deps) {
         columns: Array.isArray(sheet?.columns) ? sheet.columns : (Array.isArray(body.columns) ? body.columns : []),
       })
     } catch { /* audit must not block write */ }
+    if (rollbackOfTraceId) {
+      setBizWriteAuditRollbackState(db, rollbackOfTraceId, ROLLBACK_STATE_ROLLED_BACK)
+    }
     emit('biz.write.done', {
       kind: String(written?.kind || ''),
       action: String(written?.action || ''),

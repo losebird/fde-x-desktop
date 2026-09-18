@@ -704,11 +704,7 @@ export function insertBizWriteAudit(db, row) {
   return traceId
 }
 
-export function getBizWriteAuditByTraceId(db, traceId) {
-  const row = db.prepare(`
-    SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, written_at
-    FROM biz_write_audit WHERE trace_id = ?
-  `).get(String(traceId || '').trim())
+function mapBizWriteAuditRow(row) {
   if (!row) return null
   return {
     id: row.id,
@@ -723,12 +719,31 @@ export function getBizWriteAuditByTraceId(db, traceId) {
     changes: row.changes_json ? JSON.parse(row.changes_json) : [],
     columns: row.columns_json ? JSON.parse(row.columns_json) : [],
     writtenAt: row.written_at,
+    rollbackState: String(row.rollback_state || 'none'),
   }
+}
+
+export function getBizWriteAuditByTraceId(db, traceId) {
+  const row = db.prepare(`
+    SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, written_at, rollback_state
+    FROM biz_write_audit WHERE trace_id = ?
+  `).get(String(traceId || '').trim())
+  return mapBizWriteAuditRow(row)
+}
+
+export function setBizWriteAuditRollbackState(db, traceId, rollbackState) {
+  const id = String(traceId || '').trim()
+  const state = String(rollbackState || 'none').trim()
+  if (!id || !state || state === 'none') return false
+  const result = db.prepare(`
+    UPDATE biz_write_audit SET rollback_state = ? WHERE trace_id = ?
+  `).run(state, id)
+  return result.changes > 0
 }
 
 export function listBizWriteAudits(db, workspaceCwd, limit = 50) {
   const rows = db.prepare(`
-    SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, written_at
+    SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, written_at, rollback_state
     FROM biz_write_audit
     WHERE workspace_cwd = ?
     ORDER BY written_at DESC
@@ -747,6 +762,7 @@ export function listBizWriteAudits(db, workspaceCwd, limit = 50) {
     changes: row.changes_json ? JSON.parse(row.changes_json) : [],
     columns: row.columns_json ? JSON.parse(row.columns_json) : [],
     writtenAt: row.written_at,
+    rollbackState: String(row.rollback_state || 'none'),
   }))
 }
 

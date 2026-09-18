@@ -1784,6 +1784,8 @@ export class RuntimeApi {
       action?: string
       no?: string
       sessionId?: string
+      rollback_of_trace_id?: string
+      rollbackOfTraceId?: string
     },
   ): Promise<Record<string, unknown>> {
     let signal: AbortSignal | undefined
