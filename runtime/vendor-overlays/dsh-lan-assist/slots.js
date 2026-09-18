@@ -101,14 +101,25 @@ function findClueHit(speech, clue, extra) {
 function kindMentions(text, kinds) {
   const speech = String(text || '')
   const hits = []
-  for (const kind of kinds) {
-    const label = String(kind || '').trim()
-    if (!label || label.length < 2) continue
+  const labels = [...new Set((Array.isArray(kinds) ? kinds : []).map((kind) => String(kind || '').trim()).filter((label) => label.length >= 2))]
+  labels.sort((a, b) => b.length - a.length)
+  const taken = new Array(speech.length).fill(false)
+  for (const label of labels) {
     let from = 0
     while (from <= speech.length) {
       const idx = speech.indexOf(label, from)
       if (idx < 0) break
-      hits.push({ kind: label, index: idx, end: idx + label.length })
+      let blocked = false
+      for (let i = idx; i < idx + label.length; i += 1) {
+        if (taken[i]) {
+          blocked = true
+          break
+        }
+      }
+      if (!blocked) {
+        hits.push({ kind: label, index: idx, end: idx + label.length })
+        for (let i = idx; i < idx + label.length; i += 1) taken[i] = true
+      }
       from = idx + label.length
     }
   }

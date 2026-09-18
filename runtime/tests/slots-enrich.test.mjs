@@ -1,6 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { enrichStructuredSlots, clueHitsInSpeech } from '../vendor-overlays/dsh-lan-assist/slots.js'
+import { enrichStructuredSlots, clueHitsInSpeech, kindMentions } from '../vendor-overlays/dsh-lan-assist/slots.js'
+
+test('kindMentions does not count a shorter kind inside a longer kind', () => {
+  const hits = kindMentions('ParentA MidB ChildC', ['Parent', 'ParentA', 'MidB', 'ChildC'])
+  assert.deepEqual(hits.map((row) => row.kind), ['ParentA', 'MidB', 'ChildC'])
+})
 
 const vocab = [
   {
