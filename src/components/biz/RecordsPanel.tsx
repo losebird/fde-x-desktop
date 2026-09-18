@@ -13,6 +13,7 @@ import {
   normalizeSheetRows,
   pickFilledSheetInput,
   pickSheetRowPatch,
+  sheetHasConfirmablePreviewChanges,
   sheetRowBusinessNo,
   sheetRowKey,
   sheetRowRenderKey,
@@ -38,8 +39,8 @@ import {
 } from '@/lib/biz-kind-list-cache'
 import {
   extractSheetListWhere,
-  briefQueryScopeLabel,
   extractBoundKindHints,
+  historyOptionLabel,
   listQueryFingerprint,
   listSnapshotCacheKey,
   operationBundlesAlign,
@@ -137,6 +138,16 @@ function sheetPreviewId(sheet: Record<string, unknown>) {
 function isWritePreviewSheet(sheet: Record<string, unknown>) {
   const action = String(sheet.action || '')
   return Boolean(sheetPreviewId(sheet) && !isBizListQueryAction(action))
+}
+
+function shouldOpenWritePreviewDrawer(
+  sheet: Record<string, unknown>,
+  historyPinned: boolean,
+) {
+  if (!isWritePreviewSheet(sheet)) return false
+  if (isBizPreviewDismissed(sheet)) return false
+  if (sheetHasConfirmablePreviewChanges(sheet)) return true
+  return !historyPinned
 }
 
 function isSingleRowWritePreview(sheet: Record<string, unknown>) {
@@ -252,6 +263,7 @@ function EditableSheetCell({
 }
 
 export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget }: Props) {
+  const activeAiSessionId = useApp((state) => state.activeAiSessionId)
   const activeWorkspaceCwd = useApp((state) => {
     const row = state.workspaces.find((item) => item.id === state.activeWorkspaceId)
     const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
@@ -301,6 +313,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   const activeListQueryFpRef = useRef('')
   const displayedRowCountRef = useRef(0)
   const historyPinnedSurfaceIdRef = useRef('')
+  const historySessionIdRef = useRef('')
   const showRecordsBack = Boolean(listRestore)
   const bizCwd = workspaceCwd || activeWorkspaceCwd
 
@@ -376,6 +389,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     return [...byKind.values()].sort((a, b) => b.latestAt - a.latestAt)
   }, [bizCwd, kind, kindLabel, operationAnchor, rows.length])
 
+  const sessionKey = String(pending?.sessionId || activeAiSessionId || historySessionIdRef.current || '').trim()
+  if (sessionKey) historySessionIdRef.current = sessionKey
+
   const sessionSurfaces = useMemo(() => {
     const byFp = new Map<string, BizSurfaceRecord>()
     const memory: BizSurfaceRecord[] = []
@@ -389,7 +405,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
         kind: String(snap.sheet.kind || ''),
         action: String(snap.sheet.action || ''),
         previewId: sheetPreviewId(snap.sheet) || null,
-        sessionId: typeof snap.sheet.sessionId === 'string' ? snap.sheet.sessionId : (pending?.sessionId || null),
+        sessionId: typeof snap.sheet.sessionId === 'string'
+          ? snap.sheet.sessionId
+          : (sessionKey || null),
         rowCount: Array.isArray(snap.sheet.rows) ? snap.sheet.rows.length : 0,
         columns: [],
         createdAt: Date.now(),
@@ -419,25 +437,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       }
     }
     return selectSessionHistorySurfaces(mergeHistorySurfaces(surfaces, memory), {
-      sessionId: pending?.sessionId,
+      sessionId: sessionKey,
       cachedIds,
     })
-  }, [bizCwd, pending?.sessionId, surfaces, sheetIdentity, listSheetMeta])
-
-  const surfaceHistoryLabel = useCallback((surface: BizSurfaceRecord) => {
-    const cached = sheetSnapshots.current.get(`surface:${surface.id}`)
-    const sheet = cached?.sheet
-      ?? (bizCwd ? peekBizSurfaceSheet(bizCwd, surface.id)?.sheet : undefined)
-      ?? (bizCwd ? peekBizKindListSheetBySurfaceId(bizCwd, surface.id)?.sheet : undefined)
-    const scope = sheet ? briefQueryScopeLabel(sheet) : ''
-    const time = new Date(surface.createdAt).toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-    return [surface.kind, surface.action, scope || time].filter(Boolean).join(' · ')
-  }, [bizCwd])
+  }, [bizCwd, sessionKey, surfaces, sheetIdentity, listSheetMeta])
 
   const currentKindCan = useMemo(() => {
     const row = kindCatalog.find((item) => item.kind === kind)
@@ -708,6 +711,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     }
     const historyId = historyIdForSheet(appliedSheet, surfaceId, listQueryFingerprint(appliedSheet))
     if (historyId && !historyPinnedSurfaceIdRef.current) setHistorySurfaceId(historyId)
+    const nextSessionId = typeof sheet.sessionId === 'string' && sheet.sessionId.trim()
+      ? sheet.sessionId.trim()
+      : (historySessionIdRef.current || undefined)
+    if (nextSessionId) historySessionIdRef.current = nextSessionId
     setPending({
       kind: String(sheet.kind || ''),
       action: String(sheet.action || ''),
@@ -715,7 +722,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       rows: normalizedRows.length,
       canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
       source: 'ai',
-      sessionId: typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined,
+      sessionId: nextSessionId,
       at: typeof surfacedAt === 'number' ? surfacedAt : Date.now(),
     })
   }, [rememberSheet])
@@ -784,8 +791,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       appliedSheetFpRef.current = ''
     }
     const incomingFp = sheetRowsFingerprint(sheet)
+    const historyPinned = Boolean(historyPinnedSurfaceIdRef.current)
     if (incomingFp && incomingFp === appliedSheetFpRef.current) {
-      if (isWritePreview) {
+      if (shouldOpenWritePreviewDrawer(sheet, historyPinned)) {
         setDrawer((prev) => prev ?? {
           previewId,
           sheet,
@@ -799,8 +807,8 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     rememberBizPendingSheet(sheet)
     maybeSaveListRestore(sheet)
     applySheet(sheet, conn?.name || '连接器', surfaceId)
-    if (!isWritePreview) setDrawer(null)
-    if (isWritePreview) {
+    if (!shouldOpenWritePreviewDrawer(sheet, historyPinned)) setDrawer(null)
+    else {
       setDrawer({
         previewId,
         sheet,
@@ -1105,6 +1113,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     return null
   }, [bizCwd])
 
+  const surfaceHistoryLabel = useCallback((surface: BizSurfaceRecord) => {
+    const snap = resolveSurfaceSheet(surface)
+    return historyOptionLabel(surface, snap?.sheet)
+  }, [resolveSurfaceSheet])
+
   const loadSurface = useCallback(async (surface: BizSurfaceRecord) => {
     const openPreviewId = drawer?.previewId
       || sheetPreviewId(peekBizPendingSheet() || {})
@@ -1159,11 +1172,8 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
 
     const action = String(sheet.action || surface.action || '')
     const writePreviewId = surface.previewId || sheetPreviewId(sheet)
-    if (
-      writePreviewId
-      && !isBizListQueryAction(action)
-      && !isBizPreviewDismissed({ previewId: writePreviewId, action })
-    ) {
+    const previewSheet = writePreviewId ? { ...sheet, previewId: writePreviewId, action } : sheet
+    if (shouldOpenWritePreviewDrawer(previewSheet, true)) {
       setDrawer({
         previewId: writePreviewId,
         sheet,
@@ -1470,8 +1480,12 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
           )}
           {sessionSurfaces.length > 0 && (
             <select
-              className="input h-7 text-xs ml-auto max-w-[320px]"
+              className="input h-7 text-xs ml-auto max-w-[min(28rem,100%)]"
               value={historySurfaceId}
+              title={(() => {
+                const row = sessionSurfaces.find((s) => s.id === historySurfaceId)
+                return row ? surfaceHistoryLabel(row) : '本会话浮现历史'
+              })()}
               onChange={(e) => {
                 const id = e.target.value
                 setHistorySurfaceId(id)

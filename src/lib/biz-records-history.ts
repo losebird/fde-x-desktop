@@ -24,11 +24,12 @@ export function selectSessionHistorySurfaces<T extends HistorySurfaceRow>(
   opts: { sessionId?: string; cachedIds: Set<string> },
 ): T[] {
   const cachedIds = opts.cachedIds
-  const cached = surfaces.filter((row) => cachedIds.has(row.id))
   const sessionKey = String(opts.sessionId || '').trim()
-  const scoped = sessionKey
-    ? cached.filter((row) => !row.sessionId || row.sessionId === sessionKey)
-    : cached
+  if (!sessionKey) return []
+  const scoped = surfaces.filter((row) => (
+    cachedIds.has(row.id)
+    && String(row.sessionId || '').trim() === sessionKey
+  ))
   return [...scoped].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
 }
 
@@ -71,7 +72,10 @@ export function mergeHistorySurfaces<T extends HistorySurfaceRow>(
     if (row.id) merged.set(row.id, row)
   }
   for (const row of sqlite) {
-    if (row.id) merged.set(row.id, row)
+    if (!row.id) continue
+    const prev = merged.get(row.id)
+    const sessionId = String(row.sessionId || '').trim() || prev?.sessionId || null
+    merged.set(row.id, { ...row, sessionId })
   }
   return [...merged.values()]
 }

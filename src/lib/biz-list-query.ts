@@ -174,6 +174,43 @@ export function briefQueryScopeLabel(sheet: Record<string, unknown> | null | und
   return [...hopBits, whereBit].filter(Boolean).join(' · ')
 }
 
+/** Speech if present, else where/hop identity. Never a clock. */
+export function historyConditionLabel(sheet: Record<string, unknown> | null | undefined): string {
+  const brief = briefQueryScopeLabel(sheet)
+  if (brief) return brief
+  if (!sheet || typeof sheet !== 'object') return ''
+
+  const steps = Array.isArray(sheet.steps)
+    ? sheet.steps
+      .map((row) => {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) return ''
+        return String((row as Record<string, unknown>).kind || '').trim()
+      })
+      .filter(Boolean)
+    : []
+  if (steps.length) return steps.join('→')
+
+  const from = sheet.from && typeof sheet.from === 'object' && !Array.isArray(sheet.from)
+    ? sheet.from as Record<string, unknown>
+    : null
+  const fromKind = from ? String(from.kind || '').trim() : ''
+  if (fromKind) return `从${fromKind}`
+
+  const where = extractSheetListWhere(sheet)
+  if (where.length) return `${where.length} 项条件`
+  return ''
+}
+
+export function historyOptionLabel(
+  surface: { kind?: string; action?: string },
+  sheet?: Record<string, unknown> | null,
+): string {
+  const kind = String(surface.kind || '').trim()
+  const action = String(surface.action || '').trim()
+  const condition = historyConditionLabel(sheet)
+  return [kind, action, condition].filter(Boolean).join(' · ')
+}
+
 export function listQueryFingerprint(sheet: Record<string, unknown> | null | undefined): string {
   if (!sheet || typeof sheet !== 'object') return ''
   const kind = String(sheet.kind || '').trim()

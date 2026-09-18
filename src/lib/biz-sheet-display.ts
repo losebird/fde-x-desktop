@@ -368,3 +368,11 @@ export function buildPreviewSummary(
     rows,
   }
 }
+
+/** True when the preview has field diffs a human can confirm. Empty lists are not confirmable. */
+export function sheetHasConfirmablePreviewChanges(
+  sheet: Record<string, unknown>,
+  options: { originalRow?: SheetRow; columns?: SheetColumn[]; patch?: Record<string, unknown> } = {},
+) {
+  return buildPreviewSummary(sheet, options).changes.length > 0
+}
