@@ -848,6 +848,8 @@ export function relatedField(fromKind, toKind, extra) {
   const from = String(fromKind || '').trim()
   const to = String(toKind || '').trim()
   if (!from || !to || from === to) return ''
+  const fromSchema = relationFieldFromCollections(from, to, extra)
+  if (fromSchema) return fromSchema
   for (const row of Array.isArray(extra && extra.vocab) ? extra.vocab : []) {
     const rels = Array.isArray(row && row.relations) ? row.relations : []
     for (const rel of rels) {
@@ -855,11 +857,15 @@ export function relatedField(fromKind, toKind, extra) {
       const frm = String(rel.from || rel.fromKind || '').trim()
       const dest = String(rel.to || rel.toKind || '').trim()
       const field = String(rel.field || '').trim()
-      if (frm === from && dest === to && field) return field
+      if (frm !== from || dest !== to || !field) continue
+      const child = mapKind(to, extra || {})
+      const fields = collectionFields(child && child.resource, extra && extra.collections)
+      const idName = field.endsWith('Id') ? field : `${field}Id`
+      if (fields.some((item) => String(item && item.name || '') === idName)) return idName
+      if (fields.some((item) => String(item && item.name || '') === field)) return field
+      return idName
     }
   }
-  const fromSchema = relationFieldFromCollections(from, to, extra)
-  if (fromSchema) return fromSchema
   return selfFk(from, extra)
 }
 

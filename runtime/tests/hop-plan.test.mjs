@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
+import { relatedField } from '../vendor-overlays/dsh-lan-assist/lookup.js'
 
 test('nested from expands to more than two hop steps', () => {
   const plan = normalizePlan({
@@ -37,4 +38,26 @@ test('explicit steps are not capped at a pair', () => {
   })
   assert.equal(plan.steps.length, 4)
   assert.equal(plan.steps[3].kind, 'LeafD')
+})
+
+test('relatedField prefers schema FK id over vocab relation name', () => {
+  const extra = {
+    vocab: [
+      { kind: 'ParentA', resource: 'parent_a', can: ['现查'] },
+      {
+        kind: 'ChildB',
+        resource: 'child_b',
+        can: ['现查'],
+        relations: [{ from: 'ParentA', to: 'ChildB', field: 'parent' }],
+      },
+    ],
+    collections: [{
+      name: 'child_b',
+      fields: [
+        { name: 'parent', target: 'parent_a', interface: 'm2o' },
+        { name: 'parentId' },
+      ],
+    }],
+  }
+  assert.equal(relatedField('ParentA', 'ChildB', extra), 'parentId')
 })
