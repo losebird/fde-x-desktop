@@ -11,6 +11,7 @@ export function onBizSheetPending(event: { payload: unknown }) {
   if (payload.sheet && typeof payload.sheet === 'object') {
     rememberBizPendingSheet(payload.sheet)
   }
+  if (useApp.getState().activeDataSubview === 'operations') return
   useApp.getState().focusBizRecordsPanel()
 }
 
@@ -29,6 +30,7 @@ export function ensureBizRecordsAutoOpen() {
       const action = String(sheet.action || '')
       if (!action) return
       rememberBizPendingSheet(sheet)
+      if (useApp.getState().activeDataSubview === 'operations') return
       useApp.getState().focusBizRecordsPanel()
     }).catch(() => undefined)
   })

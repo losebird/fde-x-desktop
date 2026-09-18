@@ -29,5 +29,7 @@ export function rollbackBadgeFromAudit(action, changes, rollbackState) {
 }
 
 function canRollbackAudit(action, changes) {
-  return String(action || '') === '改行' && Array.isArray(changes) && changes.length > 0
+  const normalized = String(action || '').trim()
+  if (normalized === '回退') return false
+  return normalized === '改行' && Array.isArray(changes) && changes.length > 0
 }

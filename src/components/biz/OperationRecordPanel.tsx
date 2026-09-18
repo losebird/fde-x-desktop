@@ -76,7 +76,8 @@ function formatError(cause: unknown) {
   return cause instanceof Error ? cause.message : String(cause)
 }
 
-function RollbackStatusTag({ badge }: { badge?: BizRollbackBadge }) {
+function RollbackStatusTag({ badge, action }: { badge?: BizRollbackBadge; action?: string }) {
+  if (String(action || '').trim() === '回退') return <Tag kind="teal">已完成</Tag>
   if (badge === 'can') return <Tag kind="amber">可回退</Tag>
   if (badge === 'rolled_back') return <Tag kind="teal">已回退</Tag>
   if (badge === 'blocked') return <Tag kind="default">无法回退</Tag>
@@ -95,6 +96,17 @@ function traceDisplayChanges(row: BizTraceRow): PreviewChange[] {
     if (from === to) return null
     return { label, from, to }
   }).filter(Boolean) as PreviewChange[]
+}
+
+function listChangeDetail(row: BizTraceRow): string {
+  const diffs = traceDisplayChanges(row)
+  if (!diffs.length) {
+    const summary = String(row.changesSummary || '').trim()
+    return summary && summary !== '—' ? summary : '—'
+  }
+  const parts = diffs.slice(0, 2).map((item) => `${item.label}：${item.from}→${item.to}`)
+  if (diffs.length > 2) parts.push(`等 ${diffs.length} 项`)
+  return parts.join('；')
 }
 
 type CorpusView =
@@ -118,6 +130,18 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
   const [rollbackError, setRollbackError] = useState('')
   const [rollbackPreviewId, setRollbackPreviewId] = useState('')
   const [rollbackFeedback, setRollbackFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+
+  const showRollbackFeedback = useCallback((kind: 'success' | 'error', text: string) => {
+    const message = text.trim()
+    if (!message) return
+    setRollbackFeedback({ kind, text: message })
+  }, [])
+
+  useEffect(() => {
+    if (!rollbackFeedback) return
+    const timer = window.setTimeout(() => setRollbackFeedback(null), 12000)
+    return () => window.clearTimeout(timer)
+  }, [rollbackFeedback])
 
   const kindLabel = useCallback((k: string) => {
     const row = kindCatalog.find((item) => item.kind === k)
@@ -222,7 +246,6 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
   const openRollback = async (row: BizTraceRow) => {
     setRollbackError('')
     setRollbackPreviewId('')
-    setRollbackFeedback(null)
     const columns = normalizeSheetColumns(row.columns)
     const changes = traceDisplayChanges(row)
     const resolved = changes.length
@@ -234,7 +257,7 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
       }))
     if (!resolved.length) {
       const message = '没有可恢复的字段差异'
-      setRollbackFeedback({ kind: 'error', text: message })
+      showRollbackFeedback('error', message)
       setRollbackError(message)
       return
     }
@@ -261,7 +284,7 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
     } catch (cause) {
       const message = formatError(cause) || '回退预览失败'
       setRollbackError(message)
-      setRollbackFeedback({ kind: 'error', text: message })
+      showRollbackFeedback('error', message)
       if (isPermanentRollbackFailure(cause)) {
         await refresh()
         setSelected((prev) => (prev && prev.traceId === row.traceId
@@ -297,17 +320,19 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
         source: 'workstation',
         rollback_of_trace_id: rollbackMeta.traceId,
       })
+      void runtimeApi.bizDismissPreview(previewId).catch(() => undefined)
       const successText = '已回退并写回。'
-      setRollbackFeedback({ kind: 'success', text: successText })
+      showRollbackFeedback('success', successText)
       setRollbackOpen(false)
       setRollbackMeta(null)
       setRollbackPreviewId('')
+      setRollbackError('')
       closeTrace()
       await refresh()
     } catch (cause) {
       const message = formatError(cause) || '回退写回失败'
       setRollbackError(message)
-      setRollbackFeedback({ kind: 'error', text: message })
+      showRollbackFeedback('error', message)
       if (isPermanentRollbackFailure(cause)) {
         await refresh()
         setSelected((prev) => (prev && prev.traceId === rollbackMeta.traceId
@@ -335,6 +360,19 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
 
   return (
     <>
+      {rollbackFeedback && (
+        <div
+          className={
+            rollbackFeedback.kind === 'success'
+              ? 'fixed top-4 left-1/2 z-[100] -translate-x-1/2 max-w-lg w-[min(calc(100%-2rem),32rem)] px-4 py-3 rounded-lg border border-teal-200 bg-teal-50 text-sm text-teal-950 shadow-lg'
+              : 'fixed top-4 left-1/2 z-[100] -translate-x-1/2 max-w-lg w-[min(calc(100%-2rem),32rem)] px-4 py-3 rounded-lg border border-red-200 bg-red-50 text-sm text-accent-red shadow-lg'
+          }
+          role="alert"
+          aria-live="assertive"
+        >
+          {rollbackFeedback.text}
+        </div>
+      )}
       <Card className="!p-0 overflow-hidden min-w-0 w-full">
         <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-3">
           <div>
@@ -379,12 +417,12 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium truncate">{listLine(row)}</div>
-                  <div className="text-[11px] text-ink-muted mt-0.5 truncate">
-                    {formatTraceTime(row.at)} · {sourceLabel(row.source)} · {row.changesSummary || '—'}
+                  <div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2">
+                    {formatTraceTime(row.at)} · {sourceLabel(row.source)} · {listChangeDetail(row)}
                   </div>
                 </div>
                 <Tag kind="default">{sourceLabel(row.source)}</Tag>
-                <RollbackStatusTag badge={row.rollbackBadge} />
+                <RollbackStatusTag badge={row.rollbackBadge} action={row.action} />
               </button>
             ))}
           </div>

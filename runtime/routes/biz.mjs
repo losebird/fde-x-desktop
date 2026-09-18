@@ -345,7 +345,9 @@ function summarizeAuditChanges(changes) {
 }
 
 function canRollbackAudit(action, changes) {
-  return String(action || '') === '改行' && Array.isArray(changes) && changes.length > 0
+  const normalized = String(action || '').trim()
+  if (normalized === '回退') return false
+  return normalized === '改行' && Array.isArray(changes) && changes.length > 0
 }
 
 function markRollbackBlockedIfPermanent(db, traceId, code, status) {
@@ -938,12 +940,15 @@ export async function handleBizRoutes(request, response, url, deps) {
       ? body.changes
       : (Array.isArray(sheet?.changes) ? sheet.changes : [])
     const traceId = String(body.trace_id || written?.trace_id || written?.traceId || createId('trace'))
+    const isRollbackWrite = Boolean(rollbackOfTraceId)
     try {
       insertBizWriteAudit(db, {
         workspaceCwd: bizCwd,
         traceId,
         kind: effectiveBizKind(sheet?.kind, body.kind),
-        action: String(sheet?.action || body.action || written?.action || ''),
+        action: isRollbackWrite
+          ? '回退'
+          : String(sheet?.action || body.action || written?.action || ''),
         recordNo: auditRecordNo(sheet, body, written),
         receiptId: String(written?.receipt_id || written?.receiptId || ''),
         sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || ''),
