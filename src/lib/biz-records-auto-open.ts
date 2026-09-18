@@ -1,9 +1,8 @@
+import { isBizSurfaceTool } from '@/lib/biz-tool-events'
 import { rememberBizPendingSheet } from '@/lib/biz-session-sheet'
 import { registerFdeEventListener } from '@/lib/events'
 import { runtimeApi } from '@/lib/runtime-api'
 import { useApp } from '@/store/app'
-
-const BIZ_TOOL_RE = /(?:preview|write|biz|gate|secretary|lookup|lan[-_]?assist|record)/i
 
 let registered = false
 
@@ -24,7 +23,7 @@ export function ensureBizRecordsAutoOpen() {
     const payload = event.payload as { tool?: string; ok?: boolean }
     if (!payload.ok) return
     const tool = String(payload.tool || '')
-    if (!BIZ_TOOL_RE.test(tool)) return
+    if (!isBizSurfaceTool(tool)) return
     void runtimeApi.getBizPendingSheet().then(({ sheet }) => {
       if (!sheet || typeof sheet !== 'object') return
       const action = String(sheet.action || '')

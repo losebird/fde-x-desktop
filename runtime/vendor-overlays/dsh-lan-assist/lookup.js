@@ -800,6 +800,27 @@ export function selfFk(kind, extra) {
   return ''
 }
 
+function relationFieldFromCollections(fromKind, toKind, extra) {
+  const from = String(fromKind || '').trim()
+  const to = String(toKind || '').trim()
+  if (!from || !to || from === to) return ''
+  const child = mapKind(to, extra || {})
+  const parent = mapKind(from, extra || {})
+  const childResource = child && child.resource
+  const parentResource = parent && parent.resource
+  if (!childResource || !parentResource) return ''
+  for (const row of collectionFields(childResource, extra && extra.collections)) {
+    if (!row) continue
+    const target = String(row.target || '').trim()
+    if (target !== parentResource) continue
+    const iface = String(row.interface || row.type || '').trim()
+    if (!/^(m2o|o2o|belongsTo|select)$/i.test(iface)) continue
+    const name = String(row.name || '').trim()
+    if (name && !/^(createdBy|updatedBy)$/i.test(name)) return name
+  }
+  return ''
+}
+
 export function relatedField(fromKind, toKind, extra) {
   const from = String(fromKind || '').trim()
   const to = String(toKind || '').trim()
@@ -814,6 +835,8 @@ export function relatedField(fromKind, toKind, extra) {
       if (frm === from && dest === to && field) return field
     }
   }
+  const fromSchema = relationFieldFromCollections(from, to, extra)
+  if (fromSchema) return fromSchema
   return selfFk(from, extra)
 }
 

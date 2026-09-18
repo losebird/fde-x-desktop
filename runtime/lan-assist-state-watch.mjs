@@ -1,22 +1,11 @@
 import { emit } from './events.mjs'
 import { emitBizSheetPending } from './routes/biz.mjs'
+import { pendingSheetWatchFingerprint } from './biz/sheet-fingerprint.mjs'
 
 const POLL_MS = 1000
 
 function fingerprintPendingSheet(sheet) {
-  if (!sheet || typeof sheet !== 'object') return ''
-  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
-  const previewId = sheet.preview_id ?? sheet.previewId ?? ''
-  const firstNo = rows[0] && typeof rows[0] === 'object' ? String(rows[0].no || '') : ''
-  return JSON.stringify({
-    kind: sheet.kind,
-    action: sheet.action,
-    previewId,
-    rowCount: rows.length,
-    firstNo,
-    columnsLen: Array.isArray(sheet.columns) ? sheet.columns.length : 0,
-    canWrite: sheet.canWrite ?? sheet.can_write,
-  })
+  return pendingSheetWatchFingerprint(sheet)
 }
 
 function incomingRequestIds(state) {

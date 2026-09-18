@@ -9,6 +9,7 @@ import { mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, s
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
+import { enrichStructuredSlots } from './slots.js'
 import { previewRowCap } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -634,7 +635,8 @@ export function createGate(opts = {}) {
       : [{ no: parentFound.no, status: parentFound.status, fields: parentFound.fields || {} }]
     const hopKind = plan.steps.length > 1 ? target.kind : ''
     if (hopKind && hopKind !== start.kind) {
-      if (parentMatches.length !== 1) {
+      const multiParentList = parentMatches.length !== 1
+      if (multiParentList && recognized.action !== '现查') {
         const page = parentMatches.slice(0, PAGE_SIZE)
         const speak = speakLookup({ kind: start.kind, no: '' }, { ...parentFound, matches: page, listed: true, ambiguous: true })
         const listed = {
@@ -643,9 +645,15 @@ export function createGate(opts = {}) {
           ambiguous: true, workspace: parentFound.workspace || spec.workspace || '',
         }
         return await sheet(
-          recognized.action === '现查' ? { ok: true, ...listed } : { ...refuse('AMBIGUOUS', speak), ...listed },
+          { ...refuse('AMBIGUOUS', speak), ...listed },
           { clue: plan.no, speech: plan.speech, via: hopKind, hopWhere: target.where },
         )
+      }
+      if (multiParentList && recognized.action === '现查' && !parentMatches.length) {
+        const hopSpeak = speakLookup({ kind: hopKind, no: '' }, { ok: false, error: 'NOT_FOUND' })
+        return await sheet(refuse('NOT_FOUND', hopSpeak), {
+          kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
+        })
       }
       const hopIds = hopRelatedIds(start.kind, hopKind, parentMatches, extra)
       const hopped = hopIds.length
@@ -791,8 +799,9 @@ export function createGate(opts = {}) {
       if (again.ok) loaded.vocab = again.vocab
       spec.asAsk = true
     }
-    const plan = normalizePlan(spec)
-    return previewStructured(plan, spec, loaded)
+    const enriched = enrichStructuredSlots(spec, loaded.vocab, { vocab: loaded.vocab })
+    const plan = normalizePlan(enriched)
+    return previewStructured(plan, enriched, loaded)
   }
 
   async function write(spec = {}) {

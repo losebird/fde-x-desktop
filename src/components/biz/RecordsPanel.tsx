@@ -45,6 +45,7 @@ import {
   peekBizPendingSheet,
   rememberBizPendingSheet,
 } from '@/lib/biz-session-sheet'
+import { isBizSurfaceTool } from '@/lib/biz-tool-events'
 import { useEvents } from '@/lib/events'
 
 const PAGE_SIZE = 10
@@ -528,6 +529,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
     const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
     if (!rowCount && !sheet.kind) return false
+    const incomingQueryFp = listQueryFingerprint(sheet)
+    if (incomingQueryFp && incomingQueryFp !== activeListQueryFpRef.current) {
+      appliedSheetFpRef.current = ''
+    }
     const incomingFp = sheetRowsFingerprint(sheet)
     if (incomingFp && incomingFp === appliedSheetFpRef.current) return rowCount > 0 || Boolean(sheet.kind)
     const conn = connections.find((c) => c.id === connectionId) || connections[0]
@@ -691,11 +696,24 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     }
     setPending(nextPending)
     if (payload.sheet && typeof payload.sheet === 'object') {
+      rememberBizPendingSheet(payload.sheet)
       applyPendingSheet(payload.sheet)
     } else {
       void hydrateFromPending()
     }
     void loadSurfaces()
+  })
+
+  useEvents(['ai.tool.finished'], (event) => {
+    const payload = event.payload as { tool?: string; ok?: boolean }
+    if (!payload.ok) return
+    if (!isBizSurfaceTool(String(payload.tool || ''))) return
+    const cached = peekBizPendingSheet()
+    if (cached) {
+      applyPendingSheet(cached)
+      return
+    }
+    void hydrateFromPending()
   })
 
   const runPreview = useCallback(async (
@@ -765,6 +783,15 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     setKind(surface.kind)
     if (surface.connectionId) setConnectionId(surface.connectionId)
     setStaleHint('')
+    const pendingSheet = peekBizPendingSheet()
+    if (
+      pendingSheet
+      && String(pendingSheet.kind || '') === surface.kind
+      && isBizListQueryAction(String(pendingSheet.action || surface.action || ''))
+    ) {
+      applyPendingSheet(pendingSheet, surface.id)
+      return
+    }
     const cached = sheetSnapshots.current.get(`surface:${surface.id}`) || sheetSnapshots.current.get(`kind:${surface.kind}`)
     if (cached) {
       maybeSaveListRestore(cached.sheet)
@@ -796,6 +823,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
   const selectKind = useCallback((nextKind: string) => {
     setKind(nextKind)
     setStaleHint('')
+    const pendingSheet = peekBizPendingSheet()
+    if (pendingSheet && String(pendingSheet.kind || '') === nextKind) {
+      applyPendingSheet(pendingSheet)
+      return
+    }
     const queryFp = activeListQueryFpRef.current
     let keyed: SheetSnapshot | undefined
     if (queryFp) {
