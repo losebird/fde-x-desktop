@@ -8,7 +8,7 @@ import { randomHex } from './crypto.js'
 import { mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
-import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
+import { BATCH_LIMIT, bindPatchEnums, normalizePlan } from './plan.js'
 import { enrichStructuredSlots, kindMentions, nestFromSteps, pickHopSpeech, recalledUserSpeech, relatedMentionedKinds } from './slots.js'
 import { previewRowCap } from './where-pass.js'
 import { createTraceLog } from './traces.js'
@@ -712,21 +712,7 @@ export function createGate(opts = {}) {
         const step = plan.steps[i]
         const hopKind = String(step && step.kind || '').trim()
         if (!hopKind || hopKind === prevKind) continue
-        const multiList = matches.length !== 1
-        if (multiList && recognized.action !== '现查') {
-          const page = matches.slice(0, PAGE_SIZE)
-          const speak = speakLookup({ kind: prevKind, no: '' }, { ...found, matches: page, listed: true, ambiguous: true })
-          const listed = {
-            kind: prevKind, no: '', action: recognized.action, speak, nextKind: hopKind, vocab: loaded.vocab,
-            status: found.status, fields: {}, matches: page, fingerprint: found.fingerprint,
-            ambiguous: true, workspace: found.workspace || spec.workspace || '',
-          }
-          return await sheet(
-            { ...refuse('AMBIGUOUS', speak), ...listed },
-            { clue: plan.no, speech: plan.speech, via: hopKind, hopWhere: step.where },
-          )
-        }
-        if (multiList && recognized.action === '现查' && !matches.length) {
+        if (!matches.length) {
           const hopSpeak = speakLookup({ kind: hopKind, no: '' }, { ok: false, error: 'NOT_FOUND' })
           return await sheet(refuse('NOT_FOUND', hopSpeak), {
             kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
