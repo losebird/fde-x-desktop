@@ -22,6 +22,8 @@ import {
 import { AiRemoteError } from '../dsh-core.mjs'
 import { emit } from '../events.mjs'
 import {
+  dismissShouldClearHall,
+  hallPreviewIdFromState,
   isBizPreviewDismissed,
   rememberBizPreviewDismissed,
   sheetPreviewIdFromRecord,
@@ -884,18 +886,23 @@ export async function handleBizRoutes(request, response, url, deps) {
   if (request.method === 'POST' && url.pathname === '/api/v1/biz/preview/dismiss') {
     const body = await readJson(request).catch(() => ({}))
     let previewId = typeof body.preview_id === 'string' ? body.preview_id.trim() : ''
-    if (!previewId) {
-      try {
-        const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
-        const raw = state?.pendingSheet ?? state?.pendingWrite
-        previewId = sheetPreviewIdFromRaw(raw)
-      } catch {
-        previewId = ''
-      }
+    let hall = {}
+    try {
+      hall = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+    } catch {
+      hall = {}
     }
+    if (!previewId) previewId = hallPreviewIdFromState(hall) || sheetPreviewIdFromRaw(hall?.pendingSheet ?? hall?.pendingWrite)
     if (previewId) rememberBizPreviewDismissed(previewId)
     try {
-      const dismissed = await aiRuntime.lanAssist('/write/cancel', { method: 'POST', body: {} })
+      const liveId = hallPreviewIdFromState(hall)
+      let dismissed = { ok: true, skipped: true }
+      if (dismissShouldClearHall(liveId, previewId)) {
+        dismissed = await aiRuntime.lanAssist('/write/cancel', {
+          method: 'POST',
+          body: { preview_id: previewId },
+        })
+      }
       sendJson(response, 200, { data: { ...dismissed, preview_id: previewId || undefined }, correlationId })
     } catch (error) {
       sendError(

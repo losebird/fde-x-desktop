@@ -2,6 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   clearBizPreviewDismissed,
+  dismissShouldClearHall,
+  hallPreviewIdFromState,
   isBizPreviewDismissed,
   rememberBizPreviewDismissed,
 } from '../biz/dismissed-previews.mjs'
@@ -48,4 +50,18 @@ test('sheetPayloadFromRaw keeps speech, nested from, and hop steps', () => {
   assert.equal(sheet.from.from.kind, 'MidB')
   assert.equal(sheet.steps.length, 3)
   assert.equal(sheet.hopWhere.length, 1)
+})
+
+test('dismiss does not clear hall when a newer preview already replaced the token', () => {
+  assert.equal(dismissShouldClearHall('pv_new', 'pv_old'), false)
+  assert.equal(dismissShouldClearHall('pv_old', 'pv_old'), true)
+  assert.equal(dismissShouldClearHall('', 'pv_old'), true)
+  assert.equal(dismissShouldClearHall('pv_live', ''), true)
+  assert.equal(
+    hallPreviewIdFromState({
+      pendingSheet: { action: '删除', preview_id: 'pv_del' },
+      pendingWrite: { preview_id: 'pv_old' },
+    }),
+    'pv_del',
+  )
 })
