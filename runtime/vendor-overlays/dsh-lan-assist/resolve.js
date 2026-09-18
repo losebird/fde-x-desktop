@@ -4,7 +4,7 @@
  * @module dsh-lan-assist/resolve
  */
 
-import { collectGateActionCodes } from '../../biz/gate-action-codes.mjs'
+import { collectGateActionCodes } from './gate-action-codes.mjs'
 import { ensureSpoken } from './vocab/spoken.js'
 
 const SPEAK_ONLY = new Set(['问句', '型', '动作', '列举', '助词', '标点', '连接', '改写', '焦点', '口语', '单号列', '关联列', '时间', '交接'])
