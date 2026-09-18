@@ -48,4 +48,33 @@ describe('biz preview where pass-through', () => {
     assert.equal(out.payload.action, '过审')
     assert.equal(out.payload.no, 'PO-1')
   })
+
+  test('translateBizIntent passes where and from hop for 改行 like 现查', () => {
+    const where = [{ keys: ['status'], values: ['open'] }]
+    const from = { kind: '合同', where: [{ keys: ['status'], values: ['active'], not: true }] }
+    const out = translateBizIntent({
+      kind: '工单',
+      action: 'record.update',
+      input: { remark: 'x' },
+      where,
+      from,
+    }, '/tmp/ws')
+    assert.equal(out.payload.action, '改行')
+    assert.deepEqual(out.payload.where, where)
+    assert.deepEqual(out.payload.from, from)
+    assert.deepEqual(out.payload.patch, { remark: 'x' })
+  })
+
+  test('translateBizIntent passes where for 新建', () => {
+    const where = [{ keys: ['category'], values: ['A'] }]
+    const out = translateBizIntent({
+      kind: '工单',
+      action: 'record.create',
+      input: { title: 'new' },
+      where,
+    }, '/tmp/ws')
+    assert.equal(out.payload.action, '新建')
+    assert.deepEqual(out.payload.where, where)
+    assert.deepEqual(out.payload.patch, { title: 'new' })
+  })
 })

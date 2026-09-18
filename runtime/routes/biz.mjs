@@ -38,8 +38,11 @@ function resolveGateAction(rawAction) {
   return trimmed
 }
 
-function actionUsesPreviewWhere(action) {
-  return action === '现查' || action === '删除' || action === '过审'
+const VOCAB_GATE_ACTIONS = new Set(['现查', '改行', '新建', '删除', '过审'])
+
+/** Same structured bind (where + hop from) for every vocab gate action — Decision 15. */
+function actionUsesStructuredBind(action) {
+  return VOCAB_GATE_ACTIONS.has(action)
 }
 
 function actionUsesPreviewPatch(action) {
@@ -65,12 +68,12 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
 
   const input = body.input && typeof body.input === 'object' ? body.input : {}
   no = no || input.no || input.orderNo || input.orderId || ''
-  const previewWhere = actionUsesPreviewWhere(action)
+  const previewWhere = actionUsesStructuredBind(action)
     ? normalizePreviewWhere(body.where ?? input.where ?? input.filter)
     : []
   const fromRaw = body.from && typeof body.from === 'object' ? body.from : null
   const fromKind = fromRaw && typeof fromRaw.kind === 'string' ? fromRaw.kind.trim() : ''
-  const fromWhere = fromKind && actionUsesPreviewWhere(action)
+  const fromWhere = fromKind && actionUsesStructuredBind(action)
     ? normalizePreviewWhere(fromRaw.where)
     : []
   const payload = {
@@ -82,7 +85,7 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
     ...(no ? { no } : {}),
     ...(cwd ? { workspace: cwd } : {}),
     ...(actionUsesPreviewPatch(action)
-      || (!actionUsesPreviewWhere(action) && action !== '现查' && Object.keys(input).length)
+      || (!actionUsesStructuredBind(action) && Object.keys(input).length)
       ? { patch: input }
       : {}),
     ...(previewWhere.length ? { where: previewWhere } : {}),
