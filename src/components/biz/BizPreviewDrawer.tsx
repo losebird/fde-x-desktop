@@ -8,6 +8,7 @@ type Props = {
   loading?: boolean
   gateReason?: string
   originalRow?: SheetRow
+  patch?: Record<string, unknown>
   columns?: Array<{ key: string; label?: string }>
   onClose: () => void
   onConfirm: () => void
@@ -19,12 +20,14 @@ export function BizPreviewDrawer({
   loading,
   gateReason,
   originalRow,
+  patch,
   columns,
   onClose,
   onConfirm,
 }: Props) {
   const summary = buildPreviewSummary(sheet, {
     originalRow,
+    patch,
     columns: columns?.length ? columns : normalizeSheetColumns(sheet.columns),
   })
 

@@ -232,7 +232,7 @@ function buildPreviewFieldChanges(
 
 export function buildPreviewSummary(
   sheet: Record<string, unknown>,
-  options: { originalRow?: SheetRow; columns?: SheetColumn[] } = {},
+  options: { originalRow?: SheetRow; columns?: SheetColumn[]; patch?: Record<string, unknown> } = {},
 ): PreviewSummary {
   const action = String(sheet.action || '')
   const kind = String(sheet.kind || '')
@@ -280,11 +280,11 @@ export function buildPreviewSummary(
 
   const original = options.originalRow
   const payloadChanges = previewChangesFromSheetPayload(sheet, columns)
-  const changes = original
-    ? buildPreviewFieldChanges(columns, primary, original, 'update')
-    : payloadChanges.length
-      ? payloadChanges
-      : buildPreviewFieldChanges(columns, primary, undefined, 'update')
+  let changes = buildPreviewFieldChanges(columns, primary, original, 'update')
+  if (!changes.length && payloadChanges.length) changes = payloadChanges
+  if (!changes.length && options.patch && original) {
+    changes = buildPreviewFieldChanges(columns, { ...original, ...options.patch }, original, 'update')
+  }
 
   return {
     action,

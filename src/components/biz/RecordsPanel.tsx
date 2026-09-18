@@ -225,6 +225,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     canWrite: boolean
     gateReason?: string
     originalRow?: SheetRow
+    patch?: Record<string, unknown>
   } | null>(null)
   const [listRestore, setListRestore] = useState<ListRestoreSnapshot | null>(null)
   const [contextPack, setContextPack] = useState<ContextPack | null>(null)
@@ -709,13 +710,28 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     try {
       const conn = connections.find((c) => c.id === connectionId)
       const system = conn?.provider || 'NocoBase'
+      let previewBody: Record<string, unknown> = { ...payloadExtra }
+      if (action === '改行' && originalRow) {
+        const draft = (payloadExtra.input && typeof payloadExtra.input === 'object')
+          ? payloadExtra.input as SheetRow
+          : originalRow
+        const patch = pickSheetRowPatch(originalRow, draft, columns)
+        if (!Object.keys(patch).length) {
+          setError('请先修改至少一个字段后再预览改行')
+          return
+        }
+        previewBody = { ...payloadExtra, input: patch }
+      }
+      if (action === '新建') {
+        previewBody = { ...payloadExtra, input: pickFilledSheetInput((payloadExtra.input || {}) as Record<string, unknown>) }
+      }
       const data = await runtimeApi.bizPreview({
         kind,
         action,
         system,
         connectionId,
         speech: `${action}${kind}`,
-        ...payloadExtra,
+        ...previewBody,
       })
       const sheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
       const previewId = sheetPreviewId(sheet)
@@ -731,6 +747,9 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
           canWrite,
           gateReason: typeof data.hint === 'string' ? data.hint : undefined,
           originalRow,
+          patch: action === '改行' && previewBody.input && typeof previewBody.input === 'object'
+            ? previewBody.input as Record<string, unknown>
+            : undefined,
         })
       }
       if (action === '新建') setCreateDraft(null)
@@ -740,7 +759,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
     } finally {
       setLoading(false)
     }
-  }, [activeLocalApp, applySheet, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, loadSurfaces, maybeSaveListRestore])
+  }, [activeLocalApp, applySheet, columns, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, loadSurfaces, maybeSaveListRestore])
 
   const loadSurface = useCallback(async (surface: BizSurfaceRecord) => {
     setKind(surface.kind)
@@ -1231,6 +1250,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlan, onPlanWi
           loading={loading}
           gateReason={drawer.gateReason}
           originalRow={drawer.originalRow}
+          patch={drawer.patch}
           columns={columns}
           onClose={dismissPreviewDrawer}
           onConfirm={() => void confirmWrite()}
