@@ -77,4 +77,16 @@ describe('biz preview where pass-through', () => {
     assert.deepEqual(out.payload.where, where)
     assert.deepEqual(out.payload.patch, { title: 'new' })
   })
+
+  test('translateBizIntent passes where for kind can not in spoken seed', () => {
+    const where = [{ keys: ['status'], values: ['archived'] }]
+    const out = translateBizIntent({
+      kind: '档案',
+      action: '封存',
+      can: ['封存', '现查'],
+      where,
+    }, '/tmp/ws')
+    assert.equal(out.payload.action, '封存')
+    assert.deepEqual(out.payload.where, where)
+  })
 })

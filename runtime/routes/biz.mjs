@@ -1,6 +1,7 @@
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { loadMemoryWorkspaceVocab } from '../biz/memory-vocab.mjs'
 import { generateWorkspaceVocabFromConnector } from '../biz/vocab-from-connector.mjs'
+import { isGateActionCode } from '../biz/gate-action-codes.mjs'
 import { normalizePreviewWhere } from '../biz/where.mjs'
 import {
   createId,
@@ -38,18 +39,42 @@ function resolveGateAction(rawAction) {
   return trimmed
 }
 
-const VOCAB_GATE_ACTIONS = new Set(['现查', '改行', '新建', '删除', '过审'])
+function vocabExtraFromBody(body) {
+  if (body && Array.isArray(body.vocab)) return { vocab: body.vocab }
+  const kinds = []
+  if (body && Array.isArray(body.kinds)) kinds.push(...body.kinds)
+  const kind = body && typeof body.kind === 'string' ? body.kind.trim() : ''
+  if (kind) {
+    const row = { kind }
+    if (Array.isArray(body.can)) row.can = body.can
+    if (row.can) kinds.push(row)
+  }
+  return kinds.length ? { kinds } : {}
+}
+
+function mergeVocabExtra(body, vocabExtra) {
+  const fromBody = vocabExtraFromBody(body)
+  const kinds = [
+    ...(Array.isArray(fromBody.kinds) ? fromBody.kinds : []),
+    ...(Array.isArray(vocabExtra?.kinds) ? vocabExtra.kinds : []),
+  ]
+  const vocab = Array.isArray(vocabExtra?.vocab) ? vocabExtra.vocab
+    : (Array.isArray(fromBody.vocab) ? fromBody.vocab : undefined)
+  if (vocab) return { vocab }
+  if (kinds.length) return { kinds }
+  return {}
+}
 
 /** Same structured bind (where + hop from) for every vocab gate action — Decision 15. */
-function actionUsesStructuredBind(action) {
-  return VOCAB_GATE_ACTIONS.has(action)
+function actionUsesStructuredBind(action, gateVocabExtra) {
+  return isGateActionCode(action, gateVocabExtra)
 }
 
 function actionUsesPreviewPatch(action) {
   return action === '改行' || action === '新建'
 }
 
-export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
+export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}) {
   const rawAction = typeof body.action === 'string' ? body.action.trim() : ''
   const action = resolveGateAction(rawAction)
   if (!action) return { error: '操作无法翻译成业务闸动作' }
@@ -66,14 +91,15 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
   }
   if (!kind) return { error: '缺少业务型（kind）。targetRef 需为 fde://external/{system}/table/{kind}' }
 
+  const gateVocabExtra = mergeVocabExtra(body, vocabExtra)
   const input = body.input && typeof body.input === 'object' ? body.input : {}
   no = no || input.no || input.orderNo || input.orderId || ''
-  const previewWhere = actionUsesStructuredBind(action)
+  const previewWhere = actionUsesStructuredBind(action, gateVocabExtra)
     ? normalizePreviewWhere(body.where ?? input.where ?? input.filter)
     : []
   const fromRaw = body.from && typeof body.from === 'object' ? body.from : null
   const fromKind = fromRaw && typeof fromRaw.kind === 'string' ? fromRaw.kind.trim() : ''
-  const fromWhere = fromKind && actionUsesStructuredBind(action)
+  const fromWhere = fromKind && actionUsesStructuredBind(action, gateVocabExtra)
     ? normalizePreviewWhere(fromRaw.where)
     : []
   const payload = {
@@ -85,7 +111,7 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE) {
     ...(no ? { no } : {}),
     ...(cwd ? { workspace: cwd } : {}),
     ...(actionUsesPreviewPatch(action)
-      || (!actionUsesStructuredBind(action) && Object.keys(input).length)
+      || (!actionUsesStructuredBind(action, gateVocabExtra) && Object.keys(input).length)
       ? { patch: input }
       : {}),
     ...(previewWhere.length ? { where: previewWhere } : {}),
@@ -576,7 +602,12 @@ export async function handleBizRoutes(request, response, url, deps) {
       return true
     }
     const bizWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
-    const translated = translateBizIntent(body, bizWorkspace)
+    let previewVocabExtra = {}
+    try {
+      const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, bizWorkspace)
+      if (fromMemory.kinds?.length) previewVocabExtra = { kinds: fromMemory.kinds }
+    } catch { /* spoken seed still applies in gate-action-codes */ }
+    const translated = translateBizIntent(body, bizWorkspace, previewVocabExtra)
     if (translated.error) {
       sendError(response, 400, 'validation_error', translated.error, correlationId)
       return true

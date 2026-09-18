@@ -4,32 +4,16 @@
  * @module dsh-lan-assist/resolve
  */
 
+import { collectGateActionCodes } from '../../biz/gate-action-codes.mjs'
 import { ensureSpoken } from './vocab/spoken.js'
 
 const SPEAK_ONLY = new Set(['问句', '型', '动作', '列举', '助词', '标点', '连接', '改写', '焦点', '口语', '单号列', '关联列', '时间', '交接'])
 const ACTION_PRIORITY = ['删除', '新建', '过审', '改行', '现查']
 
-function collectActionCodes(extra) {
-  const codes = new Set()
-  for (const row of vocabRows(extra)) {
-    for (const item of Array.isArray(row.can) ? row.can : []) {
-      const s = String(item || '').trim()
-      if (s) codes.add(s)
-    }
-  }
-  for (const clue of actionClues(extra)) {
-    for (const item of clue.values || []) {
-      const s = String(item || '').trim()
-      if (s) codes.add(s)
-    }
-  }
-  return codes
-}
-
 export function parseWriteAction(text, extra) {
   const s = String(text || '')
   if (!s.trim()) return null
-  const allowed = collectActionCodes(extra)
+  const allowed = collectGateActionCodes(extra)
   const rows = actionClues(extra)
   const hit = []
   for (const row of rows) {
