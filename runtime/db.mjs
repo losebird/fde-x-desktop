@@ -680,10 +680,19 @@ export function insertBizWriteAudit(db, row) {
   const traceId = String(row.traceId || '').trim() || id
   db.prepare(`
     INSERT INTO biz_write_audit
-      (id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, written_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, lookup_bind_json, written_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(trace_id) DO UPDATE SET
       receipt_id = excluded.receipt_id,
+      kind = CASE
+        WHEN excluded.kind <> '' AND excluded.kind NOT IN ('receipt', 'compensate') THEN excluded.kind
+        ELSE biz_write_audit.kind
+      END,
+      record_no = CASE WHEN length(excluded.record_no) > 0 THEN excluded.record_no ELSE biz_write_audit.record_no END,
+      lookup_bind_json = CASE
+        WHEN length(excluded.lookup_bind_json) > 2 THEN excluded.lookup_bind_json
+        ELSE biz_write_audit.lookup_bind_json
+      END,
       changes_json = CASE WHEN length(excluded.changes_json) > 2 THEN excluded.changes_json ELSE biz_write_audit.changes_json END,
       columns_json = CASE WHEN length(excluded.columns_json) > 2 THEN excluded.columns_json ELSE biz_write_audit.columns_json END,
       written_at = excluded.written_at
@@ -699,6 +708,7 @@ export function insertBizWriteAudit(db, row) {
     String(row.source || 'workstation'),
     JSON.stringify(Array.isArray(row.changes) ? row.changes : []),
     JSON.stringify(Array.isArray(row.columns) ? row.columns : []),
+    JSON.stringify(row.lookupBind && typeof row.lookupBind === 'object' ? row.lookupBind : {}),
     Number(row.writtenAt || Date.now()),
   )
   return traceId
@@ -718,6 +728,7 @@ function mapBizWriteAuditRow(row) {
     source: row.source,
     changes: row.changes_json ? JSON.parse(row.changes_json) : [],
     columns: row.columns_json ? JSON.parse(row.columns_json) : [],
+    lookupBind: row.lookup_bind_json ? JSON.parse(row.lookup_bind_json) : {},
     writtenAt: row.written_at,
     rollbackState: String(row.rollback_state || 'none'),
   }
@@ -725,7 +736,7 @@ function mapBizWriteAuditRow(row) {
 
 export function getBizWriteAuditByTraceId(db, traceId) {
   const row = db.prepare(`
-    SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, written_at, rollback_state
+    SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, lookup_bind_json, written_at, rollback_state
     FROM biz_write_audit WHERE trace_id = ?
   `).get(String(traceId || '').trim())
   return mapBizWriteAuditRow(row)
@@ -743,7 +754,7 @@ export function setBizWriteAuditRollbackState(db, traceId, rollbackState) {
 
 export function listBizWriteAudits(db, workspaceCwd, limit = 50) {
   const rows = db.prepare(`
-    SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, written_at, rollback_state
+    SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, lookup_bind_json, written_at, rollback_state
     FROM biz_write_audit
     WHERE workspace_cwd = ?
     ORDER BY written_at DESC
@@ -761,6 +772,7 @@ export function listBizWriteAudits(db, workspaceCwd, limit = 50) {
     source: row.source,
     changes: row.changes_json ? JSON.parse(row.changes_json) : [],
     columns: row.columns_json ? JSON.parse(row.columns_json) : [],
+    lookupBind: row.lookup_bind_json ? JSON.parse(row.lookup_bind_json) : {},
     writtenAt: row.written_at,
     rollbackState: String(row.rollback_state || 'none'),
   }))

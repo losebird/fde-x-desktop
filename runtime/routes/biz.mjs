@@ -27,6 +27,14 @@ import {
   sheetPreviewIdFromRecord,
 } from '../biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw, sheetPreviewIdFromRaw } from '../biz/sheet-payload.mjs'
+import {
+  auditRecordNo,
+  captureLookupBind,
+  effectiveBizKind,
+  isSpokenMetaKind,
+  parseLookupBind,
+  rollbackPreviewBody,
+} from '../biz/audit-lookup.mjs'
 
 function bizWriteFailureMessage(error, fallback = '过账失败，请重新预览后再试') {
   if (error instanceof AiRemoteError) {
@@ -42,25 +50,6 @@ const RECORD_ACTION_ALIASES = {
   'record.create': '新建',
   'record.delete': '删除',
   'record.read': '现查',
-}
-
-/** lan-assist speakReceipt() meta kinds — not vocab gate kinds */
-const SPOKEN_META_KINDS = new Set(['receipt', 'compensate'])
-
-function isSpokenMetaKind(kind) {
-  return SPOKEN_META_KINDS.has(String(kind || '').trim())
-}
-
-function effectiveBizKind(...candidates) {
-  for (const raw of candidates) {
-    const k = String(raw || '').trim()
-    if (k && !isSpokenMetaKind(k)) return k
-  }
-  for (const raw of candidates) {
-    const k = String(raw || '').trim()
-    if (k) return k
-  }
-  return ''
 }
 
 function enrichAuditAction(action) {
@@ -137,11 +126,14 @@ async function loadWorkspaceKinds(aiRuntime, workspace) {
 }
 
 async function resolveAuditBizKind(aiRuntime, workspace, audit, traceRow) {
-  let kind = effectiveBizKind(traceRow?.kind, audit?.kind)
+  const bind = parseLookupBind(audit)
+  let kind = effectiveBizKind(bind.bizKind, audit?.kind)
   if (kind && !isSpokenMetaKind(kind)) return kind
   const kinds = await loadWorkspaceKinds(aiRuntime, workspace)
   kind = inferKindFromCatalog(audit, kinds)
-  return kind && !isSpokenMetaKind(kind) ? kind : effectiveBizKind(traceRow?.kind, audit?.kind)
+  if (kind && !isSpokenMetaKind(kind)) return kind
+  kind = effectiveBizKind(traceRow?.kind)
+  return kind && !isSpokenMetaKind(kind) ? kind : ''
 }
 
 function resolveGateAction(rawAction) {
@@ -660,22 +652,27 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendError(response, 400, 'rollback_unsupported', '回退需要词表里的业务型；请确认该型已在词表与连接器登记', correlationId)
       return true
     }
+    const lookupNo = String(audit.recordNo || traceRow?.no || '').trim()
+    if (!lookupNo) {
+      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400)
+      sendError(response, 400, 'rollback_unsupported', '审计里缺少行主键，无法按当时写入的对象回查', correlationId)
+      return true
+    }
+    const lookupBind = parseLookupBind(audit)
     try {
       const preview = await aiRuntime.lanAssist('/preview', {
         method: 'POST',
-        body: {
-          kind: rollbackKind,
-          action: '改行',
-          no: audit.recordNo,
-          workspace,
-          patch,
-          speech: '回退',
-        },
+        body: rollbackPreviewBody(lookupBind, rollbackKind, lookupNo, patch, workspace),
       })
       if (preview && preview.ok === false) {
         const previewCode = String(preview.error || 'preview_failed')
+        const speak = String(preview.hint || preview.speak || preview.sheet?.speak || '').trim()
+        const wrongBind = previewCode === 'NOT_FOUND' && !Object.keys(lookupBind).length
+        const hint = wrongBind
+          ? `按审计里的型「${rollbackKind}」和主键「${lookupNo}」回查为空；若业务里仍有这条，多半是写入时未记下 where/hop 绑定，请重新改行过账后再试。`
+          : (speak || '回退预览失败')
         markRollbackBlockedIfPermanent(db, traceId, previewCode, 400)
-        sendError(response, 400, previewCode, String(preview.hint || preview.speak || '回退预览失败'), correlationId)
+        sendError(response, 400, previewCode, hint, correlationId)
         return true
       }
       const sheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
@@ -945,14 +942,15 @@ export async function handleBizRoutes(request, response, url, deps) {
       insertBizWriteAudit(db, {
         workspaceCwd: bizCwd,
         traceId,
-        kind: effectiveBizKind(sheet?.kind, body.kind, written?.kind),
+        kind: effectiveBizKind(sheet?.kind, body.kind),
         action: String(sheet?.action || body.action || written?.action || ''),
-        recordNo: String(written?.no || sheet?.no || body.no || ''),
+        recordNo: auditRecordNo(sheet, body, written),
         receiptId: String(written?.receipt_id || written?.receiptId || ''),
         sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || ''),
         source: String(body.source || (sheet?.sessionId ? 'ai' : 'workstation')),
         changes: auditChanges,
         columns: Array.isArray(sheet?.columns) ? sheet.columns : (Array.isArray(body.columns) ? body.columns : []),
+        lookupBind: captureLookupBind(sheet, body),
       })
     } catch { /* audit must not block write */ }
     if (rollbackOfTraceId) {
