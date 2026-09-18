@@ -718,6 +718,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     rememberBizPendingSheet(sheet)
     maybeSaveListRestore(sheet)
     applySheet(sheet, conn?.name || '连接器', surfaceId)
+    if (!isWritePreview) setDrawer(null)
     if (isWritePreview) {
       setDrawer({
         previewId,
