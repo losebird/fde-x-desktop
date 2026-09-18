@@ -9,7 +9,7 @@ import { mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, s
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
-import { enrichStructuredSlots, kindMentions, nestFromSteps } from './slots.js'
+import { enrichStructuredSlots, kindMentions, nestFromSteps, pickHopSpeech } from './slots.js'
 import { previewRowCap } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -17,6 +17,22 @@ import { redactEnvelopeText, refLabel } from './ref.js'
 
 export const SYSTEM_TABLES = ['users', 'fields', 'aiMessages']
 export const PREVIEW_TTL_MS = 90_000
+
+const HOP_XIANCHA_CACHE_MAX = 32
+const hopXianchaCache = new Map()
+
+function hopXianchaCacheKey(sessionId, workspace, speech) {
+  return `${String(sessionId || '')}\0${String(workspace || '')}\0${String(speech || '')}\0现查`
+}
+
+function hopXianchaCacheSet(key, value) {
+  if (hopXianchaCache.has(key)) hopXianchaCache.delete(key)
+  hopXianchaCache.set(key, value)
+  while (hopXianchaCache.size > HOP_XIANCHA_CACHE_MAX) {
+    const oldest = hopXianchaCache.keys().next().value
+    hopXianchaCache.delete(oldest)
+  }
+}
 
 /**
  * @param {{ kind?: string, no?: string } | null | undefined} ref
@@ -900,6 +916,8 @@ export function createGate(opts = {}) {
         enrichExtra.collections = await opts.collectionsOf(spec.workspace)
       } catch { /* collections optional for enrich */ }
     }
+    const picked = pickHopSpeech(spec.speech || spec.quote, spec.userSpeech, loaded.vocab, enrichExtra)
+    if (picked) spec = { ...spec, speech: picked }
     if (typeof opts.fieldsOf === 'function') {
       const mentioned = new Set()
       const speech = String(spec.speech || spec.quote || '').trim()
@@ -919,7 +937,30 @@ export function createGate(opts = {}) {
     }
     const enriched = enrichStructuredSlots(spec, loaded.vocab, enrichExtra)
     const plan = normalizePlan(enriched)
-    return previewStructured(plan, enriched, loaded)
+    const sessionId = String(spec.sessionId || '').trim()
+    const workspaceKey = String(spec.workspace || '')
+    const speechForHop = String(plan.speech || '').trim()
+    if (
+      plan.action === '现查'
+      && Array.isArray(plan.steps) && plan.steps.length >= 2
+      && sessionId
+      && speechForHop
+    ) {
+      const cacheKey = hopXianchaCacheKey(sessionId, workspaceKey, speechForHop)
+      const cached = hopXianchaCache.get(cacheKey)
+      if (cached) return cached
+    }
+    const result = await previewStructured(plan, enriched, loaded)
+    if (
+      plan.action === '现查'
+      && Array.isArray(plan.steps) && plan.steps.length >= 2
+      && sessionId
+      && speechForHop
+      && result && result.ok !== false
+    ) {
+      hopXianchaCacheSet(hopXianchaCacheKey(sessionId, workspaceKey, speechForHop), result)
+    }
+    return result
   }
 
   async function write(spec = {}) {

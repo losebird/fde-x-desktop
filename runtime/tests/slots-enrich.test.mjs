@@ -1,6 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { enrichStructuredSlots, clueHitsInSpeech, kindMentions } from '../vendor-overlays/dsh-lan-assist/slots.js'
+import {
+  enrichStructuredSlots,
+  clueHitsInSpeech,
+  kindMentions,
+  pickHopSpeech,
+  relatedMentionedKinds,
+} from '../vendor-overlays/dsh-lan-assist/slots.js'
 
 test('kindMentions does not count a shorter kind inside a longer kind', () => {
   const hits = kindMentions('ParentA MidB ChildC', ['Parent', 'ParentA', 'MidB', 'ChildC'])
@@ -225,4 +231,18 @@ test('enrichStructuredSlots remaps kind whose prefix shares suffix of vocab kind
   }, intersectionVocab)
   assert.equal(out.kind, 'AlphaWidget')
   assert.equal(out.from?.kind, 'AlphaGadget')
+})
+
+test('relatedMentionedKinds returns largest connected component on intersection speech', () => {
+  const { related } = relatedMentionedKinds(intersectionSpeech, intersectionVocab)
+  assert.equal(related.length, 2)
+  assert.ok(related.includes('AlphaWidget'))
+  assert.ok(related.includes('AlphaGadget'))
+})
+
+test('pickHopSpeech prefers user utterance when it mentions more related kinds', () => {
+  const model = 'list WidgetSlip'
+  assert.equal(pickHopSpeech(model, intersectionSpeech, intersectionVocab), intersectionSpeech)
+  assert.equal(pickHopSpeech(intersectionSpeech, intersectionSpeech, intersectionVocab), intersectionSpeech)
+  assert.equal(pickHopSpeech(intersectionSpeech, model, intersectionVocab), intersectionSpeech)
 })

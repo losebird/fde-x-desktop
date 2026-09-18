@@ -426,6 +426,69 @@ function relatedKindChain(targetKind, speech, extra) {
   return [...ordered.filter((kind) => kind !== target), target]
 }
 
+function relatedMentionedKinds(speech, vocab, extra = {}) {
+  const bag = { vocab, ...extra }
+  const kinds = registeredKinds(bag)
+  const mentioned = [...new Set(kindMentions(String(speech || ''), kinds, bag).map((row) => row.kind))]
+  if (!mentioned.length) return { mentioned, related: [] }
+  const mentionedSet = new Set(mentioned)
+  const undirected = new Map()
+  const addU = (a, b) => {
+    if (!undirected.has(a)) undirected.set(a, new Set())
+    undirected.get(a).add(b)
+  }
+  for (const kind of mentioned) {
+    for (const other of graphNeighbors(kind, bag)) {
+      if (!mentionedSet.has(other)) continue
+      addU(kind, other)
+      addU(other, kind)
+    }
+  }
+  if (Array.isArray(extra.collections) && extra.collections.length) {
+    for (let i = 0; i < mentioned.length; i += 1) {
+      for (let j = i + 1; j < mentioned.length; j += 1) {
+        const left = mentioned[i]
+        const right = mentioned[j]
+        if (schemaRelatedField(left, right, bag) || schemaRelatedField(right, left, bag)) {
+          addU(left, right)
+          addU(right, left)
+        }
+      }
+    }
+  }
+  const seen = new Set()
+  let related = []
+  for (const start of mentioned) {
+    if (seen.has(start)) continue
+    const component = []
+    const queue = [start]
+    seen.add(start)
+    while (queue.length) {
+      const cur = queue.shift()
+      component.push(cur)
+      for (const next of (undirected.get(cur) || [])) {
+        if (seen.has(next)) continue
+        seen.add(next)
+        queue.push(next)
+      }
+    }
+    if (component.length > related.length) related = component
+  }
+  return { mentioned, related }
+}
+
+export function pickHopSpeech(modelSpeech, userSpeech, vocab, extra = {}) {
+  const model = String(modelSpeech || '').trim()
+  const user = String(userSpeech || '').trim()
+  if (!user) return model
+  if (!model) return user
+  if (model === user) return model
+  const userRel = relatedMentionedKinds(user, vocab, extra).related.length
+  const modelRel = relatedMentionedKinds(model, vocab, extra).related.length
+  if (userRel > modelRel) return user
+  return model
+}
+
 function nestFromSteps(steps) {
   const hops = (Array.isArray(steps) ? steps : []).slice(0, -1)
   if (!hops.length) return undefined
@@ -690,4 +753,4 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   return next
 }
 
-export { clueHitsInSpeech, parentKindsOf, kindMentions, relatedKindChain, nestFromSteps }
+export { clueHitsInSpeech, parentKindsOf, kindMentions, relatedKindChain, nestFromSteps, relatedMentionedKinds }

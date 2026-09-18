@@ -208,6 +208,7 @@ export function registerTools(ctx, { defineTool }, secretary) {
         sessionId,
         workspace,
         speech: (args && (args.speech || args.quote)) || lastUserSpeech(exec) || '',
+        userSpeech: lastUserSpeech(exec) || '',
       })
       return JSON.stringify(result)
     },
