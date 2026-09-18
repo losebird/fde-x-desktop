@@ -32,6 +32,20 @@ test('listQueryFingerprint differs when hopWhere differs', () => {
   assert.notEqual(a, b)
 })
 
+test('listQueryFingerprint differs when nested from chain differs', () => {
+  const a = listQueryFingerprint({
+    kind: 'T',
+    action: '现查',
+    from: { kind: 'ParentA', from: { kind: 'MidB' } },
+    steps: [{ kind: 'ParentA' }, { kind: 'MidB' }, { kind: 'T' }],
+  })
+  const b = listQueryFingerprint({
+    kind: 'T',
+    action: '现查',
+  })
+  assert.notEqual(a, b)
+})
+
 test('pendingSheetWatchFingerprint changes when query changes even if rowCount matches', () => {
   const row = { no: '1', status: 'x' }
   const fp1 = pendingSheetWatchFingerprint({

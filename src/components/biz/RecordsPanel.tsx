@@ -810,6 +810,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
           speech: String(sheet.speech || '').trim() || `现查${incomingKind}`,
           ...(restoreWhere.length ? { where: restoreWhere } : {}),
           ...(sheet.from && typeof sheet.from === 'object' && !Array.isArray(sheet.from) ? { from: sheet.from } : {}),
+          ...(Array.isArray(sheet.hopWhere) && sheet.hopWhere.length ? { hopWhere: sheet.hopWhere } : {}),
           ...(Array.isArray(sheet.steps) && sheet.steps.length ? { steps: sheet.steps } : {}),
         })
         const listSheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
@@ -969,6 +970,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
           hopBind.from = bindSheet.from
         }
         if (Array.isArray(bindSheet.where) && bindSheet.where.length) hopBind.where = bindSheet.where
+        if (Array.isArray(bindSheet.hopWhere) && bindSheet.hopWhere.length) hopBind.hopWhere = bindSheet.hopWhere
         if (Array.isArray(bindSheet.steps) && bindSheet.steps.length) hopBind.steps = bindSheet.steps
       }
       const data = await runtimeApi.bizPreview({

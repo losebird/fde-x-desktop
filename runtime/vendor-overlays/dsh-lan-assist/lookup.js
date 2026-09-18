@@ -813,6 +813,11 @@ export function selfFk(kind, extra) {
   return ''
 }
 
+/** Schema/collection FK only — never the selfFk fallback used by relatedField. */
+export function schemaRelatedField(fromKind, toKind, extra) {
+  return relationFieldFromCollections(fromKind, toKind, extra)
+}
+
 function relationFieldFromCollections(fromKind, toKind, extra) {
   const from = String(fromKind || '').trim()
   const to = String(toKind || '').trim()

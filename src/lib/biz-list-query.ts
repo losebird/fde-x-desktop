@@ -62,6 +62,30 @@ export function extractBoundKindHints(sheet: Record<string, unknown> | null | un
   return [...kinds]
 }
 
+function stableFromSlice(raw: unknown, depth = 0): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 8) return null
+  const row = raw as Record<string, unknown>
+  const kind = String(row.kind || '').trim()
+  if (!kind) return null
+  const nested = stableFromSlice(row.from, depth + 1)
+  const where = stableWhereSlice(Array.isArray(row.where) ? row.where : [])
+  return {
+    kind,
+    ...(where.length ? { where } : {}),
+    ...(nested ? { from: nested } : {}),
+  }
+}
+
+function stableStepsSlice(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return ''
+      return String((row as Record<string, unknown>).kind || '').trim()
+    })
+    .filter(Boolean)
+}
+
 function hopWhereJson(sheet: Record<string, unknown>): string {
   const hop = sheet.hopWhere
   if (!Array.isArray(hop) || !hop.length) return ''
@@ -136,7 +160,9 @@ export function listQueryFingerprint(sheet: Record<string, unknown> | null | und
   const direct = sheet.where ?? sheet.listWhere
   const where = stableWhereSlice(Array.isArray(direct) ? direct : [])
   const hopWhere = stableWhereSlice(Array.isArray(sheet.hopWhere) ? sheet.hopWhere : [])
-  return JSON.stringify({ kind, action, where, hopWhere })
+  const from = stableFromSlice(sheet.from)
+  const steps = stableStepsSlice(sheet.steps)
+  return JSON.stringify({ kind, action, where, hopWhere, from, steps })
 }
 
 export function listSnapshotCacheKey(kind: string, sheet: Record<string, unknown>): string {

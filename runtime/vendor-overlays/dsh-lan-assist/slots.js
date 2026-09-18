@@ -4,7 +4,7 @@
  * @module dsh-lan-assist/slots
  */
 
-import { collectionFields, mapKind, registeredKinds, relatedField } from './lookup.js'
+import { collectionFields, mapKind, registeredKinds, relatedField, schemaRelatedField } from './lookup.js'
 import {
   inferNegatedClosedHit,
   schemaFieldsForKind,
@@ -196,6 +196,18 @@ function relatedKindChain(targetKind, speech, extra) {
       addU(other, kind)
     }
   }
+  if (Array.isArray(extra.collections) && extra.collections.length) {
+    for (let i = 0; i < seed.length; i += 1) {
+      for (let j = i + 1; j < seed.length; j += 1) {
+        const left = seed[i]
+        const right = seed[j]
+        if (schemaRelatedField(left, right, extra) || schemaRelatedField(right, left, extra)) {
+          addU(left, right)
+          addU(right, left)
+        }
+      }
+    }
+  }
   const connected = new Set()
   const queue = [target]
   connected.add(target)
@@ -218,6 +230,17 @@ function relatedKindChain(targetKind, speech, extra) {
     if (!connected.has(rel.from) || !connected.has(rel.to)) continue
     incoming.set(rel.to, (incoming.get(rel.to) || 0) + 1)
     children.get(rel.from).push(rel.to)
+  }
+  if (Array.isArray(extra.collections) && extra.collections.length) {
+    for (const from of connected) {
+      for (const to of connected) {
+        if (from === to) continue
+        if (!schemaRelatedField(from, to, extra)) continue
+        if ((children.get(from) || []).includes(to)) continue
+        incoming.set(to, (incoming.get(to) || 0) + 1)
+        children.get(from).push(to)
+      }
+    }
   }
   const ready = [...connected].filter((kind) => (incoming.get(kind) || 0) === 0)
   const ordered = []

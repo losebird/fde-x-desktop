@@ -113,3 +113,35 @@ test('enrichStructuredSlots chains three mentioned related kinds along the graph
   assert.deepEqual(out.steps.map((row) => row.kind), ['ParentA', 'MidB', 'ChildC'])
   assert.ok(Array.isArray(out.where) && out.where.length)
 })
+
+test('enrichStructuredSlots chains three kinds via schema FK when vocab has no relations', () => {
+  const chainVocab = [
+    { kind: 'ParentA', resource: 'parent_a', can: ['现查'] },
+    { kind: 'MidB', resource: 'mid_b', can: ['现查'] },
+    { kind: 'ChildC', resource: 'child_c', can: ['现查'] },
+  ]
+  const collections = [
+    {
+      name: 'mid_b',
+      fields: [
+        { name: 'parent', target: 'parent_a', interface: 'm2o' },
+        { name: 'parentId' },
+      ],
+    },
+    {
+      name: 'child_c',
+      fields: [
+        { name: 'mid', target: 'mid_b', interface: 'm2o' },
+        { name: 'midId' },
+      ],
+    },
+  ]
+  const out = enrichStructuredSlots({
+    kind: 'ChildC',
+    action: '现查',
+    speech: 'ParentA MidB ChildC — list ChildC',
+  }, chainVocab, { collections })
+  assert.equal(out.from?.kind, 'ParentA')
+  assert.equal(out.from?.from?.kind, 'MidB')
+  assert.deepEqual(out.steps.map((row) => row.kind), ['ParentA', 'MidB', 'ChildC'])
+})

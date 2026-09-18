@@ -33,6 +33,27 @@ export function extractSheetListWhere(sheet) {
   return []
 }
 
+function stableFromSlice(raw, depth = 0) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 8) return null
+  const kind = String(raw.kind || '').trim()
+  if (!kind) return null
+  const nested = stableFromSlice(raw.from, depth + 1)
+  const where = stableWhereSlice(Array.isArray(raw.where) ? raw.where : [])
+  return {
+    kind,
+    ...(where.length ? { where } : {}),
+    ...(nested ? { from: nested } : {}),
+  }
+}
+
+function stableStepsSlice(raw) {
+  if (!Array.isArray(raw)) return []
+  return raw.map((row) => {
+    if (!row || typeof row !== 'object') return ''
+    return String(row.kind || '').trim()
+  }).filter(Boolean)
+}
+
 export function listQueryFingerprint(sheet) {
   if (!sheet || typeof sheet !== 'object') return ''
   const kind = String(sheet.kind || '').trim()
@@ -40,7 +61,9 @@ export function listQueryFingerprint(sheet) {
   const direct = sheet.where ?? sheet.listWhere
   const where = stableWhereSlice(Array.isArray(direct) ? direct : [])
   const hopWhere = stableWhereSlice(Array.isArray(sheet.hopWhere) ? sheet.hopWhere : [])
-  return JSON.stringify({ kind, action, where, hopWhere })
+  const from = stableFromSlice(sheet.from)
+  const steps = stableStepsSlice(sheet.steps)
+  return JSON.stringify({ kind, action, where, hopWhere, from, steps })
 }
 
 export function pendingSheetWatchFingerprint(sheet) {

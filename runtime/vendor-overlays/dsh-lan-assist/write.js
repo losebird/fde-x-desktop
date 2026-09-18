@@ -650,10 +650,19 @@ export function createGate(opts = {}) {
         expiresAt: now() + PREVIEW_TTL_MS, used: false, speak: spoken.speak, vocab: loaded.vocab, mapped: recognized.mapped,
       }
       tokens.set(previewId, token)
+      const fromSlot = nestFromSteps(plan.steps)
+      const stepsMeta = planStepsForSheet(plan)
+      const hopMeta = sheetWhereFromPlan(plan, spec)
       return await sheet({
         ok: true, ...token, speak: spoken.speak, status: '未建', fields: { ...writePatch },
         matches: [{ no: labelNo, status: '未建', fields: { ...writePatch } }],
-      }, { action: '新建', no: labelNo, speech: plan.speech })
+      }, {
+        action: '新建', no: labelNo, speech: plan.speech,
+        ...(fromSlot ? { from: fromSlot } : {}),
+        ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
+        ...(hopMeta.where ? { where: hopMeta.where } : {}),
+        ...(hopMeta.hopWhere ? { hopWhere: hopMeta.hopWhere } : {}),
+      })
     }
     const parentFound = await probe({
       ...spec,
@@ -744,12 +753,14 @@ export function createGate(opts = {}) {
     async function sheet(result, more = {}) {
       const fromSlot = nestFromSteps(plan.steps)
       const stepsMeta = planStepsForSheet(plan)
+      const hopMeta = sheetWhereFromPlan(plan, spec)
       return withSheet(result, {
         vocab: loaded.vocab,
         schemaFields,
         fieldsOf: opts.fieldsOf,
         ...(fromSlot ? { from: fromSlot } : {}),
         ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
+        ...(hopMeta.hopWhere ? { hopWhere: hopMeta.hopWhere } : {}),
         ...more,
       })
     }
@@ -890,10 +901,16 @@ export function createGate(opts = {}) {
       } catch { /* collections optional for enrich */ }
     }
     if (typeof opts.fieldsOf === 'function') {
-      const schemaByKind = {}
+      const mentioned = new Set()
+      const speech = String(spec.speech || spec.quote || '').trim()
+      if (kind) mentioned.add(kind)
       for (const row of loaded.vocab) {
         const kindName = String(row && row.kind || '').trim()
         if (!kindName || kindName === '口语') continue
+        if (speech && speech.includes(kindName)) mentioned.add(kindName)
+      }
+      const schemaByKind = {}
+      for (const kindName of mentioned) {
         try {
           const fields = await opts.fieldsOf(kindName, loaded.vocab)
           if (Array.isArray(fields) && fields.length) schemaByKind[kindName] = fields
