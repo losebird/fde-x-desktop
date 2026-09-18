@@ -6,6 +6,8 @@ import {
   kindMentions,
   pickHopSpeech,
   relatedMentionedKinds,
+  rememberUserSpeech,
+  recalledUserSpeech,
 } from '../vendor-overlays/dsh-lan-assist/slots.js'
 
 test('kindMentions does not count a shorter kind inside a longer kind', () => {
@@ -245,4 +247,10 @@ test('pickHopSpeech prefers user utterance when it mentions more related kinds',
   assert.equal(pickHopSpeech(model, intersectionSpeech, intersectionVocab), intersectionSpeech)
   assert.equal(pickHopSpeech(intersectionSpeech, intersectionSpeech, intersectionVocab), intersectionSpeech)
   assert.equal(pickHopSpeech(intersectionSpeech, model, intersectionVocab), intersectionSpeech)
+})
+
+test('rememberUserSpeech recalls the last line for a session', () => {
+  rememberUserSpeech('sess-hop', intersectionSpeech)
+  assert.equal(recalledUserSpeech('sess-hop'), intersectionSpeech)
+  assert.equal(pickHopSpeech('list WidgetSlip', recalledUserSpeech('sess-hop'), intersectionVocab), intersectionSpeech)
 })

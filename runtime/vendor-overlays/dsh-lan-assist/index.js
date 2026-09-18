@@ -25,6 +25,7 @@ import { createLookup } from './lookup.js'
 import { translateQuote } from './translate.js'
 import { createEyesSee, hasEyes } from './eyes-bridge.js'
 import { createGate, createNocoWrite } from './write.js'
+import { rememberUserSpeech } from './slots.js'
 import { createTraceLog } from './traces.js'
 
 const schemaMod = await importPeer('@deepseek-ai/schemastery')
@@ -266,6 +267,7 @@ export async function apply(ctx, config) {
         }
         const speech = extractUserSpeech(event)
         if (!speech) return
+        rememberUserSpeech(sessionId, speech)
         const workspace = session && session.header && typeof session.header.cwd === 'string'
           ? session.header.cwd.trim()
           : ''

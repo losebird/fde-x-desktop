@@ -4,6 +4,8 @@
  */
 
 import { messageIdOf, requestIdOf } from './conversation.js'
+import { extractUserSpeech } from './semantic.js'
+import { recalledUserSpeech, rememberUserSpeech } from './slots.js'
 
 export function toolSessionId(exec) {
   const agent = exec && exec.agent
@@ -18,9 +20,16 @@ export function toolSessionId(exec) {
 }
 
 function lastUserSpeech(exec) {
-  const events = exec && exec.agent && exec.agent.session && exec.agent.session.events
-  if (!Array.isArray(events)) return ''
+  const sessionId = toolSessionId(exec)
+  const recalled = recalledUserSpeech(sessionId)
+  const session = exec && exec.agent && exec.agent.session
+  const events = session && Array.isArray(session.events) ? session.events : []
   for (let i = events.length - 1; i >= 0; i -= 1) {
+    const extracted = extractUserSpeech(events[i])
+    if (extracted) {
+      rememberUserSpeech(sessionId, extracted)
+      return extracted
+    }
     const event = events[i]
     if (!event || event.type !== 'user/message') continue
     const data = event.data || {}
@@ -35,9 +44,12 @@ function lastUserSpeech(exec) {
       }
     }
     const line = texts.join('\n').trim()
-    if (line) return line
+    if (line) {
+      rememberUserSpeech(sessionId, line)
+      return line
+    }
   }
-  return ''
+  return recalled
 }
 
 export function toolWorkspace(exec) {

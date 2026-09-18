@@ -489,6 +489,24 @@ export function pickHopSpeech(modelSpeech, userSpeech, vocab, extra = {}) {
   return model
 }
 
+const lastSpeechBySession = new Map()
+
+export function rememberUserSpeech(sessionId, speech) {
+  const sid = String(sessionId || '').trim()
+  const text = String(speech || '').trim()
+  if (!sid || !text) return
+  if (lastSpeechBySession.has(sid)) lastSpeechBySession.delete(sid)
+  lastSpeechBySession.set(sid, text)
+  while (lastSpeechBySession.size > 32) {
+    const oldest = lastSpeechBySession.keys().next().value
+    lastSpeechBySession.delete(oldest)
+  }
+}
+
+export function recalledUserSpeech(sessionId) {
+  return lastSpeechBySession.get(String(sessionId || '').trim()) || ''
+}
+
 function nestFromSteps(steps) {
   const hops = (Array.isArray(steps) ? steps : []).slice(0, -1)
   if (!hops.length) return undefined

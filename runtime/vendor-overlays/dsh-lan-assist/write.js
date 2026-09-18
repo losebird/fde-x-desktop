@@ -9,7 +9,7 @@ import { mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, s
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
-import { enrichStructuredSlots, kindMentions, nestFromSteps, pickHopSpeech } from './slots.js'
+import { enrichStructuredSlots, kindMentions, nestFromSteps, pickHopSpeech, recalledUserSpeech, relatedMentionedKinds } from './slots.js'
 import { previewRowCap } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -916,8 +916,9 @@ export function createGate(opts = {}) {
         enrichExtra.collections = await opts.collectionsOf(spec.workspace)
       } catch { /* collections optional for enrich */ }
     }
-    const picked = pickHopSpeech(spec.speech || spec.quote, spec.userSpeech, loaded.vocab, enrichExtra)
-    if (picked) spec = { ...spec, speech: picked }
+    const userSpeech = String(spec.userSpeech || '').trim() || recalledUserSpeech(spec.sessionId)
+    const picked = pickHopSpeech(spec.speech || spec.quote, userSpeech, loaded.vocab, enrichExtra)
+    if (picked) spec = { ...spec, speech: picked, userSpeech }
     if (typeof opts.fieldsOf === 'function') {
       const mentioned = new Set()
       const speech = String(spec.speech || spec.quote || '').trim()
@@ -940,14 +941,14 @@ export function createGate(opts = {}) {
     const sessionId = String(spec.sessionId || '').trim()
     const workspaceKey = String(spec.workspace || '')
     const speechForHop = String(plan.speech || '').trim()
-    if (
-      plan.action === '现查'
-      && Array.isArray(plan.steps) && plan.steps.length >= 2
-      && sessionId
-      && speechForHop
-    ) {
-      const cacheKey = hopXianchaCacheKey(sessionId, workspaceKey, speechForHop)
-      const cached = hopXianchaCache.get(cacheKey)
+    const rememberedHop = String(userSpeech || '').trim()
+    const hopSpeech = (
+      relatedMentionedKinds(speechForHop, loaded.vocab, enrichExtra).related.length >= 2
+        ? speechForHop
+        : (relatedMentionedKinds(rememberedHop, loaded.vocab, enrichExtra).related.length >= 2 ? rememberedHop : '')
+    )
+    if (plan.action === '现查' && sessionId && hopSpeech) {
+      const cached = hopXianchaCache.get(hopXianchaCacheKey(sessionId, workspaceKey, hopSpeech))
       if (cached) return cached
     }
     const result = await previewStructured(plan, enriched, loaded)
@@ -955,10 +956,13 @@ export function createGate(opts = {}) {
       plan.action === '现查'
       && Array.isArray(plan.steps) && plan.steps.length >= 2
       && sessionId
-      && speechForHop
+      && hopSpeech
       && result && result.ok !== false
     ) {
-      hopXianchaCacheSet(hopXianchaCacheKey(sessionId, workspaceKey, speechForHop), result)
+      hopXianchaCacheSet(hopXianchaCacheKey(sessionId, workspaceKey, hopSpeech), result)
+      if (speechForHop && speechForHop !== hopSpeech) {
+        hopXianchaCacheSet(hopXianchaCacheKey(sessionId, workspaceKey, speechForHop), result)
+      }
     }
     return result
   }
