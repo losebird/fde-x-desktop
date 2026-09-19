@@ -374,7 +374,9 @@ function Overview({
   const [showCreate, setShowCreate] = useState(false)
   const [draftsOpen, setDraftsOpen] = useState(false)
   const [dialogAppId, setDialogAppId] = useState('')
-  const [workspaceAppId, setWorkspaceAppId] = useState('')
+  const workspaceAppId = useApp((state) => state.dataBrowse.workspaceAppId) || ''
+  const setDataBrowse = useApp((state) => state.setDataBrowse)
+  const setWorkspaceAppId = (id: string) => setDataBrowse({ workspaceAppId: id || null })
   const [deleteTarget, setDeleteTarget] = useState<BusinessAppRecord | null>(null)
   const [declarativeApp, setDeclarativeApp] = useState<FdeAppDetail | null>(null)
   const [workspaceCwd, setWorkspaceCwd] = useState('')

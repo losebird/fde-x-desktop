@@ -59,7 +59,7 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
           ))}
         </div>
         <div className="pb-1.5">
-          <AppCapabilityBar spec={app.spec} />
+          <AppCapabilityBar spec={app.spec} appId={app.id} />
         </div>
       </div>
       <div className="space-y-4" data-app-ledger={pageLooksLikeLedger(page) ? 'true' : undefined}>

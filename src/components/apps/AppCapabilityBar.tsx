@@ -11,9 +11,10 @@ import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
   spec: FdeAppSpec
+  appId: string
 }
 
-export function AppCapabilityBar({ spec }: Props) {
+export function AppCapabilityBar({ spec, appId }: Props) {
   const uses = declaredPlatformUses(spec)
   const [note, setNote] = useState('')
   const [draftCard, setDraftCard] = useState<MemoryDraftCard | null>(null)
@@ -24,7 +25,7 @@ export function AppCapabilityBar({ spec }: Props) {
     setNote('')
     if (use !== 'memory') setDraftCard(null)
     try {
-      const result = await runDeclaredPlatformUse(use, spec)
+      const result = await runDeclaredPlatformUse(use, spec, appId)
       if (isMemoryDraftCard(result)) {
         setDraftCard(result)
         setNote('已起草记忆卡片，点头才入档')

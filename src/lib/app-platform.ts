@@ -6,13 +6,13 @@ import {
 } from '@/lib/app-spec'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { runtimeApi, type MemoryDraftCard } from '@/lib/runtime-api'
-import { useApp } from '@/store/app'
+import { toAppFloatingKey, useApp } from '@/store/app'
 
 export { declaredPlatformUses, specHasUse }
 
 const LABELS: Record<FdePlatformUse, string> = {
   ai: '问 AI',
-  float: '撕出浮窗',
+  float: '浮窗',
   files: '引用文件',
   memory: '起草记忆卡片',
   im: '拟回进输入框',
@@ -145,7 +145,11 @@ export function isMemoryDraftCard(value: DeclaredPlatformUseResult): value is Me
   return Boolean(value && typeof value === 'object' && 'id' in value && 'body' in value)
 }
 
-export async function runDeclaredPlatformUse(use: FdePlatformUse, spec: FdeAppSpec): Promise<DeclaredPlatformUseResult> {
+export async function runDeclaredPlatformUse(
+  use: FdePlatformUse,
+  spec: FdeAppSpec,
+  appId?: string,
+): Promise<DeclaredPlatformUseResult> {
   const state = useApp.getState()
   if (use === 'ai') {
     const cwd = loadCurrentWorkspaceCwd()
@@ -160,16 +164,20 @@ export async function runDeclaredPlatformUse(use: FdePlatformUse, spec: FdeAppSp
     return '已打开 AI 会话'
   }
   if (use === 'float') {
-    state.setPanelState('data', 'tab')
+    const id = String(appId || '').trim()
+    if (!id) throw new Error('没有可撕出的应用')
     const width = Math.min(1180, Math.max(420, Math.round(window.innerWidth * 0.82)))
     const height = Math.min(820, Math.max(360, Math.round(window.innerHeight * 0.84)))
-    state.openFloating('data', {
+    const existing = Object.keys(state.floating).filter((key) => key.startsWith('app:')).length
+    const offset = existing * 28
+    state.openFloating(toAppFloatingKey(id), {
       width,
       height,
-      x: Math.max(16, Math.round((window.innerWidth - width) / 2)),
-      y: Math.max(16, Math.round((window.innerHeight - height) / 2)),
+      x: Math.max(16, Math.round((window.innerWidth - width) / 2) + offset),
+      y: Math.max(16, Math.round((window.innerHeight - height) / 2) + offset),
+      title: spec.name,
     })
-    return '已撕出浮窗'
+    return '已打开浮窗'
   }
   if (use === 'files') {
     openFilesModule()

@@ -5,9 +5,10 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Minus, Maximize2, GripVertical } from 'lucide-react'
 import clsx from 'clsx'
-import { useApp } from '@/store/app'
+import { appIdFromFloatingKey, useApp } from '@/store/app'
+import type { FloatingBox, FloatingKey, SidePanelItem } from '@/store/app'
+import { AppFloatSurface } from '@/components/apps/AppFloatSurface'
 import { PanelContent } from './PanelContent'
-import type { FloatingBox, SidePanelItem } from '@/store/app'
 
 // 浮窗的最小尺寸和最小可见边距(防止拖出屏外后找不回)
 const MIN_W = 420
@@ -43,14 +44,14 @@ function FloatingWindow({
   box,
   panelMeta,
 }: {
-  view: SidePanelItem['view']
+  view: FloatingKey
   box: FloatingBox
   panelMeta?: SidePanelItem
 }) {
   const closeFloating = useApp((s) => s.closeFloating)
+  const dockFloating = useApp((s) => s.dockFloating)
   const setFloatingBox = useApp((s) => s.setFloatingBox)
   const focusFloating = useApp((s) => s.focusFloating)
-  const closePanel = useApp((s) => s.closePanel)
   const [drag, setDrag] = useState<DragKind>(null)
   const dragRef = useRef<{
     kind: DragKind
@@ -62,7 +63,8 @@ function FloatingWindow({
     h: number
   }>({ kind: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 })
 
-  const label = panelMeta?.label ?? view
+  const appId = appIdFromFloatingKey(view)
+  const label = box.title || panelMeta?.label || (appId ? '应用' : view)
   const accent = panelMeta?.accent ?? 'bg-slate-500'
 
   const draggingRef = useRef(false)
@@ -144,13 +146,15 @@ function FloatingWindow({
     accent,
     state: 'full',
     width: box.width,
-    view,
+    view: 'data',
   }
 
   return (
     <div
       role="dialog"
-      aria-label={`浮窗 · ${label}`}
+      aria-label={label}
+      data-floating-key={view}
+      data-app-float={appId || undefined}
       onPointerDown={() => focusFloating(view)}
       className="fixed rounded-xl bg-surface border border-line shadow-2xl flex flex-col overflow-hidden"
       style={{
@@ -171,14 +175,14 @@ function FloatingWindow({
       >
         <GripVertical size={12} className="text-ink-subtle" />
         <div className={clsx('w-1 self-stretch my-1.5 rounded-full', accent)} />
-        <div className="text-sm font-medium">{label}</div>
-        <span className="text-[10px] text-ink-subtle ml-1 px-1.5 py-0.5 rounded bg-line/60">浮窗</span>
+        <div className="text-sm font-medium" data-floating-title-label="true">{label}</div>
         <div className="flex-1" />
         <button
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); closeFloating(view) }}
+          onClick={(e) => { e.stopPropagation(); dockFloating(view) }}
           className="p-1.5 rounded hover:bg-line text-ink-muted"
-          title="隐藏浮窗(保留 tab)"
+          data-floating-dock="true"
+          title="回到右侧面板"
         >
           <Minus size={14} />
         </button>
@@ -192,16 +196,17 @@ function FloatingWindow({
         </button>
         <button
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); closeFloating(view); closePanel(view) }}
+          onClick={(e) => { e.stopPropagation(); closeFloating(view) }}
           className="p-1.5 rounded hover:bg-line text-ink-muted"
-          title="关闭(同时关掉 tab)"
+          data-floating-close="true"
+          title="关闭"
         >
           <X size={14} />
         </button>
       </div>
 
-      <div className={clsx('flex-1 min-h-0', item.view === 'im' || item.view === 'memory' ? 'overflow-hidden' : 'overflow-auto')}>
-        <PanelContent item={item} />
+      <div className={clsx('flex-1 min-h-0', !appId && (item.view === 'im' || item.view === 'memory') ? 'overflow-hidden' : 'overflow-auto')}>
+        {appId ? <AppFloatSurface appId={appId} /> : <PanelContent item={item} />}
       </div>
 
       <div
@@ -226,7 +231,7 @@ export function FloatingPanel() {
 
   useEffect(() => {
     const onResize = () => {
-      const entries = Object.entries(floating) as [SidePanelItem['view'], FloatingBox][]
+      const entries = Object.entries(floating) as [FloatingKey, FloatingBox][]
       for (const [view, box] of entries) {
         if (!box) continue
         const next = clampBox(box)
@@ -239,7 +244,7 @@ export function FloatingPanel() {
     return () => window.removeEventListener('resize', onResize)
   }, [floating, setFloatingBox])
 
-  const entries = Object.entries(floating) as [SidePanelItem['view'], FloatingBox][]
+  const entries = Object.entries(floating) as [FloatingKey, FloatingBox][]
   if (!entries.length) return null
 
   return createPortal(

@@ -111,7 +111,10 @@ export default function Memory() {
     useApp.getState().togglePanel('settings', 'full')
     nav('/settings')
   }
-  const [pane, setPane] = useState<'home' | CanvasId>('home')
+  const storedPane = useApp((s) => s.memoryBrowse.pane)
+  const setMemoryBrowse = useApp((s) => s.setMemoryBrowse)
+  const pane: 'home' | CanvasId = (storedPane === 'home' || isCanvasId(storedPane)) ? storedPane : 'home'
+  const setPane = (next: 'home' | CanvasId) => setMemoryBrowse({ pane: next })
   const [ready, setReady] = useState<Record<string, unknown> | null>(null)
   const [cover, setCover] = useState<Array<{ id?: string; n?: number }>>([])
   const [note, setNote] = useState('')

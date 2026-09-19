@@ -39,6 +39,21 @@ export type FloatingBox = {
   width: number
   height: number
   zIndex: number
+  title?: string
+}
+
+export type FloatingKey = string
+
+export function isAppFloatingKey(key: string): boolean {
+  return key.startsWith('app:')
+}
+
+export function appIdFromFloatingKey(key: string): string | null {
+  return isAppFloatingKey(key) ? key.slice(4) : null
+}
+
+export function toAppFloatingKey(appId: string): string {
+  return `app:${appId}`
 }
 
 export interface SidePanelItem {
@@ -101,15 +116,20 @@ interface UIState {
   setPanelBadge: (id: string, badge: number | undefined) => void
   setPanelDirty: (id: string, dirty: boolean | undefined) => void
 
-  // ===== 撕出浮窗(独立可拖拽、可缩放、不占侧栏; 每 view 最多一窗)=====
-  floating: Partial<Record<SidePanelItem['view'], FloatingBox>>
+  // ===== 撕出浮窗(独立可拖拽、可缩放、不占侧栏; 每模块一窗，每个创建的应用也可各有一窗)=====
+  floating: Partial<Record<FloatingKey, FloatingBox>>
   floatingZTop: number
-  openFloating: (view: SidePanelItem['view'], opts?: { width?: number; height?: number; x?: number; y?: number }) => void
-  closeFloating: (view?: SidePanelItem['view']) => void
-  setFloatingBox: (view: SidePanelItem['view'], patch: Partial<Pick<FloatingBox, 'x' | 'y' | 'width' | 'height'>>) => void
-  focusFloating: (view: SidePanelItem['view']) => void
+  openFloating: (view: FloatingKey, opts?: { width?: number; height?: number; x?: number; y?: number; title?: string }) => void
+  closeFloating: (view?: FloatingKey) => void
+  dockFloating: (view?: FloatingKey) => void
+  setFloatingBox: (view: FloatingKey, patch: Partial<Pick<FloatingBox, 'x' | 'y' | 'width' | 'height' | 'title'>>) => void
+  focusFloating: (view: FloatingKey) => void
   filesBrowse: { workspaceId: string | null; parentId: string | null; selectedId: string | null }
   setFilesBrowse: (patch: Partial<AppState['filesBrowse']>) => void
+  dataBrowse: { workspaceAppId: string | null }
+  setDataBrowse: (patch: Partial<AppState['dataBrowse']>) => void
+  memoryBrowse: { pane: string }
+  setMemoryBrowse: (patch: Partial<AppState['memoryBrowse']>) => void
 
   // 当前激活(IM 联系人)
   activeThreadId: ID | null
@@ -293,7 +313,7 @@ const findPanelByView = (panels: SidePanelItem[], view: SidePanelItem['view']) =
 // 浮窗 z-index 单调递增,保证最近点击永远在最上层
 const FLOATING_BASE_Z = 60
 
-function maxFloatingZ(floating: Partial<Record<SidePanelItem['view'], FloatingBox>>, zTop: number): number {
+function maxFloatingZ(floating: Partial<Record<FloatingKey, FloatingBox>>, zTop: number): number {
   const peaks = Object.values(floating).map((b) => b?.zIndex ?? 0)
   return Math.max(zTop, FLOATING_BASE_Z, ...peaks)
 }
@@ -303,11 +323,11 @@ function nextZ(state: Pick<AppState, 'floating' | 'floatingZTop'>): number {
 }
 
 export function getTopFloatingView(
-  floating: Partial<Record<SidePanelItem['view'], FloatingBox>>,
-): SidePanelItem['view'] | null {
-  let top: SidePanelItem['view'] | null = null
+  floating: Partial<Record<FloatingKey, FloatingBox>>,
+): FloatingKey | null {
+  let top: FloatingKey | null = null
   let max = -1
-  for (const [view, box] of Object.entries(floating) as [SidePanelItem['view'], FloatingBox | undefined][]) {
+  for (const [view, box] of Object.entries(floating) as [FloatingKey, FloatingBox | undefined][]) {
     if (box && box.zIndex > max) {
       max = box.zIndex
       top = view
@@ -317,9 +337,9 @@ export function getTopFloatingView(
 }
 
 function omitFloating(
-  floating: Partial<Record<SidePanelItem['view'], FloatingBox>>,
-  view: SidePanelItem['view'],
-): Partial<Record<SidePanelItem['view'], FloatingBox>> {
+  floating: Partial<Record<FloatingKey, FloatingBox>>,
+  view: FloatingKey,
+): Partial<Record<FloatingKey, FloatingBox>> {
   if (!floating[view]) return floating
   const next = { ...floating }
   delete next[view]
@@ -481,6 +501,7 @@ export const useApp = create<AppState>()(
                   ...(opts?.y != null ? { y: opts.y } : {}),
                   ...(opts?.width != null ? { width: opts.width } : {}),
                   ...(opts?.height != null ? { height: opts.height } : {}),
+                  ...(opts?.title != null ? { title: opts.title } : {}),
                   zIndex: z,
                 },
               },
@@ -491,7 +512,7 @@ export const useApp = create<AppState>()(
           return {
             floating: {
               ...s.floating,
-              [view]: { x, y, width: w, height: h, zIndex: z },
+              [view]: { x, y, width: w, height: h, zIndex: z, ...(opts?.title ? { title: opts.title } : {}) },
             },
             floatingZTop: z,
           }
@@ -503,6 +524,20 @@ export const useApp = create<AppState>()(
           if (!target || !s.floating[target]) return {}
           return { floating: omitFloating(s.floating, target) }
         }),
+      dockFloating: (view) => {
+        const s = get()
+        const target = view ?? getTopFloatingView(s.floating)
+        if (!target || !s.floating[target]) return
+        const appId = appIdFromFloatingKey(target)
+        s.closeFloating(target)
+        if (appId) {
+          s.setDataBrowse({ workspaceAppId: appId })
+          s.setActiveDataSubview('overview')
+          s.togglePanel('data', 'full')
+          return
+        }
+        s.togglePanel(target, 'full')
+      },
       setFloatingBox: (view, patch) =>
         set((s) => {
           const box = s.floating[view]
@@ -522,6 +557,12 @@ export const useApp = create<AppState>()(
       filesBrowse: { workspaceId: null, parentId: null, selectedId: null },
       setFilesBrowse: (patch) =>
         set((s) => ({ filesBrowse: { ...s.filesBrowse, ...patch } })),
+      dataBrowse: { workspaceAppId: null },
+      setDataBrowse: (patch) =>
+        set((s) => ({ dataBrowse: { ...s.dataBrowse, ...patch } })),
+      memoryBrowse: { pane: 'home' },
+      setMemoryBrowse: (patch) =>
+        set((s) => ({ memoryBrowse: { ...s.memoryBrowse, ...patch } })),
 
       activeThreadId: 'im1',
       setActiveThread: (id) => set({ activeThreadId: id }),
