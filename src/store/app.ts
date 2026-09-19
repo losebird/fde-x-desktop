@@ -593,7 +593,15 @@ export const useApp = create<AppState>()(
       activeThreadId: 'im1',
       setActiveThread: (id) => set({ activeThreadId: id }),
       openIMPanel: (threadId) => {
-        if (threadId) set({ activeThreadId: threadId })
+        if (threadId) {
+          set((s) => ({
+            activeThreadId: threadId,
+            imBrowse: {
+              threadId,
+              topicId: s.imBrowse.threadId === threadId ? s.imBrowse.topicId : null,
+            },
+          }))
+        }
         get().togglePanel('im', 'full')
       },
       imComposerDrafts: {},

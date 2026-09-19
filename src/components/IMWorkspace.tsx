@@ -111,6 +111,12 @@ function mimeFromName(name: string) {
 
 const EMPTY_CONTACTS: IMContact[] = []
 const SKIP_DIRS = new Set(['node_modules', '.git'])
+type ImMailboxSnap = { contacts: IMContact[]; messages: IMMessage[] }
+let imMailboxSnap: ImMailboxSnap | null = null
+
+function rememberImMailbox(contacts: IMContact[], messages: IMMessage[]) {
+  imMailboxSnap = { contacts, messages }
+}
 const HANDOFF_MIME = 'application/vnd.dsh.handoff+json'
 const HANDOFF_NAME = 'dsh-handoff.json'
 
@@ -444,8 +450,8 @@ function WorkspaceFileTree({
 
 export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const params = useParams<{ threadId?: string }>()
-  const [liveContacts, setLiveContacts] = useState<IMContact[] | null>(null)
-  const [liveMessages, setLiveMessages] = useState<IMMessage[] | null>(null)
+  const [liveContacts, setLiveContacts] = useState<IMContact[] | null>(() => imMailboxSnap?.contacts ?? null)
+  const [liveMessages, setLiveMessages] = useState<IMMessage[] | null>(() => imMailboxSnap?.messages ?? null)
   const [doorPort, setDoorPort] = useState('')
   const [pairCode, setPairCode] = useState('')
   const [pairHint, setPairHint] = useState('')
@@ -483,8 +489,15 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const [filesNote, setFilesNote] = useState('')
 
   useEffect(() => {
-    if (params.threadId && params.threadId !== activeThreadId) setActiveThread(params.threadId)
-  }, [params.threadId, activeThreadId, setActiveThread])
+    if (!params.threadId) return
+    if (params.threadId !== activeThreadId) setActiveThread(params.threadId)
+    if (params.threadId !== imBrowse.threadId) {
+      setImBrowse({
+        threadId: params.threadId,
+        topicId: imBrowse.threadId === params.threadId ? imBrowse.topicId : null,
+      })
+    }
+  }, [params.threadId, activeThreadId, imBrowse.threadId, imBrowse.topicId, setActiveThread, setImBrowse])
 
   useEffect(() => {
     const needsSessions = (row: IMMessage) => {
@@ -601,6 +614,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     if (hasRoster) {
       contactsRef.current = nextContacts
       setLiveContacts(nextContacts)
+      rememberImMailbox(nextContacts, liveMessages ?? [])
     }
     const requests = Array.isArray(data.requests) ? data.requests as Array<Record<string, unknown>> : []
     const me = String(self?.id || selfId)
@@ -692,7 +706,9 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           read: markedReadRef.current.has(row.id) || row.read || old.read,
         })
       }
-      return [...byId.values()]
+      const next = [...byId.values()]
+      rememberImMailbox(contactsRef.current, next)
+      return next
     })
     if (latestPresend && latestPresend.id !== seenPresendIdRef.current) {
       seenPresendIdRef.current = latestPresend.id
@@ -745,7 +761,11 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   }, [])
 
   const [q, setQ] = useState('')
-  const [input, setInput] = useState('')
+  const [input, setInput] = useState(() => {
+    const s = useApp.getState()
+    const id = s.imBrowse.threadId
+    return (id && s.imComposerDrafts[id]) || ''
+  })
   const [attachments, setAttachments] = useState<IMAttachment[]>([])
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -790,11 +810,22 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   }, [contacts, q])
   const people = filtered.filter((c) => c.kind === 'contact')
   const groups = filtered.filter((c) => c.kind === 'topic-group')
-  const activeContact = contacts.find((c) => c.id === activeThreadId) ?? contacts[0]
+  const rememberedThreadId = imBrowse.threadId
+  const foundContact = rememberedThreadId
+    ? contacts.find((c) => c.id === rememberedThreadId)
+    : undefined
+  const activeContact = foundContact ?? (rememberedThreadId ? undefined : contacts[0])
   const selectedTopicId = imBrowse.threadId === activeContact?.id ? imBrowse.topicId : null
   const setSelectedTopicId = (id: string | null) => {
-    setImBrowse({ threadId: activeContact?.id ?? null, topicId: id })
+    setImBrowse({ threadId: activeContact?.id ?? rememberedThreadId, topicId: id })
   }
+  useEffect(() => {
+    if (!activeContact) return
+    if (activeThreadId !== activeContact.id) setActiveThread(activeContact.id)
+    if (imBrowse.threadId !== activeContact.id) {
+      setImBrowse({ threadId: activeContact.id, topicId: null })
+    }
+  }, [activeContact?.id, activeThreadId, imBrowse.threadId, setActiveThread, setImBrowse])
   openContactRef.current = activeContact
   useEffect(() => {
     void pullThread(activeContact)
@@ -898,7 +929,8 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
 
   const setComposer = (value: string) => {
     setInput(value)
-    if (activeContact) useApp.getState().setIMComposerDraft(activeContact.id, value)
+    const id = activeContact?.id || imBrowse.threadId
+    if (id) useApp.getState().setIMComposerDraft(id, value)
   }
 
   const fillComposer = (threadId: string, text: string) => {
@@ -1440,7 +1472,13 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-white" data-im-thread={activeContact?.id || ''} data-im-topic={selectedTopicId || ''}>
+    <div
+      className="h-full min-h-0 flex flex-col bg-white"
+      data-im-thread={activeContact?.id || rememberedThreadId || ''}
+      data-im-topic={selectedTopicId || ''}
+      data-im-draft={input}
+      data-im-name={activeContact?.name || ''}
+    >
       {!pairAsk && pairWait && (
         <div className="shrink-0 px-4 py-2.5 bg-surface-2 border-b border-line text-sm text-ink-muted">
           已向 {pairWait} 发出配对，等对面在 IM 里点确定。
