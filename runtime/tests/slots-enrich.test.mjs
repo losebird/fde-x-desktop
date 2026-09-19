@@ -16,6 +16,29 @@ test('kindMentions does not count a shorter kind inside a longer kind', () => {
   assert.deepEqual(hits.map((row) => row.kind), ['ParentA', 'MidB', 'ChildC'])
 })
 
+test('kindMentions keeps an exact spoken kind that appears in the graph over a longer suffix kind even when they do not share an edge with the other mention', () => {
+  const vocab = [
+    { kind: 'Customer', resource: 'customers', can: ['现查'] },
+    { kind: 'Ticket', resource: 'tickets', can: ['现查'] },
+    { kind: 'ShopTicket', resource: 'shop_tickets', can: ['现查'] },
+    {
+      kind: 'TicketLog',
+      resource: 'ticket_logs',
+      can: ['现查'],
+      relations: [{ from: 'Ticket', to: 'TicketLog', field: 'ticket' }],
+    },
+  ]
+  const extra = {
+    vocab,
+    relations: [{ from: 'Ticket', to: 'TicketLog', field: 'ticket' }],
+  }
+  const speech = 'inactive Customer still has open Ticket?'
+  const kinds = vocab.map((row) => row.kind)
+  const hits = kindMentions(speech, kinds, extra)
+  assert.ok(hits.some((row) => row.kind === 'Ticket'))
+  assert.ok(!hits.some((row) => row.kind === 'ShopTicket'))
+})
+
 test('kindMentions keeps an exact spoken kind over a longer suffix kind when the exact kind is graph-related', () => {
   const vocab = [
     { kind: 'Customer', resource: 'customers', can: ['现查'] },
@@ -147,6 +170,26 @@ test('enrichStructuredSlots chains three mentioned related kinds along the graph
   assert.equal(out.steps?.length, 3)
   assert.deepEqual(out.steps.map((row) => row.kind), ['ParentA', 'MidB', 'ChildC'])
   assert.ok(Array.isArray(out.where) && out.where.length)
+})
+
+test('relatedMentionedKinds uses collection FK when vocab has no relations', () => {
+  const fkVocab = [
+    { kind: 'ParentA', resource: 'parent_a', can: ['现查'] },
+    { kind: 'ChildB', resource: 'child_b', can: ['现查'] },
+  ]
+  const collections = [
+    {
+      name: 'child_b',
+      fields: [
+        { name: 'parent', target: 'parent_a', interface: 'm2o' },
+        { name: 'parentId' },
+      ],
+    },
+  ]
+  const speech = 'ParentA ChildB — list ChildB'
+  const { related } = relatedMentionedKinds(speech, fkVocab, { collections })
+  assert.ok(related.includes('ParentA'))
+  assert.ok(related.includes('ChildB'))
 })
 
 test('enrichStructuredSlots chains three kinds via schema FK when vocab has no relations', () => {

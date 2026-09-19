@@ -98,10 +98,15 @@ function findClueHit(speech, clue, extra) {
   }
 }
 
-function isLeftoverShortKind(kind, labels) {
+function isLeftoverShortKind(kind, labels, extra) {
   const name = String(kind || '').trim()
   if (!name) return false
-  return labels.some((other) => other !== name && other.endsWith(name))
+  const hasSuffix = labels.some((other) => other !== name && other.endsWith(name))
+  if (!hasSuffix) return false
+  if (!extra || !Object.keys(extra).length) return true
+  const relations = relationsFromVocab(extra.vocab, extra)
+  if (relations.some((rel) => rel.from === name || rel.to === name)) return false
+  return true
 }
 
 function titleSuffixTokens(title) {
@@ -195,8 +200,8 @@ function kindMentions(text, kinds, extra) {
     if (byToken !== 0) return byToken
     const byGraph = neighborScore(b.kind) - neighborScore(a.kind)
     if (byGraph !== 0) return byGraph
-    const aLeft = isLeftoverShortKind(a.kind, labels) ? 1 : 0
-    const bLeft = isLeftoverShortKind(b.kind, labels) ? 1 : 0
+    const aLeft = isLeftoverShortKind(a.kind, labels, extra) ? 1 : 0
+    const bLeft = isLeftoverShortKind(b.kind, labels, extra) ? 1 : 0
     if (aLeft !== bLeft) return aLeft - bLeft
     const aExact = a.token === a.kind ? 0 : 1
     const bExact = b.token === b.kind ? 0 : 1
@@ -250,7 +255,7 @@ function remapEnrichTargetKind(specKind, speech, bag) {
   if (!spec) return spec
   const kinds = registeredKinds(bag)
   const mentioned = [...new Set(kindMentions(speech, kinds, bag).map((row) => row.kind))]
-  const needRemap = isLeftoverShortKind(spec, kinds) || !mentioned.includes(spec)
+  const needRemap = isLeftoverShortKind(spec, kinds, bag) || !mentioned.includes(spec)
   if (!needRemap) return spec
   const candidates = mentioned.filter((M) => sharesFragmentWithSpec(M, spec, bag))
   if (!candidates.length) return spec
@@ -338,6 +343,13 @@ function graphNeighbors(kind, extra) {
   for (const rel of relationsFromVocab(extra.vocab, extra)) {
     if (rel.from === want) push(rel.to)
     if (rel.to === want) push(rel.from)
+  }
+  if (Array.isArray(extra.collections) && extra.collections.length) {
+    for (const other of registeredKinds(extra)) {
+      if (schemaRelatedField(want, other, extra) || schemaRelatedField(other, want, extra)) {
+        push(other)
+      }
+    }
   }
   return out
 }
@@ -790,7 +802,7 @@ export function leftoverKindMissingFromCatalog(kind, extra = {}) {
   const name = String(kind || '').trim()
   if (!name) return false
   const labels = registeredKinds(extra)
-  if (!isLeftoverShortKind(name, labels)) return false
+  if (!isLeftoverShortKind(name, labels, extra)) return false
   const collections = extra.collections
   const kinds = extra.kinds
   const maps = extra.maps

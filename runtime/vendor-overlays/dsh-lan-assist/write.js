@@ -1007,8 +1007,8 @@ export function createGate(opts = {}) {
       const mentioned = new Set()
       const speech = String(spec.speech || spec.quote || '').trim()
       if (kind) mentioned.add(kind)
-      const registered = registeredKinds({ vocab: loaded.vocab })
-      for (const row of kindMentions(speech, registered, { vocab: loaded.vocab })) {
+      const registered = registeredKinds(enrichExtra)
+      for (const row of kindMentions(speech, registered, enrichExtra)) {
         mentioned.add(row.kind)
       }
       const schemaByKind = {}
