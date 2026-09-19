@@ -123,7 +123,11 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
             )}
             <div
               className="grid gap-2.5"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(13.5rem, 13.5rem))' }}
+              style={{
+                gridTemplateColumns: group.rows.length >= 2
+                  ? 'repeat(auto-fit, minmax(13.5rem, 1fr))'
+                  : 'repeat(auto-fill, minmax(13.5rem, 13.5rem))',
+              }}
             >
               {group.rows.map((row) => {
                 const title = displayTitle(app.spec, view.entity, row)
