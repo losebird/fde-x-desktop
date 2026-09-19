@@ -2,7 +2,7 @@ import type { BizRollbackBadge } from '@/lib/biz-rollback-outcome'
 
 export const HISTORY_PAGE_SIZE = 20
 
-export const ACTION_TONES = ['blue', 'purple', 'green', 'red', 'amber', 'teal'] as const
+export const ACTION_TONES = ['blue', 'purple', 'red', 'amber', 'teal', 'green'] as const
 
 export type HistoryTone = 'default' | 'red' | 'amber' | 'blue' | 'purple' | 'teal' | 'green'
 

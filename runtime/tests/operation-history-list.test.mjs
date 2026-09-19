@@ -26,6 +26,9 @@ test('§11 operation history page size search and tones', async () => {
   assert.equal(tokens.length, 3)
   assert.notEqual(lib.actionTone('改行', tokens), lib.actionTone('回退', tokens))
   assert.notEqual(lib.actionTone('现查', tokens), lib.actionTone('改行', tokens))
+  assert.notEqual(lib.actionTone('回退', tokens), lib.historyRecordStatus('回退', 'none').kind)
+  assert.notEqual(lib.actionTone('改行', tokens), lib.historyRecordStatus('改行', 'rolled_back').kind)
+  assert.notEqual(lib.actionTone('改行', tokens), lib.historyRecordStatus('改行', 'can').kind)
 
   const rows = Array.from({ length: 45 }, (_, i) => ({ id: String(i + 1) }))
   const page2 = lib.paginateHistory(rows, 2)
