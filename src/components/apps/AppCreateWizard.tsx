@@ -21,6 +21,10 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
   const [step, setStep] = useState<'describe' | 'generating' | 'preview'>('describe')
   const [aiReady, setAiReady] = useState(false)
   const [description, setDescription] = useState('')
+  const [dataConnect, setDataConnect] = useState<'local' | 'modules'>('local')
+  const [connectBriefing, setConnectBriefing] = useState(false)
+  const [connectBiz, setConnectBiz] = useState(false)
+  const [connectFiles, setConnectFiles] = useState(false)
   const [preset, setPreset] = useState('fde-app-builder')
   const [error, setError] = useState('')
   const [appDetail, setAppDetail] = useState<FdeAppDetail | null>(null)
@@ -47,8 +51,24 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
     return ''
   }
 
+  const buildDataPlacementHint = () => {
+    if (dataConnect === 'local') {
+      return '数据放哪：本地 SQLite 台账。不要默认铺满 uses，没点名的能力不要写进 uses。'
+    }
+    const parts: string[] = ['数据放哪：接平台模块（非纯本地）。']
+    if (connectBriefing) parts.push('接邮箱 → uses 须含 briefing，禁止假 Gmail/假收件箱。')
+    if (connectBiz) parts.push('接业务系统 → uses 须含 biz，禁止假外部接口。')
+    if (connectFiles) parts.push('接文件 → uses 须含 files，走文件模块。')
+    parts.push('仅当需求点名时才写 ai/float/memory/im/plan；摘成待办必须 uses 含 plan。')
+    return parts.join(' ')
+  }
+
   const generate = async () => {
     if (!description.trim()) return
+    if (dataConnect === 'modules' && !connectBriefing && !connectBiz && !connectFiles) {
+      setError('接邮箱/业务系统/文件时，请至少勾选一项。')
+      return
+    }
     setStep('generating')
     setError('')
     const cwd = loadCurrentWorkspaceCwd()
@@ -73,7 +93,7 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
         preset,
         title: `应用构建 · ${description.slice(0, 20)}`,
         context: ['workspace', 'apps'],
-        prompt: `需求：${description}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。titleField 必须是人能读的业务名（名称/标题），禁止用单号或自动编号填标题。按字段形状铺产品页：台账（有数字或日期、没有链接/文件字段）同一栏同时有 stats 概览、compose 记一笔、chart 图、feed 流水；资源条目（标题+说明，或链接/文件字段）必须用 cards，有 enum 就 groupBy，工作面按组铺卡片，卡片行动打开 URL（新窗口）或文件引用（文件模块），不要内嵌播放器。不要永远吐 table+form+kanban+stat 脚手架。uses 只声明真正要用的平台能力：问数/起草写 ai，并排用写 float，稿和附件走文件模块写 files，动作只起草记忆卡片写 memory，拟回进 IM 输入框写 im，早报/MCP 源写 briefing，引用业务对象并预览确认写 biz。没接到的不要写，前端不会画假按钮。能力入口按这个应用的栏目和字段放，不要在产品页顶上永远压一排按钮。需求里点名这些能力就要写进 uses。若返回 errors，修正后重新提交。不要写外部业务系统。禁止套固定品类模板。`,
+        prompt: `需求：${description}\n${buildDataPlacementHint()}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。每个对象单独一栏 pages；有链接/视频字段 → 分组 cards + compose，行动打开或播放；有数字或日期台账 → 同一栏 stats+compose+chart+feed。不要永远同一套脚手架换列名。titleField 必须是人能读的业务名（名称/标题），禁止用单号或自动编号填标题。uses 只声明真正要用的平台能力：问数/起草写 ai，并排用写 float，稿和附件走文件模块写 files，动作只起草记忆卡片写 memory，拟回进 IM 输入框写 im，早报/MCP 源写 briefing，引用业务对象并预览确认写 biz，摘成待办写 plan（须能写入 plan 任务）。没接到的不要写，前端不会画假按钮。若返回 errors，修正后重新提交。不要写外部业务系统除非用户已接业务。禁止套固定品类模板。`,
         schema: { type: 'object', required: ['appId', 'revision'] },
         timeoutMs: 240_000,
       }).then((result) => {
@@ -126,6 +146,43 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
               placeholder="有哪些对象和字段，要哪些栏目，概览、记一笔、卡片栅格或流水"
             />
           </label>
+          <fieldset className="space-y-2 text-xs text-ink-muted" data-app-create-connect={dataConnect}>
+            <div className="font-medium text-ink">数据放哪</div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="data-connect"
+                checked={dataConnect === 'local'}
+                onChange={() => setDataConnect('local')}
+              />
+              本地台账
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="data-connect"
+                checked={dataConnect === 'modules'}
+                onChange={() => setDataConnect('modules')}
+              />
+              接邮箱/业务系统/文件
+            </label>
+            {dataConnect === 'modules' && (
+              <div className="ml-5 space-y-1">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={connectBriefing} onChange={(e) => setConnectBriefing(e.target.checked)} />
+                  邮箱（走早报，不编收件箱）
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={connectBiz} onChange={(e) => setConnectBiz(e.target.checked)} />
+                  业务系统（走过账闸，不编假接口）
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={connectFiles} onChange={(e) => setConnectFiles(e.target.checked)} />
+                  文件（走文件模块）
+                </label>
+              </div>
+            )}
+          </fieldset>
           <label className="block text-xs text-ink-muted">
             Preset
             <input className="input mt-1 w-full" value={preset} onChange={(e) => setPreset(e.target.value)} />

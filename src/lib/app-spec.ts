@@ -31,7 +31,7 @@ export interface FdeAppView {
   metric?: { fn: 'count' | 'sum' | 'avg'; field?: string }
 }
 
-export type FdePlatformUse = 'ai' | 'files' | 'float' | 'memory' | 'im' | 'briefing' | 'biz'
+export type FdePlatformUse = 'ai' | 'files' | 'float' | 'memory' | 'im' | 'briefing' | 'biz' | 'plan'
 
 export type FdePageBlock =
   | { kind: 'stats'; views: string[] }
@@ -120,7 +120,7 @@ export function viewById(spec: FdeAppSpec, id: string | undefined, extraViews: F
 }
 
 const LINK_FIELD_RE = /url|link|href|src|media|file|path|video/i
-const PLATFORM_USES: FdePlatformUse[] = ['ai', 'files', 'float', 'memory', 'im', 'briefing', 'biz']
+const PLATFORM_USES: FdePlatformUse[] = ['ai', 'files', 'float', 'memory', 'im', 'briefing', 'biz', 'plan']
 
 export function declaredPlatformUses(spec: FdeAppSpec): FdePlatformUse[] {
   const allowed = new Set(PLATFORM_USES)
@@ -184,12 +184,14 @@ export function workspaceChromeUses(spec: FdeAppSpec): FdePlatformUse[] {
   return declaredPlatformUses(spec).filter((use) => use === 'float')
 }
 
-export function pageColumnUses(spec: FdeAppSpec, entityName: string): FdePlatformUse[] {
-  const covered = new Set<FdePlatformUse>(['float'])
-  const ent = entityDef(spec, entityName)
-  if (ent?.fields.some((field) => fieldLooksLikeFile(field))) covered.add('files')
-  if (ent?.fields.some((field) => fieldLooksLikeBizRef(field))) covered.add('biz')
-  return declaredPlatformUses(spec).filter((use) => !covered.has(use))
+/** Uses that stay on 记一笔 / 打开. Files/biz/float/memory/briefing fold into field, chrome, onWrite, or compose header. */
+export function recordActionUses(spec: FdeAppSpec): FdePlatformUse[] {
+  const folded = new Set<FdePlatformUse>(['float', 'files', 'biz', 'memory', 'briefing'])
+  return declaredPlatformUses(spec).filter((use) => !folded.has(use))
+}
+
+export function pageColumnUses(spec: FdeAppSpec, _entityName?: string): FdePlatformUse[] {
+  return recordActionUses(spec)
 }
 
 function readableValue(row: Record<string, unknown>, name: string): string {
@@ -198,32 +200,13 @@ function readableValue(row: Record<string, unknown>, name: string): string {
   return text
 }
 
-/** Human-readable title from spec fields. Skip generated ticket-like values and enum-only labels. */
+/** Business name from this app's titleField only. Never fall back to enum/category. */
 export function displayTitle(spec: FdeAppSpec, entityName: string, row: Record<string, unknown>): string {
   const ent = entityDef(spec, entityName)
-  if (!ent) return ''
-  const candidates: string[] = []
-  if (ent.titleField) candidates.push(ent.titleField)
-  for (const field of ent.fields) {
-    if (fieldLooksLikeLink(field)) continue
-    if (field.type === 'text' || field.type === 'longtext') candidates.push(field.name)
-  }
-  for (const field of ent.fields) {
-    if (fieldLooksLikeLink(field) || field.type === 'enum') continue
-    if (field.type === 'date' || field.type === 'datetime') candidates.push(field.name)
-  }
-  for (const field of ent.fields) {
-    if (field.type === 'number') candidates.push(field.name)
-  }
-  const seen = new Set<string>()
-  for (const name of candidates) {
-    if (seen.has(name)) continue
-    seen.add(name)
-    const text = readableValue(row, name)
-    if (text) return text
-  }
-  const enumField = ent.fields.find((field) => field.type === 'enum' && readableValue(row, field.name))
-  return enumField ? readableValue(row, enumField.name) : ''
+  if (!ent?.titleField) return ''
+  const field = fieldDef(spec, entityName, ent.titleField)
+  if (field?.type === 'enum') return ''
+  return readableValue(row, ent.titleField)
 }
 
 export function displayBlurb(spec: FdeAppSpec, entityName: string, row: Record<string, unknown>, title: string): string {
@@ -243,15 +226,31 @@ export function displayBlurb(spec: FdeAppSpec, entityName: string, row: Record<s
   return ''
 }
 
-export function cardAction(spec: FdeAppSpec, entityName: string, row: Record<string, unknown>): { href: string; kind: 'url' | 'file' } | null {
+export function fieldLooksLikeMedia(field: FdeAppField): boolean {
+  return /video|media|src|play/i.test(field.name)
+}
+
+export function hrefLooksPlayable(href: string): boolean {
+  const text = String(href || '').trim()
+  if (!text) return false
+  if (/\.(mp4|webm|m3u8|mov)(\?|$)/i.test(text)) return true
+  if (/\/watch(?:\?|$)|\/video(?:\/|\?|$)|player\./i.test(text)) return true
+  return false
+}
+
+export function cardAction(spec: FdeAppSpec, entityName: string, row: Record<string, unknown>): { href: string; kind: 'url' | 'file'; play?: boolean } | null {
   const ent = entityDef(spec, entityName)
   if (!ent) return null
   for (const field of ent.fields) {
     const raw = String(row[field.name] ?? '').trim()
     if (!raw) continue
-    if (/^https?:\/\//i.test(raw)) return { href: raw, kind: 'url' }
+    if (/^https?:\/\//i.test(raw)) {
+      return { href: raw, kind: 'url', play: fieldLooksLikeMedia(field) || hrefLooksPlayable(raw) }
+    }
     if (/^file:\/\//i.test(raw) || fieldLooksLikeLink(field)) {
-      return { href: raw.replace(/^file:\/\//i, ''), kind: /^https?:\/\//i.test(raw) ? 'url' : 'file' }
+      const href = raw.replace(/^file:\/\//i, '')
+      const isUrl = /^https?:\/\//i.test(raw)
+      return { href, kind: isUrl ? 'url' : 'file', play: isUrl && (fieldLooksLikeMedia(field) || hrefLooksPlayable(raw)) }
     }
   }
   return null

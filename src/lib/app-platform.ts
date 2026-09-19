@@ -15,9 +15,10 @@ const LABELS: Record<FdePlatformUse, string> = {
   float: '浮窗',
   files: '引用文件',
   memory: '起草记忆卡片',
-  im: '拟回进输入框',
+  im: '拟回',
   briefing: '打开早报',
   biz: '打开业务记录',
+  plan: '摘成待办',
 }
 
 export function platformUseLabel(use: FdePlatformUse): string {
@@ -149,6 +150,7 @@ export async function runDeclaredPlatformUse(
   use: FdePlatformUse,
   spec: FdeAppSpec,
   appId?: string,
+  context?: { title?: string; rowId?: string },
 ): Promise<DeclaredPlatformUseResult> {
   const state = useApp.getState()
   if (use === 'ai') {
@@ -204,6 +206,20 @@ export async function runDeclaredPlatformUse(
   if (use === 'biz') {
     state.focusBizRecordsPanel()
     return '已打开业务记录。写外部要预览确认。'
+  }
+  if (use === 'plan') {
+    const title = String(context?.title || spec.name || '').trim() || '待办'
+    const source = ['app', appId, context?.rowId].filter(Boolean).join(':')
+    await state.addTask({
+      title,
+      status: 'todo',
+      priority: 'med',
+      tags: spec.name ? [spec.name] : [],
+      sourceRef: source,
+    })
+    state.setActivePlanTab('todo')
+    state.togglePanel('plan', 'full')
+    return '已加入计划'
   }
   throw new Error('未知能力')
 }

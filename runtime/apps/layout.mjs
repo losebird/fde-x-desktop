@@ -1,4 +1,4 @@
-const PLATFORM_USES = ['ai', 'files', 'float', 'memory', 'im', 'briefing', 'biz']
+const PLATFORM_USES = ['ai', 'files', 'float', 'memory', 'im', 'briefing', 'biz', 'plan']
 
 export function allowedPlatformUses() {
   return PLATFORM_USES.slice()
@@ -75,8 +75,6 @@ function inferUses(spec) {
     }
   }
   if (spec.memory && spec.memory.onWrite === 'draft-card') uses.add('memory')
-  uses.add('ai')
-  uses.add('float')
   return [...uses]
 }
 

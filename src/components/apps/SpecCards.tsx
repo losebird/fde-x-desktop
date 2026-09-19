@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, Play } from 'lucide-react'
+import { AppCapabilityBar, recordActionChipClass } from '@/components/apps/AppCapabilityBar'
 import {
   cardAction,
   cardGroupField,
@@ -10,17 +11,19 @@ import {
   specHasUse,
   type FdeAppSpec,
   type FdeAppView,
+  type FdePlatformUse,
 } from '@/lib/app-spec'
 import { openFilesAtPath } from '@/lib/app-platform'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
-  app: { spec: FdeAppSpec; status: string }
+  app: { id?: string; spec: FdeAppSpec; status: string }
   view: FdeAppView
   workspaceCwd: string
   previewRows?: Record<string, unknown>[]
   reloadToken?: number
   recordActions?: ReactNode
+  actionUses?: FdePlatformUse[]
 }
 
 const HERO_TONES = [
@@ -38,26 +41,28 @@ function heroToneClassFor(key: string) {
   return HERO_TONES[hash % HERO_TONES.length]
 }
 
-const actionChipClass =
-  'inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-line bg-surface-2 text-ink text-[12px] font-medium hover:bg-surface transition-colors'
-
-function HeroMark() {
+function HeroMark({ play }: { play?: boolean }) {
   return (
     <div className="relative flex h-14 w-14 items-center justify-center" aria-hidden="true">
       <span className="absolute inset-0 rounded-full bg-white/15" />
       <span className="absolute h-9 w-9 rounded-full bg-white/25" />
-      <span className="relative h-4 w-4 rounded-full bg-white/40" />
+      {play ? (
+        <Play className="relative h-5 w-5 fill-white text-white" />
+      ) : (
+        <span className="relative h-4 w-4 rounded-full bg-white/40" />
+      )}
     </div>
   )
 }
 
-export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, recordActions }: Props) {
+export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, recordActions, actionUses }: Props) {
   const [rows, setRows] = useState<Record<string, unknown>[]>(previewRows ?? [])
   const [error, setError] = useState('')
   const ent = entityDef(app.spec, view.entity)
   const groupBy = cardGroupField(app.spec, view)
   const groupField = groupBy ? fieldDef(app.spec, view.entity, groupBy) : undefined
   const groupOptions = groupField?.options ?? []
+  const appId = String(app.id || '')
 
   const load = useCallback(async () => {
     if (previewRows) {
@@ -90,6 +95,8 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
     return listed.filter((group) => group.rows.length)
   }, [ent?.label, groupBy, groupOptions, rows, view.label])
 
+  const perCardActions = Boolean(appId && actionUses?.length)
+
   return (
     <div className="space-y-6" data-app-cards="true">
       <div className="flex items-center justify-between">
@@ -100,10 +107,12 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
       {rows.length === 0 ? (
         <div className="border border-line rounded-xl px-3 py-10 text-center text-xs text-ink-muted space-y-3">
           <div>{app.status === 'active' ? '还没有条目。记下一条就会出现卡片。' : '还没有条目。'}</div>
-          {recordActions}
+          {perCardActions ? (
+            <AppCapabilityBar spec={app.spec} appId={appId} uses={actionUses} title={app.spec.name} />
+          ) : recordActions}
         </div>
       ) : (
-        groups.map((group, groupIndex) => (
+        groups.map((group) => (
           <section key={group.key || 'all'} className="space-y-3" data-app-card-group={group.key || 'all'}>
             {Boolean(groupBy) && (
               <div className="text-sm font-medium text-ink" data-app-card-group-label="true">{group.label}</div>
@@ -112,13 +121,13 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
               className="grid gap-3"
               style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(11.25rem, 12.75rem))' }}
             >
-              {group.rows.map((row, rowIndex) => {
+              {group.rows.map((row) => {
                 const title = displayTitle(app.spec, view.entity, row)
                 const blurb = displayBlurb(app.spec, view.entity, row, title)
                 const action = cardAction(app.spec, view.entity, row)
                 const toneKey = title || String(row.id)
                 const heroTone = heroToneClassFor(toneKey)
-                const showRecordActions = Boolean(recordActions) && groupIndex === 0 && rowIndex === 0
+                const play = Boolean(action?.play)
                 return (
                   <article
                     key={String(row.id)}
@@ -127,7 +136,7 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                     data-app-card-title={title || undefined}
                   >
                     <div className={`h-[5.5rem] shrink-0 flex items-center justify-center ${heroTone}`}>
-                      <HeroMark />
+                      <HeroMark play={play} />
                     </div>
                     <div className="flex flex-1 flex-col gap-2 p-3 bg-surface">
                       <h3 className="text-[13px] font-semibold leading-snug text-ink line-clamp-2">{title || '未命名'}</h3>
@@ -140,25 +149,35 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                             href={action.href}
                             target="_blank"
                             rel="noreferrer"
-                            className={actionChipClass}
-                            data-app-card-action="url"
+                            className={recordActionChipClass}
+                            data-app-card-action={play ? 'play' : 'url'}
+                            data-app-card-href={action.href}
                           >
-                            打开
-                            <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />
+                            {play ? '播放' : '打开'}
+                            {play ? <Play className="h-3 w-3 text-ink-muted" aria-hidden="true" /> : <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />}
                           </a>
                         )}
                         {action?.kind === 'file' && specHasUse(app.spec, 'files') && (
                           <button
                             type="button"
-                            className={actionChipClass}
+                            className={recordActionChipClass}
                             data-app-card-action="file"
+                            data-app-card-href={action.href}
                             onClick={() => openFilesAtPath(action.href)}
                           >
                             打开
                             <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />
                           </button>
                         )}
-                        {showRecordActions ? recordActions : null}
+                        {perCardActions ? (
+                          <AppCapabilityBar
+                            spec={app.spec}
+                            appId={appId}
+                            uses={actionUses}
+                            title={title || app.spec.name}
+                            rowId={String(row.id)}
+                          />
+                        ) : null}
                       </div>
                     </div>
                   </article>

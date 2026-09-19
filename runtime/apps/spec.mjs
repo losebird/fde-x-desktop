@@ -1,7 +1,7 @@
 const FIELD_TYPES = new Set(['text', 'longtext', 'number', 'bool', 'date', 'datetime', 'enum', 'ref', 'json'])
 const VIEW_TYPES = new Set(['table', 'form', 'detail', 'kanban', 'stat', 'cards', 'chart', 'compose', 'feed'])
 const ACTION_KINDS = new Set(['set', 'biz', 'agent'])
-const PLATFORM_USES = new Set(['ai', 'files', 'float', 'memory', 'im', 'briefing', 'biz'])
+const PLATFORM_USES = new Set(['ai', 'files', 'float', 'memory', 'im', 'briefing', 'biz', 'plan'])
 const BLOCK_KINDS = new Set(['stats', 'compose', 'chart', 'feed', 'cards', 'table', 'kanban', 'form'])
 const RESERVED_FIELDS = new Set(['id', 'created_at', 'updated_at', 'workspace_cwd', 'deleted_at'])
 const SLUG_RE = /^[a-z][a-z0-9-]{1,30}$/
@@ -87,7 +87,7 @@ export function validateAppSpec(spec, ctx = {}) {
     } else {
       for (let ui = 0; ui < root.uses.length; ui++) {
         if (!PLATFORM_USES.has(String(root.uses[ui]))) {
-          errors.push({ path: `uses[${ui}]`, message: 'uses 只能是 ai/files/float/memory/im/briefing/biz' })
+          errors.push({ path: `uses[${ui}]`, message: 'uses 只能是 ai/files/float/memory/im/briefing/biz/plan' })
         }
       }
     }

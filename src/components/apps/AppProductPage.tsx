@@ -8,11 +8,13 @@ import { SpecForm } from '@/components/apps/SpecForm'
 import { SpecKanban } from '@/components/apps/SpecKanban'
 import { SpecStat } from '@/components/apps/SpecStat'
 import { SpecTable } from '@/components/apps/SpecTable'
+import { runDeclaredPlatformUse } from '@/lib/app-platform'
 import {
   declaredPlatformUses,
   mockRowsForEntity,
-  pageColumnUses,
   pageLooksLikeLedger,
+  recordActionUses,
+  specHasUse,
   viewById,
   visibleWorkSurfaceBlocks,
   workSurfacePages,
@@ -41,9 +43,7 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
   }
 
   if (!page) return null
-  const pageEntity = pageEntityName(app.spec, page, extraViews)
-  const columnUses = pageColumnUses(app.spec, pageEntity)
-  const hasCompose = page.blocks.some((block) => block.kind === 'compose' || block.kind === 'form')
+  const actionUses = recordActionUses(app.spec)
 
   return (
     <div
@@ -89,11 +89,9 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
                 statViews={block.kind === 'stats' ? block.views.map((id) => viewById(app.spec, id, extraViews)).filter((row): row is FdeAppView => Boolean(row)) : []}
                 kind={block.kind}
                 capabilityUses={
-                  block.kind === 'compose' || block.kind === 'form'
-                    ? columnUses
-                    : block.kind === 'cards' && !hasCompose
-                      ? columnUses
-                      : []
+                  block.kind === 'compose' || block.kind === 'form' || block.kind === 'cards'
+                    ? actionUses
+                    : []
                 }
               />
             ))}
@@ -102,20 +100,6 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
       </div>
     </div>
   )
-}
-
-function pageEntityName(spec: FdeAppDetail['spec'], page: FdeAppPage, extraViews: FdeAppView[]): string {
-  for (const block of page.blocks) {
-    if (block.kind === 'stats') continue
-    const view = 'view' in block ? viewById(spec, block.view, extraViews) : undefined
-    if (view?.entity) return view.entity
-  }
-  for (const block of page.blocks) {
-    if (block.kind !== 'stats') continue
-    const view = viewById(spec, block.views[0], extraViews)
-    if (view?.entity) return view.entity
-  }
-  return spec.entities[0]?.name || ''
 }
 
 function renderBlocks(blocks: FdeAppPage['blocks']): { pair: boolean; blocks: FdeAppPage['blocks'] }[] {
@@ -168,7 +152,19 @@ function ProductBlock({
   if (kind === 'compose' || kind === 'form') {
     return (
       <div className="border border-line rounded-xl bg-surface p-4 space-y-3 min-w-0">
-        <div className="text-sm font-medium">{view.label || '记下'}</div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-medium">{view.label || '记下'}</div>
+          {specHasUse(app.spec, 'briefing') && (
+            <button
+              type="button"
+              className="text-xs text-ink-muted hover:text-ink"
+              data-app-use="briefing"
+              onClick={() => { void runDeclaredPlatformUse('briefing', app.spec, app.id) }}
+            >
+              打开早报
+            </button>
+          )}
+        </div>
         <SpecForm
           app={app}
           entity={view.entity}
@@ -178,7 +174,13 @@ function ProductBlock({
           submitLabel={view.label}
           onDone={onRefresh}
           renderSubmit={capabilityUses.length ? (submitButton) => (
-            <AppCapabilityBar spec={app.spec} appId={app.id} uses={capabilityUses} primary={submitButton} />
+            <AppCapabilityBar
+              spec={app.spec}
+              appId={app.id}
+              uses={capabilityUses}
+              primary={submitButton}
+              title={app.spec.name}
+            />
           ) : undefined}
         />
       </div>
@@ -198,9 +200,7 @@ function ProductBlock({
         workspaceCwd={workspaceCwd}
         previewRows={previewRows}
         reloadToken={reloadToken}
-        recordActions={capabilityUses.length ? (
-          <AppCapabilityBar spec={app.spec} appId={app.id} uses={capabilityUses} />
-        ) : undefined}
+        actionUses={capabilityUses}
       />
     )
   }

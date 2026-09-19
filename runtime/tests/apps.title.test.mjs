@@ -4,8 +4,9 @@ import {
   cardAction,
   displayBlurb,
   displayTitle,
+  hrefLooksPlayable,
   looksLikeGeneratedCode,
-  pageColumnUses,
+  recordActionUses,
   stripGeneratedCodeTokens,
   visibleWorkSurfaceBlocks,
   workSurfacePages,
@@ -80,7 +81,7 @@ describe('record titles and grouped card pages', () => {
     assert.equal(looksLikeGeneratedCode('对乙酰氨基酚'), false)
   })
 
-  test('skips serial title and does not use category alone', () => {
+  test('uses spec titleField and never falls back to category', () => {
     const serial = displayTitle(ledgerSpec, 'item', {
       title: '药-mu82l4pf',
       kind: '常备',
@@ -88,20 +89,18 @@ describe('record titles and grouped card pages', () => {
       happened_on: '2026-09-19',
       note: '备注 药-mu82l4pf',
     })
-    assert.equal(serial, '备注 药-mu82l4pf')
+    assert.equal(serial, '')
     assert.notEqual(serial, '常备')
-    assert.equal(looksLikeGeneratedCode(serial), false)
 
-    const noNote = displayTitle(ledgerSpec, 'item', {
-      title: '记-mu83ag8l',
+    const emptyTitle = displayTitle(ledgerSpec, 'item', {
+      title: '',
       kind: '常备',
       qty: 3,
       happened_on: '2026-09-19',
       note: '',
     })
-    assert.equal(noNote, '2026-09-19')
-    assert.notEqual(noNote, '常备')
-    assert.notEqual(noNote, '记-mu83ag8l')
+    assert.equal(emptyTitle, '')
+    assert.notEqual(emptyTitle, '常备')
 
     const named = displayTitle(ledgerSpec, 'item', {
       title: '对乙酰氨基酚',
@@ -161,30 +160,26 @@ describe('record titles and grouped card pages', () => {
     }, '周报模板'), '每周五更新')
   })
 
-  test('declared float lives in workspace chrome, other uses in the page column', () => {
-    const spec = { ...boardSpec, uses: ['ai', 'float', 'files', 'memory', 'im', 'briefing', 'biz'] }
+  test('declared float lives in workspace chrome, record actions keep ai/im/plan', () => {
+    const spec = { ...boardSpec, uses: ['ai', 'float', 'files', 'memory', 'im', 'briefing', 'biz', 'plan'] }
     assert.deepEqual(workspaceChromeUses(spec), ['float'])
-    const column = pageColumnUses(spec, 'item')
-    assert.equal(column.includes('float'), false)
-    assert.deepEqual(column, ['ai', 'files', 'memory', 'im', 'briefing', 'biz'])
-    const fileSpec = {
-      ...spec,
-      entities: [{
-        ...boardSpec.entities[0],
-        fields: [
-          { name: 'title', label: '标题', type: 'text' },
-          { name: 'file_path', label: '文件', type: 'text' },
-        ],
-      }],
-    }
-    assert.equal(pageColumnUses(fileSpec, 'item').includes('files'), false)
-    assert.equal(pageColumnUses({ ...boardSpec, uses: ['ai'] }, 'item').includes('briefing'), false)
+    assert.deepEqual(recordActionUses(spec), ['ai', 'im', 'plan'])
+    assert.equal(recordActionUses(spec).includes('files'), false)
+    assert.equal(recordActionUses(spec).includes('briefing'), false)
+    assert.equal(recordActionUses({ ...boardSpec, uses: ['ai'] }).includes('briefing'), false)
   })
 
-  test('card action opens url or file ref', () => {
+  test('card action opens url or file ref and marks playable media', () => {
     assert.deepEqual(cardAction(boardSpec, 'item', { url: 'https://example.com/a' }), {
       href: 'https://example.com/a',
       kind: 'url',
+      play: false,
+    })
+    assert.equal(hrefLooksPlayable('https://example.com/clip.mp4'), true)
+    assert.deepEqual(cardAction(boardSpec, 'item', { url: 'https://example.com/clip.mp4' }), {
+      href: 'https://example.com/clip.mp4',
+      kind: 'url',
+      play: true,
     })
     const fileSpec = {
       ...boardSpec,
@@ -199,6 +194,7 @@ describe('record titles and grouped card pages', () => {
     assert.deepEqual(cardAction(fileSpec, 'item', { file_path: 'README.md' }), {
       href: 'README.md',
       kind: 'file',
+      play: false,
     })
   })
 })

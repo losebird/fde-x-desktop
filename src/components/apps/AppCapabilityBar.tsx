@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import type { FdeAppSpec, FdePlatformUse } from '@/lib/app-spec'
+import { recordActionUses } from '@/lib/app-spec'
 import {
-  declaredPlatformUses,
   isMemoryDraftCard,
   platformUseLabel,
   runDeclaredPlatformUse,
@@ -18,10 +18,12 @@ type Props = {
   appId: string
   uses?: FdePlatformUse[]
   primary?: ReactNode
+  title?: string
+  rowId?: string
 }
 
-export function AppCapabilityBar({ spec, appId, uses: usesProp, primary }: Props) {
-  const uses = usesProp ?? declaredPlatformUses(spec)
+export function AppCapabilityBar({ spec, appId, uses: usesProp, primary, title, rowId }: Props) {
+  const uses = (usesProp ?? recordActionUses(spec)).filter((use) => use !== 'float')
   const [note, setNote] = useState('')
   const [draftCard, setDraftCard] = useState<MemoryDraftCard | null>(null)
   const [nodding, setNodding] = useState(false)
@@ -31,7 +33,7 @@ export function AppCapabilityBar({ spec, appId, uses: usesProp, primary }: Props
     setNote('')
     if (use !== 'memory') setDraftCard(null)
     try {
-      const result = await runDeclaredPlatformUse(use, spec, appId)
+      const result = await runDeclaredPlatformUse(use, spec, appId, { title, rowId })
       if (isMemoryDraftCard(result)) {
         setDraftCard(result)
         setNote('已起草记忆卡片，点头才入档')
@@ -61,9 +63,9 @@ export function AppCapabilityBar({ spec, appId, uses: usesProp, primary }: Props
   }
 
   return (
-    <div className={primary ? 'flex w-full flex-col gap-2' : 'flex flex-col gap-2'}>
+    <div className={primary ? 'flex w-full flex-col gap-2' : 'contents'}>
       <div
-        className="flex flex-wrap items-center gap-2"
+        className={primary ? 'flex flex-wrap items-center gap-2' : 'contents'}
         data-app-record-actions="true"
         data-app-column-uses={uses.join(',')}
       >

@@ -20,8 +20,8 @@ describe('product layout', () => {
     assert.deepEqual(kinds, ['stats', 'compose', 'chart', 'feed'])
     const allKinds = laid.pages.flatMap((page) => page.blocks.map((b) => b.kind))
     assert.equal(allKinds.includes('cards'), false)
-    assert.ok(laid.uses.includes('ai'))
-    assert.ok(laid.uses.includes('float'))
+    assert.equal(laid.uses.includes('ai'), false)
+    assert.equal(laid.uses.includes('float'), false)
     assert.equal(JSON.stringify(laid).includes('健身'), false)
     assert.equal(JSON.stringify(laid).includes('记账'), false)
   })
@@ -203,5 +203,52 @@ describe('product layout', () => {
     const laid = withProductLayout(spec)
     assert.deepEqual(laid.uses, ['im', 'briefing', 'biz'])
     assert.equal(laid.uses.includes('files'), false)
+  })
+
+  test('two entities get separate pages with different block kinds', () => {
+    const spec = {
+      spec: 'fde-app/v1',
+      slug: 'mixed-board',
+      name: '混合板',
+      entities: [
+        {
+          name: 'clip',
+          label: '片段',
+          titleField: 'title',
+          fields: [
+            { name: 'title', label: '标题', type: 'text', required: true },
+            { name: 'source', label: '来源', type: 'enum', options: ['甲', '乙'] },
+            { name: 'url', label: '链接', type: 'text' },
+          ],
+        },
+        {
+          name: 'entry',
+          label: '流水',
+          titleField: 'title',
+          fields: [
+            { name: 'title', label: '标题', type: 'text', required: true },
+            { name: 'amount', label: '数量', type: 'number' },
+            { name: 'kind', label: '分类', type: 'enum', options: ['甲', '乙'] },
+            { name: 'happened_on', label: '日期', type: 'date' },
+          ],
+        },
+      ],
+      views: [
+        { id: 'form-clip', type: 'form', entity: 'clip' },
+        { id: 'form-entry', type: 'form', entity: 'entry' },
+      ],
+    }
+    const laid = withProductLayout(spec)
+    const r = validateAppSpec(laid)
+    assert.equal(r.ok, true, JSON.stringify(r.errors))
+    assert.equal(laid.pages.length, 2)
+    const clipPage = laid.pages.find((p) => p.id === 'page-clip')
+    const entryPage = laid.pages.find((p) => p.id === 'page-entry')
+    assert.ok(clipPage)
+    assert.ok(entryPage)
+    assert.deepEqual(clipPage.blocks.map((b) => b.kind), ['cards', 'compose'])
+    assert.deepEqual(entryPage.blocks.map((b) => b.kind), ['stats', 'compose', 'chart', 'feed'])
+    assert.equal(JSON.stringify(laid).includes('健身'), false)
+    assert.equal(JSON.stringify(laid).includes('记账'), false)
   })
 })
