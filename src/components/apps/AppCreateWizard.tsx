@@ -45,7 +45,7 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
     while (Date.now() < until) {
       await sleep(1500)
       const apps = await runtimeApi.listBusinessApps(workspaceId).catch(() => [])
-      const fresh = apps.find((app) => !knownIds.has(app.id) && app.status === 'draft' && isFdeAppSpec(app.definition))
+      const fresh = apps.find((app) => !knownIds.has(app.id) && app.status === 'draft' && (isFdeAppSpec(app.definition) || app.appKind === 'generated'))
       if (fresh) return fresh.id
     }
     return ''
@@ -87,7 +87,9 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
         settled = true
         resolve(id)
       }
-      const timer = window.setTimeout(() => finish(''), Math.max(0, deadline - Date.now()))
+      const timer = window.setTimeout(() => {
+        void waitForNewDraft(knownIds, Date.now() + 4000).then((id) => finish(id))
+      }, Math.max(0, deadline - Date.now()))
       void askAiForResult<{ appId: string; revision: number }>({
         intent: '创建业务应用',
         preset,
