@@ -306,6 +306,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   const displayedRowCountRef = useRef(0)
   const historyPinnedSurfaceIdRef = useRef('')
   const historySessionIdRef = useRef('')
+  const operationKindViewRef = useRef('')
   const showRecordsBack = Boolean(listRestore)
   const bizCwd = workspaceCwd || activeWorkspaceCwd
 
@@ -756,6 +757,12 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId)) {
       return false
     }
+    const viewKind = operationKindViewRef.current.trim()
+    const incomingKind = String(sheet.kind || '').trim()
+    if (viewKind && incomingKind && viewKind !== incomingKind) {
+      if (!isWritePreviewSheet(sheet)) rememberBizPendingSheet(sheet)
+      return true
+    }
     const previewId = sheetPreviewId(sheet)
     const action = String(sheet.action || '')
     const isWritePreview = Boolean(previewId && !isBizListQueryAction(action))
@@ -1106,6 +1113,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     setStaleHint('')
     setSelectedRow(null)
     setSelectedRowKey('')
+    operationKindViewRef.current = nextKind
     historyPinnedSurfaceIdRef.current = ''
     const pendingSheet = peekBizPendingSheet()
     const anchor = pendingSheet || listSheetMeta
