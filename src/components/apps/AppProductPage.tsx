@@ -10,6 +10,7 @@ import { SpecStat } from '@/components/apps/SpecStat'
 import { SpecTable } from '@/components/apps/SpecTable'
 import {
   mockRowsForEntity,
+  pageLooksLikeLedger,
   viewById,
   workSurfacePages,
   type FdeAppDetail,
@@ -61,7 +62,7 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
           <AppCapabilityBar spec={app.spec} />
         </div>
       </div>
-      <div className="space-y-4">
+      <div className="space-y-4" data-app-ledger={pageLooksLikeLedger(page) ? 'true' : undefined}>
         {renderBlocks(page.blocks).map((group, index) => (
           <div
             key={`${page.id}-g-${index}`}

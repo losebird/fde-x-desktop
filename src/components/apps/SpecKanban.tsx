@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import clsx from 'clsx'
-import { entityDef, type FdeAppView } from '@/lib/app-spec'
+import { displayTitle, entityDef, type FdeAppView } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -85,7 +85,7 @@ export function SpecKanban({ app, view, workspaceCwd, previewRows }: Props) {
     dragRef.current = { id: String(row.id), from, originX: event.clientX, originY: event.clientY }
     setDragUi({
       id: String(row.id),
-      title: String(row[titleField] ?? row.id),
+      title: displayTitle(app.spec, view.entity, row) || String(row[titleField] ?? row.id),
       x: event.clientX,
       y: event.clientY,
       over: from,
@@ -170,7 +170,7 @@ export function SpecKanban({ app, view, workspaceCwd, previewRows }: Props) {
                     {previewRows && (
                       <span className="inline-flex items-center rounded border border-line bg-surface-2 px-1 py-px text-[10px] text-ink-muted">示例</span>
                     )}
-                    <span>{String(row[titleField] ?? row.id)}</span>
+                    <span>{displayTitle(app.spec, view.entity, row) || '—'}</span>
                   </div>
                 </div>
               ))}

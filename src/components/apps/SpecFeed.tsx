@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { entityDef, fieldDef, visibleTableColumns, type FdeAppSpec, type FdeAppView } from '@/lib/app-spec'
+import { displayTitle, entityDef, fieldDef, looksLikeGeneratedCode, visibleTableColumns, type FdeAppSpec, type FdeAppView } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -57,15 +57,17 @@ export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken }: 
           {rows.map((row) => (
             <div key={String(row.id)} className="px-4 py-3 flex items-start gap-3" data-app-feed-row="true">
               <div className="min-w-0 flex-1">
-                <div className="text-sm truncate">{String(row[titleField] ?? row.id)}</div>
+                <div className="text-sm truncate" data-app-feed-title="true">{displayTitle(app.spec, view.entity, row) || '—'}</div>
                 <div className="text-[11px] text-ink-muted mt-1 flex flex-wrap gap-2">
                   {enumField && row[enumField.name] != null && (
                     <span className="bg-surface-2 border border-line rounded-full px-1.5 py-0.5">{String(row[enumField.name])}</span>
                   )}
                   {dateField && row[dateField.name] != null && <span>{String(row[dateField.name])}</span>}
-                  {columns.filter((col) => col !== titleField && col !== numberField?.name && col !== dateField?.name && col !== enumField?.name).slice(0, 2).map((col) => (
-                    row[col] ? <span key={col}>{fieldDef(app.spec, view.entity, col)?.label || col} {String(row[col])}</span> : null
-                  ))}
+                  {columns.filter((col) => col !== titleField && col !== numberField?.name && col !== dateField?.name && col !== enumField?.name).slice(0, 2).map((col) => {
+                    const text = String(row[col] ?? '')
+                    if (!text || looksLikeGeneratedCode(text)) return null
+                    return <span key={col}>{fieldDef(app.spec, view.entity, col)?.label || col} {text}</span>
+                  })}
                 </div>
               </div>
               {numberField && (

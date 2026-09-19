@@ -20,6 +20,8 @@ function enumFields(entity) {
   return entityFields(entity).filter((field) => field.type === 'enum')
 }
 
+const LINK_FIELD_RE = /url|link|href|src|media|file|path|video/i
+
 function isCatalogEntity(entity) {
   const fields = entityFields(entity)
   const hasNumber = fields.some((field) => field.type === 'number')
@@ -27,6 +29,14 @@ function isCatalogEntity(entity) {
   const hasLong = fields.some((field) => field.type === 'longtext')
   if (hasNumber || hasDate) return false
   return Boolean(entity.titleField || hasLong)
+}
+
+function isResourceEntity(entity) {
+  if (isCatalogEntity(entity)) return true
+  return entityFields(entity).some((field) => {
+    if (field.type !== 'text' && field.type !== 'longtext' && field.type !== 'ref') return false
+    return LINK_FIELD_RE.test(String(field.name || ''))
+  })
 }
 
 function findView(spec, entityName, types) {
@@ -74,9 +84,38 @@ function buildEntityPage(spec, entity) {
   const label = String(entity.label || name)
   const nums = numberFields(entity)
   const enums = enumFields(entity)
-  const catalog = isCatalogEntity(entity)
-  const titleField = entity.titleField || entityFields(entity).find((field) => field.type === 'text')?.name
+  const resource = isResourceEntity(entity)
   const columns = entityFields(entity).map((field) => field.name)
+
+  const composeSource = findView(spec, name, ['compose', 'form'])
+  const composeId = composeSource
+    ? ensureId(composeSource, `compose-${name}`)
+    : ensureView(spec, {
+      id: `compose-${name}`,
+      type: 'compose',
+      entity: name,
+      label: `记下${label}`,
+    })
+
+  if (resource) {
+    const cardsView = {
+      id: `cards-${name}`,
+      type: 'cards',
+      entity: name,
+      label,
+      columns: columns.slice(0, 4),
+    }
+    if (enums[0]) cardsView.groupBy = enums[0].name
+    const cardsId = ensureView(spec, cardsView)
+    return {
+      id: `page-${name}`,
+      label,
+      blocks: [
+        { kind: 'cards', view: cardsId },
+        { kind: 'compose', view: composeId },
+      ],
+    }
+  }
 
   const statViews = (spec.views || []).filter((view) => view?.type === 'stat' && view.entity === name)
   const stats = []
@@ -104,16 +143,6 @@ function buildEntityPage(spec, entity) {
     }
   }
 
-  const composeSource = findView(spec, name, ['compose', 'form'])
-  const composeId = composeSource
-    ? ensureId(composeSource, `compose-${name}`)
-    : ensureView(spec, {
-      id: `compose-${name}`,
-      type: 'compose',
-      entity: name,
-      label: `记下${label}`,
-    })
-
   const blocks = [
     { kind: 'stats', views: stats.slice(0, 4) },
     { kind: 'compose', view: composeId },
@@ -131,52 +160,30 @@ function buildEntityPage(spec, entity) {
     blocks.push({ kind: 'chart', view: chartId })
   }
 
-  if (!catalog) {
-    const feedSource = findView(spec, name, ['feed', 'table'])
-    const feedId = feedSource
-      ? ensureId(feedSource, `feed-${name}`)
-      : ensureView(spec, {
-        id: `feed-${name}`,
-        type: 'feed',
-        entity: name,
-        label: `${label}流水`,
-        columns,
-        sort: entityFields(entity).some((field) => field.type === 'date' || field.type === 'datetime')
-          ? { field: entityFields(entity).find((field) => field.type === 'date' || field.type === 'datetime').name, dir: 'desc' }
-          : undefined,
-      })
-    blocks.push({ kind: 'feed', view: feedId })
-  }
+  const feedSource = findView(spec, name, ['feed', 'table'])
+  const dateField = entityFields(entity).find((field) => field.type === 'date' || field.type === 'datetime')
+  const feedId = feedSource
+    ? ensureId(feedSource, `feed-${name}`)
+    : ensureView(spec, {
+      id: `feed-${name}`,
+      type: 'feed',
+      entity: name,
+      label: `${label}流水`,
+      columns,
+      sort: dateField ? { field: dateField.name, dir: 'desc' } : undefined,
+    })
+  blocks.push({ kind: 'feed', view: feedId })
 
   return {
     id: `page-${name}`,
     label,
     blocks,
-    _titleField: titleField,
-  }
-}
-
-function ensureCardsPage(spec, entity, takenLabels) {
-  const name = String(entity.name)
-  const label = String(entity.label || name)
-  const columns = entityFields(entity).map((field) => field.name)
-  const cardsId = ensureView(spec, {
-    id: `cards-${name}`,
-    type: 'cards',
-    entity: name,
-    label,
-    columns: columns.slice(0, 4),
-  })
-  return {
-    id: `page-${name}-cards`,
-    label: takenLabels.has(label) ? '卡片' : label,
-    blocks: [{ kind: 'cards', view: cardsId }],
   }
 }
 
 /**
- * New drafts get product pages: section nav + overview + compose + chart/feed, plus a cards grid.
- * Existing pages/uses are kept. No category names.
+ * New drafts get product pages from field shape: ledger = overview + compose + chart + feed;
+ * resource/catalog = grouped cards + compose. Existing pages/uses are kept. No category names.
  * @param {Record<string, unknown>} spec
  */
 export function withProductLayout(spec) {
@@ -191,15 +198,6 @@ export function withProductLayout(spec) {
     return next
   }
   const entities = Array.isArray(next.entities) ? next.entities.filter((entity) => entity && typeof entity.name === 'string') : []
-  next.pages = entities.map((entity) => {
-    const page = buildEntityPage(next, entity)
-    delete page._titleField
-    return page
-  })
-  const catalog = entities.find((entity) => isCatalogEntity(entity)) || entities[0]
-  if (catalog) {
-    const taken = new Set(next.pages.map((page) => page.label))
-    next.pages.push(ensureCardsPage(next, catalog, taken))
-  }
+  next.pages = entities.map((entity) => buildEntityPage(next, entity))
   return next
 }

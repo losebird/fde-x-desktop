@@ -119,71 +119,98 @@ export function viewById(spec: FdeAppSpec, id: string | undefined, extraViews: F
   return spec.views.find((view) => view.id === id) || extraViews.find((view) => view.id === id)
 }
 
-/** Cards view from spec, or a presentational stand-in from the first list/compose entity. No category names. */
-export function cardsViewForSpec(spec: FdeAppSpec): FdeAppView | undefined {
-  const existing = spec.views.find((view) => view.type === 'cards')
-  if (existing) return existing
-  const source = spec.views.find((view) => view.type === 'feed' || view.type === 'table' || view.type === 'compose' || view.type === 'form')
-  const entityName = source?.entity || spec.entities[0]?.name
-  if (!entityName) return undefined
+const LINK_FIELD_RE = /url|link|href|src|media|file|path|video/i
+
+export function looksLikeGeneratedCode(value: unknown): boolean {
+  const text = String(value ?? '').trim()
+  if (!text) return true
+  if (/^rec[a-z0-9]{8,}$/i.test(text)) return true
+  if (/[\u4e00-\u9fffA-Za-z]{1,6}-[a-z0-9]{5,}/i.test(text) && text.length <= 24) return true
+  return false
+}
+
+/** Human-readable title from spec fields. Skip generated ticket-like values. */
+export function displayTitle(spec: FdeAppSpec, entityName: string, row: Record<string, unknown>): string {
   const ent = entityDef(spec, entityName)
-  const columns = (source?.columns?.length ? source.columns : ent?.fields.map((field) => field.name) ?? []).slice(0, 4)
-  return {
-    id: `cards-${entityName}`,
-    type: 'cards',
-    entity: entityName,
-    label: ent?.label || '卡片',
-    columns,
+  if (!ent) return ''
+  const candidates: string[] = []
+  if (ent.titleField) candidates.push(ent.titleField)
+  for (const field of ent.fields) {
+    if (field.type === 'text' || field.type === 'longtext') candidates.push(field.name)
   }
+  for (const field of ent.fields) {
+    if (field.type === 'enum') candidates.push(field.name)
+  }
+  const seen = new Set<string>()
+  for (const name of candidates) {
+    if (seen.has(name)) continue
+    seen.add(name)
+    const text = String(row[name] ?? '').trim()
+    if (!text || looksLikeGeneratedCode(text)) continue
+    return text
+  }
+  const enumField = ent.fields.find((field) => field.type === 'enum' && row[field.name] != null && String(row[field.name]).trim())
+  const numField = ent.fields.find((field) => field.type === 'number' && row[field.name] != null && String(row[field.name]).trim() !== '')
+  if (enumField && numField) return `${row[enumField.name]} · ${row[numField.name]}`
+  if (enumField) return String(row[enumField.name])
+  return ''
+}
+
+export function displayBlurb(spec: FdeAppSpec, entityName: string, row: Record<string, unknown>, title: string): string {
+  const ent = entityDef(spec, entityName)
+  if (!ent) return ''
+  const longtext = ent.fields.find((field) => field.type === 'longtext')
+  if (longtext) {
+    const text = String(row[longtext.name] ?? '').trim()
+    if (text && text !== title && !looksLikeGeneratedCode(text)) return text
+  }
+  for (const field of ent.fields) {
+    if (field.type !== 'text' || field.name === ent.titleField) continue
+    if (LINK_FIELD_RE.test(field.name)) continue
+    const text = String(row[field.name] ?? '').trim()
+    if (text && text !== title && !looksLikeGeneratedCode(text)) return text
+  }
+  return ''
+}
+
+export function cardAction(spec: FdeAppSpec, entityName: string, row: Record<string, unknown>): { href: string; kind: 'url' | 'file' } | null {
+  const ent = entityDef(spec, entityName)
+  if (!ent) return null
+  for (const field of ent.fields) {
+    const raw = String(row[field.name] ?? '').trim()
+    if (!raw) continue
+    if (/^https?:\/\//i.test(raw)) return { href: raw, kind: 'url' }
+    if ((field.type === 'text' || field.type === 'longtext' || field.type === 'ref') && LINK_FIELD_RE.test(field.name)) {
+      return { href: raw, kind: /^https?:\/\//i.test(raw) ? 'url' : 'file' }
+    }
+  }
+  return null
+}
+
+export function cardGroupField(spec: FdeAppSpec, view: FdeAppView): string {
+  if (view.groupBy) return view.groupBy
+  return entityDef(spec, view.entity)?.fields.find((field) => field.type === 'enum')?.name || ''
+}
+
+export function pageLooksLikeLedger(page: FdeAppPage): boolean {
+  const kinds = page.blocks.map((block) => block.kind)
+  return kinds.includes('stats') && (kinds.includes('compose') || kinds.includes('form')) && kinds.includes('feed')
+}
+
+/** Cards view from spec. Do not invent a cards tab for a ledger page. */
+export function cardsViewForSpec(spec: FdeAppSpec): FdeAppView | undefined {
+  return spec.views.find((view) => view.type === 'cards')
 }
 
 /**
- * Daily work surface: keep declared pages, but never stay on a single dashboard.
- * Extra cards page is presentational when the spec omitted it (not written back).
+ * Daily work surface: declared pages as-is.
+ * Ledger pages stay one screen (overview + compose + chart + feed).
+ * Cards-only extra tabs are not injected — that hid the product page behind serial cards.
  */
 export function workSurfacePages(spec: FdeAppSpec): { pages: FdeAppPage[]; extraViews: FdeAppView[] } {
   const pages = spec.pages ?? []
   if (!pages.length) return { pages: [], extraViews: [] }
-  const extraViews: FdeAppView[] = []
-  const cardsView = cardsViewForSpec(spec)
-  if (cardsView && !spec.views.some((view) => view.id === cardsView.id)) extraViews.push(cardsView)
-  const hasCards = pages.some((page) => page.blocks.some((block) => block.kind === 'cards'))
-
-  const cardsPage = (taken: Set<string>): FdeAppPage | null => {
-    if (!cardsView?.id) return null
-    const preferred = cardsView.label || ''
-    const label = preferred && !taken.has(preferred) ? preferred : '卡片'
-    return {
-      id: `${pages[0].id}-cards`,
-      label,
-      blocks: [{ kind: 'cards', view: cardsView.id }],
-    }
-  }
-
-  if (pages.length > 1 && hasCards) return { pages, extraViews }
-
-  if (pages.length > 1) {
-    const extra = cardsPage(new Set(pages.map((page) => page.label || page.id)))
-    return { pages: extra ? [...pages, extra] : pages, extraViews }
-  }
-
-  const page = pages[0]
-  const dashBlocks = page.blocks.filter((block) => block.kind !== 'cards')
-  const ownCards = page.blocks.filter((block) => block.kind === 'cards')
-  const dash: FdeAppPage = {
-    id: page.id,
-    label: page.label || spec.name,
-    blocks: dashBlocks.length ? dashBlocks : page.blocks,
-  }
-  const taken = new Set([dash.label || dash.id])
-  const extra = ownCards.length
-    ? {
-        id: `${page.id}-cards`,
-        label: (cardsView?.label && !taken.has(cardsView.label) ? cardsView.label : '卡片'),
-        blocks: ownCards,
-      }
-    : cardsPage(taken)
-  return { pages: extra ? [dash, extra] : pages, extraViews }
+  return { pages, extraViews: [] }
 }
 
 export function mockRowsForEntity(spec: FdeAppSpec, entityName: string): Record<string, unknown>[] {
