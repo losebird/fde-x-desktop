@@ -38,7 +38,6 @@ import {
   rememberBizKindListSheet,
 } from '@/lib/biz-kind-list-cache'
 import {
-  extractSheetListWhere,
   extractBoundKindHints,
   historyOptionLabel,
   listQueryFingerprint,
@@ -208,23 +207,6 @@ function peekListPendingSheet() {
   return k ? sheet : null
 }
 
-function listRestoreFromSnapshot(snap: SheetSnapshot): ListRestoreSnapshot {
-  const sheet = snap.sheet
-  const restoreRows = cloneSheetRows(sheet.rows)
-  const restoreColumns = normalizeSheetColumns(sheet.columns)
-  const action = String(sheet.action || '现查')
-  return {
-    rows: restoreRows,
-    columns: restoreColumns,
-    page: 1,
-    draftEdits: {},
-    sourceLabel: snap.connName ? `${snap.connName} · ${action}` : '',
-    connName: snap.connName || '连接器',
-    surfaceId: snap.surfaceId,
-    sheet: { ...sheet, rows: restoreRows, columns: restoreColumns },
-  }
-}
-
 function EditableSheetCell({
   value,
   column,
@@ -316,9 +298,8 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   const [omit, setOmit] = useState<Set<string>>(new Set())
   const [kindCatalog, setKindCatalog] = useState<Array<{ kind: string; label: string; can: string[] }>>([])
   const sheetSnapshots = useRef<Map<string, SheetSnapshot>>(new Map())
-  const priorListSheetByKind = useRef<Map<string, SheetSnapshot>>(new Map())
   const listRestoreRef = useRef<ListRestoreSnapshot | null>(null)
-  const listRestoreHydrateRef = useRef(false)
+  const displayBeforeWriteRef = useRef<ListRestoreSnapshot | null>(null)
   const appliedSheetFpRef = useRef('')
   const activeListQueryFpRef = useRef('')
   const displayedRowCountRef = useRef(0)
@@ -366,12 +347,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       return [...byKind.values()]
     }
 
-    const anchorFp = listQueryFingerprint(anchor)
     const pool: Record<string, unknown>[] = [anchor]
     const pushIfSameOperation = (sheet: Record<string, unknown> | undefined) => {
       if (!sheet || typeof sheet !== 'object') return
-      const fp = listQueryFingerprint(sheet)
-      if (anchorFp && fp && fp === anchorFp) pool.push(sheet)
+      if (operationBundlesAlign(anchor, sheet)) pool.push(sheet)
     }
     if (bizCwd) {
       for (const snap of listBizKindListSnapshots(bizCwd)) pushIfSameOperation(snap.sheet)
@@ -384,6 +363,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       const only = String(anchor.kind || kind || '').trim()
       if (only) allowedKinds.add(only)
     }
+    for (const bound of allowedKinds) add(bound, 0, 0)
 
     for (const sheet of pool) {
       const k = String(sheet.kind || '').trim()
@@ -503,7 +483,6 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     const cacheKey = listSnapshotCacheKey(k, snapshot.sheet)
     sheetSnapshots.current.set(cacheKey, snapshot)
     sheetSnapshots.current.set(`kind:${k}`, snapshot)
-    priorListSheetByKind.current.set(k, snapshot)
     activeListQueryFpRef.current = listQueryFingerprint(snapshot.sheet)
     if (snapshot.surfaceId) {
       sheetSnapshots.current.set(`surface:${snapshot.surfaceId}`, snapshot)
@@ -527,25 +506,31 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   }, [seedKindListSnapshot, workspaceCwd])
 
   const captureListRestore = useCallback((): ListRestoreSnapshot => {
+    const restoreRows = cloneSheetRows(rows)
+    const restoreColumns = columns.length > 0
+      ? columns
+      : normalizeSheetColumns(listSheetMeta?.columns)
+    const base = listSheetMeta && typeof listSheetMeta === 'object'
+      ? listSheetMeta
+      : { kind, action: pending?.action || '现查' }
+    const sheet = {
+      ...base,
+      kind: String(base.kind || kind || ''),
+      rows: restoreRows,
+      columns: restoreColumns,
+    }
     const kindSnap = kind ? sheetSnapshots.current.get(`kind:${kind}`) : undefined
-    const snapRows = kindSnap?.sheet ? cloneSheetRows(kindSnap.sheet.rows) : []
-    const snapCols = kindSnap?.sheet ? normalizeSheetColumns(kindSnap.sheet.columns) : []
-    const restoreRows = rows.length > 0 ? cloneSheetRows(rows) : snapRows
-    const restoreColumns = columns.length > 0 ? columns : snapCols
-    const sheet = kindSnap?.sheet
-      ? { ...kindSnap.sheet, rows: restoreRows, columns: restoreColumns }
-      : { kind, rows: restoreRows, columns: restoreColumns, action: '现查' }
     return {
       rows: restoreRows,
       columns: restoreColumns,
       page,
       draftEdits,
-      sourceLabel: sourceLabel || (kindSnap?.connName ? `${kindSnap.connName} · 现查` : ''),
+      sourceLabel,
       connName: kindSnap?.connName || '连接器',
       surfaceId: kindSnap?.surfaceId,
       sheet,
     }
-  }, [columns, draftEdits, kind, page, rows, sourceLabel])
+  }, [columns, draftEdits, kind, listSheetMeta, page, pending?.action, rows, sourceLabel])
 
   const commitListRestore = useCallback((snap: ListRestoreSnapshot | null) => {
     listRestoreRef.current = snap
@@ -575,73 +560,34 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     commitListRestore(captureListRestore())
   }, [captureListRestore, commitListRestore, shouldSaveListRestore])
 
+  const rememberDisplayBeforeWrite = useCallback((incomingSheet: Record<string, unknown>) => {
+    if (displayBeforeWriteRef.current) return
+    if (rows.length <= 0) return
+    const incomingKind = String(incomingSheet.kind || '').trim()
+    const shownKind = String((listSheetMeta && listSheetMeta.kind) || kind || '').trim()
+    if (incomingKind && shownKind && incomingKind !== shownKind) return
+    displayBeforeWriteRef.current = captureListRestore()
+  }, [captureListRestore, kind, listSheetMeta, rows.length])
+
   const ensureListRestoreBeforeWritePreview = useCallback((incomingSheet: Record<string, unknown>) => {
+    rememberDisplayBeforeWrite(incomingSheet)
     if (listRestoreRef.current && !listRestoreBelongsToIncoming(listRestoreRef.current, incomingSheet)) {
       commitListRestore(null)
     }
     if (listRestoreRef.current) return
-    const incomingKind = String(incomingSheet.kind || kind || '')
     const incomingRows = normalizeSheetRows(incomingSheet.rows)
     const incomingCount = incomingRows.length
-
-    const tryCommit = (candidate: ListRestoreSnapshot) => {
-      if (listRestoreDiffersFromIncoming(candidate, incomingSheet)) {
-        commitListRestore(candidate)
-      }
+    if (rows.length <= 0) return
+    const larger = rows.length > incomingCount
+    const different = incomingCount > 0 && !sameSheetRowKeySet(rows, incomingRows)
+    if (!larger && !different) return
+    const candidate = captureListRestore()
+    if (listRestoreDiffersFromIncoming(candidate, incomingSheet)) {
+      commitListRestore(candidate)
     }
+  }, [captureListRestore, commitListRestore, rememberDisplayBeforeWrite, rows])
 
-    if (rows.length > 0) {
-      const larger = rows.length > incomingCount
-      const different = incomingCount > 0 && !sameSheetRowKeySet(rows, incomingRows)
-      if (larger || different) {
-        tryCommit(captureListRestore())
-        return
-      }
-    }
-
-    const kindSnap = incomingKind ? sheetSnapshots.current.get(`kind:${incomingKind}`) : undefined
-    if (kindSnap) {
-      const snapRows = normalizeSheetRows(kindSnap.sheet.rows)
-      if (snapRows.length > incomingCount || (snapRows.length > 0 && !sameSheetRowKeySet(snapRows, incomingRows))) {
-        tryCommit(listRestoreFromSnapshot(kindSnap))
-        if (listRestoreRef.current) return
-      }
-    }
-
-    const prior = incomingKind ? priorListSheetByKind.current.get(incomingKind) : undefined
-    if (prior) {
-      tryCommit(listRestoreFromSnapshot(prior))
-      if (listRestoreRef.current) return
-    }
-
-    if (workspaceCwd && incomingKind) {
-      const sessionList = peekBizKindListSheetForOperation(workspaceCwd, incomingKind, incomingSheet)
-      if (sessionList) {
-        const snap: SheetSnapshot = {
-          sheet: sessionList.sheet,
-          connName: sessionList.connName,
-          surfaceId: sessionList.surfaceId,
-        }
-        seedKindListSnapshot(snap)
-        tryCommit(listRestoreFromSnapshot(snap))
-        if (listRestoreRef.current) return
-      }
-    }
-
-    for (const surface of surfaces) {
-      if (surface.kind !== incomingKind) continue
-      const isListSurface = surface.action === '现查' || (surface.rowCount ?? 0) > 1
-      if (!isListSurface) continue
-      const cached = sheetSnapshots.current.get(`surface:${surface.id}`)
-      if (!cached || isSingleRowWritePreview(cached.sheet)) continue
-      tryCommit(listRestoreFromSnapshot(cached))
-      if (listRestoreRef.current) break
-    }
-  }, [captureListRestore, commitListRestore, kind, rows, seedKindListSnapshot, surfaces, workspaceCwd])
-
-  const restoreRecordsList = useCallback(() => {
-    const snap = listRestoreRef.current
-    if (!snap) return false
+  const applyDisplayedSnapshot = useCallback((snap: ListRestoreSnapshot) => {
     const liveSid = String(historySessionIdRef.current || activeAiSessionId || '').trim()
     const snapSid = String((snap.sheet && snap.sheet.sessionId) || '').trim()
     if (liveSid && snapSid && snapSid !== liveSid) return false
@@ -649,7 +595,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     const nextRows = cloneSheetRows(snap.rows)
     setRows(nextRows)
     displayedRowCountRef.current = nextRows.length
-    const restoreSheet = { ...snap.sheet, rows: nextRows, columns: snap.columns }
+    const restoreSheet: Record<string, unknown> = { ...snap.sheet, rows: nextRows, columns: snap.columns }
     const nextFp = sheetRowsFingerprint(restoreSheet)
     appliedSheetFpRef.current = nextFp
     setSheetIdentity(nextFp)
@@ -666,9 +612,32 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       rememberBizPendingSheet(restoreSheet)
     }
     if (snap.surfaceId) setHistorySurfaceId(snap.surfaceId)
-    commitListRestore(null)
+    const nextKind = String(restoreSheet.kind || '')
+    if (nextKind) setKind(nextKind)
+    const nextSessionId = typeof restoreSheet.sessionId === 'string' && restoreSheet.sessionId.trim()
+      ? restoreSheet.sessionId.trim()
+      : (historySessionIdRef.current || undefined)
+    if (nextSessionId) historySessionIdRef.current = nextSessionId
+    setPending({
+      kind: String(restoreSheet.kind || ''),
+      action: String(restoreSheet.action || ''),
+      previewId: sheetPreviewId(restoreSheet) || undefined,
+      rows: nextRows.length,
+      canWrite: Boolean(restoreSheet.canWrite ?? restoreSheet.can_write),
+      source: 'ai',
+      sessionId: nextSessionId,
+      at: Date.now(),
+    })
     return true
-  }, [commitListRestore, rememberSheet, activeAiSessionId])
+  }, [activeAiSessionId, rememberSheet])
+
+  const restoreRecordsList = useCallback(() => {
+    const snap = listRestoreRef.current
+    if (!snap) return false
+    const ok = applyDisplayedSnapshot(snap)
+    if (ok) commitListRestore(null)
+    return ok
+  }, [applyDisplayedSnapshot, commitListRestore])
 
   const handleRecordsBack = useCallback(() => {
     const pendingSheet = peekBizPendingSheet()
@@ -677,6 +646,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     if (previewId) dismissBizPreviewId(previewId)
     setDrawer(null)
     clearBizPendingSheet()
+    displayBeforeWriteRef.current = null
     restoreRecordsList()
     void runtimeApi.bizDismissPreview(previewId || undefined).catch(() => undefined)
   }, [drawer?.previewId, restoreRecordsList])
@@ -688,9 +658,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     if (previewId) dismissBizPreviewId(previewId)
     setDrawer(null)
     clearBizPendingSheet()
-    if (listRestoreRef.current) restoreRecordsList()
+    const floated = displayBeforeWriteRef.current
+    displayBeforeWriteRef.current = null
+    if (floated) applyDisplayedSnapshot(floated)
     void runtimeApi.bizDismissPreview(previewId || undefined).catch(() => undefined)
-  }, [drawer?.previewId, restoreRecordsList])
+  }, [applyDisplayedSnapshot, drawer?.previewId])
 
   const applySheet = useCallback((
     sheet: Record<string, unknown>,
@@ -798,7 +770,6 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     const isWritePreview = Boolean(previewId && !isBizListQueryAction(action))
 
     if (isWritePreview && isBizPreviewDismissed(sheet)) {
-      if (listRestoreRef.current) restoreRecordsList()
       return true
     }
 
@@ -838,14 +809,13 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     }
     void bindSurfaceIdIfKnown(sheet, surfaceId)
     return rowCount > 0 || Boolean(sheet.kind)
-  }, [applySheet, bindSurfaceIdIfKnown, connectionId, connections, ensureListRestoreBeforeWritePreview, maybeSaveListRestore, restoreRecordsList])
+  }, [applySheet, bindSurfaceIdIfKnown, connectionId, connections, ensureListRestoreBeforeWritePreview, maybeSaveListRestore])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     if (historyPinnedSurfaceIdRef.current && !surfaceId) return false
     const cached = peekBizPendingSheet()
     if (cached) {
       if (isBizPreviewDismissed(cached)) {
-        if (listRestoreRef.current) restoreRecordsList()
         return true
       }
       if (applyPendingSheet(cached, surfaceId)) return true
@@ -854,17 +824,18 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       const { sheet } = await runtimeApi.getBizPendingSheet()
       if (!sheet || typeof sheet !== 'object') return false
       if (isBizPreviewDismissed(sheet)) {
-        if (listRestoreRef.current) restoreRecordsList()
         return true
       }
       return applyPendingSheet(sheet, surfaceId)
     } catch {
       return false
     }
-  }, [applyPendingSheet, restoreRecordsList])
+  }, [applyPendingSheet])
 
   useEffect(() => {
-    if (!connectionId && connectorOptions[0]) setConnectionId(connectorOptions[0].id)
+    if (connectionId) return
+    const preferred = connectorOptions.find((opt) => !opt.id.startsWith('local:')) || connectorOptions[0]
+    if (preferred) setConnectionId(preferred.id)
   }, [connectionId, connectorOptions])
 
   useEffect(() => {
@@ -874,70 +845,6 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   useEffect(() => {
     void loadSurfaces()
   }, [loadSurfaces])
-
-  useEffect(() => {
-    if (listRestoreRef.current) return
-    const sheet = drawer?.sheet ?? peekBizPendingSheet()
-    if (!sheet || !isWritePreviewSheet(sheet)) return
-    if (surfaces.length === 0) return
-    ensureListRestoreBeforeWritePreview(sheet)
-    if (listRestoreRef.current || listRestoreHydrateRef.current) return
-
-    const incomingKind = String(sheet.kind || kind || '')
-    const incomingCount = normalizeSheetRows(sheet.rows).length
-    const listSurface = surfaces.find((surface) => (
-      surface.kind === incomingKind
-      && surface.action === '现查'
-      && (surface.rowCount ?? 0) > incomingCount
-    ))
-    if (!listSurface || !workspaceCwd || !connectionId) return
-
-    listRestoreHydrateRef.current = true
-    void (async () => {
-      try {
-        const conn = connections.find((c) => c.id === (listSurface.connectionId || connectionId)) || connections[0]
-        const listWhere = extractSheetListWhere(sheet)
-        const kindSnap = sheetSnapshots.current.get(
-          listSnapshotCacheKey(incomingKind, { kind: incomingKind, action: '现查', where: listWhere }),
-        ) || sheetSnapshots.current.get(`kind:${incomingKind}`)
-        const restoreWhere = extractSheetListWhere(kindSnap?.sheet ?? sheet)
-        const data = await runtimeApi.bizPreview({
-          kind: incomingKind,
-          action: '现查',
-          system: conn?.provider || 'NocoBase',
-          connectionId: listSurface.connectionId || connectionId,
-          speech: String(sheet.speech || '').trim() || `现查${incomingKind}`,
-          ...(restoreWhere.length ? { where: restoreWhere } : {}),
-          ...(sheet.from && typeof sheet.from === 'object' && !Array.isArray(sheet.from) ? { from: sheet.from } : {}),
-          ...(Array.isArray(sheet.hopWhere) && sheet.hopWhere.length ? { hopWhere: sheet.hopWhere } : {}),
-          ...(Array.isArray(sheet.steps) && sheet.steps.length ? { steps: sheet.steps } : {}),
-        })
-        const listSheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
-        const rowCount = Array.isArray(listSheet.rows) ? listSheet.rows.length : 0
-        if (rowCount <= incomingCount) return
-        const snap: SheetSnapshot = {
-          sheet: listSheet,
-          connName: conn?.name || '连接器',
-          surfaceId: listSurface.id,
-        }
-        seedKindListSnapshot(snap)
-        ensureListRestoreBeforeWritePreview(sheet)
-      } catch {
-        // no prior list — do not fake 返回
-      } finally {
-        listRestoreHydrateRef.current = false
-      }
-    })()
-  }, [
-    connectionId,
-    connections,
-    drawer?.sheet,
-    ensureListRestoreBeforeWritePreview,
-    kind,
-    seedKindListSnapshot,
-    surfaces,
-    workspaceCwd,
-  ])
 
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd || activeLocalApp) return
@@ -1388,6 +1295,21 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     }
   }
 
+  const connectorPicker = connectorOptions.length > 1 ? (
+    <label className="flex items-center gap-1.5 text-xs text-ink-muted shrink-0">
+      <span>连接器</span>
+      <select
+        className="input h-7 text-xs max-w-[min(16rem,100%)]"
+        value={connectionId}
+        onChange={(event) => setConnectionId(event.target.value)}
+      >
+        {connectorOptions.map((opt) => (
+          <option key={opt.id} value={opt.id}>{opt.label}</option>
+        ))}
+      </select>
+    </label>
+  ) : null
+
   if (!connectorOptions.length) {
     return <Empty title="先在设置登记业务连接器" hint="登记后可在此对 AI 浮现的业务行做过账" />
   }
@@ -1399,18 +1321,11 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     }
     return (
       <div className="space-y-3">
-        <Card className="!p-3 flex items-center gap-2 flex-wrap">
-          {connectorOptions.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              className={clsx('btn !py-1', connectionId === opt.id && '!bg-ink !text-white !border-ink')}
-              onClick={() => setConnectionId(opt.id)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </Card>
+        {connectorPicker && (
+          <Card className="!p-3 flex items-center gap-2 flex-wrap">
+            {connectorPicker}
+          </Card>
+        )}
         <SpecTable
           app={{ id: app.id, spec, status: app.status }}
           view={tableView}
@@ -1456,42 +1371,35 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       {notice && <div className="border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">{notice}</div>}
       {staleHint && <div className="border border-line bg-surface-2 px-3 py-2.5 text-xs text-ink-muted">{staleHint}</div>}
 
-      <Card className="!p-3 flex items-center gap-2 flex-wrap">
-        {connectorOptions.length > 1 && connectorOptions.map((opt) => (
-          <button
-            key={opt.id}
-            type="button"
-            className={clsx('btn !py-1', connectionId === opt.id && '!bg-ink !text-white !border-ink')}
-            onClick={() => setConnectionId(opt.id)}
-          >
-            {opt.label}
+      <Card className="!p-3 space-y-2">
+        {connectorPicker}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 flex-wrap">
+            {surfacedKindChips.map((k) => (
+              <button
+                key={k.kind}
+                type="button"
+                disabled={!lanReady}
+                className={clsx('btn !py-1', kind === k.kind && '!bg-ink !text-white !border-ink')}
+                onClick={() => selectKind(k.kind)}
+              >
+                {k.label}
+                {k.count > 0 && (
+                  <span className="text-[10px] opacity-70 ml-1 tabular-nums">{k.count}</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto relative">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
+            <input className="input h-8 pl-8 w-48" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索当前记录" />
+          </div>
+          {currentKindCan.includes('新建') && (
+          <button type="button" className="btn-brand !py-1" disabled={!lanReady || loading || !kind} onClick={openCreateForm}>
+            <Plus size={13} /> 新建
           </button>
-        ))}
-        <div className="flex items-center gap-1 flex-wrap">
-          {surfacedKindChips.map((k) => (
-            <button
-              key={k.kind}
-              type="button"
-              disabled={!lanReady}
-              className={clsx('btn !py-1', kind === k.kind && '!bg-ink !text-white !border-ink')}
-              onClick={() => selectKind(k.kind)}
-            >
-              {k.label}
-              {k.count > 0 && (
-                <span className="text-[10px] opacity-70 ml-1 tabular-nums">{k.count}</span>
-              )}
-            </button>
-          ))}
+          )}
         </div>
-        <div className="ml-auto relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
-          <input className="input h-8 pl-8 w-48" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索当前记录" />
-        </div>
-        {currentKindCan.includes('新建') && (
-        <button type="button" className="btn-brand !py-1" disabled={!lanReady || loading || !kind} onClick={openCreateForm}>
-          <Plus size={13} /> 新建
-        </button>
-        )}
       </Card>
 
       {(pendingText || sessionSurfaces.length > 0) && (

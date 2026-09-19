@@ -73,6 +73,20 @@ test('RecordsPanel keeps history pin, closes write preview, and skips empty draw
   assert.doesNotMatch(src, /return scoped\.length \? scoped : sorted/)
 })
 
+test('RecordsPanel separates connector picker from operation kind chips and cancel keeps the floated sheet', () => {
+  const src = readFileSync(join(repoRoot, 'src/components/biz/RecordsPanel.tsx'), 'utf8')
+  assert.match(src, />连接器</)
+  assert.match(src, /connectorOptions\.map\(\(opt\) => \(\s*<option/)
+  assert.doesNotMatch(src, /connectorOptions\.length > 1 && connectorOptions\.map/)
+  assert.match(src, /displayBeforeWriteRef/)
+  assert.match(src, /surfacedKindChips/)
+  assert.doesNotMatch(src, /现查\$\{incomingKind\}/)
+  assert.doesNotMatch(src, /const dismissPreviewDrawer = useCallback\(\(\) => \{[\s\S]*?restoreRecordsList\(\)/)
+  assert.doesNotMatch(src, /runtimeApi\.bizPreview\(\{[\s\S]{0,500}action: '现查'/)
+  assert.match(src, /extractBoundKindHints/)
+  assert.match(src, /operationBundlesAlign\(anchor, sheet\)/)
+})
+
 test('query-fingerprint history ids are stable without sqlite surface id', async () => {
   const { historyIdForSheet, mergeHistorySurfaces, selectSessionHistorySurfaces: select } = await import('../../src/lib/biz-records-history.ts')
   const id = historyIdForSheet({ kind: 'T' }, '', '{"kind":"T"}')
@@ -169,4 +183,34 @@ test('matchSurfaceIdForSheet no longer impersonates kind+action[0]', () => {
   const src = readFileSync(join(repoRoot, 'src/lib/biz-surface-cache.ts'), 'utf8')
   assert.doesNotMatch(src, /return candidates\[0\]\?\.id/)
   assert.match(src, /row\.previewId === pid/)
+})
+
+test('this-operation kinds come from from/steps; catalog of the same kind does not align', async () => {
+  const { extractBoundKindHints, operationBundlesAlign } = await import('../../src/lib/biz-list-query.ts')
+  const floated = {
+    kind: 'ChildB',
+    action: '现查',
+    speech: 'pending ChildB ∩ expired ParentA',
+    from: { kind: 'ParentA' },
+    hopWhere: [{ keys: ['status'], values: ['pending'] }],
+    steps: [{ kind: 'ParentA' }, { kind: 'ChildB' }],
+    rows: [{ no: 'CB-HIT' }],
+  }
+  const hints = extractBoundKindHints(floated)
+  assert.ok(hints.includes('ChildB'))
+  assert.ok(hints.includes('ParentA'))
+  const sibling = {
+    kind: 'ParentA',
+    action: '现查',
+    speech: 'pending ChildB ∩ expired ParentA',
+    hopWhere: [{ keys: ['status'], values: ['pending'] }],
+    rows: [{ no: 'PA-HIT' }],
+  }
+  const catalog = {
+    kind: 'ChildB',
+    action: '现查',
+    rows: Array.from({ length: 20 }, (_, index) => ({ no: `CB-${index}` })),
+  }
+  assert.equal(operationBundlesAlign(floated, sibling), true)
+  assert.equal(operationBundlesAlign(floated, catalog), false)
 })
