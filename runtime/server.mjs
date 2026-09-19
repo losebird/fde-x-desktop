@@ -2260,7 +2260,8 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/v1/business/apps') {
       const workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
-      sendJson(response, 200, { items: listBusinessApps(db, { workspaceId }), correlationId: currentCorrelationId })
+      const workspaceCwd = url.searchParams.get('workspaceCwd') ?? ''
+      sendJson(response, 200, { items: listBusinessApps(db, { workspaceId, workspaceCwd }), correlationId: currentCorrelationId })
       return
     }
 

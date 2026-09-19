@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { fieldLabel } from '@/components/apps/SpecForm'
+import { fieldLabel, SpecForm } from '@/components/apps/SpecForm'
 import { type FdeAppAction, type FdeAppSpec, type FdeAppView } from '@/lib/app-spec'
 import { type AgentWriteBackPrompt, isAgentActionStep, runAppAgentJobs } from '@/lib/app-agent-action'
 import { runtimeApi } from '@/lib/runtime-api'
@@ -24,6 +24,7 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
   const [error, setError] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
   const [writeBackPrompt, setWriteBackPrompt] = useState<AgentWriteBackPrompt | null>(null)
+  const [creating, setCreating] = useState(false)
   const writeBackResolveRef = useRef<((accepted: boolean) => void) | null>(null)
   const columns = view.columns?.length ? view.columns : app.spec.entities.find((e) => e.name === view.entity)?.fields.map((f) => f.name) ?? []
   const entityActions = (app.spec.actions ?? []).filter((a) => a.entity === view.entity)
@@ -115,6 +116,23 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
 
   return (
     <div className="space-y-2">
+      {app.status === 'active' && !previewRows && (
+        <button type="button" className="btn-brand h-7" onClick={() => setCreating((v) => !v)}>
+          {creating ? '取消新建' : '新建'}
+        </button>
+      )}
+      {creating && app.status === 'active' && !previewRows && (
+        <SpecForm
+          app={app}
+          entity={view.entity}
+          workspaceCwd={workspaceCwd}
+          onDone={() => {
+            setCreating(false)
+            void load()
+            onRefresh?.()
+          }}
+        />
+      )}
       {view.filters?.map((fname) => {
         const field = app.spec.entities.flatMap((e) => e.fields).find((f) => f.name === fname)
         if (field?.type === 'enum') {

@@ -291,25 +291,41 @@ export function listBusinessConnections(db, { workspaceId = 'ws_personal' } = {}
   }))
 }
 
-export function listBusinessApps(db, { workspaceId = 'ws_personal' } = {}) {
-  return db.prepare(`
-    SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
-           created_by, created_at, updated_at
-    FROM business_apps
-    WHERE workspace_id = ?
-    ORDER BY updated_at DESC
-  `).all(workspaceId).map((row) => ({
-    id: row.id,
-    workspaceId: row.workspace_id,
-    name: row.name,
-    appKind: row.app_kind,
-    status: row.status,
-    currentRevision: row.current_revision,
-    definition: JSON.parse(row.definition_json),
-    createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }))
+export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd = '' } = {}) {
+  const cwd = String(workspaceCwd || '').trim()
+  const rows = cwd
+    ? db.prepare(`
+        SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
+               created_by, created_at, updated_at
+        FROM business_apps
+        WHERE workspace_id = ?
+           OR json_extract(definition_json, '$._workspaceCwd') = ?
+        ORDER BY updated_at DESC
+      `).all(workspaceId, cwd)
+    : db.prepare(`
+        SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
+               created_by, created_at, updated_at
+        FROM business_apps
+        WHERE workspace_id = ?
+        ORDER BY updated_at DESC
+      `).all(workspaceId)
+  const seen = new Set()
+  return rows.flatMap((row) => {
+    if (seen.has(row.id)) return []
+    seen.add(row.id)
+    return [{
+      id: row.id,
+      workspaceId: row.workspace_id,
+      name: row.name,
+      appKind: row.app_kind,
+      status: row.status,
+      currentRevision: row.current_revision,
+      definition: JSON.parse(row.definition_json),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }]
+  })
 }
 
 export function createBusinessApp(db, input) {

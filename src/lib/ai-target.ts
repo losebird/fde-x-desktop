@@ -49,7 +49,7 @@ export function loadCurrentWorkspaceCwd(): WorkspaceCwdResult {
   const workspace = state.workspaces.find((row) => row.id === state.activeWorkspaceId)
   const cwd = workspace?.cwd && workspace.cwd.startsWith('/') ? workspace.cwd : ''
   const workspaceId = workspace?.id || ''
-  if (!cwd || !workspaceId || workspaceId.startsWith('ws_')) {
+  if (!cwd || !workspaceId) {
     return { ok: false, error: '当前顶栏工作区没有本机目录' }
   }
   return { ok: true, cwd, workspaceId }

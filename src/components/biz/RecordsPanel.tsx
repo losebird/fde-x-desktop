@@ -3,7 +3,6 @@ import { ArrowLeft, Bot, CircleAlert, Plus, Search } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Empty } from '@/components/ui'
 import { BizPreviewDrawer } from '@/components/biz/BizPreviewDrawer'
-import { SpecTable } from '@/components/apps/SpecTable'
 import {
   cloneSheetRows,
   formatSheetCellDisplayValue,
@@ -30,7 +29,6 @@ import {
   type BusinessAppRecord,
   type BusinessConnectionRecord,
 } from '@/lib/runtime-api'
-import { isFdeAppSpec } from '@/lib/app-spec'
 import {
   listBizKindListSnapshots,
   peekBizKindListSheetBySurfaceId,
@@ -255,7 +253,7 @@ function EditableSheetCell({
   )
 }
 
-export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget }: Props) {
+export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Props) {
   const activeAiSessionId = useApp((state) => state.activeAiSessionId)
   const activeWorkspaceCwd = useApp((state) => {
     const row = state.workspaces.find((item) => item.id === state.activeWorkspaceId)
@@ -310,15 +308,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   const showRecordsBack = Boolean(listRestore)
   const bizCwd = workspaceCwd || activeWorkspaceCwd
 
-  const localApps = useMemo(
-    () => apps.filter((app) => isFdeAppSpec(app.definition)),
-    [apps],
+  const connectorOptions = useMemo(
+    () => connections.map((c) => ({ id: c.id, label: c.name })),
+    [connections],
   )
-  const connectorOptions = useMemo(() => {
-    const external = connections.map((c) => ({ id: c.id, label: c.name }))
-    const local = localApps.map((a) => ({ id: `local:${a.id}`, label: `本地 · ${a.name}` }))
-    return [...external, ...local]
-  }, [connections, localApps])
 
   const kindLabel = useCallback((k: string) => {
     const row = kindCatalog.find((item) => item.kind === k)
@@ -435,16 +428,6 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   const hasSurfacedData = rows.length > 0
     || (pendingRowTotal > 0 && Boolean(pending?.kind))
     || surfaces.some((s) => (s.rowCount ?? 0) > 0)
-
-  const activeLocalApp = useMemo(() => {
-    if (!connectionId.startsWith('local:')) return null
-    const appId = connectionId.slice('local:'.length)
-    const app = localApps.find((a) => a.id === appId)
-    if (!app || !isFdeAppSpec(app.definition)) return null
-    const spec = app.definition
-    const tableView = spec.views.find((v) => v.type === 'table') || spec.views[0]
-    return { app, spec, tableView }
-  }, [connectionId, localApps])
 
   useEffect(() => {
     if (activeWorkspaceCwd) setWorkspaceCwd(activeWorkspaceCwd)
@@ -832,7 +815,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
 
   useEffect(() => {
     if (connectionId) return
-    const preferred = connectorOptions.find((opt) => !opt.id.startsWith('local:')) || connectorOptions[0]
+    const preferred = connectorOptions[0]
     if (preferred) setConnectionId(preferred.id)
   }, [connectionId, connectorOptions])
 
@@ -845,13 +828,13 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   }, [loadSurfaces])
 
   useEffect(() => {
-    if (!runtimeReady || !workspaceCwd || activeLocalApp) return
+    if (!runtimeReady || !workspaceCwd) return
     if (historyPinnedSurfaceIdRef.current) return
     void hydrateFromPending()
-  }, [activeLocalApp, hydrateFromPending, runtimeReady, workspaceCwd])
+  }, [hydrateFromPending, runtimeReady, workspaceCwd])
 
   useEffect(() => {
-    if (!runtimeReady || !workspaceCwd || activeLocalApp) return
+    if (!runtimeReady || !workspaceCwd) return
     if (surfaces.length === 0) return
     if (kind) return
     void (async () => {
@@ -874,7 +857,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
         return
       }
     })()
-  }, [activeLocalApp, applyPendingSheet, runtimeReady, surfaces, workspaceCwd])
+  }, [applyPendingSheet, runtimeReady, surfaces, workspaceCwd])
 
   useEvents(['biz.sheet.pending'], (event) => {
     const payload = event.payload as PendingSheetEvent
@@ -932,7 +915,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     action: string,
     extra: Record<string, unknown> & { originalRow?: SheetRow } = {},
   ) => {
-    if (!lanReady || activeLocalApp || !kind) return
+    if (!lanReady || !kind) return
     setLoading(true)
     setError('')
     setStaleHint('')
@@ -1002,7 +985,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     } finally {
       setLoading(false)
     }
-  }, [activeLocalApp, applySheet, columns, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, listSheetMeta, loadSurfaces, maybeSaveListRestore])
+  }, [applySheet, columns, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, listSheetMeta, loadSurfaces, maybeSaveListRestore])
 
   const resolveSurfaceSheet = useCallback((surface: BizSurfaceRecord): SheetSnapshot | null => {
     const mem = sheetSnapshots.current.get(`surface:${surface.id}`)
@@ -1338,28 +1321,6 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
 
   if (!connectorOptions.length) {
     return <Empty title="先在设置登记业务连接器" hint="登记后可在此对 AI 浮现的业务行做过账" />
-  }
-
-  if (activeLocalApp && workspaceCwd) {
-    const { app, spec, tableView } = activeLocalApp
-    if (!tableView) {
-      return <Empty title="该应用没有表格视图" hint="在应用编辑器中添加 table 视图" />
-    }
-    return (
-      <div className="space-y-3">
-        {connectorPicker && (
-          <Card className="!p-3 flex items-center gap-2 flex-wrap">
-            {connectorPicker}
-          </Card>
-        )}
-        <SpecTable
-          app={{ id: app.id, spec, status: app.status }}
-          view={tableView}
-          workspaceCwd={workspaceCwd}
-          onRefresh={() => undefined}
-        />
-      </div>
-    )
   }
 
   const pendingText = pending

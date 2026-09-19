@@ -374,7 +374,10 @@ function Overview({
           {showCreate && (
             <AppCreateWizard
               workspaceId={workspaceId}
-              onCreated={onCreated}
+              onCreated={(appId) => {
+                void onCreated()
+                if (appId) setSelectedId(appId)
+              }}
               onClose={() => setShowCreate(false)}
             />
           )}

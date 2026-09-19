@@ -105,7 +105,7 @@ async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId:
     }
     try {
       const created = await runtimeApi.createAiSession({
-        workspaceId: workspace.workspaceId,
+        cwd: workspace.cwd,
         agentPreset: opts.preset,
       })
       const sessionId = created.sessionId

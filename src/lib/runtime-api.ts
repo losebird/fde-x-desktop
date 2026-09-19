@@ -1578,7 +1578,11 @@ export class RuntimeApi {
   }
 
   async listBusinessApps(workspaceId?: string, signal?: AbortSignal): Promise<BusinessAppRecord[]> {
-    const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''
+    const params = new URLSearchParams()
+    if (workspaceId) params.set('workspaceId', workspaceId)
+    const cwd = currentWorkspaceCwd()
+    if (cwd) params.set('workspaceCwd', cwd)
+    const query = params.toString() ? `?${params}` : ''
     const result = await this.request<{ items: BusinessAppRecord[] }>(`/api/v1/business/apps${query}`, { signal })
     return result.items
   }

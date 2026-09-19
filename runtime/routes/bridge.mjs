@@ -169,6 +169,32 @@ export async function handleBridgeRoutes(request, response, url, deps) {
   if (sub === 'app-spec-submit' || sub === 'app-records-query' || sub === 'app-records-propose') {
     const bridgeResult = handleAppsBridge(sub, body, db, workspaceCwd)
     if (bridgeResult) {
+      if (sub === 'app-spec-submit' && bridgeResult.ok && workspaceCwd) {
+        const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : ''
+        if (requestId && bridgeResult.appId) {
+          const createdAt = Date.now()
+          db.prepare(`
+            INSERT INTO ai_results (request_id, workspace_cwd, session_id, kind, data_json, summary, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(request_id) DO UPDATE SET
+              workspace_cwd = excluded.workspace_cwd,
+              session_id = excluded.session_id,
+              kind = excluded.kind,
+              data_json = excluded.data_json,
+              summary = excluded.summary,
+              created_at = excluded.created_at
+          `).run(
+            requestId,
+            workspaceCwd,
+            sessionId || null,
+            'json',
+            JSON.stringify({ appId: bridgeResult.appId, revision: bridgeResult.revision }),
+            '已提交应用 spec',
+            createdAt,
+          )
+          emit('ai.result.ready', { requestId }, { workspaceCwd, sessionId: sessionId || undefined })
+        }
+      }
       bridgeOk(response, bridgeResult.ok === false ? 422 : 200, bridgeResult, correlationId)
       return true
     }

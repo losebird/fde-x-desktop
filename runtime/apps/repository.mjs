@@ -262,8 +262,29 @@ export function rollbackApp(db, appId, revision) {
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {string} workspaceId
  * @param {string} slug
+ * @param {string} [workspaceCwd]
  */
-export function findActiveAppBySlug(db, workspaceId, slug) {
-  const rows = listApps(db, workspaceId)
-  return rows.find((a) => a.slug === slug && a.status === 'active') || null
+export function findActiveAppBySlug(db, workspaceId, slug, workspaceCwd) {
+  const cwd = String(workspaceCwd || '').trim()
+  const rows = db.prepare(`
+    SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json, created_at, updated_at
+    FROM business_apps
+    WHERE status = 'active'
+  `).all().map((row) => ({
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    appKind: row.app_kind,
+    status: row.status,
+    currentRevision: row.current_revision,
+    slug: safeSlug(JSON.parse(row.definition_json)),
+    spec: JSON.parse(row.definition_json),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  })).filter((row) => row.slug === slug)
+  if (cwd) {
+    const byCwd = rows.find((row) => row.spec && row.spec._workspaceCwd === cwd)
+    if (byCwd) return byCwd
+  }
+  return rows.find((row) => row.workspaceId === workspaceId) || null
 }

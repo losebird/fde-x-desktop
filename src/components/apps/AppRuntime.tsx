@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import clsx from 'clsx'
 import { SpecKanban } from '@/components/apps/SpecKanban'
 import { SpecStat } from '@/components/apps/SpecStat'
 import { SpecTable } from '@/components/apps/SpecTable'
 import { SpecForm } from '@/components/apps/SpecForm'
 import { SpecEditor } from '@/components/apps/SpecEditor'
-import { isFdeAppSpec, type FdeAppDetail, type FdeAppView } from '@/lib/app-spec'
+import { isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -34,18 +34,29 @@ function mockRows(spec: FdeAppDetail['spec']): Record<string, unknown>[] {
   })
 }
 
-export function AppRuntime({ app, workspaceCwd, previewMode, onChanged }: Props) {
+export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, onChanged }: Props) {
   const spec = app.spec
   const views = spec.views
   const [viewId, setViewId] = useState(views[0]?.id || views[0]?.type || '0')
   const [showEditor, setShowEditor] = useState(false)
   const [detailRid, setDetailRid] = useState('')
-  const previewRows = previewMode || app.status === 'draft' ? mockRows(spec) : undefined
+  const [note, setNote] = useState('')
+  const previewRows = app.status !== 'active' ? mockRows(spec) : undefined
   const current = views.find((v) => (v.id || v.type) === viewId) || views[0]
+  const live = app.status === 'active'
 
   const activate = async () => {
-    await runtimeApi.activateDeclarativeApp(app.id)
-    onChanged()
+    setNote('')
+    try {
+      const res = await runtimeApi.activateDeclarativeApp(app.id)
+      if (!res.ok) {
+        setNote(res.errors?.map((e) => `${e.path}: ${e.message}`).join('；') || '激活失败')
+        return
+      }
+      onChanged()
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : '激活失败')
+    }
   }
 
   const archive = async () => {
@@ -107,6 +118,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode, onChanged }: Props)
           )}
         </div>
       </div>
+      {note && <div className="px-4 py-2 text-xs text-accent-red">{note}</div>}
       {showEditor && <SpecEditor app={app} onSaved={onChanged} />}
       <div className="px-4 py-3">
         {current?.type === 'table' && (
@@ -120,7 +132,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode, onChanged }: Props)
           />
         )}
         {current?.type === 'form' && (
-          <SpecForm app={app} entity={current.entity} workspaceCwd={workspaceCwd} readOnly={app.status === 'archived'} onDone={onChanged} />
+          <SpecForm app={app} entity={current.entity} workspaceCwd={workspaceCwd} readOnly={!live} onDone={onChanged} />
         )}
         {current?.type === 'kanban' && (
           <SpecKanban app={app} view={current} workspaceCwd={workspaceCwd} previewRows={previewRows} />
@@ -135,7 +147,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode, onChanged }: Props)
               entity={current.entity}
               workspaceCwd={workspaceCwd}
               rid={detailRid}
-              readOnly={app.status === 'archived'}
+              readOnly={!live}
               onDone={onChanged}
             />
           </div>
