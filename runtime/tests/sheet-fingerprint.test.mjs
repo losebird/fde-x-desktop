@@ -62,3 +62,22 @@ test('pendingSheetWatchFingerprint changes when query changes even if rowCount m
   })
   assert.notEqual(fp1, fp2)
 })
+
+test('pendingSheetWatchFingerprint differs when sessionId differs', () => {
+  const row = { no: '1' }
+  const a = pendingSheetWatchFingerprint({
+    kind: 'T',
+    action: '现查',
+    rows: [row],
+    sessionId: 's1',
+    speech: 'same speech',
+  })
+  const b = pendingSheetWatchFingerprint({
+    kind: 'T',
+    action: '现查',
+    rows: [row],
+    sessionId: 's2',
+    speech: 'same speech',
+  })
+  assert.notEqual(a, b)
+})

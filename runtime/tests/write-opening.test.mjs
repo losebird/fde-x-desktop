@@ -236,3 +236,66 @@ test('same-action patches in one opening still merge', async () => {
   assert.equal(hall.pendingWrite.preview_id, second.preview_id)
   assert.equal((hall.pendingWrite.lines || []).length, 2)
 })
+
+test('empty 现查 does not wipe a populated list sheet', async () => {
+  const store = memStore()
+  const now = () => 1_700_000_000_000
+  const snapshot = async (sid) => {
+    const state = await store.get()
+    return {
+      pendingWrite: livePendingWrite(state, null, now()),
+      pendingSheet: livePendingSheet(state, null, now(), sid || sessionId),
+    }
+  }
+  const gate = createGate({
+    store,
+    now,
+    snapshot,
+    note() {},
+    opts: {
+      gate: {
+        async preview(spec) {
+          const kind = String(spec.kind || 'KindShown')
+          const rows = Array.isArray(spec.rows) ? spec.rows : []
+          const sheet = {
+            kind,
+            action: '现查',
+            rows,
+            speech: spec.speech,
+            sessionId: spec.sessionId,
+            workspace: spec.workspace,
+          }
+          return { ok: rows.length > 0, action: '现查', kind, sheet, sessionId: spec.sessionId, workspace: spec.workspace }
+        },
+        async write() { return { ok: true } },
+      },
+    },
+    catalogOf() { return [] },
+    async reopenReplyDraft() { return false },
+    async hearBusinessEvent() {},
+    async rememberFocus() {},
+  })
+  await gate.previewBiz({
+    kind: 'KindShown',
+    action: '现查',
+    rows: [{ no: 'HIT-1' }],
+    sessionId,
+    workspace,
+    speech: 'first populated list',
+  })
+  const filled = await snapshot(sessionId)
+  assert.equal(filled.pendingSheet.kind, 'KindShown')
+  assert.equal(filled.pendingSheet.rows.length, 1)
+  await gate.previewBiz({
+    kind: 'KindEmpty',
+    action: '现查',
+    rows: [],
+    sessionId,
+    workspace,
+    speech: 'empty follow-up',
+  })
+  const kept = await snapshot(sessionId)
+  assert.equal(kept.pendingSheet.kind, 'KindShown')
+  assert.equal(kept.pendingSheet.rows.length, 1)
+  assert.equal(kept.pendingSheet.rows[0].no, 'HIT-1')
+})

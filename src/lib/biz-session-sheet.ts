@@ -68,6 +68,9 @@ export function rememberBizPendingSheet(sheet: Record<string, unknown>) {
     const ws = loadCurrentWorkspaceCwd()
     if (ws.ok) rememberBizKindListSheet(ws.cwd, sheet)
   }
+  const prevRows = Array.isArray(lastPending?.sheet?.rows) ? lastPending.sheet.rows : []
+  const prevAction = String(lastPending?.sheet?.action || '')
+  if (action === '现查' && rows.length === 0 && prevRows.length > 0 && (!prevAction || prevAction === '现查')) return
   lastPending = { sheet, at: Date.now() }
 }
 

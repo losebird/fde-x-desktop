@@ -85,5 +85,6 @@ export function pendingSheetWatchFingerprint(sheet) {
     columnsLen: Array.isArray(sheet.columns) ? sheet.columns.length : 0,
     canWrite: sheet.canWrite ?? sheet.can_write,
     speech: String(sheet.speech || '').slice(0, 120),
+    sessionId: String(sheet.sessionId || ''),
   })
 }

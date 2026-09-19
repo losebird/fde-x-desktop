@@ -138,6 +138,17 @@ export function createGate(bag) {
     if (fresh && !(spec && spec.related)) s.sheetTrail = []
   }
 
+  function shouldKeepPopulatedListSheet(prev, incoming) {
+    const prevRows = prev && Array.isArray(prev.rows) ? prev.rows.length : 0
+    const nextRows = incoming && Array.isArray(incoming.rows) ? incoming.rows.length : 0
+    if (prevRows <= 0 || nextRows > 0) return false
+    const prevAct = String((prev && prev.action) || '')
+    const nextAct = String((incoming && incoming.action) || '')
+    if (nextAct && nextAct !== '现查') return false
+    if (prevAct && prevAct !== '现查') return false
+    return true
+  }
+
   async function draftSessionId(given) {
     const sid = String(given || '').trim()
     const state = await store.get()
@@ -169,6 +180,10 @@ export function createGate(bag) {
           sessionId: sheetSid,
           workspace: cwd,
           speech: String((sheetSrc && sheetSrc.speech) || spec.speech || spec.quote || '').trim(),
+        }
+        if (shouldKeepPopulatedListSheet(s.pendingSheet, incoming)) {
+          note(s, `现查空表未覆盖 · ${incoming.kind || ''} ${incoming.no || ''}`, now())
+          return
         }
         rememberSheet(s, spec, true)
         s.pendingWrite = null
