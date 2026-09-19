@@ -267,6 +267,19 @@ export function pageLooksLikeLedger(page: FdeAppPage): boolean {
   return kinds.includes('stats') && (kinds.includes('compose') || kinds.includes('form')) && kinds.includes('feed')
 }
 
+/** Card pages keep 记下栏 findable: compose before cards. Ledger order stays. Column nav is unchanged. */
+export function visibleWorkSurfaceBlocks(page: FdeAppPage): FdePageBlock[] {
+  const blocks = [...page.blocks]
+  if (pageLooksLikeLedger(page)) return blocks
+  const composeIdx = blocks.findIndex((block) => block.kind === 'compose' || block.kind === 'form')
+  const cardsIdx = blocks.findIndex((block) => block.kind === 'cards')
+  if (cardsIdx >= 0 && composeIdx > cardsIdx) {
+    const [compose] = blocks.splice(composeIdx, 1)
+    blocks.splice(cardsIdx, 0, compose)
+  }
+  return blocks
+}
+
 /** Cards view from spec. Do not invent a cards tab for a ledger page. */
 export function cardsViewForSpec(spec: FdeAppSpec): FdeAppView | undefined {
   return spec.views.find((view) => view.type === 'cards')
@@ -304,8 +317,9 @@ export function workSurfacePages(spec: FdeAppSpec): { pages: FdeAppPage[]; extra
       extraViews.push(cardsView)
     }
     const compose = spec.views.find((view) => (view.type === 'compose' || view.type === 'form') && view.entity === entity.name)
-    const blocks: FdePageBlock[] = [{ kind: 'cards', view: cardsView.id || `cards-${entity.name}` }]
+    const blocks: FdePageBlock[] = []
     if (compose?.id) blocks.push({ kind: compose.type === 'form' ? 'form' : 'compose', view: compose.id })
+    blocks.push({ kind: 'cards', view: cardsView.id || `cards-${entity.name}` })
     pages.unshift({
       id: `page-cards-${entity.name}`,
       label: entity.label,

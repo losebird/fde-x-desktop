@@ -7,6 +7,7 @@ import {
   looksLikeGeneratedCode,
   pageColumnUses,
   stripGeneratedCodeTokens,
+  visibleWorkSurfaceBlocks,
   workSurfacePages,
   workspaceChromeUses,
 } from '../../src/lib/app-spec.ts'
@@ -120,11 +121,26 @@ describe('record titles and grouped card pages', () => {
 
   test('link fields add grouped cards without dropping the ledger page', () => {
     const { pages, extraViews } = workSurfacePages(boardSpec)
-    assert.equal(pages[0].blocks[0].kind, 'cards')
+    assert.equal(pages[0].blocks[0].kind, 'compose')
+    assert.equal(pages[0].blocks[1].kind, 'cards')
     const cardsView = extraViews.find((view) => view.type === 'cards') || boardSpec.views.find((view) => view.type === 'cards')
     assert.ok(cardsView)
     assert.equal(cardsView.groupBy, 'source')
     assert.ok(pages.some((page) => page.blocks.some((block) => block.kind === 'feed')))
+  })
+
+  test('card page lifts 记下栏 above cards; ledger order stays', () => {
+    const cardPage = {
+      id: 'page-board',
+      label: '资料板',
+      blocks: [
+        { kind: 'cards', view: 'cards-by-source' },
+        { kind: 'compose', view: 'compose-resource' },
+      ],
+    }
+    assert.deepEqual(visibleWorkSurfaceBlocks(cardPage).map((block) => block.kind), ['compose', 'cards'])
+    const { pages } = workSurfacePages(ledgerSpec)
+    assert.deepEqual(visibleWorkSurfaceBlocks(pages[0]).map((block) => block.kind), ['stats', 'compose', 'chart', 'feed'])
   })
 
   test('card blurb uses spec fields and strips probe tokens', () => {

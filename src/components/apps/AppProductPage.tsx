@@ -14,6 +14,7 @@ import {
   pageColumnUses,
   pageLooksLikeLedger,
   viewById,
+  visibleWorkSurfaceBlocks,
   workSurfacePages,
   type FdeAppDetail,
   type FdeAppPage,
@@ -72,7 +73,7 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
         </div>
       </div>
       <div className="space-y-4" data-app-ledger={pageLooksLikeLedger(page) ? 'true' : undefined}>
-        {renderBlocks(page.blocks).map((group, index) => (
+        {renderBlocks(visibleWorkSurfaceBlocks(page)).map((group, index) => (
           <div
             key={`${page.id}-g-${index}`}
             className={group.pair ? 'grid grid-cols-1 xl:grid-cols-2 gap-3 items-start' : undefined}

@@ -155,9 +155,13 @@ export async function runDeclaredPlatformUse(
     const cwd = loadCurrentWorkspaceCwd()
     if (!cwd.ok) throw new Error(cwd.error)
     const created = await runtimeApi.createAiSession({ cwd: cwd.cwd })
-    await runtimeApi.renameAiSession(created.sessionId, `${spec.name} · 问`).catch(() => undefined)
+    const title = `${spec.name} · 问`
+    await runtimeApi.renameAiSession(created.sessionId, title).catch(() => undefined)
     state.setActiveAiSessionId(created.sessionId)
     if (state.sidebarCollapsed) state.toggleSidebar()
+    window.dispatchEvent(new CustomEvent('fde-x-ai-open', {
+      detail: { sessionId: created.sessionId, title },
+    }))
     await runtimeApi.promptAi(created.sessionId, {
       text: `我正在用应用「${spec.name}」。${spec.description || ''}请根据这个应用里已有的记录帮我。不要写外部业务系统。`,
     })

@@ -285,6 +285,24 @@ export default function AI() {
     window.addEventListener('fde-x-ai-prompt', onPrompt as EventListener)
     window.addEventListener('fde-x-ai-transcript', onTranscript as EventListener)
     window.addEventListener('fde-x-ai-restore', onRestore as EventListener)
+    function onOpen(event: Event) {
+      const detail = (event as CustomEvent<{ sessionId?: string; title?: string }>).detail
+      const sid = String(detail?.sessionId || '').trim()
+      const title = String(detail?.title || '').trim()
+      if (!sid) return
+      void reloadRemoteSessions().then((rows) => {
+        if (title) {
+          setRemoteSessions(rows.map((row) => (row.sessionId === sid ? { ...row, title } : row)))
+        }
+        nav(`/ai/${sid}`)
+        tellDsh('select', {
+          sessionId: sid,
+          ...(title ? { title } : {}),
+          ...(workspaceCwdRef.current ? { cwd: workspaceCwdRef.current } : {}),
+        })
+      }).catch(() => undefined)
+    }
+    window.addEventListener('fde-x-ai-open', onOpen as EventListener)
     return () => {
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
@@ -293,6 +311,7 @@ export default function AI() {
       window.removeEventListener('fde-x-ai-prompt', onPrompt as EventListener)
       window.removeEventListener('fde-x-ai-transcript', onTranscript as EventListener)
       window.removeEventListener('fde-x-ai-restore', onRestore as EventListener)
+      window.removeEventListener('fde-x-ai-open', onOpen as EventListener)
     }
   }, [])
 
