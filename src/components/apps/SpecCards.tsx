@@ -129,7 +129,7 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
                     <div className="flex flex-1 flex-col gap-2 p-3 bg-surface">
                       <h3 className="text-[13px] font-semibold leading-snug text-ink line-clamp-2">{title || '未命名'}</h3>
                       {blurb ? (
-                        <p className="text-[12px] text-ink-muted leading-snug line-clamp-2">{blurb}</p>
+                        <p className="text-[12px] text-ink-muted leading-snug line-clamp-2" data-app-card-blurb="true">{blurb}</p>
                       ) : null}
                       <div className="mt-auto pt-1">
                         {action?.kind === 'url' && (

@@ -2,9 +2,13 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   cardAction,
+  displayBlurb,
   displayTitle,
   looksLikeGeneratedCode,
+  pageColumnUses,
+  stripGeneratedCodeTokens,
   workSurfacePages,
+  workspaceChromeUses,
 } from '../../src/lib/app-spec.ts'
 
 const ledgerSpec = {
@@ -121,6 +125,44 @@ describe('record titles and grouped card pages', () => {
     assert.ok(cardsView)
     assert.equal(cardsView.groupBy, 'source')
     assert.ok(pages.some((page) => page.blocks.some((block) => block.kind === 'feed')))
+  })
+
+  test('card blurb uses spec fields and strips probe tokens', () => {
+    assert.equal(stripGeneratedCodeTokens('字段和错误码 am-mu85schy'), '字段和错误码')
+    assert.equal(stripGeneratedCodeTokens('新同事先看这个 al-mu84card1'), '新同事先看这个')
+    assert.equal(stripGeneratedCodeTokens('每周五更新'), '每周五更新')
+    assert.equal(displayBlurb(boardSpec, 'item', {
+      title: '接口说明',
+      blurb: '字段和错误码 am-mu85schy',
+    }, '接口说明'), '字段和错误码')
+    assert.equal(displayBlurb(boardSpec, 'item', {
+      title: '接口说明',
+      blurb: 'am-mu85schy',
+    }, '接口说明'), '')
+    assert.equal(displayBlurb(boardSpec, 'item', {
+      title: '周报模板',
+      blurb: '每周五更新',
+    }, '周报模板'), '每周五更新')
+  })
+
+  test('declared float lives in workspace chrome, other uses in the page column', () => {
+    const spec = { ...boardSpec, uses: ['ai', 'float', 'files', 'memory', 'im', 'briefing', 'biz'] }
+    assert.deepEqual(workspaceChromeUses(spec), ['float'])
+    const column = pageColumnUses(spec, 'item')
+    assert.equal(column.includes('float'), false)
+    assert.deepEqual(column, ['ai', 'files', 'memory', 'im', 'briefing', 'biz'])
+    const fileSpec = {
+      ...spec,
+      entities: [{
+        ...boardSpec.entities[0],
+        fields: [
+          { name: 'title', label: '标题', type: 'text' },
+          { name: 'file_path', label: '文件', type: 'text' },
+        ],
+      }],
+    }
+    assert.equal(pageColumnUses(fileSpec, 'item').includes('files'), false)
+    assert.equal(pageColumnUses({ ...boardSpec, uses: ['ai'] }, 'item').includes('briefing'), false)
   })
 
   test('card action opens url or file ref', () => {

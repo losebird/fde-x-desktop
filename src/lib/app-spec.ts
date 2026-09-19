@@ -159,12 +159,37 @@ export function entityHasLinkOrFile(entity: FdeAppEntity | undefined): boolean {
   return Boolean(entity?.fields.some((field) => fieldLooksLikeLink(field)))
 }
 
+const GENERATED_CODE_RE = /^[\u4e00-\u9fffA-Za-z]{1,6}-[a-z0-9]{5,}$/i
+const GENERATED_TOKEN_RE = /[\u4e00-\u9fffA-Za-z]{1,6}-[a-z0-9]{5,}/gi
+const REC_ID_RE = /\brec[a-z0-9]{8,}\b/gi
+
 export function looksLikeGeneratedCode(value: unknown): boolean {
   const text = String(value ?? '').trim()
   if (!text) return true
   if (/^rec[a-z0-9]{8,}$/i.test(text)) return true
-  if (/^[\u4e00-\u9fffA-Za-z]{1,6}-[a-z0-9]{5,}$/i.test(text) && text.length <= 24) return true
+  if (GENERATED_CODE_RE.test(text) && text.length <= 24) return true
   return false
+}
+
+/** Drop verification-probe tokens from a spec field. Do not hardcode one probe id. */
+export function stripGeneratedCodeTokens(value: unknown): string {
+  let text = String(value ?? '').trim()
+  if (!text) return ''
+  text = text.replace(REC_ID_RE, ' ')
+  text = text.replace(GENERATED_TOKEN_RE, (token) => (token.length <= 24 ? ' ' : token))
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+export function workspaceChromeUses(spec: FdeAppSpec): FdePlatformUse[] {
+  return declaredPlatformUses(spec).filter((use) => use === 'float')
+}
+
+export function pageColumnUses(spec: FdeAppSpec, entityName: string): FdePlatformUse[] {
+  const covered = new Set<FdePlatformUse>(['float'])
+  const ent = entityDef(spec, entityName)
+  if (ent?.fields.some((field) => fieldLooksLikeFile(field))) covered.add('files')
+  if (ent?.fields.some((field) => fieldLooksLikeBizRef(field))) covered.add('biz')
+  return declaredPlatformUses(spec).filter((use) => !covered.has(use))
 }
 
 function readableValue(row: Record<string, unknown>, name: string): string {
@@ -206,14 +231,14 @@ export function displayBlurb(spec: FdeAppSpec, entityName: string, row: Record<s
   if (!ent) return ''
   const longtext = ent.fields.find((field) => field.type === 'longtext')
   if (longtext) {
-    const text = String(row[longtext.name] ?? '').trim()
-    if (text && text !== title && !looksLikeGeneratedCode(text)) return text
+    const text = stripGeneratedCodeTokens(row[longtext.name])
+    if (text && text !== title) return text
   }
   for (const field of ent.fields) {
     if (field.type !== 'text' || field.name === ent.titleField) continue
     if (fieldLooksLikeLink(field)) continue
-    const text = String(row[field.name] ?? '').trim()
-    if (text && text !== title && !looksLikeGeneratedCode(text)) return text
+    const text = stripGeneratedCodeTokens(row[field.name])
+    if (text && text !== title) return text
   }
   return ''
 }

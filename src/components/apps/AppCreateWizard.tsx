@@ -73,7 +73,7 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
         preset,
         title: `应用构建 · ${description.slice(0, 20)}`,
         context: ['workspace', 'apps'],
-        prompt: `需求：${description}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。titleField 必须是人能读的业务名（名称/标题），禁止用单号或自动编号填标题。按字段形状铺产品页：台账（有数字或日期、没有链接/文件字段）同一栏同时有 stats 概览、compose 记一笔、chart 图、feed 流水；资源条目（标题+说明，或链接/文件字段）必须用 cards，有 enum 就 groupBy，工作面按组铺卡片，卡片行动打开 URL（新窗口）或文件引用（文件模块），不要内嵌播放器。不要永远吐 table+form+kanban+stat 脚手架。uses 只声明真正要用的平台能力：问数/起草写 ai，并排用写 float，稿和附件走文件模块写 files，动作只起草记忆卡片写 memory，拟回进 IM 输入框写 im，早报/MCP 源写 briefing，引用业务对象并预览确认写 biz。没接到的不要写，前端不会画假按钮。需求里点名这些能力就要写进 uses。若返回 errors，修正后重新提交。不要写外部业务系统。禁止套固定品类模板。`,
+        prompt: `需求：${description}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。titleField 必须是人能读的业务名（名称/标题），禁止用单号或自动编号填标题。按字段形状铺产品页：台账（有数字或日期、没有链接/文件字段）同一栏同时有 stats 概览、compose 记一笔、chart 图、feed 流水；资源条目（标题+说明，或链接/文件字段）必须用 cards，有 enum 就 groupBy，工作面按组铺卡片，卡片行动打开 URL（新窗口）或文件引用（文件模块），不要内嵌播放器。不要永远吐 table+form+kanban+stat 脚手架。uses 只声明真正要用的平台能力：问数/起草写 ai，并排用写 float，稿和附件走文件模块写 files，动作只起草记忆卡片写 memory，拟回进 IM 输入框写 im，早报/MCP 源写 briefing，引用业务对象并预览确认写 biz。没接到的不要写，前端不会画假按钮。能力入口按这个应用的栏目和字段放，不要在产品页顶上永远压一排按钮。需求里点名这些能力就要写进 uses。若返回 errors，修正后重新提交。不要写外部业务系统。禁止套固定品类模板。`,
         schema: { type: 'object', required: ['appId', 'revision'] },
         timeoutMs: 240_000,
       }).then((result) => {

@@ -11,7 +11,7 @@
 - 字段类型：`text|longtext|number|bool|date|datetime|enum|ref|json`
 - 视图类型：`table|form|detail|kanban|stat|cards|chart|compose|feed`
 - `pages`：栏目。每栏 `blocks` 只放这个需求需要的块：`stats` / `compose` / `chart` / `feed` / `cards`
-- `uses`：只声明真正要接的平台能力 `ai|files|float|memory|im|briefing|biz`。没接上的不要写，前端不会画假按钮
+- `uses`：只声明真正要接的平台能力 `ai|files|float|memory|im|briefing|biz`。没接上的不要写，前端不会画假按钮。入口按这个应用的栏目和字段放：`float` 在工作面顶栏「浮窗」，文件/业务引用在对应字段，其余在记下栏。不要在产品页顶上永远压一排按钮。
 - `ref:entity:x` 必须引用已声明实体；`ref:biz:<型>` 只记录外部业务引用
 - `kind:biz` 动作必须带 `biz.kind` + `biz.action`（现查/改行/新建/删除/过审），校验器会强制 `approval:required`
 - `kind:set` 只能修改本实体字段，值类型须匹配

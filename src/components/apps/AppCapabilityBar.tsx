@@ -12,10 +12,11 @@ import { runtimeApi } from '@/lib/runtime-api'
 type Props = {
   spec: FdeAppSpec
   appId: string
+  uses?: FdePlatformUse[]
 }
 
-export function AppCapabilityBar({ spec, appId }: Props) {
-  const uses = declaredPlatformUses(spec)
+export function AppCapabilityBar({ spec, appId, uses: usesProp }: Props) {
+  const uses = usesProp ?? declaredPlatformUses(spec)
   const [note, setNote] = useState('')
   const [draftCard, setDraftCard] = useState<MemoryDraftCard | null>(null)
   const [nodding, setNodding] = useState(false)
@@ -56,7 +57,7 @@ export function AppCapabilityBar({ spec, appId }: Props) {
 
   return (
     <div className="flex w-full flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2" data-app-uses={uses.join(',')}>
+      <div className="flex flex-wrap items-center gap-2" data-app-column-uses={uses.join(',')}>
         {uses.map((use) => (
           <button
             key={use}

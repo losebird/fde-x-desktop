@@ -21,7 +21,8 @@ import type { BusinessTable } from '@/lib/types'
 import type { JsonValue, RiskLevel } from '@/lib/contracts'
 import { AppCreateWizard } from '@/components/apps/AppCreateWizard'
 import { AppRuntime } from '@/components/apps/AppRuntime'
-import { isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
+import { isFdeAppSpec, specHasUse, type FdeAppDetail } from '@/lib/app-spec'
+import { runDeclaredPlatformUse } from '@/lib/app-platform'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { RecordsPanel } from '@/components/biz/RecordsPanel'
 import { OperationControlPanel } from '@/components/biz/OperationControlPanel'
@@ -505,6 +506,18 @@ function Overview({
             <div className="text-sm font-medium truncate">{workspaceApp?.name || declarativeApp?.name || ''}</div>
           </div>
           <Tag kind="green">运行中</Tag>
+          {declarativeApp && specHasUse(declarativeApp.spec, 'float') && (
+            <button
+              type="button"
+              className="btn h-8"
+              data-app-use="float"
+              onClick={() => {
+                void runDeclaredPlatformUse('float', declarativeApp.spec, workspaceAppId)
+              }}
+            >
+              浮窗
+            </button>
+          )}
         </div>
         <Card className="!p-0 overflow-hidden">
           {declarativeApp && workspaceCwd && declarativeApp.id === workspaceAppId ? (

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { AppCapabilityBar } from '@/components/apps/AppCapabilityBar'
 import { SpecCards } from '@/components/apps/SpecCards'
@@ -9,7 +9,9 @@ import { SpecKanban } from '@/components/apps/SpecKanban'
 import { SpecStat } from '@/components/apps/SpecStat'
 import { SpecTable } from '@/components/apps/SpecTable'
 import {
+  declaredPlatformUses,
   mockRowsForEntity,
+  pageColumnUses,
   pageLooksLikeLedger,
   viewById,
   workSurfacePages,
@@ -37,9 +39,19 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
   }
 
   if (!page) return null
+  const pageEntity = pageEntityName(app.spec, page, extraViews)
+  const columnUses = pageColumnUses(app.spec, pageEntity)
+  const hasCompose = page.blocks.some((block) => block.kind === 'compose' || block.kind === 'form')
+  const columnBar = columnUses.length ? (
+    <AppCapabilityBar spec={app.spec} appId={app.id} uses={columnUses} />
+  ) : null
 
   return (
-    <div className="space-y-4" data-app-product="true">
+    <div
+      className="space-y-4"
+      data-app-product="true"
+      data-app-uses={declaredPlatformUses(app.spec).join(',')}
+    >
       <div className="flex flex-wrap items-end justify-between gap-2 border-b border-line">
         <div className="flex items-center gap-1" data-app-product-nav="true">
           {pages.map((row) => (
@@ -57,9 +69,6 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
               {row.label || row.id}
             </button>
           ))}
-        </div>
-        <div className="pb-1.5">
-          <AppCapabilityBar spec={app.spec} appId={app.id} />
         </div>
       </div>
       <div className="space-y-4" data-app-ledger={pageLooksLikeLedger(page) ? 'true' : undefined}>
@@ -80,13 +89,29 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
                 view={'view' in block ? viewById(app.spec, block.view, extraViews) : undefined}
                 statViews={block.kind === 'stats' ? block.views.map((id) => viewById(app.spec, id, extraViews)).filter((row): row is FdeAppView => Boolean(row)) : []}
                 kind={block.kind}
+                capabilityBar={block.kind === 'compose' || block.kind === 'form' ? columnBar : null}
               />
             ))}
           </div>
         ))}
+        {!hasCompose && columnBar}
       </div>
     </div>
   )
+}
+
+function pageEntityName(spec: FdeAppDetail['spec'], page: FdeAppPage, extraViews: FdeAppView[]): string {
+  for (const block of page.blocks) {
+    if (block.kind === 'stats') continue
+    const view = 'view' in block ? viewById(spec, block.view, extraViews) : undefined
+    if (view?.entity) return view.entity
+  }
+  for (const block of page.blocks) {
+    if (block.kind !== 'stats') continue
+    const view = viewById(spec, block.views[0], extraViews)
+    if (view?.entity) return view.entity
+  }
+  return spec.entities[0]?.name || ''
 }
 
 function renderBlocks(blocks: FdeAppPage['blocks']): { pair: boolean; blocks: FdeAppPage['blocks'] }[] {
@@ -106,7 +131,7 @@ function renderBlocks(blocks: FdeAppPage['blocks']): { pair: boolean; blocks: Fd
 }
 
 function ProductBlock({
-  app, workspaceCwd, preview, reloadToken, onRefresh, view, statViews, kind,
+  app, workspaceCwd, preview, reloadToken, onRefresh, view, statViews, kind, capabilityBar,
 }: {
   app: FdeAppDetail
   workspaceCwd: string
@@ -116,6 +141,7 @@ function ProductBlock({
   view?: FdeAppView
   statViews: FdeAppView[]
   kind: FdeAppPage['blocks'][number]['kind']
+  capabilityBar?: ReactNode
 }) {
   if (kind === 'stats') {
     return (
@@ -148,6 +174,7 @@ function ProductBlock({
           submitLabel={view.label}
           onDone={onRefresh}
         />
+        {capabilityBar}
       </div>
     )
   }
