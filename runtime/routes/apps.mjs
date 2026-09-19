@@ -301,7 +301,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendError(response, 404, 'not_found', '应用未激活', correlationId)
       return true
     }
-    const view = app.spec.views?.find((v) => v.id === viewId || v.type === 'stat')
+    const view = app.spec.views?.find((v) => v.id === viewId && v.type === 'stat')
     if (!view || view.type !== 'stat') {
       sendError(response, 404, 'not_found', '统计视图不存在', correlationId)
       return true
