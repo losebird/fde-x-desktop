@@ -72,7 +72,7 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
         intent: '创建业务应用',
         preset,
         title: `应用构建 · ${description.slice(0, 20)}`,
-        context: ['workspace', 'apps', 'biz'],
+        context: ['workspace', 'apps'],
         prompt: `需求：${description}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。若返回 errors，修正后重新提交。不要写外部业务系统。`,
         schema: { type: 'object', required: ['appId', 'revision'] },
         timeoutMs: 240_000,
