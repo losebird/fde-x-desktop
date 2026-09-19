@@ -439,7 +439,8 @@ function Overview({
       </div>
 
       <div className="grid grid-cols-1 @3xl:grid-cols-[1.12fr_.88fr] gap-4">
-        <Card className="!p-0 overflow-hidden" data-app-catalog="true">
+        <Card className="!p-0 overflow-hidden">
+          <div data-app-catalog="true">
           <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-medium">我的业务应用</div>
