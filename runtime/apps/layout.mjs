@@ -4,6 +4,101 @@ export function allowedPlatformUses() {
   return PLATFORM_USES.slice()
 }
 
+/** @returns {Record<string, unknown>} */
+export function defaultSurface() {
+  return {
+    nav: 'tabs',
+    density: 'cozy',
+    cards: { minWidth: 'regular', hero: 'cover' },
+    ledger: { composeChart: 'pair', feed: 'rows' },
+    primary: { where: 'card', kind: 'play' },
+  }
+}
+
+/**
+ * @param {Record<string, unknown>} spec
+ * @returns {{ nav: string, defaultPage?: string, density: string, cards: Record<string, unknown>, ledger: Record<string, unknown>, primary: Record<string, unknown> }}
+ */
+export function resolveSurface(spec) {
+  const def = defaultSurface()
+  const declared = spec?.surface
+  if (!declared || typeof declared !== 'object' || Array.isArray(declared)) {
+    return {
+      nav: def.nav,
+      density: def.density,
+      cards: { ...def.cards },
+      ledger: { ...def.ledger },
+      primary: { ...def.primary },
+    }
+  }
+  const cardsIn = declared.cards && typeof declared.cards === 'object' && !Array.isArray(declared.cards)
+    ? declared.cards
+    : {}
+  const ledgerIn = declared.ledger && typeof declared.ledger === 'object' && !Array.isArray(declared.ledger)
+    ? declared.ledger
+    : {}
+  const primaryIn = declared.primary && typeof declared.primary === 'object' && !Array.isArray(declared.primary)
+    ? declared.primary
+    : {}
+  const cards = { ...def.cards, ...cardsIn }
+  const ledger = { ...def.ledger, ...ledgerIn }
+  const primary = { ...def.primary, ...primaryIn }
+  const out = {
+    nav: declared.nav ?? def.nav,
+    density: declared.density ?? def.density,
+    cards,
+    ledger,
+    primary,
+  }
+  if (declared.defaultPage !== undefined) {
+    out.defaultPage = declared.defaultPage
+  }
+  return out
+}
+
+function surfaceIsNonemptyObject(surface) {
+  return surface && typeof surface === 'object' && !Array.isArray(surface) && Object.keys(surface).length > 0
+}
+
+function fillSurfaceOnSpec(next) {
+  const declared = next.surface
+  if (declared === undefined) {
+    next.surface = clone(defaultSurface())
+    return
+  }
+  if (!surfaceIsNonemptyObject(declared)) {
+    next.surface = clone(defaultSurface())
+    return
+  }
+  const merged = resolveSurface(next)
+  const out = { ...declared }
+  if (out.nav === undefined) out.nav = merged.nav
+  if (out.density === undefined) out.density = merged.density
+  out.cards = { ...(merged.cards), ...(declared.cards && typeof declared.cards === 'object' ? declared.cards : {}) }
+  out.ledger = { ...(merged.ledger), ...(declared.ledger && typeof declared.ledger === 'object' ? declared.ledger : {}) }
+  out.primary = { ...(merged.primary), ...(declared.primary && typeof declared.primary === 'object' ? declared.primary : {}) }
+  next.surface = out
+}
+
+// keep in sync with src/lib/app-spec.ts cardGridTemplate
+/**
+ * @param {{ density?: string, cards?: { minWidth?: string, columns?: number } }} surface
+ * @param {number} count
+ */
+export function cardGridTemplate(surface, count) {
+  const columns = surface?.cards?.columns
+  if (typeof columns === 'number' && Number.isInteger(columns) && columns >= 1 && columns <= 6) {
+    return `repeat(${columns}, minmax(0, 1fr))`
+  }
+  const density = surface?.density ?? 'cozy'
+  const minWidth = surface?.cards?.minWidth ?? 'regular'
+  let rem = '13.5rem'
+  if (density === 'packed' || minWidth === 'narrow') rem = '10rem'
+  else if (density === 'air' || minWidth === 'wide') rem = '18rem'
+  if (count >= 2) return `repeat(auto-fit, minmax(${rem}, 1fr))`
+  return `repeat(auto-fill, minmax(${rem}, ${rem}))`
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
@@ -192,18 +287,24 @@ function buildEntityPage(spec, entity) {
  * New drafts get product pages from field shape: ledger = overview + compose + chart + feed;
  * resource/catalog = grouped cards + compose. Existing pages/uses are kept. No category names.
  * @param {Record<string, unknown>} spec
+ * @param {{ fillPages?: boolean }} [options]
  */
-export function withProductLayout(spec) {
+export function withProductLayout(spec, { fillPages = true } = {}) {
   if (!spec || typeof spec !== 'object') return spec
   const next = clone(spec)
-  if (!Array.isArray(next.uses) || next.uses.length === 0) {
+  fillSurfaceOnSpec(next)
+  const usesAlreadySet = Array.isArray(next.uses) && next.uses.length > 0
+  if (fillPages && !usesAlreadySet) {
     next.uses = inferUses(next)
-  } else {
+  } else if (Array.isArray(next.uses)) {
     next.uses = [...new Set(next.uses.map(String).filter((item) => PLATFORM_USES.includes(item)))]
   }
-  if (next.uses.includes('memory')) {
+  if (next.uses?.includes('memory')) {
     const memory = next.memory && typeof next.memory === 'object' ? next.memory : {}
     next.memory = { ...memory, onWrite: 'draft-card' }
+  }
+  if (!fillPages) {
+    return next
   }
   const entities = Array.isArray(next.entities) ? next.entities.filter((entity) => entity && typeof entity.name === 'string') : []
   if (Array.isArray(next.pages) && next.pages.length > 0) {

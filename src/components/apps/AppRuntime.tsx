@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import { AppProductPage } from '@/components/apps/AppProductPage'
+import { appBuilderPrompt } from '@/lib/app-builder-prompt'
+import { askAiForResult } from '@/lib/ask-ai'
 import { SpecKanban } from '@/components/apps/SpecKanban'
 import { SpecStat } from '@/components/apps/SpecStat'
 import { SpecTable } from '@/components/apps/SpecTable'
@@ -32,6 +34,9 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
   const [showBuilder, setShowBuilder] = useState(false)
   const [detailRid, setDetailRid] = useState('')
   const [note, setNote] = useState('')
+  const [reviseDescription, setReviseDescription] = useState('')
+  const [reviseGenerating, setReviseGenerating] = useState(false)
+  const [reviseError, setReviseError] = useState('')
   const previewRows = app.status !== 'active' ? mockRows(spec) : undefined
   const current = views.find((v) => (v.id || v.type) === viewId) || views[0]
   const live = app.status === 'active'
@@ -60,6 +65,64 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
     }
     await runtimeApi.archiveDeclarativeApp(app.id)
     onChanged()
+  }
+
+  const submitRevisePrompt = async () => {
+    const description = reviseDescription.trim()
+    if (!description || reviseGenerating) return
+    setReviseError('')
+    setReviseGenerating(true)
+    const beforeRev = app.currentRevision
+    const deadline = Date.now() + 240_000
+    let settled = false
+    const finish = (ok: boolean, error?: string) => {
+      if (settled) return
+      settled = true
+      if (ok) {
+        setReviseDescription('')
+        onChanged()
+      } else {
+        setReviseError(error || '修订失败')
+      }
+    }
+    try {
+      const waitBump = async () => {
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+          const data = await runtimeApi.getDeclarativeApp(app.id).catch(() => null)
+          if (data && data.currentRevision > beforeRev) return data
+        }
+        return null
+      }
+      void askAiForResult<{ appId: string; revision: number }>({
+        intent: '修订业务应用',
+        preset: 'fde-app-builder',
+        title: `应用修订 · ${spec.name}`,
+        context: ['workspace', 'apps'],
+        prompt: appBuilderPrompt({
+          mode: 'revise',
+          description,
+          appId: app.id,
+          currentSpecJson: JSON.stringify(app.spec),
+        }),
+        schema: { type: 'object', required: ['appId', 'revision'] },
+        timeoutMs: 240_000,
+      }).then(async (result) => {
+        if (result.ok) {
+          finish(true)
+          return
+        }
+        const bumped = await waitBump()
+        finish(Boolean(bumped), result.error || '修订失败')
+      })
+      const bumped = await waitBump()
+      if (bumped) finish(true)
+      else finish(false, '生成超时。改描述再试。')
+    } catch (cause) {
+      finish(false, cause instanceof Error ? cause.message : '修订失败')
+    } finally {
+      setReviseGenerating(false)
+    }
   }
 
   const rollback = async (revision: number) => {
@@ -164,6 +227,31 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
             <div className="px-4 py-3 space-y-3">
               {spec.description && <div className="text-xs text-ink-muted leading-relaxed">{spec.description}</div>}
               {builderControls}
+            </div>
+            <div className="px-4 py-3 border-t border-line space-y-2">
+              <div className="text-sm font-medium">用一句话改</div>
+              <div data-app-revise-prompt="true">
+                <textarea
+                  className="input w-full min-h-[4.5rem] text-sm resize-y"
+                  placeholder="例如：卡片再密一点，主操作放播放"
+                  value={reviseDescription}
+                  disabled={reviseGenerating}
+                  onChange={(e) => setReviseDescription(e.target.value)}
+                />
+              </div>
+              {reviseGenerating && (
+                <div className="text-xs text-ink-muted">正在按这句话写进 spec</div>
+              )}
+              {reviseError && <div className="text-xs text-accent-red">{reviseError}</div>}
+              <button
+                type="button"
+                className="btn-brand h-8"
+                data-app-revise-submit="true"
+                disabled={!reviseDescription.trim() || reviseGenerating}
+                onClick={() => void submitRevisePrompt()}
+              >
+                生成修订
+              </button>
             </div>
             <SpecEditor app={app} onSaved={onChanged} />
           </div>

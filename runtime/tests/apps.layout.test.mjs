@@ -205,6 +205,62 @@ describe('product layout', () => {
     assert.equal(laid.uses.includes('files'), false)
   })
 
+  test('omitted surface gets default after withProductLayout', () => {
+    const laid = withProductLayout(SUPPLIER_VISITS_SPEC)
+    assert.equal(laid.surface.nav, 'tabs')
+    assert.equal(laid.surface.density, 'cozy')
+    assert.deepEqual(laid.surface.cards, { minWidth: 'regular', hero: 'cover' })
+    assert.deepEqual(laid.surface.ledger, { composeChart: 'pair', feed: 'rows' })
+    assert.deepEqual(laid.surface.primary, { where: 'card', kind: 'play' })
+  })
+
+  test('declared surface.density packed is kept', () => {
+    const spec = { ...SUPPLIER_VISITS_SPEC, surface: { density: 'packed' } }
+    const laid = withProductLayout(spec)
+    assert.equal(laid.surface.density, 'packed')
+    assert.equal(laid.surface.nav, 'tabs')
+  })
+
+  test('fillPages false does not add cards page to existing ledger pages even if link field exists', () => {
+    const spec = {
+      spec: 'fde-app/v1',
+      slug: 'link-ledger',
+      name: '链接台账',
+      entities: [{
+        name: 'item',
+        label: '条目',
+        titleField: 'title',
+        fields: [
+          { name: 'title', label: '标题', type: 'text', required: true },
+          { name: 'amount', label: '数量', type: 'number' },
+          { name: 'kind', label: '分类', type: 'enum', options: ['甲', '乙'] },
+          { name: 'happened_on', label: '日期', type: 'date' },
+          { name: 'url', label: '链接', type: 'text' },
+        ],
+      }],
+      views: [
+        { id: 'stat-1', type: 'stat', entity: 'item', metric: { fn: 'count' } },
+        { id: 'form-main', type: 'compose', entity: 'item' },
+        { id: 'chart-1', type: 'chart', entity: 'item', groupBy: 'kind' },
+        { id: 'feed-main', type: 'feed', entity: 'item' },
+      ],
+      pages: [{
+        id: 'home',
+        label: '记录',
+        blocks: [
+          { kind: 'stats', views: ['stat-1'] },
+          { kind: 'compose', view: 'form-main' },
+          { kind: 'chart', view: 'chart-1' },
+          { kind: 'feed', view: 'feed-main' },
+        ],
+      }],
+    }
+    const laid = withProductLayout(spec, { fillPages: false })
+    const kinds = laid.pages.flatMap((page) => page.blocks.map((b) => b.kind))
+    assert.equal(kinds.includes('cards'), false)
+    assert.equal(laid.pages.length, 1)
+  })
+
   test('two entities get separate pages with different block kinds', () => {
     const spec = {
       spec: 'fde-app/v1',

@@ -40,6 +40,85 @@ function rejectExtraKeys(obj, allowed, path, errors) {
   }
 }
 
+const SURFACE_NAV = new Set(['tabs', 'stack'])
+const SURFACE_DENSITY = new Set(['air', 'cozy', 'packed'])
+const SURFACE_MIN_WIDTH = new Set(['narrow', 'regular', 'wide'])
+const SURFACE_HERO = new Set(['cover', 'below'])
+const SURFACE_COMPOSE_CHART = new Set(['pair', 'stack'])
+const SURFACE_FEED = new Set(['rows', 'full'])
+const SURFACE_PRIMARY_WHERE = new Set(['card', 'compose', 'chrome'])
+const SURFACE_PRIMARY_KIND = new Set(['play', 'open', 'compose'])
+
+/**
+ * @param {unknown} value
+ * @param {string} path
+ * @param {SpecError[]} errors
+ * @param {unknown} pages
+ */
+function validateSurface(value, path, errors, pages) {
+  const surface = requireObject(value, path, errors)
+  if (!surface) return
+  rejectExtraKeys(surface, ['nav', 'defaultPage', 'density', 'cards', 'ledger', 'primary'], path, errors)
+  if (surface.nav !== undefined && !SURFACE_NAV.has(String(surface.nav))) {
+    errors.push({ path: `${path}.nav`, message: 'nav 无效' })
+  }
+  if (surface.density !== undefined && !SURFACE_DENSITY.has(String(surface.density))) {
+    errors.push({ path: `${path}.density`, message: 'density 无效' })
+  }
+  if (surface.defaultPage !== undefined) {
+    if (typeof surface.defaultPage !== 'string' || !surface.defaultPage) {
+      errors.push({ path: `${path}.defaultPage`, message: 'defaultPage 必须是非空字符串' })
+    } else if (Array.isArray(pages) && pages.length > 0) {
+      const ids = pages.filter((p) => p && typeof p === 'object' && typeof p.id === 'string').map((p) => p.id)
+      if (!ids.includes(surface.defaultPage)) {
+        errors.push({ path: `${path}.defaultPage`, message: 'defaultPage 必须匹配已有 page.id' })
+      }
+    }
+  }
+  if (surface.cards !== undefined) {
+    const cards = requireObject(surface.cards, `${path}.cards`, errors)
+    if (cards) {
+      rejectExtraKeys(cards, ['minWidth', 'hero', 'columns'], `${path}.cards`, errors)
+      if (cards.minWidth !== undefined && !SURFACE_MIN_WIDTH.has(String(cards.minWidth))) {
+        errors.push({ path: `${path}.cards.minWidth`, message: 'minWidth 无效' })
+      }
+      if (cards.hero !== undefined && !SURFACE_HERO.has(String(cards.hero))) {
+        errors.push({ path: `${path}.cards.hero`, message: 'hero 无效' })
+      }
+      if (cards.columns !== undefined) {
+        const col = cards.columns
+        if (typeof col !== 'number' || !Number.isInteger(col) || col < 1 || col > 6) {
+          errors.push({ path: `${path}.cards.columns`, message: 'columns 必须是 1–6 的整数' })
+        }
+      }
+    }
+  }
+  if (surface.ledger !== undefined) {
+    const ledger = requireObject(surface.ledger, `${path}.ledger`, errors)
+    if (ledger) {
+      rejectExtraKeys(ledger, ['composeChart', 'feed'], `${path}.ledger`, errors)
+      if (ledger.composeChart !== undefined && !SURFACE_COMPOSE_CHART.has(String(ledger.composeChart))) {
+        errors.push({ path: `${path}.ledger.composeChart`, message: 'composeChart 无效' })
+      }
+      if (ledger.feed !== undefined && !SURFACE_FEED.has(String(ledger.feed))) {
+        errors.push({ path: `${path}.ledger.feed`, message: 'feed 无效' })
+      }
+    }
+  }
+  if (surface.primary !== undefined) {
+    const primary = requireObject(surface.primary, `${path}.primary`, errors)
+    if (primary) {
+      rejectExtraKeys(primary, ['where', 'kind'], `${path}.primary`, errors)
+      if (primary.where !== undefined && !SURFACE_PRIMARY_WHERE.has(String(primary.where))) {
+        errors.push({ path: `${path}.primary.where`, message: 'where 无效' })
+      }
+      if (primary.kind !== undefined && !SURFACE_PRIMARY_KIND.has(String(primary.kind))) {
+        errors.push({ path: `${path}.primary.kind`, message: 'kind 无效' })
+      }
+    }
+  }
+}
+
 /**
  * @param {unknown} spec
  * @param {{ slugTaken?: boolean }} [ctx]
@@ -51,7 +130,7 @@ export function validateAppSpec(spec, ctx = {}) {
   if (!root) return { ok: false, errors }
 
   rejectExtraKeys(root, [
-    'spec', 'slug', 'name', 'description', 'entities', 'views', 'actions', 'permissions', 'memory', 'uses', 'pages', '_workspaceCwd',
+    'spec', 'slug', 'name', 'description', 'entities', 'views', 'actions', 'permissions', 'memory', 'uses', 'pages', 'surface', '_workspaceCwd',
   ], '', errors)
 
   if (root.spec !== 'fde-app/v1') {
@@ -96,6 +175,9 @@ export function validateAppSpec(spec, ctx = {}) {
     if (!Array.isArray(root.pages) || root.pages.length > 12) {
       errors.push({ path: 'pages', message: 'pages 最多 12 栏' })
     }
+  }
+  if (root.surface !== undefined) {
+    validateSurface(root.surface, 'surface', errors, root.pages)
   }
 
   /** @type {Map<string, { fields: Map<string, Record<string, unknown>> }>} */

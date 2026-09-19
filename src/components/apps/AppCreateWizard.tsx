@@ -4,6 +4,7 @@ import { AppRuntime } from '@/components/apps/AppRuntime'
 import { askAiForResult } from '@/lib/ask-ai'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
+import { appBuilderPrompt } from '@/lib/app-builder-prompt'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -95,7 +96,11 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
         preset,
         title: `应用构建 · ${description.slice(0, 20)}`,
         context: ['workspace', 'apps'],
-        prompt: `需求：${description}\n${buildDataPlacementHint()}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。每个对象单独一栏 pages；有链接/视频字段 → 分组 cards + compose，行动打开或播放；有数字或日期台账 → 同一栏 stats+compose+chart+feed。不要永远同一套脚手架换列名。titleField 必须是人能读的业务名（名称/标题），禁止用单号或自动编号填标题。uses 只声明真正要用的平台能力：问数/起草写 ai，并排用写 float，稿和附件走文件模块写 files，动作只起草记忆卡片写 memory，拟回进 IM 输入框写 im，早报/MCP 源写 briefing，引用业务对象并预览确认写 biz，摘成待办写 plan（须能写入 plan 任务）。没接到的不要写，前端不会画假按钮。若返回 errors，修正后重新提交。不要写外部业务系统除非用户已接业务。禁止套固定品类模板。`,
+        prompt: appBuilderPrompt({
+          mode: 'create',
+          description,
+          dataHint: buildDataPlacementHint(),
+        }),
         schema: { type: 'object', required: ['appId', 'revision'] },
         timeoutMs: 240_000,
       }).then((result) => {

@@ -2,7 +2,7 @@
 
 ## 流程
 
-1. AI（`fde-app-builder`）生成 spec → `fde_app_spec_submit` / `POST /api/v1/apps`
+1. AI（`fde-app-builder`）生成 spec → `fde_app_spec_submit` / `POST /api/v1/apps`（带 `appId` 时为 builder 修订；`surface` 为工作面 layout 契约）
 2. 校验失败 → 422 + `errors[{path,message}]`
 3. `POST /api/v1/apps/:id/activate` 物化 SQLite 表（`app_<slug>__<entity>`）
 4. 前端 `AppRuntime`：有 `pages` 时按栏目铺产品页（概览/记一笔/图/流水或卡片）；没有 `pages` 的旧应用仍是 table/form/kanban/stat 切换

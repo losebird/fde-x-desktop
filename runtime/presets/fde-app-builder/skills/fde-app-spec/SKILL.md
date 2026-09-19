@@ -11,6 +11,17 @@
 - 字段类型：`text|longtext|number|bool|date|datetime|enum|ref|json`
 - 视图类型：`table|form|detail|kanban|stat|cards|chart|compose|feed`
 - `pages`：栏目。每栏 `blocks` 只放这个需求需要的块：`stats` / `compose` / `chart` / `feed` / `cards`
+- `surface`（必填）：工作面 layout 契约。必须按用户 prompt 写栏目怎么排、密度、主操作在哪；用户没提 layout 时用默认（cozy / tabs / regular / cover / pair / rows / card / play）：
+  ```json
+  "surface": {
+    "nav": "tabs",
+    "density": "cozy",
+    "cards": { "minWidth": "regular", "hero": "cover" },
+    "ledger": { "composeChart": "pair", "feed": "rows" },
+    "primary": { "where": "card", "kind": "play" }
+  }
+  ```
+  枚举：`nav` tabs|stack；`density` air|cozy|packed；`cards.minWidth` narrow|regular|wide；`cards.hero` cover|below；`cards.columns` 1–6；`ledger.composeChart` pair|stack；`ledger.feed` rows|full；`primary.where` card|compose|chrome；`primary.kind` play|open|compose。
 - `uses`：只声明真正要接的平台能力 `ai|files|float|memory|im|briefing|biz|plan`。没接上的不要写，前端不会画假按钮。入口按这个应用的栏目和字段放：`float` 在工作面顶栏「浮窗」，文件/业务引用在对应字段，其余在记下栏。不要在产品页顶上永远压一排按钮。
 
 ## 数据与能力（先分清再写 uses）
@@ -49,9 +60,19 @@
 
 ## 提交流程
 
-1. 起草完整 spec（含 `pages` + `uses` + 被引用的 views）
-2. 调用 `fde_app_spec_submit({ requestId, spec })`
+### 新建
+
+1. 起草完整 spec（含 `surface` + `pages` + `uses` + 被引用的 views）
+2. 调用 `fde_app_spec_submit({ requestId, spec })`（不传 `appId`）
 3. 若返回 `errors[]`，逐条修正后再次提交，直至 `appId` + `revision` 成功
+
+### 修订
+
+当 prompt 里带有已有 `appId` 与当前 spec 时：
+
+1. 输出**完整**下一版 spec（`fde-app/v1`）：**保持 `slug` 不变**；不要删字段、不要改已有字段类型；按新句子改 `surface` / `pages` / `views` / `labels` / `uses`。
+2. 调用 `fde_app_spec_submit({ requestId, spec, appId })`。
+3. 成功返回 `{ ok, appId, revision }`（同一 `appId`，`revision` 递增）；`appId` 不存在 → `errors[{ path: appId }]`。
 
 ## 结构示例（占位名，不要当模板抄）
 
@@ -61,6 +82,13 @@
   "slug": "item-log",
   "name": "按需求取名",
   "uses": ["ai", "float"],
+  "surface": {
+    "nav": "tabs",
+    "density": "cozy",
+    "cards": { "minWidth": "regular", "hero": "cover" },
+    "ledger": { "composeChart": "pair", "feed": "rows" },
+    "primary": { "where": "compose", "kind": "compose" }
+  },
   "entities": [{
     "name": "item", "label": "条目", "titleField": "title",
     "fields": [
@@ -98,6 +126,13 @@
   "slug": "item-board",
   "name": "按需求取名",
   "uses": ["ai", "float", "files"],
+  "surface": {
+    "nav": "tabs",
+    "density": "packed",
+    "cards": { "minWidth": "narrow", "hero": "cover", "columns": 4 },
+    "ledger": { "composeChart": "pair", "feed": "rows" },
+    "primary": { "where": "card", "kind": "play" }
+  },
   "entities": [{
     "name": "item", "label": "条目", "titleField": "title",
     "fields": [

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { AppCapabilityBar } from '@/components/apps/AppCapabilityBar'
 import { SpecCards } from '@/components/apps/SpecCards'
@@ -13,7 +13,9 @@ import {
   declaredPlatformUses,
   mockRowsForEntity,
   pageLooksLikeLedger,
+  pairComposeChart,
   recordActionUses,
+  resolvedSurface,
   specHasUse,
   viewById,
   visibleWorkSurfaceBlocks,
@@ -22,6 +24,7 @@ import {
   type FdeAppPage,
   type FdeAppView,
   type FdePlatformUse,
+  type ResolvedFdeAppSurface,
 } from '@/lib/app-spec'
 
 type Props = {
@@ -30,12 +33,27 @@ type Props = {
   onRefresh: () => void
 }
 
+function initialPageId(pages: FdeAppPage[], surface: ResolvedFdeAppSurface): string {
+  if (surface.defaultPage && pages.some((row) => row.id === surface.defaultPage)) {
+    return surface.defaultPage
+  }
+  return pages[0]?.id || ''
+}
+
 export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
   const { pages, extraViews } = workSurfacePages(app.spec)
-  const [pageId, setPageId] = useState(pages[0]?.id || '')
+  const surface = resolvedSurface(app.spec)
+  const [pageId, setPageId] = useState(() => initialPageId(pages, surface))
   const [reloadToken, setReloadToken] = useState(0)
   const page = pages.find((row) => row.id === pageId) || pages[0]
   const preview = app.status !== 'active'
+  const stackNav = surface.nav === 'stack'
+
+  useEffect(() => {
+    if (!pages.some((row) => row.id === pageId)) {
+      setPageId(initialPageId(pages, surface))
+    }
+  }, [pageId, pages, surface])
 
   const refresh = () => {
     setReloadToken((value) => value + 1)
@@ -45,70 +63,100 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
   if (!page) return null
   const actionUses = recordActionUses(app.spec)
 
+  const renderPageBody = (targetPage: FdeAppPage) => (
+    <div className="space-y-2" data-app-ledger={pageLooksLikeLedger(targetPage) ? 'true' : undefined}>
+      {renderBlocks(visibleWorkSurfaceBlocks(targetPage), surface).map((group, index) => (
+        <div
+          key={`${targetPage.id}-g-${index}`}
+          className={group.pair ? 'grid grid-cols-2 gap-2 items-stretch' : undefined}
+          data-app-compose-chart={group.pair ? 'true' : undefined}
+        >
+          {group.blocks.map((block, blockIndex) => (
+            <ProductBlock
+              key={`${targetPage.id}-${block.kind}-${index}-${blockIndex}`}
+              app={app}
+              workspaceCwd={workspaceCwd}
+              preview={preview}
+              reloadToken={reloadToken}
+              onRefresh={refresh}
+              surface={surface}
+              view={'view' in block ? viewById(app.spec, block.view, extraViews) : undefined}
+              statViews={block.kind === 'stats' ? block.views.map((id) => viewById(app.spec, id, extraViews)).filter((row): row is FdeAppView => Boolean(row)) : []}
+              kind={block.kind}
+              capabilityUses={
+                block.kind === 'compose' || block.kind === 'form'
+                  ? actionUses
+                  : []
+              }
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+
   return (
     <div
       className="space-y-2"
       data-app-product="true"
       data-app-uses={declaredPlatformUses(app.spec).join(',')}
+      data-app-surface-nav={surface.nav}
+      data-app-surface-density={surface.density}
+      data-app-surface-primary-where={surface.primary.where}
+      data-app-surface-hero={surface.cards.hero}
+      data-app-surface-columns={surface.cards.columns ?? ''}
+      data-app-surface-compose-chart={surface.ledger.composeChart}
     >
-      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-line">
-        <div className="flex items-center gap-1" data-app-product-nav="true">
-          {pages.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              onClick={() => setPageId(row.id)}
-              className={clsx(
-                'h-9 px-3 text-sm -mb-px border-b-2 transition-colors',
-                row.id === page.id
-                  ? 'border-brand text-ink font-medium'
-                  : 'border-transparent text-ink-muted hover:text-ink',
-              )}
-            >
-              {row.label || row.id}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="space-y-2" data-app-ledger={pageLooksLikeLedger(page) ? 'true' : undefined}>
-        {renderBlocks(visibleWorkSurfaceBlocks(page)).map((group, index) => (
-          <div
-            key={`${page.id}-g-${index}`}
-            className={group.pair ? 'grid grid-cols-2 gap-2 items-stretch' : undefined}
-            data-app-compose-chart={group.pair ? 'true' : undefined}
-          >
-            {group.blocks.map((block, blockIndex) => (
-              <ProductBlock
-                key={`${page.id}-${block.kind}-${index}-${blockIndex}`}
-                app={app}
-                workspaceCwd={workspaceCwd}
-                preview={preview}
-                reloadToken={reloadToken}
-                onRefresh={refresh}
-                view={'view' in block ? viewById(app.spec, block.view, extraViews) : undefined}
-                statViews={block.kind === 'stats' ? block.views.map((id) => viewById(app.spec, id, extraViews)).filter((row): row is FdeAppView => Boolean(row)) : []}
-                kind={block.kind}
-                capabilityUses={
-                  block.kind === 'compose' || block.kind === 'form'
-                    ? actionUses
-                    : []
-                }
-              />
+      {!stackNav && (
+        <div className="flex flex-wrap items-end justify-between gap-2 border-b border-line">
+          <div className="flex items-center gap-1" data-app-product-nav="true">
+            {pages.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                onClick={() => setPageId(row.id)}
+                className={clsx(
+                  'h-9 px-3 text-sm -mb-px border-b-2 transition-colors',
+                  row.id === page.id
+                    ? 'border-brand text-ink font-medium'
+                    : 'border-transparent text-ink-muted hover:text-ink',
+                )}
+              >
+                {row.label || row.id}
+              </button>
             ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+      {stackNav ? (
+        <div className="space-y-4">
+          {pages.map((stackPage) => (
+            <section key={stackPage.id} className="space-y-2">
+              <h2 className="text-xs font-semibold text-ink-muted tracking-wide">
+                {stackPage.label || stackPage.id}
+              </h2>
+              {renderPageBody(stackPage)}
+            </section>
+          ))}
+        </div>
+      ) : (
+        renderPageBody(page)
+      )}
     </div>
   )
 }
 
-function renderBlocks(blocks: FdeAppPage['blocks']): { pair: boolean; blocks: FdeAppPage['blocks'] }[] {
+function renderBlocks(
+  blocks: FdeAppPage['blocks'],
+  surface: ResolvedFdeAppSurface,
+): { pair: boolean; blocks: FdeAppPage['blocks'] }[] {
   const groups: { pair: boolean; blocks: FdeAppPage['blocks'] }[] = []
+  const mayPair = pairComposeChart(surface)
   for (let i = 0; i < blocks.length; i++) {
     const current = blocks[i]
     const next = blocks[i + 1]
     const compose = current.kind === 'compose' || current.kind === 'form'
-    if (compose && next?.kind === 'chart') {
+    if (mayPair && compose && next?.kind === 'chart') {
       groups.push({ pair: true, blocks: [current, next] })
       i += 1
       continue
@@ -119,13 +167,14 @@ function renderBlocks(blocks: FdeAppPage['blocks']): { pair: boolean; blocks: Fd
 }
 
 function ProductBlock({
-  app, workspaceCwd, preview, reloadToken, onRefresh, view, statViews, kind, capabilityUses,
+  app, workspaceCwd, preview, reloadToken, onRefresh, surface, view, statViews, kind, capabilityUses,
 }: {
   app: FdeAppDetail
   workspaceCwd: string
   preview: boolean
   reloadToken: number
   onRefresh: () => void
+  surface: ResolvedFdeAppSurface
   view?: FdeAppView
   statViews: FdeAppView[]
   kind: FdeAppPage['blocks'][number]['kind']
@@ -191,7 +240,16 @@ function ProductBlock({
     return <SpecChart app={app} view={view} workspaceCwd={workspaceCwd} previewRows={previewRows} reloadToken={reloadToken} />
   }
   if (kind === 'feed') {
-    return <SpecFeed app={app} view={view} workspaceCwd={workspaceCwd} previewRows={previewRows} reloadToken={reloadToken} />
+    return (
+      <SpecFeed
+        app={app}
+        view={view}
+        workspaceCwd={workspaceCwd}
+        previewRows={previewRows}
+        reloadToken={reloadToken}
+        feedDensity={surface.ledger.feed}
+      />
+    )
   }
   if (kind === 'cards') {
     return (

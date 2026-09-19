@@ -156,4 +156,18 @@ describe('apps spec validator', () => {
     const r = validateAppSpec(spec)
     assert.equal(r.ok, false)
   })
+
+  test('rejects unknown surface.nav', () => {
+    const spec = JSON.parse(JSON.stringify(SUPPLIER_VISITS_SPEC))
+    spec.surface = { nav: 'sidebar' }
+    const r = validateAppSpec(spec)
+    assert.equal(r.ok, false)
+  })
+
+  test('accepts packed density', () => {
+    const spec = JSON.parse(JSON.stringify(SUPPLIER_VISITS_SPEC))
+    spec.surface = { density: 'packed' }
+    const r = validateAppSpec(spec)
+    assert.equal(r.ok, true)
+  })
 })

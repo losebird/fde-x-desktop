@@ -43,6 +43,103 @@ export type FdeAppPage = {
   blocks: FdePageBlock[]
 }
 
+export interface FdeAppSurface {
+  nav?: 'tabs' | 'stack'
+  defaultPage?: string
+  density?: 'air' | 'cozy' | 'packed'
+  cards?: {
+    minWidth?: 'narrow' | 'regular' | 'wide'
+    hero?: 'cover' | 'below'
+    columns?: number
+  }
+  ledger?: {
+    composeChart?: 'pair' | 'stack'
+    feed?: 'rows' | 'full'
+  }
+  primary?: {
+    where?: 'card' | 'compose' | 'chrome'
+    kind?: 'play' | 'open' | 'compose'
+  }
+}
+
+export type ResolvedFdeAppSurface = {
+  nav: 'tabs' | 'stack'
+  defaultPage?: string
+  density: 'air' | 'cozy' | 'packed'
+  cards: {
+    minWidth: 'narrow' | 'regular' | 'wide'
+    hero: 'cover' | 'below'
+    columns?: number
+  }
+  ledger: {
+    composeChart: 'pair' | 'stack'
+    feed: 'rows' | 'full'
+  }
+  primary: {
+    where: 'card' | 'compose' | 'chrome'
+    kind: 'play' | 'open' | 'compose'
+  }
+}
+
+function defaultSurface(): ResolvedFdeAppSurface {
+  return {
+    nav: 'tabs',
+    density: 'cozy',
+    cards: { minWidth: 'regular', hero: 'cover' },
+    ledger: { composeChart: 'pair', feed: 'rows' },
+    primary: { where: 'card', kind: 'play' },
+  }
+}
+
+export function resolvedSurface(spec: FdeAppSpec): ResolvedFdeAppSurface {
+  const def = defaultSurface()
+  const declared = spec.surface
+  if (!declared) return { ...def, cards: { ...def.cards }, ledger: { ...def.ledger }, primary: { ...def.primary } }
+  const cards = { ...def.cards, ...declared.cards }
+  const ledger = { ...def.ledger, ...declared.ledger }
+  const primary = { ...def.primary, ...declared.primary }
+  return {
+    nav: declared.nav ?? def.nav,
+    defaultPage: declared.defaultPage,
+    density: declared.density ?? def.density,
+    cards,
+    ledger,
+    primary,
+  }
+}
+
+// keep in sync with runtime/apps/layout.mjs cardGridTemplate
+export function cardGridTemplate(surface: FdeAppSurface | ResolvedFdeAppSurface, count: number): string {
+  const columns = surface.cards?.columns
+  if (typeof columns === 'number' && Number.isInteger(columns) && columns >= 1 && columns <= 6) {
+    return `repeat(${columns}, minmax(0, 1fr))`
+  }
+  const density = surface.density ?? 'cozy'
+  const minWidth = surface.cards?.minWidth ?? 'regular'
+  let rem = '13.5rem'
+  if (density === 'packed' || minWidth === 'narrow') rem = '10rem'
+  else if (density === 'air' || minWidth === 'wide') rem = '18rem'
+  if (count >= 2) return `repeat(auto-fit, minmax(${rem}, 1fr))`
+  return `repeat(auto-fill, minmax(${rem}, ${rem}))`
+}
+
+export function cardHeroHeightClass(surface: FdeAppSurface | ResolvedFdeAppSurface): string {
+  const density = surface.density ?? 'cozy'
+  if (density === 'packed') return 'h-16'
+  if (density === 'air') return 'h-36'
+  return 'h-28'
+}
+
+export function showCardPrimary(surface: FdeAppSurface | ResolvedFdeAppSurface): boolean {
+  const where = surface.primary?.where ?? 'card'
+  return where !== 'compose' && where !== 'chrome'
+}
+
+export function pairComposeChart(surface: FdeAppSurface | ResolvedFdeAppSurface): boolean {
+  const composeChart = surface.ledger?.composeChart ?? 'pair'
+  return composeChart !== 'stack'
+}
+
 export interface FdeAppAction {
   name: string
   label: string
@@ -64,6 +161,7 @@ export interface FdeAppSpec {
   actions?: FdeAppAction[]
   uses?: FdePlatformUse[]
   pages?: FdeAppPage[]
+  surface?: FdeAppSurface
   _workspaceCwd?: string
 }
 
@@ -300,6 +398,9 @@ export function workSurfacePages(spec: FdeAppSpec): { pages: FdeAppPage[]; extra
   const pages = [...(spec.pages ?? [])]
   const extraViews: FdeAppView[] = []
   if (!pages.length) return { pages: [], extraViews: [] }
+  if (spec.surface !== undefined) {
+    return { pages, extraViews }
+  }
   for (const entity of spec.entities) {
     if (!entityHasLinkOrFile(entity)) continue
     if (pages.some((page) => pageHasCardsForEntity(spec, page, entity.name, extraViews))) continue

@@ -83,4 +83,25 @@ describe('apps revision add-field and rollback', () => {
     assert.ok(infoAfter.some((col) => col.name === 'phone'))
     db.close()
   })
+
+  test('putAppSpec keeps declared surface.density packed without inventing cards pages', () => {
+    const db = dbNew()
+    const spec = specWith({ name: '密度修订', slug: 'rev-density' })
+    const created = createAppDraft(db, {
+      workspaceId: 'ws_personal',
+      workspaceCwd: CWD,
+      spec,
+    })
+    assert.equal(created.ok, true)
+    const current = getAppById(db, created.data.appId)
+    const next = JSON.parse(JSON.stringify(current.spec))
+    next.surface = { density: 'packed' }
+    const put = putAppSpec(db, created.data.appId, { spec: next })
+    assert.equal(put.kind, 'ok')
+    const stored = getAppById(db, created.data.appId)
+    assert.equal(stored.spec.surface.density, 'packed')
+    const kinds = stored.spec.pages?.flatMap((page) => page.blocks.map((b) => b.kind)) ?? []
+    assert.equal(kinds.includes('cards'), false)
+    db.close()
+  })
 })

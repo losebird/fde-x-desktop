@@ -574,6 +574,20 @@ export function handleAppsBridge(sub, body, db, workspaceCwd) {
     if (!spec || typeof spec !== 'object') {
       return { ok: false, errors: [{ path: 'spec', message: 'spec 必填' }] }
     }
+    const appId = typeof body.appId === 'string' ? body.appId.trim() : ''
+    if (appId) {
+      const result = putAppSpec(db, appId, { spec, changeNote: 'builder 修订' })
+      if (result.kind === 'not_found') {
+        return { ok: false, errors: [{ path: 'appId', message: '应用不存在' }] }
+      }
+      if (result.kind === 'validation') {
+        return { ok: false, errors: result.errors }
+      }
+      if (result.kind === 'breaking') {
+        return { ok: false, errors: result.errors, error: 'breaking_change' }
+      }
+      return { ok: true, appId, revision: result.data.revision }
+    }
     const result = createAppDraft(db, {
       workspaceId,
       workspaceCwd,

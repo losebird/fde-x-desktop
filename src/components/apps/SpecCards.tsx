@@ -3,11 +3,15 @@ import { ExternalLink, Play } from 'lucide-react'
 import { AppCapabilityBar } from '@/components/apps/AppCapabilityBar'
 import {
   cardAction,
+  cardGridTemplate,
   cardGroupField,
+  cardHeroHeightClass,
   displayBlurb,
   displayTitle,
   entityDef,
   fieldDef,
+  resolvedSurface,
+  showCardPrimary,
   type FdeAppSpec,
   type FdeAppView,
   type FdePlatformUse,
@@ -47,6 +51,9 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
   const [rows, setRows] = useState<Record<string, unknown>[]>(previewRows ?? [])
   const [error, setError] = useState('')
   const [openProof, setOpenProof] = useState<{ href: string; mode: AppOpenedMode } | null>(null)
+  const surface = resolvedSurface(app.spec)
+  const heroBelow = surface.cards.hero === 'below'
+  const heroHeightClass = cardHeroHeightClass(surface)
   const ent = entityDef(app.spec, view.entity)
   const groupBy = cardGroupField(app.spec, view)
   const groupField = groupBy ? fieldDef(app.spec, view.entity, groupBy) : undefined
@@ -123,11 +130,8 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
             )}
             <div
               className="grid gap-2.5"
-              style={{
-                gridTemplateColumns: group.rows.length >= 2
-                  ? 'repeat(auto-fit, minmax(13.5rem, 1fr))'
-                  : 'repeat(auto-fill, minmax(13.5rem, 13.5rem))',
-              }}
+              data-app-card-hero={surface.cards.hero}
+              style={{ gridTemplateColumns: cardGridTemplate(surface, group.rows.length) }}
             >
               {group.rows.map((row) => {
                 const title = displayTitle(app.spec, view.entity, row)
@@ -136,6 +140,13 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                 const toneKey = title || String(row.id)
                 const heroTone = heroToneClassFor(toneKey)
                 const play = Boolean(action?.play)
+                const showPrimary =
+                  showCardPrimary(surface)
+                  && surface.primary.kind !== 'compose'
+                  && Boolean(action)
+                const forceOpenLabel = surface.primary.kind === 'open'
+                const showPlayUi = !forceOpenLabel && play
+                const primaryLabel = forceOpenLabel ? '打开' : showPlayUi ? '播放' : '打开'
                 return (
                   <article
                     key={String(row.id)}
@@ -144,35 +155,42 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                     data-app-card-title={title || undefined}
                   >
                     <div
-                      className={`relative h-28 shrink-0 flex items-center justify-center p-3 ${heroTone}`}
+                      className={`relative shrink-0 flex items-center justify-center ${heroBelow ? '' : 'p-3'} ${heroHeightClass} ${heroTone}`}
                     >
-                      <h3 className="text-white text-[17px] font-semibold leading-snug line-clamp-2 text-center">
-                        {title || '未命名'}
-                      </h3>
+                      {!heroBelow && (
+                        <h3 className="text-white text-[17px] font-semibold leading-snug line-clamp-2 text-center">
+                          {title || '未命名'}
+                        </h3>
+                      )}
                     </div>
                     <div className="flex flex-1 flex-col gap-1.5 p-2.5 bg-surface">
+                      {heroBelow && (
+                        <h3 className="text-[17px] font-semibold leading-snug line-clamp-2 text-ink">
+                          {title || '未命名'}
+                        </h3>
+                      )}
                       {blurb ? (
                         <p className="text-[11px] text-ink-muted leading-snug line-clamp-3" data-app-card-blurb="true">{blurb}</p>
                       ) : null}
-                      {action?.kind === 'url' && (
+                      {showPrimary && action?.kind === 'url' && (
                         <a
                           href={action.href}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className={`${primaryActionBaseClass} ${play ? 'bg-accent-amber text-ink' : 'bg-brand text-white'}`}
-                          data-app-card-action={play ? 'play' : 'url'}
+                          className={`${primaryActionBaseClass} ${showPlayUi ? 'bg-accent-amber text-ink' : 'bg-brand text-white'}`}
+                          data-app-card-action={showPlayUi ? 'play' : 'url'}
                           data-app-card-href={action.href}
                           onClick={(event) => handleOpenHref(action.href, event)}
                         >
-                          {play ? (
+                          {showPlayUi ? (
                             <Play className="h-4 w-4 fill-current" aria-hidden="true" />
                           ) : (
                             <ExternalLink className="h-4 w-4" aria-hidden="true" />
                           )}
-                          {play ? '播放' : '打开'}
+                          {primaryLabel}
                         </a>
                       )}
-                      {action?.kind === 'file' && (
+                      {showPrimary && action?.kind === 'file' && (
                         <button
                           type="button"
                           className={`${primaryActionBaseClass} bg-brand text-white`}
@@ -181,7 +199,7 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                           onClick={() => handleOpenHref(action.href)}
                         >
                           <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                          打开
+                          {primaryLabel}
                         </button>
                       )}
                       {perCardActions ? (

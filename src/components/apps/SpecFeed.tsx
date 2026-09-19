@@ -8,6 +8,7 @@ type Props = {
   workspaceCwd: string
   previewRows?: Record<string, unknown>[]
   reloadToken?: number
+  feedDensity?: 'rows' | 'full'
 }
 
 function feedAmountClass(key: string) {
@@ -16,7 +17,9 @@ function feedAmountClass(key: string) {
   return hash % 2 === 0 ? 'text-brand' : 'text-accent-red'
 }
 
-export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken }: Props) {
+export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken, feedDensity = 'rows' }: Props) {
+  const full = feedDensity === 'full'
+  const extraColLimit = full ? 4 : 2
   const [rows, setRows] = useState<Record<string, unknown>[]>(previewRows ?? [])
   const [error, setError] = useState('')
   const ent = entityDef(app.spec, view.entity)
@@ -48,7 +51,11 @@ export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken }: 
   useEffect(() => { void load() }, [load, reloadToken])
 
   return (
-    <div className="border border-line rounded-xl overflow-hidden bg-surface shadow-card" data-app-feed="true">
+    <div
+      className="border border-line rounded-xl overflow-hidden bg-surface shadow-card"
+      data-app-feed="true"
+      data-app-feed-density={feedDensity}
+    >
       <div className="px-3 py-2 border-b border-line flex items-center justify-between bg-surface">
         <div className="text-sm font-medium">{view.label || '流水'}</div>
         {previewRows && <span className="text-[10px] text-ink-muted border border-line px-1 rounded">示例</span>}
@@ -64,7 +71,7 @@ export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken }: 
             const rowTitle = displayTitle(app.spec, view.entity, row) || '—'
             const amountKey = String(row.id ?? rowTitle)
             return (
-            <div key={String(row.id)} className="px-3 py-2 flex items-start gap-3" data-app-feed-row="true">
+            <div key={String(row.id)} className={`px-3 flex items-start gap-3 ${full ? 'py-3' : 'py-2'}`} data-app-feed-row="true">
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-center gap-2 min-w-0">
                   {enumField && row[enumField.name] != null && (
@@ -72,11 +79,16 @@ export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken }: 
                       {String(row[enumField.name])}
                     </span>
                   )}
-                  <div className="text-[13px] font-semibold text-ink truncate min-w-0" data-app-feed-title="true">{rowTitle}</div>
+                  <div
+                    className={`font-semibold text-ink truncate min-w-0 ${full ? 'text-sm' : 'text-[13px]'}`}
+                    data-app-feed-title="true"
+                  >
+                    {rowTitle}
+                  </div>
                 </div>
                 <div className="text-[11px] text-ink-muted flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-0.5">
                   {dateField && row[dateField.name] != null && <span>{String(row[dateField.name])}</span>}
-                  {columns.filter((col) => col !== titleField && col !== numberField?.name && col !== dateField?.name && col !== enumField?.name).slice(0, 2).map((col) => {
+                  {columns.filter((col) => col !== titleField && col !== numberField?.name && col !== dateField?.name && col !== enumField?.name).slice(0, extraColLimit).map((col) => {
                     const text = String(row[col] ?? '')
                     if (!text || looksLikeGeneratedCode(text)) return null
                     return <span key={col}>{text}</span>

@@ -140,8 +140,9 @@ export function createAppDraft(db, input) {
 export function putAppSpec(db, appId, input) {
   const app = getAppById(db, appId)
   if (!app) return { kind: 'not_found' }
-  const validation = validateAppSpec(input.spec, {
-    slugTaken: isSlugTaken(db, app.workspaceId, String(input.spec.slug), appId, { activeOnly: true }),
+  const laidOut = withProductLayout(input.spec, { fillPages: false })
+  const validation = validateAppSpec(laidOut, {
+    slugTaken: isSlugTaken(db, app.workspaceId, String(laidOut.slug), appId, { activeOnly: true }),
   })
   if (!validation.ok) return { kind: 'validation', errors: validation.errors }
   const spec = validation.spec

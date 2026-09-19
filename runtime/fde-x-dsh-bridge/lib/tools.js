@@ -133,10 +133,11 @@ function registerTools(ctx, { defineTool }) {
   // Spec 04 owns full behavior; BFF stub keeps handshake real.
   ctx.tools.register(defineTool({
     name: 'fde_app_spec_submit',
-    description: 'Submit declarative app spec (FDE app builder).',
+    description: 'Submit or revise declarative app spec. Pass appId to save a new revision of an existing app; omit to create a draft.',
     parameters: {
       requestId: { type: 'string', required: true },
       spec: { type: 'object', required: true },
+      appId: { type: 'string' },
     },
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
     async execute(args, exec) {
