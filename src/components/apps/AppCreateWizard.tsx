@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { AppRuntime } from '@/components/apps/AppRuntime'
 import { askAiForResult } from '@/lib/ask-ai'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { type FdeAppDetail } from '@/lib/app-spec'
+import { isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -13,7 +13,11 @@ type Props = {
   onClose: () => void
 }
 
-export function AppCreateWizard({ onDraftReady, onActivated, onClose }: Props) {
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClose }: Props) {
   const [step, setStep] = useState<'describe' | 'generating' | 'preview'>('describe')
   const [aiReady, setAiReady] = useState(false)
   const [description, setDescription] = useState('')
@@ -33,6 +37,16 @@ export function AppCreateWizard({ onDraftReady, onActivated, onClose }: Props) {
     return data
   }
 
+  const waitForNewDraft = async (knownIds: Set<string>, until: number) => {
+    while (Date.now() < until) {
+      await sleep(1500)
+      const apps = await runtimeApi.listBusinessApps(workspaceId).catch(() => [])
+      const fresh = apps.find((app) => !knownIds.has(app.id) && app.status === 'draft' && isFdeAppSpec(app.definition))
+      if (fresh) return fresh.id
+    }
+    return ''
+  }
+
   const generate = async () => {
     if (!description.trim()) return
     setStep('generating')
@@ -44,21 +58,43 @@ export function AppCreateWizard({ onDraftReady, onActivated, onClose }: Props) {
       return
     }
     setWorkspaceCwd(cwd.cwd)
-    const result = await askAiForResult<{ appId: string; revision: number }>({
-      intent: '创建业务应用',
-      preset,
-      title: `应用构建 · ${description.slice(0, 20)}`,
-      context: ['workspace', 'apps', 'biz'],
-      prompt: `需求：${description}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。若返回 errors，修正后重新提交。不要写外部业务系统。`,
-      schema: { type: 'object', required: ['appId', 'revision'] },
-      timeoutMs: 240_000,
+    const knownIds = new Set((await runtimeApi.listBusinessApps(workspaceId).catch(() => [])).map((app) => app.id))
+    const deadline = Date.now() + 240_000
+    let settled = false
+    const appId = await new Promise<string>((resolve) => {
+      const finish = (id: string) => {
+        if (settled) return
+        settled = true
+        resolve(id)
+      }
+      const timer = window.setTimeout(() => finish(''), Math.max(0, deadline - Date.now()))
+      void askAiForResult<{ appId: string; revision: number }>({
+        intent: '创建业务应用',
+        preset,
+        title: `应用构建 · ${description.slice(0, 20)}`,
+        context: ['workspace', 'apps', 'biz'],
+        prompt: `需求：${description}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。若返回 errors，修正后重新提交。不要写外部业务系统。`,
+        schema: { type: 'object', required: ['appId', 'revision'] },
+        timeoutMs: 240_000,
+      }).then((result) => {
+        if (result.ok) {
+          clearTimeout(timer)
+          finish(result.data.appId)
+        }
+      })
+      void waitForNewDraft(knownIds, deadline).then((id) => {
+        if (id) {
+          clearTimeout(timer)
+          finish(id)
+        }
+      })
     })
-    if (!result.ok) {
-      setError(result.error === 'timeout' ? '生成超时。改描述再试；左栏会话只是生成过程，创建要在这一页完成。' : result.error)
+    if (!appId) {
+      setError('生成超时。改描述再试；左栏会话只是生成过程，创建要在这一页完成。')
       setStep('describe')
       return
     }
-    const data = await loadApp(result.data.appId)
+    const data = await loadApp(appId)
     onDraftReady?.(data.id)
   }
 
