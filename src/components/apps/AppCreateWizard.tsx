@@ -8,11 +8,12 @@ import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
   workspaceId: string
-  onCreated: (appId?: string) => void
+  onDraftReady?: (appId: string) => void
+  onActivated: (appId: string) => void
   onClose: () => void
 }
 
-export function AppCreateWizard({ onCreated, onClose }: Props) {
+export function AppCreateWizard({ onDraftReady, onActivated, onClose }: Props) {
   const [step, setStep] = useState<'describe' | 'generating' | 'preview'>('describe')
   const [aiReady, setAiReady] = useState(false)
   const [description, setDescription] = useState('')
@@ -29,6 +30,7 @@ export function AppCreateWizard({ onCreated, onClose }: Props) {
     const data = await runtimeApi.getDeclarativeApp(appId)
     setAppDetail(data)
     setStep('preview')
+    return data
   }
 
   const generate = async () => {
@@ -52,18 +54,28 @@ export function AppCreateWizard({ onCreated, onClose }: Props) {
       timeoutMs: 240_000,
     })
     if (!result.ok) {
-      setError(result.error === 'timeout' ? '生成超时，可在左侧会话里看 AI 说了什么，或改描述再试。' : result.error)
+      setError(result.error === 'timeout' ? '生成超时。改描述再试；左栏会话只是生成过程，创建要在这一页完成。' : result.error)
       setStep('describe')
       return
     }
-    await loadApp(result.data.appId)
-    onCreated(result.data.appId)
+    const data = await loadApp(result.data.appId)
+    onDraftReady?.(data.id)
+  }
+
+  const afterPreviewChange = async () => {
+    if (!appDetail) return
+    const data = await loadApp(appDetail.id)
+    if (data.status === 'active') onActivated(data.id)
+    else onDraftReady?.(data.id)
   }
 
   return (
-    <div className="px-4 py-3 border-b border-line bg-surface-2 space-y-3">
+    <div className="px-4 py-3 border-b border-line bg-surface-2 space-y-3" data-app-create-wizard={step}>
       <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">AI 创建应用</div>
+        <div>
+          <div className="text-sm font-medium">创建应用</div>
+          <div className="text-xs text-ink-muted mt-0.5">这里没有官方台账。写下对象、字段和要看的视图，生成你自己的应用。</div>
+        </div>
         <button type="button" className="btn h-7" onClick={onClose}>关闭</button>
       </div>
       {step === 'describe' && (
@@ -92,20 +104,21 @@ export function AppCreateWizard({ onCreated, onClose }: Props) {
       )}
       {step === 'generating' && (
         <div className="flex items-center gap-2 text-sm text-ink-muted">
-          <Loader2 size={14} className="animate-spin" /> 生成中…
+          <Loader2 size={14} className="animate-spin" /> 正在生成 spec。预览会留在这一页，不必去左栏聊天里完成。
         </div>
       )}
       {step === 'preview' && appDetail && (
         <>
+          <div>
+            <div className="text-sm font-medium">预览 · {appDetail.spec.name || appDetail.name}</div>
+            <div className="text-xs text-ink-muted mt-0.5">确认 spec 后采纳并激活，进入这个应用的工作面。</div>
+          </div>
           {error && <div className="text-xs text-accent-red">{error}</div>}
           <AppRuntime
             app={appDetail}
             workspaceCwd={workspaceCwd}
             previewMode={appDetail.status !== 'active'}
-            onChanged={() => {
-              void loadApp(appDetail.id)
-              onCreated(appDetail.id)
-            }}
+            onChanged={() => { void afterPreviewChange() }}
           />
         </>
       )}

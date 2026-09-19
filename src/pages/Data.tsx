@@ -341,7 +341,7 @@ function Overview({
   onOpenRecords: () => void
   onOpenOperations: () => void
 }) {
-  const [showCreate, setShowCreate] = useState(false)
+  const [showCreate, setShowCreate] = useState(true)
   const [dialogAppId, setDialogAppId] = useState('')
   const [workspaceAppId, setWorkspaceAppId] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<BusinessAppRecord | null>(null)
@@ -444,27 +444,26 @@ function Overview({
           <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-medium">我的业务应用</div>
-              <div className="text-xs text-ink-muted mt-0.5">列表只是目录。草稿在对话框里预览和采纳，运行中的应用打开独立工作面。</div>
+              <div className="text-xs text-ink-muted mt-0.5">列表是目录，没有官方台账。主入口是创建应用：描述需求，生成你自己的应用。</div>
             </div>
-            <button type="button" className="btn-primary !py-1" onClick={() => setShowCreate((value) => !value)}><Plus size={12} /> AI 创建应用</button>
+            <button type="button" className="btn-primary !py-1" data-app-create-entry="true" onClick={() => setShowCreate((value) => !value)}><Plus size={12} /> 创建应用</button>
           </div>
           {showCreate && (
             <AppCreateWizard
               workspaceId={workspaceId}
-              onCreated={(appId) => {
+              onDraftReady={() => { void onCreated() }}
+              onActivated={(appId) => {
                 void onCreated()
                 setShowCreate(false)
-                if (appId) {
-                  setWorkspaceAppId('')
-                  setDialogAppId(appId)
-                }
+                setDialogAppId('')
+                setWorkspaceAppId(appId)
               }}
               onClose={() => setShowCreate(false)}
             />
           )}
           <div className="divide-y divide-line">
             {visibleApps.length === 0 ? (
-              <div className="px-4 py-10 text-center text-sm text-ink-muted">还没有应用。先创建草稿，再为它选择数据源和权限。</div>
+              <div className="px-4 py-10 text-center text-sm text-ink-muted">这里没有官方台账。描述你的需求，生成你自己的应用。</div>
             ) : visibleApps.map((app) => (
               <div key={app.id} data-app-row={app.id} className="px-4 py-3 flex items-center gap-3 hover:bg-surface-2 transition-colors">
                 <button type="button" onClick={() => openApp(app)} className="min-w-0 flex-1 flex items-center gap-3 text-left">
