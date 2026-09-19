@@ -84,6 +84,7 @@ import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { tryServeStatic } from './routes/static.mjs'
 import { startBriefingScheduler } from './briefing/scheduler.mjs'
 import { startMemoryWriter } from './memory/writer.mjs'
+import { asDraftCard, draftMemoryCardInsert, validateMemoryCardLabel } from './memory/cards.mjs'
 import {
   FDE_AI_WORKSPACE,
   FDE_ALLOWED_ORIGINS,
@@ -1814,6 +1815,28 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    const memoryCardNodMatch = /^\/api\/v1\/memory\/cards\/([^/]+)\/nod$/u.exec(url.pathname)
+    if (request.method === 'POST' && memoryCardNodMatch) {
+      const body = await readJson(request)
+      if (body.nodded !== true) {
+        sendError(response, 400, 'validation_error', '点头入档需要 nodded=true', currentCorrelationId)
+        return
+      }
+      const cardId = decodeURIComponent(memoryCardNodMatch[1])
+      const cwd = requestMemoryCwd(url, body)
+      const result = await aiRuntime.semanticOs('/python', {
+        op: 'nod_memory_card',
+        args: { id: cardId, nodded: true },
+        ...(cwd ? { cwd } : {}),
+      })
+      if (result && typeof result === 'object' && result.error) {
+        sendError(response, 502, 'memory_error', String(result.hint || result.error || '点头入档失败'), currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
+      return
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/v1/memory/cards') {
       const body = await readJson(request)
       const label = typeof body.label === 'string' ? body.label.trim() : ''
@@ -1821,13 +1844,23 @@ const server = createServer(async (request, response) => {
         sendError(response, 400, 'validation_error', '记忆正文不能为空', currentCorrelationId)
         return
       }
+      if (!validateMemoryCardLabel(label)) {
+        sendError(response, 400, 'validation_error', '记忆正文至少 8 个有效字符', currentCorrelationId)
+        return
+      }
       const cwd = requestMemoryCwd(url, body)
+      const insert = draftMemoryCardInsert(label, body.cause === 'choice' ? 'choice' : 'correction')
       const result = await aiRuntime.semanticOs('/python', {
-        op: 'draft_memory_card',
-        args: { label, cause: body.cause === 'choice' ? 'choice' : 'correction' },
+        op: insert.op,
+        args: insert.args,
         ...(cwd ? { cwd } : {}),
       })
-      sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
+      if (result && typeof result === 'object' && result.error) {
+        sendError(response, 502, 'memory_error', String(result.hint || result.error || '起草失败'), currentCorrelationId)
+        return
+      }
+      const card = asDraftCard({ ...(result && typeof result === 'object' ? result : {}), id: insert.args.id }, label)
+      sendJson(response, 200, { data: card, correlationId: currentCorrelationId })
       return
     }
 

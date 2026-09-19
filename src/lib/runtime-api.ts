@@ -326,6 +326,13 @@ export type BriefingSnapshot = {
   sessionId?: string
 }
 
+export type MemoryDraftCard = {
+  id: string
+  status: '起草'
+  label: string
+  body: string
+}
+
 export class RuntimeApiError extends Error {
   status: number
   code: string
@@ -1252,12 +1259,22 @@ export class RuntimeApi {
     return result.data
   }
 
-  async draftMemoryCard(label: string, cause: 'correction' | 'choice' = 'correction', signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd('/api/v1/memory/cards'), {
+  async draftMemoryCard(label: string, cause: 'correction' | 'choice' = 'correction', signal?: AbortSignal): Promise<MemoryDraftCard> {
+    const result = await this.request<{ data: MemoryDraftCard }>(withWorkspaceCwd('/api/v1/memory/cards'), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(workspaceCwdBody({ label, cause })),
+    })
+    return result.data
+  }
+
+  async nodMemoryCard(id: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd(`/api/v1/memory/cards/${encodeURIComponent(id)}/nod`), {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(workspaceCwdBody({ nodded: true })),
     })
     return result.data
   }

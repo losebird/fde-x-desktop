@@ -5,7 +5,7 @@ import {
   type FdePlatformUse,
 } from '@/lib/app-spec'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { runtimeApi } from '@/lib/runtime-api'
+import { runtimeApi, type MemoryDraftCard } from '@/lib/runtime-api'
 import { useApp } from '@/store/app'
 
 export { declaredPlatformUses, specHasUse }
@@ -143,7 +143,13 @@ export async function lookupBizKind(kind: string): Promise<string> {
   return '已现查业务记录，写外部仍要预览确认'
 }
 
-export async function runDeclaredPlatformUse(use: FdePlatformUse, spec: FdeAppSpec): Promise<string> {
+export type DeclaredPlatformUseResult = string | MemoryDraftCard
+
+export function isMemoryDraftCard(value: DeclaredPlatformUseResult): value is MemoryDraftCard {
+  return Boolean(value && typeof value === 'object' && 'id' in value && 'body' in value)
+}
+
+export async function runDeclaredPlatformUse(use: FdePlatformUse, spec: FdeAppSpec): Promise<DeclaredPlatformUseResult> {
   const state = useApp.getState()
   if (use === 'ai') {
     const cwd = loadCurrentWorkspaceCwd()
@@ -174,20 +180,18 @@ export async function runDeclaredPlatformUse(use: FdePlatformUse, spec: FdeAppSp
     return '已打开文件模块，应用只留引用'
   }
   if (use === 'memory') {
-    await runtimeApi.draftMemoryCard(
+    const card = await runtimeApi.draftMemoryCard(
       `${spec.name}\n${spec.description || ''}\n应用动作只起草卡片，等人点头才入档。`,
       'choice',
     )
-    state.togglePanel('memory', 'full')
-    return '已起草记忆卡片，点头才入档'
+    return card
   }
   if (use === 'im') {
     return draftImReply(spec)
   }
   if (use === 'briefing') {
     state.togglePanel('briefing', 'full')
-    await runtimeApi.getLatestBriefing(true).catch(() => undefined)
-    return '已打开早报（现有源 / MCP）'
+    return '已打开早报'
   }
   if (use === 'biz') {
     state.focusBizRecordsPanel()

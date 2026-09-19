@@ -774,6 +774,7 @@ export class DshCoreConnector {
     if (path === '/python') {
       const op = options.op
       const allowedOps = new Set([
+        'add_node',
         'list_memory_cards',
         'draft_memory_card',
         'nod_memory_card',
