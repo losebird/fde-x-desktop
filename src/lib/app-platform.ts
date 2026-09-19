@@ -210,13 +210,14 @@ export async function runDeclaredPlatformUse(
   if (use === 'plan') {
     const title = String(context?.title || spec.name || '').trim() || '待办'
     const source = ['app', appId, context?.rowId].filter(Boolean).join(':')
-    await state.addTask({
+    const created = await state.addTask({
       title,
       status: 'todo',
       priority: 'med',
       tags: spec.name ? [spec.name] : [],
       sourceRef: source,
     })
+    if (created?.id) state.selectTask(created.id)
     state.setActivePlanTab('todo')
     state.togglePanel('plan', 'full')
     return '已加入计划'
@@ -226,4 +227,16 @@ export async function runDeclaredPlatformUse(
 
 export function openFilesAtPath(path: string) {
   openFilesModule(path)
+}
+
+export type AppOpenedMode = 'popup' | 'frame'
+
+export function openAppHref(href: string): { href: string; mode: AppOpenedMode } {
+  const popup = window.open(href, '_blank')
+  if (popup) popup.opener = null
+  const mode: AppOpenedMode = popup && !popup.closed ? 'popup' : 'frame'
+  document.documentElement.setAttribute('data-app-opened-href', href)
+  document.documentElement.setAttribute('data-app-opened-mode', mode)
+  window.dispatchEvent(new CustomEvent('fde-app-opened', { detail: { href, mode } }))
+  return { href, mode }
 }

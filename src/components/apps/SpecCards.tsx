@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import { ExternalLink, Play } from 'lucide-react'
-import { AppCapabilityBar, recordActionChipClass } from '@/components/apps/AppCapabilityBar'
+import { AppCapabilityBar, playOpenActionChipClass, recordActionChipClass } from '@/components/apps/AppCapabilityBar'
 import {
   cardAction,
   cardGroupField,
@@ -13,7 +13,7 @@ import {
   type FdeAppView,
   type FdePlatformUse,
 } from '@/lib/app-spec'
-import { openFilesAtPath } from '@/lib/app-platform'
+import { openAppHref, openFilesAtPath, type AppOpenedMode } from '@/lib/app-platform'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -41,23 +41,10 @@ function heroToneClassFor(key: string) {
   return HERO_TONES[hash % HERO_TONES.length]
 }
 
-function HeroMark({ play }: { play?: boolean }) {
-  return (
-    <div className="relative flex h-14 w-14 items-center justify-center" aria-hidden="true">
-      <span className="absolute inset-0 rounded-full bg-white/15" />
-      <span className="absolute h-9 w-9 rounded-full bg-white/25" />
-      {play ? (
-        <Play className="relative h-5 w-5 fill-white text-white" />
-      ) : (
-        <span className="relative h-4 w-4 rounded-full bg-white/40" />
-      )}
-    </div>
-  )
-}
-
 export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, recordActions, actionUses }: Props) {
   const [rows, setRows] = useState<Record<string, unknown>[]>(previewRows ?? [])
   const [error, setError] = useState('')
+  const [openProof, setOpenProof] = useState<{ href: string; mode: AppOpenedMode } | null>(null)
   const ent = entityDef(app.spec, view.entity)
   const groupBy = cardGroupField(app.spec, view)
   const groupField = groupBy ? fieldDef(app.spec, view.entity, groupBy) : undefined
@@ -97,6 +84,12 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
 
   const perCardActions = Boolean(appId && actionUses?.length)
 
+  const handleOpenUrl = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
+    event.preventDefault()
+    const result = openAppHref(href)
+    setOpenProof(result)
+  }
+
   return (
     <div className="space-y-6" data-app-cards="true">
       <div className="flex items-center justify-between">
@@ -104,6 +97,26 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
         {previewRows && <span className="text-[10px] text-ink-muted border border-line px-1 rounded">示例</span>}
       </div>
       {error && <div className="text-xs text-accent-red">{error}</div>}
+      {openProof && (
+        <div
+          className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[11px] text-ink shadow-card"
+          data-app-opened-proof="true"
+          data-app-opened-href={openProof.href}
+          data-app-opened-mode={openProof.mode}
+        >
+          <span className="font-medium">已打开</span>
+          <span className="ml-1.5 break-all text-ink-muted">{openProof.href}</span>
+          {openProof.mode === 'frame' && (
+            <iframe
+              title="已打开链接"
+              src={openProof.href}
+              className="mt-2 h-40 w-full rounded border border-line bg-white"
+              data-app-opened-frame="true"
+              data-app-opened-href={openProof.href}
+            />
+          )}
+        </div>
+      )}
       {rows.length === 0 ? (
         <div className="border border-line rounded-xl px-3 py-10 text-center text-xs text-ink-muted space-y-3">
           <div>{app.status === 'active' ? '还没有条目。记下一条就会出现卡片。' : '还没有条目。'}</div>
@@ -113,13 +126,13 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
         </div>
       ) : (
         groups.map((group) => (
-          <section key={group.key || 'all'} className="space-y-3" data-app-card-group={group.key || 'all'}>
+          <section key={group.key || 'all'} className="space-y-2" data-app-card-group={group.key || 'all'}>
             {Boolean(groupBy) && (
-              <div className="text-sm font-medium text-ink" data-app-card-group-label="true">{group.label}</div>
+              <div className="text-xs font-semibold tracking-wide text-ink" data-app-card-group-label="true">{group.label}</div>
             )}
             <div
-              className="grid gap-3"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(11.25rem, 12.75rem))' }}
+              className="grid gap-2"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(10rem, 1fr))' }}
             >
               {group.rows.map((row) => {
                 const title = displayTitle(app.spec, view.entity, row)
@@ -131,30 +144,39 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                 return (
                   <article
                     key={String(row.id)}
-                    className="border border-line rounded-2xl bg-surface overflow-hidden min-w-0 shadow-card flex flex-col"
+                    className="border border-line rounded-xl bg-surface overflow-hidden min-w-0 shadow-card flex flex-col"
                     data-app-card="true"
                     data-app-card-title={title || undefined}
                   >
-                    <div className={`h-[5.5rem] shrink-0 flex items-center justify-center ${heroTone}`}>
-                      <HeroMark play={play} />
-                    </div>
-                    <div className="flex flex-1 flex-col gap-2 p-3 bg-surface">
-                      <h3 className="text-[13px] font-semibold leading-snug text-ink line-clamp-2">{title || '未命名'}</h3>
-                      {blurb ? (
-                        <p className="text-[12px] text-ink-muted leading-snug line-clamp-2" data-app-card-blurb="true">{blurb}</p>
+                    <div
+                      className={`relative min-h-[6.5rem] shrink-0 flex flex-col justify-end p-2.5 ${heroTone}`}
+                    >
+                      {play ? (
+                        <Play className="absolute right-2 top-2 h-4 w-4 fill-white/90 text-white/90" aria-hidden="true" />
                       ) : null}
-                      <div className="mt-auto pt-1 flex flex-wrap items-center gap-2">
+                      <h3 className="text-[12px] font-semibold leading-snug text-white line-clamp-2 drop-shadow-sm">
+                        {title || '未命名'}
+                      </h3>
+                    </div>
+                    <div className="flex flex-1 flex-col gap-1.5 p-2 bg-surface">
+                      {blurb ? (
+                        <p className="text-[11px] text-ink-muted leading-snug line-clamp-2" data-app-card-blurb="true">{blurb}</p>
+                      ) : null}
+                      <div className="mt-auto flex flex-wrap items-center gap-1.5">
                         {action?.kind === 'url' && (
                           <a
                             href={action.href}
-                            target="_blank"
-                            rel="noreferrer"
-                            className={recordActionChipClass}
+                            className={`${playOpenActionChipClass} ${play ? 'bg-accent-amber text-ink' : 'bg-brand text-white'}`}
                             data-app-card-action={play ? 'play' : 'url'}
                             data-app-card-href={action.href}
+                            onClick={(event) => handleOpenUrl(event, action.href)}
                           >
                             {play ? '播放' : '打开'}
-                            {play ? <Play className="h-3 w-3 text-ink-muted" aria-hidden="true" /> : <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />}
+                            {play ? (
+                              <Play className="h-3 w-3 fill-current" aria-hidden="true" />
+                            ) : (
+                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                            )}
                           </a>
                         )}
                         {action?.kind === 'file' && specHasUse(app.spec, 'files') && (

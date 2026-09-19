@@ -13,6 +13,10 @@ import { runtimeApi } from '@/lib/runtime-api'
 export const recordActionChipClass =
   'inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-line bg-surface-2 text-ink text-[12px] font-medium hover:bg-surface transition-colors'
 
+/** Filled chip for card 播放 / 打开 (url actions). */
+export const playOpenActionChipClass =
+  'inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[12px] font-medium transition-opacity hover:opacity-90'
+
 type Props = {
   spec: FdeAppSpec
   appId: string

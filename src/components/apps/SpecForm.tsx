@@ -86,8 +86,8 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
   ) : null
 
   return (
-    <div className="space-y-3" data-app-compose={compose ? 'true' : undefined}>
-      <div className={compose ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'space-y-3'}>
+    <div className={compose ? 'space-y-2' : 'space-y-3'} data-app-compose={compose ? 'true' : undefined}>
+      <div className={compose ? 'grid grid-cols-1 sm:grid-cols-2 gap-2' : 'space-y-3'}>
       {ent.fields.map((field) => (
         <label key={field.name} className={clsx('block text-xs text-ink-muted', field.type === 'longtext' && compose && 'sm:col-span-2')}>
           {field.label || field.name}

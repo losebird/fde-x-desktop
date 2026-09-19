@@ -169,6 +169,12 @@ function TodoTab() {
   const updateTask = useApp((s) => s.updateTask)
   const cycleStatus = useApp((s) => s.cycleTaskStatus)
   const selectedTaskId = useApp((s) => s.selectedTaskId)
+  const selectTask = useApp((s) => s.selectTask)
+
+  useEffect(() => {
+    if (!selectedTaskId) return
+    document.querySelector('[data-plan-task-selected]')?.scrollIntoView({ block: 'nearest' })
+  }, [selectedTaskId])
 
   const [tab, setTab] = useState<Task['status']>('todo')
   const [q, setQ] = useState('')
@@ -334,7 +340,12 @@ function TodoTab() {
             <div></div>
           </div>
           {filtered.map((t) => (
-            <div key={t.id} className={clsx(
+            <div
+              key={t.id}
+              data-plan-task={t.id}
+              data-plan-task-title={t.title}
+              {...(selectedTaskId === t.id ? { 'data-plan-task-selected': 'true' } : {})}
+              className={clsx(
               'min-w-[280px] grid grid-cols-[28px_minmax(0,1fr)_28px] @md:grid-cols-[28px_minmax(0,1fr)_80px_60px_28px] @xl:grid-cols-[28px_minmax(0,1fr)_96px_64px_minmax(0,1.2fr)_28px] items-center px-3 py-2.5 border-b border-line last:border-b-0 hover:bg-surface-2/40 group',
               selectedTaskId === t.id && 'bg-brand-soft/40 ring-1 ring-brand/30',
             )}>
@@ -344,7 +355,7 @@ function TodoTab() {
                 {t.status === 'todo'  && <Circle size={16} />}
                 {t.status === 'archived' && <Archive size={16} className="text-ink-subtle" />}
               </button>
-              <div className="min-w-0 px-2">
+              <div className="min-w-0 px-2 cursor-pointer" onClick={() => selectTask(t.id)}>
                 <div className="font-medium text-sm truncate">{t.title}</div>
                 {t.notes && <div className="text-xs text-ink-muted mt-0.5 truncate">{t.notes}</div>}
               </div>

@@ -198,7 +198,7 @@ interface State {
   selectTask: (id: ID | null) => void
 
   // tasks
-  addTask: (t: Omit<Task, 'id' | 'createdAt'> & { sourceRef?: string }) => Promise<void>
+  addTask: (t: Omit<Task, 'id' | 'createdAt'> & { sourceRef?: string }) => Promise<Task | undefined>
   updateTask: (id: ID, patch: Partial<Task>) => Promise<void>
   removeTask: (id: ID) => Promise<void>
   cycleTaskStatus: (id: ID) => Promise<void>
@@ -697,7 +697,7 @@ export const useApp = create<AppState>()(
       // ===== Data mutations =====
       addTask: async (t) => {
         const workspaceId = get().activeWorkspaceId
-        if (!workspaceId) return
+        if (!workspaceId) return undefined
         try {
           const created = await runtimeApi.createTask({
             workspaceId,
@@ -709,6 +709,7 @@ export const useApp = create<AppState>()(
             status: t.status,
           })
           set((s) => ({ tasks: [created, ...s.tasks], planServiceError: null }))
+          return created
         } catch {
           set({ planServiceError: PLAN_UNAVAILABLE })
           throw new Error(PLAN_UNAVAILABLE)

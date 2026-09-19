@@ -43,24 +43,26 @@ export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken }: 
 
   return (
     <div className="border border-line rounded-xl overflow-hidden bg-surface" data-app-feed="true">
-      <div className="px-4 py-2.5 border-b border-line flex items-center justify-between">
+      <div className="px-3 py-2 border-b border-line flex items-center justify-between">
         <div className="text-sm font-medium">{view.label || '流水'}</div>
         {previewRows && <span className="text-[10px] text-ink-muted border border-line px-1 rounded">示例</span>}
       </div>
-      {error && <div className="px-4 py-2 text-xs text-accent-red">{error}</div>}
+      {error && <div className="px-3 py-1.5 text-xs text-accent-red">{error}</div>}
       {rows.length === 0 ? (
-        <div className="px-4 py-8 text-center text-xs text-ink-muted" data-app-feed-empty="true">
+        <div className="px-3 py-8 text-center text-xs text-ink-muted" data-app-feed-empty="true">
           {app.status === 'active' ? '还没有记录。上面记下一条就会出现在这里。' : '还没有记录。'}
         </div>
       ) : (
         <div className="divide-y divide-line">
           {rows.map((row) => (
-            <div key={String(row.id)} className="px-4 py-3 flex items-start gap-3" data-app-feed-row="true">
+            <div key={String(row.id)} className="px-3 py-2 flex items-start gap-2.5" data-app-feed-row="true">
               <div className="min-w-0 flex-1">
                 <div className="text-sm truncate" data-app-feed-title="true">{displayTitle(app.spec, view.entity, row) || '—'}</div>
-                <div className="text-[11px] text-ink-muted mt-1 flex flex-wrap gap-2">
+                <div className="text-[11px] text-ink-muted mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   {enumField && row[enumField.name] != null && (
-                    <span className="bg-surface-2 border border-line rounded-full px-1.5 py-0.5">{String(row[enumField.name])}</span>
+                    <span className="text-[10px] bg-surface-2 border border-line rounded-full px-1.5 py-px leading-tight">
+                      {String(row[enumField.name])}
+                    </span>
                   )}
                   {dateField && row[dateField.name] != null && <span>{String(row[dateField.name])}</span>}
                   {columns.filter((col) => col !== titleField && col !== numberField?.name && col !== dateField?.name && col !== enumField?.name).slice(0, 2).map((col) => {
@@ -71,7 +73,9 @@ export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken }: 
                 </div>
               </div>
               {numberField && (
-                <div className="text-sm tabular-nums shrink-0">{String(row[numberField.name] ?? '')}</div>
+                <div className="text-base font-semibold tabular-nums shrink-0 pt-px">
+                  {String(row[numberField.name] ?? '')}
+                </div>
               )}
             </div>
           ))}
