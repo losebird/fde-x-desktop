@@ -71,10 +71,10 @@ export function SpecChart({ app, view, workspaceCwd, previewRows, reloadToken }:
   const totalLabel = formatChartValue(rawTotal)
 
   return (
-    <div className="border border-line rounded-xl p-3 space-y-2.5 bg-surface min-w-0" data-app-chart="true">
-      <div className="text-sm font-medium">{view.label || '构成'}</div>
-      <div className="flex flex-wrap items-center gap-3">
-        <svg viewBox="0 0 36 36" className="w-[7.5rem] h-[7.5rem] shrink-0 text-ink" role="img" aria-label={view.label || '图'}>
+    <div className="border border-line rounded-xl p-4 sm:p-5 space-y-4 bg-surface min-w-0 shadow-card" data-app-chart="true">
+      <div className="text-sm font-semibold text-ink">{view.label || '构成'}</div>
+      <div className="flex flex-wrap items-start gap-4">
+        <svg viewBox="0 0 36 36" className="w-[8.5rem] h-[8.5rem] shrink-0 text-ink" role="img" aria-label={view.label || '图'}>
           {slices.map((slice) => {
             const a0 = slice.start * 2 * Math.PI - Math.PI / 2
             const a1 = slice.end * 2 * Math.PI - Math.PI / 2
@@ -104,15 +104,15 @@ export function SpecChart({ app, view, workspaceCwd, previewRows, reloadToken }:
             {totalLabel}
           </text>
         </svg>
-        <div className="flex-1 min-w-[140px] space-y-1">
+        <div className="flex-1 min-w-[148px] space-y-1.5 pt-0.5">
           {series.map((row) => {
             const pct = rawTotal > 0 ? (Math.max(0, row.value) / rawTotal) * 100 : 0
             return (
-              <div key={row.key} className="flex items-center gap-2 text-[11px] min-w-0">
-                <span className={`w-2 h-2 rounded-sm shrink-0 ${row.colorClass} bg-current`} />
-                <span className="truncate flex-1 min-w-0">{row.key || '—'}</span>
-                <span className="tabular-nums shrink-0">{formatChartValue(row.value)}</span>
-                <span className="tabular-nums text-ink-muted shrink-0 w-9 text-right">
+              <div key={row.key} className="flex items-center gap-2 text-[11px] min-w-0 leading-snug">
+                <span className={`w-2.5 h-2.5 rounded-sm shrink-0 ${row.colorClass} bg-current`} />
+                <span className="truncate flex-1 min-w-0 font-medium text-ink">{row.key || '—'}</span>
+                <span className="tabular-nums shrink-0 text-ink">{formatChartValue(row.value)}</span>
+                <span className="tabular-nums text-ink-muted shrink-0 w-10 text-right">
                   {pct < 10 && pct > 0 ? pct.toFixed(1) : Math.round(pct)}%
                 </span>
               </div>
@@ -120,7 +120,7 @@ export function SpecChart({ app, view, workspaceCwd, previewRows, reloadToken }:
           })}
         </div>
       </div>
-      <div className="flex items-end gap-1.5 h-24 pt-1">
+      <div className="flex items-end gap-2 h-28 pt-1 border-t border-line">
         {series.map((row) => (
           <div key={`bar-${row.key}`} className="flex-1 min-w-0 flex flex-col items-center gap-1 h-full justify-end">
             <div

@@ -8,12 +8,11 @@ import {
   displayTitle,
   entityDef,
   fieldDef,
-  specHasUse,
   type FdeAppSpec,
   type FdeAppView,
   type FdePlatformUse,
 } from '@/lib/app-spec'
-import { openAppHref, openFilesAtPath, type AppOpenedMode } from '@/lib/app-platform'
+import { openAppHref, type AppOpenedMode } from '@/lib/app-platform'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -84,10 +83,8 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
 
   const perCardActions = Boolean(appId && actionUses?.length)
 
-  const handleOpenUrl = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
-    event.preventDefault()
-    const result = openAppHref(href)
-    setOpenProof(result)
+  const handleOpenHref = (href: string, event?: MouseEvent<HTMLElement>) => {
+    setOpenProof(openAppHref(href, event))
   }
 
   return (
@@ -106,15 +103,6 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
         >
           <span className="font-medium">已打开</span>
           <span className="ml-1.5 break-all text-ink-muted">{openProof.href}</span>
-          {openProof.mode === 'frame' && (
-            <iframe
-              title="已打开链接"
-              src={openProof.href}
-              className="mt-2 h-40 w-full rounded border border-line bg-white"
-              data-app-opened-frame="true"
-              data-app-opened-href={openProof.href}
-            />
-          )}
         </div>
       )}
       {rows.length === 0 ? (
@@ -131,8 +119,8 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
               <div className="text-xs font-semibold tracking-wide text-ink" data-app-card-group-label="true">{group.label}</div>
             )}
             <div
-              className="grid gap-2"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(10rem, 1fr))' }}
+              className="grid gap-3"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(13rem, 1fr))' }}
             >
               {group.rows.map((row) => {
                 const title = displayTitle(app.spec, view.entity, row)
@@ -144,32 +132,43 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                 return (
                   <article
                     key={String(row.id)}
-                    className="border border-line rounded-xl bg-surface overflow-hidden min-w-0 shadow-card flex flex-col"
+                    className="border border-line rounded-xl bg-surface overflow-hidden min-w-0 shadow-pop flex flex-col"
                     data-app-card="true"
                     data-app-card-title={title || undefined}
                   >
                     <div
-                      className={`relative min-h-[6.5rem] shrink-0 flex flex-col justify-end p-2.5 ${heroTone}`}
+                      className={`relative min-h-[9rem] shrink-0 flex items-center justify-center ${heroTone}`}
                     >
-                      {play ? (
-                        <Play className="absolute right-2 top-2 h-4 w-4 fill-white/90 text-white/90" aria-hidden="true" />
+                      {play && action ? (
+                        <button
+                          type="button"
+                          className="flex h-11 w-11 items-center justify-center rounded-full bg-white/95 shadow-card hover:scale-105 transition-transform"
+                          data-app-card-hero-open="true"
+                          data-app-card-href={action.href}
+                          onClick={(event) => handleOpenHref(action.href, event)}
+                          aria-label={action.kind === 'url' ? '播放' : '打开'}
+                        >
+                          <Play className="h-5 w-5 fill-brand text-brand ml-0.5" aria-hidden="true" />
+                        </button>
                       ) : null}
-                      <h3 className="text-[12px] font-semibold leading-snug text-white line-clamp-2 drop-shadow-sm">
+                    </div>
+                    <div className="flex flex-1 flex-col gap-1.5 p-2.5 bg-surface">
+                      <h3 className="text-[13px] font-semibold leading-snug text-ink line-clamp-2">
                         {title || '未命名'}
                       </h3>
-                    </div>
-                    <div className="flex flex-1 flex-col gap-1.5 p-2 bg-surface">
                       {blurb ? (
-                        <p className="text-[11px] text-ink-muted leading-snug line-clamp-2" data-app-card-blurb="true">{blurb}</p>
+                        <p className="text-[11px] text-ink-muted leading-snug line-clamp-3" data-app-card-blurb="true">{blurb}</p>
                       ) : null}
                       <div className="mt-auto flex flex-wrap items-center gap-1.5">
                         {action?.kind === 'url' && (
                           <a
                             href={action.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className={`${playOpenActionChipClass} ${play ? 'bg-accent-amber text-ink' : 'bg-brand text-white'}`}
                             data-app-card-action={play ? 'play' : 'url'}
                             data-app-card-href={action.href}
-                            onClick={(event) => handleOpenUrl(event, action.href)}
+                            onClick={(event) => handleOpenHref(action.href, event)}
                           >
                             {play ? '播放' : '打开'}
                             {play ? (
@@ -179,13 +178,13 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                             )}
                           </a>
                         )}
-                        {action?.kind === 'file' && specHasUse(app.spec, 'files') && (
+                        {action?.kind === 'file' && (
                           <button
                             type="button"
                             className={recordActionChipClass}
                             data-app-card-action="file"
                             data-app-card-href={action.href}
-                            onClick={() => openFilesAtPath(action.href)}
+                            onClick={() => handleOpenHref(action.href)}
                           >
                             打开
                             <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />

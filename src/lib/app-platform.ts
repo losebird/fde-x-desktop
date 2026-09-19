@@ -1,13 +1,20 @@
+import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import {
+  externalUrlForTarget,
+  isSafeExternalUrl,
+  resolveAppOpenTarget,
+  type AppOpenedMode,
+} from '@/lib/app-open'
 import {
   declaredPlatformUses,
   specHasUse,
   type FdeAppSpec,
   type FdePlatformUse,
 } from '@/lib/app-spec'
-import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { runtimeApi, type MemoryDraftCard } from '@/lib/runtime-api'
 import { toAppFloatingKey, useApp } from '@/store/app'
 
+export type { AppOpenedMode } from '@/lib/app-open'
 export { declaredPlatformUses, specHasUse }
 
 const LABELS: Record<FdePlatformUse, string> = {
@@ -229,14 +236,81 @@ export function openFilesAtPath(path: string) {
   openFilesModule(path)
 }
 
-export type AppOpenedMode = 'popup' | 'frame'
+type OpenGesture = {
+  preventDefault: () => void
+  currentTarget: EventTarget | null
+}
 
-export function openAppHref(href: string): { href: string; mode: AppOpenedMode } {
-  const popup = window.open(href, '_blank')
-  if (popup) popup.opener = null
-  const mode: AppOpenedMode = popup && !popup.closed ? 'popup' : 'frame'
+function stampOpened(href: string, mode: AppOpenedMode) {
+  if (typeof document === 'undefined') return
   document.documentElement.setAttribute('data-app-opened-href', href)
   document.documentElement.setAttribute('data-app-opened-mode', mode)
   window.dispatchEvent(new CustomEvent('fde-app-opened', { detail: { href, mode } }))
-  return { href, mode }
+}
+
+function openViaAnchor(href: string) {
+  const node = document.createElement('a')
+  node.href = href
+  node.target = '_blank'
+  node.rel = 'noopener noreferrer'
+  node.setAttribute('data-app-open-fallback', 'true')
+  document.body.appendChild(node)
+  node.click()
+  node.remove()
+}
+
+/**
+ * Open any http(s) or file ref the user put on a card.
+ * Desktop shell: Electron openExternal. window.open / target=_blank never reach the OS
+ * unless setWindowOpenHandler also routes them (backup).
+ * Browser: keep the native <a> tab for clicks on links; window.open for buttons.
+ * Never an iframe.
+ */
+export function openAppHref(href: string, event?: OpenGesture): { href: string; mode: AppOpenedMode } {
+  const target = resolveAppOpenTarget(href)
+  if (!target) {
+    event?.preventDefault()
+    stampOpened(String(href || ''), 'invalid')
+    return { href: String(href || ''), mode: 'invalid' }
+  }
+
+  const desktop = typeof window !== 'undefined' ? window.fdeDesktop : undefined
+  if (desktop?.openExternal) {
+    event?.preventDefault()
+    const url = externalUrlForTarget(target)
+    if (url && isSafeExternalUrl(url)) {
+      void desktop.openExternal(url)
+      stampOpened(target.href, 'external')
+      return { href: target.href, mode: 'external' }
+    }
+  }
+
+  if (target.kind === 'file') {
+    event?.preventDefault()
+    openFilesAtPath(target.path || target.href)
+    stampOpened(target.href, 'files')
+    return { href: target.href, mode: 'files' }
+  }
+
+  const fromAnchor = event?.currentTarget instanceof HTMLAnchorElement
+  if (fromAnchor) {
+    stampOpened(target.href, 'anchor')
+    return { href: target.href, mode: 'anchor' }
+  }
+
+  let popup: Window | null = null
+  try {
+    popup = window.open(target.href, '_blank')
+  } catch {
+    popup = null
+  }
+  if (popup && !popup.closed) {
+    try { popup.opener = null } catch { /* ignore */ }
+    stampOpened(target.href, 'popup')
+    return { href: target.href, mode: 'popup' }
+  }
+
+  openViaAnchor(target.href)
+  stampOpened(target.href, 'anchor')
+  return { href: target.href, mode: 'anchor' }
 }

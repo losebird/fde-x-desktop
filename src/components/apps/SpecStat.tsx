@@ -8,9 +8,26 @@ type Props = {
   workspaceCwd: string
   previewRows?: Record<string, unknown>[]
   variant?: 'hero' | 'tile'
+  tileIndex?: number
 }
 
-export function SpecStat({ app, view, workspaceCwd, previewRows, variant = 'hero' }: Props) {
+const STAT_VALUE_ACCENTS = [
+  'text-accent-red',
+  'text-accent-amber',
+  'text-accent-blue',
+  'text-accent-purple',
+  'text-accent-teal',
+  'text-ink',
+] as const
+
+function statValueClass(label: string, tileIndex?: number) {
+  if (tileIndex === 0) return 'text-brand'
+  let hash = 0
+  for (let i = 0; i < label.length; i += 1) hash = (hash * 31 + label.charCodeAt(i)) >>> 0
+  return STAT_VALUE_ACCENTS[hash % STAT_VALUE_ACCENTS.length]
+}
+
+export function SpecStat({ app, view, workspaceCwd, previewRows, variant = 'hero', tileIndex }: Props) {
   const [value, setValue] = useState<number | string>(() => {
     if (!previewRows) return '—'
     return metricFromRows(previewRows, view)
@@ -33,11 +50,13 @@ export function SpecStat({ app, view, workspaceCwd, previewRows, variant = 'hero
   if (variant === 'tile') {
     return (
       <div
-        className="border border-line border-l-2 border-l-brand rounded-xl bg-surface px-3 py-5 min-w-0"
+        className="border border-line rounded-xl bg-surface-2 px-4 py-4 min-w-0 shadow-card"
         data-app-stat="true"
       >
-        <div className="text-[11px] text-ink-muted truncate">{label}</div>
-        <div className="text-4xl font-semibold tabular-nums mt-1 tracking-tight">{formatStat(value)}</div>
+        <div className="text-[11px] font-medium text-ink-muted truncate">{label}</div>
+        <div className={`text-3xl font-semibold tabular-nums mt-2 tracking-tight ${statValueClass(label, tileIndex)}`}>
+          {formatStat(value)}
+        </div>
       </div>
     )
   }

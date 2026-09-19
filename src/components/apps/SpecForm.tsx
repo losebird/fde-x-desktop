@@ -77,7 +77,7 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
   const submitButton = canSubmit ? (
     <button
       type="button"
-      className={clsx('btn-brand h-8', renderSubmit ? '' : 'w-full')}
+      className="btn-brand h-10 w-full"
       disabled={saving}
       onClick={() => { void submit() }}
     >

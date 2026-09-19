@@ -16,6 +16,15 @@ let bffChild: ChildProcess | null = null
 let bffPort = 0
 let quitTimer: ReturnType<typeof setTimeout> | null = null
 
+function isSafeExternalUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:'
+  } catch {
+    return false
+  }
+}
+
 function buildBffEnv(resources: string, appRoot: string) {
   const roots = userDataRoots()
   const runtimeKey = platformRuntimeKey()
@@ -100,6 +109,11 @@ async function createWindow() {
     },
   })
 
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
   await mainWindow.loadURL(`http://127.0.0.1:${port}/ai`)
 }
 
@@ -131,6 +145,7 @@ app.whenReady().then(() => {
     return { path: result.filePaths[0] }
   })
   ipcMain.handle('fde:open-external', async (_event: IpcMainInvokeEvent, url: string) => {
+    if (!isSafeExternalUrl(String(url || ''))) return
     await shell.openExternal(url)
   })
   ipcMain.handle('fde:app-info', async () => ({
