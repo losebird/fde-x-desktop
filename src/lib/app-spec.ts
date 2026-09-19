@@ -84,3 +84,18 @@ export function entityDef(spec: FdeAppSpec, entityName: string): FdeAppEntity | 
 export function fieldDef(spec: FdeAppSpec, entityName: string, fieldName: string): FdeAppField | undefined {
   return entityDef(spec, entityName)?.fields.find((f) => f.name === fieldName)
 }
+
+/** Table columns: declared view.columns first, then any entity fields the current spec added. */
+export function visibleTableColumns(spec: FdeAppSpec, view: FdeAppView): string[] {
+  const fields = entityDef(spec, view.entity)?.fields.map((f) => f.name) ?? []
+  const listed = view.columns?.filter(Boolean) ?? []
+  if (!listed.length) return fields
+  const extra = fields.filter((name) => !listed.includes(name))
+  return [...listed, ...extra]
+}
+
+export function isCurrentRevisionPending(app: FdeAppDetail): boolean {
+  const row = app.revisions?.find((r) => r.revision === app.currentRevision)
+  if (!row) return app.status === 'draft'
+  return row.materialize_status !== 'applied'
+}

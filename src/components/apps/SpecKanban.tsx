@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import clsx from 'clsx'
 import { entityDef, type FdeAppView } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
 
@@ -37,12 +36,17 @@ export function SpecKanban({ app, view, workspaceCwd, previewRows }: Props) {
     await load()
   }
 
+  if (!groupField || columns.length === 0) {
+    return <div className="text-xs text-ink-muted">看板需要按 enum 字段分列。</div>
+  }
+
   return (
-    <div className="grid grid-cols-1 @xl:grid-cols-3 gap-3">
+    <div className="flex gap-3 overflow-x-auto" data-app-kanban="true">
       {columns.map((col) => (
         <div
           key={col}
-          className="border border-line bg-surface-2 min-h-[120px] p-2"
+          data-app-kanban-column={col}
+          className="border border-line bg-surface-2 min-h-[120px] p-2 min-w-[160px] flex-1"
           onDragOver={(e) => e.preventDefault()}
           onDrop={() => void onDrop(col)}
         >
@@ -51,6 +55,7 @@ export function SpecKanban({ app, view, workspaceCwd, previewRows }: Props) {
             {rows.filter((r) => String(r[groupField]) === col).map((row) => (
               <div
                 key={String(row.id)}
+                data-app-kanban-card={String(row.id)}
                 draggable={!previewRows && app.status === 'active'}
                 onDragStart={() => setDragId(String(row.id))}
                 className="border border-line bg-white px-2 py-1.5 text-xs cursor-grab touch-none"

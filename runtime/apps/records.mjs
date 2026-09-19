@@ -75,8 +75,12 @@ export function validateRecordInput(spec, entityName, row) {
  */
 export function listColumns(spec, entityName, view) {
   const ent = getEntityDef(spec, entityName)
-  if (view?.columns?.length) return view.columns.map(String)
-  return ent.fields.map((f) => f.name)
+  const fields = ent.fields.map((f) => f.name)
+  if (view?.columns?.length) {
+    const listed = view.columns.map(String)
+    return [...listed, ...fields.filter((name) => !listed.includes(name))]
+  }
+  return fields
 }
 
 /**

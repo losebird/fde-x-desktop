@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { type FdeAppDetail } from '@/lib/app-spec'
 import { RuntimeApiError, runtimeApi } from '@/lib/runtime-api'
 import type { JsonValue } from '@/lib/contracts'
@@ -21,6 +21,10 @@ export function SpecEditor({ app, onSaved }: Props) {
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
 
+  useEffect(() => {
+    setText(JSON.stringify(app.spec, null, 2))
+  }, [app.id, app.currentRevision])
+
   const save = async () => {
     setSaving(true)
     setErrors([])
@@ -38,7 +42,7 @@ export function SpecEditor({ app, onSaved }: Props) {
         setErrors(result.errors ?? [])
         return
       }
-      setNote('已保存新修订')
+      setNote('已保存新修订。若加了字段，请再激活以建列。')
       onSaved()
     } catch (cause) {
       setNote(cause instanceof RuntimeApiError ? cause.message : cause instanceof SyntaxError ? 'JSON 无效' : '保存失败')

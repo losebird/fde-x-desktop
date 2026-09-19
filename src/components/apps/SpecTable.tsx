@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { fieldLabel, SpecForm } from '@/components/apps/SpecForm'
-import { type FdeAppAction, type FdeAppSpec, type FdeAppView } from '@/lib/app-spec'
+import { type FdeAppAction, type FdeAppSpec, type FdeAppView, visibleTableColumns } from '@/lib/app-spec'
 import { type AgentWriteBackPrompt, isAgentActionStep, runAppAgentJobs } from '@/lib/app-agent-action'
 import { runtimeApi } from '@/lib/runtime-api'
 
@@ -26,7 +26,7 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
   const [writeBackPrompt, setWriteBackPrompt] = useState<AgentWriteBackPrompt | null>(null)
   const [creating, setCreating] = useState(false)
   const writeBackResolveRef = useRef<((accepted: boolean) => void) | null>(null)
-  const columns = view.columns?.length ? view.columns : app.spec.entities.find((e) => e.name === view.entity)?.fields.map((f) => f.name) ?? []
+  const columns = visibleTableColumns(app.spec, view)
   const entityActions = (app.spec.actions ?? []).filter((a) => a.entity === view.entity)
 
   const load = useCallback(async () => {
@@ -167,7 +167,7 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
           <button type="button" className="btn h-7" onClick={() => finishWriteBack(false)}>取消</button>
         </div>
       )}
-      <div className="border border-line overflow-auto">
+      <div className="border border-line overflow-auto" data-app-table="true">
         <table className="w-full text-xs">
           <thead className="bg-surface-2 border-b border-line">
             <tr>

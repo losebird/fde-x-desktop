@@ -5,7 +5,7 @@ import { SpecStat } from '@/components/apps/SpecStat'
 import { SpecTable } from '@/components/apps/SpecTable'
 import { SpecForm } from '@/components/apps/SpecForm'
 import { SpecEditor } from '@/components/apps/SpecEditor'
-import { isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
+import { isCurrentRevisionPending, isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -46,6 +46,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
   const previewRows = app.status !== 'active' ? mockRows(spec) : undefined
   const current = views.find((v) => (v.id || v.type) === viewId) || views[0]
   const live = app.status === 'active'
+  const pendingMaterialize = isCurrentRevisionPending(app)
 
   const activate = async () => {
     setNote('')
@@ -71,8 +72,14 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
   }
 
   const rollback = async (revision: number) => {
-    await runtimeApi.rollbackDeclarativeApp(app.id, revision)
-    onChanged()
+    if (revision === app.currentRevision) return
+    setNote('')
+    try {
+      await runtimeApi.rollbackDeclarativeApp(app.id, revision)
+      onChanged()
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : '回滚失败')
+    }
   }
 
   if (!isFdeAppSpec(spec)) {
@@ -101,8 +108,10 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
           })}
         </div>
         <div className="flex flex-wrap gap-2">
-          {app.status === 'draft' && (
-            <button type="button" className="btn-brand h-7" onClick={() => void activate()}>采纳并激活</button>
+          {pendingMaterialize && (
+            <button type="button" className="btn-brand h-7" onClick={() => void activate()}>
+              {app.status === 'draft' ? '采纳并激活' : '激活本次修订'}
+            </button>
           )}
           {app.status === 'draft' && onRequestDelete && (
             <button type="button" className="btn h-7" onClick={onRequestDelete}>删除草稿</button>
