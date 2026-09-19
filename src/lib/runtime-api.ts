@@ -1627,7 +1627,7 @@ export class RuntimeApi {
   async getDeclarativeApp(appId: string, signal?: AbortSignal) {
     const result = await this.request<{ ok: boolean; data: import('@/lib/app-spec').FdeAppDetail }>(
       `/api/v1/apps/${encodeURIComponent(appId)}`,
-      { signal },
+      { signal, cache: 'no-store' },
     )
     return result.data
   }

@@ -260,7 +260,12 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
       {showBuilder && !daily && <SpecEditor app={app} onSaved={onChanged} />}
       {product ? (
         <div className="px-4 py-3">
-          <AppProductPage app={app} workspaceCwd={workspaceCwd} onRefresh={onChanged} />
+          <AppProductPage
+            key={`${app.id}-${app.currentRevision}-${app.spec.surface?.density || ''}-${app.spec.surface?.cards?.hero || ''}-${app.spec.surface?.cards?.columns || ''}`}
+            app={app}
+            workspaceCwd={workspaceCwd}
+            onRefresh={onChanged}
+          />
           {app.status === 'archived' && (
             <div className="text-xs text-ink-muted mt-2">已归档，只读。</div>
           )}

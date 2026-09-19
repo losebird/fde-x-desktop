@@ -463,14 +463,17 @@ function Overview({
       return
     }
     const cached = peekDataSurface(useApp.getState().activeWorkspaceId)?.details[id]
-    if (cached) setDeclarativeApp(cached)
+    const listRev = selected?.currentRevision
+    if (cached && (listRev == null || cached.currentRevision === listRev)) {
+      setDeclarativeApp(cached)
+    }
     const cwd = loadCurrentWorkspaceCwd()
     if (cwd.ok) setWorkspaceCwd(cwd.cwd)
     void runtimeApi.getDeclarativeApp(id).then((detail) => {
       setDeclarativeApp(detail)
       rememberAppDetail(useApp.getState().activeWorkspaceId, detail)
     }).catch(() => {
-      if (!cached) setDeclarativeApp(null)
+      if (!cached || (listRev != null && cached.currentRevision !== listRev)) setDeclarativeApp(null)
     })
   }, [workspaceAppId, selected?.id, selected?.currentRevision, selected?.definition])
 
@@ -524,6 +527,7 @@ function Overview({
         <Card className="!p-0 overflow-hidden">
           {declarativeApp && workspaceCwd && declarativeApp.id === workspaceAppId ? (
             <AppRuntime
+              key={`${declarativeApp.id}-${declarativeApp.currentRevision}-${declarativeApp.spec.surface?.density || ''}-${declarativeApp.spec.surface?.cards?.hero || ''}-${declarativeApp.spec.surface?.cards?.columns || ''}`}
               app={declarativeApp}
               workspaceCwd={workspaceCwd}
               variant="workspace"
@@ -661,6 +665,7 @@ function Overview({
             <div className="overflow-y-auto">
               {declarativeApp && workspaceCwd && isFdeAppSpec(selected.definition) && (
                 <AppRuntime
+                  key={`${declarativeApp.id}-${declarativeApp.currentRevision}-${declarativeApp.spec.surface?.density || ''}-${declarativeApp.spec.surface?.cards?.hero || ''}-${declarativeApp.spec.surface?.cards?.columns || ''}`}
                   app={declarativeApp}
                   workspaceCwd={workspaceCwd}
                   variant="dialog"
