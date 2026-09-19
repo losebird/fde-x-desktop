@@ -1,6 +1,15 @@
 import { useState } from 'react'
 import clsx from 'clsx'
-import { entityDef, fieldDef, type FdeAppSpec } from '@/lib/app-spec'
+import {
+  bizKindFromRef,
+  entityDef,
+  fieldDef,
+  fieldLooksLikeBizRef,
+  fieldLooksLikeFile,
+  specHasUse,
+  type FdeAppSpec,
+} from '@/lib/app-spec'
+import { lookupBizKind, openFilesAtPath, requestFilePick } from '@/lib/app-platform'
 import { RuntimeApiError, runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -114,9 +123,55 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
               disabled={readOnly}
               value={String(values[field.name] ?? '')}
               onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
+              onDragOver={(event) => {
+                if (specHasUse(app.spec, 'files') && fieldLooksLikeFile(field)) event.preventDefault()
+              }}
+              onDrop={(event) => {
+                if (!specHasUse(app.spec, 'files') || !fieldLooksLikeFile(field)) return
+                event.preventDefault()
+                const raw = event.dataTransfer.getData('application/x-fde-file') || event.dataTransfer.getData('text/plain')
+                let path = ''
+                try {
+                  const parsed = JSON.parse(raw.replace(/^fde-file:/, '')) as { path?: string }
+                  path = String(parsed.path || '')
+                } catch {
+                  path = raw.replace(/^file:\/\//i, '')
+                }
+                if (path) setValues((v) => ({ ...v, [field.name]: path }))
+              }}
             />
           )}
           {errors[field.name] && <div className="text-accent-red mt-0.5">{errors[field.name]}</div>}
+          {specHasUse(app.spec, 'files') && fieldLooksLikeFile(field) && !readOnly && (
+            <button
+              type="button"
+              className="btn h-7 mt-1"
+              data-app-file-pick={field.name}
+              onClick={() => {
+                openFilesAtPath(String(values[field.name] || ''))
+                void requestFilePick().then((path) => {
+                  if (path) setValues((v) => ({ ...v, [field.name]: path }))
+                })
+              }}
+            >
+              从文件模块引用
+            </button>
+          )}
+          {specHasUse(app.spec, 'biz') && fieldLooksLikeBizRef(field) && (
+            <button
+              type="button"
+              className="btn h-7 mt-1"
+              data-app-biz-lookup={field.name}
+              onClick={() => {
+                const kind = bizKindFromRef(field.ref)
+                void lookupBizKind(kind).then((text) => setNote(text)).catch((cause) => {
+                  setNote(cause instanceof Error ? cause.message : '现查失败')
+                })
+              }}
+            >
+              现查
+            </button>
+          )}
         </label>
       ))}
       </div>

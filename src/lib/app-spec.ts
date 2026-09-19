@@ -120,10 +120,39 @@ export function viewById(spec: FdeAppSpec, id: string | undefined, extraViews: F
 }
 
 const LINK_FIELD_RE = /url|link|href|src|media|file|path|video/i
+const PLATFORM_USES: FdePlatformUse[] = ['ai', 'files', 'float', 'memory', 'im', 'briefing', 'biz']
+
+export function declaredPlatformUses(spec: FdeAppSpec): FdePlatformUse[] {
+  const allowed = new Set(PLATFORM_USES)
+  const out: FdePlatformUse[] = []
+  for (const item of spec.uses ?? []) {
+    if (!allowed.has(item) || out.includes(item)) continue
+    out.push(item)
+  }
+  return out
+}
+
+export function specHasUse(spec: FdeAppSpec, use: FdePlatformUse): boolean {
+  return declaredPlatformUses(spec).includes(use)
+}
 
 export function fieldLooksLikeLink(field: FdeAppField): boolean {
   if (field.type !== 'text' && field.type !== 'longtext' && field.type !== 'ref') return false
   return LINK_FIELD_RE.test(field.name)
+}
+
+export function fieldLooksLikeFile(field: FdeAppField): boolean {
+  if (!fieldLooksLikeLink(field)) return false
+  return /file|path/i.test(field.name)
+}
+
+export function fieldLooksLikeBizRef(field: FdeAppField): boolean {
+  return field.type === 'ref' && typeof field.ref === 'string' && field.ref.startsWith('biz:')
+}
+
+export function bizKindFromRef(ref: string | undefined): string {
+  if (!ref || !ref.startsWith('biz:')) return ''
+  return ref.slice(4)
 }
 
 export function entityHasLinkOrFile(entity: FdeAppEntity | undefined): boolean {

@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { fieldLabel, SpecForm } from '@/components/apps/SpecForm'
 import { type FdeAppAction, type FdeAppSpec, type FdeAppView, visibleTableColumns } from '@/lib/app-spec'
 import { type AgentWriteBackPrompt, isAgentActionStep, runAppAgentJobs } from '@/lib/app-agent-action'
+import { isBizPreviewStep, startBizPreviews } from '@/lib/app-platform'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -22,6 +23,7 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
   const [selected, setSelected] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [note, setNote] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
   const [writeBackPrompt, setWriteBackPrompt] = useState<AgentWriteBackPrompt | null>(null)
   const [creating, setCreating] = useState(false)
@@ -104,6 +106,25 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
       await runAgentAction(action)
       return
     }
+    if (action.kind === 'biz') {
+      setActionBusy(true)
+      setError('')
+      setNote('')
+      try {
+        const res = await runtimeApi.runAppAction(app.spec.slug, action.name, workspaceCwd, selected)
+        if (!isBizPreviewStep(res.data)) {
+          setError('动作未返回预览')
+          return
+        }
+        setNote(await startBizPreviews(res.data.intents))
+        setSelected([])
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : '预览失败')
+      } finally {
+        setActionBusy(false)
+      }
+      return
+    }
     try {
       await runtimeApi.runAppAction(app.spec.slug, action.name, workspaceCwd, selected)
       setSelected([])
@@ -164,6 +185,7 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
         </div>
       )}
       {error && <div className="text-xs text-accent-red">{error}</div>}
+      {note && <div className="text-xs text-ink-muted" data-app-biz-preview="true">{note}</div>}
       {writeBackPrompt && (
         <div className="text-xs flex flex-wrap items-center gap-2">
           <span className="text-ink-muted">AI 建议（{fieldLabel(app.spec, view.entity, writeBackPrompt.field)}）：</span>

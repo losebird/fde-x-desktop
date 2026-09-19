@@ -3,6 +3,7 @@ import { fieldLabel } from '@/components/apps/SpecForm'
 import { SpecForm } from '@/components/apps/SpecForm'
 import { type FdeAppAction, type FdeAppSpec } from '@/lib/app-spec'
 import { type AgentWriteBackPrompt, isAgentActionStep, runAppAgentJobs } from '@/lib/app-agent-action'
+import { isBizPreviewStep, startBizPreviews } from '@/lib/app-platform'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -17,6 +18,7 @@ export function SpecDetail({ app, entity, rid, workspaceCwd, onEdit }: Props) {
   const [row, setRow] = useState<Record<string, unknown> | null>(null)
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState('')
+  const [note, setNote] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
   const [writeBackPrompt, setWriteBackPrompt] = useState<AgentWriteBackPrompt | null>(null)
   const writeBackResolveRef = useRef<((accepted: boolean) => void) | null>(null)
@@ -80,6 +82,24 @@ export function SpecDetail({ app, entity, rid, workspaceCwd, onEdit }: Props) {
       await runAgentAction(action)
       return
     }
+    if (action.kind === 'biz') {
+      setActionBusy(true)
+      setError('')
+      setNote('')
+      try {
+        const res = await runtimeApi.runAppAction(app.spec.slug, action.name, workspaceCwd, [rid])
+        if (!isBizPreviewStep(res.data)) {
+          setError('动作未返回预览')
+          return
+        }
+        setNote(await startBizPreviews(res.data.intents))
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : '预览失败')
+      } finally {
+        setActionBusy(false)
+      }
+      return
+    }
     setError('')
     try {
       await runtimeApi.runAppAction(app.spec.slug, action.name, workspaceCwd, [rid])
@@ -115,6 +135,7 @@ export function SpecDetail({ app, entity, rid, workspaceCwd, onEdit }: Props) {
         </div>
       ))}
       {error && <div className="text-xs text-accent-red">{error}</div>}
+      {note && <div className="text-xs text-ink-muted" data-app-biz-preview="true">{note}</div>}
       {writeBackPrompt && (
         <div className="text-xs flex flex-wrap items-center gap-2">
           <span className="text-ink-muted">AI 建议（{fieldLabel(app.spec, entity, writeBackPrompt.field)}）：</span>

@@ -109,7 +109,7 @@
 }
 ```
 
-`uses` 示例：要问数/起草 → `ai`；要并排用 → `float`；稿和导出 → `files`；记住动作 → `memory`；拟回 IM → `im`；早报源 → `briefing`；引用业务对象 → `biz`。
+`uses` 示例：要问数/起草 → `ai`；要并排用 → `float`；稿、附件、导出走文件模块 → `files`；记住动作只起草卡片、人点头才入档 → `memory`（并设 `memory.onWrite: "draft-card"`）；拟回 IM 放进输入框、人点发送 → `im`；早报/MCP 已有源 → `briefing`；引用业务对象 `ref:biz:<型>` 且写外部走预览确认 → `biz`。需求点名这些能力就必须写进 `uses`；没接到的不要写，前端不会画假按钮。
 
 ## 命名
 

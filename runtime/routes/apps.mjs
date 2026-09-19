@@ -65,6 +65,24 @@ function requireActiveApp(db, workspaceId, slug, workspaceCwd) {
   return app
 }
 
+function recordChangePayload(app, extra) {
+  const spec = app?.spec && typeof app.spec === 'object' ? app.spec : {}
+  const entityName = String(extra.entity || '')
+  const row = extra.row && typeof extra.row === 'object' ? extra.row : null
+  const ent = Array.isArray(spec.entities) ? spec.entities.find((item) => item && item.name === entityName) : null
+  const titleField = ent && typeof ent.titleField === 'string' ? ent.titleField : ''
+  const title = row && titleField && row[titleField] ? String(row[titleField]) : String(spec.name || extra.title || '')
+  return {
+    slug: spec.slug,
+    memoryOnWrite: spec.memory && spec.memory.onWrite,
+    memory: spec.memory,
+    title,
+    summary: extra.summary || title,
+    ...extra,
+    row: undefined,
+  }
+}
+
 function recordAppOperation(db, {
   workspaceId,
   appId,
@@ -352,7 +370,11 @@ export async function handleAppsRoutes(request, response, url, deps) {
         workspaceCwd,
         correlationId,
       })
-      emit('app.record.changed', { slug, entity: action.entity, rids }, { workspaceCwd })
+      emit('app.record.changed', recordChangePayload(app, {
+        entity: action.entity,
+        rids,
+        op: 'set',
+      }), { workspaceCwd })
       sendJson(response, 200, { ok: true, data: applied, correlationId })
       return true
     }
@@ -404,7 +426,12 @@ export async function handleAppsRoutes(request, response, url, deps) {
         plan: { row },
         correlationId,
       })
-      emit('app.record.changed', { slug, entity, rid: row.id }, { workspaceCwd })
+      emit('app.record.changed', recordChangePayload(app, {
+        entity,
+        rid: row.id,
+        op: 'insert',
+        row,
+      }), { workspaceCwd })
       sendJson(response, 201, { ok: true, data: row, correlationId })
     } catch (error) {
       if (error?.code === 'validation_error') {
@@ -488,7 +515,12 @@ export async function handleAppsRoutes(request, response, url, deps) {
           plan: { diff: body },
           correlationId,
         })
-        emit('app.record.changed', { slug, entity, rid }, { workspaceCwd })
+        emit('app.record.changed', recordChangePayload(app, {
+          entity,
+          rid,
+          op: 'update',
+          row,
+        }), { workspaceCwd })
         sendJson(response, 200, { ok: true, data: row, correlationId })
       } catch (error) {
         if (error?.code === 'validation_error') {
@@ -515,7 +547,11 @@ export async function handleAppsRoutes(request, response, url, deps) {
         plan: {},
         correlationId,
       })
-      emit('app.record.changed', { slug, entity, rid }, { workspaceCwd })
+      emit('app.record.changed', recordChangePayload(app, {
+        entity,
+        rid,
+        op: 'delete',
+      }), { workspaceCwd })
       sendJson(response, 200, { ok: true, correlationId })
       return true
     }

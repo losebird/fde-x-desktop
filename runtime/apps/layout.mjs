@@ -203,6 +203,10 @@ export function withProductLayout(spec) {
   } else {
     next.uses = [...new Set(next.uses.map(String).filter((item) => PLATFORM_USES.includes(item)))]
   }
+  if (next.uses.includes('memory')) {
+    const memory = next.memory && typeof next.memory === 'object' ? next.memory : {}
+    next.memory = { ...memory, onWrite: 'draft-card' }
+  }
   const entities = Array.isArray(next.entities) ? next.entities.filter((entity) => entity && typeof entity.name === 'string') : []
   if (Array.isArray(next.pages) && next.pages.length > 0) {
     for (const entity of entities) {

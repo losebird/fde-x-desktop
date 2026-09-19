@@ -81,3 +81,28 @@ test('semantic failure does not throw', async () => {
   })
   assert.equal(result.ok, false)
 })
+
+test('app.record.changed drafts when memoryOnWrite is draft-card', async () => {
+  const path = '/tmp/fde-x-memory-writer-app.sqlite'
+  await rm(path, { force: true }).catch(() => undefined)
+  const db = openDatabase(path, join(repoRoot, 'runtime/migrations'))
+  configureEventBus(db)
+  const calls = []
+  const aiRuntime = makeRuntime(calls)
+  startMemoryWriter({ db, aiRuntime })
+  emit('app.record.changed', {
+    slug: 'item-log',
+    entity: 'item',
+    rid: 'r_an',
+    op: 'insert',
+    memoryOnWrite: 'draft-card',
+    title: '一条',
+    summary: '正文',
+  }, { workspaceCwd: '/tmp/ws-app-memory' })
+  await new Promise((r) => setTimeout(r, 80))
+  const draft = calls.find((c) => c.op === 'draft_memory_card')
+  assert.ok(draft)
+  assert.equal(draft.args.refs[0], 'app:item-log:item:r_an')
+  db.close()
+  await rm(path, { force: true }).catch(() => undefined)
+})

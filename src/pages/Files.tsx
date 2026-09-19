@@ -12,6 +12,7 @@ import type { FileNode, FileVersion } from '@/lib/types'
 import { PageTitle, Card, Tag, Empty } from '@/components/ui'
 import { runtimeApi } from '@/lib/runtime-api'
 import { loadCurrentAiTarget } from '@/lib/ai-target'
+import { consumeFilePick } from '@/lib/app-platform'
 
 function kindFromName(name: string): FileNode['kind'] {
   const lower = name.toLowerCase()
@@ -829,7 +830,14 @@ export default function Files() {
                     >
                       <button
                         className="flex items-center gap-2 min-w-0 text-left"
-                        onClick={() => f.kind === 'folder' ? setParentId(f.id) : setSelectedId(f.id)}
+                        onClick={() => {
+                          if (f.kind === 'folder') {
+                            setParentId(f.id)
+                            return
+                          }
+                          setSelectedId(f.id)
+                          consumeFilePick(f.id)
+                        }}
                       >
                         <I size={16} className={clsx('shrink-0', f.kind === 'folder' ? 'text-accent-amber' : 'text-ink-muted')} />
                         <span className="truncate text-sm">{f.name}</span>

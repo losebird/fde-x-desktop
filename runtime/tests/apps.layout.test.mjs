@@ -189,4 +189,19 @@ describe('product layout', () => {
     const r = validateAppSpec(spec)
     assert.equal(r.ok, false)
   })
+
+  test('declared memory drafts cards on write', () => {
+    const spec = { ...SUPPLIER_VISITS_SPEC, uses: ['memory'] }
+    const laid = withProductLayout(spec)
+    assert.deepEqual(laid.uses, ['memory'])
+    assert.equal(laid.memory?.onWrite, 'draft-card')
+    assert.equal(JSON.stringify(laid.uses).includes('im'), false)
+  })
+
+  test('keeps declared im briefing biz without inventing extras', () => {
+    const spec = { ...SUPPLIER_VISITS_SPEC, uses: ['im', 'briefing', 'biz'] }
+    const laid = withProductLayout(spec)
+    assert.deepEqual(laid.uses, ['im', 'briefing', 'biz'])
+    assert.equal(laid.uses.includes('files'), false)
+  })
 })

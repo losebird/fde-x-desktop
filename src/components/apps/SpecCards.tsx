@@ -7,11 +7,12 @@ import {
   displayTitle,
   entityDef,
   fieldDef,
+  specHasUse,
   type FdeAppSpec,
   type FdeAppView,
 } from '@/lib/app-spec'
+import { openFilesAtPath } from '@/lib/app-platform'
 import { runtimeApi } from '@/lib/runtime-api'
-import { useApp } from '@/store/app'
 
 type Props = {
   app: { spec: FdeAppSpec; status: string }
@@ -56,9 +57,6 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
   const groupBy = cardGroupField(app.spec, view)
   const groupField = groupBy ? fieldDef(app.spec, view.entity, groupBy) : undefined
   const groupOptions = groupField?.options ?? []
-  const filesBrowse = useApp((state) => state.setFilesBrowse)
-  const setActiveFile = useApp((state) => state.setActiveFile)
-  const openFiles = useApp((state) => state.togglePanel)
 
   const load = useCallback(async () => {
     if (previewRows) {
@@ -146,18 +144,12 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
                             <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />
                           </a>
                         )}
-                        {action?.kind === 'file' && (
+                        {action?.kind === 'file' && specHasUse(app.spec, 'files') && (
                           <button
                             type="button"
                             className={actionChipClass}
                             data-app-card-action="file"
-                            onClick={() => {
-                              const href = action.href.replace(/^file:\/\//i, '')
-                              const parent = href.includes('/') ? href.split('/').slice(0, -1).join('/') || '.' : '.'
-                              filesBrowse({ selectedId: href, parentId: parent })
-                              setActiveFile(href)
-                              openFiles('files', 'full')
-                            }}
+                            onClick={() => openFilesAtPath(action.href)}
                           >
                             打开
                             <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />
