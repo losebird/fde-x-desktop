@@ -185,12 +185,22 @@ function kindMentions(text, kinds, extra) {
       }
     }
   }
+  const candidateKinds = new Set(candidates.map((row) => row.kind))
+  const neighborScore = (kind) => {
+    if (!extra || !extra.vocab) return 0
+    return graphNeighbors(kind, extra).filter((other) => other !== kind && candidateKinds.has(other)).length
+  }
   candidates.sort((a, b) => {
     const byToken = b.token.length - a.token.length
     if (byToken !== 0) return byToken
+    const byGraph = neighborScore(b.kind) - neighborScore(a.kind)
+    if (byGraph !== 0) return byGraph
     const aLeft = isLeftoverShortKind(a.kind, labels) ? 1 : 0
     const bLeft = isLeftoverShortKind(b.kind, labels) ? 1 : 0
     if (aLeft !== bLeft) return aLeft - bLeft
+    const aExact = a.token === a.kind ? 0 : 1
+    const bExact = b.token === b.kind ? 0 : 1
+    if (aExact !== bExact) return aExact - bExact
     return b.kind.length - a.kind.length
   })
   const taken = new Array(speech.length).fill(false)

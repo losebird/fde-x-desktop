@@ -16,6 +16,27 @@ test('kindMentions does not count a shorter kind inside a longer kind', () => {
   assert.deepEqual(hits.map((row) => row.kind), ['ParentA', 'MidB', 'ChildC'])
 })
 
+test('kindMentions keeps an exact spoken kind over a longer suffix kind when the exact kind is graph-related', () => {
+  const vocab = [
+    { kind: 'Customer', resource: 'customers', can: ['现查'] },
+    {
+      kind: 'Ticket',
+      resource: 'tickets',
+      can: ['现查'],
+      relations: [{ from: 'Customer', to: 'Ticket', field: 'customer' }],
+    },
+    { kind: 'AlphaTicket', resource: 'alpha_tickets', can: ['现查'] },
+  ]
+  const speech = 'inactive Customer 还有哪些 open Ticket？'
+  const hits = kindMentions(speech, vocab.map((row) => row.kind), { vocab })
+  assert.ok(hits.some((row) => row.kind === 'Ticket'))
+  assert.ok(!hits.some((row) => row.kind === 'AlphaTicket'))
+  const { related } = relatedMentionedKinds(speech, vocab)
+  assert.ok(related.includes('Customer'))
+  assert.ok(related.includes('Ticket'))
+  assert.equal(related.includes('AlphaTicket'), false)
+})
+
 const vocab = [
   {
     kind: '客户',
