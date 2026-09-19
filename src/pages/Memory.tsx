@@ -124,8 +124,14 @@ export default function Memory() {
   const [ingest, setIngest] = useState<Record<string, unknown> | null>(null)
   const [toast, setToast] = useState('')
   const hostRef = useRef<HTMLDivElement>(null)
+  const cwdRef = useRef(cwd)
 
-  useEffect(() => { setPane('home'); setDrawer('') }, [cwd])
+  useEffect(() => {
+    if (cwdRef.current === cwd) return
+    cwdRef.current = cwd
+    setMemoryBrowse({ pane: 'home' })
+    setDrawer('')
+  }, [cwd, setMemoryBrowse])
 
   useEffect(() => {
     const onMsg = (event: MessageEvent) => {
