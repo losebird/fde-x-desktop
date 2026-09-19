@@ -109,7 +109,6 @@ async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId:
         agentPreset: opts.preset,
       })
       const sessionId = created.sessionId
-      useApp.getState().setActiveAiSessionId(sessionId)
       if (opts.title) {
         await runtimeApi.renameAiSession(sessionId, opts.title).catch(() => undefined)
       }
@@ -157,6 +156,7 @@ export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult
 
   try {
     await runtimeApi.promptAi(target.sessionId, { text: prompt })
+    useApp.getState().setActiveAiSessionId(target.sessionId)
   } catch (cause) {
     return { ok: false, error: cause instanceof Error ? cause.message : '发送 prompt 失败', sessionId: target.sessionId }
   }

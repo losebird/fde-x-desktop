@@ -1693,7 +1693,31 @@ const server = createServer(async (request, response) => {
 
     const aiPromptMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/prompt$/)
     if (request.method === 'POST' && aiPromptMatch) {
-      sendError(response, 409, 'session_owned_by_ui', '会话写锁由工作台 DSH 页占用，请在 DSH 输入框发消息', currentCorrelationId)
+      const body = await readJson(request)
+      const text = typeof body.text === 'string' ? body.text.trim() : ''
+      if (!text) {
+        sendError(response, 400, 'validation_error', 'prompt 不能为空', currentCorrelationId)
+        return
+      }
+      const mode = body.mode === 'steer' ? 'steer' : 'queue'
+      const requestId = typeof body.requestId === 'string' && body.requestId.trim()
+        ? body.requestId.trim()
+        : currentCorrelationId
+      const receiptIds = Array.isArray(body.receiptIds)
+        ? body.receiptIds.filter((id) => typeof id === 'string' && id)
+        : []
+      await aiRuntime.call('session/prompt', {
+        agentId: decodeURIComponent(aiPromptMatch[1]),
+        request: {
+          text,
+          mode,
+          ...(receiptIds.length ? { receiptIds } : {}),
+          ...(typeof body.clientTimeZone === 'string' && body.clientTimeZone
+            ? { clientTimeZone: body.clientTimeZone }
+            : {}),
+        },
+      })
+      sendJson(response, 200, { data: { accepted: true, requestId }, correlationId: currentCorrelationId })
       return
     }
     const aiPresetMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/preset$/)
