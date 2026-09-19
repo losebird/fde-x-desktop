@@ -151,7 +151,8 @@ export function putAppSpec(db, appId, input) {
     if (breaking.length) return { kind: 'breaking', errors: breaking }
   }
   if (app.spec?._workspaceCwd) spec._workspaceCwd = app.spec._workspaceCwd
-  const nextRevision = app.currentRevision + 1
+  const maxRow = db.prepare('SELECT MAX(revision) AS maxRev FROM business_app_revisions WHERE app_id = ?').get(appId)
+  const nextRevision = Math.max(Number(app.currentRevision) || 0, Number(maxRow?.maxRev) || 0) + 1
   const now = isoNow()
   const revisionId = createId('apprev')
   db.exec('BEGIN IMMEDIATE;')

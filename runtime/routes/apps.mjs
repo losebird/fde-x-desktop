@@ -576,7 +576,12 @@ export function handleAppsBridge(sub, body, db, workspaceCwd) {
     }
     const appId = typeof body.appId === 'string' ? body.appId.trim() : ''
     if (appId) {
-      const result = putAppSpec(db, appId, { spec, changeNote: 'builder 修订' })
+      let result
+      try {
+        result = putAppSpec(db, appId, { spec, changeNote: 'builder 修订' })
+      } catch (error) {
+        return { ok: false, errors: [{ path: 'spec', message: error instanceof Error ? error.message : '修订失败' }] }
+      }
       if (result.kind === 'not_found') {
         return { ok: false, errors: [{ path: 'appId', message: '应用不存在' }] }
       }

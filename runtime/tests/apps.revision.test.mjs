@@ -104,4 +104,32 @@ describe('apps revision add-field and rollback', () => {
     assert.equal(kinds.includes('cards'), false)
     db.close()
   })
+
+  test('putAppSpec after rollback allocates MAX(revision)+1 not current+1', () => {
+    const db = dbNew()
+    const spec = specWith({ name: '回滚后再改', slug: 'rev-after-rollback' })
+    const created = createAppDraft(db, {
+      workspaceId: 'ws_personal',
+      workspaceCwd: CWD,
+      spec,
+    })
+    assert.equal(created.ok, true)
+    const current = getAppById(db, created.data.appId)
+    const next = JSON.parse(JSON.stringify(current.spec))
+    next.surface = { density: 'packed', cards: { hero: 'below' } }
+    const put2 = putAppSpec(db, created.data.appId, { spec: next, changeNote: '铺法' })
+    assert.equal(put2.kind, 'ok')
+    assert.equal(put2.data.revision, 2)
+    const rolled = rollbackApp(db, created.data.appId, 1)
+    assert.equal(rolled.revision, 1)
+    const restored = getAppById(db, created.data.appId)
+    assert.equal(restored.currentRevision, 1)
+    const put3 = putAppSpec(db, created.data.appId, { spec: next, changeNote: '再铺' })
+    assert.equal(put3.kind, 'ok')
+    assert.equal(put3.data.revision, 3)
+    const after = getAppById(db, created.data.appId)
+    assert.equal(after.currentRevision, 3)
+    assert.equal(after.spec.surface.density, 'packed')
+    db.close()
+  })
 })
