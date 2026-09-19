@@ -8,6 +8,7 @@ import { PanelContent } from './PanelContent'
 
 let __panelStartX = 0
 let __panelStartW = 0
+let __dragging = false
 
 function iframeDragShield(on: boolean) {
   if (on) document.body.setAttribute('data-floating-drag', '1')
@@ -34,10 +35,12 @@ export function StagePanel({ item, overlay }: { item?: SidePanelItem; overlay?: 
   useEffect(() => {
     if (!dragging || !panelId) return
     const onMove = (event: PointerEvent) => {
+      if (!__dragging) return
       const next = __panelStartW + (__panelStartX - event.clientX)
       setPanelWidth(panelId, Math.max(360, Math.min(panelMaxWidth(overlayMode), next)))
     }
     const onUp = () => {
+      __dragging = false
       iframeDragShield(false)
       setDragging(false)
     }
@@ -80,17 +83,20 @@ export function StagePanel({ item, overlay }: { item?: SidePanelItem; overlay?: 
     e.currentTarget.setPointerCapture(e.pointerId)
     __panelStartX = e.clientX
     __panelStartW = item.width
+    __dragging = true
     iframeDragShield(true)
     setDragging(true)
   }
 
   const onDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!__dragging) return
     const next = __panelStartW + (__panelStartX - e.clientX)
     setPanelWidth(item.id, Math.max(360, Math.min(maxW, next)))
   }
 
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+    __dragging = false
     iframeDragShield(false)
     setDragging(false)
   }
