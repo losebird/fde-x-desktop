@@ -43,6 +43,7 @@ import {
   listQueryFingerprint,
   listSnapshotCacheKey,
   operationBundlesAlign,
+  operationKindHitSheets,
   sheetRowsFingerprint,
 } from '@/lib/biz-list-query'
 import {
@@ -329,55 +330,38 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
   }, [listSheetMeta])
 
   const surfacedKindChips = useMemo(() => {
-    const anchor = operationAnchor
-    const byKind = new Map<string, { kind: string; label: string; count: number; latestAt: number }>()
-    const add = (k: string, count: number, at: number) => {
+    const pendingSheet = peekBizPendingSheet()
+    const anchor = (
+      pendingSheet && operationAnchor && operationBundlesAlign(pendingSheet, operationAnchor)
+        ? pendingSheet
+        : (operationAnchor || pendingSheet)
+    )
+    const byKind = new Map<string, { kind: string; label: string; count: number }>()
+    const add = (k: string, count: number) => {
       if (!k) return
-      const prev = byKind.get(k)
-      const nextCount = count > 0 ? count : (prev?.count ?? 0)
-      if (!prev || at >= prev.latestAt) {
-        byKind.set(k, { kind: k, label: kindLabel(k), count: nextCount, latestAt: at })
-      } else if (count > 0) {
-        byKind.set(k, { ...prev, count })
-      }
+      byKind.set(k, { kind: k, label: kindLabel(k), count })
     }
 
     if (!anchor) {
-      if (kind) add(kind, rows.length, Date.now())
+      if (kind) add(kind, rows.length)
       return [...byKind.values()]
     }
 
-    const pool: Record<string, unknown>[] = [anchor]
-    const pushIfSameOperation = (sheet: Record<string, unknown> | undefined) => {
-      if (!sheet || typeof sheet !== 'object') return
-      if (operationBundlesAlign(anchor, sheet)) pool.push(sheet)
-    }
-    if (bizCwd) {
-      for (const snap of listBizKindListSnapshots(bizCwd)) pushIfSameOperation(snap.sheet)
-    }
-    for (const snap of sheetSnapshots.current.values()) pushIfSameOperation(snap?.sheet)
-
-    const allowedKinds = new Set<string>()
-    for (const hint of extractBoundKindHints(anchor)) allowedKinds.add(hint)
-    if (!allowedKinds.size) {
+    const allowedKinds = extractBoundKindHints(anchor)
+    if (!allowedKinds.length) {
       const only = String(anchor.kind || kind || '').trim()
-      if (only) allowedKinds.add(only)
+      if (only) allowedKinds.push(only)
     }
-    for (const bound of allowedKinds) add(bound, 0, 0)
-
-    for (const sheet of pool) {
-      const k = String(sheet.kind || '').trim()
-      if (!k || !allowedKinds.has(k)) continue
-      const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
-      add(k, rowCount, Date.now())
+    const hits = operationKindHitSheets(anchor)
+    for (const bound of allowedKinds) {
+      const hit = hits.find((sheet) => String(sheet.kind || '') === bound)
+      const count = hit && Array.isArray(hit.rows)
+        ? hit.rows.length
+        : (bound === kind ? rows.length : 0)
+      add(bound, count)
     }
-
-    if (kind && allowedKinds.has(kind)) {
-      add(kind, rows.length, Date.now())
-    }
-
-    return [...byKind.values()].sort((a, b) => b.latestAt - a.latestAt)
-  }, [bizCwd, kind, kindLabel, operationAnchor, rows.length])
+    return allowedKinds.map((k) => byKind.get(k)).filter(Boolean) as Array<{ kind: string; label: string; count: number }>
+  }, [kind, kindLabel, operationAnchor, rows.length])
 
   const sessionKey = String(pending?.sessionId || activeAiSessionId || historySessionIdRef.current || '').trim()
   if (sessionKey) historySessionIdRef.current = sessionKey
@@ -669,6 +653,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     connName: string,
     surfaceId?: string,
     surfacedAt?: number,
+    keepPending = false,
   ) => {
     const nextFp = sheetRowsFingerprint(sheet)
     const sameSheet = nextFp && nextFp === appliedSheetFpRef.current
@@ -694,7 +679,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     setStaleHint('')
     setListSheetMeta(appliedSheet)
     rememberSheet({ sheet: appliedSheet, connName, surfaceId: historyIdForSheet(appliedSheet, surfaceId, listQueryFingerprint(appliedSheet)) || surfaceId })
-    if (!isWritePreviewSheet(appliedSheet)) {
+    if (!keepPending && !isWritePreviewSheet(appliedSheet)) {
       rememberBizPendingSheet(appliedSheet)
     }
     const historyId = historyIdForSheet(appliedSheet, surfaceId, listQueryFingerprint(appliedSheet))
@@ -703,16 +688,18 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       ? sheet.sessionId.trim()
       : (historySessionIdRef.current || undefined)
     if (nextSessionId) historySessionIdRef.current = nextSessionId
-    setPending({
-      kind: String(sheet.kind || ''),
-      action: String(sheet.action || ''),
-      previewId: sheetPreviewId(sheet) || undefined,
-      rows: normalizedRows.length,
-      canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
-      source: 'ai',
-      sessionId: nextSessionId,
-      at: typeof surfacedAt === 'number' ? surfacedAt : Date.now(),
-    })
+    if (!keepPending) {
+      setPending({
+        kind: String(sheet.kind || ''),
+        action: String(sheet.action || ''),
+        previewId: sheetPreviewId(sheet) || undefined,
+        rows: normalizedRows.length,
+        canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+        source: 'ai',
+        sessionId: nextSessionId,
+        at: typeof surfacedAt === 'number' ? surfacedAt : Date.now(),
+      })
+    }
   }, [rememberSheet])
 
   const probeLanAssist = useCallback(async () => {
@@ -1117,6 +1104,30 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     setSelectedRowKey('')
     historyPinnedSurfaceIdRef.current = ''
     const pendingSheet = peekBizPendingSheet()
+    const anchor = pendingSheet || listSheetMeta
+    const boundKinds = extractBoundKindHints(anchor)
+    const hitSheets = operationKindHitSheets(anchor)
+    const hit = hitSheets.find((sheet) => String(sheet.kind || '') === nextKind)
+    if (hit) {
+      const sideView = Boolean(pendingSheet && String(pendingSheet.kind || '') !== nextKind)
+      if (
+        !sideView
+        && pendingSheet
+        && String(pendingSheet.kind || '') === nextKind
+        && operationBundlesAlign(pendingSheet, listSheetMeta || pendingSheet)
+      ) {
+        applyPendingSheet(pendingSheet)
+        return
+      }
+      applySheet(hit, '连接器', undefined, undefined, sideView)
+      return
+    }
+    if (boundKinds.includes(nextKind)) {
+      setRows([])
+      setColumns([])
+      setStaleHint('还没有该型的行快照；请在 AI 会话里操作该业务后回到此页。')
+      return
+    }
     if (
       pendingSheet
       && String(pendingSheet.kind || '') === nextKind
@@ -1125,7 +1136,6 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       applyPendingSheet(pendingSheet)
       return
     }
-    const anchor = peekBizPendingSheet() || listSheetMeta
     if (bizCwd) {
       const scoped = peekBizKindListSheetForOperation(bizCwd, nextKind, anchor)
       if (scoped) {
@@ -1178,7 +1188,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       setColumns([])
       setStaleHint('还没有该型的行快照；请在 AI 会话里操作该业务后回到此页。')
     }
-  }, [applySheet, bizCwd, listSheetMeta, loadSurface, surfaces])
+  }, [applySheet, applyPendingSheet, bizCwd, listSheetMeta, loadSurface, surfaces])
 
   const tableRows = rows
 

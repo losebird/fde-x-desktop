@@ -84,7 +84,9 @@ test('RecordsPanel separates connector picker from operation kind chips and canc
   assert.doesNotMatch(src, /const dismissPreviewDrawer = useCallback\(\(\) => \{[\s\S]*?restoreRecordsList\(\)/)
   assert.doesNotMatch(src, /runtimeApi\.bizPreview\(\{[\s\S]{0,500}action: '现查'/)
   assert.match(src, /extractBoundKindHints/)
+  assert.match(src, /operationKindHitSheets/)
   assert.match(src, /operationBundlesAlign\(anchor, sheet\)/)
+  assert.match(src, /keepPending/)
 })
 
 test('query-fingerprint history ids are stable without sqlite surface id', async () => {
@@ -186,12 +188,12 @@ test('matchSurfaceIdForSheet no longer impersonates kind+action[0]', () => {
 })
 
 test('this-operation kinds come from from/steps; catalog of the same kind does not align', async () => {
-  const { extractBoundKindHints, operationBundlesAlign } = await import('../../src/lib/biz-list-query.ts')
+  const { extractBoundKindHints, operationBundlesAlign, operationKindHitSheets } = await import('../../src/lib/biz-list-query.ts')
   const floated = {
     kind: 'ChildB',
     action: '现查',
     speech: 'pending ChildB ∩ expired ParentA',
-    from: { kind: 'ParentA' },
+    from: { kind: 'ParentA', rows: [{ no: 'PA-HIT' }] },
     hopWhere: [{ keys: ['status'], values: ['pending'] }],
     steps: [{ kind: 'ParentA' }, { kind: 'ChildB' }],
     rows: [{ no: 'CB-HIT' }],
@@ -199,6 +201,13 @@ test('this-operation kinds come from from/steps; catalog of the same kind does n
   const hints = extractBoundKindHints(floated)
   assert.ok(hints.includes('ChildB'))
   assert.ok(hints.includes('ParentA'))
+  const hits = operationKindHitSheets(floated)
+  const parentHit = hits.find((row) => row.kind === 'ParentA')
+  const childHit = hits.find((row) => row.kind === 'ChildB')
+  assert.equal(parentHit?.rows.length, 1)
+  assert.equal(parentHit?.rows[0].no, 'PA-HIT')
+  assert.equal(childHit?.rows.length, 1)
+  assert.equal(childHit?.rows[0].no, 'CB-HIT')
   const sibling = {
     kind: 'ParentA',
     action: '现查',
@@ -213,4 +222,5 @@ test('this-operation kinds come from from/steps; catalog of the same kind does n
   }
   assert.equal(operationBundlesAlign(floated, sibling), true)
   assert.equal(operationBundlesAlign(floated, catalog), false)
+  assert.equal(hits.some((row) => Array.isArray(row.rows) && row.rows.length === 20), false)
 })

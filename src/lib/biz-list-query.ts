@@ -62,6 +62,50 @@ export function extractBoundKindHints(sheet: Record<string, unknown> | null | un
   return [...kinds]
 }
 
+/** This operation's hit sheet per bound kind (from/steps rows), not a catalog dump. */
+export function operationKindHitSheets(sheet: Record<string, unknown> | null | undefined): Record<string, unknown>[] {
+  if (!sheet || typeof sheet !== 'object') return []
+  const out: Record<string, unknown>[] = []
+  const seen = new Set<string>()
+  const push = (kind: string, rows: unknown, columns: unknown) => {
+    const name = String(kind || '').trim()
+    if (!name || seen.has(name)) return
+    seen.add(name)
+    const same = name === String(sheet.kind || '').trim()
+    out.push({
+      ...sheet,
+      kind: name,
+      rows: Array.isArray(rows) ? rows : [],
+      columns: Array.isArray(columns) ? columns : [],
+      action: same ? sheet.action : '现查',
+      preview_id: same ? sheet.preview_id : undefined,
+      previewId: same ? sheet.previewId : undefined,
+      canWrite: same ? sheet.canWrite : false,
+    })
+  }
+  push(String(sheet.kind || ''), sheet.rows, sheet.columns)
+  const walk = (raw: unknown, depth = 0) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 8) return
+    const row = raw as Record<string, unknown>
+    if (Object.prototype.hasOwnProperty.call(row, 'rows')) {
+      push(String(row.kind || ''), row.rows, row.columns)
+    }
+    walk(row.from, depth + 1)
+  }
+  walk(sheet.from)
+  walk(sheet.related)
+  if (Array.isArray(sheet.steps)) {
+    for (const step of sheet.steps) {
+      if (!step || typeof step !== 'object' || Array.isArray(step)) continue
+      const row = step as Record<string, unknown>
+      if (Object.prototype.hasOwnProperty.call(row, 'rows')) {
+        push(String(row.kind || ''), row.rows, row.columns)
+      }
+    }
+  }
+  return out
+}
+
 function stableFromSlice(raw: unknown, depth = 0): unknown {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 8) return null
   const row = raw as Record<string, unknown>

@@ -80,6 +80,7 @@ function gate() {
 
 function hopMeta(result) {
   const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
+  const fromRows = sheet && sheet.from && Array.isArray(sheet.from.rows) ? sheet.from.rows : []
   return {
     ok: result && result.ok !== false,
     error: result && result.error,
@@ -87,6 +88,8 @@ function hopMeta(result) {
     rows: Array.isArray(sheet && sheet.rows) ? sheet.rows.length : 0,
     first: Array.isArray(sheet && sheet.rows) && sheet.rows[0] ? String(sheet.rows[0].no || '') : '',
     fromKind: sheet && sheet.from && sheet.from.kind,
+    fromRows: fromRows.length,
+    fromFirst: fromRows[0] ? String(fromRows[0].no || '') : '',
     hopWhere: Array.isArray(sheet && sheet.hopWhere) && sheet.hopWhere.length > 0,
     steps: Array.isArray(sheet && sheet.steps) ? sheet.steps.map((row) => row.kind) : [],
     ambiguous: Boolean(result && result.ambiguous),
@@ -109,6 +112,9 @@ test('write actions hop the relation-chain intersection instead of dumping paren
     assert.equal(out.rows, 1, action)
     assert.equal(out.first, 'CB-HIT', action)
     assert.equal(out.fromKind, 'ParentA', action)
+    assert.equal(out.fromRows, 1, action)
+    assert.equal(out.fromFirst, 'PA-3', action)
+    assert.ok(out.fromRows < parentRows.length, action)
     assert.equal(out.hopWhere, true, action)
     assert.deepEqual(out.steps, ['ParentA', 'ChildB'], action)
     assert.equal(out.ambiguous, false, action)
@@ -141,6 +147,9 @@ test('现查 on the same speech still returns the intersection row', async () =>
   assert.equal(out.rows, 1)
   assert.equal(out.first, 'CB-HIT')
   assert.equal(out.fromKind, 'ParentA')
+  assert.equal(out.fromRows, 1)
+  assert.equal(out.fromFirst, 'PA-3')
+  assert.ok(out.fromRows < parentRows.length)
   assert.equal(out.hopWhere, true)
 })
 
@@ -174,5 +183,7 @@ test('write uniqueness is on the intersection, not the parent half-table', async
   assert.notEqual(out.kind, 'ParentA')
   assert.ok(out.rows < parentRows.length)
   assert.equal(out.fromKind, 'ParentA')
+  assert.ok(out.fromRows >= 1)
+  assert.ok(out.fromRows < parentRows.length)
   assert.equal(out.hopWhere, true)
 })

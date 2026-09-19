@@ -309,6 +309,74 @@ export function stampParentLabels(fromKind, parents, children, toKind, extra) {
   })
 }
 
+/** Parents that still participate in this hop's surviving children — not the step's unfiltered list. */
+export function keepParentsForChildren(parents, children, fromKind, toKind, extra) {
+  const childIds = new Set()
+  for (const child of Array.isArray(children) ? children : []) {
+    const fields = child && child.fields && typeof child.fields === 'object' ? child.fields : {}
+    const id = relatedChildId(fromKind, toKind, fields, extra)
+      || relatedHopId(fromKind, toKind, fields, extra)
+    if (id) childIds.add(String(id))
+  }
+  if (!childIds.size) return []
+  return (Array.isArray(parents) ? parents : []).filter((parent) => {
+    const id = relatedHopId(fromKind, toKind, parent && parent.fields, extra)
+    return id && childIds.has(String(id))
+  })
+}
+
+function pruneHopHits(hitsByKind, steps, extra) {
+  const chain = (Array.isArray(steps) ? steps : []).filter((step) => step && step.kind)
+  for (let i = chain.length - 1; i >= 1; i -= 1) {
+    const childKind = String(chain[i].kind || '').trim()
+    const parentKind = String(chain[i - 1].kind || '').trim()
+    if (!childKind || !parentKind) continue
+    hitsByKind.set(
+      parentKind,
+      keepParentsForChildren(hitsByKind.get(parentKind), hitsByKind.get(childKind), parentKind, childKind, extra),
+    )
+  }
+}
+
+async function decorateFromHits(fromNode, hitsByKind, extra = {}) {
+  if (!fromNode || typeof fromNode !== 'object') return fromNode
+  const kind = String(fromNode.kind || '').trim()
+  const matches = (hitsByKind && typeof hitsByKind.get === 'function' && kind)
+    ? (hitsByKind.get(kind) || [])
+    : []
+  let schemaFields = Array.isArray(extra.schemaFields) ? extra.schemaFields : []
+  if (typeof extra.fieldsOf === 'function' && kind) {
+    try {
+      const loaded = await extra.fieldsOf(kind, extra.vocab)
+      if (Array.isArray(loaded) && loaded.length) schemaFields = loaded
+    } catch { /* keep empty schema; rows still pack */ }
+  }
+  const packed = packSheet({
+    kind,
+    action: '现查',
+    matches: Array.isArray(matches) ? matches : [],
+    schemaFields,
+    vocab: extra.vocab,
+  })
+  const nested = fromNode.from && typeof fromNode.from === 'object' && !Array.isArray(fromNode.from)
+    ? await decorateFromHits(fromNode.from, hitsByKind, extra)
+    : undefined
+  return {
+    ...fromNode,
+    rows: packed.rows,
+    columns: packed.columns,
+    ...(nested ? { from: nested } : {}),
+  }
+}
+
+function hopSheetHasKindHits(result) {
+  const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
+  if (!sheet || typeof sheet !== 'object') return false
+  const from = sheet.from
+  if (!from || typeof from !== 'object' || Array.isArray(from)) return true
+  return Array.isArray(from.rows)
+}
+
 async function withSheet(result, extra = {}) {
   let schemaFields = extra.schemaFields
   const sheetKind = String((result && result.kind) || extra.kind || '').trim()
@@ -727,6 +795,8 @@ export function createGate(opts = {}) {
       let matches = parentMatches
       let found = parentFound
       let prevKind = start.kind
+      const hitsByKind = new Map()
+      hitsByKind.set(start.kind, parentMatches)
       for (let i = 1; i < plan.steps.length; i += 1) {
         const step = plan.steps[i]
         const hopKind = String(step && step.kind || '').trim()
@@ -757,14 +827,16 @@ export function createGate(opts = {}) {
         }
         matches = stampParentLabels(prevKind, matches, nextRows, hopKind, extra)
         found = hopped
+        hitsByKind.set(hopKind, nextRows)
+        pruneHopHits(hitsByKind, plan.steps.slice(0, i + 1), extra)
         prevKind = hopKind
       }
-      return finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, target.kind)
+      return finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, target.kind, hitsByKind, extra)
     }
     return finishStructured(recognized, parentMatches, parentFound, writePatch, plan, spec, loaded, schemaFields, recognized.kind)
   }
 
-  async function finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, kind) {
+  async function finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, kind, hitsByKind, hopExtra) {
     const sheetKind = kind || recognized.kind
     const rowCap = previewRowCap(plan.structured)
     const rows = (Array.isArray(matches) ? matches : []).slice(0, rowCap)
@@ -772,9 +844,26 @@ export function createGate(opts = {}) {
       ...found, matches: rows, listed: rows.length > 1, ambiguous: rows.length > 1,
     })
     async function sheet(result, more = {}) {
-      const fromSlot = nestFromSteps(plan.steps)
+      const hopFrom = plan.steps && plan.steps.length > 1
+        ? String(plan.steps[0].kind || '').trim()
+        : ''
+      const hopFromWhere = hopFrom && plan.steps[0].where && plan.steps[0].where.length
+        ? plan.steps[0].where
+        : undefined
+      const rawFrom = (more && more.from)
+        || nestFromSteps(plan.steps)
+        || (hopFrom ? { kind: hopFrom, ...(hopFromWhere ? { where: hopFromWhere } : {}) } : undefined)
+      const fromSlot = rawFrom
+        ? await decorateFromHits(rawFrom, hitsByKind, {
+          vocab: loaded.vocab,
+          fieldsOf: opts.fieldsOf,
+          collections: hopExtra && hopExtra.collections,
+        })
+        : undefined
       const stepsMeta = planStepsForSheet(plan)
       const hopMeta = sheetWhereFromPlan(plan, spec)
+      const restMore = { ...more }
+      delete restMore.from
       return withSheet(result, {
         vocab: loaded.vocab,
         schemaFields,
@@ -782,20 +871,11 @@ export function createGate(opts = {}) {
         ...(fromSlot ? { from: fromSlot } : {}),
         ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
         ...(hopMeta.hopWhere ? { hopWhere: hopMeta.hopWhere } : {}),
-        ...more,
+        ...restMore,
       })
     }
     if (recognized.action === '现查') {
       const { where: listWhere, hopWhere } = sheetWhereFromPlan(plan, spec)
-      const hopFrom = plan.steps && plan.steps.length > 1
-        ? String(plan.steps[0].kind || '').trim()
-        : ''
-      const hopFromWhere = hopFrom && plan.steps[0].where && plan.steps[0].where.length
-        ? plan.steps[0].where
-        : undefined
-      const fromSlot = nestFromSteps(plan.steps) || (hopFrom
-        ? { kind: hopFrom, ...(hopFromWhere ? { where: hopFromWhere } : {}) }
-        : undefined)
       const stepsMeta = planStepsForSheet(plan)
       return await sheet({
         ok: true, kind: sheetKind, no: rows.length === 1 ? rows[0].no : '',
@@ -808,7 +888,6 @@ export function createGate(opts = {}) {
         speech: plan.speech,
         where: listWhere,
         hopWhere,
-        ...(fromSlot ? { from: fromSlot } : {}),
         ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
       })
     }
@@ -963,7 +1042,7 @@ export function createGate(opts = {}) {
     )
     if (plan.action === '现查' && sessionId && hopSpeech) {
       const cached = hopXianchaCache.get(hopXianchaCacheKey(sessionId, workspaceKey, hopSpeech))
-      if (cached) return cached
+      if (cached && hopSheetHasKindHits(cached)) return cached
     }
     const result = await previewStructured(plan, enriched, loaded)
     if (
