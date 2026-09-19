@@ -73,16 +73,21 @@ export function SpecChart({ app, view, workspaceCwd, previewRows, reloadToken }:
   return (
     <div className="border border-line rounded-xl p-3 space-y-2 bg-surface min-w-0 shadow-card" data-app-chart="true">
       <div className="text-sm font-semibold text-ink">{view.label || '构成'}</div>
-      <div className="flex flex-col items-center gap-2">
-        <svg viewBox="0 0 36 36" className="w-[6.5rem] h-[6.5rem] shrink-0 text-ink" role="img" aria-label={view.label || '图'}>
+      <div className="flex items-start gap-3">
+        <svg viewBox="0 0 36 36" className="w-[7rem] h-[7rem] shrink-0 text-ink" role="img" aria-label={view.label || '图'}>
           {slices.map((slice) => {
+            const span = slice.end - slice.start
+            if (span <= 0.001) return null
+            if (span >= 0.999) {
+              return <circle key={slice.key} cx="18" cy="18" r="14" className={slice.colorClass} fill="currentColor" />
+            }
             const a0 = slice.start * 2 * Math.PI - Math.PI / 2
             const a1 = slice.end * 2 * Math.PI - Math.PI / 2
             const x0 = 18 + 14 * Math.cos(a0)
             const y0 = 18 + 14 * Math.sin(a0)
             const x1 = 18 + 14 * Math.cos(a1)
             const y1 = 18 + 14 * Math.sin(a1)
-            const large = slice.end - slice.start > 0.5 ? 1 : 0
+            const large = span > 0.5 ? 1 : 0
             return (
               <path
                 key={slice.key}
@@ -104,7 +109,7 @@ export function SpecChart({ app, view, workspaceCwd, previewRows, reloadToken }:
             {totalLabel}
           </text>
         </svg>
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 w-full" data-app-chart-legend="true">
+        <div className="flex-1 min-w-0 flex flex-wrap content-start gap-x-3 gap-y-1 pt-1" data-app-chart-legend="true">
           {series.map((row) => {
             const pct = rawTotal > 0 ? (Math.max(0, row.value) / rawTotal) * 100 : 0
             return (

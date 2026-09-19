@@ -123,7 +123,7 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
             )}
             <div
               className="grid gap-2.5"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(10.75rem, 10.75rem))' }}
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(13.5rem, 13.5rem))' }}
             >
               {group.rows.map((row) => {
                 const title = displayTitle(app.spec, view.entity, row)
@@ -140,9 +140,9 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                     data-app-card-title={title || undefined}
                   >
                     <div
-                      className={`relative h-28 shrink-0 flex flex-col justify-end p-2.5 ${heroTone}`}
+                      className={`relative h-28 shrink-0 flex items-center justify-center p-3 ${heroTone}`}
                     >
-                      <h3 className="text-white text-[15px] font-semibold line-clamp-2">
+                      <h3 className="text-white text-[17px] font-semibold leading-snug line-clamp-2 text-center">
                         {title || '未命名'}
                       </h3>
                     </div>

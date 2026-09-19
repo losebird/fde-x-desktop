@@ -74,7 +74,7 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
         {renderBlocks(visibleWorkSurfaceBlocks(page)).map((group, index) => (
           <div
             key={`${page.id}-g-${index}`}
-            className={group.pair ? 'grid grid-cols-1 @xl:grid-cols-2 gap-2 items-start' : undefined}
+            className={group.pair ? 'grid grid-cols-2 gap-2 items-stretch' : undefined}
             data-app-compose-chart={group.pair ? 'true' : undefined}
           >
             {group.blocks.map((block, blockIndex) => (
@@ -89,7 +89,7 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
                 statViews={block.kind === 'stats' ? block.views.map((id) => viewById(app.spec, id, extraViews)).filter((row): row is FdeAppView => Boolean(row)) : []}
                 kind={block.kind}
                 capabilityUses={
-                  block.kind === 'compose' || block.kind === 'form' || block.kind === 'cards'
+                  block.kind === 'compose' || block.kind === 'form'
                     ? actionUses
                     : []
                 }
