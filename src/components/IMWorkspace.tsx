@@ -477,6 +477,8 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
 
   const setActiveThread = useApp((s) => s.setActiveThread)
   const activeThreadId = useApp((s) => s.activeThreadId)
+  const imBrowse = useApp((s) => s.imBrowse)
+  const setImBrowse = useApp((s) => s.setImBrowse)
   const [wsFiles, setWsFiles] = useState<FileNode[]>([])
   const [filesNote, setFilesNote] = useState('')
 
@@ -769,7 +771,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     index?: number
   } | null>(null)
   const [sending, setSending] = useState(false)
-  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null)
   const [topicDraft, setTopicDraft] = useState('')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; message: IMMessage } | null>(null)
   const [forwardMessage, setForwardMessage] = useState<IMMessage | null>(null)
@@ -790,6 +791,10 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const people = filtered.filter((c) => c.kind === 'contact')
   const groups = filtered.filter((c) => c.kind === 'topic-group')
   const activeContact = contacts.find((c) => c.id === activeThreadId) ?? contacts[0]
+  const selectedTopicId = imBrowse.threadId === activeContact?.id ? imBrowse.topicId : null
+  const setSelectedTopicId = (id: string | null) => {
+    setImBrowse({ threadId: activeContact?.id ?? null, topicId: id })
+  }
   openContactRef.current = activeContact
   useEffect(() => {
     void pullThread(activeContact)
@@ -807,10 +812,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const unreadFor = (id: string) => messages.filter((m) => m.threadId === id && !m.read && !markedReadRef.current.has(m.id) && m.authorId !== selfId && m.authorId !== 'u_self').length
   const latestKey = `${activeContact?.id || ''}:${selectedTopicId || ''}:${activeMsgs.at(-1)?.id || ''}:${activeMsgs.length}`
 
-  useEffect(() => {
-    if (!activeContact) return
-    setSelectedTopicId(null)
-  }, [activeContact?.id, activeContact?.kind])
   useEffect(() => {
     if (!activeContact) return
     const unread = messages.filter((m) => m.threadId === activeContact.id && !m.read && !markedReadRef.current.has(m.id))
@@ -1217,6 +1218,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
 
   const selectContact = (id: string) => {
     setActiveThread(id)
+    setImBrowse({ threadId: id, topicId: null })
   }
 
   const attachFile = (file: FileNode) => {
@@ -1438,7 +1440,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-white">
+    <div className="h-full min-h-0 flex flex-col bg-white" data-im-thread={activeContact?.id || ''} data-im-topic={selectedTopicId || ''}>
       {!pairAsk && pairWait && (
         <div className="shrink-0 px-4 py-2.5 bg-surface-2 border-b border-line text-sm text-ink-muted">
           已向 {pairWait} 发出配对，等对面在 IM 里点确定。

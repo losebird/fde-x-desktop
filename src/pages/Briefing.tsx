@@ -2,7 +2,7 @@
 import {
   Circle, Clock, Sparkles, ArrowUpRight, MessageSquare, Calendar, ListTodo, FileText, Settings2, Loader2,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import {
@@ -66,12 +66,20 @@ function buildImComposeBody(briefing: BriefingSnapshot | null, sections: Briefin
 export default function Briefing() {
   const nav = useNavigate()
   const ws = useApp((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
+  const settingsOpen = useApp((s) => s.briefingBrowse.settingsOpen)
+  const setBriefingBrowse = useApp((s) => s.setBriefingBrowse)
+  const setSettingsOpen = (open: boolean) => setBriefingBrowse({ settingsOpen: open })
   const [aiNote, setAiNote] = useState('')
   const [definition, setDefinition] = useState<BriefingDefinition | null>(null)
   const [briefing, setBriefing] = useState<BriefingSnapshot | null>(null)
   const [running, setRunning] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [imPeerId, setImPeerId] = useState('')
+  const wsRef = useRef(ws?.id)
+  useEffect(() => {
+    if (wsRef.current === ws?.id) return
+    wsRef.current = ws?.id
+    setBriefingBrowse({ settingsOpen: false })
+  }, [ws?.id, setBriefingBrowse])
 
   const refresh = useCallback((onOpen = true) => {
     void runtimeApi.getLatestBriefing(onOpen).then((data) => {
@@ -141,7 +149,7 @@ export default function Briefing() {
   const eventsSection = resultSections.find((s) => s.type === 'events')
 
   return (
-    <div>
+    <div data-briefing-settings={settingsOpen ? 'open' : undefined}>
       <PageTitle
         title={`早上好 · ${ws?.emoji ?? '🧭'}  ${ws?.name ?? '工作台'}`}
         subtitle={dateLabel}

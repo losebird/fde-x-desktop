@@ -128,8 +128,12 @@ interface UIState {
   setFilesBrowse: (patch: Partial<AppState['filesBrowse']>) => void
   dataBrowse: { workspaceAppId: string | null }
   setDataBrowse: (patch: Partial<AppState['dataBrowse']>) => void
-  memoryBrowse: { pane: string }
+  memoryBrowse: { pane: string; drawer: string }
   setMemoryBrowse: (patch: Partial<AppState['memoryBrowse']>) => void
+  briefingBrowse: { settingsOpen: boolean }
+  setBriefingBrowse: (patch: Partial<AppState['briefingBrowse']>) => void
+  imBrowse: { threadId: string | null; topicId: string | null }
+  setImBrowse: (patch: Partial<AppState['imBrowse']>) => void
 
   // 当前激活(IM 联系人)
   activeThreadId: ID | null
@@ -576,9 +580,15 @@ export const useApp = create<AppState>()(
       dataBrowse: { workspaceAppId: null },
       setDataBrowse: (patch) =>
         set((s) => ({ dataBrowse: { ...s.dataBrowse, ...patch } })),
-      memoryBrowse: { pane: 'home' },
+      memoryBrowse: { pane: 'home', drawer: '' },
       setMemoryBrowse: (patch) =>
         set((s) => ({ memoryBrowse: { ...s.memoryBrowse, ...patch } })),
+      briefingBrowse: { settingsOpen: false },
+      setBriefingBrowse: (patch) =>
+        set((s) => ({ briefingBrowse: { ...s.briefingBrowse, ...patch } })),
+      imBrowse: { threadId: null, topicId: null },
+      setImBrowse: (patch) =>
+        set((s) => ({ imBrowse: { ...s.imBrowse, ...patch } })),
 
       activeThreadId: 'im1',
       setActiveThread: (id) => set({ activeThreadId: id }),

@@ -112,14 +112,16 @@ export default function Memory() {
     nav('/settings')
   }
   const storedPane = useApp((s) => s.memoryBrowse.pane)
+  const storedDrawer = useApp((s) => s.memoryBrowse.drawer)
   const setMemoryBrowse = useApp((s) => s.setMemoryBrowse)
   const pane: 'home' | CanvasId = (storedPane === 'home' || isCanvasId(storedPane)) ? storedPane : 'home'
+  const drawer: DrawerId | '' = isDrawerId(storedDrawer) ? storedDrawer : ''
   const setPane = (next: 'home' | CanvasId) => setMemoryBrowse({ pane: next })
+  const setDrawer = (next: DrawerId | '') => setMemoryBrowse({ drawer: next })
   const [ready, setReady] = useState<Record<string, unknown> | null>(null)
   const [cover, setCover] = useState<Array<{ id?: string; n?: number }>>([])
   const [note, setNote] = useState('')
   const [canvasError, setCanvasError] = useState('')
-  const [drawer, setDrawer] = useState<DrawerId | ''>('')
   const [reload, setReload] = useState(0)
   const [ingest, setIngest] = useState<Record<string, unknown> | null>(null)
   const [toast, setToast] = useState('')
@@ -129,8 +131,7 @@ export default function Memory() {
   useEffect(() => {
     if (cwdRef.current === cwd) return
     cwdRef.current = cwd
-    setMemoryBrowse({ pane: 'home' })
-    setDrawer('')
+    setMemoryBrowse({ pane: 'home', drawer: '' })
   }, [cwd, setMemoryBrowse])
 
   useEffect(() => {
@@ -416,7 +417,7 @@ export default function Memory() {
   )
 
   return (
-    <div className="relative h-full min-h-0 min-w-0 flex flex-col dsos-root" data-dsos-semantic="" data-cwd={cwd || undefined}>
+    <div className="relative h-full min-h-0 min-w-0 flex flex-col dsos-root" data-dsos-semantic="" data-cwd={cwd || undefined} data-memory-pane={pane}>
       {pane === 'home' ? home : canvas}
       {drawer && cwd && (
         <aside className="absolute inset-y-0 right-0 w-full max-w-md bg-surface border-l border-line shadow-lg z-10 flex flex-col min-h-0">

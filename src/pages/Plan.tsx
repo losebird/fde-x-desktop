@@ -73,7 +73,7 @@ export default function Plan() {
         title="计划"
         subtitle="待办 + 日程 + 自动化工作流 —— 一次性动作、有时间锚点的事、重复触发的规则。"
         actions={
-          <div className="flex border border-line rounded overflow-hidden">
+          <div className="flex border border-line rounded overflow-hidden" data-plan-tab={active}>
             {[
               { k: 'todo', label: '待办', icon: Circle },
               { k: 'schedule', label: '日程', icon: CalIcon },
