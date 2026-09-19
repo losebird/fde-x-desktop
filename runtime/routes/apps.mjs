@@ -21,9 +21,11 @@ import {
   activateApp,
   archiveApp,
   createAppDraft,
+  discardDraftApp,
   findActiveAppBySlug,
   getAppById,
   listApps,
+  purgeApp,
   putAppSpec,
   rollbackApp,
 } from '../apps/repository.mjs'
@@ -190,6 +192,19 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendJson(response, 200, { ok: true, data: app, correlationId })
       return true
     }
+    if (request.method === 'DELETE') {
+      const result = discardDraftApp(db, appId, { correlationId })
+      if (result.kind === 'not_found') {
+        sendError(response, 404, 'not_found', '应用不存在', correlationId)
+        return true
+      }
+      if (result.kind === 'not_draft') {
+        sendError(response, 409, 'not_draft', '运行中的应用请确认后归档，或勾选连数据一起删', correlationId)
+        return true
+      }
+      sendJson(response, 200, { ok: true, correlationId })
+      return true
+    }
   }
 
   const specMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/spec$/)
@@ -244,6 +259,21 @@ export async function handleAppsRoutes(request, response, url, deps) {
       return true
     }
     sendJson(response, 200, { ok: true, correlationId })
+    return true
+  }
+
+  const purgeMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/purge$/)
+  if (request.method === 'POST' && purgeMatch) {
+    const result = purgeApp(db, decodeURIComponent(purgeMatch[1]), { correlationId })
+    if (result.kind === 'not_found') {
+      sendError(response, 404, 'not_found', '应用不存在', correlationId)
+      return true
+    }
+    if (result.kind === 'use_discard') {
+      sendError(response, 409, 'use_discard', '草稿请直接删除，不要走硬删', correlationId)
+      return true
+    }
+    sendJson(response, 200, { ok: true, data: result.data, correlationId })
     return true
   }
 

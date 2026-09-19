@@ -1,6 +1,8 @@
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { applyMaterialize } from './materialize.mjs'
-import { detectBreakingSpecChange, validateAppSpec } from './spec.mjs'
+import { detectBreakingSpecChange, quoteTable, tableNameForEntity, validateAppSpec } from './spec.mjs'
+
+const APP_TABLE_RE = /^app_[a-z][a-z0-9-]{1,30}__[a-z][a-z0-9_]{0,30}$/
 
 const isoNow = () => new Date().toISOString()
 
@@ -243,6 +245,74 @@ export function archiveApp(db, appId) {
     UPDATE business_apps SET status = 'archived', updated_at = ? WHERE id = ?
   `).run(now, appId)
   return result.changes > 0
+}
+
+function dropAppEntityTables(db, spec) {
+  const dropped = []
+  const entities = Array.isArray(spec?.entities) ? spec.entities : []
+  for (const ent of entities) {
+    const table = tableNameForEntity(String(spec.slug || ''), String(ent?.name || ''))
+    if (!APP_TABLE_RE.test(table)) continue
+    db.exec(`DROP TABLE IF EXISTS ${quoteTable(table)}`)
+    dropped.push(table)
+  }
+  return dropped
+}
+
+function deleteAppMetadata(db, appId) {
+  db.prepare('DELETE FROM business_app_revisions WHERE app_id = ?').run(appId)
+  db.prepare('DELETE FROM business_apps WHERE id = ?').run(appId)
+}
+
+export function discardDraftApp(db, appId, hooks = {}) {
+  const app = getAppById(db, appId)
+  if (!app) return { kind: 'not_found' }
+  if (app.status !== 'draft') return { kind: 'not_draft' }
+  const correlationId = hooks.correlationId ?? createId('corr')
+  db.exec('BEGIN IMMEDIATE;')
+  try {
+    deleteAppMetadata(db, appId)
+    appendAudit(db, {
+      workspaceId: app.workspaceId,
+      actorId: hooks.actorId ?? 'actor_local_user',
+      action: 'app.spec.discard',
+      targetRef: `fde://workstation/app/${appId}`,
+      outcome: 'succeeded',
+      correlationId,
+      details: { name: app.name, status: 'draft' },
+    })
+    db.exec('COMMIT;')
+  } catch (error) {
+    db.exec('ROLLBACK;')
+    throw error
+  }
+  return { kind: 'ok' }
+}
+
+export function purgeApp(db, appId, hooks = {}) {
+  const app = getAppById(db, appId)
+  if (!app) return { kind: 'not_found' }
+  if (app.status === 'draft') return { kind: 'use_discard' }
+  const correlationId = hooks.correlationId ?? createId('corr')
+  db.exec('BEGIN IMMEDIATE;')
+  try {
+    const dropped = dropAppEntityTables(db, app.spec)
+    deleteAppMetadata(db, appId)
+    appendAudit(db, {
+      workspaceId: app.workspaceId,
+      actorId: hooks.actorId ?? 'actor_local_user',
+      action: 'app.purge',
+      targetRef: `fde://workstation/app/${appId}`,
+      outcome: 'succeeded',
+      correlationId,
+      details: { name: app.name, dropped },
+    })
+    db.exec('COMMIT;')
+    return { kind: 'ok', data: { dropped } }
+  } catch (error) {
+    db.exec('ROLLBACK;')
+    throw error
+  }
 }
 
 export function rollbackApp(db, appId, revision) {

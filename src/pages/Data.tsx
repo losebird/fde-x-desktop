@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  Activity, AppWindow, ArrowRight, Bot, Check, ChevronDown, ChevronRight,
+  Activity, AppWindow, ArrowRight, Bot, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleAlert, Database, ExternalLink, FileClock, Loader2, Play, Plus,
-  RefreshCw, Search, ShieldCheck, Table2, Workflow,
+  RefreshCw, Search, ShieldCheck, Table2, Trash2, Workflow, X,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useApp } from '@/store/app'
@@ -324,6 +324,10 @@ function AppDraftEditor({
   )
 }
 
+function catalogApps(apps: BusinessAppRecord[]) {
+  return apps.filter((app) => app.status !== 'archived')
+}
+
 function Overview({
   apps, connections, operations, pendingApproval, unresolved, workspaceId, onCreated, onOpenRecords, onOpenOperations,
 }: {
@@ -338,10 +342,15 @@ function Overview({
   onOpenOperations: () => void
 }) {
   const [showCreate, setShowCreate] = useState(false)
-  const [selectedId, setSelectedId] = useState('')
+  const [dialogAppId, setDialogAppId] = useState('')
+  const [workspaceAppId, setWorkspaceAppId] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<BusinessAppRecord | null>(null)
   const [declarativeApp, setDeclarativeApp] = useState<FdeAppDetail | null>(null)
   const [workspaceCwd, setWorkspaceCwd] = useState('')
-  const selected = apps.find((app) => app.id === selectedId) || null
+  const visibleApps = catalogApps(apps)
+  const openAppId = workspaceAppId || dialogAppId
+  const selected = apps.find((app) => app.id === openAppId) || null
+  const workspaceApp = visibleApps.find((app) => app.id === workspaceAppId) || null
 
   useEffect(() => {
     if (!selected || !isFdeAppSpec(selected.definition)) {
@@ -353,21 +362,83 @@ function Overview({
     void runtimeApi.getDeclarativeApp(selected.id).then(setDeclarativeApp).catch(() => setDeclarativeApp(null))
   }, [selected?.id, selected?.currentRevision, selected?.definition])
 
+  const openApp = (app: BusinessAppRecord) => {
+    if (app.status === 'active' && isFdeAppSpec(app.definition)) {
+      setDialogAppId('')
+      setWorkspaceAppId(app.id)
+      return
+    }
+    setWorkspaceAppId('')
+    setDialogAppId(app.id)
+  }
+
+  const afterRuntimeChange = async (appId: string) => {
+    await onCreated()
+    const detail = await runtimeApi.getDeclarativeApp(appId).catch(() => null)
+    setDeclarativeApp(detail)
+    if (detail?.status === 'active' && dialogAppId === appId) {
+      setDialogAppId('')
+      setWorkspaceAppId(appId)
+    }
+  }
+
+  if (workspaceAppId && workspaceApp) {
+    return (
+      <div className="space-y-3" data-app-workspace="true">
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn h-8" onClick={() => setWorkspaceAppId('')}>
+            <ChevronLeft size={14} /> 返回列表
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium truncate">{workspaceApp.name}</div>
+            <div className="text-xs text-ink-muted mt-0.5">独立工作面 · 可从业务应用面板标题栏撕出浮窗并排</div>
+          </div>
+          <Tag kind="green">运行中</Tag>
+        </div>
+        <Card className="!p-0 overflow-hidden">
+          {declarativeApp && workspaceCwd && declarativeApp.id === workspaceAppId ? (
+            <AppRuntime
+              app={declarativeApp}
+              workspaceCwd={workspaceCwd}
+              variant="workspace"
+              onChanged={() => { void afterRuntimeChange(workspaceAppId) }}
+              onRequestDelete={() => setDeleteTarget(workspaceApp)}
+            />
+          ) : (
+            <div className="px-4 py-8 text-sm text-ink-muted">正在打开工作面…</div>
+          )}
+        </Card>
+        {deleteTarget && (
+          <AppDeleteConfirm
+            app={deleteTarget}
+            onCancel={() => setDeleteTarget(null)}
+            onDone={async () => {
+              setDeleteTarget(null)
+              setWorkspaceAppId('')
+              setDialogAppId('')
+              await onCreated()
+            }}
+          />
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 @3xl:grid-cols-4 gap-3">
-        <Metric icon={AppWindow} label="业务应用" value={apps.length} hint={`${apps.filter((item) => item.appKind === 'generated').length} 个由 AI 创建`} />
+        <Metric icon={AppWindow} label="业务应用" value={visibleApps.length} hint={`${visibleApps.filter((item) => item.appKind === 'generated').length} 个由 AI 创建`} />
         <Metric icon={Database} label="系统连接" value={connections.length} hint={`${connections.filter((item) => item.status === 'connected').length} 个已接通`} />
         <Metric icon={FileClock} label="待审批" value={pendingApproval} hint="写入不会绕过确认" tone={pendingApproval ? 'amber' : 'default'} />
         <Metric icon={Activity} label="异常待处理" value={unresolved} hint={`${operations.length} 次操作留有记录`} tone={unresolved ? 'red' : 'default'} />
       </div>
 
       <div className="grid grid-cols-1 @3xl:grid-cols-[1.12fr_.88fr] gap-4">
-        <Card className="!p-0 overflow-hidden">
+        <Card className="!p-0 overflow-hidden" data-app-catalog="true">
           <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-medium">我的业务应用</div>
-              <div className="text-xs text-ink-muted mt-0.5">应用定义、版本和权限归工作台管理</div>
+              <div className="text-xs text-ink-muted mt-0.5">列表只是目录。草稿在对话框里预览和采纳，运行中的应用打开独立工作面。</div>
             </div>
             <button type="button" className="btn-primary !py-1" onClick={() => setShowCreate((value) => !value)}><Plus size={12} /> AI 创建应用</button>
           </div>
@@ -376,45 +447,43 @@ function Overview({
               workspaceId={workspaceId}
               onCreated={(appId) => {
                 void onCreated()
-                if (appId) setSelectedId(appId)
+                setShowCreate(false)
+                if (appId) {
+                  setWorkspaceAppId('')
+                  setDialogAppId(appId)
+                }
               }}
               onClose={() => setShowCreate(false)}
             />
           )}
           <div className="divide-y divide-line">
-            {apps.length === 0 ? (
+            {visibleApps.length === 0 ? (
               <div className="px-4 py-10 text-center text-sm text-ink-muted">还没有应用。先创建草稿，再为它选择数据源和权限。</div>
-            ) : apps.map((app) => (
-              <button key={app.id} type="button" onClick={() => setSelectedId(app.id)} className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-surface-2 transition-colors">
-                <div className="w-9 h-9 border border-line bg-surface-2 flex items-center justify-center text-brand shrink-0">
-                  {app.appKind === 'generated' ? <Bot size={16} /> : <AppWindow size={16} />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">{app.name}</div>
-                  <div className="text-xs text-ink-muted mt-0.5">修订 {app.currentRevision} · {isFdeAppSpec(app.definition) ? app.status : app.appKind === 'generated' ? '草稿' : '系统应用'} · {formatTime(app.updatedAt)}</div>
-                </div>
-                <Tag kind={app.status === 'active' ? 'green' : app.status === 'archived' ? 'default' : 'amber'}>
-                  {app.status === 'active' ? '运行中' : app.status === 'archived' ? '已归档' : '草稿'}
-                </Tag>
-                <ChevronRight size={14} className="text-ink-subtle" />
-              </button>
+            ) : visibleApps.map((app) => (
+              <div key={app.id} className="px-4 py-3 flex items-center gap-3 hover:bg-surface-2 transition-colors">
+                <button type="button" onClick={() => openApp(app)} className="min-w-0 flex-1 flex items-center gap-3 text-left">
+                  <div className="w-9 h-9 border border-line bg-surface-2 flex items-center justify-center text-brand shrink-0">
+                    {app.appKind === 'generated' ? <Bot size={16} /> : <AppWindow size={16} />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate">{app.name}</div>
+                    <div className="text-xs text-ink-muted mt-0.5">修订 {app.currentRevision} · {isFdeAppSpec(app.definition) ? app.status : app.appKind === 'generated' ? '草稿' : '系统应用'} · {formatTime(app.updatedAt)}</div>
+                  </div>
+                  <Tag kind={app.status === 'active' ? 'green' : 'amber'}>
+                    {app.status === 'active' ? '运行中' : '草稿'}
+                  </Tag>
+                  <ChevronRight size={14} className="text-ink-subtle" />
+                </button>
+                <button
+                  type="button"
+                  className="btn h-7 shrink-0"
+                  onClick={() => setDeleteTarget(app)}
+                >
+                  <Trash2 size={12} /> 删除
+                </button>
+              </div>
             ))}
           </div>
-          {selected && declarativeApp && workspaceCwd && (
-            <AppRuntime
-              app={declarativeApp}
-              workspaceCwd={workspaceCwd}
-              onChanged={() => { void onCreated(); void runtimeApi.getDeclarativeApp(selected.id).then(setDeclarativeApp) }}
-            />
-          )}
-          {selected && !isFdeAppSpec(selected.definition) && (
-            <AppDraftEditor
-              app={selected}
-              connections={connections}
-              onSaved={onCreated}
-              onOpenRecords={onOpenRecords}
-            />
-          )}
         </Card>
 
         <Card className="!p-0 overflow-hidden">
@@ -441,6 +510,122 @@ function Overview({
             <button type="button" className="btn justify-between" onClick={onOpenOperations}><span className="inline-flex items-center gap-1.5"><Workflow size={13} /> 操作记录</span><ArrowRight size={12} /></button>
           </div>
         </Card>
+      </div>
+
+      {dialogAppId && selected && (
+        <div className="fixed inset-0 z-[80] bg-ink/25 flex items-center justify-center p-4" data-app-open-dialog="true" onClick={() => setDialogAppId('')}>
+          <div className="w-full max-w-3xl max-h-[86vh] overflow-hidden bg-surface border border-line rounded-xl shadow-2xl flex flex-col" onClick={(event) => event.stopPropagation()}>
+            <div className="h-12 px-4 border-b border-line flex items-center justify-between shrink-0">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold truncate">{selected.name}</div>
+                <div className="text-[11px] text-ink-muted">草稿预览 · 采纳后进入工作面，不在列表页填表</div>
+              </div>
+              <button type="button" className="btn-ghost p-1.5" onClick={() => setDialogAppId('')} aria-label="关闭预览"><X size={15} /></button>
+            </div>
+            <div className="overflow-y-auto">
+              {declarativeApp && workspaceCwd && isFdeAppSpec(selected.definition) && (
+                <AppRuntime
+                  app={declarativeApp}
+                  workspaceCwd={workspaceCwd}
+                  variant="dialog"
+                  previewMode={declarativeApp.status !== 'active'}
+                  onChanged={() => { void afterRuntimeChange(selected.id) }}
+                  onRequestDelete={() => setDeleteTarget(selected)}
+                />
+              )}
+              {!isFdeAppSpec(selected.definition) && (
+                <AppDraftEditor
+                  app={selected}
+                  connections={connections}
+                  onSaved={onCreated}
+                  onOpenRecords={onOpenRecords}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <AppDeleteConfirm
+          app={deleteTarget}
+          onCancel={() => setDeleteTarget(null)}
+          onDone={async () => {
+            const id = deleteTarget.id
+            setDeleteTarget(null)
+            if (dialogAppId === id) setDialogAppId('')
+            if (workspaceAppId === id) setWorkspaceAppId('')
+            await onCreated()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function AppDeleteConfirm({
+  app, onCancel, onDone,
+}: {
+  app: BusinessAppRecord
+  onCancel: () => void
+  onDone: () => Promise<void>
+}) {
+  const [hardDelete, setHardDelete] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+  const active = app.status === 'active'
+
+  const confirm = async () => {
+    setBusy(true)
+    setNote('')
+    try {
+      if (!active) {
+        await runtimeApi.discardDeclarativeApp(app.id)
+      } else if (hardDelete) {
+        await runtimeApi.purgeDeclarativeApp(app.id)
+      } else {
+        await runtimeApi.archiveDeclarativeApp(app.id)
+      }
+      await onDone()
+    } catch (cause) {
+      setNote(formatError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[90] bg-ink/30 flex items-center justify-center p-4" data-app-delete-confirm="true" onClick={onCancel}>
+      <div className="w-full max-w-md bg-surface border border-line rounded-xl shadow-2xl p-4 space-y-3" onClick={(event) => event.stopPropagation()}>
+        <div className="text-sm font-medium">{active ? '删除运行中的应用' : '删除草稿'}</div>
+        {active ? (
+          <div className="text-xs text-ink-muted leading-relaxed">
+            再确认一次。默认只从列表拿掉（归档），台账表先留着。只有勾选「连数据一起删」才会硬删这张应用自己的表。
+          </div>
+        ) : (
+          <div className="text-xs text-ink-muted leading-relaxed">
+            确认后这条草稿从列表拿掉。同名草稿按各自一条删，不会当成同一个。
+          </div>
+        )}
+        {active && (
+          <label className="flex items-start gap-2 text-xs">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              data-app-hard-delete="true"
+              checked={hardDelete}
+              onChange={(event) => setHardDelete(event.target.checked)}
+            />
+            <span>连数据一起删（硬删表，不可恢复）</span>
+          </label>
+        )}
+        {note && <div className="text-xs text-accent-red">{note}</div>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn h-8" disabled={busy} onClick={onCancel}>取消</button>
+          <button type="button" className="btn-brand h-8" disabled={busy} onClick={() => void confirm()}>
+            {busy ? '处理中' : active && hardDelete ? '确认硬删' : '确认删除'}
+          </button>
+        </div>
       </div>
     </div>
   )

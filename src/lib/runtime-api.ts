@@ -1676,6 +1676,17 @@ export class RuntimeApi {
     return this.request<{ ok: boolean }>(`/api/v1/apps/${encodeURIComponent(appId)}/archive`, { method: 'POST', signal })
   }
 
+  async discardDeclarativeApp(appId: string, signal?: AbortSignal) {
+    return this.request<{ ok: boolean }>(`/api/v1/apps/${encodeURIComponent(appId)}`, { method: 'DELETE', signal })
+  }
+
+  async purgeDeclarativeApp(appId: string, signal?: AbortSignal) {
+    return this.request<{ ok: boolean; data?: { dropped?: string[] } }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}/purge`,
+      { method: 'POST', signal },
+    )
+  }
+
   async rollbackDeclarativeApp(appId: string, revision: number, signal?: AbortSignal) {
     return this.request<{ ok: boolean; data: { revision: number } }>(
       `/api/v1/apps/${encodeURIComponent(appId)}/rollback`,

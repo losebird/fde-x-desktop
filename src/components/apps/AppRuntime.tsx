@@ -12,7 +12,9 @@ type Props = {
   app: FdeAppDetail
   workspaceCwd: string
   previewMode?: boolean
+  variant?: 'dialog' | 'workspace'
   onChanged: () => void
+  onRequestDelete?: () => void
 }
 
 function mockRows(spec: FdeAppDetail['spec']): Record<string, unknown>[] {
@@ -34,7 +36,7 @@ function mockRows(spec: FdeAppDetail['spec']): Record<string, unknown>[] {
   })
 }
 
-export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, onChanged }: Props) {
+export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, variant, onChanged, onRequestDelete }: Props) {
   const spec = app.spec
   const views = spec.views
   const [viewId, setViewId] = useState(views[0]?.id || views[0]?.type || '0')
@@ -60,6 +62,10 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, onCha
   }
 
   const archive = async () => {
+    if (onRequestDelete) {
+      onRequestDelete()
+      return
+    }
     await runtimeApi.archiveDeclarativeApp(app.id)
     onChanged()
   }
@@ -74,7 +80,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, onCha
   }
 
   return (
-    <div className="border-t border-line">
+    <div className={variant === 'dialog' || variant === 'workspace' ? '' : 'border-t border-line'}>
       <div className="px-4 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2">
         <div className="flex items-center rounded border border-line bg-surface p-0.5">
           {views.map((view) => {
@@ -98,23 +104,28 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, onCha
           {app.status === 'draft' && (
             <button type="button" className="btn-brand h-7" onClick={() => void activate()}>采纳并激活</button>
           )}
+          {app.status === 'draft' && onRequestDelete && (
+            <button type="button" className="btn h-7" onClick={onRequestDelete}>删除草稿</button>
+          )}
           <button type="button" className="btn h-7" onClick={() => setShowEditor((v) => !v)}>编辑 spec</button>
-          <select
-            className="input h-7 text-xs"
-            defaultValue=""
-            onChange={(e) => {
-              const rev = Number(e.target.value)
-              if (rev > 0) void rollback(rev)
-              e.target.value = ''
-            }}
-          >
-            <option value="">版本回滚…</option>
-            {app.revisions?.map((r) => (
-              <option key={r.revision} value={r.revision}>修订 {r.revision}</option>
-            ))}
-          </select>
+          {variant !== 'dialog' && (
+            <select
+              className="input h-7 text-xs"
+              defaultValue=""
+              onChange={(e) => {
+                const rev = Number(e.target.value)
+                if (rev > 0) void rollback(rev)
+                e.target.value = ''
+              }}
+            >
+              <option value="">版本回滚…</option>
+              {app.revisions?.map((r) => (
+                <option key={r.revision} value={r.revision}>修订 {r.revision}</option>
+              ))}
+            </select>
+          )}
           {app.status === 'active' && (
-            <button type="button" className="btn h-7" onClick={() => void archive()}>归档</button>
+            <button type="button" className="btn h-7" onClick={() => void archive()}>删除</button>
           )}
         </div>
       </div>
