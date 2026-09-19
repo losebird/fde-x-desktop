@@ -1053,6 +1053,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     }
     setHistorySurfaceId(surface.id)
     historyPinnedSurfaceIdRef.current = surface.id
+    operationKindViewRef.current = surface.kind || ''
     setDrawer(null)
     commitListRestore(null)
     appliedSheetFpRef.current = ''

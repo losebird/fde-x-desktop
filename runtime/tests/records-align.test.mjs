@@ -85,6 +85,7 @@ test('RecordsPanel separates connector picker from operation kind chips and canc
   assert.doesNotMatch(src, /runtimeApi\.bizPreview\(\{[\s\S]{0,500}action: '现查'/)
   assert.match(src, /extractBoundKindHints/)
   assert.match(src, /operationKindHitSheets/)
+  assert.match(src, /operationKindViewRef/)
   assert.match(src, /operationBundlesAlign\(anchor, sheet\)/)
   assert.match(src, /keepPending/)
 })
