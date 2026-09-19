@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ExternalLink } from 'lucide-react'
 import {
   cardAction,
   cardGroupField,
@@ -20,12 +21,32 @@ type Props = {
   reloadToken?: number
 }
 
-const TONES = ['#C45C7A', '#6B4CA0', '#2F8F62', '#D46A1E', '#1F8FA8', '#8A4A2F', '#C43D6E', '#3D5A99']
+const HERO_TONES = [
+  'bg-accent-red',
+  'bg-accent-amber',
+  'bg-accent-blue',
+  'bg-accent-purple',
+  'bg-accent-teal',
+  'bg-brand',
+] as const
 
-function toneFor(key: string) {
+function heroToneClassFor(key: string) {
   let hash = 0
   for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) >>> 0
-  return TONES[hash % TONES.length]
+  return HERO_TONES[hash % HERO_TONES.length]
+}
+
+const actionChipClass =
+  'inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-line bg-surface-2 text-ink text-[12px] font-medium hover:bg-surface transition-colors'
+
+function HeroMark() {
+  return (
+    <div className="relative flex h-14 w-14 items-center justify-center" aria-hidden="true">
+      <span className="absolute inset-0 rounded-full bg-white/15" />
+      <span className="absolute h-9 w-9 rounded-full bg-white/25" />
+      <span className="relative h-4 w-4 rounded-full bg-white/40" />
+    </div>
+  )
 }
 
 export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }: Props) {
@@ -87,54 +108,62 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
             {Boolean(groupBy) && (
               <div className="text-sm font-medium text-ink" data-app-card-group-label="true">{group.label}</div>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(11.25rem, 12.75rem))' }}
+            >
               {group.rows.map((row) => {
                 const title = displayTitle(app.spec, view.entity, row)
                 const blurb = displayBlurb(app.spec, view.entity, row, title)
                 const action = cardAction(app.spec, view.entity, row)
                 const toneKey = title || String(row.id)
+                const heroTone = heroToneClassFor(toneKey)
                 return (
                   <article
                     key={String(row.id)}
-                    className="border border-line rounded-2xl bg-surface overflow-hidden min-w-0 shadow-card"
+                    className="border border-line rounded-2xl bg-surface overflow-hidden min-w-0 shadow-card flex flex-col"
                     data-app-card="true"
                     data-app-card-title={title || undefined}
                   >
-                    <div
-                      className="min-h-[5.5rem] px-4 py-5 flex items-end text-white"
-                      style={{ background: toneFor(toneKey) }}
-                    >
-                      <div className="text-[17px] font-semibold leading-snug line-clamp-2">{title || '未命名'}</div>
+                    <div className={`h-[5.5rem] shrink-0 flex items-center justify-center ${heroTone}`}>
+                      <HeroMark />
                     </div>
-                    <div className="p-3.5 space-y-3">
-                      {blurb && <p className="text-[13px] text-ink leading-relaxed line-clamp-3">{blurb}</p>}
-                      {action?.kind === 'url' && (
-                        <a
-                          href={action.href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-amber-100 text-amber-900 text-[12px] font-medium"
-                          data-app-card-action="url"
-                        >
-                          打开
-                        </a>
-                      )}
-                      {action?.kind === 'file' && (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-amber-100 text-amber-900 text-[12px] font-medium"
-                          data-app-card-action="file"
-                          onClick={() => {
-                            const href = action.href.replace(/^file:\/\//i, '')
-                            const parent = href.includes('/') ? href.split('/').slice(0, -1).join('/') || '.' : '.'
-                            filesBrowse({ selectedId: href, parentId: parent })
-                            setActiveFile(href)
-                            openFiles('files', 'full')
-                          }}
-                        >
-                          打开
-                        </button>
-                      )}
+                    <div className="flex flex-1 flex-col gap-2 p-3 bg-surface">
+                      <h3 className="text-[13px] font-semibold leading-snug text-ink line-clamp-2">{title || '未命名'}</h3>
+                      {blurb ? (
+                        <p className="text-[12px] text-ink-muted leading-snug line-clamp-2">{blurb}</p>
+                      ) : null}
+                      <div className="mt-auto pt-1">
+                        {action?.kind === 'url' && (
+                          <a
+                            href={action.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={actionChipClass}
+                            data-app-card-action="url"
+                          >
+                            打开
+                            <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />
+                          </a>
+                        )}
+                        {action?.kind === 'file' && (
+                          <button
+                            type="button"
+                            className={actionChipClass}
+                            data-app-card-action="file"
+                            onClick={() => {
+                              const href = action.href.replace(/^file:\/\//i, '')
+                              const parent = href.includes('/') ? href.split('/').slice(0, -1).join('/') || '.' : '.'
+                              filesBrowse({ selectedId: href, parentId: parent })
+                              setActiveFile(href)
+                              openFiles('files', 'full')
+                            }}
+                          >
+                            打开
+                            <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </article>
                 )
