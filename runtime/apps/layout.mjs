@@ -131,16 +131,7 @@ function buildEntityPage(spec, entity) {
     blocks.push({ kind: 'chart', view: chartId })
   }
 
-  if (catalog) {
-    const cardsId = ensureView(spec, {
-      id: `cards-${name}`,
-      type: 'cards',
-      entity: name,
-      label: label,
-      columns: columns.slice(0, 4),
-    })
-    blocks.push({ kind: 'cards', view: cardsId })
-  } else {
+  if (!catalog) {
     const feedSource = findView(spec, name, ['feed', 'table'])
     const feedId = feedSource
       ? ensureId(feedSource, `feed-${name}`)
@@ -165,8 +156,26 @@ function buildEntityPage(spec, entity) {
   }
 }
 
+function ensureCardsPage(spec, entity, takenLabels) {
+  const name = String(entity.name)
+  const label = String(entity.label || name)
+  const columns = entityFields(entity).map((field) => field.name)
+  const cardsId = ensureView(spec, {
+    id: `cards-${name}`,
+    type: 'cards',
+    entity: name,
+    label,
+    columns: columns.slice(0, 4),
+  })
+  return {
+    id: `page-${name}-cards`,
+    label: takenLabels.has(label) ? '卡片' : label,
+    blocks: [{ kind: 'cards', view: cardsId }],
+  }
+}
+
 /**
- * New drafts get a product page (nav + overview + compose + chart/feed/cards).
+ * New drafts get product pages: section nav + overview + compose + chart/feed, plus a cards grid.
  * Existing pages/uses are kept. No category names.
  * @param {Record<string, unknown>} spec
  */
@@ -181,11 +190,16 @@ export function withProductLayout(spec) {
   if (Array.isArray(next.pages) && next.pages.length > 0) {
     return next
   }
-  const entities = Array.isArray(next.entities) ? next.entities : []
-  next.pages = entities.filter((entity) => entity && typeof entity.name === 'string').map((entity) => {
+  const entities = Array.isArray(next.entities) ? next.entities.filter((entity) => entity && typeof entity.name === 'string') : []
+  next.pages = entities.map((entity) => {
     const page = buildEntityPage(next, entity)
     delete page._titleField
     return page
   })
+  const catalog = entities.find((entity) => isCatalogEntity(entity)) || entities[0]
+  if (catalog) {
+    const taken = new Set(next.pages.map((page) => page.label))
+    next.pages.push(ensureCardsPage(next, catalog, taken))
+  }
   return next
 }

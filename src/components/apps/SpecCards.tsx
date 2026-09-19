@@ -10,6 +10,14 @@ type Props = {
   reloadToken?: number
 }
 
+const TONES = ['#2F6B3A', '#3D6FC8', '#7C5BC8', '#2D9D8F', '#C8553D', '#B45309']
+
+function toneFor(key: string) {
+  let hash = 0
+  for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) >>> 0
+  return TONES[hash % TONES.length]
+}
+
 export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }: Props) {
   const [rows, setRows] = useState<Record<string, unknown>[]>(previewRows ?? [])
   const [error, setError] = useState('')
@@ -35,30 +43,43 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
   useEffect(() => { void load() }, [load, reloadToken])
 
   return (
-    <div className="space-y-2" data-app-cards="true">
+    <div className="space-y-3" data-app-cards="true">
       <div className="flex items-center justify-between">
         <div className="text-sm font-medium">{view.label || ent?.label || '卡片'}</div>
         {previewRows && <span className="text-[10px] text-ink-muted border border-line px-1 rounded">示例</span>}
       </div>
       {error && <div className="text-xs text-accent-red">{error}</div>}
       {rows.length === 0 ? (
-        <div className="border border-line rounded-lg px-3 py-8 text-center text-xs text-ink-muted">
+        <div className="border border-line rounded-xl px-3 py-10 text-center text-xs text-ink-muted">
           {app.status === 'active' ? '还没有条目。记下一条就会出现卡片。' : '还没有条目。'}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          {rows.map((row) => (
-            <div key={String(row.id)} className="border border-line rounded-lg bg-surface p-3 min-w-0" data-app-card="true">
-              <div className="text-sm font-medium truncate">{String(row[titleField] ?? row.id)}</div>
-              <div className="mt-2 space-y-1">
-                {rest.map((col) => (
-                  <div key={col} className="text-[11px] text-ink-muted truncate">
-                    {fieldDef(app.spec, view.entity, col)?.label || col} · {String(row[col] ?? '—')}
-                  </div>
-                ))}
+          {rows.map((row) => {
+            const title = String(row[titleField] ?? row.id)
+            return (
+              <div
+                key={String(row.id)}
+                className="border border-line rounded-xl bg-surface overflow-hidden min-w-0 shadow-card"
+                data-app-card="true"
+              >
+                <div
+                  className="h-16 px-3 flex items-end pb-2 text-white text-sm font-medium"
+                  style={{ background: toneFor(title) }}
+                >
+                  <span className="truncate">{title}</span>
+                </div>
+                <div className="p-3 space-y-1.5">
+                  {rest.map((col) => (
+                    <div key={col} className="text-[12px] text-ink-muted leading-snug">
+                      <span className="text-ink-subtle">{fieldDef(app.spec, view.entity, col)?.label || col}</span>
+                      <div className="text-ink truncate">{String(row[col] ?? '—')}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

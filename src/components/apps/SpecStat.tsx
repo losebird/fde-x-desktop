@@ -32,9 +32,9 @@ export function SpecStat({ app, view, workspaceCwd, previewRows, variant = 'hero
 
   if (variant === 'tile') {
     return (
-      <div className="border border-line rounded-lg bg-surface-2 px-3 py-3 min-w-0" data-app-stat="true">
-        <div className="text-[11px] text-ink-muted truncate">{label}</div>
-        <div className="text-2xl font-semibold tabular-nums mt-1">{formatStat(value)}</div>
+      <div className="border border-line rounded-xl bg-surface-2 px-3 py-4 min-w-0" data-app-stat="true">
+        <div className="text-[12px] text-ink-muted truncate">{label}</div>
+        <div className="text-3xl font-semibold tabular-nums mt-1.5 tracking-tight">{formatStat(value)}</div>
       </div>
     )
   }

@@ -73,7 +73,7 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
         preset,
         title: `应用构建 · ${description.slice(0, 20)}`,
         context: ['workspace', 'apps'],
-        prompt: `需求：${description}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。必须按这个需求铺产品页：pages 栏目 + blocks（stats 概览、compose 记一笔、chart 图、feed 流水或 cards 卡片）。不要永远吐 table+form+kanban+stat 脚手架。uses 只声明真正要用的平台能力（ai/files/float/memory/im/briefing/biz），没接上的不要写。若返回 errors，修正后重新提交。不要写外部业务系统。禁止套固定品类模板。`,
+        prompt: `需求：${description}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。必须按需求铺产品页，不要单页仪表盘：pages 至少两栏（栏目导航），blocks 要同时有 cards 卡片栅格，以及 stats 概览、compose 记一笔、必要时 chart 图和 feed 流水。不要永远吐 table+form+kanban+stat 脚手架。uses 只声明真正要用的平台能力（ai/files/float/memory/im/briefing/biz），没接上的不要写。若返回 errors，修正后重新提交。不要写外部业务系统。禁止套固定品类模板。`,
         schema: { type: 'object', required: ['appId', 'revision'] },
         timeoutMs: 240_000,
       }).then((result) => {
@@ -110,7 +110,7 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm font-medium">创建应用</div>
-          <div className="text-xs text-ink-muted mt-0.5">这里没有官方台账。写下对象、字段和要看的页面（概览、记一笔、卡片或流水），生成你自己的应用。</div>
+          <div className="text-xs text-ink-muted mt-0.5">这里没有官方台账。写下对象、字段和要看的栏目（概览、记一笔、卡片栅格、流水），生成你自己的应用。</div>
         </div>
         <button type="button" className="btn h-7" onClick={onClose}>关闭</button>
       </div>
@@ -123,7 +123,7 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="有哪些对象和字段，要看概览数字、记一笔、卡片还是流水"
+              placeholder="有哪些对象和字段，要哪些栏目，概览、记一笔、卡片栅格或流水"
             />
           </label>
           <label className="block text-xs text-ink-muted">

@@ -430,7 +430,6 @@ function Overview({
           </button>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium truncate">{workspaceApp.name}</div>
-            <div className="text-xs text-ink-muted mt-0.5">独立工作面 · 可从业务应用面板标题栏撕出浮窗并排</div>
           </div>
           <Tag kind="green">运行中</Tag>
         </div>

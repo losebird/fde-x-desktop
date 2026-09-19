@@ -114,9 +114,76 @@ export function hasProductPages(spec: FdeAppSpec): boolean {
   return Array.isArray(spec.pages) && spec.pages.length > 0
 }
 
-export function viewById(spec: FdeAppSpec, id: string | undefined): FdeAppView | undefined {
+export function viewById(spec: FdeAppSpec, id: string | undefined, extraViews: FdeAppView[] = []): FdeAppView | undefined {
   if (!id) return undefined
-  return spec.views.find((view) => view.id === id)
+  return spec.views.find((view) => view.id === id) || extraViews.find((view) => view.id === id)
+}
+
+/** Cards view from spec, or a presentational stand-in from the first list/compose entity. No category names. */
+export function cardsViewForSpec(spec: FdeAppSpec): FdeAppView | undefined {
+  const existing = spec.views.find((view) => view.type === 'cards')
+  if (existing) return existing
+  const source = spec.views.find((view) => view.type === 'feed' || view.type === 'table' || view.type === 'compose' || view.type === 'form')
+  const entityName = source?.entity || spec.entities[0]?.name
+  if (!entityName) return undefined
+  const ent = entityDef(spec, entityName)
+  const columns = (source?.columns?.length ? source.columns : ent?.fields.map((field) => field.name) ?? []).slice(0, 4)
+  return {
+    id: `cards-${entityName}`,
+    type: 'cards',
+    entity: entityName,
+    label: ent?.label || '卡片',
+    columns,
+  }
+}
+
+/**
+ * Daily work surface: keep declared pages, but never stay on a single dashboard.
+ * Extra cards page is presentational when the spec omitted it (not written back).
+ */
+export function workSurfacePages(spec: FdeAppSpec): { pages: FdeAppPage[]; extraViews: FdeAppView[] } {
+  const pages = spec.pages ?? []
+  if (!pages.length) return { pages: [], extraViews: [] }
+  const extraViews: FdeAppView[] = []
+  const cardsView = cardsViewForSpec(spec)
+  if (cardsView && !spec.views.some((view) => view.id === cardsView.id)) extraViews.push(cardsView)
+  const hasCards = pages.some((page) => page.blocks.some((block) => block.kind === 'cards'))
+
+  const cardsPage = (taken: Set<string>): FdeAppPage | null => {
+    if (!cardsView?.id) return null
+    const preferred = cardsView.label || ''
+    const label = preferred && !taken.has(preferred) ? preferred : '卡片'
+    return {
+      id: `${pages[0].id}-cards`,
+      label,
+      blocks: [{ kind: 'cards', view: cardsView.id }],
+    }
+  }
+
+  if (pages.length > 1 && hasCards) return { pages, extraViews }
+
+  if (pages.length > 1) {
+    const extra = cardsPage(new Set(pages.map((page) => page.label || page.id)))
+    return { pages: extra ? [...pages, extra] : pages, extraViews }
+  }
+
+  const page = pages[0]
+  const dashBlocks = page.blocks.filter((block) => block.kind !== 'cards')
+  const ownCards = page.blocks.filter((block) => block.kind === 'cards')
+  const dash: FdeAppPage = {
+    id: page.id,
+    label: page.label || spec.name,
+    blocks: dashBlocks.length ? dashBlocks : page.blocks,
+  }
+  const taken = new Set([dash.label || dash.id])
+  const extra = ownCards.length
+    ? {
+        id: `${page.id}-cards`,
+        label: (cardsView?.label && !taken.has(cardsView.label) ? cardsView.label : '卡片'),
+        blocks: ownCards,
+      }
+    : cardsPage(taken)
+  return { pages: extra ? [dash, extra] : pages, extraViews }
 }
 
 export function mockRowsForEntity(spec: FdeAppSpec, entityName: string): Record<string, unknown>[] {

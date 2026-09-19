@@ -11,6 +11,7 @@ import { SpecTable } from '@/components/apps/SpecTable'
 import {
   mockRowsForEntity,
   viewById,
+  workSurfacePages,
   type FdeAppDetail,
   type FdeAppPage,
   type FdeAppView,
@@ -23,7 +24,7 @@ type Props = {
 }
 
 export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
-  const pages = app.spec.pages ?? []
+  const { pages, extraViews } = workSurfacePages(app.spec)
   const [pageId, setPageId] = useState(pages[0]?.id || '')
   const [reloadToken, setReloadToken] = useState(0)
   const page = pages.find((row) => row.id === pageId) || pages[0]
@@ -38,43 +39,69 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
 
   return (
     <div className="space-y-4" data-app-product="true">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {pages.length > 1 ? (
-          <div className="flex items-center gap-1" data-app-product-nav="true">
-            {pages.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                onClick={() => setPageId(row.id)}
-                className={clsx(
-                  'h-8 px-3 rounded text-sm',
-                  row.id === page.id ? 'bg-ink text-white' : 'text-ink-muted hover:bg-surface-2',
-                )}
-              >
-                {row.label || row.id}
-              </button>
+      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-line">
+        <div className="flex items-center gap-1" data-app-product-nav="true">
+          {pages.map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              onClick={() => setPageId(row.id)}
+              className={clsx(
+                'h-9 px-3 text-sm -mb-px border-b-2 transition-colors',
+                row.id === page.id
+                  ? 'border-brand text-ink font-medium'
+                  : 'border-transparent text-ink-muted hover:text-ink',
+              )}
+            >
+              {row.label || row.id}
+            </button>
+          ))}
+        </div>
+        <div className="pb-1.5">
+          <AppCapabilityBar spec={app.spec} />
+        </div>
+      </div>
+      <div className="space-y-4">
+        {renderBlocks(page.blocks).map((group, index) => (
+          <div
+            key={`${page.id}-g-${index}`}
+            className={group.pair ? 'grid grid-cols-1 xl:grid-cols-2 gap-3 items-start' : undefined}
+            data-app-compose-chart={group.pair ? 'true' : undefined}
+          >
+            {group.blocks.map((block, blockIndex) => (
+              <ProductBlock
+                key={`${page.id}-${block.kind}-${index}-${blockIndex}`}
+                app={app}
+                workspaceCwd={workspaceCwd}
+                preview={preview}
+                reloadToken={reloadToken}
+                onRefresh={refresh}
+                view={'view' in block ? viewById(app.spec, block.view, extraViews) : undefined}
+                statViews={block.kind === 'stats' ? block.views.map((id) => viewById(app.spec, id, extraViews)).filter((row): row is FdeAppView => Boolean(row)) : []}
+                kind={block.kind}
+              />
             ))}
           </div>
-        ) : (
-          <div className="text-sm font-medium" data-app-product-nav="true">{page.label || app.spec.name}</div>
-        )}
-        <AppCapabilityBar spec={app.spec} />
+        ))}
       </div>
-      {page.blocks.map((block, index) => (
-        <ProductBlock
-          key={`${page.id}-${block.kind}-${index}`}
-          app={app}
-          workspaceCwd={workspaceCwd}
-          preview={preview}
-          reloadToken={reloadToken}
-          onRefresh={refresh}
-          view={block.kind === 'stats' ? undefined : viewById(app.spec, block.view)}
-          statViews={block.kind === 'stats' ? block.views.map((id) => viewById(app.spec, id)).filter((row): row is FdeAppView => Boolean(row)) : []}
-          kind={block.kind}
-        />
-      ))}
     </div>
   )
+}
+
+function renderBlocks(blocks: FdeAppPage['blocks']): { pair: boolean; blocks: FdeAppPage['blocks'] }[] {
+  const groups: { pair: boolean; blocks: FdeAppPage['blocks'] }[] = []
+  for (let i = 0; i < blocks.length; i++) {
+    const current = blocks[i]
+    const next = blocks[i + 1]
+    const compose = current.kind === 'compose' || current.kind === 'form'
+    if (compose && next?.kind === 'chart') {
+      groups.push({ pair: true, blocks: [current, next] })
+      i += 1
+      continue
+    }
+    groups.push({ pair: false, blocks: [current] })
+  }
+  return groups
 }
 
 function ProductBlock({
@@ -109,7 +136,7 @@ function ProductBlock({
   const previewRows = preview ? mockRowsForEntity(app.spec, view.entity) : undefined
   if (kind === 'compose' || kind === 'form') {
     return (
-      <div className="border border-line rounded-lg p-3 space-y-2">
+      <div className="border border-line rounded-xl bg-surface p-4 space-y-3 min-w-0">
         <div className="text-sm font-medium">{view.label || '记下'}</div>
         <SpecForm
           app={app}

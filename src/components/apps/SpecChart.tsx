@@ -57,7 +57,7 @@ export function SpecChart({ app, view, workspaceCwd, previewRows, reloadToken }:
   })
 
   return (
-    <div className="border border-line rounded-lg p-3 space-y-3" data-app-chart="true">
+    <div className="border border-line rounded-xl p-4 space-y-3 bg-surface min-w-0" data-app-chart="true">
       <div className="text-sm font-medium">{view.label || '构成'}</div>
       <div className="flex flex-wrap items-center gap-4">
         <svg viewBox="0 0 36 36" className="w-28 h-28 shrink-0" role="img" aria-label={view.label || '图'}>

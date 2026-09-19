@@ -29,13 +29,15 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
   const spec = app.spec
   const views = spec.views
   const [viewId, setViewId] = useState(views[0]?.id || views[0]?.type || '0')
-  const [showEditor, setShowEditor] = useState(false)
+  const [showBuilder, setShowBuilder] = useState(false)
   const [detailRid, setDetailRid] = useState('')
   const [note, setNote] = useState('')
   const previewRows = app.status !== 'active' ? mockRows(spec) : undefined
   const current = views.find((v) => (v.id || v.type) === viewId) || views[0]
   const live = app.status === 'active'
   const pendingMaterialize = isCurrentRevisionPending(app)
+  const product = hasProductPages(spec)
+  const daily = variant === 'workspace' && product
 
   const activate = async () => {
     setNote('')
@@ -75,67 +77,100 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
     return <div className="px-4 py-3 text-xs text-ink-muted">不是 fde-app/v1 声明式应用</div>
   }
 
-  const product = hasProductPages(spec)
+  const builderControls = (
+    <div className="flex flex-wrap gap-2">
+      {pendingMaterialize && (
+        <button type="button" className="btn-brand h-7" onClick={() => void activate()}>
+          {app.status === 'draft' ? '采纳并激活' : '激活本次修订'}
+        </button>
+      )}
+      {app.status === 'draft' && onRequestDelete && (
+        <button type="button" className="btn h-7" onClick={onRequestDelete}>删除草稿</button>
+      )}
+      {variant !== 'dialog' && (
+        <select
+          className="input h-7 text-xs"
+          defaultValue=""
+          onChange={(e) => {
+            const rev = Number(e.target.value)
+            if (rev > 0) void rollback(rev)
+            e.target.value = ''
+          }}
+        >
+          <option value="">版本回滚…</option>
+          {app.revisions?.map((r) => (
+            <option key={r.revision} value={r.revision}>修订 {r.revision}</option>
+          ))}
+        </select>
+      )}
+      {app.status === 'active' && (
+        <button type="button" className="btn h-7" onClick={() => void archive()}>删除</button>
+      )}
+    </div>
+  )
 
   return (
     <div className={variant === 'dialog' || variant === 'workspace' ? '' : 'border-t border-line'}>
-      <div className="px-4 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2">
-        {product ? (
-          <div className="text-xs text-ink-muted">{spec.description || spec.name}</div>
-        ) : (
-        <div className="flex items-center rounded border border-line bg-surface p-0.5">
-          {views.map((view) => {
-            const key = view.id || `${view.type}-${view.entity}`
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => { setViewId(view.id || view.type); setDetailRid('') }}
-                className={clsx(
-                  'h-7 px-2.5 rounded text-xs transition-colors',
-                  (view.id || view.type) === viewId ? 'bg-ink text-white' : 'text-ink-muted hover:bg-surface-2',
-                )}
-              >
-                {view.label || view.type}
-              </button>
-            )
-          })}
+      {daily ? (
+        <div className="px-4 pt-2 flex justify-end">
+          <button
+            type="button"
+            className="btn-ghost h-7 text-xs text-ink-muted"
+            data-app-builder-open="true"
+            onClick={() => setShowBuilder(true)}
+          >
+            建造
+          </button>
         </div>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {pendingMaterialize && (
-            <button type="button" className="btn-brand h-7" onClick={() => void activate()}>
-              {app.status === 'draft' ? '采纳并激活' : '激活本次修订'}
-            </button>
+      ) : (
+        <div className="px-4 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2">
+          {product ? (
+            <div className="text-xs text-ink-muted">{spec.description || spec.name}</div>
+          ) : (
+            <div className="flex items-center rounded border border-line bg-surface p-0.5">
+              {views.map((view) => {
+                const key = view.id || `${view.type}-${view.entity}`
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => { setViewId(view.id || view.type); setDetailRid('') }}
+                    className={clsx(
+                      'h-7 px-2.5 rounded text-xs transition-colors',
+                      (view.id || view.type) === viewId ? 'bg-ink text-white' : 'text-ink-muted hover:bg-surface-2',
+                    )}
+                  >
+                    {view.label || view.type}
+                  </button>
+                )
+              })}
+            </div>
           )}
-          {app.status === 'draft' && onRequestDelete && (
-            <button type="button" className="btn h-7" onClick={onRequestDelete}>删除草稿</button>
-          )}
-          <button type="button" className="btn h-7" onClick={() => setShowEditor((v) => !v)}>编辑 spec</button>
-          {variant !== 'dialog' && (
-            <select
-              className="input h-7 text-xs"
-              defaultValue=""
-              onChange={(e) => {
-                const rev = Number(e.target.value)
-                if (rev > 0) void rollback(rev)
-                e.target.value = ''
-              }}
-            >
-              <option value="">版本回滚…</option>
-              {app.revisions?.map((r) => (
-                <option key={r.revision} value={r.revision}>修订 {r.revision}</option>
-              ))}
-            </select>
-          )}
-          {app.status === 'active' && (
-            <button type="button" className="btn h-7" onClick={() => void archive()}>删除</button>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {builderControls}
+            <button type="button" className="btn h-7" onClick={() => setShowBuilder((v) => !v)}>编辑 spec</button>
+          </div>
         </div>
-      </div>
+      )}
       {note && <div className="px-4 py-2 text-xs text-accent-red">{note}</div>}
-      {showEditor && <SpecEditor app={app} onSaved={onChanged} />}
-      {hasProductPages(spec) ? (
+      {showBuilder && daily && (
+        <div className="fixed inset-0 z-[85] flex justify-end" data-app-builder-drawer="true">
+          <button type="button" className="flex-1 bg-ink/20" aria-label="关闭建造" onClick={() => setShowBuilder(false)} />
+          <div className="w-full max-w-md h-full bg-surface border-l border-line overflow-y-auto shadow-pop">
+            <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+              <div className="text-sm font-medium">建造</div>
+              <button type="button" className="btn h-7" onClick={() => setShowBuilder(false)}>关闭</button>
+            </div>
+            <div className="px-4 py-3 space-y-3">
+              {spec.description && <div className="text-xs text-ink-muted leading-relaxed">{spec.description}</div>}
+              {builderControls}
+            </div>
+            <SpecEditor app={app} onSaved={onChanged} />
+          </div>
+        </div>
+      )}
+      {showBuilder && !daily && <SpecEditor app={app} onSaved={onChanged} />}
+      {product ? (
         <div className="px-4 py-3">
           <AppProductPage app={app} workspaceCwd={workspaceCwd} onRefresh={onChanged} />
           {app.status === 'archived' && (
