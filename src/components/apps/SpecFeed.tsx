@@ -49,7 +49,7 @@ export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken }: 
 
   return (
     <div className="border border-line rounded-xl overflow-hidden bg-surface shadow-card" data-app-feed="true">
-      <div className="px-4 py-2.5 border-b border-line flex items-center justify-between bg-surface">
+      <div className="px-3 py-2 border-b border-line flex items-center justify-between bg-surface">
         <div className="text-sm font-medium">{view.label || '流水'}</div>
         {previewRows && <span className="text-[10px] text-ink-muted border border-line px-1 rounded">示例</span>}
       </div>
@@ -64,7 +64,7 @@ export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken }: 
             const rowTitle = displayTitle(app.spec, view.entity, row) || '—'
             const amountKey = String(row.id ?? rowTitle)
             return (
-            <div key={String(row.id)} className="px-4 py-3 flex items-start gap-3" data-app-feed-row="true">
+            <div key={String(row.id)} className="px-3 py-2 flex items-start gap-3" data-app-feed-row="true">
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-center gap-2 min-w-0">
                   {enumField && row[enumField.name] != null && (
@@ -79,7 +79,7 @@ export function SpecFeed({ app, view, workspaceCwd, previewRows, reloadToken }: 
                   {columns.filter((col) => col !== titleField && col !== numberField?.name && col !== dateField?.name && col !== enumField?.name).slice(0, 2).map((col) => {
                     const text = String(row[col] ?? '')
                     if (!text || looksLikeGeneratedCode(text)) return null
-                    return <span key={col}>{fieldDef(app.spec, view.entity, col)?.label || col} {text}</span>
+                    return <span key={col}>{text}</span>
                   })}
                 </div>
               </div>

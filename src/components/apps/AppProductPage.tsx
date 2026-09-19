@@ -47,7 +47,7 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
 
   return (
     <div
-      className="space-y-3"
+      className="space-y-2"
       data-app-product="true"
       data-app-uses={declaredPlatformUses(app.spec).join(',')}
     >
@@ -70,11 +70,11 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
           ))}
         </div>
       </div>
-      <div className="space-y-2.5" data-app-ledger={pageLooksLikeLedger(page) ? 'true' : undefined}>
+      <div className="space-y-2" data-app-ledger={pageLooksLikeLedger(page) ? 'true' : undefined}>
         {renderBlocks(visibleWorkSurfaceBlocks(page)).map((group, index) => (
           <div
             key={`${page.id}-g-${index}`}
-            className={group.pair ? 'grid grid-cols-1 xl:grid-cols-2 gap-3 items-start' : undefined}
+            className={group.pair ? 'grid grid-cols-1 @xl:grid-cols-2 gap-2 items-start' : undefined}
             data-app-compose-chart={group.pair ? 'true' : undefined}
           >
             {group.blocks.map((block, blockIndex) => (
@@ -133,7 +133,7 @@ function ProductBlock({
 }) {
   if (kind === 'stats') {
     return (
-      <div className="grid grid-cols-2 @2xl:grid-cols-4 gap-3" data-app-overview="true">
+      <div className="grid grid-cols-2 @2xl:grid-cols-4 gap-2" data-app-overview="true">
         {statViews.map((stat, index) => (
           <SpecStat
             key={stat.id || stat.label}
@@ -152,7 +152,7 @@ function ProductBlock({
   const previewRows = preview ? mockRowsForEntity(app.spec, view.entity) : undefined
   if (kind === 'compose' || kind === 'form') {
     return (
-      <div className="border border-line rounded-xl bg-surface p-4 space-y-2.5 min-w-0 shadow-card">
+      <div className="border border-line rounded-xl bg-surface p-3 space-y-2 min-w-0 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-medium">{view.label || '记下'}</div>
           {specHasUse(app.spec, 'briefing') && (

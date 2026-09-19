@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import { ExternalLink, Play } from 'lucide-react'
-import { AppCapabilityBar, playOpenActionChipClass, recordActionChipClass } from '@/components/apps/AppCapabilityBar'
+import { AppCapabilityBar } from '@/components/apps/AppCapabilityBar'
 import {
   cardAction,
   cardGroupField,
@@ -39,6 +39,9 @@ function heroToneClassFor(key: string) {
   for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) >>> 0
   return HERO_TONES[hash % HERO_TONES.length]
 }
+
+const primaryActionBaseClass =
+  'flex h-9 w-full items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-opacity hover:opacity-90'
 
 export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, recordActions, actionUses }: Props) {
   const [rows, setRows] = useState<Record<string, unknown>[]>(previewRows ?? [])
@@ -88,7 +91,7 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
   }
 
   return (
-    <div className="space-y-6" data-app-cards="true">
+    <div className="space-y-3" data-app-cards="true">
       <div className="flex items-center justify-between">
         <div className="text-sm font-medium">{view.label || ent?.label || '卡片'}</div>
         {previewRows && <span className="text-[10px] text-ink-muted border border-line px-1 rounded">示例</span>}
@@ -119,8 +122,8 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
               <div className="text-xs font-semibold tracking-wide text-ink" data-app-card-group-label="true">{group.label}</div>
             )}
             <div
-              className="grid gap-3"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(13rem, 1fr))' }}
+              className="grid gap-2.5"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(10.75rem, 10.75rem))' }}
             >
               {group.rows.map((row) => {
                 const title = displayTitle(app.spec, view.entity, row)
@@ -137,69 +140,55 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                     data-app-card-title={title || undefined}
                   >
                     <div
-                      className={`relative min-h-[9rem] shrink-0 flex items-center justify-center ${heroTone}`}
+                      className={`relative h-28 shrink-0 flex flex-col justify-end p-2.5 ${heroTone}`}
                     >
-                      {play && action ? (
-                        <button
-                          type="button"
-                          className="flex h-11 w-11 items-center justify-center rounded-full bg-white/95 shadow-card hover:scale-105 transition-transform"
-                          data-app-card-hero-open="true"
-                          data-app-card-href={action.href}
-                          onClick={(event) => handleOpenHref(action.href, event)}
-                          aria-label={action.kind === 'url' ? '播放' : '打开'}
-                        >
-                          <Play className="h-5 w-5 fill-brand text-brand ml-0.5" aria-hidden="true" />
-                        </button>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-1 flex-col gap-1.5 p-2.5 bg-surface">
-                      <h3 className="text-[13px] font-semibold leading-snug text-ink line-clamp-2">
+                      <h3 className="text-white text-[15px] font-semibold line-clamp-2">
                         {title || '未命名'}
                       </h3>
+                    </div>
+                    <div className="flex flex-1 flex-col gap-1.5 p-2.5 bg-surface">
                       {blurb ? (
                         <p className="text-[11px] text-ink-muted leading-snug line-clamp-3" data-app-card-blurb="true">{blurb}</p>
                       ) : null}
-                      <div className="mt-auto flex flex-wrap items-center gap-1.5">
-                        {action?.kind === 'url' && (
-                          <a
-                            href={action.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`${playOpenActionChipClass} ${play ? 'bg-accent-amber text-ink' : 'bg-brand text-white'}`}
-                            data-app-card-action={play ? 'play' : 'url'}
-                            data-app-card-href={action.href}
-                            onClick={(event) => handleOpenHref(action.href, event)}
-                          >
-                            {play ? '播放' : '打开'}
-                            {play ? (
-                              <Play className="h-3 w-3 fill-current" aria-hidden="true" />
-                            ) : (
-                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                            )}
-                          </a>
-                        )}
-                        {action?.kind === 'file' && (
-                          <button
-                            type="button"
-                            className={recordActionChipClass}
-                            data-app-card-action="file"
-                            data-app-card-href={action.href}
-                            onClick={() => handleOpenHref(action.href)}
-                          >
-                            打开
-                            <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />
-                          </button>
-                        )}
-                        {perCardActions ? (
-                          <AppCapabilityBar
-                            spec={app.spec}
-                            appId={appId}
-                            uses={actionUses}
-                            title={title || app.spec.name}
-                            rowId={String(row.id)}
-                          />
-                        ) : null}
-                      </div>
+                      {action?.kind === 'url' && (
+                        <a
+                          href={action.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`${primaryActionBaseClass} ${play ? 'bg-accent-amber text-ink' : 'bg-brand text-white'}`}
+                          data-app-card-action={play ? 'play' : 'url'}
+                          data-app-card-href={action.href}
+                          onClick={(event) => handleOpenHref(action.href, event)}
+                        >
+                          {play ? (
+                            <Play className="h-4 w-4 fill-current" aria-hidden="true" />
+                          ) : (
+                            <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                          )}
+                          {play ? '播放' : '打开'}
+                        </a>
+                      )}
+                      {action?.kind === 'file' && (
+                        <button
+                          type="button"
+                          className={`${primaryActionBaseClass} bg-brand text-white`}
+                          data-app-card-action="file"
+                          data-app-card-href={action.href}
+                          onClick={() => handleOpenHref(action.href)}
+                        >
+                          <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                          打开
+                        </button>
+                      )}
+                      {perCardActions ? (
+                        <AppCapabilityBar
+                          spec={app.spec}
+                          appId={appId}
+                          uses={actionUses}
+                          title={title || app.spec.name}
+                          rowId={String(row.id)}
+                        />
+                      ) : null}
                     </div>
                   </article>
                 )

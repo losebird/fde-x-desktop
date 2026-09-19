@@ -77,7 +77,7 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
   const submitButton = canSubmit ? (
     <button
       type="button"
-      className="btn-brand h-10 w-full"
+      className={clsx('btn-brand w-full', compose ? 'h-9' : 'h-10')}
       disabled={saving}
       onClick={() => { void submit() }}
     >
@@ -87,9 +87,9 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
 
   return (
     <div className={compose ? 'space-y-2' : 'space-y-3'} data-app-compose={compose ? 'true' : undefined}>
-      <div className={compose ? 'grid grid-cols-1 sm:grid-cols-2 gap-2' : 'space-y-3'}>
+      <div className={compose ? 'grid grid-cols-1 sm:grid-cols-2 gap-1.5' : 'space-y-3'}>
       {ent.fields.map((field) => (
-        <label key={field.name} className={clsx('block text-xs text-ink-muted', field.type === 'longtext' && compose && 'sm:col-span-2')}>
+        <label key={field.name} className={clsx('block text-ink-muted', compose ? 'text-[11px]' : 'text-xs', field.type === 'longtext' && compose && 'sm:col-span-2')}>
           {field.label || field.name}
           {field.required && <span className="text-accent-red"> *</span>}
           {field.type === 'longtext' ? (
@@ -101,17 +101,39 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
               onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
             />
           ) : field.type === 'enum' ? (
-            <select
-              className="input mt-1 w-full"
-              disabled={readOnly}
-              value={String(values[field.name] ?? '')}
-              onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
-            >
-              <option value="">请选择</option>
-              {(field.options ?? []).map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
+            compose ? (
+              <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label={field.label || field.name}>
+                {(field.options ?? []).map((opt) => {
+                  const selected = String(values[field.name] ?? '') === opt
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      disabled={readOnly}
+                      className={clsx(
+                        'px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors',
+                        selected ? 'bg-ink text-white' : 'border border-line bg-surface text-ink',
+                      )}
+                      onClick={() => setValues((v) => ({ ...v, [field.name]: opt }))}
+                    >
+                      {opt}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <select
+                className="input mt-1 w-full"
+                disabled={readOnly}
+                value={String(values[field.name] ?? '')}
+                onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
+              >
+                <option value="">请选择</option>
+                {(field.options ?? []).map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            )
           ) : field.type === 'bool' ? (
             <input
               type="checkbox"
@@ -123,7 +145,7 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
           ) : field.type === 'number' ? (
             <input
               type="number"
-              className="input mt-1 w-full"
+              className={clsx('input mt-1 w-full', compose && 'text-base tabular-nums')}
               disabled={readOnly}
               value={values[field.name] === '' ? '' : Number(values[field.name])}
               onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value === '' ? '' : Number(e.target.value) }))}
