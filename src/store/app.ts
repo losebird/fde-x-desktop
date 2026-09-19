@@ -346,6 +346,14 @@ function omitFloating(
   return next
 }
 
+function withPanelFull(panels: SidePanelItem[], id: string): SidePanelItem[] {
+  return panels.map((p) => {
+    if (p.id === id) return { ...p, state: 'full' as const }
+    if (p.state === 'full' || p.state === 'half') return { ...p, state: 'tab' as const }
+    return p
+  })
+}
+
 export const useApp = create<AppState>()(
   persist(
     (set, get) => ({
@@ -525,18 +533,26 @@ export const useApp = create<AppState>()(
           return { floating: omitFloating(s.floating, target) }
         }),
       dockFloating: (view) => {
-        const s = get()
-        const target = view ?? getTopFloatingView(s.floating)
-        if (!target || !s.floating[target]) return
-        const appId = appIdFromFloatingKey(target)
-        s.closeFloating(target)
-        if (appId) {
-          s.setDataBrowse({ workspaceAppId: appId })
-          s.setActiveDataSubview('overview')
-          s.togglePanel('data', 'full')
-          return
-        }
-        s.togglePanel(target, 'full')
+        set((s) => {
+          const target = view ?? getTopFloatingView(s.floating)
+          if (!target || !s.floating[target]) return {}
+          const appId = appIdFromFloatingKey(target)
+          const floating = omitFloating(s.floating, target)
+          if (appId) {
+            const dataPanel = s.panels.find((p) => p.id === 'data')
+            const already = dataPanel?.state === 'full' || dataPanel?.state === 'half'
+            return {
+              floating,
+              dataBrowse: { ...s.dataBrowse, workspaceAppId: appId },
+              activeDataSubview: 'overview' as const,
+              ...(already ? {} : { panels: withPanelFull(s.panels, 'data') }),
+            }
+          }
+          const panel = s.panels.find((p) => p.id === target || p.view === target)
+          const already = panel?.state === 'full' || panel?.state === 'half'
+          if (already) return { floating }
+          return { floating, panels: withPanelFull(s.panels, panel?.id ?? target) }
+        })
       },
       setFloatingBox: (view, patch) =>
         set((s) => {

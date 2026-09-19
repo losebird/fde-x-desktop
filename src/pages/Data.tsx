@@ -29,6 +29,42 @@ import { OperationControlPanel } from '@/components/biz/OperationControlPanel'
 type View = 'overview' | 'records' | 'operations'
 type Tone = 'default' | 'red' | 'amber' | 'blue' | 'purple' | 'teal' | 'green'
 
+type DataSurfaceSnap = {
+  workspaceId: string
+  health: RuntimeHealth | null
+  connections: BusinessConnectionRecord[]
+  apps: BusinessAppRecord[]
+  operations: RuntimeOperation[]
+  catalogCount: number
+  error: string
+  details: Record<string, FdeAppDetail>
+}
+
+let dataSurfaceSnap: DataSurfaceSnap | null = null
+
+function peekDataSurface(workspaceId: string): DataSurfaceSnap | null {
+  return dataSurfaceSnap?.workspaceId === workspaceId ? dataSurfaceSnap : null
+}
+
+function rememberDataSurface(row: Omit<DataSurfaceSnap, 'details'> & { details?: Record<string, FdeAppDetail> }) {
+  const prev = dataSurfaceSnap?.workspaceId === row.workspaceId ? dataSurfaceSnap.details : {}
+  dataSurfaceSnap = { ...row, details: { ...prev, ...(row.details || {}) } }
+}
+
+function rememberAppDetail(workspaceId: string, detail: FdeAppDetail) {
+  const prev = peekDataSurface(workspaceId)
+  rememberDataSurface({
+    workspaceId,
+    health: prev?.health ?? null,
+    connections: prev?.connections ?? [],
+    apps: prev?.apps ?? [],
+    operations: prev?.operations ?? [],
+    catalogCount: prev?.catalogCount ?? 0,
+    error: prev?.error ?? '',
+    details: { [detail.id]: detail },
+  })
+}
+
 const STATE_LABEL: Record<string, string> = {
   draft: '待执行',
   awaiting_approval: '待审批',
@@ -76,17 +112,21 @@ export default function Data() {
   const workspace = useApp((state) => state.workspaces.find((item) => item.id === state.activeWorkspaceId))
   const view = useApp((state) => state.activeDataSubview)
   const setView = useApp((state) => state.setActiveDataSubview)
-  const [health, setHealth] = useState<RuntimeHealth | null>(null)
-  const [connections, setConnections] = useState<BusinessConnectionRecord[]>([])
-  const [apps, setApps] = useState<BusinessAppRecord[]>([])
-  const [operations, setOperations] = useState<RuntimeOperation[]>([])
-  const [catalogCount, setCatalogCount] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const snap = peekDataSurface(activeWorkspaceId)
+  const [health, setHealth] = useState<RuntimeHealth | null>(snap?.health ?? null)
+  const [connections, setConnections] = useState<BusinessConnectionRecord[]>(snap?.connections ?? [])
+  const [apps, setApps] = useState<BusinessAppRecord[]>(snap?.apps ?? [])
+  const [operations, setOperations] = useState<RuntimeOperation[]>(snap?.operations ?? [])
+  const [catalogCount, setCatalogCount] = useState(snap?.catalogCount ?? 0)
+  const [loading, setLoading] = useState(!snap)
+  const [error, setError] = useState(snap?.error ?? '')
 
   const refresh = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    const warm = peekDataSurface(activeWorkspaceId)
+    if (!warm) {
+      setLoading(true)
+      setError('')
+    }
     try {
       await runtimeApi.ensureWorkspace({
         id: activeWorkspaceId,
@@ -100,12 +140,22 @@ export default function Data() {
         runtimeApi.listOperations(activeWorkspaceId),
         runtimeApi.imState().catch(() => ({})),
       ])
+      const catalog = Array.isArray((mailbox as { catalog?: unknown[] }).catalog) ? (mailbox as { catalog: unknown[] }).catalog : []
       setHealth(nextHealth)
       setConnections(nextConnections)
       setApps(nextApps)
       setOperations(nextOperations)
-      const catalog = Array.isArray((mailbox as { catalog?: unknown[] }).catalog) ? (mailbox as { catalog: unknown[] }).catalog : []
       setCatalogCount(catalog.length)
+      setError('')
+      rememberDataSurface({
+        workspaceId: activeWorkspaceId,
+        health: nextHealth,
+        connections: nextConnections,
+        apps: nextApps,
+        operations: nextOperations,
+        catalogCount: catalog.length,
+        error: '',
+      })
     } catch (cause) {
       setError(formatError(cause))
       setHealth(null)
@@ -378,8 +428,14 @@ function Overview({
   const setDataBrowse = useApp((state) => state.setDataBrowse)
   const setWorkspaceAppId = (id: string) => setDataBrowse({ workspaceAppId: id || null })
   const [deleteTarget, setDeleteTarget] = useState<BusinessAppRecord | null>(null)
-  const [declarativeApp, setDeclarativeApp] = useState<FdeAppDetail | null>(null)
-  const [workspaceCwd, setWorkspaceCwd] = useState('')
+  const [declarativeApp, setDeclarativeApp] = useState<FdeAppDetail | null>(() => {
+    if (!workspaceAppId) return null
+    return peekDataSurface(useApp.getState().activeWorkspaceId)?.details[workspaceAppId] ?? null
+  })
+  const [workspaceCwd, setWorkspaceCwd] = useState(() => {
+    const cwd = loadCurrentWorkspaceCwd()
+    return cwd.ok ? cwd.cwd : ''
+  })
   const visibleApps = catalogApps(apps)
   const runningApps = visibleApps.filter((app) => app.status === 'active')
   const draftApps = visibleApps.filter((app) => app.status !== 'active')
@@ -394,14 +450,26 @@ function Overview({
   }, [])
 
   useEffect(() => {
-    if (!selected || !isFdeAppSpec(selected.definition)) {
+    const id = workspaceAppId || ((selected && isFdeAppSpec(selected.definition)) ? selected.id : '')
+    if (!id) {
       setDeclarativeApp(null)
       return
     }
+    if (selected && selected.id === id && !isFdeAppSpec(selected.definition)) {
+      setDeclarativeApp(null)
+      return
+    }
+    const cached = peekDataSurface(useApp.getState().activeWorkspaceId)?.details[id]
+    if (cached) setDeclarativeApp(cached)
     const cwd = loadCurrentWorkspaceCwd()
     if (cwd.ok) setWorkspaceCwd(cwd.cwd)
-    void runtimeApi.getDeclarativeApp(selected.id).then(setDeclarativeApp).catch(() => setDeclarativeApp(null))
-  }, [selected?.id, selected?.currentRevision, selected?.definition])
+    void runtimeApi.getDeclarativeApp(id).then((detail) => {
+      setDeclarativeApp(detail)
+      rememberAppDetail(useApp.getState().activeWorkspaceId, detail)
+    }).catch(() => {
+      if (!cached) setDeclarativeApp(null)
+    })
+  }, [workspaceAppId, selected?.id, selected?.currentRevision, selected?.definition])
 
   const openApp = (app: BusinessAppRecord) => {
     if (app.status === 'active' && isFdeAppSpec(app.definition)) {
@@ -416,14 +484,17 @@ function Overview({
   const afterRuntimeChange = async (appId: string) => {
     await onCreated()
     const detail = await runtimeApi.getDeclarativeApp(appId).catch(() => null)
-    setDeclarativeApp(detail)
+    if (detail) {
+      setDeclarativeApp(detail)
+      rememberAppDetail(useApp.getState().activeWorkspaceId, detail)
+    }
     if (detail?.status === 'active' && dialogAppId === appId) {
       setDialogAppId('')
       setWorkspaceAppId(appId)
     }
   }
 
-  if (workspaceAppId && workspaceApp) {
+  if (workspaceAppId) {
     return (
       <div className="space-y-3" data-app-workspace="true">
         <div className="flex flex-wrap items-center gap-2">
@@ -431,7 +502,7 @@ function Overview({
             <ChevronLeft size={14} /> 返回列表
           </button>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium truncate">{workspaceApp.name}</div>
+            <div className="text-sm font-medium truncate">{workspaceApp?.name || declarativeApp?.name || ''}</div>
           </div>
           <Tag kind="green">运行中</Tag>
         </div>
@@ -442,7 +513,7 @@ function Overview({
               workspaceCwd={workspaceCwd}
               variant="workspace"
               onChanged={() => { void afterRuntimeChange(workspaceAppId) }}
-              onRequestDelete={() => setDeleteTarget(workspaceApp)}
+              onRequestDelete={workspaceApp ? () => setDeleteTarget(workspaceApp) : undefined}
             />
           ) : (
             <div className="px-4 py-8 text-sm text-ink-muted">正在打开工作面…</div>

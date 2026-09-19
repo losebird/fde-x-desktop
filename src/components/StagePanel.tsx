@@ -62,9 +62,7 @@ export function StagePanel({ item, overlay }: { item?: SidePanelItem; overlay?: 
     if (!item) return
     const view = item.view
     const label = item.label
-    // 把当前 panel 退到 tab(保留入口),同时撕出为独立浮窗
-    setPanelState(item.id, 'tab')
-    // 默认占视口约 82% × 84%，让计划/文件/AI 等内容无需二次放大即可使用。
+    // 先挂浮窗再退右侧，避免中间一帧落到默认页（和文件记住浏览位置同一路）。
     const width = Math.min(1180, Math.max(420, Math.round(window.innerWidth * 0.82)))
     const height = Math.min(820, Math.max(360, Math.round(window.innerHeight * 0.84)))
     openFloating(view, {
@@ -73,6 +71,7 @@ export function StagePanel({ item, overlay }: { item?: SidePanelItem; overlay?: 
       x: Math.max(16, Math.round((window.innerWidth - width) / 2)),
       y: Math.max(16, Math.round((window.innerHeight - height) / 2)),
     })
+    setPanelState(item.id, 'tab')
     // eslint-disable-next-line no-console
     console.info(`[StagePanel] 撕出 · ${label} → 独立浮窗`)
   }
