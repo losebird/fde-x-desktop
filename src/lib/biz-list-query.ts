@@ -171,6 +171,23 @@ export function operationBundlesAlign(
   return false
 }
 
+/**
+ * Keep a hop-side kind view only while the incoming pending is the same operation.
+ * A new pending (different speech/where/hop) must paint, even when kinds differ.
+ */
+export function shouldHoldSideKindView(
+  viewKind: string,
+  incoming: Record<string, unknown> | null | undefined,
+  displayed: Record<string, unknown> | null | undefined,
+  incomingIsWritePreview = false,
+): boolean {
+  const view = String(viewKind || '').trim()
+  const incomingKind = incoming && typeof incoming === 'object' ? String(incoming.kind || '').trim() : ''
+  if (!view || !incomingKind || view === incomingKind) return false
+  if (incomingIsWritePreview) return false
+  return Boolean(displayed && operationBundlesAlign(displayed, incoming))
+}
+
 export function listQueryScopeKey(sheet: Record<string, unknown> | null | undefined): string {
   if (!sheet || typeof sheet !== 'object') return ''
   const where = stableWhereSlice(extractSheetListWhere(sheet))

@@ -43,6 +43,7 @@ import {
   operationBundlesAlign,
   operationKindHitSheets,
   sheetRowsFingerprint,
+  shouldHoldSideKindView,
 } from '@/lib/biz-list-query'
 import {
   matchSurfaceIdForSheet,
@@ -305,6 +306,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const historyPinnedSurfaceIdRef = useRef('')
   const historySessionIdRef = useRef('')
   const operationKindViewRef = useRef('')
+  const displayedSheetRef = useRef<Record<string, unknown> | null>(null)
   const showRecordsBack = Boolean(listRestore)
   const bizCwd = workspaceCwd || activeWorkspaceCwd
 
@@ -575,6 +577,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     setPage(snap.page)
     setSourceLabel(snap.sourceLabel)
     setListSheetMeta(restoreSheet)
+    displayedSheetRef.current = restoreSheet
     rememberSheet({
       sheet: restoreSheet,
       connName: snap.connName,
@@ -666,6 +669,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (nextKind) setKind(nextKind)
     setStaleHint('')
     setListSheetMeta(appliedSheet)
+    displayedSheetRef.current = appliedSheet
     rememberSheet({ sheet: appliedSheet, connName, surfaceId: historyIdForSheet(appliedSheet, surfaceId, listQueryFingerprint(appliedSheet)) || surfaceId })
     if (!keepPending && !isWritePreviewSheet(appliedSheet)) {
       rememberBizPendingSheet(appliedSheet)
@@ -740,12 +744,17 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId)) {
       return false
     }
-    const viewKind = operationKindViewRef.current.trim()
     const incomingKind = String(sheet.kind || '').trim()
-    if (viewKind && incomingKind && viewKind !== incomingKind) {
+    if (shouldHoldSideKindView(
+      operationKindViewRef.current,
+      sheet,
+      displayedSheetRef.current,
+      isWritePreviewSheet(sheet),
+    )) {
       if (!isWritePreviewSheet(sheet)) rememberBizPendingSheet(sheet)
       return true
     }
+    if (incomingKind) operationKindViewRef.current = incomingKind
     const previewId = sheetPreviewId(sheet)
     const action = String(sheet.action || '')
     const isWritePreview = Boolean(previewId && !isBizListQueryAction(action))

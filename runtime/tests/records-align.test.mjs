@@ -88,6 +88,9 @@ test('RecordsPanel separates connector picker from operation kind chips and canc
   assert.match(src, /operationKindViewRef/)
   assert.match(src, /operationBundlesAlign\(anchor, sheet\)/)
   assert.match(src, /keepPending/)
+  assert.match(src, /shouldHoldSideKindView\(/)
+  assert.match(src, /displayedSheetRef/)
+  assert.doesNotMatch(src, /if \(viewKind && incomingKind && viewKind !== incomingKind\) \{\s*if \(!isWritePreviewSheet\(sheet\)\) rememberBizPendingSheet\(sheet\)\s*return true/)
 })
 
 test('query-fingerprint history ids are stable without sqlite surface id', async () => {
@@ -224,4 +227,40 @@ test('this-operation kinds come from from/steps; catalog of the same kind does n
   assert.equal(operationBundlesAlign(floated, sibling), true)
   assert.equal(operationBundlesAlign(floated, catalog), false)
   assert.equal(hits.some((row) => Array.isArray(row.rows) && row.rows.length === 20), false)
+})
+
+test('new pending paints even when the current kind view differs; same-operation side view holds', async () => {
+  const { shouldHoldSideKindView } = await import('../../src/lib/biz-list-query.ts')
+  const shown = {
+    kind: 'KindShown',
+    action: '现查',
+    speech: 'first operation speech',
+    from: { kind: 'KindFrom', rows: [{ no: 'FROM-1' }] },
+    hopWhere: [{ keys: ['status'], values: ['open'] }],
+    steps: [{ kind: 'KindFrom' }, { kind: 'KindShown' }],
+    rows: [{ no: 'SHOWN-1' }],
+  }
+  const sameOpIncoming = {
+    kind: 'KindIncoming',
+    action: '现查',
+    speech: 'first operation speech',
+    from: { kind: 'KindFrom', rows: [{ no: 'FROM-1' }] },
+    hopWhere: [{ keys: ['status'], values: ['open'] }],
+    steps: [{ kind: 'KindFrom' }, { kind: 'KindIncoming' }],
+    rows: [{ no: 'IN-1' }],
+  }
+  const nextOpIncoming = {
+    kind: 'KindNext',
+    action: '现查',
+    speech: 'second operation speech',
+    from: { kind: 'KindOther', rows: [{ no: 'OTHER-1' }] },
+    hopWhere: [{ keys: ['status'], values: ['pending'] }],
+    steps: [{ kind: 'KindOther' }, { kind: 'KindNext' }],
+    rows: [{ no: 'NEXT-1' }],
+  }
+  assert.equal(shouldHoldSideKindView('KindShown', sameOpIncoming, shown), true)
+  assert.equal(shouldHoldSideKindView('KindShown', nextOpIncoming, shown), false)
+  assert.equal(shouldHoldSideKindView('KindShown', sameOpIncoming, shown, true), false)
+  assert.equal(shouldHoldSideKindView('', nextOpIncoming, shown), false)
+  assert.equal(shouldHoldSideKindView('KindNext', nextOpIncoming, shown), false)
 })
