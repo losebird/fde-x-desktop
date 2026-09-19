@@ -104,7 +104,7 @@ export function SpecChart({ app, view, workspaceCwd, previewRows, reloadToken }:
             {totalLabel}
           </text>
         </svg>
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 w-full">
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 w-full" data-app-chart-legend="true">
           {series.map((row) => {
             const pct = rawTotal > 0 ? (Math.max(0, row.value) / rawTotal) * 100 : 0
             return (
