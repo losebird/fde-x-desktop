@@ -128,6 +128,11 @@ export function SpecKanban({ app, view, workspaceCwd, previewRows }: Props) {
 
   return (
     <div className="space-y-2">
+      {previewRows && (
+        <div className="text-xs text-ink-muted" data-app-preview-sample="true">
+          下面是示例，不是已有业务数据。激活后不会变成真实记录。
+        </div>
+      )}
       {error && <div className="text-xs text-accent-red">{error}</div>}
       <div
         ref={boardRef}
@@ -161,7 +166,12 @@ export function SpecKanban({ app, view, workspaceCwd, previewRows }: Props) {
                     dragUi?.started && dragUi.id === String(row.id) ? 'opacity-40 cursor-grabbing' : '',
                   )}
                 >
-                  {String(row[titleField] ?? row.id)}
+                  <div className="flex items-center gap-1.5">
+                    {previewRows && (
+                      <span className="inline-flex items-center rounded border border-line bg-surface-2 px-1 py-px text-[10px] text-ink-muted">示例</span>
+                    )}
+                    <span>{String(row[titleField] ?? row.id)}</span>
+                  </div>
                 </div>
               ))}
             </div>

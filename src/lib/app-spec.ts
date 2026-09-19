@@ -17,9 +17,11 @@ export interface FdeAppEntity {
   fields: FdeAppField[]
 }
 
+export type FdeAppViewType = 'table' | 'form' | 'detail' | 'kanban' | 'stat' | 'cards' | 'chart' | 'compose' | 'feed'
+
 export interface FdeAppView {
   id?: string
-  type: 'table' | 'form' | 'detail' | 'kanban' | 'stat'
+  type: FdeAppViewType
   entity: string
   label?: string
   columns?: string[]
@@ -27,6 +29,18 @@ export interface FdeAppView {
   sort?: { field: string; dir: 'asc' | 'desc' }
   groupBy?: string
   metric?: { fn: 'count' | 'sum' | 'avg'; field?: string }
+}
+
+export type FdePlatformUse = 'ai' | 'files' | 'float' | 'memory' | 'im' | 'briefing' | 'biz'
+
+export type FdePageBlock =
+  | { kind: 'stats'; views: string[] }
+  | { kind: 'compose' | 'chart' | 'feed' | 'cards' | 'table' | 'kanban' | 'form'; view: string }
+
+export type FdeAppPage = {
+  id: string
+  label?: string
+  blocks: FdePageBlock[]
 }
 
 export interface FdeAppAction {
@@ -48,6 +62,8 @@ export interface FdeAppSpec {
   entities: FdeAppEntity[]
   views: FdeAppView[]
   actions?: FdeAppAction[]
+  uses?: FdePlatformUse[]
+  pages?: FdeAppPage[]
   _workspaceCwd?: string
 }
 
@@ -92,6 +108,33 @@ export function visibleTableColumns(spec: FdeAppSpec, view: FdeAppView): string[
   if (!listed.length) return fields
   const extra = fields.filter((name) => !listed.includes(name))
   return [...listed, ...extra]
+}
+
+export function hasProductPages(spec: FdeAppSpec): boolean {
+  return Array.isArray(spec.pages) && spec.pages.length > 0
+}
+
+export function viewById(spec: FdeAppSpec, id: string | undefined): FdeAppView | undefined {
+  if (!id) return undefined
+  return spec.views.find((view) => view.id === id)
+}
+
+export function mockRowsForEntity(spec: FdeAppSpec, entityName: string): Record<string, unknown>[] {
+  const ent = entityDef(spec, entityName)
+  if (!ent) return []
+  const statusField = ent.fields.find((f) => f.type === 'enum')
+  const statuses = statusField?.options ?? ['示例']
+  return [0, 1, 2].map((i) => {
+    const row: Record<string, unknown> = { id: `preview_${entityName}_${i}` }
+    for (const f of ent.fields) {
+      if (f.type === 'enum') row[f.name] = statuses[i % statuses.length]
+      else if (f.type === 'date') row[f.name] = '2026-09-01'
+      else if (f.type === 'number') row[f.name] = (i + 1) * 3
+      else if (f.type === 'bool') row[f.name] = i % 2 === 0
+      else row[f.name] = `${f.label || f.name} ${i + 1}`
+    }
+    return row
+  })
 }
 
 export function isCurrentRevisionPending(app: FdeAppDetail): boolean {

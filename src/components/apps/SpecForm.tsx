@@ -11,9 +11,11 @@ type Props = {
   initial?: Record<string, unknown>
   readOnly?: boolean
   onDone?: () => void
+  layout?: 'stack' | 'compose'
+  submitLabel?: string
 }
 
-export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, onDone }: Props) {
+export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, onDone, layout = 'stack', submitLabel }: Props) {
   const ent = entityDef(app.spec, entity)
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const base: Record<string, unknown> = {}
@@ -44,7 +46,14 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
         setErrors(map)
         return
       }
-      setNote(rid ? '已保存' : '已创建')
+      if (!rid) {
+        const base: Record<string, unknown> = {}
+        for (const f of ent?.fields ?? []) {
+          base[f.name] = f.type === 'bool' ? false : ''
+        }
+        setValues(base)
+      }
+      setNote(rid ? '已保存' : '已记下')
       onDone?.()
     } catch (cause) {
       setNote(cause instanceof RuntimeApiError ? cause.message : '保存失败')
@@ -53,16 +62,19 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
     }
   }
 
+  const compose = layout === 'compose'
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-app-compose={compose ? 'true' : undefined}>
+      <div className={compose ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'space-y-3'}>
       {ent.fields.map((field) => (
-        <label key={field.name} className="block text-xs text-ink-muted">
+        <label key={field.name} className={clsx('block text-xs text-ink-muted', field.type === 'longtext' && compose && 'sm:col-span-2')}>
           {field.label || field.name}
           {field.required && <span className="text-accent-red"> *</span>}
           {field.type === 'longtext' ? (
             <textarea
               className="input mt-1 w-full"
-              rows={3}
+              rows={compose ? 2 : 3}
               disabled={readOnly}
               value={String(values[field.name] ?? '')}
               onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
@@ -107,10 +119,11 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
           {errors[field.name] && <div className="text-accent-red mt-0.5">{errors[field.name]}</div>}
         </label>
       ))}
+      </div>
       {note && <div className="text-xs text-ink-muted">{note}</div>}
       {!readOnly && app.status !== 'archived' && (
-        <button type="button" className="btn-brand h-8" disabled={saving} onClick={() => void submit()}>
-          {saving ? '保存中…' : rid ? '保存' : '创建'}
+        <button type="button" className="btn-brand h-8 w-full" disabled={saving} onClick={() => void submit()}>
+          {saving ? '保存中…' : submitLabel || (rid ? '保存' : compose ? `记下${ent.label}` : '创建')}
         </button>
       )}
     </div>

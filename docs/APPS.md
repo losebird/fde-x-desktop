@@ -5,8 +5,9 @@
 1. AI（`fde-app-builder`）生成 spec → `fde_app_spec_submit` / `POST /api/v1/apps`
 2. 校验失败 → 422 + `errors[{path,message}]`
 3. `POST /api/v1/apps/:id/activate` 物化 SQLite 表（`app_<slug>__<entity>`）
-4. 前端 `AppRuntime` 按 `views` 渲染 table/form/kanban/stat
-5. CRUD：`GET|POST /api/v1/apps/:slug/:entity`，`PATCH|DELETE …/:rid`
+4. 前端 `AppRuntime`：有 `pages` 时按栏目铺产品页（概览/记一笔/图/流水或卡片）；没有 `pages` 的旧应用仍是 table/form/kanban/stat 切换
+5. 新草稿在 `createAppDraft` 里用 `withProductLayout` 补 `pages` + `uses`（不覆盖已声明的）
+6. CRUD：`GET|POST /api/v1/apps/:slug/:entity`，`PATCH|DELETE …/:rid`
 
 ## 关键路径
 

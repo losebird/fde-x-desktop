@@ -1,6 +1,8 @@
 const FIELD_TYPES = new Set(['text', 'longtext', 'number', 'bool', 'date', 'datetime', 'enum', 'ref', 'json'])
-const VIEW_TYPES = new Set(['table', 'form', 'detail', 'kanban', 'stat'])
+const VIEW_TYPES = new Set(['table', 'form', 'detail', 'kanban', 'stat', 'cards', 'chart', 'compose', 'feed'])
 const ACTION_KINDS = new Set(['set', 'biz', 'agent'])
+const PLATFORM_USES = new Set(['ai', 'files', 'float', 'memory', 'im', 'briefing', 'biz'])
+const BLOCK_KINDS = new Set(['stats', 'compose', 'chart', 'feed', 'cards', 'table', 'kanban', 'form'])
 const RESERVED_FIELDS = new Set(['id', 'created_at', 'updated_at', 'workspace_cwd', 'deleted_at'])
 const SLUG_RE = /^[a-z][a-z0-9-]{1,30}$/
 const NAME_RE = /^[a-z][a-z0-9_]{0,30}$/
@@ -49,7 +51,7 @@ export function validateAppSpec(spec, ctx = {}) {
   if (!root) return { ok: false, errors }
 
   rejectExtraKeys(root, [
-    'spec', 'slug', 'name', 'description', 'entities', 'views', 'actions', 'permissions', 'memory', '_workspaceCwd',
+    'spec', 'slug', 'name', 'description', 'entities', 'views', 'actions', 'permissions', 'memory', 'uses', 'pages', '_workspaceCwd',
   ], '', errors)
 
   if (root.spec !== 'fde-app/v1') {
@@ -77,6 +79,22 @@ export function validateAppSpec(spec, ctx = {}) {
   if (root.actions !== undefined) {
     if (!Array.isArray(root.actions) || root.actions.length > 20) {
       errors.push({ path: 'actions', message: 'actions 最多 20 条' })
+    }
+  }
+  if (root.uses !== undefined) {
+    if (!Array.isArray(root.uses) || root.uses.length > 8) {
+      errors.push({ path: 'uses', message: 'uses 最多 8 项' })
+    } else {
+      for (let ui = 0; ui < root.uses.length; ui++) {
+        if (!PLATFORM_USES.has(String(root.uses[ui]))) {
+          errors.push({ path: `uses[${ui}]`, message: 'uses 只能是 ai/files/float/memory/im/briefing/biz' })
+        }
+      }
+    }
+  }
+  if (root.pages !== undefined) {
+    if (!Array.isArray(root.pages) || root.pages.length > 12) {
+      errors.push({ path: 'pages', message: 'pages 最多 12 栏' })
     }
   }
 
@@ -209,6 +227,9 @@ export function validateAppSpec(spec, ctx = {}) {
         errors.push({ path: `${vPath}.groupBy`, message: 'groupBy 必须是 enum 字段' })
       }
     }
+    if ((view.type === 'chart') && view.groupBy === undefined) {
+      errors.push({ path: `${vPath}.groupBy`, message: 'chart 需要 groupBy' })
+    }
     if (view.sort !== undefined) {
       const sort = requireObject(view.sort, `${vPath}.sort`, errors)
       if (sort?.field) resolveField(view.entity, String(sort.field), `${vPath}.sort.field`)
@@ -221,6 +242,58 @@ export function validateAppSpec(spec, ctx = {}) {
       if (metric?.field) resolveField(view.entity, String(metric.field), `${vPath}.metric.field`)
       if (metric?.fn !== undefined && !['count', 'sum', 'avg'].includes(String(metric.fn))) {
         errors.push({ path: `${vPath}.metric.fn`, message: 'metric.fn 无效' })
+      }
+    }
+  }
+
+  const viewById = new Map()
+  for (const view of root.views) {
+    if (view && typeof view === 'object' && typeof view.id === 'string' && view.id) {
+      viewById.set(view.id, view)
+    }
+  }
+
+  if (Array.isArray(root.pages)) {
+    for (let pi = 0; pi < root.pages.length; pi++) {
+      const pPath = `pages[${pi}]`
+      const page = requireObject(root.pages[pi], pPath, errors)
+      if (!page) continue
+      rejectExtraKeys(page, ['id', 'label', 'blocks'], pPath, errors)
+      if (typeof page.id !== 'string' || !page.id) {
+        errors.push({ path: `${pPath}.id`, message: 'page.id 必填' })
+      }
+      if (page.label !== undefined && (typeof page.label !== 'string' || page.label.length > 20)) {
+        errors.push({ path: `${pPath}.label`, message: 'label 最长 20' })
+      }
+      if (!Array.isArray(page.blocks) || page.blocks.length < 1 || page.blocks.length > 12) {
+        errors.push({ path: `${pPath}.blocks`, message: 'blocks 数量须在 1–12' })
+        continue
+      }
+      for (let bi = 0; bi < page.blocks.length; bi++) {
+        const bPath = `${pPath}.blocks[${bi}]`
+        const block = requireObject(page.blocks[bi], bPath, errors)
+        if (!block) continue
+        rejectExtraKeys(block, ['kind', 'view', 'views'], bPath, errors)
+        if (!BLOCK_KINDS.has(String(block.kind))) {
+          errors.push({ path: `${bPath}.kind`, message: 'block.kind 无效' })
+          continue
+        }
+        if (block.kind === 'stats') {
+          if (!Array.isArray(block.views) || block.views.length < 1) {
+            errors.push({ path: `${bPath}.views`, message: 'stats 需要 views' })
+          } else {
+            for (const id of block.views) {
+              const target = viewById.get(String(id))
+              if (!target) errors.push({ path: `${bPath}.views`, message: `未知视图 ${id}` })
+              else if (target.type !== 'stat') errors.push({ path: `${bPath}.views`, message: `${id} 必须是 stat` })
+            }
+          }
+        } else {
+          const target = viewById.get(String(block.view || ''))
+          if (!target) {
+            errors.push({ path: `${bPath}.view`, message: 'view 必须引用已有视图 id' })
+          }
+        }
       }
     }
   }

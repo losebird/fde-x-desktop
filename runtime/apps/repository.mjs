@@ -1,5 +1,6 @@
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { applyMaterialize } from './materialize.mjs'
+import { withProductLayout } from './layout.mjs'
 import { detectBreakingSpecChange, quoteTable, tableNameForEntity, validateAppSpec } from './spec.mjs'
 
 const APP_TABLE_RE = /^app_[a-z][a-z0-9-]{1,30}__[a-z][a-z0-9_]{0,30}$/
@@ -86,7 +87,12 @@ function safeSlug(def) {
  * @param {{ workspaceId: string, workspaceCwd: string, spec: Record<string, unknown>, actorId?: string, correlationId?: string }} input
  */
 export function createAppDraft(db, input) {
-  const validation = validateAppSpec(input.spec)
+  const first = validateAppSpec(input.spec)
+  if (!first.ok) {
+    return { ok: false, errors: first.errors }
+  }
+  const laidOut = withProductLayout(first.spec)
+  const validation = validateAppSpec(laidOut)
   if (!validation.ok) {
     return { ok: false, errors: validation.errors }
   }

@@ -158,6 +158,11 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
           />
         )
       })}
+      {previewRows && (
+        <div className="text-xs text-ink-muted" data-app-preview-sample="true">
+          下面是示例，不是已有业务数据。激活后不会变成真实记录。
+        </div>
+      )}
       {error && <div className="text-xs text-accent-red">{error}</div>}
       {writeBackPrompt && (
         <div className="text-xs flex flex-wrap items-center gap-2">
@@ -181,18 +186,28 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
             {loading ? (
               <tr><td colSpan={columns.length + 1} className="px-3 py-6 text-center text-ink-muted">加载中…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={columns.length + 1} className="px-3 py-6 text-center text-ink-muted">暂无记录</td></tr>
+              <tr>
+                <td colSpan={columns.length + 1} className="px-3 py-6 text-center text-ink-muted" data-app-table-empty="true">
+                  {app.status === 'active'
+                    ? '还没有记录。预览里的示例不会带到这里。点新建开始填。'
+                    : '还没有记录。'}
+                </td>
+              </tr>
             ) : rows.map((row) => (
-              <tr key={String(row.id)} className="border-t border-line hover:bg-surface-2">
+              <tr key={String(row.id)} className="border-t border-line hover:bg-surface-2" data-app-preview-row={previewRows ? 'true' : undefined}>
                 <td className="px-2 py-1.5">
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(String(row.id))}
-                    onChange={() => {
-                      const id = String(row.id)
-                      setSelected((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])
-                    }}
-                  />
+                  {previewRows ? (
+                    <span className="inline-flex items-center rounded border border-line bg-surface-2 px-1 py-px text-[10px] text-ink-muted">示例</span>
+                  ) : (
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(String(row.id))}
+                      onChange={() => {
+                        const id = String(row.id)
+                        setSelected((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])
+                      }}
+                    />
+                  )}
                 </td>
                 {columns.map((col) => (
                   <td
@@ -209,7 +224,7 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
         </table>
       </div>
       <div className="flex items-center justify-between text-xs text-ink-muted">
-        <span>共 {total} 条{total > 100000 ? '（约）' : ''}</span>
+        <span>{previewRows ? `示例 ${total} 条` : `共 ${total} 条`}{!previewRows && total > 100000 ? '（约）' : ''}</span>
         <div className="flex gap-1">
           <button type="button" className="btn h-7" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>上一页</button>
           <button type="button" className="btn h-7" disabled={page * 20 >= total} onClick={() => setPage((p) => p + 1)}>下一页</button>

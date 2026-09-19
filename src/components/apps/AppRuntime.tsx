@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import clsx from 'clsx'
+import { AppProductPage } from '@/components/apps/AppProductPage'
 import { SpecKanban } from '@/components/apps/SpecKanban'
 import { SpecStat } from '@/components/apps/SpecStat'
 import { SpecTable } from '@/components/apps/SpecTable'
 import { SpecForm } from '@/components/apps/SpecForm'
 import { SpecEditor } from '@/components/apps/SpecEditor'
-import { isCurrentRevisionPending, isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
+import { hasProductPages, isCurrentRevisionPending, isFdeAppSpec, mockRowsForEntity, type FdeAppDetail } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -18,22 +19,10 @@ type Props = {
 }
 
 function mockRows(spec: FdeAppDetail['spec']): Record<string, unknown>[] {
-  const table = spec.views.find((v) => v.type === 'table')
+  const table = spec.views.find((v) => v.type === 'table' || v.type === 'feed' || v.type === 'cards')
   const entity = table?.entity || spec.entities[0]?.name
-  const ent = spec.entities.find((e) => e.name === entity)
-  if (!ent) return []
-  const statusField = ent.fields.find((f) => f.type === 'enum')
-  const statuses = statusField?.options ?? ['示例']
-  return [0, 1, 2].map((i) => {
-    const row: Record<string, unknown> = { id: `preview_${i}` }
-    for (const f of ent.fields) {
-      if (f.type === 'enum') row[f.name] = statuses[i % statuses.length]
-      else if (f.type === 'date') row[f.name] = '2026-09-01'
-      else if (f.type === 'number') row[f.name] = i + 1
-      else row[f.name] = `${f.label || f.name} ${i + 1}`
-    }
-    return row
-  })
+  if (!entity) return []
+  return mockRowsForEntity(spec, entity)
 }
 
 export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, variant, onChanged, onRequestDelete }: Props) {
@@ -86,9 +75,14 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
     return <div className="px-4 py-3 text-xs text-ink-muted">不是 fde-app/v1 声明式应用</div>
   }
 
+  const product = hasProductPages(spec)
+
   return (
     <div className={variant === 'dialog' || variant === 'workspace' ? '' : 'border-t border-line'}>
       <div className="px-4 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2">
+        {product ? (
+          <div className="text-xs text-ink-muted">{spec.description || spec.name}</div>
+        ) : (
         <div className="flex items-center rounded border border-line bg-surface p-0.5">
           {views.map((view) => {
             const key = view.id || `${view.type}-${view.entity}`
@@ -107,6 +101,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
             )
           })}
         </div>
+        )}
         <div className="flex flex-wrap gap-2">
           {pendingMaterialize && (
             <button type="button" className="btn-brand h-7" onClick={() => void activate()}>
@@ -140,6 +135,14 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
       </div>
       {note && <div className="px-4 py-2 text-xs text-accent-red">{note}</div>}
       {showEditor && <SpecEditor app={app} onSaved={onChanged} />}
+      {hasProductPages(spec) ? (
+        <div className="px-4 py-3">
+          <AppProductPage app={app} workspaceCwd={workspaceCwd} onRefresh={onChanged} />
+          {app.status === 'archived' && (
+            <div className="text-xs text-ink-muted mt-2">已归档，只读。</div>
+          )}
+        </div>
+      ) : (
       <div className="px-4 py-3">
         {current?.type === 'table' && (
           <SpecTable
@@ -176,6 +179,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
           <div className="text-xs text-ink-muted mt-2">已归档，只读。</div>
         )}
       </div>
+      )}
     </div>
   )
 }
