@@ -13,7 +13,6 @@ const FDE_PRESET_IDS = new Set(['fde-app-builder', 'fde-briefing'])
 const FDE_SHIPPED_PRESET_IDS = ['fde-app-builder', 'fde-briefing']
 
 export async function ensurePresets(dshHome) {
-  const sync = process.env.FDE_PRESET_SYNC === 'force'
   const userRoot = join(dshHome, '.agent-presets')
   await mkdir(userRoot, { recursive: true })
   const shippedRoot = join(FDE_APP_ROOT, 'runtime', 'presets')
@@ -21,8 +20,7 @@ export async function ensurePresets(dshHome) {
     const src = join(shippedRoot, id)
     const dest = join(userRoot, id)
     if (!existsSync(src)) continue
-    if (existsSync(dest) && !sync) continue
-    await cp(src, dest, { recursive: true, force: sync })
+    await cp(src, dest, { recursive: true, force: true })
   }
 }
 
