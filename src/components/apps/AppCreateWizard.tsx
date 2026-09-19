@@ -49,7 +49,7 @@ export function AppCreateWizard({ onCreated, onClose }: Props) {
       context: ['workspace', 'apps', 'biz'],
       prompt: `需求：${description}\n请生成 fde-app/v1 spec 并调用 fde_app_spec_submit(requestId, spec)。若返回 errors，修正后重新提交。不要写外部业务系统。`,
       schema: { type: 'object', required: ['appId', 'revision'] },
-      timeoutMs: 120_000,
+      timeoutMs: 240_000,
     })
     if (!result.ok) {
       setError(result.error === 'timeout' ? '生成超时，可在左侧会话里看 AI 说了什么，或改描述再试。' : result.error)
