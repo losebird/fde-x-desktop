@@ -1702,16 +1702,16 @@ const server = createServer(async (request, response) => {
       const mode = body.mode === 'steer' ? 'steer' : 'queue'
       const requestId = typeof body.requestId === 'string' && body.requestId.trim()
         ? body.requestId.trim()
-        : currentCorrelationId
-      const receiptIds = Array.isArray(body.receiptIds)
-        ? body.receiptIds.filter((id) => typeof id === 'string' && id)
+        : crypto.randomUUID()
+      const fileParts = Array.isArray(body.receiptIds)
+        ? body.receiptIds.filter((id) => typeof id === 'string' && id).map((receiptId) => ({ type: 'file', receiptId }))
         : []
       await aiRuntime.call('session/prompt', {
-        agentId: decodeURIComponent(aiPromptMatch[1]),
         request: {
-          text,
+          requestId,
+          sessionId: decodeURIComponent(aiPromptMatch[1]),
           mode,
-          ...(receiptIds.length ? { receiptIds } : {}),
+          content: [{ type: 'text', text }, ...fileParts],
           ...(typeof body.clientTimeZone === 'string' && body.clientTimeZone
             ? { clientTimeZone: body.clientTimeZone }
             : {}),
