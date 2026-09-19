@@ -92,27 +92,23 @@ function openFilesModule(selectedId?: string) {
 }
 
 async function draftImReply(spec: FdeAppSpec): Promise<string> {
-  const state = useApp.getState()
   const text = [
-    `【拟回】${spec.name}`,
+    `${spec.name}`,
     spec.description || '',
     '这条只放进输入框。请人过目后点发送，不要自动群发。',
   ].filter(Boolean).join('\n')
   const mailbox = await runtimeApi.imState().catch(() => ({} as Record<string, unknown>))
-  const peerId = firstPeerId(mailbox) || String(state.activeThreadId || '')
-  if (peerId) {
-    state.setActiveThread(peerId)
-    state.setIMComposerDraft(peerId, text)
-    window.dispatchEvent(new CustomEvent('fde-x-im-fill', { detail: { threadId: peerId, text } }))
-    await runtimeApi.imCompose({ text, peerId }).catch(() => undefined)
-    state.openIMPanel(peerId)
-    return '已放进 IM 输入框，点发送才会发出'
-  }
-  const threadId = String(state.activeThreadId || 'im1')
-  state.setIMComposerDraft(threadId, text)
+  const state = useApp.getState()
+  const peerId = firstPeerId(mailbox) || String(state.activeThreadId || 'im1')
+  state.openIMPanel(peerId)
+  state.setIMComposerDraft(peerId, text)
+  await new Promise((resolve) => window.setTimeout(resolve, 50))
+  const live = useApp.getState()
+  const threadId = String(live.activeThreadId || peerId)
+  live.setIMComposerDraft(threadId, text)
   window.dispatchEvent(new CustomEvent('fde-x-im-fill', { detail: { threadId, text } }))
-  state.openIMPanel(threadId)
-  return '已打开 IM。拟回在输入框，点发送才会发出'
+  await runtimeApi.imCompose({ text, peerId: threadId }).catch(() => undefined)
+  return '已放进 IM 输入框，点发送才会发出'
 }
 
 export async function startBizPreviews(intents: BizPreviewIntent[]): Promise<string> {
