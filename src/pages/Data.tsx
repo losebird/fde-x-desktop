@@ -353,6 +353,11 @@ function Overview({
   const workspaceApp = visibleApps.find((app) => app.id === workspaceAppId) || null
 
   useEffect(() => {
+    const cwd = loadCurrentWorkspaceCwd()
+    if (cwd.ok) setWorkspaceCwd(cwd.cwd)
+  }, [])
+
+  useEffect(() => {
     if (!selected || !isFdeAppSpec(selected.definition)) {
       setDeclarativeApp(null)
       return
@@ -460,7 +465,7 @@ function Overview({
             {visibleApps.length === 0 ? (
               <div className="px-4 py-10 text-center text-sm text-ink-muted">还没有应用。先创建草稿，再为它选择数据源和权限。</div>
             ) : visibleApps.map((app) => (
-              <div key={app.id} className="px-4 py-3 flex items-center gap-3 hover:bg-surface-2 transition-colors">
+              <div key={app.id} data-app-row={app.id} className="px-4 py-3 flex items-center gap-3 hover:bg-surface-2 transition-colors">
                 <button type="button" onClick={() => openApp(app)} className="min-w-0 flex-1 flex items-center gap-3 text-left">
                   <div className="w-9 h-9 border border-line bg-surface-2 flex items-center justify-center text-brand shrink-0">
                     {app.appKind === 'generated' ? <Bot size={16} /> : <AppWindow size={16} />}
