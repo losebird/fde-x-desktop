@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FileClock, FileSearch, Loader2, RefreshCw, RotateCcw } from 'lucide-react'
+import { FileClock, FileSearch, Loader2, RefreshCw, RotateCcw, Search } from 'lucide-react'
 import { Card, Tag } from '@/components/ui'
 import { DrawerShell } from '@/components/DrawerShell'
 import { BizRollbackConfirmDrawer, rollbackDrawerChanges } from '@/components/biz/BizRollbackConfirmDrawer'
@@ -16,6 +16,15 @@ import {
   normalizeRollbackBadge,
   type BizRollbackBadge,
 } from '@/lib/biz-rollback-outcome'
+import {
+  HISTORY_PAGE_SIZE,
+  actionTone,
+  collectActionTokens,
+  historyRecordStatus,
+  historyRowMatches,
+  historySearchHaystack,
+  paginateHistory,
+} from '@/lib/biz-operation-history'
 
 export type BizTraceRow = {
   id: string
@@ -77,11 +86,9 @@ function formatError(cause: unknown) {
 }
 
 function RollbackStatusTag({ badge, action }: { badge?: BizRollbackBadge; action?: string }) {
-  if (String(action || '').trim() === '回退') return <Tag kind="teal">已完成</Tag>
-  if (badge === 'can') return <Tag kind="amber">可回退</Tag>
-  if (badge === 'rolled_back') return <Tag kind="teal">已回退</Tag>
-  if (badge === 'blocked') return <Tag kind="default">无法回退</Tag>
-  return null
+  const status = historyRecordStatus(action || '', badge)
+  if (!status) return null
+  return <Tag kind={status.kind}>{status.label}</Tag>
 }
 
 function traceDisplayChanges(row: BizTraceRow): PreviewChange[] {
@@ -143,7 +150,9 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
   const [rows, setRows] = useState<BizTraceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [kindCatalog, setKindCatalog] = useState<Array<{ kind: string; label: string }>>([])
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [kindCatalog, setKindCatalog] = useState<Array<{ kind: string; label: string; can: string[] }>>([])
   const [traceOpen, setTraceOpen] = useState(false)
   const [selected, setSelected] = useState<BizTraceRow | null>(null)
   const [corpusView, setCorpusView] = useState<CorpusView>({ state: 'idle' })
@@ -181,7 +190,7 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
     setLoading(true)
     setError('')
     try {
-      const { rows: next } = await runtimeApi.listBizTraces(80)
+      const { rows: next } = await runtimeApi.listBizTraces(200)
       const mapped = (Array.isArray(next) ? next : []).map((row) => {
         const item = row as Record<string, unknown>
         const traceId = String(item.traceId || item.id || '')
@@ -230,7 +239,11 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
     const cwd = workspace.ok ? workspace.cwd : undefined
     void runtimeApi.listBizKinds(undefined, cwd).then((data) => {
       const kinds = Array.isArray(data.kinds) ? data.kinds : []
-      setKindCatalog(kinds.map((k) => ({ kind: String(k.kind || ''), label: String(k.label || k.kind || '') })))
+      setKindCatalog(kinds.map((k) => ({
+        kind: String(k.kind || ''),
+        label: String(k.label || k.kind || ''),
+        can: Array.isArray(k.can) ? k.can.map((item) => String(item || '').trim()).filter(Boolean) : [],
+      })))
     }).catch(() => undefined)
   }, [runtimeReady])
 
@@ -378,6 +391,40 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
     return parts.join(' · ')
   }, [kindLabel])
 
+  const rowHaystack = useCallback((row: BizTraceRow) => historySearchHaystack([
+    kindLabel(row.kind),
+    row.kind,
+    normalizeTraceAction(row.action),
+    row.no,
+    row.changesSummary,
+    listChangeDetail(row),
+  ]), [kindLabel])
+
+  const actionTokens = useMemo(() => {
+    const items: string[] = []
+    for (const row of kindCatalog) items.push(...row.can)
+    for (const row of rows) items.push(normalizeTraceAction(row.action))
+    return collectActionTokens(items)
+  }, [kindCatalog, rows])
+
+  useEffect(() => {
+    setPage(1)
+  }, [query])
+
+  const filteredRows = useMemo(
+    () => rows.filter((row) => historyRowMatches(rowHaystack(row), query)),
+    [query, rowHaystack, rows],
+  )
+
+  const paged = useMemo(
+    () => paginateHistory(filteredRows, page, HISTORY_PAGE_SIZE),
+    [filteredRows, page],
+  )
+
+  useEffect(() => {
+    if (paged.page !== page) setPage(paged.page)
+  }, [page, paged.page])
+
   const selectedChanges = useMemo(
     () => (selected ? traceDisplayChanges(selected) : []),
     [selected],
@@ -400,14 +447,26 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
       )}
       <Card className="!p-0 overflow-hidden min-w-0 w-full">
         <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <div className="text-sm font-medium">操作历史</div>
             <div className="text-xs text-ink-muted mt-0.5">本工作区 AI 与工作台写入记录；点一条可展开详情</div>
           </div>
-          <button type="button" className="btn !py-1" disabled={loading} onClick={() => void refresh()}>
-            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-            刷新
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
+              <input
+                className="input h-8 pl-8 w-48"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="对象、动作、单号、变更摘要"
+                aria-label="搜索操作历史"
+              />
+            </div>
+            <button type="button" className="btn !py-1" disabled={loading} onClick={() => void refresh()}>
+              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+              刷新
+            </button>
+          </div>
         </div>
         {rollbackFeedback && (
           <div
@@ -428,29 +487,69 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
           <div className="py-12 text-center text-sm text-ink-muted px-4">
             还没有操作记录。在业务记录或 AI 会话中完成一次确认过账后，会出现在这里。
           </div>
-        ) : (
-          <div className="divide-y divide-line">
-            {rows.map((row) => (
-              <button
-                key={row.traceId}
-                type="button"
-                onClick={() => openTrace(row)}
-                className="w-full px-4 py-3 text-left flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-surface-2"
-              >
-                <div className="w-8 h-8 rounded border border-line bg-surface-2 flex items-center justify-center shrink-0">
-                  <FileClock size={14} className="text-ink-muted" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">{listLine(row)}</div>
-                  <div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2">
-                    {formatTraceTime(row.at)} · {sourceLabel(row.source)} · {listChangeDetail(row)}
-                  </div>
-                </div>
-                <Tag kind="default">{sourceLabel(row.source)}</Tag>
-                <RollbackStatusTag badge={row.rollbackBadge} action={row.action} />
-              </button>
-            ))}
+        ) : filteredRows.length === 0 ? (
+          <div className="py-12 text-center text-sm text-ink-muted px-4">
+            没有匹配的操作记录。
           </div>
+        ) : (
+          <>
+            <div className="divide-y divide-line">
+              {paged.rows.map((row) => {
+                const action = normalizeTraceAction(row.action)
+                const tone = actionTone(action, actionTokens)
+                const status = historyRecordStatus(action, row.rollbackBadge)
+                return (
+                  <button
+                    key={row.traceId}
+                    type="button"
+                    onClick={() => openTrace(row)}
+                    className="w-full px-4 py-3 text-left flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-surface-2"
+                    data-history-action={action}
+                    data-history-action-tone={tone}
+                    data-history-status={status?.label || ''}
+                    data-history-status-tone={status?.kind || ''}
+                  >
+                    <div className="w-8 h-8 rounded border border-line bg-surface-2 flex items-center justify-center shrink-0">
+                      <FileClock size={14} className="text-ink-muted" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">{listLine(row)}</div>
+                      <div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2">
+                        {formatTraceTime(row.at)} · {sourceLabel(row.source)} · {listChangeDetail(row)}
+                      </div>
+                    </div>
+                    <Tag kind={tone}>{action}</Tag>
+                    <Tag kind="default">{sourceLabel(row.source)}</Tag>
+                    <RollbackStatusTag badge={row.rollbackBadge} action={row.action} />
+                  </button>
+                )
+              })}
+            </div>
+            <div className="px-4 py-2 border-t border-line flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
+              <span>共 {filteredRows.length} 条</span>
+              <div className="flex items-center gap-2">
+                <span data-history-page={paged.page} data-history-page-size={HISTORY_PAGE_SIZE} data-history-total-pages={paged.totalPages}>
+                  第 {paged.page} / {paged.totalPages} 页
+                </span>
+                <button
+                  type="button"
+                  className="btn h-7"
+                  disabled={paged.page <= 1}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                >
+                  上一页
+                </button>
+                <button
+                  type="button"
+                  className="btn h-7"
+                  disabled={paged.page >= paged.totalPages}
+                  onClick={() => setPage((current) => Math.min(paged.totalPages, current + 1))}
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </Card>
 
