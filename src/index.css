@@ -24,7 +24,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 浮窗拖/缩时屏蔽 iframe 抢指针（data-floating-drag 由 FloatingPanel 设置） */
+/* 浮窗或右栏拖/缩时屏蔽 iframe 抢指针（data-floating-drag 由 FloatingPanel / StagePanel 设置） */
 [data-floating-drag] iframe {
   pointer-events: none;
 }

@@ -1,13 +1,22 @@
 // 右侧吸附工作台面板。显示当前 activePanel,可拖拽左侧边缘调整宽度。
 import { X, Minus, GripHorizontal, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useApp } from '@/store/app'
 import type { SidePanelItem } from '@/store/app'
 import { PanelContent } from './PanelContent'
 
 let __panelStartX = 0
 let __panelStartW = 0
+
+function iframeDragShield(on: boolean) {
+  if (on) document.body.setAttribute('data-floating-drag', '1')
+  else document.body.removeAttribute('data-floating-drag')
+}
+
+function panelMaxWidth(overlay: boolean) {
+  return overlay ? 1280 : Math.max(400, Math.min(1280, window.innerWidth - 728))
+}
 
 export function StagePanel({ item, overlay }: { item?: SidePanelItem; overlay?: boolean }) {
   const closePanel = useApp((s) => s.closePanel)
@@ -19,6 +28,30 @@ export function StagePanel({ item, overlay }: { item?: SidePanelItem; overlay?: 
 
   // 面板最大宽度:overlay 不受视口限制;吸附模式给主区至少 640px，并扣掉最右功能栏 88px
   const maxW = overlay ? 1280 : Math.max(400, Math.min(1280, (typeof window !== 'undefined' ? window.innerWidth : 1440) - 728))
+
+  const panelId = item?.id
+  const overlayMode = Boolean(overlay)
+  useEffect(() => {
+    if (!dragging || !panelId) return
+    const onMove = (event: PointerEvent) => {
+      const next = __panelStartW + (__panelStartX - event.clientX)
+      setPanelWidth(panelId, Math.max(360, Math.min(panelMaxWidth(overlayMode), next)))
+    }
+    const onUp = () => {
+      iframeDragShield(false)
+      setDragging(false)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    window.addEventListener('blur', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      window.removeEventListener('blur', onUp)
+    }
+  }, [dragging, overlayMode, panelId, setPanelWidth])
 
   if (!item || (item.state !== 'full' && item.state !== 'half')) return null
 
@@ -47,25 +80,25 @@ export function StagePanel({ item, overlay }: { item?: SidePanelItem; overlay?: 
     e.currentTarget.setPointerCapture(e.pointerId)
     __panelStartX = e.clientX
     __panelStartW = item.width
+    iframeDragShield(true)
     setDragging(true)
   }
 
   const onDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
     const next = __panelStartW + (__panelStartX - e.clientX)
-    const clamped = Math.max(360, Math.min(maxW, next))
-    setPanelWidth(item.id, clamped)
+    setPanelWidth(item.id, Math.max(360, Math.min(maxW, next)))
   }
 
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+    iframeDragShield(false)
     setDragging(false)
   }
 
   return (
     <div
       className={clsx(
-        'border-l border-line bg-surface flex flex-col shrink-0 relative',
+        'border-l border-line bg-surface flex flex-col shrink-0 min-w-0 relative',
         overlay
           ? 'absolute top-0 bottom-0 right-0 z-30 shadow-[-12px_0_32px_rgba(0,0,0,0.18)]'
           : 'h-full z-20 shadow-[-4px_0_16px_rgba(0,0,0,0.03)]',
