@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   bizKindFromRef,
@@ -22,9 +22,10 @@ type Props = {
   onDone?: () => void
   layout?: 'stack' | 'compose'
   submitLabel?: string
+  renderSubmit?: (submitButton: ReactNode) => ReactNode
 }
 
-export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, onDone, layout = 'stack', submitLabel }: Props) {
+export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, onDone, layout = 'stack', submitLabel, renderSubmit }: Props) {
   const ent = entityDef(app.spec, entity)
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const base: Record<string, unknown> = {}
@@ -72,6 +73,17 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
   }
 
   const compose = layout === 'compose'
+  const canSubmit = !readOnly && app.status !== 'archived'
+  const submitButton = canSubmit ? (
+    <button
+      type="button"
+      className={clsx('btn-brand h-8', renderSubmit ? '' : 'w-full')}
+      disabled={saving}
+      onClick={() => { void submit() }}
+    >
+      {saving ? '保存中…' : submitLabel || (rid ? '保存' : compose ? `记下${ent.label}` : '创建')}
+    </button>
+  ) : null
 
   return (
     <div className="space-y-3" data-app-compose={compose ? 'true' : undefined}>
@@ -176,11 +188,7 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
       ))}
       </div>
       {note && <div className="text-xs text-ink-muted">{note}</div>}
-      {!readOnly && app.status !== 'archived' && (
-        <button type="button" className="btn-brand h-8 w-full" disabled={saving} onClick={() => void submit()}>
-          {saving ? '保存中…' : submitLabel || (rid ? '保存' : compose ? `记下${ent.label}` : '创建')}
-        </button>
-      )}
+      {renderSubmit ? renderSubmit(submitButton) : submitButton}
     </div>
   )
 }

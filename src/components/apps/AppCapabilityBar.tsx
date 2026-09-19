@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { FdeAppSpec, FdePlatformUse } from '@/lib/app-spec'
 import {
   declaredPlatformUses,
@@ -9,18 +9,23 @@ import {
 import type { MemoryDraftCard } from '@/lib/runtime-api'
 import { runtimeApi } from '@/lib/runtime-api'
 
+/** Same chip as card 「打开」— record actions, not a platform toolbar. */
+export const recordActionChipClass =
+  'inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-line bg-surface-2 text-ink text-[12px] font-medium hover:bg-surface transition-colors'
+
 type Props = {
   spec: FdeAppSpec
   appId: string
   uses?: FdePlatformUse[]
+  primary?: ReactNode
 }
 
-export function AppCapabilityBar({ spec, appId, uses: usesProp }: Props) {
+export function AppCapabilityBar({ spec, appId, uses: usesProp, primary }: Props) {
   const uses = usesProp ?? declaredPlatformUses(spec)
   const [note, setNote] = useState('')
   const [draftCard, setDraftCard] = useState<MemoryDraftCard | null>(null)
   const [nodding, setNodding] = useState(false)
-  if (!uses.length) return null
+  if (!uses.length && !primary) return null
 
   const run = async (use: FdePlatformUse) => {
     setNote('')
@@ -56,13 +61,18 @@ export function AppCapabilityBar({ spec, appId, uses: usesProp }: Props) {
   }
 
   return (
-    <div className="flex w-full flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2" data-app-column-uses={uses.join(',')}>
+    <div className={primary ? 'flex w-full flex-col gap-2' : 'flex flex-col gap-2'}>
+      <div
+        className="flex flex-wrap items-center gap-2"
+        data-app-record-actions="true"
+        data-app-column-uses={uses.join(',')}
+      >
+        {primary}
         {uses.map((use) => (
           <button
             key={use}
             type="button"
-            className="btn h-7"
+            className={recordActionChipClass}
             data-app-use={use}
             onClick={() => { void run(use) }}
           >

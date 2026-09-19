@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import clsx from 'clsx'
 import { AppCapabilityBar } from '@/components/apps/AppCapabilityBar'
 import { SpecCards } from '@/components/apps/SpecCards'
@@ -19,6 +19,7 @@ import {
   type FdeAppDetail,
   type FdeAppPage,
   type FdeAppView,
+  type FdePlatformUse,
 } from '@/lib/app-spec'
 
 type Props = {
@@ -43,9 +44,6 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
   const pageEntity = pageEntityName(app.spec, page, extraViews)
   const columnUses = pageColumnUses(app.spec, pageEntity)
   const hasCompose = page.blocks.some((block) => block.kind === 'compose' || block.kind === 'form')
-  const columnBar = columnUses.length ? (
-    <AppCapabilityBar spec={app.spec} appId={app.id} uses={columnUses} />
-  ) : null
 
   return (
     <div
@@ -90,12 +88,17 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
                 view={'view' in block ? viewById(app.spec, block.view, extraViews) : undefined}
                 statViews={block.kind === 'stats' ? block.views.map((id) => viewById(app.spec, id, extraViews)).filter((row): row is FdeAppView => Boolean(row)) : []}
                 kind={block.kind}
-                capabilityBar={block.kind === 'compose' || block.kind === 'form' ? columnBar : null}
+                capabilityUses={
+                  block.kind === 'compose' || block.kind === 'form'
+                    ? columnUses
+                    : block.kind === 'cards' && !hasCompose
+                      ? columnUses
+                      : []
+                }
               />
             ))}
           </div>
         ))}
-        {!hasCompose && columnBar}
       </div>
     </div>
   )
@@ -132,7 +135,7 @@ function renderBlocks(blocks: FdeAppPage['blocks']): { pair: boolean; blocks: Fd
 }
 
 function ProductBlock({
-  app, workspaceCwd, preview, reloadToken, onRefresh, view, statViews, kind, capabilityBar,
+  app, workspaceCwd, preview, reloadToken, onRefresh, view, statViews, kind, capabilityUses,
 }: {
   app: FdeAppDetail
   workspaceCwd: string
@@ -142,7 +145,7 @@ function ProductBlock({
   view?: FdeAppView
   statViews: FdeAppView[]
   kind: FdeAppPage['blocks'][number]['kind']
-  capabilityBar?: ReactNode
+  capabilityUses: FdePlatformUse[]
 }) {
   if (kind === 'stats') {
     return (
@@ -174,8 +177,10 @@ function ProductBlock({
           layout="compose"
           submitLabel={view.label}
           onDone={onRefresh}
+          renderSubmit={capabilityUses.length ? (submitButton) => (
+            <AppCapabilityBar spec={app.spec} appId={app.id} uses={capabilityUses} primary={submitButton} />
+          ) : undefined}
         />
-        {capabilityBar}
       </div>
     )
   }
@@ -186,7 +191,18 @@ function ProductBlock({
     return <SpecFeed app={app} view={view} workspaceCwd={workspaceCwd} previewRows={previewRows} reloadToken={reloadToken} />
   }
   if (kind === 'cards') {
-    return <SpecCards app={app} view={view} workspaceCwd={workspaceCwd} previewRows={previewRows} reloadToken={reloadToken} />
+    return (
+      <SpecCards
+        app={app}
+        view={view}
+        workspaceCwd={workspaceCwd}
+        previewRows={previewRows}
+        reloadToken={reloadToken}
+        recordActions={capabilityUses.length ? (
+          <AppCapabilityBar spec={app.spec} appId={app.id} uses={capabilityUses} />
+        ) : undefined}
+      />
+    )
   }
   if (kind === 'kanban') {
     return <SpecKanban app={app} view={view} workspaceCwd={workspaceCwd} previewRows={previewRows} />

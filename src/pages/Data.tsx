@@ -189,7 +189,9 @@ export default function Data() {
         }
       />
 
-      <AuthorityStrip health={health} loading={loading} error={error} catalogCount={catalogCount} onRefresh={refresh} />
+      {view === 'records' && (
+        <AuthorityStrip health={health} loading={loading} error={error} catalogCount={catalogCount} onRefresh={refresh} />
+      )}
 
       {view === 'overview' && (
         <Overview

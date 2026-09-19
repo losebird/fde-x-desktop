@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ExternalLink } from 'lucide-react'
 import {
   cardAction,
@@ -20,6 +20,7 @@ type Props = {
   workspaceCwd: string
   previewRows?: Record<string, unknown>[]
   reloadToken?: number
+  recordActions?: ReactNode
 }
 
 const HERO_TONES = [
@@ -50,7 +51,7 @@ function HeroMark() {
   )
 }
 
-export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }: Props) {
+export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, recordActions }: Props) {
   const [rows, setRows] = useState<Record<string, unknown>[]>(previewRows ?? [])
   const [error, setError] = useState('')
   const ent = entityDef(app.spec, view.entity)
@@ -97,11 +98,12 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
       </div>
       {error && <div className="text-xs text-accent-red">{error}</div>}
       {rows.length === 0 ? (
-        <div className="border border-line rounded-xl px-3 py-10 text-center text-xs text-ink-muted">
-          {app.status === 'active' ? '还没有条目。记下一条就会出现卡片。' : '还没有条目。'}
+        <div className="border border-line rounded-xl px-3 py-10 text-center text-xs text-ink-muted space-y-3">
+          <div>{app.status === 'active' ? '还没有条目。记下一条就会出现卡片。' : '还没有条目。'}</div>
+          {recordActions}
         </div>
       ) : (
-        groups.map((group) => (
+        groups.map((group, groupIndex) => (
           <section key={group.key || 'all'} className="space-y-3" data-app-card-group={group.key || 'all'}>
             {Boolean(groupBy) && (
               <div className="text-sm font-medium text-ink" data-app-card-group-label="true">{group.label}</div>
@@ -110,12 +112,13 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
               className="grid gap-3"
               style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(11.25rem, 12.75rem))' }}
             >
-              {group.rows.map((row) => {
+              {group.rows.map((row, rowIndex) => {
                 const title = displayTitle(app.spec, view.entity, row)
                 const blurb = displayBlurb(app.spec, view.entity, row, title)
                 const action = cardAction(app.spec, view.entity, row)
                 const toneKey = title || String(row.id)
                 const heroTone = heroToneClassFor(toneKey)
+                const showRecordActions = Boolean(recordActions) && groupIndex === 0 && rowIndex === 0
                 return (
                   <article
                     key={String(row.id)}
@@ -131,7 +134,7 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
                       {blurb ? (
                         <p className="text-[12px] text-ink-muted leading-snug line-clamp-2" data-app-card-blurb="true">{blurb}</p>
                       ) : null}
-                      <div className="mt-auto pt-1">
+                      <div className="mt-auto pt-1 flex flex-wrap items-center gap-2">
                         {action?.kind === 'url' && (
                           <a
                             href={action.href}
@@ -155,6 +158,7 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
                             <ExternalLink className="h-3 w-3 text-ink-muted" aria-hidden="true" />
                           </button>
                         )}
+                        {showRecordActions ? recordActions : null}
                       </div>
                     </div>
                   </article>
