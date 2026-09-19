@@ -352,9 +352,13 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
       const only = String(anchor.kind || kind || '').trim()
       if (only) allowedKinds.push(only)
     }
-    const hits = operationKindHitSheets(anchor)
+    const hits = [
+      ...operationKindHitSheets(anchor),
+      ...operationKindHitSheets(operationAnchor),
+      ...operationKindHitSheets(pendingSheet),
+    ]
     for (const bound of allowedKinds) {
-      const hit = hits.find((sheet) => String(sheet.kind || '') === bound)
+      const hit = hits.find((sheet) => String(sheet.kind || '') === bound && Array.isArray(sheet.rows))
       const count = hit && Array.isArray(hit.rows)
         ? hit.rows.length
         : (bound === kind ? rows.length : 0)
@@ -1106,7 +1110,10 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
     const pendingSheet = peekBizPendingSheet()
     const anchor = pendingSheet || listSheetMeta
     const boundKinds = extractBoundKindHints(anchor)
-    const hitSheets = operationKindHitSheets(anchor)
+    const hitSheets = [
+      ...operationKindHitSheets(pendingSheet),
+      ...operationKindHitSheets(listSheetMeta),
+    ]
     const hit = hitSheets.find((sheet) => String(sheet.kind || '') === nextKind)
     if (hit) {
       const sideView = Boolean(pendingSheet && String(pendingSheet.kind || '') !== nextKind)
@@ -1389,7 +1396,7 @@ export function RecordsPanel({ connections, apps, runtimeReady, onPlanWithTarget
               <button
                 key={k.kind}
                 type="button"
-                disabled={!lanReady}
+                disabled={k.count <= 0 && !lanReady}
                 className={clsx('btn !py-1', kind === k.kind && '!bg-ink !text-white !border-ink')}
                 onClick={() => selectKind(k.kind)}
               >
