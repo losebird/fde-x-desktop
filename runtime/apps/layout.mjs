@@ -71,12 +71,21 @@ function inferUses(spec) {
   for (const entity of entities) {
     for (const field of entityFields(entity)) {
       if (field?.type === 'ref' && String(field.ref || '').startsWith('biz:')) uses.add('biz')
+      if (LINK_FIELD_RE.test(String(field.name || '')) && /file|path/i.test(String(field.name || ''))) uses.add('files')
     }
   }
   if (spec.memory && spec.memory.onWrite === 'draft-card') uses.add('memory')
   uses.add('ai')
   uses.add('float')
   return [...uses]
+}
+
+function pageHasCardsForEntity(spec, page, entityName) {
+  return (page?.blocks || []).some((block) => {
+    if (block?.kind !== 'cards') return false
+    const view = (spec.views || []).find((row) => row && row.id === block.view)
+    return view?.entity === entityName
+  })
 }
 
 function buildEntityPage(spec, entity) {
@@ -194,10 +203,15 @@ export function withProductLayout(spec) {
   } else {
     next.uses = [...new Set(next.uses.map(String).filter((item) => PLATFORM_USES.includes(item)))]
   }
+  const entities = Array.isArray(next.entities) ? next.entities.filter((entity) => entity && typeof entity.name === 'string') : []
   if (Array.isArray(next.pages) && next.pages.length > 0) {
+    for (const entity of entities) {
+      if (!isResourceEntity(entity)) continue
+      if (next.pages.some((page) => pageHasCardsForEntity(next, page, entity.name))) continue
+      next.pages.unshift(buildEntityPage(next, entity))
+    }
     return next
   }
-  const entities = Array.isArray(next.entities) ? next.entities.filter((entity) => entity && typeof entity.name === 'string') : []
   next.pages = entities.map((entity) => buildEntityPage(next, entity))
   return next
 }

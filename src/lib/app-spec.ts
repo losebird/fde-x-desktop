@@ -121,39 +121,55 @@ export function viewById(spec: FdeAppSpec, id: string | undefined, extraViews: F
 
 const LINK_FIELD_RE = /url|link|href|src|media|file|path|video/i
 
+export function fieldLooksLikeLink(field: FdeAppField): boolean {
+  if (field.type !== 'text' && field.type !== 'longtext' && field.type !== 'ref') return false
+  return LINK_FIELD_RE.test(field.name)
+}
+
+export function entityHasLinkOrFile(entity: FdeAppEntity | undefined): boolean {
+  return Boolean(entity?.fields.some((field) => fieldLooksLikeLink(field)))
+}
+
 export function looksLikeGeneratedCode(value: unknown): boolean {
   const text = String(value ?? '').trim()
   if (!text) return true
   if (/^rec[a-z0-9]{8,}$/i.test(text)) return true
-  if (/[\u4e00-\u9fffA-Za-z]{1,6}-[a-z0-9]{5,}/i.test(text) && text.length <= 24) return true
+  if (/^[\u4e00-\u9fffA-Za-z]{1,6}-[a-z0-9]{5,}$/i.test(text) && text.length <= 24) return true
   return false
 }
 
-/** Human-readable title from spec fields. Skip generated ticket-like values. */
+function readableValue(row: Record<string, unknown>, name: string): string {
+  const text = String(row[name] ?? '').trim()
+  if (!text || looksLikeGeneratedCode(text)) return ''
+  return text
+}
+
+/** Human-readable title from spec fields. Skip generated ticket-like values and enum-only labels. */
 export function displayTitle(spec: FdeAppSpec, entityName: string, row: Record<string, unknown>): string {
   const ent = entityDef(spec, entityName)
   if (!ent) return ''
   const candidates: string[] = []
   if (ent.titleField) candidates.push(ent.titleField)
   for (const field of ent.fields) {
+    if (fieldLooksLikeLink(field)) continue
     if (field.type === 'text' || field.type === 'longtext') candidates.push(field.name)
   }
   for (const field of ent.fields) {
-    if (field.type === 'enum') candidates.push(field.name)
+    if (fieldLooksLikeLink(field) || field.type === 'enum') continue
+    if (field.type === 'date' || field.type === 'datetime') candidates.push(field.name)
+  }
+  for (const field of ent.fields) {
+    if (field.type === 'number') candidates.push(field.name)
   }
   const seen = new Set<string>()
   for (const name of candidates) {
     if (seen.has(name)) continue
     seen.add(name)
-    const text = String(row[name] ?? '').trim()
-    if (!text || looksLikeGeneratedCode(text)) continue
-    return text
+    const text = readableValue(row, name)
+    if (text) return text
   }
-  const enumField = ent.fields.find((field) => field.type === 'enum' && row[field.name] != null && String(row[field.name]).trim())
-  const numField = ent.fields.find((field) => field.type === 'number' && row[field.name] != null && String(row[field.name]).trim() !== '')
-  if (enumField && numField) return `${row[enumField.name]} · ${row[numField.name]}`
-  if (enumField) return String(row[enumField.name])
-  return ''
+  const enumField = ent.fields.find((field) => field.type === 'enum' && readableValue(row, field.name))
+  return enumField ? readableValue(row, enumField.name) : ''
 }
 
 export function displayBlurb(spec: FdeAppSpec, entityName: string, row: Record<string, unknown>, title: string): string {
@@ -166,7 +182,7 @@ export function displayBlurb(spec: FdeAppSpec, entityName: string, row: Record<s
   }
   for (const field of ent.fields) {
     if (field.type !== 'text' || field.name === ent.titleField) continue
-    if (LINK_FIELD_RE.test(field.name)) continue
+    if (fieldLooksLikeLink(field)) continue
     const text = String(row[field.name] ?? '').trim()
     if (text && text !== title && !looksLikeGeneratedCode(text)) return text
   }
@@ -180,8 +196,8 @@ export function cardAction(spec: FdeAppSpec, entityName: string, row: Record<str
     const raw = String(row[field.name] ?? '').trim()
     if (!raw) continue
     if (/^https?:\/\//i.test(raw)) return { href: raw, kind: 'url' }
-    if ((field.type === 'text' || field.type === 'longtext' || field.type === 'ref') && LINK_FIELD_RE.test(field.name)) {
-      return { href: raw, kind: /^https?:\/\//i.test(raw) ? 'url' : 'file' }
+    if (/^file:\/\//i.test(raw) || fieldLooksLikeLink(field)) {
+      return { href: raw.replace(/^file:\/\//i, ''), kind: /^https?:\/\//i.test(raw) ? 'url' : 'file' }
     }
   }
   return null
@@ -202,15 +218,47 @@ export function cardsViewForSpec(spec: FdeAppSpec): FdeAppView | undefined {
   return spec.views.find((view) => view.type === 'cards')
 }
 
+function pageHasCardsForEntity(spec: FdeAppSpec, page: FdeAppPage, entityName: string, extraViews: FdeAppView[] = []): boolean {
+  return page.blocks.some((block) => {
+    if (block.kind !== 'cards') return false
+    return viewById(spec, block.view, extraViews)?.entity === entityName
+  })
+}
+
 /**
  * Daily work surface: declared pages as-is.
- * Ledger pages stay one screen (overview + compose + chart + feed).
- * Cards-only extra tabs are not injected — that hid the product page behind serial cards.
+ * Ledger pages stay one screen (overview + compose + chart + feed) unless the
+ * entity also has a link/file field — then grouped cards are added, not a fitness skin.
  */
 export function workSurfacePages(spec: FdeAppSpec): { pages: FdeAppPage[]; extraViews: FdeAppView[] } {
-  const pages = spec.pages ?? []
+  const pages = [...(spec.pages ?? [])]
+  const extraViews: FdeAppView[] = []
   if (!pages.length) return { pages: [], extraViews: [] }
-  return { pages, extraViews: [] }
+  for (const entity of spec.entities) {
+    if (!entityHasLinkOrFile(entity)) continue
+    if (pages.some((page) => pageHasCardsForEntity(spec, page, entity.name, extraViews))) continue
+    let cardsView = spec.views.find((view) => view.type === 'cards' && view.entity === entity.name)
+    if (!cardsView) {
+      cardsView = {
+        id: `cards-${entity.name}`,
+        type: 'cards',
+        entity: entity.name,
+        label: entity.label,
+        groupBy: entity.fields.find((field) => field.type === 'enum')?.name,
+        columns: entity.fields.map((field) => field.name).slice(0, 4),
+      }
+      extraViews.push(cardsView)
+    }
+    const compose = spec.views.find((view) => (view.type === 'compose' || view.type === 'form') && view.entity === entity.name)
+    const blocks: FdePageBlock[] = [{ kind: 'cards', view: cardsView.id || `cards-${entity.name}` }]
+    if (compose?.id) blocks.push({ kind: compose.type === 'form' ? 'form' : 'compose', view: compose.id })
+    pages.unshift({
+      id: `page-cards-${entity.name}`,
+      label: entity.label,
+      blocks,
+    })
+  }
+  return { pages, extraViews }
 }
 
 export function mockRowsForEntity(spec: FdeAppSpec, entityName: string): Record<string, unknown>[] {
@@ -225,6 +273,7 @@ export function mockRowsForEntity(spec: FdeAppSpec, entityName: string): Record<
       else if (f.type === 'date') row[f.name] = '2026-09-01'
       else if (f.type === 'number') row[f.name] = (i + 1) * 3
       else if (f.type === 'bool') row[f.name] = i % 2 === 0
+      else if (fieldLooksLikeLink(f)) row[f.name] = `https://example.com/${entityName}-${i + 1}`
       else row[f.name] = `${f.label || f.name} ${i + 1}`
     }
     return row

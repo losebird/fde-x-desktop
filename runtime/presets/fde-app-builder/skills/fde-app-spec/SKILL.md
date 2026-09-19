@@ -32,6 +32,7 @@
 - 多个实体 → 多个 `pages` 当栏目
 
 禁止：把固定品类名单写进 spec；禁止生成代码或改 FDE 源码。
+禁止：用单号 / `甲-xxxx` / `记-xxxx` 填 `titleField`。标题必须是人能读的业务名。
 
 ## 提交流程
 
@@ -71,6 +72,38 @@
       { "kind": "compose", "view": "form-main" },
       { "kind": "chart", "view": "chart-kind" },
       { "kind": "feed", "view": "feed-main" }
+    ]
+  }]
+}
+```
+
+有链接或文件引用、并按 enum 分组时，用卡片栏（占位名，不要当模板抄）：
+
+```json
+{
+  "spec": "fde-app/v1",
+  "slug": "item-board",
+  "name": "按需求取名",
+  "uses": ["ai", "float", "files"],
+  "entities": [{
+    "name": "item", "label": "条目", "titleField": "title",
+    "fields": [
+      { "name": "title", "label": "标题", "type": "text", "required": true },
+      { "name": "source", "label": "分组", "type": "enum", "options": ["甲", "乙"] },
+      { "name": "blurb", "label": "说明", "type": "longtext" },
+      { "name": "url", "label": "链接", "type": "text" }
+    ]
+  }],
+  "views": [
+    { "id": "cards-main", "type": "cards", "entity": "item", "label": "条目", "groupBy": "source" },
+    { "id": "form-main", "type": "compose", "entity": "item", "label": "记下" }
+  ],
+  "pages": [{
+    "id": "page-item",
+    "label": "条目",
+    "blocks": [
+      { "kind": "cards", "view": "cards-main" },
+      { "kind": "compose", "view": "form-main" }
     ]
   }]
 }

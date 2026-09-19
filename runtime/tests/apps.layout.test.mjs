@@ -97,6 +97,87 @@ describe('product layout', () => {
     assert.equal(JSON.stringify(laid).includes('记账'), false)
   })
 
+  test('existing ledger pages stay ledger when there is no link field', () => {
+    const spec = {
+      ...SUPPLIER_VISITS_SPEC,
+      pages: [{
+        id: 'home',
+        label: '记录',
+        blocks: [
+          { kind: 'stats', views: ['stat-1'] },
+          { kind: 'compose', view: 'form-main' },
+          { kind: 'chart', view: 'chart-1' },
+          { kind: 'feed', view: 'feed-main' },
+        ],
+      }],
+      views: [
+        { id: 'stat-1', type: 'stat', entity: 'visit', metric: { fn: 'count' } },
+        { id: 'form-main', type: 'compose', entity: 'visit' },
+        { id: 'chart-1', type: 'chart', entity: 'visit', groupBy: 'status' },
+        { id: 'feed-main', type: 'feed', entity: 'visit' },
+      ],
+    }
+    const laid = withProductLayout(spec)
+    const kinds = laid.pages.flatMap((page) => page.blocks.map((b) => b.kind))
+    assert.equal(kinds.includes('cards'), false)
+    assert.deepEqual(laid.pages[0].blocks.map((b) => b.kind), ['stats', 'compose', 'chart', 'feed'])
+  })
+
+  test('existing pages with a link field get a grouped cards page', () => {
+    const spec = {
+      spec: 'fde-app/v1',
+      slug: 'link-board',
+      name: '链接板',
+      entities: [{
+        name: 'item',
+        label: '条目',
+        titleField: 'title',
+        fields: [
+          { name: 'title', label: '标题', type: 'text', required: true },
+          { name: 'source', label: '分组', type: 'enum', options: ['甲', '乙'] },
+          { name: 'url', label: '链接', type: 'text' },
+        ],
+      }],
+      views: [
+        { id: 'form-main', type: 'compose', entity: 'item', label: '记下' },
+        { id: 'feed-main', type: 'feed', entity: 'item' },
+      ],
+      pages: [{
+        id: 'home',
+        label: '记录',
+        blocks: [{ kind: 'compose', view: 'form-main' }, { kind: 'feed', view: 'feed-main' }],
+      }],
+    }
+    const laid = withProductLayout(spec)
+    const r = validateAppSpec(laid)
+    assert.equal(r.ok, true, JSON.stringify(r.errors))
+    const kinds = laid.pages[0].blocks.map((b) => b.kind)
+    assert.deepEqual(kinds, ['cards', 'compose'])
+    const cards = laid.views.find((view) => view.type === 'cards')
+    assert.equal(cards?.groupBy, 'source')
+    assert.ok(laid.pages.some((page) => page.blocks.some((block) => block.kind === 'feed')))
+  })
+
+  test('file path fields infer files capability', () => {
+    const spec = {
+      spec: 'fde-app/v1',
+      slug: 'file-board',
+      name: '稿件板',
+      entities: [{
+        name: 'item',
+        label: '条目',
+        titleField: 'title',
+        fields: [
+          { name: 'title', label: '标题', type: 'text', required: true },
+          { name: 'file_path', label: '文件', type: 'text' },
+        ],
+      }],
+      views: [{ id: 'form-1', type: 'form', entity: 'item' }],
+    }
+    const laid = withProductLayout(spec)
+    assert.ok(laid.uses.includes('files'))
+  })
+
   test('rejects unknown uses', () => {
     const r = validateAppSpec({ ...SUPPLIER_VISITS_SPEC, uses: ['magic'] })
     assert.equal(r.ok, false)

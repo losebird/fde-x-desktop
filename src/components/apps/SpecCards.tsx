@@ -35,8 +35,9 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
   const groupBy = cardGroupField(app.spec, view)
   const groupField = groupBy ? fieldDef(app.spec, view.entity, groupBy) : undefined
   const groupOptions = groupField?.options ?? []
+  const filesBrowse = useApp((state) => state.setFilesBrowse)
+  const setActiveFile = useApp((state) => state.setActiveFile)
   const openFiles = useApp((state) => state.togglePanel)
-  const usesFiles = (app.spec.uses ?? []).includes('files')
 
   const load = useCallback(async () => {
     if (previewRows) {
@@ -83,7 +84,7 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
       ) : (
         groups.map((group) => (
           <section key={group.key || 'all'} className="space-y-3" data-app-card-group={group.key || 'all'}>
-            {groups.length > 1 && (
+            {Boolean(groupBy) && (
               <div className="text-sm font-medium text-ink" data-app-card-group-label="true">{group.label}</div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -118,12 +119,18 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken }:
                           打开
                         </a>
                       )}
-                      {action?.kind === 'file' && usesFiles && (
+                      {action?.kind === 'file' && (
                         <button
                           type="button"
                           className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-amber-100 text-amber-900 text-[12px] font-medium"
                           data-app-card-action="file"
-                          onClick={() => openFiles('files', 'full')}
+                          onClick={() => {
+                            const href = action.href.replace(/^file:\/\//i, '')
+                            const parent = href.includes('/') ? href.split('/').slice(0, -1).join('/') || '.' : '.'
+                            filesBrowse({ selectedId: href, parentId: parent })
+                            setActiveFile(href)
+                            openFiles('files', 'full')
+                          }}
                         >
                           打开
                         </button>
