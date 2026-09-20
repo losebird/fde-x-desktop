@@ -373,6 +373,40 @@ test('recoverWriteIntent upgrades 现查 to 改行 from rewrite speech', () => {
   assert.equal(out.patch?.status, '成交')
 })
 
+test('口语 stub extra.vocab still peels spoken seed so leftover is the name rest', () => {
+  const speech = '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。'
+  const stub = { vocab: [...vocab, { kind: '口语', spoken: true, clues: [] }] }
+  const name = leftoverNameIdentity(speech, vocab, stub, { patch: { status: 'active' } })
+  assert.equal(name, '通达')
+})
+
+test('现查 leftover list-verb is not a ticket number', () => {
+  const payVocab = [
+    {
+      kind: '销售回款',
+      resource: 'biz_payments',
+      can: ['现查'],
+      relations: [{ from: '销售合同', to: '销售回款', field: 'contract' }],
+      clues: [{ say: ['待审'], keys: ['status'], values: ['pending', '待审'] }],
+    },
+    {
+      kind: '销售合同',
+      resource: 'biz_contracts',
+      can: ['现查'],
+      clues: [{ say: ['已到期', '到期'], keys: ['status'], values: ['expired', '已到期'], dateBefore: ['today'] }],
+    },
+    { kind: '口语', spoken: true, clues: [] },
+  ]
+  const speech = '待审回款挂在哪些合同上？把已到期的那些摊出来。'
+  const filled = enrichStructuredSlots({
+    kind: '销售回款',
+    action: '现查',
+    speech,
+  }, payVocab)
+  assert.equal(String(filled.no || ''), '')
+  assert.notEqual(leftoverNameIdentity(speech, payVocab, { vocab: payVocab }), '摊出来')
+})
+
 test('leftover name identity is connector rest, not a hardcoded company', () => {
   const speech = '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。'
   const name = leftoverNameIdentity(speech, vocab, {}, { patch: { status: 'active' } })

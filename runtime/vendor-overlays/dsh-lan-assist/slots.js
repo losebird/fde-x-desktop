@@ -782,7 +782,7 @@ function nameOwnerKind(speech, name, kinds) {
  * this rest — never a hardcoded company string.
  */
 export function leftoverNameIdentity(speech, vocab, extra = {}, spec = {}) {
-  const bag = { vocab: vocabWithSpoken(vocab), ...extra }
+  const bag = { ...extra, vocab: vocabWithSpoken((extra && extra.vocab) || vocab) }
   let s = String(speech || '')
   if (!s.trim()) return ''
   const span = rewriteSpan(speech)
@@ -841,6 +841,9 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
   }
   const existingNo = String(packed.no || packed.ticket || '').trim()
   if (existingNo) return packed
+  const act = String(packed.action || spec.action || '').trim()
+  const rewriting = rewriteSpan(speech).at >= 0
+  if (!rewriting && act !== '改行') return packed
   const name = leftoverNameIdentity(speech, vocab, bag, { patch: packed.patch || spec.patch })
   if (!name) return packed
   packed.no = name
