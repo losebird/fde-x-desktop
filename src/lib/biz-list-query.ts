@@ -172,8 +172,10 @@ export function operationBundlesAlign(
 }
 
 /**
- * Keep a hop-side kind view only while the incoming pending is the same operation.
- * A new pending (different speech/where/hop) must paint, even when kinds differ.
+ * Keep a hop-side kind view only while the incoming pending is the same operation
+ * and that side actually has rows (a person clicked the chip). An empty kind view
+ * must not hold over a populated pending. A new pending (different speech/where/hop)
+ * must paint, even when kinds differ.
  */
 export function shouldHoldSideKindView(
   viewKind: string,
@@ -185,6 +187,8 @@ export function shouldHoldSideKindView(
   const incomingKind = incoming && typeof incoming === 'object' ? String(incoming.kind || '').trim() : ''
   if (!view || !incomingKind || view === incomingKind) return false
   if (incomingIsWritePreview) return false
+  const shownRows = displayed && Array.isArray(displayed.rows) ? displayed.rows.length : 0
+  if (shownRows <= 0) return false
   return Boolean(displayed && operationBundlesAlign(displayed, incoming))
 }
 

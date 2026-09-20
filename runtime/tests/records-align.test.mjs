@@ -263,6 +263,7 @@ test('new pending paints even when the current kind view differs; same-operation
   assert.equal(shouldHoldSideKindView('KindShown', sameOpIncoming, shown, true), false)
   assert.equal(shouldHoldSideKindView('', nextOpIncoming, shown), false)
   assert.equal(shouldHoldSideKindView('KindNext', nextOpIncoming, shown), false)
+  assert.equal(shouldHoldSideKindView('KindShown', sameOpIncoming, { ...shown, rows: [] }), false)
 })
 
 test('empty 现查 poll holds the list; a new speech empty sheet must paint', async () => {
