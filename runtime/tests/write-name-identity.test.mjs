@@ -159,6 +159,70 @@ test('model-picked row id is ignored until a person picks from the hit set', asy
   assert.ok(changes.some((row) => row && row.field === 'status' && String(row.from) !== String(row.to)))
 })
 
+test('person pick from the hit set does not need a client patch', async () => {
+  const speech = `把停用客户${NAME}改成成交。只要预览，不要过账，不要 biz_write。`
+  const first = await gate().preview({
+    workspace: '/tmp/name-id-ws',
+    kind: '客户',
+    action: '改行',
+    speech,
+  })
+  const firstSheet = sheetOf(first)
+  const firstRows = Array.isArray(firstSheet.rows) ? firstSheet.rows : []
+  assert.equal(firstRows.length, 2)
+  assert.ok(!first.preview_id && !firstSheet.preview_id)
+  const pickedNo = String(firstRows[firstRows.length - 1].no || '')
+  const second = await gate().preview({
+    workspace: '/tmp/name-id-ws',
+    kind: '客户',
+    action: '改行',
+    speech,
+    no: pickedNo,
+    picked: true,
+  })
+  const sheet = sheetOf(second)
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  assert.equal(sheet.action, '改行')
+  assert.equal(rows.length, 1)
+  assert.equal(String(rows[0].no || ''), pickedNo)
+  assert.ok(String(second.preview_id || sheet.preview_id || '').startsWith('pv_'))
+  const changes = Array.isArray(sheet.changes) ? sheet.changes : []
+  assert.ok(changes.some((row) => row && String(row.from) !== String(row.to)))
+})
+
+test('rewrite 成交 still patches when the enum label is longer', async () => {
+  const local = createGate({
+    vocab,
+    lookupTodo,
+    async fieldsOf() {
+      return [
+        { name: '状态', title: '客户状态', enums: { paused: '暂停合作', won: '成交客户' } },
+        { name: 'name', title: '客户名称' },
+      ]
+    },
+  })
+  const speech = `把停用客户${NAME}改成成交。只要预览，不要过账，不要 biz_write。`
+  const first = await local.preview({
+    workspace: '/tmp/name-id-ws',
+    kind: '客户',
+    action: '改行',
+    speech,
+  })
+  const firstRows = Array.isArray(sheetOf(first).rows) ? sheetOf(first).rows : []
+  const pickedNo = String(firstRows[firstRows.length - 1].no || '')
+  const second = await local.preview({
+    workspace: '/tmp/name-id-ws',
+    kind: '客户',
+    action: '改行',
+    speech,
+    no: pickedNo,
+    picked: true,
+  })
+  const sheet = sheetOf(second)
+  assert.equal(Array.isArray(sheet.rows) ? sheet.rows.length : 0, 1)
+  assert.ok(String(second.preview_id || sheet.preview_id || '').startsWith('pv_'))
+})
+
 test('asAsk still keeps the name ∩ status hits, not the catalog', async () => {
   const speech = `把停用客户${NAME}改成成交。只要预览，不要过账，不要 biz_write。`
   const result = await gate().preview({

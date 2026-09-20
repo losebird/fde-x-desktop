@@ -183,7 +183,7 @@ export function createGate(bag) {
       incoming = {
         ...spec,
         picked: true,
-        speech: spec.speech || pending.speech,
+        speech: pending.speech || spec.speech,
         patch,
       }
     }

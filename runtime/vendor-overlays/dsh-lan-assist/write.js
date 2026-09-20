@@ -212,6 +212,9 @@ export function packSheet(spec = {}) {
     speech: String(spec.speech || '').trim(),
     listed: !!spec.listed,
     ambiguous: !!spec.ambiguous,
+    ...(spec.patch && typeof spec.patch === 'object' && !Array.isArray(spec.patch) && Object.keys(spec.patch).length
+      ? { patch: spec.patch }
+      : {}),
     fieldChoices: Array.isArray(spec.fieldChoices) ? spec.fieldChoices : undefined,
     pendingValue: spec.pendingValue,
     pickField: !!spec.pickField,

@@ -10,7 +10,7 @@ import {
   schemaFieldsForKind,
   syntheticEnumClues,
 } from './enum-clues.js'
-import { peelSpoken, saysOf } from './resolve.js'
+import { enumMap, peelSpoken, saysOf } from './resolve.js'
 import { vocabRow } from './where-pass.js'
 import { createRequire } from 'node:module'
 
@@ -970,10 +970,34 @@ function fieldLabelOf(field) {
   return title || String(field.name || '').trim()
 }
 
+function fieldNameOf(field) {
+  if (typeof field === 'string') return field.trim()
+  if (!field || typeof field !== 'object') return ''
+  return String(field.name || '').trim()
+}
+
 function fieldEnumsOf(field) {
   if (!field || typeof field !== 'object') return null
+  const packed = enumMap(field)
+  if (Object.keys(packed).length) return packed
   if (field.enums && typeof field.enums === 'object' && !Array.isArray(field.enums)) return field.enums
   return null
+}
+
+function enumValueMatches(after, code, label) {
+  const want = String(after || '').trim()
+  const key = String(code || '').trim()
+  const say = String(label || '').trim()
+  if (!want) return false
+  if (key === want || say === want) return true
+  if (want.length >= 2 && (say.startsWith(want) || want.startsWith(say) && say.length >= 2)) return true
+  return false
+}
+
+function isStatusLikeField(field) {
+  const name = fieldNameOf(field)
+  const label = fieldLabelOf(field)
+  return /^(status|state|stage|状态)$/i.test(name) || /状态/.test(label)
 }
 
 function rewritePatch(speech, schemaFields) {
@@ -984,19 +1008,21 @@ function rewritePatch(speech, schemaFields) {
   if (!after) return null
   const fields = Array.isArray(schemaFields) ? schemaFields : []
   const named = fields.find((field) => {
-    const name = String((field && field.name) || '').trim()
+    const name = fieldNameOf(field)
     const label = fieldLabelOf(field)
     return (name && name === before) || (label && label === before)
   })
-  if (named && named.name) return { [named.name]: after }
+  if (named && fieldNameOf(named)) return { [fieldNameOf(named)]: after }
   const enumHits = fields.filter((field) => {
     const packed = fieldEnumsOf(field)
     if (!packed) return false
-    return Object.entries(packed).some(([code, label]) => String(code) === after || String(label || '') === after)
+    return Object.entries(packed).some(([code, label]) => enumValueMatches(after, code, label))
   })
-  const statusLike = enumHits.find((field) => /^(status|state|stage|状态)$/i.test(String(field.name || '')))
+  const statusLike = enumHits.find((field) => isStatusLikeField(field))
   const hit = statusLike || enumHits[0]
-  if (hit && hit.name) return { [hit.name]: after }
+  if (hit && fieldNameOf(hit)) return { [fieldNameOf(hit)]: after }
+  const statusField = fields.find((field) => isStatusLikeField(field))
+  if (statusField && fieldNameOf(statusField)) return { [fieldNameOf(statusField)]: after }
   return null
 }
 

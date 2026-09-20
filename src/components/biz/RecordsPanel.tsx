@@ -932,7 +932,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     try {
       const conn = connections.find((c) => c.id === connectionId)
       const system = conn?.provider || 'NocoBase'
-      const bindSheet = listSheetMeta || peekBizPendingSheet()
+      const pendingSheet = peekBizPendingSheet()
+      const bindSheet = (listSheetMeta && pendingSheet)
+        ? { ...pendingSheet, ...listSheetMeta }
+        : (listSheetMeta || pendingSheet)
       const waitingPick = Boolean(bindSheet && (bindSheet.ambiguous || bindSheet.listed) && !sheetPreviewId(bindSheet))
       let previewBody: Record<string, unknown> = { ...payloadExtra }
       if (action === '改行' && originalRow) {
@@ -942,7 +945,9 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         const patch = pickSheetRowPatch(originalRow, draft, columns)
         if (!Object.keys(patch).length) {
           if (waitingPick) {
-            previewBody = { ...payloadExtra, no: sheetRowBusinessNo(originalRow), picked: true }
+            const rest = { ...payloadExtra }
+            delete rest.input
+            previewBody = { ...rest, no: sheetRowBusinessNo(originalRow), picked: true }
           } else {
             setError('请先修改至少一个字段后再预览改行')
             return
