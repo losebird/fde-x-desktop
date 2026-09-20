@@ -333,15 +333,16 @@ export function buildPreviewSummary(
     const alreadyAtTarget = sheet.alreadyAtTarget === true || (rows.length > 0 && changes.length === 0)
     if (alreadyAtTarget) {
       const currentLabel = currentStatusDisplay(primary, columns)
+      const explicitCopy = `该记录已是${currentLabel}，无需再过审。`
       return {
         action,
         kind,
         title: '过审确认',
-        subtitle: `该记录已是${currentLabel}，无需再过审。`,
+        subtitle: explicitCopy,
         changes: [],
         rows,
         alreadyAtTarget: true,
-        emptyHint: `记录当前为${currentLabel}，没有待提交的变更。`,
+        emptyHint: explicitCopy,
       }
     }
     return {

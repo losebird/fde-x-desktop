@@ -271,7 +271,7 @@ test('new pending paints even when the current kind view differs; same-operation
   assert.equal(shouldHoldSideKindView('KindShown', sameOpIncoming, { ...shown, rows: [] }), false)
 })
 
-test('empty 现查 poll holds the list; a new speech empty sheet must paint', async () => {
+test('empty incoming never paints over a populated list', async () => {
   const { shouldRejectEmptyIncomingSheet } = await import('../../src/lib/biz-list-query.ts')
   const shown = {
     kind: 'KindShown',
@@ -292,7 +292,7 @@ test('empty 现查 poll holds the list; a new speech empty sheet must paint', as
     rows: [],
   }
   assert.equal(shouldRejectEmptyIncomingSheet(emptyPoll, 1, shown), true)
-  assert.equal(shouldRejectEmptyIncomingSheet(emptyNext, 1, shown), false)
+  assert.equal(shouldRejectEmptyIncomingSheet(emptyNext, 1, shown), true)
   assert.equal(shouldRejectEmptyIncomingSheet(emptyPoll, 0, shown), false)
 })
 

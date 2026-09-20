@@ -47,6 +47,17 @@ function sheetSessionKey(sheet: Record<string, unknown>): string {
   return sid || GLOBAL_PENDING_KEY
 }
 
+/** Named session only hydrates a sheet stamped with that sessionId. */
+export function sheetBelongsToSession(
+  sheet: Record<string, unknown> | null | undefined,
+  sessionId?: string | null,
+): boolean {
+  const sid = String(sessionId || '').trim()
+  if (!sid) return true
+  if (!sheet || typeof sheet !== 'object') return false
+  return String(sheet.sessionId || '').trim() === sid
+}
+
 export function sheetPreviewIdFromRecord(sheet: Record<string, unknown>) {
   const id = sheet.preview_id ?? sheet.previewId
   return typeof id === 'string' ? id : ''

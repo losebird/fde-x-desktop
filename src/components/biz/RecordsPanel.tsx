@@ -69,6 +69,7 @@ import {
   isBizPreviewDismissed,
   peekBizPendingSheet,
   rememberBizPendingSheet,
+  sheetBelongsToSession,
 } from '@/lib/biz-session-sheet'
 import { isBizSurfaceTool } from '@/lib/biz-tool-events'
 import {
@@ -148,14 +149,23 @@ function isWritePreviewSheet(sheet: Record<string, unknown>) {
   return Boolean(sheetPreviewId(sheet) && !isBizListQueryAction(action))
 }
 
+function isApproveAlreadyAtTarget(sheet: Record<string, unknown>) {
+  if (sheet.alreadyAtTarget === true) return true
+  if (String(sheet.action || '') !== '过审') return false
+  const rowCount = Array.isArray(sheet.rows) ? sheet.rows.length : 0
+  if (rowCount <= 0) return false
+  return !sheetHasConfirmablePreviewChanges(sheet)
+}
+
 function shouldOpenWritePreviewDrawer(
   sheet: Record<string, unknown>,
-  historyPinned: boolean,
+  _historyPinned: boolean,
 ) {
   if (!isWritePreviewSheet(sheet)) return false
   if (isBizPreviewDismissed(sheet)) return false
+  if (isApproveAlreadyAtTarget(sheet)) return true
   if (sheetHasConfirmablePreviewChanges(sheet)) return true
-  return !historyPinned
+  return false
 }
 
 function isSingleRowWritePreview(sheet: Record<string, unknown>) {
@@ -867,7 +877,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (historyPinnedSurfaceIdRef.current && !surfaceId) return false
     const sid = String(activeAiSessionId || historySessionIdRef.current || '').trim()
     const cached = peekBizPendingSheet(sid || undefined)
-    if (cached && !isBizPreviewDismissed(cached)) {
+    if (cached && sheetBelongsToSession(cached, sid) && !isBizPreviewDismissed(cached)) {
       if (applyPendingSheet(cached, surfaceId)) return true
     }
     try {
@@ -876,6 +886,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       if (isBizPreviewDismissed(sheet)) {
         return false
       }
+      if (!sheetBelongsToSession(sheet, sid)) return false
       return applyPendingSheet(sheet, surfaceId)
     } catch {
       return false
@@ -885,21 +896,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd) return
     historyPinnedSurfaceIdRef.current = ''
+    operationKindViewRef.current = ''
     const sid = String(activeAiSessionId || '').trim()
-    const cached = sid ? peekBizPendingSheet(sid) : peekActivePending()
-    if (cached) {
-      applyPendingSheet(cached)
-      return
-    }
-    void runtimeApi.getBizPendingSheet(undefined, sid || undefined).then(({ sheet }) => {
-      if (sheet && typeof sheet === 'object' && !isBizPreviewDismissed(sheet)) {
-        applyPendingSheet(sheet)
-        return
-      }
-      const shown = displayedSheetRef.current
-      const shownSid = String((shown && shown.sessionId) || '').trim()
-      if (!sid || shownSid === sid) return
-      if (!shown && displayedRowCountRef.current <= 0) return
+
+    const clearDisplayedForSession = () => {
       appliedSheetFpRef.current = ''
       displayedSheetRef.current = null
       displayedRowCountRef.current = 0
@@ -910,9 +910,28 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       setDrawer(null)
       setKind('')
       setSheetIdentity('')
-      operationKindViewRef.current = ''
+    }
+
+    const cached = sid ? peekBizPendingSheet(sid) : null
+    if (cached && sheetBelongsToSession(cached, sid) && !isBizPreviewDismissed(cached)) {
+      applyPendingSheet(cached)
+      return
+    }
+
+    clearDisplayedForSession()
+    void runtimeApi.getBizPendingSheet(undefined, sid || undefined).then(({ sheet }) => {
+      if (
+        sheet
+        && typeof sheet === 'object'
+        && !isBizPreviewDismissed(sheet)
+        && sheetBelongsToSession(sheet, sid)
+      ) {
+        applyPendingSheet(sheet)
+        return
+      }
+      clearDisplayedForSession()
     }).catch(() => undefined)
-  }, [activeAiSessionId, applyPendingSheet, peekActivePending, runtimeReady, workspaceCwd])
+  }, [activeAiSessionId, applyPendingSheet, runtimeReady, workspaceCwd])
 
   useEffect(() => {
     if (connectionId) return

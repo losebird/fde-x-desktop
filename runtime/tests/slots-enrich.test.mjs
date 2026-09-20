@@ -135,9 +135,43 @@ test('enrichStructuredSlots adds from hop without utterance literals', () => {
     speech: '停用客户还有哪些没关的工单？',
   }
   const out = enrichStructuredSlots(spec, vocab)
+  assert.equal(out.kind, '工单')
   assert.equal(out.from?.kind, '客户')
   assert.ok(Array.isArray(out.from?.where) && out.from.where.length)
   assert.ok(Array.isArray(out.where) && out.where.some((term) => term.not))
+})
+
+test('enrichStructuredSlots retargets DSH ancestor kind to graph leaf when two related kinds are mentioned', () => {
+  const speech = '停用客户还有哪些没关的工单？'
+  const out = enrichStructuredSlots({
+    kind: '客户',
+    action: '现查',
+    speech,
+  }, vocab)
+  assert.equal(out.kind, '工单')
+  assert.equal(out.from?.kind, '客户')
+  assert.ok(Array.isArray(out.from?.where) && out.from.where.length)
+  assert.ok(Array.isArray(out.where) && out.where.some((term) => term.not))
+})
+
+test('enrichStructuredSlots retargets ParentA to ChildB when both related kinds are mentioned', () => {
+  const speech = 'ParentA pending rows tied to ChildB expired — list ChildB hits'
+  const out = enrichStructuredSlots({
+    kind: 'ParentA',
+    action: '现查',
+    speech,
+  }, hopVocab)
+  assert.equal(out.kind, 'ChildB')
+  assert.equal(out.from?.kind, 'ParentA')
+})
+
+test('enrichStructuredSlots does not retarget a single mentioned kind on rewrite', () => {
+  const out = enrichStructuredSlots({
+    kind: '客户',
+    action: '改行',
+    speech: '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。',
+  }, vocab)
+  assert.equal(out.kind, '客户')
 })
 
 test('enrichStructuredSlots chains three mentioned related kinds along the graph', () => {
@@ -182,6 +216,7 @@ test('relatedMentionedKinds uses collection FK when vocab has no relations', () 
     { kind: 'ChildB', resource: 'child_b', can: ['现查'] },
   ]
   const collections = [
+    { name: 'parent_a', fields: [{ name: 'code' }] },
     {
       name: 'child_b',
       fields: [
@@ -203,6 +238,7 @@ test('enrichStructuredSlots chains three kinds via schema FK when vocab has no r
     { kind: 'ChildC', resource: 'child_c', can: ['现查'] },
   ]
   const collections = [
+    { name: 'parent_a', fields: [{ name: 'code' }] },
     {
       name: 'mid_b',
       fields: [

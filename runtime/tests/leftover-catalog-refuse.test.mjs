@@ -298,6 +298,35 @@ test('registeredKinds omits non-previewable leftover when live collections exist
   assert.ok(kindPreviewableInCatalog('Widget', bag) === false)
 })
 
+test('registeredKinds omits graph-only kinds without collection stems even when catalog is absent', () => {
+  const bag = {
+    vocab: [
+      { kind: 'AlphaWidget', resource: 'alpha_widget', can: ['现查'] },
+      { kind: 'GraphOnly', can: ['现查', '过审'] },
+    ],
+  }
+  const names = registeredKinds(bag)
+  assert.ok(names.includes('AlphaWidget'))
+  assert.ok(!names.includes('GraphOnly'))
+})
+
+test('graph-only kind preview refuses without live collections', async () => {
+  const g = createGate({
+    vocab: [
+      { kind: 'AlphaWidget', resource: 'alpha_widget', can: ['现查'] },
+      { kind: 'GraphOnly', can: ['现查'] },
+    ],
+    lookupTodo,
+  })
+  const out = await g.preview({
+    workspace: '/tmp/leftover-ws',
+    kind: 'GraphOnly',
+    action: '现查',
+  })
+  assert.equal(out.ok, false)
+  assert.equal(out.error, 'NO_CONNECTOR')
+})
+
 test('describeKindCatalog lists only connector-backed kinds', () => {
   const out = describeKindCatalog(
     [

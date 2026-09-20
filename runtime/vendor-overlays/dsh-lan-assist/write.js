@@ -5,7 +5,7 @@
  */
 
 import { randomHex } from './crypto.js'
-import { connectorCatalogPresent, mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, resolveConnectedKindName, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
+import { connectorCatalogPresent, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, resolveConnectedKindName, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, bindPatchEnums, normalizePlan } from './plan.js'
@@ -421,9 +421,8 @@ async function decorateFromHits(fromNode, hitsByKind, extra = {}) {
 function hopSheetHasKindHits(result) {
   const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
   if (!sheet || typeof sheet !== 'object') return false
-  const from = sheet.from
-  if (!from || typeof from !== 'object' || Array.isArray(from)) return true
-  return Array.isArray(from.rows)
+  const rows = Array.isArray(sheet.rows) ? sheet.rows.length : 0
+  return rows > 0
 }
 
 async function withSheet(result, extra = {}) {
@@ -1183,6 +1182,9 @@ export function createGate(opts = {}) {
       if (connectedFrom) spec.from = { ...spec.from, kind: connectedFrom }
     }
     if (leftoverKindMissingFromCatalog(resolvedKind, catalogExtra)) {
+      return refuse('NO_CONNECTOR', `${resolvedKind}：没连业务，不能装成已查。`)
+    }
+    if (!kindPreviewableInCatalog(resolvedKind, catalogExtra)) {
       return refuse('NO_CONNECTOR', `${resolvedKind}：没连业务，不能装成已查。`)
     }
     if (connectorCatalogPresent(catalogExtra) && !resolveConnectedKindName(resolvedKind, catalogExtra) && !mapKind(resolvedKind, catalogExtra)) {

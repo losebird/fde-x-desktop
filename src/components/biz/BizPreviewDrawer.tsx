@@ -59,7 +59,9 @@ export function BizPreviewDrawer({
       <div className="p-4 border-t border-line space-y-2">
         {!canWrite && (
           <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2">
-            {gateReason || '当前预览不允许写入，请先在 AI 会话获取写入令牌。'}
+            {summary.alreadyAtTarget
+              ? (summary.emptyHint || summary.subtitle)
+              : (gateReason || '当前预览不允许写入，请先在 AI 会话获取写入令牌。')}
           </div>
         )}
         <div className="flex gap-2">

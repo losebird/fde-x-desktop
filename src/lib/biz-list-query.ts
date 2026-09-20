@@ -201,7 +201,7 @@ export function shouldHoldSideKindView(
   return Boolean(displayed && operationBundlesAlign(displayed, incoming))
 }
 
-/** Empty poll of the same 现查 must not wipe a surfaced list. A new speech/where/hop must paint. */
+/** Empty incoming must not paint over a populated list (including new speech and 现查 polls). */
 export function shouldRejectEmptyIncomingSheet(
   incoming: Record<string, unknown> | null | undefined,
   displayedRowCount: number,
@@ -226,8 +226,6 @@ export function shouldRejectEmptyIncomingSheet(
   const action = String(incoming.action || '').trim()
   const previewId = String(incoming.preview_id ?? incoming.previewId ?? '').trim()
   if (action && action !== '现查' && !previewId) return true
-  if (action !== '现查') return true
-  if (displayed && !operationBundlesAlign(displayed, incoming)) return false
   return true
 }
 

@@ -161,16 +161,8 @@ export function createGate(bag) {
   function shouldKeepPopulatedListSheet(prev, incoming) {
     const prevRows = prev && Array.isArray(prev.rows) ? prev.rows.length : 0
     const nextRows = incoming && Array.isArray(incoming.rows) ? incoming.rows.length : 0
-    if (prevRows <= 0 || nextRows > 0) return false
-    const nextAct = String((incoming && incoming.action) || '')
-    if (nextAct && nextAct !== '现查') return true
-    const prevSpeech = String((prev && prev.speech) || '').trim()
-    const nextSpeech = String((incoming && incoming.speech) || '').trim()
-    if (prevSpeech && nextSpeech && prevSpeech === nextSpeech) return true
-    const prevAct = String((prev && prev.action) || '')
-    if (prevAct && prevAct !== '现查') return false
-    if (prevSpeech && nextSpeech && prevSpeech !== nextSpeech) return false
-    return true
+    if (prevRows > 0 && nextRows === 0) return true
+    return false
   }
 
   async function draftSessionId(given) {

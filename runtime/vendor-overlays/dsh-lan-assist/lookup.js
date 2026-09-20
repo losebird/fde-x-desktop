@@ -294,9 +294,7 @@ export function registeredKinds(extra) {
       : String((row && (row.kind || row.label || row.title || row.name)) || '').trim()
     if (name && name !== '口语' && !(row && row.spoken) && !listed.includes(name)) listed.push(name)
   }
-  const names = connectorCatalogPresent(extra)
-    ? listed.filter((name) => kindPreviewableInCatalog(name, extra))
-    : listed
+  const names = listed.filter((name) => kindPreviewableInCatalog(name, extra))
   return names.sort((a, b) => b.length - a.length)
 }
 

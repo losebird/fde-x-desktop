@@ -250,6 +250,55 @@ function sharesFragmentWithSpec(mentionedKind, specKind, extra) {
   return false
 }
 
+/**
+ * When speech mentions two or more graph-related kinds, hop target is the DAG leaf
+ * among those mentions (ancestors become from/steps).
+ */
+function relatedMentionedHopLeaf(speech, bag) {
+  const { related } = relatedMentionedKinds(speech, bag.vocab, bag)
+  if (related.length < 2) return ''
+  const set = new Set(related)
+  const hasChildAmongRelated = new Set()
+  const markEdge = (from, to) => {
+    if (set.has(from) && set.has(to)) hasChildAmongRelated.add(from)
+  }
+  for (const rel of relationsFromVocab(bag.vocab, bag)) {
+    markEdge(rel.from, rel.to)
+  }
+  if (Array.isArray(bag.collections) && bag.collections.length) {
+    for (const from of related) {
+      for (const to of related) {
+        if (from === to) continue
+        if (schemaRelatedField(from, to, bag)) markEdge(from, to)
+      }
+    }
+  }
+  const leaves = related.filter((kind) => !hasChildAmongRelated.has(kind))
+  if (leaves.length === 1) return leaves[0]
+  if (leaves.length > 1) {
+    let best = ''
+    let bestDepth = -1
+    for (const kind of leaves) {
+      const depth = relatedKindChain(kind, speech, bag).length
+      if (depth > bestDepth) {
+        bestDepth = depth
+        best = kind
+      }
+    }
+    if (best) return best
+  }
+  let deepest = ''
+  let deepestLen = 0
+  for (const kind of related) {
+    const len = relatedKindChain(kind, speech, bag).length
+    if (len > deepestLen) {
+      deepestLen = len
+      deepest = kind
+    }
+  }
+  return deepest
+}
+
 function remapEnrichTargetKind(specKind, speech, bag) {
   const spec = String(specKind || '').trim()
   if (!spec) return spec
@@ -945,7 +994,8 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     relations: extra.relations,
     schemaByKind: extra.schemaByKind,
   }
-  targetKind = remapEnrichTargetKind(targetKind, speech, bag)
+  const hopLeaf = relatedMentionedHopLeaf(speech, bag)
+  targetKind = hopLeaf || remapEnrichTargetKind(targetKind, speech, bag)
   const hits = clueHitsInSpeech(speech, vocab, bag)
   const chainKinds = relatedKindChain(targetKind, speech, bag)
   const existingSteps = Array.isArray(base.steps) ? base.steps.filter((row) => row && row.kind) : []

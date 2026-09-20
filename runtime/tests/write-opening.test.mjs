@@ -335,7 +335,7 @@ test('same-action patches in one opening still merge', async () => {
   assert.equal((hall.pendingWrite.lines || []).length, 2)
 })
 
-test('empty 现查 poll does not wipe; a new speech empty sheet replaces', async () => {
+test('empty 现查 poll does not wipe populated hall for any speech', async () => {
   const store = memStore()
   const now = () => 1_700_000_000_000
   const snapshot = async (sid) => {
@@ -404,9 +404,10 @@ test('empty 现查 poll does not wipe; a new speech empty sheet replaces', async
     workspace,
     speech: 'empty follow-up',
   })
-  const replaced = await snapshot(sessionId)
-  assert.equal(replaced.pendingSheet.kind, 'KindEmpty')
-  assert.equal(replaced.pendingSheet.rows.length, 0)
+  const stillKept = await snapshot(sessionId)
+  assert.equal(stillKept.pendingSheet.kind, 'KindShown')
+  assert.equal(stillKept.pendingSheet.rows.length, 1)
+  assert.equal(stillKept.pendingSheet.rows[0].no, 'HIT-1')
 })
 
 test('empty 过审 without token does not cover the matching-set list of the same speech', async () => {
