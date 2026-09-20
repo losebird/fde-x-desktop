@@ -31,6 +31,8 @@ import {
 import { sheetPayloadFromRaw, sheetPreviewIdFromRaw } from '../biz/sheet-payload.mjs'
 import {
   collapseKindsToConnectedTables,
+  dropActionBatchLeftover,
+  isSpokenActionOrBatchToken,
   resolveConnectedKind,
   shouldSkipCoveringPending,
 } from '../biz/connected-kind.mjs'
@@ -216,6 +218,7 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
   let kind = typeof body.kind === 'string' ? body.kind.trim() : ''
   let system = typeof body.system === 'string' ? body.system : ''
   let no = typeof body.no === 'string' ? body.no : ''
+  const speech = typeof body.speech === 'string' ? body.speech : rawAction
   const targetRef = typeof body.targetRef === 'string' ? body.targetRef : ''
   const match = targetRef.match(/^fde:\/\/external\/([^/]+)\/table\/([^/]+)(?:\/([^/]+))?$/u)
   if (match) {
@@ -223,11 +226,14 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
     kind = kind || match[2]
     no = no || match[3] || ''
   }
-  if (!kind) return { error: '缺少业务型（kind）。targetRef 需为 fde://external/{system}/table/{kind}' }
 
   const rawKinds = Array.isArray(vocabExtra?.kinds)
     ? vocabExtra.kinds
     : (Array.isArray(vocabExtra?.vocab) ? vocabExtra.vocab : [])
+  const fillerVocab = Array.isArray(vocabExtra?.vocab) ? vocabExtra.vocab : rawKinds
+  if (kind && isSpokenActionOrBatchToken(kind, fillerVocab)) kind = ''
+  if (!kind) return { error: '缺少业务型（kind）。targetRef 需为 fde://external/{system}/table/{kind}' }
+
   if (rawKinds.length) {
     const collapsed = collapseKindsToConnectedTables(rawKinds)
     if (vocabExtra?.aliases && typeof vocabExtra.aliases === 'object') {
@@ -240,7 +246,7 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
 
   const gateVocabExtra = mergeVocabExtra(body, vocabExtra)
   const input = body.input && typeof body.input === 'object' ? body.input : {}
-  no = no || input.no || input.orderNo || input.orderId || ''
+  no = dropActionBatchLeftover(no || input.no || input.orderNo || input.orderId || '', speech, fillerVocab)
   const previewWhere = actionUsesStructuredBind(action, gateVocabExtra)
     ? normalizePreviewWhere(body.where ?? input.where ?? input.filter)
     : []
@@ -261,7 +267,7 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
   const payload = {
     kind,
     action,
-    speech: typeof body.speech === 'string' ? body.speech : rawAction,
+    speech,
     ...(system ? { system } : {}),
     ...(typeof body.env === 'string' && body.env ? { env: body.env } : {}),
     ...(no ? { no } : {}),
@@ -559,7 +565,12 @@ function mergeConnectedKindCatalog(catalogData, memoryData) {
       ])],
     })
   }
-  const collapsed = collapseKindsToConnectedTables([...byName.values()])
+  const catalogResources = new Set(
+    catalogKinds.map((row) => String(row?.resource || '').trim()).filter(Boolean),
+  )
+  const collapsed = collapseKindsToConnectedTables([...byName.values()], {
+    connectorResources: catalogResources,
+  })
   return {
     kinds: collapsed.kinds,
     aliases: collapsed.aliases,

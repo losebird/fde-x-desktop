@@ -851,6 +851,7 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
   }
   if (!rewriting && act === '现查') return packed
   if (!name) return packed
+  if (spokenWantsBatch(speech, vocab, bag) && !/[A-Za-z0-9]/.test(name)) return packed
   packed.no = name
   const stepKinds = Array.isArray(packed.steps)
     ? packed.steps.map((step) => String(step && step.kind || '').trim()).filter(Boolean)

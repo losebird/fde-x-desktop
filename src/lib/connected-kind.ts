@@ -8,6 +8,7 @@ export type ConnectedKindRow = {
   fields?: unknown[]
   can?: unknown[]
   aliases?: string[]
+  clues?: Array<{ role?: string; say?: unknown; says?: unknown }>
 }
 
 export type ConnectedKindIndex = {
@@ -22,9 +23,7 @@ function kindName(row: ConnectedKindRow | Record<string, unknown> | null | undef
 
 function resourceOf(row: ConnectedKindRow | Record<string, unknown> | null | undefined): string {
   if (!row || typeof row !== 'object') return ''
-  const resource = String((row as ConnectedKindRow).resource || '').trim()
-  if (!resource || resource === '(in graph)') return ''
-  return resource
+  return String((row as ConnectedKindRow).resource || '').trim()
 }
 
 function catalogVersionOf(row: ConnectedKindRow | Record<string, unknown> | null | undefined): string {
@@ -40,6 +39,24 @@ function canCount(row: ConnectedKindRow): number {
   return Array.isArray(row.can) ? row.can.length : 0
 }
 
+function stringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean)
+  if (typeof value === 'string') {
+    return value.split(/[,，、\s]+/).map((item) => item.trim()).filter(Boolean)
+  }
+  return []
+}
+
+function oralAndGraphAliasTokens(row: ConnectedKindRow): string[] {
+  const out = [...stringList(row.aliases)]
+  for (const clue of Array.isArray(row.clues) ? row.clues : []) {
+    if (!clue || typeof clue !== 'object') continue
+    if (String(clue.role || '').trim() !== '型') continue
+    out.push(...stringList(clue.say ?? clue.says))
+  }
+  return out.filter(Boolean)
+}
+
 function pickCanonicalRow(rows: ConnectedKindRow[]): ConnectedKindRow {
   const ranked = [...rows].sort((a, b) => {
     const va = catalogVersionOf(a) ? 1 : 0
@@ -51,17 +68,45 @@ function pickCanonicalRow(rows: ConnectedKindRow[]): ConnectedKindRow {
   return ranked[0]
 }
 
+function connectorResourcesFrom(
+  rows: ConnectedKindRow[],
+  explicit?: Iterable<string> | Set<string>,
+): Set<string> {
+  if (explicit) {
+    const packed = new Set([...explicit].map((item) => String(item || '').trim()).filter(Boolean))
+    if (packed.size) return packed
+  }
+  const fromCatalog = new Set<string>()
+  for (const row of rows) {
+    const resource = resourceOf(row)
+    if (resource && catalogVersionOf(row)) fromCatalog.add(resource)
+  }
+  return fromCatalog
+}
+
+function isConnectedResource(resource: string, connectorResources: Set<string>): boolean {
+  if (!resource) return false
+  if (connectorResources.size) return connectorResources.has(resource)
+  return /^[A-Za-z][A-Za-z0-9._-]*$/.test(resource)
+}
+
 export function collapseKindsToConnectedTables(
   kinds: Array<ConnectedKindRow | Record<string, unknown> | string> | null | undefined,
+  opts: { connectorResources?: Iterable<string> | Set<string> } = {},
 ): ConnectedKindIndex {
-  const byResource = new Map<string, ConnectedKindRow[]>()
+  const rows: ConnectedKindRow[] = []
   for (const raw of Array.isArray(kinds) ? kinds : []) {
     const row = typeof raw === 'string'
       ? { kind: raw.trim() }
       : { ...raw, kind: kindName(raw) } as ConnectedKindRow
     if (!row.kind) continue
+    rows.push(row)
+  }
+  const connectorResources = connectorResourcesFrom(rows, opts.connectorResources)
+  const byResource = new Map<string, ConnectedKindRow[]>()
+  for (const row of rows) {
     const resource = resourceOf(row)
-    if (!resource) continue
+    if (!isConnectedResource(resource, connectorResources)) continue
     const list = byResource.get(resource) || []
     list.push({ ...row, resource })
     byResource.set(resource, list)
@@ -70,7 +115,7 @@ export function collapseKindsToConnectedTables(
   const aliases: Record<string, string> = {}
   for (const [, list] of byResource) {
     const canonical = pickCanonicalRow(list)
-    const inherited = list.flatMap((row) => Array.isArray(row.aliases) ? row.aliases : [])
+    const inherited = list.flatMap((row) => oralAndGraphAliasTokens(row))
     const aliasNames = [...new Set([
       ...list.map((row) => row.kind).filter((name) => name !== canonical.kind),
       ...inherited,

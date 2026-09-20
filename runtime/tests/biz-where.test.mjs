@@ -144,4 +144,26 @@ describe('biz preview where pass-through', () => {
     }, '/tmp/ws', { kinds })
     assert.equal(out.error, '该对象没有连接业务表')
   })
+
+  test('translateBizIntent drops action/batch leftover instead of using it as a row id', () => {
+    const kinds = [
+      {
+        kind: 'LongKind',
+        resource: 'res_a',
+        catalogVersion: 'schema:1',
+        fields: ['a'],
+        can: ['现查', '过审'],
+        clues: [{ role: '型', say: ['ShortSay'] }],
+      },
+    ]
+    const out = translateBizIntent({
+      kind: 'ShortSay',
+      action: '过审',
+      no: '一批',
+      speech: 'pending ShortSay 都过一下',
+    }, '/tmp/ws', { kinds })
+    assert.equal(out.payload.kind, 'LongKind')
+    assert.equal(out.payload.action, '过审')
+    assert.equal(out.payload.no, undefined)
+  })
 })

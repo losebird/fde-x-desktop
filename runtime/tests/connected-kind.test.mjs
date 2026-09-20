@@ -2,9 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   collapseKindsToConnectedTables,
+  dropActionBatchLeftover,
   isConnectorCatalogDump,
+  isSpokenActionOrBatchToken,
   resolveConnectedKind,
   shouldSkipCoveringPending,
+  speechWantsMatchSet,
 } from '../biz/connected-kind.mjs'
 
 test('same resource collapses to the connector-generated kind; no resource is not previewable', () => {
@@ -21,6 +24,39 @@ test('same resource collapses to the connector-generated kind; no resource is no
   assert.equal(resolveConnectedKind('Orphan', collapsed), '')
   assert.equal(resolveConnectedKind('GraphOnly', collapsed), '')
   assert.equal(resolveConnectedKind('ShortKind', []), 'ShortKind')
+})
+
+test('oral 型 slots and graph aliases fold onto the connected table', () => {
+  const collapsed = collapseKindsToConnectedTables([
+    {
+      kind: 'LongKind',
+      resource: 'res_a',
+      catalogVersion: 'schema:1',
+      fields: ['a'],
+      can: ['现查', '过审'],
+      aliases: ['GraphSay'],
+      clues: [{ role: '型', say: ['OralSay'] }],
+    },
+  ])
+  assert.equal(resolveConnectedKind('OralSay', collapsed), 'LongKind')
+  assert.equal(resolveConnectedKind('GraphSay', collapsed), 'LongKind')
+})
+
+test('action/batch leftover is not a kind or row identity', () => {
+  const kinds = [
+    {
+      kind: 'LongKind',
+      resource: 'res_a',
+      catalogVersion: 'schema:1',
+      can: ['现查', '过审'],
+      clues: [{ role: '型', say: ['ShortSay'] }],
+    },
+  ]
+  assert.equal(isSpokenActionOrBatchToken('一批', kinds), true)
+  assert.equal(speechWantsMatchSet('pending ShortSay 都过一下', kinds), true)
+  assert.equal(dropActionBatchLeftover('一批', 'pending ShortSay 都过一下', kinds), '')
+  assert.equal(dropActionBatchLeftover('单都', 'pending ShortSay 都过一下', kinds), '')
+  assert.equal(dropActionBatchLeftover('NameRest', '把停用客户 NameRest 改成成交', kinds), 'NameRest')
 })
 
 test('empty second shot and catalog dump skip covering a populated pending', () => {
