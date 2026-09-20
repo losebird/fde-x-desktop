@@ -86,3 +86,25 @@ test('dismissed write token still exposes remainRows list, not null', () => {
   assert.equal(out.speech, 'list speech')
   clearBizPreviewDismissed(id)
 })
+
+test('dismissed write of the same row count still exposes remainRows', () => {
+  const id = 'pv_write_same_n'
+  clearBizPreviewDismissed(id)
+  rememberBizPreviewDismissed(id)
+  const remain = [{ no: 'A' }, { no: 'B' }]
+  const out = sheetAfterDismissedWrite({
+    kind: 'ListKind',
+    action: '改行',
+    preview_id: id,
+    rows: remain.slice(),
+    remainRows: remain,
+    speech: 'list speech',
+    hopWhere: [{ keys: ['status'], values: ['open'] }],
+  })
+  assert.ok(out)
+  assert.equal(out.action, '现查')
+  assert.equal(out.preview_id, '')
+  assert.equal(out.rows.length, 2)
+  assert.equal(out.speech, 'list speech')
+  clearBizPreviewDismissed(id)
+})

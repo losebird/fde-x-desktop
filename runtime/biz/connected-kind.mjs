@@ -290,3 +290,13 @@ export function shouldSkipCoveringPending(prev, incoming) {
   if (nextRows === 0 && prevRows > 0) return true
   return false
 }
+
+/** Cancel/GET: hall list wins; never substitute a connector catalog dump. */
+export function sheetAfterCancelCover(hallSheet, lastEmitted) {
+  const hall = hallSheet && typeof hallSheet === 'object' ? hallSheet : null
+  const last = lastEmitted && typeof lastEmitted === 'object' ? lastEmitted : null
+  if (hall && shouldSkipCoveringPending(hall, last)) return hall
+  if (hall) return hall
+  if (last && !isConnectorCatalogDump(last)) return last
+  return null
+}

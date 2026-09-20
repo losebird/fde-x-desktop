@@ -83,6 +83,7 @@ function makeSecretaryGate(store, opts = {}) {
             const sheet = hopSheet(action, previewId, {
               no: spec.no || 'CB-HIT',
               speech: spec.speech,
+              ...(Array.isArray(opts.previewRows) ? { rows: opts.previewRows } : {}),
             })
             return {
               ok: true,
@@ -245,6 +246,42 @@ test('dismiss write restores the list sheet, not the one-row remnant', async () 
   assert.equal(Array.isArray(after.pendingSheet.rows) ? after.pendingSheet.rows.length : 0, 2)
   assert.equal(String(after.pendingSheet.preview_id || after.pendingSheet.previewId || ''), '')
   assert.equal(after.pendingSheet.speech, 'open tickets of stopped customers')
+})
+
+test('dismiss full-list write still restores that 现查, not a covering dump', async () => {
+  const listRows = [{ no: 'CB-1' }, { no: 'CB-2' }]
+  const store = memStore({
+    pendingSheet: {
+      kind: 'ChildB',
+      action: '现查',
+      preview_id: '',
+      rows: listRows,
+      speech: 'open tickets of stopped customers',
+      hopWhere: [{ keys: ['status'], values: ['open'] }],
+      from: { kind: 'ParentA' },
+      sessionId,
+      workspace,
+    },
+  })
+  const { gate, snapshot } = makeSecretaryGate(store, { previewRows: listRows })
+  const write = await gate.previewBiz({
+    kind: 'ChildB',
+    action: '改行',
+    patch: { status: 'resolved' },
+    sessionId,
+    workspace,
+  })
+  assert.equal(write.action, '改行')
+  assert.equal(Array.isArray(write.sheet && write.sheet.rows) ? write.sheet.rows.length : 0, 2)
+  await gate.dismissWrite({ preview_id: write.preview_id })
+  const after = await snapshot(sessionId)
+  assert.equal(after.pendingWrite, null)
+  assert.equal(after.pendingSheet && after.pendingSheet.kind, 'ChildB')
+  assert.equal(after.pendingSheet && after.pendingSheet.action, '现查')
+  assert.equal(Array.isArray(after.pendingSheet.rows) ? after.pendingSheet.rows.length : 0, 2)
+  assert.equal(String(after.pendingSheet.preview_id || after.pendingSheet.previewId || ''), '')
+  assert.equal(after.pendingSheet.speech, 'open tickets of stopped customers')
+  assert.equal(after.pendingSheet.from && after.pendingSheet.from.kind, 'ParentA')
 })
 
 test('same-action patches in one opening still merge', async () => {

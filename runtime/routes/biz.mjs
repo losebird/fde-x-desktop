@@ -37,6 +37,7 @@ import {
   isSpokenActionOrBatchToken,
   resolveConnectedKind,
   shouldSkipCoveringPending,
+  sheetAfterCancelCover,
 } from '../biz/connected-kind.mjs'
 import {
   auditRecordNo,
@@ -830,35 +831,20 @@ export async function handleBizRoutes(request, response, url, deps) {
       }
       const raw = state.pendingSheet ?? state.pendingWrite
       const sheet = sheetAfterDismissedWrite(sheetPayloadFromRaw(raw))
-      if (!sheet) {
-        sendJson(response, 200, {
-          data: { sheet: lastEmittedPending ? stripSecrets(lastEmittedPending) : null },
-          correlationId,
-        })
-        return true
-      }
       const bizCwd = requestMemoryCwd(url, {}) || FDE_AI_WORKSPACE
-      let canonical = sheet
-      try {
-        const kinds = await loadWorkspaceKinds(aiRuntime, bizCwd)
-        const next = canonicalizeSheetKind(sheet, kinds)
-        if (!next) {
-          sendJson(response, 200, {
-            data: { sheet: lastEmittedPending ? stripSecrets(lastEmittedPending) : null },
-            correlationId,
-          })
-          return true
-        }
-        canonical = next
-      } catch { /* keep gate sheet */ }
-      if (shouldSkipCoveringPending(lastEmittedPending, canonical)) {
-        sendJson(response, 200, {
-          data: { sheet: lastEmittedPending ? stripSecrets(lastEmittedPending) : null },
-          correlationId,
-        })
-        return true
+      let hall = sheet
+      if (hall) {
+        try {
+          const kinds = await loadWorkspaceKinds(aiRuntime, bizCwd)
+          const next = canonicalizeSheetKind(hall, kinds)
+          hall = next || null
+        } catch { /* keep gate sheet */ }
       }
-      sendJson(response, 200, { data: { sheet: stripSecrets(canonical) }, correlationId })
+      const served = sheetAfterCancelCover(hall, lastEmittedPending)
+      sendJson(response, 200, {
+        data: { sheet: served ? stripSecrets(served) : null },
+        correlationId,
+      })
     } catch (error) {
       sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
     }

@@ -56,7 +56,7 @@ export function sheetAfterDismissedWrite(sheet) {
   if (!previewId || !isBizPreviewDismissed(previewId)) return sheet
   const writeRows = Array.isArray(sheet.rows) ? sheet.rows : []
   const remain = Array.isArray(sheet.remainRows) ? sheet.remainRows : []
-  const rows = remain.length > writeRows.length ? remain : writeRows
+  const rows = remain.length >= writeRows.length && remain.length ? remain : writeRows
   if (!rows.length) return null
   return {
     ...sheet,

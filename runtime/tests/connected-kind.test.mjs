@@ -7,6 +7,7 @@ import {
   isConnectorCatalogDump,
   isSpokenActionOrBatchToken,
   resolveConnectedKind,
+  sheetAfterCancelCover,
   shouldSkipCoveringPending,
   speechWantsMatchSet,
 } from '../biz/connected-kind.mjs'
@@ -121,4 +122,28 @@ test('empty second shot and catalog dump skip covering a populated pending', () 
     preview_id: 'pv_ok',
     rows: [{ no: 'ROW-1' }],
   }), false)
+})
+
+test('cancel cover keeps the hall list and never substitutes a catalog dump', () => {
+  const hop = {
+    kind: 'LongKind',
+    action: '现查',
+    speech: 'batch this table',
+    hopWhere: [{ keys: ['status'], values: ['open'] }],
+    rows: [{ no: 'ROW-1' }, { no: 'ROW-2' }],
+  }
+  const catalog = {
+    kind: 'LongKind',
+    action: '现查',
+    rows: Array.from({ length: 20 }, (_, index) => ({ no: `C-${index}` })),
+  }
+  const stripped = {
+    kind: 'LongKind',
+    action: '现查',
+    rows: hop.rows,
+  }
+  assert.equal(sheetAfterCancelCover(hop, catalog), hop)
+  assert.equal(sheetAfterCancelCover(stripped, catalog), stripped)
+  assert.equal(sheetAfterCancelCover(null, catalog), null)
+  assert.equal(sheetAfterCancelCover(null, hop), hop)
 })

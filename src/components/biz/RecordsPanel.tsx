@@ -47,7 +47,6 @@ import {
   shouldRejectIncomingCovering,
 } from '@/lib/biz-list-query'
 import {
-  isConnectorCatalogDump,
   resolveConnectedKind,
   type ConnectedKindRow,
 } from '@/lib/connected-kind'
@@ -650,27 +649,30 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     setDrawer(null)
     const floated = displayBeforeWriteRef.current
     displayBeforeWriteRef.current = null
-    const floatSheet = floated?.sheet
-    if (floated && floatSheet && !isConnectorCatalogDump(floatSheet)) {
+    const floatSheet = floated?.sheet && typeof floated.sheet === 'object' ? floated.sheet : {}
+    const restoreRows = floated ? cloneSheetRows(floated.rows) : []
+    if (floated && restoreRows.length) {
       const liveSid = String(historySessionIdRef.current || activeAiSessionId || '').trim()
       const restored: Record<string, unknown> = {
         ...floatSheet,
-        rows: cloneSheetRows(floated.rows),
+        rows: restoreRows,
         columns: floated.columns,
+        action: String(floatSheet.action || '现查') === '现查' ? (floatSheet.action || '现查') : '现查',
         preview_id: '',
         previewId: '',
         canWrite: false,
         ...(liveSid ? { sessionId: liveSid } : {}),
       }
-      applyDisplayedSnapshot({ ...floated, sheet: restored, rows: restored.rows as SheetRow[] })
+      applyDisplayedSnapshot({ ...floated, sheet: restored, rows: restoreRows })
       rememberBizPendingSheet(restored)
     }
     void runtimeApi.bizDismissPreview(previewId || undefined).then(() => {
-      if (floated && floatSheet && !isConnectorCatalogDump(floatSheet)) {
+      if (floated && restoreRows.length) {
         const liveSid = String(historySessionIdRef.current || activeAiSessionId || '').trim()
         rememberBizPendingSheet({
           ...floatSheet,
-          rows: cloneSheetRows(floated.rows),
+          rows: cloneSheetRows(restoreRows),
+          action: String(floatSheet.action || '现查') === '现查' ? (floatSheet.action || '现查') : '现查',
           preview_id: '',
           previewId: '',
           canWrite: false,
@@ -812,6 +814,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       return true
     }
 
+    if (isWritePreview) ensureListRestoreBeforeWritePreview(next)
+
     const incomingQueryFp = listQueryFingerprint(next)
     if (incomingQueryFp && incomingQueryFp !== activeListQueryFpRef.current) {
       appliedSheetFpRef.current = ''
@@ -834,7 +838,6 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       return rowCount > 0 || Boolean(next.kind)
     }
     const conn = connections.find((c) => c.id === connectionId) || connections[0]
-    if (isWritePreview) ensureListRestoreBeforeWritePreview(next)
     rememberBizPendingSheet(next)
     maybeSaveListRestore(next)
     applySheet(next, conn?.name || '连接器', surfaceId)
@@ -859,17 +862,14 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     if (historyPinnedSurfaceIdRef.current && !surfaceId) return false
     const cached = peekBizPendingSheet()
-    if (cached) {
-      if (isBizPreviewDismissed(cached)) {
-        return true
-      }
+    if (cached && !isBizPreviewDismissed(cached)) {
       if (applyPendingSheet(cached, surfaceId)) return true
     }
     try {
       const { sheet } = await runtimeApi.getBizPendingSheet()
       if (!sheet || typeof sheet !== 'object') return false
       if (isBizPreviewDismissed(sheet)) {
-        return true
+        return false
       }
       return applyPendingSheet(sheet, surfaceId)
     } catch {
