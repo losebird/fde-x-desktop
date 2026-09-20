@@ -22,7 +22,9 @@ function kindName(row: ConnectedKindRow | Record<string, unknown> | null | undef
 
 function resourceOf(row: ConnectedKindRow | Record<string, unknown> | null | undefined): string {
   if (!row || typeof row !== 'object') return ''
-  return String((row as ConnectedKindRow).resource || '').trim()
+  const resource = String((row as ConnectedKindRow).resource || '').trim()
+  if (!resource || resource === '(in graph)') return ''
+  return resource
 }
 
 function catalogVersionOf(row: ConnectedKindRow | Record<string, unknown> | null | undefined): string {

@@ -7,7 +7,9 @@ function kindName(row) {
 
 function resourceOf(row) {
   if (!row || typeof row !== 'object') return ''
-  return String(row.resource || '').trim()
+  const resource = String(row.resource || '').trim()
+  if (!resource || resource === '(in graph)') return ''
+  return resource
 }
 
 function catalogVersionOf(row) {

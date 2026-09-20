@@ -831,6 +831,13 @@ export async function handleBizRoutes(request, response, url, deps) {
         sendJson(response, 200, { data: { sheet: null }, correlationId })
         return true
       }
+      if (shouldSkipCoveringPending(lastEmittedPending, sheet)) {
+        sendJson(response, 200, {
+          data: { sheet: lastEmittedPending ? stripSecrets(lastEmittedPending) : null },
+          correlationId,
+        })
+        return true
+      }
       sendJson(response, 200, { data: { sheet: stripSecrets(sheet) }, correlationId })
     } catch (error) {
       sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)

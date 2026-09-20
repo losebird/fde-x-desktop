@@ -12,12 +12,14 @@ test('same resource collapses to the connector-generated kind; no resource is no
     { kind: 'LongKind', resource: 'res_a', catalogVersion: 'schema:1', fields: ['a', 'b', 'c'], can: ['现查', '过审'] },
     { kind: 'ShortKind', resource: 'res_a', fields: ['no'], can: ['现查'] },
     { kind: 'Orphan', fields: ['x'] },
+    { kind: 'GraphOnly', resource: '(in graph)', fields: ['no'], can: ['现查', '过审'] },
   ])
   assert.deepEqual(collapsed.kinds.map((row) => row.kind), ['LongKind'])
   assert.equal(collapsed.aliases.ShortKind, 'LongKind')
   assert.equal(resolveConnectedKind('ShortKind', collapsed), 'LongKind')
   assert.equal(resolveConnectedKind('LongKind', collapsed), 'LongKind')
   assert.equal(resolveConnectedKind('Orphan', collapsed), '')
+  assert.equal(resolveConnectedKind('GraphOnly', collapsed), '')
   assert.equal(resolveConnectedKind('ShortKind', []), 'ShortKind')
 })
 

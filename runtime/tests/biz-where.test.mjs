@@ -132,4 +132,16 @@ describe('biz preview where pass-through', () => {
     }, '/tmp/ws', { kinds })
     assert.equal(out.error, '该对象没有连接业务表')
   })
+
+  test('translateBizIntent refuses a graph-only resource that is not a business table', () => {
+    const kinds = [
+      { kind: 'LongKind', resource: 'res_a', catalogVersion: 'schema:1', fields: ['a'] },
+      { kind: 'GraphOnly', resource: '(in graph)', fields: ['no'], can: ['现查'] },
+    ]
+    const out = translateBizIntent({
+      kind: 'GraphOnly',
+      action: '过审',
+    }, '/tmp/ws', { kinds })
+    assert.equal(out.error, '该对象没有连接业务表')
+  })
 })
