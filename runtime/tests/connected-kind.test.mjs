@@ -27,6 +27,16 @@ test('same resource collapses to the connector-generated kind; no resource is no
   assert.equal(resolveConnectedKind('ShortKind', []), 'ShortKind')
 })
 
+test('collection-stem resource without catalogVersion stays previewable', () => {
+  const collapsed = collapseKindsToConnectedTables([
+    { kind: 'TicketKind', resource: 'biz_tickets', fields: ['no'], can: ['现查'] },
+    { kind: 'GraphOnly', resource: '(in graph)', fields: ['no'], can: ['现查'] },
+  ])
+  assert.deepEqual(collapsed.kinds.map((row) => row.kind), ['TicketKind'])
+  assert.equal(resolveConnectedKind('TicketKind', collapsed), 'TicketKind')
+  assert.equal(resolveConnectedKind('GraphOnly', collapsed), '')
+})
+
 test('oral 型 slots and graph aliases fold onto the connected table', () => {
   const collapsed = collapseKindsToConnectedTables([
     {

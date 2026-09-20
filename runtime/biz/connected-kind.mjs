@@ -76,7 +76,9 @@ function connectorResourcesFrom(rows, explicit) {
   const fromCatalog = new Set()
   for (const row of rows) {
     const resource = resourceOf(row)
-    if (resource && catalogVersionOf(row)) fromCatalog.add(resource)
+    if (resource && (catalogVersionOf(row) || isConnectedResource(resource, new Set()))) {
+      fromCatalog.add(resource)
+    }
   }
   return fromCatalog
 }

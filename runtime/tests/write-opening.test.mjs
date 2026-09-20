@@ -208,7 +208,9 @@ test('cancel drops only that preview_id and keeps the later hop', async () => {
   await gate.dismissWrite({ preview_id: second.preview_id })
   const afterNew = await snapshot(sessionId)
   assert.equal(afterNew.pendingWrite, null)
-  assert.equal(afterNew.pendingSheet, null)
+  assert.ok(afterNew.pendingSheet)
+  assert.equal(Array.isArray(afterNew.pendingSheet.rows) ? afterNew.pendingSheet.rows.length : 0, 1)
+  assert.equal(String(afterNew.pendingSheet.preview_id || afterNew.pendingSheet.previewId || ''), '')
   assert.deepEqual(store.peek().sheetTrail, trailBefore)
 })
 

@@ -130,3 +130,93 @@ test('write of leftover kind not in catalog is refused', async () => {
   assert.equal(write.ok, false)
   assert.ok(write.error === 'NO_CONNECTOR' || write.error === 'NEED_PREVIEW')
 })
+
+test('empty-resource kind cannot preview when a connector catalog is present', async () => {
+  const g = createGate({
+    vocab: [
+      { kind: 'AlphaWidget', resource: 'alpha_widget', catalogVersion: 'schema:1', can: ['现查'] },
+      { kind: 'GraphOnly', can: ['现查', '过审'] },
+    ],
+    lookupTodo,
+    collectionsOf: async () => collections,
+  })
+  const out = await g.preview({
+    workspace: '/tmp/leftover-ws',
+    kind: 'GraphOnly',
+    action: '现查',
+  })
+  assert.equal(out.ok, false)
+  assert.equal(out.error, 'NO_CONNECTOR')
+})
+
+test('型槽 spoken name previews the connected table', async () => {
+  const g = createGate({
+    vocab: [
+      {
+        kind: 'AlphaWidget',
+        resource: 'alpha_widget',
+        catalogVersion: 'schema:1',
+        can: ['现查', '过审'],
+        clues: [{ role: '型', say: ['OralSay'] }],
+      },
+    ],
+    lookupTodo,
+    collectionsOf: async () => collections,
+  })
+  const out = await g.preview({
+    workspace: '/tmp/leftover-ws',
+    kind: 'OralSay',
+    action: '现查',
+  })
+  assert.notEqual(out.error, 'NO_CONNECTOR')
+  const sheet = out.sheet && typeof out.sheet === 'object' ? out.sheet : out
+  assert.equal(sheet.kind, 'AlphaWidget')
+})
+
+test('collection-title kind stays itself, not another table\'s spoken alias', async () => {
+  const g = createGate({
+    vocab: [
+      {
+        kind: 'LeaveKind',
+        resource: 'biz_leave',
+        catalogVersion: 'schema:1',
+        can: ['现查'],
+        clues: [{ role: '型', say: ['ApprovalSlip'] }],
+      },
+      { kind: 'TicketKind', can: ['现查'] },
+    ],
+    lookupTodo: (spec) => {
+      const kind = String(spec.kind || '')
+      if (kind === 'TicketKind') {
+        return {
+          ok: true,
+          matches: [{ no: 'TK-1', fields: { id: 't1', code: 'TK-1' } }],
+          no: 'TK-1',
+          fields: { id: 't1', code: 'TK-1' },
+        }
+      }
+      if (kind === 'LeaveKind') {
+        return {
+          ok: true,
+          matches: [{ no: 'LV-1', fields: { id: 'l1', code: 'LV-1' } }],
+          no: 'LV-1',
+          fields: { id: 'l1', code: 'LV-1' },
+        }
+      }
+      return { ok: false, error: 'NOT_FOUND', matches: [] }
+    },
+    collectionsOf: async () => [
+      { name: 'biz_leave', title: 'LeaveKind' },
+      { name: 'biz_tickets', title: 'TicketKind' },
+    ],
+  })
+  const out = await g.preview({
+    workspace: '/tmp/leftover-ws',
+    kind: 'TicketKind',
+    action: '现查',
+    speech: 'list open TicketKind',
+  })
+  const sheet = out.sheet && typeof out.sheet === 'object' ? out.sheet : out
+  assert.equal(sheet.kind, 'TicketKind')
+  assert.notEqual(sheet.kind, 'LeaveKind')
+})

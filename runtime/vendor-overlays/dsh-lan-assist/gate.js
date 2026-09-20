@@ -440,7 +440,20 @@ export function createGate(bag) {
         }
       }
       s.pendingWrite = null
-      if (!wanted || liveSheet === wanted) s.pendingSheet = null
+      if (!wanted || liveSheet === wanted) {
+        const keep = s.pendingSheet
+        const keepRows = keep && Array.isArray(keep.rows) ? keep.rows : []
+        s.pendingSheet = keepRows.length
+          ? {
+            ...keep,
+            action: String(keep.action || '现查') === '现查' ? keep.action : '现查',
+            preview_id: '',
+            previewId: '',
+            canWrite: false,
+            changes: [],
+          }
+          : null
+      }
       note(s, '算了。没写。', now())
     })
     return { ok: true, ...(await snapshot()) }

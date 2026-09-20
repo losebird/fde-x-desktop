@@ -351,6 +351,27 @@ test('spoken fragments still bind to connected vocab kinds with catalog present'
   assert.equal(leftoverKindMissingFromCatalog(remapped.kind, catalogExtra), false)
 })
 
+test('hop speech of a collection-title kind does not mention another table\'s spoken alias', () => {
+  const vocab = [
+    {
+      kind: 'LeaveKind',
+      resource: 'biz_leave',
+      can: ['现查'],
+      clues: [{ role: '型', say: ['ApprovalSlip'] }],
+    },
+    { kind: 'TicketKind', resource: 'biz_tickets', can: ['现查'] },
+  ]
+  const extra = {
+    vocab,
+    collections: [
+      { name: 'biz_leave', title: 'LeaveKind' },
+      { name: 'biz_tickets', title: 'TicketKind' },
+    ],
+  }
+  const hits = kindMentions('which TicketKind are still open', ['LeaveKind', 'TicketKind'], extra)
+  assert.deepEqual(hits.map((row) => row.kind), ['TicketKind'])
+})
+
 test('pickHopSpeech prefers the user line when the model truncated it', () => {
   const user = '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。'
   assert.equal(pickHopSpeech('停用客户通达', user, vocab), user)

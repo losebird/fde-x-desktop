@@ -5,7 +5,7 @@
  */
 
 import { randomHex } from './crypto.js'
-import { mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
+import { connectorCatalogPresent, mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, resolveConnectedKindName, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, bindPatchEnums, normalizePlan } from './plan.js'
@@ -690,11 +690,11 @@ export function createGate(opts = {}) {
     return { ok: false, error: 'NO_VOCAB', hint: '词表没读成。不能装成能写。' }
   }
 
-  function recognize(kind, action, patch, vocab) {
+  function recognize(kind, action, patch, vocab, extra = {}) {
     const name = String(kind || '').trim()
     if (isSystemTable(name)) return refuse('SYSTEM_TABLE', `${name}是系统表，不能写。`)
     const row = vocabRow(name, vocab)
-    const mapped = mapKind(name, { vocab })
+    const mapped = mapKind(name, { vocab, ...extra })
     if (!row || !mapped) return refuse('UNKNOWN_KIND', `${name || '这个型'}没登记。词表和连接器都要有，不能装成能写。`)
     const act = String(action || '').trim() || '现查'
     if (!actionAllowed(act, row)) {
@@ -737,7 +737,7 @@ export function createGate(opts = {}) {
     const start = plan.steps[probeIndex] || plan.steps[0]
     const target = plan.steps[plan.targetIndex] || start
     if (!start || !start.kind) return refuse('UNKNOWN_KIND', '没有型，预览走不了。')
-    const recognized = recognize(target.kind, plan.action, plan.patch, loaded.vocab)
+    const recognized = recognize(target.kind, plan.action, plan.patch, loaded.vocab, extra)
     if (!recognized.ok) return recognized
     let schemaFields = []
     if (typeof opts.fieldsOf === 'function') {
@@ -1097,13 +1097,25 @@ export function createGate(opts = {}) {
     const recovered = recoverWriteIntent(spec, loaded.vocab, enrichExtra)
     const enriched = enrichStructuredSlots(recovered, loaded.vocab, enrichExtra)
     const plan = normalizePlan(enriched)
-    const resolvedKind = String(
+    const catalogExtra = { vocab: loaded.vocab, ...enrichExtra }
+    let resolvedKind = String(
       (plan.steps[plan.targetIndex] && plan.steps[plan.targetIndex].kind)
       || enriched.kind
       || spec.kind
       || ''
     ).trim()
-    if (leftoverKindMissingFromCatalog(resolvedKind, { vocab: loaded.vocab, ...enrichExtra })) {
+    const connectedKind = resolveConnectedKindName(resolvedKind, catalogExtra)
+    if (connectedKind) {
+      resolvedKind = connectedKind
+      spec.kind = connectedKind
+      enriched.kind = connectedKind
+      plan.kind = connectedKind
+      if (plan.steps[plan.targetIndex]) plan.steps[plan.targetIndex].kind = connectedKind
+    }
+    if (leftoverKindMissingFromCatalog(resolvedKind, catalogExtra)) {
+      return refuse('NO_CONNECTOR', `${resolvedKind}：没连业务，不能装成已查。`)
+    }
+    if (connectorCatalogPresent(catalogExtra) && !mapKind(resolvedKind, catalogExtra)) {
       return refuse('NO_CONNECTOR', `${resolvedKind}：没连业务，不能装成已查。`)
     }
     const sessionId = String(spec.sessionId || '').trim()
@@ -1155,7 +1167,12 @@ export function createGate(opts = {}) {
         writeExtra.collections = await opts.collectionsOf(spec.workspace || token.workspace)
       } catch { /* catalog optional */ }
     }
+    const connectedWrite = resolveConnectedKindName(token.kind, writeExtra)
+    if (connectedWrite) token.kind = connectedWrite
     if (leftoverKindMissingFromCatalog(token.kind, writeExtra)) {
+      return refuse('NO_CONNECTOR', `${token.kind}：没连业务，不能装成已过账。`)
+    }
+    if (connectorCatalogPresent(writeExtra) && !mapKind(token.kind, writeExtra)) {
       return refuse('NO_CONNECTOR', `${token.kind}：没连业务，不能装成已过账。`)
     }
     if (token.catalogVersion) {

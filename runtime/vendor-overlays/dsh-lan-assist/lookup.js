@@ -43,6 +43,99 @@ export function mapKind(kind, extra = {}) {
   return null
 }
 
+function rowKindName(row) {
+  if (typeof row === 'string') return row.trim()
+  if (!row || typeof row !== 'object') return ''
+  return String(row.kind || row.label || row.title || row.name || '').trim()
+}
+
+function rowResource(row) {
+  if (!row || typeof row !== 'object') return ''
+  return String(row.resource || row.collection || row.name || '').trim()
+}
+
+function oralAndGraphAliasTokens(row) {
+  const out = []
+  if (!row || typeof row !== 'object') return out
+  const aliases = row.aliases
+  if (Array.isArray(aliases)) {
+    for (const item of aliases) {
+      const name = String(item || '').trim()
+      if (name) out.push(name)
+    }
+  } else if (typeof aliases === 'string') {
+    for (const item of aliases.split(/[,，、\s]+/)) {
+      const name = item.trim()
+      if (name) out.push(name)
+    }
+  }
+  const clues = Array.isArray(row.clues) ? row.clues : []
+  for (const clue of clues) {
+    if (!clue || typeof clue !== 'object') continue
+    if (String(clue.role || '').trim() !== '型') continue
+    const says = clue.say || clue.says
+    const list = Array.isArray(says) ? says : (typeof says === 'string' ? says.split(/[,，、\s]+/) : [])
+    for (const item of list) {
+      const name = String(item || '').trim()
+      if (name) out.push(name)
+    }
+  }
+  return out
+}
+
+function canonicalKindForResource(resource, extra, fallback) {
+  const stem = String(resource || '').trim()
+  if (!stem) return String(fallback || '').trim()
+  const ranked = []
+  for (const row of listKindRows(extra)) {
+    if (rowResource(row) !== stem) continue
+    const kind = rowKindName(row)
+    if (!kind) continue
+    ranked.push({
+      kind,
+      catalog: String((row && row.catalogVersion) || '').trim() ? 1 : 0,
+      fields: Array.isArray(row && row.fields) ? row.fields.length : 0,
+      can: Array.isArray(row && row.can) ? row.can.length : 0,
+    })
+  }
+  if (!ranked.length) return String(fallback || '').trim()
+  ranked.sort((a, b) => {
+    if (b.catalog !== a.catalog) return b.catalog - a.catalog
+    if (b.fields !== a.fields) return b.fields - a.fields
+    return b.can - a.can
+  })
+  return ranked[0].kind
+}
+
+/**
+ * Structured kind → connected table. Spoken shorts alias via 型槽 + graph aliases.
+ * Empty-resource names that do not map to a collection are not preview targets.
+ * Does not parse speech and does not leftover-suffix across unrelated kinds.
+ */
+export function resolveConnectedKindName(spoken, extra = {}) {
+  const name = String(spoken || '').trim()
+  if (!name) return ''
+  const mapped = mapKind(name, extra)
+  if (mapped) return canonicalKindForResource(mapped.resource, extra, name)
+  for (const row of listKindRows(extra)) {
+    const kind = rowKindName(row)
+    if (!kind || kind === name) continue
+    if (!oralAndGraphAliasTokens(row).includes(name)) continue
+    const hit = mapKind(kind, extra)
+    if (!hit) continue
+    return canonicalKindForResource(hit.resource, extra, kind)
+  }
+  return ''
+}
+
+export function connectorCatalogPresent(extra = {}) {
+  return Boolean(
+    (Array.isArray(extra.collections) && extra.collections.length)
+    || (Array.isArray(extra.kinds) && extra.kinds.length)
+    || (Array.isArray(extra.maps) && extra.maps.length)
+  )
+}
+
 /**
  * Registered kinds, longest first so 销售订单 wins over 订单.
  */

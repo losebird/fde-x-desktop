@@ -332,7 +332,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     const byKind = new Map<string, { kind: string; label: string; count: number }>()
     const add = (k: string, count: number) => {
       if (!k) return
-      byKind.set(k, { kind: k, label: kindLabel(k), count })
+      const canonical = resolveConnectedKind(k, kindCatalog) || k
+      byKind.set(canonical, { kind: canonical, label: kindLabel(canonical), count })
     }
 
     if (!anchor) {
@@ -340,9 +341,12 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       return [...byKind.values()]
     }
 
-    const allowedKinds = extractBoundKindHints(anchor)
+    const allowedKinds = [...new Set(
+      extractBoundKindHints(anchor).map((name) => resolveConnectedKind(name, kindCatalog) || name),
+    )]
     if (!allowedKinds.length) {
-      const only = String(anchor.kind || kind || '').trim()
+      const only = resolveConnectedKind(String(anchor.kind || kind || '').trim(), kindCatalog)
+        || String(anchor.kind || kind || '').trim()
       if (only) allowedKinds.push(only)
     }
     const hits = [
@@ -351,14 +355,18 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       ...operationKindHitSheets(pendingSheet),
     ]
     for (const bound of allowedKinds) {
-      const hit = hits.find((sheet) => String(sheet.kind || '') === bound && Array.isArray(sheet.rows))
+      const hit = hits.find((sheet) => {
+        const sheetKind = String(sheet.kind || '')
+        const canonical = resolveConnectedKind(sheetKind, kindCatalog) || sheetKind
+        return canonical === bound && Array.isArray(sheet.rows)
+      })
       const count = hit && Array.isArray(hit.rows)
         ? hit.rows.length
         : (bound === kind ? rows.length : 0)
       add(bound, count)
     }
     return allowedKinds.map((k) => byKind.get(k)).filter(Boolean) as Array<{ kind: string; label: string; count: number }>
-  }, [kind, kindLabel, operationAnchor, rows.length])
+  }, [kind, kindCatalog, kindLabel, operationAnchor, rows.length])
 
   const sessionKey = String(pending?.sessionId || activeAiSessionId || historySessionIdRef.current || '').trim()
   if (sessionKey) historySessionIdRef.current = sessionKey
@@ -640,16 +648,13 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       || (pendingSheet ? sheetPreviewId(pendingSheet) : '')
     if (previewId) dismissBizPreviewId(previewId)
     setDrawer(null)
-    clearBizPendingSheet()
     const floated = displayBeforeWriteRef.current
     displayBeforeWriteRef.current = null
     const floatSheet = floated?.sheet
-    const keepBatch = Boolean(
-      displayedRowCountRef.current > 0
-      && floatSheet
-      && isConnectorCatalogDump(floatSheet),
-    )
-    if (floated && !keepBatch) applyDisplayedSnapshot(floated)
+    if (floated && floatSheet && !isConnectorCatalogDump(floatSheet)) {
+      applyDisplayedSnapshot(floated)
+      rememberBizPendingSheet(floatSheet)
+    }
     void runtimeApi.bizDismissPreview(previewId || undefined).catch(() => undefined)
   }, [applyDisplayedSnapshot, drawer?.previewId])
 

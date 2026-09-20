@@ -566,12 +566,7 @@ function mergeConnectedKindCatalog(catalogData, memoryData) {
       ])],
     })
   }
-  const catalogResources = new Set(
-    catalogKinds.map((row) => String(row?.resource || '').trim()).filter(Boolean),
-  )
-  const collapsed = collapseKindsToConnectedTables([...byName.values()], {
-    connectorResources: catalogResources,
-  })
+  const collapsed = collapseKindsToConnectedTables([...byName.values()])
   return {
     kinds: collapsed.kinds,
     aliases: collapsed.aliases,
