@@ -30,6 +30,11 @@ import {
 } from '../biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw, sheetPreviewIdFromRaw } from '../biz/sheet-payload.mjs'
 import {
+  collapseKindsToConnectedTables,
+  resolveConnectedKind,
+  shouldSkipCoveringPending,
+} from '../biz/connected-kind.mjs'
+import {
   auditRecordNo,
   captureLookupBind,
   effectiveBizKind,
@@ -116,12 +121,17 @@ async function loadWorkspaceKinds(aiRuntime, workspace) {
   try {
     const catalog = await aiRuntime.lanAssist('/catalog', { search: { workspace } })
     if (catalog && catalog.ok === false) return []
-    let kinds = mapKindsFromCatalog(catalog).kinds
-    if (!kinds.length && workspace.startsWith('/')) {
+    let data = mapKindsFromCatalog(catalog)
+    if (workspace.startsWith('/')) {
+      try {
+        const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
+        data = mergeConnectedKindCatalog(data, fromMemory)
+      } catch { /* keep catalog kinds */ }
+    } else if (!data.kinds.length) {
       const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
-      kinds = fromMemory.kinds
+      if (fromMemory.kinds.length) data = fromMemory
     }
-    return kinds
+    return data.kinds || []
   } catch {
     return []
   }
@@ -215,6 +225,19 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
   }
   if (!kind) return { error: '缺少业务型（kind）。targetRef 需为 fde://external/{system}/table/{kind}' }
 
+  const rawKinds = Array.isArray(vocabExtra?.kinds)
+    ? vocabExtra.kinds
+    : (Array.isArray(vocabExtra?.vocab) ? vocabExtra.vocab : [])
+  if (rawKinds.length) {
+    const collapsed = collapseKindsToConnectedTables(rawKinds)
+    if (vocabExtra?.aliases && typeof vocabExtra.aliases === 'object') {
+      Object.assign(collapsed.aliases, vocabExtra.aliases)
+    }
+    const resolved = resolveConnectedKind(kind, collapsed)
+    if (!resolved) return { error: '该对象没有连接业务表' }
+    kind = resolved
+  }
+
   const gateVocabExtra = mergeVocabExtra(body, vocabExtra)
   const input = body.input && typeof body.input === 'object' ? body.input : {}
   no = no || input.no || input.orderNo || input.orderId || ''
@@ -260,9 +283,12 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
  * @param {Record<string, unknown>} sheet
  * @param {{ sessionId?: string, source?: string, workspaceCwd?: string }} [meta]
  */
+let lastEmittedPending = null
+
 export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId } = {}) {
   const normalized = sheetPayloadFromRaw(sheet)
   if (!normalized) return false
+  if (shouldSkipCoveringPending(lastEmittedPending, normalized)) return false
   const previewId = sheetPreviewIdFromRecord(normalized)
   if (previewId && isBizPreviewDismissed(previewId)) return false
   const kind = String(normalized.kind || '')
@@ -294,6 +320,7 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
     sessionId,
     source,
   })
+  lastEmittedPending = payloadSheet
   return true
 }
 
@@ -483,6 +510,11 @@ function mapKindsFromCatalog(catalogPayload) {
       ? row.fieldLabels
       : undefined
     const ticketField = typeof row.ticketField === 'string' && row.ticketField.trim() ? row.ticketField.trim() : undefined
+    const resource = typeof row.resource === 'string' && row.resource.trim() ? row.resource.trim() : undefined
+    const catalogVersion = typeof row.catalogVersion === 'string' && row.catalogVersion.trim()
+      ? row.catalogVersion.trim()
+      : undefined
+    const aliases = Array.isArray(row.aliases) ? row.aliases.map(String).filter(Boolean) : undefined
     return {
       kind,
       label,
@@ -491,12 +523,50 @@ function mapKindsFromCatalog(catalogPayload) {
       ...(relations ? { relations } : {}),
       ...(ticketField ? { ticketField } : {}),
       ...(fieldLabels ? { fieldLabels } : {}),
+      ...(resource ? { resource } : {}),
+      ...(catalogVersion ? { catalogVersion } : {}),
+      ...(aliases && aliases.length ? { aliases } : {}),
     }
   })
   return {
     kinds,
     relations: Array.isArray(catalogPayload?.relations) ? catalogPayload.relations : [],
     catalogVersion: catalogPayload?.catalogVersion ?? catalogPayload?.catalog_version ?? null,
+  }
+}
+
+function mergeConnectedKindCatalog(catalogData, memoryData) {
+  const catalogKinds = Array.isArray(catalogData?.kinds) ? catalogData.kinds : []
+  const memoryKinds = Array.isArray(memoryData?.kinds) ? memoryData.kinds : []
+  const byName = new Map()
+  for (const row of catalogKinds) {
+    const kind = String(row?.kind || '').trim()
+    if (kind) byName.set(kind, { ...row })
+  }
+  for (const row of memoryKinds) {
+    const kind = String(row?.kind || '').trim()
+    if (!kind) continue
+    const prev = byName.get(kind) || {}
+    byName.set(kind, {
+      ...prev,
+      ...row,
+      kind,
+      resource: row.resource || prev.resource,
+      catalogVersion: row.catalogVersion || prev.catalogVersion,
+      aliases: [...new Set([
+        ...(Array.isArray(prev.aliases) ? prev.aliases : []),
+        ...(Array.isArray(row.aliases) ? row.aliases : []),
+      ])],
+    })
+  }
+  const collapsed = collapseKindsToConnectedTables([...byName.values()])
+  return {
+    kinds: collapsed.kinds,
+    aliases: collapsed.aliases,
+    relations: Array.isArray(memoryData?.relations) && memoryData.relations.length
+      ? memoryData.relations
+      : (Array.isArray(catalogData?.relations) ? catalogData.relations : []),
+    catalogVersion: catalogData?.catalogVersion ?? memoryData?.catalogVersion ?? null,
   }
 }
 
@@ -570,7 +640,12 @@ export async function handleBizRoutes(request, response, url, deps) {
         return true
       }
       let data = mapKindsFromCatalog(catalog)
-      if (!data.kinds.length && workspace.startsWith('/')) {
+      if (workspace.startsWith('/')) {
+        try {
+          const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
+          data = mergeConnectedKindCatalog(data, fromMemory)
+        } catch { /* catalog kinds still returned */ }
+      } else if (!data.kinds.length) {
         const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
         if (fromMemory.kinds.length) data = fromMemory
       }
@@ -793,7 +868,9 @@ export async function handleBizRoutes(request, response, url, deps) {
     let previewVocabExtra = {}
     try {
       const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, bizWorkspace)
-      if (fromMemory.kinds?.length) previewVocabExtra = { kinds: fromMemory.kinds }
+      if (fromMemory.kinds?.length) {
+        previewVocabExtra = { kinds: fromMemory.kinds, aliases: fromMemory.aliases }
+      }
     } catch { /* spoken seed still applies in gate-action-codes */ }
     const translated = translateBizIntent(body, bizWorkspace, previewVocabExtra)
     if (translated.error) {

@@ -44,8 +44,13 @@ import {
   operationKindHitSheets,
   sheetRowsFingerprint,
   shouldHoldSideKindView,
-  shouldRejectEmptyIncomingSheet,
+  shouldRejectIncomingCovering,
 } from '@/lib/biz-list-query'
+import {
+  isConnectorCatalogDump,
+  resolveConnectedKind,
+  type ConnectedKindRow,
+} from '@/lib/connected-kind'
 import {
   matchSurfaceIdForSheet,
   peekBizSurfaceSheet,
@@ -288,7 +293,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const [contextPack, setContextPack] = useState<ContextPack | null>(null)
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [omit, setOmit] = useState<Set<string>>(new Set())
-  const [kindCatalog, setKindCatalog] = useState<Array<{ kind: string; label: string; can: string[] }>>([])
+  const [kindCatalog, setKindCatalog] = useState<ConnectedKindRow[]>([])
   const sheetSnapshots = useRef<Map<string, SheetSnapshot>>(new Map())
   const listRestoreRef = useRef<ListRestoreSnapshot | null>(null)
   const displayBeforeWriteRef = useRef<ListRestoreSnapshot | null>(null)
@@ -436,6 +441,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         kind: row.kind,
         label: row.label,
         can: Array.isArray(row.can) ? row.can.map(String) : [],
+        resource: typeof row.resource === 'string' ? row.resource : undefined,
+        aliases: Array.isArray(row.aliases) ? row.aliases.map(String) : [],
       })))
     }).catch(() => {
       if (!cancelled) setKindCatalog([])
@@ -627,7 +634,13 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     clearBizPendingSheet()
     const floated = displayBeforeWriteRef.current
     displayBeforeWriteRef.current = null
-    if (floated) applyDisplayedSnapshot(floated)
+    const floatSheet = floated?.sheet
+    const keepBatch = Boolean(
+      displayedRowCountRef.current > 0
+      && floatSheet
+      && isConnectorCatalogDump(floatSheet),
+    )
+    if (floated && !keepBatch) applyDisplayedSnapshot(floated)
     void runtimeApi.bizDismissPreview(previewId || undefined).catch(() => undefined)
   }, [applyDisplayedSnapshot, drawer?.previewId])
 
@@ -730,68 +743,76 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   }, [bizCwd, connectionId, connections, rememberSheet])
 
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
-    const rowCount = incomingSheetRowCount(sheet)
-    if (!rowCount && !sheet.kind) return false
-    if (shouldRejectEmptyIncomingSheet(sheet, displayedRowCountRef.current, displayedSheetRef.current)) return false
+    const connected = kindCatalog
+    let next = sheet
+    if (connected.length) {
+      const incomingKind = String(sheet.kind || '').trim()
+      const resolved = resolveConnectedKind(incomingKind, connected)
+      if (!resolved) return false
+      if (resolved !== incomingKind) next = { ...sheet, kind: resolved }
+    }
+    const rowCount = incomingSheetRowCount(next)
+    if (!rowCount && !next.kind) return false
+    if (shouldRejectIncomingCovering(next, displayedRowCountRef.current, displayedSheetRef.current, connected)) return false
     if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId)) {
       return false
     }
-    const incomingKind = String(sheet.kind || '').trim()
+    const incomingKind = String(next.kind || '').trim()
     if (shouldHoldSideKindView(
       operationKindViewRef.current,
-      sheet,
+      next,
       displayedSheetRef.current,
-      isWritePreviewSheet(sheet),
+      isWritePreviewSheet(next),
     )) {
-      if (!isWritePreviewSheet(sheet)) rememberBizPendingSheet(sheet)
+      if (!isWritePreviewSheet(next)) rememberBizPendingSheet(next)
       return true
     }
     if (incomingKind) operationKindViewRef.current = incomingKind
-    const previewId = sheetPreviewId(sheet)
-    const action = String(sheet.action || '')
+    const previewId = sheetPreviewId(next)
+    const action = String(next.action || '')
     const isWritePreview = Boolean(previewId && !isBizListQueryAction(action))
 
-    if (isWritePreview && isBizPreviewDismissed(sheet)) {
+    if (isWritePreview && isBizPreviewDismissed(next)) {
       return true
     }
 
-    const incomingQueryFp = listQueryFingerprint(sheet)
+    const incomingQueryFp = listQueryFingerprint(next)
     if (incomingQueryFp && incomingQueryFp !== activeListQueryFpRef.current) {
       appliedSheetFpRef.current = ''
     }
-    const incomingFp = sheetRowsFingerprint(sheet)
+    const incomingFp = sheetRowsFingerprint(next)
     const historyPinned = Boolean(historyPinnedSurfaceIdRef.current)
     if (incomingFp && incomingFp === appliedSheetFpRef.current) {
-      if (shouldOpenWritePreviewDrawer(sheet, historyPinned)) {
+      if (shouldOpenWritePreviewDrawer(next, historyPinned)) {
         setDrawer((prev) => {
           const prevId = prev?.previewId || ''
           const prevAction = String(prev?.sheet?.action || '')
           if (prev && prevId === previewId && prevAction === action) return prev
           return {
             previewId,
-            sheet,
-            canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+            sheet: next,
+            canWrite: Boolean(next.canWrite ?? next.can_write),
           }
         })
       }
-      return rowCount > 0 || Boolean(sheet.kind)
+      return rowCount > 0 || Boolean(next.kind)
     }
     const conn = connections.find((c) => c.id === connectionId) || connections[0]
-    if (isWritePreview) ensureListRestoreBeforeWritePreview(sheet)
-    rememberBizPendingSheet(sheet)
-    maybeSaveListRestore(sheet)
-    applySheet(sheet, conn?.name || '连接器', surfaceId)
-    if (!shouldOpenWritePreviewDrawer(sheet, historyPinned)) setDrawer(null)
+    if (isWritePreview) ensureListRestoreBeforeWritePreview(next)
+    rememberBizPendingSheet(next)
+    maybeSaveListRestore(next)
+    applySheet(next, conn?.name || '连接器', surfaceId)
+    if (!shouldOpenWritePreviewDrawer(next, historyPinned)) setDrawer(null)
     else {
       setDrawer({
         previewId,
-        sheet,
-        canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+        sheet: next,
+        canWrite: Boolean(next.canWrite ?? next.can_write),
       })
     }
-    void bindSurfaceIdIfKnown(sheet, surfaceId)
-    return rowCount > 0 || Boolean(sheet.kind)
-  }, [applySheet, bindSurfaceIdIfKnown, connectionId, connections, ensureListRestoreBeforeWritePreview, maybeSaveListRestore])
+    void bindSurfaceIdIfKnown(next, surfaceId)
+    return rowCount > 0 || Boolean(next.kind)
+  }, [applySheet, bindSurfaceIdIfKnown, connectionId, connections, ensureListRestoreBeforeWritePreview, kindCatalog, maybeSaveListRestore])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     if (historyPinnedSurfaceIdRef.current && !surfaceId) return false

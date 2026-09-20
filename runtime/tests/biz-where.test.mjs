@@ -108,15 +108,28 @@ describe('biz preview where pass-through', () => {
     assert.equal(out.payload.steps[1].kind, 'MidB')
   })
 
-  test('translateBizIntent passes where for kind can not in spoken seed', () => {
-    const where = [{ keys: ['status'], values: ['archived'] }]
+  test('translateBizIntent binds a spoken alias to the connected table kind', () => {
+    const kinds = [
+      { kind: 'LongKind', resource: 'res_a', catalogVersion: 'schema:1', fields: ['a', 'b'], can: ['现查', '过审'] },
+      { kind: 'ShortKind', resource: 'res_a', fields: ['no'], can: ['现查'] },
+    ]
     const out = translateBizIntent({
-      kind: '档案',
-      action: '封存',
-      can: ['封存', '现查'],
-      where,
-    }, '/tmp/ws')
-    assert.equal(out.payload.action, '封存')
-    assert.deepEqual(out.payload.where, where)
+      kind: 'ShortKind',
+      action: '过审',
+    }, '/tmp/ws', { kinds })
+    assert.equal(out.payload.kind, 'LongKind')
+    assert.equal(out.payload.action, '过审')
+  })
+
+  test('translateBizIntent refuses a graph concept with no connected table', () => {
+    const kinds = [
+      { kind: 'LongKind', resource: 'res_a', catalogVersion: 'schema:1', fields: ['a'] },
+      { kind: 'Orphan', fields: ['x'] },
+    ]
+    const out = translateBizIntent({
+      kind: 'Orphan',
+      action: '现查',
+    }, '/tmp/ws', { kinds })
+    assert.equal(out.error, '该对象没有连接业务表')
   })
 })

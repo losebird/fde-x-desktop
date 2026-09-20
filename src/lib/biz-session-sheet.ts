@@ -1,5 +1,6 @@
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { rememberBizKindListSheet } from '@/lib/biz-kind-list-cache'
+import { shouldSkipCoveringPending } from './connected-kind.ts'
 
 /** In-memory pending preview sheet for the current browser session (not persisted). */
 let lastPending: { sheet: Record<string, unknown>; at: number } | null = null
@@ -69,15 +70,12 @@ export function rememberBizPendingSheet(sheet: Record<string, unknown>) {
     if (ws.ok) rememberBizKindListSheet(ws.cwd, sheet)
   }
   const prevRows = Array.isArray(lastPending?.sheet?.rows) ? lastPending.sheet.rows : []
-  const prevAction = String(lastPending?.sheet?.action || '')
-  const prevSpeech = String(lastPending?.sheet?.speech || '').trim()
-  const nextSpeech = String(sheet.speech || '').trim()
+  if (shouldSkipCoveringPending(lastPending?.sheet, sheet)) return
   if (
-    action === '现查'
-    && rows.length === 0
+    String(sheet.action || '') === '现查'
+    && Array.isArray(sheet.rows)
+    && sheet.rows.length === 0
     && prevRows.length > 0
-    && (!prevAction || prevAction === '现查')
-    && (!prevSpeech || !nextSpeech || prevSpeech === nextSpeech)
   ) return
   lastPending = { sheet, at: Date.now() }
 }

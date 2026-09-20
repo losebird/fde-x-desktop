@@ -1,5 +1,14 @@
 /** Stable fingerprint for list 现查 sheets (kind + optional where), generic — no field literals. */
 
+import {
+  isConnectorCatalogDump,
+  resolveConnectedKind,
+  type ConnectedKindIndex,
+  type ConnectedKindRow,
+} from './connected-kind.ts'
+
+export type { ConnectedKindIndex, ConnectedKindRow }
+
 function stableWhereSlice(raw: unknown): unknown {
   if (!Array.isArray(raw)) return []
   return raw.map((row) => {
@@ -197,13 +206,43 @@ export function shouldRejectEmptyIncomingSheet(
   incoming: Record<string, unknown> | null | undefined,
   displayedRowCount: number,
   displayed?: Record<string, unknown> | null,
+  connected?: ConnectedKindIndex | ConnectedKindRow[] | null,
 ): boolean {
   if (displayedRowCount <= 0) return false
   if (!incoming || typeof incoming !== 'object') return false
   const incomingCount = Array.isArray(incoming.rows) ? incoming.rows.length : 0
   if (incomingCount > 0) return false
-  if (String(incoming.action || '').trim() !== '现查') return false
+  const incomingKind = String(incoming.kind || '').trim()
+  const shownKind = displayed ? String(displayed.kind || '').trim() : ''
+  const hasCatalog = Array.isArray(connected)
+    ? connected.length > 0
+    : Boolean(connected && connected.kinds.length > 0)
+  if (hasCatalog) {
+    const canonicalIn = resolveConnectedKind(incomingKind, connected)
+    if (!canonicalIn) return true
+    const canonicalShown = resolveConnectedKind(shownKind, connected)
+    if (canonicalIn && canonicalShown && canonicalIn === canonicalShown) return true
+  }
+  const action = String(incoming.action || '').trim()
+  const previewId = String(incoming.preview_id ?? incoming.previewId ?? '').trim()
+  if (action && action !== '现查' && !previewId) return true
+  if (action !== '现查') return false
   if (displayed && !operationBundlesAlign(displayed, incoming)) return false
+  return true
+}
+
+/** Catalog page-1 dump and empty/fake covering must not replace this-utterance rows. */
+export function shouldRejectIncomingCovering(
+  incoming: Record<string, unknown> | null | undefined,
+  displayedRowCount: number,
+  displayed?: Record<string, unknown> | null,
+  connected?: ConnectedKindIndex | ConnectedKindRow[] | null,
+): boolean {
+  if (shouldRejectEmptyIncomingSheet(incoming, displayedRowCount, displayed, connected)) return true
+  if (displayedRowCount <= 0) return false
+  if (!incoming || typeof incoming !== 'object') return false
+  if (!isConnectorCatalogDump(incoming)) return false
+  if (displayed && isConnectorCatalogDump(displayed)) return false
   return true
 }
 

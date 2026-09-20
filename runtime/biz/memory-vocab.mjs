@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { FDE_DSH_HOME } from '../config.mjs'
+import { collapseKindsToConnectedTables } from './connected-kind.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -41,23 +42,27 @@ export async function loadMemoryWorkspaceVocab(aiRuntime, workspaceCwd) {
       relations.push(field ? { from, to, field } : { from, to })
     }
   }
+  const mapped = kinds.map((row) => ({
+    kind: row.kind,
+    label: row.kind,
+    fields: Array.isArray(row.fields) ? row.fields : [],
+    ...(row.id ? { id: row.id } : {}),
+    ...(row.resource ? { resource: row.resource } : {}),
+    ...(row.catalogVersion ? { catalogVersion: row.catalogVersion } : {}),
+    ...(row.ticketField ? { ticketField: row.ticketField } : {}),
+    ...(row.fieldLabels && typeof row.fieldLabels === 'object' && !Array.isArray(row.fieldLabels)
+      ? { fieldLabels: row.fieldLabels }
+      : {}),
+    ...(row.can ? { can: row.can } : {}),
+    ...(Array.isArray(row.relations) && row.relations.length ? { relations: row.relations } : {}),
+  }))
+  const collapsed = collapseKindsToConnectedTables(mapped)
   return {
-    kinds: kinds.map((row) => ({
-      kind: row.kind,
-      label: row.kind,
-      fields: Array.isArray(row.fields) ? row.fields : [],
-      ...(row.id ? { id: row.id } : {}),
-      ...(row.resource ? { resource: row.resource } : {}),
-      ...(row.ticketField ? { ticketField: row.ticketField } : {}),
-      ...(row.fieldLabels && typeof row.fieldLabels === 'object' && !Array.isArray(row.fieldLabels)
-        ? { fieldLabels: row.fieldLabels }
-        : {}),
-      ...(row.can ? { can: row.can } : {}),
-      ...(Array.isArray(row.relations) && row.relations.length ? { relations: row.relations } : {}),
-    })),
+    kinds: collapsed.kinds,
+    aliases: collapsed.aliases,
     relations,
     catalogVersion: null,
     source: 'memory-graph',
-    empty: kinds.length === 0,
+    empty: collapsed.kinds.length === 0,
   }
 }

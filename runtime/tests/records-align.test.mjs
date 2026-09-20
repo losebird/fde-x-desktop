@@ -88,7 +88,9 @@ test('RecordsPanel separates connector picker from operation kind chips and canc
   assert.match(src, /operationKindViewRef/)
   assert.match(src, /operationBundlesAlign\(anchor, sheet\)/)
   assert.match(src, /keepPending/)
-  assert.match(src, /shouldHoldSideKindView\(/)
+  assert.match(src, /shouldRejectIncomingCovering\(/)
+  assert.match(src, /resolveConnectedKind\(/)
+  assert.match(src, /isConnectorCatalogDump\(/)
   assert.match(src, /displayedSheetRef/)
   assert.doesNotMatch(src, /if \(viewKind && incomingKind && viewKind !== incomingKind\) \{\s*if \(!isWritePreviewSheet\(sheet\)\) rememberBizPendingSheet\(sheet\)\s*return true/)
 })
@@ -289,4 +291,43 @@ test('empty 现查 poll holds the list; a new speech empty sheet must paint', as
   assert.equal(shouldRejectEmptyIncomingSheet(emptyPoll, 1, shown), true)
   assert.equal(shouldRejectEmptyIncomingSheet(emptyNext, 1, shown), false)
   assert.equal(shouldRejectEmptyIncomingSheet(emptyPoll, 0, shown), false)
+})
+
+test('empty write without preview_id and catalog dump must not cover a populated sheet', async () => {
+  const {
+    shouldRejectEmptyIncomingSheet,
+    shouldRejectIncomingCovering,
+  } = await import('../../src/lib/biz-list-query.ts')
+  const { collapseKindsToConnectedTables, resolveConnectedKind } = await import('../../src/lib/connected-kind.ts')
+  const shown = {
+    kind: 'LongKind',
+    action: '现查',
+    speech: 'batch this table',
+    rows: [{ no: 'ROW-1' }],
+  }
+  assert.equal(shouldRejectEmptyIncomingSheet({
+    kind: 'LongKind',
+    action: '过审',
+    speech: 'batch this table',
+    rows: [],
+  }, 1, shown), true)
+  const connected = collapseKindsToConnectedTables([
+    { kind: 'LongKind', resource: 'res_a', catalogVersion: 'schema:1', fields: ['a', 'b', 'c'] },
+    { kind: 'ShortKind', resource: 'res_a', fields: ['no'] },
+    { kind: 'Orphan', fields: ['x'] },
+  ])
+  assert.equal(connected.kinds.map((row) => row.kind).join(), 'LongKind')
+  assert.equal(resolveConnectedKind('ShortKind', connected), 'LongKind')
+  assert.equal(resolveConnectedKind('Orphan', connected), '')
+  assert.equal(shouldRejectEmptyIncomingSheet({
+    kind: 'ShortKind',
+    action: '过审',
+    speech: 'batch this table',
+    rows: [],
+  }, 1, shown, connected), true)
+  assert.equal(shouldRejectIncomingCovering({
+    kind: 'LongKind',
+    action: '现查',
+    rows: Array.from({ length: 20 }, (_, index) => ({ no: `C-${index}` })),
+  }, 1, shown), true)
 })
