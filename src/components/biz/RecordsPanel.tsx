@@ -1410,7 +1410,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   }
 
   const pendingText = pending
-    ? isBizListQueryAction(pending.action) || pending.source === 'ai'
+    ? isBizListQueryAction(pending.action)
       ? `AI 刚查了 ${pending.kind} · ${pending.rows} 行${pending.sessionId ? ` · 会话 ${pending.sessionId.slice(0, 8)}` : ''} · ${formatSurfaceTime(pending.at)}`
       : `AI 拟改 ${pending.kind} ${pending.rows} 行 · 待确认`
     : ''
