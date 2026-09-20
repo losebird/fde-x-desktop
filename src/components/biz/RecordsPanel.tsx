@@ -442,7 +442,16 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         label: row.label,
         can: Array.isArray(row.can) ? row.can.map(String) : [],
         resource: typeof row.resource === 'string' ? row.resource : undefined,
-        aliases: Array.isArray(row.aliases) ? row.aliases.map(String) : [],
+        catalogVersion: typeof row.catalogVersion === 'string' ? row.catalogVersion : undefined,
+        aliases: [
+          ...new Set([
+            ...(Array.isArray(row.aliases) ? row.aliases.map(String) : []),
+            ...Object.entries(data.aliases || {})
+              .filter(([, canonical]) => canonical === row.kind)
+              .map(([spoken]) => spoken)
+              .filter((spoken) => spoken !== row.kind),
+          ]),
+        ],
       })))
     }).catch(() => {
       if (!cancelled) setKindCatalog([])
@@ -813,6 +822,12 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     void bindSurfaceIdIfKnown(next, surfaceId)
     return rowCount > 0 || Boolean(next.kind)
   }, [applySheet, bindSurfaceIdIfKnown, connectionId, connections, ensureListRestoreBeforeWritePreview, kindCatalog, maybeSaveListRestore])
+
+  useEffect(() => {
+    if (!kindCatalog.length) return
+    const pending = peekBizPendingSheet()
+    if (pending) applyPendingSheet(pending)
+  }, [kindCatalog, applyPendingSheet])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     if (historyPinnedSurfaceIdRef.current && !surfaceId) return false

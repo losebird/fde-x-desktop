@@ -31,6 +31,7 @@ import {
 import { sheetPayloadFromRaw, sheetPreviewIdFromRaw } from '../biz/sheet-payload.mjs'
 import {
   collapseKindsToConnectedTables,
+  canonicalizeSheetKind,
   dropActionBatchLeftover,
   isSpokenActionOrBatchToken,
   resolveConnectedKind,
@@ -842,14 +843,28 @@ export async function handleBizRoutes(request, response, url, deps) {
         sendJson(response, 200, { data: { sheet: null }, correlationId })
         return true
       }
-      if (shouldSkipCoveringPending(lastEmittedPending, sheet)) {
+      const bizCwd = requestMemoryCwd(url, {}) || FDE_AI_WORKSPACE
+      let canonical = sheet
+      try {
+        const kinds = await loadWorkspaceKinds(aiRuntime, bizCwd)
+        const next = canonicalizeSheetKind(sheet, kinds)
+        if (!next) {
+          sendJson(response, 200, {
+            data: { sheet: lastEmittedPending ? stripSecrets(lastEmittedPending) : null },
+            correlationId,
+          })
+          return true
+        }
+        canonical = next
+      } catch { /* keep gate sheet */ }
+      if (shouldSkipCoveringPending(lastEmittedPending, canonical)) {
         sendJson(response, 200, {
           data: { sheet: lastEmittedPending ? stripSecrets(lastEmittedPending) : null },
           correlationId,
         })
         return true
       }
-      sendJson(response, 200, { data: { sheet: stripSecrets(sheet) }, correlationId })
+      sendJson(response, 200, { data: { sheet: stripSecrets(canonical) }, correlationId })
     } catch (error) {
       sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
     }

@@ -138,7 +138,10 @@ export function resolveConnectedKind(
   const name = String(spoken || '').trim()
   if (!name) return ''
   const packed = Array.isArray(index) ? collapseKindsToConnectedTables(index) : index
-  if (!packed || packed.kinds.length === 0) return name
+  if (!packed) return name
+  if (packed.kinds.length === 0) {
+    return Array.isArray(index) && index.length ? '' : name
+  }
   if (packed.kinds.some((row) => row.kind === name)) return name
   const mapped = packed.aliases[name]
   if (mapped) return mapped
@@ -146,6 +149,21 @@ export function resolveConnectedKind(
     if (Array.isArray(row.aliases) && row.aliases.includes(name)) return row.kind
   }
   return ''
+}
+
+export function canonicalizeSheetKind(
+  sheet: Record<string, unknown> | null | undefined,
+  index: ConnectedKindIndex | ConnectedKindRow[] | null | undefined,
+): Record<string, unknown> | null | undefined {
+  if (!sheet || typeof sheet !== 'object') return sheet
+  const kind = String(sheet.kind || '').trim()
+  if (!kind) return sheet
+  const packed = Array.isArray(index) ? collapseKindsToConnectedTables(index) : index
+  if (!packed || packed.kinds.length === 0) return sheet
+  const resolved = resolveConnectedKind(kind, packed)
+  if (!resolved) return null
+  if (resolved === kind) return sheet
+  return { ...sheet, kind: resolved }
 }
 
 function sheetPreviewId(sheet: Record<string, unknown> | null | undefined): string {

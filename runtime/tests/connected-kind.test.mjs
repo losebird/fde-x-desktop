@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  canonicalizeSheetKind,
   collapseKindsToConnectedTables,
   dropActionBatchLeftover,
   isConnectorCatalogDump,
@@ -40,6 +41,27 @@ test('oral 型 slots and graph aliases fold onto the connected table', () => {
   ])
   assert.equal(resolveConnectedKind('OralSay', collapsed), 'LongKind')
   assert.equal(resolveConnectedKind('GraphSay', collapsed), 'LongKind')
+  assert.equal(resolveConnectedKind('GraphSay', [
+    { kind: 'LongKind', resource: 'res_a', catalogVersion: 'schema:1', aliases: ['GraphSay'] },
+  ]), 'LongKind')
+})
+
+test('canonicalizeSheetKind remaps a spoken alias; empty catalog leaves the sheet', () => {
+  const kinds = [
+    {
+      kind: 'LongKind',
+      resource: 'res_a',
+      catalogVersion: 'schema:1',
+      aliases: ['ShortSay'],
+      can: ['现查', '过审'],
+    },
+  ]
+  const remapped = canonicalizeSheetKind({ kind: 'ShortSay', action: '过审', rows: [{ no: 'R-1' }] }, kinds)
+  assert.equal(remapped.kind, 'LongKind')
+  assert.equal(remapped.action, '过审')
+  const passthrough = canonicalizeSheetKind({ kind: 'ShortSay', action: '过审' }, [])
+  assert.equal(passthrough.kind, 'ShortSay')
+  assert.equal(canonicalizeSheetKind({ kind: 'Orphan', action: '过审' }, kinds), null)
 })
 
 test('action/batch leftover is not a kind or row identity', () => {
