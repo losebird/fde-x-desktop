@@ -44,6 +44,7 @@ import {
   operationKindHitSheets,
   sheetRowsFingerprint,
   shouldHoldSideKindView,
+  shouldRejectEmptyIncomingSheet,
 } from '@/lib/biz-list-query'
 import {
   matchSurfaceIdForSheet,
@@ -169,19 +170,6 @@ function sameSheetRowKeySet(a: SheetRow[], b: SheetRow[]) {
 
 function incomingSheetRowCount(sheet: Record<string, unknown>) {
   return Array.isArray(sheet.rows) ? sheet.rows.length : 0
-}
-
-/** Empty lan-assist poll must not wipe a surfaced list (§9). */
-function shouldRejectEmptyIncomingSheet(
-  incoming: Record<string, unknown>,
-  displayedRowCount: number,
-) {
-  if (displayedRowCount <= 0) return false
-  const incomingCount = incomingSheetRowCount(incoming)
-  if (incomingCount > 0) return false
-  const action = String(incoming.action || '')
-  if (isBizListQueryAction(action)) return true
-  return false
 }
 
 function listRestoreDiffersFromIncoming(restore: ListRestoreSnapshot, incoming: Record<string, unknown>) {
@@ -744,7 +732,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
     const rowCount = incomingSheetRowCount(sheet)
     if (!rowCount && !sheet.kind) return false
-    if (shouldRejectEmptyIncomingSheet(sheet, displayedRowCountRef.current)) return false
+    if (shouldRejectEmptyIncomingSheet(sheet, displayedRowCountRef.current, displayedSheetRef.current)) return false
     if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId)) {
       return false
     }

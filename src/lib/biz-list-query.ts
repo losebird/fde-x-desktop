@@ -188,6 +188,21 @@ export function shouldHoldSideKindView(
   return Boolean(displayed && operationBundlesAlign(displayed, incoming))
 }
 
+/** Empty poll of the same 现查 must not wipe a surfaced list. A new speech/where/hop must paint. */
+export function shouldRejectEmptyIncomingSheet(
+  incoming: Record<string, unknown> | null | undefined,
+  displayedRowCount: number,
+  displayed?: Record<string, unknown> | null,
+): boolean {
+  if (displayedRowCount <= 0) return false
+  if (!incoming || typeof incoming !== 'object') return false
+  const incomingCount = Array.isArray(incoming.rows) ? incoming.rows.length : 0
+  if (incomingCount > 0) return false
+  if (String(incoming.action || '').trim() !== '现查') return false
+  if (displayed && !operationBundlesAlign(displayed, incoming)) return false
+  return true
+}
+
 export function listQueryScopeKey(sheet: Record<string, unknown> | null | undefined): string {
   if (!sheet || typeof sheet !== 'object') return ''
   const where = stableWhereSlice(extractSheetListWhere(sheet))

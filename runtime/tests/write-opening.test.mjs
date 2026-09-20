@@ -237,7 +237,7 @@ test('same-action patches in one opening still merge', async () => {
   assert.equal((hall.pendingWrite.lines || []).length, 2)
 })
 
-test('empty 现查 does not wipe a populated list sheet', async () => {
+test('empty 现查 poll does not wipe; a new speech empty sheet replaces', async () => {
   const store = memStore()
   const now = () => 1_700_000_000_000
   const snapshot = async (sid) => {
@@ -292,10 +292,21 @@ test('empty 现查 does not wipe a populated list sheet', async () => {
     rows: [],
     sessionId,
     workspace,
-    speech: 'empty follow-up',
+    speech: 'first populated list',
   })
   const kept = await snapshot(sessionId)
   assert.equal(kept.pendingSheet.kind, 'KindShown')
   assert.equal(kept.pendingSheet.rows.length, 1)
   assert.equal(kept.pendingSheet.rows[0].no, 'HIT-1')
+  await gate.previewBiz({
+    kind: 'KindEmpty',
+    action: '现查',
+    rows: [],
+    sessionId,
+    workspace,
+    speech: 'empty follow-up',
+  })
+  const replaced = await snapshot(sessionId)
+  assert.equal(replaced.pendingSheet.kind, 'KindEmpty')
+  assert.equal(replaced.pendingSheet.rows.length, 0)
 })

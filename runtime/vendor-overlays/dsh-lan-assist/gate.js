@@ -146,6 +146,9 @@ export function createGate(bag) {
     const nextAct = String((incoming && incoming.action) || '')
     if (nextAct && nextAct !== '现查') return false
     if (prevAct && prevAct !== '现查') return false
+    const prevSpeech = String((prev && prev.speech) || '').trim()
+    const nextSpeech = String((incoming && incoming.speech) || '').trim()
+    if (prevSpeech && nextSpeech && prevSpeech !== nextSpeech) return false
     return true
   }
 

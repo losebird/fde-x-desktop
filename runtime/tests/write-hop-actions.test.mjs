@@ -30,12 +30,14 @@ const hopVocab = [
 ]
 
 const speech = 'pending ChildB ∩ expired ParentA'
-const parentRows = Array.from({ length: 5 }, (_, i) => {
+const parentRows = Array.from({ length: 25 }, (_, i) => {
   const id = `p${i + 1}`
-  return { no: `PA-${i + 1}`, status: 'expired', fields: { id, status: 'expired', code: `PA-${i + 1}` } }
+  const status = i < 20 ? 'expired' : 'active'
+  return { no: `PA-${i + 1}`, status, fields: { id, status, code: `PA-${i + 1}` } }
 })
 const childRows = [
   { no: 'CB-HIT', status: 'pending', fields: { id: 'c-hit', status: 'pending', parentRefId: 'p3', code: 'CB-HIT' } },
+  { no: 'CB-FAR', status: 'pending', fields: { id: 'c-far', status: 'pending', parentRefId: 'p25', code: 'CB-FAR' } },
   { no: 'CB-OTHER', status: 'pending', fields: { id: 'c-other', status: 'pending', parentRefId: 'outside', code: 'CB-OTHER' } },
   { no: 'CB-DONE', status: 'done', fields: { id: 'c-done', status: 'done', parentRefId: 'p3', code: 'CB-DONE' } },
 ]
@@ -64,6 +66,9 @@ function lookupTodo(spec) {
     rows = rows.filter((row) => idSet.has(String(row.fields[field] || row.fields.id || '')))
   }
   rows = applyWhere(rows, spec.where)
+  if (!relatedIds.length && kind === 'ParentA' && !(Array.isArray(spec.where) && spec.where.length)) {
+    rows = rows.slice(0, 20)
+  }
   if (!rows.length) return { ok: false, error: 'NOT_FOUND', matches: [] }
   return {
     ok: true,
@@ -151,6 +156,26 @@ test('现查 on the same speech still returns the intersection row', async () =>
   assert.equal(out.fromFirst, 'PA-3')
   assert.ok(out.fromRows < parentRows.length)
   assert.equal(out.hopWhere, true)
+})
+
+test('现查 with a mentioned parent but no parent where queries the child full set', async () => {
+  const preview = await gate().preview({
+    workspace: '/tmp/hop-ws',
+    kind: 'ChildB',
+    action: '现查',
+    speech: 'pending ChildB 是哪家 ParentA 的？',
+  })
+  const out = hopMeta(preview)
+  const sheet = preview.sheet || preview
+  const rowNos = (Array.isArray(sheet.rows) ? sheet.rows : []).map((row) => String(row.no || ''))
+  assert.equal(out.ok, true)
+  assert.notEqual(out.error, 'NOT_FOUND')
+  assert.equal(out.kind, 'ChildB')
+  assert.ok(out.rows >= 2, 'pending children across the full set, not the first parent page')
+  assert.ok(rowNos.includes('CB-FAR'))
+  assert.equal(out.fromKind, 'ParentA')
+  assert.ok(out.fromRows > 0)
+  assert.ok(out.fromRows < 20, 'must not dump the unfiltered parent page')
 })
 
 test('write uniqueness is on the intersection, not the parent half-table', async () => {

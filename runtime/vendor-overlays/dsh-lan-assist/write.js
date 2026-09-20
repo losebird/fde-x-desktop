@@ -250,6 +250,19 @@ function hopLinkIds(fromKind, toKind, matches, extra) {
   }
 }
 
+function stepHasBind(step) {
+  if (!step || typeof step !== 'object') return false
+  if (String(step.no || '').trim()) return true
+  return Array.isArray(step.where) && step.where.length > 0
+}
+
+/** Probe the first hop step that actually filters; empty ancestor where is not a base table. */
+function firstBoundStepIndex(steps) {
+  const list = Array.isArray(steps) ? steps : []
+  const idx = list.findIndex(stepHasBind)
+  return idx >= 0 ? idx : 0
+}
+
 function planStepsForSheet(plan) {
   return (plan && Array.isArray(plan.steps) ? plan.steps : [])
     .filter((step) => step && step.kind)
@@ -720,7 +733,8 @@ export function createGate(opts = {}) {
         extra.collections = await opts.collectionsOf(spec.workspace)
       } catch { /* collections optional for hop FK */ }
     }
-    const start = plan.steps[0]
+    const probeIndex = firstBoundStepIndex(plan.steps)
+    const start = plan.steps[probeIndex] || plan.steps[0]
     const target = plan.steps[plan.targetIndex] || start
     if (!start || !start.kind) return refuse('UNKNOWN_KIND', '没有型，预览走不了。')
     const recognized = recognize(target.kind, plan.action, plan.patch, loaded.vocab)
@@ -812,7 +826,7 @@ export function createGate(opts = {}) {
       let prevKind = start.kind
       const hitsByKind = new Map()
       hitsByKind.set(start.kind, parentMatches)
-      for (let i = 1; i < plan.steps.length; i += 1) {
+      for (let i = probeIndex + 1; i < plan.steps.length; i += 1) {
         const step = plan.steps[i]
         const hopKind = String(step && step.kind || '').trim()
         if (!hopKind || hopKind === prevKind) continue
@@ -843,10 +857,37 @@ export function createGate(opts = {}) {
         matches = stampParentLabels(prevKind, matches, nextRows, hopKind, extra)
         found = hopped
         hitsByKind.set(hopKind, nextRows)
-        pruneHopHits(hitsByKind, plan.steps.slice(0, i + 1), extra)
+        pruneHopHits(hitsByKind, plan.steps.slice(probeIndex, i + 1), extra)
         prevKind = hopKind
       }
-      return finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, target.kind, hitsByKind, extra)
+      for (let i = probeIndex - 1; i >= 0; i -= 1) {
+        const ancestorKind = String((plan.steps[i] && plan.steps[i].kind) || '').trim()
+        const childKind = String((plan.steps[i + 1] && plan.steps[i + 1].kind) || '').trim()
+        if (!ancestorKind || !childKind) continue
+        const childRows = hitsByKind.get(childKind) || []
+        const ids = [...new Set((Array.isArray(childRows) ? childRows : []).map((item) => (
+          relatedChildId(ancestorKind, childKind, item && item.fields, extra)
+        )).filter(Boolean))]
+        if (!ids.length) {
+          hitsByKind.set(ancestorKind, [])
+          continue
+        }
+        const hopped = await probe({
+          kind: ancestorKind, no: '', workspace: spec.workspace, staffId: spec.staffId, vocab: loaded.vocab,
+          structured: true, speech: '', where: plan.steps[i].where,
+          related: { kind: childKind, ids, field: 'id' },
+        })
+        const nextRows = Array.isArray(hopped && hopped.matches) ? hopped.matches : []
+        const idSet = new Set(ids.map((item) => String(item)))
+        const kept = nextRows.filter((row) => {
+          const fields = row && row.fields && typeof row.fields === 'object' ? row.fields : {}
+          return idSet.has(String(fields.id || row.no || ''))
+        })
+        hitsByKind.set(ancestorKind, kept.length ? kept : nextRows)
+      }
+      pruneHopHits(hitsByKind, plan.steps, extra)
+      const targetRows = hitsByKind.get(target.kind) || matches
+      return finishStructured(recognized, targetRows, found, writePatch, plan, spec, loaded, schemaFields, target.kind, hitsByKind, extra)
     }
     return finishStructured(recognized, parentMatches, parentFound, writePatch, plan, spec, loaded, schemaFields, recognized.kind)
   }

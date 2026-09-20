@@ -70,7 +70,15 @@ export function rememberBizPendingSheet(sheet: Record<string, unknown>) {
   }
   const prevRows = Array.isArray(lastPending?.sheet?.rows) ? lastPending.sheet.rows : []
   const prevAction = String(lastPending?.sheet?.action || '')
-  if (action === '现查' && rows.length === 0 && prevRows.length > 0 && (!prevAction || prevAction === '现查')) return
+  const prevSpeech = String(lastPending?.sheet?.speech || '').trim()
+  const nextSpeech = String(sheet.speech || '').trim()
+  if (
+    action === '现查'
+    && rows.length === 0
+    && prevRows.length > 0
+    && (!prevAction || prevAction === '现查')
+    && (!prevSpeech || !nextSpeech || prevSpeech === nextSpeech)
+  ) return
   lastPending = { sheet, at: Date.now() }
 }
 
