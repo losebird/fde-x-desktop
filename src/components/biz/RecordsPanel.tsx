@@ -66,6 +66,10 @@ import {
   rememberBizPendingSheet,
 } from '@/lib/biz-session-sheet'
 import { isBizSurfaceTool } from '@/lib/biz-tool-events'
+import {
+  resolveHitSetPickCancelSessionId,
+  shouldCancelDshAfterHitSetPick,
+} from '@/lib/biz-hit-set-pick-cancel'
 import { useEvents } from '@/lib/events'
 
 const PAGE_SIZE = 10
@@ -998,6 +1002,17 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
             : undefined,
         })
       }
+      if (shouldCancelDshAfterHitSetPick(waitingPick, action, previewId)) {
+        const cancelSessionId = resolveHitSetPickCancelSessionId({
+          bindSheet: bindSheet && typeof bindSheet === 'object' ? bindSheet : null,
+          pendingSheet,
+          activeAiSessionId,
+          historySessionId: historySessionIdRef.current || null,
+        })
+        if (cancelSessionId) {
+          void runtimeApi.cancelAi(cancelSessionId).catch(() => undefined)
+        }
+      }
       if (action === '新建') setCreateDraft(null)
       void loadSurfaces()
     } catch (cause) {
@@ -1005,7 +1020,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     } finally {
       setLoading(false)
     }
-  }, [applySheet, columns, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, listSheetMeta, loadSurfaces, maybeSaveListRestore])
+  }, [activeAiSessionId, applySheet, columns, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, listSheetMeta, loadSurfaces, maybeSaveListRestore])
 
   const resolveSurfaceSheet = useCallback((surface: BizSurfaceRecord): SheetSnapshot | null => {
     const mem = sheetSnapshots.current.get(`surface:${surface.id}`)
