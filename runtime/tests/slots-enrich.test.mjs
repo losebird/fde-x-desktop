@@ -11,6 +11,7 @@ import {
   relatedMentionedKinds,
   rememberUserSpeech,
   recalledUserSpeech,
+  spokenWantsBatch,
 } from '../vendor-overlays/dsh-lan-assist/slots.js'
 
 test('kindMentions does not count a shorter kind inside a longer kind', () => {
@@ -371,6 +372,85 @@ test('recoverWriteIntent upgrades 现查 to 改行 from rewrite speech', () => {
   })
   assert.equal(out.action, '改行')
   assert.equal(out.patch?.status, '成交')
+})
+
+test('recoverWriteIntent prefers spoken write action over a mismatched model action', () => {
+  const speech = '待审单据都过一下。只要预览，不要过账，不要 biz_write。'
+  const writeVocab = [
+    {
+      kind: '单据',
+      resource: 'biz_docs',
+      can: ['现查', '改行', '过审'],
+      clues: [{ say: ['待审'], keys: ['status'], values: ['pending', '待审'] }],
+    },
+  ]
+  const out = recoverWriteIntent({
+    kind: '单据',
+    action: '改行',
+    speech,
+  }, writeVocab)
+  assert.equal(out.action, '过审')
+})
+
+test('model-picked row id not spoken is replaced by leftover name identity', () => {
+  const speech = '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。'
+  const writeVocab = vocab.map((row) => (
+    row && row.kind === '客户' ? { ...row, can: ['现查', '改行'] } : row
+  ))
+  const filled = enrichStructuredSlots({
+    kind: '客户',
+    action: '改行',
+    speech,
+    no: 'ROW-PICKED',
+    patch: { status: 'active' },
+  }, writeVocab)
+  assert.equal(filled.no, '通达')
+})
+
+test('picked row from the hit set is kept', () => {
+  const speech = '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。'
+  const writeVocab = vocab.map((row) => (
+    row && row.kind === '客户' ? { ...row, can: ['现查', '改行'] } : row
+  ))
+  const filled = enrichStructuredSlots({
+    kind: '客户',
+    action: '改行',
+    speech,
+    no: 'C-1',
+    picked: true,
+    patch: { status: 'active' },
+  }, writeVocab)
+  assert.equal(filled.no, 'C-1')
+})
+
+test('spoken ticket in the utterance is kept as identity', () => {
+  const speech = '过一下单据 TCK-018。只要预览，不要过账，不要 biz_write。'
+  const docVocab = [
+    {
+      kind: '单据',
+      resource: 'biz_docs',
+      can: ['现查', '过审'],
+      clues: [{ say: ['待审'], keys: ['status'], values: ['pending'] }],
+    },
+  ]
+  const filled = enrichStructuredSlots({
+    kind: '单据',
+    action: '过审',
+    speech,
+    no: 'TCK-018',
+  }, docVocab)
+  assert.equal(filled.no, 'TCK-018')
+})
+
+test('spokenWantsBatch is true for 列举 and 都+write, false for a fuzzy name rewrite', () => {
+  const writeVocab = vocab.map((row) => (
+    row && row.kind === '客户' ? { ...row, can: ['现查', '改行', '过审'] } : row
+  ))
+  assert.equal(spokenWantsBatch('停用客户还有哪些没关的工单？', vocab), true)
+  assert.equal(spokenWantsBatch('待审单据都过一下。', [
+    { kind: '单据', resource: 'biz_docs', can: ['过审'], clues: [{ say: ['待审'], keys: ['status'], values: ['pending'] }] },
+  ]), true)
+  assert.equal(spokenWantsBatch('把停用客户通达改成成交。', writeVocab), false)
 })
 
 test('口语 stub extra.vocab still peels spoken seed so leftover is the name rest', () => {

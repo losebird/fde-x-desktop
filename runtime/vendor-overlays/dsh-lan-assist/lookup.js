@@ -337,7 +337,6 @@ export function createLookup(opts = {}) {
     const clues = Array.isArray(where) && where.length
       ? { ...cluesFromWhere(where, join), rest: ticketNameRest }
       : mergeClues(ticket)
-    if (asAsk) clues.rest = ''
     const spec = known || mapKind(kind, {
       vocab: vocab || conn.vocab,
       kinds: conn.kinds,
@@ -382,7 +381,7 @@ export function createLookup(opts = {}) {
         keep: (row) => {
           if (!relatedIds.includes(relatedIdOf(row, fk))) return false
           if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
-          if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, fields.length ? fields : Object.keys(row || {}))) return false
+          if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, identityNameKeys(fields, schemaFields))) return false
           return true
         },
       })
@@ -412,11 +411,12 @@ export function createLookup(opts = {}) {
     }
     const nameRest = String(clues.rest || '').trim()
     const hasNameRest = !!(nameRest && !looksLikeRef(nameRest))
+    const nameKeys = identityNameKeys(fields, schemaFields)
     if ((clues.terms.length || hasNameRest) && conn.dialect !== 'rest') {
       const resource = spec && spec.resource
       if (!resource) return { ok: false, error: 'UNKNOWN_KIND' }
       const listPath = withRelationAppends(`/api/${resource}:list?pageSize=${PAGE_SIZE}&sort=-updatedAt`, extra.collections, resource)
-      const filteredPath = withRelationAppends(nameCluePath(resource, ticket, fields, clues), extra.collections, resource)
+      const filteredPath = withRelationAppends(nameCluePath(resource, ticket, nameKeys, clues), extra.collections, resource)
       const dateClue = (clues.terms || []).some((term) => (
         (Array.isArray(term.dateBefore) && term.dateBefore.length)
         || (Array.isArray(term.dateAfter) && term.dateAfter.length)
@@ -428,8 +428,8 @@ export function createLookup(opts = {}) {
           if (String(no || '') !== String(ticket) && !rowMatches(row, ticket, ids)) return false
         }
         if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
-        if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, fields.length ? fields : Object.keys(row || {}))) return false
-        if (!clues.terms.length && nameRest) return rowMatches(row, nameRest, fields.length ? fields : Object.keys(row || {}))
+        if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, nameKeys)) return false
+        if (!clues.terms.length && nameRest) return rowMatches(row, nameRest, nameKeys)
         return clues.terms.length || hasNameRest || !!clues.rest || looksLikeRef(ticket)
       }
       let listed = await listAll(firstPath, conn, { limit: whereLimit, keep: matchRow })
@@ -1036,6 +1036,21 @@ function termFilterPart(term, today) {
   return dateParts.length === 1 ? dateParts[0] : { $or: dateParts }
 }
 
+function identityNameKeys(fields, schemaFields) {
+  const named = []
+  for (const field of Array.isArray(schemaFields) ? schemaFields : []) {
+    const name = String((field && field.name) || '').trim()
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue
+    const title = String((field && (field.title || (field.uiSchema && field.uiSchema.title))) || '')
+    if (/^(name|title)$/i.test(name) || /名称/.test(title)) named.push(name)
+  }
+  if (named.length) return [...new Set(named)]
+  const fallback = (Array.isArray(fields) ? fields : [])
+    .map((item) => String(item || '').trim())
+    .filter((item) => /^(name|title)$/i.test(item))
+  return fallback.length ? fallback : ['name', 'title']
+}
+
 function nameCluePath(resource, ticket, fields, clues) {
   const terms = clues && Array.isArray(clues.terms) ? clues.terms : []
   const today = new Date().toISOString().slice(0, 10)
@@ -1047,9 +1062,9 @@ function nameCluePath(resource, ticket, fields, clues) {
   }).filter(Boolean)
   const rest = String((clues && clues.rest) || '').trim()
   if (rest && !looksLikeRef(rest)) {
-    const keys = [...new Set(['name', 'title', 'code', 'no', ...(Array.isArray(fields) ? fields : [])])]
+    const keys = identityNameKeys(fields, [])
       .map((item) => String(item || '').trim())
-      .filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item) && !/^(status|state|stage|priority|category|type)$/.test(item))
+      .filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
     const ors = keys.map((field) => ({ [field]: { $includes: rest } }))
     if (ors.length === 1) parts.push(ors[0])
     else if (ors.length) parts.push({ $or: ors })

@@ -87,7 +87,7 @@ function sheetOf(result) {
   return result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
 }
 
-test('停用 ∩ spoken name is a write preview of the match set, not the customer catalog', async () => {
+test('停用 ∩ spoken name stops on the hit set, not a write preview or the catalog', async () => {
   const speech = `把停用客户${NAME}改成成交。只要预览，不要过账，不要 biz_write。`
   const result = await gate().preview({
     workspace: '/tmp/name-id-ws',
@@ -105,12 +105,11 @@ test('停用 ∩ spoken name is a write preview of the match set, not the custom
   assert.equal(rows.length, 2)
   assert.deepEqual(nos.sort(), ['C-1', 'C-2'])
   assert.ok(rows.length < catalog.length)
-  assert.ok(String(result.preview_id || sheet.preview_id || '').startsWith('pv_'))
-  const changes = Array.isArray(sheet.changes) ? sheet.changes : []
-  assert.ok(changes.some((row) => row && row.field === 'status' && String(row.from) !== String(row.to)))
+  assert.equal(Boolean(sheet.ambiguous || result.ambiguous), true)
+  assert.ok(!result.preview_id && !sheet.preview_id)
 })
 
-test('model 现查 still issues a 改行 preview when speech has a rewrite', async () => {
+test('model 现查 with a rewrite still stops on the fuzzy-name hit set', async () => {
   const speech = `把停用客户${NAME}改成成交。只要预览，不要过账，不要 biz_write。`
   const result = await gate().preview({
     workspace: '/tmp/name-id-ws',
@@ -123,9 +122,114 @@ test('model 现查 still issues a 改行 preview when speech has a rewrite', asy
   const rows = Array.isArray(sheet.rows) ? sheet.rows : []
   assert.equal(sheet.action, '改行')
   assert.equal(rows.length, 2)
-  assert.ok(String(result.preview_id || sheet.preview_id || '').startsWith('pv_'))
+  assert.ok(!result.preview_id && !sheet.preview_id)
+})
+
+test('model-picked row id is ignored until a person picks from the hit set', async () => {
+  const speech = `把停用客户${NAME}改成成交。只要预览，不要过账，不要 biz_write。`
+  const first = await gate().preview({
+    workspace: '/tmp/name-id-ws',
+    kind: '客户',
+    action: '改行',
+    speech,
+    no: 'C-1',
+    patch: { status: 'active' },
+  })
+  const firstSheet = sheetOf(first)
+  const firstRows = Array.isArray(firstSheet.rows) ? firstSheet.rows : []
+  assert.equal(firstRows.length, 2)
+  assert.ok(!first.preview_id && !firstSheet.preview_id)
+  const pickedNo = String(firstRows[0].no || '')
+  const second = await gate().preview({
+    workspace: '/tmp/name-id-ws',
+    kind: '客户',
+    action: '改行',
+    speech,
+    no: pickedNo,
+    picked: true,
+    patch: { status: 'active' },
+  })
+  const sheet = sheetOf(second)
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  assert.equal(sheet.action, '改行')
+  assert.equal(rows.length, 1)
+  assert.equal(String(rows[0].no || ''), pickedNo)
+  assert.ok(String(second.preview_id || sheet.preview_id || '').startsWith('pv_'))
   const changes = Array.isArray(sheet.changes) ? sheet.changes : []
   assert.ok(changes.some((row) => row && row.field === 'status' && String(row.from) !== String(row.to)))
+})
+
+test('asAsk still keeps the name ∩ status hits, not the catalog', async () => {
+  const speech = `把停用客户${NAME}改成成交。只要预览，不要过账，不要 biz_write。`
+  const result = await gate().preview({
+    workspace: '/tmp/name-id-ws',
+    kind: '客户',
+    action: '改行',
+    speech,
+    asAsk: true,
+    patch: { status: 'active' },
+  })
+  const sheet = sheetOf(result)
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  assert.equal(rows.length, 2)
+  assert.ok(rows.length < catalog.length)
+  assert.ok(!result.preview_id && !sheet.preview_id)
+})
+
+test('spoken 过审 recovers from model 改行 and previews the filtered batch', async () => {
+  const docs = [
+    { no: 'D-1', status: 'pending', fields: { id: '1', status: 'pending', name: '待审甲' } },
+    { no: 'D-2', status: 'pending', fields: { id: '2', status: 'pending', name: '待审乙' } },
+    { no: 'D-3', status: 'approved', fields: { id: '3', status: 'approved', name: '已过' } },
+  ]
+  const docVocab = [
+    {
+      kind: '单据',
+      resource: 'biz_docs',
+      can: ['现查', '改行', '过审'],
+      clues: [{ say: ['待审'], keys: ['status'], values: ['pending', '待审'] }],
+    },
+  ]
+  const g = createGate({
+    vocab: docVocab,
+    lookupTodo(spec) {
+      let rows = docs.slice()
+      rows = applyWhere(rows, spec.where)
+      const look = String(spec.no || '').trim()
+      if (look) {
+        const needle = look.toLowerCase()
+        rows = rows.filter((row) => {
+          const fields = row.fields || {}
+          return [row.no, fields.name, fields.code].some((item) => String(item || '').toLowerCase().includes(needle))
+        })
+      }
+      if (!rows.length) return { ok: false, error: 'NOT_FOUND', matches: [] }
+      return {
+        ok: true,
+        matches: rows,
+        no: rows.length === 1 ? rows[0].no : '',
+        status: rows[0].status,
+        fields: rows.length === 1 ? rows[0].fields : {},
+      }
+    },
+    async fieldsOf() {
+      return [{ name: 'status', title: '状态', enums: { pending: '待审', approved: '过审' } }]
+    },
+  })
+  const speech = '待审单据都过一下。只要预览，不要过账，不要 biz_write。'
+  const result = await g.preview({
+    workspace: '/tmp/name-id-ws',
+    kind: '单据',
+    action: '改行',
+    speech,
+    userSpeech: speech,
+  })
+  const sheet = sheetOf(result)
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  assert.equal(sheet.action, '过审')
+  assert.equal(rows.length, 2)
+  assert.deepEqual(rows.map((row) => row.no).sort(), ['D-1', 'D-2'])
+  assert.ok(String(result.preview_id || sheet.preview_id || '').startsWith('pv_'))
 })
 
 

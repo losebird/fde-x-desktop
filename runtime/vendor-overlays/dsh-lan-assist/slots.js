@@ -839,12 +839,17 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
     const where = whereForKind(hits, packed.kind, packed.where)
     if (where.length) packed.where = where
   }
-  const existingNo = String(packed.no || packed.ticket || '').trim()
-  if (existingNo) return packed
+  const existingNo = String(packed.no || packed.ticket || spec.no || '').trim()
   const act = String(packed.action || spec.action || '').trim()
   const rewriting = rewriteSpan(speech).at >= 0
-  if (!rewriting && act !== '改行') return packed
   const name = leftoverNameIdentity(speech, vocab, bag, { patch: packed.patch || spec.patch })
+  const keepPicked = spec.picked === true && existingNo
+  const spokenRef = existingNo && String(speech || '').includes(existingNo)
+  if (keepPicked || spokenRef) {
+    packed.no = existingNo
+    return packed
+  }
+  if (!rewriting && act === '现查') return packed
   if (!name) return packed
   packed.no = name
   const stepKinds = Array.isArray(packed.steps)
@@ -856,7 +861,8 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
   if (Array.isArray(packed.steps) && packed.steps.length) {
     packed.steps = packed.steps.map((step) => {
       if (!step || String(step.kind || '').trim() !== owner) return step
-      if (String(step.no || '').trim()) return step
+      const stepNo = String(step.no || '').trim()
+      if (stepNo && stepNo !== existingNo) return step
       return { ...step, no: name }
     })
   }
@@ -1002,9 +1008,8 @@ export function recoverWriteIntent(spec, vocab, extra = {}) {
   const bag = { vocab: vocabWithSpoken(vocab), ...extra }
   const row = vocabRow(kind, bag.vocab)
   const can = Array.isArray(row && row.can) ? row.can.map((item) => String(item || '').trim()).filter(Boolean) : []
-  const current = String(next.action || '').trim() || '现查'
   const spoken = spokenWriteAction(speech, vocab, extra)
-  if (spoken && can.includes(spoken) && (current === '现查' || !current)) {
+  if (spoken && can.includes(spoken)) {
     next.action = spoken
   }
   const act = String(next.action || '').trim()
@@ -1015,6 +1020,26 @@ export function recoverWriteIntent(spec, vocab, extra = {}) {
     if (patch) next.patch = patch
   }
   return next
+}
+
+/** 列举 / 「都」+ 写动作：人要的本来就是一批，不要按模糊名去一家家问。 */
+export function spokenWantsBatch(speech, vocab, extra = {}) {
+  const text = String(speech || '')
+  if (!text.trim()) return false
+  const hits = clueHitsInSpeech(speech, vocab, extra)
+  if (hits.some((hit) => (hit.values || []).includes('列举'))) return true
+  for (const hit of hits) {
+    const keys = (hit.keys || []).map((item) => String(item || ''))
+    const values = (hit.values || []).map((item) => String(item || ''))
+    if (!keys.includes('action') || !WRITE_ACTIONS.some((act) => values.includes(act))) continue
+    const say = String(hit.say || '')
+    if (!say) continue
+    const idx = text.indexOf(say)
+    if (idx <= 0) continue
+    const before = text.slice(Math.max(0, idx - 2), idx)
+    if (/都\s*$/.test(before)) return true
+  }
+  return false
 }
 
 /**

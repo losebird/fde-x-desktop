@@ -26,6 +26,8 @@ export function sheetPayloadFromRaw(raw) {
     ...(raw.from && typeof raw.from === 'object' && !Array.isArray(raw.from) ? { from: raw.from } : {}),
     ...(Array.isArray(raw.steps) && raw.steps.length ? { steps: raw.steps } : {}),
     ...(typeof raw.speech === 'string' && raw.speech.trim() ? { speech: raw.speech.trim() } : {}),
+    ...(raw.listed ? { listed: true } : {}),
+    ...(raw.ambiguous ? { ambiguous: true } : {}),
     ...(raw.related && typeof raw.related === 'object' && !Array.isArray(raw.related) ? { related: raw.related } : {}),
     ...(typeof raw.line === 'string' && raw.line ? { line: raw.line } : {}),
     ...(typeof raw.connectionId === 'string' && raw.connectionId ? { connectionId: raw.connectionId } : {}),

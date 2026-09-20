@@ -250,6 +250,7 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
     ...(previewWhere.length ? { where: previewWhere } : {}),
     ...(fromHop ? { from: fromHop } : {}),
     ...(steps.length ? { steps } : {}),
+    ...(body.picked === true ? { picked: true } : {}),
   }
   return { payload }
 }

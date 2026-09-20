@@ -9,7 +9,7 @@ import { mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, s
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, bindPatchEnums, normalizePlan } from './plan.js'
-import { enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds } from './slots.js'
+import { enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, spokenWantsBatch } from './slots.js'
 import { previewRowCap } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -210,6 +210,8 @@ export function packSheet(spec = {}) {
     ...(spec.from && typeof spec.from === 'object' && !Array.isArray(spec.from) ? { from: spec.from } : {}),
     ...(Array.isArray(spec.steps) && spec.steps.length ? { steps: spec.steps } : {}),
     speech: String(spec.speech || '').trim(),
+    listed: !!spec.listed,
+    ambiguous: !!spec.ambiguous,
     fieldChoices: Array.isArray(spec.fieldChoices) ? spec.fieldChoices : undefined,
     pendingValue: spec.pendingValue,
     pickField: !!spec.pickField,
@@ -902,8 +904,20 @@ export function createGate(opts = {}) {
       })
     }
     if (rows.length !== 1) {
+      const bag = { vocab: loaded.vocab, ...(hopExtra && typeof hopExtra === 'object' ? hopExtra : {}) }
+      const nameIdentity = leftoverNameIdentity(plan.speech, loaded.vocab, bag, spec)
+      const wantsBatch = spec.batch === true || spokenWantsBatch(plan.speech, loaded.vocab, bag)
+      if (nameIdentity && !wantsBatch && spec.picked !== true) {
+        return await sheet({
+          ok: true, kind: sheetKind, no: '', action: recognized.action, speak,
+          patch: recognized.action === '现查' ? undefined : writePatch,
+          status: found && found.status, fields: {}, matches: rows,
+          fingerprint: found && found.fingerprint, listed: true, ambiguous: true,
+          workspace: (found && found.workspace) || spec.workspace || '',
+        }, { clue: plan.no, speech: plan.speech })
+      }
       const identity = writeHasIdentity(plan, spec)
-      const writeable = (spec.batch === true || identity) && (
+      const writeable = (spec.batch === true || wantsBatch || identity) && (
         recognized.action === '删除' || recognized.action === '过审'
         || (recognized.action === '改行' && writePatch && Object.keys(writePatch).length)
       )
@@ -1036,11 +1050,8 @@ export function createGate(opts = {}) {
       }
       enrichExtra.schemaByKind = schemaByKind
     }
-    const enriched = recoverWriteIntent(
-      enrichStructuredSlots(spec, loaded.vocab, enrichExtra),
-      loaded.vocab,
-      enrichExtra,
-    )
+    const recovered = recoverWriteIntent(spec, loaded.vocab, enrichExtra)
+    const enriched = enrichStructuredSlots(recovered, loaded.vocab, enrichExtra)
     const plan = normalizePlan(enriched)
     const resolvedKind = String(
       (plan.steps[plan.targetIndex] && plan.steps[plan.targetIndex].kind)

@@ -162,13 +162,42 @@ export function createGate(bag) {
     if (!opts.gate || typeof opts.gate.preview !== 'function') {
       return { ok: false, error: 'NO_CONNECTOR', hint: '没连业务，不能装成已过账。' }
     }
-    const preview = await opts.gate.preview(spec)
+    const pending = (await store.get()).pendingSheet
+    const pickNo = String(spec.no || spec.ticket || '').trim()
+    const waiting = pending
+      && (pending.ambiguous || pending.listed)
+      && !String(pending.preview_id || pending.previewId || '').trim()
+    const onHits = waiting && pickNo && (Array.isArray(pending.rows) ? pending.rows : [])
+      .some((row) => String((row && row.no) || '') === pickNo)
+    let incoming = spec
+    if (onHits) {
+      const fromChanges = {}
+      for (const row of Array.isArray(pending.changes) ? pending.changes : []) {
+        if (row && row.field) fromChanges[row.field] = row.to
+      }
+      const patch = spec.patch && typeof spec.patch === 'object' && Object.keys(spec.patch).length
+        ? spec.patch
+        : (pending.patch && typeof pending.patch === 'object' && Object.keys(pending.patch).length
+          ? pending.patch
+          : fromChanges)
+      incoming = {
+        ...spec,
+        picked: true,
+        speech: spec.speech || pending.speech,
+        patch,
+      }
+    }
+    const preview = await opts.gate.preview(incoming)
     const given = String(spec.sessionId || '').trim()
     const letterSid = await draftSessionId(given)
     const cwd = String(spec.workspace || '').trim()
     const act = String((preview && preview.action) || (preview && preview.sheet && preview.sheet.action) || spec.action || '').trim()
     const missSheet = !!(preview && preview.error === 'NOT_FOUND' && preview.sheet)
-    if (act === '现查' || missSheet) {
+    const waitingPick = !!(preview && (
+      preview.ambiguous
+      || (preview.sheet && (preview.sheet.ambiguous || preview.sheet.listed))
+    ) && !String(preview.preview_id || (preview.sheet && (preview.sheet.preview_id || preview.sheet.previewId)) || '').trim())
+    if (act === '现查' || missSheet || waitingPick) {
       const sheetSrc = (preview && preview.sheet)
         ? preview.sheet
         : packSheet({ ...preview, clue: spec.no, action: '现查' })
