@@ -266,6 +266,16 @@ function sheetWhereFromPlan(plan, spec = {}) {
   return { where: listWhere, hopWhere }
 }
 
+function writeHasIdentity(plan, spec = {}) {
+  if (String((plan && plan.no) || (spec && spec.no) || '').trim()) return true
+  if (spec && spec.related && spec.related.kind) return true
+  const steps = plan && Array.isArray(plan.steps) ? plan.steps : []
+  return steps.some((step) => (
+    String((step && step.no) || '').trim()
+    || (Array.isArray(step && step.where) && step.where.length)
+  ))
+}
+
 function catalogVersionOf(vocab) {
   for (const row of Array.isArray(vocab) ? vocab : []) {
     const version = String((row && row.catalogVersion) || '').trim()
@@ -892,11 +902,17 @@ export function createGate(opts = {}) {
       })
     }
     if (rows.length !== 1) {
-      const writeable = spec.batch === true && (
+      const identity = writeHasIdentity(plan, spec)
+      const writeable = (spec.batch === true || identity) && (
         recognized.action === '删除' || recognized.action === '过审'
         || (recognized.action === '改行' && writePatch && Object.keys(writePatch).length)
       )
       if (!writeable || !rows.length) {
+        if (!identity && rows.length > 1) {
+          return await sheet(refuse('NO_REF', `${sheetKind}要指出改哪几条，不能整表当预览。`), {
+            kind: sheetKind, action: recognized.action, matches: [], speech: plan.speech,
+          })
+        }
         return await sheet({
           ok: true, kind: sheetKind, no: '', action: recognized.action, speak,
           patch: recognized.action === '现查' ? undefined : writePatch,

@@ -10,7 +10,7 @@ import {
   schemaFieldsForKind,
   syntheticEnumClues,
 } from './enum-clues.js'
-import { saysOf } from './resolve.js'
+import { peelSpoken, saysOf } from './resolve.js'
 import { vocabRow } from './where-pass.js'
 import { createRequire } from 'node:module'
 
@@ -568,14 +568,19 @@ function parentKindsOf(targetKind, extra) {
 }
 
 function vocabWithSpoken(vocab) {
-  const rows = Array.isArray(vocab) ? vocab.slice() : []
-  if (!rows.some((row) => row && (row.spoken || row.kind === '口语'))) {
+  const rows = Array.isArray(vocab) ? vocab.map((row) => (row && typeof row === 'object' ? { ...row } : row)) : []
+  const seed = spokenSeed && Array.isArray(spokenSeed.clues) ? spokenSeed.clues : []
+  const idx = rows.findIndex((row) => row && (row.spoken || row.kind === '口语'))
+  if (idx < 0) {
     rows.push({
       kind: '口语',
       spoken: true,
-      clues: spokenSeed && Array.isArray(spokenSeed.clues) ? spokenSeed.clues : [],
+      clues: seed,
     })
+    return rows
   }
+  const have = cluesOfRow(rows[idx])
+  rows[idx] = { ...rows[idx], clues: [...have, ...seed] }
   return rows
 }
 
@@ -717,6 +722,123 @@ function whereForKind(hits, kind, extraWhere) {
   return compressStatusWhere(merged)
 }
 
+function stripSaysFromText(text, says) {
+  let s = String(text || '')
+  for (const say of [...new Set(says || [])].filter(Boolean).sort((a, b) => b.length - a.length)) {
+    s = s.replace(new RegExp(escapeRe(say), 'g'), ' ')
+  }
+  return s
+}
+
+function nameOwnerKind(speech, name, kinds) {
+  const text = String(speech || '')
+  const at = text.indexOf(name)
+  const labels = (Array.isArray(kinds) ? kinds : []).map((kind) => String(kind || '').trim()).filter(Boolean)
+  if (at < 0 || !labels.length) return labels[0] || ''
+  let best = labels[0]
+  let bestDist = Infinity
+  for (const kind of labels) {
+    const idx = text.indexOf(kind)
+    if (idx < 0) continue
+    const dist = Math.abs(idx - at)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = kind
+    }
+  }
+  return best
+}
+
+/**
+ * Leftover spoken object identity after peeling vocab fillers, kind labels,
+ * clue says, rewrite targets, and patch values. Connector name fields match
+ * this rest — never a hardcoded company string.
+ */
+export function leftoverNameIdentity(speech, vocab, extra = {}, spec = {}) {
+  const bag = { vocab: vocabWithSpoken(vocab), ...extra }
+  let s = String(speech || '')
+  if (!s.trim()) return ''
+  const rewrites = saysOf(bag, '改写')
+  for (const say of [...rewrites].sort((a, b) => b.length - a.length)) {
+    if (!say) continue
+    s = s.replace(new RegExp(`${escapeRe(say)}[\\s]*[^\\s，。,.!！；;：:]{1,32}`, 'g'), ' ')
+  }
+  s = peelSpoken(s, bag)
+  const kinds = registeredKinds(bag)
+  for (const kind of kinds) {
+    s = stripSaysFromText(s, tokensForKindLabel(kind, bag))
+  }
+  for (const hit of clueHitsInSpeech(speech, vocab, bag)) {
+    if (hit && hit.say) s = stripSaysFromText(s, [hit.say])
+  }
+  const patch = spec.patch && typeof spec.patch === 'object' && !Array.isArray(spec.patch) ? spec.patch : {}
+  for (const value of Object.values(patch)) {
+    const text = String(value ?? '').trim()
+    if (text.length >= 2) s = stripSaysFromText(s, [text])
+  }
+  s = s.replace(/[^\u4e00-\u9fffA-Za-z0-9._-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const runs = s.match(/[\u4e00-\u9fff]{2,20}/g) || []
+  if (runs.length === 1) return runs[0]
+  if (runs.length > 1) {
+    const ownerKind = nameOwnerKind(speech, runs[0], kinds)
+    const nearest = runs.map((run) => {
+      const at = String(speech || '').indexOf(run)
+      const kindAt = ownerKind ? String(speech || '').indexOf(ownerKind) : -1
+      return { run, dist: at < 0 || kindAt < 0 ? 9999 : Math.abs(at - kindAt) }
+    }).sort((a, b) => a.dist - b.dist)
+    return (nearest[0] && nearest[0].run) || runs[0]
+  }
+  if (/^[A-Za-z][A-Za-z0-9._-]{1,31}$/.test(s)) return s
+  return ''
+}
+
+function fillEmptyWhere(node, hits) {
+  if (!node || typeof node !== 'object') return node
+  const kind = String(node.kind || '').trim()
+  if (!kind) return node
+  if (Array.isArray(node.where) && node.where.length) return node
+  const where = termsForKind(hits, kind)
+  return where.length ? { ...node, where } : node
+}
+
+function attachSpeechIdentity(next, speech, vocab, bag, spec) {
+  const packed = next && typeof next === 'object' ? { ...next } : {}
+  const hits = clueHitsInSpeech(speech, vocab, bag)
+  packed.kind = String(packed.kind || spec.kind || '').trim()
+  if (Array.isArray(packed.steps) && packed.steps.length) {
+    packed.steps = packed.steps.map((step) => fillEmptyWhere(step, hits))
+  }
+  if (packed.from && typeof packed.from === 'object' && packed.from.kind) {
+    packed.from = fillEmptyWhere(packed.from, hits)
+  }
+  if (!(Array.isArray(packed.where) && packed.where.length) && packed.kind) {
+    const where = whereForKind(hits, packed.kind, packed.where)
+    if (where.length) packed.where = where
+  }
+  const existingNo = String(packed.no || packed.ticket || '').trim()
+  if (existingNo) return packed
+  const name = leftoverNameIdentity(speech, vocab, bag, { patch: packed.patch || spec.patch })
+  if (!name) return packed
+  packed.no = name
+  const stepKinds = Array.isArray(packed.steps)
+    ? packed.steps.map((step) => String(step && step.kind || '').trim()).filter(Boolean)
+    : []
+  if (packed.from && packed.from.kind) stepKinds.unshift(String(packed.from.kind))
+  if (packed.kind) stepKinds.push(packed.kind)
+  const owner = nameOwnerKind(speech, name, stepKinds)
+  if (Array.isArray(packed.steps) && packed.steps.length) {
+    packed.steps = packed.steps.map((step) => {
+      if (!step || String(step.kind || '').trim() !== owner) return step
+      if (String(step.no || '').trim()) return step
+      return { ...step, no: name }
+    })
+  }
+  if (packed.from && String(packed.from.kind || '').trim() === owner && !String(packed.from.no || '').trim()) {
+    packed.from = { ...packed.from, no: name }
+  }
+  return packed
+}
+
 /**
  * When the model only filled the child kind + partial where, recover hop slots
  * from speech using vocab clues and graph/catalog relations (or collection FK inference).
@@ -763,11 +885,15 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     if (from) next.from = from
     if (last.where.length) next.where = last.where
     else delete next.where
-    return next
+    return attachSpeechIdentity(next, speech, vocab, bag, base)
   }
 
-  if (base.from && typeof base.from === 'object' && base.from.kind) return base
-  if (existingSteps.length) return base
+  if (base.from && typeof base.from === 'object' && base.from.kind) {
+    return attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base)
+  }
+  if (existingSteps.length) {
+    return attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base)
+  }
 
   const childWhere = whereForKind(hits, targetKind, base.where)
   const parents = parentKindsOf(targetKind, bag)
@@ -783,14 +909,16 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     return !vals.every((value) => parentValues.has(value))
   })
 
-  if (!parent && !parentWhere.length && !childFiltered.length) return base
+  if (!parent && !parentWhere.length && !childFiltered.length) {
+    return attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base)
+  }
 
   const next = { ...base, kind: targetKind }
   if (parent) {
     next.from = parentWhere.length ? { kind: parent, where: parentWhere } : { kind: parent }
   }
   if (childFiltered.length) next.where = childFiltered
-  return next
+  return attachSpeechIdentity(next, speech, vocab, bag, base)
 }
 
 /**

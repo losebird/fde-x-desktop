@@ -333,8 +333,9 @@ export function createLookup(opts = {}) {
       kinds: conn.kinds,
       collections,
     })
+    const ticketNameRest = ticket && !looksLikeRef(ticket) ? ticket : ''
     const clues = Array.isArray(where) && where.length
-      ? { ...cluesFromWhere(where, join), rest: looksLikeRef(ticket) ? ticket : '' }
+      ? { ...cluesFromWhere(where, join), rest: ticketNameRest }
       : mergeClues(ticket)
     if (asAsk) clues.rest = ''
     const spec = known || mapKind(kind, {
@@ -381,6 +382,7 @@ export function createLookup(opts = {}) {
         keep: (row) => {
           if (!relatedIds.includes(relatedIdOf(row, fk))) return false
           if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
+          if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, fields.length ? fields : Object.keys(row || {}))) return false
           return true
         },
       })
@@ -421,10 +423,14 @@ export function createLookup(opts = {}) {
       ))
       const firstPath = dateClue ? listPath : filteredPath
       const matchRow = (row) => {
+        if (looksLikeRef(ticket)) {
+          const no = pickNo(row, ids, extra)
+          if (String(no || '') !== String(ticket) && !rowMatches(row, ticket, ids)) return false
+        }
         if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
         if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, fields.length ? fields : Object.keys(row || {}))) return false
         if (!clues.terms.length && nameRest) return rowMatches(row, nameRest, fields.length ? fields : Object.keys(row || {}))
-        return clues.terms.length || hasNameRest || !!clues.rest
+        return clues.terms.length || hasNameRest || !!clues.rest || looksLikeRef(ticket)
       }
       let listed = await listAll(firstPath, conn, { limit: whereLimit, keep: matchRow })
       if (!listed.ok && listed.error === 'LOOKUP') {

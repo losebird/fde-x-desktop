@@ -5,6 +5,7 @@ import {
   clueHitsInSpeech,
   kindMentions,
   leftoverKindMissingFromCatalog,
+  leftoverNameIdentity,
   pickHopSpeech,
   relatedMentionedKinds,
   rememberUserSpeech,
@@ -346,5 +347,34 @@ test('spoken fragments still bind to connected vocab kinds with catalog present'
   }, intersectionVocab, catalogExtra)
   assert.equal(remapped.kind, 'AlphaWidget')
   assert.equal(leftoverKindMissingFromCatalog(remapped.kind, catalogExtra), false)
+})
+
+test('leftover name identity is connector rest, not a hardcoded company', () => {
+  const speech = '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。'
+  const name = leftoverNameIdentity(speech, vocab, {}, { patch: { status: 'active' } })
+  assert.equal(name, '通达')
+  const filled = enrichStructuredSlots({
+    kind: '客户',
+    action: '改行',
+    speech,
+    patch: { status: 'active' },
+  }, vocab)
+  assert.equal(filled.no, '通达')
+  assert.ok(Array.isArray(filled.where) && filled.where.some((term) => (
+    (term.values || []).includes('inactive') || (term.values || []).includes('停用')
+  )))
+})
+
+test('model-omitted where still binds status ∩ leftover name', () => {
+  const speech = '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。'
+  const filled = enrichStructuredSlots({
+    kind: '客户',
+    action: '改行',
+    speech,
+    patch: { status: 'active' },
+    from: { kind: '客户' },
+  }, vocab)
+  assert.equal(filled.no, '通达')
+  assert.ok(Array.isArray(filled.from?.where) && filled.from.where.length)
 })
 
