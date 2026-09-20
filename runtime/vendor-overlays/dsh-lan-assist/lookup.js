@@ -116,13 +116,15 @@ export function resolveConnectedKindName(spoken, extra = {}) {
   const name = String(spoken || '').trim()
   if (!name) return ''
   const mapped = mapKind(name, extra)
-  if (mapped) return canonicalKindForResource(mapped.resource, extra, name)
+  if (mapped && isCollectionStem(mapped.resource)) {
+    return canonicalKindForResource(mapped.resource, extra, name)
+  }
   for (const row of listKindRows(extra)) {
     const kind = rowKindName(row)
     if (!kind || kind === name) continue
     if (!oralAndGraphAliasTokens(row).includes(name)) continue
     const hit = mapKind(kind, extra)
-    if (!hit) continue
+    if (!hit || !isCollectionStem(hit.resource)) continue
     return canonicalKindForResource(hit.resource, extra, kind)
   }
   return ''
@@ -161,13 +163,17 @@ function listKindRows(extra) {
   ]
 }
 
+function isCollectionStem(resource) {
+  return /^[A-Za-z][A-Za-z0-9._-]*$/.test(String(resource || '').trim())
+}
+
 function mapFromRows(name, rows) {
   for (const row of Array.isArray(rows) ? rows : []) {
     if (!row) continue
     const label = String(row.kind || row.label || row.title || '').trim()
     if (label !== name) continue
     const resource = String(row.resource || row.collection || row.name || '').trim()
-    if (!resource) continue
+    if (!isCollectionStem(resource)) continue
     const fields = ticketFieldsOf(row)
     return { resource, fields: fields.length ? fields : guessTicketFields(resource) }
   }

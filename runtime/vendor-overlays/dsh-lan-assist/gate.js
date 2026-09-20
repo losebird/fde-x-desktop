@@ -92,7 +92,9 @@ export function livePendingSheet(state, gate, t, sessionId) {
   const sid = String(sessionId || '').trim()
   if (sid && sheet.sessionId && sheet.sessionId !== sid) return null
   const pending = livePendingWriteFor(state, gate, t, sessionId)
-  const coverWrite = !!(pending && lineAction(pending) && lineAction(pending) !== '现查')
+  const writeId = pending ? String(pending.preview_id || '').trim() : ''
+  const writeRows = pending && pending.sheet && Array.isArray(pending.sheet.rows) ? pending.sheet.rows.length : 0
+  const coverWrite = !!(pending && lineAction(pending) && lineAction(pending) !== '现查' && (writeId || writeRows > 0))
   const raw = (coverWrite && pending.sheet && {
     ...pending.sheet,
     remainRows: sheet.remainRows || pending.sheet.remainRows,
@@ -160,12 +162,15 @@ export function createGate(bag) {
     const prevRows = prev && Array.isArray(prev.rows) ? prev.rows.length : 0
     const nextRows = incoming && Array.isArray(incoming.rows) ? incoming.rows.length : 0
     if (prevRows <= 0 || nextRows > 0) return false
-    const prevAct = String((prev && prev.action) || '')
-    const nextAct = String((incoming && incoming.action) || '')
-    if (nextAct && nextAct !== '现查') return false
-    if (prevAct && prevAct !== '现查') return false
+    const nextId = String((incoming && (incoming.preview_id || incoming.previewId)) || '').trim()
+    if (nextId) return false
     const prevSpeech = String((prev && prev.speech) || '').trim()
     const nextSpeech = String((incoming && incoming.speech) || '').trim()
+    if (prevSpeech && nextSpeech && prevSpeech === nextSpeech) return true
+    const nextAct = String((incoming && incoming.action) || '')
+    if (nextAct && nextAct !== '现查') return false
+    const prevAct = String((prev && prev.action) || '')
+    if (prevAct && prevAct !== '现查') return false
     if (prevSpeech && nextSpeech && prevSpeech !== nextSpeech) return false
     return true
   }
@@ -245,6 +250,20 @@ export function createGate(bag) {
       typeof opts.onPreview === 'function' && (() => { try { opts.onPreview(preview) } catch { /* card refresh is best-effort */ } })()
       const hall = await snapshot(sheetSid)
       return { ...preview, sessionId: sheetSid, workspace: cwd, sheet: (hall && hall.pendingSheet) || preview.sheet }
+    }
+    const writeIncoming = {
+      ...(preview && preview.sheet && typeof preview.sheet === 'object' ? preview.sheet : {}),
+      action: act,
+      kind: String((preview && (preview.kind || (preview.sheet && preview.sheet.kind))) || spec.kind || ''),
+      preview_id: String((preview && (preview.preview_id || (preview.sheet && (preview.sheet.preview_id || preview.sheet.previewId)))) || '').trim(),
+      rows: (preview && preview.sheet && Array.isArray(preview.sheet.rows)) ? preview.sheet.rows : [],
+      speech: String((preview && preview.sheet && preview.sheet.speech) || spec.speech || spec.quote || '').trim(),
+    }
+    const hallPrev = (await store.get()).pendingSheet
+    if (shouldKeepPopulatedListSheet(hallPrev, writeIncoming)) {
+      typeof opts.onPreview === 'function' && (() => { try { opts.onPreview(preview) } catch { /* card refresh is best-effort */ } })()
+      const hall = await snapshot(given || letterSid)
+      return { ...preview, sessionId: given || letterSid, workspace: cwd, sheet: (hall && hall.pendingSheet) || preview.sheet }
     }
     const namedOpening = String(spec.openingId || spec.trace_id || spec.traceId || '').trim()
     const mergeWindow = spec.merge !== false

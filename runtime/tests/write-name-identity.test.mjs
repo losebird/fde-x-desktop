@@ -296,6 +296,67 @@ test('spoken 过审 recovers from model 改行 and previews the filtered batch',
   assert.ok(String(result.preview_id || sheet.preview_id || '').startsWith('pv_'))
 })
 
+test('model leftover no on batch 过审 still previews the connected matching set', async () => {
+  const docs = [
+    { no: 'D-1', status: 'pending', fields: { id: '1', status: 'pending', name: '待审甲' } },
+    { no: 'D-2', status: 'pending', fields: { id: '2', status: 'pending', name: '待审乙' } },
+    { no: 'D-3', status: 'approved', fields: { id: '3', status: 'approved', name: '已过' } },
+  ]
+  const docVocab = [
+    {
+      kind: '单据',
+      resource: 'biz_docs',
+      catalogVersion: 'schema:1',
+      can: ['现查', '改行', '过审'],
+      clues: [{ say: ['待审'], keys: ['status'], values: ['pending', '待审'] }],
+    },
+  ]
+  const g = createGate({
+    vocab: docVocab,
+    lookupTodo(spec) {
+      let rows = docs.slice()
+      rows = applyWhere(rows, spec.where)
+      const look = String(spec.no || '').trim()
+      if (look) {
+        const needle = look.toLowerCase()
+        rows = rows.filter((row) => {
+          const fields = row.fields || {}
+          return [row.no, fields.name, fields.code].some((item) => String(item || '').toLowerCase().includes(needle))
+        })
+      }
+      if (!rows.length) return { ok: false, error: 'NOT_FOUND', matches: [] }
+      return {
+        ok: true,
+        matches: rows,
+        no: rows.length === 1 ? rows[0].no : '',
+        status: rows[0].status,
+        fields: rows.length === 1 ? rows[0].fields : {},
+      }
+    },
+    collectionsOf: async () => [{ name: 'biz_docs', title: '单据' }],
+    async fieldsOf() {
+      return [{ name: 'status', title: '状态', enums: { pending: '待审', approved: '过审' } }]
+    },
+  })
+  const speech = '待审单据都过一下。只要预览，不要过账，不要 biz_write。'
+  const result = await g.preview({
+    workspace: '/tmp/name-id-ws',
+    kind: '单据',
+    action: '过审',
+    no: '单都',
+    batch: true,
+    speech,
+    userSpeech: speech,
+  })
+  const sheet = sheetOf(result)
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  assert.notEqual(result.error, 'NOT_FOUND')
+  assert.equal(sheet.kind, '单据')
+  assert.equal(sheet.action, '过审')
+  assert.equal(rows.length, 2)
+  assert.deepEqual(rows.map((row) => row.no).sort(), ['D-1', 'D-2'])
+  assert.ok(String(result.preview_id || sheet.preview_id || '').startsWith('pv_'))
+})
 
 test('write without identity does not dump the catalog as a preview sheet', async () => {
   const result = await gate().preview({

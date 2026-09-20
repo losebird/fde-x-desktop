@@ -220,3 +220,29 @@ test('collection-title kind stays itself, not another table\'s spoken alias', as
   assert.equal(sheet.kind, 'TicketKind')
   assert.notEqual(sheet.kind, 'LeaveKind')
 })
+
+test('non-stem graph kind is not a preview target; spoken alias binds the connected table', async () => {
+  const g = createGate({
+    vocab: [
+      {
+        kind: 'AlphaWidget',
+        resource: 'alpha_widget',
+        catalogVersion: 'schema:1',
+        can: ['现查', '过审'],
+        aliases: ['GraphSay'],
+        clues: [{ role: '型', say: ['GraphSay'] }],
+      },
+      { kind: 'GraphSay', resource: 'graph:orphan', can: ['现查', '过审'] },
+    ],
+    lookupTodo,
+    collectionsOf: async () => collections,
+  })
+  const out = await g.preview({
+    workspace: '/tmp/leftover-ws',
+    kind: 'GraphSay',
+    action: '现查',
+  })
+  assert.notEqual(out.error, 'NO_CONNECTOR')
+  const sheet = out.sheet && typeof out.sheet === 'object' ? out.sheet : out
+  assert.equal(sheet.kind, 'AlphaWidget')
+})

@@ -839,7 +839,24 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
     const where = whereForKind(hits, packed.kind, packed.where)
     if (where.length) packed.where = where
   }
-  const existingNo = String(packed.no || packed.ticket || spec.no || '').trim()
+  const rawNo = String(packed.no || packed.ticket || spec.no || '').trim()
+  const existingNo = dropSpokenBatchRowId(rawNo, speech, vocab, bag)
+  if (spec.picked !== true) {
+    if (existingNo) packed.no = existingNo
+    else delete packed.no
+    if (Array.isArray(packed.steps) && packed.steps.length) {
+      packed.steps = packed.steps.map((step) => {
+        if (!step || typeof step !== 'object') return step
+        const stepNo = dropSpokenBatchRowId(step.no, speech, vocab, bag)
+        if (!stepNo) {
+          const copy = { ...step }
+          delete copy.no
+          return copy
+        }
+        return { ...step, no: stepNo }
+      })
+    }
+  }
   const act = String(packed.action || spec.action || '').trim()
   const rewriting = rewriteSpan(speech).at >= 0
   const name = leftoverNameIdentity(speech, vocab, bag, { patch: packed.patch || spec.patch })
@@ -1050,6 +1067,15 @@ export function recoverWriteIntent(spec, vocab, extra = {}) {
 }
 
 /** 列举 / 「都」+ 写动作：人要的本来就是一批，不要按模糊名去一家家问。 */
+/** Batch leftover (助词+动作碎片) is not a row id. Alphanumeric tickets stay. */
+export function dropSpokenBatchRowId(no, speech, vocab, extra = {}) {
+  const name = String(no || '').trim()
+  if (!name) return ''
+  if (/[A-Za-z0-9]/.test(name)) return name
+  if (spokenWantsBatch(speech, vocab, extra)) return ''
+  return name
+}
+
 export function spokenWantsBatch(speech, vocab, extra = {}) {
   const text = String(speech || '')
   if (!text.trim()) return false

@@ -12,6 +12,7 @@ import {
   rememberUserSpeech,
   recalledUserSpeech,
   spokenWantsBatch,
+  dropSpokenBatchRowId,
 } from '../vendor-overlays/dsh-lan-assist/slots.js'
 
 test('kindMentions does not count a shorter kind inside a longer kind', () => {
@@ -442,6 +443,26 @@ test('picked row from the hit set is kept', () => {
     patch: { status: 'active' },
   }, writeVocab)
   assert.equal(filled.no, 'C-1')
+})
+
+test('batch leftover no is dropped; spoken ticket stays', () => {
+  const speech = '待审单据都过一下。只要预览，不要过账，不要 biz_write。'
+  const docVocab = [
+    {
+      kind: '单据',
+      resource: 'biz_docs',
+      can: ['现查', '过审'],
+      clues: [{ say: ['待审'], keys: ['status'], values: ['pending'] }],
+    },
+  ]
+  assert.equal(dropSpokenBatchRowId('单都', speech, docVocab), '')
+  const filled = enrichStructuredSlots({
+    kind: '单据',
+    action: '过审',
+    speech,
+    no: '单都',
+  }, docVocab)
+  assert.equal(String(filled.no || ''), '')
 })
 
 test('spoken ticket in the utterance is kept as identity', () => {

@@ -9,7 +9,7 @@ import { connectorCatalogPresent, mapKind, relatedChildId, relatedField, related
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, bindPatchEnums, normalizePlan } from './plan.js'
-import { enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, spokenWantsBatch } from './slots.js'
+import { dropSpokenBatchRowId, enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, spokenWantsBatch } from './slots.js'
 import { previewRowCap } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -1096,8 +1096,36 @@ export function createGate(opts = {}) {
     }
     const recovered = recoverWriteIntent(spec, loaded.vocab, enrichExtra)
     const enriched = enrichStructuredSlots(recovered, loaded.vocab, enrichExtra)
-    const plan = normalizePlan(enriched)
     const catalogExtra = { vocab: loaded.vocab, ...enrichExtra }
+    const batchSpeech = String(enriched.speech || spec.speech || spec.quote || userSpeech || '').trim()
+    const keptNo = dropSpokenBatchRowId(enriched.no || spec.no, batchSpeech, loaded.vocab, catalogExtra)
+    if (keptNo) {
+      enriched.no = keptNo
+      spec.no = keptNo
+    } else {
+      delete enriched.no
+      delete spec.no
+    }
+    if (Array.isArray(enriched.steps)) {
+      enriched.steps = enriched.steps.map((step) => {
+        if (!step || typeof step !== 'object') return step
+        const stepNo = dropSpokenBatchRowId(step.no, batchSpeech, loaded.vocab, catalogExtra)
+        if (!stepNo) {
+          const copy = { ...step }
+          delete copy.no
+          return copy
+        }
+        return { ...step, no: stepNo }
+      })
+    }
+    const plan = normalizePlan(enriched)
+    plan.no = dropSpokenBatchRowId(plan.no, batchSpeech, loaded.vocab, catalogExtra)
+    if (Array.isArray(plan.steps)) {
+      for (const step of plan.steps) {
+        if (!step) continue
+        step.no = dropSpokenBatchRowId(step.no, batchSpeech, loaded.vocab, catalogExtra)
+      }
+    }
     let resolvedKind = String(
       (plan.steps[plan.targetIndex] && plan.steps[plan.targetIndex].kind)
       || enriched.kind
@@ -1110,12 +1138,33 @@ export function createGate(opts = {}) {
       spec.kind = connectedKind
       enriched.kind = connectedKind
       plan.kind = connectedKind
-      if (plan.steps[plan.targetIndex]) plan.steps[plan.targetIndex].kind = connectedKind
+    }
+    if (Array.isArray(plan.steps)) {
+      const collapsed = []
+      for (const step of plan.steps) {
+        if (!step) continue
+        const connected = resolveConnectedKindName(step.kind, catalogExtra) || String(step.kind || '').trim()
+        if (connected) step.kind = connected
+        const prev = collapsed[collapsed.length - 1]
+        if (prev && prev.kind === step.kind) {
+          if ((!Array.isArray(prev.where) || !prev.where.length) && Array.isArray(step.where) && step.where.length) {
+            collapsed[collapsed.length - 1] = step
+          }
+          continue
+        }
+        collapsed.push(step)
+      }
+      plan.steps = collapsed
+      plan.targetIndex = collapsed.length ? collapsed.length - 1 : 0
+    }
+    if (spec.from && typeof spec.from === 'object' && spec.from.kind) {
+      const connectedFrom = resolveConnectedKindName(spec.from.kind, catalogExtra)
+      if (connectedFrom) spec.from = { ...spec.from, kind: connectedFrom }
     }
     if (leftoverKindMissingFromCatalog(resolvedKind, catalogExtra)) {
       return refuse('NO_CONNECTOR', `${resolvedKind}：没连业务，不能装成已查。`)
     }
-    if (connectorCatalogPresent(catalogExtra) && !mapKind(resolvedKind, catalogExtra)) {
+    if (connectorCatalogPresent(catalogExtra) && !resolveConnectedKindName(resolvedKind, catalogExtra) && !mapKind(resolvedKind, catalogExtra)) {
       return refuse('NO_CONNECTOR', `${resolvedKind}：没连业务，不能装成已查。`)
     }
     const sessionId = String(spec.sessionId || '').trim()
@@ -1172,7 +1221,7 @@ export function createGate(opts = {}) {
     if (leftoverKindMissingFromCatalog(token.kind, writeExtra)) {
       return refuse('NO_CONNECTOR', `${token.kind}：没连业务，不能装成已过账。`)
     }
-    if (connectorCatalogPresent(writeExtra) && !mapKind(token.kind, writeExtra)) {
+    if (connectorCatalogPresent(writeExtra) && !resolveConnectedKindName(token.kind, writeExtra) && !mapKind(token.kind, writeExtra)) {
       return refuse('NO_CONNECTOR', `${token.kind}：没连业务，不能装成已过账。`)
     }
     if (token.catalogVersion) {

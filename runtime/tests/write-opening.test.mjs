@@ -382,3 +382,80 @@ test('empty 现查 poll does not wipe; a new speech empty sheet replaces', async
   assert.equal(replaced.pendingSheet.kind, 'KindEmpty')
   assert.equal(replaced.pendingSheet.rows.length, 0)
 })
+
+test('empty 过审 without token does not cover the matching-set list of the same speech', async () => {
+  const store = memStore()
+  const now = () => 1_700_000_000_000
+  const snapshot = async (sid) => {
+    const state = await store.get()
+    return {
+      pendingWrite: livePendingWrite(state, null, now()),
+      pendingSheet: livePendingSheet(state, null, now(), sid || sessionId),
+    }
+  }
+  const gate = createGate({
+    store,
+    now,
+    snapshot,
+    note() {},
+    opts: {
+      gate: {
+        async preview(spec) {
+          const kind = String(spec.kind || '')
+          const action = String(spec.action || '现查')
+          if (action === '过审') {
+            const sheet = {
+              kind,
+              action: '过审',
+              rows: [],
+              speech: spec.speech,
+              sessionId: spec.sessionId,
+              workspace: spec.workspace,
+              preview_id: '',
+            }
+            return { ok: false, error: 'NOT_FOUND', action: '过审', kind, sheet, sessionId: spec.sessionId, workspace: spec.workspace }
+          }
+          const rows = Array.isArray(spec.rows) ? spec.rows : [{ no: 'HIT-1' }]
+          const sheet = {
+            kind,
+            action: '现查',
+            rows,
+            speech: spec.speech,
+            sessionId: spec.sessionId,
+            workspace: spec.workspace,
+          }
+          return { ok: true, action: '现查', kind, sheet, sessionId: spec.sessionId, workspace: spec.workspace }
+        },
+        async write() { return { ok: true } },
+      },
+    },
+    catalogOf() { return [] },
+    async reopenReplyDraft() { return false },
+    async hearBusinessEvent() {},
+    async rememberFocus() {},
+  })
+  const speech = 'batch this table'
+  await gate.previewBiz({
+    kind: 'LongKind',
+    action: '现查',
+    rows: [{ no: 'HIT-1' }, { no: 'HIT-2' }],
+    sessionId,
+    workspace,
+    speech,
+  })
+  const filled = await snapshot(sessionId)
+  assert.equal(filled.pendingSheet.kind, 'LongKind')
+  assert.equal(filled.pendingSheet.rows.length, 2)
+  await gate.previewBiz({
+    kind: 'ShortKind',
+    action: '过审',
+    sessionId,
+    workspace,
+    speech,
+  })
+  const kept = await snapshot(sessionId)
+  assert.equal(kept.pendingSheet.kind, 'LongKind')
+  assert.equal(kept.pendingSheet.action, '现查')
+  assert.equal(kept.pendingSheet.rows.length, 2)
+  assert.equal(String(kept.pendingSheet.preview_id || kept.pendingSheet.previewId || ''), '')
+})
