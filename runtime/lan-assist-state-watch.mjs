@@ -1,7 +1,7 @@
 import { emit } from './events.mjs'
 import { emitBizSheetPending } from './routes/biz.mjs'
 import { pendingSheetWatchFingerprint } from './biz/sheet-fingerprint.mjs'
-import { isBizPreviewDismissed, sheetPreviewIdFromRecord } from './biz/dismissed-previews.mjs'
+import { sheetAfterDismissedWrite } from './biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw } from './biz/sheet-payload.mjs'
 
 const POLL_MS = 1000
@@ -63,11 +63,7 @@ function newIncomingMessages(state, knownIds) {
 
 function sheetFromState(state) {
   const raw = state?.pendingSheet ?? state?.pendingWrite
-  const sheet = sheetPayloadFromRaw(raw)
-  if (!sheet) return null
-  const previewId = sheetPreviewIdFromRecord(sheet)
-  if (previewId && isBizPreviewDismissed(previewId)) return null
-  return sheet
+  return sheetAfterDismissedWrite(sheetPayloadFromRaw(raw))
 }
 
 function emitPendingSheet(sheet, deps, source = 'lan-assist') {

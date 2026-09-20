@@ -26,6 +26,7 @@ import {
   hallPreviewIdFromState,
   isBizPreviewDismissed,
   rememberBizPreviewDismissed,
+  sheetAfterDismissedWrite,
   sheetPreviewIdFromRecord,
 } from '../biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw, sheetPreviewIdFromRaw } from '../biz/sheet-payload.mjs'
@@ -828,14 +829,12 @@ export async function handleBizRoutes(request, response, url, deps) {
         return true
       }
       const raw = state.pendingSheet ?? state.pendingWrite
-      const sheet = sheetPayloadFromRaw(raw)
+      const sheet = sheetAfterDismissedWrite(sheetPayloadFromRaw(raw))
       if (!sheet) {
-        sendJson(response, 200, { data: { sheet: null }, correlationId })
-        return true
-      }
-      const previewId = sheetPreviewIdFromRaw(sheet)
-      if (previewId && isBizPreviewDismissed(previewId)) {
-        sendJson(response, 200, { data: { sheet: null }, correlationId })
+        sendJson(response, 200, {
+          data: { sheet: lastEmittedPending ? stripSecrets(lastEmittedPending) : null },
+          correlationId,
+        })
         return true
       }
       const bizCwd = requestMemoryCwd(url, {}) || FDE_AI_WORKSPACE

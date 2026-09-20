@@ -652,11 +652,33 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     displayBeforeWriteRef.current = null
     const floatSheet = floated?.sheet
     if (floated && floatSheet && !isConnectorCatalogDump(floatSheet)) {
-      applyDisplayedSnapshot(floated)
-      rememberBizPendingSheet(floatSheet)
+      const liveSid = String(historySessionIdRef.current || activeAiSessionId || '').trim()
+      const restored: Record<string, unknown> = {
+        ...floatSheet,
+        rows: cloneSheetRows(floated.rows),
+        columns: floated.columns,
+        preview_id: '',
+        previewId: '',
+        canWrite: false,
+        ...(liveSid ? { sessionId: liveSid } : {}),
+      }
+      applyDisplayedSnapshot({ ...floated, sheet: restored, rows: restored.rows as SheetRow[] })
+      rememberBizPendingSheet(restored)
     }
-    void runtimeApi.bizDismissPreview(previewId || undefined).catch(() => undefined)
-  }, [applyDisplayedSnapshot, drawer?.previewId])
+    void runtimeApi.bizDismissPreview(previewId || undefined).then(() => {
+      if (floated && floatSheet && !isConnectorCatalogDump(floatSheet)) {
+        const liveSid = String(historySessionIdRef.current || activeAiSessionId || '').trim()
+        rememberBizPendingSheet({
+          ...floatSheet,
+          rows: cloneSheetRows(floated.rows),
+          preview_id: '',
+          previewId: '',
+          canWrite: false,
+          ...(liveSid ? { sessionId: liveSid } : {}),
+        })
+      }
+    }).catch(() => undefined)
+  }, [activeAiSessionId, applyDisplayedSnapshot, drawer?.previewId])
 
   const applySheet = useCallback((
     sheet: Record<string, unknown>,

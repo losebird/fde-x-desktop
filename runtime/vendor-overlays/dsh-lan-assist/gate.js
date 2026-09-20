@@ -135,7 +135,26 @@ export function createGate(bag) {
       s.sheetTrail = trail.length > 8 ? trail.slice(-8) : trail
       return
     }
-    if (fresh && !(spec && spec.related)) s.sheetTrail = []
+    if (fresh && !(spec && spec.related)) {
+      s.sheetTrail = []
+      s.listBeforeWrite = null
+    }
+  }
+
+  function stashListBeforeWrite(s, prevSheet, incomingRows) {
+    if (s.listBeforeWrite && Array.isArray(s.listBeforeWrite.rows) && s.listBeforeWrite.rows.length > 1) return
+    if (!prevSheet || typeof prevSheet !== 'object') return
+    const prevAct = String(prevSheet.action || '现查')
+    const prevRows = Array.isArray(prevSheet.rows) ? prevSheet.rows : []
+    if (prevAct !== '现查' || prevRows.length <= 1) return
+    if (incomingRows > 0 && incomingRows >= prevRows.length) return
+    s.listBeforeWrite = {
+      ...prevSheet,
+      rows: prevRows.slice(),
+      preview_id: '',
+      previewId: '',
+      canWrite: false,
+    }
   }
 
   function shouldKeepPopulatedListSheet(prev, incoming) {
@@ -284,6 +303,7 @@ export function createGate(bag) {
         : (sameKind && Array.isArray(prevSheet.rows) && prevSheet.rows.length > 1
           ? prevSheet.rows
           : (sameKind && Array.isArray(prevSheet.remainRows) ? prevSheet.remainRows : null))
+      stashListBeforeWrite(s, prevSheet, Array.isArray(sheetSrc.rows) ? sheetSrc.rows.length : 0)
       rememberSheet(s, spec, false)
       s.pendingSheet = {
         ...sheetSrc,
@@ -441,18 +461,33 @@ export function createGate(bag) {
       }
       s.pendingWrite = null
       if (!wanted || liveSheet === wanted) {
-        const keep = s.pendingSheet
-        const keepRows = keep && Array.isArray(keep.rows) ? keep.rows : []
-        s.pendingSheet = keepRows.length
-          ? {
-            ...keep,
-            action: String(keep.action || '现查') === '现查' ? keep.action : '现查',
+        const saved = s.listBeforeWrite
+        const savedRows = saved && Array.isArray(saved.rows) ? saved.rows : []
+        if (savedRows.length) {
+          s.pendingSheet = {
+            ...saved,
+            rows: savedRows,
+            action: String(saved.action || '现查') === '现查' ? saved.action : '现查',
             preview_id: '',
             previewId: '',
             canWrite: false,
             changes: [],
           }
-          : null
+          s.listBeforeWrite = null
+        } else {
+          const keep = s.pendingSheet
+          const keepRows = keep && Array.isArray(keep.rows) ? keep.rows : []
+          s.pendingSheet = keepRows.length
+            ? {
+              ...keep,
+              action: String(keep.action || '现查') === '现查' ? keep.action : '现查',
+              preview_id: '',
+              previewId: '',
+              canWrite: false,
+              changes: [],
+            }
+            : null
+        }
       }
       note(s, '算了。没写。', now())
     })

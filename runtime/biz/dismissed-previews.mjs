@@ -48,3 +48,23 @@ export function clearBizPreviewDismissed(previewId) {
   if (!id) return
   dismissedPreviewIds.delete(id)
 }
+
+/** Cancelled write token must still expose the list, never a null pending. */
+export function sheetAfterDismissedWrite(sheet) {
+  if (!sheet || typeof sheet !== 'object') return null
+  const previewId = sheetPreviewIdFromRecord(sheet)
+  if (!previewId || !isBizPreviewDismissed(previewId)) return sheet
+  const writeRows = Array.isArray(sheet.rows) ? sheet.rows : []
+  const remain = Array.isArray(sheet.remainRows) ? sheet.remainRows : []
+  const rows = remain.length > writeRows.length ? remain : writeRows
+  if (!rows.length) return null
+  return {
+    ...sheet,
+    rows,
+    action: String(sheet.action || '') === '现查' ? sheet.action : '现查',
+    preview_id: '',
+    previewId: '',
+    canWrite: false,
+    changes: [],
+  }
+}

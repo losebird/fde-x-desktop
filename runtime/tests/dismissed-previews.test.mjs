@@ -6,6 +6,7 @@ import {
   hallPreviewIdFromState,
   isBizPreviewDismissed,
   rememberBizPreviewDismissed,
+  sheetAfterDismissedWrite,
 } from '../biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw } from '../biz/sheet-payload.mjs'
 
@@ -64,4 +65,24 @@ test('dismiss does not clear hall when a newer preview already replaced the toke
     }),
     'pv_del',
   )
+})
+
+test('dismissed write token still exposes remainRows list, not null', () => {
+  const id = 'pv_write_remain'
+  clearBizPreviewDismissed(id)
+  rememberBizPreviewDismissed(id)
+  const out = sheetAfterDismissedWrite({
+    kind: 'ListKind',
+    action: '改行',
+    preview_id: id,
+    rows: [{ no: 'ONE' }],
+    remainRows: [{ no: 'A' }, { no: 'B' }],
+    speech: 'list speech',
+  })
+  assert.ok(out)
+  assert.equal(out.action, '现查')
+  assert.equal(out.preview_id, '')
+  assert.equal(out.rows.length, 2)
+  assert.equal(out.speech, 'list speech')
+  clearBizPreviewDismissed(id)
 })
