@@ -7,6 +7,7 @@ import {
   leftoverKindMissingFromCatalog,
   leftoverNameIdentity,
   pickHopSpeech,
+  recoverWriteIntent,
   relatedMentionedKinds,
   rememberUserSpeech,
   recalledUserSpeech,
@@ -347,6 +348,29 @@ test('spoken fragments still bind to connected vocab kinds with catalog present'
   }, intersectionVocab, catalogExtra)
   assert.equal(remapped.kind, 'AlphaWidget')
   assert.equal(leftoverKindMissingFromCatalog(remapped.kind, catalogExtra), false)
+})
+
+test('pickHopSpeech prefers the user line when the model truncated it', () => {
+  const user = '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。'
+  assert.equal(pickHopSpeech('停用客户通达', user, vocab), user)
+})
+
+test('recoverWriteIntent upgrades 现查 to 改行 from rewrite speech', () => {
+  const speech = '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。'
+  const writeVocab = vocab.map((row) => (
+    row && row.kind === '客户' ? { ...row, can: ['现查', '改行'] } : row
+  ))
+  const out = recoverWriteIntent({
+    kind: '客户',
+    action: '现查',
+    speech,
+  }, writeVocab, {
+    schemaByKind: {
+      客户: [{ name: 'status', title: '客户状态', enums: { inactive: '停用', active: '成交' } }],
+    },
+  })
+  assert.equal(out.action, '改行')
+  assert.equal(out.patch?.status, '成交')
 })
 
 test('leftover name identity is connector rest, not a hardcoded company', () => {

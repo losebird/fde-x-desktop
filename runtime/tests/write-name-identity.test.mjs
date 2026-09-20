@@ -71,7 +71,16 @@ function lookupTodo(spec) {
 }
 
 function gate() {
-  return createGate({ vocab, lookupTodo })
+  return createGate({
+    vocab,
+    lookupTodo,
+    async fieldsOf() {
+      return [
+        { name: 'status', title: '客户状态', enums: { inactive: '停用', active: '成交' } },
+        { name: 'name', title: '客户名称' },
+      ]
+    },
+  })
 }
 
 function sheetOf(result) {
@@ -100,6 +109,25 @@ test('停用 ∩ spoken name is a write preview of the match set, not the custom
   const changes = Array.isArray(sheet.changes) ? sheet.changes : []
   assert.ok(changes.some((row) => row && row.field === 'status' && String(row.from) !== String(row.to)))
 })
+
+test('model 现查 still issues a 改行 preview when speech has a rewrite', async () => {
+  const speech = `把停用客户${NAME}改成成交。只要预览，不要过账，不要 biz_write。`
+  const result = await gate().preview({
+    workspace: '/tmp/name-id-ws',
+    kind: '客户',
+    action: '现查',
+    speech,
+    userSpeech: speech,
+  })
+  const sheet = sheetOf(result)
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  assert.equal(sheet.action, '改行')
+  assert.equal(rows.length, 2)
+  assert.ok(String(result.preview_id || sheet.preview_id || '').startsWith('pv_'))
+  const changes = Array.isArray(sheet.changes) ? sheet.changes : []
+  assert.ok(changes.some((row) => row && row.field === 'status' && String(row.from) !== String(row.to)))
+})
+
 
 test('write without identity does not dump the catalog as a preview sheet', async () => {
   const result = await gate().preview({

@@ -505,6 +505,7 @@ export function pickHopSpeech(modelSpeech, userSpeech, vocab, extra = {}) {
   if (!user) return model
   if (!model) return user
   if (model === user) return model
+  if (user.includes(model) && user.length > model.length) return user
   const userRel = relatedMentionedKinds(user, vocab, extra).related.length
   const modelRel = relatedMentionedKinds(model, vocab, extra).related.length
   if (userRel > modelRel) return user
@@ -584,6 +585,26 @@ function vocabWithSpoken(vocab) {
   return rows
 }
 
+function rewriteSpan(speech) {
+  const text = String(speech || '')
+  const says = saysOf({ vocab: vocabWithSpoken([]) }, '改写')
+  let hitSay = ''
+  let at = -1
+  for (const say of [...says].sort((a, b) => b.length - a.length)) {
+    if (!say) continue
+    const idx = text.indexOf(say)
+    if (idx >= 0 && (at < 0 || idx < at || (idx === at && say.length > hitSay.length))) {
+      at = idx
+      hitSay = say
+    }
+  }
+  if (at < 0 || !hitSay) return { at: -1, end: -1, say: '', after: '' }
+  const tail = text.slice(at + hitSay.length)
+  const m = tail.match(/^\s*([\u4e00-\u9fffA-Za-z0-9._-]{1,32})/)
+  const after = m ? m[1] : ''
+  return { at, end: at + hitSay.length + (m ? m[0].length : 0), say: hitSay, after }
+}
+
 function syntheticCluesByKind(vocab, extra) {
   const map = new Map()
   for (const row of Array.isArray(vocab) ? vocab : []) {
@@ -634,7 +655,13 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
       assignKind: kindAfterClueInSpeech(text, inferred.hitIndex, inferred.say, mentions) || kind,
     })
   }
-  return hits
+  const span = rewriteSpan(text)
+  if (span.at < 0) return hits
+  return hits.filter((hit) => {
+    if (Number(hit.hitIndex) < span.at) return true
+    const keys = (hit.keys || []).map((item) => String(item || ''))
+    return keys.includes('action') || keys.includes('role')
+  })
 }
 
 function termKey(term) {
@@ -758,11 +785,8 @@ export function leftoverNameIdentity(speech, vocab, extra = {}, spec = {}) {
   const bag = { vocab: vocabWithSpoken(vocab), ...extra }
   let s = String(speech || '')
   if (!s.trim()) return ''
-  const rewrites = saysOf(bag, '改写')
-  for (const say of [...rewrites].sort((a, b) => b.length - a.length)) {
-    if (!say) continue
-    s = s.replace(new RegExp(`${escapeRe(say)}[\\s]*[^\\s，。,.!！；;：:]{1,32}`, 'g'), ' ')
-  }
+  const span = rewriteSpan(speech)
+  if (span.at >= 0) s = `${s.slice(0, span.at)} ${s.slice(span.end)}`
   s = peelSpoken(s, bag)
   const kinds = registeredKinds(bag)
   for (const kind of kinds) {
@@ -919,6 +943,75 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   }
   if (childFiltered.length) next.where = childFiltered
   return attachSpeechIdentity(next, speech, vocab, bag, base)
+}
+
+const WRITE_ACTIONS = ['删除', '过审', '新建', '改行']
+
+function spokenWriteAction(speech, vocab, extra = {}) {
+  const hits = clueHitsInSpeech(speech, vocab, extra)
+  for (const act of WRITE_ACTIONS) {
+    if (hits.some((hit) => (hit.keys || []).includes('action') && (hit.values || []).includes(act))) return act
+  }
+  return ''
+}
+
+function fieldLabelOf(field) {
+  if (!field || typeof field !== 'object') return ''
+  const title = String(field.title || (field.uiSchema && field.uiSchema.title) || '').trim()
+  return title || String(field.name || '').trim()
+}
+
+function fieldEnumsOf(field) {
+  if (!field || typeof field !== 'object') return null
+  if (field.enums && typeof field.enums === 'object' && !Array.isArray(field.enums)) return field.enums
+  return null
+}
+
+function rewritePatch(speech, schemaFields) {
+  const span = rewriteSpan(speech)
+  if (span.at < 0 || !span.after) return null
+  const after = span.after
+  const before = (String(speech || '').slice(0, span.at).match(/[\u4e00-\u9fffA-Za-z0-9._-]{1,32}\s*$/) || [])[0] || ''
+  if (!after) return null
+  const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const named = fields.find((field) => {
+    const name = String((field && field.name) || '').trim()
+    const label = fieldLabelOf(field)
+    return (name && name === before) || (label && label === before)
+  })
+  if (named && named.name) return { [named.name]: after }
+  const enumHits = fields.filter((field) => {
+    const packed = fieldEnumsOf(field)
+    if (!packed) return false
+    return Object.entries(packed).some(([code, label]) => String(code) === after || String(label || '') === after)
+  })
+  const statusLike = enumHits.find((field) => /^(status|state|stage|状态)$/i.test(String(field.name || '')))
+  const hit = statusLike || enumHits[0]
+  if (hit && hit.name) return { [hit.name]: after }
+  return null
+}
+
+export function recoverWriteIntent(spec, vocab, extra = {}) {
+  const next = spec && typeof spec === 'object' ? { ...spec } : {}
+  const speech = String(next.speech || next.quote || '').trim()
+  const kind = String(next.kind || '').trim()
+  if (!speech || !kind) return next
+  const bag = { vocab: vocabWithSpoken(vocab), ...extra }
+  const row = vocabRow(kind, bag.vocab)
+  const can = Array.isArray(row && row.can) ? row.can.map((item) => String(item || '').trim()).filter(Boolean) : []
+  const current = String(next.action || '').trim() || '现查'
+  const spoken = spokenWriteAction(speech, vocab, extra)
+  if (spoken && can.includes(spoken) && (current === '现查' || !current)) {
+    next.action = spoken
+  }
+  const act = String(next.action || '').trim()
+  const hasPatch = next.patch && typeof next.patch === 'object' && !Array.isArray(next.patch) && Object.keys(next.patch).length
+  if ((act === '改行' || act === '新建') && !hasPatch) {
+    const schemaFields = extra.schemaByKind && extra.schemaByKind[kind]
+    const patch = rewritePatch(speech, schemaFields)
+    if (patch) next.patch = patch
+  }
+  return next
 }
 
 /**

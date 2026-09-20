@@ -9,7 +9,7 @@ import { mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, s
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, bindPatchEnums, normalizePlan } from './plan.js'
-import { enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, nestFromSteps, pickHopSpeech, recalledUserSpeech, relatedMentionedKinds } from './slots.js'
+import { enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds } from './slots.js'
 import { previewRowCap } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -1036,7 +1036,11 @@ export function createGate(opts = {}) {
       }
       enrichExtra.schemaByKind = schemaByKind
     }
-    const enriched = enrichStructuredSlots(spec, loaded.vocab, enrichExtra)
+    const enriched = recoverWriteIntent(
+      enrichStructuredSlots(spec, loaded.vocab, enrichExtra),
+      loaded.vocab,
+      enrichExtra,
+    )
     const plan = normalizePlan(enriched)
     const resolvedKind = String(
       (plan.steps[plan.targetIndex] && plan.steps[plan.targetIndex].kind)
