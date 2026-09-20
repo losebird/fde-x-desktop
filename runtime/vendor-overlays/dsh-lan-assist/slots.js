@@ -4,7 +4,7 @@
  * @module dsh-lan-assist/slots
  */
 
-import { collectionFields, mapKind, registeredKinds, relatedField, schemaRelatedField } from './lookup.js'
+import { collectionFields, mapKind, registeredKinds, relatedField, schemaHasField, schemaRelatedField } from './lookup.js'
 import {
   inferNegatedClosedHit,
   schemaFieldsForKind,
@@ -287,6 +287,16 @@ function nearestKindForHit(hitIndex, mentions) {
     }
   }
   return best.kind
+}
+
+function sayIsKindLabelPrefix(speech, hitIndex, say, kinds) {
+  const hit = String(say || '')
+  if (!hit) return false
+  const slice = String(speech || '').slice(hitIndex)
+  return (Array.isArray(kinds) ? kinds : []).some((kind) => {
+    const label = String(kind || '').trim()
+    return label.length > hit.length && label.startsWith(hit) && slice.startsWith(label)
+  })
 }
 
 function kindAfterClueInSpeech(speech, hitIndex, sayText, mentions) {
@@ -637,6 +647,7 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
     for (const clue of clues) {
       const packed = findClueHit(text, clue, bag)
       if (!packed) continue
+      if (sayIsKindLabelPrefix(text, packed.hitIndex, packed.say, kinds)) continue
       const ownerMentioned = owner && owner !== '口语' && mentions.some((m) => m.kind === owner)
       const fromSynthetic = !(explicit.includes(clue))
       const assign = ownerMentioned && !fromSynthetic
@@ -741,10 +752,35 @@ function termsForKind(hits, kind) {
   })))
 }
 
-function whereForKind(hits, kind, extraWhere) {
+function fieldOnKindSchema(schemaFields, key) {
+  if (schemaHasField(schemaFields, key)) return true
+  const want = String(key || '').trim()
+  if (!want) return false
+  return (Array.isArray(schemaFields) ? schemaFields : []).some((row) => {
+    if (!row) return false
+    if (typeof row === 'string') return row.trim() === want
+    return String(row.name || '').trim() === want || String(row.title || '').trim() === want
+  })
+}
+
+function extraWhereOnKind(kind, extraWhere, extra = {}) {
+  const list = Array.isArray(extraWhere) ? extraWhere : []
+  if (!list.length) return []
+  const vocab = extra.vocab || []
+  const schemaFields = schemaFieldsForKind(kind, vocab, extra)
+  if (!schemaFields.length) return list
+  return list.filter((term) => {
+    const keys = (term.keys || []).map((item) => String(item || '').trim()).filter(Boolean)
+    const specific = keys.filter((key) => !/^(status|state|stage|状态)$/i.test(key))
+    if (specific.length) return specific.some((key) => fieldOnKindSchema(schemaFields, key))
+    return keys.some((key) => fieldOnKindSchema(schemaFields, key))
+  })
+}
+
+function whereForKind(hits, kind, extraWhere, extra = {}) {
   const merged = mergeTerms([
     ...termsForKind(hits, kind),
-    ...(Array.isArray(extraWhere) ? extraWhere : []),
+    ...extraWhereOnKind(kind, extraWhere, extra),
   ])
   return compressStatusWhere(merged)
 }
@@ -835,9 +871,10 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
   if (packed.from && typeof packed.from === 'object' && packed.from.kind) {
     packed.from = fillEmptyWhere(packed.from, hits)
   }
-  if (!(Array.isArray(packed.where) && packed.where.length) && packed.kind) {
-    const where = whereForKind(hits, packed.kind, packed.where)
+  if (packed.kind) {
+    const where = whereForKind(hits, packed.kind, packed.where, bag)
     if (where.length) packed.where = where
+    else delete packed.where
   }
   const rawNo = String(packed.no || packed.ticket || spec.no || '').trim()
   const existingNo = dropSpokenBatchRowId(rawNo, speech, vocab, bag)
@@ -918,7 +955,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
       const extraWhere = kind === targetKind && index === chainKinds.length - 1
         ? (Array.isArray(base.where) ? base.where : [])
         : []
-      const where = whereForKind(hits, kind, extraWhere)
+      const where = whereForKind(hits, kind, extraWhere, bag)
       const prev = index > 0 ? chainKinds[index - 1] : ''
       return prev ? { kind, where, from: prev } : { kind, where }
     })
@@ -946,13 +983,13 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     return attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base)
   }
 
-  const childWhere = whereForKind(hits, targetKind, base.where)
+  const childWhere = whereForKind(hits, targetKind, base.where, bag)
   const parents = parentKindsOf(targetKind, bag)
   let parent = parents.find((kind) => termsForKind(hits, kind).length) || parents.find((kind) => (
     kindMentions(speech, [kind], bag).length
   ))
   if (!parent) parent = hopParentKindForTarget(targetKind, speech, bag)
-  const parentWhere = parent ? whereForKind(hits, parent) : []
+  const parentWhere = parent ? whereForKind(hits, parent, undefined, bag) : []
   const parentValues = new Set(parentWhere.flatMap((term) => term.values || []))
   const childFiltered = childWhere.filter((term) => {
     const vals = term.values || []

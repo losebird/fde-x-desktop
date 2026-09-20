@@ -484,6 +484,40 @@ test('spoken ticket in the utterance is kept as identity', () => {
   assert.equal(filled.no, 'TCK-018')
 })
 
+test('clue say that is only a kind-label prefix does not steal another kind\'s where', () => {
+  const speech = '过一下单据申请 TCK-018。只要预览，不要过账，不要 biz_write。'
+  const vocab = [
+    {
+      kind: '单据日志',
+      resource: 'doc_logs',
+      can: ['现查'],
+      clues: [{ say: ['单据'], keys: ['logStatus', 'status'], values: ['paper'] }],
+    },
+    {
+      kind: '单据申请',
+      resource: 'biz_docs',
+      aliases: ['单据单'],
+      can: ['现查', '过审'],
+    },
+  ]
+  const hits = clueHitsInSpeech(speech, vocab)
+  assert.equal(hits.some((hit) => (hit.values || []).includes('paper')), false)
+  const filled = enrichStructuredSlots({
+    kind: '单据申请',
+    action: '过审',
+    speech,
+    where: [{ keys: ['logStatus', 'status'], values: ['paper'] }],
+  }, vocab, {
+    vocab,
+    schemaByKind: {
+      单据申请: [{ name: 'requestNo' }, { name: 'status', title: '审批状态' }],
+    },
+  })
+  assert.equal(filled.no, 'TCK-018')
+  assert.equal((filled.where || []).some((term) => (term.keys || []).includes('logStatus')), false)
+  assert.equal((filled.where || []).some((term) => (term.values || []).includes('paper')), false)
+})
+
 test('spokenWantsBatch is true for 列举 and 都+write, false for a fuzzy name rewrite', () => {
   const writeVocab = vocab.map((row) => (
     row && row.kind === '客户' ? { ...row, can: ['现查', '改行', '过审'] } : row
