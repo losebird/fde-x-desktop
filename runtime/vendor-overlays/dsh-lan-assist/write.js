@@ -189,6 +189,26 @@ export function packSheet(spec = {}) {
   })
   const many = rows.length > 1
   const previewId = String(spec.preview_id || '').trim()
+  const alreadyAtTarget = action === '过审' && rows.length > 0 && changes.length === 0
+  let canWrite = !!previewId && action !== '现查' && (!many || !!spec.batch)
+  if (action === '过审') canWrite = canWrite && changes.length > 0
+  let speak = String(spec.speak || spec.hint || '').trim()
+  if (alreadyAtTarget) {
+    const col = statusColumn(spec.mapped, kind, spec)
+    const raw = ((col && fieldValue(lead.fields, col)) || String(lead.status || fromFallback || '').trim())
+    let statusSay = ''
+    for (const item of schemaFields) {
+      const name = typeof item === 'string' ? item : (item && item.name)
+      const enums = schemaEnums(name)
+      if (enums && enums[raw] != null) {
+        statusSay = String(enums[raw]).trim()
+        break
+      }
+    }
+    if (!statusSay) statusSay = raw || '当前状态'
+    const who = [kind, String(spec.no || lead.no || spec.clue || '').trim()].filter(Boolean).join(' ') || '这张单'
+    speak = `${who}已是${statusSay}。这是预览，不是过账。`
+  }
   return {
     kind,
     action,
@@ -198,10 +218,10 @@ export function packSheet(spec = {}) {
     columns,
     changes,
     preview_id: previewId,
-    canWrite: !!previewId && action !== '现查' && (!many || !!spec.batch),
+    canWrite,
     batch: !!spec.batch,
     nos: Array.isArray(spec.nos) ? spec.nos : undefined,
-    speak: String(spec.speak || spec.hint || '').trim(),
+    speak,
     workspace: String(spec.workspace || '').trim(),
     sessionId: String(spec.sessionId || '').trim(),
     nextKind: sheetNextKind(kind, spec),
@@ -212,6 +232,7 @@ export function packSheet(spec = {}) {
     speech: String(spec.speech || '').trim(),
     listed: !!spec.listed,
     ambiguous: !!spec.ambiguous,
+    ...(alreadyAtTarget ? { alreadyAtTarget: true } : {}),
     ...(spec.patch && typeof spec.patch === 'object' && !Array.isArray(spec.patch) && Object.keys(spec.patch).length
       ? { patch: spec.patch }
       : {}),

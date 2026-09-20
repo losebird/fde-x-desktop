@@ -21,7 +21,7 @@ import { createSecretary } from './secretary.js'
 import { createSemanticBridge, cwdFromWorkspaceStore, extractUserSpeech, looksLikeChoice, readLeftIds } from './semantic.js'
 import { createStore } from './store.js'
 import { registerTools } from './tools.js'
-import { createLookup } from './lookup.js'
+import { createLookup, collapseKindsToConnectedTables } from './lookup.js'
 import { translateQuote } from './translate.js'
 import { createEyesSee, hasEyes } from './eyes-bridge.js'
 import { createGate, createNocoWrite } from './write.js'
@@ -42,7 +42,10 @@ export const Config = Schema.object({
 
 async function loadWorkspaceVocab(semantic, workspace) {
   const found = await semantic.vocab(workspace)
-  if (found && found.ok) return found.kinds || []
+  if (found && found.ok) {
+    const raw = Array.isArray(found.kinds) ? found.kinds : []
+    return collapseKindsToConnectedTables(raw).kinds
+  }
   const err = new Error((found && found.error) || 'NO_VOCAB')
   err.code = 'NO_VOCAB'
   throw err

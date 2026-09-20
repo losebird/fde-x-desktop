@@ -130,12 +130,157 @@ export function resolveConnectedKindName(spoken, extra = {}) {
   return ''
 }
 
+export function isCollectionStem(resource) {
+  return /^[A-Za-z][A-Za-z0-9._-]*$/.test(String(resource || '').trim())
+}
+
+function catalogVersionOf(row) {
+  if (!row || typeof row !== 'object') return ''
+  return String(row.catalogVersion || '').trim()
+}
+
+function fieldCount(row) {
+  return Array.isArray(row && row.fields) ? row.fields.length : 0
+}
+
+function canCount(row) {
+  return Array.isArray(row && row.can) ? row.can.length : 0
+}
+
+function pickCanonicalKindRow(rows) {
+  const ranked = [...rows].sort((a, b) => {
+    const va = catalogVersionOf(a) ? 1 : 0
+    const vb = catalogVersionOf(b) ? 1 : 0
+    if (vb !== va) return vb - va
+    if (fieldCount(b) !== fieldCount(a)) return fieldCount(b) - fieldCount(a)
+    return canCount(b) - canCount(a)
+  })
+  return ranked[0]
+}
+
+function connectorResourcesFromKinds(rows, explicit) {
+  if (explicit && typeof explicit === 'object') {
+    const listed = explicit instanceof Set ? [...explicit] : (Array.isArray(explicit) ? explicit : [])
+    const packed = new Set(listed.map((item) => String(item || '').trim()).filter(Boolean))
+    if (packed.size) return packed
+  }
+  const fromCatalog = new Set()
+  for (const row of rows) {
+    const resource = rowResource(row)
+    if (resource && (catalogVersionOf(row) || isCollectionStem(resource))) {
+      fromCatalog.add(resource)
+    }
+  }
+  return fromCatalog
+}
+
+function isConnectedResource(resource, connectorResources) {
+  if (!resource) return false
+  if (connectorResources.size) return connectorResources.has(resource)
+  return isCollectionStem(resource)
+}
+
+function mergeRelationLists(list) {
+  const out = []
+  const seen = new Set()
+  for (const row of list) {
+    for (const rel of Array.isArray(row && row.relations) ? row.relations : []) {
+      if (!rel || typeof rel !== 'object') continue
+      const from = String(rel.from || rel.fromKind || '').trim()
+      const to = String(rel.to || rel.toKind || '').trim()
+      const field = String(rel.field || '').trim()
+      if (!from || !to) continue
+      const key = `${from}\0${to}\0${field}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(field ? { from, to, field } : { from, to })
+    }
+  }
+  return out
+}
+
+/**
+ * Graph skos rows fold onto connector tables; orphans drop. Overlay copy of BFF collapse.
+ * @param {unknown} kinds
+ * @param {{ connectorResources?: Iterable<string> }} [opts]
+ */
+export function collapseKindsToConnectedTables(kinds, opts = {}) {
+  const rows = []
+  for (const raw of Array.isArray(kinds) ? kinds : []) {
+    const row = typeof raw === 'string'
+      ? { kind: raw.trim() }
+      : { ...(raw && typeof raw === 'object' ? raw : {}), kind: rowKindName(raw) }
+    if (!row.kind) continue
+    rows.push(row)
+  }
+  const connectorResources = connectorResourcesFromKinds(rows, opts.connectorResources)
+  const byResource = new Map()
+  for (const row of rows) {
+    const resource = rowResource(row)
+    if (!isConnectedResource(resource, connectorResources)) continue
+    const list = byResource.get(resource) || []
+    list.push({ ...row, resource })
+    byResource.set(resource, list)
+  }
+  const collapsed = []
+  const aliases = {}
+  for (const [, list] of byResource) {
+    const canonical = pickCanonicalKindRow(list)
+    const inherited = list.flatMap((row) => oralAndGraphAliasTokens(row))
+    const aliasNames = [...new Set([
+      ...list.map((row) => rowKindName(row)).filter((name) => name !== canonical.kind),
+      ...inherited,
+    ])].filter((name) => name && name !== canonical.kind)
+    const relations = mergeRelationLists(list)
+    collapsed.push({
+      ...canonical,
+      label: canonical.label || canonical.kind,
+      aliases: aliasNames,
+      ...(relations.length ? { relations } : {}),
+    })
+    aliases[canonical.kind] = canonical.kind
+    for (const name of aliasNames) aliases[name] = canonical.kind
+  }
+  return { kinds: collapsed, aliases }
+}
+
+/**
+ * Kind may enter preview/catalog when it maps to a live connector table.
+ */
+export function kindPreviewableInCatalog(name, extra = {}) {
+  const trimmed = String(name || '').trim()
+  if (!trimmed) return false
+  const viaConnector = mapKind(trimmed, {
+    collections: extra.collections,
+    kinds: extra.kinds,
+    maps: extra.maps,
+  })
+  if (viaConnector && isCollectionStem(viaConnector.resource)) return true
+  if (!connectorCatalogPresent(extra)) {
+    const mapped = mapKind(trimmed, extra)
+    return !!(mapped && isCollectionStem(mapped.resource))
+  }
+  const mapped = mapKind(trimmed, extra)
+  if (!mapped || !isCollectionStem(mapped.resource)) return false
+  const cols = extra.collections
+  if (Array.isArray(cols) && cols.length) {
+    const stem = String(mapped.resource || '').trim()
+    if (cols.some((row) => String((row && (row.name || row.resource)) || '').trim() === stem)) return true
+    for (const row of listKindRows(extra)) {
+      if (rowKindName(row) !== trimmed) continue
+      if (catalogVersionOf(row)) return true
+    }
+    return false
+  }
+  return true
+}
+
 export function connectorCatalogPresent(extra = {}) {
-  return Boolean(
-    (Array.isArray(extra.collections) && extra.collections.length)
-    || (Array.isArray(extra.kinds) && extra.kinds.length)
-    || (Array.isArray(extra.maps) && extra.maps.length)
-  )
+  if (Array.isArray(extra.collections) && extra.collections.length) return true
+  for (const row of [...(Array.isArray(extra.kinds) ? extra.kinds : []), ...(Array.isArray(extra.maps) ? extra.maps : [])]) {
+    if (isCollectionStem(rowResource(row))) return true
+  }
+  return false
 }
 
 /**
@@ -149,7 +294,10 @@ export function registeredKinds(extra) {
       : String((row && (row.kind || row.label || row.title || row.name)) || '').trim()
     if (name && name !== '口语' && !(row && row.spoken) && !listed.includes(name)) listed.push(name)
   }
-  return listed.sort((a, b) => b.length - a.length)
+  const names = connectorCatalogPresent(extra)
+    ? listed.filter((name) => kindPreviewableInCatalog(name, extra))
+    : listed
+  return names.sort((a, b) => b.length - a.length)
 }
 
 function listKindRows(extra) {
@@ -161,10 +309,6 @@ function listKindRows(extra) {
     ...(Array.isArray(extra.maps) ? extra.maps : []),
     ...(Array.isArray(extra.collections) ? extra.collections : []),
   ]
-}
-
-function isCollectionStem(resource) {
-  return /^[A-Za-z][A-Za-z0-9._-]*$/.test(String(resource || '').trim())
 }
 
 function mapFromRows(name, rows) {

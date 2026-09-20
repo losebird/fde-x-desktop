@@ -314,6 +314,13 @@ test('empty write without preview_id and catalog dump must not cover a populated
     speech: 'batch this table',
     rows: [],
   }, 1, shown), true)
+  assert.equal(shouldRejectEmptyIncomingSheet({
+    kind: 'LongKind',
+    action: '过审',
+    speech: 'batch this table',
+    preview_id: 'preview-empty-write',
+    rows: [],
+  }, 1, shown), true)
   const connected = collapseKindsToConnectedTables([
     { kind: 'LongKind', resource: 'res_a', catalogVersion: 'schema:1', fields: ['a', 'b', 'c'] },
     { kind: 'ShortKind', resource: 'res_a', fields: ['no'] },

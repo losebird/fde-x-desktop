@@ -162,13 +162,11 @@ export function createGate(bag) {
     const prevRows = prev && Array.isArray(prev.rows) ? prev.rows.length : 0
     const nextRows = incoming && Array.isArray(incoming.rows) ? incoming.rows.length : 0
     if (prevRows <= 0 || nextRows > 0) return false
-    const nextId = String((incoming && (incoming.preview_id || incoming.previewId)) || '').trim()
-    if (nextId) return false
+    const nextAct = String((incoming && incoming.action) || '')
+    if (nextAct && nextAct !== '现查') return true
     const prevSpeech = String((prev && prev.speech) || '').trim()
     const nextSpeech = String((incoming && incoming.speech) || '').trim()
     if (prevSpeech && nextSpeech && prevSpeech === nextSpeech) return true
-    const nextAct = String((incoming && incoming.action) || '')
-    if (nextAct && nextAct !== '现查') return false
     const prevAct = String((prev && prev.action) || '')
     if (prevAct && prevAct !== '现查') return false
     if (prevSpeech && nextSpeech && prevSpeech !== nextSpeech) return false

@@ -1919,8 +1919,12 @@ export class RuntimeApi {
     return result.items
   }
 
-  async getBizPendingSheet(signal?: AbortSignal): Promise<{ sheet: Record<string, unknown> | null }> {
-    const result = await this.request<{ data: { sheet: Record<string, unknown> | null } }>('/api/v1/biz/pending-sheet', { signal })
+  async getBizPendingSheet(signal?: AbortSignal, sessionId?: string): Promise<{ sheet: Record<string, unknown> | null }> {
+    const sid = String(sessionId || '').trim()
+    const path = sid
+      ? `/api/v1/biz/pending-sheet?sessionId=${encodeURIComponent(sid)}`
+      : '/api/v1/biz/pending-sheet'
+    const result = await this.request<{ data: { sheet: Record<string, unknown> | null } }>(path, { signal })
     return result.data
   }
 

@@ -292,12 +292,26 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
  * @param {Record<string, unknown>} sheet
  * @param {{ sessionId?: string, source?: string, workspaceCwd?: string }} [meta]
  */
-let lastEmittedPending = null
+const lastEmittedPendingBySession = new Map()
 
-export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId } = {}) {
+function lastEmittedSessionKey(sessionId, sheet) {
+  const sid = String(sessionId || sheet?.sessionId || '').trim()
+  return sid || '__global__'
+}
+
+function peekLastEmittedPending(sessionId) {
+  const key = lastEmittedSessionKey(sessionId, null)
+  return lastEmittedPendingBySession.get(key) ?? null
+}
+
+export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId, hallSheet } = {}) {
   const normalized = sheetPayloadFromRaw(sheet)
   if (!normalized) return false
-  if (shouldSkipCoveringPending(lastEmittedPending, normalized)) return false
+  const emitKey = lastEmittedSessionKey(sessionId, normalized)
+  const lastEmitted = lastEmittedPendingBySession.get(emitKey) ?? null
+  if (shouldSkipCoveringPending(lastEmitted, normalized)) return false
+  const hall = hallSheet && typeof hallSheet === 'object' ? hallSheet : null
+  if (hall && shouldSkipCoveringPending(hall, normalized)) return false
   const previewId = sheetPreviewIdFromRecord(normalized)
   if (previewId && isBizPreviewDismissed(previewId)) return false
   const kind = String(normalized.kind || '')
@@ -329,11 +343,11 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
     sessionId,
     source,
   })
-  lastEmittedPending = payloadSheet
+  lastEmittedPendingBySession.set(emitKey, payloadSheet)
   return true
 }
 
-function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emitEvent = true } = {}) {
+function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emitEvent = true, hallSheet } = {}) {
   const sheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
   const kind = String(sheet?.kind || body.kind || '')
   const action = String(sheet?.action || body.action || '')
@@ -354,7 +368,7 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emi
     rowCount: rows.length,
     columnsJson: JSON.stringify(columns),
   })
-  if (emitEvent) emitBizSheetPending(sheet, { sessionId, source, workspaceCwd, surfaceId })
+  if (emitEvent) emitBizSheetPending(sheet, { sessionId, source, workspaceCwd, surfaceId, hallSheet })
 }
 
 function resolveBizWorkspace(url, aiRuntime) {
@@ -824,7 +838,8 @@ export async function handleBizRoutes(request, response, url, deps) {
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/pending-sheet') {
     try {
-      const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+      const querySessionId = String(url.searchParams.get('sessionId') || '').trim()
+      const state = await aiRuntime.lanAssist('/state', { search: { sessionId: querySessionId } })
       if (!state || state.ok === false) {
         sendJson(response, 200, { data: { sheet: null }, correlationId })
         return true
@@ -840,7 +855,8 @@ export async function handleBizRoutes(request, response, url, deps) {
           hall = next || null
         } catch { /* keep gate sheet */ }
       }
-      const served = sheetAfterCancelCover(hall, lastEmittedPending)
+      const lastEmitted = querySessionId ? peekLastEmittedPending(querySessionId) : null
+      const served = sheetAfterCancelCover(hall, lastEmitted)
       sendJson(response, 200, {
         data: { sheet: served ? stripSecrets(served) : null },
         correlationId,
@@ -890,9 +906,29 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendError(response, 400, 'validation_error', translated.error, correlationId)
       return true
     }
+    const previewSessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
+    let previewHall = null
+    try {
+      const gateState = await aiRuntime.lanAssist('/state', { search: { sessionId: previewSessionId } })
+      if (gateState && gateState.ok !== false) {
+        previewHall = sheetAfterDismissedWrite(
+          sheetPayloadFromRaw(gateState.pendingSheet ?? gateState.pendingWrite),
+        )
+      }
+    } catch { /* emit still guarded by lastEmitted */ }
     const preview = await aiRuntime.lanAssist('/preview', { method: 'POST', body: translated.payload })
     const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
-    recordSurfaceFromPreview(db, bizCwd, body, preview, 'ui')
+    const previewSheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
+    const normalizedPreview = sheetPayloadFromRaw(previewSheet)
+    const skipEmit = Boolean(
+      normalizedPreview
+      && previewHall
+      && shouldSkipCoveringPending(previewHall, normalizedPreview),
+    )
+    recordSurfaceFromPreview(db, bizCwd, body, preview, 'ui', {
+      emitEvent: !skipEmit,
+      hallSheet: previewHall,
+    })
     sendJson(response, 200, { data: preview, correlationId })
     return true
   }

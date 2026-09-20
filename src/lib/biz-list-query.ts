@@ -226,7 +226,7 @@ export function shouldRejectEmptyIncomingSheet(
   const action = String(incoming.action || '').trim()
   const previewId = String(incoming.preview_id ?? incoming.previewId ?? '').trim()
   if (action && action !== '现查' && !previewId) return true
-  if (action !== '现查') return false
+  if (action !== '现查') return true
   if (displayed && !operationBundlesAlign(displayed, incoming)) return false
   return true
 }

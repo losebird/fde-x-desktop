@@ -4,6 +4,8 @@
  * @module dsh-lan-assist/catalog
  */
 
+import { collapseKindsToConnectedTables, kindPreviewableInCatalog } from './lookup.js'
+
 const POISON = /先调\s*MCP|调(?:用)?\s*MCP\s*过账|先过账|立刻过账|直接过账|先去过账|请.{0,12}先去过账|执行工具|call\s+mcp|biz[._]?write|忽略本机审批|不要查图|先写库|Host\s*直接写/i
 
 /**
@@ -31,11 +33,12 @@ export function listExecutableRelations(vocab) {
   return out
 }
 
-export function speakKindCatalog(vocab) {
-  const aliases = listKindAliases(vocab)
+export function speakKindCatalog(vocab, extra = {}) {
+  const packed = catalogRowsForDescribe(vocab, extra)
+  const aliases = listKindAliases(packed)
   const rels = listExecutableRelations(vocab)
   const lines = []
-  const versions = [...new Set((Array.isArray(vocab) ? vocab : []).map((row) => String((row && row.catalogVersion) || '').trim()).filter(Boolean))]
+  const versions = [...new Set(packed.map((row) => String((row && row.catalogVersion) || '').trim()).filter(Boolean))]
   if (versions.length) lines.push(`目录版本：${versions.join('、')}`)
   if (aliases.length) {
     lines.push(`企业别名：${aliases.map((row) => `${row.kind}=${(row.aliases || []).join('/')}`).join('；')}`)
@@ -76,8 +79,8 @@ export function packKindConcept(row) {
   return { ok: true, concept }
 }
 
-export function describeKindCatalog(vocab) {
-  const rows = Array.isArray(vocab) ? vocab : []
+export function describeKindCatalog(vocab, extra = {}) {
+  const rows = catalogRowsForDescribe(vocab, extra)
   const kinds = []
   for (const row of rows) {
     const kind = String((row && (row.kind || row.label)) || '').trim()
@@ -99,6 +102,20 @@ export function describeKindCatalog(vocab) {
     kinds,
     relations: listExecutableRelations(rows),
   }
+}
+
+function catalogRowsForDescribe(vocab, extra = {}) {
+  const raw = Array.isArray(vocab) ? vocab : []
+  const stems = new Set(
+    (Array.isArray(extra.collections) ? extra.collections : [])
+      .map((row) => String((row && (row.name || row.resource)) || '').trim())
+      .filter(Boolean),
+  )
+  const { kinds: collapsed } = collapseKindsToConnectedTables(raw, {
+    connectorResources: stems.size ? stems : undefined,
+  })
+  const bag = { vocab: collapsed, ...extra }
+  return collapsed.filter((row) => kindPreviewableInCatalog(String((row && (row.kind || row.label)) || '').trim(), bag))
 }
 
 export function listKindAliases(vocab) {

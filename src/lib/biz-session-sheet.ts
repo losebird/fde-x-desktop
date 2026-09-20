@@ -2,8 +2,10 @@ import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { rememberBizKindListSheet } from '@/lib/biz-kind-list-cache'
 import { shouldSkipCoveringPending } from './connected-kind.ts'
 
-/** In-memory pending preview sheet for the current browser session (not persisted). */
-let lastPending: { sheet: Record<string, unknown>; at: number } | null = null
+const GLOBAL_PENDING_KEY = ''
+
+/** In-memory pending preview sheets keyed by AI session (not persisted). */
+const pendingBySession = new Map<string, { sheet: Record<string, unknown>; at: number }>()
 
 const dismissedPreviewIds = new Set<string>()
 const DISMISSED_STORAGE_KEY = 'fde.biz.dismissedPreviewIds'
@@ -34,6 +36,16 @@ function persistDismissedToStorage() {
 }
 
 loadDismissedFromStorage()
+
+function pendingStorageKey(sessionId?: string | null): string {
+  const sid = sessionId === undefined ? '' : String(sessionId || '').trim()
+  return sid || GLOBAL_PENDING_KEY
+}
+
+function sheetSessionKey(sheet: Record<string, unknown>): string {
+  const sid = String(sheet.sessionId || '').trim()
+  return sid || GLOBAL_PENDING_KEY
+}
 
 export function sheetPreviewIdFromRecord(sheet: Record<string, unknown>) {
   const id = sheet.preview_id ?? sheet.previewId
@@ -69,23 +81,31 @@ export function rememberBizPendingSheet(sheet: Record<string, unknown>) {
     const ws = loadCurrentWorkspaceCwd()
     if (ws.ok) rememberBizKindListSheet(ws.cwd, sheet)
   }
-  const prevRows = Array.isArray(lastPending?.sheet?.rows) ? lastPending.sheet.rows : []
-  if (shouldSkipCoveringPending(lastPending?.sheet, sheet)) return
+  const key = sheetSessionKey(sheet)
+  const prev = pendingBySession.get(key)?.sheet ?? null
+  const prevRows = Array.isArray(prev?.rows) ? prev.rows : []
+  if (shouldSkipCoveringPending(prev, sheet)) return
   if (
     String(sheet.action || '') === '现查'
     && Array.isArray(sheet.rows)
     && sheet.rows.length === 0
     && prevRows.length > 0
   ) return
-  lastPending = { sheet, at: Date.now() }
+  pendingBySession.set(key, { sheet, at: Date.now() })
 }
 
-export function peekBizPendingSheet(): Record<string, unknown> | null {
-  const sheet = lastPending?.sheet ?? null
+export function peekBizPendingSheet(sessionId?: string | null): Record<string, unknown> | null {
+  const key = pendingStorageKey(sessionId)
+  const entry = pendingBySession.get(key)
+  const sheet = entry?.sheet ?? null
   if (sheet && isBizPreviewDismissed(sheet)) return null
   return sheet
 }
 
-export function clearBizPendingSheet() {
-  lastPending = null
+export function clearBizPendingSheet(sessionId?: string | null) {
+  if (sessionId === undefined) {
+    pendingBySession.clear()
+    return
+  }
+  pendingBySession.delete(pendingStorageKey(sessionId))
 }

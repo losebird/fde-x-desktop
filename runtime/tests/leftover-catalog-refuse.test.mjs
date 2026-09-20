@@ -12,6 +12,13 @@ const staged = mkdtempSync(join(tmpdir(), 'lan-assist-leftover-'))
 cpSync(vendorDir, staged, { recursive: true })
 cpSync(overlayDir, staged, { recursive: true })
 const { createGate } = await import(pathToFileURL(join(staged, 'write.js')).href)
+const {
+  collapseKindsToConnectedTables,
+  connectorCatalogPresent,
+  registeredKinds,
+  kindPreviewableInCatalog,
+} = await import(pathToFileURL(join(staged, 'lookup.js')).href)
+const { describeKindCatalog } = await import(pathToFileURL(join(staged, 'catalog.js')).href)
 
 const leftoverVocab = [
   {
@@ -245,4 +252,60 @@ test('non-stem graph kind is not a preview target; spoken alias binds the connec
   assert.notEqual(out.error, 'NO_CONNECTOR')
   const sheet = out.sheet && typeof out.sheet === 'object' ? out.sheet : out
   assert.equal(sheet.kind, 'AlphaWidget')
+})
+
+test('collapseKindsToConnectedTables drops graph-only rows and folds aliases', () => {
+  const raw = [
+    {
+      kind: 'AlphaWidget',
+      resource: 'alpha_widget',
+      catalogVersion: 'schema:1',
+      can: ['现查'],
+      aliases: ['GraphSay'],
+      clues: [{ role: '型', say: ['OralSay'] }],
+    },
+    { kind: 'GraphSay', resource: 'graph:orphan', can: ['现查'] },
+    { kind: 'GraphOnly', can: ['现查', '过审'] },
+  ]
+  const { kinds, aliases } = collapseKindsToConnectedTables(raw)
+  assert.equal(kinds.length, 1)
+  assert.equal(kinds[0].kind, 'AlphaWidget')
+  assert.ok(kinds[0].aliases.includes('GraphSay'))
+  assert.ok(kinds[0].aliases.includes('OralSay'))
+  assert.equal(aliases.GraphSay, 'AlphaWidget')
+  assert.equal(aliases.OralSay, 'AlphaWidget')
+})
+
+test('connectorCatalogPresent ignores graph vocab without collection stems', () => {
+  assert.equal(
+    connectorCatalogPresent({ vocab: [{ kind: 'GraphOnly', can: ['现查'] }], kinds: [{ kind: 'GraphOnly' }] }),
+    false,
+  )
+  assert.equal(
+    connectorCatalogPresent({ collections: [{ name: 'alpha_widget', title: 'AlphaWidget' }] }),
+    true,
+  )
+})
+
+test('registeredKinds omits non-previewable leftover when live collections exist', () => {
+  const bag = {
+    vocab: leftoverVocab,
+    collections,
+  }
+  const names = registeredKinds(bag)
+  assert.ok(names.includes('AlphaWidget'))
+  assert.ok(!names.includes('Widget'))
+  assert.ok(kindPreviewableInCatalog('Widget', bag) === false)
+})
+
+test('describeKindCatalog lists only connector-backed kinds', () => {
+  const out = describeKindCatalog(
+    [
+      { kind: 'AlphaWidget', resource: 'alpha_widget', catalogVersion: 'schema:1', can: ['现查'] },
+      { kind: 'GraphOnly', can: ['现查'] },
+    ],
+    { collections },
+  )
+  assert.equal(out.kinds.length, 1)
+  assert.equal(out.kinds[0].kind, 'AlphaWidget')
 })

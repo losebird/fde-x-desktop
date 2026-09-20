@@ -1,8 +1,14 @@
 import { formatSheetCellValue, type PreviewChange } from '@/lib/biz-sheet-display'
 
-export function PreviewChangesList({ changes }: { changes: PreviewChange[] }) {
+export function PreviewChangesList({
+  changes,
+  emptyMessage = '没有可展示的变更内容。',
+}: {
+  changes: PreviewChange[]
+  emptyMessage?: string
+}) {
   if (!changes.length) {
-    return <div className="text-sm text-ink-muted">没有可展示的变更内容。</div>
+    return <div className="text-sm text-ink-muted">{emptyMessage}</div>
   }
   return (
     <div className="border border-line divide-y divide-line">

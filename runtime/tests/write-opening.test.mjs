@@ -157,6 +157,32 @@ test('same-session write previews follow the latest action instead of the first 
   assert.equal(new Set(seen.map((row) => row.openingId)).size, WRITE_CAN.length)
 })
 
+test('packSheet 过审 already at target: empty changes, canWrite false, explicit speak', () => {
+  const fieldKey = 'phase'
+  const fieldLabel = '阶段'
+  const sheet = packSheet({
+    kind: 'KindA',
+    action: '过审',
+    to: 'closed',
+    patch: { [fieldKey]: 'closed' },
+    mapped: { fields: [fieldKey] },
+    schemaFields: [{
+      name: fieldKey,
+      title: fieldLabel,
+      enums: { closed: '已关闭' },
+    }],
+    matches: [{ no: 'R-1', status: 'closed', fields: { [fieldKey]: 'closed' } }],
+    preview_id: 'pv_already',
+    speak: '将改 KindA R-1，从closed → closed。这是预览，不是过账。',
+  })
+  assert.equal(sheet.changes.length, 0)
+  assert.equal(sheet.canWrite, false)
+  assert.equal(sheet.alreadyAtTarget, true)
+  assert.match(sheet.speak, /已是已关闭/)
+  assert.match(sheet.speak, /这是预览，不是过账/)
+  assert.doesNotMatch(sheet.speak, /→/)
+})
+
 test('packSheet 过审 diffs use schema field, not hop from object', () => {
   const fieldKey = 'phase'
   const fieldLabel = '阶段'
@@ -458,4 +484,165 @@ test('empty 过审 without token does not cover the matching-set list of the sam
   assert.equal(kept.pendingSheet.action, '现查')
   assert.equal(kept.pendingSheet.rows.length, 2)
   assert.equal(String(kept.pendingSheet.preview_id || kept.pendingSheet.previewId || ''), '')
+})
+
+test('empty 过审 with preview_id does not cover the matching-set list of the same speech', async () => {
+  const store = memStore()
+  const now = () => 1_700_000_000_000
+  const snapshot = async (sid) => {
+    const state = await store.get()
+    return {
+      pendingWrite: livePendingWrite(state, null, now()),
+      pendingSheet: livePendingSheet(state, null, now(), sid || sessionId),
+    }
+  }
+  const gate = createGate({
+    store,
+    now,
+    snapshot,
+    note() {},
+    opts: {
+      gate: {
+        async preview(spec) {
+          const kind = String(spec.kind || '')
+          const action = String(spec.action || '现查')
+          if (action === '过审') {
+            const sheet = {
+              kind,
+              action: '过审',
+              rows: [],
+              speech: spec.speech,
+              sessionId: spec.sessionId,
+              workspace: spec.workspace,
+              preview_id: 'pv_empty_write',
+            }
+            return {
+              ok: true,
+              action: '过审',
+              kind,
+              preview_id: 'pv_empty_write',
+              sheet,
+              sessionId: spec.sessionId,
+              workspace: spec.workspace,
+            }
+          }
+          const rows = Array.isArray(spec.rows) ? spec.rows : [{ no: 'HIT-1' }]
+          const sheet = {
+            kind,
+            action: '现查',
+            rows,
+            speech: spec.speech,
+            sessionId: spec.sessionId,
+            workspace: spec.workspace,
+          }
+          return { ok: true, action: '现查', kind, sheet, sessionId: spec.sessionId, workspace: spec.workspace }
+        },
+        async write() { return { ok: true } },
+      },
+    },
+    catalogOf() { return [] },
+    async reopenReplyDraft() { return false },
+    async hearBusinessEvent() {},
+    async rememberFocus() {},
+  })
+  const speech = 'batch this table token'
+  await gate.previewBiz({
+    kind: 'LongKind',
+    action: '现查',
+    rows: [{ no: 'HIT-1' }, { no: 'HIT-2' }],
+    sessionId,
+    workspace,
+    speech,
+  })
+  await gate.previewBiz({
+    kind: 'ShortKind',
+    action: '过审',
+    sessionId,
+    workspace,
+    speech,
+  })
+  const kept = await snapshot(sessionId)
+  assert.equal(kept.pendingSheet.kind, 'LongKind')
+  assert.equal(kept.pendingSheet.action, '现查')
+  assert.equal(kept.pendingSheet.rows.length, 2)
+})
+
+test('过审 with one row already at target replaces list as write preview', async () => {
+  const store = memStore()
+  const now = () => 1_700_000_000_100
+  const snapshot = async (sid) => {
+    const state = await store.get()
+    return {
+      pendingWrite: livePendingWrite(state, null, now()),
+      pendingSheet: livePendingSheet(state, null, now(), sid || sessionId),
+    }
+  }
+  const gate = createGate({
+    store,
+    now,
+    snapshot,
+    note() {},
+    opts: {
+      gate: {
+        async preview(spec) {
+          const kind = String(spec.kind || 'RowKind')
+          const action = String(spec.action || '现查')
+          if (action === '过审') {
+            const packed = packSheet({
+              kind,
+              action: '过审',
+              no: 'ROW-1',
+              to: 'done',
+              patch: { status: 'done' },
+              mapped: { fields: ['status'] },
+              schemaFields: [{ name: 'status', title: '状态', enums: { done: '已完成' } }],
+              matches: [{ no: 'ROW-1', status: 'done', fields: { status: 'done' } }],
+              preview_id: 'pv_at_target',
+              speech: spec.speech,
+            })
+            return {
+              ok: true,
+              action: '过审',
+              kind,
+              preview_id: 'pv_at_target',
+              sheet: packed,
+              speak: packed.speak,
+              sessionId: spec.sessionId,
+              workspace: spec.workspace,
+            }
+          }
+          return { ok: true, action: '现查', kind, sheet: { kind, action: '现查', rows: [{ no: 'ROW-1' }], speech: spec.speech } }
+        },
+        async write() { return { ok: true } },
+      },
+    },
+    catalogOf() { return [] },
+    async reopenReplyDraft() { return false },
+    async hearBusinessEvent() {},
+    async rememberFocus() {},
+  })
+  await gate.previewBiz({
+    kind: 'RowKind',
+    action: '现查',
+    rows: [{ no: 'ROW-1' }, { no: 'ROW-2' }],
+    sessionId,
+    workspace,
+    speech: 'approve row one',
+  })
+  await gate.previewBiz({
+    kind: 'RowKind',
+    action: '过审',
+    no: 'ROW-1',
+    sessionId,
+    workspace,
+    speech: 'approve row one',
+  })
+  const after = await snapshot(sessionId)
+  assert.equal(after.pendingSheet.action, '过审')
+  assert.equal(after.pendingSheet.rows.length, 1)
+  assert.equal(after.pendingSheet.rows[0].no, 'ROW-1')
+  assert.equal(after.pendingSheet.changes.length, 0)
+  assert.equal(after.pendingSheet.canWrite, false)
+  assert.equal(after.pendingSheet.alreadyAtTarget, true)
+  assert.match(after.pendingSheet.speak, /已是已完成/)
 })

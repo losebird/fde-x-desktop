@@ -215,6 +215,23 @@ export type PreviewSummary = {
   kind: string
   changes: PreviewChange[]
   rows?: SheetRow[]
+  alreadyAtTarget?: boolean
+  emptyHint?: string
+}
+
+function statusLikeColumn(columns: SheetColumn[]): SheetColumn | undefined {
+  return columns.find((column) => {
+    const key = String(column.key || '')
+    const label = String(column.label || '')
+    return /^(status|state|stage)$/i.test(key) || /状态/.test(label)
+  })
+}
+
+function currentStatusDisplay(primary: SheetRow | undefined, columns: SheetColumn[]): string {
+  const col = statusLikeColumn(columns)
+  const raw = (col ? rowFieldValue(primary, col.key) : undefined) ?? primary?.status
+  const text = formatSheetCellDisplayValue(raw, col)
+  return text && text !== '—' ? text : '当前状态'
 }
 
 function rowFieldValue(row: SheetRow | undefined, key: string) {
@@ -313,6 +330,20 @@ export function buildPreviewSummary(
     const changes = payloadChanges.length
       ? payloadChanges
       : (original ? buildPreviewFieldChanges(columns, primary, original, 'update') : [])
+    const alreadyAtTarget = sheet.alreadyAtTarget === true || (rows.length > 0 && changes.length === 0)
+    if (alreadyAtTarget) {
+      const currentLabel = currentStatusDisplay(primary, columns)
+      return {
+        action,
+        kind,
+        title: '过审确认',
+        subtitle: `该记录已是${currentLabel}，无需再过审。`,
+        changes: [],
+        rows,
+        alreadyAtTarget: true,
+        emptyHint: `记录当前为${currentLabel}，没有待提交的变更。`,
+      }
+    }
     return {
       action,
       kind,

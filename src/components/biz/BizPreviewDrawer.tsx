@@ -50,7 +50,10 @@ export function BizPreviewDrawer({
           {summary.kind ? <> · 业务型：<span className="text-ink">{summary.kind}</span></> : null}
         </div>
 
-        <PreviewChangesList changes={summary.changes} />
+        <PreviewChangesList
+          changes={summary.changes}
+          emptyMessage={summary.emptyHint || (summary.alreadyAtTarget ? summary.subtitle : undefined)}
+        />
       </div>
 
       <div className="p-4 border-t border-line space-y-2">
