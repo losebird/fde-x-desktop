@@ -219,6 +219,16 @@ export function createGate(bag) {
       ),
     )
     if (newUtterance) return false
+    const settledEmptyList = Boolean(
+      incoming
+      && nextAct === '现查'
+      && nextRows === 0
+      && incoming.querySettled === true
+      && nextSpeech
+      && nextSpeech !== prevSpeech
+      && !isConnectorCatalogDump(incoming)
+    )
+    if (settledEmptyList) return false
     if (prevRows > 0 && nextRows === 0) return true
     if (prev && prev.picked === true && prevPid && incoming && incoming.picked !== true) {
       if (!nextSpeech || (prevSpeech && prevSpeech === nextSpeech)) return true

@@ -342,7 +342,6 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const activeListQueryFpRef = useRef('')
   const displayedRowCountRef = useRef(0)
   const historyPinnedSurfaceIdRef = useRef('')
-  const historySelectFocused = useRef(false)
   const historySessionIdRef = useRef('')
   const liveSessionIdRef = useRef('')
   const cancelledWritePreviewRef = useRef('')
@@ -1683,10 +1682,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
                 const row = sessionSurfaces.find((s) => s.id === historySurfaceId)
                 return row ? surfaceHistoryLabel(row) : '本会话浮现历史'
               })()}
-              onFocus={() => { historySelectFocused.current = true }}
-              onBlur={() => { historySelectFocused.current = false }}
               onChange={(e) => {
-                if (!historySelectFocused.current) return
                 const id = e.target.value
                 setHistorySurfaceId(id)
                 if (!id) {
