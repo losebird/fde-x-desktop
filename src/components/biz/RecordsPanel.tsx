@@ -38,6 +38,7 @@ import {
 import {
   extractBoundKindHints,
   historyOptionLabel,
+  kindChipConditionLabels,
   kindChipShowsRowCount,
   listQueryFingerprint,
   listSnapshotCacheKey,
@@ -376,17 +377,23 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         ? pendingSheet
         : (operationAnchor || pendingSheet)
     )
-    const byKind = new Map<string, { kind: string; label: string; count: number; showCount: boolean }>()
+    const byKind = new Map<string, { kind: string; label: string; count: number; showCount: boolean; conditions: string[] }>()
     const resultKind = resolveConnectedKind(String(anchor?.kind || kind || '').trim(), kindCatalog)
       || String(anchor?.kind || kind || '').trim()
     const add = (k: string, count: number) => {
       if (!k) return
       const canonical = resolveConnectedKind(k, kindCatalog) || k
+      const conditions = [...new Set([
+        ...kindChipConditionLabels(anchor, canonical),
+        ...kindChipConditionLabels(operationAnchor, canonical),
+        ...kindChipConditionLabels(pendingSheet, canonical),
+      ])]
       byKind.set(canonical, {
         kind: canonical,
         label: kindLabel(canonical),
         count,
         showCount: kindChipShowsRowCount(canonical, resultKind),
+        conditions,
       })
     }
 
@@ -419,7 +426,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         : (bound === kind ? rows.length : 0)
       add(bound, count)
     }
-    return allowedKinds.map((k) => byKind.get(k)).filter(Boolean) as Array<{ kind: string; label: string; count: number; showCount: boolean }>
+    return allowedKinds.map((k) => byKind.get(k)).filter(Boolean) as Array<{ kind: string; label: string; count: number; showCount: boolean; conditions: string[] }>
   }, [kind, kindCatalog, kindLabel, operationAnchor, peekActivePending, rows.length])
 
   const sessionKey = String(pending?.sessionId || activeAiSessionId || historySessionIdRef.current || '').trim()
@@ -1633,6 +1640,9 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
                 onClick={() => selectKind(k.kind)}
               >
                 {k.label}
+                {k.conditions.map((text) => (
+                  <span key={text} className="text-[10px] opacity-80 ml-1">{text}</span>
+                ))}
                 {k.showCount && k.count > 0 && (
                   <span className="text-[10px] opacity-70 ml-1 tabular-nums">{k.count}</span>
                 )}

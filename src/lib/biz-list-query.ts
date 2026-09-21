@@ -71,6 +71,46 @@ export function extractBoundKindHints(sheet: Record<string, unknown> | null | un
   return [...kinds]
 }
 
+function whereValues(node: Record<string, unknown>): string[] {
+  const terms = [
+    ...(Array.isArray(node.where) ? node.where : []),
+    ...(Array.isArray(node.hopWhere) ? node.hopWhere : []),
+  ]
+  const values: string[] = []
+  for (const term of terms) {
+    if (!term || typeof term !== 'object' || Array.isArray(term)) continue
+    const list = (term as Record<string, unknown>).values
+    if (!Array.isArray(list)) continue
+    for (const item of list) {
+      const text = String(item ?? '').trim()
+      if (text) values.push(text)
+    }
+  }
+  return values
+}
+
+/** Condition values already bound onto this kind. Not a row count. */
+export function kindChipConditionLabels(
+  sheet: Record<string, unknown> | null | undefined,
+  chipKind: string,
+): string[] {
+  const wanted = String(chipKind || '').trim()
+  if (!sheet || typeof sheet !== 'object' || !wanted) return []
+  const found: string[] = []
+  const take = (node: unknown) => {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return
+    const row = node as Record<string, unknown>
+    if (String(row.kind || '').trim() !== wanted) return
+    found.push(...whereValues(row))
+  }
+  take(sheet)
+  take(sheet.from)
+  if (Array.isArray(sheet.steps)) {
+    for (const step of sheet.steps) take(step)
+  }
+  return [...new Set(found)]
+}
+
 /**
  * Packed rows on a source kind are not an upstream headcount.
  * Only the result kind shows a numeric badge.

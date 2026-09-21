@@ -199,11 +199,20 @@ test('matchSurfaceIdForSheet no longer impersonates kind+action[0]', () => {
 })
 
 test('source-kind packed rows are not shown as a headcount badge', async () => {
-  const { kindChipShowsRowCount } = await import('../../src/lib/biz-list-query.ts')
+  const { kindChipShowsRowCount, kindChipConditionLabels } = await import('../../src/lib/biz-list-query.ts')
   assert.equal(kindChipShowsRowCount('ParentA', 'ChildB'), false)
   assert.equal(kindChipShowsRowCount('ChildB', 'ChildB'), true)
   assert.equal(kindChipShowsRowCount('', 'ChildB'), false)
   assert.equal(kindChipShowsRowCount('ChildB', ''), false)
+  const sheet = {
+    kind: 'ChildB',
+    where: [{ values: ['open'] }],
+    from: { kind: 'ParentA', where: [{ values: ['open'] }] },
+    rows: [{ no: 'C-1' }],
+  }
+  assert.deepEqual(kindChipConditionLabels(sheet, 'ParentA'), ['open'])
+  assert.deepEqual(kindChipConditionLabels(sheet, 'ChildB'), ['open'])
+  assert.deepEqual(kindChipConditionLabels(sheet, 'OtherC'), [])
 })
 
 test('this-operation kinds come from from/steps; catalog of the same kind does not align', async () => {
