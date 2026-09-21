@@ -63,6 +63,7 @@ test('RecordsPanel keeps history pin, closes write preview, and skips empty draw
   assert.match(src, /sheetRowRenderKey\(row, absoluteIndex, sheetIdentity\)/)
   assert.match(src, /<tbody key=\{sheetIdentity/)
   assert.match(src, /selectSessionHistorySurfaces/)
+  assert.match(src, /source === 'lan-assist'/)
   assert.match(src, /setDrawer\(null\)/)
   assert.match(src, /shouldOpenWritePreviewDrawer/)
   assert.match(src, /sheetHasConfirmablePreviewChanges/)
@@ -349,4 +350,13 @@ test('RecordsPanel apply/SSE refuse another session pending', () => {
   assert.match(source, /abortLeftoverAskTurn/)
   assert.match(source, /shouldCancelDshAfterWritePreview/)
   assert.match(source, /historySessionIdRef\.current = sid/)
+})
+
+test('AI official handoff does not paint from the shared pending slot', () => {
+  const watch = readFileSync(join(repoRoot, 'runtime/lan-assist-state-watch.mjs'), 'utf8')
+  assert.match(watch, /officialRoundSheet/)
+  assert.match(watch, /round-end/)
+  assert.doesNotMatch(watch, /pendingSheet \?\? state\?\.pendingWrite/)
+  const autoOpen = readFileSync(join(repoRoot, 'src/lib/biz-records-auto-open.ts'), 'utf8')
+  assert.match(autoOpen, /source === 'lan-assist'/)
 })

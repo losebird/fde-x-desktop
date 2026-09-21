@@ -27,6 +27,7 @@ import { createEyesSee, hasEyes } from './eyes-bridge.js'
 import { createGate, createNocoWrite } from './write.js'
 import { rememberUserSpeech } from './slots.js'
 import { createTraceLog } from './traces.js'
+import { createSessionRoundStore } from './session-round.js'
 
 const schemaMod = await importPeer('@deepseek-ai/schemastery')
 const { defineTool } = await importPeer('@deepseek-ai/dsh-tools')
@@ -60,9 +61,35 @@ export async function apply(ctx, config) {
   const host = String((config && config.lanHost) || '0.0.0.0')
   const store = createStore()
   const sse = createSseHub()
+  const sessionRounds = createSessionRoundStore()
   let lan = null
   /** @type {any} */
   let agentsCtx = null
+
+  const lastCancelAt = new Map()
+  async function cancelLeftover(sessionId) {
+    const sid = String(sessionId || '').trim()
+    if (!sid) return
+    const now = Date.now()
+    const prev = Number(lastCancelAt.get(sid) || 0)
+    if (now - prev < 1500) return
+    lastCancelAt.set(sid, now)
+    const agents = agentsCtx && (agentsCtx.agents || (typeof agentsCtx.get === 'function' ? agentsCtx.get('agents') : null))
+    let agent = agents && typeof agents.get === 'function' ? agents.get(sid) : null
+    if (!agent && agents && typeof agents.resume === 'function') {
+      try {
+        const handle = await agents.resume({ resumeSessionId: sid })
+        agent = handle && (handle.agent || handle)
+      } catch { /* optional */ }
+    }
+    if (agent && typeof agent.cancel === 'function') {
+      try { await agent.cancel() } catch { /* leftover cancel is best-effort */ }
+      return
+    }
+    if (agent && typeof agent.abort === 'function') {
+      try { await agent.abort() } catch { /* leftover cancel is best-effort */ }
+    }
+  }
 
   const semantic = createSemanticBridge({
     resolvePage: () => {
@@ -174,6 +201,15 @@ export async function apply(ctx, config) {
     } catch { /* user-level autostart is best effort */ }
     return result
   }
+  const attachOfficial = (view, sessionId) => {
+    if (!view || typeof view !== 'object') return view
+    const sid = String(sessionId || (view.pendingSheet && view.pendingSheet.sessionId) || '').trim()
+    return { ...view, officialRoundSheet: sessionRounds.servedSheet(sid) }
+  }
+  const origHall = secretary.hall.bind(secretary)
+  const origSnapshot = secretary.snapshot.bind(secretary)
+  secretary.hall = async (sid) => attachOfficial(await origHall(sid), sid)
+  secretary.snapshot = async (sid) => attachOfficial(await origSnapshot(sid), sid)
 
   async function onLanFrame(frame, meta) {
     const type = frame && frame.type
@@ -262,7 +298,11 @@ export async function apply(ctx, config) {
           }
           return
         }
+        if (event && event.type === 'turn/start') {
+          sessionRounds.startRound(sessionId)
+        }
         if (event && event.type === 'turn/end') {
+          sessionRounds.closeRound(sessionId)
           void secretary.finalizeDraftFromSession(sessionId).then((result) => {
             if (result && result.ok) sse.emit('mailbox', { type: 'draft' })
           }).catch(() => undefined)
@@ -270,6 +310,7 @@ export async function apply(ctx, config) {
         }
         const speech = extractUserSpeech(event)
         if (!speech) return
+        sessionRounds.startRound(sessionId)
         rememberUserSpeech(sessionId, speech)
         const workspace = session && session.header && typeof session.header.cwd === 'string'
           ? session.header.cwd.trim()
@@ -350,7 +391,10 @@ export async function apply(ctx, config) {
   })
 
   try {
-    registerTools(ctx, { defineTool }, secretary)
+    registerTools(ctx, { defineTool }, secretary, {
+      noteToolSheet: (sessionId, sheet) => sessionRounds.noteToolSheet(sessionId, sheet),
+      cancelLeftover,
+    })
   } catch (error) {
     ctx.logger?.warn?.(`[${PLUGIN}] tools: ${error instanceof Error ? error.message : error}`)
   }

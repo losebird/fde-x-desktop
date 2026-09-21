@@ -57,7 +57,7 @@ export function toolWorkspace(exec) {
   return header ? String(header.cwd || '').trim() : ''
 }
 
-export function registerTools(ctx, { defineTool }, secretary) {
+export function registerTools(ctx, { defineTool }, secretary, rounds) {
   ctx.tools.register(defineTool({
     name: 'ask_colleague',
     description: 'Open chat and draft a letter to a paired colleague. Names the recipient. The human must click send. Does not auto-send. Does not wake the model on the far side.',
@@ -222,6 +222,13 @@ export function registerTools(ctx, { defineTool }, secretary) {
         speech: (args && (args.speech || args.quote)) || lastUserSpeech(exec) || '',
         userSpeech: lastUserSpeech(exec) || '',
       })
+      if (rounds && typeof rounds.noteToolSheet === 'function') {
+        const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
+        const outcome = rounds.noteToolSheet(sessionId, sheet)
+        if (outcome && outcome.cancel && typeof rounds.cancelLeftover === 'function') {
+          void Promise.resolve(rounds.cancelLeftover(sessionId)).catch(() => undefined)
+        }
+      }
       return JSON.stringify(result)
     },
     presentCall(args) {

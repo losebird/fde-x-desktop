@@ -30,11 +30,12 @@ describe('biz surfaces and live execute', () => {
     assert.doesNotMatch(source, /\/catalog',\s*\{\s*search:\s*\{\s*sessionId/)
   })
 
-  test('biz pending-sheet reads lan-assist state pendingSheet only', () => {
+  test('biz pending-sheet serves official or last handed, not hall process', () => {
     const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
     assert.match(source, /\/api\/v1\/biz\/pending-sheet/)
-    assert.match(source, /state\.pendingSheet/)
-    assert.match(source, /sheetForPendingGet/)
+    assert.match(source, /officialRoundSheet/)
+    assert.match(source, /sheetForOfficialGet/)
+    assert.doesNotMatch(source, /sheetForPendingGet\(/)
   })
 
   test('biz write and dismiss map lan-assist errors without IM copy', () => {

@@ -10,6 +10,7 @@ import {
   sheetAfterCancelCover,
   sheetForNamedSession,
   sheetForPendingGet,
+  sheetForOfficialGet,
   shouldSkipCoveringPending,
   speechWantsMatchSet,
 } from '../biz/connected-kind.mjs'
@@ -347,4 +348,24 @@ test('new spoken utterance replaces a picked write; leftover 现查 and empty co
   assert.equal(keptWrite?.rows?.[0]?.no, 'ROW-9')
   const keptEmpty = sheetForPendingGet(emptyCover, stampedWrite, 'sess-a')
   assert.equal(keptEmpty?.action, '改行')
+})
+
+test('official GET prefers last handed and never takes hall process', () => {
+  const official = {
+    kind: 'KindLeaf',
+    action: '现查',
+    sessionId: 'sess-a',
+    from: { kind: 'KindParent' },
+    rows: [{ no: 'HIT-1' }],
+  }
+  const last = {
+    kind: 'KindW',
+    action: '改行',
+    sessionId: 'sess-a',
+    preview_id: 'pv-human',
+    rows: [{ no: 'ROW-1' }],
+  }
+  assert.equal(sheetForOfficialGet(official, last, 'sess-a')?.action, '改行')
+  assert.equal(sheetForOfficialGet(official, null, 'sess-a')?.kind, 'KindLeaf')
+  assert.equal(sheetForOfficialGet(official, last, 'sess-b'), null)
 })

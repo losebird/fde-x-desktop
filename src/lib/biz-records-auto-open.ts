@@ -6,8 +6,10 @@ import { useApp } from '@/store/app'
 
 let registered = false
 
-export function onBizSheetPending(event: { payload: unknown }) {
-  const payload = event.payload as { sheet?: Record<string, unknown> }
+export function onBizSheetPending(event: { payload: unknown; source?: string }) {
+  const payload = event.payload as { sheet?: Record<string, unknown>; source?: string }
+  const source = String(event.source || payload.source || '').trim()
+  if (source === 'lan-assist') return
   if (payload.sheet && typeof payload.sheet === 'object') {
     rememberBizPendingSheet(payload.sheet)
   }

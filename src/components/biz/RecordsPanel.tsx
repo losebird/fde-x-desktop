@@ -1015,6 +1015,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
   useEvents(['biz.sheet.pending'], (event) => {
     const payload = event.payload as PendingSheetEvent
+    const source = String(event.source || payload.source || '').trim()
+    if (source === 'lan-assist') return
     if (payload.sheet && typeof payload.sheet === 'object') {
       const incomingSurfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : undefined
       if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, incomingSurfaceId)) {

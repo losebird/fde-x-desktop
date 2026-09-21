@@ -406,3 +406,11 @@ export function sheetForPendingGet(hallSheet, lastEmitted, sessionId) {
   if (!coveredSid && sid) return { ...covered, sessionId: sid }
   return namedLast
 }
+
+/** GET/hydrate after session-end handoff: last handed sheet, never hall process. */
+export function sheetForOfficialGet(official, lastEmitted, sessionId) {
+  const last = lastEmitted && typeof lastEmitted === 'object' ? lastEmitted : null
+  const off = official && typeof official === 'object' ? official : null
+  if (!sessionId) return last || off
+  return sheetForNamedSession(last, sessionId) || sheetForNamedSession(off, sessionId)
+}

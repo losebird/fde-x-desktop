@@ -37,7 +37,7 @@ import {
   isSpokenActionOrBatchToken,
   resolveConnectedKind,
   shouldSkipCoveringPending,
-  sheetForPendingGet,
+  sheetForOfficialGet,
 } from '../biz/connected-kind.mjs'
 import {
   auditRecordNo,
@@ -844,19 +844,19 @@ export async function handleBizRoutes(request, response, url, deps) {
         sendJson(response, 200, { data: { sheet: null }, correlationId })
         return true
       }
-      const raw = state.pendingSheet ?? state.pendingWrite
-      const sheet = sheetAfterDismissedWrite(sheetPayloadFromRaw(raw))
+      const officialRaw = state.officialRoundSheet
+      const official = sheetAfterDismissedWrite(sheetPayloadFromRaw(officialRaw))
       const bizCwd = requestMemoryCwd(url, {}) || FDE_AI_WORKSPACE
-      let hall = sheet
-      if (hall) {
+      let handed = official
+      if (handed) {
         try {
           const kinds = await loadWorkspaceKinds(aiRuntime, bizCwd)
-          const next = canonicalizeSheetKind(hall, kinds)
-          hall = next || null
-        } catch { /* keep gate sheet */ }
+          const next = canonicalizeSheetKind(handed, kinds)
+          handed = next || null
+        } catch { /* keep official sheet */ }
       }
       const lastEmitted = querySessionId ? peekLastEmittedPending(querySessionId) : null
-      const served = sheetForPendingGet(hall, lastEmitted, querySessionId)
+      const served = sheetForOfficialGet(handed, lastEmitted, querySessionId)
       sendJson(response, 200, {
         data: { sheet: served ? stripSecrets(served) : null },
         correlationId,

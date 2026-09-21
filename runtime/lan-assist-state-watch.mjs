@@ -61,12 +61,11 @@ function newIncomingMessages(state, knownIds) {
   return messages
 }
 
-function sheetFromState(state) {
-  const raw = state?.pendingSheet ?? state?.pendingWrite
-  return sheetAfterDismissedWrite(sheetPayloadFromRaw(raw))
+function officialFromState(state) {
+  return sheetAfterDismissedWrite(sheetPayloadFromRaw(state?.officialRoundSheet))
 }
 
-function emitPendingSheet(sheet, deps, source = 'lan-assist') {
+function emitOfficialSheet(sheet, deps, source = 'round-end') {
   const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
     ? sheet.workspace
     : deps.cwd
@@ -88,12 +87,12 @@ export function startLanAssistStateWatch(deps) {
   let knownIncomingIds = new Set()
   let bootstrapped = false
 
-  const processPendingSheet = (sheet, { force = false } = {}) => {
+  const processOfficialSheet = (sheet, { force = false } = {}) => {
     const sheetFp = fingerprintPendingSheet(sheet)
     if (!sheetFp) return false
     if (!force && sheetFp === lastSheetFp) return false
     lastSheetFp = sheetFp
-    return emitPendingSheet(sheet, deps)
+    return emitOfficialSheet(sheet, deps)
   }
 
   const tick = async () => {
@@ -101,8 +100,8 @@ export function startLanAssistStateWatch(deps) {
       const state = await lanAssist('/state', { search: { sessionId: '' } })
       if (!state || state.ok === false) return
 
-      const sheet = sheetFromState(state)
-      if (sheet) processPendingSheet(sheet)
+      const sheet = officialFromState(state)
+      if (sheet) processOfficialSheet(sheet)
 
       const unread = buildUnread(state)
       const unreadFp = JSON.stringify(unread)
@@ -130,9 +129,9 @@ export function startLanAssistStateWatch(deps) {
     try {
       const state = await lanAssist('/state', { search: { sessionId: '' } })
       if (!state || state.ok === false) return false
-      const sheet = sheetFromState(state)
+      const sheet = officialFromState(state)
       if (!sheet) return false
-      return processPendingSheet(sheet, { force: true })
+      return processOfficialSheet(sheet, { force: true })
     } catch {
       return false
     }
