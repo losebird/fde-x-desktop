@@ -166,17 +166,37 @@ export function createGate(bag) {
     const nextPid = String((incoming && (incoming.preview_id || incoming.previewId)) || '').trim()
     const prevSpeech = String((prev && prev.speech) || '').trim()
     const nextSpeech = String((incoming && incoming.speech) || '').trim()
-    if (prev && prev.picked === true && prevPid && incoming && incoming.picked !== true) {
-      if (!nextSpeech || (prevSpeech && prevSpeech === nextSpeech)) return true
-    }
+    const prevAct = String((prev && prev.action) || '').trim()
+    const nextAct = String((incoming && incoming.action) || '').trim()
+    const prevKind = String((prev && prev.kind) || '').trim()
+    const nextKind = String((incoming && incoming.kind) || '').trim()
     const waitingHit = Boolean(
       prev
       && prevRows > 1
       && !prevPid
-      && String((prev && prev.action) || '').trim()
-      && String((prev && prev.action) || '').trim() !== '现查'
+      && prevAct
+      && prevAct !== '现查'
       && (prev.ambiguous || prev.listed),
     )
+    const leftoverQuery = Boolean(
+      prevAct
+      && prevAct !== '现查'
+      && nextAct === '现查'
+      && incoming
+      && incoming.picked !== true
+      && (!prevKind || !nextKind || prevKind === nextKind),
+    )
+    const prevNos = (prev && Array.isArray(prev.rows) ? prev.rows : [])
+      .map((row) => String((row && row.no) || '').trim())
+      .filter(Boolean)
+    const incomingNos = (incoming && Array.isArray(incoming.rows) ? incoming.rows : [])
+      .map((row) => String((row && row.no) || '').trim())
+      .filter(Boolean)
+    const pointsAtPrev = prevNos.some((no) => incomingNos.includes(no) || (no && nextSpeech.includes(no)))
+    if (leftoverQuery && (waitingHit || pointsAtPrev)) return true
+    if (prev && prev.picked === true && prevPid && incoming && incoming.picked !== true) {
+      if (!nextSpeech || (prevSpeech && prevSpeech === nextSpeech)) return true
+    }
     if (waitingHit && nextPid && incoming && incoming.picked !== true) return true
     return false
   }

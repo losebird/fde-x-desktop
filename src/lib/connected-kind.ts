@@ -213,6 +213,46 @@ function waitingHitSetPick(sheet: Record<string, unknown> | null | undefined): b
   return Boolean(sheet.ambiguous || sheet.listed)
 }
 
+function sheetKindName(sheet: Record<string, unknown> | null | undefined): string {
+  if (!sheet || typeof sheet !== 'object') return ''
+  return String(sheet.kind || '').trim()
+}
+
+function isWriteAction(sheet: Record<string, unknown> | null | undefined): boolean {
+  const action = String(sheet?.action || '').trim()
+  return Boolean(action && action !== '现查')
+}
+
+/** Leftover 现查 of the same object must not cover a write hit-set or write preview. */
+function sheetNos(sheet: Record<string, unknown> | null | undefined): string[] {
+  if (!sheet || typeof sheet !== 'object' || !Array.isArray(sheet.rows)) return []
+  return sheet.rows.map((row) => {
+    if (!row || typeof row !== 'object') return ''
+    const packed = row as { no?: unknown }
+    return String(packed.no || '').trim()
+  }).filter(Boolean)
+}
+
+function leftoverQueryCoveringWrite(
+  prev: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  if (!isWriteAction(prev)) return false
+  if (String(incoming.action || '').trim() !== '现查') return false
+  if (sheetPicked(incoming)) return false
+  const prevKind = sheetKindName(prev)
+  const nextKind = sheetKindName(incoming)
+  if (prevKind && nextKind && prevKind !== nextKind) return false
+  if (waitingHitSetPick(prev)) return true
+  const prevNos = sheetNos(prev)
+  if (!prevNos.length) return false
+  const incomingNos = sheetNos(incoming)
+  const speech = sheetSpeech(incoming)
+  return incomingNos.some((no) => prevNos.includes(no))
+    || prevNos.some((no) => no && speech.includes(no))
+}
+
 /** BFF/watch/remember: do not cover a populated this-utterance sheet. */
 export function shouldSkipCoveringPending(
   prev: Record<string, unknown> | null | undefined,
@@ -222,6 +262,7 @@ export function shouldSkipCoveringPending(
   const prevSpeech = sheetSpeech(prev)
   const nextSpeech = sheetSpeech(incoming)
   const sameSpeech = Boolean(prevSpeech && nextSpeech && prevSpeech === nextSpeech)
+  if (leftoverQueryCoveringWrite(prev, incoming)) return true
   if (sheetPicked(prev) && sheetPreviewId(prev) && !sheetPicked(incoming)) {
     if (!nextSpeech || sameSpeech) return true
   }

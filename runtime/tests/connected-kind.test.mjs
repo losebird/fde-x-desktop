@@ -164,6 +164,18 @@ test('person pick and waiting hit-set are not covered by a leftover write', () =
     speech: 'next utterance on another kind',
     rows: [{ no: 'NEXT-1' }],
   }), false)
+  assert.equal(shouldSkipCoveringPending(hitSet, {
+    kind: 'LongKind',
+    action: '现查',
+    speech: 'lookup HIT-1',
+    rows: [{ no: 'HIT-1' }],
+  }), true)
+  assert.equal(shouldSkipCoveringPending(picked, {
+    kind: 'LongKind',
+    action: '现查',
+    speech: 'lookup HIT-2',
+    rows: [{ no: 'HIT-2' }],
+  }), true)
 })
 
 test('cancel cover keeps the hall list and never substitutes a catalog dump', () => {

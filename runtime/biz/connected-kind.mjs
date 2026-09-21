@@ -291,11 +291,47 @@ function waitingHitSetPick(sheet) {
   return Boolean(sheet.ambiguous || sheet.listed)
 }
 
+function sheetKindName(sheet) {
+  if (!sheet || typeof sheet !== 'object') return ''
+  return String(sheet.kind || '').trim()
+}
+
+function isWriteAction(sheet) {
+  const action = String((sheet && sheet.action) || '').trim()
+  return Boolean(action && action !== '现查')
+}
+
+function sheetNos(sheet) {
+  if (!sheet || typeof sheet !== 'object' || !Array.isArray(sheet.rows)) return []
+  return sheet.rows.map((row) => {
+    if (!row || typeof row !== 'object') return ''
+    return String(row.no || '').trim()
+  }).filter(Boolean)
+}
+
+function leftoverQueryCoveringWrite(prev, incoming) {
+  if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  if (!isWriteAction(prev)) return false
+  if (String(incoming.action || '').trim() !== '现查') return false
+  if (sheetPicked(incoming)) return false
+  const prevKind = sheetKindName(prev)
+  const nextKind = sheetKindName(incoming)
+  if (prevKind && nextKind && prevKind !== nextKind) return false
+  if (waitingHitSetPick(prev)) return true
+  const prevNos = sheetNos(prev)
+  if (!prevNos.length) return false
+  const incomingNos = sheetNos(incoming)
+  const speech = sheetSpeech(incoming)
+  return incomingNos.some((no) => prevNos.includes(no))
+    || prevNos.some((no) => no && speech.includes(no))
+}
+
 export function shouldSkipCoveringPending(prev, incoming) {
   if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
   const prevSpeech = sheetSpeech(prev)
   const nextSpeech = sheetSpeech(incoming)
   const sameSpeech = Boolean(prevSpeech && nextSpeech && prevSpeech === nextSpeech)
+  if (leftoverQueryCoveringWrite(prev, incoming)) return true
   if (sheetPicked(prev) && sheetPreviewId(prev) && !sheetPicked(incoming)) {
     if (!nextSpeech || sameSpeech) return true
   }
