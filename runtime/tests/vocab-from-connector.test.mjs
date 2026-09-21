@@ -110,6 +110,58 @@ describe('vocab from connector', () => {
     assert.ok(built.relations.some((rel) => rel.from === '客户' && rel.to === '工单' && rel.field === 'tickets'))
   })
 
+  test('resolvable target publishes even when interface/type are missing', () => {
+    const collections = [
+      {
+        name: 'alpha_parents',
+        title: 'AlphaParent',
+        fields: [{ name: 'id', interface: 'id' }],
+      },
+      {
+        name: 'alpha_children',
+        title: 'AlphaChild',
+        fields: [
+          { name: 'code', interface: 'input', uiSchema: { title: '编号' } },
+          { name: 'parent', target: 'alpha_parents' },
+        ],
+      },
+    ]
+    const built = buildVocabFromNocoCollections(collections)
+    const child = built.concepts.find((row) => row.resource === 'alpha_children')
+    assert.ok(child)
+    assert.deepEqual(child.relations, [{ from: 'AlphaParent', to: 'AlphaChild', field: 'parent' }])
+    assert.ok(built.relations.some((rel) => rel.from === 'AlphaParent' && rel.to === 'AlphaChild' && rel.field === 'parent'))
+  })
+
+  test('options.target is enough when the dialect nests the association', () => {
+    const collections = [
+      { name: 'omega_parents', title: 'OmegaParent', fields: [{ name: 'id' }] },
+      {
+        name: 'omega_children',
+        title: 'OmegaChild',
+        fields: [
+          { name: 'code', interface: 'input' },
+          { name: 'owner', options: { target: 'omega_parents' } },
+        ],
+      },
+    ]
+    const built = buildVocabFromNocoCollections(collections)
+    assert.ok(built.relations.some((rel) => (
+      rel.from === 'OmegaParent' && rel.to === 'OmegaChild' && rel.field === 'owner'
+    )))
+  })
+
+  test('adapter source has no workspace pair or table literals', () => {
+    const adapter = readFileSync(join(repoRoot, 'runtime/biz/adapters/nocobase-vocab.mjs'), 'utf8')
+    const generate = readFileSync(join(repoRoot, 'runtime/biz/vocab-from-connector.mjs'), 'utf8')
+    for (const source of [adapter, generate]) {
+      assert.doesNotMatch(source, /客户/)
+      assert.doesNotMatch(source, /工单/)
+      assert.doesNotMatch(source, /biz_tickets/)
+      assert.doesNotMatch(source, /biz_customers/)
+    }
+  })
+
   test('empty association schema yields zero relations', () => {
     const collections = [
       {

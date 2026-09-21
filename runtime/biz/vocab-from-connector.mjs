@@ -6,14 +6,6 @@ import {
 
 const BATCH_SIZE = 16
 
-/**
- * semantic-os `accept_kind` / `isVocabRow` treat these exact field tokens as a
- * data row, not a 型. A Noco collection with `resource` is still a kind; only
- * the persist payload drops those tokens so one amount column cannot abort the
- * rest of the catalog. Built concepts keep the schema titles.
- */
-const KIND_GATE_ROW_FIELD_TOKENS = new Set(['金额', 'amount'])
-
 function catalogVersionFrom(collections) {
   const hash = createHash('sha256')
   for (const row of collections) {
@@ -108,7 +100,15 @@ function conceptSafeForKindGate(concept) {
   const resource = String(concept.resource || '').trim()
   if (!resource) return null
   const fields = Array.isArray(concept.fields) ? concept.fields : []
-  const nextFields = fields.filter((item) => !KIND_GATE_ROW_FIELD_TOKENS.has(String(item || '').trim()))
+  const keep = new Set()
+  const ticketField = String(concept.ticketField || '').trim()
+  if (ticketField) keep.add(ticketField)
+  for (const rel of Array.isArray(concept.relations) ? concept.relations : []) {
+    const field = String((rel && rel.field) || '').trim()
+    if (field) keep.add(field)
+  }
+  if (!keep.size) return null
+  const nextFields = fields.filter((item) => keep.has(String(item || '').trim()))
   if (nextFields.length === fields.length) return null
   return { ...concept, fields: nextFields }
 }

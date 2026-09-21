@@ -1,10 +1,12 @@
 /**
  * NocoBase (and compatible) collection list → workspace vocab concepts + relations.
  * No hardcoded kind labels; everything comes from live collection metadata.
+ * Emit a relation whenever a field names a `target` collection in this catalog.
+ * Dialect type/interface only choose hop direction; they never gate whether to publish.
  */
 
-const REL_PARENT_TO_CHILD = /^(m2o|o2o|belongsTo)$/i
-const REL_CHILD_TO_PARENT = /^(o2m|hasMany|m2m|belongsToMany)$/i
+const REL_THIS_IS_CHILD = /^(m2o|o2o|obo|belongsTo|belongsToArray|linkTo)$/i
+const REL_THIS_IS_PARENT = /^(o2m|oho|hasMany|hasOne|m2m|belongsToMany)$/i
 const SKIP_FIELDS = /^(id|createdAt|updatedAt|createdBy|updatedBy|createdById|updatedById)$/i
 const TICKET_HINTS = /^(code|no|number|orderNo|order_no|bizNo|ticket|sn|serial)$/i
 
@@ -30,28 +32,32 @@ function fieldInterface(field) {
   return String((field && (field.interface || field.type)) || '').trim()
 }
 
-function relationInterface(field) {
-  const iface = String((field && field.interface) || '').trim()
-  const type = String((field && field.type) || '').trim()
-  if (REL_PARENT_TO_CHILD.test(iface) || REL_CHILD_TO_PARENT.test(iface)) return iface
-  if (REL_PARENT_TO_CHILD.test(type) || REL_CHILD_TO_PARENT.test(type)) return type
-  return ''
+function associationTarget(field) {
+  if (!field || typeof field !== 'object') return ''
+  const direct = String(field.target || '').trim()
+  if (direct) return direct
+  const options = field.options && typeof field.options === 'object' ? field.options : {}
+  return String(options.target || '').trim()
 }
 
-function isRelationField(field) {
-  return Boolean(relationInterface(field))
+function associationSide(field) {
+  const iface = String((field && field.interface) || '').trim()
+  const type = String((field && field.type) || '').trim()
+  if (REL_THIS_IS_PARENT.test(iface) || REL_THIS_IS_PARENT.test(type)) return 'parent'
+  if (REL_THIS_IS_CHILD.test(iface) || REL_THIS_IS_CHILD.test(type)) return 'child'
+  return 'child'
 }
 
 function isPublishedRelationField(field) {
   const name = String((field && field.name) || '').trim()
   if (!name || SKIP_FIELDS.test(name)) return false
-  return isRelationField(field)
+  return Boolean(associationTarget(field))
 }
 
 function isWritableField(field) {
   const name = String((field && field.name) || '').trim()
   if (!name || SKIP_FIELDS.test(name) || /Id$|_id$/i.test(name)) return false
-  if (isRelationField(field)) return false
+  if (associationTarget(field)) return false
   return true
 }
 
@@ -162,24 +168,17 @@ export function buildVocabFromNocoCollections(collections, opts = {}) {
 
     for (const field of fields) {
       if (!isPublishedRelationField(field)) continue
-      const target = String((field && field.target) || '').trim()
+      const target = associationTarget(field)
       if (!target || !kindByResource.has(target)) continue
-      const parentKind = kindByResource.get(target)
-      const childKind = label
-      const iface = relationInterface(field)
+      const otherKind = kindByResource.get(target)
+      const thisKind = label
       const fk = String((field && field.name) || '').trim()
-      if (REL_PARENT_TO_CHILD.test(iface) && parentKind && childKind && fk) {
-        const rel = { from: parentKind, to: childKind, field: fk }
-        relations.push(rel)
-        globalRelations.push(rel)
-      }
-      if (REL_CHILD_TO_PARENT.test(iface) && parentKind && childKind) {
-        const rel = { from: childKind, to: parentKind, field: fk || `${slugId(target)}Id` }
-        if (rel.field) {
-          relations.push(rel)
-          globalRelations.push(rel)
-        }
-      }
+      if (!otherKind || !thisKind || !fk) continue
+      const rel = associationSide(field) === 'parent'
+        ? { from: thisKind, to: otherKind, field: fk }
+        : { from: otherKind, to: thisKind, field: fk }
+      relations.push(rel)
+      globalRelations.push(rel)
     }
 
     const fieldLabels = buildFieldLabelMap(fields, ticketField)
