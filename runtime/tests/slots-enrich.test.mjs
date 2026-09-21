@@ -579,6 +579,45 @@ test('enum labels inside a mentioned kind name are not a where', () => {
   assert.equal(filled.filterRefused, undefined)
 })
 
+test('a condition deleted from the middle of the user line stays, and inside-name codes do not', () => {
+  const user = '现查上游关联的单据甲乙，丙。只要预览，不要过账，不要 biz_write。'
+  const model = '现查上游关联的单据甲乙，只要预览，不要过账，不要 biz_write。'
+  const vocab = [
+    {
+      kind: '上游',
+      resource: 'upstreams',
+      can: ['现查'],
+      relations: [{ from: '上游', to: '单据甲乙', field: 'up' }],
+    },
+    {
+      kind: '单据甲乙',
+      resource: 'docs_ab',
+      can: ['现查'],
+      relations: [{ from: '上游', to: '单据甲乙', field: 'up' }],
+    },
+  ]
+  const extra = {
+    vocab,
+    relations: vocab[0].relations,
+    schemaByKind: {
+      单据甲乙: [{
+        name: 'bizType',
+        title: '类别',
+        enums: { alpha: '甲', beta: '乙', gamma: '丙', delta: '丁' },
+      }],
+    },
+  }
+  assert.equal(pickHopSpeech(model, user, vocab, extra), user)
+  const filled = enrichStructuredSlots({
+    kind: '单据甲乙',
+    action: '现查',
+    speech: pickHopSpeech(model, user, vocab, extra),
+    where: [{ keys: ['bizType'], values: ['alpha', 'beta'] }],
+  }, vocab, extra)
+  const values = (filled.where || []).flatMap((term) => term.values || [])
+  assert.deepEqual(values, ['gamma'])
+})
+
 test('clue say that is only a kind-label prefix does not steal another kind\'s where', () => {
   const speech = '过一下单据申请 TCK-018。只要预览，不要过账，不要 biz_write。'
   const vocab = [

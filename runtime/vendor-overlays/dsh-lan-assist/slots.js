@@ -507,6 +507,7 @@ export function pickHopSpeech(modelSpeech, userSpeech, vocab, extra = {}) {
   const userRel = relatedMentionedKinds(user, vocab, extra).related.length
   const modelRel = relatedMentionedKinds(model, vocab, extra).related.length
   if (userRel > modelRel) return user
+  if (userRel === modelRel && userRel > 0 && user.length > model.length) return user
   return model
 }
 
@@ -943,6 +944,21 @@ function compressSameKeyTerms(terms) {
   return order.map((sig) => groups.get(sig))
 }
 
+function modelWhereAgreed(modelWhere, hits, kind) {
+  const allowed = new Set(termsForKind(hits, kind).flatMap((term) => (
+    (term.values || []).map((item) => String(item))
+  )))
+  if (!allowed.size) return []
+  const out = []
+  for (const term of Array.isArray(modelWhere) ? modelWhere : []) {
+    if (!term || typeof term !== 'object') continue
+    const values = (term.values || []).map((item) => String(item)).filter((value) => allowed.has(value))
+    if (!values.length) continue
+    out.push({ ...term, values })
+  }
+  return out
+}
+
 function whereForKind(hits, kind, extraWhere, extra = {}) {
   const merged = mergeTerms([
     ...termsForKind(hits, kind, extra),
@@ -1127,7 +1143,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   if (chainKinds.length >= 2) {
     const steps = chainKinds.map((kind, index) => {
       const extraWhere = kind === targetKind && index === chainKinds.length - 1
-        ? (Array.isArray(base.where) ? base.where : [])
+        ? modelWhereAgreed(base.where, hits, kind)
         : []
       const where = whereForKind(hits, kind, extraWhere, bag)
       const prev = index > 0 ? chainKinds[index - 1] : ''
@@ -1157,7 +1173,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     return carryQueryFlags(attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base), hits)
   }
 
-  const childWhere = whereForKind(hits, targetKind, base.where, bag)
+  const childWhere = whereForKind(hits, targetKind, modelWhereAgreed(base.where, hits, targetKind), bag)
   const parents = parentKindsOf(targetKind, bag)
   let parent = parents.find((kind) => termsForKind(hits, kind, bag).length) || parents.find((kind) => (
     kindMentions(speech, [kind], bag).length
