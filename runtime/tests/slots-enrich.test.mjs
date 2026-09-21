@@ -726,6 +726,35 @@ test('model-omitted where still binds status ∩ leftover name', () => {
   assert.ok(Array.isArray(filled.from?.where) && filled.from.where.length)
 })
 
+test('a human list sentence stays a list when the model asks to edit', () => {
+  const user = '现查甲种关联的乙种，只要共用。'
+  const pair = [
+    { kind: '甲种', resource: 'kind_a', can: ['现查', '改行'], relations: [{ from: '甲种', to: '乙种', field: 'link' }] },
+    { kind: '乙种', resource: 'kind_b', can: ['现查', '改行'], relations: [{ from: '甲种', to: '乙种', field: 'link' }] },
+  ]
+  const extra = {
+    schemaByKind: {
+      甲种: [{ name: 'flag', title: '标记', enums: { shared: '共用', other: '其他' } }],
+      乙种: [{ name: 'flag', title: '标记', enums: { shared: '共用', other: '其他' } }],
+    },
+  }
+  const recovered = recoverWriteIntent({
+    kind: '乙种',
+    action: '改行',
+    speech: '把乙种改成共用',
+    userSpeech: user,
+    patch: { flag: 'shared' },
+  }, pair, extra)
+  assert.equal(recovered.action, '现查')
+  assert.equal(recovered.speech, user)
+  assert.equal(recovered.patch, undefined)
+  const filled = enrichStructuredSlots(recovered, pair, extra)
+  const fromValues = (filled.from?.where || []).flatMap((term) => term.values || [])
+  const toValues = (filled.where || []).flatMap((term) => term.values || [])
+  assert.ok(fromValues.includes('shared'))
+  assert.ok(toValues.includes('shared'))
+})
+
 test('one label on two bound kinds with the same field identity is added to each', () => {
   const speech = '现查甲种关联的乙种，只要共用。'
   const pair = [

@@ -1201,12 +1201,20 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
 
 const WRITE_ACTIONS = ['删除', '过审', '新建', '改行']
 
-function spokenWriteAction(speech, vocab, extra = {}) {
+function spokenAction(speech, vocab, extra, actions) {
   const hits = clueHitsInSpeech(speech, vocab, extra)
-  for (const act of WRITE_ACTIONS) {
+  for (const act of actions) {
     if (hits.some((hit) => (hit.keys || []).includes('action') && (hit.values || []).includes(act))) return act
   }
   return ''
+}
+
+function spokenWriteAction(speech, vocab, extra = {}) {
+  return spokenAction(speech, vocab, extra, WRITE_ACTIONS)
+}
+
+function spokenListAction(speech, vocab, extra = {}) {
+  return spokenAction(speech, vocab, extra, ['现查'])
 }
 
 function fieldLabelOf(field) {
@@ -1273,10 +1281,22 @@ function rewritePatch(speech, schemaFields) {
 
 export function recoverWriteIntent(spec, vocab, extra = {}) {
   const next = spec && typeof spec === 'object' ? { ...spec } : {}
-  const speech = String(next.speech || next.quote || '').trim()
+  let speech = String(next.speech || next.quote || '').trim()
   const kind = String(next.kind || '').trim()
   if (!speech || !kind) return next
   const bag = { vocab: vocabWithSpoken(vocab), ...extra }
+  const userSpeech = String(next.userSpeech || '').trim()
+  if (
+    userSpeech
+    && spokenListAction(userSpeech, vocab, extra) === '现查'
+    && !spokenWriteAction(userSpeech, vocab, extra)
+    && String(next.action || '').trim() !== '现查'
+  ) {
+    next.speech = userSpeech
+    next.action = '现查'
+    delete next.patch
+    speech = userSpeech
+  }
   const row = vocabRow(kind, bag.vocab)
   const can = Array.isArray(row && row.can) ? row.can.map((item) => String(item || '').trim()).filter(Boolean) : []
   const spoken = spokenWriteAction(speech, vocab, extra)

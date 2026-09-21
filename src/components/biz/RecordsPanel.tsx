@@ -342,6 +342,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const activeListQueryFpRef = useRef('')
   const displayedRowCountRef = useRef(0)
   const historyPinnedSurfaceIdRef = useRef('')
+  const historySelectFocused = useRef(false)
   const historySessionIdRef = useRef('')
   const liveSessionIdRef = useRef('')
   const cancelledWritePreviewRef = useRef('')
@@ -445,9 +446,9 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         kind: String(snap.sheet.kind || ''),
         action: String(snap.sheet.action || ''),
         previewId: sheetPreviewId(snap.sheet) || null,
-        sessionId: typeof snap.sheet.sessionId === 'string'
-          ? snap.sheet.sessionId
-          : (sessionKey || null),
+        sessionId: typeof snap.sheet.sessionId === 'string' && snap.sheet.sessionId.trim()
+          ? snap.sheet.sessionId.trim()
+          : null,
         rowCount: Array.isArray(snap.sheet.rows) ? snap.sheet.rows.length : 0,
         columns: [],
         createdAt: Date.now(),
@@ -612,10 +613,16 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   }, [captureListRestore, commitListRestore, shouldSaveListRestore])
 
   const rememberDisplayBeforeWrite = useCallback((incomingSheet: Record<string, unknown>) => {
-    if (displayBeforeWriteRef.current) return
-    if (rows.length <= 0) return
     const incomingKind = String(incomingSheet.kind || '').trim()
     const shownKind = String((listSheetMeta && listSheetMeta.kind) || kind || '').trim()
+    const shownAction = String((listSheetMeta && listSheetMeta.action) || '').trim()
+    const stashedKind = String(displayBeforeWriteRef.current?.sheet?.kind || '').trim()
+    const shownIsList = rows.length > 0 && (shownAction === '' || isBizListQueryAction(shownAction))
+    if (displayBeforeWriteRef.current && stashedKind && shownKind && stashedKind !== shownKind && shownIsList) {
+      displayBeforeWriteRef.current = null
+    }
+    if (displayBeforeWriteRef.current) return
+    if (rows.length <= 0) return
     if (incomingKind && shownKind && incomingKind !== shownKind) return
     displayBeforeWriteRef.current = captureListRestore()
   }, [captureListRestore, kind, listSheetMeta, rows.length])
@@ -1676,7 +1683,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
                 const row = sessionSurfaces.find((s) => s.id === historySurfaceId)
                 return row ? surfaceHistoryLabel(row) : '本会话浮现历史'
               })()}
+              onFocus={() => { historySelectFocused.current = true }}
+              onBlur={() => { historySelectFocused.current = false }}
               onChange={(e) => {
+                if (!historySelectFocused.current) return
                 const id = e.target.value
                 setHistorySurfaceId(id)
                 if (!id) {
