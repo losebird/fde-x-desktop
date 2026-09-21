@@ -6,6 +6,14 @@ import {
 
 const BATCH_SIZE = 16
 
+/**
+ * semantic-os `accept_kind` / `isVocabRow` treat these exact field tokens as a
+ * data row, not a 型. A Noco collection with `resource` is still a kind; only
+ * the persist payload drops those tokens so one amount column cannot abort the
+ * rest of the catalog. Built concepts keep the schema titles.
+ */
+const KIND_GATE_ROW_FIELD_TOKENS = new Set(['金额', 'amount'])
+
 function catalogVersionFrom(collections) {
   const hash = createHash('sha256')
   for (const row of collections) {
@@ -72,17 +80,9 @@ export async function generateWorkspaceVocabFromConnector(spec) {
   const concepts = built.concepts
   const schemeName = `业务型 · ${version}`
 
-  let batches = 0
-  for (let i = 0; i < concepts.length; i += BATCH_SIZE) {
-    const slice = concepts.slice(i, i + BATCH_SIZE)
-    const written = await spec.persistBatch({
-      name: schemeName,
-      concepts: slice,
-    })
-    if (written && written.ok === false) {
-      return { ok: false, error: written.error || 'VOCAB_WRITE_FAILED', batches }
-    }
-    batches += 1
+  const persist = await persistConcepts(spec.persistBatch, schemeName, concepts)
+  if (persist.ok === false) {
+    return { ok: false, error: persist.error || 'VOCAB_WRITE_FAILED', batches: persist.batches }
   }
 
   return {
@@ -92,9 +92,78 @@ export async function generateWorkspaceVocabFromConnector(spec) {
     relations: built.relations,
     relationCount: built.relations.length,
     catalogVersion: version,
-    batches,
+    batches: persist.batches,
     emptySchema: false,
+    ...(persist.skipped.length ? { skipped: persist.skipped } : {}),
   }
+}
+
+function isNotAKind(written) {
+  const error = String((written && (written.error || written.code || written.hint)) || '')
+  return /NOT_A_KIND/i.test(error)
+}
+
+function conceptSafeForKindGate(concept) {
+  if (!concept || typeof concept !== 'object') return null
+  const resource = String(concept.resource || '').trim()
+  if (!resource) return null
+  const fields = Array.isArray(concept.fields) ? concept.fields : []
+  const nextFields = fields.filter((item) => !KIND_GATE_ROW_FIELD_TOKENS.has(String(item || '').trim()))
+  if (nextFields.length === fields.length) return null
+  return { ...concept, fields: nextFields }
+}
+
+async function writeBatch(persistBatch, schemeName, concepts) {
+  try {
+    const written = await persistBatch({
+      name: schemeName,
+      concepts,
+    })
+    if (written && written.ok === false) return written
+    return { ok: true }
+  } catch (error) {
+    const hint = error instanceof Error ? error.message : String(error || 'VOCAB_WRITE_FAILED')
+    const code = error && typeof error === 'object' ? String(error.code || error.error || '') : ''
+    return { ok: false, error: code || 'VOCAB_WRITE_FAILED', hint }
+  }
+}
+
+async function persistOne(persistBatch, schemeName, concept) {
+  let written = await writeBatch(persistBatch, schemeName, [concept])
+  if (written.ok !== false) return written
+  if (!isNotAKind(written)) return written
+  const safe = conceptSafeForKindGate(concept)
+  if (!safe) return written
+  return writeBatch(persistBatch, schemeName, [safe])
+}
+
+async function persistConcepts(persistBatch, schemeName, concepts) {
+  const rows = Array.isArray(concepts) ? concepts : []
+  let batches = 0
+  const skipped = []
+
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const slice = rows.slice(i, i + BATCH_SIZE)
+    const written = await writeBatch(persistBatch, schemeName, slice)
+    batches += 1
+    if (written.ok !== false) continue
+
+    for (const concept of slice) {
+      const one = await persistOne(persistBatch, schemeName, concept)
+      batches += 1
+      if (one.ok !== false) continue
+      skipped.push({
+        id: String((concept && concept.id) || ''),
+        resource: String((concept && concept.resource) || ''),
+        error: String(one.error || 'VOCAB_WRITE_FAILED'),
+      })
+    }
+  }
+
+  if (skipped.length && skipped.length === rows.length) {
+    return { ok: false, error: skipped[0].error || 'VOCAB_WRITE_FAILED', batches, skipped }
+  }
+  return { ok: true, batches, skipped }
 }
 
 export { buildVocabFromNocoCollections, fetchNocoBaseCollections }

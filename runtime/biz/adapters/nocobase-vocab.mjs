@@ -30,9 +30,22 @@ function fieldInterface(field) {
   return String((field && (field.interface || field.type)) || '').trim()
 }
 
+function relationInterface(field) {
+  const iface = String((field && field.interface) || '').trim()
+  const type = String((field && field.type) || '').trim()
+  if (REL_PARENT_TO_CHILD.test(iface) || REL_CHILD_TO_PARENT.test(iface)) return iface
+  if (REL_PARENT_TO_CHILD.test(type) || REL_CHILD_TO_PARENT.test(type)) return type
+  return ''
+}
+
 function isRelationField(field) {
-  const iface = fieldInterface(field)
-  return REL_PARENT_TO_CHILD.test(iface) || REL_CHILD_TO_PARENT.test(iface)
+  return Boolean(relationInterface(field))
+}
+
+function isPublishedRelationField(field) {
+  const name = String((field && field.name) || '').trim()
+  if (!name || SKIP_FIELDS.test(name)) return false
+  return isRelationField(field)
 }
 
 function isWritableField(field) {
@@ -73,6 +86,12 @@ function shapeFields(fields, ticketField) {
   }
   for (const field of fields) {
     const name = String((field && field.name) || '').trim()
+    if (!name || seen.has(name) || !isPublishedRelationField(field)) continue
+    out.push(name)
+    seen.add(name)
+  }
+  for (const field of fields) {
+    const name = String((field && field.name) || '').trim()
     if (!name || seen.has(name) || !isWritableField(field)) continue
     out.push(fieldTitle(field) || name)
     seen.add(name)
@@ -93,7 +112,7 @@ export function buildFieldLabelMap(fields, ticketField) {
   }
   for (const field of rows) {
     const name = String((field && field.name) || '').trim()
-    if (!name || !isWritableField(field)) continue
+    if (!name || !(isWritableField(field) || isPublishedRelationField(field))) continue
     const title = fieldTitle(field)
     map[name] = name
     if (title) map[title] = name
@@ -142,11 +161,12 @@ export function buildVocabFromNocoCollections(collections, opts = {}) {
     const relations = []
 
     for (const field of fields) {
+      if (!isPublishedRelationField(field)) continue
       const target = String((field && field.target) || '').trim()
       if (!target || !kindByResource.has(target)) continue
       const parentKind = kindByResource.get(target)
       const childKind = label
-      const iface = fieldInterface(field)
+      const iface = relationInterface(field)
       const fk = String((field && field.name) || '').trim()
       if (REL_PARENT_TO_CHILD.test(iface) && parentKind && childKind && fk) {
         const rel = { from: parentKind, to: childKind, field: fk }
