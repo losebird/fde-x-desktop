@@ -198,6 +198,19 @@ test('matchSurfaceIdForSheet no longer impersonates kind+action[0]', () => {
   assert.match(src, /row\.previewId === pid/)
 })
 
+test('a clicked row is not the whole hit set', async () => {
+  const { rowsForClickedWrite } = await import('../vendor-overlays/dsh-lan-assist/slots.js')
+  const rows = [
+    { no: '同名', fields: { id: '1' } },
+    { no: '同名', fields: { id: '2' } },
+    { no: 'LY-9', fields: { id: '3' } },
+  ]
+  assert.equal(rowsForClickedWrite(rows, '2').length, 1)
+  assert.equal(rowsForClickedWrite(rows, '2')[0].fields.id, '2')
+  assert.equal(rowsForClickedWrite(rows, 'LY-9').length, 1)
+  assert.equal(rowsForClickedWrite(rows, '').length, 3)
+})
+
 test('source-kind packed rows are not shown as a headcount badge', async () => {
   const { kindChipShowsRowCount, kindChipConditionLabels } = await import('../../src/lib/biz-list-query.ts')
   assert.equal(kindChipShowsRowCount('ParentA', 'ChildB'), false)

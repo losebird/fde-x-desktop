@@ -1293,6 +1293,21 @@ export function recoverWriteIntent(spec, vocab, extra = {}) {
   return next
 }
 
+/** A clicked row is not the whole hit set. Match its id, else its displayed no. */
+export function rowsForClickedWrite(rows, no = '') {
+  const list = Array.isArray(rows) ? rows : []
+  const wanted = String(no || '').trim()
+  if (!wanted) return list
+  const byId = list.filter((row) => {
+    const fields = row && row.fields && typeof row.fields === 'object' ? row.fields : {}
+    return String(fields.id || row.id || '') === wanted
+  })
+  if (byId.length) return byId
+  const byNo = list.filter((row) => String((row && row.no) || '').trim() === wanted)
+  if (byNo.length) return byNo
+  return list
+}
+
 /** 列举 / 「都」+ 写动作：人要的本来就是一批，不要按模糊名去一家家问。 */
 /** Batch leftover (助词+动作碎片) is not a row id. Alphanumeric tickets stay. */
 export function dropSpokenBatchRowId(no, speech, vocab, extra = {}) {

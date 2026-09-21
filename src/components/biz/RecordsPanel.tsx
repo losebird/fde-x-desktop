@@ -1819,13 +1819,16 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
                           disabled={!lanReady || loading}
                           onClick={(e) => {
                             e.stopPropagation()
+                            const recordId = row.fields && typeof row.fields === 'object' && row.fields.id != null
+                              ? String(row.fields.id)
+                              : ''
                             const extra = rowAction === '改行'
                               ? {
-                                no: sheetRowBusinessNo(row),
+                                no: recordId || sheetRowBusinessNo(row),
                                 input: pickSheetRowPatch(row, draftRow, tableColumns),
                                 originalRow: row,
                               }
-                              : { no: sheetRowBusinessNo(row) }
+                              : { no: recordId || sheetRowBusinessNo(row) }
                             void runPreview(rowAction, extra)
                           }}
                         >

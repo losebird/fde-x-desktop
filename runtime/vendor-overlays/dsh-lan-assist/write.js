@@ -9,7 +9,7 @@ import { connectorCatalogPresent, kindPreviewableInCatalog, mapKind, relatedChil
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
-import { dropSpokenBatchRowId, enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, spokenWantsBatch } from './slots.js'
+import { dropSpokenBatchRowId, enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch } from './slots.js'
 import { WHERE_LIST_CAP } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -956,7 +956,10 @@ export function createGate(opts = {}) {
 
   async function finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, kind, hitsByKind, hopExtra) {
     const sheetKind = kind || recognized.kind
-    const allRows = Array.isArray(matches) ? matches : []
+    const matched = Array.isArray(matches) ? matches : []
+    const allRows = recognized.action === '现查'
+      ? matched
+      : rowsForClickedWrite(matched, plan.no)
     const listing = recognized.action === '现查'
     const page = Number(plan.page) > 0 ? Math.floor(Number(plan.page)) : 1
     const rows = listing
