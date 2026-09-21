@@ -922,11 +922,15 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     return rowCount > 0 || Boolean(next.kind)
   }, [applySheet, bindSurfaceIdIfKnown, connectionId, connections, ensureListRestoreBeforeWritePreview, kindCatalog, maybeSaveListRestore])
 
+  const applyPendingSheetRef = useRef(applyPendingSheet)
+  applyPendingSheetRef.current = applyPendingSheet
+  const peekActivePendingRef = useRef(peekActivePending)
+  peekActivePendingRef.current = peekActivePending
   useEffect(() => {
     if (!kindCatalog.length) return
-    const pending = peekActivePending()
-    if (pending) applyPendingSheet(pending)
-  }, [kindCatalog, applyPendingSheet, peekActivePending])
+    const pending = peekActivePendingRef.current()
+    if (pending) applyPendingSheetRef.current(pending)
+  }, [kindCatalog])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     if (historyPinnedSurfaceIdRef.current && !surfaceId) return false
@@ -973,7 +977,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
     const cached = sid ? peekBizPendingSheet(sid) : null
     if (cached && sheetBelongsToSession(cached, sid) && !isBizPreviewDismissed(cached)) {
-      applyPendingSheet(cached)
+      applyPendingSheetRef.current(cached)
       return
     }
 
@@ -986,12 +990,12 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         && !isBizPreviewDismissed(sheet)
         && sheetBelongsToSession(sheet, sid)
       ) {
-        applyPendingSheet(sheet)
+        applyPendingSheetRef.current(sheet)
         return
       }
       if (liveSessionIdRef.current === sid) clearDisplayedForSession()
     }).catch(() => undefined)
-  }, [activeAiSessionId, applyPendingSheet, runtimeReady, workspaceCwd])
+  }, [activeAiSessionId, runtimeReady, workspaceCwd])
 
   useEffect(() => {
     if (connectionId) return
@@ -1007,11 +1011,13 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     void loadSurfaces()
   }, [loadSurfaces])
 
+  const hydrateFromPendingRef = useRef(hydrateFromPending)
+  hydrateFromPendingRef.current = hydrateFromPending
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd) return
     if (historyPinnedSurfaceIdRef.current) return
-    void hydrateFromPending()
-  }, [hydrateFromPending, runtimeReady, workspaceCwd])
+    void hydrateFromPendingRef.current()
+  }, [runtimeReady, workspaceCwd])
 
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd) return
@@ -1036,11 +1042,11 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       if (listPending && sheetBelongsToSession(listPending, sid)) {
         const seedKind = String(listPending.kind || '')
         if (seedKind) setKind(seedKind)
-        applyPendingSheet(listPending)
+        applyPendingSheetRef.current(listPending)
         return
       }
     })()
-  }, [activeAiSessionId, applyPendingSheet, runtimeReady, surfaces, workspaceCwd])
+  }, [activeAiSessionId, runtimeReady, surfaces, workspaceCwd])
 
   useEvents(['biz.sheet.pending'], (event) => {
     const payload = event.payload as PendingSheetEvent

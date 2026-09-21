@@ -373,6 +373,7 @@ export function sheetRowsFingerprint(sheet: Record<string, unknown> | null | und
     n: rows.length,
     first,
     last,
+    page: Number(sheet.page) > 0 ? Math.floor(Number(sheet.page)) : 0,
     previewId: String(sheet.preview_id ?? sheet.previewId ?? ''),
   })
 }
