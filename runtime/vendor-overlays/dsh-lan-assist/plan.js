@@ -135,6 +135,9 @@ export function normalizePlan(spec = {}) {
     no: String(spec.no || spec.ticket || '').trim(),
     line: String(spec.line || spec.行号 || '').trim(),
     structured,
+    filterRefused: spec.filterRefused === true,
+    contradicts: spec.contradicts === true,
+    page: Number(spec.page) > 0 ? Math.floor(Number(spec.page)) : 1,
   }
 }
 

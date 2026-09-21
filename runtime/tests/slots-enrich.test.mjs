@@ -90,14 +90,21 @@ const vocab = [
   },
 ]
 
-test('clueHitsInSpeech assigns 停用 to 客户 and 没关 to 工单 by proximity', () => {
+test('enum labels attach to every bound kind that owns them', () => {
   const speech = '停用客户还有哪些没关的工单？'
-  const hits = clueHitsInSpeech(speech, vocab)
-  const hitStop = hits.find((row) => row.say === '停用')
-  const hitOpen = hits.find((row) => row.say === '没关')
-  assert.equal(hitStop?.assignKind, '客户')
-  assert.equal(hitOpen?.assignKind, '工单')
-  assert.equal(hitOpen?.not, true)
+  const extra = {
+    schemaByKind: {
+      客户: [{ name: 'status', title: '状态', enums: { inactive: '停用', active: '成交' } }],
+      工单: [{ name: 'status', title: '状态', enums: { closed: '已关闭', open: '未关闭' } }],
+    },
+  }
+  const hits = clueHitsInSpeech(speech, vocab, extra)
+  const stopKinds = hits.filter((row) => row.say === '停用' && row.owned).map((row) => row.assignKind).sort()
+  assert.deepEqual(stopKinds, ['客户', '工单'])
+  const openHits = hits.filter((row) => row.say === '没关' && row.owned)
+  assert.deepEqual(openHits.map((row) => row.assignKind), ['工单'])
+  assert.equal(openHits[0] && openHits[0].not, true)
+  assert.equal(openHits.some((row) => row.assignKind === '客户'), false)
 })
 
 const hopVocab = [
@@ -134,7 +141,12 @@ test('enrichStructuredSlots adds from hop without utterance literals', () => {
     action: '现查',
     speech: '停用客户还有哪些没关的工单？',
   }
-  const out = enrichStructuredSlots(spec, vocab)
+  const out = enrichStructuredSlots(spec, vocab, {
+    schemaByKind: {
+      客户: [{ name: 'status', title: '状态', enums: { inactive: '停用', active: '成交' } }],
+      工单: [{ name: 'status', title: '状态', enums: { closed: '已关闭', open: '未关闭' } }],
+    },
+  })
   assert.equal(out.kind, '工单')
   assert.equal(out.from?.kind, '客户')
   assert.ok(Array.isArray(out.from?.where) && out.from.where.length)
@@ -147,7 +159,12 @@ test('enrichStructuredSlots retargets DSH ancestor kind to graph leaf when two r
     kind: '客户',
     action: '现查',
     speech,
-  }, vocab)
+  }, vocab, {
+    schemaByKind: {
+      客户: [{ name: 'status', title: '状态', enums: { inactive: '停用', active: '成交' } }],
+      工单: [{ name: 'status', title: '状态', enums: { closed: '已关闭', open: '未关闭' } }],
+    },
+  })
   assert.equal(out.kind, '工单')
   assert.equal(out.from?.kind, '客户')
   assert.ok(Array.isArray(out.from?.where) && out.from.where.length)
@@ -291,9 +308,9 @@ const intersectionVocab = [
 
 const intersectionSpeech = 'pending Widget ∩ expired Gadget'
 
-test('kindMentions prefers vocab kinds over leftover isolated short names', () => {
-  const hits = kindMentions(intersectionSpeech, intersectionKinds)
-  assert.deepEqual(hits.map((row) => row.kind), ['AlphaWidget', 'AlphaGadget'])
+test('kindMentions binds the spoken independent short name, not the longer kind', () => {
+  const hits = kindMentions(intersectionSpeech, intersectionKinds, { vocab: intersectionVocab })
+  assert.deepEqual(hits.map((row) => row.kind), ['Widget', 'Gadget'])
 })
 
 test('kindMentions binds spoken slot and graph alias tokens with vocab extra', () => {
@@ -302,62 +319,65 @@ test('kindMentions binds spoken slot and graph alias tokens with vocab extra', (
   assert.deepEqual(hits.map((row) => row.kind), ['AlphaWidget', 'AlphaGadget'])
 })
 
-test('enrichStructuredSlots assigns clues per remapped vocab kind on intersection speech', () => {
-  const out = enrichStructuredSlots({
-    kind: 'AlphaWidget',
-    action: '现查',
-    speech: intersectionSpeech,
-  }, intersectionVocab)
-  assert.equal(out.kind, 'AlphaWidget')
-  assert.equal(out.from?.kind, 'AlphaGadget')
-  assert.deepEqual(out.steps?.map((row) => row.kind), ['AlphaGadget', 'AlphaWidget'])
-  const gadgetStep = out.steps.find((row) => row.kind === 'AlphaGadget')
-  const widgetStep = out.steps.find((row) => row.kind === 'AlphaWidget')
-  assert.ok(gadgetStep?.where?.some((term) => (term.values || []).includes('expired')))
-  assert.ok(widgetStep?.where?.some((term) => (term.values || []).includes('pending')))
-  assert.ok(!gadgetStep?.where?.some((term) => (term.values || []).includes('pending')))
-  assert.ok(!widgetStep?.where?.some((term) => (term.values || []).includes('expired')))
-})
-
-test('enrichStructuredSlots remaps leftover target kind to owning vocab kind', () => {
+test('enrichStructuredSlots keeps spoken independent short kinds', () => {
   const out = enrichStructuredSlots({
     kind: 'Widget',
     action: '现查',
     speech: intersectionSpeech,
   }, intersectionVocab)
-  assert.equal(out.kind, 'AlphaWidget')
-  assert.equal(out.from?.kind, 'AlphaGadget')
-  assert.deepEqual(out.steps?.map((row) => row.kind), ['AlphaGadget', 'AlphaWidget'])
+  assert.equal(out.kind, 'Widget')
+  assert.notEqual(out.from?.kind, 'AlphaGadget')
 })
 
-test('enrichStructuredSlots remaps kind whose prefix shares suffix of vocab kind', () => {
+test('enrichStructuredSlots does not remap a short fragment onto a longer kind', () => {
   const out = enrichStructuredSlots({
     kind: 'WidgetSlip',
     action: '现查',
     speech: intersectionSpeech,
   }, intersectionVocab)
-  assert.equal(out.kind, 'AlphaWidget')
-  assert.equal(out.from?.kind, 'AlphaGadget')
+  assert.equal(out.kind, 'WidgetSlip')
 })
 
-test('relatedMentionedKinds returns largest connected component on intersection speech', () => {
-  const { related } = relatedMentionedKinds(intersectionSpeech, intersectionVocab)
-  assert.equal(related.length, 2)
-  assert.ok(related.includes('AlphaWidget'))
-  assert.ok(related.includes('AlphaGadget'))
+test('alias speech binds the long related kinds and their own clues', () => {
+  const speech = 'pending wid ∩ expired gad'
+  const out = enrichStructuredSlots({
+    kind: 'AlphaWidget',
+    action: '现查',
+    speech,
+  }, intersectionVocab)
+  assert.equal(out.kind, 'AlphaWidget')
+  assert.equal(out.from?.kind, 'AlphaGadget')
+  const gadgetStep = out.steps.find((row) => row.kind === 'AlphaGadget')
+  const widgetStep = out.steps.find((row) => row.kind === 'AlphaWidget')
+  assert.ok(gadgetStep?.where?.some((term) => (term.values || []).includes('expired')))
+  assert.ok(widgetStep?.where?.some((term) => (term.values || []).includes('pending')))
+})
+
+test('relatedMentionedKinds does not invent a long-name pair from a short fragment', () => {
+  const { mentioned, related } = relatedMentionedKinds(intersectionSpeech, intersectionVocab)
+  assert.ok(mentioned.includes('Widget'))
+  assert.ok(mentioned.includes('Gadget'))
+  assert.equal(mentioned.includes('AlphaWidget'), false)
+  assert.equal(related.includes('AlphaWidget'), false)
+  const alias = relatedMentionedKinds('pending wid ∩ expired gad', intersectionVocab)
+  assert.equal(alias.related.length, 2)
+  assert.ok(alias.related.includes('AlphaWidget'))
+  assert.ok(alias.related.includes('AlphaGadget'))
 })
 
 test('pickHopSpeech prefers user utterance when it mentions more related kinds', () => {
   const model = 'list WidgetSlip'
-  assert.equal(pickHopSpeech(model, intersectionSpeech, intersectionVocab), intersectionSpeech)
-  assert.equal(pickHopSpeech(intersectionSpeech, intersectionSpeech, intersectionVocab), intersectionSpeech)
-  assert.equal(pickHopSpeech(intersectionSpeech, model, intersectionVocab), intersectionSpeech)
+  const user = 'pending wid ∩ expired gad'
+  assert.equal(pickHopSpeech(model, user, intersectionVocab), user)
+  assert.equal(pickHopSpeech(user, user, intersectionVocab), user)
+  assert.equal(pickHopSpeech(user, model, intersectionVocab), user)
 })
 
 test('rememberUserSpeech recalls the last line for a session', () => {
-  rememberUserSpeech('sess-hop', intersectionSpeech)
-  assert.equal(recalledUserSpeech('sess-hop'), intersectionSpeech)
-  assert.equal(pickHopSpeech('list WidgetSlip', recalledUserSpeech('sess-hop'), intersectionVocab), intersectionSpeech)
+  const user = 'pending wid ∩ expired gad'
+  rememberUserSpeech('sess-hop', user)
+  assert.equal(recalledUserSpeech('sess-hop'), user)
+  assert.equal(pickHopSpeech('list WidgetSlip', recalledUserSpeech('sess-hop'), intersectionVocab), user)
 })
 
 const catalogExtra = {
@@ -376,13 +396,13 @@ test('leftoverKindMissingFromCatalog refuses leftover only after catalog miss', 
   assert.equal(leftoverKindMissingFromCatalog('Widget', { vocab: intersectionVocab }), false)
 })
 
-test('spoken fragments still bind to connected vocab kinds with catalog present', () => {
-  const hits = kindMentions('pending Widget ∩ expired Gadget', intersectionKinds, catalogExtra)
+test('spoken aliases bind connected kinds; an independent short name does not', () => {
+  const hits = kindMentions('pending wid ∩ expired gad', intersectionKinds, catalogExtra)
   assert.deepEqual(hits.map((row) => row.kind), ['AlphaWidget', 'AlphaGadget'])
   const remapped = enrichStructuredSlots({
-    kind: 'Widget',
+    kind: 'wid',
     action: '现查',
-    speech: intersectionSpeech,
+    speech: 'pending wid ∩ expired gad',
   }, intersectionVocab, catalogExtra)
   assert.equal(remapped.kind, 'AlphaWidget')
   assert.equal(leftoverKindMissingFromCatalog(remapped.kind, catalogExtra), false)
@@ -520,7 +540,7 @@ test('spoken ticket in the utterance is kept as identity', () => {
   assert.equal(filled.no, 'TCK-018')
 })
 
-test('enum labels spoken inside a mentioned kind are that kind\'s where; unspoken enum labels stay out', () => {
+test('enum labels inside a mentioned kind name are not a where', () => {
   const speech = '现查上游关联的单据甲乙。只要预览，不要过账，不要 biz_write。'
   const vocab = [
     {
@@ -555,10 +575,8 @@ test('enum labels spoken inside a mentioned kind are that kind\'s where; unspoke
   const steps = Array.isArray(filled.steps) ? filled.steps : []
   const target = steps[steps.length - 1] || filled
   const values = (target.where || []).flatMap((term) => term.values || [])
-  assert.deepEqual(values.slice().sort(), ['alpha', 'beta'])
-  assert.equal((target.where || []).length, 1)
-  assert.equal(values.includes('gamma'), false)
-  assert.equal(values.includes('delta'), false)
+  assert.deepEqual(values, [])
+  assert.equal(filled.filterRefused, undefined)
 })
 
 test('clue say that is only a kind-label prefix does not steal another kind\'s where', () => {
@@ -667,5 +685,58 @@ test('model-omitted where still binds status ∩ leftover name', () => {
   }, vocab)
   assert.equal(filled.no, '通达')
   assert.ok(Array.isArray(filled.from?.where) && filled.from.where.length)
+})
+
+test('one label on two bound kinds with the same field identity is added to each', () => {
+  const speech = '现查甲种关联的乙种，只要共用。'
+  const pair = [
+    { kind: '甲种', resource: 'kind_a', can: ['现查'], relations: [{ from: '甲种', to: '乙种', field: 'link' }] },
+    { kind: '乙种', resource: 'kind_b', can: ['现查'], relations: [{ from: '甲种', to: '乙种', field: 'link' }] },
+  ]
+  const extra = {
+    schemaByKind: {
+      甲种: [{ name: 'flag', title: '标记', enums: { shared: '共用', other: '其他' } }],
+      乙种: [{ name: 'flag', title: '标记', enums: { shared: '共用', other: '其他' } }],
+    },
+  }
+  const filled = enrichStructuredSlots({ kind: '乙种', action: '现查', speech }, pair, extra)
+  assert.equal(filled.filterRefused, undefined)
+  const fromValues = (filled.from?.where || []).flatMap((term) => term.values || [])
+  const toValues = (filled.where || []).flatMap((term) => term.values || [])
+  assert.ok(fromValues.includes('shared'))
+  assert.ok(toValues.includes('shared'))
+})
+
+test('the same label on different field identities is not applied', () => {
+  const speech = '现查甲种关联的乙种，只要停用。'
+  const pair = [
+    { kind: '甲种', resource: 'kind_a', can: ['现查'], relations: [{ from: '甲种', to: '乙种', field: 'link' }] },
+    { kind: '乙种', resource: 'kind_b', can: ['现查'], relations: [{ from: '甲种', to: '乙种', field: 'link' }] },
+  ]
+  const extra = {
+    schemaByKind: {
+      甲种: [{ name: 'flag', title: '甲栏', enums: { off: '停用' } }],
+      乙种: [{ name: 'state', title: '乙栏', enums: { off: '停用' } }],
+    },
+  }
+  const filled = enrichStructuredSlots({ kind: '乙种', action: '现查', speech }, pair, extra)
+  assert.equal(filled.filterRefused, true)
+  assert.equal((filled.where || []).length, 0)
+  assert.equal((filled.from?.where || []).length, 0)
+})
+
+test('same field values said with vocab and contradict', () => {
+  const speech = '现查单据甲乙，只要甲并且乙。'
+  const pair = [
+    { kind: '上游', resource: 'upstreams', can: ['现查'], relations: [{ from: '上游', to: '单据甲乙', field: 'up' }] },
+    { kind: '单据甲乙', resource: 'docs_ab', can: ['现查'], relations: [{ from: '上游', to: '单据甲乙', field: 'up' }] },
+  ]
+  const extra = {
+    schemaByKind: {
+      单据甲乙: [{ name: 'bizType', title: '类别', enums: { alpha: '甲', beta: '乙', gamma: '丙' } }],
+    },
+  }
+  const filled = enrichStructuredSlots({ kind: '单据甲乙', action: '现查', speech }, pair, extra)
+  assert.equal(filled.contradicts, true)
 })
 

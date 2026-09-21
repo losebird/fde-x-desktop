@@ -407,10 +407,23 @@ export function sheetForPendingGet(hallSheet, lastEmitted, sessionId) {
   return namedLast
 }
 
-/** GET/hydrate after session-end handoff: last handed sheet, never hall process. */
+function isHumanWritePreview(sheet) {
+  if (!sheet || typeof sheet !== 'object') return false
+  const action = String(sheet.action || '').trim()
+  const previewId = String(sheet.preview_id || sheet.previewId || '').trim()
+  return Boolean(previewId) && action !== '现查'
+}
+
+/** GET/hydrate after session-end handoff: last handed sheet, never a later 现查 slot. */
 export function sheetForOfficialGet(official, lastEmitted, sessionId) {
   const last = lastEmitted && typeof lastEmitted === 'object' ? lastEmitted : null
   const off = official && typeof official === 'object' ? official : null
-  if (!sessionId) return last || off
-  return sheetForNamedSession(last, sessionId) || sheetForNamedSession(off, sessionId)
+  if (!sessionId) {
+    if (isHumanWritePreview(last)) return last
+    return off || last
+  }
+  const namedLast = sheetForNamedSession(last, sessionId)
+  const namedOff = sheetForNamedSession(off, sessionId)
+  if (isHumanWritePreview(namedLast)) return namedLast
+  return namedOff || namedLast
 }

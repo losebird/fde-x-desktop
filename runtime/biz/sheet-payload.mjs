@@ -31,5 +31,15 @@ export function sheetPayloadFromRaw(raw) {
     ...(raw.related && typeof raw.related === 'object' && !Array.isArray(raw.related) ? { related: raw.related } : {}),
     ...(typeof raw.line === 'string' && raw.line ? { line: raw.line } : {}),
     ...(typeof raw.connectionId === 'string' && raw.connectionId ? { connectionId: raw.connectionId } : {}),
+    ...(raw.querySettled === true ? { querySettled: true } : {}),
+    ...(raw.hitTotalState === 'known' || raw.hitTotalState === 'incomplete' || raw.hitTotalState === 'unknown'
+      ? { hitTotalState: raw.hitTotalState }
+      : {}),
+    ...(raw.hitTotalState === 'known' && raw.hitTotal != null && Number.isFinite(Number(raw.hitTotal))
+      ? { hitTotal: Number(raw.hitTotal) }
+      : {}),
+    ...(Number(raw.page) > 0 ? { page: Math.floor(Number(raw.page)) } : {}),
+    ...(Number(raw.pageSize) > 0 ? { pageSize: Math.floor(Number(raw.pageSize)) } : {}),
+    ...(raw.pageFull === true ? { pageFull: true } : {}),
   }
 }

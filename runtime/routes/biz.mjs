@@ -283,6 +283,8 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
     ...(fromHop ? { from: fromHop } : {}),
     ...(steps.length ? { steps } : {}),
     ...(body.picked === true ? { picked: true } : {}),
+    ...(body.replay === true ? { replay: true } : {}),
+    ...(Number(body.page) > 0 ? { page: Math.floor(Number(body.page)) } : {}),
   }
   return { payload }
 }
@@ -921,14 +923,19 @@ export async function handleBizRoutes(request, response, url, deps) {
     const previewSheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
     const normalizedPreview = sheetPayloadFromRaw(previewSheet)
     const skipEmit = Boolean(
-      normalizedPreview
-      && previewHall
-      && shouldSkipCoveringPending(previewHall, normalizedPreview),
+      body.replay === true
+      || (
+        normalizedPreview
+        && previewHall
+        && shouldSkipCoveringPending(previewHall, normalizedPreview)
+      ),
     )
-    recordSurfaceFromPreview(db, bizCwd, body, preview, 'ui', {
-      emitEvent: !skipEmit,
-      hallSheet: previewHall,
-    })
+    if (body.replay !== true) {
+      recordSurfaceFromPreview(db, bizCwd, body, preview, 'ui', {
+        emitEvent: !skipEmit,
+        hallSheet: previewHall,
+      })
+    }
     sendJson(response, 200, { data: preview, correlationId })
     return true
   }

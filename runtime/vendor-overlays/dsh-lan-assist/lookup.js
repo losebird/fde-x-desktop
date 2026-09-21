@@ -480,14 +480,16 @@ export function createLookup(opts = {}) {
     return { ok: true, body: await readJson(res) }
   }
 
-  function pageCount(body) {
+  function pageSizeOf(path) {
+    const match = String(path || '').match(/[?&]pageSize=(\d+)/)
+    const size = match ? Number(match[1]) : PAGE_SIZE
+    return Number.isFinite(size) && size > 0 ? size : PAGE_SIZE
+  }
+
+  function metaCount(body) {
     const meta = body && (body.meta || body.pageMeta || {})
-    const total = Number(meta.totalPage || meta.totalPages || meta.pages || 0)
-    if (Number.isFinite(total) && total > 0) return total
-    const count = Number(meta.count || meta.total || 0)
-    const size = Number(meta.pageSize || meta.limit || 50)
-    if (Number.isFinite(count) && count > 0 && Number.isFinite(size) && size > 0) return Math.ceil(count / size)
-    return 1
+    const count = Number(meta && (meta.count != null ? meta.count : meta.total))
+    return Number.isFinite(count) && count >= 0 ? count : null
   }
 
   function rowKey(row) {
@@ -498,41 +500,73 @@ export function createLookup(opts = {}) {
     return no ? `no:${no}` : ''
   }
 
+  function hitPack(body, rows, state) {
+    if (state === 'known') return { ok: true, body, rows, hitTotal: rows.length, hitTotalState: 'known' }
+    return { ok: true, body, rows, hitTotal: null, hitTotalState: state }
+  }
+
   async function listAll(path, conn, opts = {}) {
     const keep = typeof opts.keep === 'function' ? opts.keep : () => true
     const limit = Number(opts.limit)
     const cap = Number.isFinite(limit) && limit > 0 ? limit : PAGE_SIZE
+    const pageSize = pageSizeOf(path)
     const first = await get(path, conn)
     if (!first.ok) return first
     const seen = new Set()
     const rows = []
+    let capped = false
     function take(chunk) {
       let fresh = 0
       for (const row of Array.isArray(chunk) ? chunk : []) {
+        if (rows.length >= cap) {
+          capped = true
+          break
+        }
         const key = rowKey(row)
         if (key && seen.has(key)) continue
         if (!keep(row)) continue
         if (key) seen.add(key)
         rows.push(row)
         fresh += 1
-        if (rows.length >= cap) return true
       }
+      if (rows.length >= cap) capped = true
       return fresh
     }
-    if (take(listRows(first.body)) === true) return { ok: true, body: first.body, rows }
-    const known = pageCount(first.body)
-    if (known <= 1) return { ok: true, body: first.body, rows }
+    const firstChunk = listRows(first.body)
+    take(firstChunk)
+    if (capped) return hitPack(first.body, rows, 'incomplete')
+    if (firstChunk.length < pageSize) return hitPack(first.body, rows, 'known')
+    const count = metaCount(first.body)
     const joiner = path.includes('?') ? '&' : '?'
-    const hard = Math.min(known, 500)
-    for (let page = 2; page <= hard; page += 1) {
-      if (rows.length >= cap) break
+    let ended = false
+    let failed = false
+    for (let page = 2; rows.length < cap; page += 1) {
       const next = await get(`${path}${joiner}page=${page}`, conn)
-      if (!next.ok) break
+      if (!next.ok) {
+        failed = true
+        break
+      }
       const chunk = listRows(next.body)
-      if (!chunk.length) break
-      if (take(chunk) === true) break
+      if (!chunk.length) {
+        ended = true
+        break
+      }
+      const fresh = take(chunk)
+      if (capped) return hitPack(first.body, rows, 'incomplete')
+      if (fresh === 0) break
+      if (chunk.length < pageSize) {
+        ended = true
+        break
+      }
+      if (count != null && rows.length >= count) {
+        ended = true
+        break
+      }
     }
-    return { ok: true, body: first.body, rows }
+    if (capped) return hitPack(first.body, rows, 'incomplete')
+    if (ended) return hitPack(first.body, rows, 'known')
+    if (count != null && !failed) return { ok: true, body: first.body, rows, hitTotal: count, hitTotalState: 'known' }
+    return hitPack(first.body, rows, 'unknown')
   }
 
   let collectionsCache = []
@@ -558,7 +592,7 @@ export function createLookup(opts = {}) {
     return loaded.length ? loaded : cached
   }
 
-  async function probeOne(conn, { kind, no, workspace, staffId: seat, vocab, mapped, speech, related, asAsk, where, join } = {}) {
+  async function probeOne(conn, { kind, no, workspace, staffId: seat, vocab, mapped, speech, related, asAsk, where, join, limit } = {}) {
     const ticket = String(no || '').trim()
     const staffId = String(seat || conn.staffId || '')
     const extra = {
@@ -605,7 +639,8 @@ export function createLookup(opts = {}) {
         hint: '筛选条件没对上词表列名，不能整表现查。',
       }
     }
-    const whereLimit = listLimitForWhere(clues.terms.length ? where : [])
+    const asked = Number(limit)
+    const whereLimit = Number.isFinite(asked) && asked > 0 ? asked : listLimitForWhere(clues.terms.length ? where : [])
     const fields = clueFields(conn, spec)
     const ids = ticketColumns(spec)
     const relatedIds = relatedIdsOf(related)
@@ -648,6 +683,8 @@ export function createLookup(opts = {}) {
         env: conn.env || '',
         connectionId: conn.id || '',
         dialect: conn.dialect || 'nocobase',
+        hitTotalState: listed.hitTotalState,
+        ...(listed.hitTotalState === 'known' ? { hitTotal: listed.hitTotal } : {}),
       }
     }
     const nameRest = String(clues.rest || '').trim()
@@ -701,6 +738,8 @@ export function createLookup(opts = {}) {
           env: conn.env || '',
           connectionId: conn.id || '',
           dialect: conn.dialect || 'nocobase',
+          hitTotalState: listed.hitTotalState,
+          ...(listed.hitTotalState === 'known' ? { hitTotal: listed.hitTotal } : {}),
         }
       }
       const row = hit[0]
@@ -761,8 +800,9 @@ export function createLookup(opts = {}) {
     const found = await get(path, conn)
     if (!found.ok) return found
     if (!exactNo) {
-      const listed = listRows(found.body).slice(0, 50)
-      const matches = listed.map((row) => ({
+      const listed = await listAll(path, conn, { limit: whereLimit })
+      if (!listed.ok) return listed
+      const matches = listed.rows.map((row) => ({
         no: pickNo(row, ids, extra),
         status: pickStatus(row, conn.statusField),
         fields: packMatchFields(row, fields),
@@ -782,6 +822,8 @@ export function createLookup(opts = {}) {
         env: conn.env || '',
         connectionId: conn.id || '',
         dialect: conn.dialect || 'nocobase',
+        hitTotalState: listed.hitTotalState,
+        ...(listed.hitTotalState === 'known' ? { hitTotal: listed.hitTotal } : {}),
       }
     }
     const resolved = resolveRows(listRows(found.body), ticket, ids, {
@@ -830,7 +872,7 @@ export function createLookup(opts = {}) {
     }
   }
 
-  async function lookupTodo({ kind, no, workspace, staffId: seat, vocab, mapped, speech, related, asAsk, where, join } = {}) {
+  async function lookupTodo({ kind, no, workspace, staffId: seat, vocab, mapped, speech, related, asAsk, where, join, limit } = {}) {
     const ticket = String(no || '').trim()
     if (!ticket && !String(kind || '').trim()) return { ok: false, error: 'NO_REF' }
     const extra = await resolved()
@@ -850,6 +892,7 @@ export function createLookup(opts = {}) {
         asAsk,
         where,
         join,
+        limit,
       })
       if (found.ok) return found
       last = found

@@ -66,7 +66,7 @@ function lookupTodo(spec) {
     rows = rows.filter((row) => idSet.has(String(row.fields[field] || row.fields.id || '')))
   }
   rows = applyWhere(rows, spec.where)
-  if (!relatedIds.length && kind === 'ParentA' && !(Array.isArray(spec.where) && spec.where.length)) {
+  if (!relatedIds.length && kind === 'ParentA' && !(Array.isArray(spec.where) && spec.where.length) && !(Number(spec.limit) > 0)) {
     rows = rows.slice(0, 20)
   }
   if (!rows.length) return { ok: false, error: 'NOT_FOUND', matches: [] }
@@ -178,7 +178,7 @@ test('现查 with a mentioned parent but no parent where queries the child full 
   assert.ok(out.fromRows < 20, 'must not dump the unfiltered parent page')
 })
 
-test('现查 hands the spoken enum rows of the relation, not the target kind page', async () => {
+test('现查 keeps relation rows and does not treat words inside the kind name as a where', async () => {
   const vocab = [
     {
       kind: '上游',
@@ -198,6 +198,7 @@ test('现查 hands the spoken enum rows of the relation, not the target kind pag
     return { no: `U-${index + 1}`, status: 'open', fields: { id, code: `U-${index + 1}` } }
   })
   const children = [
+    { no: 'D-OUT', fields: { id: 'd-out', bizType: 'gamma', upId: 'missing', code: 'D-OUT' } },
     { no: 'D-A1', fields: { id: 'd-a1', bizType: 'alpha', upId: 'u1', code: 'D-A1' } },
     { no: 'D-B1', fields: { id: 'd-b1', bizType: 'beta', upId: 'u3', code: 'D-B1' } },
     { no: 'D-G1', fields: { id: 'd-g1', bizType: 'gamma', upId: 'u1', code: 'D-G1' } },
@@ -223,7 +224,7 @@ test('现查 hands the spoken enum rows of the relation, not the target kind pag
         const values = (Array.isArray(term.values) ? term.values : []).map(String)
         return keys.some((key) => values.includes(String(row.fields[key] ?? '')))
       }))
-    } else if (kind === '单据甲乙') {
+    } else if (!relatedIds.length && kind === '单据甲乙') {
       rows = rows.slice(0, 20)
     }
     if (!rows.length) return { ok: false, error: 'NOT_FOUND', matches: [] }
@@ -245,10 +246,66 @@ test('现查 hands the spoken enum rows of the relation, not the target kind pag
   const nos = (Array.isArray(sheet.rows) ? sheet.rows : []).map((row) => String(row.no || ''))
   const types = (Array.isArray(sheet.rows) ? sheet.rows : []).map((row) => String((row.fields && row.fields.bizType) || ''))
   assert.equal(preview.ok !== false, true)
-  assert.deepEqual(nos.slice().sort(), ['D-A1', 'D-B1'])
-  assert.equal(types.includes('gamma'), false)
-  assert.equal(types.includes('delta'), false)
-  assert.notEqual(nos.length, 20)
+  assert.ok(nos.includes('D-A1'))
+  assert.ok(nos.includes('D-G1'))
+  assert.ok(nos.includes('D-D1'))
+  assert.equal(nos.includes('D-OUT'), false)
+  assert.equal(types.includes('gamma'), true)
+  assert.equal(sheet.from && sheet.from.kind, '上游')
+  assert.equal(Array.isArray(sheet.where) && sheet.where.length > 0, false)
+})
+
+test('现查 with a relation and a condition keeps only rows on that relation', async () => {
+  const vocab = [
+    {
+      kind: '上游',
+      resource: 'upstreams',
+      can: ['现查'],
+      relations: [{ from: '上游', to: '单据甲乙', field: 'up' }],
+    },
+    {
+      kind: '单据甲乙',
+      resource: 'docs_ab',
+      can: ['现查'],
+      relations: [{ from: '上游', to: '单据甲乙', field: 'up' }],
+    },
+  ]
+  const parents = [{ no: 'U-1', fields: { id: 'u1', code: 'U-1' } }]
+  const children = [
+    { no: 'D-ON', fields: { id: 'd-on', bizType: 'gamma', upId: 'u1', code: 'D-ON' } },
+    { no: 'D-OFF', fields: { id: 'd-off', bizType: 'gamma', upId: 'missing', code: 'D-OFF' } },
+    { no: 'D-OTHER', fields: { id: 'd-other', bizType: 'alpha', upId: 'u1', code: 'D-OTHER' } },
+  ]
+  const lookup = (spec) => {
+    const kind = String(spec.kind || '')
+    let rows = kind === '上游' ? parents : kind === '单据甲乙' ? children : []
+    const relatedIds = spec.related && Array.isArray(spec.related.ids) ? spec.related.ids.map(String) : []
+    if (relatedIds.length) {
+      const field = String(spec.related.field || 'upId')
+      const idSet = new Set(relatedIds)
+      rows = rows.filter((row) => idSet.has(String(row.fields[field] || row.fields.id || '')))
+    }
+    const where = Array.isArray(spec.where) ? spec.where : []
+    if (where.length) rows = applyWhere(rows, where)
+    if (!rows.length) return { ok: false, error: 'NOT_FOUND', matches: [] }
+    return { ok: true, matches: rows, no: rows[0].no, fields: rows[0].fields }
+  }
+  const preview = await createGate({
+    vocab,
+    lookupTodo: lookup,
+    fieldsOf: async (kind) => (kind === '单据甲乙'
+      ? [{ name: 'bizType', title: '类别', enums: { alpha: '甲', beta: '乙', gamma: '丙' } }]
+      : []),
+  }).preview({
+    workspace: '/tmp/hop-enum-out',
+    kind: '单据甲乙',
+    action: '现查',
+    speech: '现查上游关联的单据甲乙，只要丙。',
+  })
+  const sheet = preview.sheet || preview
+  const nos = (Array.isArray(sheet.rows) ? sheet.rows : []).map((row) => String(row.no || ''))
+  assert.equal(preview.ok !== false, true)
+  assert.deepEqual(nos, ['D-ON'])
   assert.equal(sheet.from && sheet.from.kind, '上游')
 })
 

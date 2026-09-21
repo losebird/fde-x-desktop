@@ -194,3 +194,24 @@ test('weak unfiltered is official only when the round produced nothing else', ()
   assert.equal(closed.emit, true)
   assert.equal(isUnfilteredListSheet(closed.official), true)
 })
+
+test('a settled 现查 with no rows is eligible and becomes the official sheet', () => {
+  const empty = {
+    kind: 'KindLeaf',
+    action: '现查',
+    sessionId: 'sess-a',
+    querySettled: true,
+    hitTotal: 0,
+    hitTotalState: 'known',
+    from: { kind: 'KindParent' },
+    rows: [],
+  }
+  assert.equal(isEligibleRoundSheet(empty), true)
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  rounds.noteToolSheet('sess-a', empty)
+  const closed = rounds.closeRound('sess-a')
+  assert.equal(closed.emit, true)
+  assert.equal(closed.official.kind, 'KindLeaf')
+  assert.equal(closed.official.rows.length, 0)
+})

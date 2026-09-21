@@ -8,9 +8,9 @@ import { randomHex } from './crypto.js'
 import { connectorCatalogPresent, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, resolveConnectedKindName, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
-import { BATCH_LIMIT, bindPatchEnums, normalizePlan } from './plan.js'
+import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
 import { dropSpokenBatchRowId, enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, spokenWantsBatch } from './slots.js'
-import { previewRowCap } from './where-pass.js'
+import { WHERE_LIST_CAP } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
 import { redactEnvelopeText, refLabel } from './ref.js'
@@ -21,8 +21,10 @@ export const PREVIEW_TTL_MS = 90_000
 const HOP_XIANCHA_CACHE_MAX = 32
 const hopXianchaCache = new Map()
 
-function hopXianchaCacheKey(sessionId, workspace, speech) {
-  return `${String(sessionId || '')}\0${String(workspace || '')}\0${String(speech || '')}\0现查`
+function hopXianchaCacheKey(sessionId, workspace, speech, page) {
+  const n = Number(page)
+  const at = Number.isFinite(n) && n > 0 ? Math.floor(n) : 1
+  return `${String(sessionId || '')}\0${String(workspace || '')}\0${String(speech || '')}\0现查\0${at}`
 }
 
 function hopXianchaCacheSet(key, value) {
@@ -241,6 +243,14 @@ export function packSheet(spec = {}) {
     pendingValue: spec.pendingValue,
     pickField: !!spec.pickField,
     askRest: String(spec.askRest || '').trim(),
+    ...(spec.querySettled === true ? { querySettled: true } : {}),
+    ...(spec.hitTotalState ? { hitTotalState: String(spec.hitTotalState) } : {}),
+    ...(spec.hitTotalState === 'known' && spec.hitTotal != null && Number.isFinite(Number(spec.hitTotal))
+      ? { hitTotal: Number(spec.hitTotal) }
+      : {}),
+    ...(Number(spec.page) > 0 ? { page: Math.floor(Number(spec.page)) } : {}),
+    ...(Number(spec.pageSize) > 0 ? { pageSize: Math.floor(Number(spec.pageSize)) } : {}),
+    ...(spec.pageFull === true ? { pageFull: true } : {}),
   }
 }
 
@@ -270,19 +280,6 @@ function hopLinkIds(fromKind, toKind, matches, extra) {
     ids: reverse,
     field: hopRelatedField(toKind, fromKind, matches, extra),
   }
-}
-
-function stepHasBind(step) {
-  if (!step || typeof step !== 'object') return false
-  if (String(step.no || '').trim()) return true
-  return Array.isArray(step.where) && step.where.length > 0
-}
-
-/** Probe the first hop step that actually filters; empty ancestor where is not a base table. */
-function firstBoundStepIndex(steps) {
-  const list = Array.isArray(steps) ? steps : []
-  const idx = list.findIndex(stepHasBind)
-  return idx >= 0 ? idx : 0
 }
 
 function planStepsForSheet(plan) {
@@ -741,6 +738,7 @@ export function createGate(opts = {}) {
         asAsk: !!spec.asAsk,
         where: spec.where,
         join: spec.join,
+        limit: spec.limit,
       })
     } catch {
       return { ok: false, error: 'LOOKUP' }
@@ -754,8 +752,7 @@ export function createGate(opts = {}) {
         extra.collections = await opts.collectionsOf(spec.workspace)
       } catch { /* collections optional for hop FK */ }
     }
-    const probeIndex = firstBoundStepIndex(plan.steps)
-    const start = plan.steps[probeIndex] || plan.steps[0]
+    const start = plan.steps[0]
     const target = plan.steps[plan.targetIndex] || start
     if (!start || !start.kind) return refuse('UNKNOWN_KIND', '没有型，预览走不了。')
     const recognized = recognize(target.kind, plan.action, plan.patch, loaded.vocab, extra)
@@ -773,6 +770,40 @@ export function createGate(opts = {}) {
         ...(spec.picked === true ? { picked: true } : {}),
         ...more,
       })
+    }
+    async function settledList(kindName, account) {
+      const page = Number(plan.page) > 0 ? Math.floor(Number(plan.page)) : 1
+      const state = account && account.hitTotalState === 'incomplete' ? 'incomplete' : 'known'
+      const total = state === 'known' ? 0 : null
+      return sheet({
+        ok: true,
+        kind: kindName,
+        no: '',
+        action: '现查',
+        speak: speakLookup({ kind: kindName, no: '' }, { ok: false, error: 'NOT_FOUND' }),
+        matches: [],
+        listed: true,
+        querySettled: true,
+        hitTotal: total,
+        hitTotalState: state,
+        page,
+        pageSize: PAGE_SIZE,
+        pageFull: false,
+      }, {
+        kind: kindName,
+        action: '现查',
+        speech: plan.speech,
+        matches: [],
+        querySettled: true,
+        hitTotal: total,
+        hitTotalState: state,
+        page,
+        pageSize: PAGE_SIZE,
+        ...sheetWhereFromPlan(plan, spec),
+      })
+    }
+    if ((plan.filterRefused || plan.contradicts) && recognized.action === '现查') {
+      return settledList(recognized.kind, { hitTotalState: 'known' })
     }
     let writePatch = (recognized.action === '改行' || recognized.action === '新建')
       ? bindPatchEnums({ ...plan.patch }, schemaFields)
@@ -833,9 +864,17 @@ export function createGate(opts = {}) {
       speech: '',
       where: start.where,
       join: start.join,
+      limit: WHERE_LIST_CAP,
     })
     if (!parentFound || parentFound.ok === false) {
       const emptyKind = target.kind
+      const missed = parentFound && parentFound.error === 'NOT_FOUND'
+      const filtered = plan.steps.length > 1 || (Array.isArray(start.where) && start.where.length > 0)
+      if (recognized.action === '现查' && missed && filtered) {
+        return settledList(emptyKind, {
+          hitTotalState: parentFound && parentFound.hitTotalState === 'incomplete' ? 'incomplete' : 'known',
+        })
+      }
       const speak = (parentFound && parentFound.error === 'NO_CONNECTOR')
         ? `${emptyKind}：没连业务，不能装成已查。`
         : speakLookup({ kind: emptyKind, no: '' }, parentFound && parentFound.ok === false ? parentFound : { ok: false, error: 'NOT_FOUND' })
@@ -853,11 +892,15 @@ export function createGate(opts = {}) {
       let prevKind = start.kind
       const hitsByKind = new Map()
       hitsByKind.set(start.kind, parentMatches)
-      for (let i = probeIndex + 1; i < plan.steps.length; i += 1) {
+      let upstreamIncomplete = parentFound && parentFound.hitTotalState === 'incomplete'
+      for (let i = 1; i < plan.steps.length; i += 1) {
         const step = plan.steps[i]
         const hopKind = String(step && step.kind || '').trim()
         if (!hopKind || hopKind === prevKind) continue
         if (!matches.length) {
+          if (recognized.action === '现查') {
+            return settledList(hopKind, { hitTotalState: upstreamIncomplete ? 'incomplete' : 'known' })
+          }
           const hopSpeak = speakLookup({ kind: hopKind, no: '' }, { ok: false, error: 'NOT_FOUND' })
           return await sheet(refuse('NOT_FOUND', hopSpeak), {
             kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
@@ -867,15 +910,16 @@ export function createGate(opts = {}) {
         const hopped = link.ids.length
           ? await probe({
             kind: hopKind, no: '', workspace: spec.workspace, staffId: spec.staffId, vocab: loaded.vocab,
-            structured: true, speech: '', where: step.where,
+            structured: true, speech: '', where: step.where, limit: WHERE_LIST_CAP,
             related: { kind: prevKind, ids: link.ids, field: link.field },
           })
           : { ok: false, error: 'NOT_FOUND', matches: [] }
-        const kept = keepHoppedMatches(hopped && hopped.matches, link.ids, prevKind, hopKind, extra)
-        const nextRows = kept.length
-          ? kept
-          : (Array.isArray(hopped && hopped.matches) ? hopped.matches : [])
+        if (hopped && hopped.hitTotalState === 'incomplete') upstreamIncomplete = true
+        const nextRows = keepHoppedMatches(hopped && hopped.matches, link.ids, prevKind, hopKind, extra)
         if (!nextRows.length) {
+          if (recognized.action === '现查') {
+            return settledList(hopKind, { hitTotalState: upstreamIncomplete ? 'incomplete' : 'known' })
+          }
           const hopSpeak = speakLookup({ kind: hopKind, no: '' }, hopped && hopped.ok === false ? hopped : { ok: false, error: 'NOT_FOUND' })
           return await sheet(refuse('NOT_FOUND', hopSpeak), {
             kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
@@ -884,36 +928,12 @@ export function createGate(opts = {}) {
         matches = stampParentLabels(prevKind, matches, nextRows, hopKind, extra)
         found = hopped
         hitsByKind.set(hopKind, nextRows)
-        pruneHopHits(hitsByKind, plan.steps.slice(probeIndex, i + 1), extra)
+        pruneHopHits(hitsByKind, plan.steps.slice(0, i + 1), extra)
         prevKind = hopKind
-      }
-      for (let i = probeIndex - 1; i >= 0; i -= 1) {
-        const ancestorKind = String((plan.steps[i] && plan.steps[i].kind) || '').trim()
-        const childKind = String((plan.steps[i + 1] && plan.steps[i + 1].kind) || '').trim()
-        if (!ancestorKind || !childKind) continue
-        const childRows = hitsByKind.get(childKind) || []
-        const ids = [...new Set((Array.isArray(childRows) ? childRows : []).map((item) => (
-          relatedChildId(ancestorKind, childKind, item && item.fields, extra)
-        )).filter(Boolean))]
-        if (!ids.length) {
-          hitsByKind.set(ancestorKind, [])
-          continue
-        }
-        const hopped = await probe({
-          kind: ancestorKind, no: '', workspace: spec.workspace, staffId: spec.staffId, vocab: loaded.vocab,
-          structured: true, speech: '', where: plan.steps[i].where,
-          related: { kind: childKind, ids, field: 'id' },
-        })
-        const nextRows = Array.isArray(hopped && hopped.matches) ? hopped.matches : []
-        const idSet = new Set(ids.map((item) => String(item)))
-        const kept = nextRows.filter((row) => {
-          const fields = row && row.fields && typeof row.fields === 'object' ? row.fields : {}
-          return idSet.has(String(fields.id || row.no || ''))
-        })
-        hitsByKind.set(ancestorKind, kept.length ? kept : nextRows)
       }
       pruneHopHits(hitsByKind, plan.steps, extra)
       const targetRows = hitsByKind.get(target.kind) || matches
+      if (upstreamIncomplete && found) found = { ...found, hitTotalState: 'incomplete', hitTotal: null }
       return finishStructured(recognized, targetRows, found, writePatch, plan, spec, loaded, schemaFields, target.kind, hitsByKind, extra)
     }
     return finishStructured(recognized, parentMatches, parentFound, writePatch, plan, spec, loaded, schemaFields, recognized.kind)
@@ -921,8 +941,22 @@ export function createGate(opts = {}) {
 
   async function finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, kind, hitsByKind, hopExtra) {
     const sheetKind = kind || recognized.kind
-    const rowCap = previewRowCap(plan.structured)
-    const rows = (Array.isArray(matches) ? matches : []).slice(0, rowCap)
+    const allRows = Array.isArray(matches) ? matches : []
+    const listing = recognized.action === '现查'
+    const page = Number(plan.page) > 0 ? Math.floor(Number(plan.page)) : 1
+    const rows = listing
+      ? allRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+      : allRows.slice(0, WHERE_LIST_CAP)
+    const reported = found && found.hitTotalState
+    let hitTotalState = reported === 'incomplete' || reported === 'unknown' || reported === 'known' ? reported : ''
+    let hitTotal = null
+    if (listing) {
+      if (!hitTotalState) hitTotalState = 'unknown'
+      if (hitTotalState === 'known') {
+        const given = Number(found && found.hitTotal)
+        hitTotal = Number.isFinite(given) ? given : allRows.length
+      }
+    }
     const speak = speakLookup({ kind: sheetKind, no: rows.length === 1 ? rows[0].no : '' }, {
       ...found, matches: rows, listed: rows.length > 1, ambiguous: rows.length > 1,
     })
@@ -972,6 +1006,14 @@ export function createGate(opts = {}) {
         where: listWhere,
         hopWhere,
         ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
+        ...(listing ? {
+          querySettled: true,
+          hitTotal,
+          hitTotalState,
+          page,
+          pageSize: PAGE_SIZE,
+          pageFull: rows.length >= PAGE_SIZE,
+        } : {}),
       })
     }
     if (rows.length !== 1) {
@@ -1102,9 +1144,12 @@ export function createGate(opts = {}) {
       } catch { /* collections optional for enrich */ }
     }
     const userSpeech = String(spec.userSpeech || '').trim() || recalledUserSpeech(spec.sessionId)
-    const picked = pickHopSpeech(spec.speech || spec.quote, userSpeech, loaded.vocab, enrichExtra)
-    if (picked) spec = { ...spec, speech: picked, userSpeech }
-    if (typeof opts.fieldsOf === 'function') {
+    const replaying = spec.replay === true && Array.isArray(spec.steps) && spec.steps.length
+    if (!replaying) {
+      const picked = pickHopSpeech(spec.speech || spec.quote, userSpeech, loaded.vocab, enrichExtra)
+      if (picked) spec = { ...spec, speech: picked, userSpeech }
+    }
+    if (!replaying && typeof opts.fieldsOf === 'function') {
       const mentioned = new Set()
       const speech = String(spec.speech || spec.quote || '').trim()
       if (kind) mentioned.add(kind)
@@ -1121,8 +1166,10 @@ export function createGate(opts = {}) {
       }
       enrichExtra.schemaByKind = schemaByKind
     }
-    const recovered = recoverWriteIntent(spec, loaded.vocab, enrichExtra)
-    const enriched = enrichStructuredSlots(recovered, loaded.vocab, enrichExtra)
+    const recovered = replaying ? { ...spec } : recoverWriteIntent(spec, loaded.vocab, enrichExtra)
+    const enriched = replaying
+      ? { ...spec, speech: String(spec.speech || '').trim() }
+      : enrichStructuredSlots(recovered, loaded.vocab, enrichExtra)
     const catalogExtra = { vocab: loaded.vocab, ...enrichExtra }
     const batchSpeech = String(enriched.speech || spec.speech || spec.quote || userSpeech || '').trim()
     const keptNo = dropSpokenBatchRowId(enriched.no || spec.no, batchSpeech, loaded.vocab, catalogExtra)
@@ -1207,7 +1254,7 @@ export function createGate(opts = {}) {
         : (relatedMentionedKinds(rememberedHop, loaded.vocab, enrichExtra).related.length >= 2 ? rememberedHop : '')
     )
     if (plan.action === '现查' && sessionId && hopSpeech) {
-      const cached = hopXianchaCache.get(hopXianchaCacheKey(sessionId, workspaceKey, hopSpeech))
+      const cached = hopXianchaCache.get(hopXianchaCacheKey(sessionId, workspaceKey, hopSpeech, plan.page))
       if (cached && hopSheetHasKindHits(cached)) return cached
     }
     if (spec.picked === true) enriched.picked = true
@@ -1219,9 +1266,9 @@ export function createGate(opts = {}) {
       && hopSpeech
       && result && result.ok !== false
     ) {
-      hopXianchaCacheSet(hopXianchaCacheKey(sessionId, workspaceKey, hopSpeech), result)
+      hopXianchaCacheSet(hopXianchaCacheKey(sessionId, workspaceKey, hopSpeech, plan.page), result)
       if (speechForHop && speechForHop !== hopSpeech) {
-        hopXianchaCacheSet(hopXianchaCacheKey(sessionId, workspaceKey, speechForHop), result)
+        hopXianchaCacheSet(hopXianchaCacheKey(sessionId, workspaceKey, speechForHop, plan.page), result)
       }
     }
     return result

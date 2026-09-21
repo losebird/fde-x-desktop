@@ -83,6 +83,34 @@ import { useEvents } from '@/lib/events'
 const PAGE_SIZE = 10
 const ROW_DISPLAY_INDEX_LABEL = '序号'
 
+function sheetHitState(sheet: Record<string, unknown> | null | undefined) {
+  const state = String(sheet?.hitTotalState || '')
+  if (state === 'known' || state === 'incomplete' || state === 'unknown') return state
+  return ''
+}
+
+function hitFooterText(sheet: Record<string, unknown> | null | undefined, shown: number) {
+  const state = sheetHitState(sheet)
+  if (state === 'incomplete') return '不完整'
+  if (state === 'unknown') return '总数未知'
+  if (state === 'known' && sheet && sheet.hitTotal != null && Number.isFinite(Number(sheet.hitTotal))) {
+    return `共 ${Number(sheet.hitTotal)} 条`
+  }
+  return `共 ${shown} 条`
+}
+
+function serverPageCount(sheet: Record<string, unknown>, shownOnPage: number) {
+  const state = sheetHitState(sheet)
+  const page = Number(sheet.page) > 0 ? Math.floor(Number(sheet.page)) : 1
+  const pageSize = Number(sheet.pageSize)
+  const total = Number(sheet.hitTotal)
+  if (state === 'known' && Number.isFinite(total) && total >= 0 && Number.isFinite(pageSize) && pageSize > 0) {
+    return Math.max(1, Math.ceil(total / pageSize))
+  }
+  if (sheet.pageFull === true || (Number.isFinite(pageSize) && pageSize > 0 && shownOnPage >= pageSize)) return page + 1
+  return page
+}
+
 type PendingSurface = {
   kind: string
   action: string
@@ -721,7 +749,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     setRows(normalizedRows)
     displayedRowCountRef.current = normalizedRows.length
     setDraftEdits({})
-    setPage(1)
+    const serverPage = Number(sheet.page)
+    setPage(Number.isFinite(serverPage) && serverPage > 0 ? Math.floor(serverPage) : 1)
     const action = String(sheet.action || '现查')
     const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(
       surfacedAt ? new Date(surfacedAt) : new Date(),
@@ -1382,11 +1411,49 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     setPage(1)
   }, [kind, query])
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
+  const hitState = sheetHitState(listSheetMeta)
+  const serverPaged = Boolean(hitState && listSheetMeta)
+  const totalPages = serverPaged && listSheetMeta
+    ? serverPageCount(listSheetMeta, filteredRows.length)
+    : Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
+  const displayPage = serverPaged && listSheetMeta && Number(listSheetMeta.page) > 0
+    ? Math.floor(Number(listSheetMeta.page))
+    : page
+  const turnHitPage = useCallback(async (nextPage: number) => {
+    if (!serverPaged || !listSheetMeta || !kind) {
+      setPage(nextPage)
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const conn = connections.find((item) => item.id === connectionId)
+      const data = await runtimeApi.bizPreview({
+        kind,
+        action: '现查',
+        system: conn?.provider || 'NocoBase',
+        connectionId,
+        speech: String(listSheetMeta.speech || ''),
+        ...(listSheetMeta.from && typeof listSheetMeta.from === 'object' ? { from: listSheetMeta.from } : {}),
+        ...(Array.isArray(listSheetMeta.where) && listSheetMeta.where.length ? { where: listSheetMeta.where } : {}),
+        ...(Array.isArray(listSheetMeta.hopWhere) && listSheetMeta.hopWhere.length ? { hopWhere: listSheetMeta.hopWhere } : {}),
+        ...(Array.isArray(listSheetMeta.steps) && listSheetMeta.steps.length ? { steps: listSheetMeta.steps } : {}),
+        replay: true,
+        page: nextPage,
+      })
+      const rawSheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
+      applySheet(rawSheet, conn?.name || '连接器')
+    } catch (cause) {
+      setError(cause instanceof RuntimeApiError ? cause.message : cause instanceof Error ? cause.message : '翻页失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [applySheet, connectionId, connections, kind, listSheetMeta, serverPaged])
   const paginatedRows = useMemo(() => {
+    if (serverPaged) return filteredRows
     const start = (page - 1) * PAGE_SIZE
     return filteredRows.slice(start, start + PAGE_SIZE)
-  }, [filteredRows, page])
+  }, [filteredRows, page, serverPaged])
 
   const tableColumns = useMemo(() => {
     if (columns.length) return columns
@@ -1668,7 +1735,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
             </thead>
             <tbody key={sheetIdentity || 'empty'} data-sheet-fp={sheetIdentity || undefined}>
               {paginatedRows.map((row, index) => {
-                const absoluteIndex = (page - 1) * PAGE_SIZE + index
+                const rowPageSize = serverPaged && listSheetMeta && Number(listSheetMeta.pageSize) > 0
+                  ? Number(listSheetMeta.pageSize)
+                  : PAGE_SIZE
+                const absoluteIndex = (displayPage - 1) * rowPageSize + index
                 const displayIndex = absoluteIndex + 1
                 const rowKey = sheetRowRenderKey(row, absoluteIndex, sheetIdentity)
                 const draftRow = getRowDraft(row, absoluteIndex)
@@ -1755,11 +1825,13 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       </Card>
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
-        <span>共 {filteredRows.length} 条{sourceLabel ? ` · ${sourceLabel}` : ''}</span>
+        <span data-records-footer={hitFooterText(listSheetMeta, filteredRows.length)} data-hit-total-state={hitState}>
+          {hitFooterText(listSheetMeta, filteredRows.length)}{sourceLabel ? ` · ${sourceLabel}` : ''}
+        </span>
         <div className="flex items-center gap-2">
-          <span>第 {page} / {totalPages} 页</span>
-          <button type="button" className="btn h-7" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>上一页</button>
-          <button type="button" className="btn h-7" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>下一页</button>
+          <span>第 {displayPage} / {totalPages} 页</span>
+          <button type="button" className="btn h-7" disabled={displayPage <= 1 || loading} onClick={() => { if (serverPaged) void turnHitPage(displayPage - 1); else setPage((p) => Math.max(1, p - 1)) }}>上一页</button>
+          <button type="button" className="btn h-7" disabled={displayPage >= totalPages || loading} onClick={() => { if (serverPaged) void turnHitPage(displayPage + 1); else setPage((p) => Math.min(totalPages, p + 1)) }}>下一页</button>
         </div>
       </div>
 

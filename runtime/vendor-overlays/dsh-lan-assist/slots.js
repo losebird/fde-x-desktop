@@ -5,11 +5,7 @@
  */
 
 import { collectionFields, mapKind, registeredKinds, relatedField, schemaHasField, schemaRelatedField } from './lookup.js'
-import {
-  inferNegatedClosedHit,
-  schemaFieldsForKind,
-  syntheticEnumClues,
-} from './enum-clues.js'
+import { schemaFieldsForKind } from './enum-clues.js'
 import { enumMap, peelSpoken, saysOf } from './resolve.js'
 import { vocabRow } from './where-pass.js'
 import { createRequire } from 'node:module'
@@ -109,15 +105,6 @@ function isLeftoverShortKind(kind, labels, extra) {
   return true
 }
 
-function titleSuffixTokens(title) {
-  const out = []
-  const label = String(title || '').trim()
-  for (let len = label.length - 1; len >= 2; len -= 1) {
-    out.push(label.slice(label.length - len))
-  }
-  return out
-}
-
 function spokenAliasTokens(kind, vocab) {
   const row = vocabRow(kind, vocab)
   if (!row) return []
@@ -162,7 +149,6 @@ function graphAliasTokens(kind, extra = {}) {
 function tokensForKindLabel(label, extra) {
   const tokens = new Set()
   if (label.length >= 2) tokens.add(label)
-  for (const suffix of titleSuffixTokens(label)) tokens.add(suffix)
   if (extra && extra.vocab) {
     for (const alias of spokenAliasTokens(label, extra.vocab)) {
       if (alias.length >= 2) tokens.add(alias)
@@ -241,13 +227,8 @@ function spokenAndGraphAliasTokens(kind, extra) {
 function sharesFragmentWithSpec(mentionedKind, specKind, extra) {
   const M = String(mentionedKind || '').trim()
   const spec = String(specKind || '').trim()
-  if (!M || !spec) return false
-  if (M.endsWith(spec)) return true
-  for (const suffix of titleSuffixTokens(M)) {
-    if (spec.startsWith(suffix)) return true
-  }
-  if (spokenAndGraphAliasTokens(M, extra).has(spec)) return true
-  return false
+  if (!M || !spec || M === spec) return false
+  return spokenAndGraphAliasTokens(M, extra).has(spec)
 }
 
 /**
@@ -321,48 +302,6 @@ function remapEnrichTargetKind(specKind, speech, bag) {
     return b.length - a.length
   })
   return candidates[0]
-}
-
-function nearestKindForHit(hitIndex, mentions) {
-  if (!mentions.length) return ''
-  let best = mentions[0]
-  let bestDist = Math.abs(hitIndex - (best.index + best.end) / 2)
-  for (const row of mentions) {
-    const center = (row.index + row.end) / 2
-    const dist = Math.abs(hitIndex - center)
-    if (dist < bestDist) {
-      best = row
-      bestDist = dist
-    }
-  }
-  return best.kind
-}
-
-function sayIsKindLabelPrefix(speech, hitIndex, say, kinds) {
-  const hit = String(say || '')
-  if (!hit) return false
-  const slice = String(speech || '').slice(hitIndex)
-  return (Array.isArray(kinds) ? kinds : []).some((kind) => {
-    const label = String(kind || '').trim()
-    return label.length > hit.length && label.startsWith(hit) && slice.startsWith(label)
-  })
-}
-
-function kindAfterClueInSpeech(speech, hitIndex, sayText, mentions) {
-  const hitEnd = hitIndex + String(sayText || '').length
-  let bestKind = ''
-  let bestGap = Infinity
-  for (const row of mentions) {
-    if (row.index < hitEnd) continue
-    const between = speech.slice(hitEnd, row.index)
-    if (!/^[\s∩、，,；;：:·\-—]*$/u.test(between)) continue
-    const gap = row.index - hitEnd
-    if (gap < bestGap) {
-      bestGap = gap
-      bestKind = row.kind
-    }
-  }
-  return bestKind || nearestKindForHit(hitIndex, mentions)
 }
 
 function relationsFromVocab(vocab, extra = {}) {
@@ -664,64 +603,242 @@ function rewriteSpan(speech) {
   return { at, end: at + hitSay.length + (m ? m[0].length : 0), say: hitSay, after }
 }
 
-function syntheticCluesByKind(vocab, extra) {
-  const map = new Map()
-  for (const row of Array.isArray(vocab) ? vocab : []) {
-    const kind = String(row && (row.kind || row.label) || '').trim()
-    if (!kind || kind === '口语') continue
-    const schemaFields = schemaFieldsForKind(kind, vocab, extra)
-    if (!schemaFields.length) continue
-    map.set(kind, syntheticEnumClues(kind, schemaFields, vocabRow(kind, vocab)))
+function spanOverlaps(start, end, spans) {
+  return spans.some((row) => start < row.end && end > row.index)
+}
+
+function fieldEnumEntries(field) {
+  if (!field || typeof field !== 'object') return []
+  const packed = enumMap(field)
+  const source = Object.keys(packed).length
+    ? packed
+    : (field.enums && typeof field.enums === 'object' && !Array.isArray(field.enums) ? field.enums : {})
+  return Object.entries(source).map(([code, label]) => [String(code).trim(), String(label || '').trim()])
+}
+
+function fieldIdentityOf(field) {
+  const title = String((field && (field.title || (field.uiSchema && field.uiSchema.title))) || '').trim()
+  const name = String((field && field.name) || '').trim()
+  return { identity: title || name, name, title }
+}
+
+function sayIsBounded(text, say, index) {
+  if (!/^[A-Za-z0-9_]+$/.test(say)) return true
+  if (say.length < 3) return false
+  const before = index > 0 ? text[index - 1] : ''
+  const after = text[index + say.length] || ''
+  if (/[A-Za-z0-9_]/.test(before) || /[A-Za-z0-9_]/.test(after)) return false
+  return true
+}
+
+function joinWordSays(vocab, which) {
+  const says = []
+  for (const row of vocabWithSpoken(vocab)) {
+    for (const clue of cluesOfRow(row)) {
+      if (!clue) continue
+      const role = String(clue.role || '').trim()
+      const keys = stringList(clue.keys || clue.field)
+      if (role !== '连接' && !keys.includes('join')) continue
+      const values = stringList(clue.values || clue.value)
+      if (!values.includes(which)) continue
+      says.push(...stringList(clue.say || clue.says))
+    }
   }
-  return map
+  return [...new Set(says.filter(Boolean))].sort((a, b) => b.length - a.length)
+}
+
+function speechKeysOnly(clue, names) {
+  const keys = stringList(clue && (clue.keys || clue.field))
+  return keys.length > 0 && keys.every((key) => names.includes(key))
 }
 
 function clueHitsInSpeech(speech, vocab, extra = {}) {
   const text = String(speech || '')
   if (!text.trim()) return []
   const mergedVocab = vocabWithSpoken(vocab)
-  const kinds = registeredKinds({ vocab: mergedVocab })
+  const kinds = registeredKinds({ vocab: mergedVocab }).filter((kind) => kind && kind !== '口语')
   const mentions = kindMentions(text, kinds, { vocab: mergedVocab, ...extra })
+  const bound = []
+  const seenKind = new Set()
+  for (const row of mentions) {
+    if (seenKind.has(row.kind)) continue
+    seenKind.add(row.kind)
+    bound.push(row.kind)
+  }
   const bag = { vocab: mergedVocab, ...extra }
-  const synthetic = syntheticCluesByKind(mergedVocab, extra)
-  const hits = []
+  const roleHits = []
   for (const row of mergedVocab) {
-    if (!row) continue
-    const owner = String(row.kind || row.label || '').trim()
-    const explicit = cluesOfRow(row)
-    const clues = [
-      ...explicit,
-      ...(synthetic.get(owner) || []),
-    ]
-    for (const clue of clues) {
+    for (const clue of cluesOfRow(row)) {
+      if (!speechKeysOnly(clue, ['role', 'action', 'join'])) continue
       const packed = findClueHit(text, clue, bag)
       if (!packed) continue
-      if (sayIsKindLabelPrefix(text, packed.hitIndex, packed.say, kinds)) continue
-      const ownerMentioned = owner && owner !== '口语' && mentions.some((m) => m.kind === owner)
-      const fromSynthetic = !(explicit.includes(clue))
-      const assign = ownerMentioned && !fromSynthetic
-        ? owner
-        : kindAfterClueInSpeech(text, packed.hitIndex, packed.say, mentions)
-      hits.push({ ...packed, assignKind: assign || owner || '' })
+      roleHits.push({ ...packed, assignKind: '' })
     }
   }
-  for (const kind of kinds) {
-    if (kind === '口语') continue
-    const schemaFields = schemaFieldsForKind(kind, mergedVocab, extra)
-    const inferred = inferNegatedClosedHit(text, kind, schemaFields, mergedVocab)
-    if (!inferred) continue
-    hits.push({
-      ...inferred,
-      assignKind: kindAfterClueInSpeech(text, inferred.hitIndex, inferred.say, mentions) || kind,
+  const occupied = mentions.map((row) => ({ index: row.index, end: row.end }))
+  const candidates = []
+  const pushCandidate = (packed, ownerKind) => {
+    const say = String(packed.say || '')
+    const start = Number(packed.hitIndex) || 0
+    const end = start + say.length
+    if (!say || end <= start || !ownerKind) return
+    if (!sayIsBounded(text, say, start)) return
+    if (spanOverlaps(start, end, occupied)) return
+    candidates.push({
+      ...packed,
+      say,
+      start,
+      end,
+      ownerKind,
+      keys: Array.isArray(packed.keys) ? packed.keys : [],
+      values: Array.isArray(packed.values) ? packed.values : [],
+      not: packed.not === true,
     })
   }
+  for (const row of mergedVocab) {
+    const owner = String(row && (row.kind || row.label) || '').trim()
+    if (!owner || owner === '口语' || row.spoken || !bound.includes(owner)) continue
+    const fields = schemaFieldsForKind(owner, mergedVocab, extra)
+    for (const clue of cluesOfRow(row)) {
+      if (speechKeysOnly(clue, ['role', 'action', 'join'])) continue
+      const packed = findClueHit(text, clue, bag)
+      if (!packed) continue
+      const keys = stringList(clue.keys || clue.field)
+      const matched = fields.find((field) => {
+        const ident = fieldIdentityOf(field)
+        return keys.includes(ident.identity) || keys.includes(ident.name) || keys.includes(ident.title)
+      })
+      const ident = matched ? fieldIdentityOf(matched) : { identity: keys[0] || '', name: keys[0] || '' }
+      if (!ident.identity) continue
+      pushCandidate({
+        ...packed,
+        keys: [...new Set([ident.identity, ident.name].filter(Boolean))],
+        values: stringList(clue.values || clue.value).length
+          ? stringList(clue.values || clue.value)
+          : packed.values,
+        not: clue.not === true || packed.not === true,
+      }, owner)
+    }
+  }
+  const notClues = []
+  for (const row of mergedVocab) {
+    for (const clue of cluesOfRow(row)) {
+      if (clue && clue.not === true) notClues.push(clue)
+    }
+  }
+  for (const kind of bound) {
+    const fields = schemaFieldsForKind(kind, mergedVocab, extra)
+    for (const field of fields) {
+      const ident = fieldIdentityOf(field)
+      if (!ident.identity) continue
+      const entries = fieldEnumEntries(field)
+      if (!entries.length) continue
+      const keys = [...new Set([ident.identity, ident.name].filter(Boolean))]
+      for (const [code, label] of entries) {
+        const says = [...new Set([label, code].filter((item) => item))]
+        for (const say of says.sort((a, b) => b.length - a.length)) {
+          let from = 0
+          while (from <= text.length) {
+            const idx = text.indexOf(say, from)
+            if (idx < 0) break
+            pushCandidate({
+              hitIndex: idx,
+              say,
+              keys,
+              values: [code],
+              not: false,
+            }, kind)
+            from = idx + Math.max(1, say.length)
+          }
+        }
+      }
+      for (const clue of notClues) {
+        const packed = findClueHit(text, clue, bag)
+        if (!packed) continue
+        const values = stringList(clue.values || clue.value)
+        const ownedCodes = entries
+          .filter(([code, label]) => values.includes(code) || (label && values.includes(label)) || packed.say === label || packed.say === code)
+          .map(([code]) => code)
+        if (!ownedCodes.length) continue
+        pushCandidate({
+          ...packed,
+          keys,
+          values: ownedCodes,
+          not: true,
+        }, kind)
+      }
+    }
+  }
+  candidates.sort((a, b) => (b.end - b.start) - (a.end - a.start) || a.start - b.start)
+  const takenSays = []
+  const accepted = []
+  for (const row of candidates) {
+    const same = takenSays.some((span) => span.index === row.start && span.end === row.end)
+    if (!same && spanOverlaps(row.start, row.end, takenSays)) continue
+    accepted.push(row)
+    if (!same) takenSays.push({ index: row.start, end: row.end })
+  }
+  const groups = new Map()
+  for (const row of accepted) {
+    const key = `${row.start}:${row.end}:${row.say}:${row.not ? 1 : 0}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(row)
+  }
+  let filterRefused = false
+  const assigned = []
+  for (const group of groups.values()) {
+    const identities = [...new Set(group.map((row) => String((row.keys || [])[0] || '')).filter(Boolean))]
+    if (identities.length > 1) {
+      filterRefused = true
+      continue
+    }
+    const seenOwner = new Set()
+    for (const row of group) {
+      if (seenOwner.has(row.ownerKind)) continue
+      seenOwner.add(row.ownerKind)
+      assigned.push({
+        hitIndex: row.start,
+        say: row.say,
+        keys: row.keys,
+        values: row.values,
+        not: row.not === true,
+        ...(Array.isArray(row.dateBefore) && row.dateBefore.length ? { dateBefore: row.dateBefore } : {}),
+        assignKind: row.ownerKind,
+        owned: true,
+      })
+    }
+  }
+  const andSays = joinWordSays(mergedVocab, 'and')
+  const orSays = joinWordSays(mergedVocab, 'or')
+  const byKindField = new Map()
+  for (const hit of assigned) {
+    const id = `${hit.assignKind}\0${(hit.keys || [])[0] || ''}\0${hit.not ? 1 : 0}`
+    if (!byKindField.has(id)) byKindField.set(id, [])
+    byKindField.get(id).push(hit)
+  }
+  let contradicts = false
+  for (const group of byKindField.values()) {
+    const ordered = group.slice().sort((a, b) => a.hitIndex - b.hitIndex)
+    for (let i = 0; i < ordered.length; i += 1) {
+      for (let j = i + 1; j < ordered.length; j += 1) {
+        const left = ordered[i]
+        const right = ordered[j]
+        const leftVals = (left.values || []).map(String).slice().sort().join('\0')
+        const rightVals = (right.values || []).map(String).slice().sort().join('\0')
+        if (!leftVals || leftVals === rightVals) continue
+        const between = text.slice(left.hitIndex + String(left.say || '').length, right.hitIndex)
+        const hasAnd = andSays.some((say) => say && between.includes(say))
+        const hasOr = orSays.some((say) => say && between.includes(say))
+        if (hasAnd && !hasOr) contradicts = true
+      }
+    }
+  }
   const span = rewriteSpan(text)
-  if (span.at < 0) return hits
-  return hits.filter((hit) => {
-    if (Number(hit.hitIndex) < span.at) return true
-    const keys = (hit.keys || []).map((item) => String(item || ''))
-    return keys.includes('action') || keys.includes('role')
-  })
+  const keptAssigned = span.at < 0 ? assigned : assigned.filter((hit) => Number(hit.hitIndex) < span.at)
+  const merged = [...roleHits, ...keptAssigned]
+  if (filterRefused) merged.filterRefused = true
+  if (contradicts) merged.contradicts = true
+  return merged
 }
 
 function termKey(term) {
@@ -753,33 +870,8 @@ function mergeTerms(list) {
   return out
 }
 
-function isClosedSetKey(key) {
-  return /^(status|state|stage|priority|category|type|状态|优先级|类型)$/i.test(String(key || ''))
-}
-
-function enumBackedField(fields, key) {
-  const want = String(key || '').trim()
-  if (!want) return false
-  return (Array.isArray(fields) ? fields : []).some((row) => {
-    if (!row || typeof row !== 'object') return false
-    const name = String(row.name || '').trim()
-    const title = String(row.title || (row.uiSchema && row.uiSchema.title) || '').trim()
-    if (name !== want && title !== want) return false
-    const enums = row.enums
-    return Boolean(enums && typeof enums === 'object' && !Array.isArray(enums) && Object.keys(enums).length)
-  })
-}
-
-function isFilterableHit(hit, extra = {}) {
-  if (!hit || typeof hit !== 'object') return false
-  const keys = (hit.keys || []).map((item) => String(item || '').trim()).filter(Boolean)
-  if (!keys.length) return false
-  if (keys.every((key) => key === 'role' || key === 'action' || key === 'join')) return false
-  if (keys.some((key) => isClosedSetKey(key))) return true
-  const kind = String(hit.assignKind || '').trim()
-  if (!kind) return false
-  const fields = schemaFieldsForKind(kind, extra.vocab, extra)
-  return keys.some((key) => enumBackedField(fields, key))
+function isFilterableHit(hit) {
+  return Boolean(hit && hit.owned === true)
 }
 
 function closedLikeValues(values) {
@@ -795,26 +887,9 @@ function dedupeNegatedClosedHits(hits) {
   return list.filter((row) => !(row && !row.not && closedLikeValues(row.values)))
 }
 
-function compressStatusWhere(terms) {
-  const list = Array.isArray(terms) ? terms : []
-  if (list.length <= 1) return list
-  const statusLike = list.every((term) => (
-    (term.keys || []).some((key) => /^(status|state|stage|状态)$/i.test(String(key || '')))
-  ))
-  if (!statusLike) return list
-  const values = [...new Set(list.flatMap((term) => term.values || []))]
-  const not = list.some((term) => term && term.not)
-  return [{
-    keys: [...(list[0].keys || [])],
-    values,
-    not,
-    ...(Array.isArray(list[0].dateBefore) && list[0].dateBefore.length ? { dateBefore: list[0].dateBefore } : {}),
-  }]
-}
-
-function termsForKind(hits, kind, extra = {}) {
+function termsForKind(hits, kind) {
   const want = String(kind || '').trim()
-  return mergeTerms(dedupeNegatedClosedHits(hits).filter((row) => row.assignKind === want && isFilterableHit(row, extra)).map((row) => ({
+  return mergeTerms(dedupeNegatedClosedHits(hits).filter((row) => row.assignKind === want && isFilterableHit(row)).map((row) => ({
     keys: row.keys,
     values: row.values,
     not: row.not,
@@ -841,9 +916,8 @@ function extraWhereOnKind(kind, extraWhere, extra = {}) {
   if (!schemaFields.length) return list
   return list.filter((term) => {
     const keys = (term.keys || []).map((item) => String(item || '').trim()).filter(Boolean)
-    const specific = keys.filter((key) => !/^(status|state|stage|状态)$/i.test(key))
-    if (specific.length) return specific.some((key) => fieldOnKindSchema(schemaFields, key))
-    return keys.some((key) => fieldOnKindSchema(schemaFields, key))
+    if (!keys.length) return false
+    return keys.every((key) => fieldOnKindSchema(schemaFields, key))
   })
 }
 
@@ -874,7 +948,7 @@ function whereForKind(hits, kind, extraWhere, extra = {}) {
     ...termsForKind(hits, kind, extra),
     ...extraWhereOnKind(kind, extraWhere, extra),
   ])
-  return compressStatusWhere(compressSameKeyTerms(merged))
+  return compressSameKeyTerms(merged)
 }
 
 function stripSaysFromText(text, says) {
@@ -942,6 +1016,13 @@ export function leftoverNameIdentity(speech, vocab, extra = {}, spec = {}) {
   }
   if (/^[A-Za-z][A-Za-z0-9._-]{1,31}$/.test(s)) return s
   return ''
+}
+
+function carryQueryFlags(next, hits) {
+  const packed = next && typeof next === 'object' ? next : {}
+  if (hits && hits.filterRefused) packed.filterRefused = true
+  if (hits && hits.contradicts) packed.contradicts = true
+  return packed
 }
 
 function fillEmptyWhere(node, hits, extra = {}) {
@@ -1066,14 +1147,14 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     if (from) next.from = from
     if (last.where.length) next.where = last.where
     else delete next.where
-    return attachSpeechIdentity(next, speech, vocab, bag, base)
+    return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
   }
 
   if (base.from && typeof base.from === 'object' && base.from.kind) {
-    return attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base)
+    return carryQueryFlags(attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base), hits)
   }
   if (existingSteps.length) {
-    return attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base)
+    return carryQueryFlags(attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base), hits)
   }
 
   const childWhere = whereForKind(hits, targetKind, base.where, bag)
@@ -1091,7 +1172,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   })
 
   if (!parent && !parentWhere.length && !childFiltered.length) {
-    return attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base)
+    return carryQueryFlags(attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base), hits)
   }
 
   const next = { ...base, kind: targetKind }
@@ -1099,7 +1180,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     next.from = parentWhere.length ? { kind: parent, where: parentWhere } : { kind: parent }
   }
   if (childFiltered.length) next.where = childFiltered
-  return attachSpeechIdentity(next, speech, vocab, bag, base)
+  return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
 }
 
 const WRITE_ACTIONS = ['删除', '过审', '新建', '改行']

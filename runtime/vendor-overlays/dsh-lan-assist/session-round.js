@@ -56,11 +56,11 @@ export function isEligibleRoundSheet(sheet) {
   const rows = sheetRowCount(sheet)
   const action = sheetAction(sheet)
   const previewId = sheetPreviewId(sheet)
-  if (action === '现查' && rows <= 0) return false
+  if (action === '现查' && rows <= 0 && sheet.querySettled !== true) return false
   if (action && action !== '现查' && rows <= 0 && !previewId && !(sheet.ambiguous || sheet.listed)) {
     return false
   }
-  return rows > 0 || Boolean(previewId) || Boolean(sheet.ambiguous || sheet.listed)
+  return rows > 0 || Boolean(previewId) || Boolean(sheet.ambiguous || sheet.listed) || sheet.querySettled === true
 }
 
 function leftoverQueryCoveringWrite(prev, incoming) {
