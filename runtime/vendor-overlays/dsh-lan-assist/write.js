@@ -763,12 +763,27 @@ export function createGate(opts = {}) {
     }
     if (!Array.isArray(schemaFields)) schemaFields = []
     async function sheet(result, more = {}) {
+      const hopFrom = plan.steps && plan.steps.length > 1
+        ? String(plan.steps[0].kind || '').trim()
+        : ''
+      const hopFromWhere = hopFrom && Array.isArray(plan.steps[0].where) && plan.steps[0].where.length
+        ? plan.steps[0].where
+        : undefined
+      const fromSlot = (more && more.from)
+        || (hopFrom ? { kind: hopFrom, ...(hopFromWhere ? { where: hopFromWhere } : {}) } : undefined)
+      const stepsMeta = planStepsForSheet(plan)
+      const rest = { ...(more || {}) }
+      delete rest.from
+      delete rest.steps
       return withSheet(result, {
         vocab: loaded.vocab,
         schemaFields,
         fieldsOf: opts.fieldsOf,
+        sessionId: spec.sessionId,
+        ...(fromSlot ? { from: fromSlot } : {}),
+        ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
         ...(spec.picked === true ? { picked: true } : {}),
-        ...more,
+        ...rest,
       })
     }
     async function settledList(kindName, account) {

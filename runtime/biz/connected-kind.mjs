@@ -417,13 +417,15 @@ function isHumanWritePreview(sheet) {
 /** GET/hydrate after session-end handoff: last handed sheet, never a later 现查 slot. */
 export function sheetForOfficialGet(official, lastEmitted, sessionId) {
   const last = lastEmitted && typeof lastEmitted === 'object' ? lastEmitted : null
-  const off = official && typeof official === 'object' ? official : null
-  if (!sessionId) {
+  let off = official && typeof official === 'object' ? official : null
+  const sid = String(sessionId || '').trim()
+  if (off && sid && !String(off.sessionId || '').trim()) off = { ...off, sessionId: sid }
+  if (!sid) {
     if (isHumanWritePreview(last)) return last
     return off || last
   }
-  const namedLast = sheetForNamedSession(last, sessionId)
-  const namedOff = sheetForNamedSession(off, sessionId)
+  const namedLast = sheetForNamedSession(last, sid)
+  const namedOff = sheetForNamedSession(off, sid)
   if (isHumanWritePreview(namedLast)) return namedLast
   return namedOff || namedLast
 }

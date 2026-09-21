@@ -376,4 +376,16 @@ test('official GET prefers last handed and never takes hall process', () => {
   }
   assert.equal(sheetForOfficialGet(official, laterList, 'sess-a')?.kind, 'KindLeaf')
   assert.equal(sheetForOfficialGet(official, laterList, 'sess-a')?.rows?.[0]?.no, 'HIT-1')
+  const unstamped = {
+    kind: 'KindLeaf',
+    action: '现查',
+    querySettled: true,
+    hitTotal: 0,
+    hitTotalState: 'known',
+    rows: [],
+  }
+  const stamped = sheetForOfficialGet(unstamped, null, 'sess-a')
+  assert.equal(stamped?.sessionId, 'sess-a')
+  assert.equal(stamped?.hitTotal, 0)
+  assert.equal(sheetForOfficialGet({ ...unstamped, sessionId: 'sess-a' }, null, 'sess-b'), null)
 })

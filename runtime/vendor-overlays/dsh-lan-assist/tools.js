@@ -224,6 +224,9 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
       })
       if (rounds && typeof rounds.noteToolSheet === 'function') {
         const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
+        if (sheet && typeof sheet === 'object' && sessionId && !String(sheet.sessionId || '').trim()) {
+          sheet.sessionId = sessionId
+        }
         const outcome = rounds.noteToolSheet(sessionId, sheet)
         if (outcome && outcome.cancel) {
           const live = exec && exec.agent
