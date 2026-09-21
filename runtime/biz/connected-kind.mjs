@@ -273,16 +273,39 @@ export function isConnectorCatalogDump(sheet) {
   return true
 }
 
+function sheetPicked(sheet) {
+  return Boolean(sheet && typeof sheet === 'object' && sheet.picked === true)
+}
+
+function sheetSpeech(sheet) {
+  if (!sheet || typeof sheet !== 'object') return ''
+  return String(sheet.speech || '').trim()
+}
+
+function waitingHitSetPick(sheet) {
+  if (!sheet || typeof sheet !== 'object') return false
+  if (sheetPreviewId(sheet)) return false
+  if (sheetRowCount(sheet) <= 1) return false
+  const action = String(sheet.action || '').trim()
+  if (!action || action === '现查') return false
+  return Boolean(sheet.ambiguous || sheet.listed)
+}
+
 export function shouldSkipCoveringPending(prev, incoming) {
   if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  const prevSpeech = sheetSpeech(prev)
+  const nextSpeech = sheetSpeech(incoming)
+  const sameSpeech = Boolean(prevSpeech && nextSpeech && prevSpeech === nextSpeech)
+  if (sheetPicked(prev) && sheetPreviewId(prev) && !sheetPicked(incoming)) {
+    if (!nextSpeech || sameSpeech) return true
+  }
+  if (waitingHitSetPick(prev) && sheetPreviewId(incoming) && !sheetPicked(incoming)) return true
   const prevRows = sheetRowCount(prev)
   const nextRows = sheetRowCount(incoming)
   if (prevRows <= 0) return false
   if (nextRows > 0) {
-    return isConnectorCatalogDump(incoming) && !String(incoming.speech || '').trim()
+    return isConnectorCatalogDump(incoming) && !nextSpeech
   }
-  const prevSpeech = String(prev.speech || '').trim()
-  const nextSpeech = String(incoming.speech || '').trim()
   if (prevSpeech && nextSpeech && prevSpeech === nextSpeech) return true
   if (isConnectorCatalogDump(incoming)) return true
   const action = String(incoming.action || '').trim()

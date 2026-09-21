@@ -162,6 +162,22 @@ export function createGate(bag) {
     const prevRows = prev && Array.isArray(prev.rows) ? prev.rows.length : 0
     const nextRows = incoming && Array.isArray(incoming.rows) ? incoming.rows.length : 0
     if (prevRows > 0 && nextRows === 0) return true
+    const prevPid = String((prev && (prev.preview_id || prev.previewId)) || '').trim()
+    const nextPid = String((incoming && (incoming.preview_id || incoming.previewId)) || '').trim()
+    const prevSpeech = String((prev && prev.speech) || '').trim()
+    const nextSpeech = String((incoming && incoming.speech) || '').trim()
+    if (prev && prev.picked === true && prevPid && incoming && incoming.picked !== true) {
+      if (!nextSpeech || (prevSpeech && prevSpeech === nextSpeech)) return true
+    }
+    const waitingHit = Boolean(
+      prev
+      && prevRows > 1
+      && !prevPid
+      && String((prev && prev.action) || '').trim()
+      && String((prev && prev.action) || '').trim() !== '现查'
+      && (prev.ambiguous || prev.listed),
+    )
+    if (waitingHit && nextPid && incoming && incoming.picked !== true) return true
     return false
   }
 
@@ -248,6 +264,7 @@ export function createGate(bag) {
       preview_id: String((preview && (preview.preview_id || (preview.sheet && (preview.sheet.preview_id || preview.sheet.previewId)))) || '').trim(),
       rows: (preview && preview.sheet && Array.isArray(preview.sheet.rows)) ? preview.sheet.rows : [],
       speech: String((preview && preview.sheet && preview.sheet.speech) || spec.speech || spec.quote || '').trim(),
+      ...(incoming.picked === true || spec.picked === true ? { picked: true } : {}),
     }
     const hallPrev = (await store.get()).pendingSheet
     if (shouldKeepPopulatedListSheet(hallPrev, writeIncoming)) {

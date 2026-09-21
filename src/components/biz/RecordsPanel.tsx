@@ -48,6 +48,7 @@ import {
 } from '@/lib/biz-list-query'
 import {
   resolveConnectedKind,
+  shouldSkipCoveringPending,
   type ConnectedKindRow,
 } from '@/lib/connected-kind'
 import {
@@ -827,6 +828,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (liveSid && !sheetBelongsToSession(next, liveSid)) return false
     const rowCount = incomingSheetRowCount(next)
     if (!rowCount && !next.kind) return false
+    if (shouldSkipCoveringPending(displayedSheetRef.current, next)) return false
     if (shouldRejectIncomingCovering(next, displayedRowCountRef.current, displayedSheetRef.current, connected)) return false
     if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId)) {
       return false
@@ -1130,7 +1132,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         ...hopBind,
         ...previewBody,
       })
-      const sheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
+      const rawSheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
+      const sheet = (waitingPick || previewBody.picked === true)
+        ? { ...rawSheet, picked: true }
+        : rawSheet
       const previewId = sheetPreviewId(sheet)
       const canWrite = Boolean(sheet.canWrite ?? sheet.can_write ?? data.canWrite)
       if (!isBizListQueryAction(action) && previewId) ensureListRestoreBeforeWritePreview(sheet)

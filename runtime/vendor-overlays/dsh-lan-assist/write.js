@@ -232,6 +232,7 @@ export function packSheet(spec = {}) {
     speech: String(spec.speech || '').trim(),
     listed: !!spec.listed,
     ambiguous: !!spec.ambiguous,
+    ...(spec.picked === true ? { picked: true } : {}),
     ...(alreadyAtTarget ? { alreadyAtTarget: true } : {}),
     ...(spec.patch && typeof spec.patch === 'object' && !Array.isArray(spec.patch) && Object.keys(spec.patch).length
       ? { patch: spec.patch }
@@ -765,7 +766,13 @@ export function createGate(opts = {}) {
     }
     if (!Array.isArray(schemaFields)) schemaFields = []
     async function sheet(result, more = {}) {
-      return withSheet(result, { vocab: loaded.vocab, schemaFields, fieldsOf: opts.fieldsOf, ...more })
+      return withSheet(result, {
+        vocab: loaded.vocab,
+        schemaFields,
+        fieldsOf: opts.fieldsOf,
+        ...(spec.picked === true ? { picked: true } : {}),
+        ...more,
+      })
     }
     let writePatch = (recognized.action === '改行' || recognized.action === '新建')
       ? bindPatchEnums({ ...plan.patch }, schemaFields)
@@ -1203,6 +1210,7 @@ export function createGate(opts = {}) {
       const cached = hopXianchaCache.get(hopXianchaCacheKey(sessionId, workspaceKey, hopSpeech))
       if (cached && hopSheetHasKindHits(cached)) return cached
     }
+    if (spec.picked === true) enriched.picked = true
     const result = await previewStructured(plan, enriched, loaded)
     if (
       plan.action === '现查'

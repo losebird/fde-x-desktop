@@ -125,6 +125,47 @@ test('empty second shot and catalog dump skip covering a populated pending', () 
   }), false)
 })
 
+test('person pick and waiting hit-set are not covered by a leftover write', () => {
+  const hitSet = {
+    kind: 'LongKind',
+    action: '改行',
+    speech: 'rewrite spoken name',
+    listed: true,
+    ambiguous: true,
+    rows: [{ no: 'HIT-1' }, { no: 'HIT-2' }],
+  }
+  const leftoverWrite = {
+    kind: 'LongKind',
+    action: '改行',
+    speech: 'rewrite spoken name',
+    preview_id: 'pv_other',
+    rows: [{ no: 'HIT-1' }],
+  }
+  assert.equal(shouldSkipCoveringPending(hitSet, leftoverWrite), true)
+  const picked = {
+    kind: 'LongKind',
+    action: '改行',
+    speech: 'rewrite spoken name',
+    preview_id: 'pv_pick',
+    picked: true,
+    rows: [{ no: 'HIT-2' }],
+  }
+  assert.equal(shouldSkipCoveringPending(picked, leftoverWrite), true)
+  const personPick = {
+    ...leftoverWrite,
+    picked: true,
+    preview_id: 'pv_pick',
+    rows: [{ no: 'HIT-2' }],
+  }
+  assert.equal(shouldSkipCoveringPending(hitSet, personPick), false)
+  assert.equal(shouldSkipCoveringPending(picked, {
+    kind: 'LongKind',
+    action: '现查',
+    speech: 'next utterance on another kind',
+    rows: [{ no: 'NEXT-1' }],
+  }), false)
+})
+
 test('cancel cover keeps the hall list and never substitutes a catalog dump', () => {
   const hop = {
     kind: 'LongKind',

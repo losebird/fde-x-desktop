@@ -195,21 +195,44 @@ export function isConnectorCatalogDump(sheet: Record<string, unknown> | null | u
   return true
 }
 
+function sheetPicked(sheet: Record<string, unknown> | null | undefined): boolean {
+  return Boolean(sheet && typeof sheet === 'object' && sheet.picked === true)
+}
+
+function sheetSpeech(sheet: Record<string, unknown> | null | undefined): string {
+  if (!sheet || typeof sheet !== 'object') return ''
+  return String(sheet.speech || '').trim()
+}
+
+function waitingHitSetPick(sheet: Record<string, unknown> | null | undefined): boolean {
+  if (!sheet || typeof sheet !== 'object') return false
+  if (sheetPreviewId(sheet)) return false
+  if (sheetRowCount(sheet) <= 1) return false
+  const action = String(sheet.action || '').trim()
+  if (!action || action === '现查') return false
+  return Boolean(sheet.ambiguous || sheet.listed)
+}
+
 /** BFF/watch/remember: do not cover a populated this-utterance sheet. */
 export function shouldSkipCoveringPending(
   prev: Record<string, unknown> | null | undefined,
   incoming: Record<string, unknown> | null | undefined,
 ): boolean {
   if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  const prevSpeech = sheetSpeech(prev)
+  const nextSpeech = sheetSpeech(incoming)
+  const sameSpeech = Boolean(prevSpeech && nextSpeech && prevSpeech === nextSpeech)
+  if (sheetPicked(prev) && sheetPreviewId(prev) && !sheetPicked(incoming)) {
+    if (!nextSpeech || sameSpeech) return true
+  }
+  if (waitingHitSetPick(prev) && sheetPreviewId(incoming) && !sheetPicked(incoming)) return true
   const prevRows = sheetRowCount(prev)
   const nextRows = sheetRowCount(incoming)
   if (prevRows <= 0) return false
   if (nextRows > 0) {
     return isConnectorCatalogDump(incoming)
-      && !String(incoming.speech || '').trim()
+      && !nextSpeech
   }
-  const prevSpeech = String(prev.speech || '').trim()
-  const nextSpeech = String(incoming.speech || '').trim()
   if (prevSpeech && nextSpeech && prevSpeech === nextSpeech) return true
   if (isConnectorCatalogDump(incoming)) return true
   const action = String(incoming.action || '').trim()

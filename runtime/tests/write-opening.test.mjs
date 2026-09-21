@@ -157,6 +157,19 @@ test('same-session write previews follow the latest action instead of the first 
   assert.equal(new Set(seen.map((row) => row.openingId)).size, WRITE_CAN.length)
 })
 
+test('packSheet stamps a person pick so leftover writes can refuse to cover it', () => {
+  const sheet = packSheet({
+    kind: 'KindA',
+    action: '改行',
+    picked: true,
+    matches: [{ no: 'R-2', fields: { phase: 'open' } }],
+    preview_id: 'pv_pick',
+    speech: 'rewrite spoken name',
+  })
+  assert.equal(sheet.picked, true)
+  assert.equal(sheet.rows[0].no, 'R-2')
+})
+
 test('packSheet 过审 already at target: empty changes, canWrite false, explicit speak', () => {
   const fieldKey = 'phase'
   const fieldLabel = '阶段'

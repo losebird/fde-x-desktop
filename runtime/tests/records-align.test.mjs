@@ -89,6 +89,7 @@ test('RecordsPanel separates connector picker from operation kind chips and canc
   assert.match(src, /operationBundlesAlign\(anchor, sheet\)/)
   assert.match(src, /keepPending/)
   assert.match(src, /shouldRejectIncomingCovering\(/)
+  assert.match(src, /shouldSkipCoveringPending\(/)
   assert.match(src, /resolveConnectedKind\(/)
   const applyPending = src.slice(src.indexOf('const applyPendingSheet'))
   const ensureAt = applyPending.indexOf('if (isWritePreview) ensureListRestoreBeforeWritePreview')
