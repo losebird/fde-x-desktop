@@ -370,3 +370,23 @@ export function sheetForNamedSession(sheet, sessionId) {
   if (!sheet || typeof sheet !== 'object') return null
   return String(sheet.sessionId || '').trim() === sid ? sheet : null
 }
+
+/**
+ * GET pending-sheet: dump vs utterance cover, then named-session filter.
+ * Unstamped lan-assist hall must not wipe this session's last emit (改行 preview 200 → GET empty).
+ */
+export function sheetForPendingGet(hallSheet, lastEmitted, sessionId) {
+  const last = lastEmitted && typeof lastEmitted === 'object' ? lastEmitted : null
+  const covered = sheetAfterCancelCover(hallSheet, last)
+  const namedCovered = sheetForNamedSession(covered, sessionId)
+  if (namedCovered) return namedCovered
+  const namedLast = sheetForNamedSession(last, sessionId)
+  if (!namedLast) return null
+  if (!covered) return namedLast
+  const coveredSid = String(covered.sessionId || '').trim()
+  const sid = String(sessionId || '').trim()
+  if (coveredSid && coveredSid !== sid) return namedLast
+  if (!coveredSid && shouldSkipCoveringPending(namedLast, covered)) return namedLast
+  if (!coveredSid && sid) return { ...covered, sessionId: sid }
+  return namedLast
+}

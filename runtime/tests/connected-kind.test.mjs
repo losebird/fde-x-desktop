@@ -9,6 +9,7 @@ import {
   resolveConnectedKind,
   sheetAfterCancelCover,
   sheetForNamedSession,
+  sheetForPendingGet,
   shouldSkipCoveringPending,
   speechWantsMatchSet,
 } from '../biz/connected-kind.mjs'
@@ -230,4 +231,57 @@ test('named session GET does not serve another session hall', () => {
   const covered = sheetAfterCancelCover(null, other)
   assert.equal(sheetForNamedSession(covered, 'sess-a'), null)
   assert.equal(sheetForNamedSession(covered, 'sess-b'), other)
+})
+
+test('named GET keeps session write when hall is unstamped or a covering dump', () => {
+  const stamped = {
+    kind: 'KindW',
+    action: '改行',
+    sessionId: 'sess-a',
+    preview_id: 'pv-1',
+    speech: 'change this row',
+    rows: [{ no: 'ROW-9' }],
+  }
+  const unstampedHall = {
+    kind: 'KindW',
+    action: '改行',
+    preview_id: 'pv-1',
+    speech: 'change this row',
+    rows: [{ no: 'ROW-9' }],
+  }
+  const dump = {
+    kind: 'KindW',
+    action: '现查',
+    rows: Array.from({ length: 20 }, (_, index) => ({ no: `C-${index}` })),
+  }
+  const emptyWrite = {
+    kind: 'KindW',
+    action: '过审',
+    speech: 'change this row',
+    rows: [],
+  }
+  const otherQuery = {
+    kind: 'KindQ',
+    action: '现查',
+    speech: 'list the other table',
+    rows: [{ no: 'Q-1' }],
+  }
+  const gotWrite = sheetForPendingGet(unstampedHall, stamped, 'sess-a')
+  assert.equal(gotWrite?.kind, 'KindW')
+  assert.equal(gotWrite?.action, '改行')
+  assert.equal(gotWrite?.sessionId, 'sess-a')
+  assert.equal(sheetForPendingGet(dump, stamped, 'sess-a'), stamped)
+  const kept = sheetForPendingGet(emptyWrite, stamped, 'sess-a')
+  assert.equal(kept?.action, '改行')
+  assert.equal(kept?.rows?.length, 1)
+  const next = sheetForPendingGet(otherQuery, stamped, 'sess-a')
+  assert.equal(next?.kind, 'KindQ')
+  assert.equal(next?.action, '现查')
+  assert.equal(sheetForPendingGet(unstampedHall, stamped, 'sess-b'), null)
+  assert.equal(sheetForPendingGet({
+    kind: 'KindB',
+    action: '改行',
+    sessionId: 'sess-b',
+    rows: [{ no: 'B-1' }],
+  }, null, 'sess-a'), null)
 })

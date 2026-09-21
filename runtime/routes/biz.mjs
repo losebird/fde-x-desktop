@@ -37,8 +37,7 @@ import {
   isSpokenActionOrBatchToken,
   resolveConnectedKind,
   shouldSkipCoveringPending,
-  sheetAfterCancelCover,
-  sheetForNamedSession,
+  sheetForPendingGet,
 } from '../biz/connected-kind.mjs'
 import {
   auditRecordNo,
@@ -857,7 +856,7 @@ export async function handleBizRoutes(request, response, url, deps) {
         } catch { /* keep gate sheet */ }
       }
       const lastEmitted = querySessionId ? peekLastEmittedPending(querySessionId) : null
-      const served = sheetForNamedSession(sheetAfterCancelCover(hall, lastEmitted), querySessionId)
+      const served = sheetForPendingGet(hall, lastEmitted, querySessionId)
       sendJson(response, 200, {
         data: { sheet: served ? stripSecrets(served) : null },
         correlationId,
