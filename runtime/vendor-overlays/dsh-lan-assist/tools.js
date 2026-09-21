@@ -222,14 +222,16 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
         speech: (args && (args.speech || args.quote)) || lastUserSpeech(exec) || '',
         userSpeech: lastUserSpeech(exec) || '',
       })
-      if (rounds && typeof rounds.startRound === 'function' && sessionId && !rounds.isOpen?.(sessionId)) {
-        rounds.startRound(sessionId)
-      }
       if (rounds && typeof rounds.noteToolSheet === 'function') {
         const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
         const outcome = rounds.noteToolSheet(sessionId, sheet)
-        if (outcome && outcome.cancel && typeof rounds.cancelLeftover === 'function') {
-          void Promise.resolve(rounds.cancelLeftover(sessionId)).catch(() => undefined)
+        if (outcome && outcome.cancel) {
+          const live = exec && exec.agent
+          if (live && typeof live.cancel === 'function') {
+            try { live.cancel({ kind: 'user' }, { keepInbox: true }) } catch { /* leftover cancel is best-effort */ }
+          } else if (typeof rounds.cancelLeftover === 'function') {
+            void Promise.resolve(rounds.cancelLeftover(sessionId)).catch(() => undefined)
+          }
         }
       }
       return JSON.stringify(result)

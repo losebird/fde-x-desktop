@@ -142,6 +142,26 @@ test('eligible tool result after a closed round opens the next send', () => {
   assert.equal(rounds.servedSheet('sess-a').kind, 'KindTwo')
 })
 
+test('leftover after handoff does not reopen, even when the next lookup is eligible', () => {
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  rounds.noteToolSheet('sess-a', hopSheet())
+  const handed = rounds.noteToolSheet('sess-a', dumpSheet())
+  assert.equal(handed.cancel, true)
+  assert.equal(handed.emit, true)
+  assert.equal(rounds.isOpen('sess-a'), false)
+  const again = rounds.noteToolSheet('sess-a', hopSheet('KindLater'))
+  assert.equal(again.cancel, true)
+  assert.equal(again.leftover, true)
+  assert.equal(again.emit, false)
+  assert.equal(rounds.isOpen('sess-a'), false)
+  assert.equal(rounds.servedSheet('sess-a').kind, hopSheet().kind)
+  rounds.closeRound('sess-a')
+  const next = rounds.noteToolSheet('sess-a', hopSheet('KindTwo'))
+  assert.equal(next.cancel, false)
+  assert.equal(rounds.isOpen('sess-a'), true)
+})
+
 test('leftover dump after a closed official does not open a new round', () => {
   const rounds = createSessionRoundStore()
   rounds.startRound('sess-a')

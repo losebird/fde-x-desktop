@@ -73,21 +73,16 @@ export async function apply(ctx, config) {
     const now = Date.now()
     const prev = Number(lastCancelAt.get(sid) || 0)
     if (now - prev < 1500) return
-    lastCancelAt.set(sid, now)
     const agents = agentsCtx && (agentsCtx.agents || (typeof agentsCtx.get === 'function' ? agentsCtx.get('agents') : null))
-    let agent = agents && typeof agents.get === 'function' ? agents.get(sid) : null
-    if (!agent && agents && typeof agents.resume === 'function') {
-      try {
-        const handle = await agents.resume({ resumeSessionId: sid })
-        agent = handle && (handle.agent || handle)
-      } catch { /* optional */ }
-    }
+    const agent = agents && typeof agents.get === 'function' ? agents.get(sid) : null
     if (agent && typeof agent.cancel === 'function') {
-      try { await agent.cancel() } catch { /* leftover cancel is best-effort */ }
+      try { agent.cancel({ kind: 'user' }, { keepInbox: true }) } catch { /* leftover cancel is best-effort */ }
+      lastCancelAt.set(sid, now)
       return
     }
     if (agent && typeof agent.abort === 'function') {
       try { await agent.abort() } catch { /* leftover cancel is best-effort */ }
+      lastCancelAt.set(sid, now)
     }
   }
 
@@ -392,8 +387,6 @@ export async function apply(ctx, config) {
 
   try {
     registerTools(ctx, { defineTool }, secretary, {
-      startRound: (sessionId) => sessionRounds.startRound(sessionId),
-      isOpen: (sessionId) => sessionRounds.isOpen(sessionId),
       noteToolSheet: (sessionId, sheet) => sessionRounds.noteToolSheet(sessionId, sheet),
       cancelLeftover,
     })

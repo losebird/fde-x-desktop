@@ -120,11 +120,12 @@ export function createSessionRoundStore() {
       weak: null,
       official: prev ? prev.official : null,
       handed: Boolean(prev && prev.official),
+      closedBy: '',
     })
     return id
   }
 
-  function closeRound(sessionId) {
+  function closeRound(sessionId, reason = 'turn') {
     const sid = String(sessionId || '').trim()
     const round = peek(sid)
     if (!round) return { official: null, emit: false, cancel: false }
@@ -133,6 +134,7 @@ export function createSessionRoundStore() {
       const next = round.candidate || round.weak
       if (next) round.official = next
     }
+    round.closedBy = reason === 'leftover' ? 'leftover' : 'turn'
     const emit = Boolean(round.official) && !round.handed
     if (emit) round.handed = true
     return { official: emit ? round.official : null, emit, cancel: false }
@@ -145,6 +147,9 @@ export function createSessionRoundStore() {
     }
     let round = peek(sid)
     if (!round || !round.open) {
+      if (round && round.closedBy === 'leftover') {
+        return { emit: false, official: round.official, cancel: true, leftover: true, process: false }
+      }
       if (round && round.official && isLeftoverAfterCandidate(round.official, incomingRaw)) {
         return { emit: false, official: round.official, cancel: true, leftover: true, process: false }
       }
@@ -156,7 +161,7 @@ export function createSessionRoundStore() {
     }
 
     if (round.candidate && isLeftoverAfterCandidate(round.candidate, incomingRaw)) {
-      const closed = closeRound(sid)
+      const closed = closeRound(sid, 'leftover')
       return { ...closed, cancel: true, leftover: true, process: false }
     }
 
