@@ -29,6 +29,7 @@ export function ensureBizRecordsAutoOpen() {
       if (!sheet || typeof sheet !== 'object') return
       const action = String(sheet.action || '')
       if (!action) return
+      if (!String(sheet.sessionId || '').trim()) return
       rememberBizPendingSheet(sheet)
       if (useApp.getState().activeDataSubview === 'operations') return
       useApp.getState().focusBizRecordsPanel()

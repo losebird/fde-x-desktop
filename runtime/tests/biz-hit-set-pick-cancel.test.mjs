@@ -4,8 +4,14 @@ import assert from 'node:assert/strict'
 test('shouldCancelDshAfterHitSetPick only after waitingPick write preview', async () => {
   const {
     shouldCancelDshAfterHitSetPick,
+    shouldCancelDshAfterWritePreview,
     resolveHitSetPickCancelSessionId,
   } = await import('../../src/lib/biz-hit-set-pick-cancel.ts')
+
+  assert.equal(shouldCancelDshAfterWritePreview('改行', 'pv1'), true)
+  assert.equal(shouldCancelDshAfterWritePreview('过审', 'pv1'), true)
+  assert.equal(shouldCancelDshAfterWritePreview('现查', 'pv1'), false)
+  assert.equal(shouldCancelDshAfterWritePreview('改行', ''), false)
 
   assert.equal(shouldCancelDshAfterHitSetPick(true, '改行', 'pv1'), true)
   assert.equal(shouldCancelDshAfterHitSetPick(false, '改行', 'pv1'), false)

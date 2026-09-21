@@ -75,6 +75,7 @@ import { isBizSurfaceTool } from '@/lib/biz-tool-events'
 import {
   resolveHitSetPickCancelSessionId,
   shouldCancelDshAfterHitSetPick,
+  shouldCancelDshAfterWritePreview,
 } from '@/lib/biz-hit-set-pick-cancel'
 import { useEvents } from '@/lib/events'
 
@@ -311,8 +312,11 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const displayedRowCountRef = useRef(0)
   const historyPinnedSurfaceIdRef = useRef('')
   const historySessionIdRef = useRef('')
+  const liveSessionIdRef = useRef('')
+  const cancelledWritePreviewRef = useRef('')
   const operationKindViewRef = useRef('')
   const displayedSheetRef = useRef<Record<string, unknown> | null>(null)
+  liveSessionIdRef.current = String(activeAiSessionId || '').trim()
   const peekActivePending = useCallback(() => {
     const sid = String(activeAiSessionId || historySessionIdRef.current || '').trim()
     return peekBizPendingSheet(sid || undefined)
@@ -794,6 +798,22 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (!historyPinnedSurfaceIdRef.current) setHistorySurfaceId(surfaceId)
   }, [bizCwd, connectionId, connections, rememberSheet])
 
+  const abortLeftoverAskTurn = (sheet: Record<string, unknown>) => {
+    const previewId = sheetPreviewId(sheet)
+    const action = String(sheet.action || '')
+    if (!shouldCancelDshAfterWritePreview(action, previewId)) return
+    if (cancelledWritePreviewRef.current === previewId) return
+    const cancelSessionId = resolveHitSetPickCancelSessionId({
+      bindSheet: sheet,
+      pendingSheet: sheet,
+      activeAiSessionId: liveSessionIdRef.current,
+      historySessionId: historySessionIdRef.current,
+    })
+    if (!cancelSessionId) return
+    cancelledWritePreviewRef.current = previewId
+    void runtimeApi.cancelAi(cancelSessionId).catch(() => undefined)
+  }
+
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
     const connected = kindCatalog
     let next = sheet
@@ -803,6 +823,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       if (!resolved) return false
       if (resolved !== incomingKind) next = { ...sheet, kind: resolved }
     }
+    const liveSid = String(liveSessionIdRef.current || '').trim()
+    if (liveSid && !sheetBelongsToSession(next, liveSid)) return false
     const rowCount = incomingSheetRowCount(next)
     if (!rowCount && !next.kind) return false
     if (shouldRejectIncomingCovering(next, displayedRowCountRef.current, displayedSheetRef.current, connected)) return false
@@ -827,6 +849,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (isWritePreview && isBizPreviewDismissed(next)) {
       return true
     }
+
+    if (isWritePreview) abortLeftoverAskTurn(next)
 
     if (isWritePreview) ensureListRestoreBeforeWritePreview(next)
 
@@ -875,13 +899,14 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     if (historyPinnedSurfaceIdRef.current && !surfaceId) return false
-    const sid = String(activeAiSessionId || historySessionIdRef.current || '').trim()
+    const sid = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
     const cached = peekBizPendingSheet(sid || undefined)
     if (cached && sheetBelongsToSession(cached, sid) && !isBizPreviewDismissed(cached)) {
       if (applyPendingSheet(cached, surfaceId)) return true
     }
     try {
       const { sheet } = await runtimeApi.getBizPendingSheet(undefined, sid || undefined)
+      if (liveSessionIdRef.current !== sid) return false
       if (!sheet || typeof sheet !== 'object') return false
       if (isBizPreviewDismissed(sheet)) {
         return false
@@ -891,13 +916,16 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     } catch {
       return false
     }
-  }, [activeAiSessionId, applyPendingSheet])
+  }, [applyPendingSheet])
 
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd) return
     historyPinnedSurfaceIdRef.current = ''
     operationKindViewRef.current = ''
+    cancelledWritePreviewRef.current = ''
     const sid = String(activeAiSessionId || '').trim()
+    liveSessionIdRef.current = sid
+    historySessionIdRef.current = sid
 
     const clearDisplayedForSession = () => {
       appliedSheetFpRef.current = ''
@@ -920,6 +948,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
     clearDisplayedForSession()
     void runtimeApi.getBizPendingSheet(undefined, sid || undefined).then(({ sheet }) => {
+      if (liveSessionIdRef.current !== sid) return
       if (
         sheet
         && typeof sheet === 'object'
@@ -929,7 +958,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         applyPendingSheet(sheet)
         return
       }
-      clearDisplayedForSession()
+      if (liveSessionIdRef.current === sid) clearDisplayedForSession()
     }).catch(() => undefined)
   }, [activeAiSessionId, applyPendingSheet, runtimeReady, workspaceCwd])
 
@@ -958,12 +987,13 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (surfaces.length === 0) return
     if (kind) return
     void (async () => {
-      const sid = String(activeAiSessionId || historySessionIdRef.current || '').trim()
+      const sid = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
       let listPending = peekListPendingSheet(sid || undefined)
       if (!listPending) {
         try {
           const { sheet } = await runtimeApi.getBizPendingSheet(undefined, sid || undefined)
-          if (sheet && typeof sheet === 'object') {
+          if (liveSessionIdRef.current !== sid) return
+          if (sheet && typeof sheet === 'object' && sheetBelongsToSession(sheet, sid)) {
             rememberBizPendingSheet(sheet)
             listPending = peekListPendingSheet(sid || undefined)
           }
@@ -971,7 +1001,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
           listPending = null
         }
       }
-      if (listPending) {
+      if (liveSessionIdRef.current !== sid) return
+      if (listPending && sheetBelongsToSession(listPending, sid)) {
         const seedKind = String(listPending.kind || '')
         if (seedKind) setKind(seedKind)
         applyPendingSheet(listPending)
@@ -989,21 +1020,23 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       }
       const sheetWithSession = payload.sheet as Record<string, unknown>
       const eventSessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : ''
-      rememberBizPendingSheet(
-        eventSessionId && !sheetWithSession.sessionId
-          ? { ...sheetWithSession, sessionId: eventSessionId }
-          : sheetWithSession,
-      )
+      const stamped = eventSessionId && !sheetWithSession.sessionId
+        ? { ...sheetWithSession, sessionId: eventSessionId }
+        : sheetWithSession
+      rememberBizPendingSheet(stamped)
+      const liveSid = String(liveSessionIdRef.current || '').trim()
+      if (liveSid && !sheetBelongsToSession(stamped, liveSid)) return
       let surfaceId = incomingSurfaceId
-      applyPendingSheet(payload.sheet, surfaceId)
+      applyPendingSheet(stamped, surfaceId)
       void (async () => {
         if (!bizCwd) return
+        if (liveSessionIdRef.current !== liveSid) return
         try {
           const items = await runtimeApi.listBizSurfaces(bizCwd, 40)
           setSurfaces(items)
           if (!surfaceId) {
-            surfaceId = matchSurfaceIdForSheet(items, payload.sheet as Record<string, unknown>, {
-              sessionId: payload.sessionId,
+            surfaceId = matchSurfaceIdForSheet(items, stamped, {
+              sessionId: eventSessionId || String(stamped.sessionId || ''),
               previewId: payload.previewId,
             })
           }
@@ -1011,8 +1044,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
           if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId)) return
           const conn = connections.find((c) => c.id === connectionId) || connections[0]
           const connName = conn?.name || '连接器'
-          rememberBizSurfaceSheet(bizCwd, surfaceId, payload.sheet as Record<string, unknown>, connName)
-          rememberSheet({ sheet: payload.sheet as Record<string, unknown>, connName, surfaceId })
+          rememberBizSurfaceSheet(bizCwd, surfaceId, stamped, connName)
+          rememberSheet({ sheet: stamped, connName, surfaceId })
           if (!historyPinnedSurfaceIdRef.current) setHistorySurfaceId(surfaceId)
         } catch {
           // ignore list failure — in-memory cache still updated via applyPendingSheet
@@ -1031,7 +1064,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (!isBizSurfaceTool(String(payload.tool || ''))) return
     if (historyPinnedSurfaceIdRef.current) return
     const cached = peekActivePending()
-    if (cached) {
+    if (cached && sheetBelongsToSession(cached, liveSessionIdRef.current)) {
       applyPendingSheet(cached)
       return
     }
@@ -1117,15 +1150,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         })
       }
       if (shouldCancelDshAfterHitSetPick(waitingPick, action, previewId)) {
-        const cancelSessionId = resolveHitSetPickCancelSessionId({
-          bindSheet: bindSheet && typeof bindSheet === 'object' ? bindSheet : null,
-          pendingSheet,
-          activeAiSessionId,
-          historySessionId: historySessionIdRef.current || null,
-        })
-        if (cancelSessionId) {
-          void runtimeApi.cancelAi(cancelSessionId).catch(() => undefined)
-        }
+        abortLeftoverAskTurn(sheet)
       }
       if (action === '新建') setCreateDraft(null)
       void loadSurfaces()

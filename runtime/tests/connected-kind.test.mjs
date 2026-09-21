@@ -8,6 +8,7 @@ import {
   isSpokenActionOrBatchToken,
   resolveConnectedKind,
   sheetAfterCancelCover,
+  sheetForNamedSession,
   shouldSkipCoveringPending,
   speechWantsMatchSet,
 } from '../biz/connected-kind.mjs'
@@ -146,4 +147,16 @@ test('cancel cover keeps the hall list and never substitutes a catalog dump', ()
   assert.equal(sheetAfterCancelCover(stripped, catalog), stripped)
   assert.equal(sheetAfterCancelCover(null, catalog), null)
   assert.equal(sheetAfterCancelCover(null, hop), hop)
+})
+
+test('named session GET does not serve another session hall', () => {
+  const live = { kind: 'KindA', action: '现查', sessionId: 'sess-a', rows: [{ no: 'A-1' }] }
+  const other = { kind: 'KindB', action: '改行', sessionId: 'sess-b', rows: [{ no: 'B-1' }] }
+  assert.equal(sheetForNamedSession(live, 'sess-a'), live)
+  assert.equal(sheetForNamedSession(other, 'sess-a'), null)
+  assert.equal(sheetForNamedSession(live, ''), live)
+  assert.equal(sheetForNamedSession(null, 'sess-a'), null)
+  const covered = sheetAfterCancelCover(null, other)
+  assert.equal(sheetForNamedSession(covered, 'sess-a'), null)
+  assert.equal(sheetForNamedSession(covered, 'sess-b'), other)
 })

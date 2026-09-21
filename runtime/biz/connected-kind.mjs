@@ -300,3 +300,11 @@ export function sheetAfterCancelCover(hallSheet, lastEmitted) {
   if (last && !isConnectorCatalogDump(last)) return last
   return null
 }
+
+/** Named session GET/hydrate: never serve another session's hall or lastEmitted. */
+export function sheetForNamedSession(sheet, sessionId) {
+  const sid = String(sessionId || '').trim()
+  if (!sid) return sheet && typeof sheet === 'object' ? sheet : null
+  if (!sheet || typeof sheet !== 'object') return null
+  return String(sheet.sessionId || '').trim() === sid ? sheet : null
+}

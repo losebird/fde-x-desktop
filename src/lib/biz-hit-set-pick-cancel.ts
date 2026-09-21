@@ -1,10 +1,15 @@
+/** Write preview on this utterance: leftover AskUserQuestion / thinking must not block the next speech. */
+export function shouldCancelDshAfterWritePreview(action: string, previewId: string): boolean {
+  return Boolean(String(previewId || '').trim()) && String(action || '').trim() !== '现查'
+}
+
 /** After a hit-set row pick yields a write preview, abort the pending DSH AskUserQuestion turn. */
 export function shouldCancelDshAfterHitSetPick(
   waitingPick: boolean,
   action: string,
   previewId: string,
 ): boolean {
-  return waitingPick && Boolean(previewId) && String(action || '').trim() !== '现查'
+  return waitingPick && shouldCancelDshAfterWritePreview(action, previewId)
 }
 
 export function resolveHitSetPickCancelSessionId(input: {

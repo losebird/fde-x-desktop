@@ -34,6 +34,7 @@ describe('biz surfaces and live execute', () => {
     const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
     assert.match(source, /\/api\/v1\/biz\/pending-sheet/)
     assert.match(source, /state\.pendingSheet/)
+    assert.match(source, /sheetForNamedSession/)
   })
 
   test('biz write and dismiss map lan-assist errors without IM copy', () => {

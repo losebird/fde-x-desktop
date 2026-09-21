@@ -341,3 +341,11 @@ test('empty write without preview_id and catalog dump must not cover a populated
     rows: Array.from({ length: 20 }, (_, index) => ({ no: `C-${index}` })),
   }, 1, shown), true)
 })
+
+test('RecordsPanel apply/SSE refuse another session pending', () => {
+  const source = readFileSync(join(repoRoot, 'src/components/biz/RecordsPanel.tsx'), 'utf8')
+  assert.match(source, /liveSid && !sheetBelongsToSession\(next, liveSid\)/)
+  assert.match(source, /abortLeftoverAskTurn/)
+  assert.match(source, /shouldCancelDshAfterWritePreview/)
+  assert.match(source, /historySessionIdRef\.current = sid/)
+})

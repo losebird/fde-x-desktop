@@ -647,3 +647,12 @@ test('过审 with one row already at target replaces list as write preview', asy
   assert.equal(after.pendingSheet.alreadyAtTarget, true)
   assert.match(after.pendingSheet.speak, /已是已完成/)
 })
+
+test('live pending sheet for another session is empty', async () => {
+  const store = memStore({ pendingSheet: hopSheet('改行', 'pv-live') })
+  const now = () => 1_700_000_000_000
+  const live = livePendingSheet(store.peek(), null, now(), sessionId)
+  const other = livePendingSheet(store.peek(), null, now(), 'sess-reopen')
+  assert.equal(live && live.kind, 'ChildB')
+  assert.equal(other, null)
+})
