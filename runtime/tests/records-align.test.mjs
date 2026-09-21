@@ -198,6 +198,14 @@ test('matchSurfaceIdForSheet no longer impersonates kind+action[0]', () => {
   assert.match(src, /row\.previewId === pid/)
 })
 
+test('source-kind packed rows are not shown as a headcount badge', async () => {
+  const { kindChipShowsRowCount } = await import('../../src/lib/biz-list-query.ts')
+  assert.equal(kindChipShowsRowCount('ParentA', 'ChildB'), false)
+  assert.equal(kindChipShowsRowCount('ChildB', 'ChildB'), true)
+  assert.equal(kindChipShowsRowCount('', 'ChildB'), false)
+  assert.equal(kindChipShowsRowCount('ChildB', ''), false)
+})
+
 test('this-operation kinds come from from/steps; catalog of the same kind does not align', async () => {
   const { extractBoundKindHints, operationBundlesAlign, operationKindHitSheets } = await import('../../src/lib/biz-list-query.ts')
   const floated = {

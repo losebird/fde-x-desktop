@@ -71,6 +71,17 @@ export function extractBoundKindHints(sheet: Record<string, unknown> | null | un
   return [...kinds]
 }
 
+/**
+ * Packed rows on a source kind are not an upstream headcount.
+ * Only the result kind shows a numeric badge.
+ */
+export function kindChipShowsRowCount(chipKind: string, resultKind: string): boolean {
+  const chip = String(chipKind || '').trim()
+  const result = String(resultKind || '').trim()
+  if (!chip || !result) return false
+  return chip === result
+}
+
 /** This operation's hit sheet per bound kind (from/steps rows), not a catalog dump. */
 export function operationKindHitSheets(sheet: Record<string, unknown> | null | undefined): Record<string, unknown>[] {
   if (!sheet || typeof sheet !== 'object') return []
