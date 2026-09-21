@@ -392,6 +392,8 @@ export async function apply(ctx, config) {
 
   try {
     registerTools(ctx, { defineTool }, secretary, {
+      startRound: (sessionId) => sessionRounds.startRound(sessionId),
+      isOpen: (sessionId) => sessionRounds.isOpen(sessionId),
       noteToolSheet: (sessionId, sheet) => sessionRounds.noteToolSheet(sessionId, sheet),
       cancelLeftover,
     })

@@ -222,6 +222,9 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
         speech: (args && (args.speech || args.quote)) || lastUserSpeech(exec) || '',
         userSpeech: lastUserSpeech(exec) || '',
       })
+      if (rounds && typeof rounds.startRound === 'function' && sessionId && !rounds.isOpen?.(sessionId)) {
+        rounds.startRound(sessionId)
+      }
       if (rounds && typeof rounds.noteToolSheet === 'function') {
         const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
         const outcome = rounds.noteToolSheet(sessionId, sheet)

@@ -130,11 +130,35 @@ test('write leftover 现查 does not become official', () => {
   assert.equal(rounds.servedSheet('sess-a').action, '改行')
 })
 
-test('unstamped tool sheet does not open a round', () => {
+test('eligible tool result after a closed round opens the next send', () => {
   const rounds = createSessionRoundStore()
-  const dump = rounds.noteToolSheet('sess-a', dumpSheet())
-  assert.equal(dump.emit, false)
-  assert.equal(dump.process, false)
+  rounds.startRound('sess-a')
+  rounds.noteToolSheet('sess-a', hopSheet('KindOne'))
+  rounds.closeRound('sess-a')
+  const next = rounds.noteToolSheet('sess-a', hopSheet('KindTwo'))
+  assert.equal(next.emit, false)
+  assert.equal(rounds.isOpen('sess-a'), true)
+  rounds.closeRound('sess-a')
+  assert.equal(rounds.servedSheet('sess-a').kind, 'KindTwo')
+})
+
+test('leftover dump after a closed official does not open a new round', () => {
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  rounds.noteToolSheet('sess-a', hopSheet())
+  rounds.closeRound('sess-a')
+  const leftover = rounds.noteToolSheet('sess-a', dumpSheet())
+  assert.equal(leftover.leftover, true)
+  assert.equal(leftover.cancel, true)
+  assert.equal(leftover.emit, false)
+  assert.equal(rounds.servedSheet('sess-a').from.kind, 'KindParent')
+})
+
+test('non-sheet tool result does not open a round', () => {
+  const rounds = createSessionRoundStore()
+  const empty = rounds.noteToolSheet('sess-a', { ok: false, error: 'NO_CONNECTOR' })
+  assert.equal(empty.emit, false)
+  assert.equal(empty.process, false)
   assert.equal(rounds.peek('sess-a'), null)
   assert.equal(rounds.servedSheet('sess-a'), null)
 })

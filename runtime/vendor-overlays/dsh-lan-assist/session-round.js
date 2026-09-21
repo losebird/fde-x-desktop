@@ -145,7 +145,14 @@ export function createSessionRoundStore() {
     }
     let round = peek(sid)
     if (!round || !round.open) {
-      return { emit: false, official: round ? round.official : null, cancel: false, process: false }
+      if (round && round.official && isLeftoverAfterCandidate(round.official, incomingRaw)) {
+        return { emit: false, official: round.official, cancel: true, leftover: true, process: false }
+      }
+      if (!isEligibleRoundSheet(incomingRaw) && !isUnfilteredListSheet(incomingRaw)) {
+        return { emit: false, official: round ? round.official : null, cancel: false, process: false }
+      }
+      startRound(sid)
+      round = peek(sid)
     }
 
     if (round.candidate && isLeftoverAfterCandidate(round.candidate, incomingRaw)) {
