@@ -350,12 +350,15 @@ export function shouldSkipCoveringPending(prev, incoming) {
   return false
 }
 
-/** Cancel/GET: hall list wins; never substitute a connector catalog dump. */
+/** Cancel/GET: keep the utterance sheet; never let a covering dump win from either side. */
 export function sheetAfterCancelCover(hallSheet, lastEmitted) {
   const hall = hallSheet && typeof hallSheet === 'object' ? hallSheet : null
   const last = lastEmitted && typeof lastEmitted === 'object' ? lastEmitted : null
-  if (hall && shouldSkipCoveringPending(hall, last)) return hall
-  if (hall) return hall
+  if (hall && last) {
+    if (shouldSkipCoveringPending(hall, last)) return hall
+    if (shouldSkipCoveringPending(last, hall)) return last
+  }
+  if (hall && !isConnectorCatalogDump(hall)) return hall
   if (last && !isConnectorCatalogDump(last)) return last
   return null
 }

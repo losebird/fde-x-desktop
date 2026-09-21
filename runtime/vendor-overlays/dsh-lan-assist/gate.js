@@ -158,6 +158,22 @@ export function createGate(bag) {
     }
   }
 
+  function isConnectorCatalogDump(sheet) {
+    if (!sheet || typeof sheet !== 'object') return false
+    if (String(sheet.action || '').trim() !== '现查') return false
+    if (String((sheet.preview_id || sheet.previewId) || '').trim()) return false
+    if (String(sheet.speech || '').trim()) return false
+    const where = sheet.where ?? sheet.listWhere
+    if (Array.isArray(where) && where.length) return false
+    if (Array.isArray(sheet.hopWhere) && sheet.hopWhere.length) return false
+    const from = sheet.from
+    if (from && typeof from === 'object' && !Array.isArray(from) && String(from.kind || '').trim()) {
+      return false
+    }
+    if (Array.isArray(sheet.steps) && sheet.steps.length) return false
+    return true
+  }
+
   function shouldKeepPopulatedListSheet(prev, incoming) {
     const prevRows = prev && Array.isArray(prev.rows) ? prev.rows.length : 0
     const nextRows = incoming && Array.isArray(incoming.rows) ? incoming.rows.length : 0
@@ -198,6 +214,13 @@ export function createGate(bag) {
       if (!nextSpeech || (prevSpeech && prevSpeech === nextSpeech)) return true
     }
     if (waitingHit && nextPid && incoming && incoming.picked !== true) return true
+    if (prevRows <= 0) return false
+    if (nextRows > 0) {
+      return isConnectorCatalogDump(incoming) && !nextSpeech
+    }
+    if (prevSpeech && nextSpeech && prevSpeech === nextSpeech) return true
+    if (isConnectorCatalogDump(incoming)) return true
+    if (nextAct && nextAct !== '现查' && !nextPid) return true
     return false
   }
 

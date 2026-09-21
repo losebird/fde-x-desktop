@@ -581,6 +581,76 @@ test('empty 过审 with preview_id does not cover the matching-set list of the s
   assert.equal(kept.pendingSheet.rows.length, 2)
 })
 
+test('connector catalog dump 现查 does not cover a populated hop list', async () => {
+  const store = memStore()
+  const now = () => 1_700_000_000_000
+  const snapshot = async (sid) => {
+    const state = await store.get()
+    return {
+      pendingWrite: livePendingWrite(state, null, now()),
+      pendingSheet: livePendingSheet(state, null, now(), sid || sessionId),
+    }
+  }
+  const gate = createGate({
+    store,
+    now,
+    snapshot,
+    note() {},
+    opts: {
+      gate: {
+        async preview(spec) {
+          const kind = String(spec.kind || '')
+          const speech = String(spec.speech || '').trim()
+          const rows = Array.isArray(spec.rows) && spec.rows.length
+            ? spec.rows
+            : Array.from({ length: 20 }, (_, index) => ({ no: `C-${index}` }))
+          const sheet = {
+            kind,
+            action: '现查',
+            rows,
+            ...(speech ? { speech } : {}),
+            ...(spec.from ? { from: spec.from } : {}),
+            ...(Array.isArray(spec.hopWhere) ? { hopWhere: spec.hopWhere } : {}),
+            ...(Array.isArray(spec.steps) ? { steps: spec.steps } : {}),
+            sessionId: spec.sessionId,
+            workspace: spec.workspace,
+          }
+          return { ok: true, action: '现查', kind, sheet, sessionId: spec.sessionId, workspace: spec.workspace }
+        },
+        async write() { return { ok: true } },
+      },
+    },
+    catalogOf() { return [] },
+    async reopenReplyDraft() { return false },
+    async hearBusinessEvent() {},
+    async rememberFocus() {},
+  })
+  const speech = 'batch this table hop'
+  await gate.previewBiz({
+    kind: 'LongKind',
+    action: '现查',
+    rows: [{ no: 'HIT-1' }, { no: 'HIT-2' }],
+    from: { kind: 'ParentKind' },
+    hopWhere: [{ keys: ['status'], values: ['open'] }],
+    steps: [{ kind: 'ParentKind' }, { kind: 'LongKind' }],
+    sessionId,
+    workspace,
+    speech,
+  })
+  await gate.previewBiz({
+    kind: 'LongKind',
+    action: '现查',
+    rows: Array.from({ length: 20 }, (_, index) => ({ no: `C-${index}` })),
+    sessionId,
+    workspace,
+  })
+  const kept = await snapshot(sessionId)
+  assert.equal(kept.pendingSheet.kind, 'LongKind')
+  assert.equal(kept.pendingSheet.speech, speech)
+  assert.equal(kept.pendingSheet.rows.length, 2)
+  assert.equal(kept.pendingSheet.rows[0].no, 'HIT-1')
+})
+
 test('过审 with one row already at target replaces list as write preview', async () => {
   const store = memStore()
   const now = () => 1_700_000_000_100

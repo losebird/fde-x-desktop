@@ -13,6 +13,23 @@ import {
   speechWantsMatchSet,
 } from '../biz/connected-kind.mjs'
 
+test('distinct connector tables keep both kinds; short spoken still binds the short table', () => {
+  const collapsed = collapseKindsToConnectedTables([
+    { kind: 'ShortKind', resource: 'res_short', catalogVersion: 'schema:1', fields: ['no'], can: ['现查'] },
+    {
+      kind: 'ShortKindTrailRecord',
+      resource: 'res_trail',
+      catalogVersion: 'schema:1',
+      fields: ['no', 'trail'],
+      can: ['现查'],
+      clues: [{ role: '型', say: ['ShortKind'] }],
+    },
+  ])
+  assert.deepEqual(collapsed.kinds.map((row) => row.kind).sort(), ['ShortKind', 'ShortKindTrailRecord'])
+  assert.equal(resolveConnectedKind('ShortKind', collapsed), 'ShortKind')
+  assert.equal(resolveConnectedKind('ShortKindTrailRecord', collapsed), 'ShortKindTrailRecord')
+})
+
 test('same resource collapses to the connector-generated kind; no resource is not previewable', () => {
   const collapsed = collapseKindsToConnectedTables([
     { kind: 'LongKind', resource: 'res_a', catalogVersion: 'schema:1', fields: ['a', 'b', 'c'], can: ['现查', '过审'] },
@@ -198,6 +215,7 @@ test('cancel cover keeps the hall list and never substitutes a catalog dump', ()
   }
   assert.equal(sheetAfterCancelCover(hop, catalog), hop)
   assert.equal(sheetAfterCancelCover(stripped, catalog), stripped)
+  assert.equal(sheetAfterCancelCover(catalog, hop), hop)
   assert.equal(sheetAfterCancelCover(null, catalog), null)
   assert.equal(sheetAfterCancelCover(null, hop), hop)
 })
