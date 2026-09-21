@@ -178,6 +178,80 @@ test('现查 with a mentioned parent but no parent where queries the child full 
   assert.ok(out.fromRows < 20, 'must not dump the unfiltered parent page')
 })
 
+test('现查 hands the spoken enum rows of the relation, not the target kind page', async () => {
+  const vocab = [
+    {
+      kind: '上游',
+      resource: 'upstreams',
+      can: ['现查'],
+      relations: [{ from: '上游', to: '单据甲乙', field: 'up' }],
+    },
+    {
+      kind: '单据甲乙',
+      resource: 'docs_ab',
+      can: ['现查'],
+      relations: [{ from: '上游', to: '单据甲乙', field: 'up' }],
+    },
+  ]
+  const parents = Array.from({ length: 11 }, (_, index) => {
+    const id = `u${index + 1}`
+    return { no: `U-${index + 1}`, status: 'open', fields: { id, code: `U-${index + 1}` } }
+  })
+  const children = [
+    { no: 'D-A1', fields: { id: 'd-a1', bizType: 'alpha', upId: 'u1', code: 'D-A1' } },
+    { no: 'D-B1', fields: { id: 'd-b1', bizType: 'beta', upId: 'u3', code: 'D-B1' } },
+    { no: 'D-G1', fields: { id: 'd-g1', bizType: 'gamma', upId: 'u1', code: 'D-G1' } },
+    { no: 'D-D1', fields: { id: 'd-d1', bizType: 'delta', upId: 'u2', code: 'D-D1' } },
+    ...Array.from({ length: 16 }, (_, index) => ({
+      no: `D-X${index + 1}`,
+      fields: { id: `d-x${index + 1}`, bizType: index % 2 ? 'gamma' : 'delta', upId: 'u4', code: `D-X${index + 1}` },
+    })),
+  ]
+  const lookup = (spec) => {
+    const kind = String(spec.kind || '')
+    let rows = kind === '上游' ? parents : kind === '单据甲乙' ? children : []
+    const relatedIds = spec.related && Array.isArray(spec.related.ids) ? spec.related.ids.map(String) : []
+    if (relatedIds.length) {
+      const field = String(spec.related.field || 'upId')
+      const idSet = new Set(relatedIds)
+      rows = rows.filter((row) => idSet.has(String(row.fields[field] || row.fields.id || '')))
+    }
+    const where = Array.isArray(spec.where) ? spec.where : []
+    if (where.length) {
+      rows = rows.filter((row) => where.every((term) => {
+        const keys = Array.isArray(term.keys) ? term.keys : []
+        const values = (Array.isArray(term.values) ? term.values : []).map(String)
+        return keys.some((key) => values.includes(String(row.fields[key] ?? '')))
+      }))
+    } else if (kind === '单据甲乙') {
+      rows = rows.slice(0, 20)
+    }
+    if (!rows.length) return { ok: false, error: 'NOT_FOUND', matches: [] }
+    return { ok: true, matches: rows, no: rows[0].no, status: rows[0].status, fields: rows[0].fields }
+  }
+  const preview = await createGate({
+    vocab,
+    lookupTodo: lookup,
+    fieldsOf: async (kind) => (kind === '单据甲乙'
+      ? [{ name: 'bizType', title: '类别', enums: { alpha: '甲', beta: '乙', gamma: '丙', delta: '丁' } }]
+      : []),
+  }).preview({
+    workspace: '/tmp/hop-enum',
+    kind: '单据甲乙',
+    action: '现查',
+    speech: '现查上游关联的单据甲乙。只要预览，不要过账，不要 biz_write。',
+  })
+  const sheet = preview.sheet || preview
+  const nos = (Array.isArray(sheet.rows) ? sheet.rows : []).map((row) => String(row.no || ''))
+  const types = (Array.isArray(sheet.rows) ? sheet.rows : []).map((row) => String((row.fields && row.fields.bizType) || ''))
+  assert.equal(preview.ok !== false, true)
+  assert.deepEqual(nos.slice().sort(), ['D-A1', 'D-B1'])
+  assert.equal(types.includes('gamma'), false)
+  assert.equal(types.includes('delta'), false)
+  assert.notEqual(nos.length, 20)
+  assert.equal(sheet.from && sheet.from.kind, '上游')
+})
+
 test('write uniqueness is on the intersection, not the parent half-table', async () => {
   const extraChild = {
     no: 'CB-HIT-2',

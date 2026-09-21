@@ -753,12 +753,33 @@ function mergeTerms(list) {
   return out
 }
 
-function isFilterableHit(hit) {
+function isClosedSetKey(key) {
+  return /^(status|state|stage|priority|category|type|状态|优先级|类型)$/i.test(String(key || ''))
+}
+
+function enumBackedField(fields, key) {
+  const want = String(key || '').trim()
+  if (!want) return false
+  return (Array.isArray(fields) ? fields : []).some((row) => {
+    if (!row || typeof row !== 'object') return false
+    const name = String(row.name || '').trim()
+    const title = String(row.title || (row.uiSchema && row.uiSchema.title) || '').trim()
+    if (name !== want && title !== want) return false
+    const enums = row.enums
+    return Boolean(enums && typeof enums === 'object' && !Array.isArray(enums) && Object.keys(enums).length)
+  })
+}
+
+function isFilterableHit(hit, extra = {}) {
   if (!hit || typeof hit !== 'object') return false
   const keys = (hit.keys || []).map((item) => String(item || '').trim()).filter(Boolean)
   if (!keys.length) return false
   if (keys.every((key) => key === 'role' || key === 'action' || key === 'join')) return false
-  return keys.some((key) => /^(status|state|stage|priority|category|type|状态|优先级|类型)$/i.test(key))
+  if (keys.some((key) => isClosedSetKey(key))) return true
+  const kind = String(hit.assignKind || '').trim()
+  if (!kind) return false
+  const fields = schemaFieldsForKind(kind, extra.vocab, extra)
+  return keys.some((key) => enumBackedField(fields, key))
 }
 
 function closedLikeValues(values) {
@@ -791,9 +812,9 @@ function compressStatusWhere(terms) {
   }]
 }
 
-function termsForKind(hits, kind) {
+function termsForKind(hits, kind, extra = {}) {
   const want = String(kind || '').trim()
-  return mergeTerms(dedupeNegatedClosedHits(hits).filter((row) => row.assignKind === want && isFilterableHit(row)).map((row) => ({
+  return mergeTerms(dedupeNegatedClosedHits(hits).filter((row) => row.assignKind === want && isFilterableHit(row, extra)).map((row) => ({
     keys: row.keys,
     values: row.values,
     not: row.not,
@@ -826,12 +847,34 @@ function extraWhereOnKind(kind, extraWhere, extra = {}) {
   })
 }
 
+function compressSameKeyTerms(terms) {
+  const groups = new Map()
+  const order = []
+  for (const term of Array.isArray(terms) ? terms : []) {
+    if (!term || typeof term !== 'object') continue
+    const sig = JSON.stringify({ keys: term.keys || [], not: !!term.not })
+    const prev = groups.get(sig)
+    if (!prev) {
+      groups.set(sig, {
+        ...term,
+        values: [...(term.values || [])],
+      })
+      order.push(sig)
+      continue
+    }
+    for (const value of term.values || []) {
+      if (!prev.values.includes(value)) prev.values.push(value)
+    }
+  }
+  return order.map((sig) => groups.get(sig))
+}
+
 function whereForKind(hits, kind, extraWhere, extra = {}) {
   const merged = mergeTerms([
-    ...termsForKind(hits, kind),
+    ...termsForKind(hits, kind, extra),
     ...extraWhereOnKind(kind, extraWhere, extra),
   ])
-  return compressStatusWhere(merged)
+  return compressStatusWhere(compressSameKeyTerms(merged))
 }
 
 function stripSaysFromText(text, says) {
@@ -901,12 +944,12 @@ export function leftoverNameIdentity(speech, vocab, extra = {}, spec = {}) {
   return ''
 }
 
-function fillEmptyWhere(node, hits) {
+function fillEmptyWhere(node, hits, extra = {}) {
   if (!node || typeof node !== 'object') return node
   const kind = String(node.kind || '').trim()
   if (!kind) return node
   if (Array.isArray(node.where) && node.where.length) return node
-  const where = termsForKind(hits, kind)
+  const where = compressSameKeyTerms(termsForKind(hits, kind, extra))
   return where.length ? { ...node, where } : node
 }
 
@@ -915,10 +958,10 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
   const hits = clueHitsInSpeech(speech, vocab, bag)
   packed.kind = String(packed.kind || spec.kind || '').trim()
   if (Array.isArray(packed.steps) && packed.steps.length) {
-    packed.steps = packed.steps.map((step) => fillEmptyWhere(step, hits))
+    packed.steps = packed.steps.map((step) => fillEmptyWhere(step, hits, bag))
   }
   if (packed.from && typeof packed.from === 'object' && packed.from.kind) {
-    packed.from = fillEmptyWhere(packed.from, hits)
+    packed.from = fillEmptyWhere(packed.from, hits, bag)
   }
   if (packed.kind) {
     const where = whereForKind(hits, packed.kind, packed.where, bag)
@@ -1035,7 +1078,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
 
   const childWhere = whereForKind(hits, targetKind, base.where, bag)
   const parents = parentKindsOf(targetKind, bag)
-  let parent = parents.find((kind) => termsForKind(hits, kind).length) || parents.find((kind) => (
+  let parent = parents.find((kind) => termsForKind(hits, kind, bag).length) || parents.find((kind) => (
     kindMentions(speech, [kind], bag).length
   ))
   if (!parent) parent = hopParentKindForTarget(targetKind, speech, bag)
