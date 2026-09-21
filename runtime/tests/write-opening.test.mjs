@@ -731,6 +731,95 @@ test('过审 with one row already at target replaces list as write preview', asy
   assert.match(after.pendingSheet.speak, /已是已完成/)
 })
 
+test('new spoken write replaces a picked pending; leftover same-row 现查 does not', async () => {
+  const store = memStore()
+  const now = () => 1_700_000_000_000
+  const snapshot = async (sid) => {
+    const state = await store.get()
+    return {
+      pendingWrite: livePendingWrite(state, null, now()),
+      pendingSheet: livePendingSheet(state, null, now(), sid || sessionId),
+    }
+  }
+  const gate = createGate({
+    store,
+    now,
+    snapshot,
+    note() {},
+    opts: {
+      gate: {
+        async preview(spec) {
+          const kind = String(spec.kind || '')
+          const action = String(spec.action || '现查')
+          const rows = Array.isArray(spec.rows) ? spec.rows : (spec.no ? [{ no: spec.no }] : [])
+          const sheet = {
+            kind,
+            action,
+            rows,
+            speech: spec.speech,
+            sessionId: spec.sessionId,
+            workspace: spec.workspace,
+            ...(action !== '现查' ? { preview_id: `pv_${action}_${kind}` } : {}),
+            ...(spec.picked === true ? { picked: true } : {}),
+          }
+          return {
+            ok: true,
+            action,
+            kind,
+            preview_id: sheet.preview_id || '',
+            sheet,
+            sessionId: spec.sessionId,
+            workspace: spec.workspace,
+          }
+        },
+        async write() { return { ok: true } },
+      },
+    },
+    catalogOf() { return [] },
+    async reopenReplyDraft() { return false },
+    async hearBusinessEvent() {},
+    async rememberFocus() {},
+  })
+  await gate.previewBiz({
+    kind: 'KindW',
+    action: '改行',
+    no: 'ROW-9',
+    rows: [{ no: 'ROW-9' }],
+    picked: true,
+    sessionId,
+    workspace,
+    speech: 'change this row',
+  })
+  const seeded = await snapshot(sessionId)
+  assert.equal(seeded.pendingSheet.kind, 'KindW')
+  assert.equal(seeded.pendingSheet.action, '改行')
+  await gate.previewBiz({
+    kind: 'KindW',
+    action: '现查',
+    no: 'ROW-9',
+    rows: [{ no: 'ROW-9' }],
+    sessionId,
+    workspace,
+    speech: 'lookup ROW-9',
+  })
+  const afterLeftover = await snapshot(sessionId)
+  assert.equal(afterLeftover.pendingSheet.action, '改行')
+  assert.equal(afterLeftover.pendingSheet.rows[0].no, 'ROW-9')
+  await gate.previewBiz({
+    kind: 'KindQ',
+    action: '过审',
+    rows: [{ no: 'Q-1' }, { no: 'Q-2' }],
+    sessionId,
+    workspace,
+    speech: 'batch the other table',
+  })
+  const afterNext = await snapshot(sessionId)
+  assert.equal(afterNext.pendingSheet.kind, 'KindQ')
+  assert.equal(afterNext.pendingSheet.action, '过审')
+  assert.equal(afterNext.pendingSheet.speech, 'batch the other table')
+  assert.equal(afterNext.pendingSheet.rows.length, 2)
+})
+
 test('live pending sheet for another session is empty', async () => {
   const store = memStore({ pendingSheet: hopSheet('改行', 'pv-live') })
   const now = () => 1_700_000_000_000

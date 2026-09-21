@@ -285,3 +285,66 @@ test('named GET keeps session write when hall is unstamped or a covering dump', 
     rows: [{ no: 'B-1' }],
   }, null, 'sess-a'), null)
 })
+
+test('new spoken utterance replaces a picked write; leftover 现查 and empty cover still skip', () => {
+  const pickedWrite = {
+    kind: 'KindW',
+    action: '改行',
+    speech: 'change this row',
+    preview_id: 'pv-write',
+    picked: true,
+    rows: [{ no: 'ROW-9' }],
+  }
+  const nextSpeechWrite = {
+    kind: 'KindQ',
+    action: '过审',
+    speech: 'batch the other table',
+    preview_id: 'pv-next',
+    rows: [{ no: 'Q-1' }, { no: 'Q-2' }],
+  }
+  const nextKindActionNoSpeech = {
+    kind: 'KindQ',
+    action: '过审',
+    preview_id: 'pv-next-silent',
+    rows: [{ no: 'Q-1' }],
+  }
+  const leftoverXiancha = {
+    kind: 'KindW',
+    action: '现查',
+    speech: 'lookup ROW-9',
+    rows: [{ no: 'ROW-9' }],
+  }
+  const emptyCover = {
+    kind: 'KindW',
+    action: '过审',
+    speech: 'change this row',
+    rows: [],
+  }
+  const emptyNewSpeech = {
+    kind: 'KindQ',
+    action: '过审',
+    speech: 'batch the other table',
+    rows: [],
+  }
+  const dump = {
+    kind: 'KindW',
+    action: '现查',
+    rows: Array.from({ length: 20 }, (_, index) => ({ no: `C-${index}` })),
+  }
+  assert.equal(shouldSkipCoveringPending(pickedWrite, nextSpeechWrite), false)
+  assert.equal(shouldSkipCoveringPending(pickedWrite, nextKindActionNoSpeech), false)
+  assert.equal(shouldSkipCoveringPending(pickedWrite, leftoverXiancha), true)
+  assert.equal(shouldSkipCoveringPending(pickedWrite, emptyCover), true)
+  assert.equal(shouldSkipCoveringPending(pickedWrite, emptyNewSpeech), true)
+  assert.equal(shouldSkipCoveringPending(pickedWrite, dump), true)
+  const stampedWrite = { ...pickedWrite, sessionId: 'sess-a' }
+  const gotNext = sheetForPendingGet(nextSpeechWrite, stampedWrite, 'sess-a')
+  assert.equal(gotNext?.kind, 'KindQ')
+  assert.equal(gotNext?.action, '过审')
+  assert.equal(gotNext?.speech, 'batch the other table')
+  const keptWrite = sheetForPendingGet(leftoverXiancha, stampedWrite, 'sess-a')
+  assert.equal(keptWrite?.action, '改行')
+  assert.equal(keptWrite?.rows?.[0]?.no, 'ROW-9')
+  const keptEmpty = sheetForPendingGet(emptyCover, stampedWrite, 'sess-a')
+  assert.equal(keptEmpty?.action, '改行')
+})

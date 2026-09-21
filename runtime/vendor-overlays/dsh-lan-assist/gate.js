@@ -177,7 +177,6 @@ export function createGate(bag) {
   function shouldKeepPopulatedListSheet(prev, incoming) {
     const prevRows = prev && Array.isArray(prev.rows) ? prev.rows.length : 0
     const nextRows = incoming && Array.isArray(incoming.rows) ? incoming.rows.length : 0
-    if (prevRows > 0 && nextRows === 0) return true
     const prevPid = String((prev && (prev.preview_id || prev.previewId)) || '').trim()
     const nextPid = String((incoming && (incoming.preview_id || incoming.previewId)) || '').trim()
     const prevSpeech = String((prev && prev.speech) || '').trim()
@@ -210,6 +209,17 @@ export function createGate(bag) {
       .filter(Boolean)
     const pointsAtPrev = prevNos.some((no) => incomingNos.includes(no) || (no && nextSpeech.includes(no)))
     if (leftoverQuery && (waitingHit || pointsAtPrev)) return true
+    const newUtterance = Boolean(
+      incoming
+      && !isConnectorCatalogDump(incoming)
+      && nextRows > 0
+      && (
+        (nextSpeech && nextSpeech !== prevSpeech)
+        || ((nextKind && nextKind !== prevKind) || (nextAct && nextAct !== prevAct))
+      ),
+    )
+    if (newUtterance) return false
+    if (prevRows > 0 && nextRows === 0) return true
     if (prev && prev.picked === true && prevPid && incoming && incoming.picked !== true) {
       if (!nextSpeech || (prevSpeech && prevSpeech === nextSpeech)) return true
     }

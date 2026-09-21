@@ -326,12 +326,28 @@ function leftoverQueryCoveringWrite(prev, incoming) {
     || prevNos.some((no) => no && speech.includes(no))
 }
 
+/** This-turn spoken sheet: new speech, or a new kind+action with rows. Empty leftover guns are not this. */
+function isNewSpokenUtterance(prev, incoming) {
+  if (!incoming || typeof incoming !== 'object') return false
+  if (isConnectorCatalogDump(incoming)) return false
+  if (sheetRowCount(incoming) <= 0) return false
+  const prevSpeech = sheetSpeech(prev)
+  const nextSpeech = sheetSpeech(incoming)
+  if (nextSpeech && nextSpeech !== prevSpeech) return true
+  const prevKind = sheetKindName(prev)
+  const nextKind = sheetKindName(incoming)
+  const prevAct = String((prev && prev.action) || '').trim()
+  const nextAct = String((incoming && incoming.action) || '').trim()
+  return Boolean((nextKind && nextKind !== prevKind) || (nextAct && nextAct !== prevAct))
+}
+
 export function shouldSkipCoveringPending(prev, incoming) {
   if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  if (leftoverQueryCoveringWrite(prev, incoming)) return true
+  if (isNewSpokenUtterance(prev, incoming)) return false
   const prevSpeech = sheetSpeech(prev)
   const nextSpeech = sheetSpeech(incoming)
   const sameSpeech = Boolean(prevSpeech && nextSpeech && prevSpeech === nextSpeech)
-  if (leftoverQueryCoveringWrite(prev, incoming)) return true
   if (sheetPicked(prev) && sheetPreviewId(prev) && !sheetPicked(incoming)) {
     if (!nextSpeech || sameSpeech) return true
   }
