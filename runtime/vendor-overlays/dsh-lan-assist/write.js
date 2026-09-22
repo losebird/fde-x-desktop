@@ -211,6 +211,13 @@ export function packSheet(spec = {}) {
     const who = [kind, String(spec.no || lead.no || spec.clue || '').trim()].filter(Boolean).join(' ') || '这张单'
     speak = `${who}已是${statusSay}。这是预览，不是过账。`
   }
+  let hitTotalState = spec.hitTotalState
+  let hitTotal = spec.hitTotal
+  const whereList = Array.isArray(spec.where) && spec.where.length ? spec.where : undefined
+  if (spec.querySettled && whereList && rows.length > 0 && hitTotalState !== 'known') {
+    hitTotalState = 'known'
+    hitTotal = rows.length
+  }
   return {
     kind,
     action,
@@ -244,9 +251,9 @@ export function packSheet(spec = {}) {
     pickField: !!spec.pickField,
     askRest: String(spec.askRest || '').trim(),
     ...(spec.querySettled === true ? { querySettled: true } : {}),
-    ...(spec.hitTotalState ? { hitTotalState: String(spec.hitTotalState) } : {}),
-    ...(spec.hitTotalState === 'known' && spec.hitTotal != null && Number.isFinite(Number(spec.hitTotal))
-      ? { hitTotal: Number(spec.hitTotal) }
+    ...(hitTotalState ? { hitTotalState: String(hitTotalState) } : {}),
+    ...(hitTotalState === 'known' && hitTotal != null && Number.isFinite(Number(hitTotal))
+      ? { hitTotal: Number(hitTotal) }
       : {}),
     ...(Number(spec.page) > 0 ? { page: Math.floor(Number(spec.page)) } : {}),
     ...(Number(spec.pageSize) > 0 ? { pageSize: Math.floor(Number(spec.pageSize)) } : {}),
