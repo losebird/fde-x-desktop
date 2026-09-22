@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
 import {
   enrichStructuredSlots,
+  ensurePlanSelfHop,
   clueHitsInSpeech,
   kindMentions,
   leftoverKindMissingFromCatalog,
@@ -1063,5 +1064,32 @@ test('same-object from or steps without a relation take the spoken self edge', (
   }, vocab, extra)
   assert.equal(other.from.kind, 'Other')
   assert.equal(other.from.relation, undefined)
+})
+
+test('ensurePlanSelfHop restores a single-step published self edge before lookup', () => {
+  const vocab = [{
+    kind: 'Node',
+    resource: 'nodes',
+    can: ['现查'],
+    relations: [{ from: 'Node', to: 'Node', field: 'up' }],
+  }]
+  const extra = {
+    collections: [{
+      name: 'nodes',
+      fields: [
+        { name: 'up', title: '上级', interface: 'm2o', target: 'nodes' },
+        { name: 'upId', title: 'upId', interface: 'integer' },
+      ],
+    }],
+  }
+  const plan = ensurePlanSelfHop({
+    action: '现查',
+    speech: 'Node的上级',
+    steps: [{ kind: 'Node', relation: 'up' }],
+    targetIndex: 0,
+  }, 'Node的上级', extra)
+  assert.deepEqual(plan.steps.map((row) => row.kind), ['Node', 'Node'])
+  assert.equal(plan.steps[1].relation, 'up')
+  assert.equal(plan.targetIndex, 1)
 })
 

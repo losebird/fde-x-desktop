@@ -9,7 +9,7 @@ import { connectorCatalogPresent, kindPreviewableInCatalog, mapKind, relatedChil
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
-import { dropSpokenBatchRowId, enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
+import { dropSpokenBatchRowId, enrichStructuredSlots, ensurePlanSelfHop, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
 import { WHERE_LIST_CAP } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -1344,6 +1344,7 @@ export function createGate(opts = {}) {
       plan.steps = collapsed
       plan.targetIndex = collapsed.length ? collapsed.length - 1 : 0
     }
+    ensurePlanSelfHop(plan, plan.speech, catalogExtra)
     if (spec.from && typeof spec.from === 'object' && spec.from.kind) {
       const connectedFrom = resolveConnectedKindName(spec.from.kind, catalogExtra)
       if (connectedFrom) spec.from = { ...spec.from, kind: connectedFrom }

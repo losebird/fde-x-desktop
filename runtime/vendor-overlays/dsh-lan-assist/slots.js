@@ -1194,6 +1194,71 @@ function stepsCarryRelation(steps) {
 }
 
 /** The published self-edge whose field name or title the speech names. Two edges stay two queries. */
+function publishedSelfEdgeField(kind, field, extra = {}) {
+  const target = String(kind || '').trim()
+  const name = String(field || '').trim()
+  if (!target || !name) return false
+  return relationsFromVocab(extra.vocab, extra).some((rel) => (
+    rel.from === target && rel.to === target && rel.field === name
+  ))
+}
+
+/**
+ * When the plan already names a published same-object edge but only one step
+ * survived (or the hop step lost its relation), expand or restore the self hop.
+ */
+export function ensurePlanSelfHop(plan, speech, extra = {}) {
+  if (!plan || typeof plan !== 'object' || String(plan.action || '').trim() !== '现查') return plan
+  const steps = Array.isArray(plan.steps) ? plan.steps.map((row) => ({ ...row })) : []
+  if (!steps.length) return plan
+  const bag = { vocab: extra.vocab, collections: extra.collections, kinds: extra.kinds, relations: extra.relations }
+  const targetIdx = Number.isFinite(plan.targetIndex) ? plan.targetIndex : steps.length - 1
+  const target = steps[targetIdx] || steps[steps.length - 1]
+  const targetKind = String(target && target.kind || '').trim()
+  if (!targetKind) return plan
+  const spoken = spokenSelfRelation(targetKind, speech, bag)
+  const pickRel = (field) => {
+    const name = String(field || '').trim()
+    return name && publishedSelfEdgeField(targetKind, name, bag) ? name : ''
+  }
+  const relForHop = pickRel(spoken)
+
+  if (steps.length === 1 && String(steps[0].kind || '').trim() === targetKind) {
+    const rel = pickRel(steps[0].relation) || relForHop
+    if (!rel) return plan
+    const root = { ...steps[0] }
+    delete root.relation
+    const hop = {
+      kind: targetKind,
+      from: targetKind,
+      relation: rel,
+      where: Array.isArray(root.where) ? root.where : [],
+      no: '',
+      join: root.join || 'and',
+    }
+    plan.steps = [root, hop]
+    plan.targetIndex = 1
+    return plan
+  }
+
+  if (steps.length >= 2) {
+    const last = steps[steps.length - 1]
+    const prev = steps[steps.length - 2]
+    if (String(last.kind || '').trim() === targetKind && String(prev.kind || '').trim() === targetKind) {
+      const rel = pickRel(last.relation) || pickRel(prev.relation) || relForHop
+      if (rel && !String(last.relation || '').trim()) {
+        if (String(prev.relation || '').trim() === rel) {
+          steps[steps.length - 2] = { ...prev, relation: '' }
+        }
+        steps[steps.length - 1] = { ...last, relation: rel, from: targetKind }
+        plan.steps = steps
+        plan.targetIndex = steps.length - 1
+      }
+    }
+  }
+  return plan
+}
+
 function spokenSelfRelation(kind, speech, extra) {
   const target = String(kind || '').trim()
   const text = String(speech || '')
