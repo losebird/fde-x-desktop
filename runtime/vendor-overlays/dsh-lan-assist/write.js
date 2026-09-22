@@ -820,7 +820,7 @@ export function createGate(opts = {}) {
           where: peer.where,
           limit: WHERE_LIST_CAP,
         })
-        const matches = found && found.ok && Array.isArray(found.matches) ? found.matches : []
+        const matches = found && Array.isArray(found.matches) ? found.matches : []
         let peerSchema = []
         if (typeof opts.fieldsOf === 'function') {
           try {
@@ -836,6 +836,7 @@ export function createGate(opts = {}) {
         if (hitTotalState === 'known') {
           const given = Number(found && found.hitTotal)
           if (Number.isFinite(given)) hitTotal = given
+          else if (!failed) hitTotal = 0
           else hitTotalState = 'unknown'
         }
         const packed = packSheet({

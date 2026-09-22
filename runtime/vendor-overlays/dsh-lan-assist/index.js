@@ -325,6 +325,18 @@ export async function apply(ctx, config) {
     followup: (spec) => tryFollowup(agentsCtx, spec),
     restoreHandoff: (spec) => tryRestoreHandoff(agentsCtx, spec),
     translate: (quote) => translateQuote((ctx.llm || (ctx.get && ctx.get('llm'))), quote),
+    focusOperationKind: (sessionId, kind) => {
+      const base = sessionRounds.officialSheet(sessionId)
+      if (!base) return { ok: false, error: 'NO_OFFICIAL', hint: '这一轮还没有官方表。' }
+      return import('./operation-kind-sheet.mjs').then(({ materializeOperationKindSheet }) => {
+        const view = materializeOperationKindSheet(base, kind)
+        if (!view) return { ok: false, error: 'NO_KIND', hint: '这个型不在本轮命中里。' }
+        if (!sessionRounds.focusKindSheet(sessionId, view)) {
+          return { ok: false, error: 'NO_FOCUS' }
+        }
+        return { ok: true, sheet: sessionRounds.servedSheet(sessionId) }
+      })
+    },
   })
 
   if (ctx.webServer && typeof ctx.webServer.register === 'function') {

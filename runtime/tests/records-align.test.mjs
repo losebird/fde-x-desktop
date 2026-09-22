@@ -89,6 +89,7 @@ test('RecordsPanel separates connector picker from operation kind chips and canc
   assert.match(src, /operationKindViewRef/)
   assert.match(src, /operationBundlesAlign\(anchor, sheet\)/)
   assert.match(src, /keepPending/)
+  assert.match(src, /bizFocusKind/)
   assert.match(src, /shouldRejectIncomingCovering\(/)
   assert.match(src, /shouldSkipCoveringPending\(/)
   assert.match(src, /resolveConnectedKind\(/)
@@ -380,6 +381,49 @@ test('RecordsPanel apply/SSE refuse another session pending', () => {
   assert.match(source, /abortLeftoverAskTurn/)
   assert.match(source, /shouldCancelDshAfterWritePreview/)
   assert.match(source, /historySessionIdRef\.current = sid/)
+})
+
+test('shared-enum peer becomes official when focus-kind is set', async () => {
+  const { createSessionRoundStore } = await import('../vendor-overlays/dsh-lan-assist/session-round.js')
+  const { materializeOperationKindSheet } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  const official = {
+    kind: 'KindB',
+    action: '现查',
+    speech: 'shared label on two kinds',
+    sessionId: 'sess-a',
+    rows: [{ no: 'B-1' }],
+    hitTotal: 1,
+    hitTotalState: 'known',
+    querySettled: true,
+    peers: [{
+      kind: 'KindA',
+      action: '现查',
+      rows: [],
+      hitTotal: 0,
+      hitTotalState: 'known',
+      querySettled: true,
+      where: [{ values: ['on'] }],
+    }],
+  }
+  rounds.noteToolSheet('sess-a', official)
+  rounds.closeRound('sess-a')
+  const peerView = materializeOperationKindSheet(rounds.officialSheet('sess-a'), 'KindA')
+  assert.ok(peerView)
+  assert.equal(peerView.kind, 'KindA')
+  assert.equal(peerView.hitTotal, 0)
+  assert.equal(peerView.hitTotalState, 'known')
+  assert.equal(rounds.focusKindSheet('sess-a', peerView), true)
+  assert.equal(rounds.servedSheet('sess-a').kind, 'KindA')
+  assert.equal(rounds.servedSheet('sess-a').hitTotal, 0)
+})
+
+test('biz focus-kind route updates official pending', () => {
+  const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
+  assert.match(source, /\/api\/v1\/biz\/focus-kind/)
+  assert.match(source, /\/focus-kind/)
+  assert.match(source, /force: true/)
 })
 
 test('AI official handoff does not paint from the shared pending slot', () => {

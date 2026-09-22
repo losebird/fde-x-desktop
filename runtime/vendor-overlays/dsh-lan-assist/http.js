@@ -39,6 +39,7 @@ export function createLocalHandler(opts) {
   const followup = opts.followup
   const translate = opts.translate
   const restoreHandoff = opts.restoreHandoff
+  const focusOperationKind = opts.focusOperationKind
 
   return async function handler(req, res) {
     if (!isLocalClient(req)) {
@@ -142,7 +143,7 @@ export function createLocalHandler(opts) {
         return
       }
       const body = await readJson(req)
-      const result = await dispatch(secretary, path, body, followup, { translate, restoreHandoff })
+      const result = await dispatch(secretary, path, body, followup, { translate, restoreHandoff, focusOperationKind })
       if (!QUIET_POST[path]) sse.emit('mailbox', { type: path.slice(1) || 'post' })
       json(res, result && result.ok === false ? 400 : 200, result)
     } catch (error) {
@@ -160,6 +161,7 @@ export async function dispatch(secretary, path, body, followup, extra) {
   const b = body || {}
   const translate = extra && extra.translate
   const restoreHandoff = extra && extra.restoreHandoff
+  const focusOperationKind = extra && extra.focusOperationKind
   switch (path) {
     case '/name':
       return secretary.setDisplayName(b.name, b.avatar)
@@ -434,6 +436,9 @@ export async function dispatch(secretary, path, body, followup, extra) {
         : secretary.chase(letterId(b))
     case '/brief':
       return secretary.setBriefOff(b.off)
+    case '/focus-kind':
+      if (typeof focusOperationKind !== 'function') return { ok: false, error: 'NO_FOCUS' }
+      return focusOperationKind(String(b.sessionId || ''), String(b.kind || ''))
     case '/listen':
       return secretary.grantListen(b.on)
     case '/sleep':

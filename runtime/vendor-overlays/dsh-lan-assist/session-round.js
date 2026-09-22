@@ -138,6 +138,7 @@ export function createSessionRoundStore() {
       candidate: null,
       weak: null,
       official: prev ? prev.official : null,
+      kindFocus: null,
       handed: Boolean(prev && prev.official),
       closedBy: '',
     })
@@ -153,6 +154,7 @@ export function createSessionRoundStore() {
       const next = round.candidate || round.weak
       if (next) round.official = next
     }
+    round.kindFocus = null
     round.closedBy = reason === 'leftover' ? 'leftover' : 'turn'
     const emit = Boolean(round.official) && !round.handed
     if (emit) round.handed = true
@@ -195,14 +197,31 @@ export function createSessionRoundStore() {
 
     if (isEligibleRoundSheet(incomingRaw)) {
       round.candidate = incomingRaw
+      round.kindFocus = null
     }
 
     return { emit: false, official: null, cancel: false, process: true }
   }
 
+  function officialSheet(sessionId) {
+    const round = peek(sessionId)
+    if (!round) return null
+    return round.official || null
+  }
+
+  function focusKindSheet(sessionId, view) {
+    const sid = String(sessionId || '').trim()
+    if (!sid || !view || typeof view !== 'object') return false
+    const round = peek(sid)
+    if (!round || !round.official) return false
+    round.kindFocus = view
+    return true
+  }
+
   function servedSheet(sessionId) {
     const round = peek(sessionId)
     if (!round) return null
+    if (round.kindFocus && typeof round.kindFocus === 'object') return round.kindFocus
     return round.official || null
   }
 
@@ -215,6 +234,8 @@ export function createSessionRoundStore() {
     startRound,
     closeRound,
     noteToolSheet,
+    officialSheet,
+    focusKindSheet,
     servedSheet,
     isOpen,
   }

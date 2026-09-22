@@ -307,14 +307,14 @@ function peekLastEmittedPending(sessionId) {
   return lastEmittedPendingBySession.get(key) ?? null
 }
 
-export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId, hallSheet } = {}) {
+export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId, hallSheet, force = false } = {}) {
   const normalized = sheetPayloadFromRaw(sheet)
   if (!normalized) return false
   const emitKey = lastEmittedSessionKey(sessionId, normalized)
   const lastEmitted = lastEmittedPendingBySession.get(emitKey) ?? null
-  if (shouldSkipCoveringPending(lastEmitted, normalized)) return false
+  if (!force && shouldSkipCoveringPending(lastEmitted, normalized)) return false
   const hall = hallSheet && typeof hallSheet === 'object' ? hallSheet : null
-  if (hall && shouldSkipCoveringPending(hall, normalized)) return false
+  if (!force && hall && shouldSkipCoveringPending(hall, normalized)) return false
   const previewId = sheetPreviewIdFromRecord(normalized)
   if (previewId && isBizPreviewDismissed(previewId)) return false
   const kind = String(normalized.kind || '')
@@ -836,6 +836,42 @@ export async function handleBizRoutes(request, response, url, deps) {
     const limit = Number(url.searchParams.get('limit') ?? 20)
     const items = listBizSurfaces(db, workspaceCwd, limit)
     sendJson(response, 200, { items, correlationId })
+    return true
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v1/biz/focus-kind') {
+    try {
+      const body = await readJson(request)
+      const sessionId = String(body.sessionId || '').trim()
+      const kind = String(body.kind || '').trim()
+      if (!sessionId || !kind) {
+        sendError(response, 400, 'validation_error', 'sessionId 与 kind 必填', correlationId)
+        return true
+      }
+      const focused = await aiRuntime.lanAssist('/focus-kind', { method: 'POST', body: { sessionId, kind } })
+      if (!focused || focused.ok === false) {
+        sendError(response, 400, String(focused?.error || 'focus_failed'), String(focused?.hint || '无法切换该型'), correlationId)
+        return true
+      }
+      const rawSheet = focused.sheet && typeof focused.sheet === 'object' ? focused.sheet : null
+      if (!rawSheet) {
+        sendError(response, 400, 'focus_failed', '没有可展示的官方表', correlationId)
+        return true
+      }
+      const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
+      let handed = sheetPayloadFromRaw(rawSheet)
+      try {
+        const kinds = await loadWorkspaceKinds(aiRuntime, bizCwd)
+        handed = canonicalizeSheetKind(handed, kinds) || handed
+      } catch { /* keep focused sheet */ }
+      if (handed && sessionId && !String(handed.sessionId || '').trim()) {
+        handed = { ...handed, sessionId }
+      }
+      emitBizSheetPending(handed, { sessionId, source: 'focus-kind', workspaceCwd: bizCwd, force: true })
+      sendJson(response, 200, { data: { sheet: handed ? stripSecrets(handed) : null }, correlationId })
+    } catch (error) {
+      sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
+    }
     return true
   }
 

@@ -43,6 +43,7 @@ import {
   listQueryFingerprint,
   listSnapshotCacheKey,
   operationBundlesAlign,
+  materializeOperationKindSheet,
   operationKindHitSheets,
   sheetRowsFingerprint,
   shouldHoldSideKindView,
@@ -1371,26 +1372,34 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   }, [applySheet, commitListRestore, drawer?.previewId, resolveSurfaceSheet, surfaceHistoryLabel])
 
   const selectKind = useCallback((nextKind: string) => {
-    setKind(nextKind)
+    const canonical = resolveConnectedKind(nextKind, kindCatalog) || nextKind
+    setKind(canonical)
     setStaleHint('')
     setSelectedRow(null)
     setSelectedRowKey('')
-    operationKindViewRef.current = nextKind
+    operationKindViewRef.current = canonical
     historyPinnedSurfaceIdRef.current = ''
     const pendingSheet = peekActivePending()
     const anchor = pendingSheet || listSheetMeta
+    const sessionId = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
     const boundKinds = extractBoundKindHints(anchor)
     const hitSheets = [
       ...operationKindHitSheets(pendingSheet),
       ...operationKindHitSheets(listSheetMeta),
     ]
-    const hit = hitSheets.find((sheet) => String(sheet.kind || '') === nextKind)
+    const hit = hitSheets.find((sheet) => {
+      const sheetKind = resolveConnectedKind(String(sheet.kind || ''), kindCatalog) || String(sheet.kind || '')
+      return sheetKind === canonical
+    }) || (anchor ? materializeOperationKindSheet(anchor, canonical) : null)
+
+    const applyLocal = () => {
     if (hit) {
-      const sideView = Boolean(pendingSheet && String(pendingSheet.kind || '') !== nextKind)
+      const pendingKind = resolveConnectedKind(String(pendingSheet?.kind || ''), kindCatalog) || String(pendingSheet?.kind || '')
+      const sideView = Boolean(pendingSheet && pendingKind !== canonical)
       if (
         !sideView
         && pendingSheet
-        && String(pendingSheet.kind || '') === nextKind
+        && pendingKind === canonical
         && operationBundlesAlign(pendingSheet, listSheetMeta || pendingSheet)
       ) {
         applyPendingSheet(pendingSheet)
@@ -1399,7 +1408,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       applySheet(hit, '连接器', undefined, undefined, sideView)
       return
     }
-    if (boundKinds.includes(nextKind)) {
+    if (boundKinds.some((name) => (resolveConnectedKind(name, kindCatalog) || name) === canonical)) {
       setRows([])
       setColumns([])
       setStaleHint('还没有该型的行快照；请在 AI 会话里操作该业务后回到此页。')
@@ -1407,14 +1416,14 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     }
     if (
       pendingSheet
-      && String(pendingSheet.kind || '') === nextKind
+      && (resolveConnectedKind(String(pendingSheet.kind || ''), kindCatalog) || String(pendingSheet.kind || '')) === canonical
       && operationBundlesAlign(pendingSheet, listSheetMeta || pendingSheet)
     ) {
       applyPendingSheet(pendingSheet)
       return
     }
     if (bizCwd) {
-      const scoped = peekBizKindListSheetForOperation(bizCwd, nextKind, anchor)
+      const scoped = peekBizKindListSheetForOperation(bizCwd, canonical, anchor)
       if (scoped) {
         applySheet(scoped.sheet, scoped.connName, scoped.surfaceId)
         return
@@ -1425,9 +1434,9 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (queryFp) {
       try {
         const parsed = JSON.parse(queryFp) as { kind?: string; where?: unknown[] }
-        if (!parsed.kind || parsed.kind === nextKind) {
-          keyed = sheetSnapshots.current.get(listSnapshotCacheKey(nextKind, {
-            kind: nextKind,
+        if (!parsed.kind || parsed.kind === canonical) {
+          keyed = sheetSnapshots.current.get(listSnapshotCacheKey(canonical, {
+            kind: canonical,
             action: '现查',
             where: parsed.where,
           }))
@@ -1440,7 +1449,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (!cached && anchor) {
       for (const snap of sheetSnapshots.current.values()) {
         const sheet = snap?.sheet
-        if (!sheet || String(sheet.kind || '') !== nextKind) continue
+        const sheetKind = resolveConnectedKind(String(sheet.kind || ''), kindCatalog) || String(sheet.kind || '')
+        if (sheetKind !== canonical) continue
         if (operationBundlesAlign(anchor, sheet)) {
           cached = snap
           break
@@ -1452,7 +1462,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       return
     }
     const surface = surfaces.find((s) => {
-      if (s.kind !== nextKind) return false
+      const surfaceKind = resolveConnectedKind(s.kind, kindCatalog) || s.kind
+      if (surfaceKind !== canonical) return false
       const cachedSheet = sheetSnapshots.current.get(`surface:${s.id}`)
       if (!cachedSheet?.sheet) return false
       if (!anchor) return false
@@ -1465,7 +1476,22 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       setColumns([])
       setStaleHint('还没有该型的行快照；请在 AI 会话里操作该业务后回到此页。')
     }
-  }, [applySheet, applyPendingSheet, bizCwd, listSheetMeta, loadSurface, surfaces])
+    }
+
+    if (sessionId && anchor) {
+      void runtimeApi.bizFocusKind({ sessionId, kind: canonical }).then((data) => {
+        if (data.sheet && typeof data.sheet === 'object') {
+          applySheet(data.sheet, '连接器')
+          return
+        }
+        applyLocal()
+      }).catch(() => {
+        applyLocal()
+      })
+      return
+    }
+    applyLocal()
+  }, [applySheet, applyPendingSheet, bizCwd, kindCatalog, listSheetMeta, loadSurface, surfaces])
 
   const tableRows = rows
 

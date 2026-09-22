@@ -210,6 +210,29 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
   return out
 }
 
+/** One bound kind as the official list view (main row, hop side, or shared-enum peer). */
+export function materializeOperationKindSheet(
+  sheet: Record<string, unknown> | null | undefined,
+  kind: string,
+): Record<string, unknown> | null {
+  const wanted = String(kind || '').trim()
+  if (!sheet || typeof sheet !== 'object' || !wanted) return null
+  const hit = operationKindHitSheets(sheet).find((row) => String(row.kind || '').trim() === wanted)
+  if (!hit) return null
+  const basePeers = Array.isArray(sheet.peers) ? sheet.peers : []
+  const stamped: Record<string, unknown> = {
+    ...hit,
+    ...(typeof sheet.speech === 'string' && sheet.speech ? { speech: sheet.speech } : {}),
+    ...(sheet.sessionId ? { sessionId: sheet.sessionId } : {}),
+    ...(typeof sheet.workspace === 'string' && sheet.workspace ? { workspace: sheet.workspace } : {}),
+    ...(basePeers.length ? { peers: basePeers } : {}),
+  }
+  if (stamped.querySettled !== true && stamped.hitTotalState === 'known') {
+    stamped.querySettled = true
+  }
+  return stamped
+}
+
 function stableFromSlice(raw: unknown, depth = 0): unknown {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 8) return null
   const row = raw as Record<string, unknown>
