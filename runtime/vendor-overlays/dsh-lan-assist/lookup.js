@@ -1409,6 +1409,17 @@ function nameCluePath(resource, ticket, fields, clues) {
   return `/api/${resource}:list?pageSize=${PAGE_SIZE}&sort=-updatedAt&filter=${filter}`
 }
 
+function identifierFieldNames(schemaFields) {
+  const names = []
+  for (const row of Array.isArray(schemaFields) ? schemaFields : []) {
+    const name = String(row && row.name || '').trim()
+    if (!name) continue
+    const iface = String((row.interface || row.type) || '')
+    if (/^(snowflakeId|uuid|nanoid)$/i.test(iface)) names.push(name)
+  }
+  return names
+}
+
 function skipsIdentityFilter(row) {
   const iface = String((row && (row.interface || row.type)) || '')
   if (/^(m2o|o2m|o2o|m2m|belongsTo|hasMany|hasOne|belongsToMany)$/i.test(iface)) return true
@@ -1427,7 +1438,7 @@ export function identityFilterKeys(spec, schemaFields, look) {
     if (title && !byTitle.has(title)) byTitle.set(title, row.name)
   }
   const keys = []
-  if (/^\d{6,}$/.test(String(look || ''))) keys.push('id')
+  if (/^\d{6,}$/.test(String(look || ''))) keys.push(...identifierFieldNames(fields))
   for (const raw of ticketColumns(spec)) {
     const name = String(raw || '').trim()
     if (!name) continue

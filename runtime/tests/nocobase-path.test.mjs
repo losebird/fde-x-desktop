@@ -24,10 +24,18 @@ test('ticket lookup keeps real columns and drops relations and unknown labels', 
   assert.doesNotMatch(flat, /owner|类别|handledAt/)
 })
 
-test('a long numeric id is looked up on id plus real columns', () => {
+test('a long numeric id is looked up on the schema identifier plus real columns', () => {
   const keys = identityFilterKeys({ resource: 'biz_rows', fields: ['ticketNo', 'lines'] }, [
+    { name: 'rowKey', title: '主键', interface: 'snowflakeId' },
     { name: 'ticketNo', title: '单号', interface: 'input' },
     { name: 'lines', title: '明细', interface: 'o2m' },
   ], '371713140981787')
-  assert.deepEqual(keys, ['id', 'ticketNo'])
+  assert.deepEqual(keys, ['rowKey', 'ticketNo'])
+})
+
+test('a long number does not invent a column the schema does not have', () => {
+  const keys = identityFilterKeys({ resource: 'biz_rows', fields: ['ticketNo'] }, [
+    { name: 'ticketNo', title: '单号', interface: 'input' },
+  ], '371713140981787')
+  assert.deepEqual(keys, ['ticketNo'])
 })
