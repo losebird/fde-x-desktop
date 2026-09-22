@@ -1410,7 +1410,10 @@ function nameCluePath(resource, ticket, fields, clues) {
 }
 
 function skipsIdentityFilter(row) {
-  return /^(m2o|o2o|belongsTo|hasMany|hasOne|belongsToMany|datetime|date|time|unixTimestamp|number|integer|percent|json|formula)$/i.test(String((row && (row.interface || row.type)) || ''))
+  const iface = String((row && (row.interface || row.type)) || '')
+  if (/^(m2o|o2m|o2o|m2m|belongsTo|hasMany|hasOne|belongsToMany)$/i.test(iface)) return true
+  if (row && row.target) return true
+  return /^(datetime|date|time|unixTimestamp|number|integer|percent|json|formula)$/i.test(iface)
 }
 
 /** Ticket lookup keys that are real columns. Relation names and labels that are not columns make the whole filter fail. */
