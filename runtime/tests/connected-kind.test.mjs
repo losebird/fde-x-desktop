@@ -58,6 +58,31 @@ test('collection-stem resource without catalogVersion stays previewable', () => 
   assert.equal(resolveConnectedKind('GraphOnly', collapsed), '')
 })
 
+test('shorter catalog kind name wins over longer kind oral alias when both are connected tables', () => {
+  const kinds = [
+    {
+      kind: 'LongKind',
+      resource: 'res_long',
+      catalogVersion: 'schema:1',
+      fields: ['a', 'b'],
+      can: ['现查'],
+      clues: [{ role: '型', say: ['ShortKind'] }],
+    },
+    {
+      kind: 'ShortKind',
+      resource: 'res_short',
+      catalogVersion: 'schema:1',
+      fields: ['no'],
+      can: ['现查'],
+    },
+  ]
+  const collapsed = collapseKindsToConnectedTables(kinds)
+  assert.deepEqual(collapsed.kinds.map((row) => row.kind).sort(), ['LongKind', 'ShortKind'])
+  assert.equal(resolveConnectedKind('ShortKind', kinds), 'ShortKind')
+  assert.equal(resolveConnectedKind('ShortKind', collapsed), 'ShortKind')
+  assert.equal(resolveConnectedKind('LongKind', kinds), 'LongKind')
+})
+
 test('oral 型 slots and graph aliases fold onto the connected table', () => {
   const collapsed = collapseKindsToConnectedTables([
     {

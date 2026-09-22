@@ -419,6 +419,32 @@ test('shared-enum peer becomes official when focus-kind is set', async () => {
   assert.equal(rounds.servedSheet('sess-a').hitTotal, 0)
 })
 
+test('materialize peer kind prefers exact kind over alias bucket', async () => {
+  const { materializeOperationKindSheet } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
+  const official = {
+    kind: 'LongKind',
+    action: '现查',
+    rows: [{ no: 'L-1' }],
+    hitTotal: 161,
+    hitTotalState: 'known',
+    peers: [{
+      kind: 'ShortKind',
+      rows: [{ no: 'S-1' }],
+      hitTotal: 96,
+      hitTotalState: 'known',
+      where: [{ values: ['on'] }],
+    }],
+  }
+  const kindIndex = [
+    { kind: 'LongKind', aliases: ['ShortKind'] },
+    { kind: 'ShortKind' },
+  ]
+  const view = materializeOperationKindSheet(official, 'ShortKind', kindIndex)
+  assert.ok(view)
+  assert.equal(view.kind, 'ShortKind')
+  assert.equal(view.hitTotal, 96)
+})
+
 test('materialize peer kind inherits pageSize for hitTotal paging', async () => {
   const { materializeOperationKindSheet } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
   const official = {

@@ -127,9 +127,21 @@ export function collapseKindsToConnectedTables(kinds, opts = {}) {
   return { kinds: collapsed, aliases }
 }
 
+function rawCatalogKindNames(index) {
+  const names = new Set()
+  if (!Array.isArray(index)) return names
+  for (const raw of index) {
+    const row = typeof raw === 'string' ? { kind: raw.trim() } : { kind: kindName(raw) }
+    if (row.kind) names.add(row.kind)
+  }
+  return names
+}
+
 export function resolveConnectedKind(spoken, index) {
   const name = String(spoken || '').trim()
   if (!name) return ''
+  const rawKinds = rawCatalogKindNames(index)
+  if (rawKinds.has(name)) return name
   const packed = Array.isArray(index) ? collapseKindsToConnectedTables(index) : index
   if (!packed || !Array.isArray(packed.kinds)) return name
   if (packed.kinds.length === 0) {

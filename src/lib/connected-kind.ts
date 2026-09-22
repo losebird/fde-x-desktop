@@ -133,12 +133,28 @@ export function collapseKindsToConnectedTables(
   return { kinds: collapsed, aliases }
 }
 
+function rawCatalogKindNames(
+  index: ConnectedKindIndex | ConnectedKindRow[] | null | undefined,
+): Set<string> {
+  const names = new Set<string>()
+  if (!Array.isArray(index)) return names
+  for (const raw of index) {
+    const row = typeof raw === 'string'
+      ? { kind: raw.trim() }
+      : { kind: kindName(raw) } as ConnectedKindRow
+    if (row.kind) names.add(row.kind)
+  }
+  return names
+}
+
 export function resolveConnectedKind(
   spoken: string,
   index: ConnectedKindIndex | ConnectedKindRow[] | null | undefined,
 ): string {
   const name = String(spoken || '').trim()
   if (!name) return ''
+  const rawKinds = rawCatalogKindNames(index)
+  if (rawKinds.has(name)) return name
   const packed = Array.isArray(index) ? collapseKindsToConnectedTables(index) : index
   if (!packed) return name
   if (packed.kinds.length === 0) {

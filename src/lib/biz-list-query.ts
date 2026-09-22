@@ -259,8 +259,8 @@ export function materializeOperationKindSheet(
   const wanted = String(kind || '').trim()
   if (!sheet || typeof sheet !== 'object' || !wanted) return null
   const hits = operationKindHitSheets(sheet)
-  let hit = hits.find((row) => kindNamesEqual(wanted, String(row.kind || ''), kindCatalog))
-  if (!hit) hit = hits.find((row) => String(row.kind || '').trim() === wanted)
+  let hit = hits.find((row) => String(row.kind || '').trim() === wanted)
+  if (!hit) hit = hits.find((row) => kindNamesEqual(wanted, String(row.kind || ''), kindCatalog))
   if (!hit) return null
   const basePeers = Array.isArray(sheet.peers) ? sheet.peers : []
   const stamped: Record<string, unknown> = stampSheetPagination({

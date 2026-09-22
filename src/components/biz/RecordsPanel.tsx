@@ -1395,10 +1395,12 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       ...operationKindHitSheets(pendingSheet),
       ...operationKindHitSheets(listSheetMeta),
     ]
-    const hit = hitSheets.find((sheet) => {
-      const sheetKind = resolveConnectedKind(String(sheet.kind || ''), kindCatalog) || String(sheet.kind || '')
-      return sheetKind === canonical
-    }) || (anchor ? materializeOperationKindSheet(anchor, canonical, kindCatalog) : null)
+    const hit = hitSheets.find((sheet) => String(sheet.kind || '').trim() === canonical)
+      || hitSheets.find((sheet) => {
+        const sheetKind = resolveConnectedKind(String(sheet.kind || ''), kindCatalog) || String(sheet.kind || '')
+        return sheetKind === canonical
+      })
+      || (anchor ? materializeOperationKindSheet(anchor, canonical, kindCatalog) : null)
 
     const applyLocal = () => {
     if (hit) {
