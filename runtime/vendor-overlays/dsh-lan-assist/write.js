@@ -214,9 +214,9 @@ export function packSheet(spec = {}) {
   let hitTotalState = spec.hitTotalState
   let hitTotal = spec.hitTotal
   const whereList = Array.isArray(spec.where) && spec.where.length ? spec.where : undefined
-  if (spec.querySettled && whereList && rows.length > 0 && hitTotalState !== 'known') {
+  if (spec.querySettled && whereList && rows.length === 1 && hitTotalState !== 'known') {
     hitTotalState = 'known'
-    hitTotal = rows.length
+    hitTotal = 1
   }
   return {
     kind,
@@ -1057,14 +1057,16 @@ export function createGate(opts = {}) {
     if (listing) {
       const planWhere = sheetWhereFromPlan(plan, spec)
       const hasWhere = Array.isArray(planWhere.where) && planWhere.where.length > 0
-      if (hasWhere && allRows.length > 0 && (hitTotalState === 'unknown' || hitTotalState === '')) {
+      if (hasWhere && matched.length > 0 && matched.length < PAGE_SIZE && (hitTotalState === 'unknown' || hitTotalState === '')) {
+        hitTotalState = 'known'
+      } else if (hasWhere && allRows.length > 0 && (hitTotalState === 'unknown' || hitTotalState === '')) {
         hitTotalState = 'known'
       } else if (!hitTotalState) {
         hitTotalState = 'unknown'
       }
       if (hitTotalState === 'known') {
         const given = Number(found && found.hitTotal)
-        hitTotal = Number.isFinite(given) ? given : allRows.length
+        hitTotal = Number.isFinite(given) ? given : (matched.length || allRows.length)
       }
     }
     const speak = speakLookup({ kind: sheetKind, no: rows.length === 1 ? rows[0].no : '' }, {
