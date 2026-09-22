@@ -1400,12 +1400,12 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
     const applyLocal = () => {
     if (hit) {
-      const pendingKind = resolveConnectedKind(String(pendingSheet?.kind || ''), kindCatalog) || String(pendingSheet?.kind || '')
-      const sideView = Boolean(pendingSheet && pendingKind !== canonical)
+      const pendingKind = String(pendingSheet?.kind || '').trim()
+      const sideView = Boolean(pendingSheet && !operationKindMatches(pendingKind, canonical, kindCatalog))
       if (
         !sideView
         && pendingSheet
-        && pendingKind === canonical
+        && operationKindMatches(pendingKind, canonical, kindCatalog)
         && operationBundlesAlign(pendingSheet, listSheetMeta || pendingSheet)
       ) {
         applyPendingSheet(pendingSheet)
@@ -1414,7 +1414,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       applySheet(hit, '连接器', undefined, undefined, sideView)
       return
     }
-    if (boundKinds.some((name) => (resolveConnectedKind(name, kindCatalog) || name) === canonical)) {
+    if (boundKinds.some((name) => operationKindMatches(name, canonical, kindCatalog))) {
       setRows([])
       setColumns([])
       setStaleHint('还没有该型的行快照；请在 AI 会话里操作该业务后回到此页。')
@@ -1422,7 +1422,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     }
     if (
       pendingSheet
-      && (resolveConnectedKind(String(pendingSheet.kind || ''), kindCatalog) || String(pendingSheet.kind || '')) === canonical
+      && operationKindMatches(String(pendingSheet.kind || ''), canonical, kindCatalog)
       && operationBundlesAlign(pendingSheet, listSheetMeta || pendingSheet)
     ) {
       applyPendingSheet(pendingSheet)
@@ -1455,8 +1455,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (!cached && anchor) {
       for (const snap of sheetSnapshots.current.values()) {
         const sheet = snap?.sheet
-        const sheetKind = resolveConnectedKind(String(sheet.kind || ''), kindCatalog) || String(sheet.kind || '')
-        if (sheetKind !== canonical) continue
+        if (!operationKindMatches(canonical, String(sheet.kind || ''), kindCatalog)) continue
         if (operationBundlesAlign(anchor, sheet)) {
           cached = snap
           break
@@ -1484,27 +1483,29 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     }
     }
 
-    if (sessionId && anchor) {
-      void runtimeApi.bizFocusKind({
-        sessionId,
-        kind: canonical,
-        ...(bizCwd ? { workspace: bizCwd } : {}),
-      }).then((data) => {
-        if (data.sheet && typeof data.sheet === 'object') {
-          const focusedKind = String(data.sheet.kind || '').trim()
-          if (operationKindMatches(canonical, focusedKind, kindCatalog)) {
-            applySheet(data.sheet, '连接器')
-            return
+    const finishSelect = async () => {
+      if (sessionId && anchor) {
+        try {
+          const data = await runtimeApi.bizFocusKind({
+            sessionId,
+            kind: canonical,
+            ...(bizCwd ? { workspace: bizCwd } : {}),
+          })
+          if (data.sheet && typeof data.sheet === 'object') {
+            const focusedKind = String(data.sheet.kind || '').trim()
+            if (operationKindMatches(canonical, focusedKind, kindCatalog)) {
+              applySheet(data.sheet, '连接器')
+              return
+            }
           }
+        } catch {
+          /* fall back to local materialize */
         }
-        applyLocal()
-      }).catch(() => {
-        applyLocal()
-      })
-      return
+      }
+      applyLocal()
     }
-    applyLocal()
-  }, [applySheet, applyPendingSheet, bizCwd, kind, kindCatalog, listSheetMeta, loadSurface, surfaces])
+    void finishSelect()
+  }, [applySheet, applyPendingSheet, bizCwd, kind, kindCatalog, listSheetMeta, loadSurface, peekActivePending, surfaces])
 
   const tableRows = rows
 
