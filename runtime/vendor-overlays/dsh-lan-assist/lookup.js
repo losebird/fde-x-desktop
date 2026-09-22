@@ -821,7 +821,7 @@ export function createLookup(opts = {}) {
       }
     }
     const exactNo = looksLikeRef(ticket) ? ticket : ''
-    const path = conn.dialect === 'rest' ? restPath(conn, exactNo, kind) : withRelationAppends(nocobasePath(spec, exactNo, kind), extra.collections, spec && spec.resource)
+    const path = conn.dialect === 'rest' ? restPath(conn, exactNo, kind) : withRelationAppends(nocobasePath(spec, exactNo, kind, schemaFields), extra.collections, spec && spec.resource)
     if (!path) return { ok: false, error: 'UNKNOWN_KIND' }
     const found = await get(path, conn)
     if (!found.ok) return found
@@ -1409,13 +1409,41 @@ function nameCluePath(resource, ticket, fields, clues) {
   return `/api/${resource}:list?pageSize=${PAGE_SIZE}&sort=-updatedAt&filter=${filter}`
 }
 
-export function nocobasePath(kindOrSpec, ticket, kind) {
+function skipsIdentityFilter(row) {
+  return /^(m2o|o2o|belongsTo|hasMany|hasOne|belongsToMany|datetime|date|time|unixTimestamp|number|integer|percent|json|formula)$/i.test(String((row && (row.interface || row.type)) || ''))
+}
+
+/** Ticket lookup keys that are real columns. Relation names and labels that are not columns make the whole filter fail. */
+export function identityFilterKeys(spec, schemaFields, look) {
+  const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const attributes = fields.filter((row) => row && row.name && !skipsIdentityFilter(row))
+  const byName = new Set(attributes.map((row) => row.name))
+  const byTitle = new Map()
+  for (const row of attributes) {
+    const title = String(row.title || '').trim()
+    if (title && !byTitle.has(title)) byTitle.set(title, row.name)
+  }
+  const keys = []
+  if (/^\d{6,}$/.test(String(look || ''))) keys.push('id')
+  for (const raw of ticketColumns(spec)) {
+    const name = String(raw || '').trim()
+    if (!name) continue
+    if (byName.has(name)) keys.push(name)
+    else if (byTitle.has(name)) keys.push(byTitle.get(name))
+  }
+  if (!keys.length && !attributes.length) {
+    const ticketField = String((spec && spec.ticketField) || '').trim()
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(ticketField)) keys.push(ticketField)
+  }
+  return [...new Set(keys)]
+}
+
+export function nocobasePath(kindOrSpec, ticket, kind, schemaFields) {
   const spec = kindOrSpec && typeof kindOrSpec === 'object' && kindOrSpec.resource
     ? kindOrSpec
     : mapKind(kindOrSpec || kind)
   if (!spec) return ''
   const resource = spec.resource
-  const fields = ticketColumns(spec, kind || spec.kind)
   const parent = ticket.includes(':') ? ticket.split(':')[0] : ticket
   const look = /(_items|_logs|_records)$/i.test(String(spec.resource || '')) ? parent : ticket
   if (!String(ticket || '').trim()) {
@@ -1424,8 +1452,8 @@ export function nocobasePath(kindOrSpec, ticket, kind) {
   if (!looksLikeRef(look)) {
     return `/api/${resource}:list?pageSize=${PAGE_SIZE}&sort=-updatedAt`
   }
-  const ident = /^\d{6,}$/.test(look) ? ['id', ...fields] : fields
-  const keys = [...new Set(ident.filter(Boolean))]
+  const keys = identityFilterKeys(spec, schemaFields, look)
+  if (!keys.length) return ''
   const clause = keys.length === 1
     ? { [keys[0]]: look }
     : { $or: keys.map((field) => ({ [field]: look })) }
