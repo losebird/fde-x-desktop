@@ -52,7 +52,11 @@ function flattenFromChain(from) {
   let cur = from && typeof from === 'object' && !Array.isArray(from) ? from : null
   while (cur) {
     const kind = String(cur.kind || '').trim()
-    if (!kind || seen.has(kind)) break
+    if (!kind) break
+    if (seen.has(kind)) {
+      if (String(cur.relation || '').trim()) parts.push(cur)
+      break
+    }
     seen.add(kind)
     parts.push(cur)
     const nested = cur.from
@@ -88,15 +92,17 @@ function defaultSteps(spec, where) {
       join: row.join,
     }, row.kind))
     const selfRelation = String((from && from.relation) || spec.relation || spec.via || '').trim()
-    if (kind && kind !== steps[steps.length - 1].kind) {
+    const last = steps[steps.length - 1]
+    const walkedSelf = steps.length >= 2 && kind === last.kind && String(last.relation || '').trim()
+    if (kind && kind !== last.kind) {
       steps.push(normalizeStep({
         kind,
         no: spec.no,
         where,
-        from: steps[steps.length - 1].kind,
+        from: last.kind,
         relation: selfRelation,
       }, kind))
-    } else if (kind && steps.length && kind === steps[steps.length - 1].kind && selfRelation) {
+    } else if (!walkedSelf && kind && steps.length && kind === last.kind && selfRelation) {
       steps.push(normalizeStep({
         kind,
         no: spec.no,

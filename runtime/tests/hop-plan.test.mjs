@@ -134,6 +134,30 @@ test('belongs-to id still wins when a many-to-many is also present', () => {
   assert.equal(relatedField('ParentA', 'ChildB', extra), 'linkId')
 })
 
+test('a nested same-kind from keeps the inner relation and stops', () => {
+  const plan = normalizePlan({
+    kind: 'Node',
+    action: '现查',
+    from: {
+      kind: 'Node',
+      from: {
+        kind: 'Node',
+        relation: 'up',
+        from: { kind: 'Node', relation: 'down' },
+      },
+    },
+  })
+  assert.deepEqual(plan.steps.map((row) => row.kind), ['Node', 'Node'])
+  assert.equal(plan.steps[1].relation, 'up')
+  assert.equal(plan.steps[1].from, 'Node')
+  const bare = normalizePlan({
+    kind: 'Node',
+    action: '现查',
+    from: { kind: 'Node', from: { kind: 'Node' } },
+  })
+  assert.equal(bare.steps.length, 1)
+})
+
 test('a same-kind from with a relation stays two steps', () => {
   const plan = normalizePlan({
     kind: 'Node',

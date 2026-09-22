@@ -1001,3 +1001,65 @@ test('each spoken self edge stays its own hop', () => {
   assert.equal(plain.steps.length, 1)
 })
 
+test('same-object from or steps without a relation take the spoken self edge', () => {
+  const vocab = [
+    {
+      kind: 'Node',
+      resource: 'nodes',
+      can: ['现查'],
+      relations: [
+        { from: 'Node', to: 'Node', field: 'up' },
+        { from: 'Node', to: 'Node', field: 'down' },
+      ],
+    },
+  ]
+  const extra = {
+    collections: [{
+      name: 'nodes',
+      fields: [
+        { name: 'up', title: '上级', interface: 'm2o', target: 'nodes' },
+        { name: 'down', title: '下级', interface: 'o2m', target: 'nodes' },
+      ],
+    }],
+  }
+  const fromFilled = enrichStructuredSlots({
+    kind: 'Node',
+    action: '现查',
+    speech: 'Node的上级',
+    from: { kind: 'Node' },
+  }, vocab, extra)
+  assert.equal(fromFilled.from.relation, 'up')
+  const fromPlan = normalizePlan(fromFilled)
+  assert.deepEqual(fromPlan.steps.map((row) => row.kind), ['Node', 'Node'])
+  assert.equal(fromPlan.steps[1].relation, 'up')
+  const kept = enrichStructuredSlots({
+    kind: 'Node',
+    action: '现查',
+    speech: 'Node的上级',
+    from: { kind: 'Node', relation: 'down' },
+  }, vocab, extra)
+  assert.equal(kept.from.relation, 'down')
+  const stepsFilled = enrichStructuredSlots({
+    kind: 'Node',
+    action: '现查',
+    speech: 'Node的下级',
+    steps: [{ kind: 'Node' }, { kind: 'Node' }],
+  }, vocab, extra)
+  assert.equal(stepsFilled.steps[1].relation, 'down')
+  const stepsKept = enrichStructuredSlots({
+    kind: 'Node',
+    action: '现查',
+    speech: 'Node的上级',
+    steps: [{ kind: 'Node' }, { kind: 'Node', relation: 'down' }],
+  }, vocab, extra)
+  assert.equal(stepsKept.steps[1].relation, 'down')
+  const other = enrichStructuredSlots({
+    kind: 'Node',
+    action: '现查',
+    speech: 'Node的上级',
+    from: { kind: 'Other' },
+  }, vocab, extra)
+  assert.equal(other.from.kind, 'Other')
+  assert.equal(other.from.relation, undefined)
+})
+

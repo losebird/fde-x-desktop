@@ -1117,6 +1117,42 @@ function labelOccurs(text, label) {
   return false
 }
 
+function sameObjectChain(node, targetKind) {
+  const target = String(targetKind || '').trim()
+  if (!target || !node || typeof node !== 'object' || Array.isArray(node)) return false
+  let cur = node
+  let depth = 0
+  while (cur && typeof cur === 'object' && !Array.isArray(cur) && depth < 8) {
+    if (String(cur.kind || '').trim() !== target) return false
+    const nested = cur.from
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested) || !String(nested.kind || '').trim()) return true
+    cur = nested
+    depth += 1
+  }
+  return false
+}
+
+function chainRelation(node) {
+  let cur = node
+  let depth = 0
+  while (cur && typeof cur === 'object' && !Array.isArray(cur) && depth < 8) {
+    const relation = String(cur.relation || '').trim()
+    if (relation) return relation
+    cur = cur.from && typeof cur.from === 'object' && !Array.isArray(cur.from) ? cur.from : null
+    depth += 1
+  }
+  return ''
+}
+
+function stepsAllSame(steps, targetKind) {
+  const target = String(targetKind || '').trim()
+  return steps.length > 0 && steps.every((row) => String(row && row.kind || '').trim() === target)
+}
+
+function stepsCarryRelation(steps) {
+  return steps.some((row) => String(row && row.relation || '').trim())
+}
+
 /** The published self-edge whose field name or title the speech names. Two edges stay two queries. */
 function spokenSelfRelation(kind, speech, extra) {
   const target = String(kind || '').trim()
@@ -1198,11 +1234,25 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
   }
 
-  if (base.from && typeof base.from === 'object' && base.from.kind) {
-    return carryQueryFlags(attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base), hits)
-  }
-  if (existingSteps.length) {
-    return carryQueryFlags(attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base), hits)
+  if ((base.from && typeof base.from === 'object' && base.from.kind) || existingSteps.length) {
+    const next = { ...base, kind: targetKind }
+    const selfField = spokenSelfRelation(targetKind, speech, bag)
+    if (selfField) {
+      const fromNode = next.from && typeof next.from === 'object' ? next.from : null
+      if (fromNode && sameObjectChain(fromNode, targetKind) && !chainRelation(fromNode)) {
+        next.from = { ...fromNode, relation: selfField }
+      }
+      if (existingSteps.length && stepsAllSame(existingSteps, targetKind) && !stepsCarryRelation(existingSteps)) {
+        next.steps = existingSteps.length === 1
+          ? [existingSteps[0], { kind: targetKind, from: targetKind, relation: selfField }]
+          : existingSteps.map((row, index) => (
+            index === existingSteps.length - 1
+              ? { ...row, from: row.from || targetKind, relation: selfField }
+              : row
+          ))
+      }
+    }
+    return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
   }
 
   const childWhere = whereForKind(hits, targetKind, modelWhereAgreed(base.where, hits, targetKind), bag)

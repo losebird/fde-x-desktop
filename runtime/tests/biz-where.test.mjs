@@ -93,6 +93,21 @@ describe('biz preview where pass-through', () => {
     assert.equal(out.payload.from.from.where[0].values[0], 'open')
   })
 
+  test('translateBizIntent keeps relation on steps', () => {
+    const out = translateBizIntent({
+      kind: 'Node',
+      action: '现查',
+      steps: [
+        { kind: 'Node' },
+        { kind: 'Node', relation: 'up', from: 'Node' },
+      ],
+    }, '/tmp/ws')
+    assert.equal(out.payload.steps.length, 2)
+    assert.equal(out.payload.steps[1].relation, 'up')
+    assert.equal(out.payload.steps[1].from, 'Node')
+    assert.equal(out.payload.steps[0].relation, undefined)
+  })
+
   test('translateBizIntent passes steps for a chain longer than two', () => {
     const steps = [
       { kind: 'ParentA', where: [{ keys: ['status'], values: ['a'] }] },

@@ -266,6 +266,7 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
       ...(Array.isArray(row.where) ? { where: normalizePreviewWhere(row.where) } : {}),
       ...(typeof row.no === 'string' && row.no.trim() ? { no: row.no.trim() } : {}),
       ...(typeof row.from === 'string' && row.from.trim() ? { from: row.from.trim() } : {}),
+      ...(typeof row.relation === 'string' && row.relation.trim() ? { relation: row.relation.trim() } : {}),
     }))
   const payload = {
     kind,
