@@ -3,11 +3,39 @@ export function sheetPreviewIdFromRaw(raw) {
   return String(raw.preview_id || raw.previewId || '').trim()
 }
 
+function peerHitFromRaw(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const kind = String(raw.kind || '').trim()
+  if (!kind) return null
+  const rows = Array.isArray(raw.rows) ? raw.rows : []
+  const columns = Array.isArray(raw.columns) ? raw.columns : []
+  const where = Array.isArray(raw.where) ? raw.where : []
+  const hitTotalState = raw.hitTotalState === 'known' || raw.hitTotalState === 'incomplete' || raw.hitTotalState === 'unknown'
+    ? raw.hitTotalState
+    : ''
+  return {
+    kind,
+    action: String(raw.action || '现查'),
+    rows,
+    columns,
+    ...(where.length ? { where } : {}),
+    ...(raw.querySettled === true ? { querySettled: true } : {}),
+    ...(hitTotalState ? { hitTotalState } : {}),
+    ...(hitTotalState === 'known' && raw.hitTotal != null && Number.isFinite(Number(raw.hitTotal))
+      ? { hitTotal: Number(raw.hitTotal) }
+      : {}),
+    ...(Number(raw.page) > 0 ? { page: Math.floor(Number(raw.page)) } : {}),
+    ...(Number(raw.pageSize) > 0 ? { pageSize: Math.floor(Number(raw.pageSize)) } : {}),
+    ...(raw.pageFull === true ? { pageFull: true } : {}),
+  }
+}
+
 /** Normalize lan-assist pending sheet for API + SSE (includes diff payload when present). */
 export function sheetPayloadFromRaw(raw) {
   if (!raw || typeof raw !== 'object') return null
   const previewId = raw.preview_id ?? raw.previewId ?? null
   const changes = Array.isArray(raw.changes) ? raw.changes : []
+  const peers = Array.isArray(raw.peers) ? raw.peers.map(peerHitFromRaw).filter(Boolean) : []
   return {
     kind: String(raw.kind || ''),
     action: String(raw.action || ''),
@@ -41,5 +69,6 @@ export function sheetPayloadFromRaw(raw) {
     ...(Number(raw.page) > 0 ? { page: Math.floor(Number(raw.page)) } : {}),
     ...(Number(raw.pageSize) > 0 ? { pageSize: Math.floor(Number(raw.pageSize)) } : {}),
     ...(raw.pageFull === true ? { pageFull: true } : {}),
+    ...(peers.length ? { peers } : {}),
   }
 }

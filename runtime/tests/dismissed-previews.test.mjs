@@ -53,6 +53,46 @@ test('sheetPayloadFromRaw keeps speech, nested from, and hop steps', () => {
   assert.equal(sheet.hopWhere.length, 1)
 })
 
+test('sheetPayloadFromRaw keeps each unbound peer hit and does not add a relation', () => {
+  const sheet = sheetPayloadFromRaw({
+    kind: '甲',
+    action: '现查',
+    rows: [{ no: 'A1' }],
+    columns: [{ key: 'status', label: '状态', enums: { x: '筛' } }],
+    where: [{ keys: ['status'], values: ['x'] }],
+    speech: '甲并且乙，筛',
+    hitTotalState: 'known',
+    hitTotal: 3,
+    peers: [{
+      kind: '乙',
+      action: '现查',
+      rows: [{ no: 'B1', fields: { status: '筛' } }],
+      columns: [{ key: 'status', label: '状态', enums: { y: '筛' } }],
+      where: [{ keys: ['status'], values: ['y'] }],
+      querySettled: true,
+      hitTotalState: 'known',
+      hitTotal: 5,
+      from: { kind: '不该出现' },
+      steps: [{ kind: '不该出现' }],
+      canWrite: true,
+    }],
+  })
+  assert.ok(sheet)
+  assert.equal(sheet.from, undefined)
+  assert.equal(sheet.steps, undefined)
+  assert.equal(sheet.peers.length, 1)
+  assert.equal(sheet.peers[0].kind, '乙')
+  assert.equal(sheet.peers[0].hitTotal, 5)
+  assert.equal(sheet.peers[0].rows[0].no, 'B1')
+  assert.deepEqual(sheet.peers[0].where, [{ keys: ['status'], values: ['y'] }])
+  assert.equal(sheet.peers[0].from, undefined)
+  assert.equal(sheet.peers[0].steps, undefined)
+  assert.equal(sheet.peers[0].canWrite, undefined)
+  const again = sheetPayloadFromRaw(sheet)
+  assert.equal(again.peers[0].hitTotal, 5)
+  assert.equal(again.peers[0].from, undefined)
+})
+
 test('dismiss does not clear hall when a newer preview already replaced the token', () => {
   assert.equal(dismissShouldClearHall('pv_new', 'pv_old'), false)
   assert.equal(dismissShouldClearHall('pv_old', 'pv_old'), true)

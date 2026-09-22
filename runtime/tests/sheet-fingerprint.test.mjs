@@ -63,6 +63,22 @@ test('pendingSheetWatchFingerprint changes when query changes even if rowCount m
   assert.notEqual(fp1, fp2)
 })
 
+test('pendingSheetWatchFingerprint changes when a peer hit appears', () => {
+  const base = {
+    kind: '甲',
+    action: '现查',
+    rows: [{ no: '1' }],
+    sessionId: 's',
+    speech: '甲并且乙',
+  }
+  const alone = pendingSheetWatchFingerprint(base)
+  const withPeer = pendingSheetWatchFingerprint({
+    ...base,
+    peers: [{ kind: '乙', hitTotal: 5, rows: [{ no: '2' }] }],
+  })
+  assert.notEqual(alone, withPeer)
+})
+
 test('pendingSheetWatchFingerprint differs when sessionId differs', () => {
   const row = { no: '1' }
   const a = pendingSheetWatchFingerprint({

@@ -74,6 +74,11 @@ export function pendingSheetWatchFingerprint(sheet) {
   const lastNo = rows.length > 1 && rows[rows.length - 1] && typeof rows[rows.length - 1] === 'object'
     ? String(rows[rows.length - 1].no || '')
     : firstNo
+  const peers = (Array.isArray(sheet.peers) ? sheet.peers : []).map((peer) => ({
+    kind: String(peer && peer.kind || ''),
+    hitTotal: peer && peer.hitTotal != null ? Number(peer.hitTotal) : null,
+    rows: Array.isArray(peer && peer.rows) ? peer.rows.length : 0,
+  }))
   return JSON.stringify({
     query: listQueryFingerprint(sheet),
     kind: sheet.kind,
@@ -86,5 +91,6 @@ export function pendingSheetWatchFingerprint(sheet) {
     canWrite: sheet.canWrite ?? sheet.can_write,
     speech: String(sheet.speech || '').slice(0, 120),
     sessionId: String(sheet.sessionId || ''),
+    ...(peers.length ? { peers } : {}),
   })
 }
