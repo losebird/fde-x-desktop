@@ -37,7 +37,6 @@ import {
 } from '@/lib/biz-kind-list-cache'
 import {
   extractBoundKindHints,
-  extractSheetListWhere,
   historyOptionLabel,
   kindChipConditionLabels,
   kindChipShowsRowCount,
@@ -95,11 +94,6 @@ function sheetHitState(sheet: Record<string, unknown> | null | undefined) {
 function hitFooterText(sheet: Record<string, unknown> | null | undefined, shown: number) {
   const state = sheetHitState(sheet)
   if (state === 'incomplete') return '不完整'
-  const where = extractSheetListWhere(sheet)
-  const pageSize = Number(sheet?.pageSize) > 0 ? Math.floor(Number(sheet.pageSize)) : PAGE_SIZE
-  if (state === 'unknown' && where.length > 0 && shown > 0 && shown < pageSize && sheet?.pageFull !== true) {
-    return `共 ${shown} 条`
-  }
   if (state === 'unknown') return '总数未知'
   if (state === 'known' && sheet && sheet.hitTotal != null && Number.isFinite(Number(sheet.hitTotal))) {
     return `共 ${Number(sheet.hitTotal)} 条`

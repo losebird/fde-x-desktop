@@ -211,13 +211,8 @@ export function packSheet(spec = {}) {
     const who = [kind, String(spec.no || lead.no || spec.clue || '').trim()].filter(Boolean).join(' ') || '这张单'
     speak = `${who}已是${statusSay}。这是预览，不是过账。`
   }
-  let hitTotalState = spec.hitTotalState
-  let hitTotal = spec.hitTotal
-  const whereList = Array.isArray(spec.where) && spec.where.length ? spec.where : undefined
-  if (spec.querySettled && whereList && rows.length === 1 && hitTotalState !== 'known') {
-    hitTotalState = 'known'
-    hitTotal = 1
-  }
+  const hitTotalState = spec.hitTotalState
+  const hitTotal = spec.hitTotal
   return {
     kind,
     action,
@@ -1055,18 +1050,11 @@ export function createGate(opts = {}) {
     let hitTotalState = reported === 'incomplete' || reported === 'unknown' || reported === 'known' ? reported : ''
     let hitTotal = null
     if (listing) {
-      const planWhere = sheetWhereFromPlan(plan, spec)
-      const hasWhere = Array.isArray(planWhere.where) && planWhere.where.length > 0
-      if (hasWhere && matched.length > 0 && matched.length < PAGE_SIZE && (hitTotalState === 'unknown' || hitTotalState === '')) {
-        hitTotalState = 'known'
-      } else if (hasWhere && allRows.length > 0 && (hitTotalState === 'unknown' || hitTotalState === '')) {
-        hitTotalState = 'known'
-      } else if (!hitTotalState) {
-        hitTotalState = 'unknown'
-      }
+      if (!hitTotalState) hitTotalState = 'unknown'
       if (hitTotalState === 'known') {
         const given = Number(found && found.hitTotal)
-        hitTotal = Number.isFinite(given) ? given : (matched.length || allRows.length)
+        if (Number.isFinite(given)) hitTotal = given
+        else hitTotalState = 'unknown'
       }
     }
     const speak = speakLookup({ kind: sheetKind, no: rows.length === 1 ? rows[0].no : '' }, {
