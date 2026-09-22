@@ -91,14 +91,14 @@ function sheetHitState(sheet: Record<string, unknown> | null | undefined) {
   return ''
 }
 
-function hitFooterText(sheet: Record<string, unknown> | null | undefined, shown: number) {
+function hitFooterText(sheet: Record<string, unknown> | null | undefined) {
   const state = sheetHitState(sheet)
   if (state === 'incomplete') return '不完整'
   if (state === 'unknown') return '总数未知'
   if (state === 'known' && sheet && sheet.hitTotal != null && Number.isFinite(Number(sheet.hitTotal))) {
     return `共 ${Number(sheet.hitTotal)} 条`
   }
-  return `共 ${shown} 条`
+  return '总数未知'
 }
 
 function serverPageCount(sheet: Record<string, unknown>, shownOnPage: number) {
@@ -1899,8 +1899,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       </Card>
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
-        <span data-records-footer={hitFooterText(listSheetMeta, filteredRows.length)} data-hit-total-state={hitState}>
-          {hitFooterText(listSheetMeta, filteredRows.length)}{sourceLabel ? ` · ${sourceLabel}` : ''}
+        <span data-records-footer={hitFooterText(listSheetMeta)} data-hit-total-state={hitState}>
+          {hitFooterText(listSheetMeta)}{sourceLabel ? ` · ${sourceLabel}` : ''}
         </span>
         <div className="flex items-center gap-2">
           <span>第 {displayPage} / {totalPages} 页</span>

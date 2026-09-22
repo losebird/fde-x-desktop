@@ -829,12 +829,15 @@ export function createGate(opts = {}) {
           } catch { /* peer still packs rows */ }
         }
         const failed = found && found.ok === false && found.error && found.error !== 'NOT_FOUND'
-        const hitTotalState = found && found.hitTotalState === 'incomplete'
+        let hitTotalState = found && found.hitTotalState === 'incomplete'
           ? 'incomplete'
           : (failed ? 'unknown' : 'known')
-        const hitTotal = hitTotalState === 'known'
-          ? (Number.isFinite(Number(found && found.hitTotal)) ? Number(found.hitTotal) : matches.length)
-          : null
+        let hitTotal = null
+        if (hitTotalState === 'known') {
+          const given = Number(found && found.hitTotal)
+          if (Number.isFinite(given)) hitTotal = given
+          else hitTotalState = 'unknown'
+        }
         const packed = packSheet({
           kind: peerKind,
           action: '现查',
