@@ -813,7 +813,22 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
     }
     for (const rows of byOwner.values()) {
       const identities = [...new Set(rows.map((row) => String((row.keys || [])[0] || '')).filter(Boolean))]
-      if (identities.length !== 1) continue
+      if (identities.length !== 1) {
+        const row = rows[0]
+        const mergedKeys = [...new Set(rows.flatMap((item) => (item.keys || []).map(String).filter(Boolean)))]
+        if (!mergedKeys.length) continue
+        assigned.push({
+          hitIndex: row.start,
+          say: row.say,
+          keys: mergedKeys,
+          values: row.values,
+          not: row.not === true,
+          ...(Array.isArray(row.dateBefore) && row.dateBefore.length ? { dateBefore: row.dateBefore } : {}),
+          assignKind: row.ownerKind,
+          owned: true,
+        })
+        continue
+      }
       const row = rows[0]
       assigned.push({
         hitIndex: row.start,
@@ -919,11 +934,14 @@ function extraWhereOnKind(kind, extraWhere, extra = {}) {
   const vocab = extra.vocab || []
   const schemaFields = schemaFieldsForKind(kind, vocab, extra)
   if (!schemaFields.length) return list
-  return list.filter((term) => {
+  return list.map((term) => {
+    if (!term || typeof term !== 'object') return null
     const keys = (term.keys || []).map((item) => String(item || '').trim()).filter(Boolean)
-    if (!keys.length) return false
-    return keys.every((key) => fieldOnKindSchema(schemaFields, key))
-  })
+    if (!keys.length) return null
+    const bound = keys.filter((key) => fieldOnKindSchema(schemaFields, key))
+    if (!bound.length) return null
+    return { ...term, keys: bound }
+  }).filter(Boolean)
 }
 
 function compressSameKeyTerms(terms) {
@@ -1047,7 +1065,7 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
     packed.from = fillEmptyWhere(packed.from, hits, bag)
   }
   if (packed.kind) {
-    const where = whereForKind(hits, packed.kind, packed.where, bag)
+    const where = whereForKind(hits, packed.kind, modelWhereAgreed(packed.where, hits, packed.kind), bag)
     if (where.length) packed.where = where
     else delete packed.where
   }
@@ -1272,6 +1290,9 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
               ? { ...row, from: row.from || targetKind, relation: selfField }
               : row
           ))
+      } else if (!existingSteps.length && !(fromNode && String(fromNode.kind || '').trim())) {
+        next.from = { kind: targetKind, relation: selfField }
+        delete next.steps
       }
     }
     return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
@@ -1296,6 +1317,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   if (selfField) {
     const next = { ...base, kind: targetKind, from: { kind: targetKind, relation: selfField } }
     if (childFiltered.length) next.where = childFiltered
+    delete next.steps
     return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
   }
 

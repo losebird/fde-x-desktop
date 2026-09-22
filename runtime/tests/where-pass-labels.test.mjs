@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { bindWhereKeys, fieldLabelMap, resolveShapeKey } from '../vendor-overlays/dsh-lan-assist/where-pass.js'
+import { bindWhereKeys, fieldLabelMap, resolveShapeKey, termFilterPart } from '../vendor-overlays/dsh-lan-assist/where-pass.js'
 
 describe('where-pass field label binding', () => {
   const vocab = [{
@@ -75,5 +75,12 @@ describe('where-pass field label binding', () => {
     const term = { keys: ['状态'], values: ['processing'], not: false }
     const bound = bindWhereKeys([term], '工单', vocab, schema, rawLabels)
     assert.deepEqual(bound, [{ keys: ['status'], values: ['processing'], not: false }])
+  })
+
+  test('termFilterPart ORs the same value across multiple field keys', () => {
+    const part = termFilterPart({ keys: ['bizType', 'refType'], values: ['生产领料'], not: false }, '2026-01-01')
+    assert.deepEqual(part, {
+      $or: [{ bizType: '生产领料' }, { refType: '生产领料' }],
+    })
   })
 })

@@ -537,7 +537,6 @@ export function createLookup(opts = {}) {
       return fresh
     }
     function countedHit(body) {
-      if (dropped > 0) return null
       if (!/[?&]filter=/.test(String(path || ''))) return null
       return metaCount(body)
     }
@@ -845,6 +844,8 @@ export function createLookup(opts = {}) {
         env: conn.env || '',
         connectionId: conn.id || '',
         dialect: conn.dialect || 'nocobase',
+        hitTotalState: listed.hitTotalState,
+        ...(listed.hitTotalState === 'known' ? { hitTotal: listed.hitTotal } : {}),
       }
     }
     if (conn.dialect === 'rest' && (hasNameRest || clues.terms.length)) {

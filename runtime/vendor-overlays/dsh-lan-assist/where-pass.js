@@ -427,15 +427,27 @@ export function previewRowCap(structured) {
   return structured ? WHERE_LIST_CAP : PAGE_SIZE
 }
 
+function enumFilterPart(key, vals, not) {
+  if (!key || !vals.length) return null
+  if (not) {
+    return vals.length === 1 ? { [key]: { $ne: vals[0] } } : { [key]: { $notIn: vals } }
+  }
+  return vals.length === 1 ? { [key]: vals[0] } : { [key]: { $in: vals } }
+}
+
 export function termFilterPart(term, today) {
   const keys = list(term.keys)
   const vals = list(term.values)
-  const asciiKey = keys.find((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
-  const statusPart = asciiKey && vals.length
-    ? (term.not
-      ? (vals.length === 1 ? { [asciiKey]: { $ne: vals[0] } } : { [asciiKey]: { $notIn: vals } })
-      : (vals.length === 1 ? { [asciiKey]: vals[0] } : { [asciiKey]: { $in: vals } }))
-    : null
+  const asciiKeys = [...new Set(keys.filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item)))]
+  let statusPart = null
+  if (asciiKeys.length > 1 && vals.length) {
+    const slice = asciiKeys.map((key) => enumFilterPart(key, vals, term.not)).filter(Boolean)
+    if (slice.length === 1) statusPart = slice[0]
+    else if (slice.length > 1) statusPart = { $or: slice }
+  } else {
+    const asciiKey = asciiKeys[0]
+    statusPart = enumFilterPart(asciiKey, vals, term.not)
+  }
   const dateBeforeParts = list(term.dateBefore)
     .filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
     .map((item) => {

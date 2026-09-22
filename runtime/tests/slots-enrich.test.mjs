@@ -872,7 +872,9 @@ test('one kind with two fields for the same label does not refuse the query', ()
   }
   const filled = enrichStructuredSlots({ kind: '甲种', action: '现查', speech }, pair, extra)
   assert.equal(filled.filterRefused, undefined)
-  assert.equal((filled.where || []).length, 0)
+  assert.ok((filled.where || []).length > 0)
+  const values = (filled.where || []).flatMap((term) => term.values || [])
+  assert.ok(values.includes('off'))
 })
 
 test('the same label on two unbound kinds with different field titles stays on each', () => {

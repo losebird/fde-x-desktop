@@ -1048,7 +1048,17 @@ export function createGate(opts = {}) {
     let hitTotalState = reported === 'incomplete' || reported === 'unknown' || reported === 'known' ? reported : ''
     let hitTotal = null
     if (listing) {
-      if (!hitTotalState) hitTotalState = 'unknown'
+      const planWhere = sheetWhereFromPlan(plan, spec)
+      const hasWhere = Array.isArray(planWhere.where) && planWhere.where.length > 0
+      if (!hitTotalState) {
+        if (hasWhere && allRows.length > 0 && Number.isFinite(Number(found && found.hitTotal))) {
+          hitTotalState = 'known'
+        } else if (hasWhere && allRows.length > 0 && reported === '') {
+          hitTotalState = 'known'
+        } else {
+          hitTotalState = 'unknown'
+        }
+      }
       if (hitTotalState === 'known') {
         const given = Number(found && found.hitTotal)
         hitTotal = Number.isFinite(given) ? given : allRows.length
