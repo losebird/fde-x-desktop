@@ -4,7 +4,7 @@
  * @module dsh-lan-assist/slots
  */
 
-import { collectionFields, mapKind, registeredKinds, relatedField, schemaHasField, schemaRelatedField } from './lookup.js'
+import { collectionFields, mapKind, registeredKinds, relatedField, schemaHasField } from './lookup.js'
 import { schemaFieldsForKind } from './enum-clues.js'
 import { enumMap, peelSpoken, saysOf } from './resolve.js'
 import { vocabRow } from './where-pass.js'
@@ -246,14 +246,6 @@ function relatedMentionedHopLeaf(speech, bag) {
   for (const rel of relationsFromVocab(bag.vocab, bag)) {
     markEdge(rel.from, rel.to)
   }
-  if (Array.isArray(bag.collections) && bag.collections.length) {
-    for (const from of related) {
-      for (const to of related) {
-        if (from === to) continue
-        if (schemaRelatedField(from, to, bag)) markEdge(from, to)
-      }
-    }
-  }
   const leaves = related.filter((kind) => !hasChildAmongRelated.has(kind))
   if (leaves.length === 1) return leaves[0]
   if (leaves.length > 1) {
@@ -342,13 +334,6 @@ function graphNeighbors(kind, extra) {
     if (rel.from === want) push(rel.to)
     if (rel.to === want) push(rel.from)
   }
-  if (Array.isArray(extra.collections) && extra.collections.length) {
-    for (const other of registeredKinds(extra)) {
-      if (schemaRelatedField(want, other, extra) || schemaRelatedField(other, want, extra)) {
-        push(other)
-      }
-    }
-  }
   return out
 }
 
@@ -376,18 +361,6 @@ function relatedKindChain(targetKind, speech, extra) {
       addU(other, kind)
     }
   }
-  if (Array.isArray(extra.collections) && extra.collections.length) {
-    for (let i = 0; i < seed.length; i += 1) {
-      for (let j = i + 1; j < seed.length; j += 1) {
-        const left = seed[i]
-        const right = seed[j]
-        if (schemaRelatedField(left, right, extra) || schemaRelatedField(right, left, extra)) {
-          addU(left, right)
-          addU(right, left)
-        }
-      }
-    }
-  }
   const connected = new Set()
   const queue = [target]
   connected.add(target)
@@ -410,17 +383,6 @@ function relatedKindChain(targetKind, speech, extra) {
     if (!connected.has(rel.from) || !connected.has(rel.to)) continue
     incoming.set(rel.to, (incoming.get(rel.to) || 0) + 1)
     children.get(rel.from).push(rel.to)
-  }
-  if (Array.isArray(extra.collections) && extra.collections.length) {
-    for (const from of connected) {
-      for (const to of connected) {
-        if (from === to) continue
-        if (!schemaRelatedField(from, to, extra)) continue
-        if ((children.get(from) || []).includes(to)) continue
-        incoming.set(to, (incoming.get(to) || 0) + 1)
-        children.get(from).push(to)
-      }
-    }
   }
   const ready = [...connected].filter((kind) => (incoming.get(kind) || 0) === 0)
   const ordered = []
@@ -462,18 +424,6 @@ function relatedMentionedKinds(speech, vocab, extra = {}) {
       if (!mentionedSet.has(other)) continue
       addU(kind, other)
       addU(other, kind)
-    }
-  }
-  if (Array.isArray(extra.collections) && extra.collections.length) {
-    for (let i = 0; i < mentioned.length; i += 1) {
-      for (let j = i + 1; j < mentioned.length; j += 1) {
-        const left = mentioned[i]
-        const right = mentioned[j]
-        if (schemaRelatedField(left, right, bag) || schemaRelatedField(right, left, bag)) {
-          addU(left, right)
-          addU(right, left)
-        }
-      }
     }
   }
   const seen = new Set()
@@ -559,14 +509,6 @@ function parentKindsOf(targetKind, extra) {
     if (rel.to === target && rel.from && !seen.has(rel.from)) {
       seen.add(rel.from)
       out.push(rel.from)
-    }
-  }
-  for (const from of registeredKinds(extra)) {
-    if (!from || from === target || seen.has(from)) continue
-    const field = schemaRelatedField(from, target, extra)
-    if (field) {
-      seen.add(from)
-      out.push(from)
     }
   }
   return out
@@ -790,18 +732,19 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(row)
   }
-  let filterRefused = false
   const assigned = []
   for (const group of groups.values()) {
-    const identities = [...new Set(group.map((row) => String((row.keys || [])[0] || '')).filter(Boolean))]
-    if (identities.length > 1) {
-      filterRefused = true
-      continue
-    }
-    const seenOwner = new Set()
+    const byOwner = new Map()
     for (const row of group) {
-      if (seenOwner.has(row.ownerKind)) continue
-      seenOwner.add(row.ownerKind)
+      const owner = String(row.ownerKind || '')
+      if (!owner) continue
+      if (!byOwner.has(owner)) byOwner.set(owner, [])
+      byOwner.get(owner).push(row)
+    }
+    for (const rows of byOwner.values()) {
+      const identities = [...new Set(rows.map((row) => String((row.keys || [])[0] || '')).filter(Boolean))]
+      if (identities.length !== 1) continue
+      const row = rows[0]
       assigned.push({
         hitIndex: row.start,
         say: row.say,
@@ -842,7 +785,6 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
   const span = rewriteSpan(text)
   const keptAssigned = span.at < 0 ? assigned : assigned.filter((hit) => Number(hit.hitIndex) < span.at)
   const merged = [...roleHits, ...keptAssigned]
-  if (filterRefused) merged.filterRefused = true
   if (contradicts) merged.contradicts = true
   return merged
 }
@@ -1147,7 +1089,7 @@ export function unlinkedConditionKinds(speech, targetKind, vocab, extra = {}) {
 
 /**
  * When the model only filled the child kind + partial where, recover hop slots
- * from speech using vocab clues and graph/catalog relations (or collection FK inference).
+ * from speech using vocab clues and published graph relations.
  * Mentioned related kinds (2 or more) become one chain of steps — not a single pair.
  */
 export function enrichStructuredSlots(spec, vocab, extra = {}) {
@@ -1204,9 +1146,9 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
 
   const childWhere = whereForKind(hits, targetKind, modelWhereAgreed(base.where, hits, targetKind), bag)
   const parents = parentKindsOf(targetKind, bag)
-  let parent = parents.find((kind) => termsForKind(hits, kind, bag).length) || parents.find((kind) => (
-    kindMentions(speech, [kind], bag).length
-  ))
+  const mentioned = new Set(kindMentions(speech, registeredKinds(bag), bag).map((row) => row.kind))
+  let parent = parents.find((kind) => mentioned.has(kind) && termsForKind(hits, kind, bag).length)
+    || parents.find((kind) => mentioned.has(kind))
   if (!parent) parent = hopParentKindForTarget(targetKind, speech, bag)
   const parentWhere = parent ? whereForKind(hits, parent, undefined, bag) : []
   const parentValues = new Set(parentWhere.flatMap((term) => term.values || []))

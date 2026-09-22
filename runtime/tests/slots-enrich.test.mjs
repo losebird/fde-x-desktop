@@ -228,7 +228,7 @@ test('enrichStructuredSlots chains three mentioned related kinds along the graph
   assert.ok(Array.isArray(out.where) && out.where.length)
 })
 
-test('relatedMentionedKinds uses collection FK when vocab has no relations', () => {
+test('relatedMentionedKinds ignores collection FK when the graph has no relation', () => {
   const fkVocab = [
     { kind: 'ParentA', resource: 'parent_a', can: ['现查'] },
     { kind: 'ChildB', resource: 'child_b', can: ['现查'] },
@@ -245,11 +245,17 @@ test('relatedMentionedKinds uses collection FK when vocab has no relations', () 
   ]
   const speech = 'ParentA ChildB — list ChildB'
   const { related } = relatedMentionedKinds(speech, fkVocab, { collections })
-  assert.ok(related.includes('ParentA'))
-  assert.ok(related.includes('ChildB'))
+  assert.equal(related.includes('ParentA') && related.includes('ChildB'), false)
+  const out = enrichStructuredSlots({
+    kind: 'ChildB',
+    action: '现查',
+    speech,
+  }, fkVocab, { collections })
+  assert.equal(out.from, undefined)
+  assert.equal(Array.isArray(out.steps) ? out.steps.length : 0, 0)
 })
 
-test('enrichStructuredSlots chains three kinds via schema FK when vocab has no relations', () => {
+test('enrichStructuredSlots does not chain kinds via schema FK when the graph has no relations', () => {
   const chainVocab = [
     { kind: 'ParentA', resource: 'parent_a', can: ['现查'] },
     { kind: 'MidB', resource: 'mid_b', can: ['现查'] },
@@ -277,9 +283,30 @@ test('enrichStructuredSlots chains three kinds via schema FK when vocab has no r
     action: '现查',
     speech: 'ParentA MidB ChildC — list ChildC',
   }, chainVocab, { collections })
-  assert.equal(out.from?.kind, 'ParentA')
-  assert.equal(out.from?.from?.kind, 'MidB')
-  assert.deepEqual(out.steps.map((row) => row.kind), ['ParentA', 'MidB', 'ChildC'])
+  assert.equal(out.kind, 'ChildC')
+  assert.equal(out.from, undefined)
+  assert.equal(Array.isArray(out.steps) ? out.steps.length : 0, 0)
+})
+
+test('a graph parent covered by a longer mentioned kind is not upstream', () => {
+  const pair = [
+    { kind: 'LogParent', resource: 'parents', can: ['现查'] },
+    {
+      kind: 'LogParentRecord',
+      resource: 'records',
+      can: ['现查'],
+      relations: [{ from: 'LogParent', to: 'LogParentRecord', field: 'parentRef' }],
+    },
+  ]
+  const speech = 'LogParentRecord'
+  const out = enrichStructuredSlots({
+    kind: 'LogParentRecord',
+    action: '现查',
+    speech,
+  }, pair, { relations: pair[1].relations })
+  assert.equal(out.kind, 'LogParentRecord')
+  assert.equal(out.from, undefined)
+  assert.equal(Array.isArray(out.steps) ? out.steps.length : 0, 0)
 })
 
 const intersectionKinds = ['AlphaWidget', 'Widget', 'AlphaGadget', 'Gadget']
@@ -809,7 +836,7 @@ test('one label on two bound kinds with the same field identity is added to each
   assert.ok(toValues.includes('shared'))
 })
 
-test('the same label on different field identities is not applied', () => {
+test('the same label on different field identities is kept on each bound kind', () => {
   const speech = '现查甲种关联的乙种，只要停用。'
   const pair = [
     { kind: '甲种', resource: 'kind_a', can: ['现查'], relations: [{ from: '甲种', to: '乙种', field: 'link' }] },
@@ -822,9 +849,52 @@ test('the same label on different field identities is not applied', () => {
     },
   }
   const filled = enrichStructuredSlots({ kind: '乙种', action: '现查', speech }, pair, extra)
-  assert.equal(filled.filterRefused, true)
+  assert.equal(filled.filterRefused, undefined)
+  const fromValues = (filled.from?.where || []).flatMap((term) => term.values || [])
+  const toValues = (filled.where || []).flatMap((term) => term.values || [])
+  assert.ok(fromValues.includes('off'))
+  assert.ok(toValues.includes('off'))
+})
+
+test('one kind with two fields for the same label does not refuse the query', () => {
+  const speech = '现查甲种，只要停用。'
+  const pair = [
+    { kind: '甲种', resource: 'kind_a', can: ['现查'] },
+  ]
+  const extra = {
+    schemaByKind: {
+      甲种: [
+        { name: 'flag', title: '甲栏', enums: { off: '停用' } },
+        { name: 'state', title: '乙栏', enums: { off: '停用' } },
+      ],
+    },
+  }
+  const filled = enrichStructuredSlots({ kind: '甲种', action: '现查', speech }, pair, extra)
+  assert.equal(filled.filterRefused, undefined)
   assert.equal((filled.where || []).length, 0)
-  assert.equal((filled.from?.where || []).length, 0)
+})
+
+test('the same label on two unbound kinds with different field titles stays on each', () => {
+  const speech = '现查甲种并且乙种，只要停用。'
+  const pair = [
+    { kind: '甲种', resource: 'kind_a', can: ['现查'] },
+    { kind: '乙种', resource: 'kind_b', can: ['现查'] },
+  ]
+  const extra = {
+    schemaByKind: {
+      甲种: [{ name: 'flag', title: '甲栏', enums: { off: '停用' } }],
+      乙种: [{ name: 'state', title: '乙栏', enums: { off: '停用' } }],
+    },
+  }
+  const filled = enrichStructuredSlots({ kind: '乙种', action: '现查', speech }, pair, extra)
+  assert.equal(filled.filterRefused, undefined)
+  assert.equal(filled.from, undefined)
+  const peers = unlinkedConditionKinds(speech, '乙种', pair, extra)
+  const peerValues = peers.flatMap((row) => (row.where || []).flatMap((term) => term.values || []))
+  const ownValues = (filled.where || []).flatMap((term) => term.values || [])
+  assert.deepEqual(peers.map((row) => row.kind), ['甲种'])
+  assert.ok(peerValues.includes('off'))
+  assert.ok(ownValues.includes('off'))
 })
 
 test('same field values said with vocab and contradict', () => {
