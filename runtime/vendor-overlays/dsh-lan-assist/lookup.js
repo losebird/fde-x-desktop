@@ -844,8 +844,10 @@ export function createLookup(opts = {}) {
         env: conn.env || '',
         connectionId: conn.id || '',
         dialect: conn.dialect || 'nocobase',
-        hitTotalState: listed.hitTotalState,
-        ...(listed.hitTotalState === 'known' ? { hitTotal: listed.hitTotal } : {}),
+        hitTotalState: listed.hitTotalState === 'known' || listed.rows.length ? 'known' : listed.hitTotalState,
+        ...(listed.hitTotalState === 'known' && Number.isFinite(Number(listed.hitTotal))
+          ? { hitTotal: Number(listed.hitTotal) }
+          : (listed.rows.length ? { hitTotal: listed.rows.length } : {})),
       }
     }
     if (conn.dialect === 'rest' && (hasNameRest || clues.terms.length)) {

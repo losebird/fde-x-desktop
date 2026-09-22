@@ -1050,14 +1050,10 @@ export function createGate(opts = {}) {
     if (listing) {
       const planWhere = sheetWhereFromPlan(plan, spec)
       const hasWhere = Array.isArray(planWhere.where) && planWhere.where.length > 0
-      if (!hitTotalState) {
-        if (hasWhere && allRows.length > 0 && Number.isFinite(Number(found && found.hitTotal))) {
-          hitTotalState = 'known'
-        } else if (hasWhere && allRows.length > 0 && reported === '') {
-          hitTotalState = 'known'
-        } else {
-          hitTotalState = 'unknown'
-        }
+      if (hasWhere && allRows.length > 0 && (hitTotalState === 'unknown' || hitTotalState === '')) {
+        hitTotalState = 'known'
+      } else if (!hitTotalState) {
+        hitTotalState = 'unknown'
       }
       if (hitTotalState === 'known') {
         const given = Number(found && found.hitTotal)
