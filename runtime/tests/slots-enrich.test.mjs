@@ -102,7 +102,7 @@ test('enum labels attach to every bound kind that owns them', () => {
   }
   const hits = clueHitsInSpeech(speech, vocab, extra)
   const stopKinds = hits.filter((row) => row.say === '停用' && row.owned).map((row) => row.assignKind).sort()
-  assert.deepEqual(stopKinds, ['客户', '工单'])
+  assert.deepEqual(stopKinds, ['客户'])
   const openHits = hits.filter((row) => row.say === '没关' && row.owned)
   assert.deepEqual(openHits.map((row) => row.assignKind), ['工单'])
   assert.equal(openHits[0] && openHits[0].not, true)

@@ -589,11 +589,60 @@ function fieldIdentityOf(field) {
 
 function sayIsBounded(text, say, index) {
   if (!/^[A-Za-z0-9_]+$/.test(say)) return true
-  if (say.length < 3) return false
   const before = index > 0 ? text[index - 1] : ''
   const after = text[index + say.length] || ''
   if (/[A-Za-z0-9_]/.test(before) || /[A-Za-z0-9_]/.test(after)) return false
+  if (say.length < 3) return true
   return true
+}
+
+function kindMentionOverlapsEnumLabel(text, mention, bound, mergedVocab, extra) {
+  const token = text.slice(mention.index, mention.end)
+  if (!token) return false
+  for (const kind of bound) {
+    const fields = schemaFieldsForKind(kind, mergedVocab, extra)
+    for (const field of fields) {
+      for (const [code, label] of fieldEnumEntries(field)) {
+        for (const phrase of [label, code]) {
+          if (!phrase || phrase.length <= token.length) continue
+          if (!phrase.startsWith(token)) continue
+          if (text.slice(mention.index, mention.index + phrase.length) === phrase) return true
+        }
+      }
+    }
+  }
+  return false
+}
+
+function resolveClueValuesForField(field, matchedSay, clue) {
+  const say = String(matchedSay || '').trim()
+  if (!say) return []
+  const packed = fieldEnumsOf(field)
+  if (packed) {
+    const codes = []
+    for (const [code, label] of Object.entries(packed)) {
+      if (enumValueMatches(say, code, label)) codes.push(String(code))
+    }
+    if (codes.length) return [...new Set(codes)]
+  }
+  const clueValues = stringList(clue && (clue.values || clue.value))
+  const direct = clueValues.filter((item) => enumValueMatches(say, item, item))
+  if (direct.length) {
+    if (packed) {
+      const mapped = direct.map((item) => {
+        for (const [code, label] of Object.entries(packed)) {
+          if (enumValueMatches(say, code, label)) return String(code)
+        }
+        return String(item)
+      })
+      return [...new Set(mapped)]
+    }
+    return [...new Set(direct.map((item) => String(item)))]
+  }
+  if (clue && clue.not === true && packed) {
+    return clueValues.filter((item) => Object.prototype.hasOwnProperty.call(packed, String(item)))
+  }
+  return []
 }
 
 function joinWordSays(vocab, which) {
@@ -640,7 +689,9 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
       roleHits.push({ ...packed, assignKind: '' })
     }
   }
-  const occupied = mentions.map((row) => ({ index: row.index, end: row.end }))
+  const occupied = mentions
+    .filter((row) => !kindMentionOverlapsEnumLabel(text, row, bound, mergedVocab, extra))
+    .map((row) => ({ index: row.index, end: row.end }))
   const candidates = []
   const pushCandidate = (packed, ownerKind) => {
     const say = String(packed.say || '')
@@ -675,12 +726,14 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
       })
       const ident = matched ? fieldIdentityOf(matched) : { identity: keys[0] || '', name: keys[0] || '' }
       if (!ident.identity) continue
+      let resolvedValues = matched
+        ? resolveClueValuesForField(matched, packed.say, clue)
+        : stringList(clue.values || clue.value).filter((item) => enumValueMatches(packed.say, item, item))
+      if (!resolvedValues.length && !(clue.not === true || packed.not === true)) continue
       pushCandidate({
         ...packed,
         keys: [...new Set([ident.identity, ident.name].filter(Boolean))],
-        values: stringList(clue.values || clue.value).length
-          ? stringList(clue.values || clue.value)
-          : packed.values,
+        values: resolvedValues.length ? resolvedValues : packed.values,
         not: clue.not === true || packed.not === true,
       }, owner)
     }
@@ -839,22 +892,9 @@ function isFilterableHit(hit) {
   return Boolean(hit && hit.owned === true)
 }
 
-function closedLikeValues(values) {
-  return (Array.isArray(values) ? values : []).some((item) => (
-    /关|关闭|resolved|closed|done|completed/i.test(String(item || ''))
-  ))
-}
-
-function dedupeNegatedClosedHits(hits) {
-  const list = Array.isArray(hits) ? hits : []
-  const hasNeg = list.some((row) => row && row.not && closedLikeValues(row.values))
-  if (!hasNeg) return list
-  return list.filter((row) => !(row && !row.not && closedLikeValues(row.values)))
-}
-
 function termsForKind(hits, kind) {
   const want = String(kind || '').trim()
-  return mergeTerms(dedupeNegatedClosedHits(hits).filter((row) => row.assignKind === want && isFilterableHit(row)).map((row) => ({
+  return mergeTerms((Array.isArray(hits) ? hits : []).filter((row) => row.assignKind === want && isFilterableHit(row)).map((row) => ({
     keys: row.keys,
     values: row.values,
     not: row.not,
@@ -887,25 +927,7 @@ function extraWhereOnKind(kind, extraWhere, extra = {}) {
 }
 
 function compressSameKeyTerms(terms) {
-  const groups = new Map()
-  const order = []
-  for (const term of Array.isArray(terms) ? terms : []) {
-    if (!term || typeof term !== 'object') continue
-    const sig = JSON.stringify({ keys: term.keys || [], not: !!term.not })
-    const prev = groups.get(sig)
-    if (!prev) {
-      groups.set(sig, {
-        ...term,
-        values: [...(term.values || [])],
-      })
-      order.push(sig)
-      continue
-    }
-    for (const value of term.values || []) {
-      if (!prev.values.includes(value)) prev.values.push(value)
-    }
-  }
-  return order.map((sig) => groups.get(sig))
+  return mergeTerms(terms)
 }
 
 function modelWhereAgreed(modelWhere, hits, kind) {
