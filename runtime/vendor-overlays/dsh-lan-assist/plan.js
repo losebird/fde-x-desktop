@@ -87,13 +87,22 @@ function defaultSteps(spec, where) {
       relation: row.relation,
       join: row.join,
     }, row.kind))
+    const selfRelation = String((from && from.relation) || spec.relation || spec.via || '').trim()
     if (kind && kind !== steps[steps.length - 1].kind) {
       steps.push(normalizeStep({
         kind,
         no: spec.no,
         where,
         from: steps[steps.length - 1].kind,
-        relation: (from && from.relation) || spec.relation || spec.via,
+        relation: selfRelation,
+      }, kind))
+    } else if (kind && steps.length && kind === steps[steps.length - 1].kind && selfRelation) {
+      steps.push(normalizeStep({
+        kind,
+        no: spec.no,
+        where,
+        from: steps[steps.length - 1].kind,
+        relation: selfRelation,
       }, kind))
     } else if (kind && steps.length) {
       const last = steps[steps.length - 1]

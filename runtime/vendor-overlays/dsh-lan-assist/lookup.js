@@ -1180,7 +1180,26 @@ function manyAssociationName(resource, field, extra) {
   if (!want) return ''
   const hit = collectionFields(resource, extra && extra.collections).find((row) => row && row.name === want)
   if (!hit) return ''
-  return /^(m2m|belongsToMany)$/i.test(String(hit.interface || '')) ? want : ''
+  return /^(m2m|belongsToMany|o2m|hasMany)$/i.test(String(hit.interface || '')) ? want : ''
+}
+
+/** Column or association for one published field. A same-object edge names its own field. */
+export function relationColumn(kind, field, extra) {
+  const want = String(field || '').trim()
+  if (!want) return ''
+  const mapped = mapKind(kind, extra || {})
+  const resource = mapped && mapped.resource
+  if (!resource) return ''
+  const fields = collectionFields(resource, extra && extra.collections)
+  const hit = fields.find((row) => row && row.name === want)
+  if (!hit) return ''
+  const iface = String(hit.interface || hit.type || '').trim()
+  if (/^(o2m|hasMany|m2m|belongsToMany)$/i.test(iface)) return want
+  if (/^(m2o|o2o|belongsTo)$/i.test(iface)) {
+    const idName = want.endsWith('Id') ? want : `${want}Id`
+    return idName
+  }
+  return want
 }
 
 export function relatedField(fromKind, toKind, extra) {

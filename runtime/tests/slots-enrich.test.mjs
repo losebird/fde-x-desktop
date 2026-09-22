@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
 import {
   enrichStructuredSlots,
   clueHitsInSpeech,
@@ -963,5 +964,40 @@ test('both published directions land on the downstream named later', () => {
   const back = enrichStructuredSlots({ kind: 'SideB', action: '现查', speech: 'SideB的SideA' }, vocab)
   assert.equal(back.kind, 'SideA')
   assert.equal(back.from && back.from.kind, 'SideB')
+})
+
+test('each spoken self edge stays its own hop', () => {
+  const vocab = [
+    {
+      kind: 'Node',
+      resource: 'nodes',
+      can: ['现查'],
+      relations: [
+        { from: 'Node', to: 'Node', field: 'up' },
+        { from: 'Node', to: 'Node', field: 'down' },
+      ],
+    },
+  ]
+  const extra = {
+    collections: [{
+      name: 'nodes',
+      fields: [
+        { name: 'up', title: '上级', interface: 'm2o', target: 'nodes' },
+        { name: 'upId', title: 'upId', interface: 'integer' },
+        { name: 'down', title: '下级', interface: 'o2m', target: 'nodes' },
+      ],
+    }],
+  }
+  const up = normalizePlan(enrichStructuredSlots({ kind: 'Node', action: '现查', speech: 'Node的上级' }, vocab, extra))
+  assert.deepEqual(up.steps.map((row) => row.kind), ['Node', 'Node'])
+  assert.equal(up.steps[1].relation, 'up')
+  assert.equal(up.steps[1].from, 'Node')
+  assert.equal(up.steps[0].where.length, 0)
+  assert.equal(up.steps[1].where.length, 0)
+  const down = normalizePlan(enrichStructuredSlots({ kind: 'Node', action: '现查', speech: 'Node的下级' }, vocab, extra))
+  assert.deepEqual(down.steps.map((row) => row.kind), ['Node', 'Node'])
+  assert.equal(down.steps[1].relation, 'down')
+  const plain = normalizePlan(enrichStructuredSlots({ kind: 'Node', action: '现查', speech: 'Node' }, vocab, extra))
+  assert.equal(plain.steps.length, 1)
 })
 

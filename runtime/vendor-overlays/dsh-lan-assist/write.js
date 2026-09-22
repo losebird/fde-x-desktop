@@ -5,7 +5,7 @@
  */
 
 import { randomHex } from './crypto.js'
-import { connectorCatalogPresent, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, resolveConnectedKindName, rowIdentity, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
+import { connectorCatalogPresent, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, rowIdentity, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
@@ -271,12 +271,13 @@ function hopTargetKey(matches) {
   return rowIdentity(own).key
 }
 
-function hopLinkIds(fromKind, toKind, matches, extra) {
+function hopLinkIds(fromKind, toKind, matches, extra, relation) {
+  const named = relationColumn(toKind, relation, extra)
   const forward = hopRelatedIds(fromKind, toKind, matches, extra)
   if (forward.length) {
     return {
       ids: forward,
-      field: hopRelatedField(fromKind, toKind, matches, extra),
+      field: named || hopRelatedField(fromKind, toKind, matches, extra),
       targetKey: hopTargetKey(matches),
     }
   }
@@ -285,7 +286,7 @@ function hopLinkIds(fromKind, toKind, matches, extra) {
   )).filter(Boolean))]
   return {
     ids: reverse,
-    field: hopRelatedField(toKind, fromKind, matches, extra),
+    field: named || hopRelatedField(toKind, fromKind, matches, extra),
     targetKey: hopTargetKey(matches),
   }
 }
@@ -335,12 +336,14 @@ function sheetNextKind(kind, spec = {}) {
   return next
 }
 
-function keepHoppedMatches(rows, hopIds, fromKind, toKind, extra) {
+function keepHoppedMatches(rows, hopIds, fromKind, toKind, extra, fieldName) {
   const idSet = new Set((Array.isArray(hopIds) ? hopIds : []).map((item) => String(item)))
   if (!idSet.size) return []
-  const field = relatedField(fromKind, toKind, extra)
+  const named = String(fieldName || '').trim()
+  const field = named || relatedField(fromKind, toKind, extra)
   return (Array.isArray(rows) ? rows : []).filter((row) => {
     if (field && relatedRowLinks(row && row.fields, field, idSet)) return true
+    if (named) return false
     const id = relatedChildId(fromKind, toKind, row && row.fields, extra)
     return id && idSet.has(String(id))
   })
@@ -387,7 +390,7 @@ function pruneHopHits(hitsByKind, steps, extra) {
   for (let i = chain.length - 1; i >= 1; i -= 1) {
     const childKind = String(chain[i].kind || '').trim()
     const parentKind = String(chain[i - 1].kind || '').trim()
-    if (!childKind || !parentKind) continue
+    if (!childKind || !parentKind || parentKind === childKind) continue
     hitsByKind.set(
       parentKind,
       keepParentsForChildren(hitsByKind.get(parentKind), hitsByKind.get(childKind), parentKind, childKind, extra),
@@ -984,7 +987,7 @@ export function createGate(opts = {}) {
       for (let i = 1; i < plan.steps.length; i += 1) {
         const step = plan.steps[i]
         const hopKind = String(step && step.kind || '').trim()
-        if (!hopKind || hopKind === prevKind) continue
+        if (!hopKind) continue
         if (!matches.length) {
           if (recognized.action === '现查') {
             return settledList(hopKind, { hitTotalState: upstreamIncomplete ? 'incomplete' : 'known' })
@@ -994,7 +997,7 @@ export function createGate(opts = {}) {
             kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
           })
         }
-        const link = hopLinkIds(prevKind, hopKind, matches, extra)
+        const link = hopLinkIds(prevKind, hopKind, matches, extra, step && step.relation)
         const hopped = link.ids.length
           ? await probe({
             kind: hopKind, no: '', workspace: spec.workspace, staffId: spec.staffId, vocab: loaded.vocab,
@@ -1003,7 +1006,7 @@ export function createGate(opts = {}) {
           })
           : { ok: false, error: 'NOT_FOUND', matches: [] }
         if (hopped && hopped.hitTotalState === 'incomplete') upstreamIncomplete = true
-        const nextRows = keepHoppedMatches(hopped && hopped.matches, link.ids, prevKind, hopKind, extra)
+        const nextRows = keepHoppedMatches(hopped && hopped.matches, link.ids, prevKind, hopKind, extra, link.field)
         if (!nextRows.length) {
           if (recognized.action === '现查') {
             const lookupFailed = hopped && hopped.ok === false && hopped.error && hopped.error !== 'NOT_FOUND'

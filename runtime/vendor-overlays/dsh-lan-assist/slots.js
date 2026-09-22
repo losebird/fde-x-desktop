@@ -1104,6 +1104,50 @@ export function unlinkedConditionKinds(speech, targetKind, vocab, extra = {}) {
   return out
 }
 
+function labelOccurs(text, label) {
+  const say = String(label || '').trim()
+  if (say.length < 2) return false
+  let from = 0
+  while (from < text.length) {
+    const index = text.indexOf(say, from)
+    if (index < 0) return false
+    if (sayIsBounded(text, say, index)) return true
+    from = index + say.length
+  }
+  return false
+}
+
+/** The published self-edge whose field name or title the speech names. Two edges stay two queries. */
+function spokenSelfRelation(kind, speech, extra) {
+  const target = String(kind || '').trim()
+  const text = String(speech || '')
+  if (!target || !text) return ''
+  const rels = relationsFromVocab(extra.vocab, extra).filter((rel) => (
+    rel.from === target && rel.to === target && rel.field
+  ))
+  if (!rels.length) return ''
+  const fields = schemaFieldsForKind(target, extra.vocab, extra)
+  let bestField = ''
+  let bestLen = 0
+  let tie = false
+  for (const rel of rels) {
+    const row = fields.find((item) => item && item.name === rel.field)
+    const labels = [...new Set([rel.field, row && row.title].map((item) => String(item || '').trim()).filter((item) => item.length >= 2))]
+    for (const label of labels) {
+      if (!labelOccurs(text, label)) continue
+      if (label.length > bestLen) {
+        bestField = rel.field
+        bestLen = label.length
+        tie = false
+      } else if (label.length === bestLen && rel.field !== bestField) {
+        tie = true
+      }
+    }
+  }
+  if (!bestField || tie) return ''
+  return bestField
+}
+
 /**
  * When the model only filled the child kind + partial where, recover hop slots
  * from speech using vocab clues and published graph relations.
@@ -1167,6 +1211,8 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   let parent = parents.find((kind) => mentioned.has(kind) && termsForKind(hits, kind, bag).length)
     || parents.find((kind) => mentioned.has(kind))
   if (!parent) parent = hopParentKindForTarget(targetKind, speech, bag)
+  if (parent === targetKind) parent = ''
+  const selfField = spokenSelfRelation(targetKind, speech, bag)
   const parentWhere = parent ? whereForKind(hits, parent, undefined, bag) : []
   const parentValues = new Set(parentWhere.flatMap((term) => term.values || []))
   const childFiltered = childWhere.filter((term) => {
@@ -1174,6 +1220,12 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     if (!parentWhere.length || !vals.length) return true
     return !vals.every((value) => parentValues.has(value))
   })
+
+  if (selfField) {
+    const next = { ...base, kind: targetKind, from: { kind: targetKind, relation: selfField } }
+    if (childFiltered.length) next.where = childFiltered
+    return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
+  }
 
   if (!parent && !parentWhere.length && !childFiltered.length) {
     return carryQueryFlags(attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base), hits)

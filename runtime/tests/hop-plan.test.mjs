@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
-import { relatedField, relatedHopId, relatedIdBatches } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { relatedField, relatedHopId, relatedIdBatches, relationColumn } from '../vendor-overlays/dsh-lan-assist/lookup.js'
 
 test('nested from expands to more than two hop steps', () => {
   const plan = normalizePlan({
@@ -132,6 +132,36 @@ test('belongs-to id still wins when a many-to-many is also present', () => {
     }],
   }
   assert.equal(relatedField('ParentA', 'ChildB', extra), 'linkId')
+})
+
+test('a same-kind from with a relation stays two steps', () => {
+  const plan = normalizePlan({
+    kind: 'Node',
+    action: '现查',
+    from: { kind: 'Node', relation: 'down' },
+  })
+  assert.deepEqual(plan.steps.map((row) => row.kind), ['Node', 'Node'])
+  assert.equal(plan.steps[1].relation, 'down')
+  assert.equal(plan.steps[1].from, 'Node')
+  const collapsed = normalizePlan({ kind: 'Node', action: '现查', from: { kind: 'Node' } })
+  assert.equal(collapsed.steps.length, 1)
+})
+
+test('a named self field keeps its own column', () => {
+  const extra = {
+    vocab: [{ kind: 'Node', resource: 'nodes', can: ['现查'] }],
+    collections: [{
+      name: 'nodes',
+      fields: [
+        { name: 'up', title: '上级', interface: 'm2o', target: 'nodes' },
+        { name: 'upId', title: 'upId', interface: 'integer' },
+        { name: 'down', title: '下级', interface: 'o2m', target: 'nodes' },
+      ],
+    }],
+  }
+  assert.equal(relationColumn('Node', 'up', extra), 'upId')
+  assert.equal(relationColumn('Node', 'down', extra), 'down')
+  assert.equal(relatedField('Node', 'Node', extra), '')
 })
 
 test('parent ids are split before a child filter outgrows one request', () => {
