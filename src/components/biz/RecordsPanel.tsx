@@ -44,6 +44,7 @@ import {
   listSnapshotCacheKey,
   operationBundlesAlign,
   materializeOperationKindSheet,
+  operationKindMatches,
   operationKindHitSheets,
   sheetRowsFingerprint,
   shouldHoldSideKindView,
@@ -386,17 +387,17 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       || String(anchor?.kind || kind || '').trim()
     const add = (k: string, count: number) => {
       if (!k) return
-      const canonical = resolveConnectedKind(k, kindCatalog) || k
+      const sideKind = String(k || '').trim()
       const conditions = [...new Set([
-        ...kindChipConditionLabels(anchor, canonical),
-        ...kindChipConditionLabels(operationAnchor, canonical),
-        ...kindChipConditionLabels(pendingSheet, canonical),
+        ...kindChipConditionLabels(anchor, sideKind),
+        ...kindChipConditionLabels(operationAnchor, sideKind),
+        ...kindChipConditionLabels(pendingSheet, sideKind),
       ])]
-      byKind.set(canonical, {
-        kind: canonical,
-        label: kindLabel(canonical),
+      byKind.set(sideKind, {
+        kind: sideKind,
+        label: kindLabel(sideKind),
         count,
-        showCount: kindChipShowsRowCount(canonical, resultKind),
+        showCount: kindChipShowsRowCount(sideKind, resultKind),
         conditions,
       })
     }
@@ -406,9 +407,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       return [...byKind.values()]
     }
 
-    const allowedKinds = [...new Set(
-      extractBoundKindHints(anchor).map((name) => resolveConnectedKind(name, kindCatalog) || name),
-    )]
+    const allowedKinds = [...new Set(extractBoundKindHints(anchor))]
     if (!allowedKinds.length) {
       const only = resolveConnectedKind(String(anchor.kind || kind || '').trim(), kindCatalog)
         || String(anchor.kind || kind || '').trim()
@@ -424,26 +423,23 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       const peers = source && Array.isArray(source.peers) ? source.peers : []
       for (const peer of peers) {
         if (!peer || typeof peer !== 'object') continue
-        const name = resolveConnectedKind(String(peer.kind || ''), kindCatalog) || String(peer.kind || '')
+        const name = String(peer.kind || '').trim()
         if (!name || peerTotals.has(name)) continue
         const total = Number(peer.hitTotal)
         peerTotals.set(name, Number.isFinite(total) ? total : (Array.isArray(peer.rows) ? peer.rows.length : 0))
       }
     }
     for (const bound of allowedKinds) {
-      const hit = hits.find((sheet) => {
-        const sheetKind = String(sheet.kind || '')
-        const canonical = resolveConnectedKind(sheetKind, kindCatalog) || sheetKind
-        return canonical === bound && Array.isArray(sheet.rows)
-      })
+      const hit = hits.find((sheet) => operationKindMatches(bound, String(sheet.kind || ''), kindCatalog)
+        && Array.isArray(sheet.rows))
       let count = hit && Array.isArray(hit.rows)
         ? hit.rows.length
         : (bound === kind ? rows.length : 0)
-      if (bound === resultKind) {
+      if (operationKindMatches(bound, resultKind, kindCatalog)) {
         for (const source of [anchor, operationAnchor, pendingSheet]) {
           if (!source || typeof source !== 'object') continue
-          const sourceKind = resolveConnectedKind(String(source.kind || ''), kindCatalog) || String(source.kind || '')
-          if (sourceKind !== bound) continue
+          const sourceKind = String(source.kind || '').trim()
+          if (!operationKindMatches(bound, sourceKind, kindCatalog)) continue
           const state = String(source.hitTotalState || '')
           const total = Number(source.hitTotal)
           if (!Number.isFinite(total) || total < 0) continue
@@ -453,16 +449,15 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         }
       }
       const peerTotal = peerTotals.get(bound)
-      if (peerTotal != null && bound !== resultKind) {
-        const canonical = resolveConnectedKind(bound, kindCatalog) || bound
+      if (peerTotal != null && !operationKindMatches(bound, resultKind, kindCatalog)) {
         const conditions = [...new Set([
-          ...kindChipConditionLabels(anchor, canonical),
-          ...kindChipConditionLabels(operationAnchor, canonical),
-          ...kindChipConditionLabels(pendingSheet, canonical),
+          ...kindChipConditionLabels(anchor, bound),
+          ...kindChipConditionLabels(operationAnchor, bound),
+          ...kindChipConditionLabels(pendingSheet, bound),
         ])]
-        byKind.set(canonical, {
-          kind: canonical,
-          label: kindLabel(canonical),
+        byKind.set(bound, {
+          kind: bound,
+          label: kindLabel(bound),
           count: peerTotal,
           showCount: true,
           conditions,
@@ -1375,7 +1370,13 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   }, [applySheet, commitListRestore, drawer?.previewId, resolveSurfaceSheet, surfaceHistoryLabel])
 
   const selectKind = useCallback((nextKind: string) => {
-    const canonical = resolveConnectedKind(nextKind, kindCatalog) || nextKind
+    const pendingSheet = peekActivePending()
+    const anchorForKind = pendingSheet || listSheetMeta
+    const boundHints = extractBoundKindHints(anchorForKind)
+    const spoken = String(nextKind || '').trim()
+    const canonical = boundHints.includes(spoken)
+      ? spoken
+      : (resolveConnectedKind(spoken, kindCatalog) || spoken)
     const displayedKind = resolveConnectedKind(String(listSheetMeta?.kind || kind || ''), kindCatalog)
       || String(listSheetMeta?.kind || kind || '')
     if (canonical && canonical !== displayedKind) {
@@ -1387,19 +1388,14 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     setSelectedRowKey('')
     operationKindViewRef.current = canonical
     historyPinnedSurfaceIdRef.current = ''
-    const pendingSheet = peekActivePending()
-    const anchor = pendingSheet || listSheetMeta
+    const anchor = anchorForKind
     const sessionId = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
     const boundKinds = extractBoundKindHints(anchor)
     const hitSheets = [
       ...operationKindHitSheets(pendingSheet),
       ...operationKindHitSheets(listSheetMeta),
     ]
-    const hit = hitSheets.find((sheet) => String(sheet.kind || '').trim() === canonical)
-      || hitSheets.find((sheet) => {
-        const sheetKind = resolveConnectedKind(String(sheet.kind || ''), kindCatalog) || String(sheet.kind || '')
-        return sheetKind === canonical
-      })
+    const hit = hitSheets.find((sheet) => operationKindMatches(canonical, String(sheet.kind || ''), kindCatalog))
       || (anchor ? materializeOperationKindSheet(anchor, canonical, kindCatalog) : null)
 
     const applyLocal = () => {
@@ -1495,9 +1491,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         ...(bizCwd ? { workspace: bizCwd } : {}),
       }).then((data) => {
         if (data.sheet && typeof data.sheet === 'object') {
-          const focusedKind = resolveConnectedKind(String(data.sheet.kind || ''), kindCatalog)
-            || String(data.sheet.kind || '')
-          if (focusedKind === canonical) {
+          const focusedKind = String(data.sheet.kind || '').trim()
+          if (operationKindMatches(canonical, focusedKind, kindCatalog)) {
             applySheet(data.sheet, '连接器')
             return
           }

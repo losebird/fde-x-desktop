@@ -228,6 +228,19 @@ function kindNamesEqual(
   return resolvedA === resolvedB
 }
 
+/** Exact object name on this operation side; alias fold only when names differ. */
+export function operationKindMatches(
+  wanted: string,
+  candidate: string,
+  kindCatalog?: ConnectedKindIndex | ConnectedKindRow[] | null,
+): boolean {
+  const a = String(wanted || '').trim()
+  const b = String(candidate || '').trim()
+  if (!a || !b) return false
+  if (a === b) return true
+  return kindNamesEqual(a, b, kindCatalog)
+}
+
 function stampSheetPagination(
   hit: Record<string, unknown>,
   base: Record<string, unknown>,
