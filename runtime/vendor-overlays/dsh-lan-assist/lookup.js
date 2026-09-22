@@ -515,6 +515,7 @@ export function createLookup(opts = {}) {
     const seen = new Set()
     const rows = []
     let capped = false
+    let dropped = 0
     function take(chunk) {
       let fresh = 0
       for (const row of Array.isArray(chunk) ? chunk : []) {
@@ -524,7 +525,10 @@ export function createLookup(opts = {}) {
         }
         const key = rowKey(row)
         if (key && seen.has(key)) continue
-        if (!keep(row)) continue
+        if (!keep(row)) {
+          dropped += 1
+          continue
+        }
         if (key) seen.add(key)
         rows.push(row)
         fresh += 1
@@ -532,9 +536,23 @@ export function createLookup(opts = {}) {
       if (rows.length >= cap) capped = true
       return fresh
     }
+    function countedHit(body) {
+      if (dropped > 0) return null
+      if (!/[?&]filter=/.test(String(path || ''))) return null
+      return metaCount(body)
+    }
+    function cappedPack(body) {
+      const count = countedHit(body)
+      if (count != null) return { ok: true, body, rows, hitTotal: count, hitTotalState: 'known' }
+      return hitPack(body, rows, 'incomplete')
+    }
     const firstChunk = listRows(first.body)
     take(firstChunk)
-    if (capped) return hitPack(first.body, rows, 'incomplete')
+    const ahead = countedHit(first.body)
+    if (ahead != null && ahead > cap) {
+      return { ok: true, body: first.body, rows, hitTotal: ahead, hitTotalState: 'known' }
+    }
+    if (capped) return cappedPack(first.body)
     if (firstChunk.length < pageSize) return hitPack(first.body, rows, 'known')
     const count = metaCount(first.body)
     const joiner = path.includes('?') ? '&' : '?'
@@ -552,7 +570,7 @@ export function createLookup(opts = {}) {
         break
       }
       const fresh = take(chunk)
-      if (capped) return hitPack(first.body, rows, 'incomplete')
+      if (capped) return cappedPack(first.body)
       if (fresh === 0) break
       if (chunk.length < pageSize) {
         ended = true
@@ -563,7 +581,7 @@ export function createLookup(opts = {}) {
         break
       }
     }
-    if (capped) return hitPack(first.body, rows, 'incomplete')
+    if (capped) return cappedPack(first.body)
     if (ended) return hitPack(first.body, rows, 'known')
     if (count != null && !failed) return { ok: true, body: first.body, rows, hitTotal: count, hitTotalState: 'known' }
     return hitPack(first.body, rows, 'unknown')
@@ -650,6 +668,30 @@ export function createLookup(opts = {}) {
       if (!resource) return { ok: false, error: 'UNKNOWN_KIND' }
       let fk = (related && related.field) || relatedFilterField(related.kind, kind, {}, extra) || relatedField(related.kind, kind, extra)
       if (!fk) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
+      const parentMapped = mapKind(related.kind, {
+        vocab: vocab || conn.vocab,
+        kinds: conn.kinds,
+        collections,
+      })
+      const parentFields = collectionFields(parentMapped && parentMapped.resource, collections)
+      const assoc = parentFields.find((row) => row && row.name === fk && String(row.target || '') === resource)
+      const assocIface = String((assoc && (assoc.interface || assoc.type)) || '')
+      const onChild = schemaFields.some((row) => row && row.name === fk)
+      if (!onChild && assoc && /^(o2m|hasMany)$/i.test(assocIface) && assoc.foreignKey && schemaFields.some((row) => row.name === assoc.foreignKey)) {
+        fk = assoc.foreignKey
+      }
+      if (!onChild && assoc && /^(m2m|belongsToMany)$/i.test(assocIface) && assoc.through && assoc.foreignKey) {
+        const idClause = relatedIds.length === 1 ? relatedIds[0] : { $in: relatedIds }
+        const filter = encodeURIComponent(JSON.stringify({ [assoc.foreignKey]: idClause }))
+        const throughPath = `/api/${assoc.through}:list?pageSize=${PAGE_SIZE}&sort=-updatedAt&filter=${filter}`
+        const counted = await get(throughPath, conn)
+        if (!counted.ok) return counted
+        const throughCount = metaCount(counted.body)
+        const throughRows = listRows(counted.body)
+        if (throughCount === 0 || (throughCount == null && throughRows.length === 0)) {
+          return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [], hitTotal: 0, hitTotalState: 'known' }
+        }
+      }
       const keepRow = (row, idSet) => {
         if (!relatedRowLinks(row, fk, idSet)) return false
         if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
@@ -662,11 +704,9 @@ export function createLookup(opts = {}) {
         const seen = new Set()
         const hit = []
         let state = 'known'
+        let counted = 0
+        let countedKnown = true
         for (const batch of batches) {
-          if (hit.length >= whereLimit) {
-            state = 'incomplete'
-            break
-          }
           const idSet = new Set(batch)
           let path = withRelationAppends(relatedListPath(resource, { ...related, ids: batch, field: fieldName }, kind, clues, extra), extra.collections, resource)
           const manyName = manyAssociationName(resource, fieldName, extra)
@@ -675,20 +715,34 @@ export function createLookup(opts = {}) {
             if (!path.includes(token)) path += `${path.includes('?') ? '&' : '?'}${token}`
           }
           if (!path) return { ok: false, error: 'UNKNOWN_KIND' }
+          const room = Math.max(whereLimit - hit.length, 1)
           const listed = await listAll(path, conn, {
-            limit: whereLimit - hit.length,
+            limit: room,
             keep: (row) => keepRow(row, idSet),
           })
           if (!listed.ok) return listed
-          if (listed.hitTotalState === 'incomplete' || listed.hitTotalState === 'unknown') state = listed.hitTotalState
-          for (const row of listed.rows) {
-            const key = rowKey(row) || `raw:${hit.length}`
-            if (seen.has(key)) continue
-            seen.add(key)
-            hit.push(row)
+          const batchTotal = Number(listed.hitTotal)
+          if (listed.hitTotalState === 'known' && Number.isFinite(batchTotal)) counted += batchTotal
+          else {
+            countedKnown = false
+            if (listed.hitTotalState === 'incomplete' || listed.hitTotalState === 'unknown') state = listed.hitTotalState
+          }
+          if (hit.length < whereLimit) {
+            for (const row of listed.rows) {
+              if (hit.length >= whereLimit) break
+              const key = rowKey(row) || `raw:${hit.length}`
+              if (seen.has(key)) continue
+              seen.add(key)
+              hit.push(row)
+            }
           }
         }
-        return { ok: true, rows: hit, hitTotalState: state }
+        return {
+          ok: true,
+          rows: hit,
+          hitTotalState: countedKnown ? 'known' : state,
+          ...(countedKnown ? { hitTotal: counted } : {}),
+        }
       }
       let listed = await listBatches(fk)
       if (!listed.ok && !/Id$/.test(fk)) listed = await listBatches(`${fk}Id`)
@@ -715,7 +769,7 @@ export function createLookup(opts = {}) {
         connectionId: conn.id || '',
         dialect: conn.dialect || 'nocobase',
         hitTotalState: listed.hitTotalState,
-        ...(known ? { hitTotal: matches.length } : {}),
+        ...(known ? { hitTotal: Number(listed.hitTotal) } : {}),
       }
     }
     const nameRest = String(clues.rest || '').trim()
@@ -999,6 +1053,10 @@ export function collectionFields(resource, collections) {
       if (iface) packed.interface = iface
       const target = String(item.target || '').trim()
       if (target) packed.target = target
+      for (const key of ['foreignKey', 'through', 'otherKey', 'sourceKey', 'targetKey']) {
+        const value = String(item[key] || '').trim()
+        if (value) packed[key] = value
+      }
       const enums = enumMap(item)
       if (Object.keys(enums).length) packed.enums = enums
       out.push(packed)
@@ -1202,6 +1260,33 @@ export function relationColumn(kind, field, extra) {
   return want
 }
 
+function soleParentAssociation(fromKind, toKind, extra) {
+  const parent = mapKind(fromKind, extra || {})
+  const child = mapKind(toKind, extra || {})
+  if (!parent || !child || !parent.resource || !child.resource) return ''
+  const hits = collectionFields(parent.resource, extra && extra.collections).filter((row) => {
+    if (!row || String(row.target || '') !== child.resource) return false
+    return /^(o2m|hasMany|m2m|belongsToMany)$/i.test(String(row.interface || row.type || ''))
+  })
+  if (hits.length !== 1) return ''
+  return hits[0].name
+}
+
+function parentAssociationField(fromKind, toKind, fieldName, extra) {
+  const want = String(fieldName || '').trim()
+  if (!want) return ''
+  const parent = mapKind(fromKind, extra || {})
+  const child = mapKind(toKind, extra || {})
+  if (!parent || !child || !parent.resource || !child.resource) return ''
+  const hit = collectionFields(parent.resource, extra && extra.collections).find((row) => (
+    row && row.name === want && String(row.target || '') === child.resource
+  ))
+  if (!hit) return ''
+  const iface = String(hit.interface || hit.type || '')
+  if (!/^(o2m|hasMany|m2m|belongsToMany)$/i.test(iface)) return ''
+  return hit.name
+}
+
 export function relatedField(fromKind, toKind, extra) {
   const from = String(fromKind || '').trim()
   const to = String(toKind || '').trim()
@@ -1221,9 +1306,13 @@ export function relatedField(fromKind, toKind, extra) {
       const idName = field.endsWith('Id') ? field : `${field}Id`
       if (fields.some((item) => String(item && item.name || '') === idName)) return idName
       if (fields.some((item) => String(item && item.name || '') === field)) return field
+      const parentField = parentAssociationField(from, to, field, extra)
+      if (parentField) return parentField
       return idName
     }
   }
+  const sole = soleParentAssociation(from, to, extra)
+  if (sole) return sole
   return selfFk(from, extra)
 }
 

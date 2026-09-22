@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
-import { relatedField, relatedHopId, relatedIdBatches, relationColumn } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { createLookup, relatedField, relatedHopId, relatedIdBatches, relationColumn } from '../vendor-overlays/dsh-lan-assist/lookup.js'
 
 test('nested from expands to more than two hop steps', () => {
   const plan = normalizePlan({
@@ -197,4 +197,145 @@ test('parent ids are split before a child filter outgrows one request', () => {
     const clause = { parentId: { $in: batch } }
     assert.ok(encodeURIComponent(JSON.stringify(clause)).length <= 180 || batch.length === 1)
   }
+})
+
+test('a filtered hit set bigger than the row cap keeps the server count and one page', async () => {
+  const urls = []
+  const lookup = createLookup({
+    fetchImpl: async (url) => {
+      urls.push(String(url))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [
+            { id: 1, productId: 'p1', movementNo: 'M1' },
+            { id: 2, productId: 'p1', movementNo: 'M2' },
+          ],
+          meta: { count: 80 },
+        }),
+      }
+    },
+    resolve: async () => ({
+      baseUrl: 'http://example.test',
+      token: 't',
+      vocab: [
+        { kind: '物料', resource: 'products', fields: ['id'] },
+        { kind: '流水', resource: 'movements', fields: ['movementNo'] },
+      ],
+      collections: [
+        { name: 'products', fields: [{ name: 'id', interface: 'id' }] },
+        {
+          name: 'movements',
+          fields: [
+            { name: 'movementNo', interface: 'input' },
+            { name: 'productId', interface: 'integer' },
+            { name: 'product', interface: 'm2o', target: 'products', foreignKey: 'productId' },
+          ],
+        },
+      ],
+    }),
+  })
+  const found = await lookup.lookupTodo({
+    kind: '流水',
+    related: { kind: '物料', ids: ['p1'], field: 'productId' },
+    limit: 5,
+  })
+  assert.equal(found.ok, true)
+  assert.equal(found.hitTotalState, 'known')
+  assert.equal(found.hitTotal, 80)
+  assert.ok(found.matches.length > 0 && found.matches.length <= 5)
+  assert.equal(urls.some((url) => url.includes('page=2')), false)
+})
+
+test('an empty published many-to-many hit set is a known zero', async () => {
+  const urls = []
+  const lookup = createLookup({
+    fetchImpl: async (url) => {
+      urls.push(String(url))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [], meta: { count: 0 } }),
+      }
+    },
+    resolve: async () => ({
+      baseUrl: 'http://example.test',
+      token: 't',
+      vocab: [
+        { kind: 'Dept', resource: 'departments', fields: ['id'] },
+        { kind: 'Role', resource: 'roles', fields: ['title'] },
+      ],
+      collections: [
+        {
+          name: 'departments',
+          fields: [
+            { name: 'id', interface: 'id' },
+            {
+              name: 'roles',
+              interface: 'm2m',
+              type: 'belongsToMany',
+              target: 'roles',
+              foreignKey: 'departmentId',
+              through: 'departmentsRoles',
+              otherKey: 'roleName',
+              targetKey: 'name',
+            },
+          ],
+        },
+        { name: 'roles', fields: [{ name: 'name', interface: 'input' }, { name: 'title', interface: 'input' }] },
+      ],
+    }),
+  })
+  const found = await lookup.lookupTodo({
+    kind: 'Role',
+    related: { kind: 'Dept', ids: ['d1'], field: 'roles' },
+    limit: 20,
+  })
+  assert.equal(found.ok, false)
+  assert.equal(found.error, 'NOT_FOUND')
+  assert.equal(found.hitTotalState, 'known')
+  assert.equal(found.hitTotal, 0)
+  assert.equal(urls.some((url) => url.includes('/api/roles:list')), false)
+  assert.equal(urls.some((url) => url.includes('/api/departmentsRoles:list')), true)
+})
+
+test('an association already stored on the child is not rewritten onto its foreign key', async () => {
+  const urls = []
+  const lookup = createLookup({
+    fetchImpl: async (url) => {
+      urls.push(String(url))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [{ id: 'a', subs: [{ id: 'p1' }] }],
+          meta: { count: 1 },
+        }),
+      }
+    },
+    resolve: async () => ({
+      baseUrl: 'http://example.test',
+      token: 't',
+      vocab: [{ kind: 'Person', resource: 'people', fields: ['id'] }],
+      collections: [{
+        name: 'people',
+        fields: [
+          { name: 'id', interface: 'id' },
+          { name: 'managerId', interface: 'integer' },
+          { name: 'subs', interface: 'o2m', target: 'people', foreignKey: 'managerId' },
+        ],
+      }],
+    }),
+  })
+  const found = await lookup.lookupTodo({
+    kind: 'Person',
+    related: { kind: 'Person', ids: ['p1'], field: 'subs' },
+    limit: 20,
+  })
+  assert.equal(found.ok, true)
+  assert.equal(found.hitTotal, 1)
+  const decoded = urls.map((url) => decodeURIComponent(url)).join('\n')
+  assert.equal(decoded.includes('managerId'), false)
+  assert.equal(decoded.includes('"subs"'), true)
 })

@@ -272,7 +272,7 @@ function hopTargetKey(matches) {
 }
 
 function hopLinkIds(fromKind, toKind, matches, extra, relation) {
-  const named = relationColumn(toKind, relation, extra)
+  const named = relationColumn(toKind, relation, extra) || relationColumn(fromKind, relation, extra)
   const forward = hopRelatedIds(fromKind, toKind, matches, extra)
   if (forward.length) {
     return {
