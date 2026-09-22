@@ -504,6 +504,11 @@ export function pickHopSpeech(modelSpeech, userSpeech, vocab, extra = {}) {
   if (!model) return user
   if (model === user) return model
   if (user.includes(model) && user.length > model.length) return user
+  const bag = { vocab, ...extra }
+  const names = registeredKinds(bag)
+  const userKindCount = new Set(kindMentions(user, names, bag).map((row) => row.kind)).size
+  const modelKindCount = new Set(kindMentions(model, names, bag).map((row) => row.kind)).size
+  if (userKindCount > modelKindCount) return user
   const userRel = relatedMentionedKinds(user, vocab, extra).related.length
   const modelRel = relatedMentionedKinds(model, vocab, extra).related.length
   if (userRel > modelRel) return user

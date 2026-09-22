@@ -756,6 +756,16 @@ test('a human list sentence stays a list when the model asks to edit', () => {
   assert.ok(toValues.includes('shared'))
 })
 
+test('pickHopSpeech keeps both unbound kinds when the model drops the first', () => {
+  const vocab = [
+    { kind: '甲种', resource: 'kind_a', can: ['现查'] },
+    { kind: '乙种', resource: 'kind_b', can: ['现查'] },
+  ]
+  const user = '现查甲种并且乙种，只要共用。'
+  const model = '现查乙种，只要共用。'
+  assert.equal(pickHopSpeech(model, user, vocab), user)
+})
+
 test('one label on two unbound kinds is kept on each and does not invent a hop', () => {
   const speech = '现查甲种并且乙种，只要共用。'
   const pair = [

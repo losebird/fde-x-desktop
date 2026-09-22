@@ -432,9 +432,22 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         const canonical = resolveConnectedKind(sheetKind, kindCatalog) || sheetKind
         return canonical === bound && Array.isArray(sheet.rows)
       })
-      const count = hit && Array.isArray(hit.rows)
+      let count = hit && Array.isArray(hit.rows)
         ? hit.rows.length
         : (bound === kind ? rows.length : 0)
+      if (bound === resultKind) {
+        for (const source of [anchor, operationAnchor, pendingSheet]) {
+          if (!source || typeof source !== 'object') continue
+          const sourceKind = resolveConnectedKind(String(source.kind || ''), kindCatalog) || String(source.kind || '')
+          if (sourceKind !== bound) continue
+          const state = String(source.hitTotalState || '')
+          const total = Number(source.hitTotal)
+          if (!Number.isFinite(total) || total < 0) continue
+          if (state && state !== 'known') continue
+          count = total
+          break
+        }
+      }
       const peerTotal = peerTotals.get(bound)
       if (peerTotal != null && bound !== resultKind) {
         const canonical = resolveConnectedKind(bound, kindCatalog) || bound
