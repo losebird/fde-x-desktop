@@ -1327,7 +1327,7 @@ export function createGate(opts = {}) {
         const connected = resolveConnectedKindName(step.kind, catalogExtra) || String(step.kind || '').trim()
         if (connected) step.kind = connected
         const prev = collapsed[collapsed.length - 1]
-        if (prev && prev.kind === step.kind) {
+        if (prev && prev.kind === step.kind && !String(step.relation || '').trim()) {
           if ((!Array.isArray(prev.where) || !prev.where.length) && Array.isArray(step.where) && step.where.length) {
             collapsed[collapsed.length - 1] = step
           }
