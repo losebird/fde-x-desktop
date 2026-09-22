@@ -105,12 +105,15 @@ function hitFooterText(sheet: Record<string, unknown> | null | undefined) {
 function serverPageCount(sheet: Record<string, unknown>, shownOnPage: number) {
   const state = sheetHitState(sheet)
   const page = Number(sheet.page) > 0 ? Math.floor(Number(sheet.page)) : 1
-  const pageSize = Number(sheet.pageSize)
+  const rawPageSize = Number(sheet.pageSize)
+  const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0
+    ? Math.floor(rawPageSize)
+    : (shownOnPage > 0 ? shownOnPage : PAGE_SIZE)
   const total = Number(sheet.hitTotal)
-  if (state === 'known' && Number.isFinite(total) && total >= 0 && Number.isFinite(pageSize) && pageSize > 0) {
+  if (state === 'known' && Number.isFinite(total) && total >= 0 && pageSize > 0) {
     return Math.max(1, Math.ceil(total / pageSize))
   }
-  if (sheet.pageFull === true || (Number.isFinite(pageSize) && pageSize > 0 && shownOnPage >= pageSize)) return page + 1
+  if (sheet.pageFull === true || (pageSize > 0 && shownOnPage >= pageSize)) return page + 1
   return page
 }
 
@@ -1373,6 +1376,11 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
   const selectKind = useCallback((nextKind: string) => {
     const canonical = resolveConnectedKind(nextKind, kindCatalog) || nextKind
+    const displayedKind = resolveConnectedKind(String(listSheetMeta?.kind || kind || ''), kindCatalog)
+      || String(listSheetMeta?.kind || kind || '')
+    if (canonical && canonical !== displayedKind) {
+      appliedSheetFpRef.current = ''
+    }
     setKind(canonical)
     setStaleHint('')
     setSelectedRow(null)
@@ -1390,7 +1398,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     const hit = hitSheets.find((sheet) => {
       const sheetKind = resolveConnectedKind(String(sheet.kind || ''), kindCatalog) || String(sheet.kind || '')
       return sheetKind === canonical
-    }) || (anchor ? materializeOperationKindSheet(anchor, canonical) : null)
+    }) || (anchor ? materializeOperationKindSheet(anchor, canonical, kindCatalog) : null)
 
     const applyLocal = () => {
     if (hit) {
@@ -1479,10 +1487,18 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     }
 
     if (sessionId && anchor) {
-      void runtimeApi.bizFocusKind({ sessionId, kind: canonical }).then((data) => {
+      void runtimeApi.bizFocusKind({
+        sessionId,
+        kind: canonical,
+        ...(bizCwd ? { workspace: bizCwd } : {}),
+      }).then((data) => {
         if (data.sheet && typeof data.sheet === 'object') {
-          applySheet(data.sheet, '连接器')
-          return
+          const focusedKind = resolveConnectedKind(String(data.sheet.kind || ''), kindCatalog)
+            || String(data.sheet.kind || '')
+          if (focusedKind === canonical) {
+            applySheet(data.sheet, '连接器')
+            return
+          }
         }
         applyLocal()
       }).catch(() => {
@@ -1491,7 +1507,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       return
     }
     applyLocal()
-  }, [applySheet, applyPendingSheet, bizCwd, kindCatalog, listSheetMeta, loadSurface, surfaces])
+  }, [applySheet, applyPendingSheet, bizCwd, kind, kindCatalog, listSheetMeta, loadSurface, surfaces])
 
   const tableRows = rows
 

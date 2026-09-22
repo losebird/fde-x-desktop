@@ -1,5 +1,49 @@
 /** Materialize one bound kind from an operation sheet (main, from/steps, or peers). */
 
+function kindAliasBucket(name, kindIndex) {
+  const spoken = String(name || '').trim()
+  if (!spoken) return ''
+  const rows = Array.isArray(kindIndex) ? kindIndex : []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const canonical = String(row.kind || '').trim()
+    if (!canonical) continue
+    const aliases = new Set([canonical, ...(Array.isArray(row.aliases) ? row.aliases : [])].map((item) => String(item || '').trim()).filter(Boolean))
+    if (aliases.has(spoken)) return canonical
+  }
+  return spoken
+}
+
+function kindNamesEqual(wanted, candidate, kindIndex) {
+  const a = String(wanted || '').trim()
+  const b = String(candidate || '').trim()
+  if (!a || !b) return false
+  if (a === b) return true
+  if (!kindIndex) return false
+  return kindAliasBucket(a, kindIndex) === kindAliasBucket(b, kindIndex)
+}
+
+function stampPagination(hit, base) {
+  if (!hit || typeof hit !== 'object') return hit
+  const basePageSize = Number(base.pageSize)
+  const hitPageSize = Number(hit.pageSize)
+  const pageSize = Number.isFinite(hitPageSize) && hitPageSize > 0
+    ? Math.floor(hitPageSize)
+    : (Number.isFinite(basePageSize) && basePageSize > 0 ? Math.floor(basePageSize) : undefined)
+  const sameKind = String(hit.kind || '').trim() === String(base.kind || '').trim()
+  const basePage = Number(base.page)
+  const hitPage = Number(hit.page)
+  const page = Number.isFinite(hitPage) && hitPage > 0
+    ? Math.floor(hitPage)
+    : (sameKind && Number.isFinite(basePage) && basePage > 0 ? Math.floor(basePage) : 1)
+  return {
+    ...hit,
+    ...(pageSize ? { pageSize } : {}),
+    page,
+    ...(pageSize && Array.isArray(hit.rows) && hit.rows.length >= pageSize ? { pageFull: hit.pageFull === true } : {}),
+  }
+}
+
 function operationKindHitSheets(sheet) {
   if (!sheet || typeof sheet !== 'object') return []
   const out = []
@@ -63,19 +107,21 @@ function operationKindHitSheets(sheet) {
   return out
 }
 
-export function materializeOperationKindSheet(sheet, kind) {
+export function materializeOperationKindSheet(sheet, kind, kindIndex = null) {
   const wanted = String(kind || '').trim()
   if (!sheet || typeof sheet !== 'object' || !wanted) return null
-  const hit = operationKindHitSheets(sheet).find((row) => String(row.kind || '').trim() === wanted)
+  const hits = operationKindHitSheets(sheet)
+  let hit = hits.find((row) => kindNamesEqual(wanted, row.kind, kindIndex))
+  if (!hit) hit = hits.find((row) => String(row.kind || '').trim() === wanted)
   if (!hit) return null
   const basePeers = Array.isArray(sheet.peers) ? sheet.peers : []
-  const stamped = {
+  const stamped = stampPagination({
     ...hit,
     ...(typeof sheet.speech === 'string' && sheet.speech ? { speech: sheet.speech } : {}),
     ...(sheet.sessionId ? { sessionId: sheet.sessionId } : {}),
     ...(typeof sheet.workspace === 'string' && sheet.workspace ? { workspace: sheet.workspace } : {}),
     ...(basePeers.length ? { peers: basePeers } : {}),
-  }
+  }, sheet)
   if (stamped.querySettled !== true && stamped.hitTotalState === 'known') {
     stamped.querySettled = true
   }

@@ -419,6 +419,34 @@ test('shared-enum peer becomes official when focus-kind is set', async () => {
   assert.equal(rounds.servedSheet('sess-a').hitTotal, 0)
 })
 
+test('materialize peer kind inherits pageSize for hitTotal paging', async () => {
+  const { materializeOperationKindSheet } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
+  const official = {
+    kind: 'KindB',
+    action: '现查',
+    rows: Array.from({ length: 20 }, (_, i) => ({ no: `B-${i}` })),
+    hitTotal: 161,
+    hitTotalState: 'known',
+    querySettled: true,
+    page: 1,
+    pageSize: 20,
+    peers: [{
+      kind: 'KindA',
+      rows: Array.from({ length: 20 }, (_, i) => ({ no: `A-${i}` })),
+      hitTotal: 96,
+      hitTotalState: 'known',
+      querySettled: true,
+      where: [{ values: ['on'] }],
+    }],
+  }
+  const view = materializeOperationKindSheet(official, 'KindA')
+  assert.ok(view)
+  assert.equal(view.kind, 'KindA')
+  assert.equal(view.hitTotal, 96)
+  assert.equal(view.pageSize, 20)
+  assert.equal(view.page, 1)
+})
+
 test('biz focus-kind route updates official pending', () => {
   const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
   assert.match(source, /\/api\/v1\/biz\/focus-kind/)

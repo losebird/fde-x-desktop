@@ -325,17 +325,24 @@ export async function apply(ctx, config) {
     followup: (spec) => tryFollowup(agentsCtx, spec),
     restoreHandoff: (spec) => tryRestoreHandoff(agentsCtx, spec),
     translate: (quote) => translateQuote((ctx.llm || (ctx.get && ctx.get('llm'))), quote),
-    focusOperationKind: (sessionId, kind) => {
+    focusOperationKind: async (sessionId, kind) => {
       const base = sessionRounds.officialSheet(sessionId)
       if (!base) return { ok: false, error: 'NO_OFFICIAL', hint: '这一轮还没有官方表。' }
-      return import('./operation-kind-sheet.mjs').then(({ materializeOperationKindSheet }) => {
-        const view = materializeOperationKindSheet(base, kind)
-        if (!view) return { ok: false, error: 'NO_KIND', hint: '这个型不在本轮命中里。' }
-        if (!sessionRounds.focusKindSheet(sessionId, view)) {
-          return { ok: false, error: 'NO_FOCUS' }
+      const { materializeOperationKindSheet } = await import('./operation-kind-sheet.mjs')
+      let kindIndex = null
+      try {
+        const workspace = String(base.workspace || '').trim()
+        if (workspace && typeof secretary.describeBiz === 'function') {
+          const described = await secretary.describeBiz({ workspace })
+          if (described && Array.isArray(described.kinds)) kindIndex = described.kinds
         }
-        return { ok: true, sheet: sessionRounds.servedSheet(sessionId) }
-      })
+      } catch { /* catalog optional for focus */ }
+      const view = materializeOperationKindSheet(base, kind, kindIndex)
+      if (!view) return { ok: false, error: 'NO_KIND', hint: '这个型不在本轮命中里。' }
+      if (!sessionRounds.focusKindSheet(sessionId, view)) {
+        return { ok: false, error: 'NO_FOCUS' }
+      }
+      return { ok: true, sheet: sessionRounds.servedSheet(sessionId) }
     },
   })
 

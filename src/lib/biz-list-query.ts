@@ -203,6 +203,9 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
         hitTotal: row.hitTotal,
         hitTotalState: row.hitTotalState,
         querySettled: row.querySettled,
+        page: row.page,
+        pageSize: row.pageSize,
+        pageFull: row.pageFull,
         speech: sheet.speech,
       })
     }
@@ -210,23 +213,63 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
   return out
 }
 
+function kindNamesEqual(
+  wanted: string,
+  candidate: string,
+  kindCatalog: ConnectedKindIndex | ConnectedKindRow[] | null | undefined,
+): boolean {
+  const a = String(wanted || '').trim()
+  const b = String(candidate || '').trim()
+  if (!a || !b) return false
+  if (a === b) return true
+  if (!kindCatalog) return false
+  const resolvedA = resolveConnectedKind(a, kindCatalog) || a
+  const resolvedB = resolveConnectedKind(b, kindCatalog) || b
+  return resolvedA === resolvedB
+}
+
+function stampSheetPagination(
+  hit: Record<string, unknown>,
+  base: Record<string, unknown>,
+): Record<string, unknown> {
+  const basePageSize = Number(base.pageSize)
+  const hitPageSize = Number(hit.pageSize)
+  const pageSize = Number.isFinite(hitPageSize) && hitPageSize > 0
+    ? Math.floor(hitPageSize)
+    : (Number.isFinite(basePageSize) && basePageSize > 0 ? Math.floor(basePageSize) : undefined)
+  const sameKind = String(hit.kind || '').trim() === String(base.kind || '').trim()
+  const basePage = Number(base.page)
+  const hitPage = Number(hit.page)
+  const page = Number.isFinite(hitPage) && hitPage > 0
+    ? Math.floor(hitPage)
+    : (sameKind && Number.isFinite(basePage) && basePage > 0 ? Math.floor(basePage) : 1)
+  return {
+    ...hit,
+    ...(pageSize ? { pageSize } : {}),
+    page,
+  }
+}
+
 /** One bound kind as the official list view (main row, hop side, or shared-enum peer). */
 export function materializeOperationKindSheet(
   sheet: Record<string, unknown> | null | undefined,
   kind: string,
+  kindCatalog?: ConnectedKindIndex | ConnectedKindRow[] | null,
 ): Record<string, unknown> | null {
   const wanted = String(kind || '').trim()
   if (!sheet || typeof sheet !== 'object' || !wanted) return null
-  const hit = operationKindHitSheets(sheet).find((row) => String(row.kind || '').trim() === wanted)
+  const hits = operationKindHitSheets(sheet)
+  let hit = hits.find((row) => kindNamesEqual(wanted, String(row.kind || ''), kindCatalog))
+  if (!hit) hit = hits.find((row) => String(row.kind || '').trim() === wanted)
   if (!hit) return null
   const basePeers = Array.isArray(sheet.peers) ? sheet.peers : []
-  const stamped: Record<string, unknown> = {
+  const stamped: Record<string, unknown> = stampSheetPagination({
     ...hit,
     ...(typeof sheet.speech === 'string' && sheet.speech ? { speech: sheet.speech } : {}),
     ...(sheet.sessionId ? { sessionId: sheet.sessionId } : {}),
     ...(typeof sheet.workspace === 'string' && sheet.workspace ? { workspace: sheet.workspace } : {}),
     ...(basePeers.length ? { peers: basePeers } : {}),
-  }
+  }, sheet)
   if (stamped.querySettled !== true && stamped.hitTotalState === 'known') {
     stamped.querySettled = true
   }

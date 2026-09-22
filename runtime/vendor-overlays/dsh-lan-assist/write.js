@@ -860,6 +860,9 @@ export function createGate(opts = {}) {
           querySettled: true,
           hitTotalState,
           ...(hitTotalState === 'known' ? { hitTotal } : {}),
+          page: 1,
+          pageSize: PAGE_SIZE,
+          pageFull: packed.rows.length >= PAGE_SIZE,
         })
       }
       return out
