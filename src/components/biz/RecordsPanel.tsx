@@ -415,6 +415,17 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       ...operationKindHitSheets(operationAnchor),
       ...operationKindHitSheets(pendingSheet),
     ]
+    const peerTotals = new Map<string, number>()
+    for (const source of [anchor, operationAnchor, pendingSheet]) {
+      const peers = source && Array.isArray(source.peers) ? source.peers : []
+      for (const peer of peers) {
+        if (!peer || typeof peer !== 'object') continue
+        const name = resolveConnectedKind(String(peer.kind || ''), kindCatalog) || String(peer.kind || '')
+        if (!name || peerTotals.has(name)) continue
+        const total = Number(peer.hitTotal)
+        peerTotals.set(name, Number.isFinite(total) ? total : (Array.isArray(peer.rows) ? peer.rows.length : 0))
+      }
+    }
     for (const bound of allowedKinds) {
       const hit = hits.find((sheet) => {
         const sheetKind = String(sheet.kind || '')
@@ -424,6 +435,23 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       const count = hit && Array.isArray(hit.rows)
         ? hit.rows.length
         : (bound === kind ? rows.length : 0)
+      const peerTotal = peerTotals.get(bound)
+      if (peerTotal != null && bound !== resultKind) {
+        const canonical = resolveConnectedKind(bound, kindCatalog) || bound
+        const conditions = [...new Set([
+          ...kindChipConditionLabels(anchor, canonical),
+          ...kindChipConditionLabels(operationAnchor, canonical),
+          ...kindChipConditionLabels(pendingSheet, canonical),
+        ])]
+        byKind.set(canonical, {
+          kind: canonical,
+          label: kindLabel(canonical),
+          count: peerTotal,
+          showCount: true,
+          conditions,
+        })
+        continue
+      }
       add(bound, count)
     }
     return allowedKinds.map((k) => byKind.get(k)).filter(Boolean) as Array<{ kind: string; label: string; count: number; showCount: boolean; conditions: string[] }>

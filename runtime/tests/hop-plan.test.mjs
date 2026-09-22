@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
-import { relatedField } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { relatedField, relatedIdBatches } from '../vendor-overlays/dsh-lan-assist/lookup.js'
 
 test('nested from expands to more than two hop steps', () => {
   const plan = normalizePlan({
@@ -60,4 +60,31 @@ test('relatedField prefers schema FK id over vocab relation name', () => {
     }],
   }
   assert.equal(relatedField('ParentA', 'ChildB', extra), 'parentId')
+})
+
+test('belongs-to filter key is the id column when the shadow field is unlisted', () => {
+  const extra = {
+    vocab: [
+      { kind: 'ParentA', resource: 'parent_a', can: ['现查'] },
+      { kind: 'ChildB', resource: 'child_b', can: ['现查'] },
+    ],
+    collections: [{
+      name: 'child_b',
+      fields: [
+        { name: 'link', target: 'parent_a', interface: 'm2o' },
+      ],
+    }],
+  }
+  assert.equal(relatedField('ParentA', 'ChildB', extra), 'linkId')
+})
+
+test('parent ids are split before a child filter outgrows one request', () => {
+  const ids = Array.from({ length: 40 }, (_, i) => `id-${String(i).padStart(8, '0')}`)
+  const batches = relatedIdBatches(ids, 'parentId', 180)
+  assert.ok(batches.length > 1)
+  assert.equal(batches.flat().length, ids.length)
+  for (const batch of batches) {
+    const clause = { parentId: { $in: batch } }
+    assert.ok(encodeURIComponent(JSON.stringify(clause)).length <= 180 || batch.length === 1)
+  }
 })

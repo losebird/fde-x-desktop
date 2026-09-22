@@ -558,7 +558,7 @@ function parentKindsOf(targetKind, extra) {
   }
   for (const from of registeredKinds(extra)) {
     if (!from || from === target || seen.has(from)) continue
-    const field = relatedField(from, target, extra)
+    const field = schemaRelatedField(from, target, extra)
     if (field) {
       seen.add(from)
       out.push(from)
@@ -1114,6 +1114,30 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
     packed.from = { ...packed.from, no: name }
   }
   return packed
+}
+
+/**
+ * Mentioned kinds that are not on this target's relation chain, and that own
+ * a spoken enum. No edge is added between them.
+ */
+export function unlinkedConditionKinds(speech, targetKind, vocab, extra = {}) {
+  const text = String(speech || '').trim()
+  const target = String(targetKind || '').trim()
+  if (!text || !target) return []
+  const bag = { vocab, ...extra }
+  const hits = clueHitsInSpeech(text, vocab, bag)
+  const mentioned = [...new Set(kindMentions(text, registeredKinds(bag), bag).map((row) => row.kind))]
+  const linked = new Set(relatedKindChain(target, text, bag))
+  const onChain = linked.size > 1
+  const out = []
+  for (const kind of mentioned) {
+    if (!kind || kind === target) continue
+    if (onChain && linked.has(kind)) continue
+    const where = whereForKind(hits, kind, undefined, bag)
+    if (!where.length) continue
+    out.push({ kind, where })
+  }
+  return out
 }
 
 /**

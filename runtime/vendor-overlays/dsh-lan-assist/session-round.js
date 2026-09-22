@@ -86,6 +86,25 @@ function leftoverQueryCoveringWrite(prev, incoming) {
     || prevNos.some((no) => no && speech.includes(no))
 }
 
+function relationFromKind(sheet) {
+  const from = sheet && sheet.from
+  if (!from || typeof from !== 'object' || Array.isArray(from)) return ''
+  return String(from.kind || '').trim()
+}
+
+/** An empty sheet of a third kind does not replace this round's relation. */
+export function emptyOtherKindStealsRelation(candidate, incoming) {
+  if (!candidate || !incoming) return false
+  if (sheetRowCount(incoming) > 0) return false
+  if (sheetAction(incoming) && sheetAction(incoming) !== '现查') return false
+  const prev = sheetKind(candidate)
+  const next = sheetKind(incoming)
+  if (!prev || !next || prev === next) return false
+  const fromKind = relationFromKind(candidate)
+  if (!fromKind || next === fromKind) return false
+  return true
+}
+
 export function isLeftoverAfterCandidate(candidate, incoming) {
   if (!candidate || !incoming) return false
   if (leftoverQueryCoveringWrite(candidate, incoming)) return true
@@ -158,6 +177,10 @@ export function createSessionRoundStore() {
       }
       startRound(sid)
       round = peek(sid)
+    }
+
+    if (round.candidate && emptyOtherKindStealsRelation(round.candidate, incomingRaw)) {
+      return { emit: false, official: null, cancel: false, process: true }
     }
 
     if (round.candidate && isLeftoverAfterCandidate(round.candidate, incomingRaw)) {

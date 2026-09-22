@@ -68,6 +68,13 @@ export function extractBoundKindHints(sheet: Record<string, unknown> | null | un
       }
     }
   }
+  if (Array.isArray(sheet.peers)) {
+    for (const peer of sheet.peers) {
+      if (peer && typeof peer === 'object' && !Array.isArray(peer)) {
+        add((peer as Record<string, unknown>).kind)
+      }
+    }
+  }
   return [...kinds]
 }
 
@@ -89,6 +96,21 @@ function whereValues(node: Record<string, unknown>): string[] {
   return values
 }
 
+function conditionTexts(node: Record<string, unknown>): string[] {
+  const columns = Array.isArray(node.columns) ? node.columns : []
+  return whereValues(node).map((value) => {
+    for (const col of columns) {
+      if (!col || typeof col !== 'object' || Array.isArray(col)) continue
+      const enums = (col as Record<string, unknown>).enums
+      if (!enums || typeof enums !== 'object' || Array.isArray(enums)) continue
+      const label = (enums as Record<string, unknown>)[value]
+      const text = String(label ?? '').trim()
+      if (text) return text
+    }
+    return value
+  })
+}
+
 /** Condition values already bound onto this kind. Not a row count. */
 export function kindChipConditionLabels(
   sheet: Record<string, unknown> | null | undefined,
@@ -101,12 +123,15 @@ export function kindChipConditionLabels(
     if (!node || typeof node !== 'object' || Array.isArray(node)) return
     const row = node as Record<string, unknown>
     if (String(row.kind || '').trim() !== wanted) return
-    found.push(...whereValues(row))
+    found.push(...conditionTexts(row))
   }
   take(sheet)
   take(sheet.from)
   if (Array.isArray(sheet.steps)) {
     for (const step of sheet.steps) take(step)
+  }
+  if (Array.isArray(sheet.peers)) {
+    for (const peer of sheet.peers) take(peer)
   }
   return [...new Set(found)]
 }
@@ -127,7 +152,7 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
   if (!sheet || typeof sheet !== 'object') return []
   const out: Record<string, unknown>[] = []
   const seen = new Set<string>()
-  const push = (kind: string, rows: unknown, columns: unknown) => {
+  const push = (kind: string, rows: unknown, columns: unknown, extra?: Record<string, unknown>) => {
     const name = String(kind || '').trim()
     if (!name || seen.has(name)) return
     seen.add(name)
@@ -141,6 +166,7 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
       preview_id: same ? sheet.preview_id : undefined,
       previewId: same ? sheet.previewId : undefined,
       canWrite: same ? sheet.canWrite : false,
+      ...(extra || {}),
     })
   }
   push(String(sheet.kind || ''), sheet.rows, sheet.columns)
@@ -161,6 +187,24 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
       if (Object.prototype.hasOwnProperty.call(row, 'rows')) {
         push(String(row.kind || ''), row.rows, row.columns)
       }
+    }
+  }
+  if (Array.isArray(sheet.peers)) {
+    for (const peer of sheet.peers) {
+      if (!peer || typeof peer !== 'object' || Array.isArray(peer)) continue
+      const row = peer as Record<string, unknown>
+      if (!Object.prototype.hasOwnProperty.call(row, 'rows')) continue
+      push(String(row.kind || ''), row.rows, row.columns, {
+        where: row.where,
+        from: undefined,
+        steps: undefined,
+        peers: undefined,
+        hopWhere: undefined,
+        hitTotal: row.hitTotal,
+        hitTotalState: row.hitTotalState,
+        querySettled: row.querySettled,
+        speech: sheet.speech,
+      })
     }
   }
   return out

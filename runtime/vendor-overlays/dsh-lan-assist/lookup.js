@@ -648,27 +648,53 @@ export function createLookup(opts = {}) {
       if (!relatedIds.length) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
       const resource = spec && spec.resource
       if (!resource) return { ok: false, error: 'UNKNOWN_KIND' }
-      const path = withRelationAppends(relatedListPath(resource, related, kind, clues, extra), extra.collections, resource)
-      if (!path) return { ok: false, error: 'UNKNOWN_KIND' }
-      const fk = (related && related.field) || relatedFilterField(related.kind, kind, {}, extra) || relatedField(related.kind, kind, extra)
+      let fk = (related && related.field) || relatedFilterField(related.kind, kind, {}, extra) || relatedField(related.kind, kind, extra)
       if (!fk) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
-      const listed = await listAll(path, conn, {
-        limit: whereLimit,
-        keep: (row) => {
-          if (!relatedIds.includes(relatedIdOf(row, fk))) return false
-          if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
-          if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, identityNameKeys(fields, schemaFields))) return false
-          return true
-        },
-      })
+      const keepRow = (row, idSet) => {
+        if (!idSet.has(relatedIdOf(row, fk))) return false
+        if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
+        if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, identityNameKeys(fields, schemaFields))) return false
+        return true
+      }
+      async function listBatches(fieldName) {
+        fk = fieldName
+        const batches = relatedIdBatches(relatedIds, fieldName)
+        const seen = new Set()
+        const hit = []
+        let state = 'known'
+        for (const batch of batches) {
+          if (hit.length >= whereLimit) {
+            state = 'incomplete'
+            break
+          }
+          const idSet = new Set(batch)
+          const path = withRelationAppends(relatedListPath(resource, { ...related, ids: batch, field: fieldName }, kind, clues, extra), extra.collections, resource)
+          if (!path) return { ok: false, error: 'UNKNOWN_KIND' }
+          const listed = await listAll(path, conn, {
+            limit: whereLimit - hit.length,
+            keep: (row) => keepRow(row, idSet),
+          })
+          if (!listed.ok) return listed
+          if (listed.hitTotalState === 'incomplete' || listed.hitTotalState === 'unknown') state = listed.hitTotalState
+          for (const row of listed.rows) {
+            const key = rowKey(row) || `raw:${hit.length}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            hit.push(row)
+          }
+        }
+        return { ok: true, rows: hit, hitTotalState: state }
+      }
+      let listed = await listBatches(fk)
+      if (!listed.ok && !/Id$/.test(fk)) listed = await listBatches(`${fk}Id`)
       if (!listed.ok) return listed
-      const hit = listed.rows
-      const matches = hit.map((row) => ({
+      const matches = listed.rows.map((row) => ({
         no: pickNo(row, ids, extra),
         status: pickStatus(row, conn.statusField),
         fields: packMatchFields(row, fields),
       })).filter((item) => item.no || (item.fields && Object.keys(item.fields).length))
       if (!matches.length) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
+      const known = listed.hitTotalState === 'known'
       return {
         ok: true,
         ambiguous: matches.length > 1,
@@ -684,7 +710,7 @@ export function createLookup(opts = {}) {
         connectionId: conn.id || '',
         dialect: conn.dialect || 'nocobase',
         hitTotalState: listed.hitTotalState,
-        ...(listed.hitTotalState === 'known' ? { hitTotal: listed.hitTotal } : {}),
+        ...(known ? { hitTotal: matches.length } : {}),
       }
     }
     const nameRest = String(clues.rest || '').trim()
@@ -1127,6 +1153,7 @@ function relationFieldFromCollections(fromKind, toKind, extra) {
     if (name && !/^(createdBy|updatedBy)$/i.test(name)) {
       const fields = collectionFields(childResource, extra && extra.collections)
       const idName = name.endsWith('Id') ? name : `${name}Id`
+      if (/^(m2o|o2o|belongsTo)$/i.test(iface)) return idName
       if (fields.some((f) => String(f && f.name || '') === idName)) return idName
       return name
     }
@@ -1270,6 +1297,28 @@ function relatedIdsOf(related) {
   if (!related || typeof related !== 'object') return []
   const listed = Array.isArray(related.ids) ? related.ids : [related.id]
   return [...new Set(listed.map((item) => String(item == null ? '' : item).trim()).filter(Boolean))]
+}
+
+/** Split parent ids so one child filter stays on a URL the connector will accept. */
+export function relatedIdBatches(ids, field, budget = 6000) {
+  const key = String(field || '').trim()
+  const list = (Array.isArray(ids) ? ids : []).map((item) => String(item || '').trim()).filter(Boolean)
+  if (!key || !list.length) return []
+  const batches = []
+  let cur = []
+  for (const id of list) {
+    const next = cur.concat([id])
+    const clause = next.length === 1 ? { [key]: next[0] } : { [key]: { $in: next } }
+    const filter = encodeURIComponent(JSON.stringify(clause))
+    if (cur.length && filter.length > budget) {
+      batches.push(cur)
+      cur = [id]
+      continue
+    }
+    cur = next
+  }
+  if (cur.length) batches.push(cur)
+  return batches
 }
 
 function relatedListPath(resource, related, toKind, clues, extra) {

@@ -137,6 +137,10 @@ export function normalizePlan(spec = {}) {
     structured,
     filterRefused: spec.filterRefused === true,
     contradicts: spec.contradicts === true,
+    peers: (Array.isArray(spec.peers) ? spec.peers : []).filter((row) => row && row.kind).map((row) => ({
+      kind: String(row.kind || '').trim(),
+      where: normalizeWhere(row.where),
+    })).filter((row) => row.kind),
     page: Number(spec.page) > 0 ? Math.floor(Number(spec.page)) : 1,
   }
 }

@@ -13,6 +13,7 @@ import {
   recalledUserSpeech,
   spokenWantsBatch,
   dropSpokenBatchRowId,
+  unlinkedConditionKinds,
 } from '../vendor-overlays/dsh-lan-assist/slots.js'
 
 test('kindMentions does not count a shorter kind inside a longer kind', () => {
@@ -753,6 +754,29 @@ test('a human list sentence stays a list when the model asks to edit', () => {
   const toValues = (filled.where || []).flatMap((term) => term.values || [])
   assert.ok(fromValues.includes('shared'))
   assert.ok(toValues.includes('shared'))
+})
+
+test('one label on two unbound kinds is kept on each and does not invent a hop', () => {
+  const speech = '现查甲种并且乙种，只要共用。'
+  const pair = [
+    { kind: '甲种', resource: 'kind_a', can: ['现查'] },
+    { kind: '乙种', resource: 'kind_b', can: ['现查'] },
+  ]
+  const extra = {
+    schemaByKind: {
+      甲种: [{ name: 'flag', title: '标记', enums: { shared: '共用', other: '其他' } }],
+      乙种: [{ name: 'flag', title: '标记', enums: { shared: '共用', other: '其他' } }],
+    },
+  }
+  const filled = enrichStructuredSlots({ kind: '乙种', action: '现查', speech }, pair, extra)
+  assert.equal(filled.from, undefined)
+  assert.equal(Array.isArray(filled.steps) ? filled.steps.length : 0, 0)
+  const peers = unlinkedConditionKinds(speech, '乙种', pair, extra)
+  assert.deepEqual(peers.map((row) => row.kind), ['甲种'])
+  const peerValues = peers.flatMap((row) => (row.where || []).flatMap((term) => term.values || []))
+  const ownValues = (filled.where || []).flatMap((term) => term.values || [])
+  assert.ok(peerValues.includes('shared'))
+  assert.ok(ownValues.includes('shared'))
 })
 
 test('one label on two bound kinds with the same field identity is added to each', () => {

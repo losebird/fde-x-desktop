@@ -215,3 +215,33 @@ test('a settled 现查 with no rows is eligible and becomes the official sheet',
   assert.equal(closed.official.kind, 'KindLeaf')
   assert.equal(closed.official.rows.length, 0)
 })
+
+test('an empty sheet of another kind does not replace the relation', () => {
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  rounds.noteToolSheet('sess-a', {
+    kind: 'KindLeaf',
+    action: '现查',
+    sessionId: 'sess-a',
+    querySettled: true,
+    hitTotal: 0,
+    hitTotalState: 'known',
+    from: { kind: 'KindParent' },
+    rows: [],
+    speech: 'lookup the relation',
+  })
+  const stolen = rounds.noteToolSheet('sess-a', {
+    kind: 'KindOther',
+    action: '现查',
+    sessionId: 'sess-a',
+    querySettled: true,
+    hitTotal: 0,
+    hitTotalState: 'known',
+    rows: [],
+    speech: 'lookup the relation',
+  })
+  assert.equal(stolen.cancel, false)
+  rounds.closeRound('sess-a')
+  assert.equal(rounds.servedSheet('sess-a').kind, 'KindLeaf')
+  assert.equal(rounds.servedSheet('sess-a').from.kind, 'KindParent')
+})

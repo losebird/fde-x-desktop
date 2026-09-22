@@ -9,7 +9,7 @@ import { connectorCatalogPresent, kindPreviewableInCatalog, mapKind, relatedChil
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
-import { dropSpokenBatchRowId, enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch } from './slots.js'
+import { dropSpokenBatchRowId, enrichStructuredSlots, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
 import { WHERE_LIST_CAP } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -251,6 +251,7 @@ export function packSheet(spec = {}) {
     ...(Number(spec.page) > 0 ? { page: Math.floor(Number(spec.page)) } : {}),
     ...(Number(spec.pageSize) > 0 ? { pageSize: Math.floor(Number(spec.pageSize)) } : {}),
     ...(spec.pageFull === true ? { pageFull: true } : {}),
+    ...(Array.isArray(spec.peers) && spec.peers.length ? { peers: spec.peers } : {}),
   }
 }
 
@@ -782,10 +783,73 @@ export function createGate(opts = {}) {
         sessionId: spec.sessionId,
         ...(fromSlot ? { from: fromSlot } : {}),
         ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
+        ...(sidePeers.length ? { peers: sidePeers } : {}),
         ...(spec.picked === true ? { picked: true } : {}),
         ...rest,
       })
     }
+    let sidePeers = []
+    async function packPeerSheets() {
+      const listed = Array.isArray(plan.peers) ? plan.peers : []
+      const out = []
+      for (const peer of listed) {
+        const peerKind = String(peer && peer.kind || '').trim()
+        if (!peerKind || peerKind === recognized.kind) continue
+        const found = await probe({
+          kind: peerKind,
+          no: '',
+          workspace: spec.workspace,
+          staffId: spec.staffId,
+          vocab: loaded.vocab,
+          structured: true,
+          speech: '',
+          where: peer.where,
+          limit: WHERE_LIST_CAP,
+        })
+        const matches = found && found.ok && Array.isArray(found.matches) ? found.matches : []
+        let peerSchema = []
+        if (typeof opts.fieldsOf === 'function') {
+          try {
+            const loadedFields = await opts.fieldsOf(peerKind, loaded.vocab)
+            if (Array.isArray(loadedFields)) peerSchema = loadedFields
+          } catch { /* peer still packs rows */ }
+        }
+        const failed = found && found.ok === false && found.error && found.error !== 'NOT_FOUND'
+        const hitTotalState = found && found.hitTotalState === 'incomplete'
+          ? 'incomplete'
+          : (failed ? 'unknown' : 'known')
+        const hitTotal = hitTotalState === 'known'
+          ? (Number.isFinite(Number(found && found.hitTotal)) ? Number(found.hitTotal) : matches.length)
+          : null
+        const packed = packSheet({
+          kind: peerKind,
+          action: '现查',
+          matches: matches.slice(0, PAGE_SIZE),
+          schemaFields: peerSchema,
+          vocab: loaded.vocab,
+          where: peer.where,
+          speech: plan.speech,
+          querySettled: true,
+          hitTotalState,
+          ...(hitTotalState === 'known' ? { hitTotal } : {}),
+        })
+        out.push({
+          kind: peerKind,
+          where: peer.where,
+          rows: packed.rows,
+          columns: packed.columns,
+          action: '现查',
+          querySettled: true,
+          hitTotalState,
+          ...(hitTotalState === 'known' ? { hitTotal } : {}),
+        })
+      }
+      return out
+    }
+    if (recognized.action === '现查' && !(spec.related && spec.related.kind)) {
+      sidePeers = await packPeerSheets()
+    }
+    plan.packedPeers = sidePeers
     async function settledList(kindName, account) {
       const page = Number(plan.page) > 0 ? Math.floor(Number(plan.page)) : 1
       const state = account && account.hitTotalState === 'incomplete' ? 'incomplete' : 'known'
@@ -933,7 +997,10 @@ export function createGate(opts = {}) {
         const nextRows = keepHoppedMatches(hopped && hopped.matches, link.ids, prevKind, hopKind, extra)
         if (!nextRows.length) {
           if (recognized.action === '现查') {
-            return settledList(hopKind, { hitTotalState: upstreamIncomplete ? 'incomplete' : 'known' })
+            const lookupFailed = hopped && hopped.ok === false && hopped.error && hopped.error !== 'NOT_FOUND'
+            return settledList(hopKind, {
+              hitTotalState: lookupFailed || upstreamIncomplete ? 'incomplete' : 'known',
+            })
           }
           const hopSpeak = speakLookup({ kind: hopKind, no: '' }, hopped && hopped.ok === false ? hopped : { ok: false, error: 'NOT_FOUND' })
           return await sheet(refuse('NOT_FOUND', hopSpeak), {
@@ -999,6 +1066,7 @@ export function createGate(opts = {}) {
       const hopMeta = sheetWhereFromPlan(plan, spec)
       const restMore = { ...more }
       delete restMore.from
+      const packedPeers = Array.isArray(plan && plan.packedPeers) ? plan.packedPeers : []
       return withSheet(result, {
         vocab: loaded.vocab,
         schemaFields,
@@ -1006,6 +1074,7 @@ export function createGate(opts = {}) {
         ...(fromSlot ? { from: fromSlot } : {}),
         ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
         ...(hopMeta.hopWhere ? { hopWhere: hopMeta.hopWhere } : {}),
+        ...(packedPeers.length ? { peers: packedPeers } : {}),
         ...restMore,
       })
     }
@@ -1188,6 +1257,14 @@ export function createGate(opts = {}) {
     const enriched = replaying
       ? { ...spec, speech: String(spec.speech || '').trim() }
       : enrichStructuredSlots(recovered, loaded.vocab, enrichExtra)
+    if (!replaying) {
+      enriched.peers = unlinkedConditionKinds(
+        String(enriched.speech || spec.speech || userSpeech || '').trim(),
+        String(enriched.kind || spec.kind || '').trim(),
+        loaded.vocab,
+        enrichExtra,
+      )
+    }
     const catalogExtra = { vocab: loaded.vocab, ...enrichExtra }
     const batchSpeech = String(enriched.speech || spec.speech || spec.quote || userSpeech || '').trim()
     const keptNo = dropSpokenBatchRowId(enriched.no || spec.no, batchSpeech, loaded.vocab, catalogExtra)
