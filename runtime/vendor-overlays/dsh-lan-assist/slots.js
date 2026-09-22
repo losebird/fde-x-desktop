@@ -614,6 +614,73 @@ function kindMentionOverlapsEnumLabel(text, mention, bound, mergedVocab, extra) 
   return false
 }
 
+function resolvedEnumValuesForOwnerRows(rows, ownerKind, mergedVocab, extra) {
+  const list = Array.isArray(rows) ? rows : []
+  if (!list.length) return []
+  const say = String(list[0].say || '').trim()
+  const owner = String(ownerKind || list[0].ownerKind || '').trim()
+  if (!say || !owner) return list[0].values || []
+  const fields = schemaFieldsForKind(owner, mergedVocab, extra)
+  const codes = new Set()
+  for (const row of list) {
+    const keys = (row.keys || []).map((item) => String(item || '').trim()).filter(Boolean)
+    for (const field of fields) {
+      const ident = fieldIdentityOf(field)
+      const keyHit = keys.some((key) => (
+        key === ident.identity || key === ident.name || key === ident.title
+      ))
+      if (!keyHit) continue
+      for (const code of resolveClueValuesForField(field, say, null)) codes.add(code)
+    }
+  }
+  if (codes.size) return [...codes]
+  return list[0].values || []
+}
+
+function speechExpressesKindHop(speech, vocab, extra = {}) {
+  const text = String(speech || '').trim()
+  if (!text) return false
+  const mergedVocab = vocabWithSpoken(vocab)
+  const bag = { vocab: mergedVocab, ...extra }
+  if (/关联/.test(text)) return true
+  const kinds = registeredKinds(bag).filter((kind) => kind && kind !== '口语')
+  const mentions = kindMentions(text, kinds, bag)
+  for (let i = 0; i < mentions.length; i += 1) {
+    for (let j = i + 1; j < mentions.length; j += 1) {
+      const left = mentions[i]
+      const right = mentions[j]
+      if (left.index < right.index && text.slice(left.end, right.index).includes('的')) return true
+      if (right.index < left.index && text.slice(right.end, left.index).includes('的')) return true
+    }
+  }
+  return false
+}
+
+/** Same spoken enum label is owned by two or more mentioned kinds — list peers, not a hop chain. */
+export function enumLabelSharedAcrossKinds(speech, vocab, extra = {}) {
+  const text = String(speech || '').trim()
+  if (!text || speechExpressesKindHop(speech, vocab, extra)) return false
+  const mergedVocab = vocabWithSpoken(vocab)
+  const bag = { vocab: mergedVocab, ...extra }
+  const kinds = registeredKinds(bag).filter((kind) => kind && kind !== '口语')
+  const mentions = kindMentions(text, kinds, bag)
+  if (mentions.length < 2) return false
+  const hits = clueHitsInSpeech(text, vocab, bag)
+  const bySpan = new Map()
+  for (const hit of hits) {
+    if (!isFilterableHit(hit)) continue
+    const say = String(hit.say || '').trim()
+    if (!say) continue
+    const key = `${hit.hitIndex}:${say}`
+    if (!bySpan.has(key)) bySpan.set(key, new Set())
+    bySpan.get(key).add(String(hit.assignKind || '').trim())
+  }
+  for (const owners of bySpan.values()) {
+    if (owners.size >= 2) return true
+  }
+  return false
+}
+
 function resolveClueValuesForField(field, matchedSay, clue) {
   const say = String(matchedSay || '').trim()
   if (!say) return []
@@ -817,11 +884,12 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
         const row = rows[0]
         const mergedKeys = [...new Set(rows.flatMap((item) => (item.keys || []).map(String).filter(Boolean)))]
         if (!mergedKeys.length) continue
+        const values = resolvedEnumValuesForOwnerRows(rows, row.ownerKind, mergedVocab, extra)
         assigned.push({
           hitIndex: row.start,
           say: row.say,
           keys: mergedKeys,
-          values: row.values,
+          values,
           not: row.not === true,
           ...(Array.isArray(row.dateBefore) && row.dateBefore.length ? { dateBefore: row.dateBefore } : {}),
           assignKind: row.ownerKind,
@@ -1133,10 +1201,11 @@ export function unlinkedConditionKinds(speech, targetKind, vocab, extra = {}) {
   const mentioned = [...new Set(kindMentions(text, registeredKinds(bag), bag).map((row) => row.kind))]
   const linked = new Set(relatedKindChain(target, text, bag))
   const onChain = linked.size > 1
+  const sharedList = enumLabelSharedAcrossKinds(text, vocab, extra)
   const out = []
   for (const kind of mentioned) {
     if (!kind || kind === target) continue
-    if (onChain && linked.has(kind)) continue
+    if (!sharedList && onChain && linked.has(kind)) continue
     const where = whereForKind(hits, kind, undefined, bag)
     if (!where.length) continue
     out.push({ kind, where })
@@ -1310,8 +1379,19 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   const hopLeaf = relatedMentionedHopLeaf(speech, bag)
   targetKind = hopLeaf || remapEnrichTargetKind(targetKind, speech, bag)
   const hits = clueHitsInSpeech(speech, vocab, bag)
+  const sharedEnumList = enumLabelSharedAcrossKinds(speech, vocab, bag)
   const chainKinds = relatedKindChain(targetKind, speech, bag)
   const existingSteps = Array.isArray(base.steps) ? base.steps.filter((row) => row && row.kind) : []
+
+  if (sharedEnumList) {
+    const childWhere = whereForKind(hits, targetKind, modelWhereAgreed(base.where, hits, targetKind), bag)
+    const next = { ...base, kind: targetKind }
+    if (childWhere.length) next.where = childWhere
+    else delete next.where
+    delete next.from
+    delete next.steps
+    return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
+  }
 
   if (chainKinds.length >= 2) {
     const steps = chainKinds.map((kind, index) => {

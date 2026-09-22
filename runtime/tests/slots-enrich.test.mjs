@@ -16,6 +16,7 @@ import {
   spokenWantsBatch,
   dropSpokenBatchRowId,
   unlinkedConditionKinds,
+  enumLabelSharedAcrossKinds,
 } from '../vendor-overlays/dsh-lan-assist/slots.js'
 
 test('kindMentions does not count a shorter kind inside a longer kind', () => {
@@ -793,6 +794,26 @@ test('pickHopSpeech keeps both unbound kinds when the model drops the first', ()
   const user = '现查甲种并且乙种，只要共用。'
   const model = '现查乙种，只要共用。'
   assert.equal(pickHopSpeech(model, user, vocab), user)
+})
+
+test('shared enum on graph-linked kinds joined with 和 does not build hop steps', () => {
+  const speech = '现查甲种和乙种，只要共用。'
+  const pair = [
+    { kind: '甲种', resource: 'kind_a', can: ['现查'], relations: [{ from: '甲种', to: '乙种', field: 'link' }] },
+    { kind: '乙种', resource: 'kind_b', can: ['现查'], relations: [{ from: '甲种', to: '乙种', field: 'link' }] },
+  ]
+  const extra = {
+    schemaByKind: {
+      甲种: [{ name: 'flag', title: '标记', enums: { shared: '共用', other: '其他' } }],
+      乙种: [{ name: 'flag', title: '标记', enums: { shared: '共用', other: '其他' } }],
+    },
+  }
+  assert.equal(enumLabelSharedAcrossKinds(speech, pair, extra), true)
+  const filled = enrichStructuredSlots({ kind: '乙种', action: '现查', speech }, pair, extra)
+  assert.equal(filled.from, undefined)
+  assert.equal(Array.isArray(filled.steps) ? filled.steps.length : 0, 0)
+  const peers = unlinkedConditionKinds(speech, '乙种', pair, extra)
+  assert.deepEqual(peers.map((row) => row.kind), ['甲种'])
 })
 
 test('one label on two unbound kinds is kept on each and does not invent a hop', () => {
