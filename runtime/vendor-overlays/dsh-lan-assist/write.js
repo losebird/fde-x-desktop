@@ -5,7 +5,7 @@
  */
 
 import { randomHex } from './crypto.js'
-import { connectorCatalogPresent, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, registeredKinds, resolveConnectedKindName, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
+import { connectorCatalogPresent, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, resolveConnectedKindName, rowIdentity, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
@@ -266,12 +266,18 @@ function hopRelatedField(fromKind, toKind, _matches, extra) {
   return relatedField(fromKind, toKind, extra)
 }
 
+function hopTargetKey(matches) {
+  const own = (Array.isArray(matches) ? matches : []).map((item) => item && item.fields).find((fields) => fields && typeof fields === 'object') || {}
+  return rowIdentity(own).key
+}
+
 function hopLinkIds(fromKind, toKind, matches, extra) {
   const forward = hopRelatedIds(fromKind, toKind, matches, extra)
   if (forward.length) {
     return {
       ids: forward,
       field: hopRelatedField(fromKind, toKind, matches, extra),
+      targetKey: hopTargetKey(matches),
     }
   }
   const reverse = [...new Set((Array.isArray(matches) ? matches : []).map((item) => (
@@ -280,6 +286,7 @@ function hopLinkIds(fromKind, toKind, matches, extra) {
   return {
     ids: reverse,
     field: hopRelatedField(toKind, fromKind, matches, extra),
+    targetKey: hopTargetKey(matches),
   }
 }
 
@@ -331,7 +338,9 @@ function sheetNextKind(kind, spec = {}) {
 function keepHoppedMatches(rows, hopIds, fromKind, toKind, extra) {
   const idSet = new Set((Array.isArray(hopIds) ? hopIds : []).map((item) => String(item)))
   if (!idSet.size) return []
+  const field = relatedField(fromKind, toKind, extra)
   return (Array.isArray(rows) ? rows : []).filter((row) => {
+    if (field && relatedRowLinks(row && row.fields, field, idSet)) return true
     const id = relatedChildId(fromKind, toKind, row && row.fields, extra)
     return id && idSet.has(String(id))
   })
@@ -990,7 +999,7 @@ export function createGate(opts = {}) {
           ? await probe({
             kind: hopKind, no: '', workspace: spec.workspace, staffId: spec.staffId, vocab: loaded.vocab,
             structured: true, speech: '', where: step.where, limit: WHERE_LIST_CAP,
-            related: { kind: prevKind, ids: link.ids, field: link.field },
+            related: { kind: prevKind, ids: link.ids, field: link.field, targetKey: link.targetKey },
           })
           : { ok: false, error: 'NOT_FOUND', matches: [] }
         if (hopped && hopped.hitTotalState === 'incomplete') upstreamIncomplete = true

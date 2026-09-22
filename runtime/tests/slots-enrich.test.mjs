@@ -912,3 +912,56 @@ test('same field values said with vocab and contradict', () => {
   assert.equal(filled.contradicts, true)
 })
 
+test('a self link does not hide the downstream of another published edge', () => {
+  const vocab = [
+    {
+      kind: 'ParentA',
+      resource: 'parent_a',
+      can: ['现查'],
+      relations: [{ from: 'ParentA', to: 'ChildB', field: 'child' }],
+    },
+    {
+      kind: 'ChildB',
+      resource: 'child_b',
+      can: ['现查'],
+      relations: [
+        { from: 'ParentA', to: 'ChildB', field: 'child' },
+        { from: 'ChildB', to: 'ChildB', field: 'peer' },
+      ],
+    },
+  ]
+  const out = enrichStructuredSlots({ kind: 'ParentA', action: '现查', speech: 'ParentA的ChildB' }, vocab)
+  assert.equal(out.kind, 'ChildB')
+  assert.equal(out.from && out.from.kind, 'ParentA')
+  assert.deepEqual((out.steps || []).map((row) => row.kind), ['ParentA', 'ChildB'])
+})
+
+test('both published directions land on the downstream named later', () => {
+  const vocab = [
+    {
+      kind: 'SideA',
+      resource: 'side_a',
+      can: ['现查'],
+      relations: [
+        { from: 'SideA', to: 'SideB', field: 'toB' },
+        { from: 'SideB', to: 'SideA', field: 'toA' },
+      ],
+    },
+    {
+      kind: 'SideB',
+      resource: 'side_b',
+      can: ['现查'],
+      relations: [
+        { from: 'SideA', to: 'SideB', field: 'toB' },
+        { from: 'SideB', to: 'SideA', field: 'toA' },
+      ],
+    },
+  ]
+  const forward = enrichStructuredSlots({ kind: 'SideA', action: '现查', speech: 'SideA的SideB' }, vocab)
+  assert.equal(forward.kind, 'SideB')
+  assert.equal(forward.from && forward.from.kind, 'SideA')
+  const back = enrichStructuredSlots({ kind: 'SideB', action: '现查', speech: 'SideB的SideA' }, vocab)
+  assert.equal(back.kind, 'SideA')
+  assert.equal(back.from && back.from.kind, 'SideB')
+})
+

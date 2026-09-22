@@ -231,45 +231,62 @@ function sharesFragmentWithSpec(mentionedKind, specKind, extra) {
   return spokenAndGraphAliasTokens(M, extra).has(spec)
 }
 
+function publishedEdgesAmong(set, bag) {
+  const edges = []
+  for (const rel of relationsFromVocab(bag.vocab, bag)) {
+    const from = String(rel.from || rel.fromKind || '').trim()
+    const to = String(rel.to || rel.toKind || '').trim()
+    if (!from || !to || from === to) continue
+    if (!set.has(from) || !set.has(to)) continue
+    edges.push({ from, to })
+  }
+  return edges
+}
+
+function downstreamLeaves(related, edges) {
+  const hasChild = new Set(edges.map((rel) => rel.from))
+  return related.filter((kind) => !hasChild.has(kind))
+}
+
+function deepestMention(candidates, speech, bag) {
+  let best = ''
+  let bestDepth = -1
+  for (const kind of candidates) {
+    const depth = relatedKindChain(kind, speech, bag).length
+    if (depth > bestDepth) {
+      bestDepth = depth
+      best = kind
+    }
+  }
+  return best
+}
+
 /**
- * When speech mentions two or more graph-related kinds, hop target is the DAG leaf
- * among those mentions (ancestors become from/steps).
+ * When speech mentions two or more graph-related kinds, hop target is the
+ * downstream of a published edge. A self link does not count as that edge.
+ * A cycle keeps the edge whose downstream is named later in the speech.
  */
 function relatedMentionedHopLeaf(speech, bag) {
   const { related } = relatedMentionedKinds(speech, bag.vocab, bag)
   if (related.length < 2) return ''
   const set = new Set(related)
-  const hasChildAmongRelated = new Set()
-  const markEdge = (from, to) => {
-    if (set.has(from) && set.has(to)) hasChildAmongRelated.add(from)
+  const edges = publishedEdgesAmong(set, bag)
+  let leaves = downstreamLeaves(related, edges)
+  if (!leaves.length && edges.length) {
+    const order = new Map()
+    for (const hit of kindMentions(String(speech || ''), related, bag)) {
+      if (!order.has(hit.kind)) order.set(hit.kind, hit.index)
+    }
+    const forward = edges.filter((rel) => (order.get(rel.to) ?? -1) > (order.get(rel.from) ?? -1))
+    const forwardLeaves = downstreamLeaves(related, forward)
+    if (forwardLeaves.length) leaves = forwardLeaves
   }
-  for (const rel of relationsFromVocab(bag.vocab, bag)) {
-    markEdge(rel.from, rel.to)
-  }
-  const leaves = related.filter((kind) => !hasChildAmongRelated.has(kind))
   if (leaves.length === 1) return leaves[0]
   if (leaves.length > 1) {
-    let best = ''
-    let bestDepth = -1
-    for (const kind of leaves) {
-      const depth = relatedKindChain(kind, speech, bag).length
-      if (depth > bestDepth) {
-        bestDepth = depth
-        best = kind
-      }
-    }
+    const best = deepestMention(leaves, speech, bag)
     if (best) return best
   }
-  let deepest = ''
-  let deepestLen = 0
-  for (const kind of related) {
-    const len = relatedKindChain(kind, speech, bag).length
-    if (len > deepestLen) {
-      deepestLen = len
-      deepest = kind
-    }
-  }
-  return deepest
+  return deepestMention(related, speech, bag)
 }
 
 function remapEnrichTargetKind(specKind, speech, bag) {

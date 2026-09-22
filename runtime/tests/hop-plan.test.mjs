@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
-import { relatedField, relatedIdBatches } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { relatedField, relatedHopId, relatedIdBatches } from '../vendor-overlays/dsh-lan-assist/lookup.js'
 
 test('nested from expands to more than two hop steps', () => {
   const plan = normalizePlan({
@@ -71,6 +71,62 @@ test('belongs-to filter key is the id column when the shadow field is unlisted',
     collections: [{
       name: 'child_b',
       fields: [
+        { name: 'link', target: 'parent_a', interface: 'm2o' },
+      ],
+    }],
+  }
+  assert.equal(relatedField('ParentA', 'ChildB', extra), 'linkId')
+})
+
+test('many-to-many uses the association name when the child has no belongs-to id', () => {
+  const extra = {
+    vocab: [
+      { kind: 'SideA', resource: 'side_a', can: ['现查'] },
+      {
+        kind: 'SideB',
+        resource: 'side_b',
+        can: ['现查'],
+        relations: [{ from: 'SideA', to: 'SideB', field: 'members' }],
+      },
+    ],
+    collections: [{
+      name: 'side_b',
+      fields: [{ name: 'members', target: 'side_a', interface: 'belongsToMany' }],
+    }],
+  }
+  assert.equal(relatedField('SideA', 'SideB', extra), 'members')
+})
+
+test('a parent row without id is linked by its name', () => {
+  const extra = {
+    vocab: [
+      { kind: 'SideA', resource: 'side_a', can: ['现查'] },
+      {
+        kind: 'SideB',
+        resource: 'side_b',
+        can: ['现查'],
+        relations: [{ from: 'SideA', to: 'SideB', field: 'members' }],
+      },
+    ],
+    collections: [{
+      name: 'side_b',
+      fields: [{ name: 'members', target: 'side_a', interface: 'belongsToMany' }],
+    }],
+  }
+  assert.equal(relatedHopId('SideA', 'SideB', { name: 'alpha' }, extra), 'alpha')
+  assert.equal(relatedHopId('SideA', 'SideB', { id: '9', name: 'alpha' }, extra), '9')
+})
+
+test('belongs-to id still wins when a many-to-many is also present', () => {
+  const extra = {
+    vocab: [
+      { kind: 'ParentA', resource: 'parent_a', can: ['现查'] },
+      { kind: 'ChildB', resource: 'child_b', can: ['现查'] },
+    ],
+    collections: [{
+      name: 'child_b',
+      fields: [
+        { name: 'members', target: 'parent_a', interface: 'belongsToMany' },
         { name: 'link', target: 'parent_a', interface: 'm2o' },
       ],
     }],

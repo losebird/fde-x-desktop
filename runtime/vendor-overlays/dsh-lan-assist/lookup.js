@@ -651,7 +651,7 @@ export function createLookup(opts = {}) {
       let fk = (related && related.field) || relatedFilterField(related.kind, kind, {}, extra) || relatedField(related.kind, kind, extra)
       if (!fk) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
       const keepRow = (row, idSet) => {
-        if (!idSet.has(relatedIdOf(row, fk))) return false
+        if (!relatedRowLinks(row, fk, idSet)) return false
         if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
         if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, identityNameKeys(fields, schemaFields))) return false
         return true
@@ -668,7 +668,12 @@ export function createLookup(opts = {}) {
             break
           }
           const idSet = new Set(batch)
-          const path = withRelationAppends(relatedListPath(resource, { ...related, ids: batch, field: fieldName }, kind, clues, extra), extra.collections, resource)
+          let path = withRelationAppends(relatedListPath(resource, { ...related, ids: batch, field: fieldName }, kind, clues, extra), extra.collections, resource)
+          const manyName = manyAssociationName(resource, fieldName, extra)
+          if (path && manyName) {
+            const token = `appends[]=${encodeURIComponent(manyName)}`
+            if (!path.includes(token)) path += `${path.includes('?') ? '&' : '?'}${token}`
+          }
           if (!path) return { ok: false, error: 'UNKNOWN_KIND' }
           const listed = await listAll(path, conn, {
             limit: whereLimit - hit.length,
@@ -1158,7 +1163,24 @@ function relationFieldFromCollections(fromKind, toKind, extra) {
       return name
     }
   }
+  for (const row of collectionFields(childResource, extra && extra.collections)) {
+    if (!row) continue
+    const target = String(row.target || '').trim()
+    if (target !== parentResource) continue
+    const iface = String(row.interface || row.type || '').trim()
+    if (!/^(m2m|belongsToMany)$/i.test(iface)) continue
+    const name = String(row.name || '').trim()
+    if (name && !/^(createdBy|updatedBy)$/i.test(name)) return name
+  }
   return ''
+}
+
+function manyAssociationName(resource, field, extra) {
+  const want = String(field || '').trim()
+  if (!want) return ''
+  const hit = collectionFields(resource, extra && extra.collections).find((row) => row && row.name === want)
+  if (!hit) return ''
+  return /^(m2m|belongsToMany)$/i.test(String(hit.interface || '')) ? want : ''
 }
 
 export function relatedField(fromKind, toKind, extra) {
@@ -1235,7 +1257,8 @@ export function relatedHopId(fromKind, toKind, fields, extra) {
     const carried = relatedIdOf(own, fk)
     if (carried) return carried
   }
-  if (own.id != null && String(own.id).trim()) return String(own.id).trim()
+  const identity = rowIdentity(own)
+  if (identity.value) return identity.value
   const carried = carriedFk(own, self, extra)
   if (carried) return relatedIdOf(own, carried)
   return ''
@@ -1260,6 +1283,11 @@ function packMatchFields(row, fields) {
       continue
     }
     const value = row[key]
+    if (Array.isArray(value)) {
+      const ids = value.map((item) => (item && typeof item === 'object' ? unwrapRelatedId(item) : '')).filter(Boolean)
+      if (ids.length) packed[key] = ids
+      continue
+    }
     if (value && typeof value === 'object' && (value.id != null || value.code != null)) {
       const id = unwrapRelatedId(value)
       if (id) packed[`${key}Id`] = id
@@ -1278,19 +1306,45 @@ function relatedSpeak(raw) {
 
 function unwrapRelatedId(raw) {
   if (raw == null || raw === '') return ''
-  if (typeof raw === 'object') return String(raw.id || raw.code || '').trim()
+  if (typeof raw === 'object') return String(raw.id || raw.code || raw.name || '').trim()
   return String(raw).trim()
+}
+
+export function rowIdentity(fields) {
+  const own = fields && typeof fields === 'object' ? fields : {}
+  if (own.id != null && String(own.id).trim()) return { key: 'id', value: String(own.id).trim() }
+  if (own.name != null && String(own.name).trim()) return { key: 'name', value: String(own.name).trim() }
+  return { key: 'id', value: '' }
 }
 
 function relatedIdOf(row, field) {
   if (!row || !field) return ''
-  const direct = unwrapRelatedId(row[field])
+  const raw = row[field]
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const id = unwrapRelatedId(item)
+      if (id) return id
+    }
+  }
+  const direct = unwrapRelatedId(raw)
   if (direct) return direct
   if (/Id$/.test(field)) return unwrapRelatedId(row[field.slice(0, -2)])
   const idField = `${field}Id`
   const viaId = unwrapRelatedId(row[idField])
   if (viaId) return viaId
   return ''
+}
+
+export function relatedRowLinks(row, field, idSet) {
+  if (!row || !field || !idSet || !idSet.size) return false
+  const raw = row[field]
+  const values = Array.isArray(raw) ? raw : (raw == null ? [] : [raw])
+  for (const value of values) {
+    const id = unwrapRelatedId(value)
+    if (id && idSet.has(String(id))) return true
+  }
+  const via = relatedIdOf(row, field)
+  return !!(via && idSet.has(String(via)))
 }
 
 function relatedIdsOf(related) {
@@ -1329,7 +1383,11 @@ function relatedListPath(resource, related, toKind, clues, extra) {
     || relatedField(related && related.kind, toKind, extra)
     || selfFk(related && related.kind, extra)
   if (!field) return ''
-  const parts = [ids.length === 1 ? { [field]: ids[0] } : { [field]: { $in: ids } }]
+  const manyName = manyAssociationName(resource, field, extra)
+  const idClause = ids.length === 1 ? ids[0] : { $in: ids }
+  const targetKey = String(related && related.targetKey || '').trim()
+  const nestedKey = /^[A-Za-z_][A-Za-z0-9_]*$/.test(targetKey) ? targetKey : 'id'
+  const parts = [manyName ? { [manyName]: { [nestedKey]: idClause } } : (ids.length === 1 ? { [field]: ids[0] } : { [field]: { $in: ids } })]
   const terms = clues && Array.isArray(clues.terms) ? clues.terms : []
   const schemaFields = collectionFields(resource, extra && extra.collections)
   const vocabHit = vocabRow(toKind, extra && extra.vocab)
