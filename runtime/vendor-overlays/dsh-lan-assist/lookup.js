@@ -1294,6 +1294,33 @@ function parentAssociationField(fromKind, toKind, fieldName, extra) {
   return hit.name
 }
 
+function hopFilterFieldOnChild(fromKind, toKind, field, extra) {
+  const fk = String(field || '').trim()
+  if (!fk) return false
+  const child = mapKind(toKind, extra || {})
+  const resource = child && child.resource
+  if (!resource) return false
+  const stem = fk.endsWith('Id') ? fk.slice(0, -2) : fk
+  const idName = fk.endsWith('Id') ? fk : `${fk}Id`
+  return collectionFields(resource, extra && extra.collections).some((row) => {
+    if (!row) return false
+    const name = String(row.name || '').trim()
+    return name === fk || name === stem || name === idName
+  })
+}
+
+/** Parent row ids to filter the downstream table — not unrelated columns that share a name on the parent row. */
+export function hopLinkParentIds(fromKind, toKind, matches, extra) {
+  const to = String(toKind || '').trim()
+  if (!to) return []
+  const rows = Array.isArray(matches) ? matches : []
+  const fk = relatedField(fromKind, to, extra)
+  if (hopFilterFieldOnChild(fromKind, to, fk, extra)) {
+    return [...new Set(rows.map((item) => rowIdentity(item && item.fields).value).filter(Boolean))]
+  }
+  return [...new Set(rows.map((item) => relatedHopId(fromKind, to, item && item.fields, extra)).filter(Boolean))]
+}
+
 export function relatedField(fromKind, toKind, extra) {
   const from = String(fromKind || '').trim()
   const to = String(toKind || '').trim()

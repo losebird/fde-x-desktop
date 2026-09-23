@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
-import { createLookup, relatedField, relatedHopId, relatedIdBatches, relationColumn } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { createLookup, hopLinkParentIds, relatedField, relatedHopId, relatedIdBatches, relationColumn } from '../vendor-overlays/dsh-lan-assist/lookup.js'
 
 test('nested from expands to more than two hop steps', () => {
   const plan = normalizePlan({
@@ -186,6 +186,30 @@ test('a named self field keeps its own column', () => {
   assert.equal(relationColumn('Node', 'up', extra), 'upId')
   assert.equal(relationColumn('Node', 'down', extra), 'down')
   assert.equal(relatedField('Node', 'Node', extra), '')
+})
+
+test('hop link ids use parent row keys when the filter column lives on the child', () => {
+  const extra = {
+    vocab: [
+      { kind: '员工档案', resource: 'biz_employees', can: ['现查'] },
+      {
+        kind: '仓库',
+        resource: 'biz_warehouses',
+        can: ['现查'],
+        relations: [{ from: '员工档案', to: '仓库', field: 'managedWarehouses' }],
+      },
+    ],
+    collections: [
+      { name: 'biz_employees', fields: [{ name: 'id', interface: 'id' }, { name: 'managerId', interface: 'm2o', target: 'biz_employees' }] },
+      { name: 'biz_warehouses', fields: [{ name: 'id', interface: 'id' }, { name: 'managerId', interface: 'm2o', target: 'biz_employees' }] },
+    ],
+  }
+  const parents = [
+    { fields: { id: 'emp-a', managerId: 'boss-1' } },
+    { fields: { id: 'emp-b', managerId: 'boss-2' } },
+  ]
+  assert.deepEqual(hopLinkParentIds('员工档案', '仓库', parents, extra), ['emp-a', 'emp-b'])
+  assert.notDeepEqual(hopLinkParentIds('员工档案', '仓库', parents, extra), ['boss-1', 'boss-2'])
 })
 
 test('parent ids are split before a child filter outgrows one request', () => {

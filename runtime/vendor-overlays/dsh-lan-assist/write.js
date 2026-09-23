@@ -5,7 +5,7 @@
  */
 
 import { randomHex } from './crypto.js'
-import { connectorCatalogPresent, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, rowIdentity, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
+import { connectorCatalogPresent, hopLinkParentIds, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, rowIdentity, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
@@ -258,10 +258,7 @@ export function packSheet(spec = {}) {
 }
 
 function hopRelatedIds(fromKind, toKind, matches, extra) {
-  if (!toKind) return []
-  return [...new Set((Array.isArray(matches) ? matches : []).map((item) => (
-    relatedHopId(fromKind, toKind, item && item.fields, extra)
-  )).filter(Boolean))]
+  return hopLinkParentIds(fromKind, toKind, matches, extra)
 }
 
 function hopRelatedField(fromKind, toKind, _matches, extra) {
