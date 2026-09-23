@@ -241,6 +241,35 @@ export function operationKindMatches(
   return kindNamesEqual(a, b, kindCatalog)
 }
 
+function finiteHitTotal(value: unknown): number | null {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+/** When hitTotalState is known, ensure hitTotal reaches the list footer (including 0). */
+export function coalesceKnownHitTotal(
+  view: Record<string, unknown>,
+  anchor?: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (String(view.hitTotalState || '') !== 'known') return view
+  if (finiteHitTotal(view.hitTotal) != null) return view
+  const root = anchor && typeof anchor === 'object' ? anchor : view
+  const kind = String(view.kind || '').trim()
+  if (kind && Array.isArray(root.peers)) {
+    for (const peer of root.peers) {
+      if (!peer || typeof peer !== 'object' || Array.isArray(peer)) continue
+      if (String(peer.kind || '').trim() !== kind) continue
+      const peerTotal = finiteHitTotal(peer.hitTotal)
+      if (peerTotal != null) return { ...view, hitTotal: peerTotal }
+      if (peer.querySettled === true) return { ...view, hitTotal: 0 }
+    }
+  }
+  if (view.querySettled === true || root.querySettled === true) {
+    return { ...view, hitTotal: 0 }
+  }
+  return view
+}
+
 function stampSheetPagination(
   hit: Record<string, unknown>,
   base: Record<string, unknown>,
@@ -286,7 +315,7 @@ export function materializeOperationKindSheet(
   if (stamped.querySettled !== true && stamped.hitTotalState === 'known') {
     stamped.querySettled = true
   }
-  return stamped
+  return coalesceKnownHitTotal(stamped, sheet)
 }
 
 function stableFromSlice(raw: unknown, depth = 0): unknown {

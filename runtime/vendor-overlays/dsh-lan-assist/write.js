@@ -247,9 +247,13 @@ export function packSheet(spec = {}) {
     askRest: String(spec.askRest || '').trim(),
     ...(spec.querySettled === true ? { querySettled: true } : {}),
     ...(hitTotalState ? { hitTotalState: String(hitTotalState) } : {}),
-    ...(hitTotalState === 'known' && hitTotal != null && Number.isFinite(Number(hitTotal))
-      ? { hitTotal: Number(hitTotal) }
-      : {}),
+    ...(() => {
+      if (hitTotalState !== 'known') return {}
+      const total = hitTotal != null && Number.isFinite(Number(hitTotal))
+        ? Number(hitTotal)
+        : (spec.querySettled === true ? 0 : null)
+      return total != null ? { hitTotal: total } : {}
+    })(),
     ...(Number(spec.page) > 0 ? { page: Math.floor(Number(spec.page)) } : {}),
     ...(Number(spec.pageSize) > 0 ? { pageSize: Math.floor(Number(spec.pageSize)) } : {}),
     ...(spec.pageFull === true ? { pageFull: true } : {}),

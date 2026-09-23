@@ -23,6 +23,32 @@ function kindNamesEqual(wanted, candidate, kindIndex) {
   return kindAliasBucket(a, kindIndex) === kindAliasBucket(b, kindIndex)
 }
 
+function finiteHitTotal(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function coalesceKnownHitTotal(view, anchor) {
+  if (!view || typeof view !== 'object') return view
+  if (String(view.hitTotalState || '') !== 'known') return view
+  if (finiteHitTotal(view.hitTotal) != null) return view
+  const root = anchor && typeof anchor === 'object' ? anchor : view
+  const kind = String(view.kind || '').trim()
+  if (kind && Array.isArray(root.peers)) {
+    for (const peer of root.peers) {
+      if (!peer || typeof peer !== 'object' || Array.isArray(peer)) continue
+      if (String(peer.kind || '').trim() !== kind) continue
+      const peerTotal = finiteHitTotal(peer.hitTotal)
+      if (peerTotal != null) return { ...view, hitTotal: peerTotal }
+      if (peer.querySettled === true) return { ...view, hitTotal: 0 }
+    }
+  }
+  if (view.querySettled === true || root.querySettled === true) {
+    return { ...view, hitTotal: 0 }
+  }
+  return view
+}
+
 function stampPagination(hit, base) {
   if (!hit || typeof hit !== 'object') return hit
   const basePageSize = Number(base.pageSize)
@@ -125,7 +151,7 @@ export function materializeOperationKindSheet(sheet, kind, kindIndex = null) {
   if (stamped.querySettled !== true && stamped.hitTotalState === 'known') {
     stamped.querySettled = true
   }
-  return stamped
+  return coalesceKnownHitTotal(stamped, sheet)
 }
 
 export { operationKindHitSheets }

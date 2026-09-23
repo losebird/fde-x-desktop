@@ -404,6 +404,42 @@ test('RecordsPanel apply/SSE refuse another session pending', () => {
   assert.match(source, /historySessionIdRef\.current = sid/)
 })
 
+test('coalesceKnownHitTotal fills missing zero for known settled sheet', async () => {
+  const { coalesceKnownHitTotal } = await import('../../src/lib/biz-list-query.ts')
+  const view = coalesceKnownHitTotal({
+    kind: 'KindA',
+    action: '现查',
+    rows: [],
+    hitTotalState: 'known',
+    querySettled: true,
+  })
+  assert.equal(view.hitTotal, 0)
+})
+
+test('materialize known settled peer copies hitTotal zero for footer', async () => {
+  const { materializeOperationKindSheet } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
+  const official = {
+    kind: 'KindB',
+    action: '现查',
+    rows: [{ no: 'B-1' }],
+    hitTotal: 1,
+    hitTotalState: 'known',
+    querySettled: true,
+    peers: [{
+      kind: 'KindA',
+      action: '现查',
+      rows: [],
+      hitTotalState: 'known',
+      querySettled: true,
+      where: [{ values: ['on'] }],
+    }],
+  }
+  const peerView = materializeOperationKindSheet(official, 'KindA')
+  assert.ok(peerView)
+  assert.equal(peerView.hitTotal, 0)
+  assert.equal(peerView.hitTotalState, 'known')
+})
+
 test('shared-enum peer becomes official when focus-kind is set', async () => {
   const { createSessionRoundStore } = await import('../vendor-overlays/dsh-lan-assist/session-round.js')
   const { materializeOperationKindSheet } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')

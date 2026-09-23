@@ -41,6 +41,7 @@ import {
   kindChipConditionLabels,
   kindChipShowsRowCount,
   listQueryFingerprint,
+  coalesceKnownHitTotal,
   listSnapshotCacheKey,
   operationBundlesAlign,
   materializeOperationKindSheet,
@@ -804,7 +805,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     activeListQueryFpRef.current = listQueryFingerprint(sheet)
     const normalizedCols = normalizeSheetColumns(sheet.columns)
     const normalizedRows = cloneSheetRows(sheet.rows)
-    const appliedSheet = { ...sheet, rows: normalizedRows, columns: normalizedCols }
+    const appliedSheet = coalesceKnownHitTotal(
+      { ...sheet, rows: normalizedRows, columns: normalizedCols },
+      sheet,
+    )
     setSheetIdentity(nextFp)
     setColumns(normalizedCols)
     setRows(normalizedRows)

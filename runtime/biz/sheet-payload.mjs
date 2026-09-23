@@ -3,6 +3,13 @@ export function sheetPreviewIdFromRaw(raw) {
   return String(raw.preview_id || raw.previewId || '').trim()
 }
 
+function knownHitTotalFromRaw(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  if (raw.hitTotal != null && Number.isFinite(Number(raw.hitTotal))) return Number(raw.hitTotal)
+  if (raw.querySettled === true) return 0
+  return null
+}
+
 function peerHitFromRaw(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const kind = String(raw.kind || '').trim()
@@ -21,8 +28,8 @@ function peerHitFromRaw(raw) {
     ...(where.length ? { where } : {}),
     ...(raw.querySettled === true ? { querySettled: true } : {}),
     ...(hitTotalState ? { hitTotalState } : {}),
-    ...(hitTotalState === 'known' && raw.hitTotal != null && Number.isFinite(Number(raw.hitTotal))
-      ? { hitTotal: Number(raw.hitTotal) }
+    ...(hitTotalState === 'known' && knownHitTotalFromRaw(raw) != null
+      ? { hitTotal: knownHitTotalFromRaw(raw) }
       : {}),
     ...(Number(raw.page) > 0 ? { page: Math.floor(Number(raw.page)) } : {}),
     ...(Number(raw.pageSize) > 0 ? { pageSize: Math.floor(Number(raw.pageSize)) } : {}),
@@ -63,8 +70,8 @@ export function sheetPayloadFromRaw(raw) {
     ...(raw.hitTotalState === 'known' || raw.hitTotalState === 'incomplete' || raw.hitTotalState === 'unknown'
       ? { hitTotalState: raw.hitTotalState }
       : {}),
-    ...(raw.hitTotalState === 'known' && raw.hitTotal != null && Number.isFinite(Number(raw.hitTotal))
-      ? { hitTotal: Number(raw.hitTotal) }
+    ...(raw.hitTotalState === 'known' && knownHitTotalFromRaw(raw) != null
+      ? { hitTotal: knownHitTotalFromRaw(raw) }
       : {}),
     ...(Number(raw.page) > 0 ? { page: Math.floor(Number(raw.page)) } : {}),
     ...(Number(raw.pageSize) > 0 ? { pageSize: Math.floor(Number(raw.pageSize)) } : {}),
