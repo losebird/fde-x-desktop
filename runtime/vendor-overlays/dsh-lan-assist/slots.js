@@ -596,6 +596,45 @@ function sayIsBounded(text, say, index) {
   return true
 }
 
+function speechCoreBeforeAskTail(text) {
+  return String(text || '')
+    .replace(/\s*只要预览[\s\S]*$/, '')
+    .replace(/[。.]+\s*$/g, '')
+    .trim()
+}
+
+/** Spoken `{enumLabel}的{kind}` — enum label may equal or extend the kind name. */
+function enumPrefixBeforeDeKind(text, kind, mergedVocab, extra) {
+  const target = String(kind || '').trim()
+  if (!target) return null
+  const core = speechCoreBeforeAskTail(text)
+  const suffix = `的${target}`
+  if (!core.endsWith(suffix) || core.length <= suffix.length) return null
+  const prefix = core.slice(0, core.length - suffix.length)
+  if (!prefix) return null
+  const start = core.indexOf(prefix)
+  if (start < 0) return null
+  const fields = schemaFieldsForKind(target, mergedVocab, extra)
+  for (const field of fields) {
+    const ident = fieldIdentityOf(field)
+    const keys = [...new Set([ident.identity, ident.name, ident.title].filter(Boolean))]
+    for (const [code, label] of fieldEnumEntries(field)) {
+      const say = String(label || '').trim()
+      const key = String(code || '').trim()
+      if (say !== prefix && key !== prefix) continue
+      return {
+        prefix,
+        start,
+        end: start + prefix.length,
+        kind: target,
+        keys,
+        values: [key || say],
+      }
+    }
+  }
+  return null
+}
+
 function kindMentionOverlapsEnumLabel(text, mention, bound, mergedVocab, extra) {
   const token = text.slice(mention.index, mention.end)
   if (!token) return false
@@ -604,9 +643,19 @@ function kindMentionOverlapsEnumLabel(text, mention, bound, mergedVocab, extra) 
     for (const field of fields) {
       for (const [code, label] of fieldEnumEntries(field)) {
         for (const phrase of [label, code]) {
-          if (!phrase || phrase.length <= token.length) continue
-          if (!phrase.startsWith(token)) continue
-          if (text.slice(mention.index, mention.index + phrase.length) === phrase) return true
+          if (!phrase || phrase.length < 2) continue
+          if (phrase.length > token.length && phrase.startsWith(token)) {
+            if (text.slice(mention.index, mention.index + phrase.length) === phrase) return true
+          }
+          if (phrase.length > token.length) {
+            let from = Math.max(0, mention.index - phrase.length)
+            while (from <= mention.index) {
+              const idx = text.indexOf(phrase, from)
+              if (idx < 0) break
+              if (mention.index >= idx && mention.end <= idx + phrase.length) return true
+              from = idx + 1
+            }
+          }
         }
       }
     }
@@ -756,8 +805,20 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
       roleHits.push({ ...packed, assignKind: '' })
     }
   }
+  let deKind = null
+  for (const kind of bound) {
+    const row = enumPrefixBeforeDeKind(text, kind, mergedVocab, extra)
+    if (row) {
+      deKind = row
+      break
+    }
+  }
   const occupied = mentions
     .filter((row) => !kindMentionOverlapsEnumLabel(text, row, bound, mergedVocab, extra))
+    .filter((row) => {
+      if (!deKind || row.kind !== deKind.kind) return true
+      return row.index >= deKind.end
+    })
     .map((row) => ({ index: row.index, end: row.end }))
   const candidates = []
   const pushCandidate = (packed, ownerKind) => {
@@ -937,7 +998,32 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
   }
   const span = rewriteSpan(text)
   const keptAssigned = span.at < 0 ? assigned : assigned.filter((hit) => Number(hit.hitIndex) < span.at)
-  const merged = [...roleHits, ...keptAssigned]
+  let merged = [...roleHits, ...keptAssigned]
+  if (deKind) {
+    merged = merged.filter((hit) => {
+      if (!Array.isArray(hit.keys) || !hit.keys.includes('action')) return true
+      const say = String(hit.say || '').trim()
+      if (!say || say !== deKind.prefix) return true
+      const idx = Number.isFinite(Number(hit.hitIndex)) ? Number(hit.hitIndex) : text.indexOf(say)
+      return idx !== deKind.start
+    })
+    const hasEnum = keptAssigned.some((hit) => (
+      hit.owned === true
+      && hit.assignKind === deKind.kind
+      && String(hit.say || '') === deKind.prefix
+    ))
+    if (!hasEnum) {
+      merged.push({
+        hitIndex: deKind.start,
+        say: deKind.prefix,
+        keys: deKind.keys,
+        values: deKind.values,
+        not: false,
+        assignKind: deKind.kind,
+        owned: true,
+      })
+    }
+  }
   if (contradicts) merged.contradicts = true
   return merged
 }

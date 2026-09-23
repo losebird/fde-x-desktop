@@ -1114,3 +1114,68 @@ test('ensurePlanSelfHop restores a single-step published self edge before lookup
   assert.equal(plan.targetIndex, 1)
 })
 
+test('enum label before 的{kind} binds as filter when label contains the kind name', () => {
+  const speech = '企业客户的客户。只要预览，不要过账，不要 biz_write。'
+  const vocab = [
+    { kind: '客户', resource: 'biz_customers', can: ['现查'] },
+    { kind: '口语', spoken: true, clues: [] },
+  ]
+  const extra = {
+    vocab,
+    schemaByKind: {
+      客户: [{
+        name: 'customerType',
+        title: '客户类型',
+        enums: { enterprise: '企业客户', individual: '个人客户' },
+      }],
+    },
+  }
+  const filled = enrichStructuredSlots({ kind: '客户', action: '现查', speech }, vocab, extra)
+  const values = (filled.where || []).flatMap((term) => term.values || [])
+  assert.deepEqual(values, ['enterprise'])
+})
+
+test('enum label equal to kind name only filters the prefix span in X的X speech', () => {
+  const speech = '销售合同的销售合同。只要预览，不要过账，不要 biz_write。'
+  const vocab = [
+    { kind: '销售合同', resource: 'biz_contracts', can: ['现查'] },
+    { kind: '口语', spoken: true, clues: [] },
+  ]
+  const extra = {
+    vocab,
+    schemaByKind: {
+      销售合同: [{
+        name: 'contractType',
+        title: '合同类型',
+        enums: { sales: '销售合同', service: '服务合同' },
+      }],
+    },
+  }
+  const filled = enrichStructuredSlots({ kind: '销售合同', action: '现查', speech }, vocab, extra)
+  const values = (filled.where || []).flatMap((term) => term.values || [])
+  assert.deepEqual(values, ['sales'])
+})
+
+test('新建的工单 keeps 现查 and treats 新建 as status enum not write action', () => {
+  const speech = '新建的工单。只要预览，不要过账，不要 biz_write。'
+  const vocab = [
+    { kind: '工单', resource: 'biz_tickets', can: ['现查', '新建'] },
+    { kind: '口语', spoken: true, clues: [] },
+  ]
+  const extra = {
+    vocab,
+    schemaByKind: {
+      工单: [{
+        name: 'status',
+        title: '工单状态',
+        enums: { new: '新建', assigned: '已分派' },
+      }],
+    },
+  }
+  const recovered = recoverWriteIntent({ kind: '工单', action: '现查', speech }, vocab, extra)
+  assert.equal(recovered.action, '现查')
+  const filled = enrichStructuredSlots(recovered, vocab, extra)
+  const values = (filled.where || []).flatMap((term) => term.values || [])
+  assert.deepEqual(values, ['new'])
+})
+
