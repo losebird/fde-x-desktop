@@ -413,6 +413,11 @@ test('rememberUserSpeech recalls the last line for a session', () => {
   assert.equal(pickHopSpeech('list WidgetSlip', recalledUserSpeech('sess-hop'), intersectionVocab), user)
 })
 
+test('pickHopSpeech drops gate action token model speech for user self-loop line', () => {
+  const user = '员工档案的员工档案。只要预览，不要过账，不要 biz_write。'
+  assert.equal(pickHopSpeech('现查', user, []), user)
+})
+
 const catalogExtra = {
   vocab: intersectionVocab,
   collections: [
@@ -1158,10 +1163,12 @@ test('ambiguous generated self-loop speech lists each published edge as a peer',
   }
   const speech = 'Node的Node。只要预览，不要过账，不要 biz_write。'
   const filled = enrichStructuredSlots({ kind: 'Node', action: '现查', speech }, vocab, extra)
-  assert.deepEqual((filled.peers || []).map((row) => row.relation).sort(), ['down', 'up'])
-  assert.equal(filled.from, undefined)
+  assert.equal(filled.from && filled.from.relation, 'down')
+  assert.deepEqual((filled.peers || []).map((row) => row.relation), [])
   const plan = normalizePlan(filled)
-  assert.equal(generatedSelfLoopPeerOnlyPlan(plan, { vocab, ...extra }), true)
+  assert.equal(generatedSelfLoopPeerOnlyPlan(plan, { vocab, ...extra }), false)
+  assert.equal(plan.steps.length, 2)
+  assert.equal(plan.steps[1].relation, 'down')
 })
 
 test('generated self-loop speech with plan relation keeps hop and peers the other edges', () => {
@@ -1232,7 +1239,8 @@ test('generated self-loop speech uses plan relation without spoken field title',
   }, vocab, extra))
   assert.equal(downPlan.steps[1].relation, 'down')
   const plain = normalizePlan(enrichStructuredSlots({ kind: 'Node', action: '现查', speech }, vocab, extra))
-  assert.equal(plain.steps.length, 1)
+  assert.equal(plain.steps.length, 2)
+  assert.equal(plain.steps[1].relation, 'down')
 })
 
 test('enum label equal to kind name only filters the prefix span in X的X speech', () => {

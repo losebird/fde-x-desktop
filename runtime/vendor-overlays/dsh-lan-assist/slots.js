@@ -8,6 +8,7 @@ import { collectionFields, mapKind, registeredKinds, relatedField, schemaHasFiel
 import { schemaFieldsForKind } from './enum-clues.js'
 import { enumMap, peelSpoken, saysOf } from './resolve.js'
 import { vocabRow } from './where-pass.js'
+import { isGateActionCode } from './gate-action-codes.mjs'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
@@ -467,11 +468,12 @@ function relatedMentionedKinds(speech, vocab, extra = {}) {
 export function pickHopSpeech(modelSpeech, userSpeech, vocab, extra = {}) {
   const model = String(modelSpeech || '').trim()
   const user = String(userSpeech || '').trim()
+  const bag = { vocab, ...extra }
+  if (user && isGateActionCode(model, bag)) return user
   if (!user) return model
   if (!model) return user
   if (model === user) return model
   if (user.includes(model) && user.length > model.length) return user
-  const bag = { vocab, ...extra }
   const names = registeredKinds(bag)
   const userKindCount = new Set(kindMentions(user, names, bag).map((row) => row.kind)).size
   const modelKindCount = new Set(kindMentions(model, names, bag).map((row) => row.kind)).size
@@ -1446,9 +1448,21 @@ function spokenSelfRelation(kind, speech, extra) {
 function publishedSelfEdgesForKind(kind, extra = {}) {
   const target = String(kind || '').trim()
   if (!target) return []
-  return relationsFromVocab(extra.vocab, extra).filter((rel) => (
+  const edges = relationsFromVocab(extra.vocab, extra).filter((rel) => (
     rel.from === target && rel.to === target && rel.field
   ))
+  const mapped = mapKind(target, extra)
+  const schema = collectionFields(mapped && mapped.resource, extra.collections)
+  const ifaceOf = (field) => {
+    const name = String(field || '').trim()
+    const row = schema.find((item) => item && (item.name === name || item.name === `${name}Id`))
+    return row ? String(row.interface || row.type || '') : ''
+  }
+  return [...edges].sort((a, b) => {
+    const many = (field) => /^(o2m|hasMany|m2m|belongsToMany)$/i.test(ifaceOf(field))
+    const rank = (field) => (many(field) ? 0 : 1)
+    return rank(a.field) - rank(b.field)
+  })
 }
 
 /** Eval-generated `{kind}的{kind}` — not enum prefix, not a spoken field title on the edge. */
@@ -1496,8 +1510,8 @@ function resolveSelfRelationField(targetKind, speech, spec, extra = {}) {
   const fromPlan = carriedSelfRelationFromSpec(spec, target, bag)
   if (fromPlan) return fromPlan
   const edges = publishedSelfEdgesForKind(target, bag)
-  if (edges.length === 1) return String(edges[0].field || '').trim()
-  return ''
+  if (!edges.length) return ''
+  return String(edges[0].field || '').trim()
 }
 
 /**
@@ -1542,7 +1556,7 @@ export function generatedSelfLoopPeerOnlyPlan(plan, extra = {}) {
  */
 export function enrichStructuredSlots(spec, vocab, extra = {}) {
   const base = spec && typeof spec === 'object' ? { ...spec } : {}
-  const speech = String(base.speech || base.quote || '').trim()
+  const speech = String(base.speech || base.quote || base.userSpeech || '').trim()
   let targetKind = String(base.kind || '').trim()
   if (!speech || !targetKind) return base
 
@@ -1744,11 +1758,15 @@ function rewritePatch(speech, schemaFields) {
 
 export function recoverWriteIntent(spec, vocab, extra = {}) {
   const next = spec && typeof spec === 'object' ? { ...spec } : {}
-  let speech = String(next.speech || next.quote || '').trim()
-  const kind = String(next.kind || '').trim()
-  if (!speech || !kind) return next
   const bag = { vocab: vocabWithSpoken(vocab), ...extra }
   const userSpeech = String(next.userSpeech || '').trim()
+  let speech = String(next.speech || next.quote || '').trim()
+  if (!speech && userSpeech) {
+    next.speech = userSpeech
+    speech = userSpeech
+  }
+  const kind = String(next.kind || '').trim()
+  if (!speech || !kind) return next
   if (
     userSpeech
     && spokenListAction(userSpeech, vocab, extra) === '现查'

@@ -666,9 +666,54 @@ export function createLookup(opts = {}) {
     const ids = ticketColumns(spec)
     const relatedIds = relatedIdsOf(related)
     if (related && related.kind && conn.dialect !== 'rest') {
-      if (!relatedIds.length) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
       const resource = spec && spec.resource
       if (!resource) return { ok: false, error: 'UNKNOWN_KIND' }
+      if (related.filled === true) {
+        const relField = String(related.field || '').trim()
+        let fk = relationColumn(kind, relField, extra) || relField
+        if (fk && !schemaFields.some((row) => row && row.name === fk) && schemaFields.some((row) => row && row.name === `${fk}Id`)) {
+          fk = `${fk}Id`
+        }
+        if (!fk || !schemaFields.some((row) => row && row.name === fk)) {
+          return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
+        }
+        const filter = encodeURIComponent(JSON.stringify({ [fk]: { $notEmpty: true } }))
+        const path = `/api/${resource}:list?pageSize=${PAGE_SIZE}&sort=-updatedAt&filter=${filter}`
+        const listed = await listAll(path, conn, {
+          limit: whereLimit,
+          keep: (row) => {
+            if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
+            if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, identityNameKeys(fields, schemaFields))) return false
+            return true
+          },
+        })
+        if (!listed.ok) return listed
+        const matches = listed.rows.map((row) => ({
+          no: pickNo(row, ids, extra),
+          status: pickStatus(row, conn.statusField),
+          fields: packMatchFields(row, fields),
+        })).filter((item) => item.no || (item.fields && Object.keys(item.fields).length))
+        if (!matches.length) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
+        const known = listed.hitTotalState === 'known'
+        return {
+          ok: true,
+          ambiguous: matches.length > 1,
+          listed: true,
+          matches,
+          status: matches.length > 1 ? '多条' : matches[0].status,
+          no: matches.length === 1 ? matches[0].no : '',
+          fields: matches.length === 1 ? matches[0].fields : {},
+          fingerprint: `${kind || ''}:related-filled:${matches.map((item) => item.no).join(',')}`,
+          workspace: workspace || '',
+          system: conn.system || '',
+          env: conn.env || '',
+          connectionId: conn.id || '',
+          dialect: conn.dialect || 'nocobase',
+          hitTotalState: listed.hitTotalState,
+          ...(known ? { hitTotal: Number(listed.hitTotal) } : {}),
+        }
+      }
+      if (!relatedIds.length) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
       let fk = (related && related.field) || relatedFilterField(related.kind, kind, {}, extra) || relatedField(related.kind, kind, extra)
       if (!fk) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
       const parentMapped = mapKind(related.kind, {

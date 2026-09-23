@@ -5,11 +5,11 @@
  */
 
 import { randomHex } from './crypto.js'
-import { connectorCatalogPresent, hopLinkParentIds, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, rowIdentity, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
+import { collectionFields, connectorCatalogPresent, hopLinkParentIds, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, rowIdentity, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
-import { dropSpokenBatchRowId, enrichStructuredSlots, ensurePlanSelfHop, generatedSelfLoopEdgePeers, generatedSelfLoopPeerOnlyPlan, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
+import { dropSpokenBatchRowId, enrichStructuredSlots, ensurePlanSelfHop, generatedSelfLoopEdgePeers, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
 import { WHERE_LIST_CAP } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -275,6 +275,37 @@ function hopTargetKey(matches) {
 }
 
 function hopLinkIds(fromKind, toKind, matches, extra, relation) {
+  const from = String(fromKind || '').trim()
+  const to = String(toKind || '').trim()
+  const rel = String(relation || '').trim()
+  if (rel && from && from === to) {
+    const named = relationColumn(to, rel, extra) || relationColumn(from, rel, extra)
+    const col = named || (rel.endsWith('Id') ? rel : `${rel}Id`)
+    const rows = Array.isArray(matches) ? matches : []
+    const fkIds = [...new Set(rows.map((item) => {
+      const fields = item && item.fields
+      if (!fields || typeof fields !== 'object') return ''
+      const raw = fields[col] ?? fields[rel]
+      if (raw == null || raw === '') return ''
+      if (typeof raw === 'object') return String(raw.id || raw.code || '').trim()
+      return String(raw).trim()
+    }).filter(Boolean))]
+    if (fkIds.length) {
+      return {
+        ids: fkIds,
+        field: rel,
+        targetKey: hopTargetKey(matches),
+      }
+    }
+    const parentIds = [...new Set(rows.map((item) => rowIdentity(item && item.fields).value).filter(Boolean))]
+    if (parentIds.length && (named === rel || (!named && !col.endsWith('Id')))) {
+      return {
+        ids: parentIds,
+        field: rel,
+        targetKey: hopTargetKey(matches),
+      }
+    }
+  }
   const named = relationColumn(toKind, relation, extra) || relationColumn(fromKind, relation, extra)
   const forward = hopRelatedIds(fromKind, toKind, matches, extra)
   if (forward.length) {
@@ -778,6 +809,27 @@ export function createGate(opts = {}) {
     const kind = String(kindName || '').trim()
     const relation = String(relationField || '').trim()
     if (!kind || !relation) return { ok: false, error: 'NOT_FOUND', matches: [] }
+    const mapped = mapKind(kind, extra)
+    const resource = mapped && mapped.resource
+    const schemaFields = resource ? collectionFields(resource, extra.collections) : []
+    const col = relationColumn(kind, relation, extra) || (relation.endsWith('Id') ? relation : `${relation}Id`)
+    const fieldRow = schemaFields.find((row) => row && (row.name === col || row.name === relation))
+    const isSelfM2o = fieldRow
+      && /^(m2o|belongsTo|o2o)$/i.test(String(fieldRow.interface || fieldRow.type || ''))
+      && String(fieldRow.target || '').trim() === String(resource || '').trim()
+    if (isSelfM2o) {
+      return await probe({
+        kind,
+        no: '',
+        workspace: spec.workspace,
+        staffId: spec.staffId,
+        vocab: loaded.vocab,
+        structured: true,
+        speech: '',
+        limit: WHERE_LIST_CAP,
+        related: { kind, field: relation, filled: true },
+      })
+    }
     const parentFound = await probe({
       kind,
       no: '',
@@ -1019,9 +1071,6 @@ export function createGate(opts = {}) {
         })
       }
       return finishStructured(recognized, rows, hopped, writePatch, plan, spec, loaded, schemaFields, recognized.kind)
-    }
-    if (recognized.action === '现查' && generatedSelfLoopPeerOnlyPlan(plan, extra)) {
-      return settledList(recognized.kind, { hitTotalState: 'known' })
     }
     if (recognized.action === '新建') {
       const labelNo = looksLikeTicket(plan.no) ? plan.no : '新单'
@@ -1377,9 +1426,13 @@ export function createGate(opts = {}) {
     if (!replaying) {
       const batchSpeech = String(enriched.speech || spec.speech || userSpeech || '').trim()
       const batchKind = String(enriched.kind || spec.kind || '').trim()
+      let selfLoopPeers = generatedSelfLoopEdgePeers(batchKind, batchSpeech, enriched, loaded.vocab, enrichExtra)
+      if (!selfLoopPeers.length && userSpeech && userSpeech !== batchSpeech) {
+        selfLoopPeers = generatedSelfLoopEdgePeers(batchKind, userSpeech, enriched, loaded.vocab, enrichExtra)
+      }
       enriched.peers = mergePlanPeerRows(
         unlinkedConditionKinds(batchSpeech, batchKind, loaded.vocab, enrichExtra),
-        generatedSelfLoopEdgePeers(batchKind, batchSpeech, enriched, loaded.vocab, enrichExtra),
+        selfLoopPeers,
       )
     }
     const catalogExtra = { vocab: loaded.vocab, ...enrichExtra }

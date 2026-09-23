@@ -364,6 +364,16 @@ test('generated self-loop speech uses peers instead of flat full-table lookup', 
   const lookupTodo = (spec) => {
     const kind = String(spec.kind || '')
     if (kind !== 'Node') return { ok: false, error: 'NOT_FOUND', matches: [] }
+    if (spec.related && spec.related.filled === true) {
+      const field = String(spec.related.field || '')
+      const hopTotal = field === 'up' ? upHit : downHit
+      return {
+        ok: true,
+        matches: allRows.slice(0, Math.min(hopTotal, 20)),
+        hitTotal: hopTotal,
+        hitTotalState: 'known',
+      }
+    }
     const relatedIds = spec.related && Array.isArray(spec.related.ids) ? spec.related.ids.map(String) : []
     if (!relatedIds.length) {
       return {
@@ -394,11 +404,12 @@ test('generated self-loop speech uses peers instead of flat full-table lookup', 
     speech,
   })
   const ambSheet = ambiguous.sheet || ambiguous
-  assert.equal(ambSheet.hitTotal, 0)
+  assert.equal(ambSheet.hitTotal, upHit)
   assert.equal(ambSheet.hitTotalState, 'known')
-  assert.ok(Array.isArray(ambSheet.peers) && ambSheet.peers.length === 2)
-  assert.ok(ambSheet.peers.every((row) => String(row.relation || '').trim()))
-  assert.ok(ambSheet.peers.every((row) => Number(row.hitTotal) !== full))
+  assert.ok(Array.isArray(ambSheet.peers) && ambSheet.peers.length === 1)
+  assert.equal(ambSheet.peers[0].relation, 'down')
+  assert.equal(Number(ambSheet.peers[0].hitTotal), downHit)
+  assert.notEqual(ambSheet.hitTotal, full)
   const bound = await g.preview({
     workspace: '/tmp/self-loop-peer',
     kind: 'Node',
@@ -408,7 +419,7 @@ test('generated self-loop speech uses peers instead of flat full-table lookup', 
   })
   const boundSheet = bound.sheet || bound
   assert.equal(bound.ok !== false, true)
-  assert.equal(boundSheet.hitTotal, 0)
+  assert.equal(boundSheet.hitTotal, upHit)
   assert.notEqual(boundSheet.hitTotal, full)
   assert.ok(Array.isArray(boundSheet.peers) && boundSheet.peers.some((row) => row.relation === 'down'))
 })
