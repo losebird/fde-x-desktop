@@ -272,6 +272,7 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
     kind,
     action,
     speech,
+    ...(typeof body.relation === 'string' && body.relation.trim() ? { relation: body.relation.trim() } : {}),
     ...(system ? { system } : {}),
     ...(typeof body.env === 'string' && body.env ? { env: body.env } : {}),
     ...(no ? { no } : {}),
