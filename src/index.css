@@ -29,24 +29,15 @@ body {
   pointer-events: none;
 }
 
-/* Notion-style scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+/* Site-wide: hide scrollbars, keep scroll (wheel / trackpad / keyboard). */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #e3e3e0;
-  border-radius: 8px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #d1d1cc;
-  background-clip: padding-box;
-  border: 2px solid transparent;
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 @layer components {
