@@ -404,6 +404,13 @@ test('RecordsPanel apply/SSE refuse another session pending', () => {
   assert.match(source, /historySessionIdRef\.current = sid/)
 })
 
+test('records panel keeps footer meta when row fingerprint is unchanged', () => {
+  const source = readFileSync(join(repoRoot, 'src/components/biz/RecordsPanel.tsx'), 'utf8')
+  assert.match(source, /function hitFooterView\(/)
+  assert.match(source, /if \(sameSheet\)[\s\S]{0,400}hitMetaChanged/)
+  assert.match(source, /incomingFp && incomingFp === appliedSheetFpRef\.current[\s\S]{0,400}hitMetaChanged/)
+})
+
 test('coalesceKnownHitTotal fills missing zero for known settled sheet', async () => {
   const { coalesceKnownHitTotal } = await import('../../src/lib/biz-list-query.ts')
   const view = coalesceKnownHitTotal({

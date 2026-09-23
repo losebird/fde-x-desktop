@@ -94,28 +94,48 @@ function sheetHitState(sheet: Record<string, unknown> | null | undefined) {
   return ''
 }
 
+function hitFooterView(sheet: Record<string, unknown> | null | undefined) {
+  if (!sheet || typeof sheet !== 'object') return null
+  return coalesceKnownHitTotal(sheet, sheet)
+}
+
 function hitFooterText(sheet: Record<string, unknown> | null | undefined) {
-  const state = sheetHitState(sheet)
+  const view = hitFooterView(sheet)
+  const state = sheetHitState(view)
   if (state === 'incomplete') return '不完整'
   if (state === 'unknown') return '总数未知'
-  if (state === 'known' && sheet && sheet.hitTotal != null && Number.isFinite(Number(sheet.hitTotal))) {
-    return `共 ${Number(sheet.hitTotal)} 条`
+  if (state === 'known' && view && view.hitTotal != null && Number.isFinite(Number(view.hitTotal))) {
+    return `共 ${Number(view.hitTotal)} 条`
   }
   return '总数未知'
 }
 
+function hitMetaChanged(
+  prev: Record<string, unknown> | null | undefined,
+  next: Record<string, unknown>,
+) {
+  const a = hitFooterView(prev)
+  const b = hitFooterView(next)
+  if (String(a?.hitTotalState || '') !== String(b.hitTotalState || '')) return true
+  const at = a?.hitTotal
+  const bt = b.hitTotal
+  if (at == null && bt == null) return false
+  return Number(at) !== Number(bt)
+}
+
 function serverPageCount(sheet: Record<string, unknown>, shownOnPage: number) {
-  const state = sheetHitState(sheet)
+  const view = hitFooterView(sheet) || sheet
+  const state = sheetHitState(view)
   const page = Number(sheet.page) > 0 ? Math.floor(Number(sheet.page)) : 1
   const rawPageSize = Number(sheet.pageSize)
   const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0
     ? Math.floor(rawPageSize)
     : (shownOnPage > 0 ? shownOnPage : PAGE_SIZE)
-  const total = Number(sheet.hitTotal)
+  const total = Number(view.hitTotal)
   if (state === 'known' && Number.isFinite(total) && total >= 0 && pageSize > 0) {
     return Math.max(1, Math.ceil(total / pageSize))
   }
-  if (sheet.pageFull === true || (pageSize > 0 && shownOnPage >= pageSize)) return page + 1
+  if (view.pageFull === true || (pageSize > 0 && shownOnPage >= pageSize)) return page + 1
   return page
 }
 
@@ -798,17 +818,23 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     surfacedAt?: number,
     keepPending = false,
   ) => {
-    const nextFp = sheetRowsFingerprint(sheet)
-    const sameSheet = nextFp && nextFp === appliedSheetFpRef.current
-    if (sameSheet) return
-    appliedSheetFpRef.current = nextFp
-    activeListQueryFpRef.current = listQueryFingerprint(sheet)
     const normalizedCols = normalizeSheetColumns(sheet.columns)
     const normalizedRows = cloneSheetRows(sheet.rows)
     const appliedSheet = coalesceKnownHitTotal(
       { ...sheet, rows: normalizedRows, columns: normalizedCols },
       sheet,
     )
+    const nextFp = sheetRowsFingerprint(sheet)
+    const sameSheet = nextFp && nextFp === appliedSheetFpRef.current
+    if (sameSheet) {
+      if (hitMetaChanged(displayedSheetRef.current, appliedSheet)) {
+        setListSheetMeta(appliedSheet)
+        displayedSheetRef.current = appliedSheet
+      }
+      return
+    }
+    appliedSheetFpRef.current = nextFp
+    activeListQueryFpRef.current = listQueryFingerprint(sheet)
     setSheetIdentity(nextFp)
     setColumns(normalizedCols)
     setRows(normalizedRows)
@@ -957,6 +983,14 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     const incomingFp = sheetRowsFingerprint(next)
     const historyPinned = Boolean(historyPinnedSurfaceIdRef.current)
     if (incomingFp && incomingFp === appliedSheetFpRef.current) {
+      const appliedSheet = coalesceKnownHitTotal(
+        { ...next, rows: cloneSheetRows(next.rows), columns: normalizeSheetColumns(next.columns) },
+        next,
+      )
+      if (hitMetaChanged(displayedSheetRef.current, appliedSheet)) {
+        setListSheetMeta(appliedSheet)
+        displayedSheetRef.current = appliedSheet
+      }
       if (shouldOpenWritePreviewDrawer(next, historyPinned)) {
         setDrawer((prev) => {
           const prevId = prev?.previewId || ''
