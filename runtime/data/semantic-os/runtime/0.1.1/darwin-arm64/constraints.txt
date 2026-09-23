@@ -1,0 +1,7 @@
+semantica==0.6.7
+# Linux default torch from PyPI pulls cuda-toolkit with no license metadata and a 400MB+ CUDA tree.
+# Install packages stay CPU. Mac/Windows already resolve CPU torch from PyPI.
+torch==2.13.0+cpu; sys_platform == "linux"
+torch==2.13.0; sys_platform != "linux"
+# Release CI resolves this file once per platform, records every wheel hash in runtime-manifest.json,
+# and must review/update transitive versions before publishing a new runtimeVersion.

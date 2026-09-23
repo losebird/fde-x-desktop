@@ -1,0 +1,425 @@
+"""FalkorDB is the primary graph book. graph.json is backup only.
+
+Explorer still reasons on an in-memory ContextGraph. We load that graph
+from FalkorDB when the store is up, and write it back on every save.
+
+TCP 127.0.0.1:6379 is tried first (Docker / already-running server).
+If TCP is down, a process-wide FalkorDBLite singleton opens
+~/.dsh/semantic-os/falkordb/graph.db (honors DSH_HOME). One lite file,
+many named graphs via graph_name(cwd). Default lite is a Unix socket,
+not 6379.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sys
+import threading
+from pathlib import Path
+from typing import Any
+
+HOST = (os.environ.get("FALKORDB_HOST") or "127.0.0.1").strip() or "127.0.0.1"
+PORT = int(os.environ.get("FALKORDB_PORT") or "6379")
+
+_LITE_LOCK = threading.Lock()
+_LITE_DB: Any = None
+_LITE_PATH = ""
+_LITE_ERROR: str = ""
+
+
+def graph_name(cwd: str) -> str:
+    key = os.path.realpath(cwd or "")
+    return "dsh_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _dsh_home() -> Path:
+    raw = (os.environ.get("DSH_HOME") or "").strip()
+    return Path(raw) if raw else Path.home() / ".dsh"
+
+
+def lite_db_path() -> Path:
+    return _dsh_home() / "semantic-os" / "falkordb" / "graph.db"
+
+
+def _import_lite_cls():
+    try:
+        from redislite.falkordb_client import FalkorDB as Lite
+        return Lite
+    except Exception:
+        pass
+    try:
+        from falkordblite import FalkorDB as Lite  # type: ignore
+        return Lite
+    except Exception as exc:
+        raise ImportError(f"falkordblite:{exc.__class__.__name__}:{exc}") from exc
+
+
+def _lite_fail_detail(exc: BaseException) -> str:
+    msg = str(exc) or exc.__class__.__name__
+    low = msg.lower()
+    if os.name == "nt":
+        return ("这台 Windows 原生跑不了嵌入式图库。先试 Docker Desktop，再试 WSL。都没有才用文件备份。" + msg)[:240]
+    if sys.platform == "darwin" and any(tok in low for tok in ("libomp", "openmp", "libgomp")):
+        return "这台 Mac 缺 OpenMP（libomp）。装插件时会用 Homebrew 自动装；这次没装上，先用文件备份。"
+    if sys.platform.startswith("linux") and any(tok in low for tok in ("libgomp", "openmp", "libomp")):
+        return "这台 Linux 缺 OpenMP（libgomp）。装插件时会用系统包管理器自动装；这次没装上，先用文件备份。"
+    return msg[:240]
+
+
+def _tcp_status() -> dict[str, Any] | None:
+    try:
+        from falkordb import FalkorDB
+    except Exception:
+        return None
+    try:
+        db = FalkorDB(host=HOST, port=PORT)
+        db.select_graph("dsh_ping").query("RETURN 1")
+        return {"ok": True, "via": "falkordb", "host": HOST, "port": PORT, "detail": ""}
+    except Exception:
+        return None
+
+
+def _open_lite() -> Any:
+    global _LITE_DB, _LITE_PATH, _LITE_ERROR
+    if _LITE_DB is not None:
+        return _LITE_DB
+    with _LITE_LOCK:
+        if _LITE_DB is not None:
+            return _LITE_DB
+        Lite = _import_lite_cls()
+        path = lite_db_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            db = Lite(str(path), serverconfig={"host": HOST, "port": str(PORT)})
+            db.select_graph("dsh_ping").query("RETURN 1")
+        except Exception as exc:
+            _LITE_ERROR = _lite_fail_detail(exc)
+            raise
+        _LITE_DB = db
+        _LITE_PATH = str(path)
+        _LITE_ERROR = ""
+        return _LITE_DB
+
+
+def _lite_status() -> dict[str, Any]:
+    try:
+        _open_lite()
+        return {
+            "ok": True,
+            "via": "falkordblite",
+            "path": _LITE_PATH or str(lite_db_path()),
+            "detail": "没 Docker，用官方嵌入式包开店",
+        }
+    except Exception as exc:
+        return {"ok": False, "via": "", "detail": _lite_fail_detail(exc)}
+
+
+def primary_status() -> dict[str, Any]:
+    tcp = _tcp_status()
+    if tcp:
+        return tcp
+    return _lite_status()
+
+
+def _open_graph(cwd: str):
+    if _tcp_status():
+        from falkordb import FalkorDB
+
+        return FalkorDB(host=HOST, port=PORT).select_graph(graph_name(cwd))
+    return _open_lite().select_graph(graph_name(cwd))
+
+
+def _iter_nodes(graph: Any):
+    nodes = getattr(graph, "nodes", {}) or {}
+    if isinstance(nodes, dict):
+        yield from nodes.items()
+        return
+    if isinstance(nodes, list):
+        for node in nodes:
+            hid = node.get("id") if isinstance(node, dict) else (
+                getattr(node, "node_id", None) or getattr(node, "id", None)
+            )
+            yield str(hid or ""), node
+
+
+def _iter_edges(graph: Any):
+    edges = getattr(graph, "edges", None)
+    if isinstance(edges, dict):
+        yield from edges.values()
+        return
+    if isinstance(edges, list):
+        yield from edges
+
+
+def _node_pack(nid: str, node: Any) -> tuple[str, str, str, str]:
+    if isinstance(node, dict):
+        ntype = str(node.get("type") or node.get("node_type") or "Entity")
+        content = str(node.get("content") or (node.get("properties") or {}).get("content") or nid)
+        props = node.get("properties") if isinstance(node.get("properties"), dict) else {}
+    else:
+        ntype = str(getattr(node, "node_type", None) or "Entity")
+        content = str(getattr(node, "content", None) or nid)
+        props = getattr(node, "properties", None) or {}
+        if not isinstance(props, dict):
+            props = {}
+    clean = {str(k): v for k, v in props.items() if not str(k).startswith("_")}
+    return nid, ntype, content, json.dumps(clean, ensure_ascii=False)
+
+
+def _edge_pack(edge: Any) -> tuple[str, str, str]:
+    if isinstance(edge, dict):
+        src = str(edge.get("source_id") or edge.get("source") or "")
+        tgt = str(edge.get("target_id") or edge.get("target") or "")
+        et = str(edge.get("type") or edge.get("edge_type") or "related_to")
+        return src, tgt, et
+    src = str(getattr(edge, "source_id", None) or getattr(edge, "source", "") or "")
+    tgt = str(getattr(edge, "target_id", None) or getattr(edge, "target", "") or "")
+    et = str(getattr(edge, "edge_type", None) or getattr(edge, "type", "") or "related_to")
+    return src, tgt, et
+
+
+def _create_node(g: Any, nid: str, ntype: str, content: str, props: str) -> None:
+    g.query(
+        "CREATE (n:Entity {nid: $nid, node_type: $t, content: $c, props: $p})",
+        {"nid": nid, "t": ntype, "c": content, "p": props},
+    )
+
+
+def _create_edge(g: Any, src: str, tgt: str, et: str) -> None:
+    g.query(
+        "MATCH (a:Entity {nid: $s}), (b:Entity {nid: $t}) "
+        "CREATE (a)-[:LINK {edge_type: $e}]->(b)",
+        {"s": src, "t": tgt, "e": et},
+    )
+
+
+def write_primary(graph: Any, cwd: str) -> dict[str, Any]:
+    st = primary_status()
+    if not st.get("ok"):
+        return {**st, "wrote": 0}
+    g = _open_graph(cwd)
+    wanted_nodes: dict[str, tuple[str, str, str]] = {}
+    for nid, node in _iter_nodes(graph):
+        if not nid:
+            continue
+        _id, ntype, content, props = _node_pack(str(nid), node)
+        wanted_nodes[_id] = (ntype, content[:20000], props)
+    wanted_edges: set[tuple[str, str, str]] = set()
+    for edge in _iter_edges(graph):
+        src, tgt, et = _edge_pack(edge)
+        if src and tgt:
+            wanted_edges.add((src, tgt, et[:80]))
+
+    have_nodes: dict[str, tuple[str, str, str]] = {}
+    have_edges: set[tuple[str, str, str]] = set()
+    try:
+        rows = g.query("MATCH (n:Entity) RETURN n.nid, n.node_type, n.content, n.props")
+        for row in rows.result_set or []:
+            hid = str(row[0] or "")
+            if hid:
+                have_nodes[hid] = (str(row[1] or ""), str(row[2] or ""), str(row[3] or ""))
+        links = g.query("MATCH (a:Entity)-[r:LINK]->(b:Entity) RETURN a.nid, b.nid, r.edge_type")
+        for row in links.result_set or []:
+            have_edges.add((str(row[0] or ""), str(row[1] or ""), str(row[2] or "")))
+    except Exception:
+        have_nodes, have_edges = {}, set()
+
+    if not have_nodes and not have_edges:
+        for nid, (ntype, content, props) in wanted_nodes.items():
+            _create_node(g, nid, ntype, content, props)
+        for src, tgt, et in wanted_edges:
+            _create_edge(g, src, tgt, et)
+        return {
+            "ok": True, "via": st.get("via") or "falkordb",
+            "wrote": len(wanted_nodes), "edges": len(wanted_edges),
+            "mode": "full", "name": graph_name(cwd),
+        }
+
+    deleted = added = updated = 0
+    for nid in list(have_nodes):
+        if nid not in wanted_nodes:
+            try:
+                g.query("MATCH (n:Entity {nid: $nid}) DETACH DELETE n", {"nid": nid})
+                deleted += 1
+            except Exception:
+                pass
+    for nid, packed in wanted_nodes.items():
+        ntype, content, props = packed
+        if nid not in have_nodes:
+            _create_node(g, nid, ntype, content, props)
+            added += 1
+        elif have_nodes[nid] != packed:
+            g.query(
+                "MATCH (n:Entity {nid: $nid}) SET n.node_type=$t, n.content=$c, n.props=$p",
+                {"nid": nid, "t": ntype, "c": content, "p": props},
+            )
+            updated += 1
+    for src, tgt, et in list(have_edges):
+        if (src, tgt, et) not in wanted_edges:
+            try:
+                g.query(
+                    "MATCH (a:Entity {nid: $s})-[r:LINK {edge_type: $e}]->(b:Entity {nid: $t}) DELETE r",
+                    {"s": src, "t": tgt, "e": et},
+                )
+            except Exception:
+                pass
+    for src, tgt, et in wanted_edges:
+        if (src, tgt, et) not in have_edges:
+            _create_edge(g, src, tgt, et)
+    return {
+        "ok": True, "via": st.get("via") or "falkordb",
+        "wrote": len(wanted_nodes), "edges": len(wanted_edges),
+        "added": added, "updated": updated, "deleted": deleted,
+        "mode": "incr", "name": graph_name(cwd),
+    }
+
+
+def read_primary(cwd: str) -> tuple[Any | None, dict[str, Any]]:
+    st = primary_status()
+    if not st.get("ok"):
+        return None, st
+    from semantica.context.context_graph import ContextGraph
+
+    g = _open_graph(cwd)
+    counted = g.query("MATCH (n:Entity) RETURN count(n)")
+    ncount = 0
+    try:
+        ncount = int((counted.result_set or [[0]])[0][0] or 0)
+    except Exception:
+        ncount = 0
+    if ncount <= 0:
+        return None, {**st, "empty": True, "nodes": 0}
+    mem = ContextGraph()
+    rows = g.query("MATCH (n:Entity) RETURN n.nid, n.node_type, n.content, n.props")
+    for row in rows.result_set or []:
+        nid = str(row[0] or "")
+        if not nid:
+            continue
+        ntype = str(row[1] or "Entity")
+        content = str(row[2] or nid)
+        extra = {}
+        try:
+            packed = json.loads(row[3] or "{}")
+            if isinstance(packed, dict):
+                extra = packed
+        except Exception:
+            extra = {}
+        extra.pop("content", None)
+        extra.pop("node_type", None)
+        extra.pop("node_id", None)
+        mem.add_node(nid, ntype, content=content, **extra)
+    links = g.query(
+        "MATCH (a:Entity)-[r:LINK]->(b:Entity) RETURN a.nid, b.nid, r.edge_type"
+    )
+    ecount = 0
+    for row in links.result_set or []:
+        src, tgt, et = str(row[0] or ""), str(row[1] or ""), str(row[2] or "related_to")
+        if src and tgt:
+            try:
+                mem.add_edge(src, tgt, edge_type=et)
+                ecount += 1
+            except Exception:
+                pass
+    return mem, {**st, "empty": False, "nodes": ncount, "edges": ecount, "name": graph_name(cwd)}
+
+
+def vector_status() -> dict[str, Any]:
+    try:
+        import faiss  # noqa: F401
+        return {"ok": True, "via": "faiss", "detail": ""}
+    except Exception as exc:
+        return {"ok": False, "via": "faiss", "detail": str(exc)[:200]}
+
+
+def vector_dir(cwd: str) -> Path:
+    return Path(os.path.realpath(cwd)) / ".dsh" / "semantic-os" / "vectors"
+
+
+def rebuild_vectors(cwd: str, graph: Any) -> dict[str, Any]:
+    st = vector_status()
+    if not st.get("ok"):
+        return st
+    ids: list[str] = []
+    texts: list[str] = []
+    for nid, node in _iter_nodes(graph):
+        if not nid:
+            continue
+        if isinstance(node, dict):
+            content = str(node.get("content") or (node.get("properties") or {}).get("content") or "")
+        else:
+            content = str(getattr(node, "content", None) or "")
+        if len(content.strip()) < 2:
+            continue
+        ids.append(str(nid))
+        texts.append(str(nid) + "\n" + content[:8000])
+    if not texts:
+        return {**st, "count": 0}
+    dest = vector_dir(cwd)
+    dest.mkdir(parents=True, exist_ok=True)
+    fp = hashlib.sha1()
+    for nid, text in zip(ids, texts):
+        fp.update(nid.encode("utf-8", "ignore"))
+        fp.update(b"\0")
+        fp.update(text.encode("utf-8", "ignore"))
+        fp.update(b"\n")
+    digest = fp.hexdigest()
+    meta_path = dest / "meta.json"
+    if (dest / "index.faiss").is_file() and (dest / "tfidf.pkl").is_file() and (dest / "ids.json").is_file() and meta_path.is_file():
+        try:
+            prev = json.loads(meta_path.read_text(encoding="utf-8"))
+            if prev.get("fp") == digest:
+                return {**st, "count": len(ids), "skipped": True}
+        except Exception:
+            pass
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    import faiss
+    import numpy as np
+
+    vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4), min_df=1)
+    mat = vec.fit_transform(texts).astype("float32").toarray()
+    faiss.normalize_L2(mat)
+    index = faiss.IndexFlatIP(mat.shape[1])
+    index.add(mat)
+    import pickle
+    faiss.write_index(index, str(dest / "index.faiss"))
+    (dest / "tfidf.pkl").write_bytes(pickle.dumps(vec))
+    (dest / "ids.json").write_text(json.dumps({"ids": ids}, ensure_ascii=False), encoding="utf-8")
+    meta_path.write_text(json.dumps({"fp": digest, "count": len(ids)}, ensure_ascii=False), encoding="utf-8")
+    return {**st, "count": len(ids), "skipped": False}
+
+
+def search_vectors(cwd: str, query: str, limit: int = 8) -> list[dict[str, Any]]:
+    if not query.strip():
+        return []
+    dest = vector_dir(cwd)
+    idx_path = dest / "index.faiss"
+    ids_path = dest / "ids.json"
+    if not idx_path.is_file() or not ids_path.is_file():
+        return []
+    try:
+        import faiss
+        import numpy as np
+        from sklearn.feature_extraction.text import TfidfVectorizer
+    except Exception:
+        return []
+    import pickle
+    packed = json.loads(ids_path.read_text(encoding="utf-8"))
+    ids = packed.get("ids") or []
+    pkl = dest / "tfidf.pkl"
+    if not ids or not pkl.is_file():
+        return []
+    vec = pickle.loads(pkl.read_bytes())
+    q = vec.transform([query]).astype("float32").toarray()
+    faiss.normalize_L2(q)
+    index = faiss.read_index(str(idx_path))
+    scores, ix = index.search(q, min(limit, len(ids)))
+    out = []
+    for score, pos in zip(scores[0].tolist(), ix[0].tolist()):
+        if pos < 0 or pos >= len(ids):
+            continue
+        if float(score) <= 0:
+            continue
+        out.append({"id": ids[pos], "score": float(score)})
+    return out

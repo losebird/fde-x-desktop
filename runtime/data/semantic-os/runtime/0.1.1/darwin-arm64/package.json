@@ -1,0 +1,14 @@
+{
+  "name": "dsh-semantic-os-runtime-darwin-arm64",
+  "version": "0.1.1",
+  "private": false,
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "**/*"
+  ]
+}

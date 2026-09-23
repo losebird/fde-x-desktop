@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "runtimeVersion": "0.1.1",
+  "platform": "darwin",
+  "arch": "arm64",
+  "python": "python/bin/python3",
+  "constraints": "constraints.txt",
+  "fileCount": 42701,
+  "treeHash": "040c17491e3066eda1fa2f3787d37589ca0df8bbdf15d7f95fe70771d9023654"
+}

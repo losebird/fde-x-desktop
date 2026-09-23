@@ -6,7 +6,7 @@
 
 1. 安装 [Node.js](https://nodejs.org/)（建议当前 LTS，需带 `npm`）。
 2. 安装 **DSH（DeepSeek Harness）**，保证终端里能执行 `dsh`（例如 Homebrew 或官方安装方式）。  
-   记忆与语义引擎在 **DSH 首次启动** 时会从本机已有 DSH 目录同步到工作台专用目录（`~/.dsh-fde-x`），**不要把约 1.8G 的 vendor 树放进 git**。
+   记忆与语义引擎运行时（约 1.8GB）已随本仓库放在 `runtime/data/semantic-os/`；首次 `npm start` 会把它装配到工作台目录（`~/.dsh-fde-x`），无需再从本机 DSH 目录拷贝，也无需设置环境变量。
 
 ## 启动
 

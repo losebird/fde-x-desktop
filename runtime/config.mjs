@@ -84,9 +84,20 @@ export function resolveDshBin(explicit) {
 
 export const FDE_DSH_BIN = resolveDshBin()
 
+export function bundledSemanticRuntimeRoot() {
+  return join(FDE_RUNTIME_DIR, 'data', 'semantic-os', 'runtime')
+}
+
 export function officialSemanticRuntimeRoot() {
   if (process.env.FDE_SEMANTIC_RUNTIME_SRC) {
     return resolve(expandHome(process.env.FDE_SEMANTIC_RUNTIME_SRC))
+  }
+  const bundled = bundledSemanticRuntimeRoot()
+  if (
+    existsSync(join(bundled, 'current.json'))
+    || existsSync(join(bundled, 'runtime-manifest.json'))
+  ) {
+    return bundled
   }
   return join(FDE_OFFICIAL_DSH_HOME, 'semantic-os', 'runtime')
 }

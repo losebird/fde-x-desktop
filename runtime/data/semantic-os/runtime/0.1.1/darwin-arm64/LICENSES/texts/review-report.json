@@ -1,0 +1,32 @@
+{
+  "denied": [],
+  "unresolved": [],
+  "stalePolicy": [],
+  "reviewed": {
+    "certifi": {
+      "version": "2026.7.22",
+      "license": "MPL-2.0",
+      "source": "https://github.com/certifi/python-certifi"
+    },
+    "gensim": {
+      "version": "4.4.0",
+      "license": "LGPL-2.1-only",
+      "source": "https://github.com/piskvorky/gensim"
+    },
+    "py-rust-stemmers": {
+      "version": "0.1.8",
+      "license": "MIT",
+      "source": "https://github.com/zowens/py-rust-stemmers"
+    },
+    "soxr": {
+      "version": "1.1.0",
+      "license": "LGPL-2.1-or-later",
+      "source": "https://github.com/dofuuz/python-soxr"
+    },
+    "tqdm": {
+      "version": "4.70.0",
+      "license": "MPL-2.0 AND MIT",
+      "source": "https://github.com/tqdm/tqdm"
+    }
+  }
+}
