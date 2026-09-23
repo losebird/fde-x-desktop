@@ -1371,12 +1371,11 @@ export function ensurePlanSelfHop(plan, speech, extra = {}) {
   const target = steps[targetIdx] || steps[steps.length - 1]
   const targetKind = String(target && target.kind || '').trim()
   if (!targetKind) return plan
-  const spoken = spokenSelfRelation(targetKind, speech, bag)
   const pickRel = (field) => {
     const name = String(field || '').trim()
     return name && publishedSelfEdgeField(targetKind, name, bag) ? name : ''
   }
-  const relForHop = pickRel(spoken)
+  const relForHop = pickRel(resolveSelfRelationField(targetKind, speech, plan, bag))
 
   if (steps.length === 1 && String(steps[0].kind || '').trim() === targetKind) {
     const rel = pickRel(steps[0].relation) || relForHop
@@ -1444,6 +1443,63 @@ function spokenSelfRelation(kind, speech, extra) {
   return bestField
 }
 
+function publishedSelfEdgesForKind(kind, extra = {}) {
+  const target = String(kind || '').trim()
+  if (!target) return []
+  return relationsFromVocab(extra.vocab, extra).filter((rel) => (
+    rel.from === target && rel.to === target && rel.field
+  ))
+}
+
+/** Eval-generated `{kind}的{kind}` — not enum prefix, not a spoken field title on the edge. */
+function isGeneratedSelfLoopSpeech(kind, speech, vocab, extra = {}) {
+  const target = String(kind || '').trim()
+  if (!target || !String(speech || '').trim()) return false
+  const mergedVocab = vocabWithSpoken(vocab)
+  if (enumPrefixBeforeDeKind(speech, target, mergedVocab, extra)) return false
+  const core = speechCoreBeforeAskTail(speech)
+  if (core !== `${target}的${target}`) return false
+  const bag = { vocab: mergedVocab, ...extra }
+  if (spokenSelfRelation(target, speech, bag)) return false
+  return publishedSelfEdgesForKind(target, bag).length > 0
+}
+
+function carriedSelfRelationFromSpec(spec, targetKind, extra = {}) {
+  const target = String(targetKind || '').trim()
+  if (!spec || typeof spec !== 'object' || !target) return ''
+  const pick = (field) => {
+    const name = String(field || '').trim()
+    return name && publishedSelfEdgeField(target, name, extra) ? name : ''
+  }
+  const fromTop = pick(spec.relation) || pick(spec.via)
+  if (fromTop) return fromTop
+  const steps = Array.isArray(spec.steps) ? spec.steps : []
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const rel = pick(steps[i] && steps[i].relation)
+    if (rel) return rel
+  }
+  const fromNode = spec.from && typeof spec.from === 'object' && !Array.isArray(spec.from) ? spec.from : null
+  if (fromNode) {
+    const rel = pick(chainRelation(fromNode))
+    if (rel) return rel
+  }
+  return ''
+}
+
+function resolveSelfRelationField(targetKind, speech, spec, extra = {}) {
+  const target = String(targetKind || '').trim()
+  if (!target) return ''
+  const bag = { vocab: extra.vocab, collections: extra.collections, kinds: extra.kinds, relations: extra.relations }
+  const human = spokenSelfRelation(target, speech, bag)
+  if (human) return human
+  if (!isGeneratedSelfLoopSpeech(target, speech, extra.vocab, extra)) return ''
+  const fromPlan = carriedSelfRelationFromSpec(spec, target, bag)
+  if (fromPlan) return fromPlan
+  const edges = publishedSelfEdgesForKind(target, bag)
+  if (edges.length === 1) return String(edges[0].field || '').trim()
+  return ''
+}
+
 /**
  * When the model only filled the child kind + partial where, recover hop slots
  * from speech using vocab clues and published graph relations.
@@ -1507,7 +1563,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
 
   if ((base.from && typeof base.from === 'object' && base.from.kind) || existingSteps.length) {
     const next = { ...base, kind: targetKind }
-    const selfField = spokenSelfRelation(targetKind, speech, bag)
+    const selfField = resolveSelfRelationField(targetKind, speech, next, bag)
     if (selfField) {
       const fromNode = next.from && typeof next.from === 'object' ? next.from : null
       if (fromNode && sameObjectChain(fromNode, targetKind) && !chainRelation(fromNode)) {
@@ -1536,7 +1592,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     || parents.find((kind) => mentioned.has(kind))
   if (!parent) parent = hopParentKindForTarget(targetKind, speech, bag)
   if (parent === targetKind) parent = ''
-  const selfField = spokenSelfRelation(targetKind, speech, bag)
+  const selfField = resolveSelfRelationField(targetKind, speech, base, bag)
   const parentWhere = parent ? whereForKind(hits, parent, undefined, bag) : []
   const parentValues = new Set(parentWhere.flatMap((term) => term.values || []))
   const childFiltered = childWhere.filter((term) => {

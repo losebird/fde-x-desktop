@@ -1108,7 +1108,7 @@ test('ensurePlanSelfHop restores a single-step published self edge before lookup
     speech: 'Node的上级',
     steps: [{ kind: 'Node', relation: 'up' }],
     targetIndex: 0,
-  }, 'Node的上级', extra)
+  }, 'Node的上级', { vocab, ...extra })
   assert.deepEqual(plan.steps.map((row) => row.kind), ['Node', 'Node'])
   assert.equal(plan.steps[1].relation, 'up')
   assert.equal(plan.targetIndex, 1)
@@ -1133,6 +1133,46 @@ test('enum label before 的{kind} binds as filter when label contains the kind n
   const filled = enrichStructuredSlots({ kind: '客户', action: '现查', speech }, vocab, extra)
   const values = (filled.where || []).flatMap((term) => term.values || [])
   assert.deepEqual(values, ['enterprise'])
+})
+
+test('generated self-loop speech uses plan relation without spoken field title', () => {
+  const vocab = [{
+    kind: 'Node',
+    resource: 'nodes',
+    can: ['现查'],
+    relations: [
+      { from: 'Node', to: 'Node', field: 'up' },
+      { from: 'Node', to: 'Node', field: 'down' },
+    ],
+  }]
+  const extra = {
+    collections: [{
+      name: 'nodes',
+      fields: [
+        { name: 'up', title: '上级', interface: 'm2o', target: 'nodes' },
+        { name: 'down', title: '下级', interface: 'o2m', target: 'nodes' },
+      ],
+    }],
+  }
+  const tail = '只要预览，不要过账，不要 biz_write。'
+  const speech = `Node的Node。${tail}`
+  const upPlan = normalizePlan(enrichStructuredSlots({
+    kind: 'Node',
+    action: '现查',
+    speech,
+    steps: [{ kind: 'Node' }, { kind: 'Node', relation: 'up', from: 'Node' }],
+  }, vocab, extra))
+  assert.deepEqual(upPlan.steps.map((row) => row.kind), ['Node', 'Node'])
+  assert.equal(upPlan.steps[1].relation, 'up')
+  const downPlan = normalizePlan(enrichStructuredSlots({
+    kind: 'Node',
+    action: '现查',
+    speech,
+    steps: [{ kind: 'Node' }, { kind: 'Node', relation: 'down', from: 'Node' }],
+  }, vocab, extra))
+  assert.equal(downPlan.steps[1].relation, 'down')
+  const plain = normalizePlan(enrichStructuredSlots({ kind: 'Node', action: '现查', speech }, vocab, extra))
+  assert.equal(plain.steps.length, 1)
 })
 
 test('enum label equal to kind name only filters the prefix span in X的X speech', () => {
