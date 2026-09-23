@@ -11,7 +11,7 @@ FDE-X 本地 BFF（`runtime/server.mjs`）与 DSH 核心连接器从 `runtime/co
 | `FDE_VENDOR_DIR` | 官方插件 vendor 源 | `~/.dsh/vendor` |
 | `FDE_DSH_PATCH` | 核心 patch 文件 | `runtime/dsh-core.patch.yml` |
 | `FDE_SEMANTIC_RUNTIME_SRC` | 语义 OS runtime 探测根 | `~/.dsh/semantic-os/runtime` |
-| `FDE_AI_WORKSPACE` | AI 默认工作区 cwd | `FDE_APP_ROOT` |
+| `FDE_AI_WORKSPACE` | AI 默认工作区 cwd | 进程 `process.cwd()`（与 DSH 一致） |
 | `FDE_RUNTIME_HOST` | BFF 监听地址 | `127.0.0.1` |
 | `FDE_RUNTIME_PORT` | BFF 端口 | `4318` |
 | `FDE_WEB_PORT` | 开发 UI 端口（提示文案） | `5174` |

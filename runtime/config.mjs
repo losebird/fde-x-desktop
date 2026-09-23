@@ -37,7 +37,7 @@ export const FDE_WEB_PORT = Number(process.env.FDE_WEB_PORT ?? 5174)
 /** Browser reload wait: BFF respawn + DSH cold start (ms). */
 export const FDE_RUNTIME_RELOAD_WAIT_MS = Number(process.env.FDE_RUNTIME_RELOAD_WAIT_MS ?? 90_000)
 
-export const FDE_AI_WORKSPACE = resolve(process.env.FDE_AI_WORKSPACE || FDE_APP_ROOT)
+export const FDE_AI_WORKSPACE = resolve(process.env.FDE_AI_WORKSPACE || process.cwd())
 
 export const DSH_LAN_ASSIST_PORT = String(process.env.DSH_LAN_ASSIST_PORT || '19527')
 
