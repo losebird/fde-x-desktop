@@ -304,6 +304,27 @@ test('new pending paints even when the current kind view differs; same-operation
   assert.equal(shouldHoldSideKindView('KindShown', sameOpIncoming, { ...shown, rows: [] }), false)
 })
 
+test('official hop terminal paints over an earlier kind chip view', async () => {
+  const { shouldHoldSideKindView } = await import('../../src/lib/biz-list-query.ts')
+  const employeeSide = {
+    kind: '员工档案',
+    action: '现查',
+    speech: '员工档案的仓库',
+    rows: [{ no: 'EMP1065' }],
+  }
+  const warehouseOfficial = {
+    kind: '仓库',
+    action: '现查',
+    speech: '员工档案的仓库',
+    steps: [{ kind: '员工档案' }, { kind: '仓库' }],
+    from: { kind: '员工档案', rows: [{ no: 'EMP1065' }] },
+    rows: [{ no: 'WH01' }, { no: 'WH02' }],
+    hitTotal: 6,
+    hitTotalState: 'known',
+  }
+  assert.equal(shouldHoldSideKindView('员工档案', warehouseOfficial, employeeSide), false)
+})
+
 test('empty incoming never paints over a populated list', async () => {
   const { shouldRejectEmptyIncomingSheet } = await import('../../src/lib/biz-list-query.ts')
   const shown = {

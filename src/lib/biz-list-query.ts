@@ -370,6 +370,11 @@ export function shouldHoldSideKindView(
   const incomingKind = incoming && typeof incoming === 'object' ? String(incoming.kind || '').trim() : ''
   if (!view || !incomingKind || view === incomingKind) return false
   if (incomingIsWritePreview) return false
+  const hopSteps = stableStepsSlice(incoming?.steps)
+  if (hopSteps.length > 1 && incomingKind === hopSteps[hopSteps.length - 1]) {
+    const sideIndex = hopSteps.indexOf(view)
+    if (sideIndex >= 0 && sideIndex < hopSteps.length - 1) return false
+  }
   const shownRows = displayed && Array.isArray(displayed.rows) ? displayed.rows.length : 0
   if (shownRows <= 0) return false
   return Boolean(displayed && operationBundlesAlign(displayed, incoming))
