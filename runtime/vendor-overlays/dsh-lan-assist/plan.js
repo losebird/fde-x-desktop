@@ -155,6 +155,7 @@ export function normalizePlan(spec = {}) {
     peers: (Array.isArray(spec.peers) ? spec.peers : []).filter((row) => row && row.kind).map((row) => ({
       kind: String(row.kind || '').trim(),
       where: normalizeWhere(row.where),
+      ...(typeof row.relation === 'string' && row.relation.trim() ? { relation: row.relation.trim() } : {}),
     })).filter((row) => row.kind),
     page: Number(spec.page) > 0 ? Math.floor(Number(spec.page)) : 1,
   }

@@ -4,6 +4,8 @@ import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
 import {
   enrichStructuredSlots,
   ensurePlanSelfHop,
+  generatedSelfLoopEdgePeers,
+  generatedSelfLoopPeerOnlyPlan,
   clueHitsInSpeech,
   kindMentions,
   leftoverKindMissingFromCatalog,
@@ -1133,6 +1135,64 @@ test('enum label before 的{kind} binds as filter when label contains the kind n
   const filled = enrichStructuredSlots({ kind: '客户', action: '现查', speech }, vocab, extra)
   const values = (filled.where || []).flatMap((term) => term.values || [])
   assert.deepEqual(values, ['enterprise'])
+})
+
+test('ambiguous generated self-loop speech lists each published edge as a peer', () => {
+  const vocab = [{
+    kind: 'Node',
+    resource: 'nodes',
+    can: ['现查'],
+    relations: [
+      { from: 'Node', to: 'Node', field: 'up' },
+      { from: 'Node', to: 'Node', field: 'down' },
+    ],
+  }]
+  const extra = {
+    collections: [{
+      name: 'nodes',
+      fields: [
+        { name: 'up', title: '上级', interface: 'm2o', target: 'nodes' },
+        { name: 'down', title: '下级', interface: 'o2m', target: 'nodes' },
+      ],
+    }],
+  }
+  const speech = 'Node的Node。只要预览，不要过账，不要 biz_write。'
+  const filled = enrichStructuredSlots({ kind: 'Node', action: '现查', speech }, vocab, extra)
+  assert.deepEqual((filled.peers || []).map((row) => row.relation).sort(), ['down', 'up'])
+  assert.equal(filled.from, undefined)
+  const plan = normalizePlan(filled)
+  assert.equal(generatedSelfLoopPeerOnlyPlan(plan, { vocab, ...extra }), true)
+})
+
+test('generated self-loop speech with plan relation keeps hop and peers the other edges', () => {
+  const vocab = [{
+    kind: 'Node',
+    resource: 'nodes',
+    can: ['现查'],
+    relations: [
+      { from: 'Node', to: 'Node', field: 'up' },
+      { from: 'Node', to: 'Node', field: 'down' },
+    ],
+  }]
+  const extra = {
+    collections: [{
+      name: 'nodes',
+      fields: [
+        { name: 'up', title: '上级', interface: 'm2o', target: 'nodes' },
+        { name: 'down', title: '下级', interface: 'o2m', target: 'nodes' },
+      ],
+    }],
+  }
+  const speech = 'Node的Node。只要预览，不要过账，不要 biz_write。'
+  const spec = { kind: 'Node', action: '现查', speech, relation: 'up' }
+  const peers = generatedSelfLoopEdgePeers('Node', speech, spec, vocab, extra)
+  assert.deepEqual(peers, [{ kind: 'Node', relation: 'down' }])
+  const filled = enrichStructuredSlots(spec, vocab, extra)
+  assert.equal(filled.from && filled.from.relation, 'up')
+  const plan = ensurePlanSelfHop(normalizePlan(filled), speech, { vocab, ...extra })
+  assert.equal(plan.steps.length, 2)
+  assert.equal(plan.steps[1].relation, 'up')
+  assert.equal(generatedSelfLoopPeerOnlyPlan(plan, { vocab, ...extra }), false)
 })
 
 test('generated self-loop speech uses plan relation without spoken field title', () => {

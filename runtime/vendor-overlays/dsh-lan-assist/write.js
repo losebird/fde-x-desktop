@@ -9,7 +9,7 @@ import { connectorCatalogPresent, hopLinkParentIds, kindPreviewableInCatalog, ma
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
-import { dropSpokenBatchRowId, enrichStructuredSlots, ensurePlanSelfHop, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
+import { dropSpokenBatchRowId, enrichStructuredSlots, ensurePlanSelfHop, generatedSelfLoopEdgePeers, generatedSelfLoopPeerOnlyPlan, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
 import { WHERE_LIST_CAP } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -292,6 +292,19 @@ function hopLinkIds(fromKind, toKind, matches, extra, relation) {
     field: named || hopRelatedField(toKind, fromKind, matches, extra),
     targetKey: hopTargetKey(matches),
   }
+}
+
+function mergePlanPeerRows(left, right) {
+  const out = []
+  const seen = new Set()
+  for (const row of [...(Array.isArray(left) ? left : []), ...(Array.isArray(right) ? right : [])]) {
+    if (!row || !row.kind) continue
+    const key = `${String(row.kind).trim()}\0${String(row.relation || '').trim()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+  }
+  return out
 }
 
 function planStepsForSheet(plan) {
@@ -761,6 +774,79 @@ export function createGate(opts = {}) {
     }
   }
 
+  async function lookupPublishedSelfEdge(kindName, relationField, spec, loaded, extra) {
+    const kind = String(kindName || '').trim()
+    const relation = String(relationField || '').trim()
+    if (!kind || !relation) return { ok: false, error: 'NOT_FOUND', matches: [] }
+    const parentFound = await probe({
+      kind,
+      no: '',
+      workspace: spec.workspace,
+      staffId: spec.staffId,
+      vocab: loaded.vocab,
+      structured: true,
+      speech: '',
+      limit: WHERE_LIST_CAP,
+    })
+    if (!parentFound || parentFound.ok === false) {
+      return parentFound && parentFound.ok === false
+        ? parentFound
+        : { ok: false, error: 'NOT_FOUND', matches: [] }
+    }
+    const parentMatches = parentFound.matches && parentFound.matches.length
+      ? parentFound.matches
+      : [{ no: parentFound.no, status: parentFound.status, fields: parentFound.fields || {} }]
+    const link = hopLinkIds(kind, kind, parentMatches, extra, relation)
+    if (!link.ids.length) {
+      return {
+        ok: true,
+        matches: [],
+        listed: true,
+        querySettled: true,
+        hitTotal: 0,
+        hitTotalState: parentFound.hitTotalState === 'incomplete' ? 'incomplete' : 'known',
+      }
+    }
+    const hopped = await probe({
+      kind,
+      no: '',
+      workspace: spec.workspace,
+      staffId: spec.staffId,
+      vocab: loaded.vocab,
+      structured: true,
+      speech: '',
+      limit: WHERE_LIST_CAP,
+      related: { kind, ids: link.ids, field: link.field, targetKey: link.targetKey },
+    })
+    const nextRows = keepHoppedMatches(hopped && hopped.matches, link.ids, kind, kind, extra, link.field)
+    if (!nextRows.length) {
+      const lookupFailed = hopped && hopped.ok === false && hopped.error && hopped.error !== 'NOT_FOUND'
+      return {
+        ok: true,
+        matches: [],
+        listed: true,
+        querySettled: true,
+        hitTotal: 0,
+        hitTotalState: lookupFailed || (hopped && hopped.hitTotalState === 'incomplete') ? 'incomplete' : 'known',
+      }
+    }
+    let hitTotalState = hopped && hopped.hitTotalState === 'incomplete' ? 'incomplete' : 'known'
+    let hitTotal = null
+    if (hitTotalState === 'known') {
+      const given = Number(hopped && hopped.hitTotal)
+      if (Number.isFinite(given)) hitTotal = given
+      else hitTotal = 0
+    }
+    return {
+      ok: true,
+      matches: nextRows,
+      listed: true,
+      querySettled: true,
+      hitTotalState,
+      ...(hitTotalState === 'known' ? { hitTotal } : {}),
+    }
+  }
+
   async function previewStructured(plan, spec, loaded) {
     const extra = { vocab: loaded.vocab }
     if (typeof opts.collectionsOf === 'function') {
@@ -809,18 +895,22 @@ export function createGate(opts = {}) {
       const out = []
       for (const peer of listed) {
         const peerKind = String(peer && peer.kind || '').trim()
-        if (!peerKind || peerKind === recognized.kind) continue
-        const found = await probe({
-          kind: peerKind,
-          no: '',
-          workspace: spec.workspace,
-          staffId: spec.staffId,
-          vocab: loaded.vocab,
-          structured: true,
-          speech: '',
-          where: peer.where,
-          limit: WHERE_LIST_CAP,
-        })
+        const peerRelation = String(peer && peer.relation || '').trim()
+        if (!peerKind) continue
+        if (peerKind === recognized.kind && !peerRelation) continue
+        const found = peerRelation
+          ? await lookupPublishedSelfEdge(peerKind, peerRelation, spec, loaded, extra)
+          : await probe({
+            kind: peerKind,
+            no: '',
+            workspace: spec.workspace,
+            staffId: spec.staffId,
+            vocab: loaded.vocab,
+            structured: true,
+            speech: '',
+            where: peer.where,
+            limit: WHERE_LIST_CAP,
+          })
         const matches = found && Array.isArray(found.matches) ? found.matches : []
         let peerSchema = []
         if (typeof opts.fieldsOf === 'function') {
@@ -854,6 +944,7 @@ export function createGate(opts = {}) {
         })
         out.push({
           kind: peerKind,
+          ...(peerRelation ? { relation: peerRelation } : {}),
           where: peer.where,
           rows: packed.rows,
           columns: packed.columns,
@@ -928,6 +1019,9 @@ export function createGate(opts = {}) {
         })
       }
       return finishStructured(recognized, rows, hopped, writePatch, plan, spec, loaded, schemaFields, recognized.kind)
+    }
+    if (recognized.action === '现查' && generatedSelfLoopPeerOnlyPlan(plan, extra)) {
+      return settledList(recognized.kind, { hitTotalState: 'known' })
     }
     if (recognized.action === '新建') {
       const labelNo = looksLikeTicket(plan.no) ? plan.no : '新单'
@@ -1281,11 +1375,11 @@ export function createGate(opts = {}) {
       ? { ...spec, speech: String(spec.speech || '').trim() }
       : enrichStructuredSlots(recovered, loaded.vocab, enrichExtra)
     if (!replaying) {
-      enriched.peers = unlinkedConditionKinds(
-        String(enriched.speech || spec.speech || userSpeech || '').trim(),
-        String(enriched.kind || spec.kind || '').trim(),
-        loaded.vocab,
-        enrichExtra,
+      const batchSpeech = String(enriched.speech || spec.speech || userSpeech || '').trim()
+      const batchKind = String(enriched.kind || spec.kind || '').trim()
+      enriched.peers = mergePlanPeerRows(
+        unlinkedConditionKinds(batchSpeech, batchKind, loaded.vocab, enrichExtra),
+        generatedSelfLoopEdgePeers(batchKind, batchSpeech, enriched, loaded.vocab, enrichExtra),
       )
     }
     const catalogExtra = { vocab: loaded.vocab, ...enrichExtra }

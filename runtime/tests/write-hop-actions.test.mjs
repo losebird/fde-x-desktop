@@ -343,3 +343,72 @@ test('write uniqueness is on the intersection, not the parent half-table', async
   assert.ok(out.fromRows < parentRows.length)
   assert.equal(out.hopWhere, true)
 })
+
+test('generated self-loop speech uses peers instead of flat full-table lookup', async () => {
+  const selfVocab = [{
+    kind: 'Node',
+    resource: 'nodes',
+    can: ['现查'],
+    relations: [
+      { from: 'Node', to: 'Node', field: 'up' },
+      { from: 'Node', to: 'Node', field: 'down' },
+    ],
+  }]
+  const full = 120
+  const upHit = 80
+  const downHit = 15
+  const allRows = Array.from({ length: full }, (_, i) => ({
+    no: `N-${i + 1}`,
+    fields: { id: `id-${i + 1}`, upId: i < upHit ? `mgr-${i}` : '', downId: i < downHit ? `sub-${i}` : '' },
+  }))
+  const lookupTodo = (spec) => {
+    const kind = String(spec.kind || '')
+    if (kind !== 'Node') return { ok: false, error: 'NOT_FOUND', matches: [] }
+    const relatedIds = spec.related && Array.isArray(spec.related.ids) ? spec.related.ids.map(String) : []
+    if (!relatedIds.length) {
+      return {
+        ok: true,
+        matches: allRows.slice(0, 20),
+        hitTotal: full,
+        hitTotalState: 'known',
+      }
+    }
+    const field = String(spec.related.field || '')
+    const hopTotal = field === 'up' ? upHit : downHit
+    return {
+      ok: true,
+      matches: allRows.slice(0, Math.min(hopTotal, 20)),
+      hitTotal: hopTotal,
+      hitTotalState: 'known',
+    }
+  }
+  const speech = 'Node的Node。只要预览，不要过账，不要 biz_write。'
+  const g = createGate({
+    vocab: selfVocab,
+    lookupTodo,
+  })
+  const ambiguous = await g.preview({
+    workspace: '/tmp/self-loop-peer',
+    kind: 'Node',
+    action: '现查',
+    speech,
+  })
+  const ambSheet = ambiguous.sheet || ambiguous
+  assert.equal(ambSheet.hitTotal, 0)
+  assert.equal(ambSheet.hitTotalState, 'known')
+  assert.ok(Array.isArray(ambSheet.peers) && ambSheet.peers.length === 2)
+  assert.ok(ambSheet.peers.every((row) => String(row.relation || '').trim()))
+  assert.ok(ambSheet.peers.every((row) => Number(row.hitTotal) !== full))
+  const bound = await g.preview({
+    workspace: '/tmp/self-loop-peer',
+    kind: 'Node',
+    action: '现查',
+    speech,
+    relation: 'up',
+  })
+  const boundSheet = bound.sheet || bound
+  assert.equal(bound.ok !== false, true)
+  assert.equal(boundSheet.hitTotal, 0)
+  assert.notEqual(boundSheet.hitTotal, full)
+  assert.ok(Array.isArray(boundSheet.peers) && boundSheet.peers.some((row) => row.relation === 'down'))
+})

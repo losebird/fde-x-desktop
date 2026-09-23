@@ -1501,6 +1501,41 @@ function resolveSelfRelationField(targetKind, speech, spec, extra = {}) {
 }
 
 /**
+ * Published same-object edges for eval `{kind}的{kind}` when speech does not name
+ * a field title. Primary edge (plan relation) stays on the hop; the rest are peers.
+ */
+export function generatedSelfLoopEdgePeers(targetKind, speech, spec, vocab, extra = {}) {
+  const target = String(targetKind || '').trim()
+  if (!target || !isGeneratedSelfLoopSpeech(target, speech, vocab, extra)) return []
+  const bag = { vocab, ...extra }
+  const edges = publishedSelfEdgesForKind(target, bag)
+  if (edges.length <= 1) return []
+  const primary = carriedSelfRelationFromSpec(spec, target, bag)
+  const list = primary
+    ? edges.filter((rel) => String(rel.field || '').trim() && rel.field !== primary)
+    : edges
+  return list.map((rel) => ({
+    kind: target,
+    relation: String(rel.field || '').trim(),
+  })).filter((row) => row.relation)
+}
+
+/** Single-step 现查 with only self-edge relation peers — no flat full-table lookup. */
+export function generatedSelfLoopPeerOnlyPlan(plan, extra = {}) {
+  if (!plan || typeof plan !== 'object' || String(plan.action || '').trim() !== '现查') return false
+  const steps = Array.isArray(plan.steps) ? plan.steps : []
+  if (steps.length !== 1) return false
+  const peers = Array.isArray(plan.peers) ? plan.peers : []
+  if (!peers.some((row) => row && String(row.relation || '').trim())) return false
+  const kind = String(steps[0] && steps[0].kind || plan.kind || '').trim()
+  if (!kind) return false
+  const speech = String(plan.speech || '').trim()
+  const bag = { vocab: extra.vocab, collections: extra.collections, kinds: extra.kinds, relations: extra.relations }
+  if (!isGeneratedSelfLoopSpeech(kind, speech, extra.vocab, bag)) return false
+  return !resolveSelfRelationField(kind, speech, plan, bag)
+}
+
+/**
  * When the model only filled the child kind + partial where, recover hop slots
  * from speech using vocab clues and published graph relations.
  * Mentioned related kinds (2 or more) become one chain of steps — not a single pair.
@@ -1609,6 +1644,13 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
   }
 
   if (!parent && !parentWhere.length && !childFiltered.length) {
+    const loopPeers = generatedSelfLoopEdgePeers(targetKind, speech, base, vocab, bag)
+    if (loopPeers.length) {
+      const next = { ...base, kind: targetKind, peers: loopPeers }
+      delete next.from
+      delete next.steps
+      return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
+    }
     return carryQueryFlags(attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base), hits)
   }
 
