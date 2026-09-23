@@ -93,6 +93,27 @@ test('sheetPayloadFromRaw keeps each unbound peer hit and does not add a relatio
   assert.equal(again.peers[0].from, undefined)
 })
 
+test('sheetPayloadFromRaw keeps published self-edge relation on peers', () => {
+  const sheet = sheetPayloadFromRaw({
+    kind: 'KindA',
+    action: '现查',
+    rows: [],
+    hitTotalState: 'known',
+    hitTotal: 15,
+    peers: [{
+      kind: 'KindA',
+      relation: 'manager',
+      action: '现查',
+      rows: [],
+      hitTotalState: 'known',
+      hitTotal: 80,
+      querySettled: true,
+    }],
+  })
+  assert.equal(sheet.peers[0].relation, 'manager')
+  assert.equal(sheet.peers[0].hitTotal, 80)
+})
+
 test('dismiss does not clear hall when a newer preview already replaced the token', () => {
   assert.equal(dismissShouldClearHall('pv_new', 'pv_old'), false)
   assert.equal(dismissShouldClearHall('pv_old', 'pv_old'), true)

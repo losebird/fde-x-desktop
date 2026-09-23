@@ -17,6 +17,9 @@ import {
   termFilterPart as whereTermFilterPart,
   vocabRow,
 } from './where-pass.js'
+import { kindLabelsMatch, kindLabelTokens, neutralizeKindLabel } from './kind-label.js'
+
+export { kindLabelsMatch, kindLabelTokens, neutralizeKindLabel } from './kind-label.js'
 
 const WRITE = /(?:^|\/|:)(?:create|update|destroy|remove|delete|approve|reject|post|submit|publish|execute|resource_create|resource_update|resource_destroy)(?:$|[/?])/i
 
@@ -31,6 +34,24 @@ export function isWritePath(path) {
  * Type → collection + ticket columns.
  * Vocab / connector / live collections first. Builtin catalog is only a fallback.
  */
+export function resolveKindAlias(name, extra = {}) {
+  const raw = String(name || '').trim()
+  if (!raw) return ''
+  if (mapKind(raw, extra)) return raw
+  for (const row of listKindRows(extra)) {
+    const kind = rowKindName(row)
+    if (!kind) continue
+    if (kindLabelsMatch(kind, raw)) return kind
+    const title = String(row.label || row.title || '').trim()
+    if (title && kindLabelsMatch(title, raw)) return kind
+    for (const alias of oralAndGraphAliasTokens(row)) {
+      if (kindLabelsMatch(alias, raw)) return kind
+    }
+  }
+  const neutral = neutralizeKindLabel(raw)
+  return neutral && mapKind(neutral, extra) ? neutral : raw
+}
+
 export function mapKind(kind, extra = {}) {
   const name = String(kind || '').trim()
   if (!name) return null
@@ -183,11 +204,12 @@ function isConnectedResource(resource, connectorResources) {
 function mergeRelationLists(list) {
   const out = []
   const seen = new Set()
+  const bag = { vocab: list }
   for (const row of list) {
     for (const rel of Array.isArray(row && row.relations) ? row.relations : []) {
       if (!rel || typeof rel !== 'object') continue
-      const from = String(rel.from || rel.fromKind || '').trim()
-      const to = String(rel.to || rel.toKind || '').trim()
+      const from = resolveKindAlias(String(rel.from || rel.fromKind || '').trim(), bag)
+      const to = resolveKindAlias(String(rel.to || rel.toKind || '').trim(), bag)
       const field = String(rel.field || '').trim()
       if (!from || !to) continue
       const key = `${from}\0${to}\0${field}`
@@ -313,7 +335,7 @@ function mapFromRows(name, rows) {
   for (const row of Array.isArray(rows) ? rows : []) {
     if (!row) continue
     const label = String(row.kind || row.label || row.title || '').trim()
-    if (label !== name) continue
+    if (!kindLabelsMatch(label, name)) continue
     const resource = String(row.resource || row.collection || row.name || '').trim()
     if (!isCollectionStem(resource)) continue
     const fields = ticketFieldsOf(row)
@@ -328,7 +350,7 @@ function mapFromCollections(name, collections) {
     const title = String(row.title || row.label || '').trim()
     const resource = String(row.name || row.resource || '').trim()
     if (!resource) continue
-    if (title !== name && resource !== name) continue
+    if (!kindLabelsMatch(title, name) && !kindLabelsMatch(resource, name)) continue
     const fields = ticketFieldsOf(row)
     return { resource, fields: fields.length ? fields : guessTicketFields(resource, row.fields) }
   }
@@ -754,6 +776,7 @@ export function createLookup(opts = {}) {
         let state = 'known'
         let counted = 0
         let countedKnown = true
+        const allRelatedIds = [...new Set((Array.isArray(relatedIds) ? relatedIds : []).map((item) => String(item || '').trim()).filter(Boolean))]
         for (const batch of batches) {
           const idSet = new Set(batch)
           let path = withRelationAppends(relatedListPath(resource, { ...related, ids: batch, field: fieldName }, kind, clues, extra), extra.collections, resource)
@@ -782,6 +805,31 @@ export function createLookup(opts = {}) {
               if (seen.has(key)) continue
               seen.add(key)
               hit.push(row)
+            }
+          }
+        }
+        if (countedKnown && batches.length > 1 && allRelatedIds.length) {
+          const clause = allRelatedIds.length === 1
+            ? { [fieldName]: allRelatedIds[0] }
+            : { [fieldName]: { $in: allRelatedIds } }
+          const filter = encodeURIComponent(JSON.stringify(clause))
+          if (filter.length <= 6000) {
+            let recountPath = withRelationAppends(
+              relatedListPath(resource, { ...related, ids: allRelatedIds, field: fieldName }, kind, clues, extra),
+              extra.collections,
+              resource,
+            )
+            const manyName = manyAssociationName(resource, fieldName, extra)
+            if (recountPath && manyName) {
+              const token = `appends[]=${encodeURIComponent(manyName)}`
+              if (!recountPath.includes(token)) recountPath += `${recountPath.includes('?') ? '&' : '?'}${token}`
+            }
+            if (recountPath) {
+              const head = await get(recountPath.replace(/pageSize=\d+/, 'pageSize=1'), conn)
+              if (head.ok) {
+                const total = metaCount(head.body)
+                if (total != null) counted = total
+              }
             }
           }
         }
@@ -1376,10 +1424,10 @@ export function relatedField(fromKind, toKind, extra) {
     const rels = Array.isArray(row && row.relations) ? row.relations : []
     for (const rel of rels) {
       if (!rel || typeof rel !== 'object') continue
-      const frm = String(rel.from || rel.fromKind || '').trim()
-      const dest = String(rel.to || rel.toKind || '').trim()
+      const frm = resolveKindAlias(String(rel.from || rel.fromKind || '').trim(), extra)
+      const dest = resolveKindAlias(String(rel.to || rel.toKind || '').trim(), extra)
       const field = String(rel.field || '').trim()
-      if (frm !== from || dest !== to || !field) continue
+      if (!kindLabelsMatch(frm, from) || !kindLabelsMatch(dest, to) || !field) continue
       const child = mapKind(to, extra || {})
       const fields = collectionFields(child && child.resource, extra && extra.collections)
       const idName = field.endsWith('Id') ? field : `${field}Id`

@@ -1,7 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
-import { createLookup, hopLinkParentIds, relatedField, relatedHopId, relatedIdBatches, relationColumn } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { createLookup, hopLinkParentIds, kindLabelsMatch, relatedField, relatedHopId, relatedIdBatches, relationColumn } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+
+test('kindLabelsMatch neutralizes i18n template object names', () => {
+  assert.equal(kindLabelsMatch('{{t("Users")}}', 'Users'), true)
+  assert.equal(kindLabelsMatch('{{t("Departments")}}', 'Departments'), true)
+  assert.ok(!kindLabelsMatch('{{t("Users")}}', 'Roles'))
+})
 
 test('nested from expands to more than two hop steps', () => {
   const plan = normalizePlan({

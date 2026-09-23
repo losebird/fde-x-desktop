@@ -45,8 +45,10 @@ import {
   listSnapshotCacheKey,
   operationBundlesAlign,
   materializeOperationKindSheet,
+  operationChipKey,
   operationKindMatches,
   operationKindHitSheets,
+  sheetPrimaryRelation,
   sheetRowsFingerprint,
   shouldHoldSideKindView,
   shouldRejectIncomingCovering,
@@ -330,6 +332,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const [gateHint, setGateHint] = useState('')
   const [connectionId, setConnectionId] = useState('')
   const [kind, setKind] = useState('')
+  const [kindRelation, setKindRelation] = useState('')
   const [query, setQuery] = useState('')
   const [historySurfaceId, setHistorySurfaceId] = useState('')
   const [columns, setColumns] = useState<SheetColumn[]>([])
@@ -397,43 +400,56 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   }, [listSheetMeta])
 
   const surfacedKindChips = useMemo(() => {
+    type KindChip = {
+      chipKey: string
+      kind: string
+      relation?: string
+      label: string
+      count: number
+      showCount: boolean
+      conditions: string[]
+    }
     const pendingSheet = peekActivePending()
     const anchor = (
       pendingSheet && operationAnchor && operationBundlesAlign(pendingSheet, operationAnchor)
         ? pendingSheet
         : (operationAnchor || pendingSheet)
     )
-    const byKind = new Map<string, { kind: string; label: string; count: number; showCount: boolean; conditions: string[] }>()
+    const byKey = new Map<string, KindChip>()
     const resultKind = resolveConnectedKind(String(anchor?.kind || kind || '').trim(), kindCatalog)
       || String(anchor?.kind || kind || '').trim()
-    const add = (k: string, count: number) => {
-      if (!k) return
-      const sideKind = String(k || '').trim()
+    const mainRelation = sheetPrimaryRelation(anchor)
+    const put = (sideKind: string, relation: string, count: number, showCount: boolean) => {
+      const name = String(sideKind || '').trim()
+      if (!name) return
+      const rel = String(relation || '').trim()
+      const chipKey = operationChipKey(name, rel)
+      if (byKey.has(chipKey)) return
       const conditions = [...new Set([
-        ...kindChipConditionLabels(anchor, sideKind),
-        ...kindChipConditionLabels(operationAnchor, sideKind),
-        ...kindChipConditionLabels(pendingSheet, sideKind),
+        ...kindChipConditionLabels(anchor, name),
+        ...kindChipConditionLabels(operationAnchor, name),
+        ...kindChipConditionLabels(pendingSheet, name),
       ])]
-      byKind.set(sideKind, {
-        kind: sideKind,
-        label: kindLabel(sideKind),
+      byKey.set(chipKey, {
+        chipKey,
+        kind: name,
+        ...(rel ? { relation: rel } : {}),
+        label: kindLabel(name),
         count,
-        showCount: kindChipShowsRowCount(sideKind, resultKind),
+        showCount,
         conditions,
       })
     }
 
     if (!anchor) {
-      if (kind) add(kind, rows.length)
-      return [...byKind.values()]
+      if (kind) {
+        put(kind, kindRelation, rows.length, kindChipShowsRowCount(kind, kind))
+      }
+      return [...byKey.values()]
     }
 
     const allowedKinds = [...new Set(extractBoundKindHints(anchor))]
-    if (!allowedKinds.length) {
-      const only = resolveConnectedKind(String(anchor.kind || kind || '').trim(), kindCatalog)
-        || String(anchor.kind || kind || '').trim()
-      if (only) allowedKinds.push(only)
-    }
+    if (!allowedKinds.length && resultKind) allowedKinds.push(resultKind)
     const hits = [
       ...operationKindHitSheets(anchor),
       ...operationKindHitSheets(operationAnchor),
@@ -445,9 +461,12 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       for (const peer of peers) {
         if (!peer || typeof peer !== 'object') continue
         const name = String(peer.kind || '').trim()
-        if (!name || peerTotals.has(name)) continue
+        const rel = String(peer.relation || '').trim()
+        if (!name) continue
+        const key = operationChipKey(name, rel)
+        if (peerTotals.has(key)) continue
         const total = Number(peer.hitTotal)
-        peerTotals.set(name, Number.isFinite(total) ? total : (Array.isArray(peer.rows) ? peer.rows.length : 0))
+        peerTotals.set(key, Number.isFinite(total) ? total : (Array.isArray(peer.rows) ? peer.rows.length : 0))
       }
     }
     for (const bound of allowedKinds) {
@@ -456,7 +475,9 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       let count = hit && Array.isArray(hit.rows)
         ? hit.rows.length
         : (bound === kind ? rows.length : 0)
+      let boundRelation = ''
       if (operationKindMatches(bound, resultKind, kindCatalog)) {
+        boundRelation = mainRelation
         for (const source of [anchor, operationAnchor, pendingSheet]) {
           if (!source || typeof source !== 'object') continue
           const sourceKind = String(source.kind || '').trim()
@@ -468,27 +489,36 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
           count = total
           break
         }
-      }
-      const peerTotal = peerTotals.get(bound)
-      if (peerTotal != null && !operationKindMatches(bound, resultKind, kindCatalog)) {
-        const conditions = [...new Set([
-          ...kindChipConditionLabels(anchor, bound),
-          ...kindChipConditionLabels(operationAnchor, bound),
-          ...kindChipConditionLabels(pendingSheet, bound),
-        ])]
-        byKind.set(bound, {
-          kind: bound,
-          label: kindLabel(bound),
-          count: peerTotal,
-          showCount: true,
-          conditions,
-        })
+        put(bound, boundRelation, count, true)
         continue
       }
-      add(bound, count)
+      const peerTotal = peerTotals.get(operationChipKey(bound, ''))
+      if (peerTotal != null) {
+        put(bound, '', peerTotal, true)
+        continue
+      }
+      put(bound, '', count, kindChipShowsRowCount(bound, resultKind))
     }
-    return allowedKinds.map((k) => byKind.get(k)).filter(Boolean) as Array<{ kind: string; label: string; count: number; showCount: boolean; conditions: string[] }>
-  }, [kind, kindCatalog, kindLabel, operationAnchor, peekActivePending, rows.length])
+    for (const [key, total] of peerTotals) {
+      const [peerKind, peerRel = ''] = key.split('\0')
+      if (!peerKind) continue
+      if (
+        operationKindMatches(peerKind, resultKind, kindCatalog)
+        && (!peerRel || peerRel === mainRelation)
+      ) continue
+      put(peerKind, peerRel, total, true)
+    }
+    const order: string[] = []
+    if (resultKind) order.push(operationChipKey(resultKind, mainRelation))
+    for (const bound of allowedKinds) {
+      const key = operationChipKey(bound, operationKindMatches(bound, resultKind, kindCatalog) ? mainRelation : '')
+      if (!order.includes(key)) order.push(key)
+    }
+    for (const key of peerTotals.keys()) {
+      if (!order.includes(key)) order.push(key)
+    }
+    return order.map((key) => byKey.get(key)).filter(Boolean) as KindChip[]
+  }, [kind, kindCatalog, kindLabel, kindRelation, operationAnchor, peekActivePending, rows.length])
 
   const sessionKey = String(pending?.sessionId || activeAiSessionId || historySessionIdRef.current || '').trim()
   if (sessionKey) historySessionIdRef.current = sessionKey
@@ -1407,7 +1437,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     }
   }, [applySheet, commitListRestore, drawer?.previewId, resolveSurfaceSheet, surfaceHistoryLabel])
 
-  const selectKind = useCallback((nextKind: string) => {
+  const selectKind = useCallback((nextKind: string, nextRelation?: string) => {
     const pendingSheet = peekActivePending()
     const anchorForKind = pendingSheet || listSheetMeta
     const boundHints = extractBoundKindHints(anchorForKind)
@@ -1421,6 +1451,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       appliedSheetFpRef.current = ''
     }
     setKind(canonical)
+    setKindRelation(String(nextRelation || '').trim())
     setStaleHint('')
     setSelectedRow(null)
     setSelectedRowKey('')
@@ -1433,8 +1464,12 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       ...operationKindHitSheets(pendingSheet),
       ...operationKindHitSheets(listSheetMeta),
     ]
-    const hit = hitSheets.find((sheet) => operationKindMatches(canonical, String(sheet.kind || ''), kindCatalog))
-      || (anchor ? materializeOperationKindSheet(anchor, canonical, kindCatalog) : null)
+    const wantedRelation = String(nextRelation || '').trim()
+    const hit = hitSheets.find((sheet) => (
+      operationKindMatches(canonical, String(sheet.kind || ''), kindCatalog)
+      && (!wantedRelation || String(sheet.relation || '').trim() === wantedRelation)
+    ))
+      || (anchor ? materializeOperationKindSheet(anchor, canonical, kindCatalog, wantedRelation) : null)
 
     const applyLocal = () => {
     if (hit) {
@@ -1758,11 +1793,15 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
           <div className="flex items-center gap-1 flex-wrap">
             {surfacedKindChips.map((k) => (
               <button
-                key={k.kind}
+                key={k.chipKey}
                 type="button"
                 disabled={k.count <= 0 && !lanReady}
-                className={clsx('btn !py-1', kind === k.kind && '!bg-ink !text-white !border-ink')}
-                onClick={() => selectKind(k.kind)}
+                className={clsx(
+                  'btn !py-1',
+                  kind === k.kind && (k.relation || '') === (kindRelation || sheetPrimaryRelation(listSheetMeta))
+                    && '!bg-ink !text-white !border-ink',
+                )}
+                onClick={() => selectKind(k.kind, k.relation)}
               >
                 {k.label}
                 {k.conditions.map((text) => (

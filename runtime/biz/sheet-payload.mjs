@@ -25,6 +25,7 @@ function peerHitFromRaw(raw) {
     action: String(raw.action || '现查'),
     rows,
     columns,
+    ...(typeof raw.relation === 'string' && raw.relation.trim() ? { relation: raw.relation.trim() } : {}),
     ...(where.length ? { where } : {}),
     ...(raw.querySettled === true ? { querySettled: true } : {}),
     ...(hitTotalState ? { hitTotalState } : {}),

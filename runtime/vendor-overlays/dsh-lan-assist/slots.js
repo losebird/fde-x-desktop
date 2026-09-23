@@ -4,7 +4,7 @@
  * @module dsh-lan-assist/slots
  */
 
-import { collectionFields, mapKind, registeredKinds, relatedField, schemaHasField } from './lookup.js'
+import { collectionFields, kindLabelTokens, mapKind, registeredKinds, relatedField, resolveKindAlias, schemaHasField } from './lookup.js'
 import { schemaFieldsForKind } from './enum-clues.js'
 import { enumMap, peelSpoken, saysOf } from './resolve.js'
 import { vocabRow } from './where-pass.js'
@@ -149,6 +149,9 @@ function graphAliasTokens(kind, extra = {}) {
 
 function tokensForKindLabel(label, extra) {
   const tokens = new Set()
+  for (const token of kindLabelTokens(label)) {
+    if (token.length >= 2) tokens.add(token)
+  }
   if (label.length >= 2) tokens.add(label)
   if (extra && extra.vocab) {
     for (const alias of spokenAliasTokens(label, extra.vocab)) {
@@ -316,10 +319,11 @@ function remapEnrichTargetKind(specKind, speech, bag) {
 
 function relationsFromVocab(vocab, extra = {}) {
   const out = []
+  const bag = { vocab, ...extra }
   const push = (rel) => {
     if (!rel || typeof rel !== 'object') return
-    const from = String(rel.from || rel.fromKind || '').trim()
-    const to = String(rel.to || rel.toKind || '').trim()
+    const from = resolveKindAlias(String(rel.from || rel.fromKind || '').trim(), bag)
+    const to = resolveKindAlias(String(rel.to || rel.toKind || '').trim(), bag)
     const field = String(rel.field || '').trim()
     if (!from || !to) return
     out.push(field ? { from, to, field } : { from, to })

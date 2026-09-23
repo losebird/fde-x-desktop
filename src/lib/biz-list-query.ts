@@ -43,6 +43,29 @@ export function extractSheetListWhere(sheet: Record<string, unknown> | null | un
   return []
 }
 
+export function operationChipKey(kind: string, relation?: string): string {
+  const name = String(kind || '').trim()
+  const rel = String(relation || '').trim()
+  return rel ? `${name}\0${rel}` : name
+}
+
+export function sheetPrimaryRelation(sheet: Record<string, unknown> | null | undefined): string {
+  if (!sheet || typeof sheet !== 'object') return ''
+  const from = sheet.from
+  if (from && typeof from === 'object' && !Array.isArray(from)) {
+    const rel = String((from as Record<string, unknown>).relation || '').trim()
+    if (rel) return rel
+  }
+  const steps = Array.isArray(sheet.steps) ? sheet.steps : []
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const step = steps[i]
+    if (!step || typeof step !== 'object' || Array.isArray(step)) continue
+    const rel = String((step as Record<string, unknown>).relation || '').trim()
+    if (rel) return rel
+  }
+  return String(sheet.relation ?? sheet.via ?? '').trim()
+}
+
 /** Kind strings bound to one gate operation (sheet metadata only — no literals). */
 export function extractBoundKindHints(sheet: Record<string, unknown> | null | undefined): string[] {
   if (!sheet || typeof sheet !== 'object') return []
@@ -154,8 +177,10 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
   const seen = new Set<string>()
   const push = (kind: string, rows: unknown, columns: unknown, extra?: Record<string, unknown>) => {
     const name = String(kind || '').trim()
-    if (!name || seen.has(name)) return
-    seen.add(name)
+    const relation = String(extra?.relation || '').trim()
+    const slot = operationChipKey(name, relation)
+    if (!name || seen.has(slot)) return
+    seen.add(slot)
     const same = name === String(sheet.kind || '').trim()
     out.push({
       ...sheet,
@@ -166,10 +191,13 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
       preview_id: same ? sheet.preview_id : undefined,
       previewId: same ? sheet.previewId : undefined,
       canWrite: same ? sheet.canWrite : false,
+      ...(extra?.relation ? { relation: extra.relation } : {}),
       ...(extra || {}),
     })
   }
-  push(String(sheet.kind || ''), sheet.rows, sheet.columns)
+  push(String(sheet.kind || ''), sheet.rows, sheet.columns, {
+    relation: sheetPrimaryRelation(sheet),
+  })
   const walk = (raw: unknown, depth = 0) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 8) return
     const row = raw as Record<string, unknown>
@@ -195,6 +223,7 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
       const row = peer as Record<string, unknown>
       if (!Object.prototype.hasOwnProperty.call(row, 'rows')) continue
       push(String(row.kind || ''), row.rows, row.columns, {
+        relation: row.relation,
         where: row.where,
         from: undefined,
         steps: undefined,
@@ -297,11 +326,36 @@ export function materializeOperationKindSheet(
   sheet: Record<string, unknown> | null | undefined,
   kind: string,
   kindCatalog?: ConnectedKindIndex | ConnectedKindRow[] | null,
+  relation?: string,
 ): Record<string, unknown> | null {
   const wanted = String(kind || '').trim()
+  const wantedRelation = String(relation || '').trim()
   if (!sheet || typeof sheet !== 'object' || !wanted) return null
   const hits = operationKindHitSheets(sheet)
-  let hit = hits.find((row) => String(row.kind || '').trim() === wanted)
+  const matchRelation = (row: Record<string, unknown>) => {
+    if (!wantedRelation) return true
+    return String(row.relation || '').trim() === wantedRelation
+  }
+  let hit = hits.find((row) => String(row.kind || '').trim() === wanted && matchRelation(row))
+  if (!hit) {
+    hit = hits.find((row) => kindNamesEqual(wanted, String(row.kind || ''), kindCatalog) && matchRelation(row))
+  }
+  if (!hit && wantedRelation) {
+    const peers = Array.isArray(sheet.peers) ? sheet.peers : []
+    const peer = peers.find((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return false
+      const name = String(row.kind || '').trim()
+      if (!operationKindMatches(wanted, name, kindCatalog)) return false
+      return String(row.relation || '').trim() === wantedRelation
+    }) as Record<string, unknown> | undefined
+    if (peer) {
+      hit = hits.find((row) => (
+        operationKindMatches(wanted, String(row.kind || ''), kindCatalog)
+        && String(row.relation || '').trim() === wantedRelation
+      ))
+    }
+  }
+  if (!hit) hit = hits.find((row) => String(row.kind || '').trim() === wanted)
   if (!hit) hit = hits.find((row) => kindNamesEqual(wanted, String(row.kind || ''), kindCatalog))
   if (!hit) return null
   const basePeers = Array.isArray(sheet.peers) ? sheet.peers : []

@@ -343,6 +343,8 @@ function planStepsForSheet(plan) {
     .filter((step) => step && step.kind)
     .map((step) => ({
       kind: step.kind,
+      ...(String(step.from || '').trim() ? { from: step.from } : {}),
+      ...(String(step.relation || '').trim() ? { relation: step.relation } : {}),
       ...(Array.isArray(step.where) && step.where.length ? { where: step.where } : {}),
     }))
 }
@@ -818,6 +820,20 @@ export function createGate(opts = {}) {
       && /^(m2o|belongsTo|o2o)$/i.test(String(fieldRow.interface || fieldRow.type || ''))
       && String(fieldRow.target || '').trim() === String(resource || '').trim()
     if (isSelfM2o) {
+      return await probe({
+        kind,
+        no: '',
+        workspace: spec.workspace,
+        staffId: spec.staffId,
+        vocab: loaded.vocab,
+        structured: true,
+        speech: '',
+        limit: WHERE_LIST_CAP,
+        related: { kind, field: relation, filled: true },
+      })
+    }
+    const fkName = relationColumn(kind, relation, extra) || (relation.endsWith('Id') ? relation : `${relation}Id`)
+    if (fkName && schemaFields.some((row) => row && row.name === fkName)) {
       return await probe({
         kind,
         no: '',
