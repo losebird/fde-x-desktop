@@ -1065,11 +1065,15 @@ export function createGate(opts = {}) {
     if ((plan.filterRefused || plan.contradicts) && recognized.action === '现查') {
       return settledList(recognized.kind, { hitTotalState: 'known' })
     }
-    let writePatch = (recognized.action === '改行' || recognized.action === '新建')
+    let displayPatch = (recognized.action === '改行' || recognized.action === '新建')
       ? bindPatchEnums({ ...plan.patch }, schemaFields)
       : {}
-    if (schemaFields.length && writePatch && Object.keys(writePatch).length) {
-      writePatch = Object.fromEntries(Object.entries(writePatch).filter(([key]) => schemaHasField(schemaFields, key)))
+    if (schemaFields.length && displayPatch && Object.keys(displayPatch).length) {
+      displayPatch = Object.fromEntries(Object.entries(displayPatch).filter(([key]) => schemaHasField(schemaFields, key)))
+    }
+    let writePatch = displayPatch
+    if (displayPatch && Object.keys(displayPatch).length) {
+      writePatch = await bindWritePatch(displayPatch, schemaFields, recognized, loaded.vocab, spec.workspace)
     }
     if (spec.related && spec.related.kind) {
       const hopped = await probe({
@@ -1086,7 +1090,7 @@ export function createGate(opts = {}) {
           kind: recognized.kind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
         })
       }
-      return finishStructured(recognized, rows, hopped, writePatch, plan, spec, loaded, schemaFields, recognized.kind)
+      return finishStructured(recognized, rows, hopped, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, undefined, displayPatch)
     }
     if (recognized.action === '新建') {
       const labelNo = looksLikeTicket(plan.no) ? plan.no : '新单'
@@ -1104,8 +1108,8 @@ export function createGate(opts = {}) {
       const stepsMeta = planStepsForSheet(plan)
       const hopMeta = sheetWhereFromPlan(plan, spec)
       return await sheet({
-        ok: true, ...token, speak: spoken.speak, status: '未建', fields: { ...writePatch },
-        matches: [{ no: labelNo, status: '未建', fields: { ...writePatch } }],
+        ok: true, ...token, patch: displayPatch, speak: spoken.speak, status: '未建', fields: { ...displayPatch },
+        matches: [{ no: labelNo, status: '未建', fields: { ...displayPatch } }],
       }, {
         action: '新建', no: labelNo, speech: plan.speech,
         ...(fromSlot ? { from: fromSlot } : {}),
@@ -1197,12 +1201,12 @@ export function createGate(opts = {}) {
       pruneHopHits(hitsByKind, plan.steps, extra)
       const targetRows = hitsByKind.get(target.kind) || matches
       if (upstreamIncomplete && found) found = { ...found, hitTotalState: 'incomplete', hitTotal: null }
-      return finishStructured(recognized, targetRows, found, writePatch, plan, spec, loaded, schemaFields, target.kind, hitsByKind, extra)
+      return finishStructured(recognized, targetRows, found, writePatch, plan, spec, loaded, schemaFields, target.kind, hitsByKind, extra, displayPatch)
     }
-    return finishStructured(recognized, parentMatches, parentFound, writePatch, plan, spec, loaded, schemaFields, recognized.kind)
+    return finishStructured(recognized, parentMatches, parentFound, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, undefined, displayPatch)
   }
 
-  async function finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, kind, hitsByKind, hopExtra) {
+  async function finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, kind, hitsByKind, hopExtra, displayPatch = writePatch) {
     const sheetKind = kind || recognized.kind
     const matched = Array.isArray(matches) ? matches : []
     const allRows = recognized.action === '现查'
@@ -1292,7 +1296,7 @@ export function createGate(opts = {}) {
       if (nameIdentity && !wantsBatch && spec.picked !== true) {
         return await sheet({
           ok: true, kind: sheetKind, no: '', action: recognized.action, speak,
-          patch: recognized.action === '现查' ? undefined : writePatch,
+          patch: recognized.action === '现查' ? undefined : displayPatch,
           status: found && found.status, fields: {}, matches: rows,
           fingerprint: found && found.fingerprint, listed: true, ambiguous: true,
           workspace: (found && found.workspace) || spec.workspace || '',
@@ -1311,7 +1315,7 @@ export function createGate(opts = {}) {
         }
         return await sheet({
           ok: true, kind: sheetKind, no: '', action: recognized.action, speak,
-          patch: recognized.action === '现查' ? undefined : writePatch,
+          patch: recognized.action === '现查' ? undefined : displayPatch,
           status: found && found.status, fields: {}, matches: rows,
           fingerprint: found && found.fingerprint, listed: true, ambiguous: true,
           workspace: (found && found.workspace) || spec.workspace || '',
@@ -1350,7 +1354,7 @@ export function createGate(opts = {}) {
     }
     const row = rows[0]
     const resolvedNo = String(row.no || plan.no).trim()
-    const change = recognized.action === '改行' ? patchChange(writePatch, row.fields) : null
+    const change = recognized.action === '改行' ? patchChange(displayPatch, row.fields) : null
     const to = recognized.action === '过审'
       ? nextStatus('过审', row.status)
       : recognized.action === '删除' ? '删除' : (change && change.speak) || patchSpeak(writePatch)
@@ -1372,8 +1376,47 @@ export function createGate(opts = {}) {
     }
     tokens.set(previewId, token)
     return await sheet({
-      ok: true, ...token, speak: spoken.speak, fields: row.fields || {}, status: row.status, matches: rows,
+      ok: true, ...token, patch: displayPatch, speak: spoken.speak, fields: row.fields || {}, status: row.status, matches: rows,
     }, { clue: plan.no, speech: plan.speech })
+  }
+
+  async function previewConn(workspace) {
+    if (typeof opts.resolveConnections !== 'function') return null
+    try {
+      const resolved = await opts.resolveConnections()
+      const listed = Array.isArray(resolved && resolved.connections) ? resolved.connections : []
+      return listed.find((row) => row && row.baseUrl) || null
+    } catch {
+      return null
+    }
+  }
+
+  async function bindWritePatch(patch, schemaFields, recognized, vocab, workspace) {
+    const display = patch && typeof patch === 'object' ? { ...patch } : {}
+    if (!Object.keys(display).length) return display
+    const conn = await previewConn(workspace)
+    const fetchImpl = opts.fetchImpl || (typeof fetch === 'function' ? fetch : null)
+    if (!conn || !conn.baseUrl || !fetchImpl) return display
+    if (typeof opts.collectionsOf === 'function' && (!Array.isArray(conn.collections) || !conn.collections.length)) {
+      try {
+        const loaded = await opts.collectionsOf(workspace)
+        if (Array.isArray(loaded) && loaded.length) conn.collections = loaded
+      } catch { /* catalog optional */ }
+    }
+    try {
+      return await shapePatch(display, {
+        kind: recognized.kind,
+        mapped: recognized.mapped,
+        vocab,
+      }, {
+        extra: { vocab, collections: conn.collections },
+        conn,
+        fetchImpl,
+        schemaFields,
+      })
+    } catch {
+      return display
+    }
   }
 
   async function preview(spec = {}) {
@@ -1882,11 +1925,15 @@ export function createNocoWrite(opts = {}) {
       if (!mapped) return { ok: false, error: 'UNKNOWN_KIND' }
       const look = spec.line || spec.no
       if (spec.action !== '新建' && !look) return { ok: false, error: 'NO_REF' }
+      let schemaFields = []
+      if (spec.kind && conn.collections) {
+        schemaFields = collectionFields(mapped.resource, conn.collections)
+      }
       const values = spec.action === '过审'
         ? { [statusColumn(mapped, spec.kind, conn)]: spec.to || '已过' }
         : spec.action === '删除'
           ? undefined
-          : await shapePatch(spec.patch, { ...spec, vocab }, { extra: { ...extra, vocab }, conn, fetchImpl })
+          : await shapePatch(spec.patch, { ...spec, vocab }, { extra: { ...extra, vocab }, conn, fetchImpl, schemaFields })
       const dest = writeDest(conn, mapped, look, spec.action, spec.kind)
       if (!dest) return { ok: false, error: 'NO_WRITE_PATH', failed: true }
       const dialect = String((conn && conn.dialect) || 'nocobase') === 'rest' ? 'rest' : 'nocobase'
@@ -1921,9 +1968,34 @@ export function createNocoWrite(opts = {}) {
   }
 }
 
-async function shapePatch(patch, spec, ctx = {}) {
+export function relationSchemaField(schemaFields, key) {
+  const want = String(key || '').trim()
+  if (!want) return null
+  const fields = Array.isArray(schemaFields) ? schemaFields : []
+  let hit = fields.find((row) => row && String(row.name || '') === want)
+  if (!hit && /Id$/i.test(want)) {
+    const stem = want.replace(/Id$/i, '')
+    hit = fields.find((row) => row && String(row.name || '') === stem)
+  }
+  if (!hit) return null
+  const iface = String(hit.interface || hit.type || '').trim()
+  if (!/^(m2o|o2o|belongsTo)$/i.test(iface)) return null
+  if (/^(createdBy|updatedBy)$/i.test(String(hit.name || ''))) return null
+  return hit
+}
+
+function writeKeyForRelationField(name, fieldRow, spec, extra) {
+  const stem = String((fieldRow && fieldRow.name) || name || '').trim()
+  if (!stem) return String(name || '').trim()
+  const col = relationColumn(spec.kind, stem, extra)
+  if (col) return col
+  return stem.endsWith('Id') ? stem : `${stem}Id`
+}
+
+export async function shapePatch(patch, spec, ctx = {}) {
   if (!patch || typeof patch !== 'object') return {}
   const extra = ctx.extra || spec
+  const schemaFields = Array.isArray(ctx.schemaFields) ? ctx.schemaFields : []
   const ident = new Set(saysOf(extra, '单号列').filter((item) => /No$|^code$|^no$|^id$/i.test(item)).map((item) => String(item).toLowerCase()).concat(['no']))
   const out = {}
   for (const [key, value] of Object.entries(patch)) {
@@ -1936,6 +2008,18 @@ async function shapePatch(patch, spec, ctx = {}) {
       const field = ticketColumn(spec.mapped, spec.kind) || name
       if (field && field !== 'no') out[field] = value
       else if (name !== 'no') out[name] = value
+      continue
+    }
+    const rel = relationSchemaField(schemaFields, name)
+    if (rel) {
+      if (value == null || value === '') continue
+      const writeKey = writeKeyForRelationField(name, rel, spec, extra)
+      if (/^\d+$/.test(String(value))) {
+        out[writeKey] = String(value)
+        continue
+      }
+      const id = await resolveRelatedId(name, value, spec, { ...ctx, fieldRow: rel })
+      if (id) out[writeKey] = id
       continue
     }
     if (/Id$/i.test(name)) {
@@ -2003,27 +2087,46 @@ function resourceStemOf(resource) {
   return end.toLowerCase()
 }
 
+function spokenResourceFilters(raw, resource) {
+  const ors = []
+  const tail = String(resource || '').split('/').pop().toLowerCase()
+  if (tail === 'users') {
+    ors.push({ username: raw }, { nickname: raw }, { email: raw })
+  }
+  ors.push({ name: { $includes: raw } }, { title: { $includes: raw } }, { code: raw })
+  return ors
+}
+
 async function resolveRelatedId(name, value, spec, ctx) {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
   if (/^\d+$/.test(raw)) return raw
   const extra = { vocab: spec.vocab, kinds: (ctx.conn && ctx.conn.kinds), collections: (ctx.conn && ctx.conn.collections), ...(ctx.extra || {}) }
   extra.vocab = ensureSpoken(extra.vocab)
-  const kind = kindForFkName(name, extra)
-  if (!kind) return ''
   const conn = ctx.conn || {}
-  const mapped = mapKind(kind, extra)
-  if (!mapped || !mapped.resource) return ''
   const fetchImpl = ctx.fetchImpl
   const baseUrl = String(conn.baseUrl || '').replace(/\/+$/, '')
   const token = String(conn.token || extra.token || '')
   if (!baseUrl || !fetchImpl) return ''
+  const targetResource = ctx.fieldRow && String(ctx.fieldRow.target || '').trim()
+  let resource = targetResource
+  let kind = spec.kind
+  if (!resource) {
+    kind = kindForFkName(name, extra)
+    if (!kind) return ''
+    const mapped = mapKind(kind, extra)
+    if (!mapped || !mapped.resource) return ''
+    resource = mapped.resource
+  }
+  const mapped = resource === targetResource
+    ? { resource }
+    : mapKind(kind, extra)
+  if (!mapped || !mapped.resource) return ''
   const tf = ticketColumn(mapped, kind)
-  const ors = []
-  if (tf) ors.push({ [tf]: raw })
-  ors.push({ name: { $includes: raw } })
-  ors.push({ title: { $includes: raw } })
-  if (tf !== 'code') ors.push({ code: raw })
+  const ors = spokenResourceFilters(raw, mapped.resource)
+  if (tf && !ors.some((row) => Object.prototype.hasOwnProperty.call(row, tf))) {
+    ors.unshift({ [tf]: raw })
+  }
   const filter = encodeURIComponent(JSON.stringify(ors.length === 1 ? ors[0] : { $or: ors }))
   try {
     const res = await fetchImpl(`${baseUrl}/api/${mapped.resource}:list?pageSize=5&filter=${filter}`, {
