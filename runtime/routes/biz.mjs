@@ -52,6 +52,12 @@ function bizWriteFailureMessage(error, fallback = '过账失败，请重新预�
   if (error instanceof AiRemoteError) {
     const msg = String(error.message || '').trim()
     if (msg && !msg.startsWith('IM 调用失败')) return msg
+    const payload = error.details && error.details.payload
+    const lines = payload && Array.isArray(payload.lines) ? payload.lines : []
+    const line0 = lines.find((row) => row && (row.hint || row.error))
+    const hint = line0 && String(line0.hint || '').trim()
+    if (hint) return hint
+    if (line0 && String(line0.error || '') === 'EXPIRED') return '预览过期了。要写再预览一次。'
     return fallback
   }
   return error instanceof Error ? error.message : fallback
@@ -1106,6 +1112,11 @@ export async function handleBizRoutes(request, response, url, deps) {
     }
     const rollbackOfTraceId = String(body.rollback_of_trace_id || body.rollbackOfTraceId || '').trim()
     const bizWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const writeSource = String(body.source || '').trim()
+    if (writeSource !== 'workstation') {
+      sendError(response, 403, 'biz_write_forbidden', '请在右侧确认过账', correlationId)
+      return true
+    }
     const pendingSheet = await capturePendingSheet(aiRuntime, body.preview_id)
     let written
     try {
@@ -1114,6 +1125,7 @@ export async function handleBizRoutes(request, response, url, deps) {
         body: {
           preview_id: body.preview_id,
           trace_id: body.trace_id,
+          source: writeSource,
           ...(bizWorkspace ? { workspace: bizWorkspace } : {}),
         },
       })
@@ -1130,13 +1142,22 @@ export async function handleBizRoutes(request, response, url, deps) {
       return true
     }
     if (written && written.ok === false) {
-      const code = String(written.error || 'biz_write_failed')
+      const lines = Array.isArray(written.lines) ? written.lines : []
+      const line0 = lines.find((row) => row && (row.hint || row.error))
+      const code = String((line0 && line0.error) || written.error || 'biz_write_failed')
       markRollbackBlockedIfPermanent(db, rollbackOfTraceId, code, 400)
       sendError(
         response,
         400,
         code,
-        String(written.hint || written.speak || written.error || '过账失败，请重新预览后再试'),
+        String(
+          (line0 && line0.hint)
+            || written.hint
+            || written.speak
+            || (line0 && line0.error === 'EXPIRED' ? '预览过期了。要写再预览一次。' : '')
+            || written.error
+            || '过账失败，请重新预览后再试',
+        ),
         correlationId,
       )
       return true

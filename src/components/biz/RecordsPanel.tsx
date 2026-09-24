@@ -1472,6 +1472,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       || (anchor ? materializeOperationKindSheet(anchor, canonical, kindCatalog, wantedRelation) : null)
 
     const applyLocal = () => {
+    const mainRel = sheetPrimaryRelation(anchor)
     if (hit) {
       const pendingKind = String(pendingSheet?.kind || '').trim()
       const sideView = Boolean(pendingSheet && !operationKindMatches(pendingKind, canonical, kindCatalog))
@@ -1480,6 +1481,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         && pendingSheet
         && operationKindMatches(pendingKind, canonical, kindCatalog)
         && operationBundlesAlign(pendingSheet, listSheetMeta || pendingSheet)
+        && (!wantedRelation || wantedRelation === mainRel)
       ) {
         applyPendingSheet(pendingSheet)
         return
@@ -1497,6 +1499,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       pendingSheet
       && operationKindMatches(String(pendingSheet.kind || ''), canonical, kindCatalog)
       && operationBundlesAlign(pendingSheet, listSheetMeta || pendingSheet)
+      && (!wantedRelation || wantedRelation === mainRel)
     ) {
       applyPendingSheet(pendingSheet)
       return
@@ -1556,8 +1559,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     }
     }
 
+    const mainRel = sheetPrimaryRelation(anchor)
+    const peerChip = Boolean(String(wantedRelation || '').trim() && String(wantedRelation || '').trim() !== mainRel)
     const finishSelect = async () => {
-      if (sessionId && anchor) {
+      if (sessionId && anchor && !peerChip) {
         try {
           const data = await runtimeApi.bizFocusKind({
             sessionId,
@@ -1700,7 +1705,16 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       commitListRestore(null)
       void loadSurfaces()
     } catch (cause) {
+      const failedPreviewId = drawer?.previewId
       setError(formatBizPanelError(cause, '过账失败，请重新预览后再试'))
+      if (failedPreviewId) {
+        dismissBizPreviewId(failedPreviewId)
+        clearBizPendingSheet(String(activeAiSessionId || historySessionIdRef.current || '').trim() || undefined)
+        setDrawer(null)
+        displayBeforeWriteRef.current = null
+        restoreRecordsList()
+        void runtimeApi.bizDismissPreview(failedPreviewId).catch(() => undefined)
+      }
     } finally {
       setLoading(false)
     }

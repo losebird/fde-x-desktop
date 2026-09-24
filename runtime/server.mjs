@@ -2425,7 +2425,7 @@ const server = createServer(async (request, response) => {
           correlationId: currentCorrelationId,
           writePreview: async (previewId) => aiRuntime.lanAssist('/write', {
             method: 'POST',
-            body: { preview_id: previewId, trace_id: currentCorrelationId },
+            body: { preview_id: previewId, trace_id: currentCorrelationId, source: 'workstation' },
           }),
         })
         if (result.kind === 'not_found') {

@@ -45,7 +45,21 @@ describe('biz surfaces and live execute', () => {
     assert.match(source, /rememberBizPreviewDismissed/)
     assert.match(source, /isBizPreviewDismissed/)
     assert.match(source, /biz_write_failed|bizWriteFailureMessage/)
+    assert.match(source, /writeSource !== 'workstation'/)
+    assert.match(source, /source: writeSource/)
     assert.doesNotMatch(source, /lanAssist\('\/send'/)
+  })
+
+  test('commitWrite rejects model path without workstation source', () => {
+    const gate = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/gate.js'), 'utf8')
+    assert.match(gate, /source !== 'workstation'/)
+    assert.match(gate, /请在右侧确认过账/)
+  })
+
+  test('lanAssist surfaces write line hints on HTTP 400', () => {
+    const core = readFileSync(join(repoRoot, 'runtime/dsh-core.mjs'), 'utf8')
+    assert.match(core, /payload\.lines/)
+    assert.match(core, /line0\.hint/)
   })
 
   test('listBusinessConnections merges ws_personal lan-assist into active workspace', () => {

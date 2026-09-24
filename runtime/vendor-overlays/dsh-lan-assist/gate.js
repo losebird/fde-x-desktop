@@ -419,6 +419,19 @@ export function createGate(bag) {
       : (pending.preview_id ? [pending] : [])
     const wanted = String(spec.preview_id || spec.previewId || '').trim()
     if (!wanted) return { ok: false, error: 'NEED_PREVIEW', hint: '先预览。旧画面不能拿去写。' }
+    const source = String(spec.source || '').trim()
+    if (source !== 'workstation') {
+      const hint = '请在右侧确认过账'
+      return {
+        ok: false,
+        failed: true,
+        error: 'NEED_WORKSTATION_CONFIRM',
+        hint,
+        speak: hint,
+        preview_id: wanted,
+        lines: [{ ok: false, preview_id: wanted, error: 'NEED_WORKSTATION_CONFIRM', hint }],
+      }
+    }
     const inBundle = lines.some((row) => String(row.preview_id || '') === wanted)
     const jobs = inBundle && lines.length ? lines : [{ preview_id: wanted }]
     const results = []

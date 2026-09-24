@@ -903,7 +903,17 @@ export class DshCoreConnector {
     })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) {
-      throw new AiRemoteError(payload.error || 'ai/im-error', payload.hint || payload.error || `IM 调用失败：HTTP ${response.status}`)
+      const lines = Array.isArray(payload.lines) ? payload.lines : []
+      const line0 = lines.find((row) => row && (row.hint || row.error))
+      const hint = line0 && String(line0.hint || '').trim()
+      const lineErr = line0 && String(line0.error || '').trim()
+      const message = hint
+        || String(payload.hint || '').trim()
+        || lineErr
+        || String(payload.error || '').trim()
+        || `IM 调用失败：HTTP ${response.status}`
+      const code = lineErr || String(payload.error || '').trim() || 'ai/im-error'
+      throw new AiRemoteError(code, message, { payload })
     }
     return payload
   }
