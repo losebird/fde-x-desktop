@@ -372,6 +372,13 @@ function toAiSessionSummary(item) {
   }
 }
 
+const FDE_DSH_CLIPBOARD_PATCH = (() => {
+  const file = join(FDE_RUNTIME_DIR, 'fde-x-dsh-bridge/lib/clipboard-patch.js')
+  if (!existsSync(file)) return ''
+  const source = readFileSync(file, 'utf8').replace(/<\/script/gi, '<\\/script')
+  return `<script data-fde-clipboard-patch>\n${source}\n</script>`
+})()
+
 const FDE_DSH_HEAD_HOOK = `<script data-fde-dsh-hook>
 (function () {
   function hookCtx(ctx) {
@@ -385,11 +392,17 @@ const FDE_DSH_HEAD_HOOK = `<script data-fde-dsh-hook>
   function wrapFactory(reg) {
     if (!reg || typeof reg.factory !== "function") return
     var id = String(reg.id || "")
-    if (id.indexOf("session-controller") === -1 && id.indexOf("ui-workspace") === -1) return
+    var patchClipboard =
+      id.indexOf("dsh-client-ui-primitives") !== -1 || id.indexOf("dsh-web-frontend") !== -1
+    var patchSession = id.indexOf("session-controller") !== -1 || id.indexOf("ui-workspace") !== -1
+    if (!patchClipboard && !patchSession) return
     var inner = reg.factory
     reg.factory = function (require) {
       var exp = inner(require)
-      if (exp && typeof exp.apply === "function") {
+      if (patchClipboard && typeof window.__fdePatchClipboardExport === "function") {
+        try { window.__fdePatchClipboardExport(exp) } catch (e) {}
+      }
+      if (patchSession && exp && typeof exp.apply === "function") {
         var prev = exp.apply
         exp.apply = function (ctx) {
           var out = prev.apply(this, arguments)
@@ -659,7 +672,7 @@ function proxyDsh(request, response, url) {
           html = html.replace('<head>', '<head><base href="/dsh-app/">')
         }
         if (!html.includes('data-fde-dsh-hook')) {
-          html = html.replace('<head>', `<head>${FDE_DSH_HEAD_HOOK}`)
+          html = html.replace('<head>', `<head>${FDE_DSH_CLIPBOARD_PATCH}${FDE_DSH_HEAD_HOOK}`)
         }
         if (!html.includes('data-fde-dsh-strip')) {
           html = html.replace('</head>', `${FDE_DSH_STRIP_STYLE}${FDE_DSH_STRIP_SCRIPT}</head>`)

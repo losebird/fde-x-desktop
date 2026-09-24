@@ -769,6 +769,7 @@ export default function AI() {
                   ref={dshFrameRef}
                   title="DSH 会话"
                   src={dshFrameSrc}
+                  allow="clipboard-read; clipboard-write"
                   className="absolute inset-0 w-full h-full border-0 bg-white"
                   onLoad={() => {
                     const sid = activeIdRef.current
