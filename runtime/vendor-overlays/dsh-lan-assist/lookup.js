@@ -18,6 +18,7 @@ import {
   vocabRow,
 } from './where-pass.js'
 import { kindLabelsMatch, kindLabelTokens, neutralizeKindLabel } from './kind-label.js'
+import { bindWhereRelationTerms } from './relation-bind.js'
 
 export { kindLabelsMatch, kindLabelTokens, neutralizeKindLabel } from './kind-label.js'
 
@@ -671,6 +672,24 @@ export function createLookup(opts = {}) {
     const rawFieldLabels = fieldLabelsFromRawCollection(spec && spec.resource, collections)
     clues.terms = bindWhereKeys(clues.terms || [], kind, vocabRows, schemaFields, rawFieldLabels)
     clues.terms = bindClueEnums(clues.terms, schemaFields)
+    const relationCtx = {
+      conn,
+      fetchImpl: async (url, init) => {
+        const baseUrl = String(conn.baseUrl || '').replace(/\/+$/, '')
+        const path = String(url || '').startsWith(baseUrl) ? String(url).slice(baseUrl.length) : url
+        const got = await get(path, conn)
+        return { ok: !!got.ok, json: async () => (got.body || {}) }
+      },
+      extra: { vocab: vocabRows, collections },
+    }
+    clues.terms = await bindWhereRelationTerms(
+      clues.terms,
+      schemaFields,
+      { kind, vocab: vocabRows, mapped: spec },
+      relationCtx,
+      vocabHit,
+      rawFieldLabels,
+    )
     clues.terms = expandNegatedClosedValues(clues.terms, schemaFields, kind, vocabRows)
     clues.terms = clues.terms.filter((term) => termFitsCollection(term, schemaFields, vocabHit, rawFieldLabels))
     if (Array.isArray(where) && where.length && !clues.terms.length && !looksLikeRef(ticket)) {

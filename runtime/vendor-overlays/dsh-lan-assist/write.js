@@ -14,6 +14,16 @@ import { WHERE_LIST_CAP } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
 import { redactEnvelopeText, refLabel } from './ref.js'
+import {
+  approveNextStatusCode,
+  fkColumnForRelation,
+  relationSchemaField,
+  resolveRelatedId,
+  statusLabelForCode,
+  stripRelationKeys,
+} from './relation-bind.js'
+
+export { relationSchemaField } from './relation-bind.js'
 
 export const SYSTEM_TABLES = ['users', 'fields', 'aiMessages']
 export const PREVIEW_TTL_MS = 90_000
@@ -708,8 +718,11 @@ export function actionAllowed(action, row) {
   return can.includes(act)
 }
 
-export function nextStatus(action, status) {
-  if (String(action || '') === '过审') return '已过'
+export function nextStatus(action, status, schemaFields, vocab) {
+  if (String(action || '') === '过审') {
+    const code = approveNextStatusCode(schemaFields, vocab, status)
+    if (code) return statusLabelForCode(schemaFields, code)
+  }
   return String(status || '未知').trim() || '未知'
 }
 
@@ -1355,8 +1368,11 @@ export function createGate(opts = {}) {
     const row = rows[0]
     const resolvedNo = String(row.no || plan.no).trim()
     const change = recognized.action === '改行' ? patchChange(displayPatch, row.fields) : null
+    const approveCode = recognized.action === '过审'
+      ? approveNextStatusCode(schemaFields, loaded.vocab, row.status)
+      : ''
     const to = recognized.action === '过审'
-      ? nextStatus('过审', row.status)
+      ? (approveCode ? statusLabelForCode(schemaFields, approveCode) : nextStatus('过审', row.status, schemaFields, loaded.vocab))
       : recognized.action === '删除' ? '删除' : (change && change.speak) || patchSpeak(writePatch)
     const spoken = speakPreview({ kind: recognized.kind, no: resolvedNo }, {
       ok: true, status: row.status, from: change ? change.from : row.status, to,
@@ -1365,7 +1381,7 @@ export function createGate(opts = {}) {
     const previewId = `pv_${randomHex(8)}`
     const token = {
       preview_id: previewId, kind: recognized.kind, no: resolvedNo, line: plan.line, action: recognized.action,
-      patch: buildPreviewPatch(recognized, writePatch, found, to),
+      patch: buildPreviewPatch(recognized, writePatch, found, approveCode || to),
       vocab: loaded.vocab, mapped: recognized.mapped, catalogVersion: catalogVersionOf(loaded.vocab),
       workspace: spec.workspace || '',
       system: String(spec.system || (found && found.system) || '').trim(),
@@ -1396,7 +1412,7 @@ export function createGate(opts = {}) {
     if (!Object.keys(display).length) return display
     const conn = await previewConn(workspace)
     const fetchImpl = opts.fetchImpl || (typeof fetch === 'function' ? fetch : null)
-    if (!conn || !conn.baseUrl || !fetchImpl) return display
+    if (!conn || !conn.baseUrl || !fetchImpl) return stripRelationKeys(display, schemaFields)
     if (typeof opts.collectionsOf === 'function' && (!Array.isArray(conn.collections) || !conn.collections.length)) {
       try {
         const loaded = await opts.collectionsOf(workspace)
@@ -1415,7 +1431,7 @@ export function createGate(opts = {}) {
         schemaFields,
       })
     } catch {
-      return display
+      return stripRelationKeys(display, schemaFields)
     }
   }
 
@@ -1929,8 +1945,21 @@ export function createNocoWrite(opts = {}) {
       if (spec.kind && conn.collections) {
         schemaFields = collectionFields(mapped.resource, conn.collections)
       }
+      const approveBody = spec.action === '过审'
+        ? (() => {
+          const col = statusColumn(mapped, spec.kind, conn)
+          const fromPatch = spec.patch && typeof spec.patch === 'object' ? spec.patch[col] : ''
+          const code = String(fromPatch ?? '').trim()
+            || approveNextStatusCode(schemaFields, vocab, spec.from || spec.status)
+          if (!col || !code) return null
+          return { [col]: code }
+        })()
+        : null
+      if (spec.action === '过审' && !approveBody) {
+        return { ok: false, failed: true, error: 'NO_PATCH', hint: '过审下一状态收成不了枚举 code。' }
+      }
       const values = spec.action === '过审'
-        ? { [statusColumn(mapped, spec.kind, conn)]: spec.to || '已过' }
+        ? approveBody
         : spec.action === '删除'
           ? undefined
           : await shapePatch(spec.patch, { ...spec, vocab }, { extra: { ...extra, vocab }, conn, fetchImpl, schemaFields })
@@ -1968,30 +1997,6 @@ export function createNocoWrite(opts = {}) {
   }
 }
 
-export function relationSchemaField(schemaFields, key) {
-  const want = String(key || '').trim()
-  if (!want) return null
-  const fields = Array.isArray(schemaFields) ? schemaFields : []
-  let hit = fields.find((row) => row && String(row.name || '') === want)
-  if (!hit && /Id$/i.test(want)) {
-    const stem = want.replace(/Id$/i, '')
-    hit = fields.find((row) => row && String(row.name || '') === stem)
-  }
-  if (!hit) return null
-  const iface = String(hit.interface || hit.type || '').trim()
-  if (!/^(m2o|o2o|belongsTo)$/i.test(iface)) return null
-  if (/^(createdBy|updatedBy)$/i.test(String(hit.name || ''))) return null
-  return hit
-}
-
-function writeKeyForRelationField(name, fieldRow, spec, extra) {
-  const stem = String((fieldRow && fieldRow.name) || name || '').trim()
-  if (!stem) return String(name || '').trim()
-  const col = relationColumn(spec.kind, stem, extra)
-  if (col) return col
-  return stem.endsWith('Id') ? stem : `${stem}Id`
-}
-
 export async function shapePatch(patch, spec, ctx = {}) {
   if (!patch || typeof patch !== 'object') return {}
   const extra = ctx.extra || spec
@@ -2013,7 +2018,7 @@ export async function shapePatch(patch, spec, ctx = {}) {
     const rel = relationSchemaField(schemaFields, name)
     if (rel) {
       if (value == null || value === '') continue
-      const writeKey = writeKeyForRelationField(name, rel, spec, extra)
+      const writeKey = fkColumnForRelation(rel, name)
       if (/^\d+$/.test(String(value))) {
         out[writeKey] = String(value)
         continue
@@ -2023,16 +2028,13 @@ export async function shapePatch(patch, spec, ctx = {}) {
       continue
     }
     if (/Id$/i.test(name)) {
+      const stem = name.replace(/Id$/i, '')
+      const relId = relationSchemaField(schemaFields, stem)
       if (/^\d+$/.test(String(value))) out[name] = String(value)
-      else {
-        const id = await resolveRelatedId(name, value, spec, ctx)
+      else if (relId) {
+        const id = await resolveRelatedId(stem, value, spec, { ...ctx, fieldRow: relId })
         if (id) out[name] = id
       }
-      continue
-    }
-    if ((relationStemOf(name, extra) || kindForFkName(name, extra)) && value != null && value !== '') {
-      const id = await resolveRelatedId(name, value, spec, ctx)
-      if (id) out[`${name}Id`] = id
       continue
     }
     if (/^(备注|remark|remarks|notes)$/i.test(name) && orderLike(spec)) {
@@ -2066,92 +2068,6 @@ function contactKind(spec) {
 function orderLike(spec) {
   const resource = String((spec && spec.mapped && spec.mapped.resource) || '').toLowerCase()
   return /order/.test(resource) && !/item/.test(resource)
-}
-
-function kindForFkName(name, extra) {
-  const stem = String(name || '').replace(/Id$/i, '')
-  if (!stem) return ''
-  for (const kind of registeredKinds(extra)) {
-    const mapped = mapKind(kind, extra)
-    const want = String((mapped && mapped.resource) || '').toLowerCase()
-    if (want && resourceStemOf(want) === stem.toLowerCase()) return kind
-  }
-  return ''
-}
-
-function resourceStemOf(resource) {
-  const last = String(resource || '').split('/').pop() || ''
-  const parts = last.replace(/^(biz|crm|erp|oa)_/i, '').split(/[_-]/).filter(Boolean)
-  if (/^(records|items|logs|movements)$/i.test(parts[parts.length - 1] || '')) parts.pop()
-  const end = String(parts.pop() || '').replace(/ies$/i, 'y').replace(/s$/i, '')
-  return end.toLowerCase()
-}
-
-function spokenResourceFilters(raw, resource) {
-  const ors = []
-  const tail = String(resource || '').split('/').pop().toLowerCase()
-  if (tail === 'users') {
-    ors.push({ username: raw }, { nickname: raw }, { email: raw })
-  }
-  ors.push({ name: { $includes: raw } }, { title: { $includes: raw } }, { code: raw })
-  return ors
-}
-
-async function resolveRelatedId(name, value, spec, ctx) {
-  const raw = String(value ?? '').trim()
-  if (!raw) return ''
-  if (/^\d+$/.test(raw)) return raw
-  const extra = { vocab: spec.vocab, kinds: (ctx.conn && ctx.conn.kinds), collections: (ctx.conn && ctx.conn.collections), ...(ctx.extra || {}) }
-  extra.vocab = ensureSpoken(extra.vocab)
-  const conn = ctx.conn || {}
-  const fetchImpl = ctx.fetchImpl
-  const baseUrl = String(conn.baseUrl || '').replace(/\/+$/, '')
-  const token = String(conn.token || extra.token || '')
-  if (!baseUrl || !fetchImpl) return ''
-  const targetResource = ctx.fieldRow && String(ctx.fieldRow.target || '').trim()
-  let resource = targetResource
-  let kind = spec.kind
-  if (!resource) {
-    kind = kindForFkName(name, extra)
-    if (!kind) return ''
-    const mapped = mapKind(kind, extra)
-    if (!mapped || !mapped.resource) return ''
-    resource = mapped.resource
-  }
-  const mapped = resource === targetResource
-    ? { resource }
-    : mapKind(kind, extra)
-  if (!mapped || !mapped.resource) return ''
-  const tf = ticketColumn(mapped, kind)
-  const ors = spokenResourceFilters(raw, mapped.resource)
-  if (tf && !ors.some((row) => Object.prototype.hasOwnProperty.call(row, tf))) {
-    ors.unshift({ [tf]: raw })
-  }
-  const filter = encodeURIComponent(JSON.stringify(ors.length === 1 ? ors[0] : { $or: ors }))
-  try {
-    const res = await fetchImpl(`${baseUrl}/api/${mapped.resource}:list?pageSize=5&filter=${filter}`, {
-      method: 'GET',
-      headers: {
-        accept: 'application/json',
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-      },
-    })
-    const body = await res.json().catch(() => ({}))
-    const rows = Array.isArray(body.data) ? body.data : (body.data ? [body.data] : [])
-    const hit = rows.filter((row) => row && row.id != null && /^\d+$/.test(String(row.id)))
-    if (hit.length !== 1) return ''
-    return String(hit[0].id)
-  } catch {
-    return ''
-  }
-}
-
-function relationStemOf(key, extra) {
-  const name = String(key || '').replace(/Id$/i, '')
-  if (!name) return ''
-  const listed = saysOf(extra, '关联列')
-  if (!listed.length) return ''
-  return listed.some((item) => item.toLowerCase() === name.toLowerCase()) ? name.toLowerCase() : ''
 }
 
 function createdNo(reply, mapped, extra) {
