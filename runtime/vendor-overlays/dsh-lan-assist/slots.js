@@ -1772,6 +1772,11 @@ export function recoverWriteIntent(spec, vocab, extra = {}) {
   const kind = String(next.kind || '').trim()
   const toolAction = String((spec && spec.action) || '').trim()
   const toolNo = String((spec && spec.no) || '').trim()
+  if (spec && spec.lookupLocked === true && toolAction === '现查') {
+    next.action = '现查'
+    delete next.patch
+    return next
+  }
   if (kind && toolAction === '现查' && toolNo) {
     next.action = '现查'
     delete next.patch

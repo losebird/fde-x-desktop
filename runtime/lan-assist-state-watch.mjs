@@ -3,6 +3,7 @@ import { emitBizSheetPending } from './routes/biz.mjs'
 import { pendingSheetWatchFingerprint } from './biz/sheet-fingerprint.mjs'
 import { sheetAfterDismissedWrite } from './biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw } from './biz/sheet-payload.mjs'
+import { projectWriteConfirm } from './biz/write-confirm.mjs'
 
 const POLL_MS = 1000
 
@@ -62,7 +63,9 @@ function newIncomingMessages(state, knownIds) {
 }
 
 function officialFromState(state) {
-  return sheetAfterDismissedWrite(sheetPayloadFromRaw(state?.officialRoundSheet))
+  const sheet = sheetAfterDismissedWrite(sheetPayloadFromRaw(state?.officialRoundSheet))
+  const index = state?.writePreview && typeof state.writePreview === 'object' ? state.writePreview : null
+  return index ? projectWriteConfirm(sheet, index) : sheet
 }
 
 function emitOfficialSheet(sheet, deps, source = 'round-end') {

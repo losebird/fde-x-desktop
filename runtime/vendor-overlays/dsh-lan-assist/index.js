@@ -208,7 +208,15 @@ export async function apply(ctx, config) {
   const attachOfficial = (view, sessionId) => {
     if (!view || typeof view !== 'object') return view
     const sid = String(sessionId || (view.pendingSheet && view.pendingSheet.sessionId) || '').trim()
-    return { ...view, officialRoundSheet: sessionRounds.servedSheet(sid) }
+    const writePreview = typeof gate.previewTokenIndex === 'function' ? gate.previewTokenIndex() : {}
+    return { ...view, officialRoundSheet: sessionRounds.servedSheet(sid), writePreview }
+  }
+  const origPreviewBiz = secretary.previewBiz.bind(secretary)
+  secretary.previewBiz = async (spec = {}) => {
+    const sid = String((spec && spec.sessionId) || '').trim()
+    const toolAction = String((spec && spec.action) || '').trim()
+    const locked = Boolean(sid && sessionRounds.isWroteFollowup(sid) && toolAction === '现查')
+    return origPreviewBiz(locked ? { ...spec, lookupLocked: true } : spec)
   }
   const origHall = secretary.hall.bind(secretary)
   const origSnapshot = secretary.snapshot.bind(secretary)
@@ -303,7 +311,9 @@ export async function apply(ctx, config) {
           return
         }
         if (event && event.type === 'turn/start') {
-          sessionRounds.startRound(sessionId)
+          const prev = sessionRounds.peek(sessionId)
+          const followup = Boolean(prev && !prev.open && prev.closedBy === 'wrote' && prev.wroteFollowup)
+          sessionRounds.startRound(sessionId, { followup })
         }
         if (event && event.type === 'turn/end') {
           sessionRounds.closeRound(sessionId)
@@ -314,6 +324,7 @@ export async function apply(ctx, config) {
         }
         const speech = extractUserSpeech(event)
         if (!speech) return
+        sessionRounds.noteHumanUtterance(sessionId)
         sessionRounds.startRound(sessionId)
         rememberUserSpeech(sessionId, speech)
         const workspace = session && session.header && typeof session.header.cwd === 'string'

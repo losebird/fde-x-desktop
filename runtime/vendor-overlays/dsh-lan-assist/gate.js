@@ -43,6 +43,18 @@ function sameWriteAction(prev, incoming) {
   return !left || !right || left === right
 }
 
+export function voidUnusedTokens(tokens, ids) {
+  if (!tokens || typeof tokens.get !== 'function' || typeof tokens.set !== 'function') return
+  for (const raw of Array.isArray(ids) ? ids : []) {
+    const id = String(raw || '').trim()
+    if (!id) continue
+    const token = tokens.get(id)
+    if (!token || token.used) continue
+    token.used = true
+    tokens.set(id, token)
+  }
+}
+
 export function livePendingWrite(state, gate, t) {
   const pending = state && state.pendingWrite
   if (!pending || pending.ok === false) return null
@@ -408,6 +420,11 @@ export function createGate(bag) {
     return packed
   }
 
+  function voidOpeningTokens(lines) {
+    const ids = (Array.isArray(lines) ? lines : []).map((row) => row && (row.preview_id || row.previewId))
+    voidUnusedTokens(opts.gate && opts.gate.tokens, ids)
+  }
+
   async function commitWrite(spec = {}) {
     if (!opts.gate || typeof opts.gate.write !== 'function') {
       return { ok: false, error: 'NEED_PREVIEW', hint: '先预览。旧画面不能拿去写。' }
@@ -475,6 +492,7 @@ export function createGate(bag) {
       lines: results,
     }
     const consumed = results.some((row) => row && (row.error === 'USED' || row.error === 'DUP_TRACE'))
+    if (ok) voidOpeningTokens(lines)
     ;(ok || consumed) && await store.update((s) => {
       if (s.pendingWrite && (s.pendingWrite.openingId === pending.openingId || String(s.pendingWrite.preview_id || '') === wanted)) {
         s.pendingWrite = null

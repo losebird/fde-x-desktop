@@ -139,12 +139,13 @@ export function createSessionRoundStore() {
     return bySession.get(sid) || null
   }
 
-  function startRound(sessionId) {
+  function startRound(sessionId, opts = {}) {
     const sid = String(sessionId || '').trim()
     if (!sid) return ''
     const prev = peek(sid)
     if (prev && prev.open) return prev.roundId
     const id = newRoundId()
+    const wroteFollowup = Boolean(opts.followup && prev && prev.wroteFollowup)
     bySession.set(sid, {
       roundId: id,
       open: true,
@@ -154,6 +155,7 @@ export function createSessionRoundStore() {
       kindFocus: null,
       handed: Boolean(prev && prev.official),
       closedBy: '',
+      wroteFollowup,
     })
     return id
   }
@@ -168,6 +170,7 @@ export function createSessionRoundStore() {
       round.open = false
       round.kindFocus = null
       round.closedBy = 'wrote'
+      round.wroteFollowup = true
       return { official: round.official || null, emit: false, cancel: false }
     }
     if (round.open) {
@@ -270,6 +273,15 @@ export function createSessionRoundStore() {
     return Boolean(peek(sessionId)?.open)
   }
 
+  function isWroteFollowup(sessionId) {
+    return Boolean(peek(sessionId)?.wroteFollowup)
+  }
+
+  function noteHumanUtterance(sessionId) {
+    const round = peek(sessionId)
+    if (round) round.wroteFollowup = false
+  }
+
   return {
     peek,
     startRound,
@@ -279,5 +291,7 @@ export function createSessionRoundStore() {
     focusKindSheet,
     servedSheet,
     isOpen,
+    isWroteFollowup,
+    noteHumanUtterance,
   }
 }

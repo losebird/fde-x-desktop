@@ -39,6 +39,7 @@ import {
   shouldSkipCoveringPending,
   sheetForOfficialGet,
 } from '../biz/connected-kind.mjs'
+import { projectWriteConfirm, releaseEmittedConfirm } from '../biz/write-confirm.mjs'
 import {
   auditRecordNo,
   captureLookupBind,
@@ -314,7 +315,22 @@ function peekLastEmittedPending(sessionId) {
   return lastEmittedPendingBySession.get(key) ?? null
 }
 
-export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId, hallSheet, force = false } = {}) {
+function releaseLastEmittedConfirm(sessionId, previewId) {
+  const wanted = String(previewId || '').trim()
+  const keys = []
+  const named = String(sessionId || '').trim()
+  if (named) keys.push(lastEmittedSessionKey(named, null))
+  else keys.push(...lastEmittedPendingBySession.keys())
+  for (const key of keys) {
+    const last = lastEmittedPendingBySession.get(key)
+    if (!last || typeof last !== 'object') continue
+    const id = sheetPreviewIdFromRecord(last)
+    if (wanted && id && id !== wanted) continue
+    lastEmittedPendingBySession.set(key, releaseEmittedConfirm(last))
+  }
+}
+
+export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId, hallSheet, force = false, writePreview } = {}) {
   const normalized = sheetPayloadFromRaw(sheet)
   if (!normalized) return false
   const emitKey = lastEmittedSessionKey(sessionId, normalized)
@@ -330,10 +346,13 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
   const columns = Array.isArray(normalized.columns) ? normalized.columns : []
   if (!kind || !action) return false
 
-  const payloadSheet = {
+  let payloadSheet = {
     ...normalized,
     sessionId,
     ...(typeof sheet.speech === 'string' && sheet.speech ? { speech: sheet.speech } : {}),
+  }
+  if (writePreview && typeof writePreview === 'object') {
+    payloadSheet = projectWriteConfirm(payloadSheet, writePreview)
   }
 
   emit('biz.sheet.pending', {
@@ -342,7 +361,7 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
     previewId: previewId || undefined,
     rows: rows.length,
     columns,
-    canWrite: Boolean(normalized.canWrite ?? normalized.can_write),
+    canWrite: Boolean(payloadSheet.canWrite ?? payloadSheet.can_write),
     source,
     sessionId,
     surfaceId: typeof surfaceId === 'string' ? surfaceId : undefined,
@@ -892,6 +911,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       }
       const officialRaw = state.officialRoundSheet
       const official = sheetAfterDismissedWrite(sheetPayloadFromRaw(officialRaw))
+      const writePreview = state.writePreview && typeof state.writePreview === 'object' ? state.writePreview : null
       const bizCwd = requestMemoryCwd(url, {}) || FDE_AI_WORKSPACE
       let handed = official
       if (handed) {
@@ -901,7 +921,9 @@ export async function handleBizRoutes(request, response, url, deps) {
           handed = next || null
         } catch { /* keep official sheet */ }
       }
-      const lastEmitted = querySessionId ? peekLastEmittedPending(querySessionId) : null
+      if (handed && writePreview) handed = projectWriteConfirm(handed, writePreview)
+      const lastRaw = querySessionId ? peekLastEmittedPending(querySessionId) : null
+      const lastEmitted = writePreview ? projectWriteConfirm(lastRaw, writePreview) : lastRaw
       const served = sheetForOfficialGet(handed, lastEmitted, querySessionId)
       sendJson(response, 200, {
         data: { sheet: served ? stripSecrets(served) : null },
@@ -1201,6 +1223,10 @@ export async function handleBizRoutes(request, response, url, deps) {
     if (rollbackOfTraceId) {
       setBizWriteAuditRollbackState(db, rollbackOfTraceId, ROLLBACK_STATE_ROLLED_BACK)
     }
+    releaseLastEmittedConfirm(
+      String(sheet?.sessionId || body.sessionId || body.session_id || ''),
+      body.preview_id,
+    )
     emit('biz.write.done', {
       kind: String(written?.kind || ''),
       action: String(written?.action || ''),

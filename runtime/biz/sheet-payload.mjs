@@ -53,6 +53,9 @@ export function sheetPayloadFromRaw(raw) {
     columns: Array.isArray(raw.columns) ? raw.columns : [],
     changes,
     canWrite: Boolean(raw.canWrite ?? raw.can_write),
+    ...(typeof raw.writeToken === 'string' && raw.writeToken.trim()
+      ? { writeToken: raw.writeToken.trim() }
+      : {}),
     sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
     workspace: typeof raw.workspace === 'string' ? raw.workspace : undefined,
     no: typeof raw.no === 'string' ? raw.no : undefined,

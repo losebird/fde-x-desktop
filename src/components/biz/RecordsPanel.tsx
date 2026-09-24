@@ -85,6 +85,7 @@ import {
   shouldAbortLeftoverAskForWritePreview,
 } from '@/lib/biz-hit-set-pick-cancel'
 import { useEvents } from '@/lib/events'
+import { shouldOpenWriteConfirm } from '@/lib/write-confirm.ts'
 
 const PAGE_SIZE = 10
 const ROW_DISPLAY_INDEX_LABEL = '序号'
@@ -220,11 +221,11 @@ function shouldOpenWritePreviewDrawer(
   sheet: Record<string, unknown>,
   _historyPinned: boolean,
 ) {
-  if (!isWritePreviewSheet(sheet)) return false
-  if (isBizPreviewDismissed(sheet)) return false
-  if (isApproveAlreadyAtTarget(sheet)) return true
-  if (sheetHasConfirmablePreviewChanges(sheet)) return true
-  return false
+  return shouldOpenWriteConfirm(sheet, {
+    dismissed: isBizPreviewDismissed(sheet),
+    hasChanges: sheetHasConfirmablePreviewChanges(sheet),
+    alreadyAtTarget: isApproveAlreadyAtTarget(sheet),
+  })
 }
 
 function isSingleRowWritePreview(sheet: Record<string, unknown>) {
@@ -1027,6 +1028,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
             canWrite: Boolean(next.canWrite ?? next.can_write),
           }
         })
+      } else if (previewId) {
+        setDrawer(null)
       }
       return rowCount > 0 || Boolean(next.kind)
     }
@@ -1065,7 +1068,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       return applyPendingSheet(sheet, surfaceId)
     }
     const cached = peekBizPendingSheet(sid || undefined)
-    if (cached && tryApply(cached)) return true
+    if (cached && !isWritePreviewSheet(cached) && tryApply(cached)) return true
     try {
       const { sheet } = await runtimeApi.getBizPendingSheet(undefined, sid || undefined)
       const liveSid = String(liveSessionIdRef.current || '').trim()
@@ -1109,7 +1112,12 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     }
 
     const cached = sid ? peekBizPendingSheet(sid) : null
-    if (cached && sheetBelongsToSession(cached, sid) && !isBizPreviewDismissed(cached)) {
+    if (
+      cached
+      && !isWritePreviewSheet(cached)
+      && sheetBelongsToSession(cached, sid)
+      && !isBizPreviewDismissed(cached)
+    ) {
       applyPendingSheetRef.current(cached)
       return
     }

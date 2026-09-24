@@ -1495,9 +1495,13 @@ export function createGate(opts = {}) {
       enrichExtra.schemaByKind = schemaByKind
     }
     const recovered = replaying ? { ...spec } : recoverWriteIntent(spec, loaded.vocab, enrichExtra)
-    const enriched = replaying
+    let enriched = replaying
       ? { ...spec, speech: String(spec.speech || '').trim() }
       : enrichStructuredSlots(recovered, loaded.vocab, enrichExtra)
+    if (!replaying && spec.lookupLocked === true && String(spec.action || '').trim() === '现查') {
+      enriched = { ...enriched, action: '现查' }
+      delete enriched.patch
+    }
     if (!replaying) {
       const batchSpeech = String(enriched.speech || spec.speech || userSpeech || '').trim()
       const batchKind = String(enriched.kind || spec.kind || '').trim()
@@ -1794,7 +1798,20 @@ export function createGate(opts = {}) {
     })
   }
 
-  return { preview, write, fileAskClue, tokens }
+  function previewTokenIndex() {
+    const index = {}
+    const t = now()
+    for (const [id, token] of tokens.entries()) {
+      const key = String(id || '').trim()
+      if (!key || !token) continue
+      if (token.used) index[key] = 'used'
+      else if (t > Number(token.expiresAt || 0)) index[key] = 'expired'
+      else index[key] = 'open'
+    }
+    return index
+  }
+
+  return { preview, write, fileAskClue, tokens, previewTokenIndex }
 }
 
 const FIELD_SPEAK = new Map([
