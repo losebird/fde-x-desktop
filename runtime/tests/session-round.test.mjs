@@ -5,6 +5,7 @@ import {
   isEligibleRoundSheet,
   isLeftoverAfterCandidate,
   isUnfilteredListSheet,
+  stampWroteLookup,
 } from '../vendor-overlays/dsh-lan-assist/session-round.js'
 
 function hopSheet(kind = 'KindLeaf') {
@@ -284,4 +285,44 @@ test('an empty sheet of another kind does not replace the relation', () => {
   rounds.closeRound('sess-a')
   assert.equal(rounds.servedSheet('sess-a').kind, 'KindLeaf')
   assert.equal(rounds.servedSheet('sess-a').from.kind, 'KindParent')
+})
+
+test('lookupNo is a filtered receipt, not an unfiltered list', () => {
+  assert.equal(isUnfilteredListSheet({
+    kind: 'KindA',
+    action: '现查',
+    lookupNo: 'ROW-1',
+    rows: [{ no: 'ROW-1' }],
+  }), false)
+})
+
+test('stampWroteLookup fills a bare follow-up with the written identity', () => {
+  const stamped = stampWroteLookup({ kind: 'KindW', action: '现查' }, { no: 'ROW-1' })
+  assert.equal(stamped.no, 'ROW-1')
+  const kept = stampWroteLookup({ kind: 'KindW', action: '现查', no: 'KEEP' }, { no: 'ROW-1' })
+  assert.equal(kept.no, 'KEEP')
+  const byWhere = stampWroteLookup({ kind: 'KindW', action: '现查' }, {
+    where: [{ keys: ['title'], values: ['甲'] }],
+  })
+  assert.equal(byWhere.where.length, 1)
+})
+
+test('an unfiltered list does not cancel a wrote receipt that already carries identity', () => {
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  rounds.closeRound('sess-a', 'wrote', { identity: { no: 'ROW-1' } })
+  rounds.startRound('sess-a', { followup: true })
+  assert.equal(rounds.wroteIdentity('sess-a').no, 'ROW-1')
+  const noted = rounds.noteToolSheet('sess-a', {
+    kind: 'KindW',
+    action: '现查',
+    lookupNo: 'ROW-1',
+    rows: [{ no: 'ROW-1' }],
+  })
+  assert.equal(noted.cancel, false)
+  assert.equal(rounds.peek('sess-a').candidate.wroteReceipt, true)
+  const dump = rounds.noteToolSheet('sess-a', dumpSheet())
+  assert.equal(dump.cancel, false)
+  assert.equal(rounds.peek('sess-a').candidate.lookupNo, 'ROW-1')
+  assert.equal(isLeftoverAfterCandidate(rounds.peek('sess-a').candidate, dumpSheet()), false)
 })

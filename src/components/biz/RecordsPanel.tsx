@@ -204,6 +204,40 @@ function sheetPreviewId(sheet: Record<string, unknown>) {
   return typeof id === 'string' ? id : ''
 }
 
+function spokenCellInput(sheet: Record<string, unknown>, override: Record<string, unknown> = {}) {
+  const cells = Array.isArray(sheet.cells) ? sheet.cells : []
+  const input: Record<string, unknown> = {}
+  for (const cell of cells) {
+    if (!cell || typeof cell !== 'object') continue
+    const row = cell as { key?: string; mode?: string; bound?: boolean; write?: unknown; spoken?: unknown }
+    const key = String(row.key || '').trim()
+    if (!key) continue
+    if (Object.prototype.hasOwnProperty.call(override, key)) {
+      input[key] = override[key]
+      continue
+    }
+    if (row.bound && row.write != null && row.write !== '') input[key] = row.write
+    else if (row.spoken != null && row.spoken !== '' && row.mode !== 'unplaced') input[key] = row.spoken
+  }
+  for (const [key, value] of Object.entries(override)) {
+    if (!Object.prototype.hasOwnProperty.call(input, key)) input[key] = value
+  }
+  return input
+}
+
+function draftPatchForSheet(
+  sheet: Record<string, unknown>,
+  drafts: Record<string, SheetRow>,
+  columns: SheetColumn[],
+) {
+  const primary = normalizeSheetRows(sheet.rows)[0]
+  if (!primary) return null
+  const draft = drafts[sheetRowKey(primary, 0)]
+  if (!draft) return null
+  const patch = pickSheetRowPatch(primary, { ...primary, ...draft }, columns)
+  return Object.keys(patch).length ? patch : null
+}
+
 function isWritePreviewSheet(sheet: Record<string, unknown>) {
   const action = String(sheet.action || '')
   return Boolean(sheetPreviewId(sheet) && !isBizListQueryAction(action))
@@ -1667,17 +1701,54 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     setError('')
     try {
       const sheetWorkspace = typeof drawer.sheet.workspace === 'string' ? drawer.sheet.workspace : undefined
-      const sheetChanges = Array.isArray(drawer.sheet.changes) ? drawer.sheet.changes : []
-      const sheetColumns = Array.isArray(drawer.sheet.columns) ? drawer.sheet.columns : []
-      await runtimeApi.bizWrite(drawer.previewId, undefined, sheetWorkspace, {
+      const dirty = draftPatchForSheet(drawer.sheet, draftEdits, columns)
+      let previewId = drawer.previewId
+      let writeSheet = drawer.sheet
+      if (dirty) {
+        const action = String(drawer.sheet.action || '')
+        const sheetKind = String(drawer.sheet.kind || kind)
+        const conn = connections.find((c) => c.id === connectionId)
+        const input = spokenCellInput(drawer.sheet, dirty)
+        const data = await runtimeApi.bizPreview({
+          kind: sheetKind,
+          action,
+          system: conn?.provider || 'NocoBase',
+          connectionId,
+          speech: String(drawer.sheet.speech || `${action}${sheetKind}`),
+          no: String(drawer.sheet.no || drawer.sheet.clue || ''),
+          input: action === '新建' ? pickFilledSheetInput(input) : input,
+        })
+        const nextSheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
+        const nextId = sheetPreviewId(nextSheet)
+        const nextCanWrite = Boolean(nextSheet.canWrite ?? nextSheet.can_write ?? data.canWrite)
+        if (!nextCanWrite || !nextId) {
+          const hint = typeof data.hint === 'string' && data.hint.trim()
+            ? data.hint
+            : '这一格对不上'
+          setDrawer({
+            previewId: nextId || drawer.previewId,
+            sheet: nextSheet,
+            canWrite: nextCanWrite,
+            gateReason: hint,
+            originalRow: drawer.originalRow,
+          })
+          setError(hint)
+          return
+        }
+        previewId = nextId
+        writeSheet = nextSheet
+      }
+      const sheetChanges = Array.isArray(writeSheet.changes) ? writeSheet.changes : []
+      const sheetColumns = Array.isArray(writeSheet.columns) ? writeSheet.columns : []
+      await runtimeApi.bizWrite(previewId, undefined, sheetWorkspace, {
         source: 'workstation',
         changes: sheetChanges,
         columns: sheetColumns,
-        kind: String(drawer.sheet.kind || ''),
-        action: String(drawer.sheet.action || ''),
-        no: String(drawer.sheet.no || drawer.sheet.clue || ''),
-        sessionId: String(drawer.sheet.sessionId || ''),
-        speech: String(drawer.sheet.speech || ''),
+        kind: String(writeSheet.kind || drawer.sheet.kind || ''),
+        action: String(writeSheet.action || drawer.sheet.action || ''),
+        no: String(writeSheet.no || writeSheet.clue || drawer.sheet.no || ''),
+        sessionId: String(writeSheet.sessionId || drawer.sheet.sessionId || ''),
+        speech: String(writeSheet.speech || drawer.sheet.speech || ''),
       })
       clearBizPreviewDismissed(drawer.previewId)
       clearBizPendingSheet(String(activeAiSessionId || historySessionIdRef.current || '').trim() || undefined)
@@ -2060,8 +2131,23 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
           originalRow={drawer.originalRow}
           patch={drawer.patch}
           columns={columns}
+          allowRebind={Boolean(draftPatchForSheet(drawer.sheet, draftEdits, columns))}
           onClose={dismissPreviewDrawer}
           onConfirm={() => void confirmWrite()}
+          onPick={(field, id) => {
+            const action = String(drawer.sheet.action || '')
+            const input = spokenCellInput(drawer.sheet, { [field]: id })
+            const primary = normalizeSheetRows(drawer.sheet.rows)[0]
+            if (action === '改行' && primary) {
+              void runPreview(action, {
+                no: sheetRowBusinessNo(primary) || String(drawer.sheet.no || ''),
+                input: { ...primary, ...input },
+                originalRow: primary,
+              })
+              return
+            }
+            void runPreview(action || '新建', { input })
+          }}
         />
       )}
     </div>

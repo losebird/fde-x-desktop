@@ -1178,6 +1178,8 @@ export function collectionFields(resource, collections) {
       }
       const enums = enumMap(item)
       if (Object.keys(enums).length) packed.enums = enums
+      if (item.required === true || (ui.required === true)) packed.required = true
+      if (item.allowNull === false) packed.allowNull = false
       out.push(packed)
     }
     return out

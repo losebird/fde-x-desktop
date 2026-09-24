@@ -5,7 +5,7 @@
 
 import { enumMap, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
-import { resolveShapeKey } from './where-pass.js'
+import { resolveShapeKey, vocabRow } from './where-pass.js'
 
 export function relationSchemaField(schemaFields, key) {
   const want = String(key || '').trim()
@@ -31,53 +31,137 @@ export function fkColumnForRelation(fieldRow, fallbackName) {
   return name.endsWith('Id') ? name : `${name}Id`
 }
 
-function spokenResourceFilters(raw, resource) {
-  const ors = []
-  const tail = String(resource || '').split('/').pop().toLowerCase()
-  if (tail === 'users') {
-    ors.push({ username: raw }, { nickname: raw }, { email: raw })
+const SPOKEN_STRING = /^(input|textarea|text|string|varchar|char|email|phone|url|markdown|richText|uuid|sequence|link)$/i
+
+/** Columns that exist on the target schema and can hold a spoken value. No collection-name branch. */
+export function spokenMatchColumns(schemaFields) {
+  const out = []
+  for (const row of Array.isArray(schemaFields) ? schemaFields : []) {
+    const name = String((row && row.name) || '').trim()
+    if (!name || name === 'id') continue
+    const iface = String((row && (row.interface || row.type)) || '').trim()
+    if (/^(m2o|o2o|o2m|m2m|belongsTo|hasMany|hasOne)$/i.test(iface)) continue
+    if (iface && !SPOKEN_STRING.test(iface)) continue
+    out.push(name)
   }
-  ors.push({ name: { $includes: raw } }, { title: { $includes: raw } }, { code: raw })
-  return ors
+  return out
 }
 
-export async function resolveRelatedId(name, value, spec, ctx) {
-  const raw = String(value ?? '').trim()
-  if (!raw) return ''
-  if (/^\d+$/.test(raw)) return raw
-  const extra = {
-    vocab: spec.vocab,
-    kinds: (ctx.conn && ctx.conn.kinds),
-    collections: (ctx.conn && ctx.conn.collections),
-    ...(ctx.extra || {}),
+function targetFieldsOf(resource, ctx) {
+  const want = String(resource || '').trim()
+  if (!want) return []
+  const extra = ctx && ctx.extra && typeof ctx.extra === 'object' ? ctx.extra : {}
+  const conn = ctx && ctx.conn && typeof ctx.conn === 'object' ? ctx.conn : {}
+  const collections = []
+    .concat(Array.isArray(extra.collections) ? extra.collections : [])
+    .concat(Array.isArray(conn.collections) ? conn.collections : [])
+  for (const row of collections) {
+    const name = String((row && (row.name || row.resource)) || '').trim()
+    if (name !== want) continue
+    return [].concat((row && row.fields) || []).filter((item) => item && typeof item === 'object')
   }
-  extra.vocab = ensureSpoken(extra.vocab)
-  const conn = ctx.conn || {}
-  const fetchImpl = ctx.fetchImpl
-  const baseUrl = String(conn.baseUrl || '').replace(/\/+$/, '')
-  const token = String(conn.token || extra.token || '')
-  if (!baseUrl || !fetchImpl) return ''
-  const fieldRow = ctx.fieldRow && typeof ctx.fieldRow === 'object' ? ctx.fieldRow : null
-  const targetResource = fieldRow && String(fieldRow.target || '').trim()
-  if (!targetResource) return ''
-  const ors = spokenResourceFilters(raw, targetResource)
+  return []
+}
+
+function rowIdentityLabel(row, columns, spoken) {
+  const raw = String(spoken || '').trim()
+  const lower = raw.toLowerCase()
+  const values = []
+  for (const col of columns) {
+    const value = String(row && row[col] != null ? row[col] : '').trim()
+    if (value) values.push(value)
+  }
+  if (!values.length) return String(row && row.id != null ? row.id : '')
+  const exact = values.find((value) => value === raw)
+  if (exact) return exact
+  const folded = values.find((value) => lower && value.toLowerCase().includes(lower))
+  if (folded) return folded
+  return values.join(' · ')
+}
+
+async function listTarget(baseUrl, token, fetchImpl, resource, ors) {
+  if (!ors.length) return { ok: true, rows: [], count: 0 }
   const filter = encodeURIComponent(JSON.stringify(ors.length === 1 ? ors[0] : { $or: ors }))
   try {
-    const res = await fetchImpl(`${baseUrl}/api/${targetResource}:list?pageSize=5&filter=${filter}`, {
+    const res = await fetchImpl(`${baseUrl}/api/${resource}:list?pageSize=20&filter=${filter}`, {
       method: 'GET',
       headers: {
         accept: 'application/json',
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
     })
+    if (!res || res.ok === false) return { ok: false, rows: [], count: 0 }
     const body = await res.json().catch(() => ({}))
-    const rows = Array.isArray(body.data) ? body.data : (body.data ? [body.data] : [])
-    const hit = rows.filter((row) => row && row.id != null && /^\d+$/.test(String(row.id)))
-    if (hit.length !== 1) return ''
-    return String(hit[0].id)
+    const rawRows = Array.isArray(body.data) ? body.data : (body.data ? [body.data] : [])
+    const rows = rawRows.filter((row) => row && row.id != null && /^\d+$/.test(String(row.id)))
+    const count = body.meta && Number(body.meta.count)
+    return { ok: true, rows, count: Number.isFinite(count) ? count : rows.length }
   } catch {
-    return ''
+    return { ok: false, rows: [], count: 0 }
   }
+}
+
+function relateOutcome(status, raw, columns, listed) {
+  const rows = listed && Array.isArray(listed.rows) ? listed.rows : []
+  if (status === 'one') {
+    const row = rows[0]
+    return {
+      status: 'one',
+      id: String(row && row.id != null ? row.id : raw),
+      label: row ? rowIdentityLabel(row, columns, raw) : String(raw || ''),
+      rows: row ? [row] : [],
+      columns,
+    }
+  }
+  return { status, id: '', label: '', rows, columns }
+}
+
+export async function resolveRelated(name, value, spec, ctx) {
+  const raw = String(value ?? '').trim()
+  const none = { status: 'none', id: '', label: '', rows: [], columns: [] }
+  if (!raw) return none
+  const bag = ctx && typeof ctx === 'object' ? ctx : {}
+  const extra = {
+    vocab: spec && spec.vocab,
+    kinds: (bag.conn && bag.conn.kinds),
+    collections: (bag.conn && bag.conn.collections),
+    ...(bag.extra || {}),
+  }
+  extra.vocab = ensureSpoken(extra.vocab)
+  const conn = bag.conn || {}
+  const fetchImpl = bag.fetchImpl
+  const baseUrl = String(conn.baseUrl || '').replace(/\/+$/, '')
+  const token = String(conn.token || extra.token || '')
+  const fieldRow = bag.fieldRow && typeof bag.fieldRow === 'object' ? bag.fieldRow : null
+  const targetResource = fieldRow && String(fieldRow.target || '').trim()
+  const columns = spokenMatchColumns(targetFieldsOf(targetResource, { ...bag, extra }))
+  if (!baseUrl || !fetchImpl || !targetResource) return { ...none, columns }
+  if (/^\d+$/.test(raw)) {
+    const listed = await listTarget(baseUrl, token, fetchImpl, targetResource, [{ id: raw }])
+    if (listed.ok && listed.rows.length === 1) return relateOutcome('one', raw, columns, listed)
+    return { status: 'one', id: raw, label: raw, rows: [], columns }
+  }
+  if (!columns.length) return { ...none, columns }
+  const eq = await listTarget(baseUrl, token, fetchImpl, targetResource, columns.map((col) => ({ [col]: raw })))
+  if (!eq.ok) return { status: 'error', id: '', label: '', rows: [], columns }
+  if (eq.rows.length === 1 && eq.count === 1) return relateOutcome('one', raw, columns, eq)
+  if (eq.rows.length > 1 || eq.count > 1) return relateOutcome('many', raw, columns, eq)
+  const inc = await listTarget(
+    baseUrl,
+    token,
+    fetchImpl,
+    targetResource,
+    columns.map((col) => ({ [col]: { $includes: raw } })),
+  )
+  if (!inc.ok) return { status: 'error', id: '', label: '', rows: [], columns }
+  if (inc.rows.length === 1 && inc.count === 1) return relateOutcome('one', raw, columns, inc)
+  if (inc.rows.length > 1 || inc.count > 1) return relateOutcome('many', raw, columns, inc)
+  return { ...none, columns }
+}
+
+export async function resolveRelatedId(name, value, spec, ctx) {
+  const found = await resolveRelated(name, value, spec, ctx)
+  return found.status === 'one' ? found.id : ''
 }
 
 export function stripRelationKeys(patch, schemaFields) {
@@ -186,20 +270,222 @@ export async function bindWhereRelationTerms(terms, schemaFields, spec, ctx, voc
         values.push(spoken)
         continue
       }
-      let id = ''
+      let ids = []
       for (const key of keys) {
         const rel = relationSchemaField(fields, key)
         if (!rel) continue
-        const resolved = await resolveRelatedId(key, spoken, spec, { ...ctx, fieldRow: rel })
-        if (resolved) {
-          id = resolved
+        const resolved = await resolveRelated(key, spoken, spec, { ...ctx, fieldRow: rel })
+        if (resolved.status === 'one' && resolved.id) {
+          ids = [resolved.id]
+          break
+        }
+        if (resolved.status === 'many' && resolved.rows.length) {
+          ids = resolved.rows.map((row) => String(row.id))
           break
         }
       }
-      if (id) values.push(id)
+      if (ids.length === 1) values.push(ids[0])
+      else if (ids.length > 1) values.push(...ids)
     }
     if (!values.length && list(term.values).length) continue
     out.push({ ...term, keys, values })
   }
   return out
+}
+
+function cellTitle(row) {
+  if (!row || typeof row !== 'object') return ''
+  return String(row.title || (row.uiSchema && row.uiSchema.title) || row.name || '').trim()
+}
+
+function fieldRequired(row) {
+  if (!row || typeof row !== 'object') return false
+  if (row.required === true) return true
+  if (row.allowNull === false) return true
+  const ui = row.uiSchema
+  return !!(ui && ui.required === true)
+}
+
+function fieldEnums(row) {
+  if (!row || typeof row !== 'object') return null
+  if (row.enums && typeof row.enums === 'object' && !Array.isArray(row.enums) && Object.keys(row.enums).length) {
+    return row.enums
+  }
+  const mapped = enumMap(row)
+  return mapped && Object.keys(mapped).length ? mapped : null
+}
+
+function isEnumField(row) {
+  if (fieldEnums(row)) return true
+  return /^(select|radio|multipleSelect)$/i.test(String((row && (row.interface || row.type)) || ''))
+}
+
+function enumHits(row, spoken) {
+  const enums = fieldEnums(row) || {}
+  const hits = []
+  for (const [code, label] of Object.entries(enums)) {
+    if (String(code) === spoken || String(label || '') === spoken) {
+      hits.push({ code: String(code), label: String(label || code) })
+    }
+  }
+  return hits
+}
+
+function cellBlocks(cell) {
+  if (!cell || cell.bound) return false
+  if (cell.mode === 'relation' && !cell.required && !(cell.picks && cell.picks.length)) return false
+  return true
+}
+
+const UNBOUND_HINT = '这一格对不上'
+
+/**
+ * Place each spoken patch value on its schema cell: literal, enum, or relation.
+ * Confirmation reads `display`; the token reads `writePatch`.
+ */
+export async function bindSpokenCells(patch, schemaFields, spec, ctx) {
+  const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const vocab = (spec && spec.vocab) || (ctx && ctx.extra && ctx.extra.vocab)
+  const vocabHit = vocabRow(spec && spec.kind, vocab)
+  const cells = []
+  const input = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {}
+  if (!fields.length) {
+    for (const [rawKey, rawValue] of Object.entries(input)) {
+      const spoken = rawValue == null ? '' : String(rawValue).trim()
+      const key = String(rawKey || '').trim()
+      if (!key || !spoken) continue
+      cells.push({
+        key,
+        writeKey: key,
+        label: key,
+        mode: 'literal',
+        spoken,
+        bound: true,
+        required: false,
+        display: spoken,
+        write: spoken,
+        hint: '',
+      })
+    }
+  }
+  for (const [rawKey, rawValue] of fields.length ? Object.entries(input) : []) {
+    const spoken = rawValue == null ? '' : String(rawValue).trim()
+    if (!spoken) continue
+    const placed = resolveShapeKey(rawKey, fields, vocabHit)
+    const field = fields.find((row) => row && String(row.name || '') === placed)
+    if (!field) {
+      cells.push({
+        key: String(rawKey || '').trim(),
+        label: String(rawKey || '').trim(),
+        mode: 'unplaced',
+        spoken,
+        bound: false,
+        required: true,
+        display: '',
+        hint: UNBOUND_HINT,
+      })
+      continue
+    }
+    const label = cellTitle(field)
+    const required = fieldRequired(field)
+    const rel = relationSchemaField(fields, field.name)
+    if (rel) {
+      const found = await resolveRelated(field.name, spoken, spec, { ...ctx, fieldRow: rel })
+      if (found.status === 'one' && found.id) {
+        cells.push({
+          key: field.name,
+          writeKey: fkColumnForRelation(rel, field.name),
+          label,
+          mode: 'relation',
+          spoken,
+          bound: true,
+          required,
+          display: found.label || found.id,
+          write: found.id,
+          hint: '',
+        })
+      } else if (found.status === 'many') {
+        cells.push({
+          key: field.name,
+          label,
+          mode: 'relation',
+          spoken,
+          bound: false,
+          required,
+          display: '',
+          hint: UNBOUND_HINT,
+          picks: found.rows.map((row) => ({
+            id: String(row.id),
+            label: rowIdentityLabel(row, found.columns, spoken),
+          })),
+        })
+      } else {
+        cells.push({
+          key: field.name,
+          label,
+          mode: 'relation',
+          spoken,
+          bound: false,
+          required,
+          display: '',
+          hint: UNBOUND_HINT,
+        })
+      }
+      continue
+    }
+    if (isEnumField(field)) {
+      const hits = enumHits(field, spoken)
+      if (hits.length === 1) {
+        cells.push({
+          key: field.name,
+          writeKey: field.name,
+          label,
+          mode: 'enum',
+          spoken,
+          bound: true,
+          required,
+          display: hits[0].label,
+          write: hits[0].code,
+          hint: '',
+        })
+      } else {
+        cells.push({
+          key: field.name,
+          label,
+          mode: 'enum',
+          spoken,
+          bound: false,
+          required: true,
+          display: '',
+          hint: UNBOUND_HINT,
+        })
+      }
+      continue
+    }
+    cells.push({
+      key: field.name,
+      writeKey: field.name,
+      label,
+      mode: 'literal',
+      spoken,
+      bound: true,
+      required,
+      display: spoken,
+      write: spoken,
+      hint: '',
+    })
+  }
+  const writePatch = {}
+  const displayPatch = {}
+  for (const cell of cells) {
+    if (!cell.bound || cell.write == null || cell.write === '' || !cell.writeKey) continue
+    writePatch[cell.writeKey] = cell.write
+    displayPatch[cell.key] = cell.display
+  }
+  return {
+    writePatch,
+    displayPatch,
+    cells,
+    blockConfirm: cells.some(cellBlocks),
+  }
 }

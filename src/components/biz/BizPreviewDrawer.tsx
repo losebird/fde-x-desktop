@@ -10,8 +10,10 @@ type Props = {
   originalRow?: SheetRow
   patch?: Record<string, unknown>
   columns?: Array<{ key: string; label?: string }>
+  allowRebind?: boolean
   onClose: () => void
   onConfirm: () => void
+  onPick?: (field: string, id: string) => void
 }
 
 export function BizPreviewDrawer({
@@ -22,8 +24,10 @@ export function BizPreviewDrawer({
   originalRow,
   patch,
   columns,
+  allowRebind = false,
   onClose,
   onConfirm,
+  onPick,
 }: Props) {
   const summary = buildPreviewSummary(sheet, {
     originalRow,
@@ -53,6 +57,7 @@ export function BizPreviewDrawer({
         <PreviewChangesList
           changes={summary.changes}
           emptyMessage={summary.emptyHint || (summary.alreadyAtTarget ? summary.subtitle : undefined)}
+          onPick={onPick}
         />
       </div>
 
@@ -71,7 +76,7 @@ export function BizPreviewDrawer({
           <button
             type="button"
             className="btn-brand flex-1"
-            disabled={!canWrite || loading}
+            disabled={loading || (!canWrite && !allowRebind)}
             title={canWrite ? '' : (gateReason || '当前令牌不允许写入')}
             onClick={onConfirm}
           >

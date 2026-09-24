@@ -21,7 +21,7 @@ const staged = mkdtempSync(join(tmpdir(), 'lan-assist-confirm-'))
 cpSync(vendorDir, staged, { recursive: true })
 cpSync(overlayDir, staged, { recursive: true })
 const { createGate } = await import(pathToFileURL(join(staged, 'write.js')).href)
-const { voidUnusedTokens } = await import(pathToFileURL(join(staged, 'gate.js')).href)
+const { createGate: createOpening, voidUnusedTokens } = await import(pathToFileURL(join(staged, 'gate.js')).href)
 
 const kind = 'KindW'
 const vocab = [{
@@ -152,6 +152,7 @@ test('wrote follow-up lookup stays a lookup and does not mint a write token', as
   let lookups = 0
   const gate = createGate({
     vocab,
+    fieldsOf: async () => [{ name: 'title', title: '标题', interface: 'input' }],
     lookupTodo() {
       lookups += 1
       return { ok: true, matches: [{ no: 'ROW-1', status: 'open', fields: { title: '甲' } }], no: 'ROW-1', status: 'open', fields: { title: '甲' } }
@@ -162,6 +163,7 @@ test('wrote follow-up lookup stays a lookup and does not mint a write token', as
     kind,
     action: '现查',
     speech,
+    patch: { title: '甲' },
     workspace: '/tmp/confirm-ws',
   })
   assert.equal(minted.action, '新建')
@@ -181,4 +183,125 @@ test('wrote follow-up lookup stays a lookup and does not mint a write token', as
   assert.equal(String(looked.preview_id || lookedSheet.preview_id || '').trim(), '')
   assert.equal(gate.tokens.size, before + 1)
   assert.ok(lookups >= 1)
+})
+
+test('empty create patch does not mint a token; a literal patch does', async () => {
+  const gate = createGate({
+    vocab,
+    fieldsOf: async () => [{ name: 'title', title: '标题' }],
+    lookupTodo() {
+      return { ok: true, matches: [], no: '', status: '', fields: {} }
+    },
+  })
+  const before = gate.tokens.size
+  const empty = await gate.preview({
+    kind,
+    action: '新建',
+    patch: {},
+    speech: '新建一笔',
+    workspace: '/tmp/confirm-ws',
+  })
+  const emptySheet = empty.sheet && typeof empty.sheet === 'object' ? empty.sheet : empty
+  assert.equal(gate.tokens.size, before)
+  assert.equal(String(empty.preview_id || emptySheet.preview_id || '').trim(), '')
+
+  const filled = await gate.preview({
+    kind,
+    action: '新建',
+    patch: { title: '甲' },
+    speech: '新建一笔',
+    workspace: '/tmp/confirm-ws',
+  })
+  assert.equal(gate.tokens.size, before + 1)
+  assert.ok(String(filled.preview_id || '').trim())
+  const token = gate.tokens.get(filled.preview_id)
+  assert.equal(token.patch.title, '甲')
+})
+
+test('confirm posts only the clicked changed token and voids empty creates first', async () => {
+  const tokens = new Map([
+    ['pv-empty', { used: false, action: '新建', patch: {}, expiresAt: 9_000_000_000_000 }],
+    ['pv-real', { used: false, action: '新建', patch: { title: '甲' }, expiresAt: 9_000_000_000_000 }],
+    ['pv-other', { used: false, action: '删除', patch: {}, no: 'ROW-2', expiresAt: 9_000_000_000_000 }],
+  ])
+  const posts = []
+  const state = {
+    pendingWrite: {
+      openingId: 'open-1',
+      preview_id: 'pv-empty',
+      sessionId: 'sess-a',
+      lines: [
+        { preview_id: 'pv-empty', action: '新建', kind, patch: {}, no: '新单' },
+        { preview_id: 'pv-real', action: '新建', kind, patch: { title: '甲' }, no: '新单' },
+        { preview_id: 'pv-other', action: '删除', kind, no: 'ROW-2' },
+      ],
+    },
+    pendingSheet: { kind, where: [{ keys: ['title'], values: ['甲'] }] },
+  }
+  const opening = createOpening({
+    store: {
+      async get() { return state },
+      async update(fn) { fn(state) },
+    },
+    now: () => 1_000,
+    snapshot: async () => ({}),
+    note() {},
+    opts: {
+      gate: {
+        tokens,
+        async write(spec) {
+          posts.push(spec.preview_id)
+          return { ok: true, no: 'ROW-9', receiptId: 'r1' }
+        },
+      },
+    },
+    catalogOf: () => [],
+    reopenReplyDraft: async () => false,
+    hearBusinessEvent: async () => {},
+    rememberFocus() {},
+  })
+  const written = await opening.commitWrite({
+    preview_id: 'pv-real',
+    source: 'workstation',
+    sessionId: 'sess-a',
+  })
+  assert.equal(written.ok, true)
+  assert.deepEqual(posts, ['pv-real'])
+  assert.equal(tokens.get('pv-empty').used, true)
+  assert.equal(tokens.get('pv-other').used, true)
+
+  const emptyPosts = []
+  tokens.set('pv-empty', { used: false, action: '新建', patch: {}, expiresAt: 9_000_000_000_000 })
+  state.pendingWrite = {
+    openingId: 'open-2',
+    preview_id: 'pv-empty',
+    lines: [{ preview_id: 'pv-empty', action: '新建', kind, patch: {} }],
+  }
+  opening.opts = undefined
+  const refused = await createOpening({
+    store: {
+      async get() { return state },
+      async update(fn) { fn(state) },
+    },
+    now: () => 1_000,
+    snapshot: async () => ({}),
+    note() {},
+    opts: {
+      gate: {
+        tokens,
+        async write(spec) {
+          emptyPosts.push(spec.preview_id)
+          return { ok: true, no: 'NO' }
+        },
+      },
+    },
+    catalogOf: () => [],
+    reopenReplyDraft: async () => false,
+    hearBusinessEvent: async () => {},
+    rememberFocus() {},
+  }).commitWrite({ preview_id: 'pv-empty', source: 'workstation' })
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error, 'NO_PATCH')
+  assert.deepEqual(emptyPosts, [])
+  assert.equal(tokens.get('pv-empty').used, true)
 })

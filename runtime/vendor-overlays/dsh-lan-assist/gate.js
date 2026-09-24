@@ -450,7 +450,70 @@ export function createGate(bag) {
       }
     }
     const inBundle = lines.some((row) => String(row.preview_id || '') === wanted)
-    const jobs = inBundle && lines.length ? lines : [{ preview_id: wanted }]
+    const tokenStore = opts.gate && opts.gate.tokens
+    const storedToken = (id) => {
+      if (!tokenStore || typeof tokenStore.get !== 'function') return null
+      return tokenStore.get(String(id || '').trim()) || null
+    }
+    const linePatch = (row) => {
+      const token = storedToken(row && row.preview_id)
+      const patch = token && token.patch && typeof token.patch === 'object'
+        ? token.patch
+        : (row && row.patch)
+      return patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {}
+    }
+    const lineAct = (row) => {
+      const token = storedToken(row && row.preview_id)
+      return String((token && token.action) || (row && row.action) || '').trim()
+    }
+    const emptyCreate = (row) => lineAct(row) === '新建' && Object.keys(linePatch(row)).length === 0
+    const hasChange = (row) => {
+      const action = lineAct(row)
+      const patch = linePatch(row)
+      if (action === '新建' || action === '改行') return Object.keys(patch).length > 0
+      if (action === '删除' || action === '过审') return true
+      return Object.keys(patch).length > 0
+    }
+    const clicked = (inBundle ? lines : []).find((row) => String(row && row.preview_id || '') === wanted) || { preview_id: wanted }
+    const emptyIds = lines.filter((row) => emptyCreate(row) && String(row && row.preview_id || '') !== wanted)
+      .map((row) => row && row.preview_id)
+    voidUnusedTokens(tokenStore, emptyIds)
+    if (emptyCreate(clicked)) {
+      voidUnusedTokens(tokenStore, [wanted])
+      return {
+        ok: false,
+        failed: true,
+        error: 'NO_PATCH',
+        hint: '空牌不能过账。',
+        speak: '空牌不能过账。',
+        preview_id: wanted,
+        lines: [],
+      }
+    }
+    const clickedToken = storedToken(wanted)
+    if (clickedToken && clickedToken.used) {
+      return {
+        ok: false,
+        failed: true,
+        error: 'USED',
+        hint: '这张预览已经用过。要写再预览一次。',
+        speak: '这张预览已经用过。要写再预览一次。',
+        preview_id: wanted,
+        lines: [],
+      }
+    }
+    if (!hasChange(clicked)) {
+      return {
+        ok: false,
+        failed: true,
+        error: 'NO_PATCH',
+        hint: '这张牌没有变更。',
+        speak: '这张牌没有变更。',
+        preview_id: wanted,
+        lines: [],
+      }
+    }
+    const jobs = [clicked]
     const results = []
     for (const [index, row] of jobs.entries()) {
       if (!row.preview_id) {
@@ -473,9 +536,9 @@ export function createGate(bag) {
       results.push({
         ...written,
         kind: row.kind || written.kind,
-        no: row.no || written.no,
         action: row.action,
         patch: row.patch,
+        no: String((written && written.no) || row.no || '').trim(),
         preview_id: row.preview_id,
       })
     }
@@ -524,11 +587,19 @@ export function createGate(bag) {
       workspace: pending.workspace || spec.workspace || '',
     })
     const sid = ok && !failed && String(pending.sessionId || spec.sessionId || '').trim()
+    const wroteRows = results.filter((row) => row && row.ok && !row.failed)
+    const wroteNos = wroteRows.map((row) => String(row.no || '').trim()).filter(Boolean)
+    const sheetWhere = pending && pending.sheet && Array.isArray(pending.sheet.where) ? pending.sheet.where : []
     sid && await reopenReplyDraft(sid) && (result.followup = {
       sessionId: sid,
       plugin: PLUGIN,
       workspace: pending.workspace || '',
       roundClose: 'wrote',
+      wroteIdentity: {
+        no: wroteNos.length === 1 ? wroteNos[0] : '',
+        nos: wroteNos,
+        ...(sheetWhere.length ? { where: sheetWhere } : {}),
+      },
       text: briefFollowup({
         quote: [result.speak, '库里已改上。回信要用现在的值，不要沿用预览前的旧号。'].filter(Boolean).join('\n'),
         catalog: catalogOf(),

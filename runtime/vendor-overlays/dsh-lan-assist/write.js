@@ -5,10 +5,10 @@
  */
 
 import { randomHex } from './crypto.js'
-import { collectionFields, connectorCatalogPresent, hopLinkParentIds, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, rowIdentity, schemaHasField, ticketColumn, writableFieldChoices } from './lookup.js'
+import { collectionFields, connectorCatalogPresent, hopLinkParentIds, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, rowIdentity, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
-import { BATCH_LIMIT, PAGE_SIZE, bindPatchEnums, normalizePlan } from './plan.js'
+import { BATCH_LIMIT, PAGE_SIZE, normalizePlan } from './plan.js'
 import { dropSpokenBatchRowId, enrichStructuredSlots, ensurePlanSelfHop, generatedSelfLoopEdgePeers, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
 import { WHERE_LIST_CAP } from './where-pass.js'
 import { createTraceLog } from './traces.js'
@@ -16,11 +16,11 @@ import { speakLookup } from './probe.js'
 import { redactEnvelopeText, refLabel } from './ref.js'
 import {
   approveNextStatusCode,
+  bindSpokenCells,
   fkColumnForRelation,
   relationSchemaField,
   resolveRelatedId,
   statusLabelForCode,
-  stripRelationKeys,
 } from './relation-bind.js'
 
 export { relationSchemaField } from './relation-bind.js'
@@ -179,7 +179,34 @@ export function packSheet(spec = {}) {
       addCol(key, label, schemaEnums(key))
     }
   }
-  const changes = Object.keys(changePatch).flatMap((key) => {
+  const cellChanges = Array.isArray(spec.cells) && spec.cells.length
+    ? spec.cells.map((cell) => {
+      if (!cell || typeof cell !== 'object') return null
+      const key = String(cell.key || '').trim()
+      if (!key) return null
+      const label = String(cell.label || '').trim() || displayColumnLabel(key, schemaFields) || fieldSpeak(key)
+      const unbound = cell.bound !== true
+      const to = unbound ? '' : String(cell.display ?? '').trim()
+      const from = action === '新建' ? '' : (fieldValue(lead.fields, key) || fromFallback).trim()
+      if (!unbound && action === '新建' && !to) return null
+      if (!unbound && action !== '新建' && to === from) return null
+      const picks = Array.isArray(cell.picks)
+        ? cell.picks.filter((pick) => pick && pick.id != null).map((pick) => ({
+          id: String(pick.id),
+          label: String(pick.label || pick.id),
+        }))
+        : undefined
+      return {
+        field: key,
+        label,
+        from,
+        to,
+        ...(unbound ? { unbound: true, hint: String(cell.hint || '这一格对不上') } : {}),
+        ...(picks && picks.length ? { picks } : {}),
+      }
+    }).filter(Boolean)
+    : null
+  const changes = cellChanges || Object.keys(changePatch).flatMap((key) => {
     const to = String(changePatch[key] ?? '').trim()
     const from = (fieldValue(lead.fields, key) || fromFallback).trim()
     if (action === '新建') {
@@ -204,6 +231,7 @@ export function packSheet(spec = {}) {
   const alreadyAtTarget = action === '过审' && rows.length > 0 && changes.length === 0
   let canWrite = !!previewId && action !== '现查' && (!many || !!spec.batch)
   if (action === '过审') canWrite = canWrite && changes.length > 0
+  if (spec.blockConfirm) canWrite = false
   let speak = String(spec.speak || spec.hint || '').trim()
   if (alreadyAtTarget) {
     const col = statusColumn(spec.mapped, kind, spec)
@@ -268,6 +296,9 @@ export function packSheet(spec = {}) {
     ...(Number(spec.pageSize) > 0 ? { pageSize: Math.floor(Number(spec.pageSize)) } : {}),
     ...(spec.pageFull === true ? { pageFull: true } : {}),
     ...(Array.isArray(spec.peers) && spec.peers.length ? { peers: spec.peers } : {}),
+    ...(String(spec.lookupNo || '').trim() ? { lookupNo: String(spec.lookupNo).trim() } : {}),
+    ...(Array.isArray(spec.cells) && spec.cells.length ? { cells: spec.cells } : {}),
+    ...(spec.blockConfirm ? { blockConfirm: true } : {}),
   }
 }
 
@@ -1078,16 +1109,14 @@ export function createGate(opts = {}) {
     if ((plan.filterRefused || plan.contradicts) && recognized.action === '现查') {
       return settledList(recognized.kind, { hitTotalState: 'known' })
     }
-    let displayPatch = (recognized.action === '改行' || recognized.action === '新建')
-      ? bindPatchEnums({ ...plan.patch }, schemaFields)
-      : {}
-    if (schemaFields.length && displayPatch && Object.keys(displayPatch).length) {
-      displayPatch = Object.fromEntries(Object.entries(displayPatch).filter(([key]) => schemaHasField(schemaFields, key)))
-    }
-    let writePatch = displayPatch
-    if (displayPatch && Object.keys(displayPatch).length) {
-      writePatch = await bindWritePatch(displayPatch, schemaFields, recognized, loaded.vocab, spec.workspace)
-    }
+    const patchAction = recognized.action === '改行' || recognized.action === '新建'
+    const spokenBind = patchAction
+      ? await bindSpokenPreview(plan.patch, schemaFields, recognized, loaded.vocab, spec.workspace)
+      : { writePatch: {}, displayPatch: {}, cells: [], blockConfirm: false }
+    const displayPatch = spokenBind.displayPatch || {}
+    const writePatch = spokenBind.writePatch || {}
+    const spokenCells = Array.isArray(spokenBind.cells) ? spokenBind.cells : []
+    const blockConfirm = spokenBind.blockConfirm === true
     if (spec.related && spec.related.kind) {
       const hopped = await probe({
         kind: recognized.kind, no: plan.no, line: plan.line, workspace: spec.workspace, staffId: spec.staffId,
@@ -1103,26 +1132,30 @@ export function createGate(opts = {}) {
           kind: recognized.kind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
         })
       }
-      return finishStructured(recognized, rows, hopped, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, undefined, displayPatch)
+      return finishStructured(recognized, rows, hopped, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, undefined, displayPatch, spokenCells, blockConfirm)
     }
     if (recognized.action === '新建') {
       const labelNo = looksLikeTicket(plan.no) ? plan.no : '新单'
       const spoken = speakPreview({ kind: recognized.kind, no: labelNo }, {
         ok: true, status: '未建', to: '新建', action: '新建', fingerprint: `new:${recognized.kind}:${labelNo}`, mine: true,
       })
-      const previewId = `pv_${randomHex(8)}`
+      const issue = !blockConfirm && writePatch && Object.keys(writePatch).length > 0
+      const previewId = issue ? `pv_${randomHex(8)}` : ''
       const token = {
         preview_id: previewId, kind: recognized.kind, no: String(plan.no || labelNo).trim(), line: plan.line,
         action: '新建', patch: writePatch, from: '未建', to: '新建', fingerprint: spoken.fingerprint,
         expiresAt: now() + PREVIEW_TTL_MS, used: false, speak: spoken.speak, vocab: loaded.vocab, mapped: recognized.mapped,
+        blockConfirm,
       }
-      tokens.set(previewId, token)
+      if (issue) tokens.set(previewId, token)
       const fromSlot = nestFromSteps(plan.steps)
       const stepsMeta = planStepsForSheet(plan)
       const hopMeta = sheetWhereFromPlan(plan, spec)
       return await sheet({
         ok: true, ...token, patch: displayPatch, speak: spoken.speak, status: '未建', fields: { ...displayPatch },
         matches: [{ no: labelNo, status: '未建', fields: { ...displayPatch } }],
+        cells: spokenCells,
+        blockConfirm,
       }, {
         action: '新建', no: labelNo, speech: plan.speech,
         ...(fromSlot ? { from: fromSlot } : {}),
@@ -1214,12 +1247,12 @@ export function createGate(opts = {}) {
       pruneHopHits(hitsByKind, plan.steps, extra)
       const targetRows = hitsByKind.get(target.kind) || matches
       if (upstreamIncomplete && found) found = { ...found, hitTotalState: 'incomplete', hitTotal: null }
-      return finishStructured(recognized, targetRows, found, writePatch, plan, spec, loaded, schemaFields, target.kind, hitsByKind, extra, displayPatch)
+      return finishStructured(recognized, targetRows, found, writePatch, plan, spec, loaded, schemaFields, target.kind, hitsByKind, extra, displayPatch, spokenCells, blockConfirm)
     }
-    return finishStructured(recognized, parentMatches, parentFound, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, undefined, displayPatch)
+    return finishStructured(recognized, parentMatches, parentFound, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, undefined, displayPatch, spokenCells, blockConfirm)
   }
 
-  async function finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, kind, hitsByKind, hopExtra, displayPatch = writePatch) {
+  async function finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, kind, hitsByKind, hopExtra, displayPatch = writePatch, spokenCells = [], blockConfirm = false) {
     const sheetKind = kind || recognized.kind
     const matched = Array.isArray(matches) ? matches : []
     const allRows = recognized.action === '现查'
@@ -1291,6 +1324,7 @@ export function createGate(opts = {}) {
         speech: plan.speech,
         where: listWhere,
         hopWhere,
+        ...(String(plan.no || '').trim() ? { lookupNo: String(plan.no).trim() } : {}),
         ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
         ...(listing ? {
           querySettled: true,
@@ -1313,12 +1347,14 @@ export function createGate(opts = {}) {
           status: found && found.status, fields: {}, matches: rows,
           fingerprint: found && found.fingerprint, listed: true, ambiguous: true,
           workspace: (found && found.workspace) || spec.workspace || '',
+          cells: spokenCells,
+          blockConfirm,
         }, { clue: plan.no, speech: plan.speech })
       }
       const identity = writeHasIdentity(plan, spec)
       const writeable = (spec.batch === true || wantsBatch || identity) && (
         recognized.action === '删除' || recognized.action === '过审'
-        || (recognized.action === '改行' && writePatch && Object.keys(writePatch).length)
+        || (recognized.action === '改行' && !blockConfirm && writePatch && Object.keys(writePatch).length)
       )
       if (!writeable || !rows.length) {
         if (!identity && rows.length > 1) {
@@ -1332,6 +1368,8 @@ export function createGate(opts = {}) {
           status: found && found.status, fields: {}, matches: rows,
           fingerprint: found && found.fingerprint, listed: true, ambiguous: true,
           workspace: (found && found.workspace) || spec.workspace || '',
+          cells: spokenCells,
+          blockConfirm,
         }, { clue: plan.no, speech: plan.speech })
       }
       if (rows.length > BATCH_LIMIT) {
@@ -1360,10 +1398,17 @@ export function createGate(opts = {}) {
         workspace: (found && found.workspace) || spec.workspace || '',
       }, { clue: plan.no, speech: plan.speech, batch: true, nos })
     }
-    if (recognized.action === '改行' && !(writePatch && Object.keys(writePatch).length)) {
-      return await sheet(refuse('NO_PATCH', '改行要指出字段。'), {
-        kind: sheetKind, no: rows[0].no, action: recognized.action, speech: plan.speech, matches: rows,
-      })
+    if (recognized.action === '改行' && (!(writePatch && Object.keys(writePatch).length) || blockConfirm)) {
+      if (!(writePatch && Object.keys(writePatch).length) && !spokenCells.length) {
+        return await sheet(refuse('NO_PATCH', '改行要指出字段。'), {
+          kind: sheetKind, no: rows[0].no, action: recognized.action, speech: plan.speech, matches: rows,
+        })
+      }
+      return await sheet({
+        ok: true, kind: sheetKind, no: rows[0].no, action: recognized.action, speak,
+        patch: displayPatch, preview_id: '', cells: spokenCells, blockConfirm: true,
+        status: found && found.status, fields: (rows[0] && rows[0].fields) || {}, matches: rows,
+      }, { clue: plan.no, speech: plan.speech })
     }
     const row = rows[0]
     const resolvedNo = String(row.no || plan.no).trim()
@@ -1393,6 +1438,8 @@ export function createGate(opts = {}) {
     tokens.set(previewId, token)
     return await sheet({
       ok: true, ...token, patch: displayPatch, speak: spoken.speak, fields: row.fields || {}, status: row.status, matches: rows,
+      cells: spokenCells,
+      blockConfirm,
     }, { clue: plan.no, speech: plan.speech })
   }
 
@@ -1407,31 +1454,27 @@ export function createGate(opts = {}) {
     }
   }
 
-  async function bindWritePatch(patch, schemaFields, recognized, vocab, workspace) {
-    const display = patch && typeof patch === 'object' ? { ...patch } : {}
-    if (!Object.keys(display).length) return display
+  async function bindSpokenPreview(patch, schemaFields, recognized, vocab, workspace) {
+    const source = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {}
+    const spec = { kind: recognized.kind, mapped: recognized.mapped, vocab }
     const conn = await previewConn(workspace)
     const fetchImpl = opts.fetchImpl || (typeof fetch === 'function' ? fetch : null)
-    if (!conn || !conn.baseUrl || !fetchImpl) return stripRelationKeys(display, schemaFields)
-    if (typeof opts.collectionsOf === 'function' && (!Array.isArray(conn.collections) || !conn.collections.length)) {
+    if (conn && typeof opts.collectionsOf === 'function' && (!Array.isArray(conn.collections) || !conn.collections.length)) {
       try {
-        const loaded = await opts.collectionsOf(workspace)
-        if (Array.isArray(loaded) && loaded.length) conn.collections = loaded
+        const loadedCols = await opts.collectionsOf(workspace)
+        if (Array.isArray(loadedCols) && loadedCols.length) conn.collections = loadedCols
       } catch { /* catalog optional */ }
     }
+    const ctx = {
+      extra: { vocab, collections: conn && conn.collections },
+      conn: conn || {},
+      fetchImpl,
+      schemaFields,
+    }
     try {
-      return await shapePatch(display, {
-        kind: recognized.kind,
-        mapped: recognized.mapped,
-        vocab,
-      }, {
-        extra: { vocab, collections: conn.collections },
-        conn,
-        fetchImpl,
-        schemaFields,
-      })
+      return await bindSpokenCells(source, schemaFields, spec, ctx)
     } catch {
-      return stripRelationKeys(display, schemaFields)
+      return bindSpokenCells(source, schemaFields, spec, { extra: { vocab }, schemaFields })
     }
   }
 
@@ -1633,6 +1676,10 @@ export function createGate(opts = {}) {
     if (token.action === '改行' && (!token.patch || !Object.keys(token.patch).length)) {
       return refuse('NO_PATCH', '改行要指出字段。')
     }
+    if (token.action === '新建' && (!token.patch || !Object.keys(token.patch).length)) {
+      return refuse('NO_PATCH', '空牌不能过账。')
+    }
+    if (token.blockConfirm) return refuse('UNBOUND', '这一格对不上')
     const writeExtra = { vocab: token.vocab }
     if (typeof opts.collectionsOf === 'function') {
       try {

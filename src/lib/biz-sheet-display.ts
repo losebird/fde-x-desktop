@@ -203,9 +203,13 @@ export function columnLabel(columns: SheetColumn[], key: string) {
 
 export type PreviewChange = {
   label: string
+  field?: string
   from?: string
   to?: string
   value?: string
+  unbound?: boolean
+  hint?: string
+  picks?: Array<{ id: string; label: string }>
 }
 
 export type PreviewSummary = {
@@ -253,10 +257,34 @@ function previewChangesFromSheetPayload(
   const changes: PreviewChange[] = []
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue
-    const row = item as { field?: string; key?: string; label?: string; from?: unknown; to?: unknown }
+    const row = item as {
+      field?: string
+      key?: string
+      label?: string
+      from?: unknown
+      to?: unknown
+      unbound?: boolean
+      hint?: string
+      picks?: Array<{ id?: string; label?: string }>
+    }
     const key = String(row.field || row.key || '').trim()
     const label = String(row.label || columnLabel(columns, key) || key).trim()
     if (!label) continue
+    const picks = Array.isArray(row.picks)
+      ? row.picks
+        .filter((pick) => pick && pick.id != null && String(pick.id).trim())
+        .map((pick) => ({ id: String(pick.id), label: String(pick.label || pick.id) }))
+      : undefined
+    if (row.unbound) {
+      changes.push({
+        label,
+        field: key,
+        unbound: true,
+        hint: String(row.hint || '这一格对不上'),
+        ...(picks && picks.length ? { picks } : {}),
+      })
+      continue
+    }
     const fromRaw = row.from
     const toRaw = row.to
     if (sheetFieldValuesEqual(fromRaw, toRaw)) continue

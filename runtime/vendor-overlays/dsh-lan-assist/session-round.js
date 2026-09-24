@@ -39,6 +39,7 @@ export function isUnfilteredListSheet(sheet) {
   if (!sheet || typeof sheet !== 'object') return false
   if (sheetAction(sheet) !== '现查') return false
   if (sheetPreviewId(sheet)) return false
+  if (String(sheet.lookupNo || '').trim()) return false
   const where = sheet.where ?? sheet.listWhere
   if (Array.isArray(where) && where.length) return false
   if (Array.isArray(sheet.hopWhere) && sheet.hopWhere.length) return false
@@ -118,10 +119,55 @@ export function emptyOtherKindStealsRelation(candidate, incoming) {
   return true
 }
 
+export function sheetCarriesIdentity(sheet) {
+  if (!sheet || typeof sheet !== 'object') return false
+  if (String(sheet.lookupNo || '').trim()) return true
+  const where = sheet.where ?? sheet.listWhere
+  if (Array.isArray(where) && where.length) return true
+  if (Array.isArray(sheet.hopWhere) && sheet.hopWhere.length) return true
+  const from = sheet.from
+  if (from && typeof from === 'object' && !Array.isArray(from) && String(from.kind || '').trim()) return true
+  if (Array.isArray(sheet.steps) && sheet.steps.length) return true
+  return false
+}
+
+function specHasIdentity(spec) {
+  if (!spec || typeof spec !== 'object') return false
+  if (String(spec.no || spec.ticket || '').trim()) return true
+  if (Array.isArray(spec.where) && spec.where.length) return true
+  if (Array.isArray(spec.steps) && spec.steps.some((step) => step && (
+    String(step.no || '').trim() || (Array.isArray(step.where) && step.where.length)
+  ))) return true
+  return false
+}
+
+/** Fill a wrote follow-up lookup with the identity just written, when the call left it off. */
+export function stampWroteLookup(spec, identity) {
+  const next = spec && typeof spec === 'object' ? { ...spec } : {}
+  if (!identity || typeof identity !== 'object' || specHasIdentity(next)) return next
+  const no = String(identity.no || '').trim()
+  if (no) {
+    next.no = no
+    return next
+  }
+  if (Array.isArray(identity.where) && identity.where.length) {
+    next.where = identity.where
+    return next
+  }
+  const nos = Array.isArray(identity.nos)
+    ? identity.nos.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+  if (nos.length === 1) next.no = nos[0]
+  return next
+}
+
 export function isLeftoverAfterCandidate(candidate, incoming) {
   if (!candidate || !incoming) return false
   if (leftoverQueryCoveringWrite(candidate, incoming)) return true
-  if (isUnfilteredListSheet(incoming)) return true
+  if (isUnfilteredListSheet(incoming)) {
+    if (candidate.wroteReceipt === true) return false
+    return true
+  }
   if (sheetRowCount(candidate) > 0 && sheetRowCount(incoming) === 0) return true
   return false
 }
@@ -156,11 +202,12 @@ export function createSessionRoundStore() {
       handed: Boolean(prev && prev.official),
       closedBy: '',
       wroteFollowup,
+      wroteIdentity: wroteFollowup && prev ? (prev.wroteIdentity || null) : null,
     })
     return id
   }
 
-  function closeRound(sessionId, reason = 'turn') {
+  function closeRound(sessionId, reason = 'turn', extra = {}) {
     const sid = String(sessionId || '').trim()
     const round = peek(sid)
     if (!round) return { official: null, emit: false, cancel: false }
@@ -171,6 +218,7 @@ export function createSessionRoundStore() {
       round.kindFocus = null
       round.closedBy = 'wrote'
       round.wroteFollowup = true
+      round.wroteIdentity = extra && extra.identity ? extra.identity : (round.wroteIdentity || null)
       return { official: round.official || null, emit: false, cancel: false }
     }
     if (round.open) {
@@ -217,6 +265,10 @@ export function createSessionRoundStore() {
       }
       startRound(sid)
       round = peek(sid)
+    }
+
+    if (round.wroteFollowup && sheetCarriesIdentity(incomingRaw)) {
+      incomingRaw = { ...incomingRaw, wroteReceipt: true }
     }
 
     if (round.candidate && emptyOtherKindStealsRelation(round.candidate, incomingRaw)) {
@@ -277,6 +329,12 @@ export function createSessionRoundStore() {
     return Boolean(peek(sessionId)?.wroteFollowup)
   }
 
+  function wroteIdentity(sessionId) {
+    const round = peek(sessionId)
+    if (!round || !round.wroteFollowup) return null
+    return round.wroteIdentity || null
+  }
+
   function noteHumanUtterance(sessionId) {
     const round = peek(sessionId)
     if (round) round.wroteFollowup = false
@@ -292,6 +350,7 @@ export function createSessionRoundStore() {
     servedSheet,
     isOpen,
     isWroteFollowup,
+    wroteIdentity,
     noteHumanUtterance,
   }
 }

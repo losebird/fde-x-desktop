@@ -27,7 +27,7 @@ import { createEyesSee, hasEyes } from './eyes-bridge.js'
 import { createGate, createNocoWrite } from './write.js'
 import { rememberUserSpeech } from './slots.js'
 import { createTraceLog } from './traces.js'
-import { createSessionRoundStore } from './session-round.js'
+import { createSessionRoundStore, stampWroteLookup } from './session-round.js'
 
 const schemaMod = await importPeer('@deepseek-ai/schemastery')
 const { defineTool } = await importPeer('@deepseek-ai/dsh-tools')
@@ -90,7 +90,7 @@ export async function apply(ctx, config) {
   async function deliverFollowup(followup) {
     const sid = String(followup && followup.sessionId || '').trim()
     const close = followup && followup.roundClose
-    if (sid && close) sessionRounds.closeRound(sid, close)
+    if (sid && close) sessionRounds.closeRound(sid, close, { identity: followup.wroteIdentity })
     return tryFollowup(agentsCtx, followup)
   }
 
@@ -216,7 +216,9 @@ export async function apply(ctx, config) {
     const sid = String((spec && spec.sessionId) || '').trim()
     const toolAction = String((spec && spec.action) || '').trim()
     const locked = Boolean(sid && sessionRounds.isWroteFollowup(sid) && toolAction === '现查')
-    return origPreviewBiz(locked ? { ...spec, lookupLocked: true } : spec)
+    const ident = locked && typeof sessionRounds.wroteIdentity === 'function' ? sessionRounds.wroteIdentity(sid) : null
+    const stamped = ident ? stampWroteLookup(spec, ident) : spec
+    return origPreviewBiz(locked ? { ...stamped, lookupLocked: true } : spec)
   }
   const origHall = secretary.hall.bind(secretary)
   const origSnapshot = secretary.snapshot.bind(secretary)
