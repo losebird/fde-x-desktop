@@ -5,7 +5,7 @@
  */
 
 import { randomHex } from './crypto.js'
-import { collectionFields, connectorCatalogPresent, hopLinkParentIds, kindPreviewableInCatalog, mapKind, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, rowIdentity, ticketColumn, writableFieldChoices } from './lookup.js'
+import { collectionFields, connectorCatalogPresent, hopLinkParentIds, kindPreviewableInCatalog, mapKind, matchedWriteIdentity, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, rowIdentity, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, normalizePlan } from './plan.js'
@@ -1718,7 +1718,29 @@ export function createGate(opts = {}) {
       }
       for (const no of nos) {
         try {
-          const posted = await opts.postWrite({ ...token, no, batch: false, nos: undefined, preview_id: previewId, trace_id: traceId ? `${traceId}:${no}` : '' })
+          let lookup
+          let fields
+          if (token.action !== '新建') {
+            const found = await probe({ ...token, no })
+            fields = found && found.fields
+            lookup = found && found.ok !== false
+              ? writeIdentity({ ...token, no }, found, writeExtra.collections)
+              : null
+            if (!lookup) {
+              failed.push(no)
+              continue
+            }
+          }
+          const posted = await opts.postWrite({
+            ...token,
+            no,
+            lookup,
+            fields,
+            batch: false,
+            nos: undefined,
+            preview_id: previewId,
+            trace_id: traceId ? `${traceId}:${no}` : '',
+          })
           if (!posted || posted.ok === false || posted.failed) failed.push(no)
           else done.push(no)
         } catch {
@@ -1737,10 +1759,15 @@ export function createGate(opts = {}) {
       })
       return { ok: true, preview_id: previewId, trace_id: traceId, nos, done, speak: `已按预览处理${done.length}条。` }
     }
+    let lookup
+    let rowFields
     if (token.action !== '新建') {
       const found = await probe(token)
       const gate = previewStillHolds(token, found)
       if (!gate.ok) return { ok: false, error: gate.error, hint: gate.hint }
+      rowFields = found && found.fields
+      lookup = writeIdentity(token, found, writeExtra.collections)
+      if (!lookup) return refuse('NO_LOOKUP', '对不上这一行，不能过账。')
     }
     token.used = true
     tokens.set(previewId, token)
@@ -1753,6 +1780,8 @@ export function createGate(opts = {}) {
     try {
       posted = await opts.postWrite({
         ...token,
+        lookup,
+        fields: rowFields,
         preview_id: previewId,
         trace_id: traceId,
       })
@@ -2027,7 +2056,13 @@ export function createNocoWrite(opts = {}) {
         : spec.action === '删除'
           ? undefined
           : await shapePatch(spec.patch, { ...spec, vocab }, { extra: { ...extra, vocab }, conn, fetchImpl, schemaFields })
-      const dest = writeDest(conn, mapped, look, spec.action, spec.kind)
+      const identity = spec.action === '新建'
+        ? null
+        : resolveWriteIdentity(spec, look, schemaFields, mapped)
+      if (spec.action !== '新建' && !identity) {
+        return { ok: false, failed: true, error: 'NO_LOOKUP', hint: '对不上这一行，不能过账。' }
+      }
+      const dest = writeDest(conn, mapped, look, spec.action, spec.kind, identity)
       if (!dest) return { ok: false, error: 'NO_WRITE_PATH', failed: true }
       const dialect = String((conn && conn.dialect) || 'nocobase') === 'rest' ? 'rest' : 'nocobase'
       const body = dest.method === 'GET' || dest.method === 'DELETE' || !values
@@ -2054,6 +2089,9 @@ export function createNocoWrite(opts = {}) {
       }
       let reply = {}
       try { reply = await res.json() } catch { reply = {} }
+      if (spec.action !== '新建' && affectedWriteCount(reply) <= 0) {
+        return { ok: false, failed: true, error: 'WRITE_FAILED', hint: '业务回了，但没有改到行。不能记已处理。' }
+      }
       const receiptId = pickReceiptId(reply)
       const created = createdNo(reply, mapped, extra)
       return { ok: true, receiptId, no: created || receiptId }
@@ -2176,17 +2214,61 @@ function statusColumn(mapped, kind, conn) {
   return 'status'
 }
 
-function writeDest(conn, mapped, look, action, kind) {
+function writeIdentity(token, found, collections) {
+  const mapped = token && token.mapped
+  const look = String((token && token.no) || (found && found.no) || '').trim()
+  const schemaFields = collectionFields(mapped && mapped.resource, collections)
+  return matchedWriteIdentity(found && found.fields, look, schemaFields, mapped)
+}
+
+function resolveWriteIdentity(spec, look, schemaFields, mapped) {
+  const given = spec && spec.lookup
+  const field = String(given && given.field || '').trim()
+  const value = String(given && given.value != null ? given.value : '').trim()
+  if (field && value) return { field, value }
+  const row = spec && spec.fields
+  return matchedWriteIdentity(row, look, schemaFields, mapped)
+}
+
+function affectedWriteCount(reply) {
+  if (!reply || typeof reply !== 'object') return 0
+  const hasData = Object.prototype.hasOwnProperty.call(reply, 'data')
+  const data = hasData ? reply.data : reply
+  if (data == null || data === '') return 0
+  if (typeof data === 'number') return data
+  if (typeof data === 'boolean') return data ? 1 : 0
+  if (Array.isArray(data)) return data.length
+  if (typeof data === 'object') {
+    if (data.id != null && String(data.id).trim() !== '') return 1
+    const raw = data.count != null ? data.count : data.affected
+    const count = Number(raw)
+    if (Number.isFinite(count)) {
+      const keys = Object.keys(data)
+      if (keys.every((key) => key === 'count' || key === 'affected' || key === 'meta')) return count
+    }
+    return 0
+  }
+  return 0
+}
+
+function writeDest(conn, mapped, look, action, kind, identity) {
   const baseUrl = String((conn && conn.baseUrl) || '').replace(/\/+$/, '')
   if (!baseUrl) return null
   const dialect = String((conn && conn.dialect) || 'nocobase') === 'rest' ? 'rest' : 'nocobase'
   const act = String(action || '').trim()
-  const field = String((conn && conn.ticketField) || ticketColumn(mapped, kind))
+  const picked = identity && String(identity.field || '').trim() && String(identity.value ?? '').trim()
+    ? { field: String(identity.field).trim(), value: String(identity.value).trim() }
+    : null
+  const field = picked
+    ? picked.field
+    : String((conn && conn.ticketField) || ticketColumn(mapped, kind))
+  const needle = picked ? picked.value : look
   if (dialect === 'rest') {
     const raw = String((conn && (conn.writePath || conn.updatePath)) || '').trim()
     if (!raw) return null
+    if (act !== '新建' && !picked) return null
     const path = raw
-      .replace(/\{no\}|\{ticket\}/g, encodeURIComponent(look))
+      .replace(/\{no\}|\{ticket\}/g, encodeURIComponent(needle))
       .replace(/\{kind\}/g, encodeURIComponent(mapped.resource || ''))
       .replace(/\{field\}/g, encodeURIComponent(field))
     const method = act === '删除'
@@ -2199,7 +2281,8 @@ function writeDest(conn, mapped, look, action, kind) {
   if (act === '新建') {
     return { url: `${baseUrl}/api/${mapped.resource}:create`, method: 'POST' }
   }
-  const filter = encodeURIComponent(JSON.stringify({ [field]: look }))
+  if (!picked) return null
+  const filter = encodeURIComponent(JSON.stringify({ [picked.field]: picked.value }))
   const verb = act === '删除' ? 'destroy' : 'update'
   return { url: `${baseUrl}/api/${mapped.resource}:${verb}?filter=${filter}`, method: 'POST' }
 }

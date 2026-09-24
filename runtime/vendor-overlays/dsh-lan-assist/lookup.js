@@ -1766,6 +1766,44 @@ export function identityFilterKeys(spec, schemaFields, look) {
   return [...new Set(keys)]
 }
 
+function scalarEqual(row, field, look) {
+  if (!row || typeof row !== 'object' || !field) return ''
+  const raw = row[field]
+  if (raw == null || raw === '') return ''
+  if (typeof raw === 'object') return ''
+  const text = String(raw).trim()
+  if (!text || text !== look) return ''
+  return text
+}
+
+/**
+ * Column probe already accepted this row on. Same keys as `identityFilterKeys`.
+ * The business cell is used only when that cell on the row equals the look.
+ * Otherwise a schema identifier (snowflakeId / uuid / nanoid) that equals the look.
+ * @returns {{ field: string, value: string } | null}
+ */
+export function matchedWriteIdentity(row, look, schemaFields, spec) {
+  const value = String(look || '').trim()
+  if (!value || !row || typeof row !== 'object') return null
+  const keys = identityFilterKeys(spec, schemaFields, value)
+  const pk = new Set(identifierFieldNames(schemaFields))
+  let business = ''
+  const identifiers = []
+  for (const key of keys) {
+    if (pk.has(key)) identifiers.push(key)
+    else if (!business) business = key
+  }
+  if (business) {
+    const cell = scalarEqual(row, business, value)
+    if (cell) return { field: business, value: cell }
+  }
+  for (const field of identifiers) {
+    const cell = scalarEqual(row, field, value)
+    if (cell) return { field, value: cell }
+  }
+  return null
+}
+
 export function nocobasePath(kindOrSpec, ticket, kind, schemaFields) {
   const spec = kindOrSpec && typeof kindOrSpec === 'object' && kindOrSpec.resource
     ? kindOrSpec
