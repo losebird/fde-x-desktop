@@ -329,13 +329,14 @@ function resolveRowKeys(row, keys) {
   return out.length ? [...new Set(out)] : listed
 }
 
-function termHits(row, term) {
+function termHits(row, term, textPass) {
   const keys = resolveRowKeys(row, Array.isArray(term.keys) && term.keys.length ? term.keys : null)
   const values = Array.isArray(term.values) ? term.values.map((item) => String(item || '').toLowerCase()).filter(Boolean) : []
   const readable = keys.filter((key) => fieldText(row, key) !== '')
+  const exactText = term && term.text === true && textPass !== 'contains'
   const hitValue = values.length && readable.some((key) => {
     const text = fieldText(row, key).toLowerCase()
-    return values.some((item) => text === item || text.includes(item))
+    return values.some((item) => (exactText ? text === item : text === item || text.includes(item)))
   })
   if (term.not) {
     if (!values.length || !readable.length) return false
@@ -371,12 +372,12 @@ export function groupClueTerms(terms, join = 'and') {
   return { join: 'and', groups: list.map((term) => [term]) }
 }
 
-export function rowMatchesAll(row, terms, join = 'and') {
+export function rowMatchesAll(row, terms, join = 'and', textPass) {
   if (!row || typeof row !== 'object') return false
   const packed = groupClueTerms(terms, join)
   if (!packed.groups.length) return true
-  if (packed.join === 'or') return packed.groups.flat().some((term) => termHits(row, term))
-  return packed.groups.every((group) => group.some((term) => termHits(row, term)))
+  if (packed.join === 'or') return packed.groups.flat().some((term) => termHits(row, term, textPass))
+  return packed.groups.every((group) => group.some((term) => termHits(row, term, textPass)))
 }
 
 export function rowMatches(row, look, fields) {

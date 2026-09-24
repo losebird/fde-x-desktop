@@ -9,7 +9,7 @@ import { collectionFields, connectorCatalogPresent, hopLinkParentIds, kindPrevie
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, normalizePlan } from './plan.js'
-import { dropSpokenBatchRowId, enrichStructuredSlots, ensurePlanSelfHop, generatedSelfLoopEdgePeers, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
+import { columnScopedSpeech, dropSpokenBatchRowId, enrichStructuredSlots, ensurePlanSelfHop, generatedSelfLoopEdgePeers, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
 import { WHERE_LIST_CAP } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
@@ -299,6 +299,7 @@ export function packSheet(spec = {}) {
     ...(String(spec.lookupNo || '').trim() ? { lookupNo: String(spec.lookupNo).trim() } : {}),
     ...(Array.isArray(spec.cells) && spec.cells.length ? { cells: spec.cells } : {}),
     ...(spec.blockConfirm ? { blockConfirm: true } : {}),
+    ...(spec.columnMiss === true ? { columnMiss: true } : {}),
   }
 }
 
@@ -766,6 +767,18 @@ export function nextStatus(action, status, schemaFields, vocab) {
  *   now?: () => number,
  * }} [opts]
  */
+function textColumnTerms(source) {
+  const out = []
+  const take = (where) => {
+    for (const term of Array.isArray(where) ? where : []) {
+      if (term && term.text === true) out.push(term)
+    }
+  }
+  take(source && source.where)
+  for (const step of (source && source.steps) || []) take(step && step.where)
+  return out
+}
+
 export function createGate(opts = {}) {
   const staticVocab = Array.isArray(opts.vocab) && opts.vocab.length ? opts.vocab : null
   const now = opts.now || (() => Date.now())
@@ -1075,16 +1088,36 @@ export function createGate(opts = {}) {
       sidePeers = await packPeerSheets()
     }
     plan.packedPeers = sidePeers
+    function columnMissHint(kindName, terms) {
+      const titles = [...new Set((Array.isArray(terms) ? terms : []).map((term) => (
+        String(term.title || (term.keys && term.keys[0]) || '').trim()
+      )).filter(Boolean))]
+      if (!titles.length) return ''
+      const who = String(kindName || '').trim() || '这张单'
+      return `${who}的${titles.join('、')}这一列对不上，0 条，不是没去查。`
+    }
+    function missSpeak(kindName, found) {
+      const terms = textColumnTerms(plan)
+      const missed = !found || found.ok === false
+      if (missed && terms.length) {
+        const hint = columnMissHint(kindName, terms)
+        if (hint) return { speak: hint, columnMiss: true }
+      }
+      return {
+        speak: speakLookup({ kind: kindName, no: '' }, found && found.ok === false ? found : { ok: false, error: 'NOT_FOUND' }),
+      }
+    }
     async function settledList(kindName, account) {
       const page = Number(plan.page) > 0 ? Math.floor(Number(plan.page)) : 1
       const state = account && account.hitTotalState === 'incomplete' ? 'incomplete' : 'known'
       const total = state === 'known' ? 0 : null
+      const missed = missSpeak(kindName, { ok: false, error: 'NOT_FOUND' })
       return sheet({
         ok: true,
         kind: kindName,
         no: '',
         action: '现查',
-        speak: speakLookup({ kind: kindName, no: '' }, { ok: false, error: 'NOT_FOUND' }),
+        speak: missed.speak,
         matches: [],
         listed: true,
         querySettled: true,
@@ -1104,6 +1137,7 @@ export function createGate(opts = {}) {
         page,
         pageSize: PAGE_SIZE,
         ...sheetWhereFromPlan(plan, spec),
+        ...(missed.columnMiss ? { columnMiss: true } : {}),
       })
     }
     if ((plan.filterRefused || plan.contradicts) && recognized.action === '现查') {
@@ -1127,9 +1161,10 @@ export function createGate(opts = {}) {
         ? hopped.matches
         : (hopped && hopped.ok && hopped.no ? [{ no: hopped.no, status: hopped.status, fields: hopped.fields || {} }] : [])
       if (!rows.length) {
-        const hopSpeak = speakLookup({ kind: recognized.kind, no: '' }, hopped && hopped.ok === false ? hopped : { ok: false, error: 'NOT_FOUND' })
-        return await sheet(refuse('NOT_FOUND', hopSpeak), {
-          kind: recognized.kind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
+        const missed = missSpeak(recognized.kind, hopped && hopped.ok === false ? hopped : { ok: false, error: 'NOT_FOUND' })
+        return await sheet(refuse('NOT_FOUND', missed.speak), {
+          kind: recognized.kind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: missed.speak, matches: [],
+          ...(missed.columnMiss ? { columnMiss: true } : {}),
         })
       }
       return finishStructured(recognized, rows, hopped, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, undefined, displayPatch, spokenCells, blockConfirm)
@@ -1185,12 +1220,13 @@ export function createGate(opts = {}) {
           hitTotalState: parentFound && parentFound.hitTotalState === 'incomplete' ? 'incomplete' : 'known',
         })
       }
-      const speak = (parentFound && parentFound.error === 'NO_CONNECTOR')
-        ? `${emptyKind}：没连业务，不能装成已查。`
-        : speakLookup({ kind: emptyKind, no: '' }, parentFound && parentFound.ok === false ? parentFound : { ok: false, error: 'NOT_FOUND' })
-      return await sheet(refuse(parentFound && parentFound.error ? parentFound.error : 'NOT_FOUND', speak), {
-        kind: emptyKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak, matches: [],
+      const missedSpeak = (parentFound && parentFound.error === 'NO_CONNECTOR')
+        ? { speak: `${emptyKind}：没连业务，不能装成已查。` }
+        : missSpeak(emptyKind, parentFound && parentFound.ok === false ? parentFound : { ok: false, error: 'NOT_FOUND' })
+      return await sheet(refuse(parentFound && parentFound.error ? parentFound.error : 'NOT_FOUND', missedSpeak.speak), {
+        kind: emptyKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: missedSpeak.speak, matches: [],
         ...sheetWhereFromPlan(plan, spec),
+        ...(missedSpeak.columnMiss ? { columnMiss: true } : {}),
       })
     }
     const parentMatches = parentFound.matches && parentFound.matches.length
@@ -1211,9 +1247,10 @@ export function createGate(opts = {}) {
           if (recognized.action === '现查') {
             return settledList(hopKind, { hitTotalState: upstreamIncomplete ? 'incomplete' : 'known' })
           }
-          const hopSpeak = speakLookup({ kind: hopKind, no: '' }, { ok: false, error: 'NOT_FOUND' })
-          return await sheet(refuse('NOT_FOUND', hopSpeak), {
-            kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
+          const missed = missSpeak(hopKind, { ok: false, error: 'NOT_FOUND' })
+          return await sheet(refuse('NOT_FOUND', missed.speak), {
+            kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: missed.speak, matches: [],
+            ...(missed.columnMiss ? { columnMiss: true } : {}),
           })
         }
         const link = hopLinkIds(prevKind, hopKind, matches, extra, step && step.relation)
@@ -1233,9 +1270,10 @@ export function createGate(opts = {}) {
               hitTotalState: lookupFailed || upstreamIncomplete ? 'incomplete' : 'known',
             })
           }
-          const hopSpeak = speakLookup({ kind: hopKind, no: '' }, hopped && hopped.ok === false ? hopped : { ok: false, error: 'NOT_FOUND' })
-          return await sheet(refuse('NOT_FOUND', hopSpeak), {
-            kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: hopSpeak, matches: [],
+          const missed = missSpeak(hopKind, hopped && hopped.ok === false ? hopped : { ok: false, error: 'NOT_FOUND' })
+          return await sheet(refuse('NOT_FOUND', missed.speak), {
+            kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: missed.speak, matches: [],
+            ...(missed.columnMiss ? { columnMiss: true } : {}),
           })
         }
         matches = stampParentLabels(prevKind, matches, nextRows, hopKind, extra)
@@ -1340,7 +1378,8 @@ export function createGate(opts = {}) {
       const bag = { vocab: loaded.vocab, ...(hopExtra && typeof hopExtra === 'object' ? hopExtra : {}) }
       const nameIdentity = leftoverNameIdentity(plan.speech, loaded.vocab, bag, spec)
       const wantsBatch = spec.batch === true || spokenWantsBatch(plan.speech, loaded.vocab, bag)
-      if (nameIdentity && !wantsBatch && spec.picked !== true) {
+      const textScoped = textColumnTerms(plan).length > 0
+      if ((nameIdentity || textScoped) && !wantsBatch && spec.picked !== true) {
         return await sheet({
           ok: true, kind: sheetKind, no: '', action: recognized.action, speak,
           patch: recognized.action === '现查' ? undefined : displayPatch,
@@ -1548,12 +1587,13 @@ export function createGate(opts = {}) {
     if (!replaying) {
       const batchSpeech = String(enriched.speech || spec.speech || userSpeech || '').trim()
       const batchKind = String(enriched.kind || spec.kind || '').trim()
-      let selfLoopPeers = generatedSelfLoopEdgePeers(batchKind, batchSpeech, enriched, loaded.vocab, enrichExtra)
+      const scanSpeech = columnScopedSpeech(batchSpeech, batchKind, loaded.vocab, enrichExtra)
+      let selfLoopPeers = generatedSelfLoopEdgePeers(batchKind, scanSpeech, enriched, loaded.vocab, enrichExtra)
       if (!selfLoopPeers.length && userSpeech && userSpeech !== batchSpeech) {
-        selfLoopPeers = generatedSelfLoopEdgePeers(batchKind, userSpeech, enriched, loaded.vocab, enrichExtra)
+        selfLoopPeers = generatedSelfLoopEdgePeers(batchKind, columnScopedSpeech(userSpeech, batchKind, loaded.vocab, enrichExtra), enriched, loaded.vocab, enrichExtra)
       }
       enriched.peers = mergePlanPeerRows(
-        unlinkedConditionKinds(batchSpeech, batchKind, loaded.vocab, enrichExtra),
+        unlinkedConditionKinds(scanSpeech, batchKind, loaded.vocab, enrichExtra),
         selfLoopPeers,
       )
     }

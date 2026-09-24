@@ -899,25 +899,37 @@ export function createLookup(opts = {}) {
         (Array.isArray(term.dateBefore) && term.dateBefore.length)
         || (Array.isArray(term.dateAfter) && term.dateAfter.length)
       ))
+      const textTerms = (clues.terms || []).some((term) => term && term.text === true)
       const firstPath = dateClue ? listPath : filteredPath
-      const matchRow = (row) => {
+      const matchRow = (row, textPass) => {
         if (looksLikeRef(ticket)) {
           const no = pickNo(row, ids, extra)
           if (String(no || '') !== String(ticket) && !rowMatches(row, ticket, ids)) return false
         }
-        if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
+        if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and', textPass)) return false
         if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, nameKeys)) return false
         if (!clues.terms.length && nameRest) return rowMatches(row, nameRest, nameKeys)
         return clues.terms.length || hasNameRest || !!clues.rest || looksLikeRef(ticket)
       }
-      let listed = await listAll(firstPath, conn, { limit: whereLimit, keep: matchRow })
+      let listed = await listAll(firstPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, 'exact') })
       if (!listed.ok && listed.error === 'LOOKUP') {
-        listed = await listAll(listPath, conn, { limit: whereLimit, keep: matchRow })
+        listed = await listAll(listPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, 'exact') })
       }
       if (!listed.ok) return listed
       let hit = listed.rows
-      if (!hit.length && clues.terms.length && firstPath !== listPath) {
-        const again = await listAll(listPath, conn, { limit: whereLimit, keep: matchRow })
+      if (!hit.length && textTerms) {
+        const containsClues = {
+          ...clues,
+          terms: clues.terms.map((term) => (term && term.text === true ? { ...term, textPass: 'contains' } : term)),
+        }
+        const containsPath = withRelationAppends(nameCluePath(resource, ticket, nameKeys, containsClues), extra.collections, resource)
+        const again = await listAll(containsPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, 'contains') })
+        if (again.ok) {
+          hit = again.rows
+          listed = again
+        }
+      } else if (!hit.length && clues.terms.length && firstPath !== listPath) {
+        const again = await listAll(listPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, 'exact') })
         if (again.ok) hit = again.rows
       }
       const matches = hit.map((row) => ({
@@ -972,11 +984,14 @@ export function createLookup(opts = {}) {
       if (!restLook) return { ok: false, error: 'UNKNOWN_KIND' }
       const foundRest = await get(restLook, conn)
       if (!foundRest.ok) return foundRest
-      const hit = listRows(foundRest.body).filter((row) => {
-        if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
+      const textTerms = (clues.terms || []).some((term) => term && term.text === true)
+      const keepRest = (row, textPass) => {
+        if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and', textPass)) return false
         if (look) return rowMatches(row, look, fields.length ? fields : Object.keys(row || {}))
         return !!clues.terms.length
-      })
+      }
+      let hit = listRows(foundRest.body).filter((row) => keepRest(row, 'exact'))
+      if (!hit.length && textTerms) hit = listRows(foundRest.body).filter((row) => keepRest(row, 'contains'))
       const matches = hit.map((row) => ({
         no: pickNo(row, ids, extra),
         status: pickStatus(row, conn.statusField),

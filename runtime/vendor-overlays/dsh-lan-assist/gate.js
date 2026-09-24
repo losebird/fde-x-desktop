@@ -197,6 +197,7 @@ export function createGate(bag) {
     const nextAct = String((incoming && incoming.action) || '').trim()
     const prevKind = String((prev && prev.kind) || '').trim()
     const nextKind = String((incoming && incoming.kind) || '').trim()
+    if (incoming && incoming.columnMiss === true) return false
     const waitingHit = Boolean(
       prev
       && prevRows > 1

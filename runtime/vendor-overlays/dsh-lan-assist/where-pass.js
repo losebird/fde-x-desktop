@@ -435,10 +435,23 @@ function enumFilterPart(key, vals, not) {
   return vals.length === 1 ? { [key]: vals[0] } : { [key]: { $in: vals } }
 }
 
+function textFilterPart(key, vals, term) {
+  if (!key || !vals.length) return null
+  if (term && term.textPass === 'contains') {
+    return vals.length === 1
+      ? { [key]: { $includes: vals[0] } }
+      : { $or: vals.map((value) => ({ [key]: { $includes: value } })) }
+  }
+  return enumFilterPart(key, vals, term && term.not)
+}
+
 export function termFilterPart(term, today) {
   const keys = list(term.keys)
   const vals = list(term.values)
   const asciiKeys = [...new Set(keys.filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item)))]
+  if (term && term.text === true) {
+    return textFilterPart(asciiKeys[0], vals, term)
+  }
   let statusPart = null
   if (asciiKeys.length > 1 && vals.length) {
     const slice = asciiKeys.map((key) => enumFilterPart(key, vals, term.not)).filter(Boolean)

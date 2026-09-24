@@ -7,7 +7,7 @@
 import { collectionFields, kindLabelTokens, mapKind, registeredKinds, relatedField, resolveKindAlias, schemaHasField } from './lookup.js'
 import { schemaFieldsForKind } from './enum-clues.js'
 import { enumMap, peelSpoken, saysOf } from './resolve.js'
-import { vocabRow } from './where-pass.js'
+import { fieldLabelMap, vocabRow } from './where-pass.js'
 import { isGateActionCode } from './gate-action-codes.mjs'
 import { createRequire } from 'node:module'
 
@@ -1046,19 +1046,27 @@ function termKey(term) {
 
 function mergeTerms(list) {
   const out = []
-  const seen = new Set()
+  const seen = new Map()
   for (const term of Array.isArray(list) ? list : []) {
     if (!term || typeof term !== 'object') continue
     const key = termKey(term)
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push({
+    if (seen.has(key)) {
+      const prev = seen.get(key)
+      if (term.text === true) prev.text = true
+      if (!prev.title && term.title) prev.title = String(term.title)
+      continue
+    }
+    const packed = {
       keys: [...(term.keys || [])],
       values: [...(term.values || [])],
       not: !!term.not,
       ...(Array.isArray(term.dateBefore) && term.dateBefore.length ? { dateBefore: term.dateBefore } : {}),
       ...(Array.isArray(term.dateAfter) && term.dateAfter.length ? { dateAfter: term.dateAfter } : {}),
-    })
+      ...(term.text === true ? { text: true } : {}),
+      ...(term.title ? { title: String(term.title) } : {}),
+    }
+    seen.set(key, packed)
+    out.push(packed)
   }
   return out
 }
@@ -1108,17 +1116,158 @@ function compressSameKeyTerms(terms) {
   return mergeTerms(terms)
 }
 
-function modelWhereAgreed(modelWhere, hits, kind) {
+function columnClass(field) {
+  const iface = String((field && (field.interface || field.type)) || '').trim()
+  if (/^(m2o|o2m|o2o|m2m|belongsTo|hasMany|hasOne|belongsToMany)$/i.test(iface)) return 'relation'
+  if (field && field.target) return 'relation'
+  if (fieldEnumEntries(field).length) return 'enum'
+  if (/^(datetime|date|time|unixTimestamp|number|integer|percent|json|formula|checkbox|boolean)$/i.test(iface)) return 'other'
+  return 'text'
+}
+
+function suffixLabel(tail, labels) {
+  const sorted = [...labels].filter((label) => label && String(label).length >= 1)
+    .sort((a, b) => String(b).length - String(a).length)
+  const text = String(tail || '')
+  for (const label of sorted) {
+    const say = String(label)
+    if (!text.endsWith(say)) continue
+    const at = text.length - say.length
+    if (at > 0 && /^[A-Za-z0-9_]+$/.test(say) && /[A-Za-z0-9_]/.test(text[at - 1])) continue
+    return say
+  }
+  return ''
+}
+
+function fieldByLabel(label, fields, vocabHit) {
+  const map = fieldLabelMap(vocabHit, fields)
+  const name = map[String(label || '').trim()]
+  if (!name) return null
+  return (Array.isArray(fields) ? fields : []).find((row) => row && String(row.name || '') === String(name)) || null
+}
+
+function fieldForWhereKeys(keys, fields, vocabHit) {
+  for (const key of Array.isArray(keys) ? keys : []) {
+    const hit = fieldByLabel(key, fields, vocabHit)
+    if (hit) return hit
+  }
+  return null
+}
+
+function blankSpan(text, start, end) {
+  if (!(end > start)) return text
+  return `${text.slice(0, start)}${' '.repeat(end - start)}${text.slice(end)}`
+}
+
+const COLUMN_QUOTE = /"([^"]*)"|“([^”]*)”|「([^」]*)」|『([^』]*)』/g
+
+/**
+ * Column named in speech, value is the quote after 是/为.
+ * Schema title or field name. Vocab labels help. No match does not guess a column.
+ * Quote interiors are blanked so they are not enum hits, hops, or leftover names.
+ */
+function columnValueScope(speech, kind, vocab, extra = {}) {
+  const text = String(speech || '')
+  const target = String(kind || '').trim()
+  const fields = schemaFieldsForKind(target, vocab, extra)
+  const empty = { kind: target, scan: text, terms: [], unmatched: false }
+  if (!target || !text.trim() || !fields.length) return empty
+  const vocabHit = vocabRow(target, vocab)
+  const labels = Object.keys(fieldLabelMap(vocabHit, fields))
+  const kinds = registeredKinds({ vocab, ...extra }).filter((item) => item && item !== '口语')
+  const terms = []
+  const blanks = []
+  let unmatched = false
+  const re = new RegExp(COLUMN_QUOTE.source, 'g')
+  let match = re.exec(text)
+  while (match) {
+    const value = String(match[1] ?? match[2] ?? match[3] ?? match[4] ?? '')
+    const quoteStart = match.index
+    const quoteEnd = quoteStart + match[0].length
+    const prefix = text.slice(0, quoteStart).replace(/\s+$/, '')
+    let binder = ''
+    for (const mark of ['是', '为', '：', ':']) {
+      if (prefix.endsWith(mark)) {
+        binder = mark
+        break
+      }
+    }
+    if (binder && value.trim()) {
+      const tail = prefix.slice(0, -binder.length).replace(/\s+$/, '')
+      const label = suffixLabel(tail, labels)
+      const field = label ? fieldByLabel(label, fields, vocabHit) : null
+      if (field && columnClass(field) === 'text') {
+        const title = fieldLabelOf(field)
+        terms.push({
+          keys: [String(field.name)],
+          values: [value],
+          text: true,
+          ...(title ? { title } : {}),
+        })
+        const at = text.lastIndexOf(label, quoteStart)
+        if (at >= 0) blanks.push([at, at + label.length])
+        blanks.push([quoteStart, quoteEnd])
+      } else if (!field && !suffixLabel(tail, kinds)) {
+        unmatched = true
+        const token = (tail.match(/([\u4e00-\u9fffA-Za-z0-9_]{1,32})$/) || [])[1] || ''
+        if (token) {
+          const at = text.lastIndexOf(token, quoteStart)
+          if (at >= 0) blanks.push([at, at + token.length])
+        }
+        blanks.push([quoteStart, quoteEnd])
+      }
+    }
+    match = re.exec(text)
+  }
+  let scan = text
+  for (const [start, end] of blanks.sort((a, b) => b[0] - a[0])) scan = blankSpan(scan, start, end)
+  return { kind: target, scan, terms, unmatched }
+}
+
+export function columnScopedSpeech(speech, kind, vocab, extra = {}) {
+  return columnValueScope(speech, kind, vocab, extra).scan
+}
+
+function modelWhereAgreed(modelWhere, hits, kind, extra = {}) {
+  const fields = schemaFieldsForKind(kind, (extra && extra.vocab) || [], extra)
+  const vocabHit = vocabRow(kind, (extra && extra.vocab) || [])
+  const scope = extra && extra.columnScope
+  const scoped = scope && scope.kind === String(kind || '').trim() && Array.isArray(scope.terms) ? scope.terms : []
   const allowed = new Set(termsForKind(hits, kind).flatMap((term) => (
     (term.values || []).map((item) => String(item))
   )))
-  if (!allowed.size) return []
   const out = []
-  for (const term of Array.isArray(modelWhere) ? modelWhere : []) {
+  const seen = new Set()
+  for (const term of [...scoped, ...(Array.isArray(modelWhere) ? modelWhere : [])]) {
     if (!term || typeof term !== 'object') continue
-    const values = (term.values || []).map((item) => String(item)).filter((value) => allowed.has(value))
+    const hasDate = (Array.isArray(term.dateBefore) && term.dateBefore.length)
+      || (Array.isArray(term.dateAfter) && term.dateAfter.length)
+    if (hasDate) {
+      const values = (term.values || []).map((item) => String(item)).filter((value) => allowed.has(value))
+      if (!values.length) continue
+      out.push({ ...term, values })
+      continue
+    }
+    const rawKeys = (term.keys || []).map((item) => String(item || '').trim()).filter(Boolean)
+    const field = fieldForWhereKeys(rawKeys, fields, vocabHit)
+    if (!field || columnClass(field) !== 'text') continue
+    const name = String(field.name)
+    const scopedHere = scoped.some((item) => (item.keys || []).includes(name))
+    if (!scopedHere) continue
+    const values = (term.values || []).map((item) => String(item)).filter(Boolean)
     if (!values.length) continue
-    out.push({ ...term, values })
+    const title = String(term.title || fieldLabelOf(field) || '').trim()
+    const next = {
+      keys: [name],
+      values,
+      not: !!term.not,
+      text: true,
+      ...(title ? { title } : {}),
+    }
+    const id = JSON.stringify(next)
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push(next)
   }
   return out
 }
@@ -1225,7 +1374,7 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
     packed.from = fillEmptyWhere(packed.from, hits, bag)
   }
   if (packed.kind) {
-    const where = whereForKind(hits, packed.kind, modelWhereAgreed(packed.where, hits, packed.kind), bag)
+    const where = whereForKind(hits, packed.kind, modelWhereAgreed(packed.where, hits, packed.kind, bag), bag)
     if (where.length) packed.where = where
     else delete packed.where
   }
@@ -1254,6 +1403,11 @@ function attachSpeechIdentity(next, speech, vocab, bag, spec) {
   const spokenRef = existingNo && String(speech || '').includes(existingNo)
   if (keepPicked || spokenRef) {
     packed.no = existingNo
+    return packed
+  }
+  const scoped = bag && bag.columnScope
+  if (scoped && (scoped.unmatched || (Array.isArray(scoped.terms) && scoped.terms.length))) {
+    delete packed.no
     return packed
   }
   if (!rewriting && act === '现查') return packed
@@ -1571,27 +1725,35 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     relations: extra.relations,
     schemaByKind: extra.schemaByKind,
   }
-  const hopLeaf = relatedMentionedHopLeaf(speech, bag)
-  targetKind = hopLeaf || remapEnrichTargetKind(targetKind, speech, bag)
-  const hits = clueHitsInSpeech(speech, vocab, bag)
-  const sharedEnumList = enumLabelSharedAcrossKinds(speech, vocab, bag)
-  const chainKinds = relatedKindChain(targetKind, speech, bag)
+  let columnScope = columnValueScope(speech, targetKind, vocab, bag)
+  bag.columnScope = columnScope
+  let scan = columnScope.scan
+  const hopLeaf = relatedMentionedHopLeaf(scan, bag)
+  targetKind = hopLeaf || remapEnrichTargetKind(targetKind, scan, bag)
+  if (targetKind !== columnScope.kind) {
+    columnScope = columnValueScope(speech, targetKind, vocab, bag)
+    bag.columnScope = columnScope
+    scan = columnScope.scan
+  }
+  const hits = clueHitsInSpeech(scan, vocab, bag)
+  const sharedEnumList = enumLabelSharedAcrossKinds(scan, vocab, bag)
+  const chainKinds = relatedKindChain(targetKind, scan, bag)
   const existingSteps = Array.isArray(base.steps) ? base.steps.filter((row) => row && row.kind) : []
 
   if (sharedEnumList) {
-    const childWhere = whereForKind(hits, targetKind, modelWhereAgreed(base.where, hits, targetKind), bag)
+    const childWhere = whereForKind(hits, targetKind, modelWhereAgreed(base.where, hits, targetKind, bag), bag)
     const next = { ...base, kind: targetKind }
     if (childWhere.length) next.where = childWhere
     else delete next.where
     delete next.from
     delete next.steps
-    return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
+    return carryQueryFlags(attachSpeechIdentity(next, scan, vocab, bag, base), hits)
   }
 
   if (chainKinds.length >= 2) {
     const steps = chainKinds.map((kind, index) => {
       const extraWhere = kind === targetKind && index === chainKinds.length - 1
-        ? modelWhereAgreed(base.where, hits, kind)
+        ? modelWhereAgreed(base.where, hits, kind, bag)
         : []
       const where = whereForKind(hits, kind, extraWhere, bag)
       const prev = index > 0 ? chainKinds[index - 1] : ''
@@ -1611,12 +1773,12 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     if (from) next.from = from
     if (last.where.length) next.where = last.where
     else delete next.where
-    return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
+    return carryQueryFlags(attachSpeechIdentity(next, scan, vocab, bag, base), hits)
   }
 
   if ((base.from && typeof base.from === 'object' && base.from.kind) || existingSteps.length) {
     const next = { ...base, kind: targetKind }
-    const selfField = resolveSelfRelationField(targetKind, speech, next, bag)
+    const selfField = resolveSelfRelationField(targetKind, scan, next, bag)
     if (selfField) {
       const fromNode = next.from && typeof next.from === 'object' ? next.from : null
       if (fromNode && sameObjectChain(fromNode, targetKind) && !chainRelation(fromNode)) {
@@ -1635,17 +1797,17 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
         delete next.steps
       }
     }
-    return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
+    return carryQueryFlags(attachSpeechIdentity(next, scan, vocab, bag, base), hits)
   }
 
-  const childWhere = whereForKind(hits, targetKind, modelWhereAgreed(base.where, hits, targetKind), bag)
+  const childWhere = whereForKind(hits, targetKind, modelWhereAgreed(base.where, hits, targetKind, bag), bag)
   const parents = parentKindsOf(targetKind, bag)
-  const mentioned = new Set(kindMentions(speech, registeredKinds(bag), bag).map((row) => row.kind))
+  const mentioned = new Set(kindMentions(scan, registeredKinds(bag), bag).map((row) => row.kind))
   let parent = parents.find((kind) => mentioned.has(kind) && termsForKind(hits, kind, bag).length)
     || parents.find((kind) => mentioned.has(kind))
-  if (!parent) parent = hopParentKindForTarget(targetKind, speech, bag)
+  if (!parent) parent = hopParentKindForTarget(targetKind, scan, bag)
   if (parent === targetKind) parent = ''
-  const selfField = resolveSelfRelationField(targetKind, speech, base, bag)
+  const selfField = resolveSelfRelationField(targetKind, scan, base, bag)
   const parentWhere = parent ? whereForKind(hits, parent, undefined, bag) : []
   const parentValues = new Set(parentWhere.flatMap((term) => term.values || []))
   const childFiltered = childWhere.filter((term) => {
@@ -1658,18 +1820,18 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     const next = { ...base, kind: targetKind, from: { kind: targetKind, relation: selfField } }
     if (childFiltered.length) next.where = childFiltered
     delete next.steps
-    return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
+    return carryQueryFlags(attachSpeechIdentity(next, scan, vocab, bag, base), hits)
   }
 
   if (!parent && !parentWhere.length && !childFiltered.length) {
-    const loopPeers = generatedSelfLoopEdgePeers(targetKind, speech, base, vocab, bag)
+    const loopPeers = generatedSelfLoopEdgePeers(targetKind, scan, base, vocab, bag)
     if (loopPeers.length) {
       const next = { ...base, kind: targetKind, peers: loopPeers }
       delete next.from
       delete next.steps
-      return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
+      return carryQueryFlags(attachSpeechIdentity(next, scan, vocab, bag, base), hits)
     }
-    return carryQueryFlags(attachSpeechIdentity({ ...base, kind: targetKind }, speech, vocab, bag, base), hits)
+    return carryQueryFlags(attachSpeechIdentity({ ...base, kind: targetKind }, scan, vocab, bag, base), hits)
   }
 
   const next = { ...base, kind: targetKind }
@@ -1677,7 +1839,7 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
     next.from = parentWhere.length ? { kind: parent, where: parentWhere } : { kind: parent }
   }
   if (childFiltered.length) next.where = childFiltered
-  return carryQueryFlags(attachSpeechIdentity(next, speech, vocab, bag, base), hits)
+  return carryQueryFlags(attachSpeechIdentity(next, scan, vocab, bag, base), hits)
 }
 
 const WRITE_ACTIONS = ['删除', '过审', '新建', '改行']
