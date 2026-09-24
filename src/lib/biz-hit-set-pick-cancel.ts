@@ -3,6 +3,17 @@ export function shouldCancelDshAfterWritePreview(action: string, previewId: stri
   return Boolean(String(previewId || '').trim()) && String(action || '').trim() !== '现查'
 }
 
+/** Skip records-panel cancel when the write preview is only speech-bound noise (no row changes, not a pick). */
+export function shouldAbortLeftoverAskForWritePreview(sheet: Record<string, unknown>): boolean {
+  const previewId = String(sheet.preview_id || sheet.previewId || '').trim()
+  const action = String(sheet.action || '').trim()
+  if (!shouldCancelDshAfterWritePreview(action, previewId)) return false
+  if (sheet.picked === true) return true
+  const changes = sheet.changes
+  if (Array.isArray(changes) && changes.length > 0) return true
+  return false
+}
+
 /** After a hit-set row pick yields a write preview, abort the pending DSH AskUserQuestion turn. */
 export function shouldCancelDshAfterHitSetPick(
   waitingPick: boolean,

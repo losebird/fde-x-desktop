@@ -1793,8 +1793,13 @@ const server = createServer(async (request, response) => {
 
     const aiCancelMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/cancel$/)
     if (request.method === 'POST' && aiCancelMatch) {
+      const cancelBody = await readJson(request).catch(() => ({}))
+      const cancelKind = String(cancelBody?.kind || cancelBody?.reason || '').trim()
       const receipt = await aiRuntime.call('session/cancel', {
-        request: { sessionId: aiCancelMatch[1] },
+        request: {
+          sessionId: aiCancelMatch[1],
+          ...(cancelKind ? { kind: cancelKind } : {}),
+        },
       })
       sendJson(response, 200, { data: receipt, correlationId: currentCorrelationId })
       return

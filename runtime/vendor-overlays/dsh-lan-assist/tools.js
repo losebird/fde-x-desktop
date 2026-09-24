@@ -229,11 +229,12 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
         }
         const outcome = rounds.noteToolSheet(sessionId, sheet)
         if (outcome && outcome.cancel) {
+          const cancelKind = String(outcome.cancelKind || 'plugin-leftover').trim() || 'plugin-leftover'
           const live = exec && exec.agent
           if (live && typeof live.cancel === 'function') {
-            try { live.cancel({ kind: 'user' }, { keepInbox: true }) } catch { /* leftover cancel is best-effort */ }
+            try { live.cancel({ kind: cancelKind }, { keepInbox: true }) } catch { /* leftover cancel is best-effort */ }
           } else if (typeof rounds.cancelLeftover === 'function') {
-            void Promise.resolve(rounds.cancelLeftover(sessionId)).catch(() => undefined)
+            void Promise.resolve(rounds.cancelLeftover(sessionId, cancelKind)).catch(() => undefined)
           }
         }
       }

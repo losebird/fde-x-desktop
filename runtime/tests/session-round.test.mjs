@@ -100,6 +100,30 @@ test('next send replaces the previous official after that round closes', () => {
   assert.equal(rounds.servedSheet('sess-a').kind, 'KindTwo')
 })
 
+test('speech-bound 新建 in-round is superseded by explicit 现查 lookup, not leftover cancel', () => {
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  const mistakenWrite = {
+    kind: 'KindW',
+    action: '新建',
+    speech: '库里已改上',
+    sessionId: 'sess-a',
+    preview_id: 'pv-mistake',
+    rows: [{ no: 'RCPT-1' }],
+    changes: [],
+  }
+  rounds.noteToolSheet('sess-a', mistakenWrite)
+  const lookup = rounds.noteToolSheet('sess-a', {
+    kind: 'KindW',
+    action: '现查',
+    speech: 'lookup RCPT-1',
+    rows: [{ no: 'RCPT-1' }],
+  })
+  assert.equal(lookup.cancel, false)
+  assert.equal(lookup.process, true)
+  assert.equal(rounds.peek('sess-a').candidate.action, '现查')
+})
+
 test('write leftover 现查 does not become official', () => {
   const rounds = createSessionRoundStore()
   rounds.startRound('sess-a')
@@ -128,6 +152,22 @@ test('write leftover 现查 does not become official', () => {
   assert.equal(leftover.cancel, true)
   assert.equal(leftover.emit, true)
   assert.equal(rounds.servedSheet('sess-a').action, '改行')
+})
+
+test('closeRound wrote clears open candidate before secretary follow-up', () => {
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  rounds.noteToolSheet('sess-a', {
+    kind: 'KindW',
+    action: '改行',
+    preview_id: 'pv-old',
+    rows: [{ no: 'R1' }],
+  })
+  rounds.closeRound('sess-a', 'wrote')
+  const round = rounds.peek('sess-a')
+  assert.equal(round.open, false)
+  assert.equal(round.candidate, null)
+  assert.equal(round.closedBy, 'wrote')
 })
 
 test('eligible tool result after a closed round opens the next send', () => {

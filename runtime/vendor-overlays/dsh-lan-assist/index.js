@@ -67,16 +67,17 @@ export async function apply(ctx, config) {
   let agentsCtx = null
 
   const lastCancelAt = new Map()
-  async function cancelLeftover(sessionId) {
+  async function cancelLeftover(sessionId, cancelKind = 'plugin-leftover') {
     const sid = String(sessionId || '').trim()
     if (!sid) return
+    const kind = String(cancelKind || 'plugin-leftover').trim() || 'plugin-leftover'
     const now = Date.now()
     const prev = Number(lastCancelAt.get(sid) || 0)
     if (now - prev < 1500) return
     const agents = agentsCtx && (agentsCtx.agents || (typeof agentsCtx.get === 'function' ? agentsCtx.get('agents') : null))
     const agent = agents && typeof agents.get === 'function' ? agents.get(sid) : null
     if (agent && typeof agent.cancel === 'function') {
-      try { agent.cancel({ kind: 'user' }, { keepInbox: true }) } catch { /* leftover cancel is best-effort */ }
+      try { agent.cancel({ kind }, { keepInbox: true }) } catch { /* leftover cancel is best-effort */ }
       lastCancelAt.set(sid, now)
       return
     }
@@ -84,6 +85,13 @@ export async function apply(ctx, config) {
       try { await agent.abort() } catch { /* leftover cancel is best-effort */ }
       lastCancelAt.set(sid, now)
     }
+  }
+
+  async function deliverFollowup(followup) {
+    const sid = String(followup && followup.sessionId || '').trim()
+    const close = followup && followup.roundClose
+    if (sid && close) sessionRounds.closeRound(sid, close)
+    return tryFollowup(agentsCtx, followup)
   }
 
   const semantic = createSemanticBridge({
@@ -311,7 +319,7 @@ export async function apply(ctx, config) {
           ? session.header.cwd.trim()
           : ''
         void secretary.hearUserLine(sessionId, speech, workspace).then((result) => {
-          if (result && result.followup) void tryFollowup(agentsCtx, result.followup).catch(() => undefined)
+          if (result && result.followup) void deliverFollowup(result.followup).catch(() => undefined)
           if (result && result.ok && !result.skipped) sse.emit('mailbox', { type: 'advice' })
         }).catch(() => undefined)
       })
@@ -322,7 +330,7 @@ export async function apply(ctx, config) {
     secretary,
     lan,
     sse,
-    followup: (spec) => tryFollowup(agentsCtx, spec),
+    followup: (spec) => deliverFollowup(spec),
     restoreHandoff: (spec) => tryRestoreHandoff(agentsCtx, spec),
     translate: (quote) => translateQuote((ctx.llm || (ctx.get && ctx.get('llm'))), quote),
     focusOperationKind: async (sessionId, kind) => {

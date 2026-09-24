@@ -510,6 +510,7 @@ export function createGate(bag) {
       sessionId: sid,
       plugin: PLUGIN,
       workspace: pending.workspace || '',
+      roundClose: 'wrote',
       text: briefFollowup({
         quote: [result.speak, '库里已改上。回信要用现在的值，不要沿用预览前的旧号。'].filter(Boolean).join('\n'),
         catalog: catalogOf(),

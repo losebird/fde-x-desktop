@@ -472,6 +472,20 @@ test('pickHopSpeech prefers the user line when the model truncated it', () => {
   assert.equal(pickHopSpeech('停用客户通达', user, vocab), user)
 })
 
+test('recoverWriteIntent keeps tool 现查 when no slot is set despite post-write userSpeech', () => {
+  const followup = '库里已改上。下面是现查到的现在值，不是图上的当时。按现在的值补一段已改上的正文。'
+  const out = recoverWriteIntent({
+    kind: '工单',
+    action: '现查',
+    no: '388419542908928',
+    speech: '现查单号',
+    userSpeech: followup,
+  }, vocab, {})
+  assert.equal(out.action, '现查')
+  assert.equal(out.no, '388419542908928')
+  assert.equal(out.patch, undefined)
+})
+
 test('recoverWriteIntent upgrades 现查 to 改行 from rewrite speech', () => {
   const speech = '把停用客户通达改成成交。只要预览，不要过账，不要 biz_write。'
   const writeVocab = vocab.map((row) => (

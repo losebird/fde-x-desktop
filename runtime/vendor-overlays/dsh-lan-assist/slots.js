@@ -1770,6 +1770,13 @@ export function recoverWriteIntent(spec, vocab, extra = {}) {
     speech = userSpeech
   }
   const kind = String(next.kind || '').trim()
+  const toolAction = String((spec && spec.action) || '').trim()
+  const toolNo = String((spec && spec.no) || '').trim()
+  if (kind && toolAction === '现查' && toolNo) {
+    next.action = '现查'
+    delete next.patch
+    return next
+  }
   if (!speech || !kind) return next
   if (
     userSpeech

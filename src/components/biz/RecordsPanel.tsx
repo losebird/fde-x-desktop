@@ -83,7 +83,7 @@ import { isBizSurfaceTool } from '@/lib/biz-tool-events'
 import {
   resolveHitSetPickCancelSessionId,
   shouldCancelDshAfterHitSetPick,
-  shouldCancelDshAfterWritePreview,
+  shouldAbortLeftoverAskForWritePreview,
 } from '@/lib/biz-hit-set-pick-cancel'
 import { useEvents } from '@/lib/events'
 
@@ -952,7 +952,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const abortLeftoverAskTurn = (sheet: Record<string, unknown>) => {
     const previewId = sheetPreviewId(sheet)
     const action = String(sheet.action || '')
-    if (!shouldCancelDshAfterWritePreview(action, previewId)) return
+    if (!shouldAbortLeftoverAskForWritePreview(sheet)) return
     if (cancelledWritePreviewRef.current === previewId) return
     const cancelSessionId = resolveHitSetPickCancelSessionId({
       bindSheet: sheet,
@@ -962,7 +962,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     })
     if (!cancelSessionId) return
     cancelledWritePreviewRef.current = previewId
-    void runtimeApi.cancelAi(cancelSessionId).catch(() => undefined)
+    void runtimeApi.cancelAi(cancelSessionId, { kind: 'records-cancel' }).catch(() => undefined)
   }
 
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {

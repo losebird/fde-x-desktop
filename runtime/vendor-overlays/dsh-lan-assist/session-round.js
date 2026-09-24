@@ -63,8 +63,21 @@ export function isEligibleRoundSheet(sheet) {
   return rows > 0 || Boolean(previewId) || Boolean(sheet.ambiguous || sheet.listed) || sheet.querySettled === true
 }
 
+/** Tool-called 现查 (no write token) replaces a same-round speech-bound write preview instead of leftover-cancel. */
+function explicitLiveLookupSupersedesWrite(prev, incoming) {
+  if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  if (sheetAction(incoming) !== '现查' || sheetPreviewId(incoming)) return false
+  if (incoming.picked === true) return false
+  const prevAct = sheetAction(prev)
+  if (!prevAct || prevAct === '现查') return false
+  if (prev.picked === true) return false
+  if (prev.ambiguous || prev.listed) return false
+  return true
+}
+
 function leftoverQueryCoveringWrite(prev, incoming) {
   if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  if (explicitLiveLookupSupersedesWrite(prev, incoming)) return false
   const prevAct = sheetAction(prev)
   if (!prevAct || prevAct === '现查') return false
   if (sheetAction(incoming) !== '现查') return false
@@ -149,6 +162,14 @@ export function createSessionRoundStore() {
     const sid = String(sessionId || '').trim()
     const round = peek(sid)
     if (!round) return { official: null, emit: false, cancel: false }
+    if (reason === 'wrote') {
+      round.candidate = null
+      round.weak = null
+      round.open = false
+      round.kindFocus = null
+      round.closedBy = 'wrote'
+      return { official: round.official || null, emit: false, cancel: false }
+    }
     if (round.open) {
       round.open = false
       const next = round.candidate || round.weak
@@ -169,10 +190,24 @@ export function createSessionRoundStore() {
     let round = peek(sid)
     if (!round || !round.open) {
       if (round && round.closedBy === 'leftover') {
-        return { emit: false, official: round.official, cancel: true, leftover: true, process: false }
+        return {
+          emit: false,
+          official: round.official,
+          cancel: true,
+          leftover: true,
+          cancelKind: 'plugin-leftover',
+          process: false,
+        }
       }
       if (round && round.official && isLeftoverAfterCandidate(round.official, incomingRaw)) {
-        return { emit: false, official: round.official, cancel: true, leftover: true, process: false }
+        return {
+          emit: false,
+          official: round.official,
+          cancel: true,
+          leftover: true,
+          cancelKind: 'plugin-leftover',
+          process: false,
+        }
       }
       if (!isEligibleRoundSheet(incomingRaw) && !isUnfilteredListSheet(incomingRaw)) {
         return { emit: false, official: round ? round.official : null, cancel: false, process: false }
@@ -185,9 +220,15 @@ export function createSessionRoundStore() {
       return { emit: false, official: null, cancel: false, process: true }
     }
 
+    if (round.candidate && explicitLiveLookupSupersedesWrite(round.candidate, incomingRaw)) {
+      round.candidate = incomingRaw
+      round.kindFocus = null
+      return { emit: false, official: null, cancel: false, process: true }
+    }
+
     if (round.candidate && isLeftoverAfterCandidate(round.candidate, incomingRaw)) {
       const closed = closeRound(sid, 'leftover')
-      return { ...closed, cancel: true, leftover: true, process: false }
+      return { ...closed, cancel: true, leftover: true, cancelKind: 'plugin-leftover', process: false }
     }
 
     if (isUnfilteredListSheet(incomingRaw)) {

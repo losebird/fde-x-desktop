@@ -1080,10 +1080,16 @@ export class RuntimeApi {
     return result.data
   }
 
-  async cancelAi(sessionId: string, signal?: AbortSignal): Promise<{ accepted: true }> {
+  async cancelAi(
+    sessionId: string,
+    options: { kind?: string; signal?: AbortSignal } = {},
+  ): Promise<{ accepted: true }> {
+    const kind = String(options.kind || '').trim()
     const result = await this.request<{ data: { accepted: true } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/cancel`, {
       method: 'POST',
-      signal,
+      signal: options.signal,
+      headers: kind ? { 'Content-Type': 'application/json' } : undefined,
+      body: kind ? JSON.stringify({ kind }) : undefined,
     })
     return result.data
   }
