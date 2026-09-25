@@ -262,33 +262,46 @@ export async function bindWhereRelationTerms(terms, schemaFields, spec, ctx, voc
       continue
     }
     const keys = list(term.keys).map((key) => resolveShapeKey(key, fields, vocabHit, extraLabels))
-    const values = []
-    for (const raw of list(term.values)) {
-      const spoken = String(raw ?? '').trim()
-      if (!spoken) continue
-      if (/^\d+$/.test(spoken)) {
-        values.push(spoken)
-        continue
-      }
-      let ids = []
-      for (const key of keys) {
-        const rel = relationSchemaField(fields, key)
-        if (!rel) continue
-        const resolved = await resolveRelated(key, spoken, spec, { ...ctx, fieldRow: rel })
-        if (resolved.status === 'one' && resolved.id) {
-          ids = [resolved.id]
-          break
+    const field = keys.map((key) => fieldNamed(fields, key)).find(Boolean) || null
+    const mode = schemaCellMode(field, fields)
+    if (mode === 'relation') {
+      const rel = relationSchemaField(fields, field.name)
+      const values = []
+      for (const raw of list(term.values)) {
+        const spoken = String(raw ?? '').trim()
+        if (!spoken) continue
+        if (/^\d+$/.test(spoken)) {
+          values.push(spoken)
+          continue
         }
-        if (resolved.status === 'many' && resolved.rows.length) {
+        const resolved = await resolveRelated(field.name, spoken, spec, { ...ctx, fieldRow: rel })
+        let ids = []
+        if (resolved.status === 'one' && resolved.id) ids = [resolved.id]
+        else if (resolved.status === 'many' && resolved.rows.length) {
           ids = resolved.rows.map((row) => String(row.id))
-          break
         }
+        if (ids.length === 1) values.push(ids[0])
+        else if (ids.length > 1) values.push(...ids)
       }
-      if (ids.length === 1) values.push(ids[0])
-      else if (ids.length > 1) values.push(...ids)
+      if (!values.length && list(term.values).length) continue
+      out.push({ ...term, keys: [field.name], values })
+      continue
     }
-    if (!values.length && list(term.values).length) continue
-    out.push({ ...term, keys, values })
+    if (mode === 'enum') {
+      const values = []
+      for (const raw of list(term.values)) {
+        const spoken = String(raw ?? '').trim()
+        if (!spoken) continue
+        const hits = enumHits(field, spoken)
+        if (hits.length === 1) values.push(hits[0].code)
+      }
+      if (!values.length && list(term.values).length) continue
+      const next = { ...term, keys: [field.name], values }
+      delete next.text
+      out.push(next)
+      continue
+    }
+    out.push(term)
   }
   return out
 }
@@ -318,6 +331,20 @@ function fieldEnums(row) {
 function isEnumField(row) {
   if (fieldEnums(row)) return true
   return /^(select|radio|multipleSelect)$/i.test(String((row && (row.interface || row.type)) || ''))
+}
+
+function fieldNamed(fields, name) {
+  const want = String(name || '').trim()
+  if (!want) return null
+  return (Array.isArray(fields) ? fields : []).find((row) => row && String(row.name || '') === want) || null
+}
+
+/** Same cell classes as a spoken write: relation, enum, or literal. */
+function schemaCellMode(field, fields) {
+  if (!field) return ''
+  if (relationSchemaField(fields, field.name)) return 'relation'
+  if (isEnumField(field)) return 'enum'
+  return 'literal'
 }
 
 function enumHits(row, spoken) {
@@ -388,8 +415,9 @@ export async function bindSpokenCells(patch, schemaFields, spec, ctx) {
     }
     const label = cellTitle(field)
     const required = fieldRequired(field)
-    const rel = relationSchemaField(fields, field.name)
-    if (rel) {
+    const mode = schemaCellMode(field, fields)
+    if (mode === 'relation') {
+      const rel = relationSchemaField(fields, field.name)
       const found = await resolveRelated(field.name, spoken, spec, { ...ctx, fieldRow: rel })
       if (found.status === 'one' && found.id) {
         cells.push({
@@ -433,7 +461,7 @@ export async function bindSpokenCells(patch, schemaFields, spec, ctx) {
       }
       continue
     }
-    if (isEnumField(field)) {
+    if (mode === 'enum') {
       const hits = enumHits(field, spoken)
       if (hits.length === 1) {
         cells.push({
