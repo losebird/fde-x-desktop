@@ -9,6 +9,7 @@ import { schemaFieldsForKind } from './enum-clues.js'
 import { enumMap, peelSpoken, saysOf } from './resolve.js'
 import { fieldLabelMap, vocabRow } from './where-pass.js'
 import { isGateActionCode } from './gate-action-codes.mjs'
+import { enumHits } from './relation-bind.js'
 import { spokenSeedClues, vocabWithSpoken } from './vocab/spoken.js'
 
 function escapeRe(value) {
@@ -666,7 +667,7 @@ function resolvedEnumValuesForOwnerRows(rows, ownerKind, mergedVocab, extra) {
         key === ident.identity || key === ident.name || key === ident.title
       ))
       if (!keyHit) continue
-      for (const code of resolveClueValuesForField(field, say, null)) codes.add(code)
+      for (const code of resolveClueValuesForField(field, say, null, mergedVocab)) codes.add(code)
     }
   }
   if (codes.size) return [...codes]
@@ -717,7 +718,14 @@ export function enumLabelSharedAcrossKinds(speech, vocab, extra = {}) {
   return false
 }
 
-function resolveClueValuesForField(field, matchedSay, clue) {
+function fieldMatchesClueKeys(field, clue) {
+  const ident = fieldIdentityOf(field)
+  const names = [ident.identity, ident.name, ident.title].map((item) => String(item || '').trim()).filter(Boolean)
+  const keys = stringList(clue && (clue.keys || clue.field || clue.fields))
+  return keys.some((key) => names.some((name) => name === key || name.toLowerCase() === String(key).toLowerCase()))
+}
+
+function resolveClueValuesForField(field, matchedSay, clue, vocab) {
   const say = String(matchedSay || '').trim()
   if (!say) return []
   const packed = fieldEnumsOf(field)
@@ -736,21 +744,8 @@ function resolveClueValuesForField(field, matchedSay, clue) {
     return [...new Set(codes)]
   }
   if (packed) {
-    const fromSchema = []
-    for (const [code, label] of Object.entries(packed)) {
-      if (enumValueMatches(say, code, label)) fromSchema.push(String(code))
-    }
-    const uniqueSchema = [...new Set(fromSchema)]
-    if (uniqueSchema.length === 1) return uniqueSchema
-    if (uniqueSchema.length > 1) return []
-    const fromClue = []
-    for (const item of clueValues) {
-      for (const [code, label] of Object.entries(packed)) {
-        if (String(code) === item || String(label || '') === item) fromClue.push(String(code))
-      }
-    }
-    const uniqueClue = [...new Set(fromClue)]
-    if (uniqueClue.length === 1) return uniqueClue
+    const hits = enumHits(field, say, vocab)
+    if (hits.length === 1) return [hits[0].code]
     return []
   }
   const direct = clueValues.filter((item) => enumValueMatches(say, item, item))
@@ -852,7 +847,7 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
       const ident = matched ? fieldIdentityOf(matched) : { identity: keys[0] || '', name: keys[0] || '' }
       if (!ident.identity) continue
       let resolvedValues = matched
-        ? resolveClueValuesForField(matched, packed.say, clue)
+        ? resolveClueValuesForField(matched, packed.say, clue, mergedVocab)
         : stringList(clue.values || clue.value).filter((item) => enumValueMatches(packed.say, item, item))
       if (!resolvedValues.length && !(clue.not === true || packed.not === true)) continue
       pushCandidate({
@@ -861,6 +856,31 @@ function clueHitsInSpeech(speech, vocab, extra = {}) {
         values: resolvedValues.length ? resolvedValues : packed.values,
         not: clue.not === true || packed.not === true,
       }, owner)
+    }
+  }
+  for (const kind of bound) {
+    const fields = schemaFieldsForKind(kind, mergedVocab, extra)
+    for (const field of fields) {
+      const ident = fieldIdentityOf(field)
+      if (!ident.identity) continue
+      for (const row of mergedVocab) {
+        if (!(row && (row.spoken || row.kind === '口语' || row.id === 'spoken'))) continue
+        for (const clue of cluesOfRow(row)) {
+          if (!clue || clue.not === true) continue
+          if (speechKeysOnly(clue, ['role', 'action', 'join'])) continue
+          if (!fieldMatchesClueKeys(field, clue)) continue
+          const packed = findClueHit(text, clue, bag)
+          if (!packed) continue
+          const hits = enumHits(field, packed.say, mergedVocab)
+          if (hits.length !== 1) continue
+          pushCandidate({
+            ...packed,
+            keys: [...new Set([ident.identity, ident.name].filter(Boolean))],
+            values: [hits[0].code],
+            not: false,
+          }, kind)
+        }
+      }
     }
   }
   const notClues = []

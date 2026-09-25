@@ -208,6 +208,71 @@ test('enrich maps oral seed say onto schema code when the live label differs', (
   assert.ok(Array.isArray(out.where) && out.where.some((term) => term.not))
 })
 
+test('enrich binds a spoken-row field say when the kind row has no clues', () => {
+  const hop = [
+    {
+      kind: 'ParentA',
+      resource: 'parent_a',
+      can: ['现查'],
+      relations: [{ from: 'ParentA', to: 'ChildB', field: 'parentRef' }],
+    },
+    {
+      kind: 'ChildB',
+      resource: 'child_b',
+      can: ['现查'],
+      clues: [{ say: ['open'], keys: ['status'], values: ['open'] }],
+    },
+    {
+      kind: '口语',
+      spoken: true,
+      clues: [{ say: ['paused'], keys: ['status'], values: ['off'] }],
+    },
+  ]
+  const extra = {
+    schemaByKind: {
+      ParentA: [{ name: 'status', title: '状态', enums: { off: 'halted', on: 'live' } }],
+      ChildB: [{ name: 'status', title: '状态', enums: { open: 'open', shut: 'shut' } }],
+    },
+  }
+  const out = enrichStructuredSlots({
+    kind: 'ChildB',
+    action: '现查',
+    speech: 'paused ParentA still has open ChildB?',
+  }, hop, extra)
+  const parentVals = (out.from?.where || []).flatMap((term) => term.values || [])
+  assert.deepEqual(parentVals, ['off'])
+  assert.equal(parentVals.includes('paused'), false)
+})
+
+test('enrich binds package spoken seed onto a kind that has no field clues', () => {
+  const bare = [
+    {
+      kind: '客户',
+      resource: 'biz_customers',
+      can: ['现查'],
+    },
+    {
+      kind: '工单',
+      resource: 'biz_tickets',
+      can: ['现查'],
+      relations: [{ from: '客户', to: '工单', field: 'customer' }],
+    },
+  ]
+  const out = enrichStructuredSlots({
+    kind: '工单',
+    action: '现查',
+    speech: '停用客户还有哪些没关的工单？',
+  }, bare, {
+    schemaByKind: {
+      客户: [{ name: 'status', title: '状态', enums: { inactive: '暂停合作', active: '成交' } }],
+      工单: [{ name: 'status', title: '状态', enums: { closed: '已关闭', open: '未关闭', resolved: '已解决' } }],
+    },
+  })
+  const parentVals = (out.from?.where || []).flatMap((term) => term.values || [])
+  assert.deepEqual(parentVals, ['inactive'])
+  assert.equal(parentVals.includes('停用'), false)
+})
+
 test('model json where does not overwrite enrich hop terms', () => {
   const hop = [
     {
