@@ -291,6 +291,28 @@ export function listBusinessConnections(db, { workspaceId = 'ws_personal' } = {}
   }))
 }
 
+export function updateBusinessConnectionStatusByProvider(db, provider, status, lastHealth = null) {
+  const wantProvider = String(provider || '').trim()
+  const wantStatus = String(status || '').trim()
+  if (!wantProvider || !wantStatus) return { changed: 0 }
+  const now = isoNow()
+  const healthJson = lastHealth && typeof lastHealth === 'object' ? JSON.stringify(lastHealth) : null
+  const rows = db.prepare(`
+    SELECT id, status FROM business_connections WHERE provider = ?
+  `).all(wantProvider)
+  let changed = 0
+  for (const row of rows) {
+    if (row.status === wantStatus && !healthJson) continue
+    db.prepare(`
+      UPDATE business_connections
+      SET status = ?, updated_at = ?, last_health_json = COALESCE(?, last_health_json)
+      WHERE id = ?
+    `).run(wantStatus, now, healthJson, row.id)
+    changed += 1
+  }
+  return { changed }
+}
+
 export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd = '' } = {}) {
   const cwd = String(workspaceCwd || '').trim()
   const rows = cwd

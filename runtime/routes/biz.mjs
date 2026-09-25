@@ -40,6 +40,7 @@ import {
   sheetForOfficialGet,
 } from '../biz/connected-kind.mjs'
 import { projectWriteConfirm, releaseEmittedConfirm } from '../biz/write-confirm.mjs'
+import { reconcileLanAssistConnectionLamp, refreshLanAssistConnectionLamp } from '../biz/connection-lamp.mjs'
 import {
   auditRecordNo,
   captureLookupBind,
@@ -930,16 +931,18 @@ export async function handleBizRoutes(request, response, url, deps) {
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/connections') {
     const workspaceId = url.searchParams.get('workspace') ?? url.searchParams.get('workspaceId') ?? 'ws_personal'
-    const items = listBusinessConnections(db, { workspaceId })
     let online = false
     let catalogVersion = null
+    let state = null
     try {
-      const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+      state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
       online = Boolean(state && state.ok !== false)
       catalogVersion = state?.catalogVersion ?? state?.catalog_version ?? null
     } catch {
       online = false
     }
+    reconcileLanAssistConnectionLamp(db, state)
+    const items = listBusinessConnections(db, { workspaceId })
     sendJson(response, 200, {
       items: items.map((row) => ({ ...row, lanAssistOnline: online, catalogVersion })),
       correlationId,
@@ -994,6 +997,13 @@ export async function handleBizRoutes(request, response, url, deps) {
         emitEvent: !skipEmit,
         hallSheet: previewHall,
       })
+    }
+    const previewAction = String(translated.payload?.action || previewSheet?.action || '').trim()
+    if (preview && preview.ok !== false && previewAction === '现查') {
+      try {
+        const gateState = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+        reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true })
+      } catch { /* lamp is best-effort */ }
     }
     sendJson(response, 200, { data: preview, correlationId })
     return true
@@ -1076,6 +1086,7 @@ export async function handleBizRoutes(request, response, url, deps) {
         }
       }
     }
+    await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options))
     sendJson(response, 200, {
       data: stripSecrets({
         ...saved,
@@ -1227,6 +1238,10 @@ export async function handleBizRoutes(request, response, url, deps) {
       receiptId: String(written?.receipt_id || written?.receiptId || ''),
       operationId: typeof body.operationId === 'string' ? body.operationId : undefined,
     }, { workspaceCwd: bizCwd, source: 'bff' })
+    try {
+      const gateState = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+      reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true })
+    } catch { /* lamp is best-effort */ }
     sendJson(response, 200, { data: { ...written, trace_id: traceId, traceId }, correlationId })
     return true
   }

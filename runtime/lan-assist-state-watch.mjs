@@ -4,6 +4,7 @@ import { pendingSheetWatchFingerprint } from './biz/sheet-fingerprint.mjs'
 import { sheetAfterDismissedWrite } from './biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw } from './biz/sheet-payload.mjs'
 import { projectWriteConfirm } from './biz/write-confirm.mjs'
+import { reconcileLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 
 const POLL_MS = 1000
 
@@ -89,7 +90,7 @@ function emitOfficialSheet(sheet, deps, source = 'round-end', surfaceId) {
  * @param {{ lanAssist: Function, cwd: string, onPendingSheet?: Function, prepareSurface?: Function }} deps
  */
 export function startLanAssistStateWatch(deps) {
-  const { lanAssist, cwd } = deps
+  const { lanAssist, cwd, db } = deps
   let lastSheetFp = ''
   let lastUnreadFp = ''
   let knownIncomingIds = new Set()
@@ -112,6 +113,7 @@ export function startLanAssistStateWatch(deps) {
   const tick = async () => {
     try {
       const state = await lanAssist('/state', { search: { sessionId: '' } })
+      if (db) reconcileLanAssistConnectionLamp(db, state && state.ok !== false ? state : null)
       if (!state || state.ok === false) return
 
       const sheet = officialFromState(state)
@@ -135,6 +137,7 @@ export function startLanAssistStateWatch(deps) {
         }
       }
     } catch {
+      if (db) reconcileLanAssistConnectionLamp(db, null)
       // lan-assist offline: no events, no error (spec §7)
     }
   }

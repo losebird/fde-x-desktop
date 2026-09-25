@@ -19,6 +19,7 @@ import {
 import { loadCurrentAiTarget } from '@/lib/ai-target'
 import type { BusinessTable } from '@/lib/types'
 import type { JsonValue, RiskLevel } from '@/lib/contracts'
+import { countHomeOperationExceptions } from '@/lib/home-operation-exception'
 import { AppCreateWizard } from '@/components/apps/AppCreateWizard'
 import { AppRuntime } from '@/components/apps/AppRuntime'
 import { isFdeAppSpec, specHasUse, type FdeAppDetail } from '@/lib/app-spec'
@@ -173,7 +174,7 @@ export default function Data() {
   }, [refresh])
 
   const pendingApproval = operations.filter((item) => item.state === 'awaiting_approval').length
-  const unresolved = operations.filter((item) => ['failed', 'uncertain', 'compensation_failed'].includes(item.state)).length
+  const unresolved = countHomeOperationExceptions(operations)
 
   return (
     <div className="min-w-0">

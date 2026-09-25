@@ -74,6 +74,7 @@ import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
 import { configureEventBus, emit } from './events.mjs'
 import { startLanAssistStateWatch } from './lan-assist-state-watch.mjs'
+import { refreshLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
 import { handleAppsRoutes } from './routes/apps.mjs'
 import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
@@ -2329,6 +2330,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/v1/business/connections') {
       const workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
+      await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options))
       sendJson(response, 200, { items: listBusinessConnections(db, { workspaceId }), correlationId: currentCorrelationId })
       return
     }
@@ -2713,6 +2715,7 @@ server.listen(port, host, () => {
     console.warn('ensurePresets_failed', error)
   })
   startLanAssistStateWatch({
+    db,
     lanAssist: (path, options) => aiRuntime.lanAssist(path, options),
     cwd: FDE_AI_WORKSPACE,
     prepareSurface: (sheet, sessionId) => {

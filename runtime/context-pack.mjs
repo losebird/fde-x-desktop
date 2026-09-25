@@ -166,7 +166,7 @@ async function fillBiz(db, pack, workspaceCwd) {
   const connections = listBusinessConnections(db, { workspaceId }).slice(0, 6).map((c) => ({
     id: c.id,
     name: c.name,
-    online: c.status === 'active' || c.status === 'connected',
+    online: c.status === 'connected',
   }))
   const ops = listOperations(db, { workspaceId, limit: 3 })
   pack.biz = {
