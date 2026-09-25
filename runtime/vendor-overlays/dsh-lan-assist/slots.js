@@ -9,10 +9,7 @@ import { schemaFieldsForKind } from './enum-clues.js'
 import { enumMap, peelSpoken, saysOf } from './resolve.js'
 import { fieldLabelMap, vocabRow } from './where-pass.js'
 import { isGateActionCode } from './gate-action-codes.mjs'
-import { createRequire } from 'node:module'
-
-const require = createRequire(import.meta.url)
-const spokenSeed = require('./vocab/spoken.json')
+import { spokenSeedClues, vocabWithSpoken } from './vocab/spoken.js'
 
 function escapeRe(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -73,9 +70,10 @@ function findClueHit(speech, clue, extra) {
   const hitIndex = match.index
   const negRole = String(clue.role || clue.slot || '').trim() === '否定'
   let not = clue.not === true || negRole || negatedInSpeech(speech, hitIndex, extra)
-  if (!not && spokenSeed && Array.isArray(spokenSeed.clues)) {
+  const seedClues = spokenSeedClues()
+  if (!not && seedClues.length) {
     const hitText = String(match[0] || '')
-    for (const seed of spokenSeed.clues) {
+    for (const seed of seedClues) {
       if (!seed || seed.not !== true) continue
       const says = stringList(seed.say || seed.says)
       if (says.some((item) => item === hitText || (item.length > 1 && hitText.includes(item)))) {
@@ -537,23 +535,6 @@ function parentKindsOf(targetKind, extra) {
   return out
 }
 
-function vocabWithSpoken(vocab) {
-  const rows = Array.isArray(vocab) ? vocab.map((row) => (row && typeof row === 'object' ? { ...row } : row)) : []
-  const seed = spokenSeed && Array.isArray(spokenSeed.clues) ? spokenSeed.clues : []
-  const idx = rows.findIndex((row) => row && (row.spoken || row.kind === '口语'))
-  if (idx < 0) {
-    rows.push({
-      kind: '口语',
-      spoken: true,
-      clues: seed,
-    })
-    return rows
-  }
-  const have = cluesOfRow(rows[idx])
-  rows[idx] = { ...rows[idx], clues: [...have, ...seed] }
-  return rows
-}
-
 function rewriteSpan(speech) {
   const text = String(speech || '')
   const says = saysOf({ vocab: vocabWithSpoken([]) }, '改写')
@@ -740,30 +721,40 @@ function resolveClueValuesForField(field, matchedSay, clue) {
   const say = String(matchedSay || '').trim()
   if (!say) return []
   const packed = fieldEnumsOf(field)
-  if (packed) {
-    const codes = []
-    for (const [code, label] of Object.entries(packed)) {
-      if (enumValueMatches(say, code, label)) codes.push(String(code))
-    }
-    if (codes.length) return [...new Set(codes)]
-  }
   const clueValues = stringList(clue && (clue.values || clue.value))
-  const direct = clueValues.filter((item) => enumValueMatches(say, item, item))
-  if (direct.length) {
-    if (packed) {
-      const mapped = direct.map((item) => {
-        for (const [code, label] of Object.entries(packed)) {
-          if (enumValueMatches(say, code, label)) return String(code)
-        }
-        return String(item)
-      })
-      return [...new Set(mapped)]
-    }
-    return [...new Set(direct.map((item) => String(item)))]
-  }
   if (clue && clue.not === true && packed) {
-    return clueValues.filter((item) => Object.prototype.hasOwnProperty.call(packed, String(item)))
+    const codes = []
+    for (const item of clueValues) {
+      if (Object.prototype.hasOwnProperty.call(packed, String(item))) {
+        codes.push(String(item))
+        continue
+      }
+      for (const [code, label] of Object.entries(packed)) {
+        if (String(label || '') === item) codes.push(String(code))
+      }
+    }
+    return [...new Set(codes)]
   }
+  if (packed) {
+    const fromSchema = []
+    for (const [code, label] of Object.entries(packed)) {
+      if (enumValueMatches(say, code, label)) fromSchema.push(String(code))
+    }
+    const uniqueSchema = [...new Set(fromSchema)]
+    if (uniqueSchema.length === 1) return uniqueSchema
+    if (uniqueSchema.length > 1) return []
+    const fromClue = []
+    for (const item of clueValues) {
+      for (const [code, label] of Object.entries(packed)) {
+        if (String(code) === item || String(label || '') === item) fromClue.push(String(code))
+      }
+    }
+    const uniqueClue = [...new Set(fromClue)]
+    if (uniqueClue.length === 1) return uniqueClue
+    return []
+  }
+  const direct = clueValues.filter((item) => enumValueMatches(say, item, item))
+  if (direct.length) return [...new Set(direct.map((item) => String(item)))]
   return []
 }
 
@@ -1358,9 +1349,11 @@ function fillEmptyWhere(node, hits, extra = {}) {
   if (!node || typeof node !== 'object') return node
   const kind = String(node.kind || '').trim()
   if (!kind) return node
+  const extraWhere = modelWhereAgreed(node.where, hits, kind, extra)
+  const fromHits = whereForKind(hits, kind, extraWhere, extra)
+  if (fromHits.length) return { ...node, where: fromHits }
   if (Array.isArray(node.where) && node.where.length) return node
-  const where = compressSameKeyTerms(termsForKind(hits, kind, extra))
-  return where.length ? { ...node, where } : node
+  return node
 }
 
 function attachSpeechIdentity(next, speech, vocab, bag, spec) {

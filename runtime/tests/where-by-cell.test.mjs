@@ -262,3 +262,119 @@ test('enum column still requires an enum option', async () => {
   assert.equal(kept.includes('not-real'), false)
   assert.equal((hit.where || []).some((term) => term && term.text === true), false)
 })
+
+const aliasParentFields = [
+  { name: 'name', interface: 'input' },
+  { name: 'status', title: '状态', interface: 'select', enums: { off: 'halted', on: 'live' } },
+]
+const aliasChildFields = [
+  { name: 'code', interface: 'input' },
+  { name: 'status', title: '状态', interface: 'select', enums: { open: 'open', shut: 'shut' } },
+  { name: 'parentRef', title: '上级', interface: 'm2o', target: 'parent_a', foreignKey: 'parentRefId' },
+]
+const aliasVocab = [
+  {
+    kind: 'ParentA',
+    resource: 'parent_a',
+    can: ['现查'],
+    clues: [{ say: ['paused', 'parked'], keys: ['status'], values: ['off'] }],
+    relations: [{ from: 'ParentA', to: 'ChildB', field: 'parentRef' }],
+  },
+  {
+    kind: 'ChildB',
+    resource: 'child_b',
+    can: ['现查'],
+    clues: [{ say: ['open'], keys: ['status'], values: ['open'] }],
+  },
+]
+const aliasCollections = [
+  { name: 'parent_a', title: 'ParentA', fields: aliasParentFields },
+  { name: 'child_b', title: 'ChildB', fields: aliasChildFields },
+]
+
+test('field vocab say binds the unique schema option whose label differs', async () => {
+  const terms = await bindWhereRelationTerms(
+    [{ keys: ['status'], values: ['paused'] }],
+    aliasParentFields,
+    { kind: 'ParentA', vocab: aliasVocab },
+    {},
+  )
+  assert.equal(terms.length, 1)
+  assert.deepEqual(terms[0].values, ['off'])
+})
+
+test('seed field say binds schema code when the live label is not the oral form', async () => {
+  const terms = await bindWhereRelationTerms(
+    [{ keys: ['status'], values: ['停用'] }],
+    [{ name: 'status', title: '状态', interface: 'select', enums: { inactive: '暂停合作', active: '成交' } }],
+    { kind: 'ParentA', vocab: [] },
+    {},
+  )
+  assert.equal(terms.length, 1)
+  assert.deepEqual(terms[0].values, ['inactive'])
+})
+
+test('ambiguous field vocab values stay unbound on that cell', async () => {
+  const terms = await bindWhereRelationTerms(
+    [{ keys: ['status'], values: ['paused'] }],
+    aliasParentFields,
+    {
+      kind: 'ParentA',
+      vocab: [{
+        kind: 'ParentA',
+        clues: [{ say: ['paused'], keys: ['status'], values: ['off', 'on'] }],
+      }],
+    },
+    {},
+  )
+  assert.equal(terms.some((term) => (term.values || []).includes('off') || (term.values || []).includes('on')), false)
+})
+
+test('hop parent bound by vocab alias can list; child hop still lists', async () => {
+  const urls = []
+  const lookup = lookupFor(
+    aliasVocab,
+    aliasCollections,
+    async (url) => {
+      urls.push(String(url))
+      if (String(url).includes('/api/parent_a:list')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [{ id: 7, name: 'P7', status: 'off' }], meta: { count: 1 } }),
+        }
+      }
+      if (String(url).includes('/api/child_b:list')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: 3, code: 'C3', status: 'open', parentRefId: 7 }],
+            meta: { count: 1 },
+          }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({ data: [], meta: { count: 0 } }) }
+    },
+  )
+  const parent = await lookup.lookupTodo({
+    kind: 'ParentA',
+    where: [{ keys: ['status'], values: ['paused'] }],
+  })
+  assert.notEqual(parent.error, 'WHERE_UNBOUND')
+  assert.equal(parent.ok, true)
+  const parentFilters = decodedFilters(urls.filter((url) => url.includes('/api/parent_a:list')))
+  assert.equal(parentFilters.some((filter) => filter.includes('"status"') && filter.includes('off')), true)
+  assert.equal(parentFilters.some((filter) => filter.includes('paused')), false)
+
+  const child = await lookup.lookupTodo({
+    kind: 'ChildB',
+    where: [{ keys: ['status'], values: ['open'] }],
+    related: { kind: 'ParentA', ids: ['7'], field: 'parentRefId' },
+  })
+  assert.notEqual(child.error, 'WHERE_UNBOUND')
+  assert.equal(child.ok, true)
+  const childLists = urls.filter((url) => url.includes('/api/child_b:list'))
+  assert.equal(childLists.length > 0, true)
+})
+

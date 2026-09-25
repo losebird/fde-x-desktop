@@ -159,6 +159,91 @@ test('enrichStructuredSlots adds from hop without utterance literals', () => {
   assert.ok(Array.isArray(out.where) && out.where.some((term) => term.not))
 })
 
+test('enrich maps a field vocab say onto the schema option when labels differ', () => {
+  const hop = [
+    {
+      kind: 'ParentA',
+      resource: 'parent_a',
+      can: ['现查'],
+      relations: [{ from: 'ParentA', to: 'ChildB', field: 'parentRef' }],
+      clues: [{ say: ['paused'], keys: ['status'], values: ['off'] }],
+    },
+    {
+      kind: 'ChildB',
+      resource: 'child_b',
+      can: ['现查'],
+      clues: [{ say: ['open'], keys: ['status'], values: ['open'] }],
+    },
+  ]
+  const extra = {
+    schemaByKind: {
+      ParentA: [{ name: 'status', title: '状态', enums: { off: 'halted', on: 'live' } }],
+      ChildB: [{ name: 'status', title: '状态', enums: { open: 'open', shut: 'shut' } }],
+    },
+  }
+  const out = enrichStructuredSlots({
+    kind: 'ChildB',
+    action: '现查',
+    speech: 'paused ParentA still has open ChildB?',
+  }, hop, extra)
+  const parentVals = (out.from?.where || []).flatMap((term) => term.values || [])
+  assert.deepEqual(parentVals, ['off'])
+  assert.equal(parentVals.includes('paused'), false)
+})
+
+test('enrich maps oral seed say onto schema code when the live label differs', () => {
+  const out = enrichStructuredSlots({
+    kind: '工单',
+    action: '现查',
+    speech: '停用客户还有哪些没关的工单？',
+  }, vocab, {
+    schemaByKind: {
+      客户: [{ name: 'status', title: '状态', enums: { inactive: '暂停合作', active: '成交' } }],
+      工单: [{ name: 'status', title: '状态', enums: { closed: '已关闭', open: '未关闭', resolved: '已解决' } }],
+    },
+  })
+  const parentVals = (out.from?.where || []).flatMap((term) => term.values || [])
+  assert.deepEqual(parentVals, ['inactive'])
+  assert.equal(parentVals.includes('停用'), false)
+  assert.ok(Array.isArray(out.where) && out.where.some((term) => term.not))
+})
+
+test('model json where does not overwrite enrich hop terms', () => {
+  const hop = [
+    {
+      kind: 'ParentA',
+      resource: 'parent_a',
+      can: ['现查'],
+      relations: [{ from: 'ParentA', to: 'ChildB', field: 'parentRef' }],
+      clues: [{ say: ['paused'], keys: ['status'], values: ['off'] }],
+    },
+    {
+      kind: 'ChildB',
+      resource: 'child_b',
+      can: ['现查'],
+      clues: [{ say: ['open'], keys: ['status'], values: ['open'] }],
+    },
+  ]
+  const extra = {
+    schemaByKind: {
+      ParentA: [{ name: 'status', title: '状态', enums: { off: 'halted', on: 'live' } }],
+      ChildB: [{ name: 'status', title: '状态', enums: { open: 'open', shut: 'shut' } }],
+    },
+  }
+  const out = enrichStructuredSlots({
+    kind: 'ChildB',
+    action: '现查',
+    speech: 'paused ParentA still has open ChildB?',
+    where: [{ keys: ['状态'], not: ['shut'] }],
+    from: { kind: 'ParentA', where: [{ keys: ['状态'], values: ['paused'] }] },
+  }, hop, extra)
+  const parentVals = (out.from?.where || []).flatMap((term) => term.values || [])
+  assert.deepEqual(parentVals, ['off'])
+  const child = Array.isArray(out.where) ? out.where : []
+  assert.equal(child.some((term) => (term.values || []).includes('open')), true)
+  assert.equal(child.some((term) => Array.isArray(term.not)), false)
+})
+
 test('enrichStructuredSlots retargets DSH ancestor kind to graph leaf when two related kinds are mentioned', () => {
   const speech = '停用客户还有哪些没关的工单？'
   const out = enrichStructuredSlots({

@@ -1199,6 +1199,12 @@ export function createGate(opts = {}) {
         ...(hopMeta.hopWhere ? { hopWhere: hopMeta.hopWhere } : {}),
       })
     }
+    const hopFromPlan = sheetWhereFromPlan(plan, spec)
+    const startWhere = (Array.isArray(start.where) && start.where.length)
+      ? start.where
+      : (Array.isArray(hopFromPlan.hopWhere) && hopFromPlan.hopWhere.length
+        ? hopFromPlan.hopWhere
+        : (Array.isArray(spec.hopWhere) && spec.hopWhere.length ? spec.hopWhere : undefined))
     const parentFound = await probe({
       ...spec,
       kind: start.kind,
@@ -1207,14 +1213,16 @@ export function createGate(opts = {}) {
       vocab: loaded.vocab,
       structured: true,
       speech: '',
-      where: start.where,
+      where: startWhere,
+      related: undefined,
       join: start.join,
       limit: WHERE_LIST_CAP,
     })
     if (!parentFound || parentFound.ok === false) {
       const emptyKind = target.kind
+      const missKind = (parentFound && parentFound.error === 'WHERE_UNBOUND') ? start.kind : emptyKind
       const missed = parentFound && parentFound.error === 'NOT_FOUND'
-      const filtered = plan.steps.length > 1 || (Array.isArray(start.where) && start.where.length > 0)
+      const filtered = plan.steps.length > 1 || (Array.isArray(startWhere) && startWhere.length > 0)
       if (recognized.action === '现查' && missed && filtered) {
         return settledList(emptyKind, {
           hitTotalState: parentFound && parentFound.hitTotalState === 'incomplete' ? 'incomplete' : 'known',
@@ -1222,7 +1230,7 @@ export function createGate(opts = {}) {
       }
       const missedSpeak = (parentFound && parentFound.error === 'NO_CONNECTOR')
         ? { speak: `${emptyKind}：没连业务，不能装成已查。` }
-        : missSpeak(emptyKind, parentFound && parentFound.ok === false ? parentFound : { ok: false, error: 'NOT_FOUND' })
+        : missSpeak(missKind, parentFound && parentFound.ok === false ? parentFound : { ok: false, error: 'NOT_FOUND' })
       return await sheet(refuse(parentFound && parentFound.error ? parentFound.error : 'NOT_FOUND', missedSpeak.speak), {
         kind: emptyKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: missedSpeak.speak, matches: [],
         ...sheetWhereFromPlan(plan, spec),

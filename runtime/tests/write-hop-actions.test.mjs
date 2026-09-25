@@ -12,6 +12,7 @@ const staged = mkdtempSync(join(tmpdir(), 'lan-assist-hop-'))
 cpSync(vendorDir, staged, { recursive: true })
 cpSync(overlayDir, staged, { recursive: true })
 const { createGate } = await import(pathToFileURL(join(staged, 'write.js')).href)
+const { speakLookup } = await import(pathToFileURL(join(staged, 'probe.js')).href)
 
 const hopVocab = [
   {
@@ -422,4 +423,18 @@ test('generated self-loop speech uses peers instead of flat full-table lookup', 
   assert.equal(boundSheet.hitTotal, upHit)
   assert.notEqual(boundSheet.hitTotal, full)
   assert.ok(Array.isArray(boundSheet.peers) && boundSheet.peers.some((row) => row.relation === 'down'))
+})
+
+test('speakLookup reads WHERE_UNBOUND hint and does not claim no connector', () => {
+  const unbound = speakLookup({ kind: 'ParentA' }, {
+    ok: false,
+    error: 'WHERE_UNBOUND',
+    hint: 'ParentA的状态口语「paused」没对上，选项有 halted、live。不能整表现查。',
+  })
+  assert.equal(unbound.includes('没连业务'), false)
+  assert.equal(unbound.includes('paused'), true)
+  const bare = speakLookup({ kind: 'ParentA' }, { ok: false, error: 'WHERE_UNBOUND' })
+  assert.equal(bare.includes('没连业务'), false)
+  const dead = speakLookup({ kind: 'ParentA' }, { ok: false, error: 'NO_CONNECTOR' })
+  assert.equal(dead.includes('没连业务'), true)
 })

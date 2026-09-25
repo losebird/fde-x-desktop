@@ -4,7 +4,7 @@
  */
 
 import { enumMap, saysOf } from './resolve.js'
-import { ensureSpoken } from './vocab/spoken.js'
+import { ensureSpoken, vocabWithSpoken } from './vocab/spoken.js'
 import { resolveShapeKey, vocabRow } from './where-pass.js'
 
 export function relationSchemaField(schemaFields, key) {
@@ -255,6 +255,7 @@ function list(vals) {
 
 export async function bindWhereRelationTerms(terms, schemaFields, spec, ctx, vocabHit, extraLabels) {
   const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const vocab = vocabWithSpoken((spec && spec.vocab) || (ctx && ctx.extra && ctx.extra.vocab) || [])
   const out = []
   for (const term of Array.isArray(terms) ? terms : []) {
     if (!term || typeof term !== 'object') {
@@ -292,7 +293,7 @@ export async function bindWhereRelationTerms(terms, schemaFields, spec, ctx, voc
       for (const raw of list(term.values)) {
         const spoken = String(raw ?? '').trim()
         if (!spoken) continue
-        const hits = enumHits(field, spoken)
+        const hits = enumHits(field, spoken, vocab)
         if (hits.length === 1) values.push(hits[0].code)
       }
       if (!values.length && list(term.values).length) continue
@@ -340,22 +341,144 @@ function fieldNamed(fields, name) {
 }
 
 /** Same cell classes as a spoken write: relation, enum, or literal. */
-function schemaCellMode(field, fields) {
+export function schemaCellMode(field, fields) {
   if (!field) return ''
   if (relationSchemaField(fields, field.name)) return 'relation'
   if (isEnumField(field)) return 'enum'
   return 'literal'
 }
 
-function enumHits(row, spoken) {
-  const enums = fieldEnums(row) || {}
-  const hits = []
-  for (const [code, label] of Object.entries(enums)) {
-    if (String(code) === spoken || String(label || '') === spoken) {
-      hits.push({ code: String(code), label: String(label || code) })
+function cluesOfRow(row) {
+  if (!row) return []
+  const raw = row.clues
+  if (Array.isArray(raw)) return raw
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
     }
   }
+  if (raw && typeof raw === 'object') {
+    return Object.entries(raw).map(([say, spec]) => (
+      spec && typeof spec === 'object' ? { say, ...spec } : { say, value: spec }
+    ))
+  }
+  return []
+}
+
+function fieldKeySet(field) {
+  const names = [
+    String((field && field.name) || ''),
+    String((field && field.title) || ''),
+    String((field && field.uiSchema && field.uiSchema.title) || ''),
+  ].map((item) => item.trim()).filter(Boolean)
+  return new Set(names)
+}
+
+function clueSays(clue) {
+  return [
+    ...list(clue && (clue.say || clue.says || clue.label || clue.word || clue.words)),
+    ...list(clue && (clue.alias || clue.aliases)),
+  ]
+}
+
+function cluesForField(field, vocab) {
+  const keys = fieldKeySet(field)
+  if (!keys.size) return []
+  const out = []
+  for (const row of Array.isArray(vocab) ? vocab : []) {
+    for (const clue of cluesOfRow(row)) {
+      const clueKeys = list(clue && (clue.keys || clue.field || clue.fields))
+      if (!clueKeys.some((key) => keys.has(key) || [...keys].some((name) => name.toLowerCase() === String(key).toLowerCase()))) {
+        continue
+      }
+      out.push(clue)
+    }
+  }
+  return out
+}
+
+function addEnumHit(hits, seen, code, label) {
+  const next = String(code)
+  if (!next || seen.has(next)) return
+  seen.add(next)
+  hits.push({ code: next, label: String(label || next) })
+}
+
+/**
+ * One enum cell: schema code/label, or this field's vocab say/alias, unique.
+ * 0 or many hits stay unbound — caller must not guess.
+ */
+export function enumHits(row, spoken, vocab) {
+  const enums = fieldEnums(row) || {}
+  const want = String(spoken || '').trim()
+  const hits = []
+  const seen = new Set()
+  if (!want) return hits
+  for (const [code, label] of Object.entries(enums)) {
+    if (String(code) === want || String(label || '') === want) {
+      addEnumHit(hits, seen, code, label)
+    }
+  }
+  if (hits.length === 1) return hits
+  if (hits.length > 1) return hits
+  const bag = vocabWithSpoken(vocab)
+  for (const clue of cluesForField(row, bag)) {
+    if (!clueSays(clue).includes(want)) continue
+    const mapped = []
+    const mappedSeen = new Set()
+    for (const item of list(clue.values || clue.value)) {
+      for (const [code, label] of Object.entries(enums)) {
+        if (String(code) !== item && String(label || '') !== item) continue
+        if (mappedSeen.has(String(code))) continue
+        mappedSeen.add(String(code))
+        mapped.push({ code: String(code), label: String(label || code) })
+      }
+    }
+    if (mapped.length === 1) addEnumHit(hits, seen, mapped[0].code, mapped[0].label)
+  }
   return hits
+}
+
+export function unboundWhereSpeak(kind, where, schemaFields, vocab) {
+  const who = String(kind || '').trim() || '这张单'
+  const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const bag = vocabWithSpoken(vocab)
+  const parts = []
+  for (const term of Array.isArray(where) ? where : []) {
+    if (!term || typeof term !== 'object') continue
+    const keys = list(term.keys)
+    const field = keys.map((key) => fieldNamed(fields, key)).find(Boolean)
+      || keys.map((key) => fieldNamed(fields, resolveShapeKey(key, fields, null))).find(Boolean)
+      || null
+    const spoken = list(term.values).filter(Boolean).join('、')
+    if (!field) {
+      const label = keys.filter(Boolean).join('/') || '条件'
+      parts.push(`${who}的「${label}」没对上列名`)
+      continue
+    }
+    const title = cellTitle(field) || field.name
+    const mode = schemaCellMode(field, fields)
+    if (mode === 'enum') {
+      const enums = fieldEnums(field) || {}
+      const options = Object.values(enums).map((item) => String(item || '').trim()).filter(Boolean)
+      const says = cluesForField(field, bag).flatMap(clueSays).filter(Boolean)
+      const shown = [...new Set([...options, ...says])].slice(0, 12)
+      const oral = spoken ? `口语「${spoken}」` : '这一格'
+      const opt = shown.length ? `，选项有 ${shown.join('、')}` : ''
+      parts.push(`${who}的${title}${oral}没对上${opt}`)
+      continue
+    }
+    if (mode === 'relation') {
+      parts.push(`${who}的${title}${spoken ? `「${spoken}」` : ''}没对上那一行`)
+      continue
+    }
+    parts.push(`${who}的${title}${spoken ? `「${spoken}」` : ''}没对上`)
+  }
+  if (!parts.length) return `${who}筛选条件没对上词表列名，不能整表现查。`
+  return `${parts.join('。')}。不能整表现查。`
 }
 
 function cellBlocks(cell) {
@@ -372,7 +495,7 @@ const UNBOUND_HINT = '这一格对不上'
  */
 export async function bindSpokenCells(patch, schemaFields, spec, ctx) {
   const fields = Array.isArray(schemaFields) ? schemaFields : []
-  const vocab = (spec && spec.vocab) || (ctx && ctx.extra && ctx.extra.vocab)
+  const vocab = vocabWithSpoken((spec && spec.vocab) || (ctx && ctx.extra && ctx.extra.vocab))
   const vocabHit = vocabRow(spec && spec.kind, vocab)
   const cells = []
   const input = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {}
@@ -462,7 +585,7 @@ export async function bindSpokenCells(patch, schemaFields, spec, ctx) {
       continue
     }
     if (mode === 'enum') {
-      const hits = enumHits(field, spoken)
+      const hits = enumHits(field, spoken, vocab)
       if (hits.length === 1) {
         cells.push({
           key: field.name,

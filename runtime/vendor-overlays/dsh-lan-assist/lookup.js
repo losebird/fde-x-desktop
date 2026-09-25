@@ -18,7 +18,8 @@ import {
   vocabRow,
 } from './where-pass.js'
 import { kindLabelsMatch, kindLabelTokens, neutralizeKindLabel } from './kind-label.js'
-import { bindWhereRelationTerms } from './relation-bind.js'
+import { bindWhereRelationTerms, enumHits, unboundWhereSpeak } from './relation-bind.js'
+import { vocabWithSpoken } from './vocab/spoken.js'
 
 export { kindLabelsMatch, kindLabelTokens, neutralizeKindLabel } from './kind-label.js'
 
@@ -671,7 +672,7 @@ export function createLookup(opts = {}) {
     const vocabHit = vocabRow(kind, vocabRows)
     const rawFieldLabels = fieldLabelsFromRawCollection(spec && spec.resource, collections)
     clues.terms = bindWhereKeys(clues.terms || [], kind, vocabRows, schemaFields, rawFieldLabels)
-    clues.terms = bindClueEnums(clues.terms, schemaFields)
+    clues.terms = bindClueEnums(clues.terms, schemaFields, vocabRows)
     const relationCtx = {
       conn,
       fetchImpl: async (url, init) => {
@@ -682,6 +683,7 @@ export function createLookup(opts = {}) {
       },
       extra: { vocab: vocabRows, collections },
     }
+    const claimedTerms = Array.isArray(clues.terms) ? clues.terms.slice() : []
     clues.terms = await bindWhereRelationTerms(
       clues.terms,
       schemaFields,
@@ -698,7 +700,7 @@ export function createLookup(opts = {}) {
         error: 'WHERE_UNBOUND',
         status: '没有',
         matches: [],
-        hint: '筛选条件没对上词表列名，不能整表现查。',
+        hint: unboundWhereSpeak(kind, claimedTerms, schemaFields, vocabRows),
       }
     }
     const asked = Number(limit)
@@ -1202,19 +1204,18 @@ export function collectionFields(resource, collections) {
   return []
 }
 
-export function bindClueEnums(terms, schemaFields) {
+export function bindClueEnums(terms, schemaFields, vocab) {
   const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const bag = vocabWithSpoken(vocab)
   return (Array.isArray(terms) ? terms : []).map((term) => {
     if (!term || typeof term !== 'object') return term
     const values = (term.values || []).map((raw) => {
       const want = String(raw || '').trim()
       for (const key of term.keys || []) {
         const hit = fields.find((row) => row && row.name === key)
-        const enums = hit && ((hit.enums && Object.keys(hit.enums).length && hit.enums) || enumMap(hit))
-        if (!enums || typeof enums !== 'object') continue
-        for (const [code, label] of Object.entries(enums)) {
-          if (String(code) === want || String(label || '') === want) return code
-        }
+        if (!hit) continue
+        const mapped = enumHits(hit, want, bag)
+        if (mapped.length === 1) return mapped[0].code
       }
       return want
     })
