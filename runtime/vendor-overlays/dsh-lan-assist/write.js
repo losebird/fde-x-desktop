@@ -550,17 +550,13 @@ async function withSheet(result, extra = {}) {
     } catch { /* keep the already loaded schema */ }
   }
   const ask = String((extra && extra.askAction) || (result && result.askAction) || '').trim()
-  const action = String((result && result.action) || extra.action || '').trim()
-  const spoken = ask && action === '现查'
-    ? speakWithActionAsk(result && result.speak, sheetKind, ask)
-    : (result && result.speak)
   const packed = {
     ...result,
-    ...(spoken != null ? { speak: spoken } : {}),
     ...(ask ? { askAction: ask } : {}),
   }
   const sheet = packSheet({ ...packed, ...extra, schemaFields })
   const out = { ...packed, sheet }
+  if (sheet && sheet.speak) out.speak = sheet.speak
   delete out.vocab
   return out
 }
