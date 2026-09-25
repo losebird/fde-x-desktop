@@ -9,6 +9,7 @@ import {
 import {
   businessKindsDescribedInLanAssistState,
   desiredLanAssistConnectionStatus,
+  imBusinessAdapterHealthFromState,
   lookupReadyFromLanAssistState,
   reconcileLanAssistConnectionLamp,
 } from '../biz/connection-lamp.mjs'
@@ -44,6 +45,22 @@ test('lan-assist lamp follows lookup + described kinds, or recent biz success', 
     lookup: { configured: true, hasToken: true },
     capabilities: { connector: true },
   }), 'connected')
+})
+
+test('imBusinessAdapterHealthFromState matches connection lamp connected vs pending', () => {
+  const readyState = {
+    ok: true,
+    lookup: { configured: true, baseUrl: 'http://127.0.0.1:13000' },
+    kinds: [{ kind: '客户', resource: 'customers', catalogVersion: 'schema:1', fields: ['no'] }],
+  }
+  assert.equal(desiredLanAssistConnectionStatus(readyState), 'connected')
+  assert.deepEqual(imBusinessAdapterHealthFromState(readyState), {
+    state: 'healthy',
+    detail: 'IM 与业务系统操作能力；当前可执行业务操作',
+  })
+  assert.equal(imBusinessAdapterHealthFromState(null).state, 'degraded')
+  assert.equal(imBusinessAdapterHealthFromState({ ok: true, lookup: {} }).state, 'degraded')
+  assert.match(imBusinessAdapterHealthFromState(null).detail, /离线/)
 })
 
 test('reconcileLanAssistConnectionLamp updates provider rows in sqlite', () => {

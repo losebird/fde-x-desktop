@@ -2,6 +2,7 @@ import { access } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { imBusinessAdapterHealthFromState } from './biz/connection-lamp.mjs'
 
 const checkedAt = () => new Date().toISOString()
 
@@ -95,6 +96,33 @@ export async function inspectAdapters({ aiRuntime } = {}) {
           detail: `语义引擎未接通：${error instanceof Error ? error.message : String(error)}`,
           checkedAt: checkedAt(),
         }
+      }
+    }
+    if (definition.capability === 'im-business-adapter') {
+      if (!available) {
+        return {
+          capability: definition.capability,
+          state: 'unavailable',
+          detail: `${definition.detail}；未发现本机安装`,
+          checkedAt: checkedAt(),
+        }
+      }
+      let lanAssistState = null
+      if (aiRuntime && typeof aiRuntime.lanAssist === 'function') {
+        try {
+          lanAssistState = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+        } catch {
+          lanAssistState = null
+        }
+      }
+      const health = imBusinessAdapterHealthFromState(lanAssistState, {
+        capabilityDetail: definition.detail,
+      })
+      return {
+        capability: definition.capability,
+        state: health.state,
+        detail: health.detail,
+        checkedAt: checkedAt(),
       }
     }
     return {
