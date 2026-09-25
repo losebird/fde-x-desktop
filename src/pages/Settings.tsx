@@ -387,19 +387,21 @@ export default function Settings() {
                   <div className="border border-brand/25 bg-brand-soft px-3 py-3 flex items-start gap-3">
                     <Database size={15} className="text-brand mt-0.5 shrink-0" />
                     <div>
-                      <div className="font-medium">事务型数据正在切换到统一 SQLite</div>
+                      <div className="font-medium">事务数据在本机 SQLite</div>
                       <div className="text-xs text-ink-muted mt-1 leading-relaxed">
-                        当前运行时已管理 Schema、审计、出站事件与业务操作记录。现有页面中的任务、对话和原型表格仍有一部分保留在浏览器缓存，将按模块逐步迁移，不能把缓存当成最终权威。
+                        任务、计划、工作流、AI/IM 会话正文、业务操作与审计由运行时写入本机数据库。浏览器里只保留界面习惯（见下），不能当成业务数据的权威来源。
                       </div>
                     </div>
                   </div>
                   <div className="border border-line bg-surface-2 px-3 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="font-medium">前端兼容缓存</div>
-                        <div className="text-xs text-ink-muted mt-1">键名 <code className="px-1 bg-white border border-line text-[11px]">scene-39-workstation</code>，仅用于尚未迁移页面和离线原型状态。</div>
+                        <div className="font-medium">浏览器壳层状态</div>
+                        <div className="text-xs text-ink-muted mt-1 leading-relaxed">
+                          本机界面习惯存在这台浏览器里（布局、工作区选择、输入草稿等）。任务、会话正文与业务审计不在这里，以本机 SQLite / 运行时为准。
+                        </div>
                       </div>
-                      <Tag kind="amber">过渡中</Tag>
+                      <Tag kind="blue">本机浏览器</Tag>
                     </div>
                   </div>
                   <div className="border border-line bg-surface-2 px-3 py-3">
