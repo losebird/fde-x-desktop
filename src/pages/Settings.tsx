@@ -30,13 +30,6 @@ export default function Settings() {
   const [runtimeLoading, setRuntimeLoading] = useState(false)
   const [lookupNote, setLookupNote] = useState('')
   const [lookup, setLookup] = useState({ system: '', env: '测试', baseUrl: '', token: '', account: '', password: '' })
-  const [pairNote, setPairNote] = useState('')
-  const [pairCode, setPairCode] = useState('')
-  const [door, setDoor] = useState('')
-  const [peerCode, setPeerCode] = useState('')
-  const [doorPort, setDoorPort] = useState('')
-  const [pairAsk, setPairAsk] = useState('')
-  const [peers, setPeers] = useState<Array<{ id: string; name: string; door: string; online: boolean }>>([])
 
   const diagnoseRuntime = useCallback(async () => {
     setRuntimeLoading(true)
@@ -63,20 +56,6 @@ export default function Settings() {
           env: String(current.env || prev.env),
           baseUrl: String(current.baseUrl || prev.baseUrl),
         }))
-      }).catch(() => undefined)
-    }
-    if (section === 'runtime') {
-      void runtimeApi.imState().then((state) => {
-        if (state.doorPort != null) setDoorPort(String(state.doorPort))
-        const ask = state.pairAsk
-        setPairAsk(ask && typeof ask === 'object' ? JSON.stringify(ask) : '')
-        const rows = Array.isArray(state.peers) ? state.peers as Array<Record<string, unknown>> : []
-        setPeers(rows.filter((peer) => !peer.unpaired).map((peer) => ({
-          id: String(peer.id || ''),
-          name: String(peer.displayName || peer.id || ''),
-          door: String(peer.door || ''),
-          online: Boolean(peer.online),
-        })))
       }).catch(() => undefined)
     }
   }, [diagnoseRuntime, section])
@@ -282,59 +261,6 @@ export default function Settings() {
                 ) : (
                   <div className="text-sm text-ink-muted">正在读取运行环境状态…</div>
                 )}
-              </Card>
-              <Card>
-                <div className="text-base font-medium mb-1">局域网配对</div>
-                <div className="text-xs text-ink-muted mb-3">开码 → 对端填码和门牌 → 本机确认。门牌用「本机门牌」这一行，不要填 5174/5175。本机自测：pnpm run dev:peer。</div>
-                <div className="text-xs text-ink-muted mb-2">本机门牌：{doorPort ? `127.0.0.1:${doorPort}` : '连接核心后显示'}</div>
-                {peers.length > 0 && (
-                  <div className="mb-3 text-xs text-ink-muted space-y-1">
-                    {peers.map((peer) => (
-                      <div key={peer.id}>{peer.online ? '在线' : '离线'} · {peer.name} · {peer.door || peer.id}</div>
-                    ))}
-                  </div>
-                )}
-                {pairNote && <div className="mb-2 text-xs text-ink-muted">{pairNote}</div>}
-                {pairAsk && (
-                  <div className="mb-3 border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
-                    有待确认的配对请求
-                    <div className="mt-2 flex gap-2">
-                      <button className="btn h-7 px-2 text-xs" onClick={() => void runtimeApi.imPairReject().then(() => { setPairAsk(''); setPairNote('已拒绝') })}>拒绝</button>
-                      <button className="btn-primary h-7 px-2 text-xs" onClick={() => void runtimeApi.imPairAccept().then(() => { setPairAsk(''); setPairNote('已配对') })}>确定配对</button>
-                    </div>
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2 mb-3">
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      void runtimeApi.imPairMint().then((data) => {
-                        const nested = data.pairCode && typeof data.pairCode === 'object' ? data.pairCode as Record<string, unknown> : null
-                        const code = String(data.code ?? nested?.code ?? '')
-                        setPairCode(code)
-                        setPairNote(code ? `配对码 ${code}` : String(data.hint ?? '已开码'))
-                      }).catch((cause) => setPairNote(cause instanceof Error ? cause.message : '开码失败'))
-                    }}
-                  >
-                    开码
-                  </button>
-                  {pairCode && <span className="input h-8 px-2 font-mono text-sm">{pairCode}</span>}
-                </div>
-                <div className="grid grid-cols-1 @md:grid-cols-2 gap-2">
-                  <label className="text-xs text-ink-muted">对方配对码<input className="input mt-1" value={peerCode} onChange={(event) => setPeerCode(event.target.value)} /></label>
-                  <label className="text-xs text-ink-muted">对方门牌<input className="input mt-1 font-mono" value={door} onChange={(event) => setDoor(event.target.value)} /></label>
-                </div>
-                <button
-                  className="btn mt-3"
-                  disabled={!peerCode.trim() || !door.trim()}
-                  onClick={() => {
-                    void runtimeApi.imPairHandshake({ peerCode: peerCode.trim(), door: door.trim() })
-                      .then((data) => setPairNote(data.ok === false ? String(data.hint ?? data.error ?? '握手失败') : '已发出握手，等待对端确认'))
-                      .catch((cause) => setPairNote(cause instanceof Error ? cause.message : '握手失败'))
-                  }}
-                >
-                  填码配对
-                </button>
               </Card>
               <Card>
                 <div className="text-base font-medium mb-3">权威边界</div>

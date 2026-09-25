@@ -1557,7 +1557,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                               }).catch((cause) => setPairHint(cause instanceof Error ? cause.message : '开码失败'))
                             }}
                           >开码</button>
-                          <button type="button" className="btn h-7 px-2" onClick={() => useApp.getState().togglePanel('settings', 'full')}>打开设置配对</button>
+                          <button type="button" className="btn h-7 px-2" onClick={() => openManage('add')}>添加同事配对</button>
                         </div>
                         {pairCode && <div className="mt-2 font-mono text-sm text-ink">{pairCode}</div>}
                         {pairHint && <div className="mt-1">{pairHint}</div>}
