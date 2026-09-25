@@ -30,6 +30,33 @@ export interface RuntimeAdapterStatus {
   checkedAt: string
 }
 
+export type ModelsSettingsRow = {
+  provider: string
+  displayName: string
+  settingsNs: string
+  settingsPath: string[]
+  active: boolean
+  kind: 'catalog' | 'custom'
+  configured: boolean
+  removable: boolean
+  apiKeyEnv?: string
+  keyRef: string
+  credentialConfigured: boolean
+  credentialWritable: boolean
+  declared: boolean
+  modelsOverridden: boolean
+  revision?: number
+  profile?: Record<string, unknown>
+  userProfile?: Record<string, unknown>
+}
+
+export type ModelsSettingsSnapshot = {
+  writable: boolean
+  protocolChoices: string[]
+  namespaces: Record<string, { revision?: number; applies?: string }>
+  rows: ModelsSettingsRow[]
+}
+
 export interface AiPresetRecord {
   id: string
   name?: string
@@ -727,6 +754,60 @@ export class RuntimeApi {
       await new Promise((resolve) => setTimeout(resolve, 500))
     }
     throw new RuntimeApiError(0, 'runtime_unreachable', `DSH 没有在 ${waitSec} 秒内连上`)
+  }
+
+  async getModelsSettings(signal?: AbortSignal): Promise<ModelsSettingsSnapshot> {
+    const result = await this.request<{ data: ModelsSettingsSnapshot }>('/api/v1/ai/models-settings', { signal })
+    return result.data
+  }
+
+  async mutateModelsSettings(body: {
+    ns: string
+    ops: Array<{ op: 'set'; path: string[]; value: unknown } | { op: 'unset'; path: string[] }>
+    expectedRevision?: number
+  }, signal?: AbortSignal): Promise<{ view?: { revision?: number; user?: Record<string, unknown> } }> {
+    const result = await this.request<{ data: { view?: { revision?: number; user?: Record<string, unknown> } } }>(
+      '/api/v1/ai/models-settings/mutate',
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    )
+    return result.data
+  }
+
+  async applyModelsSettingsProvider(body: {
+    ns: string
+    provider: string
+    settingsPath: string[]
+    draft: Record<string, unknown>
+    committedOriginal: unknown
+    expectedRevision?: number
+    apiKey?: string
+    keyRef: string
+  }, signal?: AbortSignal): Promise<{ ok?: boolean; view?: { revision?: number; user?: Record<string, unknown> }; hint?: string }> {
+    const result = await this.request<{ data: { ok?: boolean; view?: { revision?: number; user?: Record<string, unknown> }; hint?: string } }>(
+      '/api/v1/ai/models-settings/apply',
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    )
+    return result.data
+  }
+
+  async setModelsCredential(body: { ref: string; action?: 'set' | 'delete'; value?: string }, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/ai/models-settings/credential', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return result.data
   }
 
   async listAiProviders(signal?: AbortSignal): Promise<{

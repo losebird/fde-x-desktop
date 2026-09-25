@@ -83,6 +83,12 @@ import { handleContextPackRoute } from './routes/context.mjs'
 import { handleCorpusRoute } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { tryServeStatic } from './routes/static.mjs'
+import {
+  fetchModelsSettingsSnapshot,
+  pathOps,
+  providerKeyRef as modelsProviderKeyRef,
+  validateApiKeyInput,
+} from './models-settings.mjs'
 import { startBriefingScheduler } from './briefing/scheduler.mjs'
 import { startMemoryWriter } from './memory/writer.mjs'
 import { asDraftCard, draftMemoryCardInsert, validateMemoryCardLabel } from './memory/cards.mjs'
@@ -345,7 +351,7 @@ function removeCredentialRef(filePath, name) {
 }
 
 function providerKeyRef(providerOrRoute) {
-  return `${String(providerOrRoute || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
+  return modelsProviderKeyRef(providerOrRoute)
 }
 
 function buildCustomProviderProfile(body, route, existingProfile) {
@@ -354,23 +360,32 @@ function buildCustomProviderProfile(body, route, existingProfile) {
   const api = String(body.api ?? existingProfile?.api ?? 'openai-completions').trim()
   const apiKey = String(body.apiKey ?? '').trim()
   const picked = Array.isArray(body.models) ? body.models : null
-  const reasoning = body.reasoning === false ? false : {
-    off: null,
-    low: 'low',
-    medium: 'medium',
-    high: 'high',
-  }
-  let models = picked
-    ? picked.map((row) => ({
-      id: String(row?.id || '').trim(),
-      name: String(row?.name || row?.id || '').trim(),
-      ...(reasoning ? { reasoningEfforts: reasoning } : { reasoningEfforts: false }),
-    })).filter((row) => row.id)
-    : (existingProfile?.models || []).map((row) => ({
+  let models
+  if (picked) {
+    const existingById = new Map((existingProfile?.models || []).map((row) => [String(row.id || '').trim(), row]))
+    models = picked.map((row) => {
+      const id = String(row?.id || '').trim()
+      const name = String(row?.name || row?.id || '').trim()
+      const prev = existingById.get(id)
+      if (prev) {
+        return { ...prev, ...row, id, name: name || prev.name || id }
+      }
+      const base = { id, name: name || id }
+      if (body.reasoning === true) {
+        return {
+          ...base,
+          reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' },
+        }
+      }
+      return base
+    }).filter((row) => row.id)
+  } else {
+    models = (existingProfile?.models || []).map((row) => ({
       id: String(row.id || '').trim(),
       name: String(row.name || row.id || '').trim(),
-      ...(reasoning ? { reasoningEfforts: reasoning } : {}),
+      ...row,
     })).filter((row) => row.id)
+  }
   const modelId = String(body.modelId || '').trim()
   const modelName = String(body.modelName || modelId).trim()
   if (models.length === 0 && modelId) models.push({ id: modelId, ...(modelName ? { name: modelName } : {}) })
@@ -389,7 +404,7 @@ function buildCustomProviderProfile(body, route, existingProfile) {
   }
 }
 
-async function applyCustomProviderWrite(aiRuntime, route, profile, apiKey) {
+async function applyCustomProviderWrite(aiRuntime, route, profile, apiKey, expectedRevision) {
   let live = false
   let liveError = ''
   const credPath = join(aiRuntime.dshHome, '.credentials.yaml')
@@ -399,6 +414,7 @@ async function applyCustomProviderWrite(aiRuntime, route, profile, apiKey) {
       await aiRuntime.rpc('settings/mutate', {
         ns: 'llm-pi-ai',
         ops: [{ op: 'set', path: ['providers', route], value: profile }],
+        ...(expectedRevision !== undefined ? { expectedRevision } : {}),
       })
       if (apiKey) await aiRuntime.rpc('credentials/set', { ref: providerKeyRef(route), value: apiKey })
       live = true
@@ -1337,6 +1353,135 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/v1/ai/models-settings') {
+      try {
+        const snapshot = await fetchModelsSettingsSnapshot(aiRuntime, readSettingsProviderProfile)
+        sendJson(response, 200, { data: snapshot, correlationId: currentCorrelationId })
+      } catch (error) {
+        sendError(response, 502, 'models_settings_failed', error instanceof Error ? error.message : String(error), currentCorrelationId)
+      }
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/ai/models-settings/mutate') {
+      const body = await readJson(request)
+      const ns = String(body.ns || '').trim()
+      const ops = Array.isArray(body.ops) ? body.ops : []
+      const expectedRevision = body.expectedRevision
+      if (!ns || ops.length === 0) {
+        sendError(response, 400, 'validation_error', '需要 ns 与非空 ops', currentCorrelationId)
+        return
+      }
+      if (!aiRuntime.status().connected) {
+        sendError(response, 503, 'core_disconnected', '核心未连接，无法 settings/mutate；请先连接或重载核心', currentCorrelationId)
+        return
+      }
+      try {
+        const view = await aiRuntime.rpc('settings/mutate', { ns, ops, expectedRevision })
+        sendJson(response, 200, { data: { view }, correlationId: currentCorrelationId })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const code = /conflict/i.test(message) ? 'settings_conflict' : 'rpc_error'
+        sendError(response, code === 'settings_conflict' ? 409 : 502, code, message, currentCorrelationId)
+      }
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/ai/models-settings/credential') {
+      const body = await readJson(request)
+      const ref = String(body.ref || '').trim()
+      const value = String(body.value || '')
+      const action = String(body.action || 'set')
+      if (!ref) {
+        sendError(response, 400, 'validation_error', '需要 ref', currentCorrelationId)
+        return
+      }
+      const credPath = join(aiRuntime.dshHome, '.credentials.yaml')
+      if (action === 'delete') {
+        if (aiRuntime.status().connected) {
+          try { await aiRuntime.rpc('credentials/delete', { ref }) } catch { /* file fallback */ }
+        }
+        removeCredentialRef(credPath, ref)
+        sendJson(response, 200, { data: { ok: true, ref }, correlationId: currentCorrelationId })
+        return
+      }
+      const keyIssue = validateApiKeyInput(value)
+      if (keyIssue) {
+        sendError(response, 400, 'validation_error', keyIssue === 'non_ascii' ? 'API 密钥须为可打印 ASCII' : 'API 密钥不能为空', currentCorrelationId)
+        return
+      }
+      if (aiRuntime.status().connected) {
+        try {
+          await aiRuntime.rpc('credentials/set', { ref, value: value.trim() })
+        } catch (error) {
+          sendError(response, 502, 'rpc_error', error instanceof Error ? error.message : String(error), currentCorrelationId)
+          return
+        }
+      }
+      upsertCredentialRef(credPath, ref, value.trim())
+      sendJson(response, 200, { data: { ok: true, ref, hint: maskSecret(value.trim()) }, correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/ai/models-settings/apply') {
+      const body = await readJson(request)
+      const ns = String(body.ns || '').trim()
+      const settingsPath = Array.isArray(body.settingsPath) ? body.settingsPath.map(String) : []
+      const provider = String(body.provider || '').trim()
+      const draft = body.draft && typeof body.draft === 'object' ? body.draft : {}
+      const committedOriginal = body.committedOriginal
+      const expectedRevision = body.expectedRevision
+      const apiKey = String(body.apiKey || '')
+      const keyRef = String(body.keyRef || providerKeyRef(provider)).trim()
+      if (!ns || !provider) {
+        sendError(response, 400, 'validation_error', '需要 ns 与 provider', currentCorrelationId)
+        return
+      }
+      const keyTrimmed = apiKey.trim()
+      if (keyTrimmed) {
+        const keyIssue = validateApiKeyInput(keyTrimmed)
+        if (keyIssue) {
+          sendError(response, 400, 'validation_error', keyIssue === 'non_ascii' ? 'API 密钥须为可打印 ASCII' : 'API 密钥无效', currentCorrelationId)
+          return
+        }
+      }
+      let view
+      const ops = pathOps(settingsPath, committedOriginal, draft)
+      if (ops.length > 0) {
+        if (!aiRuntime.status().connected) {
+          sendError(response, 503, 'core_disconnected', '核心未连接，无法保存设置', currentCorrelationId)
+          return
+        }
+        try {
+          view = await aiRuntime.rpc('settings/mutate', { ns, ops, expectedRevision })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          const code = /conflict/i.test(message) ? 'settings_conflict' : 'rpc_error'
+          sendError(response, code === 'settings_conflict' ? 409 : 502, code, message, currentCorrelationId)
+          return
+        }
+      }
+      if (keyTrimmed) {
+        const credPath = join(aiRuntime.dshHome, '.credentials.yaml')
+        try {
+          if (aiRuntime.status().connected) await aiRuntime.rpc('credentials/set', { ref: keyRef, value: keyTrimmed })
+          upsertCredentialRef(credPath, keyRef, keyTrimmed)
+        } catch (error) {
+          sendError(response, 502, 'rpc_error', error instanceof Error ? error.message : String(error), currentCorrelationId)
+          return
+        }
+      }
+      sendJson(response, 200, {
+        data: {
+          ok: true,
+          view,
+          hint: '已保存。若模型列表有变，请重载核心。',
+        },
+        correlationId: currentCorrelationId,
+      })
+      return
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/v1/ai/providers') {
       const [registered, directory] = await Promise.all([
         aiRuntime.rpc('llm/listProviders', {}),
@@ -1568,7 +1713,7 @@ const server = createServer(async (request, response) => {
           try {
             await aiRuntime.rpc('settings/mutate', {
               ns: 'llm-pi-ai',
-              ops: [{ op: 'delete', path: ['providers', route] }],
+              ops: [{ op: 'unset', path: ['providers', route] }],
             })
             live = true
           } catch (error) {

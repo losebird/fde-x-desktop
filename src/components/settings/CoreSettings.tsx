@@ -1,79 +1,34 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { Bot, ChevronDown, Copy, Pencil, Trash2, Upload } from 'lucide-react'
-import clsx from 'clsx'
+import { useEffect, useState } from 'react'
+import { Bot, Copy, Trash2, Upload } from 'lucide-react'
 import { Card, Tag } from '@/components/ui'
 import { runtimeApi, type AiPresetRecord } from '@/lib/runtime-api'
 import { PresetImportDrawer, sourceLabel } from '@/components/settings/PresetImportDrawer'
-
-const PROVIDER_LIST_COLLAPSE_AT = 4
-
-type ProviderRow = {
-  kind: 'catalog' | 'custom'
-  provider: string
-  displayName: string
-  active: boolean
-  configured: boolean
-  keyRef: string
-  profile?: { displayName?: string; baseURL: string; api: string; models: Array<{ id: string; name: string }> }
-}
-
-const EMPTY_CUSTOM = {
-  route: '',
-  displayName: '',
-  baseURL: '',
-  api: 'openai-completions',
-  apiKey: '',
-  modelId: '',
-  modelName: '',
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <label className="block">
-      <div className="text-xs font-medium text-ink mb-1.5">{label}</div>
-      {children}
-      {hint ? <div className="text-[11px] text-ink-subtle mt-1 leading-5">{hint}</div> : null}
-    </label>
-  )
-}
+import { ModelsProvidersSection } from '@/components/settings/ModelsProvidersSection'
 
 export function CoreSettings() {
   const [connected, setConnected] = useState(false)
   const [bffOrigin, setBffOrigin] = useState('')
   const [note, setNote] = useState('')
-  const [providers, setProviders] = useState<ProviderRow[]>([])
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
-  const [panel, setPanel] = useState<null | 'catalog' | 'custom'>(null)
-  const [formError, setFormError] = useState('')
-  const [pickProvider, setPickProvider] = useState('')
-  const [pickKey, setPickKey] = useState('')
-  const [custom, setCustom] = useState(EMPTY_CUSTOM)
-  const [customEditRoute, setCustomEditRoute] = useState<string | null>(null)
-  const [keyFor, setKeyFor] = useState<string | null>(null)
-  const [keyDraft, setKeyDraft] = useState('')
-  const [foundModels, setFoundModels] = useState<Array<{ id: string; name: string }>>([])
-  const [pickedModels, setPickedModels] = useState<string[]>([])
   const [presets, setPresets] = useState<AiPresetRecord[]>([])
   const [copyFrom, setCopyFrom] = useState('')
   const [copyId, setCopyId] = useState('')
   const [copyName, setCopyName] = useState('')
   const [busy, setBusy] = useState(false)
-  const [providersOpen, setProvidersOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+
+  const refreshModels = () => {
+    void runtimeApi.aiModels().then((catalog) => {
+      setModels((catalog.groups || []).flatMap((group) => group.models.map((model) => ({ id: model.id, name: model.name }))))
+    }).catch(() => setModels([]))
+  }
 
   const load = () => {
     void runtimeApi.aiStatus().then((status) => {
       setConnected(Boolean(status.connected))
       if (status.bffOrigin) setBffOrigin(String(status.bffOrigin))
     }).catch(() => setConnected(false))
-    void runtimeApi.listAiProviders().then((data) => {
-      setProviders((data.providers || []).map((row) => ({ ...row, kind: row.kind || 'catalog' })))
-      const next = (data.providers || []).find((row) => !row.configured)
-      if (next) setPickProvider((current) => current || next.provider)
-    }).catch(() => setProviders([]))
-    void runtimeApi.aiModels().then((catalog) => {
-      setModels((catalog.groups || []).flatMap((group) => group.models.map((model) => ({ id: model.id, name: model.name }))))
-    }).catch(() => setModels([]))
+    refreshModels()
     void runtimeApi.listAiPresets().then((data) => {
       setPresets(data.presets || [])
       if (data.presets?.[0]?.id) setCopyFrom((current) => current || data.presets[0].id)
@@ -82,38 +37,6 @@ export function CoreSettings() {
 
   useEffect(() => { load() }, [])
 
-  const configuredProviders = providers.filter((row) => row.configured)
-  const canCollapseProviders = providers.length > PROVIDER_LIST_COLLAPSE_AT
-  const showProviderList = !canCollapseProviders || providersOpen
-
-  const openCustomCreate = () => {
-    setFormError('')
-    setCustomEditRoute(null)
-    setCustom(EMPTY_CUSTOM)
-    setFoundModels([])
-    setPickedModels([])
-    setPanel('custom')
-  }
-
-  const openCustomEdit = (row: ProviderRow) => {
-    const profile = row.profile
-    setFormError('')
-    setCustomEditRoute(row.provider)
-    setCustom({
-      route: row.provider,
-      displayName: profile?.displayName || row.displayName,
-      baseURL: profile?.baseURL || '',
-      api: profile?.api || 'openai-completions',
-      apiKey: '',
-      modelId: '',
-      modelName: '',
-    })
-    const models = profile?.models || []
-    setFoundModels(models)
-    setPickedModels(models.map((model) => model.id))
-    setPanel('custom')
-  }
-
   return (
     <div className="space-y-4">
       <Card>
@@ -121,11 +44,9 @@ export function CoreSettings() {
           <div className="w-9 h-9 rounded-lg bg-brand-soft text-brand flex items-center justify-center shrink-0"><Bot size={16} /></div>
           <div>
             <div className="text-base font-medium">模型与提供方</div>
-            <div className="text-xs text-ink-muted mt-0.5">添加官方提供方或自定义网关，获取模型列表后写入本机核心。不要嵌 DSH 整页。</div>
+            <div className="text-xs text-ink-muted mt-0.5">与 DSH Models 页同一账本：展开一行编辑卡，改密钥、网关与模型目录。不要嵌 DSH 整页。</div>
           </div>
         </div>
-        {!connected && <div className="mb-3 text-xs text-ink-muted">先打开 AI 页连上核心，创建后才会进正在跑的 DSH；未连接时仍会写入配置文件。</div>}
-        {note && <div className="mb-3 text-xs text-ink-muted">{note}</div>}
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -151,285 +72,21 @@ export function CoreSettings() {
             停掉再拉起{bffOrigin ? ` ${bffOrigin} ` : ' '}本地 BFF 和 DSH。界面不用关，对话会短暂断开。
           </span>
         </div>
-        {providers.length > 0 && (
-          <div className="mb-4">
-            {canCollapseProviders && (
-              <button
-                type="button"
-                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-line hover:bg-surface-2 text-left"
-                aria-expanded={providersOpen}
-                onClick={() => setProvidersOpen((open) => !open)}
-              >
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">
-                    {providers.length} 个提供方
-                    {configuredProviders.length > 0 ? ` · ${configuredProviders.length} 已配置` : ''}
-                  </div>
-                  {!providersOpen && (
-                    <div className="text-[11px] text-ink-subtle mt-0.5 truncate">
-                      {configuredProviders.length > 0
-                        ? configuredProviders.map((row) => row.displayName).join('、')
-                        : '未配置密钥，展开后添加'}
-                    </div>
-                  )}
-                </div>
-                <span className="flex items-center gap-1.5 shrink-0 text-xs text-ink-muted">
-                  {providersOpen ? '收起' : '展开'}
-                  <ChevronDown size={14} className={clsx('text-ink-subtle transition-transform', providersOpen && 'rotate-180')} />
-                </span>
-              </button>
-            )}
-            {showProviderList && (
-              <div className={clsx('space-y-2', canCollapseProviders && 'mt-2')}>
-                {providers.map((row) => (
-                  <div key={row.provider} className="rounded-lg border border-line">
-                    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium">{row.displayName}</div>
-                        <div className="text-[11px] text-ink-subtle font-mono">{row.provider}</div>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
-                        <Tag kind={row.configured ? 'green' : 'amber'}>{row.configured ? 'API 密钥已配置' : 'API 密钥缺失'}</Tag>
-                        {row.kind === 'catalog' ? (
-                          <>
-                            <button
-                              type="button"
-                              className="btn h-8 px-2 text-xs"
-                              onClick={() => {
-                                setFormError('')
-                                setKeyFor(row.provider)
-                                setKeyDraft('')
-                              }}
-                            >更换密钥</button>
-                            {row.configured && (
-                              <button
-                                type="button"
-                                className="btn-ghost h-8 px-2 text-xs text-ink-muted"
-                                disabled={busy}
-                                onClick={() => {
-                                  if (!window.confirm(`清除 ${row.displayName} 的 API 密钥？目录项会保留。`)) return
-                                  setBusy(true)
-                                  void runtimeApi.clearAiProviderKey(row.provider).then((data) => {
-                                    setKeyFor(null)
-                                    setNote(String(data.hint || '密钥已清除，请重载核心。'))
-                                    load()
-                                  }).catch((cause) => setNote(cause instanceof Error ? cause.message : '清除失败')).finally(() => setBusy(false))
-                                }}
-                              >清除密钥</button>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <button type="button" className="btn h-8 px-2 text-xs" onClick={() => openCustomEdit(row)}><Pencil size={12} /> 编辑</button>
-                            <button
-                              type="button"
-                              className="btn-ghost h-8 px-2 text-xs text-accent-red"
-                              disabled={busy}
-                              onClick={() => {
-                                if (!window.confirm(`删除自定义提供方 ${row.displayName}？模型胶囊里也会消失。`)) return
-                                setBusy(true)
-                                void runtimeApi.deleteCustomAiProvider(row.provider).then((data) => {
-                                  setNote(String(data.hint || '已删除，请重载核心。'))
-                                  load()
-                                }).catch((cause) => setNote(cause instanceof Error ? cause.message : '删除失败')).finally(() => setBusy(false))
-                              }}
-                            ><Trash2 size={12} /></button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    {keyFor === row.provider && (
-                      <div className="px-3 pb-3 pt-0 border-t border-line bg-surface-2/50 space-y-2">
-                        <Field label="新 API 密钥">
-                          <input className="input w-full" type="password" value={keyDraft} onChange={(e) => setKeyDraft(e.target.value)} placeholder="输入新密钥" />
-                        </Field>
-                        <div className="flex justify-end gap-2">
-                          <button type="button" className="btn" onClick={() => { setKeyFor(null); setKeyDraft('') }}>取消</button>
-                          <button
-                            type="button"
-                            className="btn-primary"
-                            disabled={busy || !keyDraft.trim()}
-                            onClick={() => {
-                              setBusy(true)
-                              void runtimeApi.patchAiProviderKey(row.provider, keyDraft.trim()).then((data) => {
-                                setKeyFor(null)
-                                setKeyDraft('')
-                                setNote(String(data.hint || '密钥已保存，请重载核心。'))
-                                load()
-                              }).catch((cause) => setNote(cause instanceof Error ? cause.message : '保存失败')).finally(() => setBusy(false))
-                            }}
-                          >保存密钥</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+
+        <ModelsProvidersSection
+          connected={connected}
+          busy={busy}
+          setBusy={setBusy}
+          note={note}
+          setNote={setNote}
+          onModelsRefresh={refreshModels}
+        />
+
         {models.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-4">
+          <div className="flex flex-wrap gap-1.5 mt-4">
             {models.map((model) => (
               <span key={model.id} className="px-2.5 py-1 rounded-full border border-line bg-surface-2 text-xs">{model.name}</span>
             ))}
-          </div>
-        )}
-        <div className="grid grid-cols-1 @md:grid-cols-2 gap-2">
-          <button type="button" className="h-12 rounded-xl border border-dashed border-line text-sm text-ink-muted hover:border-brand hover:text-ink" onClick={() => { setFormError(''); setPanel(panel === 'catalog' ? null : 'catalog') }}>
-            + 添加提供方
-          </button>
-          <button type="button" className="h-12 rounded-xl border border-dashed border-line text-sm text-ink-muted hover:border-brand hover:text-ink" onClick={() => { if (panel === 'custom' && !customEditRoute) setPanel(null); else openCustomCreate() }}>
-            + 添加自定义提供方
-          </button>
-        </div>
-
-        {panel === 'catalog' && (
-          <div className="mt-4 p-4 rounded-xl border border-line bg-surface-2 space-y-3">
-            <div className="text-sm font-medium">添加提供方</div>
-            {formError && <div className="text-xs text-accent-red">{formError}</div>}
-            <Field label="提供方">
-              <select className="input w-full text-sm" value={pickProvider} onChange={(e) => setPickProvider(e.target.value)}>
-                {providers.map((row) => (
-                  <option key={row.provider} value={row.provider}>{row.displayName}{row.configured ? '（已配置）' : ''}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="API 密钥">
-              <input className="input w-full" type="password" value={pickKey} onChange={(e) => setPickKey(e.target.value)} placeholder="输入 API 密钥" />
-            </Field>
-            <div className="flex justify-end gap-2">
-              <button type="button" className="btn" onClick={() => setPanel(null)}>取消</button>
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={busy || !pickProvider || !pickKey.trim()}
-                onClick={() => {
-                  setBusy(true)
-                  setFormError('')
-                  void runtimeApi.addAiProvider({ provider: pickProvider, apiKey: pickKey.trim() }).then(() => {
-                    setPickKey('')
-                    setPanel(null)
-                    setNote('提供方已保存。请重新连接核心后，在会话右侧切换模型。')
-                    load()
-                  }).catch((cause) => setFormError(cause instanceof Error ? cause.message : '添加失败')).finally(() => setBusy(false))
-                }}
-              >{busy ? '保存中…' : '保存'}</button>
-            </div>
-          </div>
-        )}
-
-        {panel === 'custom' && (
-          <div className="mt-4 p-4 rounded-xl border border-line bg-surface-2 space-y-3">
-            <div className="text-sm font-medium">{customEditRoute ? '编辑自定义提供方' : '自定义提供方'}</div>
-            {formError && <div className="text-xs text-accent-red">{formError}</div>}
-            <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
-              <Field label="提供方 ID" hint="小写字母开头，只能含小写字母、数字和连字符。">
-                <input className="input w-full font-mono text-xs" value={custom.route} readOnly={Boolean(customEditRoute)} onChange={(e) => setCustom((c) => ({ ...c, route: e.target.value }))} placeholder="grok2api" />
-              </Field>
-              <Field label="显示名">
-                <input className="input w-full" value={custom.displayName} onChange={(e) => setCustom((c) => ({ ...c, displayName: e.target.value }))} />
-              </Field>
-              <Field label="API 地址">
-                <input className="input w-full font-mono text-xs" value={custom.baseURL} onChange={(e) => setCustom((c) => ({ ...c, baseURL: e.target.value }))} placeholder="http://127.0.0.1:8000/v1" />
-              </Field>
-              <Field label="API 协议">
-                <select className="input w-full text-sm" value={custom.api} onChange={(e) => setCustom((c) => ({ ...c, api: e.target.value }))}>
-                  <option value="openai-completions">openai-completions</option>
-                  <option value="openai-responses">openai-responses</option>
-                  <option value="anthropic-messages">anthropic-messages</option>
-                  <option value="google-generative-ai">google-generative-ai</option>
-                </select>
-              </Field>
-              <Field label="API 密钥" hint={customEditRoute ? '留空则保留现有密钥。' : undefined}>
-                <input className="input w-full" type="password" value={custom.apiKey} onChange={(e) => setCustom((c) => ({ ...c, apiKey: e.target.value }))} />
-              </Field>
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  className="btn w-full"
-                  disabled={busy || !custom.baseURL.trim()}
-                  onClick={() => {
-                    setBusy(true)
-                    setFormError('')
-                    void runtimeApi.discoverAiModels({
-                      provider: custom.route.trim() || undefined,
-                      baseURL: custom.baseURL.trim(),
-                      api: custom.api,
-                      apiKey: custom.apiKey.trim() || undefined,
-                    }).then((rows) => {
-                      setFoundModels(rows)
-                      setPickedModels(rows.map((row) => row.id))
-                      if (!rows.length) setFormError('没有返回模型，请手工填模型 ID')
-                    }).catch((cause) => setFormError(cause instanceof Error ? cause.message : '获取模型失败')).finally(() => setBusy(false))
-                  }}
-                >{busy ? '正在获取…' : '获取可用模型'}</button>
-              </div>
-            </div>
-            {foundModels.length > 0 && (
-              <div className="max-h-48 overflow-auto rounded-lg border border-line bg-white p-2 space-y-1">
-                <div className="flex justify-between text-[11px] text-ink-subtle px-1 mb-1">
-                  <span>选择要加入的模型</span>
-                  <button type="button" className="underline" onClick={() => setPickedModels(pickedModels.length === foundModels.length ? [] : foundModels.map((row) => row.id))}>
-                    {pickedModels.length === foundModels.length ? '取消全选' : '全选'}
-                  </button>
-                </div>
-                {foundModels.map((row) => (
-                  <label key={row.id} className="flex items-center gap-2 px-1 py-1 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={pickedModels.includes(row.id)}
-                      onChange={() => setPickedModels((current) => current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id])}
-                    />
-                    <span className="font-mono text-xs">{row.id}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-            <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
-              <Field label="模型 ID" hint="拉不到列表时再手工填。">
-                <input className="input w-full font-mono text-xs" value={custom.modelId} onChange={(e) => setCustom((c) => ({ ...c, modelId: e.target.value }))} placeholder="grok-4.6" />
-              </Field>
-              <Field label="模型显示名">
-                <input className="input w-full" value={custom.modelName} onChange={(e) => setCustom((c) => ({ ...c, modelName: e.target.value }))} />
-              </Field>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button type="button" className="btn" onClick={() => { setPanel(null); setCustomEditRoute(null) }}>取消</button>
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={busy || !custom.route.trim() || !custom.baseURL.trim() || (pickedModels.length === 0 && !custom.modelId.trim())}
-                onClick={() => {
-                  setBusy(true)
-                  setFormError('')
-                  const payload = {
-                    displayName: custom.displayName.trim() || undefined,
-                    baseURL: custom.baseURL.trim(),
-                    api: custom.api,
-                    apiKey: custom.apiKey.trim() || undefined,
-                    modelId: custom.modelId.trim() || undefined,
-                    modelName: custom.modelName.trim() || undefined,
-                    models: pickedModels.map((id) => ({ id, name: foundModels.find((row) => row.id === id)?.name || id })),
-                    reasoning: true,
-                  }
-                  const done = (data: Record<string, unknown>) => {
-                    setPanel(null)
-                    setCustomEditRoute(null)
-                    setFoundModels([])
-                    setPickedModels([])
-                    setCustom(EMPTY_CUSTOM)
-                    setNote(String(data.hint || '已保存自定义提供方。请重载核心。'))
-                    load()
-                  }
-                  const route = custom.route.trim()
-                  void (customEditRoute
-                    ? runtimeApi.patchCustomAiProvider(route, payload)
-                    : runtimeApi.addCustomAiProvider({ route, ...payload })
-                  ).then(done).catch((cause) => setFormError(cause instanceof Error ? cause.message : (customEditRoute ? '保存失败' : '创建失败'))).finally(() => setBusy(false))
-                }}
-              >{busy ? (customEditRoute ? '保存中…' : '创建中…') : (customEditRoute ? '保存更改' : '创建提供方')}</button>
-            </div>
           </div>
         )}
       </Card>
@@ -469,17 +126,20 @@ export function CoreSettings() {
           ))}
         </div>
         <div className="grid grid-cols-1 @md:grid-cols-3 gap-2">
-          <Field label="从哪个复制">
+          <label className="block">
+            <div className="text-xs font-medium text-ink mb-1.5">从哪个复制</div>
             <select className="input w-full text-sm" value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
               {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name || preset.id}</option>)}
             </select>
-          </Field>
-          <Field label="新 id">
+          </label>
+          <label className="block">
+            <div className="text-xs font-medium text-ink mb-1.5">新 id</div>
             <input className="input w-full font-mono text-xs" value={copyId} onChange={(e) => setCopyId(e.target.value)} placeholder="my-writer" />
-          </Field>
-          <Field label="显示名">
+          </label>
+          <label className="block">
+            <div className="text-xs font-medium text-ink mb-1.5">显示名</div>
             <input className="input w-full text-sm" value={copyName} onChange={(e) => setCopyName(e.target.value)} />
-          </Field>
+          </label>
         </div>
         <button
           type="button"
