@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, symlinkSync } from 'node:fs'
-import { createConnection } from 'node:net'
 import { join } from 'node:path'
 import {
   DSH_LAN_ASSIST_PORT,
@@ -14,6 +13,7 @@ import {
   FDE_WEB_PORT,
   resolveDshBin,
 } from '../runtime/config.mjs'
+import { runtimePortOpen } from './runtime-port.mjs'
 
 const root = FDE_APP_ROOT
 const host = FDE_RUNTIME_HOST
@@ -46,23 +46,7 @@ function prepareFdeHome() {
 }
 
 function portOpen(port, timeoutMs = 400) {
-  return new Promise((resolveOpen) => {
-    const socket = createConnection({ port, host })
-    const timer = setTimeout(() => {
-      socket.destroy()
-      resolveOpen(false)
-    }, timeoutMs)
-    socket.once('connect', () => {
-      clearTimeout(timer)
-      socket.end()
-      resolveOpen(true)
-    })
-    socket.once('error', () => {
-      clearTimeout(timer)
-      socket.destroy()
-      resolveOpen(false)
-    })
-  })
+  return runtimePortOpen(port, host, timeoutMs)
 }
 
 async function waitFor(port, timeoutMs) {
@@ -78,24 +62,44 @@ let shuttingDown = false
 process.on('SIGINT', () => { shuttingDown = true })
 process.on('SIGTERM', () => { shuttingDown = true })
 
-function run(command, args, extraEnv = {}) {
-  const child = spawn(command, args, {
-    cwd: root,
-    env: { ...process.env, ...extraEnv },
-    stdio: 'inherit',
-  })
-  child.on('exit', (code, signal) => {
-    if (shuttingDown) return
-    if (signal) process.exit(1)
-    if (code && code !== 0) process.exit(code)
-  })
-  return child
+/** Dev 监督：口不通就杀掉再拉（设置里重载核心在 BFF 已死时经 Vite IPC 触发）。 */
+let runtimeSupervisorNudge = null
+
+function attachRuntimePortWatch(getChild, port) {
+  let portWatch = null
+  const clear = () => {
+    if (portWatch) clearInterval(portWatch)
+    portWatch = null
+  }
+  const start = () => {
+    clear()
+    portWatch = setInterval(async () => {
+      const child = getChild()
+      if (shuttingDown || !child) return
+      if (!(await portOpen(port, 250))) {
+        console.warn(`[fde-x] 本地核心进程还在但 ${port} 不可用，强制重启`)
+        child.kill('SIGKILL')
+      }
+    }, 2000)
+  }
+  return { start, clear }
+}
+
+function bindRuntimeSupervisorNudge(getChild, port, boot) {
+  runtimeSupervisorNudge = async () => {
+    const child = getChild()
+    if (child) {
+      child.kill('SIGKILL')
+      return
+    }
+    if (!(await portOpen(port, 300))) boot()
+  }
 }
 
 function runRuntime(extraEnv = {}) {
   const env = { ...process.env, ...extraEnv, FDE_RUNTIME_SUPERVISED: '1' }
   let child = null
-  let portWatch = null
+  const portWatchCtl = attachRuntimePortWatch(() => child, runtimePort)
   const boot = () => {
     if (shuttingDown) return
     child = spawn(process.execPath, ['runtime/server.mjs'], {
@@ -103,24 +107,17 @@ function runRuntime(extraEnv = {}) {
       env,
       stdio: 'inherit',
     })
-    if (portWatch) clearInterval(portWatch)
-    portWatch = setInterval(async () => {
-      if (shuttingDown || !child) return
-      if (!(await portOpen(runtimePort, 250))) {
-        console.warn(`[fde-x] 本地核心进程还在但 ${runtimePort} 不可用，强制重启`)
-        child.kill('SIGKILL')
-      }
-    }, 2000)
+    portWatchCtl.start()
     child.on('exit', (code, signal) => {
-      if (portWatch) clearInterval(portWatch)
-      portWatch = null
+      portWatchCtl.clear()
       child = null
       if (shuttingDown) return
       console.log(`[fde-x] 本地核心退出 (${signal || code || 0})，正在重新拉起`)
       setTimeout(boot, 400)
     })
   }
-  return boot()
+  bindRuntimeSupervisorNudge(() => child, runtimePort, boot)
+  boot()
 }
 
 function watchRuntimePortAndSupervise(port, extraEnv = {}) {
@@ -132,24 +129,24 @@ function watchRuntimePortAndSupervise(port, extraEnv = {}) {
     ...(extraEnv.FDE_DSH_BIN ? { FDE_DSH_BIN: extraEnv.FDE_DSH_BIN } : {}),
   }
   let child = null
-  let spawning = false
+  const portWatchCtl = attachRuntimePortWatch(() => child, port)
   const boot = () => {
     if (shuttingDown || child) return
-    spawning = true
     child = spawn(process.execPath, ['runtime/server.mjs'], {
       cwd: root,
       env: { ...process.env, ...env, FDE_RUNTIME_SUPERVISED: '1' },
       stdio: 'inherit',
     })
+    portWatchCtl.start()
     child.on('exit', (code, signal) => {
+      portWatchCtl.clear()
       child = null
-      spawning = false
       if (shuttingDown) return
       console.log(`[fde-x] 本地核心退出 (${signal || code || 0})，正在重新拉起`)
       setTimeout(boot, 400)
     })
-    spawning = false
   }
+  bindRuntimeSupervisorNudge(() => child, port, boot)
   const watch = async () => {
     while (!shuttingDown) {
       if (!child && !(await portOpen(port, 300))) boot()
@@ -184,8 +181,26 @@ if (!await portOpen(runtimePort)) {
 }
 
 console.log(`[fde-x] 打开界面 http://127.0.0.1:${webPort}`)
-run(process.execPath, [
+const viteChild = spawn(process.execPath, [
   join(root, 'node_modules/vite/bin/vite.js'),
   '--host', '127.0.0.1',
   '--port', String(webPort),
-])
+], {
+  cwd: root,
+  env: {
+    ...process.env,
+    FDE_DEV_SUPERVISOR_IPC: '1',
+    FDE_SKIP_RUNTIME_SPAWN: '1',
+  },
+  stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+})
+viteChild.on('message', (msg) => {
+  if (msg && msg.type === 'fde-runtime-restart' && runtimeSupervisorNudge) {
+    void runtimeSupervisorNudge()
+  }
+})
+viteChild.on('exit', (code, signal) => {
+  if (shuttingDown) return
+  if (signal) process.exit(1)
+  if (code && code !== 0) process.exit(code)
+})

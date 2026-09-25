@@ -668,9 +668,28 @@ export class RuntimeApi {
     const waitMs = Number(import.meta.env.VITE_FDE_RUNTIME_RELOAD_WAIT_MS ?? 90_000)
     const waitSec = Math.round(waitMs / 1000)
     try {
-      await this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/reload', { method: 'POST', signal })
-    } catch {
-      /* 4318 正在退出，连不上也算已经开始重载 */
+      if (typeof window !== 'undefined') {
+        const response = await fetch(this.uiFetchUrl('/api/v1/ai/reload'), { method: 'POST', signal })
+        if (!response.ok && response.status < 500) {
+          const payload = await response.json().catch(() => ({})) as {
+            error?: string | { code?: string; message?: string }
+            message?: string
+            correlationId?: string
+          }
+          const nested = payload?.error && typeof payload.error === 'object' ? payload.error : null
+          throw new RuntimeApiError(
+            response.status,
+            nested?.code ?? (typeof payload?.error === 'string' ? payload.error : 'runtime_error'),
+            nested?.message ?? payload?.message ?? `请求失败 (${response.status})`,
+            payload?.correlationId,
+          )
+        }
+      } else {
+        await this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/reload', { method: 'POST', signal })
+      }
+    } catch (error) {
+      if (error instanceof RuntimeApiError) throw error
+      /* BFF 正在退出或已死，监督会拉起；连不上也算已经开始重载 */
     }
     const deadline = Date.now() + waitMs
     let bffUp = false

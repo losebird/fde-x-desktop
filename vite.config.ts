@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { spawn } from 'node:child_process'
 import { createConnection } from 'node:net'
 import { fileURLToPath, URL } from 'node:url'
+import { runtimePortOpen } from './scripts/runtime-port.mjs'
 import {
   FDE_ALLOWED_ORIGINS,
   FDE_RUNTIME_HOST,
@@ -68,6 +69,17 @@ function fdeRuntimePlugin(): Plugin {
     name: 'fde-x-runtime',
     async configureServer(server) {
       const host = FDE_RUNTIME_HOST
+      if (process.env.FDE_DEV_SUPERVISOR_IPC === '1' && typeof process.send === 'function') {
+        server.middlewares.use(async (req, res, next) => {
+          const pathOnly = req.url?.split('?')[0] ?? ''
+          if (req.method !== 'POST' || pathOnly !== '/api/v1/ai/reload') return next()
+          if (await runtimePortOpen(runtimePort, host, 400)) return next()
+          process.send?.({ type: 'fde-runtime-restart' })
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ ok: true, data: { restarting: true } }))
+        })
+      }
       if (process.env.FDE_SKIP_RUNTIME_SPAWN === '1') return
       if (await waitForPort(runtimePort, host, 400)) return
       spawnSupervisedRuntime(server)
