@@ -16,13 +16,13 @@ const ZSTD_MAGIC = 4247762216
 function scheduleRuntimeRestart() {
   const delayMs = 200
   if (process.env.FDE_RUNTIME_SUPERVISED !== '1') {
-    const child = spawn(process.execPath, process.argv.slice(1), {
+    const restarter = spawn(process.execPath, ['scripts/runtime-respawn.mjs'], {
       cwd: process.cwd(),
-      env: process.env,
+      env: { ...process.env, FDE_RUNTIME_REPLACE_PID: String(process.pid) },
       detached: true,
       stdio: 'inherit',
     })
-    child.unref()
+    restarter.unref()
   }
   setTimeout(() => { void close() }, delayMs)
 }
@@ -83,6 +83,7 @@ import { handleContextPackRoute } from './routes/context.mjs'
 import { handleCorpusRoute } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { tryServeStatic } from './routes/static.mjs'
+import { reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import {
   alignModelRowsWithDiscover,
   discoverProviderModels,
@@ -3170,6 +3171,14 @@ server.listen(port, host, () => {
   console.log(`FDE_LISTENING ${actualPort}`)
   console.log(`FDE-X runtime listening on http://${host}:${actualPort}`)
   console.log(`SQLite authority: ${databasePath}`)
+  void reclaimStrayRuntime({
+    keep: [process.pid, process.ppid],
+    runtimePort: actualPort,
+    lanPort: 0,
+    profileName: '',
+  }).catch((error) => {
+    console.warn('reclaim_stray_failed', error)
+  })
   void ensurePresets(aiRuntime.dshHome || FDE_DSH_HOME).catch((error) => {
     console.warn('ensurePresets_failed', error)
   })
@@ -3191,13 +3200,27 @@ server.listen(port, host, () => {
   startBriefingScheduler({ db, aiRuntime, defaultCwd: FDE_AI_WORKSPACE })
 })
 
+server.on('error', (error) => {
+  if (error && error.code === 'EADDRINUSE') {
+    console.error(`[fde-x] 运行口已被占用，本进程退出以免双 BFF`)
+    process.exit(1)
+  }
+  console.error(error)
+})
+
 let closing = false
 async function close() {
   if (closing) return
   closing = true
   await aiRuntime.stop().catch(() => undefined)
+  try {
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections()
+  } catch { /* Node 旧版本没有 closeAllConnections */ }
+  const failsafe = setTimeout(() => process.exit(0), 1500)
+  failsafe.unref?.()
   server.close(() => {
-    db.close()
+    clearTimeout(failsafe)
+    try { db.close() } catch { /* already closed */ }
     process.exit(0)
   })
 }
