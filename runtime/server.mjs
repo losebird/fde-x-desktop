@@ -225,9 +225,11 @@ function yamlScalar(value) {
   return text
 }
 
-function upsertSettingsProvider(filePath, route, profile) {
+const PROVIDER_ROUTE_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+
+function formatSettingsProviderBlock(route, profile) {
   const models = Array.isArray(profile.models) ? profile.models : []
-  const block = [
+  return [
     `    ${route}:`,
     profile.displayName ? `      displayName: ${yamlScalar(profile.displayName)}` : null,
     profile.apiKeyEnv ? `      apiKeyEnv: ${yamlScalar(profile.apiKeyEnv)}` : null,
@@ -246,13 +248,70 @@ function upsertSettingsProvider(filePath, route, profile) {
       return `        - { id: ${yamlScalar(row.id)}, name: ${yamlScalar(row.name || row.id)} }`
     }),
   ].filter(Boolean).join('\n') + '\n'
+}
+
+function findSettingsProviderBlockRange(lines, route) {
+  const startRe = new RegExp(`^    ${route}:\\s*$`)
+  let start = -1
+  for (let i = 0; i < lines.length; i += 1) {
+    if (startRe.test(lines[i])) { start = i; break }
+  }
+  if (start < 0) return null
+  let end = lines.length
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^    [a-z][a-z0-9-]*:/.test(lines[i])) { end = i; break }
+    if (/^  \S/.test(lines[i]) && !/^    /.test(lines[i])) { end = i; break }
+  }
+  return { start, end }
+}
+
+function readSettingsProviderProfile(filePath, route) {
+  let text = ''
+  try { text = readFileSync(filePath, 'utf8') } catch { return null }
+  const lines = text.split('\n')
+  const range = findSettingsProviderBlockRange(lines, route)
+  if (!range) return null
+  const block = lines.slice(range.start, range.end).join('\n')
+  const displayName = block.match(/^\s+displayName:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '') || ''
+  const api = block.match(/^\s+api:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '') || 'openai-completions'
+  const baseURL = block.match(/^\s+baseURL:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '') || ''
+  const apiKeyEnv = block.match(/^\s+apiKeyEnv:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '') || ''
+  const models = []
+  for (const inline of block.matchAll(/\{\s*id:\s*([^,}]+),\s*name:\s*([^}]+)\s*\}/g)) {
+    models.push({
+      id: inline[1].trim().replace(/^['"]|['"]$/g, ''),
+      name: inline[2].trim().replace(/^['"]|['"]$/g, ''),
+    })
+  }
+  for (const multi of block.matchAll(/-\s*id:\s*(.+)\n\s*name:\s*(.+)/g)) {
+    const id = multi[1].trim().replace(/^['"]|['"]$/g, '')
+    if (!models.some((row) => row.id === id)) {
+      models.push({
+        id,
+        name: multi[2].trim().replace(/^['"]|['"]$/g, ''),
+      })
+    }
+  }
+  return { displayName, api, baseURL, apiKeyEnv, models }
+}
+
+function upsertSettingsProvider(filePath, route, profile) {
+  const block = formatSettingsProviderBlock(route, profile)
   let text = ''
   try { text = readFileSync(filePath, 'utf8') } catch { text = '' }
   if (!text.trim()) {
     writeFileSync(filePath, `llm-pi-ai:\n  providers:\n${block}`)
     return
   }
-  if (new RegExp(`(?:^|\\n)\\s{2,4}${route}:\\s*$`, 'm').test(text)) return
+  const lines = text.split('\n')
+  const range = findSettingsProviderBlockRange(lines, route)
+  if (range) {
+    const blockLines = block.replace(/\n$/, '').split('\n')
+    const next = [...lines.slice(0, range.start), ...blockLines, ...lines.slice(range.end)]
+    const merged = next.join('\n')
+    writeFileSync(filePath, merged.endsWith('\n') ? merged : `${merged}\n`)
+    return
+  }
   if (/llm-pi-ai:\s*\n(?:[ \t].*\n)*?[ \t]*providers:\s*\n/.test(text)) {
     text = text.replace(/(providers:\s*\n)/, `$1${block}`)
   } else if (/^llm-pi-ai:\s*$/m.test(text)) {
@@ -261,6 +320,95 @@ function upsertSettingsProvider(filePath, route, profile) {
     text = `${text.replace(/\s+$/, '')}\nllm-pi-ai:\n  providers:\n${block}`
   }
   writeFileSync(filePath, text.endsWith('\n') ? text : `${text}\n`)
+}
+
+function removeSettingsProvider(filePath, route) {
+  let text = ''
+  try { text = readFileSync(filePath, 'utf8') } catch { return false }
+  const lines = text.split('\n')
+  const range = findSettingsProviderBlockRange(lines, route)
+  if (!range) return false
+  const next = [...lines.slice(0, range.start), ...lines.slice(range.end)]
+  const merged = next.join('\n').replace(/\n{3,}/g, '\n\n')
+  writeFileSync(filePath, merged.endsWith('\n') ? merged : `${merged}\n`)
+  return true
+}
+
+function removeCredentialRef(filePath, name) {
+  let text = ''
+  try { text = readFileSync(filePath, 'utf8') } catch { return false }
+  const lineRe = new RegExp(`^\\s+${name}:\\s*.*\\n?`, 'm')
+  if (!lineRe.test(text)) return false
+  text = text.replace(lineRe, '')
+  writeFileSync(filePath, text.endsWith('\n') ? text : `${text}\n`)
+  return true
+}
+
+function providerKeyRef(providerOrRoute) {
+  return `${String(providerOrRoute || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
+}
+
+function buildCustomProviderProfile(body, route, existingProfile) {
+  const displayName = String(body.displayName ?? existingProfile?.displayName ?? '').trim()
+  const baseURL = String(body.baseURL ?? existingProfile?.baseURL ?? '').trim()
+  const api = String(body.api ?? existingProfile?.api ?? 'openai-completions').trim()
+  const apiKey = String(body.apiKey ?? '').trim()
+  const picked = Array.isArray(body.models) ? body.models : null
+  const reasoning = body.reasoning === false ? false : {
+    off: null,
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+  }
+  let models = picked
+    ? picked.map((row) => ({
+      id: String(row?.id || '').trim(),
+      name: String(row?.name || row?.id || '').trim(),
+      ...(reasoning ? { reasoningEfforts: reasoning } : { reasoningEfforts: false }),
+    })).filter((row) => row.id)
+    : (existingProfile?.models || []).map((row) => ({
+      id: String(row.id || '').trim(),
+      name: String(row.name || row.id || '').trim(),
+      ...(reasoning ? { reasoningEfforts: reasoning } : {}),
+    })).filter((row) => row.id)
+  const modelId = String(body.modelId || '').trim()
+  const modelName = String(body.modelName || modelId).trim()
+  if (models.length === 0 && modelId) models.push({ id: modelId, ...(modelName ? { name: modelName } : {}) })
+  const keyRef = providerKeyRef(route)
+  const keepKeyEnv = existingProfile?.apiKeyEnv || keyRef
+  return {
+    profile: {
+      ...(displayName ? { displayName } : {}),
+      ...((apiKey || existingProfile?.apiKeyEnv) ? { apiKeyEnv: keepKeyEnv } : {}),
+      api,
+      baseURL,
+      models,
+    },
+    apiKey,
+    keyRef,
+  }
+}
+
+async function applyCustomProviderWrite(aiRuntime, route, profile, apiKey) {
+  let live = false
+  let liveError = ''
+  const credPath = join(aiRuntime.dshHome, '.credentials.yaml')
+  const settingsPath = join(aiRuntime.dshHome, 'settings.yaml')
+  if (aiRuntime.status().connected) {
+    try {
+      await aiRuntime.rpc('settings/mutate', {
+        ns: 'llm-pi-ai',
+        ops: [{ op: 'set', path: ['providers', route], value: profile }],
+      })
+      if (apiKey) await aiRuntime.rpc('credentials/set', { ref: providerKeyRef(route), value: apiKey })
+      live = true
+    } catch (error) {
+      liveError = error instanceof Error ? error.message : String(error)
+    }
+  }
+  if (apiKey) upsertCredentialRef(credPath, providerKeyRef(route), apiKey)
+  upsertSettingsProvider(settingsPath, route, profile)
+  return { live, liveError }
 }
 
 function upsertCredentialRef(filePath, name, value) {
@@ -1195,23 +1343,36 @@ const server = createServer(async (request, response) => {
         aiRuntime.rpc('llm/listConfigurableProviders', {}),
       ])
       const active = new Set((Array.isArray(registered) ? registered : []).map((row) => row.id))
+      const settingsFile = join(aiRuntime.dshHome, 'settings.yaml')
       const rows = (Array.isArray(directory) ? directory : []).map((entry) => ({
+        kind: 'catalog',
         provider: String(entry.provider || ''),
         displayName: String(entry.displayName || entry.provider || ''),
         settingsNs: String(entry.settingsNs || ''),
         settingsPath: Array.isArray(entry.settingsPath) ? entry.settingsPath : [],
         active: active.has(entry.provider),
-        keyRef: `${String(entry.provider || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`,
+        keyRef: providerKeyRef(entry.provider),
       }))
       for (const item of (Array.isArray(registered) ? registered : [])) {
         if (rows.some((row) => row.provider === item.id)) continue
+        const route = String(item.id || '')
+        const profile = readSettingsProviderProfile(settingsFile, route)
         rows.push({
-          provider: String(item.id || ''),
-          displayName: String(item.name || item.id || ''),
+          kind: 'custom',
+          provider: route,
+          displayName: String(item.name || profile?.displayName || route),
           settingsNs: 'llm-pi-ai',
-          settingsPath: ['providers', String(item.id || '')],
+          settingsPath: ['providers', route],
           active: true,
-          keyRef: `${String(item.id || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`,
+          keyRef: providerKeyRef(route),
+          ...(profile ? {
+            profile: {
+              displayName: profile.displayName,
+              baseURL: profile.baseURL,
+              api: profile.api,
+              models: profile.models,
+            },
+          } : {}),
         })
       }
       const refs = [...new Set(rows.map((row) => row.keyRef).filter(Boolean))]
@@ -1299,57 +1460,16 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/api/v1/ai/providers/custom') {
       const body = await readJson(request)
       const route = String(body.route || '').trim()
-      const displayName = String(body.displayName || '').trim()
-      const baseURL = String(body.baseURL || '').trim()
-      const api = String(body.api || 'openai-completions').trim()
-      const apiKey = String(body.apiKey || '').trim()
-      const picked = Array.isArray(body.models) ? body.models : []
-      const reasoning = body.reasoning === false ? false : {
-        off: null,
-        low: 'low',
-        medium: 'medium',
-        high: 'high',
-      }
-      let models = picked.map((row) => ({
-        id: String(row?.id || '').trim(),
-        name: String(row?.name || row?.id || '').trim(),
-        ...(reasoning ? { reasoningEfforts: reasoning } : { reasoningEfforts: false }),
-      })).filter((row) => row.id)
-      const modelId = String(body.modelId || '').trim()
-      const modelName = String(body.modelName || modelId).trim()
-      if (models.length === 0 && modelId) models.push({ id: modelId, ...(modelName ? { name: modelName } : {}) })
-      if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(route)) {
+      if (!PROVIDER_ROUTE_RE.test(route)) {
         sendError(response, 400, 'validation_error', '提供方 ID 用小写字母开头，只能含小写字母、数字和连字符', currentCorrelationId)
         return
       }
-      if (!/^https?:\/\//.test(baseURL) || models.length === 0) {
+      const { profile, apiKey, keyRef } = buildCustomProviderProfile(body, route, null)
+      if (!/^https?:\/\//.test(profile.baseURL) || profile.models.length === 0) {
         sendError(response, 400, 'validation_error', '自定义提供方需要有效的 API 地址和至少一个模型', currentCorrelationId)
         return
       }
-      const keyRef = `${route.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
-      const profile = {
-        ...(displayName ? { displayName } : {}),
-        ...(apiKey ? { apiKeyEnv: keyRef } : {}),
-        api,
-        baseURL,
-        models,
-      }
-      let live = false
-      let liveError = ''
-      if (aiRuntime.status().connected) {
-        try {
-          await aiRuntime.rpc('settings/mutate', {
-            ns: 'llm-pi-ai',
-            ops: [{ op: 'set', path: ['providers', route], value: profile }],
-          })
-          if (apiKey) await aiRuntime.rpc('credentials/set', { ref: keyRef, value: apiKey })
-          live = true
-        } catch (error) {
-          liveError = error instanceof Error ? error.message : String(error)
-        }
-      }
-      if (apiKey) upsertCredentialRef(join(aiRuntime.dshHome, '.credentials.yaml'), keyRef, apiKey)
-      upsertSettingsProvider(join(aiRuntime.dshHome, 'settings.yaml'), route, profile)
+      const { live, liveError } = await applyCustomProviderWrite(aiRuntime, route, profile, apiKey)
       sendJson(response, 200, {
         data: {
           ok: true,
@@ -1361,6 +1481,121 @@ const server = createServer(async (request, response) => {
         correlationId: currentCorrelationId,
       })
       return
+    }
+
+    const providerKeyMatch = url.pathname.match(/^\/api\/v1\/ai\/providers\/([^/]+)\/key$/)
+    if (providerKeyMatch) {
+      const provider = decodeURIComponent(providerKeyMatch[1])
+      const credPath = join(aiRuntime.dshHome, '.credentials.yaml')
+      const keyRef = providerKeyRef(provider)
+      if (request.method === 'PATCH') {
+        const body = await readJson(request)
+        const apiKey = String(body.apiKey || '').trim()
+        if (!apiKey) {
+          sendError(response, 400, 'validation_error', 'API 密钥不能为空', currentCorrelationId)
+          return
+        }
+        if (aiRuntime.status().connected) {
+          try {
+            await aiRuntime.rpc('credentials/set', { ref: keyRef, value: apiKey })
+          } catch (error) {
+            sendError(response, 502, 'rpc_error', error instanceof Error ? error.message : String(error), currentCorrelationId)
+            return
+          }
+        }
+        upsertCredentialRef(credPath, keyRef, apiKey)
+        sendJson(response, 200, {
+          data: { ok: true, provider, keyRef, hint: maskSecret(apiKey) },
+          correlationId: currentCorrelationId,
+        })
+        return
+      }
+      if (request.method === 'DELETE') {
+        if (aiRuntime.status().connected) {
+          try {
+            await aiRuntime.rpc('credentials/delete', { ref: keyRef })
+          } catch {
+            /* 部分核心无 delete，落盘清 ref 即可 */
+          }
+        }
+        removeCredentialRef(credPath, keyRef)
+        sendJson(response, 200, {
+          data: { ok: true, provider, keyRef, hint: '密钥已清除，请重载核心后生效' },
+          correlationId: currentCorrelationId,
+        })
+        return
+      }
+    }
+
+    const customProviderMatch = url.pathname.match(/^\/api\/v1\/ai\/providers\/custom\/([^/]+)$/)
+    if (customProviderMatch) {
+      const route = decodeURIComponent(customProviderMatch[1])
+      if (!PROVIDER_ROUTE_RE.test(route)) {
+        sendError(response, 400, 'validation_error', '提供方 ID 无效', currentCorrelationId)
+        return
+      }
+      const settingsFile = join(aiRuntime.dshHome, 'settings.yaml')
+      const credPath = join(aiRuntime.dshHome, '.credentials.yaml')
+      if (request.method === 'PATCH') {
+        const body = await readJson(request)
+        const existing = readSettingsProviderProfile(settingsFile, route)
+        if (!existing) {
+          sendError(response, 404, 'not_found', '找不到该自定义提供方', currentCorrelationId)
+          return
+        }
+        const { profile, apiKey, keyRef } = buildCustomProviderProfile(body, route, existing)
+        if (!/^https?:\/\//.test(profile.baseURL) || profile.models.length === 0) {
+          sendError(response, 400, 'validation_error', '需要有效的 API 地址和至少一个模型', currentCorrelationId)
+          return
+        }
+        const { live, liveError } = await applyCustomProviderWrite(aiRuntime, route, profile, apiKey)
+        sendJson(response, 200, {
+          data: {
+            ok: true,
+            route,
+            keyRef,
+            live,
+            hint: live ? '已更新正在运行的核心' : `已写入配置文件${liveError ? `（实时写入失败：${liveError}）` : ''}，请重载核心`,
+          },
+          correlationId: currentCorrelationId,
+        })
+        return
+      }
+      if (request.method === 'DELETE') {
+        let live = false
+        let liveError = ''
+        if (aiRuntime.status().connected) {
+          try {
+            await aiRuntime.rpc('settings/mutate', {
+              ns: 'llm-pi-ai',
+              ops: [{ op: 'delete', path: ['providers', route] }],
+            })
+            live = true
+          } catch (error) {
+            liveError = error instanceof Error ? error.message : String(error)
+          }
+        }
+        const removed = removeSettingsProvider(settingsFile, route)
+        const keyRef = providerKeyRef(route)
+        if (aiRuntime.status().connected) {
+          try { await aiRuntime.rpc('credentials/delete', { ref: keyRef }) } catch { /* file fallback */ }
+        }
+        removeCredentialRef(credPath, keyRef)
+        if (!removed && !live) {
+          sendError(response, 404, 'not_found', '找不到该自定义提供方', currentCorrelationId)
+          return
+        }
+        sendJson(response, 200, {
+          data: {
+            ok: true,
+            route,
+            live,
+            hint: live ? '已从核心移除，请重载核心' : `已从配置文件移除${liveError ? `（实时删除失败：${liveError}）` : ''}，请重载核心`,
+          },
+          correlationId: currentCorrelationId,
+        })
+        return
+      }
     }
 
     if (await handlePresetRoutes(request, response, url, {

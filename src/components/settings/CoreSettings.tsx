@@ -1,11 +1,31 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Bot, ChevronDown, Copy, Trash2, Upload } from 'lucide-react'
+import { Bot, ChevronDown, Copy, Pencil, Trash2, Upload } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Tag } from '@/components/ui'
 import { runtimeApi, type AiPresetRecord } from '@/lib/runtime-api'
 import { PresetImportDrawer, sourceLabel } from '@/components/settings/PresetImportDrawer'
 
 const PROVIDER_LIST_COLLAPSE_AT = 4
+
+type ProviderRow = {
+  kind: 'catalog' | 'custom'
+  provider: string
+  displayName: string
+  active: boolean
+  configured: boolean
+  keyRef: string
+  profile?: { displayName?: string; baseURL: string; api: string; models: Array<{ id: string; name: string }> }
+}
+
+const EMPTY_CUSTOM = {
+  route: '',
+  displayName: '',
+  baseURL: '',
+  api: 'openai-completions',
+  apiKey: '',
+  modelId: '',
+  modelName: '',
+}
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
@@ -21,21 +41,16 @@ export function CoreSettings() {
   const [connected, setConnected] = useState(false)
   const [bffOrigin, setBffOrigin] = useState('')
   const [note, setNote] = useState('')
-  const [providers, setProviders] = useState<Array<{ provider: string; displayName: string; active: boolean; configured: boolean; keyRef: string }>>([])
+  const [providers, setProviders] = useState<ProviderRow[]>([])
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
   const [panel, setPanel] = useState<null | 'catalog' | 'custom'>(null)
   const [formError, setFormError] = useState('')
   const [pickProvider, setPickProvider] = useState('')
   const [pickKey, setPickKey] = useState('')
-  const [custom, setCustom] = useState({
-    route: '',
-    displayName: '',
-    baseURL: '',
-    api: 'openai-completions',
-    apiKey: '',
-    modelId: '',
-    modelName: '',
-  })
+  const [custom, setCustom] = useState(EMPTY_CUSTOM)
+  const [customEditRoute, setCustomEditRoute] = useState<string | null>(null)
+  const [keyFor, setKeyFor] = useState<string | null>(null)
+  const [keyDraft, setKeyDraft] = useState('')
   const [foundModels, setFoundModels] = useState<Array<{ id: string; name: string }>>([])
   const [pickedModels, setPickedModels] = useState<string[]>([])
   const [presets, setPresets] = useState<AiPresetRecord[]>([])
@@ -52,7 +67,7 @@ export function CoreSettings() {
       if (status.bffOrigin) setBffOrigin(String(status.bffOrigin))
     }).catch(() => setConnected(false))
     void runtimeApi.listAiProviders().then((data) => {
-      setProviders(data.providers || [])
+      setProviders((data.providers || []).map((row) => ({ ...row, kind: row.kind || 'catalog' })))
       const next = (data.providers || []).find((row) => !row.configured)
       if (next) setPickProvider((current) => current || next.provider)
     }).catch(() => setProviders([]))
@@ -70,6 +85,34 @@ export function CoreSettings() {
   const configuredProviders = providers.filter((row) => row.configured)
   const canCollapseProviders = providers.length > PROVIDER_LIST_COLLAPSE_AT
   const showProviderList = !canCollapseProviders || providersOpen
+
+  const openCustomCreate = () => {
+    setFormError('')
+    setCustomEditRoute(null)
+    setCustom(EMPTY_CUSTOM)
+    setFoundModels([])
+    setPickedModels([])
+    setPanel('custom')
+  }
+
+  const openCustomEdit = (row: ProviderRow) => {
+    const profile = row.profile
+    setFormError('')
+    setCustomEditRoute(row.provider)
+    setCustom({
+      route: row.provider,
+      displayName: profile?.displayName || row.displayName,
+      baseURL: profile?.baseURL || '',
+      api: profile?.api || 'openai-completions',
+      apiKey: '',
+      modelId: '',
+      modelName: '',
+    })
+    const models = profile?.models || []
+    setFoundModels(models)
+    setPickedModels(models.map((model) => model.id))
+    setPanel('custom')
+  }
 
   return (
     <div className="space-y-4">
@@ -139,12 +182,86 @@ export function CoreSettings() {
             {showProviderList && (
               <div className={clsx('space-y-2', canCollapseProviders && 'mt-2')}>
                 {providers.map((row) => (
-                  <div key={row.provider} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-line">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium">{row.displayName}</div>
-                      <div className="text-[11px] text-ink-subtle font-mono">{row.provider}</div>
+                  <div key={row.provider} className="rounded-lg border border-line">
+                    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">{row.displayName}</div>
+                        <div className="text-[11px] text-ink-subtle font-mono">{row.provider}</div>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                        <Tag kind={row.configured ? 'green' : 'amber'}>{row.configured ? 'API 密钥已配置' : 'API 密钥缺失'}</Tag>
+                        {row.kind === 'catalog' ? (
+                          <>
+                            <button
+                              type="button"
+                              className="btn h-8 px-2 text-xs"
+                              onClick={() => {
+                                setFormError('')
+                                setKeyFor(row.provider)
+                                setKeyDraft('')
+                              }}
+                            >更换密钥</button>
+                            {row.configured && (
+                              <button
+                                type="button"
+                                className="btn-ghost h-8 px-2 text-xs text-ink-muted"
+                                disabled={busy}
+                                onClick={() => {
+                                  if (!window.confirm(`清除 ${row.displayName} 的 API 密钥？目录项会保留。`)) return
+                                  setBusy(true)
+                                  void runtimeApi.clearAiProviderKey(row.provider).then((data) => {
+                                    setKeyFor(null)
+                                    setNote(String(data.hint || '密钥已清除，请重载核心。'))
+                                    load()
+                                  }).catch((cause) => setNote(cause instanceof Error ? cause.message : '清除失败')).finally(() => setBusy(false))
+                                }}
+                              >清除密钥</button>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <button type="button" className="btn h-8 px-2 text-xs" onClick={() => openCustomEdit(row)}><Pencil size={12} /> 编辑</button>
+                            <button
+                              type="button"
+                              className="btn-ghost h-8 px-2 text-xs text-accent-red"
+                              disabled={busy}
+                              onClick={() => {
+                                if (!window.confirm(`删除自定义提供方 ${row.displayName}？模型胶囊里也会消失。`)) return
+                                setBusy(true)
+                                void runtimeApi.deleteCustomAiProvider(row.provider).then((data) => {
+                                  setNote(String(data.hint || '已删除，请重载核心。'))
+                                  load()
+                                }).catch((cause) => setNote(cause instanceof Error ? cause.message : '删除失败')).finally(() => setBusy(false))
+                              }}
+                            ><Trash2 size={12} /></button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <Tag kind={row.configured ? 'green' : 'amber'}>{row.configured ? 'API 密钥已配置' : 'API 密钥缺失'}</Tag>
+                    {keyFor === row.provider && (
+                      <div className="px-3 pb-3 pt-0 border-t border-line bg-surface-2/50 space-y-2">
+                        <Field label="新 API 密钥">
+                          <input className="input w-full" type="password" value={keyDraft} onChange={(e) => setKeyDraft(e.target.value)} placeholder="输入新密钥" />
+                        </Field>
+                        <div className="flex justify-end gap-2">
+                          <button type="button" className="btn" onClick={() => { setKeyFor(null); setKeyDraft('') }}>取消</button>
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            disabled={busy || !keyDraft.trim()}
+                            onClick={() => {
+                              setBusy(true)
+                              void runtimeApi.patchAiProviderKey(row.provider, keyDraft.trim()).then((data) => {
+                                setKeyFor(null)
+                                setKeyDraft('')
+                                setNote(String(data.hint || '密钥已保存，请重载核心。'))
+                                load()
+                              }).catch((cause) => setNote(cause instanceof Error ? cause.message : '保存失败')).finally(() => setBusy(false))
+                            }}
+                          >保存密钥</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -162,7 +279,7 @@ export function CoreSettings() {
           <button type="button" className="h-12 rounded-xl border border-dashed border-line text-sm text-ink-muted hover:border-brand hover:text-ink" onClick={() => { setFormError(''); setPanel(panel === 'catalog' ? null : 'catalog') }}>
             + 添加提供方
           </button>
-          <button type="button" className="h-12 rounded-xl border border-dashed border-line text-sm text-ink-muted hover:border-brand hover:text-ink" onClick={() => { setFormError(''); setPanel(panel === 'custom' ? null : 'custom') }}>
+          <button type="button" className="h-12 rounded-xl border border-dashed border-line text-sm text-ink-muted hover:border-brand hover:text-ink" onClick={() => { if (panel === 'custom' && !customEditRoute) setPanel(null); else openCustomCreate() }}>
             + 添加自定义提供方
           </button>
         </div>
@@ -204,11 +321,11 @@ export function CoreSettings() {
 
         {panel === 'custom' && (
           <div className="mt-4 p-4 rounded-xl border border-line bg-surface-2 space-y-3">
-            <div className="text-sm font-medium">自定义提供方</div>
+            <div className="text-sm font-medium">{customEditRoute ? '编辑自定义提供方' : '自定义提供方'}</div>
             {formError && <div className="text-xs text-accent-red">{formError}</div>}
             <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
               <Field label="提供方 ID" hint="小写字母开头，只能含小写字母、数字和连字符。">
-                <input className="input w-full font-mono text-xs" value={custom.route} onChange={(e) => setCustom((c) => ({ ...c, route: e.target.value }))} placeholder="grok2api" />
+                <input className="input w-full font-mono text-xs" value={custom.route} readOnly={Boolean(customEditRoute)} onChange={(e) => setCustom((c) => ({ ...c, route: e.target.value }))} placeholder="grok2api" />
               </Field>
               <Field label="显示名">
                 <input className="input w-full" value={custom.displayName} onChange={(e) => setCustom((c) => ({ ...c, displayName: e.target.value }))} />
@@ -224,7 +341,7 @@ export function CoreSettings() {
                   <option value="google-generative-ai">google-generative-ai</option>
                 </select>
               </Field>
-              <Field label="API 密钥">
+              <Field label="API 密钥" hint={customEditRoute ? '留空则保留现有密钥。' : undefined}>
                 <input className="input w-full" type="password" value={custom.apiKey} onChange={(e) => setCustom((c) => ({ ...c, apiKey: e.target.value }))} />
               </Field>
               <div className="flex items-end">
@@ -278,7 +395,7 @@ export function CoreSettings() {
               </Field>
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" className="btn" onClick={() => setPanel(null)}>取消</button>
+              <button type="button" className="btn" onClick={() => { setPanel(null); setCustomEditRoute(null) }}>取消</button>
               <button
                 type="button"
                 className="btn-primary"
@@ -286,8 +403,7 @@ export function CoreSettings() {
                 onClick={() => {
                   setBusy(true)
                   setFormError('')
-                  void runtimeApi.addCustomAiProvider({
-                    route: custom.route.trim(),
+                  const payload = {
                     displayName: custom.displayName.trim() || undefined,
                     baseURL: custom.baseURL.trim(),
                     api: custom.api,
@@ -296,16 +412,23 @@ export function CoreSettings() {
                     modelName: custom.modelName.trim() || undefined,
                     models: pickedModels.map((id) => ({ id, name: foundModels.find((row) => row.id === id)?.name || id })),
                     reasoning: true,
-                  }).then((data) => {
+                  }
+                  const done = (data: Record<string, unknown>) => {
                     setPanel(null)
+                    setCustomEditRoute(null)
                     setFoundModels([])
                     setPickedModels([])
-                    setCustom({ route: '', displayName: '', baseURL: '', api: 'openai-completions', apiKey: '', modelId: '', modelName: '' })
-                    setNote(String(data.hint || '已保存自定义提供方。请重新连接核心。'))
+                    setCustom(EMPTY_CUSTOM)
+                    setNote(String(data.hint || '已保存自定义提供方。请重载核心。'))
                     load()
-                  }).catch((cause) => setFormError(cause instanceof Error ? cause.message : '创建失败')).finally(() => setBusy(false))
+                  }
+                  const route = custom.route.trim()
+                  void (customEditRoute
+                    ? runtimeApi.patchCustomAiProvider(route, payload)
+                    : runtimeApi.addCustomAiProvider({ route, ...payload })
+                  ).then(done).catch((cause) => setFormError(cause instanceof Error ? cause.message : (customEditRoute ? '保存失败' : '创建失败'))).finally(() => setBusy(false))
                 }}
-              >{busy ? '创建中…' : '创建提供方'}</button>
+              >{busy ? (customEditRoute ? '保存中…' : '创建中…') : (customEditRoute ? '保存更改' : '创建提供方')}</button>
             </div>
           </div>
         )}

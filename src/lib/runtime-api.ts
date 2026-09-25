@@ -730,11 +730,27 @@ export class RuntimeApi {
   }
 
   async listAiProviders(signal?: AbortSignal): Promise<{
-    providers: Array<{ provider: string; displayName: string; active: boolean; configured: boolean; keyRef: string }>
+    providers: Array<{
+      kind: 'catalog' | 'custom'
+      provider: string
+      displayName: string
+      active: boolean
+      configured: boolean
+      keyRef: string
+      profile?: { displayName?: string; baseURL: string; api: string; models: Array<{ id: string; name: string }> }
+    }>
     registered: Array<{ id: string; name: string }>
   }> {
     const result = await this.request<{ data: {
-      providers: Array<{ provider: string; displayName: string; active: boolean; configured: boolean; keyRef: string }>
+      providers: Array<{
+        kind: 'catalog' | 'custom'
+        provider: string
+        displayName: string
+        active: boolean
+        configured: boolean
+        keyRef: string
+        profile?: { displayName?: string; baseURL: string; api: string; models: Array<{ id: string; name: string }> }
+      }>
       registered: Array<{ id: string; name: string }>
     } }>('/api/v1/ai/providers', { signal })
     return result.data
@@ -776,6 +792,51 @@ export class RuntimeApi {
       signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    })
+    return result.data
+  }
+
+  async patchAiProviderKey(provider: string, apiKey: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const result = await this.request<{ data: Record<string, unknown> }>(`/api/v1/ai/providers/${encodeURIComponent(provider)}/key`, {
+      method: 'PATCH',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey }),
+    })
+    return result.data
+  }
+
+  async clearAiProviderKey(provider: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const result = await this.request<{ data: Record<string, unknown> }>(`/api/v1/ai/providers/${encodeURIComponent(provider)}/key`, {
+      method: 'DELETE',
+      signal,
+    })
+    return result.data
+  }
+
+  async patchCustomAiProvider(route: string, body: {
+    displayName?: string
+    baseURL?: string
+    api?: string
+    apiKey?: string
+    modelId?: string
+    modelName?: string
+    models?: Array<{ id: string; name?: string }>
+    reasoning?: boolean
+  }, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const result = await this.request<{ data: Record<string, unknown> }>(`/api/v1/ai/providers/custom/${encodeURIComponent(route)}`, {
+      method: 'PATCH',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return result.data
+  }
+
+  async deleteCustomAiProvider(route: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const result = await this.request<{ data: Record<string, unknown> }>(`/api/v1/ai/providers/custom/${encodeURIComponent(route)}`, {
+      method: 'DELETE',
+      signal,
     })
     return result.data
   }
