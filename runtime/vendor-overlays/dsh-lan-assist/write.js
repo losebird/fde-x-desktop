@@ -1450,7 +1450,11 @@ export function createGate(opts = {}) {
       }, { clue: plan.no, speech: plan.speech })
     }
     const row = rows[0]
-    const resolvedNo = String(row.no || plan.no).trim()
+    const looked = String(plan.no || '').trim()
+    const rowPk = row && row.fields && row.fields.id != null ? String(row.fields.id).trim() : ''
+    const resolvedNo = (looked && rowPk && looked === rowPk)
+      ? looked
+      : String(row.no || plan.no).trim()
     const change = recognized.action === '改行' ? patchChange(displayPatch, row.fields) : null
     const approveCode = recognized.action === '过审'
       ? approveNextStatusCode(schemaFields, loaded.vocab, row.status)

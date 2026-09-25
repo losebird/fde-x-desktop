@@ -76,28 +76,55 @@ export function auditRecordNo(sheet, body, written) {
   return fromSheet || fromBody || fromWritten
 }
 
+/** Row primary key stored on the write audit. Not the business code, not speech. */
+export function rollbackRowKey(audit) {
+  return String(audit?.receiptId || audit?.receipt_id || '').trim()
+}
+
 /**
- * @param {Record<string, unknown>} bind
+ * One authority for which row a rollback preview looks up: the audit object
+ * plus that row's primary key. Empty speech stays empty so find-row does not
+ * treat a marker as a name. Where/hop from the original utterance do not
+ * choose the row again.
+ * @param {Record<string, unknown> | null | undefined} audit
  * @param {string} kind
- * @param {string} recordNo
  * @param {Record<string, unknown>} patch
  * @param {string} workspace
  */
-export function rollbackPreviewBody(bind, kind, recordNo, patch, workspace) {
+export function rollbackPreviewRequest(audit, kind, patch, workspace) {
+  const rowKey = rollbackRowKey(audit)
+  const objectKind = String(kind || audit?.kind || '').trim()
+  if (!rowKey || !objectKind) {
+    return {
+      ok: false,
+      missed: true,
+      hint: '这一行对不上。历史里没有行主键，不能去猜。',
+    }
+  }
+  return {
+    ok: true,
+    body: rollbackPreviewBody(parseLookupBind(audit), objectKind, rowKey, patch, workspace),
+  }
+}
+
+/**
+ * @param {Record<string, unknown>} bind
+ * @param {string} kind
+ * @param {string} rowKey
+ * @param {Record<string, unknown>} patch
+ * @param {string} workspace
+ */
+export function rollbackPreviewBody(bind, kind, rowKey, patch, workspace) {
+  const source = bind && typeof bind === 'object' ? bind : {}
   const body = {
     kind,
     action: '改行',
-    no: String(recordNo || '').trim(),
+    no: String(rowKey || '').trim(),
     workspace,
     patch,
-    speech: '回退',
   }
-  if (bind.where && Array.isArray(bind.where) && bind.where.length) body.where = bind.where
-  if (bind.hopWhere && Array.isArray(bind.hopWhere) && bind.hopWhere.length) body.hopWhere = bind.hopWhere
-  if (bind.from && typeof bind.from === 'object') body.from = bind.from
-  if (bind.related && typeof bind.related === 'object') body.related = bind.related
   for (const key of ['line', 'connectionId', 'system', 'env']) {
-    const v = String(bind[key] || '').trim()
+    const v = String(source[key] || '').trim()
     if (v) body[key] = v
   }
   return body

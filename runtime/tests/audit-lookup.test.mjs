@@ -39,6 +39,7 @@ describe('audit lookup bind', () => {
     assert.equal(body.kind, '项目任务')
     assert.equal(body.no, '9')
     assert.equal(body.patch.title, '旧标题')
-    assert.ok(body.where && body.where.length === 1)
+    assert.equal(String(body.speech || ''), '')
+    assert.equal(body.where, undefined)
   })
 })

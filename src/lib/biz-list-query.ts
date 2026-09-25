@@ -515,7 +515,7 @@ export function listQueryScopeKey(sheet: Record<string, unknown> | null | undefi
 export function briefQueryScopeLabel(sheet: Record<string, unknown> | null | undefined): string {
   if (!sheet || typeof sheet !== 'object') return ''
   const speech = String(sheet.speech || '').trim()
-  if (speech) return speech
+  if (speech && speech !== '回退') return speech
 
   const hopBits: string[] = []
   const from = sheet.from && typeof sheet.from === 'object' && !Array.isArray(sheet.from)

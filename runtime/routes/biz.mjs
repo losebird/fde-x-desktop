@@ -46,7 +46,7 @@ import {
   effectiveBizKind,
   isSpokenMetaKind,
   parseLookupBind,
-  rollbackPreviewBody,
+  rollbackPreviewRequest,
 } from '../biz/audit-lookup.mjs'
 
 function bizWriteFailureMessage(error, fallback = '过账失败，请重新预览后再试') {
@@ -805,31 +805,23 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendError(response, 400, 'rollback_unsupported', '回退需要词表里的业务型；请确认该型已在词表与连接器登记', correlationId)
       return true
     }
-    const lookupNo = String(audit.recordNo || traceRow?.no || '').trim()
-    if (!lookupNo) {
+    const requested = rollbackPreviewRequest(audit, rollbackKind, patch, workspace)
+    if (!requested.ok) {
       markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400)
-      sendError(response, 400, 'rollback_unsupported', '审计里缺少行主键，无法按当时写入的对象回查', correlationId)
+      sendError(response, 400, 'rollback_unsupported', requested.hint, correlationId)
       return true
     }
-    const lookupBind = parseLookupBind(audit)
+    const rowKey = String(requested.body.no || '').trim()
     try {
       const preview = await aiRuntime.lanAssist('/preview', {
         method: 'POST',
-        body: rollbackPreviewBody(lookupBind, rollbackKind, lookupNo, patch, workspace),
+        body: requested.body,
       })
       if (preview && preview.ok === false) {
         const previewCode = String(preview.error || 'preview_failed')
         const speak = String(preview.hint || preview.speak || preview.sheet?.speak || '').trim()
-        const hasLookupBind = Boolean(
-          (Array.isArray(lookupBind.where) && lookupBind.where.length)
-          || (Array.isArray(lookupBind.hopWhere) && lookupBind.hopWhere.length)
-          || (lookupBind.from && typeof lookupBind.from === 'object')
-          || (lookupBind.related && typeof lookupBind.related === 'object'),
-        )
         const hint = previewCode === 'NOT_FOUND'
-          ? (hasLookupBind
-            ? `按当时写入的对象「${rollbackKind}」和行主键「${lookupNo}」在源系统没有找到同一条。`
-            : `按当时写入的对象「${rollbackKind}」和行主键「${lookupNo}」回查为空。审计里没有记下 where/hop 绑定，可能绑错对象；若源系统仍有这条，请重新改行过账后再试。`)
+          ? `按当时写入的对象「${rollbackKind}」和行主键「${rowKey}」在源系统没有找到同一条。`
           : (speak || '回退预览失败')
         markRollbackBlockedIfPermanent(db, traceId, previewCode, 400)
         sendError(response, 400, previewCode, hint, correlationId)
