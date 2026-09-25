@@ -1857,20 +1857,42 @@ export function enrichStructuredSlots(spec, vocab, extra = {}) {
 
 const WRITE_ACTIONS = ['删除', '过审', '新建', '改行']
 
-function spokenAction(speech, vocab, extra, actions) {
-  const hits = clueHitsInSpeech(speech, vocab, extra)
-  for (const act of actions) {
-    if (hits.some((hit) => (hit.keys || []).includes('action') && (hit.values || []).includes(act))) return act
-  }
-  return ''
+function hitSpan(hit) {
+  const start = Number(hit && hit.hitIndex) || 0
+  return { start, end: start + String((hit && hit.say) || '').length }
 }
 
-function spokenWriteAction(speech, vocab, extra = {}) {
-  return spokenAction(speech, vocab, extra, WRITE_ACTIONS)
+function actionHitNestedInField(hit, hits) {
+  const span = hitSpan(hit)
+  if (span.end <= span.start) return false
+  return (Array.isArray(hits) ? hits : []).some((other) => {
+    if (other === hit) return false
+    const keys = Array.isArray(other && other.keys) ? other.keys : []
+    if (keys.includes('action') || keys.includes('role') || keys.includes('join')) return false
+    const outer = hitSpan(other)
+    return outer.start <= span.start && outer.end >= span.end && (outer.end - outer.start) > (span.end - span.start)
+  })
+}
+
+function spokenActionHits(speech, vocab, extra, actions) {
+  const want = Array.isArray(actions) ? actions : []
+  const hits = clueHitsInSpeech(speech, vocab, extra)
+  const found = []
+  for (const hit of hits) {
+    if (!Array.isArray(hit.keys) || !hit.keys.includes('action')) continue
+    const act = want.find((item) => (hit.values || []).includes(item))
+    if (!act || actionHitNestedInField(hit, hits)) continue
+    if (!found.includes(act)) found.push(act)
+  }
+  return found
+}
+
+function spokenWriteActions(speech, vocab, extra = {}) {
+  return spokenActionHits(speech, vocab, extra, WRITE_ACTIONS)
 }
 
 function spokenListAction(speech, vocab, extra = {}) {
-  return spokenAction(speech, vocab, extra, ['现查'])
+  return spokenActionHits(speech, vocab, extra, ['现查'])[0] || ''
 }
 
 function fieldLabelOf(field) {
@@ -1937,6 +1959,7 @@ function rewritePatch(speech, schemaFields) {
 
 export function recoverWriteIntent(spec, vocab, extra = {}) {
   const next = spec && typeof spec === 'object' ? { ...spec } : {}
+  delete next.askAction
   const bag = { vocab: vocabWithSpoken(vocab), ...extra }
   const userSpeech = String(next.userSpeech || '').trim()
   let speech = String(next.speech || next.quote || '').trim()
@@ -1958,22 +1981,24 @@ export function recoverWriteIntent(spec, vocab, extra = {}) {
     return next
   }
   if (!speech || !kind) return next
-  if (
-    userSpeech
-    && spokenListAction(userSpeech, vocab, extra) === '现查'
-    && !spokenWriteAction(userSpeech, vocab, extra)
-    && String(next.action || '').trim() !== '现查'
-  ) {
+  if (userSpeech) {
     next.speech = userSpeech
-    next.action = '现查'
-    delete next.patch
     speech = userSpeech
   }
   const row = vocabRow(kind, bag.vocab)
   const can = Array.isArray(row && row.can) ? row.can.map((item) => String(item || '').trim()).filter(Boolean) : []
-  const spoken = spokenWriteAction(speech, vocab, extra)
-  if (spoken && can.includes(spoken)) {
-    next.action = spoken
+  const writes = spokenWriteActions(speech, vocab, extra)
+  const uniqueWrite = writes.length === 1 ? writes[0] : ''
+  const look = spokenListAction(speech, vocab, extra) === '现查'
+  const canWrite = uniqueWrite && can.includes(uniqueWrite)
+  if (canWrite && !look) {
+    next.action = uniqueWrite
+  } else {
+    next.action = '现查'
+    delete next.patch
+    const modelWrite = WRITE_ACTIONS.includes(toolAction) ? toolAction : ''
+    const ask = canWrite ? uniqueWrite : modelWrite
+    if (ask) next.askAction = ask
   }
   const act = String(next.action || '').trim()
   const hasPatch = next.patch && typeof next.patch === 'object' && !Array.isArray(next.patch) && Object.keys(next.patch).length

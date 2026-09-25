@@ -1451,3 +1451,99 @@ test('新建的工单 keeps 现查 and treats 新建 as status enum not write ac
   assert.deepEqual(values, ['new'])
 })
 
+test('recoverWriteIntent lists when speech has kind and enum but no write role', () => {
+  const speech = 'pending KindDoc'
+  const docVocab = [
+    {
+      kind: 'KindDoc',
+      resource: 'kind_docs',
+      can: ['现查', '过审', '改行'],
+      clues: [{ say: ['pending'], keys: ['status'], values: ['pending'] }],
+    },
+  ]
+  const out = recoverWriteIntent({
+    kind: 'KindDoc',
+    action: '过审',
+    speech,
+    patch: { status: 'approved' },
+  }, docVocab)
+  assert.equal(out.action, '现查')
+  assert.equal(out.askAction, '过审')
+  assert.equal(out.patch, undefined)
+})
+
+test('recoverWriteIntent keeps unique spoken write when can has it', () => {
+  const speech = 'pending KindDoc 过一下'
+  const docVocab = [
+    {
+      kind: 'KindDoc',
+      resource: 'kind_docs',
+      can: ['现查', '过审', '改行'],
+      clues: [{ say: ['pending'], keys: ['status'], values: ['pending'] }],
+    },
+  ]
+  const out = recoverWriteIntent({
+    kind: 'KindDoc',
+    action: '改行',
+    speech,
+  }, docVocab)
+  assert.equal(out.action, '过审')
+  assert.equal(out.askAction, undefined)
+})
+
+test('recoverWriteIntent lists and asks when look and write roles both hit', () => {
+  const speech = '看一下 pending KindDoc 过一下'
+  const docVocab = [
+    {
+      kind: 'KindDoc',
+      resource: 'kind_docs',
+      can: ['现查', '过审'],
+      clues: [{ say: ['pending'], keys: ['status'], values: ['pending'] }],
+    },
+  ]
+  const out = recoverWriteIntent({
+    kind: 'KindDoc',
+    action: '过审',
+    speech,
+  }, docVocab)
+  assert.equal(out.action, '现查')
+  assert.equal(out.askAction, '过审')
+})
+
+test('recoverWriteIntent spoken 过了 is the write role not a status enum', () => {
+  const speech = '把 KindDoc 过了'
+  const docVocab = [
+    {
+      kind: 'KindDoc',
+      resource: 'kind_docs',
+      can: ['现查', '过审'],
+    },
+  ]
+  const out = recoverWriteIntent({
+    kind: 'KindDoc',
+    action: '现查',
+    speech,
+  }, docVocab)
+  assert.equal(out.action, '过审')
+})
+
+test('recoverWriteIntent hop list speech stays 现查 when the model fills a write', () => {
+  const speech = 'ParentA 有哪些 ChildB？'
+  const pair = [
+    { kind: 'ParentA', resource: 'parent_a', can: ['现查'] },
+    {
+      kind: 'ChildB',
+      resource: 'child_b',
+      can: ['现查', '过审'],
+      relations: [{ from: 'ParentA', to: 'ChildB', field: 'parentRef' }],
+    },
+  ]
+  const out = recoverWriteIntent({
+    kind: 'ChildB',
+    action: '过审',
+    speech,
+  }, pair)
+  assert.equal(out.action, '现查')
+  assert.equal(out.askAction, '过审')
+})
+

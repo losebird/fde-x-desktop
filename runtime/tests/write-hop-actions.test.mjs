@@ -104,13 +104,17 @@ function hopMeta(result) {
 }
 
 test('write actions hop the relation-chain intersection instead of dumping parent rows', async () => {
-  const writes = ['改行', '删除', '过审']
-  for (const action of writes) {
+  const writes = {
+    改行: '改成 hop',
+    删除: '删一下',
+    过审: '过一下',
+  }
+  for (const [action, spoken] of Object.entries(writes)) {
     const body = {
       workspace: '/tmp/hop-ws',
       kind: 'ChildB',
       action,
-      speech,
+      speech: `${speech} ${spoken}`,
     }
     if (action === '改行') body.patch = { remark: 'hop' }
     const out = hopMeta(await gate().preview(body))
@@ -127,6 +131,44 @@ test('write actions hop the relation-chain intersection instead of dumping paren
     assert.ok(out.previewId, action)
     assert.notEqual(out.error, 'AMBIGUOUS', action)
   }
+})
+
+test('model write without spoken write role lists the hop and does not mint a preview', async () => {
+  const result = await gate().preview({
+    workspace: '/tmp/hop-ws',
+    kind: 'ChildB',
+    action: '过审',
+    speech,
+  })
+  const out = hopMeta(result)
+  const sheet = result.sheet || result
+  assert.equal(out.kind, 'ChildB')
+  assert.equal(out.rows, 1)
+  assert.equal(out.first, 'CB-HIT')
+  assert.equal(out.fromKind, 'ParentA')
+  assert.equal(out.hopWhere, true)
+  assert.deepEqual(out.steps, ['ParentA', 'ChildB'])
+  assert.equal(sheet.action, '现查')
+  assert.ok(!out.previewId)
+  assert.equal(sheet.askAction, '过审')
+  assert.ok(String(sheet.speak || result.speak || '').includes('现查还是过审'))
+})
+
+test('look and write roles together list first and do not mint a preview', async () => {
+  const result = await gate().preview({
+    workspace: '/tmp/hop-ws',
+    kind: 'ChildB',
+    action: '过审',
+    speech: `${speech} 看一下 过一下`,
+  })
+  const out = hopMeta(result)
+  const sheet = result.sheet || result
+  assert.equal(sheet.action, '现查')
+  assert.ok(!out.previewId)
+  assert.equal(sheet.askAction, '过审')
+  assert.ok(String(sheet.speak || result.speak || '').includes('现查还是过审'))
+  assert.equal(out.kind, 'ChildB')
+  assert.equal(out.first, 'CB-HIT')
 })
 
 test('新建 keeps hop metadata on the same relation chain', async () => {

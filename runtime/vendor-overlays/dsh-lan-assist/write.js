@@ -46,6 +46,16 @@ function hopXianchaCacheSet(key, value) {
   }
 }
 
+function speakWithActionAsk(speak, kind, askAction) {
+  const act = String(askAction || '').trim()
+  if (!act) return String(speak || '').trim()
+  const who = String(kind || '').trim() || '这一格'
+  const ask = `${who}先现查。这一格是现查还是${act}？人回一句再写。`
+  const base = String(speak || '').trim()
+  if (!base) return ask
+  return `${base}${/。$/.test(base) ? '' : '。'}${ask}`
+}
+
 /**
  * @param {{ kind?: string, no?: string } | null | undefined} ref
  * @param {{ status?: string, fingerprint?: string } | null | undefined} found
@@ -233,6 +243,8 @@ export function packSheet(spec = {}) {
   if (action === '过审') canWrite = canWrite && changes.length > 0
   if (spec.blockConfirm) canWrite = false
   let speak = String(spec.speak || spec.hint || '').trim()
+  const askAction = String(spec.askAction || '').trim()
+  if (askAction && action === '现查') speak = speakWithActionAsk(speak, kind, askAction)
   if (alreadyAtTarget) {
     const col = statusColumn(spec.mapped, kind, spec)
     const raw = ((col && fieldValue(lead.fields, col)) || String(lead.status || fromFallback || '').trim())
@@ -300,6 +312,7 @@ export function packSheet(spec = {}) {
     ...(Array.isArray(spec.cells) && spec.cells.length ? { cells: spec.cells } : {}),
     ...(spec.blockConfirm ? { blockConfirm: true } : {}),
     ...(spec.columnMiss === true ? { columnMiss: true } : {}),
+    ...(askAction && action === '现查' ? { askAction } : {}),
   }
 }
 
@@ -536,8 +549,18 @@ async function withSheet(result, extra = {}) {
       if (Array.isArray(loaded) && loaded.length) schemaFields = loaded
     } catch { /* keep the already loaded schema */ }
   }
-  const sheet = packSheet({ ...result, ...extra, schemaFields })
-  const out = { ...result, sheet }
+  const ask = String((extra && extra.askAction) || (result && result.askAction) || '').trim()
+  const action = String((result && result.action) || extra.action || '').trim()
+  const spoken = ask && action === '现查'
+    ? speakWithActionAsk(result && result.speak, sheetKind, ask)
+    : (result && result.speak)
+  const packed = {
+    ...result,
+    ...(spoken != null ? { speak: spoken } : {}),
+    ...(ask ? { askAction: ask } : {}),
+  }
+  const sheet = packSheet({ ...packed, ...extra, schemaFields })
+  const out = { ...packed, sheet }
   delete out.vocab
   return out
 }
@@ -1011,6 +1034,7 @@ export function createGate(opts = {}) {
         ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
         ...(sidePeers.length ? { peers: sidePeers } : {}),
         ...(spec.picked === true ? { picked: true } : {}),
+        ...(String(spec.askAction || '').trim() ? { askAction: String(spec.askAction).trim() } : {}),
         ...rest,
       })
     }
@@ -1353,6 +1377,7 @@ export function createGate(opts = {}) {
         ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
         ...(hopMeta.hopWhere ? { hopWhere: hopMeta.hopWhere } : {}),
         ...(packedPeers.length ? { peers: packedPeers } : {}),
+        ...(String(spec.askAction || '').trim() ? { askAction: String(spec.askAction).trim() } : {}),
         ...restMore,
       })
     }

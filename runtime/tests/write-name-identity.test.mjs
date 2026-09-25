@@ -367,8 +367,8 @@ test('write without identity does not dump the catalog as a preview sheet', asyn
     patch: { status: 'active' },
   })
   const sheet = sheetOf(result)
-  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
-  assert.equal(rows.length, 0)
+  assert.equal(sheet.action, '现查')
+  assert.equal(sheet.askAction, '改行')
   assert.ok(!result.preview_id && !sheet.preview_id)
-  assert.notEqual(result.error, undefined)
+  assert.equal(Boolean(sheet.canWrite), false)
 })
