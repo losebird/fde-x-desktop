@@ -50,10 +50,12 @@ function PiAiModelList({
   models,
   onChange,
   disabled,
+  allowRemove = true,
 }: {
   models: ModelRow[]
   onChange: (next: ModelRow[]) => void
   disabled: boolean
+  allowRemove?: boolean
 }) {
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
   const [capacityDraft, setCapacityDraft] = useState<Map<string, string>>(() => new Map())
@@ -119,24 +121,26 @@ function PiAiModelList({
             >
               <ChevronRight size={14} className={expanded.has(index) ? 'rotate-90 transition-transform' : 'transition-transform'} />
             </button>
-            <button
-              type="button"
-              className="btn-ghost h-8 px-2 text-accent-red"
-              disabled={disabled}
-              onClick={() => {
-                onChange(models.filter((_, i) => i !== index))
-                setExpanded((current) => {
-                  const next = new Set<number>()
-                  for (const at of current) {
-                    if (at < index) next.add(at)
-                    else if (at > index) next.add(at - 1)
-                  }
-                  return next
-                })
-              }}
-            >
-              <Trash2 size={12} />
-            </button>
+            {allowRemove && (
+              <button
+                type="button"
+                className="btn-ghost h-8 px-2 text-accent-red"
+                disabled={disabled}
+                onClick={() => {
+                  onChange(models.filter((_, i) => i !== index))
+                  setExpanded((current) => {
+                    const next = new Set<number>()
+                    for (const at of current) {
+                      if (at < index) next.add(at)
+                      else if (at > index) next.add(at - 1)
+                    }
+                    return next
+                  })
+                }}
+              >
+                <Trash2 size={12} />
+              </button>
+            )}
           </div>
           {expanded.has(index) && (
             <div className="grid grid-cols-1 @md:grid-cols-2 gap-2 pl-1">
@@ -182,7 +186,15 @@ function draftFromUser(row: ModelsSettingsRow): Record<string, unknown> {
 function mergeDiscover(existing: ModelRow[], picked: ModelRow[]): ModelRow[] {
   const byId = new Map(existing.map((m) => [m.id, m]))
   for (const candidate of picked) {
-    if (!byId.has(candidate.id)) byId.set(candidate.id, candidate)
+    if (!byId.has(candidate.id)) {
+      byId.set(candidate.id, {
+        id: candidate.id,
+        name: candidate.name || candidate.id,
+        ...(candidate.contextWindow !== undefined ? { contextWindow: candidate.contextWindow } : {}),
+        ...(candidate.maxTokens !== undefined ? { maxTokens: candidate.maxTokens } : {}),
+        ...(candidate.reasoningEfforts !== undefined ? { reasoningEfforts: candidate.reasoningEfforts } : {}),
+      })
+    }
   }
   return [...byId.values()]
 }
@@ -602,15 +614,39 @@ function ProviderEditorCard({
       {!writable && <div className="text-xs text-ink-muted">当前部署只读，无法写入。</div>}
 
       <Field label="API 密钥" hint="只写不回显；留空则保留现有密钥。">
-        <input
-          className="input w-full"
-          type="password"
-          autoComplete="off"
-          value={keyDraft}
-          onChange={(e) => setKeyDraft(e.target.value)}
-          placeholder={row.credentialConfigured ? '已配置（输入新值以更换）' : '输入 API 密钥'}
-          disabled={busy || !writable}
-        />
+        <div className="flex gap-2">
+          <input
+            className="input w-full flex-1"
+            type="password"
+            autoComplete="off"
+            value={keyDraft}
+            onChange={(e) => setKeyDraft(e.target.value)}
+            placeholder={row.credentialConfigured ? '已配置（输入新值以更换）' : '输入 API 密钥'}
+            disabled={busy || !writable}
+          />
+          {row.credentialConfigured && (
+            <button
+              type="button"
+              className="btn shrink-0 text-xs"
+              disabled={busy || !writable}
+              onClick={() => {
+                if (!window.confirm('清除该提供方的 API 密钥？')) return
+                setBusy(true)
+                setFormError('')
+                const clear = bffLegacy
+                  ? runtimeApi.clearAiProviderKey(row.provider)
+                  : runtimeApi.setModelsCredential({ ref: row.keyRef, action: 'delete' })
+                void clear.then(() => {
+                  setKeyDraft('')
+                  setNote('密钥已清除，请重载核心。')
+                  onSaved()
+                }).catch((cause) => setFormError(cause instanceof Error ? cause.message : '清除失败')).finally(() => setBusy(false))
+              }}
+            >
+              清除密钥
+            </button>
+          )}
+        </div>
       </Field>
 
       {layout !== 'unknown' && (
@@ -665,6 +701,7 @@ function ProviderEditorCard({
                 <PiAiModelList
                   models={models}
                   disabled={busy || !writable}
+                  allowRemove={modelsOverridden || Object.prototype.hasOwnProperty.call(draft, 'models')}
                   onChange={(next) => {
                     setModels(next)
                     setDraft((c) => ({ ...c, models: next }))
@@ -693,6 +730,7 @@ function ProviderEditorCard({
                         name: f.name,
                         ...(f.contextWindow !== undefined ? { contextWindow: f.contextWindow } : {}),
                         ...(f.maxTokens !== undefined ? { maxTokens: f.maxTokens } : {}),
+                        ...(f.reasoningEfforts !== undefined ? { reasoningEfforts: f.reasoningEfforts } : {}),
                       })))
                       setDiscoverPick(new Set(found.filter((f) => !known.has(f.id)).map((f) => f.id)))
                     }).catch((cause) => setFormError(cause instanceof Error ? cause.message : '获取失败')).finally(() => setBusy(false))
@@ -906,8 +944,13 @@ function AddCustomCard({
                 api,
                 apiKey: apiKey.trim() || undefined,
               }).then((found) => {
-                setDiscoverRows(found.map((f) => ({ id: f.id, name: f.name })))
-                setDiscoverPick(new Set(found.map((f) => f.id)))
+                const known = new Set(models.map((m) => m.id))
+                setDiscoverRows(found.map((f) => ({
+                  id: f.id,
+                  name: f.name,
+                  ...(f.reasoningEfforts !== undefined ? { reasoningEfforts: f.reasoningEfforts } : {}),
+                })))
+                setDiscoverPick(new Set(found.filter((f) => !known.has(f.id)).map((f) => f.id)))
               }).catch((cause) => setFormError(cause instanceof Error ? cause.message : '获取失败')).finally(() => setBusy(false))
             }}
           >

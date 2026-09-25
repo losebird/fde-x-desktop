@@ -914,8 +914,8 @@ export class RuntimeApi {
     return result.data
   }
 
-  async discoverAiModels(body: { baseURL: string; api?: string; apiKey?: string; provider?: string }, signal?: AbortSignal): Promise<Array<{ id: string; name: string; contextWindow?: number; maxTokens?: number }>> {
-    const result = await this.request<{ data: { models: Array<{ id: string; name: string; contextWindow?: number; maxTokens?: number }> } }>('/api/v1/ai/providers/discover', {
+  async discoverAiModels(body: { baseURL: string; api?: string; apiKey?: string; provider?: string }, signal?: AbortSignal): Promise<Array<{ id: string; name: string; contextWindow?: number; maxTokens?: number; reasoningEfforts?: unknown }>> {
+    const result = await this.request<{ data: { models: Array<{ id: string; name: string; contextWindow?: number; maxTokens?: number; reasoningEfforts?: unknown }> } }>('/api/v1/ai/providers/discover', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -933,7 +933,6 @@ export class RuntimeApi {
     modelId?: string
     modelName?: string
     models?: Array<{ id: string; name?: string }>
-    reasoning?: boolean
   }, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/ai/providers/custom', {
       method: 'POST',
@@ -970,7 +969,6 @@ export class RuntimeApi {
     modelId?: string
     modelName?: string
     models?: Array<{ id: string; name?: string }>
-    reasoning?: boolean
   }, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const result = await this.request<{ data: Record<string, unknown> }>(`/api/v1/ai/providers/custom/${encodeURIComponent(route)}`, {
       method: 'PATCH',

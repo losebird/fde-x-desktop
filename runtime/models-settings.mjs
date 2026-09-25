@@ -106,6 +106,62 @@ export function pathOps(base, before, after) {
   return ops
 }
 
+export function pickModelRowFields(row) {
+  const id = String(row?.id || '').trim()
+  if (!id) return null
+  const name = String(row?.name || row?.id || '').trim() || id
+  const out = { id, name }
+  if (typeof row?.contextWindow === 'number') out.contextWindow = row.contextWindow
+  if (typeof row?.maxTokens === 'number') out.maxTokens = row.maxTokens
+  if (row?.reasoningEfforts !== undefined && row?.reasoningEfforts !== null) {
+    out.reasoningEfforts = row.reasoningEfforts
+  }
+  return out
+}
+
+/** Keep reasoningEfforts only when discover/schema returned them for that model id. */
+export function alignModelRowsWithDiscover(models, discovered) {
+  const byId = new Map(
+    (Array.isArray(discovered) ? discovered : [])
+      .map((row) => {
+        const id = String(row?.id || '').trim()
+        return id ? [id, row] : null
+      })
+      .filter(Boolean),
+  )
+  return (Array.isArray(models) ? models : [])
+    .map((row) => pickModelRowFields(row))
+    .filter(Boolean)
+    .map((row) => {
+      const disc = byId.get(row.id)
+      if (disc && disc.reasoningEfforts !== undefined) {
+        return { ...row, reasoningEfforts: disc.reasoningEfforts }
+      }
+      const { reasoningEfforts: _drop, ...rest } = row
+      return rest
+    })
+}
+
+export async function discoverProviderModels(aiRuntime, profile, providerRoute) {
+  if (!aiRuntime?.status?.().connected) return []
+  const baseURL = String(profile?.baseURL || '').trim().replace(/\/$/, '')
+  const api = String(profile?.api || 'openai-completions').trim()
+  if (!/^https?:\/\//.test(baseURL)) return []
+  try {
+    const found = await aiRuntime.rpc('llm/discoverModels', {
+      settingsNs: 'llm-pi-ai',
+      request: {
+        ...(providerRoute ? { provider: providerRoute } : {}),
+        baseURL,
+        api,
+      },
+    })
+    return Array.isArray(found) ? found : []
+  } catch {
+    return []
+  }
+}
+
 export function mergeModelRows(existing, pickedCandidates) {
   const byId = new Map()
   for (const row of existing) {
@@ -116,15 +172,28 @@ export function mergeModelRows(existing, pickedCandidates) {
     const id = String(candidate?.id || '').trim()
     if (!id) continue
     if (!byId.has(id)) {
-      byId.set(id, {
-        id,
-        ...(candidate.name ? { name: String(candidate.name) } : {}),
-        ...(candidate.contextWindow !== undefined ? { contextWindow: candidate.contextWindow } : {}),
-        ...(candidate.maxTokens !== undefined ? { maxTokens: candidate.maxTokens } : {}),
-      })
+      byId.set(id, pickModelRowFields(candidate) || { id, name: id })
     }
   }
   return [...byId.values()]
+}
+
+export function formatReasoningEffortsYaml(efforts, indent) {
+  if (efforts === undefined || efforts === null) return []
+  if (typeof efforts !== 'object' || Array.isArray(efforts)) {
+    return [`${indent}reasoningEfforts: ${efforts}`]
+  }
+  if (efforts._flow) {
+    return [`${indent}reasoningEfforts: { ${efforts._flow} }`]
+  }
+  const pad = indent
+  const lines = [`${pad}reasoningEfforts:`]
+  for (const [key, value] of Object.entries(efforts)) {
+    if (value === null) lines.push(`${pad}  ${key}: null`)
+    else if (typeof value === 'boolean' || typeof value === 'number') lines.push(`${pad}  ${key}: ${value}`)
+    else lines.push(`${pad}  ${key}: ${JSON.stringify(String(value))}`)
+  }
+  return lines
 }
 
 function namespaceMap(describe) {

@@ -84,8 +84,12 @@ import { handleCorpusRoute } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { tryServeStatic } from './routes/static.mjs'
 import {
+  alignModelRowsWithDiscover,
+  discoverProviderModels,
   fetchModelsSettingsSnapshot,
+  formatReasoningEffortsYaml,
   pathOps,
+  pickModelRowFields,
   protocolChoicesFromNamespace,
   providerKeyRef as modelsProviderKeyRef,
   validateApiKeyInput,
@@ -246,7 +250,8 @@ function formatSettingsProviderBlock(route, profile) {
     ...models.map((row) => {
       const efforts = row.reasoningEfforts
       const hasCapacity = row.contextWindow !== undefined || row.maxTokens !== undefined
-      const hasEfforts = efforts && typeof efforts === 'object'
+      const hasEfforts = efforts !== undefined && efforts !== null
+        && (typeof efforts !== 'object' || efforts._flow || Object.keys(efforts).length > 0)
       if (hasEfforts || hasCapacity) {
         const lines = [
           `        - id: ${yamlScalar(row.id)}`,
@@ -254,7 +259,7 @@ function formatSettingsProviderBlock(route, profile) {
         ]
         if (row.contextWindow !== undefined) lines.push(`          contextWindow: ${row.contextWindow}`)
         if (row.maxTokens !== undefined) lines.push(`          maxTokens: ${row.maxTokens}`)
-        if (hasEfforts) lines.push('          reasoningEfforts: { off: null, low: low, medium: medium, high: high, xhigh: xhigh }')
+        if (hasEfforts) lines.push(...formatReasoningEffortsYaml(efforts, '          '))
         return lines.join('\n')
       }
       return `        - { id: ${yamlScalar(row.id)}, name: ${yamlScalar(row.name || row.id)} }`
@@ -301,12 +306,28 @@ function readSettingsProviderProfile(filePath, route) {
     const name = body.match(/^\s*name:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '') || id
     const contextWindow = body.match(/^\s*contextWindow:\s*(\d+)\s*$/m)?.[1]
     const maxTokens = body.match(/^\s*maxTokens:\s*(\d+)\s*$/m)?.[1]
+    const inlineEfforts = body.match(/reasoningEfforts:\s*\{([^}]+)\}/)?.[1]
+    const blockEfforts = body.match(/^\s*reasoningEfforts:\s*$/m)
+    let reasoningEfforts
+    if (inlineEfforts) {
+      reasoningEfforts = { _flow: inlineEfforts.trim() }
+    } else if (blockEfforts) {
+      reasoningEfforts = {}
+      for (const line of body.split('\n')) {
+        const m = line.match(/^\s{10,}([a-zA-Z0-9_]+):\s*(.+)$/)
+        if (!m) continue
+        const val = m[2].trim()
+        reasoningEfforts[m[1]] = val === 'null' ? null : val.replace(/^['"]|['"]$/g, '')
+      }
+      if (!Object.keys(reasoningEfforts).length) reasoningEfforts = undefined
+    }
     if (!models.some((row) => row.id === id)) {
       models.push({
         id,
         name,
         ...(contextWindow ? { contextWindow: Number(contextWindow) } : {}),
         ...(maxTokens ? { maxTokens: Number(maxTokens) } : {}),
+        ...(reasoningEfforts ? { reasoningEfforts } : {}),
       })
     }
   }
@@ -385,37 +406,22 @@ function buildCustomProviderProfile(body, route, existingProfile) {
   const picked = Array.isArray(body.models) ? body.models : null
   let models
   if (picked) {
-    const existingById = new Map((existingProfile?.models || []).map((row) => [String(row.id || '').trim(), row]))
-    models = picked.map((row) => {
-      const id = String(row?.id || '').trim()
-      const name = String(row?.name || row?.id || '').trim()
-      const prev = existingById.get(id)
-      if (prev) {
-        return { ...prev, ...row, id, name: name || prev.name || id }
-      }
-      const base = { id, name: name || id }
-      if (body.reasoning === true) {
-        return {
-          ...base,
-          reasoningEfforts: { off: null, low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' },
-        }
-      }
-      return base
-    }).filter((row) => row.id)
+    models = picked.map((row) => pickModelRowFields(row)).filter(Boolean)
   } else {
-    models = (existingProfile?.models || []).map((row) => ({
-      id: String(row.id || '').trim(),
-      name: String(row.name || row.id || '').trim(),
-      ...row,
-    })).filter((row) => row.id)
+    models = (existingProfile?.models || [])
+      .map((row) => pickModelRowFields(row))
+      .filter(Boolean)
   }
   const modelId = String(body.modelId || '').trim()
   const modelName = String(body.modelName || modelId).trim()
   if (models.length === 0 && modelId) models.push({ id: modelId, ...(modelName ? { name: modelName } : {}) })
   const keyRef = providerKeyRef(route)
   const keepKeyEnv = existingProfile?.apiKeyEnv || keyRef
+  const preserved = existingProfile && typeof existingProfile === 'object' ? { ...existingProfile } : {}
+  delete preserved.models
   return {
     profile: {
+      ...preserved,
       ...(displayName ? { displayName } : {}),
       ...((apiKey || existingProfile?.apiKeyEnv) ? { apiKeyEnv: keepKeyEnv } : {}),
       api,
@@ -432,11 +438,16 @@ async function applyCustomProviderWrite(aiRuntime, route, profile, apiKey, expec
   let liveError = ''
   const credPath = join(aiRuntime.dshHome, '.credentials.yaml')
   const settingsPath = join(aiRuntime.dshHome, 'settings.yaml')
+  const discovered = await discoverProviderModels(aiRuntime, profile, route)
+  const alignedProfile = {
+    ...profile,
+    models: alignModelRowsWithDiscover(profile.models, discovered),
+  }
   if (aiRuntime.status().connected) {
     try {
       await aiRuntime.rpc('settings/mutate', {
         ns: 'llm-pi-ai',
-        ops: [{ op: 'set', path: ['providers', route], value: profile }],
+        ops: [{ op: 'set', path: ['providers', route], value: alignedProfile }],
         ...(expectedRevision !== undefined ? { expectedRevision } : {}),
       })
       if (apiKey) await aiRuntime.rpc('credentials/set', { ref: providerKeyRef(route), value: apiKey })
@@ -446,7 +457,7 @@ async function applyCustomProviderWrite(aiRuntime, route, profile, apiKey, expec
     }
   }
   if (apiKey) upsertCredentialRef(credPath, providerKeyRef(route), apiKey)
-  upsertSettingsProvider(settingsPath, route, profile)
+  upsertSettingsProvider(settingsPath, route, alignedProfile)
   return { live, liveError }
 }
 
@@ -1451,7 +1462,7 @@ const server = createServer(async (request, response) => {
       const ns = String(body.ns || '').trim()
       const settingsPath = Array.isArray(body.settingsPath) ? body.settingsPath.map(String) : []
       const provider = String(body.provider || '').trim()
-      const draft = body.draft && typeof body.draft === 'object' ? body.draft : {}
+      let draft = body.draft && typeof body.draft === 'object' ? body.draft : {}
       const committedOriginal = body.committedOriginal
       const expectedRevision = body.expectedRevision
       const apiKey = String(body.apiKey || '')
@@ -1459,6 +1470,17 @@ const server = createServer(async (request, response) => {
       if (!ns || !provider) {
         sendError(response, 400, 'validation_error', '需要 ns 与 provider', currentCorrelationId)
         return
+      }
+      if (Array.isArray(draft.models)) {
+        const profileHint = {
+          baseURL: String(draft.baseURL || committedOriginal?.baseURL || '').trim(),
+          api: String(draft.api || committedOriginal?.api || 'openai-completions').trim(),
+        }
+        const discovered = await discoverProviderModels(aiRuntime, profileHint, provider)
+        draft = {
+          ...draft,
+          models: alignModelRowsWithDiscover(draft.models, discovered),
+        }
       }
       const keyTrimmed = apiKey.trim()
       if (keyTrimmed) {
@@ -1612,6 +1634,7 @@ const server = createServer(async (request, response) => {
             name: String(row.name || row.id || ''),
             ...(typeof row.contextWindow === 'number' ? { contextWindow: row.contextWindow } : {}),
             ...(typeof row.maxTokens === 'number' ? { maxTokens: row.maxTokens } : {}),
+            ...(row.reasoningEfforts !== undefined ? { reasoningEfforts: row.reasoningEfforts } : {}),
           })).filter((row) => row.id),
         },
         correlationId: currentCorrelationId,
@@ -1625,6 +1648,11 @@ const server = createServer(async (request, response) => {
       const apiKey = String(body.apiKey || '').trim()
       if (!provider || !apiKey) {
         sendError(response, 400, 'validation_error', '提供方和 API 密钥不能为空', currentCorrelationId)
+        return
+      }
+      const keyIssue = validateApiKeyInput(apiKey)
+      if (keyIssue) {
+        sendError(response, 400, 'validation_error', keyIssue === 'non_ascii' ? 'API 密钥须为可打印 ASCII' : 'API 密钥不能为空', currentCorrelationId)
         return
       }
       const keyRef = `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
@@ -1645,6 +1673,13 @@ const server = createServer(async (request, response) => {
       if (!/^https?:\/\//.test(profile.baseURL) || profile.models.length === 0) {
         sendError(response, 400, 'validation_error', '自定义提供方需要有效的 API 地址和至少一个模型', currentCorrelationId)
         return
+      }
+      if (apiKey) {
+        const keyIssue = validateApiKeyInput(apiKey)
+        if (keyIssue) {
+          sendError(response, 400, 'validation_error', keyIssue === 'non_ascii' ? 'API 密钥须为可打印 ASCII' : 'API 密钥无效', currentCorrelationId)
+          return
+        }
       }
       const { live, liveError } = await applyCustomProviderWrite(aiRuntime, route, profile, apiKey)
       sendJson(response, 200, {
@@ -1670,6 +1705,11 @@ const server = createServer(async (request, response) => {
         const apiKey = String(body.apiKey || '').trim()
         if (!apiKey) {
           sendError(response, 400, 'validation_error', 'API 密钥不能为空', currentCorrelationId)
+          return
+        }
+        const keyIssue = validateApiKeyInput(apiKey)
+        if (keyIssue) {
+          sendError(response, 400, 'validation_error', keyIssue === 'non_ascii' ? 'API 密钥须为可打印 ASCII' : 'API 密钥无效', currentCorrelationId)
           return
         }
         if (aiRuntime.status().connected) {
@@ -1724,6 +1764,13 @@ const server = createServer(async (request, response) => {
         if (!/^https?:\/\//.test(profile.baseURL) || profile.models.length === 0) {
           sendError(response, 400, 'validation_error', '需要有效的 API 地址和至少一个模型', currentCorrelationId)
           return
+        }
+        if (apiKey) {
+          const keyIssue = validateApiKeyInput(apiKey)
+          if (keyIssue) {
+            sendError(response, 400, 'validation_error', keyIssue === 'non_ascii' ? 'API 密钥须为可打印 ASCII' : 'API 密钥无效', currentCorrelationId)
+            return
+          }
         }
         const { live, liveError } = await applyCustomProviderWrite(aiRuntime, route, profile, apiKey)
         sendJson(response, 200, {
