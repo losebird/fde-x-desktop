@@ -385,7 +385,7 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emi
   const columns = Array.isArray(sheet?.columns) ? sheet.columns : []
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId : undefined
   const connectionId = typeof body.connectionId === 'string' ? body.connectionId : undefined
-  if (!kind || !action) return
+  if (!kind || !action) return undefined
 
   const surfaceId = insertBizSurface(db, {
     workspaceCwd,
@@ -398,6 +398,7 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emi
     columnsJson: JSON.stringify(columns),
   })
   if (emitEvent) emitBizSheetPending(sheet, { sessionId, source, workspaceCwd, surfaceId, hallSheet })
+  return surfaceId
 }
 
 function resolveBizWorkspace(url, aiRuntime) {

@@ -43,13 +43,14 @@ test('unfiltered list is leftover even when speech is stamped; page size is not 
   assert.equal(isEligibleRoundSheet(dumpSheet()), false)
 })
 
-test('process tool results are not handed; official is only on round close', () => {
+test('settled rows show before round close; the tool note itself does not emit', () => {
   const rounds = createSessionRoundStore()
   rounds.startRound('sess-a')
   const process = rounds.noteToolSheet('sess-a', hopSheet())
   assert.equal(process.emit, false)
   assert.equal(process.process, true)
-  assert.equal(rounds.servedSheet('sess-a'), null)
+  assert.equal(rounds.servedSheet('sess-a').kind, hopSheet().kind)
+  assert.equal(rounds.servedSheet('sess-a').rows.length, 2)
   assert.equal(rounds.isOpen('sess-a'), true)
   const leftover = rounds.noteToolSheet('sess-a', dumpSheet())
   assert.equal(leftover.leftover, true)
@@ -305,6 +306,89 @@ test('stampWroteLookup fills a bare follow-up with the written identity', () => 
     where: [{ keys: ['title'], values: ['甲'] }],
   })
   assert.equal(byWhere.where.length, 1)
+})
+
+test('settled 现查 rows paint before turn end and replace the previous write', () => {
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  rounds.noteToolSheet('sess-a', {
+    kind: 'KindCustomer',
+    action: '改行',
+    speech: 'change the matched row',
+    sessionId: 'sess-a',
+    preview_id: 'pv-prev',
+    rows: [{ no: 'ROW-PREV' }],
+  })
+  rounds.closeRound('sess-a')
+  assert.equal(rounds.servedSheet('sess-a').action, '改行')
+  rounds.startRound('sess-a')
+  assert.equal(rounds.servedSheet('sess-a').action, '改行')
+  rounds.noteToolSheet('sess-a', {
+    kind: 'KindTicket',
+    action: '现查',
+    speech: 'which related rows',
+    sessionId: 'sess-a',
+    from: { kind: 'KindCustomer', no: 'ROW-PREV' },
+    hopWhere: [{ keys: ['owner'], values: ['ROW-PREV'] }],
+    rows: [{ no: 'T-1' }, { no: 'T-2' }, { no: 'T-3' }, { no: 'T-4' }],
+  })
+  const painted = rounds.servedSheet('sess-a')
+  assert.equal(rounds.isOpen('sess-a'), true)
+  assert.equal(painted.action, '现查')
+  assert.equal(painted.kind, 'KindTicket')
+  assert.equal(painted.rows.length, 4)
+  assert.deepEqual(painted.rows.map((row) => row.no), ['T-1', 'T-2', 'T-3', 'T-4'])
+})
+
+test('same-utterance leftover dump does not cover the matched sheet or an open write', () => {
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  rounds.noteToolSheet('sess-a', hopSheet())
+  rounds.noteToolSheet('sess-a', dumpSheet())
+  assert.equal(rounds.servedSheet('sess-a').kind, hopSheet().kind)
+  assert.equal(rounds.servedSheet('sess-a').from.kind, 'KindParent')
+  assert.equal(isUnfilteredListSheet(rounds.servedSheet('sess-a')), false)
+
+  const writeRound = createSessionRoundStore()
+  writeRound.startRound('sess-b')
+  writeRound.noteToolSheet('sess-b', {
+    kind: 'KindW',
+    action: '改行',
+    speech: 'change this row',
+    sessionId: 'sess-b',
+    preview_id: 'pv-open',
+    rows: [{ no: 'ROW-9' }],
+  })
+  const dumped = writeRound.noteToolSheet('sess-b', dumpSheet('KindW', 'change this row'))
+  assert.equal(dumped.cancel, true)
+  assert.equal(writeRound.servedSheet('sess-b').action, '改行')
+  assert.equal(writeRound.servedSheet('sess-b').preview_id, 'pv-open')
+})
+
+test('wrote follow-up 现查 paints only when it carries the written identity', () => {
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-a')
+  rounds.closeRound('sess-a', 'wrote', { identity: { no: 'ROW-1' } })
+  rounds.startRound('sess-a', { followup: true })
+  rounds.noteToolSheet('sess-a', dumpSheet())
+  const bare = rounds.closeRound('sess-a')
+  assert.equal(bare.emit, false)
+  assert.equal(rounds.servedSheet('sess-a'), null)
+
+  rounds.startRound('sess-a', { followup: true })
+  rounds.noteToolSheet('sess-a', {
+    kind: 'KindW',
+    action: '现查',
+    lookupNo: 'ROW-1',
+    rows: [{ no: 'ROW-1' }],
+  })
+  assert.equal(rounds.isOpen('sess-a'), true)
+  assert.equal(rounds.servedSheet('sess-a').lookupNo, 'ROW-1')
+  rounds.noteToolSheet('sess-a', dumpSheet())
+  assert.equal(rounds.servedSheet('sess-a').lookupNo, 'ROW-1')
+  rounds.closeRound('sess-a')
+  assert.equal(rounds.servedSheet('sess-a').lookupNo, 'ROW-1')
+  assert.equal(isUnfilteredListSheet(rounds.servedSheet('sess-a')), false)
 })
 
 test('an unfiltered list does not cancel a wrote receipt that already carries identity', () => {

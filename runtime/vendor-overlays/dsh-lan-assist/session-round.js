@@ -64,6 +64,15 @@ export function isEligibleRoundSheet(sheet) {
   return rows > 0 || Boolean(previewId) || Boolean(sheet.ambiguous || sheet.listed) || sheet.querySettled === true
 }
 
+function sharesWrittenRows(prev, incoming) {
+  const prevNos = sheetNos(prev)
+  if (!prevNos.length) return false
+  const incomingNos = sheetNos(incoming)
+  if (incomingNos.some((no) => prevNos.includes(no))) return true
+  const speech = sheetSpeech(incoming)
+  return prevNos.some((no) => no && speech.includes(no))
+}
+
 /** Tool-called 现查 (no write token) replaces a same-round speech-bound write preview instead of leftover-cancel. */
 function explicitLiveLookupSupersedesWrite(prev, incoming) {
   if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
@@ -73,6 +82,7 @@ function explicitLiveLookupSupersedesWrite(prev, incoming) {
   if (!prevAct || prevAct === '现查') return false
   if (prev.picked === true) return false
   if (prev.ambiguous || prev.listed) return false
+  if (isUnfilteredListSheet(incoming) && !sharesWrittenRows(prev, incoming)) return false
   return true
 }
 
@@ -129,6 +139,46 @@ export function sheetCarriesIdentity(sheet) {
   if (from && typeof from === 'object' && !Array.isArray(from) && String(from.kind || '').trim()) return true
   if (Array.isArray(sheet.steps) && sheet.steps.length) return true
   return false
+}
+
+function writtenIdentityNos(identity) {
+  if (!identity || typeof identity !== 'object') return []
+  const nos = []
+  const one = String(identity.no || '').trim()
+  if (one) nos.push(one)
+  if (Array.isArray(identity.nos)) {
+    for (const item of identity.nos) {
+      const no = String(item || '').trim()
+      if (no) nos.push(no)
+    }
+  }
+  return nos
+}
+
+/** Follow-up 现查 paints only when it carries the identity just written. */
+export function sheetCarriesWrittenIdentity(sheet, identity) {
+  if (!sheetCarriesIdentity(sheet)) return false
+  if (!identity || typeof identity !== 'object') return false
+  const nos = writtenIdentityNos(identity)
+  if (nos.length) {
+    const lookup = String(sheet.lookupNo || '').trim()
+    if (lookup && nos.includes(lookup)) return true
+    const rowNos = sheetNos(sheet)
+    return nos.some((no) => rowNos.includes(no))
+  }
+  if (Array.isArray(identity.where) && identity.where.length) {
+    const where = sheet.where ?? sheet.listWhere
+    return Array.isArray(where) && where.length > 0
+  }
+  return false
+}
+
+function utteranceSheetPaints(sheet, round) {
+  if (!sheet || typeof sheet !== 'object') return false
+  if (round && round.wroteFollowup && !sheetCarriesWrittenIdentity(sheet, round.wroteIdentity)) return false
+  if (sheetRowCount(sheet) > 0) return true
+  const action = sheetAction(sheet)
+  return Boolean(action && action !== '现查' && sheetPreviewId(sheet))
 }
 
 function specHasIdentity(spec) {
@@ -224,7 +274,10 @@ export function createSessionRoundStore() {
     if (round.open) {
       round.open = false
       const next = round.candidate || round.weak
-      if (next) round.official = next
+      const bareFollowup = Boolean(
+        round.wroteFollowup && next && !sheetCarriesWrittenIdentity(next, round.wroteIdentity),
+      )
+      if (next && !bareFollowup) round.official = next
     }
     round.kindFocus = null
     round.closedBy = reason === 'leftover' ? 'leftover' : 'turn'
@@ -267,7 +320,7 @@ export function createSessionRoundStore() {
       round = peek(sid)
     }
 
-    if (round.wroteFollowup && sheetCarriesIdentity(incomingRaw)) {
+    if (round.wroteFollowup && sheetCarriesWrittenIdentity(incomingRaw, round.wroteIdentity)) {
       incomingRaw = { ...incomingRaw, wroteReceipt: true }
     }
 
@@ -318,6 +371,7 @@ export function createSessionRoundStore() {
     const round = peek(sessionId)
     if (!round) return null
     if (round.kindFocus && typeof round.kindFocus === 'object') return round.kindFocus
+    if (round.open && utteranceSheetPaints(round.candidate, round)) return round.candidate
     return round.official || null
   }
 

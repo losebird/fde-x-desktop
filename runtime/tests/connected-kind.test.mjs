@@ -390,7 +390,18 @@ test('official GET prefers last handed and never takes hall process', () => {
     preview_id: 'pv-human',
     rows: [{ no: 'ROW-1' }],
   }
-  assert.equal(sheetForOfficialGet(official, last, 'sess-a')?.action, '改行')
+  assert.equal(sheetForOfficialGet(official, last, 'sess-a')?.action, '现查')
+  assert.equal(sheetForOfficialGet(official, last, 'sess-a')?.rows?.[0]?.no, 'HIT-1')
+  assert.equal(sheetForOfficialGet(last, last, 'sess-a')?.action, '改行')
+  assert.equal(sheetForOfficialGet(null, last, 'sess-a')?.preview_id, 'pv-human')
+  const hallProcess = {
+    kind: 'KindLeaf',
+    action: '现查',
+    sessionId: 'sess-a',
+    speech: '库里已改上',
+    rows: [{ no: 'ROW-1' }],
+  }
+  assert.equal(sheetForOfficialGet(hallProcess, last, 'sess-a')?.action, '改行')
   assert.equal(sheetForOfficialGet(official, null, 'sess-a')?.kind, 'KindLeaf')
   assert.equal(sheetForOfficialGet(official, last, 'sess-b'), null)
   const laterList = {

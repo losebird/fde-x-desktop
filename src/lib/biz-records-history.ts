@@ -8,13 +8,38 @@ export type HistorySurfaceRow = {
   action?: string
 }
 
+function sheetCarriesLookupIdentity(sheet: Record<string, unknown>) {
+  if (String(sheet.lookupNo || '').trim()) return true
+  const where = sheet.where ?? sheet.listWhere
+  if (Array.isArray(where) && where.length) return true
+  if (Array.isArray(sheet.hopWhere) && sheet.hopWhere.length) return true
+  const from = sheet.from
+  if (from && typeof from === 'object' && !Array.isArray(from)) {
+    if (String((from as { kind?: string }).kind || '').trim()) return true
+  }
+  return Array.isArray(sheet.steps) && sheet.steps.length > 0
+}
+
+/** A real 现查: action, identity, and rows or a settled empty. Not a catalog dump. */
+export function incomingSheetIsIdentifiedLookup(sheet?: Record<string, unknown> | null) {
+  if (!sheet || typeof sheet !== 'object') return false
+  if (String(sheet.action || '').trim() !== '现查') return false
+  if (String(sheet.preview_id || sheet.previewId || '').trim()) return false
+  const rows = Array.isArray(sheet.rows) ? sheet.rows.length : 0
+  if (rows <= 0 && sheet.querySettled !== true) return false
+  return sheetCarriesLookupIdentity(sheet)
+}
+
 export function shouldBlockIncomingSheetForHistoryPin(
   pinnedSurfaceId: string,
   incomingSurfaceId?: string,
+  sheet?: Record<string, unknown> | null,
 ) {
   const pinned = String(pinnedSurfaceId || '').trim()
   if (!pinned) return false
   const incoming = String(incomingSurfaceId || '').trim()
+  if (incoming && incoming === pinned) return false
+  if (incomingSheetIsIdentifiedLookup(sheet)) return false
   if (!incoming) return true
   return incoming !== pinned
 }

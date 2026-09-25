@@ -68,12 +68,17 @@ function officialFromState(state) {
   return index ? projectWriteConfirm(sheet, index) : sheet
 }
 
-function emitOfficialSheet(sheet, deps, source = 'round-end') {
+function emitOfficialSheet(sheet, deps, source = 'round-end', surfaceId) {
   const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
     ? sheet.workspace
     : deps.cwd
   const sessionId = typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined
-  const emitted = emitBizSheetPending(sheet, { sessionId, source, workspaceCwd })
+  const emitted = emitBizSheetPending(sheet, {
+    sessionId,
+    source,
+    workspaceCwd,
+    surfaceId: typeof surfaceId === 'string' && surfaceId.trim() ? surfaceId.trim() : undefined,
+  })
   if (emitted && typeof deps.onPendingSheet === 'function') {
     deps.onPendingSheet(sheet, sessionId)
   }
@@ -81,7 +86,7 @@ function emitOfficialSheet(sheet, deps, source = 'round-end') {
 }
 
 /**
- * @param {{ lanAssist: Function, cwd: string, onPendingSheet?: Function }} deps
+ * @param {{ lanAssist: Function, cwd: string, onPendingSheet?: Function, prepareSurface?: Function }} deps
  */
 export function startLanAssistStateWatch(deps) {
   const { lanAssist, cwd } = deps
@@ -95,7 +100,13 @@ export function startLanAssistStateWatch(deps) {
     if (!sheetFp) return false
     if (!force && sheetFp === lastSheetFp) return false
     lastSheetFp = sheetFp
-    return emitOfficialSheet(sheet, deps)
+    const sessionId = typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined
+    let surfaceId
+    if (typeof deps.prepareSurface === 'function') {
+      const prepared = deps.prepareSurface(sheet, sessionId)
+      if (typeof prepared === 'string' && prepared.trim()) surfaceId = prepared.trim()
+    }
+    return emitOfficialSheet(sheet, deps, 'round-end', surfaceId)
   }
 
   const tick = async () => {

@@ -43,6 +43,22 @@ test('pinned history blocks a different or unknown incoming surface', async () =
   assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', 'pin'), false)
   assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', 'other'), true)
   assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', undefined), true)
+  const identified = {
+    kind: 'KindTicket',
+    action: '现查',
+    from: { kind: 'KindCustomer', no: 'ROW-1' },
+    rows: [{ no: 'T-1' }, { no: 'T-2' }, { no: 'T-3' }, { no: 'T-4' }],
+  }
+  assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', undefined, identified), false)
+  assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', '', identified), false)
+  assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', 'bsurf_new', identified), false)
+  const dump = {
+    kind: 'KindOther',
+    action: '现查',
+    rows: [{ no: 'C-1' }],
+  }
+  assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', undefined, dump), true)
+  assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', 'other', dump), true)
 })
 
 test('row render keys include sheet identity so the same 单号 remounts', () => {

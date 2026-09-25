@@ -1,6 +1,7 @@
 /** Decision 15: object = connected table; spoken name = alias; graph = relations. */
 
 import { createRequire } from 'node:module'
+import { isUnfilteredListSheet, sheetCarriesIdentity } from '../vendor-overlays/dsh-lan-assist/session-round.js'
 
 const require = createRequire(import.meta.url)
 const spokenSeed = require('../vendor-overlays/dsh-lan-assist/vocab/spoken.json')
@@ -426,18 +427,32 @@ function isHumanWritePreview(sheet) {
   return Boolean(previewId) && action !== '现查'
 }
 
-/** GET/hydrate after session-end handoff: last handed sheet, never a later 现查 slot. */
+/** This utterance's settled 现查. Unfiltered and catalog dumps are not it. */
+function isSettledUtteranceLookup(sheet) {
+  if (!sheet || typeof sheet !== 'object') return false
+  if (String(sheet.action || '').trim() !== '现查') return false
+  if (sheet.picked === true) return false
+  if (isUnfilteredListSheet(sheet) || isConnectorCatalogDump(sheet)) return false
+  if (!sheetCarriesIdentity(sheet)) return false
+  if (sheetRowCount(sheet) > 0) return true
+  return sheet.querySettled === true
+}
+
+/**
+ * GET/hydrate: this utterance's settled 现查, else the unused write preview.
+ * A later catalog or unidentified list does not replace the write.
+ */
 export function sheetForOfficialGet(official, lastEmitted, sessionId) {
   const last = lastEmitted && typeof lastEmitted === 'object' ? lastEmitted : null
   let off = official && typeof official === 'object' ? official : null
   const sid = String(sessionId || '').trim()
   if (off && sid && !String(off.sessionId || '').trim()) off = { ...off, sessionId: sid }
   if (!sid) {
-    if (isHumanWritePreview(last)) return last
+    if (isHumanWritePreview(last) && !isSettledUtteranceLookup(off)) return last
     return off || last
   }
   const namedLast = sheetForNamedSession(last, sid)
   const namedOff = sheetForNamedSession(off, sid)
-  if (isHumanWritePreview(namedLast)) return namedLast
+  if (isHumanWritePreview(namedLast) && !isSettledUtteranceLookup(namedOff)) return namedLast
   return namedOff || namedLast
 }

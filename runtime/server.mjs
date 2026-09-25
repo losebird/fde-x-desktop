@@ -2715,11 +2715,11 @@ server.listen(port, host, () => {
   startLanAssistStateWatch({
     lanAssist: (path, options) => aiRuntime.lanAssist(path, options),
     cwd: FDE_AI_WORKSPACE,
-    onPendingSheet: (sheet, sessionId) => {
+    prepareSurface: (sheet, sessionId) => {
       const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
         ? sheet.workspace
         : FDE_AI_WORKSPACE
-      recordSurfaceFromPreview(db, workspaceCwd, {
+      return recordSurfaceFromPreview(db, workspaceCwd, {
         kind: sheet.kind,
         action: sheet.action,
         sessionId,

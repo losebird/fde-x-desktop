@@ -66,6 +66,7 @@ import {
 import {
   historyIdForSheet,
   historyMissHint,
+  incomingSheetIsIdentifiedLookup,
   mergeHistorySurfaces,
   selectSessionHistorySurfaces,
   shouldBlockIncomingSheetForHistoryPin,
@@ -1010,7 +1011,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (!rowCount && !next.kind) return false
     if (shouldSkipCoveringPending(displayedSheetRef.current, next)) return false
     if (shouldRejectIncomingCovering(next, displayedRowCountRef.current, displayedSheetRef.current, connected)) return false
-    if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId)) {
+    if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId, next)) {
       return false
     }
     const incomingKind = String(next.kind || '').trim()
@@ -1030,6 +1031,11 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
     if (isWritePreview && isBizPreviewDismissed(next)) {
       return true
+    }
+
+    const pinnedSurfaceId = String(historyPinnedSurfaceIdRef.current || '').trim()
+    if (incomingSheetIsIdentifiedLookup(next) && String(surfaceId || '').trim() !== pinnedSurfaceId) {
+      historyPinnedSurfaceIdRef.current = ''
     }
 
     if (isWritePreview) abortLeftoverAskTurn(next)
@@ -1210,7 +1216,11 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (source === 'lan-assist') return
     if (payload.sheet && typeof payload.sheet === 'object') {
       const incomingSurfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : undefined
-      if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, incomingSurfaceId)) {
+      if (shouldBlockIncomingSheetForHistoryPin(
+        historyPinnedSurfaceIdRef.current,
+        incomingSurfaceId,
+        payload.sheet as Record<string, unknown>,
+      )) {
         return
       }
       const sheetWithSession = payload.sheet as Record<string, unknown>
@@ -1237,7 +1247,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
             })
           }
           if (!surfaceId) return
-          if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId)) return
+          if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId, stamped)) return
           const conn = connections.find((c) => c.id === connectionId) || connections[0]
           const connName = conn?.name || '连接器'
           rememberBizSurfaceSheet(bizCwd, surfaceId, stamped, connName)
