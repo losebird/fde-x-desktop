@@ -80,9 +80,35 @@ export function ModelsProvidersSection({
       setSnapshot(data)
     }).catch((cause) => {
       setLoadError(cause instanceof Error ? cause.message : '加载失败')
-      setSnapshot(null)
+      void runtimeApi.listAiProviders().then((legacy) => {
+        setSnapshot({
+          writable: true,
+          protocolChoices: [],
+          namespaces: {},
+          legacy: true,
+          rows: legacy.providers.map((row) => ({
+            provider: row.provider,
+            displayName: row.displayName,
+            settingsNs: row.kind === 'custom' ? 'llm-pi-ai' : '',
+            settingsPath: row.kind === 'custom' ? ['providers', row.provider] : [],
+            active: row.active,
+            kind: row.kind || 'catalog',
+            configured: row.configured,
+            removable: row.kind === 'custom',
+            keyRef: row.keyRef,
+            credentialConfigured: row.configured,
+            credentialWritable: true,
+            declared: row.kind === 'custom',
+            modelsOverridden: false,
+            profile: row.profile,
+            userProfile: row.profile,
+          })),
+        })
+        setLoadError('')
+        setNote('主接口失败，已退回旧列表。请重载核心。')
+      }).catch(() => setSnapshot(null))
     })
-  }, [])
+  }, [setNote])
 
   useEffect(() => { load() }, [load])
 
@@ -105,6 +131,11 @@ export function ModelsProvidersSection({
         <div className="mb-3 text-xs text-ink-muted">先打开 AI 页连上核心，保存才会进正在跑的 DSH；未连接时只能看快照。</div>
       )}
       {note && <div className="mb-3 text-xs text-ink-muted">{note}</div>}
+      {snapshot?.legacy && !loadError && (
+        <div className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          本地 BFF 尚无 models-settings 接口（旧 4318 进程）。列表来自 <span className="font-mono">/api/v1/ai/providers</span>；保存编辑前请点「重载核心」。
+        </div>
+      )}
       {loadError && <div className="mb-3 text-xs text-accent-red">{loadError}</div>}
 
       {rows.length > 0 && (
@@ -171,15 +202,19 @@ export function ModelsProvidersSection({
                             setBusy(true)
                             const ns = row.settingsNs || 'llm-pi-ai'
                             const rev = row.revision
-                            void runtimeApi.mutateModelsSettings({
-                              ns,
-                              ops: [{ op: 'unset', path: ['providers', row.provider] }],
-                              expectedRevision: rev,
-                            }).then(async () => {
-                              const derived = `${row.provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
-                              if (!row.apiKeyEnv || row.apiKeyEnv === derived) {
-                                await runtimeApi.setModelsCredential({ ref: row.keyRef, action: 'delete' }).catch(() => undefined)
-                              }
+                            const remove = snapshot?.legacy
+                              ? runtimeApi.deleteCustomAiProvider(row.provider)
+                              : runtimeApi.mutateModelsSettings({
+                                ns,
+                                ops: [{ op: 'unset', path: ['providers', row.provider] }],
+                                expectedRevision: rev,
+                              }).then(async () => {
+                                const derived = `${row.provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
+                                if (!row.apiKeyEnv || row.apiKeyEnv === derived) {
+                                  await runtimeApi.setModelsCredential({ ref: row.keyRef, action: 'delete' }).catch(() => undefined)
+                                }
+                              })
+                            void Promise.resolve(remove).then(() => {
                               setNote('已删除，请重载核心。')
                               setEditor(null)
                               load()
@@ -197,6 +232,7 @@ export function ModelsProvidersSection({
                       row={row}
                       protocolChoices={protocolChoices}
                       writable={Boolean(snapshot?.writable)}
+                      bffLegacy={Boolean(snapshot?.legacy)}
                       busy={busy}
                       formError={formError}
                       setFormError={setFormError}
@@ -285,6 +321,7 @@ function ProviderEditorCard({
   row,
   protocolChoices,
   writable,
+  bffLegacy,
   busy,
   formError,
   setFormError,
@@ -296,6 +333,7 @@ function ProviderEditorCard({
   row: ModelsSettingsRow
   protocolChoices: string[]
   writable: boolean
+  bffLegacy: boolean
   busy: boolean
   formError: string
   setFormError: (value: string) => void
@@ -330,14 +368,35 @@ function ProviderEditorCard({
     setBusy(true)
     const settingsPath = row.settingsPath.length ? row.settingsPath : layout === 'pi-ai' ? ['providers', row.provider] : []
     const keyOnly = settingsPath.length === 0 || layout === 'unknown'
-    if (keyOnly) {
+    if (keyOnly || bffLegacy) {
       const keyTrimmed = keyDraft.trim()
+      if (bffLegacy && row.kind === 'custom') {
+        void runtimeApi.patchCustomAiProvider(row.provider, {
+          displayName: asString(draft.displayName) || row.displayName,
+          baseURL: baseURL.trim(),
+          api,
+          apiKey: keyTrimmed || undefined,
+          models: models.map((m) => ({ id: m.id, name: m.name || m.id })),
+        }).then(() => {
+          setKeyDraft('')
+          onSaved()
+          onClose()
+        }).catch((cause) => {
+          const message = cause instanceof Error ? cause.message : '保存失败'
+          setFormError(message)
+          setNote(message)
+        }).finally(() => setBusy(false))
+        return
+      }
       if (!keyTrimmed) {
         setFormError('请输入 API 密钥')
         setBusy(false)
         return
       }
-      void runtimeApi.setModelsCredential({ ref: row.keyRef, value: keyTrimmed }).then(() => {
+      const saveKey = bffLegacy
+        ? runtimeApi.patchAiProviderKey(row.provider, keyTrimmed)
+        : runtimeApi.setModelsCredential({ ref: row.keyRef, value: keyTrimmed })
+      void saveKey.then(() => {
         setKeyDraft('')
         onSaved()
         onClose()

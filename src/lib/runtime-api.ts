@@ -55,6 +55,56 @@ export type ModelsSettingsSnapshot = {
   protocolChoices: string[]
   namespaces: Record<string, { revision?: number; applies?: string }>
   rows: ModelsSettingsRow[]
+  /** BFF 尚未加载 models-settings 路由，列表来自 GET /api/v1/ai/providers */
+  legacy?: boolean
+}
+
+const DEFAULT_PROTOCOL_CHOICES = [
+  'openai-completions',
+  'openai-responses',
+  'anthropic-messages',
+  'google-generative-ai',
+]
+
+export function runtimeApiNotFound(error: unknown): boolean {
+  return error instanceof RuntimeApiError && error.status === 404 && error.code === 'not_found'
+}
+
+export function legacyModelsSnapshotFromProviders(data: {
+  providers: Array<{
+    kind: 'catalog' | 'custom'
+    provider: string
+    displayName: string
+    active: boolean
+    configured: boolean
+    keyRef: string
+    profile?: { displayName?: string; baseURL: string; api: string; models: Array<{ id: string; name: string }> }
+  }>
+}): ModelsSettingsSnapshot {
+  return {
+    writable: true,
+    protocolChoices: DEFAULT_PROTOCOL_CHOICES,
+    namespaces: {},
+    legacy: true,
+    rows: (data.providers || []).map((row) => ({
+      provider: row.provider,
+      displayName: row.displayName,
+      settingsNs: row.kind === 'custom' ? 'llm-pi-ai' : '',
+      settingsPath: row.kind === 'custom' ? ['providers', row.provider] : [],
+      active: row.active,
+      kind: row.kind,
+      configured: row.configured,
+      removable: row.kind === 'custom',
+      apiKeyEnv: undefined,
+      keyRef: row.keyRef,
+      credentialConfigured: row.configured,
+      credentialWritable: true,
+      declared: row.kind === 'custom',
+      modelsOverridden: false,
+      profile: row.profile ? { ...row.profile, models: row.profile.models } : undefined,
+      userProfile: row.profile ? { ...row.profile, models: row.profile.models } : undefined,
+    })),
+  }
 }
 
 export interface AiPresetRecord {
@@ -757,8 +807,14 @@ export class RuntimeApi {
   }
 
   async getModelsSettings(signal?: AbortSignal): Promise<ModelsSettingsSnapshot> {
-    const result = await this.request<{ data: ModelsSettingsSnapshot }>('/api/v1/ai/models-settings', { signal })
-    return result.data
+    try {
+      const result = await this.request<{ data: ModelsSettingsSnapshot }>('/api/v1/ai/models-settings', { signal })
+      return { ...result.data, legacy: false }
+    } catch (error) {
+      if (!runtimeApiNotFound(error)) throw error
+      const legacy = await this.listAiProviders(signal)
+      return legacyModelsSnapshotFromProviders(legacy)
+    }
   }
 
   async mutateModelsSettings(body: {
