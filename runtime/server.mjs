@@ -86,6 +86,7 @@ import { tryServeStatic } from './routes/static.mjs'
 import {
   fetchModelsSettingsSnapshot,
   pathOps,
+  protocolChoicesFromNamespace,
   providerKeyRef as modelsProviderKeyRef,
   validateApiKeyInput,
 } from './models-settings.mjs'
@@ -244,12 +245,17 @@ function formatSettingsProviderBlock(route, profile) {
     '      models:',
     ...models.map((row) => {
       const efforts = row.reasoningEfforts
-      if (efforts && typeof efforts === 'object') {
-        return [
+      const hasCapacity = row.contextWindow !== undefined || row.maxTokens !== undefined
+      const hasEfforts = efforts && typeof efforts === 'object'
+      if (hasEfforts || hasCapacity) {
+        const lines = [
           `        - id: ${yamlScalar(row.id)}`,
           `          name: ${yamlScalar(row.name || row.id)}`,
-          '          reasoningEfforts: { off: null, low: low, medium: medium, high: high, xhigh: xhigh }',
-        ].join('\n')
+        ]
+        if (row.contextWindow !== undefined) lines.push(`          contextWindow: ${row.contextWindow}`)
+        if (row.maxTokens !== undefined) lines.push(`          maxTokens: ${row.maxTokens}`)
+        if (hasEfforts) lines.push('          reasoningEfforts: { off: null, low: low, medium: medium, high: high, xhigh: xhigh }')
+        return lines.join('\n')
       }
       return `        - { id: ${yamlScalar(row.id)}, name: ${yamlScalar(row.name || row.id)} }`
     }),
@@ -289,16 +295,33 @@ function readSettingsProviderProfile(filePath, route) {
       name: inline[2].trim().replace(/^['"]|['"]$/g, ''),
     })
   }
-  for (const multi of block.matchAll(/-\s*id:\s*(.+)\n\s*name:\s*(.+)/g)) {
+  for (const multi of block.matchAll(/-\s*id:\s*(.+)\n([\s\S]*?)(?=\n\s*-\s*id:|\n\s*\S|$)/g)) {
     const id = multi[1].trim().replace(/^['"]|['"]$/g, '')
+    const body = multi[2] || ''
+    const name = body.match(/^\s*name:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '') || id
+    const contextWindow = body.match(/^\s*contextWindow:\s*(\d+)\s*$/m)?.[1]
+    const maxTokens = body.match(/^\s*maxTokens:\s*(\d+)\s*$/m)?.[1]
     if (!models.some((row) => row.id === id)) {
       models.push({
         id,
-        name: multi[2].trim().replace(/^['"]|['"]$/g, ''),
+        name,
+        ...(contextWindow ? { contextWindow: Number(contextWindow) } : {}),
+        ...(maxTokens ? { maxTokens: Number(maxTokens) } : {}),
       })
     }
   }
   return { displayName, api, baseURL, apiKeyEnv, models }
+}
+
+async function loadProtocolChoicesFromDescribe(aiRuntime) {
+  if (!aiRuntime.status().connected) return []
+  try {
+    const describe = await aiRuntime.rpc('settings/describe', {})
+    const piAi = (describe?.namespaces || []).find((row) => row.ns === 'llm-pi-ai')
+    return protocolChoicesFromNamespace(piAi)
+  } catch {
+    return []
+  }
 }
 
 function upsertSettingsProvider(filePath, route, profile) {
@@ -1525,6 +1548,7 @@ const server = createServer(async (request, response) => {
       if (refs.length) {
         try { described = await aiRuntime.rpc('credentials/describe', { refs }) || {} } catch { described = {} }
       }
+      const protocolChoices = await loadProtocolChoicesFromDescribe(aiRuntime)
       sendJson(response, 200, {
         data: {
           providers: rows.map((row) => ({
@@ -1532,6 +1556,7 @@ const server = createServer(async (request, response) => {
             configured: Boolean(described[row.keyRef]?.configured),
           })),
           registered: Array.isArray(registered) ? registered : [],
+          protocolChoices,
         },
         correlationId: currentCorrelationId,
       })
@@ -1581,7 +1606,14 @@ const server = createServer(async (request, response) => {
         }
       }
       sendJson(response, 200, {
-        data: { models: models.map((row) => ({ id: String(row.id || ''), name: String(row.name || row.id || '') })).filter((row) => row.id) },
+        data: {
+          models: models.map((row) => ({
+            id: String(row.id || ''),
+            name: String(row.name || row.id || ''),
+            ...(typeof row.contextWindow === 'number' ? { contextWindow: row.contextWindow } : {}),
+            ...(typeof row.maxTokens === 'number' ? { maxTokens: row.maxTokens } : {}),
+          })).filter((row) => row.id),
+        },
         correlationId: currentCorrelationId,
       })
       return

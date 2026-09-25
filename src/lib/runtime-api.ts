@@ -70,7 +70,15 @@ export function runtimeApiNotFound(error: unknown): boolean {
   return error instanceof RuntimeApiError && error.status === 404 && error.code === 'not_found'
 }
 
+/** models-settings 不可用（旧 BFF 404 或核心未连 502）时退回 GET providers */
+export function shouldFallbackModelsSettings(error: unknown): boolean {
+  if (!(error instanceof RuntimeApiError)) return false
+  if (runtimeApiNotFound(error)) return true
+  return error.status === 502 && error.code === 'models_settings_failed'
+}
+
 export function legacyModelsSnapshotFromProviders(data: {
+  protocolChoices?: string[]
   providers: Array<{
     kind: 'catalog' | 'custom'
     provider: string
@@ -78,12 +86,13 @@ export function legacyModelsSnapshotFromProviders(data: {
     active: boolean
     configured: boolean
     keyRef: string
-    profile?: { displayName?: string; baseURL: string; api: string; models: Array<{ id: string; name: string }> }
+    profile?: { displayName?: string; baseURL: string; api: string; models: Array<{ id: string; name: string; contextWindow?: number; maxTokens?: number }> }
   }>
 }): ModelsSettingsSnapshot {
+  const protocolChoices = (data.protocolChoices?.length ? data.protocolChoices : DEFAULT_PROTOCOL_CHOICES)
   return {
     writable: true,
-    protocolChoices: DEFAULT_PROTOCOL_CHOICES,
+    protocolChoices,
     namespaces: {},
     legacy: true,
     rows: (data.providers || []).map((row) => ({
@@ -811,7 +820,7 @@ export class RuntimeApi {
       const result = await this.request<{ data: ModelsSettingsSnapshot }>('/api/v1/ai/models-settings', { signal })
       return { ...result.data, legacy: false }
     } catch (error) {
-      if (!runtimeApiNotFound(error)) throw error
+      if (!shouldFallbackModelsSettings(error)) throw error
       const legacy = await this.listAiProviders(signal)
       return legacyModelsSnapshotFromProviders(legacy)
     }
@@ -877,6 +886,7 @@ export class RuntimeApi {
       profile?: { displayName?: string; baseURL: string; api: string; models: Array<{ id: string; name: string }> }
     }>
     registered: Array<{ id: string; name: string }>
+    protocolChoices?: string[]
   }> {
     const result = await this.request<{ data: {
       providers: Array<{
@@ -886,9 +896,10 @@ export class RuntimeApi {
         active: boolean
         configured: boolean
         keyRef: string
-        profile?: { displayName?: string; baseURL: string; api: string; models: Array<{ id: string; name: string }> }
+        profile?: { displayName?: string; baseURL: string; api: string; models: Array<{ id: string; name: string; contextWindow?: number; maxTokens?: number }> }
       }>
       registered: Array<{ id: string; name: string }>
+      protocolChoices?: string[]
     } }>('/api/v1/ai/providers', { signal })
     return result.data
   }
@@ -903,8 +914,8 @@ export class RuntimeApi {
     return result.data
   }
 
-  async discoverAiModels(body: { baseURL: string; api?: string; apiKey?: string; provider?: string }, signal?: AbortSignal): Promise<Array<{ id: string; name: string }>> {
-    const result = await this.request<{ data: { models: Array<{ id: string; name: string }> } }>('/api/v1/ai/providers/discover', {
+  async discoverAiModels(body: { baseURL: string; api?: string; apiKey?: string; provider?: string }, signal?: AbortSignal): Promise<Array<{ id: string; name: string; contextWindow?: number; maxTokens?: number }>> {
+    const result = await this.request<{ data: { models: Array<{ id: string; name: string; contextWindow?: number; maxTokens?: number }> } }>('/api/v1/ai/providers/discover', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },

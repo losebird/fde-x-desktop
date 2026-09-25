@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ChevronDown, Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react'
+import { capacityFieldText, formatCapacity, parseCapacity } from '@/components/settings/model-capacity'
 import clsx from 'clsx'
 import { Tag } from '@/components/ui'
 import { runtimeApi, type ModelsSettingsRow, type ModelsSettingsSnapshot } from '@/lib/runtime-api'
@@ -32,10 +33,143 @@ function modelRowsFromProfile(profile: Record<string, unknown> | undefined): Mod
   if (!Array.isArray(raw)) return []
   return raw.map((row) => {
     if (!row || typeof row !== 'object') return null
-    const id = asString((row as ModelRow).id)
+    const entry = row as ModelRow
+    const id = asString(entry.id)
     if (!id) return null
-    return { ...(row as ModelRow), id, name: asString((row as ModelRow).name) || id }
+    return {
+      ...entry,
+      id,
+      name: asString(entry.name) || id,
+      ...(typeof entry.contextWindow === 'number' ? { contextWindow: entry.contextWindow } : {}),
+      ...(typeof entry.maxTokens === 'number' ? { maxTokens: entry.maxTokens } : {}),
+    }
   }).filter(Boolean) as ModelRow[]
+}
+
+function PiAiModelList({
+  models,
+  onChange,
+  disabled,
+}: {
+  models: ModelRow[]
+  onChange: (next: ModelRow[]) => void
+  disabled: boolean
+}) {
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
+  const [capacityDraft, setCapacityDraft] = useState<Map<string, string>>(() => new Map())
+
+  const bufferKey = (index: number, field: 'contextWindow' | 'maxTokens') => `${index}:${field}`
+
+  const updateModel = (index: number, delta: Partial<ModelRow>) => {
+    onChange(models.map((model, at) => {
+      if (at !== index) return model
+      const next = { ...model, ...delta }
+      for (const [key, value] of Object.entries(delta)) {
+        if (value === undefined) delete (next as Record<string, unknown>)[key]
+      }
+      return next
+    }))
+  }
+
+  const setCapacity = (index: number, field: 'contextWindow' | 'maxTokens', text: string) => {
+    const key = bufferKey(index, field)
+    setCapacityDraft((current) => new Map(current).set(key, text))
+    if (text.trim() === '') {
+      updateModel(index, { [field]: undefined })
+      return
+    }
+    const parsed = parseCapacity(text)
+    if (Number.isNaN(parsed)) return
+    updateModel(index, { [field]: parsed })
+  }
+
+  return (
+    <div className="space-y-2 max-h-64 overflow-auto rounded-lg border border-line bg-white p-2">
+      {models.map((model, index) => (
+        <div key={`${model.id}-${index}`} className="rounded-md border border-line/60 p-2 space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              className="input flex-1 font-mono text-xs"
+              value={model.id}
+              placeholder="模型 ID"
+              disabled={disabled}
+              onChange={(e) => updateModel(index, { id: e.target.value })}
+            />
+            <input
+              className="input flex-1 text-xs"
+              value={model.name || ''}
+              placeholder="显示名"
+              disabled={disabled}
+              onChange={(e) => updateModel(index, { name: e.target.value || undefined })}
+            />
+            <button
+              type="button"
+              className="btn-ghost h-8 w-8 p-0"
+              aria-expanded={expanded.has(index)}
+              title="高级（上下文窗口、最大输出）"
+              disabled={disabled}
+              onClick={() => {
+                setExpanded((current) => {
+                  const next = new Set(current)
+                  if (next.has(index)) next.delete(index)
+                  else next.add(index)
+                  return next
+                })
+              }}
+            >
+              <ChevronRight size={14} className={expanded.has(index) ? 'rotate-90 transition-transform' : 'transition-transform'} />
+            </button>
+            <button
+              type="button"
+              className="btn-ghost h-8 px-2 text-accent-red"
+              disabled={disabled}
+              onClick={() => {
+                onChange(models.filter((_, i) => i !== index))
+                setExpanded((current) => {
+                  const next = new Set<number>()
+                  for (const at of current) {
+                    if (at < index) next.add(at)
+                    else if (at > index) next.add(at - 1)
+                  }
+                  return next
+                })
+              }}
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+          {expanded.has(index) && (
+            <div className="grid grid-cols-1 @md:grid-cols-2 gap-2 pl-1">
+              <Field label="上下文窗口" hint="可填 256K、1M；留空用提供方默认。">
+                <input
+                  className="input w-full font-mono text-xs"
+                  inputMode="numeric"
+                  disabled={disabled}
+                  placeholder="256K"
+                  value={capacityFieldText(model.contextWindow, capacityDraft.get(bufferKey(index, 'contextWindow')))}
+                  onChange={(e) => setCapacity(index, 'contextWindow', e.target.value)}
+                />
+              </Field>
+              <Field label="最大输出 token" hint="可填 32K；留空用提供方默认。">
+                <input
+                  className="input w-full font-mono text-xs"
+                  inputMode="numeric"
+                  disabled={disabled}
+                  placeholder="32K"
+                  value={capacityFieldText(model.maxTokens, capacityDraft.get(bufferKey(index, 'maxTokens')))}
+                  onChange={(e) => setCapacity(index, 'maxTokens', e.target.value)}
+                />
+              </Field>
+              {model.contextWindow !== undefined && (
+                <div className="text-[10px] text-ink-subtle @md:col-span-2">已存：{formatCapacity(model.contextWindow)} tokens</div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+      {models.length === 0 && <div className="text-[11px] text-ink-subtle">暂无模型行</div>}
+    </div>
+  )
 }
 
 function draftFromUser(row: ModelsSettingsRow): Record<string, unknown> {
@@ -119,11 +253,7 @@ export function ModelsProvidersSection({
 
   const expandedProvider = editor?.kind === 'edit' ? editor.provider : null
 
-  const protocolChoices = useMemo(() => {
-    const fromServer = snapshot?.protocolChoices || []
-    if (fromServer.length) return fromServer
-    return ['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai']
-  }, [snapshot?.protocolChoices])
+  const protocolChoices = useMemo(() => snapshot?.protocolChoices ?? [], [snapshot?.protocolChoices])
 
   return (
     <>
@@ -357,11 +487,12 @@ function ProviderEditorCard({
   const [discoverPick, setDiscoverPick] = useState<Set<string>>(new Set())
   const [discoverQuery, setDiscoverQuery] = useState('')
 
-  const ownsIdentity = layout === 'pi-ai' && row.declared
+  const ownsIdentity = layout === 'pi-ai' && (row.declared || row.kind === 'custom')
   const modelsOverridden = Object.prototype.hasOwnProperty.call(draft, 'models')
 
   const baseURL = asString(draft.baseURL) ?? asString(fallback.baseURL) ?? ''
   const api = asString(draft.api) ?? asString(fallback.api) ?? protocolChoices[0] ?? 'openai-completions'
+  const protocolOptions = protocolChoices.length > 0 ? protocolChoices : (api ? [api] : [])
 
   const apply = () => {
     setFormError('')
@@ -376,7 +507,13 @@ function ProviderEditorCard({
           baseURL: baseURL.trim(),
           api,
           apiKey: keyTrimmed || undefined,
-          models: models.map((m) => ({ id: m.id, name: m.name || m.id })),
+          models: models.map((m) => ({
+            id: m.id,
+            name: m.name || m.id,
+            ...(m.contextWindow !== undefined ? { contextWindow: m.contextWindow } : {}),
+            ...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
+            ...(m.reasoningEfforts !== undefined ? { reasoningEfforts: m.reasoningEfforts } : {}),
+          })),
         }).then(() => {
           setKeyDraft('')
           onSaved()
@@ -502,20 +639,20 @@ function ProviderEditorCard({
               </Field>
             )}
             {ownsIdentity && (
-              <Field label="API 协议">
+              <Field label="API 协议" hint={protocolChoices.length === 0 ? '协议列表来自 settings schema；若为空请重载核心。' : undefined}>
                 <select
                   className="input w-full text-sm"
                   value={api}
                   onChange={(e) => setDraft((c) => ({ ...c, api: e.target.value }))}
-                  disabled={busy || !writable}
+                  disabled={busy || !writable || protocolOptions.length === 0}
                 >
-                  {protocolChoices.map((choice) => (
+                  {protocolOptions.map((choice) => (
                     <option key={choice} value={choice}>{choice}</option>
                   ))}
                 </select>
               </Field>
             )}
-            {layout === 'pi-ai' && (
+            {(layout === 'pi-ai' || layout === 'deepseek') && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-medium text-ink">模型目录</div>
@@ -525,43 +662,14 @@ function ProviderEditorCard({
                     </button>
                   )}
                 </div>
-                <div className="space-y-1 max-h-40 overflow-auto rounded-lg border border-line bg-white p-2">
-                  {models.map((model, index) => (
-                    <div key={model.id} className="flex items-center gap-2 text-sm">
-                      <input
-                        className="input flex-1 font-mono text-xs"
-                        value={model.id}
-                        readOnly
-                      />
-                      <input
-                        className="input flex-1 text-xs"
-                        value={model.name || ''}
-                        onChange={(e) => {
-                          const name = e.target.value
-                          setModels((list) => {
-                            const next = list.map((m, i) => (i === index ? { ...m, name } : m))
-                            setDraft((c) => ({ ...c, models: next }))
-                            return next
-                          })
-                        }}
-                        disabled={busy || !writable}
-                      />
-                      <button
-                        type="button"
-                        className="btn-ghost h-8 px-2 text-accent-red"
-                        disabled={busy || !writable}
-                        onClick={() => {
-                          const next = models.filter((_, i) => i !== index)
-                          setModels(next)
-                          setDraft((c) => ({ ...c, models: next }))
-                        }}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  ))}
-                  {models.length === 0 && <div className="text-[11px] text-ink-subtle">暂无模型行</div>}
-                </div>
+                <PiAiModelList
+                  models={models}
+                  disabled={busy || !writable}
+                  onChange={(next) => {
+                    setModels(next)
+                    setDraft((c) => ({ ...c, models: next }))
+                  }}
+                />
                 <button
                   type="button"
                   className="btn w-full"
@@ -580,7 +688,12 @@ function ProviderEditorCard({
                         return
                       }
                       const known = new Set(models.map((m) => m.id))
-                      setDiscoverRows(found.map((f) => ({ id: f.id, name: f.name })))
+                      setDiscoverRows(found.map((f) => ({
+                        id: f.id,
+                        name: f.name,
+                        ...(f.contextWindow !== undefined ? { contextWindow: f.contextWindow } : {}),
+                        ...(f.maxTokens !== undefined ? { maxTokens: f.maxTokens } : {}),
+                      })))
                       setDiscoverPick(new Set(found.filter((f) => !known.has(f.id)).map((f) => f.id)))
                     }).catch((cause) => setFormError(cause instanceof Error ? cause.message : '获取失败')).finally(() => setBusy(false))
                   }}
