@@ -82,6 +82,7 @@ import {
   sheetBelongsToSession,
 } from '@/lib/biz-session-sheet'
 import { shouldStageRoundEndPending } from '@/lib/biz-pending-stage'
+import { shouldFocusBizRecordsForPending } from '@/lib/biz-records-auto-open'
 import {
   resolveHitSetPickCancelSessionId,
   shouldCancelDshAfterHitSetPick,
@@ -1240,7 +1241,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       rememberBizPendingSheet(stamped)
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (liveSid && !sheetBelongsToSession(stamped, liveSid)) return
-      if (useApp.getState().activeDataSubview !== 'operations') {
+      if (shouldFocusBizRecordsForPending(stamped)) {
         useApp.getState().focusBizRecordsPanel()
       }
       let surfaceId = incomingSurfaceId

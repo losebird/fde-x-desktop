@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -186,6 +186,16 @@ function sheetOfPreview(result) {
   return result.sheet && typeof result.sheet === 'object' ? result.sheet : result
 }
 
+test('biz_preview defers plugin-leftover cancel until tool/result', () => {
+  const tools = readFileSync(join(overlayDir, 'tools.js'), 'utf8')
+  assert.doesNotMatch(tools, /queueMicrotask\s*\(\s*deferCancel/)
+  assert.match(tools, /scheduleLeftoverCancel/)
+  const index = readFileSync(join(overlayDir, 'index.js'), 'utf8')
+  assert.match(index, /tool\/result/)
+  assert.match(index, /scheduleLeftoverCancel/)
+  assert.match(index, /flushLeftoverCancel/)
+})
+
 test('QUERY_SETTLED repeat preview is plugin-leftover; page/write/bind are not', async () => {
   const g = gate()
   const rounds = createSessionRoundStore()
@@ -350,6 +360,14 @@ test('settled hop key uses user utterance not model speech suffix', async () => 
   assert.equal(materializeSettledRepeat(leftover.settledRepeatFrom).error, 'QUERY_SETTLED')
   assert.equal(third.error, 'QUERY_SETTLED')
   assert.notEqual(String(third.speak || ''), '')
+
+  const roundsClosed = createSessionRoundStore()
+  roundsClosed.startRound(sessionId)
+  roundsClosed.noteToolSheet(sessionId, sheetOfPreview(first))
+  roundsClosed.noteToolSheet(sessionId, repeatSheet)
+  const afterLeftover = roundsClosed.noteToolSheet(sessionId, repeatSheet)
+  assert.equal(afterLeftover.cancel, true)
+  assert.ok(afterLeftover.settledRepeatFrom)
 })
 
 test('repeat 现查 after ok table: model from/where shape changes still QUERY_SETTLED', async () => {

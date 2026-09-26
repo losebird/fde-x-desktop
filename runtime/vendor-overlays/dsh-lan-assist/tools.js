@@ -235,20 +235,17 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
         let toolResult = result
         if (outcome && outcome.settledRepeatFrom) {
           toolResult = materializeSettledRepeat(outcome.settledRepeatFrom)
+        } else if (result && (result.error === 'QUERY_SETTLED' || result.querySettledRepeat === true)) {
+          toolResult = materializeSettledRepeat(result)
         }
         const payload = JSON.stringify(toolResult)
         if (outcome && outcome.cancel) {
           const cancelKind = String(outcome.cancelKind || 'plugin-leftover').trim() || 'plugin-leftover'
-          const live = exec && exec.agent
-          const deferCancel = () => {
-            if (live && typeof live.cancel === 'function') {
-              try { live.cancel({ kind: cancelKind }, { keepInbox: true }) } catch { /* leftover cancel is best-effort */ }
-            } else if (typeof rounds.cancelLeftover === 'function') {
-              void Promise.resolve(rounds.cancelLeftover(sessionId, cancelKind)).catch(() => undefined)
-            }
+          if (typeof rounds.scheduleLeftoverCancel === 'function') {
+            rounds.scheduleLeftoverCancel(sessionId, cancelKind)
+          } else if (typeof rounds.cancelLeftover === 'function') {
+            void Promise.resolve(rounds.cancelLeftover(sessionId, cancelKind)).catch(() => undefined)
           }
-          if (typeof queueMicrotask === 'function') queueMicrotask(deferCancel)
-          else setTimeout(deferCancel, 0)
         }
         return payload
       }

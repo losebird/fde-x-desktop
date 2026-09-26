@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 test('failed TOO_MANY / ok:false sheets must not stage', async () => {
   const { isFailedRoundEndSheet, shouldStageRoundEndPending } = await import('../../src/lib/biz-pending-stage.ts')
@@ -23,6 +25,15 @@ test('failed TOO_MANY / ok:false sheets must not stage', async () => {
     querySettled: true,
   }
   assert.equal(shouldStageRoundEndPending(okList), true)
+})
+
+test('successful 现查 round-end focuses even on operations subview', () => {
+  const repoRoot = join(import.meta.dirname, '..', '..')
+  const auto = readFileSync(join(repoRoot, 'src/lib/biz-records-auto-open.ts'), 'utf8')
+  const panel = readFileSync(join(repoRoot, 'src/components/biz/RecordsPanel.tsx'), 'utf8')
+  assert.match(auto, /shouldFocusBizRecordsForPending/)
+  assert.match(auto, /action === '现查'/)
+  assert.match(panel, /shouldFocusBizRecordsForPending/)
 })
 
 test('new utterance replaces populated pending in skip logic', async () => {

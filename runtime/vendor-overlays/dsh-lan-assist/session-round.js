@@ -337,6 +337,7 @@ export function createSessionRoundStore() {
     let round = peek(sid)
     if (!round || !round.open) {
       if (round && round.closedBy === 'leftover') {
+        const settledRepeat = incomingRaw.querySettledRepeat === true || incomingRaw.error === 'QUERY_SETTLED'
         return {
           emit: false,
           official: round.official,
@@ -344,9 +345,11 @@ export function createSessionRoundStore() {
           leftover: true,
           cancelKind: 'plugin-leftover',
           process: false,
+          ...(settledRepeat ? { settledRepeatFrom: incomingRaw } : {}),
         }
       }
       if (round && round.official && isLeftoverAfterCandidate(round.official, incomingRaw)) {
+        const settledRepeat = isSettledQueryRepeatLeftover(round.official, incomingRaw)
         return {
           emit: false,
           official: round.official,
@@ -354,6 +357,11 @@ export function createSessionRoundStore() {
           leftover: true,
           cancelKind: 'plugin-leftover',
           process: false,
+          ...(settledRepeat ? {
+            settledRepeatFrom: (incomingRaw.querySettledRepeat === true || incomingRaw.error === 'QUERY_SETTLED')
+              ? incomingRaw
+              : round.official,
+          } : {}),
         }
       }
       if (!isEligibleRoundSheet(incomingRaw) && !isUnfilteredListSheet(incomingRaw)) {

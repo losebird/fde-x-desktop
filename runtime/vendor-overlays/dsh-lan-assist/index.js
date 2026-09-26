@@ -67,6 +67,25 @@ export async function apply(ctx, config) {
   let agentsCtx = null
 
   const lastCancelAt = new Map()
+  /** biz_preview QUERY_SETTLED leftover: cancel only after tool/result is on the transcript. */
+  const leftoverCancelAfterResult = new Map()
+
+  function scheduleLeftoverCancel(sessionId, cancelKind = 'plugin-leftover') {
+    const sid = String(sessionId || '').trim()
+    if (!sid) return
+    const kind = String(cancelKind || 'plugin-leftover').trim() || 'plugin-leftover'
+    leftoverCancelAfterResult.set(sid, kind)
+  }
+
+  async function flushLeftoverCancel(sessionId) {
+    const sid = String(sessionId || '').trim()
+    if (!sid) return
+    const kind = leftoverCancelAfterResult.get(sid)
+    if (!kind) return
+    leftoverCancelAfterResult.delete(sid)
+    await cancelLeftover(sid, kind)
+  }
+
   async function cancelLeftover(sessionId, cancelKind = 'plugin-leftover') {
     const sid = String(sessionId || '').trim()
     if (!sid) return
@@ -334,6 +353,10 @@ export async function apply(ctx, config) {
           }
           return
         }
+        if (event && event.type === 'tool/result') {
+          void flushLeftoverCancel(sessionId).catch(() => undefined)
+          return
+        }
         const speech = extractUserSpeech(event)
         if (!speech) return
         sessionRounds.noteHumanUtterance(sessionId)
@@ -441,6 +464,7 @@ export async function apply(ctx, config) {
       noteToolSheet: (sessionId, sheet) => sessionRounds.noteToolSheet(sessionId, sheet),
       notePostSettledHopTool: (sessionId, toolName) => sessionRounds.notePostSettledHopTool(sessionId, toolName),
       cancelLeftover,
+      scheduleLeftoverCancel,
     })
   } catch (error) {
     ctx.logger?.warn?.(`[${PLUGIN}] tools: ${error instanceof Error ? error.message : error}`)
