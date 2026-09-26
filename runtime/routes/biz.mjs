@@ -38,6 +38,7 @@ import {
   resolveConnectedKind,
   shouldSkipCoveringPending,
   sheetForOfficialGet,
+  sheetForPendingGet,
 } from '../biz/connected-kind.mjs'
 import { projectWriteConfirm, releaseEmittedConfirm } from '../biz/write-confirm.mjs'
 import { reconcileLanAssistConnectionLamp, refreshLanAssistConnectionLamp } from '../biz/connection-lamp.mjs'
@@ -918,7 +919,13 @@ export async function handleBizRoutes(request, response, url, deps) {
       if (handed && writePreview) handed = projectWriteConfirm(handed, writePreview)
       const lastRaw = querySessionId ? peekLastEmittedPending(querySessionId) : null
       const lastEmitted = writePreview ? projectWriteConfirm(lastRaw, writePreview) : lastRaw
-      const served = sheetForOfficialGet(handed, lastEmitted, querySessionId)
+      let served = sheetForOfficialGet(handed, lastEmitted, querySessionId)
+      if (!served) {
+        const hallSheet = sheetAfterDismissedWrite(
+          sheetPayloadFromRaw(state.pendingSheet ?? state.pendingWrite),
+        )
+        served = sheetForPendingGet(hallSheet, lastEmitted, querySessionId)
+      }
       sendJson(response, 200, {
         data: { sheet: served ? stripSecrets(served) : null },
         correlationId,

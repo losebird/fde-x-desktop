@@ -98,7 +98,8 @@ test('next send replaces the previous official after that round closes', () => {
   rounds.startRound('sess-a')
   assert.equal(rounds.servedSheet('sess-a').kind, 'KindOne')
   rounds.noteToolSheet('sess-a', hopSheet('KindTwo'))
-  rounds.closeRound('sess-a')
+  const closed = rounds.closeRound('sess-a')
+  assert.equal(closed.emit, true)
   assert.equal(rounds.servedSheet('sess-a').kind, 'KindTwo')
 })
 

@@ -251,6 +251,19 @@ function newRoundId() {
   return `rnd_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`
 }
 
+function roundOfficialKey(sheet) {
+  if (!sheet || typeof sheet !== 'object') return ''
+  const kind = String(sheet.kind || '').trim()
+  const action = String(sheet.action || '').trim()
+  const speech = String(sheet.speech || '').trim()
+  const where = JSON.stringify(sheet.where ?? sheet.listWhere ?? [])
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  const firstNo = rows.length && rows[0] && typeof rows[0] === 'object'
+    ? String(rows[0].no || '').trim()
+    : ''
+  return `${kind}|${action}|${speech}|${where}|${rows.length}|${firstNo}`
+}
+
 export function createSessionRoundStore() {
   const bySession = new Map()
 
@@ -302,7 +315,12 @@ export function createSessionRoundStore() {
       const bareFollowup = Boolean(
         round.wroteFollowup && next && !sheetCarriesWrittenIdentity(next, round.wroteIdentity),
       )
-      if (next && !bareFollowup) round.official = next
+      if (next && !bareFollowup) {
+        const prevKey = roundOfficialKey(round.official)
+        round.official = next
+        const nextKey = roundOfficialKey(next)
+        if (nextKey && nextKey !== prevKey) round.handed = false
+      }
     }
     round.kindFocus = null
     round.closedBy = reason === 'leftover' ? 'leftover' : 'turn'
