@@ -14,7 +14,7 @@ cpSync(overlayDir, staged, { recursive: true })
 
 const { createGate } = await import(pathToFileURL(join(staged, 'write.js')).href)
 const { speakLookup, speakObjectSetTotal } = await import(pathToFileURL(join(staged, 'probe.js')).href)
-const { previewSettledLookup, settledHopKey } = await import(pathToFileURL(join(staged, 'query-settle.mjs')).href)
+const { materializeSettledRepeat, previewSettledLookup, settledHopKey } = await import(pathToFileURL(join(staged, 'query-settle.mjs')).href)
 const { createSessionRoundStore } = await import(pathToFileURL(join(staged, 'session-round.js')).href)
 
 const hopVocab = [
@@ -295,6 +295,61 @@ test('columnMiss and bare askAction do not settle; same speech ignores plan wher
     targetKind: 'ChildB',
   })
   assert.equal(keyA, keyB)
+})
+
+test('settled hop key uses user utterance not model speech suffix', async () => {
+  const g = gate()
+  const sessionId = 'sess-speech-suffix'
+  const base = {
+    workspace: '/tmp/settle-ws',
+    sessionId,
+    kind: 'ChildB',
+    action: '现查',
+    speech,
+    userSpeech: speech,
+  }
+  const first = await g.preview({ ...base })
+  assert.equal(first.ok, true)
+  assert.ok(previewSettledLookup(first))
+  const garbled = `${speech} TK-FAKE-999`
+  const keyUser = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    userSpeech: speech,
+    speech: garbled,
+    plan: { speech: garbled, page: 1 },
+    spec: {},
+    targetKind: 'ChildB',
+  })
+  const keyPlain = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    userSpeech: speech,
+    speech,
+    plan: { speech, page: 1 },
+    spec: {},
+    targetKind: 'ChildB',
+  })
+  assert.equal(keyUser, keyPlain)
+  const second = await g.preview({ ...base, speech: garbled })
+  assert.equal(second.error, 'QUERY_SETTLED')
+  assert.equal(second.querySettledRepeat, true)
+
+  const rounds = createSessionRoundStore()
+  rounds.startRound(sessionId)
+  rounds.noteToolSheet(sessionId, sheetOfPreview(first))
+  const third = await g.preview({ ...base, speech: garbled })
+  const repeatSheet = {
+    ...sheetOfPreview(third),
+    querySettledRepeat: third.querySettledRepeat,
+    error: third.error,
+  }
+  const leftover = rounds.noteToolSheet(sessionId, repeatSheet)
+  assert.equal(leftover.cancel, true)
+  assert.ok(leftover.settledRepeatFrom)
+  assert.equal(materializeSettledRepeat(leftover.settledRepeatFrom).error, 'QUERY_SETTLED')
+  assert.equal(third.error, 'QUERY_SETTLED')
+  assert.notEqual(String(third.speak || ''), '')
 })
 
 test('repeat 现查 after ok table: model from/where shape changes still QUERY_SETTLED', async () => {

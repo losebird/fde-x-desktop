@@ -353,8 +353,18 @@ export function createSessionRoundStore() {
     }
 
     if (round.candidate && isSettledQueryRepeatLeftover(round.candidate, incomingRaw)) {
+      const settledRepeatFrom = (incomingRaw.querySettledRepeat === true || incomingRaw.error === 'QUERY_SETTLED')
+        ? incomingRaw
+        : round.candidate
       const closed = closeRound(sid, 'leftover')
-      return { ...closed, cancel: true, leftover: true, cancelKind: 'plugin-leftover', process: false }
+      return {
+        ...closed,
+        cancel: true,
+        leftover: true,
+        cancelKind: 'plugin-leftover',
+        process: false,
+        settledRepeatFrom,
+      }
     }
 
     if (round.candidate && explicitLiveLookupSupersedesWrite(round.candidate, incomingRaw)) {

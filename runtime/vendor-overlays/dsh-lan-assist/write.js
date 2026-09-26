@@ -1699,6 +1699,7 @@ export function createGate(opts = {}) {
       ? settledHopKey({
         sessionId,
         workspace: workspaceKey,
+        userSpeech,
         speech: plan.speech,
         plan,
         spec,

@@ -4,6 +4,7 @@
  */
 
 import { messageIdOf, requestIdOf } from './conversation.js'
+import { materializeSettledRepeat } from './query-settle.mjs'
 import { extractUserSpeech } from './semantic.js'
 import { recalledUserSpeech, rememberUserSpeech } from './slots.js'
 
@@ -231,7 +232,11 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
           if (sessionId && !String(sheet.sessionId || '').trim()) sheet.sessionId = sessionId
         }
         const outcome = rounds.noteToolSheet(sessionId, sheet)
-        const payload = JSON.stringify(result)
+        let toolResult = result
+        if (outcome && outcome.settledRepeatFrom) {
+          toolResult = materializeSettledRepeat(outcome.settledRepeatFrom)
+        }
+        const payload = JSON.stringify(toolResult)
         if (outcome && outcome.cancel) {
           const cancelKind = String(outcome.cancelKind || 'plugin-leftover').trim() || 'plugin-leftover'
           const live = exec && exec.agent

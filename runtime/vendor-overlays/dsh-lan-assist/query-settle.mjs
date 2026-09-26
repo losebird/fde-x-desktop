@@ -7,7 +7,8 @@
 export function settledHopKey(ctx = {}) {
   const sessionId = String(ctx.sessionId || '').trim()
   const workspace = String(ctx.workspace || '').trim()
-  const speech = String(ctx.speech || '').trim()
+  const speech = String(ctx.userSpeech || ctx.utterance || '').trim()
+    || String(ctx.speech || '').trim()
   const targetKind = String(ctx.targetKind || '').trim()
   const plan = ctx.plan && typeof ctx.plan === 'object' ? ctx.plan : {}
   const page = Number(plan.page) > 0 ? Math.floor(Number(plan.page)) : 1
