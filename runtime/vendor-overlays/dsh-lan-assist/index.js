@@ -237,7 +237,29 @@ export async function apply(ctx, config) {
     const locked = Boolean(sid && sessionRounds.isWroteFollowup(sid) && toolAction === '现查')
     const ident = locked && typeof sessionRounds.wroteIdentity === 'function' ? sessionRounds.wroteIdentity(sid) : null
     const stamped = ident ? stampWroteLookup(spec, ident) : spec
-    return origPreviewBiz(locked ? { ...stamped, lookupLocked: true } : spec)
+    const result = await origPreviewBiz(locked ? { ...stamped, lookupLocked: true } : spec)
+    const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : null
+    const publishSid = String((result && result.sessionId) || sid || (sheet && sheet.sessionId) || '').trim()
+    const published = Boolean(sheet && publishSid && sessionRounds.publishOfficial(publishSid, sheet))
+    if (result && typeof result === 'object') return { ...result, published }
+    return result
+  }
+  if (typeof secretary.dismissWrite === 'function') {
+    const origDismissWrite = secretary.dismissWrite.bind(secretary)
+    secretary.dismissWrite = async (spec = {}) => {
+      const result = await origDismissWrite(spec)
+      const restored = result && result.pendingSheet && typeof result.pendingSheet === 'object'
+        ? result.pendingSheet
+        : null
+      const publishSid = String(
+        (spec && spec.sessionId)
+        || (restored && restored.sessionId)
+        || '',
+      ).trim()
+      if (publishSid) sessionRounds.republishAfterDismiss(publishSid, restored)
+      if (result && typeof result === 'object') return { ...result, publishedSessionId: publishSid }
+      return result
+    }
   }
   const origHall = secretary.hall.bind(secretary)
   const origSnapshot = secretary.snapshot.bind(secretary)
@@ -383,21 +405,26 @@ export async function apply(ctx, config) {
     focusOperationKind: async (sessionId, kind) => {
       const base = sessionRounds.officialSheet(sessionId)
       if (!base) return { ok: false, error: 'NO_OFFICIAL', hint: '这一轮还没有官方表。' }
-      const { materializeOperationKindSheet } = await import('./operation-kind-sheet.mjs')
-      let kindIndex = null
-      try {
-        const workspace = String(base.workspace || '').trim()
-        if (workspace && typeof secretary.describeBiz === 'function') {
-          const described = await secretary.describeBiz({ workspace })
-          if (described && Array.isArray(described.kinds)) kindIndex = described.kinds
-        }
-      } catch { /* catalog optional for focus */ }
-      const view = materializeOperationKindSheet(base, kind, kindIndex)
-      if (!view) return { ok: false, error: 'NO_KIND', hint: '这个型不在本轮命中里。' }
-      if (!sessionRounds.focusKindSheet(sessionId, view)) {
-        return { ok: false, error: 'NO_FOCUS' }
+      const wanted = String(kind || '').trim()
+      if (!wanted) return { ok: false, error: 'NO_KIND', hint: '这个型不在本轮命中里。' }
+      if (wanted === String(base.kind || '').trim()) {
+        return { ok: true, sheet: base, published: false }
       }
-      return { ok: true, sheet: sessionRounds.servedSheet(sessionId) }
+      const result = await secretary.previewBiz({
+        kind: wanted,
+        action: '现查',
+        speech: String(base.speech || '').trim(),
+        sessionId,
+        workspace: String(base.workspace || '').trim(),
+        ...(base.from && typeof base.from === 'object' ? { from: base.from } : {}),
+        ...(Array.isArray(base.where) && base.where.length ? { where: base.where } : {}),
+        ...(Array.isArray(base.hopWhere) && base.hopWhere.length ? { hopWhere: base.hopWhere } : {}),
+      })
+      const sheet = sessionRounds.servedSheet(sessionId)
+      if (!sheet || String(sheet.kind || '').trim() !== wanted || (result && result.ok === false)) {
+        return { ok: false, error: (result && result.error) || 'NO_KIND', hint: '这个型不在本轮命中里。' }
+      }
+      return { ok: true, sheet, published: Boolean(result && result.published) }
     },
   })
 

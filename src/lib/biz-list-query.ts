@@ -474,6 +474,7 @@ export function shouldRejectEmptyIncomingSheet(
   if (!incoming || typeof incoming !== 'object') return false
   const incomingCount = Array.isArray(incoming.rows) ? incoming.rows.length : 0
   if (incomingCount > 0) return false
+  if (incoming.querySettled === true && String(incoming.action || '').trim() === '现查') return false
   const incomingKind = String(incoming.kind || '').trim()
   const shownKind = displayed ? String(displayed.kind || '').trim() : ''
   const hasCatalog = Array.isArray(connected)

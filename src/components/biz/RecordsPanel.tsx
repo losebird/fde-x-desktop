@@ -159,6 +159,7 @@ type PendingSurface = {
 type PendingSheetEvent = PendingSurface & {
   sheet?: Record<string, unknown>
   surfaceId?: string
+  writePreview?: Record<string, string>
 }
 
 type SheetSnapshot = {
@@ -264,6 +265,16 @@ function shouldOpenWritePreviewDrawer(
     hasChanges: sheetHasConfirmablePreviewChanges(sheet),
     alreadyAtTarget: isApproveAlreadyAtTarget(sheet),
   })
+}
+
+function writeTokenBlocksDrawer(
+  sheet: Record<string, unknown>,
+  index: Record<string, string> | null,
+): boolean {
+  const id = String(sheet.preview_id || sheet.previewId || '').trim()
+  if (!id || !index || !Object.prototype.hasOwnProperty.call(index, id)) return false
+  const status = String(index[id] || '')
+  return status === 'used' || status === 'expired' || status === 'absent'
 }
 
 function isSingleRowWritePreview(sheet: Record<string, unknown>) {
@@ -406,6 +417,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const cancelledWritePreviewRef = useRef('')
   const operationKindViewRef = useRef('')
   const displayedSheetRef = useRef<Record<string, unknown> | null>(null)
+  const writePreviewRef = useRef<Record<string, string> | null>(null)
   liveSessionIdRef.current = String(activeAiSessionId || '').trim()
   const peekActivePending = useCallback(() => {
     const sid = String(activeAiSessionId || historySessionIdRef.current || '').trim()
@@ -1029,8 +1041,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       displayedSheetRef.current,
       isWritePreviewSheet(next),
     )) {
-      if (!isWritePreviewSheet(next)) rememberBizPendingSheet(next)
-      return true
+      return false
     }
     if (incomingKind) operationKindViewRef.current = incomingKind
     const previewId = sheetPreviewId(next)
@@ -1065,7 +1076,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         setListSheetMeta(appliedSheet)
         displayedSheetRef.current = appliedSheet
       }
-      if (shouldOpenWritePreviewDrawer(next, historyPinned)) {
+      if (shouldOpenWritePreviewDrawer(next, historyPinned) && !writeTokenBlocksDrawer(next, writePreviewRef.current)) {
         setDrawer((prev) => {
           const prevId = prev?.previewId || ''
           const prevAction = String(prev?.sheet?.action || '')
@@ -1085,7 +1096,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     rememberBizPendingSheet(next)
     maybeSaveListRestore(next)
     applySheet(next, conn?.name || '连接器', surfaceId)
-    if (!shouldOpenWritePreviewDrawer(next, historyPinned)) setDrawer(null)
+    if (!shouldOpenWritePreviewDrawer(next, historyPinned) || writeTokenBlocksDrawer(next, writePreviewRef.current)) setDrawer(null)
     else {
       setDrawer({
         previewId,
@@ -1117,9 +1128,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       return applyPendingSheet(sheet, surfaceId)
     }
     const cached = peekBizPendingSheet(sid || undefined)
-    if (cached && !isWritePreviewSheet(cached) && tryApply(cached)) return true
+    if (cached && !isWritePreviewSheet(cached)) tryApply(cached)
     try {
-      const { sheet } = await runtimeApi.getBizPendingSheet(undefined, sid || undefined)
+      const { sheet, writePreview } = await runtimeApi.getBizPendingSheet(undefined, sid || undefined)
+      if (writePreview) writePreviewRef.current = writePreview
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (liveSid && sid && liveSid !== sid) return false
       if (!sheet || typeof sheet !== 'object') return false
@@ -1168,11 +1180,11 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       && !isBizPreviewDismissed(cached)
     ) {
       applyPendingSheetRef.current(cached)
-      return
+    } else {
+      clearDisplayedForSession()
     }
-
-    clearDisplayedForSession()
-    void runtimeApi.getBizPendingSheet(undefined, sid || undefined).then(({ sheet }) => {
+    void runtimeApi.getBizPendingSheet(undefined, sid || undefined).then(({ sheet, writePreview }) => {
+      if (writePreview) writePreviewRef.current = writePreview
       if (liveSessionIdRef.current !== sid) return
       if (
         sheet
@@ -1238,6 +1250,9 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       const stamped = eventSessionId && !sheetWithSession.sessionId
         ? { ...sheetWithSession, sessionId: eventSessionId }
         : sheetWithSession
+      if (payload.writePreview && typeof payload.writePreview === 'object') {
+        writePreviewRef.current = payload.writePreview
+      }
       rememberBizPendingSheet(stamped)
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (liveSid && !sheetBelongsToSession(stamped, liveSid)) return
@@ -1246,7 +1261,6 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       }
       let surfaceId = incomingSurfaceId
       applyPendingSheet(stamped, surfaceId)
-      void hydrateFromPendingRef.current(incomingSurfaceId)
       void (async () => {
         if (!bizCwd) return
         if (liveSessionIdRef.current !== liveSid) return
@@ -1337,6 +1351,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         ...previewBody,
       })
       const rawSheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
+      if (rawSheet.ok === false || String(rawSheet.error || '') === 'TOO_MANY') {
+        setError(typeof data.hint === 'string' && data.hint.trim() ? data.hint : '预览失败')
+        return
+      }
       const sheet = (waitingPick || previewBody.picked === true)
         ? { ...rawSheet, picked: true }
         : rawSheet
@@ -1600,7 +1618,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     const mainRel = sheetPrimaryRelation(anchor)
     const peerChip = Boolean(String(wantedRelation || '').trim() && String(wantedRelation || '').trim() !== mainRel)
     const finishSelect = async () => {
-      if (sessionId && anchor && !peerChip) {
+      if (sessionId) {
         try {
           const data = await runtimeApi.bizFocusKind({
             sessionId,
@@ -1615,9 +1633,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
             }
           }
         } catch {
-          /* fall back to local materialize */
+          /* gate did not republish */
         }
       }
+      if (peerChip) return
       applyLocal()
     }
     void finishSelect()

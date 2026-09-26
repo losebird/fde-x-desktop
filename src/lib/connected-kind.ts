@@ -295,6 +295,11 @@ export function shouldSkipCoveringPending(
   if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
   if (leftoverQueryCoveringWrite(prev, incoming)) return true
   if (isNewSpokenUtterance(prev, incoming)) return false
+  if (
+    String(incoming.action || '').trim() === '现查'
+    && incoming.querySettled === true
+    && sheetRowCount(incoming) === 0
+  ) return false
   const prevSpeech = sheetSpeech(prev)
   const nextSpeech = sheetSpeech(incoming)
   const sameSpeech = Boolean(prevSpeech && nextSpeech && prevSpeech === nextSpeech)

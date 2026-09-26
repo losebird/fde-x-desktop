@@ -187,14 +187,6 @@ export function sheetCarriesWrittenIdentity(sheet, identity) {
   return false
 }
 
-function utteranceSheetPaints(sheet, round) {
-  if (!sheet || typeof sheet !== 'object') return false
-  if (round && round.wroteFollowup && !sheetCarriesWrittenIdentity(sheet, round.wroteIdentity)) return false
-  if (sheetRowCount(sheet) > 0) return true
-  const action = sheetAction(sheet)
-  return Boolean(action && action !== '现查' && sheetPreviewId(sheet))
-}
-
 function specHasIdentity(spec) {
   if (!spec || typeof spec !== 'object') return false
   if (String(spec.no || spec.ticket || '').trim()) return true
@@ -251,6 +243,30 @@ function newRoundId() {
   return `rnd_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`
 }
 
+function canPublishSheet(sheet) {
+  if (!isEligibleRoundSheet(sheet)) return false
+  if (sheet.ok === false) return false
+  if (String(sheet.error || '').trim() === 'TOO_MANY') return false
+  return true
+}
+
+function blankRound(id, prev) {
+  return {
+    roundId: id,
+    open: false,
+    candidate: null,
+    weak: null,
+    official: prev ? prev.official : null,
+    publishedKey: prev && prev.publishedKey ? prev.publishedKey : '',
+    officialBeforeWrite: prev ? (prev.officialBeforeWrite || null) : null,
+    kindFocus: null,
+    handed: Boolean(prev && prev.official),
+    closedBy: '',
+    wroteFollowup: false,
+    wroteIdentity: null,
+  }
+}
+
 function roundOfficialKey(sheet) {
   if (!sheet || typeof sheet !== 'object') return ''
   const kind = String(sheet.kind || '').trim()
@@ -261,7 +277,7 @@ function roundOfficialKey(sheet) {
   const firstNo = rows.length && rows[0] && typeof rows[0] === 'object'
     ? String(rows[0].no || '').trim()
     : ''
-  return `${kind}|${action}|${speech}|${where}|${rows.length}|${firstNo}`
+  return `${kind}|${action}|${speech}|${where}|${rows.length}|${firstNo}|${sheetPage(sheet)}`
 }
 
 export function createSessionRoundStore() {
@@ -280,19 +296,63 @@ export function createSessionRoundStore() {
     if (prev && prev.open) return prev.roundId
     const id = newRoundId()
     const wroteFollowup = Boolean(opts.followup && prev && prev.wroteFollowup)
-    bySession.set(sid, {
-      roundId: id,
-      open: true,
-      candidate: null,
-      weak: null,
-      official: prev ? prev.official : null,
-      kindFocus: null,
-      handed: Boolean(prev && prev.official),
-      closedBy: '',
-      wroteFollowup,
-      wroteIdentity: wroteFollowup && prev ? (prev.wroteIdentity || null) : null,
-    })
+    const round = blankRound(id, prev)
+    round.open = true
+    round.wroteFollowup = wroteFollowup
+    round.wroteIdentity = wroteFollowup && prev ? (prev.wroteIdentity || null) : null
+    bySession.set(sid, round)
     return id
+  }
+
+  function publishInto(round, sheet) {
+    if (!round || !canPublishSheet(sheet)) return false
+    const key = roundOfficialKey(sheet)
+    if (key && key === round.publishedKey) return false
+    const act = sheetAction(sheet)
+    const prev = round.official
+    if (act && act !== '现查' && sheetPreviewId(sheet) && prev && sheetAction(prev) === '现查') {
+      round.officialBeforeWrite = prev
+    }
+    round.official = sheet
+    round.publishedKey = key
+    round.handed = false
+    return true
+  }
+
+  function publishOfficial(sessionId, sheet) {
+    const sid = String(sessionId || '').trim()
+    if (!sid || !sheet || typeof sheet !== 'object') return false
+    let round = peek(sid)
+    if (!round) {
+      bySession.set(sid, blankRound(newRoundId(), null))
+      round = peek(sid)
+    }
+    return publishInto(round, sheet)
+  }
+
+  function republishAfterDismiss(sessionId, restored) {
+    const sid = String(sessionId || '').trim()
+    const round = peek(sid)
+    if (!round) return false
+    const restoredSheet = restored && canPublishSheet(restored) ? restored : null
+    const sheet = restoredSheet || (canPublishSheet(round.officialBeforeWrite) ? round.officialBeforeWrite : null)
+    if (!sheet) {
+      const current = round.official
+      if (current && sheetPreviewId(current) && sheetAction(current) !== '现查') {
+        round.official = null
+        round.publishedKey = ''
+        round.officialBeforeWrite = null
+        round.handed = false
+        return true
+      }
+      return false
+    }
+    const prevKey = round.publishedKey
+    round.publishedKey = ''
+    const ok = publishInto(round, sheet)
+    if (!ok) round.publishedKey = prevKey
+    else round.officialBeforeWrite = null
+    return ok
   }
 
   function closeRound(sessionId, reason = 'turn', extra = {}) {
@@ -319,6 +379,7 @@ export function createSessionRoundStore() {
         const prevKey = roundOfficialKey(round.official)
         round.official = next
         const nextKey = roundOfficialKey(next)
+        round.publishedKey = nextKey
         if (nextKey && nextKey !== prevKey) round.handed = false
       }
     }
@@ -397,6 +458,7 @@ export function createSessionRoundStore() {
     if (round.candidate && explicitLiveLookupSupersedesWrite(round.candidate, incomingRaw)) {
       round.candidate = incomingRaw
       round.kindFocus = null
+      publishInto(round, incomingRaw)
       return { emit: false, official: null, cancel: false, process: true }
     }
 
@@ -413,6 +475,7 @@ export function createSessionRoundStore() {
     if (isEligibleRoundSheet(incomingRaw)) {
       round.candidate = incomingRaw
       round.kindFocus = null
+      publishInto(round, incomingRaw)
     }
 
     return { emit: false, official: null, cancel: false, process: true }
@@ -436,8 +499,6 @@ export function createSessionRoundStore() {
   function servedSheet(sessionId) {
     const round = peek(sessionId)
     if (!round) return null
-    if (round.kindFocus && typeof round.kindFocus === 'object') return round.kindFocus
-    if (round.open && utteranceSheetPaints(round.candidate, round)) return round.candidate
     return round.official || null
   }
 
@@ -485,6 +546,8 @@ export function createSessionRoundStore() {
     closeRound,
     noteToolSheet,
     notePostSettledHopTool,
+    publishOfficial,
+    republishAfterDismiss,
     officialSheet,
     focusKindSheet,
     servedSheet,

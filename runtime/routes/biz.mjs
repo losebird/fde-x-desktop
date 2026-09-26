@@ -36,11 +36,8 @@ import {
   dropActionBatchLeftover,
   isSpokenActionOrBatchToken,
   resolveConnectedKind,
-  shouldSkipCoveringPending,
   sheetForOfficialGet,
-  sheetForPendingGet,
 } from '../biz/connected-kind.mjs'
-import { projectWriteConfirm, releaseEmittedConfirm } from '../biz/write-confirm.mjs'
 import { reconcileLanAssistConnectionLamp, refreshLanAssistConnectionLamp } from '../biz/connection-lamp.mjs'
 import {
   auditRecordNo,
@@ -305,41 +302,11 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
  * @param {Record<string, unknown>} sheet
  * @param {{ sessionId?: string, source?: string, workspaceCwd?: string }} [meta]
  */
-const lastEmittedPendingBySession = new Map()
-
-function lastEmittedSessionKey(sessionId, sheet) {
-  const sid = String(sessionId || sheet?.sessionId || '').trim()
-  return sid || '__global__'
-}
-
-function peekLastEmittedPending(sessionId) {
-  const key = lastEmittedSessionKey(sessionId, null)
-  return lastEmittedPendingBySession.get(key) ?? null
-}
-
-function releaseLastEmittedConfirm(sessionId, previewId) {
-  const wanted = String(previewId || '').trim()
-  const keys = []
-  const named = String(sessionId || '').trim()
-  if (named) keys.push(lastEmittedSessionKey(named, null))
-  else keys.push(...lastEmittedPendingBySession.keys())
-  for (const key of keys) {
-    const last = lastEmittedPendingBySession.get(key)
-    if (!last || typeof last !== 'object') continue
-    const id = sheetPreviewIdFromRecord(last)
-    if (wanted && id && id !== wanted) continue
-    lastEmittedPendingBySession.set(key, releaseEmittedConfirm(last))
-  }
-}
-
-export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId, hallSheet, force = false, writePreview } = {}) {
+export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspaceCwd, surfaceId, writePreview } = {}) {
   const normalized = sheetPayloadFromRaw(sheet)
   if (!normalized) return false
-  const emitKey = lastEmittedSessionKey(sessionId, normalized)
-  const lastEmitted = lastEmittedPendingBySession.get(emitKey) ?? null
-  if (!force && shouldSkipCoveringPending(lastEmitted, normalized)) return false
-  const hall = hallSheet && typeof hallSheet === 'object' ? hallSheet : null
-  if (!force && hall && shouldSkipCoveringPending(hall, normalized)) return false
+  if (normalized.ok === false) return false
+  if (String(normalized.error || '').trim() === 'TOO_MANY') return false
   const previewId = sheetPreviewIdFromRecord(normalized)
   if (previewId && isBizPreviewDismissed(previewId)) return false
   const kind = String(normalized.kind || '')
@@ -348,14 +315,12 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
   const columns = Array.isArray(normalized.columns) ? normalized.columns : []
   if (!kind || !action) return false
 
-  let payloadSheet = {
+  const payloadSheet = {
     ...normalized,
     sessionId,
     ...(typeof sheet.speech === 'string' && sheet.speech ? { speech: sheet.speech } : {}),
   }
-  if (writePreview && typeof writePreview === 'object') {
-    payloadSheet = projectWriteConfirm(payloadSheet, writePreview)
-  }
+  const tokenIndex = writePreview && typeof writePreview === 'object' ? writePreview : undefined
 
   emit('biz.sheet.pending', {
     kind,
@@ -369,12 +334,12 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
     surfaceId: typeof surfaceId === 'string' ? surfaceId : undefined,
     workspaceCwd: typeof workspaceCwd === 'string' ? workspaceCwd : undefined,
     sheet: payloadSheet,
+    ...(tokenIndex ? { writePreview: tokenIndex } : {}),
   }, {
     workspaceCwd: null,
     sessionId,
     source,
   })
-  lastEmittedPendingBySession.set(emitKey, payloadSheet)
   return true
 }
 
@@ -473,7 +438,7 @@ function patchFromRollbackChanges(changes) {
 async function capturePendingSheet(aiRuntime, previewId) {
   try {
     const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
-    const raw = state?.pendingSheet ?? state?.pendingWrite
+    const raw = state?.officialRoundSheet
     const sheet = raw?.sheet && typeof raw.sheet === 'object' ? raw.sheet : raw
     if (!sheet || typeof sheet !== 'object') return null
     const pid = String(sheet.preview_id || sheet.previewId || '').trim()
@@ -888,7 +853,9 @@ export async function handleBizRoutes(request, response, url, deps) {
       if (handed && sessionId && !String(handed.sessionId || '').trim()) {
         handed = { ...handed, sessionId }
       }
-      emitBizSheetPending(handed, { sessionId, source: 'focus-kind', workspaceCwd: bizCwd, force: true })
+      if (focused.published === true && handed) {
+        emitBizSheetPending(handed, { sessionId, source: 'focus-kind', workspaceCwd: bizCwd })
+      }
       sendJson(response, 200, { data: { sheet: handed ? stripSecrets(handed) : null }, correlationId })
     } catch (error) {
       sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
@@ -916,18 +883,12 @@ export async function handleBizRoutes(request, response, url, deps) {
           handed = next || null
         } catch { /* keep official sheet */ }
       }
-      if (handed && writePreview) handed = projectWriteConfirm(handed, writePreview)
-      const lastRaw = querySessionId ? peekLastEmittedPending(querySessionId) : null
-      const lastEmitted = writePreview ? projectWriteConfirm(lastRaw, writePreview) : lastRaw
-      let served = sheetForOfficialGet(handed, lastEmitted, querySessionId)
-      if (!served) {
-        const hallSheet = sheetAfterDismissedWrite(
-          sheetPayloadFromRaw(state.pendingSheet ?? state.pendingWrite),
-        )
-        served = sheetForPendingGet(hallSheet, lastEmitted, querySessionId)
-      }
+      const served = sheetForOfficialGet(handed, null, querySessionId)
       sendJson(response, 200, {
-        data: { sheet: served ? stripSecrets(served) : null },
+        data: {
+          sheet: served ? stripSecrets(served) : null,
+          writePreview: writePreview || null,
+        },
         correlationId,
       })
     } catch (error) {
@@ -977,33 +938,12 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendError(response, 400, 'validation_error', translated.error, correlationId)
       return true
     }
-    const previewSessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
-    let previewHall = null
-    try {
-      const gateState = await aiRuntime.lanAssist('/state', { search: { sessionId: previewSessionId } })
-      if (gateState && gateState.ok !== false) {
-        previewHall = sheetAfterDismissedWrite(
-          sheetPayloadFromRaw(gateState.pendingSheet ?? gateState.pendingWrite),
-        )
-      }
-    } catch { /* emit still guarded by lastEmitted */ }
     const preview = await aiRuntime.lanAssist('/preview', { method: 'POST', body: translated.payload })
     const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
     const previewSheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
-    const normalizedPreview = sheetPayloadFromRaw(previewSheet)
-    const skipEmit = Boolean(
-      body.replay === true
-      || (
-        normalizedPreview
-        && previewHall
-        && shouldSkipCoveringPending(previewHall, normalizedPreview)
-      ),
-    )
-    if (body.replay !== true) {
-      recordSurfaceFromPreview(db, bizCwd, body, preview, 'ui', {
-        emitEvent: !skipEmit,
-        hallSheet: previewHall,
-      })
+    const published = preview && preview.published === true
+    if (body.replay !== true && published) {
+      recordSurfaceFromPreview(db, bizCwd, body, preview, 'ui', { emitEvent: true })
     }
     const previewAction = String(translated.payload?.action || previewSheet?.action || '').trim()
     if (preview && preview.ok !== false && previewAction === '现查') {
@@ -1121,9 +1061,22 @@ export async function handleBizRoutes(request, response, url, deps) {
       if (dismissShouldClearHall(liveId, previewId)) {
         dismissed = await aiRuntime.lanAssist('/write/cancel', {
           method: 'POST',
-          body: { preview_id: previewId },
+          body: { preview_id: previewId, ...(body.sessionId ? { sessionId: body.sessionId } : {}) },
         })
       }
+      try {
+        const publishSid = String(dismissed.publishedSessionId || body.sessionId || '').trim()
+        const state = await aiRuntime.lanAssist('/state', { search: { sessionId: publishSid } })
+        const official = sheetPayloadFromRaw(state && state.officialRoundSheet)
+        if (official) {
+          emitBizSheetPending(official, {
+            sessionId: publishSid || String(official.sessionId || ''),
+            source: 'dismiss',
+            workspaceCwd: requestMemoryCwd(url, body) || FDE_AI_WORKSPACE,
+            writePreview: state && state.writePreview,
+          })
+        }
+      } catch { /* republish is best-effort after the gate write */ }
       sendJson(response, 200, { data: { ...dismissed, preview_id: previewId || undefined }, correlationId })
     } catch (error) {
       sendError(
@@ -1234,10 +1187,6 @@ export async function handleBizRoutes(request, response, url, deps) {
     if (rollbackOfTraceId) {
       setBizWriteAuditRollbackState(db, rollbackOfTraceId, ROLLBACK_STATE_ROLLED_BACK)
     }
-    releaseLastEmittedConfirm(
-      String(sheet?.sessionId || body.sessionId || body.session_id || ''),
-      body.preview_id,
-    )
     emit('biz.write.done', {
       kind: String(written?.kind || ''),
       action: String(written?.action || ''),

@@ -2151,13 +2151,16 @@ export class RuntimeApi {
     return result.items
   }
 
-  async getBizPendingSheet(signal?: AbortSignal, sessionId?: string): Promise<{ sheet: Record<string, unknown> | null }> {
+  async getBizPendingSheet(signal?: AbortSignal, sessionId?: string): Promise<{ sheet: Record<string, unknown> | null; writePreview: Record<string, string> | null }> {
     const sid = String(sessionId || '').trim()
     const path = sid
       ? `/api/v1/biz/pending-sheet?sessionId=${encodeURIComponent(sid)}`
       : '/api/v1/biz/pending-sheet'
-    const result = await this.request<{ data: { sheet: Record<string, unknown> | null } }>(path, { signal })
-    return result.data
+    const result = await this.request<{ data: { sheet: Record<string, unknown> | null; writePreview?: Record<string, string> | null } }>(path, { signal })
+    const writePreview = result.data.writePreview && typeof result.data.writePreview === 'object'
+      ? result.data.writePreview
+      : null
+    return { sheet: result.data.sheet, writePreview }
   }
 
   async bizFocusKind(

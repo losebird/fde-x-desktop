@@ -103,6 +103,7 @@ export function rememberBizPendingSheet(sheet: Record<string, unknown>) {
     && Array.isArray(sheet.rows)
     && sheet.rows.length === 0
     && prevRows.length > 0
+    && sheet.querySettled !== true
   ) return
   pendingBySession.set(key, { sheet, at: Date.now() })
 }

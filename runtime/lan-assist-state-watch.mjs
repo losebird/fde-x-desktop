@@ -3,7 +3,6 @@ import { emitBizSheetPending } from './routes/biz.mjs'
 import { pendingSheetWatchFingerprint } from './biz/sheet-fingerprint.mjs'
 import { sheetAfterDismissedWrite } from './biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw } from './biz/sheet-payload.mjs'
-import { projectWriteConfirm } from './biz/write-confirm.mjs'
 import { reconcileLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 
 const POLL_MS = 1000
@@ -64,12 +63,10 @@ function newIncomingMessages(state, knownIds) {
 }
 
 function officialFromState(state) {
-  const sheet = sheetAfterDismissedWrite(sheetPayloadFromRaw(state?.officialRoundSheet))
-  const index = state?.writePreview && typeof state.writePreview === 'object' ? state.writePreview : null
-  return index ? projectWriteConfirm(sheet, index) : sheet
+  return sheetAfterDismissedWrite(sheetPayloadFromRaw(state?.officialRoundSheet))
 }
 
-function emitOfficialSheet(sheet, deps, source = 'round-end', surfaceId) {
+function emitOfficialSheet(sheet, deps, source = 'round-end', surfaceId, writePreview) {
   const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
     ? sheet.workspace
     : deps.cwd
@@ -79,6 +76,7 @@ function emitOfficialSheet(sheet, deps, source = 'round-end', surfaceId) {
     source,
     workspaceCwd,
     surfaceId: typeof surfaceId === 'string' && surfaceId.trim() ? surfaceId.trim() : undefined,
+    writePreview,
   })
   if (emitted && typeof deps.onPendingSheet === 'function') {
     deps.onPendingSheet(sheet, sessionId)
@@ -96,7 +94,7 @@ export function startLanAssistStateWatch(deps) {
   let knownIncomingIds = new Set()
   let bootstrapped = false
 
-  const processOfficialSheet = (sheet, { force = false } = {}) => {
+  const processOfficialSheet = (sheet, { force = false, writePreview } = {}) => {
     const sheetFp = fingerprintPendingSheet(sheet)
     if (!sheetFp) return false
     if (!force && sheetFp === lastSheetFp) return false
@@ -107,7 +105,7 @@ export function startLanAssistStateWatch(deps) {
       const prepared = deps.prepareSurface(sheet, sessionId)
       if (typeof prepared === 'string' && prepared.trim()) surfaceId = prepared.trim()
     }
-    return emitOfficialSheet(sheet, deps, 'round-end', surfaceId)
+    return emitOfficialSheet(sheet, deps, 'round-end', surfaceId, writePreview)
   }
 
   const tick = async () => {
@@ -117,7 +115,7 @@ export function startLanAssistStateWatch(deps) {
       if (!state || state.ok === false) return
 
       const sheet = officialFromState(state)
-      if (sheet) processOfficialSheet(sheet)
+      if (sheet) processOfficialSheet(sheet, { writePreview: state.writePreview })
 
       const unread = buildUnread(state)
       const unreadFp = JSON.stringify(unread)
@@ -148,7 +146,7 @@ export function startLanAssistStateWatch(deps) {
       if (!state || state.ok === false) return false
       const sheet = officialFromState(state)
       if (!sheet) return false
-      return processOfficialSheet(sheet, { force: true })
+      return processOfficialSheet(sheet, { force: true, writePreview: state.writePreview })
     } catch {
       return false
     }
