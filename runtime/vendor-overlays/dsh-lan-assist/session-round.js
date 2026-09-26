@@ -66,6 +66,7 @@ export function isUnfilteredListSheet(sheet) {
 
 export function isEligibleRoundSheet(sheet) {
   if (!sheet || typeof sheet !== 'object') return false
+  if (sheet.ok === false) return false
   if (isUnfilteredListSheet(sheet)) return false
   const rows = sheetRowCount(sheet)
   const action = sheetAction(sheet)

@@ -3,6 +3,7 @@
  * @module dsh-lan-assist/where-pass
  */
 
+import { enumMap } from './resolve.js'
 import { PAGE_SIZE } from './plan.js'
 
 export const WHERE_LIST_CAP = 5000
@@ -480,4 +481,62 @@ export function termFilterPart(term, today) {
   if (statusPart) return statusPart
   if (dateParts.length) return dateParts.length === 1 ? dateParts[0] : { $and: dateParts }
   return null
+}
+
+function schemaEnumsForKey(schemaFields, key) {
+  const want = String(key || '').trim()
+  if (!want) return null
+  const hit = (Array.isArray(schemaFields) ? schemaFields : []).find((row) => row && String(row.name || '') === want)
+  if (!hit || typeof hit !== 'object') return null
+  const enums = (hit.enums && typeof hit.enums === 'object' && !Array.isArray(hit.enums) && Object.keys(hit.enums).length)
+    ? hit.enums
+    : enumMap(hit)
+  return enums && Object.keys(enums).length ? enums : null
+}
+
+function rowFieldRaw(row, key) {
+  const fields = row && row.fields && typeof row.fields === 'object' ? row.fields : {}
+  if (fields[key] != null && fields[key] !== '') return String(fields[key])
+  if (row && row[key] != null && row[key] !== '') return String(row[key])
+  return ''
+}
+
+function valueMatchesTerm(raw, vals, enums) {
+  const text = String(raw || '').trim()
+  if (!text) return false
+  for (const v of vals) {
+    const want = String(v || '').trim()
+    if (!want) continue
+    if (text === want) return true
+    if (!enums) continue
+    for (const [code, label] of Object.entries(enums)) {
+      const labelText = String(label || '').trim()
+      if (want === code && text === code) return true
+      if (want === labelText && (text === code || text === labelText)) return true
+      if (text === code && labelText === want) return true
+      if (text === labelText && labelText === want) return true
+    }
+  }
+  return false
+}
+
+function rowMatchesTerm(row, term, schemaFields) {
+  if (!term || typeof term !== 'object') return true
+  const keys = list(term.keys)
+  const vals = list(term.values)
+  if (!keys.length || !vals.length) return true
+  const hit = keys.some((key) => {
+    const enums = schemaEnumsForKey(schemaFields, key)
+    const raw = rowFieldRaw(row, key)
+    return valueMatchesTerm(raw, vals, enums)
+  })
+  return term.not ? !hit : hit
+}
+
+/** Client-side hit set for bound plan where (write batch must not count unfiltered rows). */
+export function rowsMatchingWhere(rows, where, schemaFields) {
+  const terms = Array.isArray(where) ? where : []
+  const listRows = Array.isArray(rows) ? rows : []
+  if (!terms.length) return listRows.slice()
+  return listRows.filter((row) => terms.every((term) => rowMatchesTerm(row, term, schemaFields)))
 }

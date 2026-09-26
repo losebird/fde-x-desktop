@@ -10,7 +10,7 @@ import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } 
 import { ensureSpoken } from './vocab/spoken.js'
 import { BATCH_LIMIT, PAGE_SIZE, normalizePlan } from './plan.js'
 import { columnScopedSpeech, dropSpokenBatchRowId, enrichStructuredSlots, ensurePlanSelfHop, generatedSelfLoopEdgePeers, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
-import { WHERE_LIST_CAP } from './where-pass.js'
+import { WHERE_LIST_CAP, bindWhereKeys, rowsMatchingWhere } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
 import {
@@ -404,6 +404,24 @@ function sheetWhereFromPlan(plan, spec = {}) {
   return { where: listWhere, hopWhere }
 }
 
+/** Enrich may drop model where when speech omits enum words; batch write still needs bound terms. */
+function stampRecoveredWhereOnPlan(plan, recovered, spec) {
+  const action = String(plan.action || '').trim()
+  if (!action || action === '现查') return
+  const incoming = (Array.isArray(recovered.where) && recovered.where.length)
+    ? recovered.where
+    : (Array.isArray(spec.where) && spec.where.length ? spec.where : null)
+  if (!incoming || !incoming.length) return
+  const steps = Array.isArray(plan.steps) ? plan.steps : []
+  if (!steps.length) return
+  const idx = Number.isFinite(plan.targetIndex) && plan.targetIndex >= 0
+    ? Math.min(Math.floor(plan.targetIndex), steps.length - 1)
+    : steps.length - 1
+  const step = steps[idx]
+  if (!step || (Array.isArray(step.where) && step.where.length)) return
+  step.where = incoming.map((term) => (term && typeof term === 'object' ? { ...term } : term)).filter(Boolean)
+}
+
 function writeHasIdentity(plan, spec = {}) {
   if (String((plan && plan.no) || (spec && spec.no) || '').trim()) return true
   if (spec && spec.related && spec.related.kind) return true
@@ -536,6 +554,11 @@ async function withSheet(result, extra = {}) {
     ...(ask ? { askAction: ask } : {}),
   }
   const sheet = packSheet({ ...packed, ...extra, schemaFields })
+  if (result && result.ok === false) {
+    sheet.ok = false
+    if (result.error) sheet.error = String(result.error)
+    if (result.hint) sheet.hint = String(result.hint)
+  }
   const out = { ...packed, sheet }
   if (sheet && sheet.speak) out.speak = sheet.speak
   delete out.vocab
@@ -1428,12 +1451,18 @@ export function createGate(opts = {}) {
           blockConfirm,
         }, { clue: plan.no, speech: plan.speech })
       }
-      if (rows.length > BATCH_LIMIT) {
+      const { where: batchWhere } = sheetWhereFromPlan(plan, spec)
+      let hitRows = rows
+      if (Array.isArray(batchWhere) && batchWhere.length) {
+        const bound = bindWhereKeys(batchWhere, sheetKind, loaded.vocab, schemaFields)
+        hitRows = rowsMatchingWhere(allRows, bound, schemaFields).slice(0, WHERE_LIST_CAP)
+      }
+      if (hitRows.length > BATCH_LIMIT) {
         return await sheet(refuse('TOO_MANY', `${sheetKind}一次最多改 ${BATCH_LIMIT} 条。勾少一点再预览。`), {
-          kind: sheetKind, action: recognized.action, matches: rows.slice(0, BATCH_LIMIT), speech: plan.speech,
+          kind: sheetKind, action: recognized.action, matches: [], speech: plan.speech,
         })
       }
-      const nos = rows.map((row) => String(row.no || '').trim()).filter(Boolean)
+      const nos = hitRows.map((row) => String(row.no || '').trim()).filter(Boolean)
       const catalogVersion = catalogVersionOf(loaded.vocab)
       const previewId = `pv_${randomHex(8)}`
       const token = {
@@ -1444,13 +1473,13 @@ export function createGate(opts = {}) {
         system: String(spec.system || (found && found.system) || '').trim(),
         env: String(spec.env || (found && found.env) || '').trim(),
         connectionId: String((found && found.connectionId) || spec.connectionId || '').trim(),
-        from: rows.length, to: recognized.action, fingerprint: `batch:${recognized.kind}:${nos.join(',')}`,
+        from: hitRows.length, to: recognized.action, fingerprint: `batch:${recognized.kind}:${nos.join(',')}`,
         expiresAt: now() + PREVIEW_TTL_MS, used: false,
         speak: `${recognized.action}${sheetKind}${nos.length}条。这是预览，不是过账。`,
       }
       tokens.set(previewId, token)
       return await sheet({
-        ok: true, ...token, speak: token.speak, matches: rows, listed: true,
+        ok: true, ...token, speak: token.speak, matches: hitRows, listed: true,
         workspace: (found && found.workspace) || spec.workspace || '',
       }, { clue: plan.no, speech: plan.speech, batch: true, nos })
     }
@@ -1679,6 +1708,7 @@ export function createGate(opts = {}) {
       plan.steps = collapsed
       plan.targetIndex = collapsed.length ? collapsed.length - 1 : 0
     }
+    if (!replaying) stampRecoveredWhereOnPlan(plan, recovered, spec)
     ensurePlanSelfHop(plan, plan.speech, catalogExtra)
     if (spec.from && typeof spec.from === 'object' && spec.from.kind) {
       const connectedFrom = resolveConnectedKindName(spec.from.kind, catalogExtra)
