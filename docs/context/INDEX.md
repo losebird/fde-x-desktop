@@ -1,26 +1,8 @@
 来源：`/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/`（云路径 `/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/`）
 
-排除：图片 679 个，全是 png。jpg、jpeg、gif、webp、svg、ico、bmp、mp4、mov 为 0。测试代码 16 个：文件名或任一级目录名含 test 或 spec，或路径在 tests/（tests/ 下 0 个）。`.git`、`node_modules` 0 个。
+排除：图片 679 个，全是 png。jpg、jpeg、gif、webp、svg、ico、bmp、mp4、mov 为 0。测试代码 0 个：只排除文件名 `*.test.*`、`*.spec.*`，或目录 `tests/`、`__tests__/`。`.git`、`node_modules` 0 个。
 
-排除的测试代码：
-- `docs/specs/00-agent-protocol.md`
-- `docs/specs/01-event-bus.md`
-- `docs/specs/02-bridge-tools.md`
-- `docs/specs/03-plan-sqlite.md`
-- `docs/specs/04-app-spec-runtime.md`
-- `docs/specs/05-business-records.md`
-- `docs/specs/06-briefing.md`
-- `docs/specs/07-memory-connector.md`
-- `docs/specs/08-preset-import.md`
-- `docs/specs/09-electron-packaging.md`
-- `docs/specs/README.md`
-- `internal/inspect-app-catalog-ah.json`
-- `internal/inspect-app-catalog-ah.mjs`
-- `internal/inspect-connected-kinds.md`
-- `internal/spec-factcheck.md`
-- `internal/verify-records-follows-latest.md`
-
-拷了：639
+拷了：655
 漏了：0
 
 下面每行一个已拷文件。路径相对 `docs/context/`。后面是第一级标题；没有第一级标题时用第一句。
@@ -111,6 +93,17 @@
 `docs/small-model-biz-ops-land-review.md` — 小模型业务格子落地审阅（`5c8e2230`）
 `docs/small-model-biz-ops-land.md` — 小模型业务格子：已按方案落地
 `docs/small-model-biz-ops-plan.md` — 小模型怎么才能精准操作业务数据
+`docs/specs/00-agent-protocol.md` — 00 · Coding Agent 执行协议
+`docs/specs/01-event-bus.md` — 01 · 事件总线（BFF → 前端 SSE）
+`docs/specs/02-bridge-tools.md` — 02 · FDE Host 工具集（bridge 升级）+ `askAiForResult`
+`docs/specs/03-plan-sqlite.md` — 03 · 计划模块接 SQLite（待办 / 日程 / 工作流）
+`docs/specs/04-app-spec-runtime.md` — 04 · 声明式应用：App Spec + SQLite 运行时 + 通用渲染器 + Builder
+`docs/specs/05-business-records.md` — 05 · 业务记录：随 AI 操作自动浮现 + 增删改查审
+`docs/specs/06-briefing.md` — 06 · 可自定义早报 + 外部信息源（早报 agent + MCP）
+`docs/specs/07-memory-connector.md` — 07 · 记忆连接层：上下文包 + 记忆写入器 + 各模块互通
+`docs/specs/08-preset-import.md` — 08 · Agent preset 导入与管理（设置 → Agent 预设）+ MCP 页连接器视图
+`docs/specs/09-electron-packaging.md` — 09 · Electron 单包分发（mac → Windows → Linux）
+`docs/specs/README.md` — FDE-X 工作台 · 可执行规格包
 `docs/speech-action-authority-land.md` — 原话定动作：已按方案落地
 `docs/speech-action-authority-plan.md` — 原话定动作：待审的费用报销应走现查
 `docs/speech-action-authority-review.md` — 原话定动作：只读审阅
@@ -295,6 +288,9 @@
 `internal/hop-t-count-queries.md` — hop / `{{t()}}` 条数 — 连接器查询证据
 `internal/hop-t-count-run.mjs` — /**
 `internal/hop-t-root-cause.md` — 深挖 hop / `{{t()}}` 条数（只查因，先不改产品）
+`internal/inspect-app-catalog-ah.json` — "catalogText": "我的业务应用\n列表是目录，没有官方台账。
+`internal/inspect-app-catalog-ah.mjs` — Read-only live inspect for AH.
+`internal/inspect-connected-kinds.md` — Live lan-assist / biz kinds inspection (fdex测试)
 `internal/ledger-fixture-bind-chain-2026-09-20.md` — 小区水电抄表 fixture + 问 AI bind chain（只读审计）
 `internal/leftover-cancel-fix.md` — leftover 误掐现查 — 修复证据
 `internal/leftover-overlay-applied.md` — leftover overlay 已挂到 Ace 本机 DSH
@@ -359,6 +355,7 @@
 `internal/ship-semantic-os.md` — semantic-os 上船交付
 `internal/simple-start.md` — 小白一键启动（simple start）
 `internal/single-sheet-live-check.md` — 单发布表现场核对
+`internal/spec-factcheck.md` — FDEX 规格事实勘误（scene-39-personal-workstation @ main，只读）
 `internal/spoken-write-bindings.md` — 口语值 → patch / where / token：写路径绑定审计（只查因）
 `internal/spoken-write-empty-panel.md` — 口语进库后右栏空表 · `pv_11a0e67b3cf004df`（只查因）
 `internal/spoken-write-fix.md` — 口语进库收口（按钉审计）
@@ -543,6 +540,7 @@
 `internal/verify-records-close-session-end.run.log` — workspace 1985293d-03bb-496f-ad69-5c7f2ac23149 /Users/zxz/Documents/ai-project/fdex测试
 `internal/verify-records-filter-page.md` — 业务记录 · 现查筛选 + 翻页（live）
 `internal/verify-records-follows-gongdan.md` — verify-records-follows-gongdan
+`internal/verify-records-follows-latest.md` — b3fb0d1
 `internal/verify-records-history-q.json` — "sha": "5afaa40b149f8ba812e48443327252f5808ed822",
 `internal/verify-records-history-q.md` — Verify: Q records history switch
 `internal/verify-records-history-q.mjs` — /**

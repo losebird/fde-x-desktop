@@ -1,0 +1,31 @@
+{
+  "catalogText": "我的业务应用\n列表是目录，没有官方台账。主入口是创建应用：描述需求，生成你自己的应用。\n创建应用\n创建应用\n这里没有官方台账。写下对象、字段和要看的视图，生成你自己的应用。\n关闭\n描述需求\nPreset\n生成\n库存盘点\n修订 1 · active · 9/19 14:36\n运行中\n删除\n库存盘点\n修订 1 · draft · 9/19 14:33\n草稿\n删除\n设备故障报修\n修订 1 · draft · 9/19 14:26\n草稿\n删除\n本周现场走访记录\n修订 1 · active · 9/19 14:03\n运行中\n删除",
+  "wizardStep": "describe",
+  "createEntry": true,
+  "tabs": [
+    "应用",
+    "业务记录",
+    "操作记录",
+    "操作记录"
+  ],
+  "rows": [
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "text": "库存盘点 修订 1 · active · 9/19 14:36 运行中 删除"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "text": "库存盘点 修订 1 · draft · 9/19 14:33 草稿 删除"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "text": "设备故障报修 修订 1 · draft · 9/19 14:26 草稿 删除"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "text": "本周现场走访记录 修订 1 · active · 9/19 14:03 运行中 删除"
+    }
+  ],
+  "sampleLabel": false,
+  "draftGroup": true
+}
