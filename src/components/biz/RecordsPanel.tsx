@@ -55,6 +55,7 @@ import {
 } from '@/lib/biz-list-query'
 import {
   resolveConnectedKind,
+  isNewSpokenUtterance,
   shouldSkipCoveringPending,
   type ConnectedKindRow,
 } from '@/lib/connected-kind'
@@ -80,6 +81,7 @@ import {
   rememberBizPendingSheet,
   sheetBelongsToSession,
 } from '@/lib/biz-session-sheet'
+import { shouldStageRoundEndPending } from '@/lib/biz-pending-stage'
 import {
   resolveHitSetPickCancelSessionId,
   shouldCancelDshAfterHitSetPick,
@@ -993,8 +995,13 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   }
 
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
+    if (!shouldStageRoundEndPending(sheet)) return false
     const connected = kindCatalog
     let next = sheet
+    if (isNewSpokenUtterance(displayedSheetRef.current, next)) {
+      operationKindViewRef.current = ''
+      appliedSheetFpRef.current = ''
+    }
     if (connected.length) {
       const incomingKind = String(sheet.kind || '').trim()
       const resolved = resolveConnectedKind(incomingKind, connected)
@@ -1104,6 +1111,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     const sid = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
     const tryApply = (sheet: Record<string, unknown>) => {
       if (isBizPreviewDismissed(sheet)) return false
+      if (!shouldStageRoundEndPending(sheet)) return false
       if (!sheetBelongsToSession(sheet, sid)) return false
       return applyPendingSheet(sheet, surfaceId)
     }
@@ -1215,6 +1223,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     const source = String(event.source || payload.source || '').trim()
     if (source === 'lan-assist') return
     if (payload.sheet && typeof payload.sheet === 'object') {
+      if (!shouldStageRoundEndPending(payload.sheet as Record<string, unknown>)) return
       const incomingSurfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : undefined
       if (shouldBlockIncomingSheetForHistoryPin(
         historyPinnedSurfaceIdRef.current,
@@ -1231,6 +1240,9 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       rememberBizPendingSheet(stamped)
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (liveSid && !sheetBelongsToSession(stamped, liveSid)) return
+      if (useApp.getState().activeDataSubview !== 'operations') {
+        useApp.getState().focusBizRecordsPanel()
+      }
       let surfaceId = incomingSurfaceId
       applyPendingSheet(stamped, surfaceId)
       void hydrateFromPendingRef.current(incomingSurfaceId)

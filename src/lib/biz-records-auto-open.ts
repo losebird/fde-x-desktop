@@ -1,4 +1,5 @@
 import { rememberBizPendingSheet } from '@/lib/biz-session-sheet'
+import { shouldStageRoundEndPending } from '@/lib/biz-pending-stage'
 import { registerFdeEventListener } from '@/lib/events'
 import { useApp } from '@/store/app'
 
@@ -8,9 +9,9 @@ export function onBizSheetPending(event: { payload: unknown; source?: string }) 
   const payload = event.payload as { sheet?: Record<string, unknown>; source?: string }
   const source = String(event.source || payload.source || '').trim()
   if (source === 'lan-assist') return
-  if (payload.sheet && typeof payload.sheet === 'object') {
-    rememberBizPendingSheet(payload.sheet)
-  }
+  const sheet = payload.sheet && typeof payload.sheet === 'object' ? payload.sheet : null
+  if (!sheet || !shouldStageRoundEndPending(sheet)) return
+  rememberBizPendingSheet(sheet)
   if (useApp.getState().activeDataSubview === 'operations') return
   useApp.getState().focusBizRecordsPanel()
 }

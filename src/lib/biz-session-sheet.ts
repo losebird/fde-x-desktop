@@ -1,5 +1,6 @@
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { rememberBizKindListSheet } from '@/lib/biz-kind-list-cache'
+import { isFailedRoundEndSheet } from '@/lib/biz-pending-stage'
 import { shouldSkipCoveringPending } from './connected-kind.ts'
 
 const GLOBAL_PENDING_KEY = ''
@@ -86,6 +87,7 @@ export function clearBizPreviewDismissed(previewId: string) {
 export function rememberBizPendingSheet(sheet: Record<string, unknown>) {
   if (!sheet || typeof sheet !== 'object') return
   if (isBizPreviewDismissed(sheet)) return
+  if (isFailedRoundEndSheet(sheet)) return
   const action = String(sheet.action || '')
   const rows = Array.isArray(sheet.rows) ? sheet.rows : []
   if (action === '现查' && rows.length > 0) {

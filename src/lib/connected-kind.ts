@@ -270,7 +270,7 @@ function leftoverQueryCoveringWrite(
 }
 
 /** This-turn spoken sheet: new speech, or a new kind+action with rows. Empty leftover guns are not this. */
-function isNewSpokenUtterance(
+export function isNewSpokenUtterance(
   prev: Record<string, unknown> | null | undefined,
   incoming: Record<string, unknown> | null | undefined,
 ): boolean {
