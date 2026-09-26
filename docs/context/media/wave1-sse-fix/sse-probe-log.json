@@ -1,0 +1,41 @@
+{
+  "probe": {
+    "url": "/api/v1/events?workspace=%2Ftmp%2Fws",
+    "pageOrigin": "http://127.0.0.1:5175",
+    "readyState": 1,
+    "error": null
+  },
+  "eventsReqs": [
+    {
+      "url": "http://127.0.0.1:5175/api/v1/events?",
+      "headers": {
+        "sec-ch-ua-platform": "\"macOS\"",
+        "referer": "http://127.0.0.1:5175/ai",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+        "accept": "text/event-stream",
+        "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+        "sec-ch-ua-mobile": "?0"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:5175/api/v1/events?",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5175/api/v1/events?workspace=%2Ftmp%2Fws",
+      "headers": {
+        "sec-ch-ua-platform": "\"macOS\"",
+        "referer": "http://127.0.0.1:5175/ai",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+        "accept": "text/event-stream",
+        "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+        "sec-ch-ua-mobile": "?0"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:5175/api/v1/events?workspace=%2Ftmp%2Fws",
+      "status": 200
+    }
+  ],
+  "at": "2026-09-17T06:41:58.828Z"
+}

@@ -1,0 +1,126 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "sha": "a5e4edf6488f87526c2cb13e98cf3e46a4da6c51",
+  "base": "472226c9ae7df4c0dfae532ce79427d061824bfb",
+  "pushed": false,
+  "mergedMain": false,
+  "cases": [
+    {
+      "downstream": "员工档案",
+      "from": "{{t(\"Departments\")}}",
+      "field": "department",
+      "libraryCount": 120,
+      "rightCount": 120,
+      "matched": true,
+      "previouslyPassed": false
+    },
+    {
+      "downstream": "员工档案",
+      "from": "岗位",
+      "field": "position",
+      "libraryCount": 120,
+      "rightCount": 120,
+      "matched": true,
+      "previouslyPassed": false
+    },
+    {
+      "downstream": "员工档案",
+      "from": "{{t(\"Users\")}}",
+      "field": "user",
+      "libraryCount": 20,
+      "rightCount": 20,
+      "matched": true,
+      "previouslyPassed": false
+    },
+    {
+      "downstream": "{{t(\"Users\")}}",
+      "from": "{{t(\"Departments\")}}",
+      "field": "members",
+      "libraryCount": 0,
+      "rightCount": 0,
+      "matched": true,
+      "previouslyPassed": false
+    },
+    {
+      "downstream": "{{t(\"Users\")}}",
+      "from": "{{t(\"Departments\")}}",
+      "field": "owners",
+      "libraryCount": 0,
+      "rightCount": 0,
+      "matched": true,
+      "previouslyPassed": false
+    },
+    {
+      "downstream": "{{t(\"Users\")}}",
+      "from": "{{t(\"Roles\")}}",
+      "field": "users",
+      "libraryCount": 14,
+      "rightCount": 14,
+      "matched": true,
+      "previouslyPassed": false
+    },
+    {
+      "downstream": "{{t(\"Roles\")}}",
+      "from": "{{t(\"Users\")}}",
+      "field": "roles",
+      "libraryCount": 8,
+      "rightCount": 8,
+      "matched": true,
+      "previouslyPassed": false
+    },
+    {
+      "downstream": "{{t(\"Departments\")}}",
+      "from": "{{t(\"Users\")}}",
+      "field": "departments",
+      "libraryCount": 0,
+      "rightCount": 0,
+      "matched": true,
+      "previouslyPassed": false
+    },
+    {
+      "downstream": "{{t(\"Users\")}}",
+      "from": "{{t(\"Departments\")}}",
+      "field": "mainDepartment",
+      "libraryCount": 0,
+      "rightCount": 0,
+      "matched": true,
+      "previouslyPassed": false
+    },
+    {
+      "downstream": "工单",
+      "from": "客户",
+      "field": "customer",
+      "libraryCount": 399,
+      "rightCount": 399,
+      "matched": true,
+      "previouslyPassed": true
+    },
+    {
+      "downstream": "采购收货单",
+      "from": "仓库",
+      "field": "warehouse",
+      "libraryCount": 386,
+      "rightCount": 386,
+      "matched": true,
+      "previouslyPassed": true
+    },
+    {
+      "downstream": "费用报销",
+      "from": "员工档案",
+      "field": "approvedExpenses",
+      "libraryCount": 799,
+      "rightCount": 799,
+      "matched": true,
+      "previouslyPassed": true
+    },
+    {
+      "downstream": "采购订单",
+      "from": "{{t(\"Users\")}}",
+      "field": "ownedPurchaseOrders",
+      "libraryCount": 599,
+      "rightCount": 599,
+      "matched": true,
+      "previouslyPassed": true
+    }
+  ]
+}

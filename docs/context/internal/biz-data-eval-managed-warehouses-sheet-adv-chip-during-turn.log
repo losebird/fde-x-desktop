@@ -1,0 +1,58 @@
+{
+  "allPass": false,
+  "chipCase": {
+    "short": "chip-parent",
+    "speech": "员工档案的仓库",
+    "sessionId": "session-4dc479c3-b8ed-4bd3-bff8-f5ce0c6c39b3",
+    "promptHttp": 200,
+    "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-managed-warehouses-sheet-adv-chip-parent.png",
+    "libraryHit": 6,
+    "fullTable": 6,
+    "rightHitTotal": 6,
+    "hitTotalState": "known",
+    "sheetKind": "仓库",
+    "sheetNos": [
+      "WH01",
+      "WH02",
+      "WH03",
+      "WH04",
+      "WH05",
+      "WH06"
+    ],
+    "officialSheetNos": [
+      "WH01",
+      "WH02",
+      "WH03",
+      "WH04",
+      "WH05",
+      "WH06"
+    ],
+    "dbNos": [
+      "WH01",
+      "WH02",
+      "WH03",
+      "WH04",
+      "WH05",
+      "WH06"
+    ],
+    "setMatch": true,
+    "footerText": "共 6 条",
+    "footerAttr": "共 6 条",
+    "visibleRowCount": 6,
+    "tableHeaders": [],
+    "rowLabels": [
+      "1WH06启用西南综合仓2026/06/24 11:05综合库成都EMP-017改行删除",
+      "2WH05启用半成品周转仓2026/06/24 11:05半成品库苏州EMP1035改行删除",
+      "3WH04启用华北原料仓2026/06/24 11:05原料库北京EMP1117改行删除",
+      "4WH03启用华南成品仓2026/06/24 11:05成品库深圳EMP1033改行删除",
+      "5WH02启用成品中心仓2026/06/24 11:05成品库上海EMP1098改行删除",
+      "6WH01启用原料中心仓2026/06/24 11:05原料库上海EMP1068改行删除"
+    ],
+    "planLine": "",
+    "chipClicked": false,
+    "chipUiBefore": [],
+    "pass": false,
+    "note": "未点到芯片: ；右表仍 WH01–WH06；pending 仍为仓库；pending.nos=WH01,WH02,WH03…",
+    "recapture": "during-turn-chip"
+  }
+}

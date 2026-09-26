@@ -1,0 +1,150 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "commit": "924c64127a42328614eaf5e9f4502221509247c2",
+  "pid": 1985,
+  "port": 5174,
+  "hardcode": {
+    "pierced": false,
+    "note": "924c641 只改 runtime/vendor-overlays/dsh-lan-assist/write.js:1330，同对象折叠改为关系名非空才保留。这一处没有员工档案、Departments、manager、subordinates、parent、children、80、15、11、4。"
+  },
+  "secondPath": {
+    "pierced": true,
+    "note": "同对象跳过还留着第二条路径。词表说法、不带 steps、不带 from 时，右边是数出的那一侧。带上同对象 steps，或把关系放在内层同对象 from 上，右边回到整表。",
+    "sites": [
+      {
+        "file": "runtime/vendor-overlays/dsh-lan-assist/plan.js",
+        "line": 55,
+        "text": "if (!kind || seen.has(kind)) break"
+      },
+      {
+        "file": "runtime/vendor-overlays/dsh-lan-assist/slots.js",
+        "line": 1201,
+        "text": "from 已在时直接返回，不再按词表补自环字段"
+      },
+      {
+        "file": "runtime/vendor-overlays/dsh-lan-assist/slots.js",
+        "line": 1204,
+        "text": "steps 已在时直接返回，不再按词表补自环字段"
+      },
+      {
+        "file": "runtime/routes/biz.mjs",
+        "line": 264,
+        "text": "steps 抄进闸时丢掉 relation"
+      }
+    ],
+    "evidence": [
+      "员工档案 steps 带 relation=manager，右边 120，等于整表。",
+      "部门 steps 带 relation=parent 或 children，右边 12，等于整表。",
+      "from 外层无关系、内层同对象 relation=manager，右边 120，等于整表。"
+    ]
+  },
+  "counts": {
+    "员工档案": 120,
+    "员工档案挂了上级": 80,
+    "员工档案挂了下属": 15,
+    "部门": 12,
+    "部门挂了上级部门": 11,
+    "部门挂了子部门": 4,
+    "note": "下属是被人当成上级的 15 人，下属关联非空也是这 15 人。子部门是有下级的 4 个部门。两边单号对过，缺 0 多 0。员工两边重合 13 人。部门两边重合 3 个（销售中心、生产中心、人力资源部），总经办只在子部门一侧。"
+  },
+  "edges": [
+    {
+      "edge": "员工档案 → 员工档案",
+      "speech": "现查员工档案的直属上级。只要预览，不要过账，不要 biz_write。",
+      "publicName": "直属上级",
+      "librarySide": 80,
+      "fullTable": 120,
+      "right": 80,
+      "footer": "共 80 条 · 局域网业务协作适配器 · 现查 17:32",
+      "pierced": true,
+      "pierce": "词表说法右边是 80，行集等于挂了上级的 80。同对象 steps 或内层 from 仍回到整表 120。",
+      "swapSpeech": "现查直属上级关联的员工档案。只要预览，不要过账，不要 biz_write。",
+      "swapRight": 80,
+      "swapSameRowsAsThisSide": true,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-adv-zhishu.png"
+    },
+    {
+      "edge": "员工档案 → 员工档案",
+      "speech": "现查员工档案的下属。只要预览，不要过账，不要 biz_write。",
+      "publicName": "下属",
+      "librarySide": 15,
+      "fullTable": 120,
+      "right": 15,
+      "footer": "共 15 条 · 局域网业务协作适配器 · 现查 17:32",
+      "pierced": true,
+      "pierce": "词表说法右边是 15，行集等于挂了下属的 15，不是 80，也不是 120。同对象 steps 仍回到整表 120。",
+      "swapSpeech": "现查下属关联的员工档案。只要预览，不要过账，不要 biz_write。",
+      "swapRight": 15,
+      "swapSameRowsAsThisSide": true,
+      "sameBatchAsOtherDirection": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-adv-xiashu.png"
+    },
+    {
+      "edge": "{{t(\"Departments\")}} → {{t(\"Departments\")}}",
+      "speech": "现查{{t(\"Departments\")}}的{{t(\"Superior department\")}}。只要预览，不要过账，不要 biz_write。",
+      "publicName": "{{t(\"Superior department\")}}",
+      "librarySide": 11,
+      "fullTable": 12,
+      "right": 11,
+      "footer": "共 11 条 · 局域网业务协作适配器 · 现查 17:32",
+      "pierced": true,
+      "pierce": "词表说法右边是 11，行集等于挂了上级部门的 11。同对象 steps 仍回到整表 12。",
+      "swapSpeech": "现查{{t(\"Superior department\")}}关联的{{t(\"Departments\")}}。只要预览，不要过账，不要 biz_write。",
+      "swapRight": 11,
+      "swapSameRowsAsThisSide": true,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-adv-shangji-bumen.png"
+    },
+    {
+      "edge": "{{t(\"Departments\")}} → {{t(\"Departments\")}}",
+      "speech": "现查{{t(\"Departments\")}}的children。只要预览，不要过账，不要 biz_write。",
+      "publicName": "children",
+      "publicNameNote": "schema title 为空。词表 fields 公开的名字就是 children。",
+      "librarySide": 4,
+      "fullTable": 12,
+      "right": 4,
+      "footer": "共 4 条 · 局域网业务协作适配器 · 现查 17:32",
+      "rows": ["人力资源部", "生产中心", "销售中心", "总经办"],
+      "pierced": true,
+      "pierce": "词表说法右边是 4，行集等于挂了子部门的 4，不是 11，也不是 12。同对象 steps 仍回到整表 12。",
+      "swapSpeech": "现查children关联的{{t(\"Departments\")}}。只要预览，不要过账，不要 biz_write。",
+      "swapRight": 4,
+      "swapSameRowsAsThisSide": true,
+      "sameBatchAsOtherDirection": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-adv-zibumen.png"
+    }
+  ],
+  "spotChecks": [
+    {
+      "edge": "客户 → 工单",
+      "librarySide": 399,
+      "right": 399,
+      "footer": "共 399 条 · 局域网业务协作适配器 · 现查 17:32",
+      "pierced": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-adv-gongdan.png"
+    },
+    {
+      "edge": "{{t(\"Roles\")}} → {{t(\"Users\")}}",
+      "librarySide": 14,
+      "right": 14,
+      "footer": "共 14 条 · 局域网业务协作适配器 · 现查 17:33",
+      "pierced": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-adv-roles-users.png"
+    },
+    {
+      "edge": "{{t(\"Users\")}} → {{t(\"Roles\")}}",
+      "librarySide": 8,
+      "right": 8,
+      "footer": "共 8 条 · 局域网业务协作适配器 · 现查 17:33",
+      "pierced": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-adv-users-roles.png"
+    },
+    {
+      "edge": "{{t(\"Users\")}} → 员工档案",
+      "librarySide": 20,
+      "right": 20,
+      "footer": "共 20 条 · 局域网业务协作适配器 · 现查 17:33",
+      "pierced": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-adv-users-emp.png"
+    }
+  ]
+}

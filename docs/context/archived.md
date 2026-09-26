@@ -1,0 +1,66 @@
+# FDEX工作台 · 归档
+
+- [x] [Land hop fix on main](bc-37f8d6c0-e73a-5023-ae9b-b56d245edf40) — `53c069b`，出图脚本已删
+- [x] [Search color page history](bc-c1124713-dfff-5289-be51-9795b2c2c557) — 搜回退 14→5，现网未翻到第 2 页
+- [x] [Separate chips fix flash](bc-cd5fff7c-5194-5d8f-a3fa-810fe2903127) — 连接器下拉，取消后仍 1 行
+- [x] [Fix corpus and rollback](bc-76159c26-9692-5155-9364-76a1ef0f770d) — 原文不跳 JSON，回退已完成
+- [x] [Retry cancel 过审 diffs](bc-44993c0b-5a09-578e-bb21-6e996cad8b94) — 取消后过审，待确认→已过
+- [x] [Switch latest write preview](bc-8767ed9a-53f1-50bc-bfec-26eba052b7e7) — 四跳抽屉跟上最新预览
+- [x] [Cancel then 过审 diffs](bc-f9856ba5-3e64-5c89-bcb2-5bb4e235ad5b) — 限流后已停，没留验证
+- [x] [Prove live write hops](bc-60e67243-e94a-572a-a46e-02081fba4ed0) — 改行过了，删除抽屉没换
+- [x] [Finish remaining records gaps](bc-b5d41717-09cc-5962-9f24-c4a160c1e3ae) — 现查原句 1 行
+- [x] [Finish history picker UX](bc-ef69bf95-7ecc-5fbc-b013-332bf4201afd) — 切改行无空抽屉
+- [x] [Land align then prove](bc-ab6a9aa4-26f4-5572-9a4b-75a2d4692407) — 原句左 1 右 1
+- [x] [Reprove hop after cooldown](bc-c3b01a5b-d699-5722-a4ad-166d5dc8a64c) — 左 1、footer 1，表体 9 行
+- [x] [Fix write hop then land](bc-cbac8644-9685-54c7-97c1-057608aaca8a) — G/H 写动作 hop
+- [x] [Bind speech then prove](bc-01c2bc4f-1891-5813-bafb-63320be093fe) — 表现查过了；改行当时摊合同
+- [x] [Prove hop intersection live](bc-f92f7a96-c349-561e-9ed0-de6d20018d13) — 单侧 232，hop 未发生
+- [x] [Bind hop sheet to latest 现查](bc-085e03bc-5ab1-5274-8a3f-d50f9f9b7184) — 旁支；截图是空应用页
+- [x] 现查与业务记录对齐 — 全句 hop 后工单 22
+  - [x] [Prove 停用 hop live](bc-19ecfaa3-a741-5f36-a2fb-f52843bafcc6) — 图已对上
+- [x] [Commit records hydrate fix](bc-7c94dea9-bff9-5be9-875b-ad2186f3246d) — `b3fb0d1`
+- [x] [Check 停用未关工单](bc-11e36666-bd72-558c-9371-cfed2fc02dd2) — `fbbc1f8` 跟最新 pending
+- [x] [Stop preview reopen restore back](bc-1beba752-1f16-5536-b048-aea6afeb9886) — 取消后不再重开预览
+- [x] [Fix Data subview tab clicks](bc-90599925-64fb-57e1-963d-1c7de6fc3bbe) — `1452e52`
+- [x] pack + 首启拷贝 — [Spot-check semantic hard-fail](bc-035645e3-04c5-55b5-a534-7f3fb1bd5d4d) 合并保留；打包已停
+- [x] [Prove filter paging live](bc-2ec34bce-7473-56ed-8f90-c75e6abda58e) — 70 条、第 2 页序号 11–20
+- [x] [Fix records filter paging](bc-d401f34c-27ed-52f0-b17d-d48b12e051ad) — `d2868f4` 过滤缓存和翻页回弹
+- [x] [Trace extra kind chips](bc-eb24359e-a8a8-5db9-aef6-1645763416e3) — 拜访台账是两个本机草稿应用
+- [x] [Make records a data grid](bc-0fa8594d-fa91-5111-8a08-e2a5f69414ca) — `68b5163` 网格+自动序号
+- [x] [Finish 返回 on 1-row](bc-4f5ab491-5c9e-5074-8f54-8f52ede4ff6d) — 单行改行可返回列表
+- [x] [Prove 返回 visible](bc-f4362cb3-f75d-509c-b317-f0ae0ab8224e) — `5a02033` 缓存现查
+- [x] [Complete workspace vocab graph](bc-561b244d-f0b0-50bc-a767-00d1802ca15e) — 现查/改行/删除 41
+- [x] [Finish can buttons live](bc-085eaec2-fd46-5344-b630-aa7bec140bef) — `8ed8beb`；当时图未过
+- [x] [Generate vocab and relations](bc-21829b48-f9e3-5f62-8d45-dc015b4d351a) — 等方案时已停，未按工单词表拷贝
+- [x] [Confirm vocab graph scope](bc-c3923d7a-47e6-5b61-8d0f-bc0ac8859b83) — 动作在词表，关系属性在图
+- [x] [Confirm vocab owns actions](bc-4e010e66-7b1f-5b57-ac77-2875557cf61f) — 工单当时 `can` 无改行；壳写死五动作
+- [x] [Show 返回 on 改行](bc-cd2441bb-e155-5057-ad63-93d3fcd7c735) — `74b3005`；交回截图当时没有返回
+- [x] [Verify live bundle vs main](bc-3c4345e0-f12b-5f20-8ece-cbc4ee3a387c) — 5174 同树；返回被 1 行门槛藏掉
+- [x] [Triage daily-use product gaps](bc-ccdbb232-5f5f-5714-ac1e-f3ffaa335417) — 能聊 AI/IM；biz 与记忆现网坏
+- [x] [Review pack and first-run](bc-aed2de06-b796-5eb5-ab9d-f94adb146e81) — 需小修；12/13 已对
+- [x] [架构与进度评估](bc-2958c2ac-e833-57a2-9b64-795b8fc88dd9) — 已并入项目评估报告
+- [x] [前端 UI/UX 评估](bc-3ba247bd-4c8d-532b-9471-5e9048de4cd6) — 已并入项目评估报告
+- [x] [业务应用与早报深评](bc-a10311e9-28d4-548b-a71b-31304c7c6386) — 已并入 AI Native 改善建议
+- [x] [计划 MCP Skills 深评](bc-8549a075-920f-5f43-a7a4-c0b66c5db66e) — 已并入 AI Native 改善建议
+- [x] [MCP 接业务系统研究](bc-69a52f8f-8047-52d7-9468-1c3e71c28089) — 结论方案 C，已并入建议
+- [x] [DSH preset 与创造模式研究](bc-00be1d39-377a-55f4-aa76-f9890bab66b0) — 创造模式 = preset `cordis`，已并入建议
+- [x] [semantic-os 记忆能力摸底](bc-18fcdbc6-a0bf-53d8-a975-22dbdae7dfc7) — 已并入平台方案
+- [x] [业务记录与早报接入摸底](bc-0dd8fe99-5e48-5caf-9ec7-ce63180edea7) — 已并入平台方案
+- [x] [应用生成与运行时摸底](bc-30436cf4-86fd-570b-9b86-6fcc379be8fc) — 已并入平台方案
+- [x] [跨平台一键安装打包调研](bc-6e281d96-00c3-53b7-9f02-cc421921560d) — 已并入打包方案
+- [x] [多面板同时撕出实现](bc-f44a28ab-9e6e-5fbc-83d2-2cff7ccc6c12) — 提交 3b188d4
+- [x] [semantic-os 官方安装包调研](bc-cc5b507d-1589-5dcd-bcd0-1e4b7dd037d5) — 已并入打包方案 §7
+- [x] [审查 多浮窗提交 3b188d4](bc-e8ccada6-3da2-5167-aeb3-2c4b70b2da94) — 判需小修，已转给实现者
+- [x] [阶段0 去硬编码路径与端口](bc-2a86810d-379d-581e-8dc5-e06dc039e2ad) — 三提交完成，待审查
+- [x] [审查 去硬编码三提交](bc-cf1c6936-8f97-51b6-a3c9-c3d50eb7e66a) — 判需小修，已转给实现者
+- [x] [建 git 基线并复现接着做](bc-7a331c79-d4fe-5724-8721-bc7c292bf8e9) — 基线 a844914；复现出第四个缺口（loadCurrentAiTarget 要求已有会话）
+- [x] [核对 规格包代码接点](bc-c79fc28b-3450-5889-acc5-a5c74f9f0fb1) — 勘误已并入规格；发现 Mac 侧 store 可写路径
+- [x] 多浮窗 — `3b188d4` + `6a1d977`，5174 已生效
+- [x] [Review Wave 1 landings](bc-96197564-840e-522f-a13e-6e7c92b94d1f) — 01/03/08 均需小修，不回滚
+- [x] [接着做 P0 修复](bc-6fb69176-4b15-5656-b462-737605ede496) — 8 提交已进 main（末 `8b76008`）
+- [x] [Fix browser SSE 403](bc-2682fa82-bed6-5dad-9c30-788d4c15bb79) — `b2d1a1a`
+- [x] [Fix Plan empty hydrate](bc-2588bf27-4e82-5f8e-a049-59093f9acb2f) — `4a9879f`
+- [x] [Accept Wave 1 on peer](bc-56477c6f-4435-55a2-a25f-ddb36b4a1f4e) — 当时需小修，后续已补
+- [x] [Review Wave 3 landings](bc-15edf17a-8fbb-5fb3-b242-42112f990330) — 04/07 需小修，不回滚
+- [x] [Review Wave 4 landings](bc-707bc319-66a1-5c6c-8603-5d3c10c82b18) — 03 补尾合并保留；05/06/08/04 需小修（现网/DSH）
+- [x] [Review Electron P1 POC](bc-41a334e9-728a-5d81-9887-87b7a0a8d142) — 需小修；picker/Origin 已补

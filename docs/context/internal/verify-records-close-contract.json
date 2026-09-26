@@ -1,0 +1,99 @@
+{
+  "sha": "8096470",
+  "branch": "main",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "hardcodedInSrc": "none",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "originPushed": false,
+  "pnpm5174": true,
+  "slice": "BK-contract-3-cancel",
+  "contract1": "not-this-slice",
+  "contract2": "not-this-slice",
+  "contract4": "already-specified",
+  "sessionId": "session-628fa15e-9f42-4fa8-bd53-e515de3caf3e",
+  "rehop": {
+    "http": 200,
+    "accepted": true
+  },
+  "beforeWrite": {
+    "kind": "工单",
+    "action": "现查",
+    "rows": 21,
+    "first": "TK20260623126",
+    "speech": "停用客户还有哪些没关的工单？只要预览，不要过账，不要 biz_write。",
+    "preview_id": null,
+    "chips": [
+      "工单21",
+      "客户14"
+    ],
+    "footer": "共 21 条 · 局域网业务协作适配器 · 改行 22:46",
+    "footerCount": 21,
+    "firstNo": "1",
+    "drawerOpen": false
+  },
+  "hopSpeechStayed": true,
+  "writeFallback": {
+    "http": 200,
+    "error": null,
+    "kind": "工单",
+    "action": "改行",
+    "rows": 21,
+    "first": "TK20260623126",
+    "preview_id": "pv_07d1cb8ce0f9988c",
+    "message": ""
+  },
+  "write": {
+    "kind": "工单",
+    "action": "改行",
+    "rows": 21,
+    "first": "TK20260623126",
+    "speech": "停用客户还有哪些没关的工单？只要预览，不要过账，不要 biz_write。",
+    "preview_id": "pv_07d1cb8ce0f9988c",
+    "chips": [
+      "工单21",
+      "客户14"
+    ],
+    "footer": "共 21 条 · 局域网业务协作适配器 · 改行 22:47",
+    "footerCount": 21,
+    "firstNo": "1",
+    "drawerOpen": true,
+    "drawerText": "改行确认 将更新 工单 记录 关闭 操作：改行 · 业务型：工单 工单状态 处理中 → 已解决 取消 确认过账",
+    "ready": true
+  },
+  "cancel": {
+    "clicked": true,
+    "kind": "工单",
+    "action": "现查",
+    "rows": 21,
+    "first": "TK20260623126",
+    "speech": "停用客户还有哪些没关的工单？只要预览，不要过账，不要 biz_write。",
+    "preview_id": null,
+    "chips": [
+      "工单21",
+      "客户14"
+    ],
+    "footer": "共 21 条 · 局域网业务协作适配器 · 现查 22:47",
+    "footerCount": 21,
+    "firstNo": "1",
+    "drawerOpen": false,
+    "catalogDump": false,
+    "heldBatch": true,
+    "hopSpeechStayed": true
+  },
+  "mediaWrite": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-contract-write.png",
+  "mediaCancel": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-contract-cancel.png",
+  "decision22": {
+    "tabs": {
+      "apps": true,
+      "records": true,
+      "ops": true
+    },
+    "appsTab": true,
+    "opsTab": true
+  },
+  "contract3": true,
+  "ok": true
+}

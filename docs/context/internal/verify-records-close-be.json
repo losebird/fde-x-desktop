@@ -1,0 +1,290 @@
+{
+  "sha": "aa203915fab594be8a6c0c79502b8a18f9487849",
+  "branch": "main",
+  "hardcodedInSrc": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "originPushed": false,
+  "pnpm5174": true,
+  "cases": [
+    {
+      "n": 1,
+      "speech": "停用客户还有哪些没关的工单？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "客户"
+      ],
+      "mentioned": [
+        "客户",
+        "工单"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "工单",
+      "action": "现查",
+      "rows": 21,
+      "first": "TK20260623126",
+      "banner": "AI 刚查了 工单 · 21 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同",
+      "footerCount": 21,
+      "tbodyRows": 10,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": true,
+        "steps": [
+          "客户",
+          "工单"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "emptyHint": false,
+      "previewId": null,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "askAfterPick": null,
+      "chips": {
+        "ok": true,
+        "failCode": "",
+        "chips": [
+          {
+            "kind": "工单",
+            "count": 21,
+            "text": "工单21"
+          },
+          {
+            "kind": "客户",
+            "count": 14,
+            "text": "客户14"
+          }
+        ],
+        "mixed": false,
+        "selected": {
+          "kind": "工单",
+          "count": 21,
+          "text": "工单21"
+        },
+        "side": {
+          "kind": "客户",
+          "count": 14,
+          "text": "客户14"
+        },
+        "afterSide": {
+          "selectedChip": "客户14",
+          "tbodyRows": 10,
+          "footerCount": 14,
+          "firstNo": "CUST2262",
+          "catalog": false
+        },
+        "connectorSeparate": true
+      }
+    },
+    {
+      "n": 2,
+      "speech": "故障类而且紧急、还没关的工单是哪家客户的？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "工单"
+      ],
+      "mentioned": [
+        "工单",
+        "客户"
+      ],
+      "hopNeed": false,
+      "pass": false,
+      "failCode": "still-thinking",
+      "error": "still-thinking",
+      "prompted": {
+        "http": 200,
+        "accepted": true,
+        "error": null
+      },
+      "aiDelta": "12 - 性能问题 - assigned - 青岛云启信息技术有限公司（杨健） TK20251007677 - 报表错误 - assigned - 苏州远见实业集团（李娜） TK20260118524 - 数据同步异常 - processing - 成都青云信息技术有限公司（林超敏） TK20260105175 - 报表错误 - assigned - 青岛启明数据服务有限公司（王军） TK20251003193 - 功能咨询 - assigned - 厦门卓越智能装备有限公司（张艳） TK20241017268 - 数据同步异常 - processing - 厦门嘉信电子有限公司（杨静） TK20250804369 - 数据同步异常 - assigned - 厦门卓越智能装备有限公司（赵强） TK20240217639 - 功能咨询 - assigned - 成都青云信息技术有限公司（黄雨辰） TK20260303283 - 性能问题 - processing - 南京博远信息技术有限公司（孙健霞） TK20241215682 - 设备报警 - assigned - 成都青云信息技术有限公司（陈敏） 说明： 这些工单均与停用客户无直接关联（未在工单记录中标记停用客户为相关方）。 停用客户列表中包含 华东嘉信科技有限公司（TK20250920953 的客户）、苏州远见实业集团（TK20250422233、TK20251007677 的客户）、西安汇川智能装备有限公司（TK20250925592 的客户）、成都中天科技有限公司（TK20241209280、TK20250207164 的客户）等，但工单本身未关联到这些停用客户。 所有工单状态均为 active / 未关闭（未选“已解决/已关闭”）。 如果需要特定工单详情、导出 Excel、或按客户/状态进一步筛选，请提供更多条件。 用量 127K tok 用时 42秒 14:48 系统提示词 故障类而且紧急、还没关的工单是哪家客户的？ 14:48 思考 The user is asking: \"故障类而且紧急、还没关的工单是哪家客户的？\" which means \"Which customers have open tickets that are of type 'incident/fault' AND urgent priority that haven't been closed yet?\" 工具调用 route_intent · 故障类而且紧急、还没关的工单是哪家客户的？ 工具调用 biz_preview · 工单 思考 The biz_preview returned NOT_FOUND for the strict filter (incident + urgent + not closed), but the sheet still shows the previous page of tickets. Looking at the open tickets in the sheet, none have p... 严格条件（故障 + 紧急 + 未关闭）没有命中。我再按「紧急」和「故障未关」分别现查一下，确认库里到底有没有。 工具调用 biz_preview · 工单 工具调用 biz_preview · 工单 思考 Interesting - both returned NOT_FOUND. But looking at the sheet data from the previous inactive-customer open tickets page, there ARE incident (故障) tickets that are open: 运行中 提问 等待回答 深度求索中... 3分00秒 现查结果：没有「故障 + 紧急(urgent) + 未关闭」的工单。优先级枚举是 低/中/高/紧急，库里未关工单最高只到「高」。你要看哪一档？ 1 严格只要紧急 推荐 只认 priority=urgent，当前为 0 条 2 放宽到高+紧急 故障类且优先级为高或紧急、还没关的工单及客户 3 只要故障未关 不限优先级，列出所有故障类未关闭工单的客户 1 / 1 跳过本题 提交",
+      "leftSnippet": " have p... 严格条件（故障 + 紧急 + 未关闭）没有命中。我再按「紧急」和「故障未关」分别现查一下，确认库里到底有没有。 工具调用 biz_preview · 工单 工具调用 biz_preview · 工单 思考 Interesting - both returned NOT_FOUND. But looking at the sheet data from the previous inactive-customer open tickets page, there ARE incident (故障) tickets that are open: 运行中 提问 等待回答 深度求索中... 3分01秒 现查结果：没有「故障 + 紧急(urgent) + 未关闭」的工单。优先级枚举是 低/中/高/紧急，库里未关工单最高只到「高」。你要看哪一档？ 1 严格只要紧急 推荐 只认 priority=urgent，当前为 0 条 2 放宽到高+紧急 故障类且优先级为高或紧急、还没关的工单及客户 3 只要故障未关 不限优先级，列出所有故障类未关闭工单的客户 1 / 1 跳过本题 提交",
+      "pending": {
+        "kind": "工单",
+        "action": "现查",
+        "rows": 21,
+        "first": "TK20260623126",
+        "fromKind": "客户",
+        "fromRows": 14,
+        "fromFirst": "CUST2262",
+        "fromHasRows": true,
+        "hopWhere": true,
+        "steps": [
+          "客户",
+          "工单"
+        ],
+        "speech": "停用客户还有哪些没关的工单？",
+        "preview_id": null,
+        "sessionId": "session-6add16f1-723e-4f8b-a8bd-ed061744bfeb",
+        "changes": [],
+        "where": [
+          {
+            "keys": [
+              "status",
+              "state",
+              "stage"
+            ],
+            "values": [
+              "closed",
+              "resolved",
+              "done",
+              "已关闭",
+              "已解决",
+              "已完成"
+            ],
+            "not": true,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "listed": true,
+        "ambiguous": true,
+        "nos": [
+          "TK20260623126",
+          "TK20240201467",
+          "TK20241209280",
+          "TK20250920953",
+          "TK20250422233",
+          "TK20250207164",
+          "TK20240223580",
+          "TK20240815759",
+          "TK20241111823",
+          "TK20250925592",
+          "TK20240530927",
+          "TK20260202412",
+          "TK20251007677",
+          "TK20260118524",
+          "TK20260105175",
+          "TK20251003193",
+          "TK20241017268",
+          "TK20250804369",
+          "TK20240217639",
+          "TK20260303283",
+          "TK20241215682"
+        ]
+      },
+      "ui": {
+        "footerCount": 21,
+        "tbodyRows": 10,
+        "firstNo": "TK20260623126",
+        "banner": "AI 刚查了 工单 · 21 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？客户 · 现查 · 停用客户还有哪些没关的工单？销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同",
+        "kindChips": [
+          "工单21",
+          "客户14"
+        ],
+        "drawerAction": ""
+      }
+    }
+  ],
+  "portsBefore": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "connect": {
+    "connected": true,
+    "pid": 94368,
+    "error": null
+  },
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "localAppNames": [
+    "家里的菜谱",
+    "阳台植物浇水",
+    "小区水电抄表",
+    "小区水电抄表",
+    "资料卡片板",
+    "家庭药箱",
+    "库存盘点",
+    "库存盘点",
+    "设备故障报修",
+    "本周现场走访记录",
+    "AE归档-mu7xhnsp",
+    "AE归档-mu7xg4bn",
+    "AE归档-mu7x9pbf",
+    "AE归档-mu7xct8g",
+    "AE归档-mu7xe4t6"
+  ],
+  "sessionId": "session-6add16f1-723e-4f8b-a8bd-ed061744bfeb",
+  "sessionGet": {
+    "http": 200,
+    "code": "",
+    "message": "",
+    "id": "session-6add16f1-723e-4f8b-a8bd-ed061744bfeb"
+  },
+  "failCode": "case-2:still-thinking",
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "createWizard": true,
+  "opsTabOk": true,
+  "askAiButton": true,
+  "aiLeft": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "catalogHasVisit": true,
+  "visitOpened": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "wide": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "narrow": {
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false
+  },
+  "portsEnd": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "req": {
+    "cases": false,
+    "cancel": false,
+    "history": false,
+    "session": false
+  },
+  "d22": {
+    "tabs": true,
+    "create": true,
+    "stretch": true,
+    "askAi": true,
+    "visit": true
+  },
+  "autoIm": false,
+  "pass": false
+}

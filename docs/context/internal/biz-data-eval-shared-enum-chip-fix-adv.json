@@ -1,0 +1,329 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "headCommit": "ccc53c949858d72f636c93600aa38bbbd299ff22",
+  "expectedHeadCommit": "ccc53c949858d72f636c93600aa38bbbd299ff22",
+  "headCommitMatches": true,
+  "focusKindRouteOn4318": true,
+  "workspace": "/Users/zxz/Documents/ai-project/fdex测试",
+  "vitePort5174": 5174,
+  "vitePid5174": 1985,
+  "runtimePort": 4318,
+  "runtimePid4318": 77989,
+  "library": {
+    "项目任务": 161,
+    "项目": 96,
+    "费用报销": 42,
+    "请假申请": 26,
+    "销售合同": 0,
+    "仓库": 1,
+    "供应商": 16
+  },
+  "taskVsProject": {
+    "task": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-adv-doing-项目任务.png",
+      "bytes": 67944,
+      "sha256": "501398a3bec2158e8a238dd6d46f0af2fd4ae36805dfcbdd64f0d70b26fed54d"
+    },
+    "project": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-adv-doing-项目.png",
+      "bytes": 67944,
+      "sha256": "501398a3bec2158e8a238dd6d46f0af2fd4ae36805dfcbdd64f0d70b26fed54d"
+    }
+  },
+  "shotsDistinct": false,
+  "captures": [
+    {
+      "short": "doing-项目任务",
+      "group": "doing",
+      "object": "项目任务",
+      "library": 161,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "rightHitTotal": 161,
+      "hitTotalState": "known",
+      "footerText": "共 161 条 · 连接器 · 现查 06:53",
+      "footerAttr": "共 161 条",
+      "footerCount": 161,
+      "tableRowCount": 20,
+      "tableHeaders": [
+        "序号",
+        "单号",
+        "状态",
+        "优先级",
+        "更新时间",
+        "开始日期",
+        "截止日期",
+        "进度百分比",
+        "任务说明",
+        "项目",
+        "负责人",
+        "操作"
+      ],
+      "tableSample": "1方案设计26进行中高2026/06/24 11:132025-07-092025-08-0670项目任务MES系统项目49zxz改行删除 | 2验收33进行中高2026/06/24 11:132024-06-062024-06-1243项目任务客户门户项目69zxz改行删除 | 3部署上线31进行中中2026/06/24 11:132025-08-312025-09-0546项目任务能耗监控项目12王芳改行删除",
+      "pagination": {
+        "page": 1,
+        "pages": 9
+      },
+      "officialSheet": {
+        "kind": "项目任务",
+        "hitTotal": 161,
+        "hitTotalState": "known"
+      },
+      "prevSheetKindBeforeClick": "项目",
+      "pass": true,
+      "note": "一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-adv-doing-项目任务.png",
+      "bytes": 67944,
+      "sha256": "501398a3bec2158e8a238dd6d46f0af2fd4ae36805dfcbdd64f0d70b26fed54d",
+      "sessionId": "session-d0c62ad5-3735-4951-85f2-ea3cb83807d9",
+      "speech": "进行中的项目任务和项目。只要预览，不要过账，不要 biz_write。"
+    },
+    {
+      "short": "doing-项目",
+      "group": "doing",
+      "object": "项目",
+      "library": 96,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "rightHitTotal": 161,
+      "hitTotalState": "known",
+      "footerText": "共 161 条 · 连接器 · 现查 06:53",
+      "footerAttr": "共 161 条",
+      "footerCount": 161,
+      "tableRowCount": 20,
+      "tableHeaders": [
+        "序号",
+        "单号",
+        "状态",
+        "优先级",
+        "更新时间",
+        "开始日期",
+        "截止日期",
+        "进度百分比",
+        "任务说明",
+        "项目",
+        "负责人",
+        "操作"
+      ],
+      "tableSample": "1方案设计26进行中高2026/06/24 11:132025-07-092025-08-0670项目任务MES系统项目49zxz改行删除 | 2验收33进行中高2026/06/24 11:132024-06-062024-06-1243项目任务客户门户项目69zxz改行删除 | 3部署上线31进行中中2026/06/24 11:132025-08-312025-09-0546项目任务能耗监控项目12王芳改行删除",
+      "pagination": {
+        "page": 1,
+        "pages": 9
+      },
+      "officialSheet": {
+        "kind": "项目任务",
+        "hitTotal": 161,
+        "hitTotalState": "known"
+      },
+      "prevSheetKindBeforeClick": "项目任务",
+      "pass": false,
+      "note": "sheet.kind仍=项目任务；official kind=项目任务；右边hitTotal161≠库96；页脚161≠库96；仍是任务表；页脚仍161；未见PRJ单号",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-adv-doing-项目.png",
+      "bytes": 67944,
+      "sha256": "501398a3bec2158e8a238dd6d46f0af2fd4ae36805dfcbdd64f0d70b26fed54d",
+      "sessionId": "session-d0c62ad5-3735-4951-85f2-ea3cb83807d9",
+      "speech": "进行中的项目任务和项目。只要预览，不要过账，不要 biz_write。"
+    },
+    {
+      "short": "other-费用报销",
+      "group": "other",
+      "object": "费用报销",
+      "library": 42,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "rightHitTotal": 42,
+      "hitTotalState": "known",
+      "footerText": "共 42 条 · 局域网业务协作适配器 · 现查 06:56",
+      "footerAttr": "共 42 条",
+      "footerCount": 42,
+      "tableRowCount": 20,
+      "tableHeaders": [
+        "序号",
+        "单号",
+        "状态",
+        "报销单号",
+        "报销人",
+        "所属部门",
+        "审批人",
+        "费用类别",
+        "更新时间",
+        "发生日期",
+        "付款日期",
+        "报销金额",
+        "事由",
+        "操作"
+      ],
+      "tableSample": "1EXP20241128629已付款EXP20241128629EMP1084行政部EMP1061其他2026/06/24 11:132024/11/28 08:002024/12/27 08:0023894.88项目出差改行删除过审 | 2EXP20240224101已付款EXP20240224101EMP1081客户服务部EMP1093其他2026/06/24 11:132024/02/24 08:002024/03/03 08:0012734.41团队培训改行删除过审 | 3EXP20250613325已付款EXP20250613325EMP-005销售中心EMP1111其他2026/06/24 11:132025/06/13 08:002025/06/27 08:0023529.28项目出差改行删除过审",
+      "pagination": {
+        "page": 1,
+        "pages": 3
+      },
+      "officialSheet": {
+        "kind": "费用报销",
+        "hitTotal": 42,
+        "hitTotalState": "known"
+      },
+      "prevSheetKindBeforeClick": "费用报销",
+      "pass": true,
+      "note": "一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-adv-other-费用报销.png",
+      "bytes": 79657,
+      "sha256": "933462ccfe2a46d7c832a36b9f157b1d9ac51f1011373ab2d0a231157313c57e",
+      "sessionId": "session-5aed6cd7-077c-497d-86b9-8747bdff77b9",
+      "speech": "其他的费用报销和请假申请和销售合同。只要预览，不要过账，不要 biz_write。"
+    },
+    {
+      "short": "other-请假申请",
+      "group": "other",
+      "object": "请假申请",
+      "library": 26,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "rightHitTotal": 26,
+      "hitTotalState": "known",
+      "footerText": "共 26 条 · 局域网业务协作适配器 · 现查 06:56",
+      "footerAttr": "共 26 条",
+      "footerCount": 26,
+      "tableRowCount": 20,
+      "tableHeaders": [
+        "序号",
+        "单号",
+        "状态",
+        "申请编号",
+        "员工",
+        "审批人",
+        "更新时间",
+        "开始时间",
+        "结束时间",
+        "请假类型",
+        "请假天数",
+        "请假原因",
+        "操作"
+      ],
+      "tableSample": "1LV-2026-018已过LV-2026-018EMP-018Ace Admin2026/09/03 20:462026/07/07 17:002026/07/09 02:00其他1.5年假休息改行删除过审 | 2QJ20250531930已过QJ20250531930EMP1106吴秀英2026/06/24 11:132025/05/31 23:562025/06/05 23:56其他5调休改行删除过审 | 3QJ20240625277待审QJ20240625277EMP1064孙磊2026/06/24 11:132024/06/25 15:342024/06/27 15:34其他2调休改行删除过审",
+      "pagination": {
+        "page": 1,
+        "pages": 2
+      },
+      "officialSheet": {
+        "kind": "请假申请",
+        "hitTotal": 26,
+        "hitTotalState": "known"
+      },
+      "prevSheetKindBeforeClick": "费用报销",
+      "pass": true,
+      "note": "一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-adv-other-请假申请.png",
+      "bytes": 74242,
+      "sha256": "0c0759ceb77bef1d0d4a53c7eed0f92ad6384d0340933e4361f17d26fb62d625",
+      "sessionId": "session-5aed6cd7-077c-497d-86b9-8747bdff77b9",
+      "speech": "其他的费用报销和请假申请和销售合同。只要预览，不要过账，不要 biz_write。"
+    },
+    {
+      "short": "other-销售合同",
+      "group": "other",
+      "object": "销售合同",
+      "library": 0,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "rightHitTotal": 0,
+      "hitTotalState": "known",
+      "footerText": "共 0 条 · 连接器 · 现查 06:56",
+      "footerAttr": "共 0 条",
+      "footerCount": 0,
+      "tableRowCount": 1,
+      "tableHeaders": [
+        "序号",
+        "单号",
+        "操作"
+      ],
+      "tableSample": "当前型还没有可展示的行",
+      "pagination": {
+        "page": 1,
+        "pages": 1
+      },
+      "officialSheet": {
+        "kind": "销售合同",
+        "hitTotal": 0,
+        "hitTotalState": "known"
+      },
+      "prevSheetKindBeforeClick": "请假申请",
+      "pass": false,
+      "note": "空表应有0行",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-adv-other-销售合同.png",
+      "bytes": 64837,
+      "sha256": "7d82fe31561d437c44420d07c8f9815dd703efad7864bd1a4d07a69e50a807d2",
+      "sessionId": "session-5aed6cd7-077c-497d-86b9-8747bdff77b9",
+      "speech": "其他的费用报销和请假申请和销售合同。只要预览，不要过账，不要 biz_write。"
+    },
+    {
+      "short": "warehouse-semi",
+      "group": "spot",
+      "object": "仓库",
+      "library": 1,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "rightHitTotal": null,
+      "hitTotalState": null,
+      "footerText": "总数未知",
+      "footerAttr": "总数未知",
+      "footerCount": null,
+      "tableRowCount": 1,
+      "tableHeaders": [
+        "序号",
+        "操作"
+      ],
+      "officialSheet": {
+        "kind": "",
+        "hitTotal": null,
+        "hitTotalState": null
+      },
+      "pass": false,
+      "note": "页脚总数未知",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-adv-warehouse-semi.png",
+      "bytes": 54623,
+      "sha256": "2d891521f0e08c1a6f3133855fd9be739a94481ed97efd2ef845ad187f1895f6",
+      "sessionId": "session-5b7be8e3-3186-4abb-b360-a15686ccb7af",
+      "speech": "半成品库的仓库。只要预览，不要过账，不要 biz_write。"
+    },
+    {
+      "short": "supplier-c",
+      "group": "spot",
+      "object": "供应商",
+      "library": 16,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "rightHitTotal": 16,
+      "hitTotalState": "known",
+      "footerText": "共 16 条 · 局域网业务协作适配器 · 现查 06:57",
+      "footerAttr": "共 16 条",
+      "footerCount": 16,
+      "tableRowCount": 16,
+      "tableHeaders": [
+        "序号",
+        "单号",
+        "状态",
+        "供应商名称",
+        "供应商类别",
+        "地址",
+        "更新时间",
+        "联系人",
+        "联系电话",
+        "邮箱",
+        "所属区域",
+        "付款条件",
+        "供应商评级",
+        "负责人",
+        "操作"
+      ],
+      "officialSheet": {
+        "kind": "供应商",
+        "hitTotal": 16,
+        "hitTotalState": "known"
+      },
+      "pass": true,
+      "note": "一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-adv-supplier-c.png",
+      "bytes": 86861,
+      "sha256": "9dbbc71edab4f9acf7316cc8445cf8e2096e2c89ed0d1332de83e6aa34a40d8b",
+      "sessionId": "session-618a23f9-c699-47be-9d7a-ec0778f6dd2f",
+      "speech": "C的供应商。只要预览，不要过账，不要 biz_write。"
+    }
+  ],
+  "allPass": false,
+  "runError": null,
+  "capturedAt": "2026-09-22T22:57:50.511Z"
+}

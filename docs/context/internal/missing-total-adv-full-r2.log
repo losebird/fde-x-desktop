@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "cases": [
+    {
+      "short": "product",
+      "pierced": false,
+      "footer": 5135,
+      "hit": 5135
+    },
+    {
+      "short": "stockMovements",
+      "pierced": true,
+      "footer": 0,
+      "hit": null
+    },
+    {
+      "short": "warehouse",
+      "pierced": true,
+      "footer": 0,
+      "hit": null
+    },
+    {
+      "short": "roles",
+      "pierced": true,
+      "footer": 0,
+      "hit": 0
+    }
+  ]
+}

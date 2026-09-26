@@ -1,0 +1,119 @@
+{
+  "commit": "2321ed1b9a7fe7cb6b370632c817fbe77826f141",
+  "branch": "cursor/eval-three-causes-2d90",
+  "repo": "/Users/zxz/WorkBuddy/2026-09-08-20-34-42/scene-39-personal-workstation",
+  "classId": "edge",
+  "category": "generated-self-loop-speech-X的X",
+  "note": "评测集口语 X的X；未重打人话上级/下属；整表不能当自环命中",
+  "library": {
+    "employees": 120,
+    "departments": 12,
+    "empWithManager": 80,
+    "empWithSubordinates": 15,
+    "deptWithParent": 11,
+    "deptWithChildren": 4
+  },
+  "cases": [
+    {
+      "short": "emp-manager",
+      "label": "员工档案 → 员工档案 / manager",
+      "edge": {
+        "from": "员工档案",
+        "to": "员工档案",
+        "field": "manager"
+      },
+      "speech": "员工档案的员工档案。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-3a94ce4a-7b06-4555-b3a7-5e2dab54c92e",
+      "libraryHit": 80,
+      "fullTable": 120,
+      "rightHitTotal": 120,
+      "footer": 120,
+      "footerText": "共 120 条",
+      "action": "现查",
+      "hitTotalState": "known",
+      "promptHttp": 200,
+      "previewHttp": 200,
+      "previewError": null,
+      "hasOfficialTable": true,
+      "turnDone": true,
+      "pass": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-loop-generated-emp-manager.png"
+    },
+    {
+      "short": "emp-subordinates",
+      "label": "员工档案 → 员工档案 / subordinates",
+      "edge": {
+        "from": "员工档案",
+        "to": "员工档案",
+        "field": "subordinates"
+      },
+      "speech": "员工档案的员工档案。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-90de70bd-bf76-4ad0-b145-661b9c90cbf6",
+      "libraryHit": 15,
+      "fullTable": 120,
+      "rightHitTotal": 120,
+      "footer": 120,
+      "footerText": "共 120 条",
+      "action": "现查",
+      "hitTotalState": "known",
+      "promptHttp": 200,
+      "previewHttp": null,
+      "previewError": null,
+      "hasOfficialTable": true,
+      "turnDone": true,
+      "pass": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-loop-generated-emp-subordinates.png"
+    },
+    {
+      "short": "dept-parent",
+      "label": "{{t(\"Departments\")}} → {{t(\"Departments\")}} / parent",
+      "edge": {
+        "from": "{{t(\"Departments\")}}",
+        "to": "{{t(\"Departments\")}}",
+        "field": "parent"
+      },
+      "speech": "{{t(\"Departments\")}}的{{t(\"Departments\")}}。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-5760a4fd-855f-4946-a090-cd3ed93cd96e",
+      "libraryHit": 11,
+      "fullTable": 12,
+      "rightHitTotal": 12,
+      "footer": 12,
+      "footerText": "共 12 条",
+      "action": "现查",
+      "hitTotalState": "known",
+      "promptHttp": 200,
+      "previewHttp": null,
+      "previewError": null,
+      "hasOfficialTable": true,
+      "turnDone": true,
+      "pass": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-loop-generated-dept-parent.png"
+    },
+    {
+      "short": "dept-children",
+      "label": "{{t(\"Departments\")}} → {{t(\"Departments\")}} / children",
+      "edge": {
+        "from": "{{t(\"Departments\")}}",
+        "to": "{{t(\"Departments\")}}",
+        "field": "children"
+      },
+      "speech": "{{t(\"Departments\")}}的{{t(\"Departments\")}}。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-61688262-6ec0-40f3-a619-4bfaecf54979",
+      "libraryHit": 4,
+      "fullTable": 12,
+      "rightHitTotal": 4,
+      "footer": 4,
+      "footerText": "共 4 条",
+      "action": "现查",
+      "hitTotalState": "known",
+      "promptHttp": 200,
+      "previewHttp": null,
+      "previewError": null,
+      "hasOfficialTable": true,
+      "turnDone": true,
+      "pass": true,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-loop-generated-dept-children.png"
+    }
+  ],
+  "allPass": false
+}

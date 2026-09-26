@@ -1,0 +1,176 @@
+{
+  "commit": "196cb38d9625ae37dedf4ec32683a63115b52650",
+  "branch": "cursor/eval-three-causes-2d90",
+  "failureAnalysis": {
+    "priorSession": "session-9c18ba50-95f1-4cbd-9da4-aa4c766a6424",
+    "priorGoodSession": "session-55861171-f283-41ca-ab02-2b3a6a914071",
+    "relationLostAt": "previewStructured 在 plan.steps.length===1 时走整表现查，模型把已发布自边 relation 挂在唯一步上但未展开成第二步，related 未进入 lookupTodo",
+    "wrongTotalAt": "lookup.js hitPack 用 rows.length、单条命中分支用 listed.rows.length 填 hitTotal，在关系未进查询时把整表条数当成命中总数",
+    "removedOrStopped": [
+      "hitPack: removed hitTotal: rows.length; known 仅采纳 meta.count",
+      "probeOne 单条命中: removed listed.rows.length → hitTotal"
+    ],
+    "fix": "ensurePlanSelfHop 在 normalizePlan 后把单步自边扩成两步自跳，再走既有 hopLinkIds→related 路径"
+  },
+  "lookupJsRowLengthHitTotalFallback": false,
+  "library": {
+    "byCase": {
+      "manager-a": 80,
+      "manager-b": 80,
+      "warehouse-semi": 1,
+      "warehouse-mixed": 1,
+      "supplier-c": 16,
+      "movement-production": 1647
+    },
+    "full": {
+      "biz_employees": 120,
+      "biz_warehouses": 6,
+      "biz_suppliers": 80,
+      "biz_stock_movements": 5135
+    }
+  },
+  "managerFootersMatch": true,
+  "cases": [
+    {
+      "short": "manager-a",
+      "useCase": "现查 员工档案→直属上级 (session 1)",
+      "speech": "现查员工档案的直属上级",
+      "sessionId": "session-b28da1ab-4d23-4566-b680-90267fcde289",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-stable-manager-a.png",
+      "planSteps": [
+        {
+          "kind": "员工档案"
+        },
+        {
+          "kind": "员工档案"
+        }
+      ],
+      "libraryHit": 80,
+      "fullTable": 120,
+      "rightHitTotal": 80,
+      "hitTotalState": "known",
+      "sheetKind": "员工档案",
+      "footerText": "共 80 条 · 局域网业务协作适配器 · 现查 02:50",
+      "footerAttr": "共 80 条",
+      "pagination": "第 1 / 4 页",
+      "visibleRowCount": 20,
+      "pierced": false,
+      "pass": true,
+      "note": "库、右边、页脚一致"
+    },
+    {
+      "short": "manager-b",
+      "useCase": "现查 员工档案→直属上级 (session 2)",
+      "speech": "现查员工档案的直属上级",
+      "sessionId": "session-e9533f54-5230-4baa-a6f4-a6906cd93bb5",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-stable-manager-b.png",
+      "planSteps": [
+        {
+          "kind": "员工档案"
+        },
+        {
+          "kind": "员工档案"
+        }
+      ],
+      "libraryHit": 80,
+      "fullTable": 120,
+      "rightHitTotal": 80,
+      "hitTotalState": "known",
+      "sheetKind": "员工档案",
+      "footerText": "共 80 条 · 连接器 · 现查 02:50",
+      "footerAttr": "共 80 条",
+      "pagination": "第 1 / 4 页",
+      "visibleRowCount": 20,
+      "pierced": false,
+      "pass": true,
+      "note": "库、右边、页脚一致"
+    },
+    {
+      "short": "warehouse-semi",
+      "useCase": "仓库 / 半成品库",
+      "speech": "半成品库的仓库",
+      "sessionId": "session-897a71e8-44a4-4437-9891-288952feda3d",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-stable-warehouse-semi.png",
+      "planSteps": null,
+      "libraryHit": 1,
+      "fullTable": 6,
+      "rightHitTotal": 1,
+      "hitTotalState": "known",
+      "sheetKind": "仓库",
+      "footerText": "共 1 条 · 连接器 · 现查 02:50",
+      "footerAttr": "共 1 条",
+      "pagination": "第 1 / 1 页",
+      "visibleRowCount": 1,
+      "pierced": false,
+      "pass": true,
+      "note": "库、右边、页脚一致"
+    },
+    {
+      "short": "warehouse-mixed",
+      "useCase": "仓库 / 综合库",
+      "speech": "综合库的仓库",
+      "sessionId": "session-2a95cf49-9d93-46f1-8b84-3e32873e849d",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-stable-warehouse-mixed.png",
+      "planSteps": null,
+      "libraryHit": 1,
+      "fullTable": 6,
+      "rightHitTotal": 1,
+      "hitTotalState": "known",
+      "sheetKind": "仓库",
+      "footerText": "共 1 条",
+      "footerAttr": "共 1 条",
+      "pagination": "第 1 / 1 页",
+      "visibleRowCount": 1,
+      "pierced": false,
+      "pass": true,
+      "note": "库、右边、页脚一致"
+    },
+    {
+      "short": "supplier-c",
+      "useCase": "供应商 / C",
+      "speech": "C的供应商",
+      "sessionId": "session-315c5d50-5ec2-47d4-bcfd-a6f929a2b7f7",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-stable-supplier-c.png",
+      "planSteps": null,
+      "libraryHit": 16,
+      "fullTable": 80,
+      "rightHitTotal": 16,
+      "hitTotalState": "known",
+      "sheetKind": "供应商",
+      "footerText": "共 16 条 · 局域网业务协作适配器 · 现查 02:51",
+      "footerAttr": "共 16 条",
+      "pagination": "第 1 / 1 页",
+      "visibleRowCount": 16,
+      "pierced": false,
+      "pass": true,
+      "note": "库、右边、页脚一致"
+    },
+    {
+      "short": "movement-production",
+      "useCase": "出入库流水 / 生产领料",
+      "speech": "生产领料的出入库流水",
+      "sessionId": "session-1c2c4fa8-7fbb-4bd0-9a33-41630aa8c6ef",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-stable-movement-production.png",
+      "planSteps": null,
+      "libraryHit": 1647,
+      "fullTable": 5135,
+      "rightHitTotal": 1647,
+      "hitTotalState": "known",
+      "sheetKind": "出入库流水",
+      "footerText": "共 1647 条 · 连接器 · 现查 02:51",
+      "footerAttr": "共 1647 条",
+      "pagination": "第 1 / 83 页",
+      "visibleRowCount": 20,
+      "pierced": false,
+      "pass": true,
+      "note": "库、右边、页脚一致"
+    }
+  ],
+  "allPass": true
+}

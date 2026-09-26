@@ -1,0 +1,817 @@
+{
+  "probedAt": "2026-09-20T18:06:46.757101+00:00",
+  "hosts": {
+    "ui": "http://127.0.0.1:5174",
+    "bff": "http://127.0.0.1:4318"
+  },
+  "workspaceId": "1985293d-03bb-496f-ad69-5c7f2ac23149",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "sessionId": "session-6e260ee0-8337-408a-adce-99f8c3111779",
+  "sessionArchived": true,
+  "kindsCount": 40,
+  "probe7SkippedBecauseProbe6Nonempty": true,
+  "probes": [
+    {
+      "id": 1,
+      "kind": "请假申请",
+      "speech": "请假单 LV-2026-018",
+      "http": null,
+      "error": {
+        "code": "NOT_FOUND",
+        "message": "这张单业务系统里没有。不是没去查。"
+      },
+      "rows": 0,
+      "nos": [],
+      "statuses": [],
+      "correlationId": "corr_1604d7eb9e9b4b75bd5507b55cebe774",
+      "lv_2026_018": "missing",
+      "lv_2026_018_note": "NOT_FOUND — not in biz system (not 已过)"
+    },
+    {
+      "id": 2,
+      "kind": "请假申请",
+      "speech": "待审的请假申请",
+      "http": null,
+      "rows": 48,
+      "nos": [
+        "QJ20251027588",
+        "QJ20251101520",
+        "QJ20250110249",
+        "QJ20260401299",
+        "QJ20251208449",
+        "QJ20240830442",
+        "QJ20260430818",
+        "QJ20241010724",
+        "QJ20240625277",
+        "QJ20260102470",
+        "QJ20240605948",
+        "QJ20241114149",
+        "QJ20240703519",
+        "QJ20250428564",
+        "QJ20250713654",
+        "QJ20240715207",
+        "QJ20240124157",
+        "QJ20240606531",
+        "QJ20240425805",
+        "QJ20241117709",
+        "QJ20240118541",
+        "QJ20250502245",
+        "QJ20241112110",
+        "QJ20250716127",
+        "QJ20241024706",
+        "QJ20240421751",
+        "QJ20240408478",
+        "QJ20251109854",
+        "QJ20250505211",
+        "QJ20241024958",
+        "QJ20240812489",
+        "QJ20260522917",
+        "QJ20250614378",
+        "QJ20240116582",
+        "QJ20251212854",
+        "QJ20260105175",
+        "QJ20240421688",
+        "QJ20250919942",
+        "QJ20241104137",
+        "QJ20260411846",
+        "QJ20241126935",
+        "QJ20240407159",
+        "QJ20241227397",
+        "QJ20260302944",
+        "LV-2026-014",
+        "LV-2026-010",
+        "LV-2026-006",
+        "LV-2026-002"
+      ],
+      "statuses": [
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审"
+      ],
+      "fields_status": [
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted"
+      ],
+      "speak": "这张单最近一页 48 条。第一张 QJ20251027588，状态 待审。",
+      "topStatus": "多条",
+      "ambiguous": true,
+      "where": [
+        {
+          "keys": [
+            "status",
+            "state",
+            "stage"
+          ],
+          "values": [
+            "待审",
+            "pending",
+            "open",
+            "submitted",
+            "新建"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "correlationId": "corr_8f233c872a0844eeb91a2287666745c5",
+      "first5": [
+        {
+          "no": "QJ20251027588",
+          "status": "待审"
+        },
+        {
+          "no": "QJ20251101520",
+          "status": "待审"
+        },
+        {
+          "no": "QJ20250110249",
+          "status": "待审"
+        },
+        {
+          "no": "QJ20260401299",
+          "status": "待审"
+        },
+        {
+          "no": "QJ20251208449",
+          "status": "待审"
+        }
+      ],
+      "hasPending": true
+    },
+    {
+      "id": 3,
+      "kind": "请假申请",
+      "speech": "产假那张待审请假申请",
+      "http": null,
+      "rows": 48,
+      "nos": [
+        "QJ20251027588",
+        "QJ20251101520",
+        "QJ20250110249",
+        "QJ20260401299",
+        "QJ20251208449",
+        "QJ20240830442",
+        "QJ20260430818",
+        "QJ20241010724",
+        "QJ20240625277",
+        "QJ20260102470",
+        "QJ20240605948",
+        "QJ20241114149",
+        "QJ20240703519",
+        "QJ20250428564",
+        "QJ20250713654",
+        "QJ20240715207",
+        "QJ20240124157",
+        "QJ20240606531",
+        "QJ20240425805",
+        "QJ20241117709",
+        "QJ20240118541",
+        "QJ20250502245",
+        "QJ20241112110",
+        "QJ20250716127",
+        "QJ20241024706",
+        "QJ20240421751",
+        "QJ20240408478",
+        "QJ20251109854",
+        "QJ20250505211",
+        "QJ20241024958",
+        "QJ20240812489",
+        "QJ20260522917",
+        "QJ20250614378",
+        "QJ20240116582",
+        "QJ20251212854",
+        "QJ20260105175",
+        "QJ20240421688",
+        "QJ20250919942",
+        "QJ20241104137",
+        "QJ20260411846",
+        "QJ20241126935",
+        "QJ20240407159",
+        "QJ20241227397",
+        "QJ20260302944",
+        "LV-2026-014",
+        "LV-2026-010",
+        "LV-2026-006",
+        "LV-2026-002"
+      ],
+      "statuses": [
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审",
+        "待审"
+      ],
+      "fields_status": [
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted",
+        "submitted"
+      ],
+      "speak": "这张单最近一页 48 条。第一张 QJ20251027588，状态 待审。",
+      "topStatus": "多条",
+      "ambiguous": true,
+      "where": [
+        {
+          "keys": [
+            "status",
+            "state",
+            "stage"
+          ],
+          "values": [
+            "待审",
+            "pending",
+            "open",
+            "submitted",
+            "新建"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "correlationId": "corr_465f3a53278f41279be6d318db9f0434",
+      "first5": [
+        {
+          "no": "QJ20251027588",
+          "status": "待审"
+        },
+        {
+          "no": "QJ20251101520",
+          "status": "待审"
+        },
+        {
+          "no": "QJ20250110249",
+          "status": "待审"
+        },
+        {
+          "no": "QJ20260401299",
+          "status": "待审"
+        },
+        {
+          "no": "QJ20251208449",
+          "status": "待审"
+        }
+      ],
+      "maternityCount": 0,
+      "maternityNos": [],
+      "sliceEmpty": true
+    },
+    {
+      "id": 4,
+      "kind": "工单",
+      "speech": "武汉云启那张紧急工单",
+      "http": null,
+      "rows": 45,
+      "nos": [
+        "TK20250211633",
+        "TK20251226865",
+        "384428688605184",
+        "384417162657792",
+        "TK20260104674",
+        "TK20250616946",
+        "TK-2026-020",
+        "TK-2026-016",
+        "TK-2026-012",
+        "TK-2026-008",
+        "TK20240510148",
+        "TK20250806274",
+        "TK20250925586",
+        "TK20260105702",
+        "TK20260121514",
+        "TK20250416739",
+        "TK20250322638",
+        "TK20260117769",
+        "TK20240625277",
+        "TK20250114758",
+        "TK20250324694",
+        "TK20240331713",
+        "TK20251004909",
+        "TK20251206733",
+        "TK20240712115",
+        "TK20240403502",
+        "TK20240910202",
+        "TK20251218737",
+        "TK20250219899",
+        "TK20241124638",
+        "TK20250717880",
+        "TK20251115915",
+        "TK20240601169",
+        "TK20240815950",
+        "TK20240129512",
+        "TK20250317500",
+        "TK20251103494",
+        "TK20251023622",
+        "TK20250912254",
+        "TK20240126129",
+        "TK20260324933",
+        "TK20260226139",
+        "TK20240620914",
+        "TK20260525959",
+        "TK-2026-004"
+      ],
+      "statuses": [
+        "new",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "assigned",
+        "resolved",
+        "new",
+        "assigned",
+        "processing",
+        "closed",
+        "resolved",
+        "processing",
+        "resolved",
+        "resolved",
+        "resolved",
+        "processing",
+        "closed",
+        "resolved",
+        "resolved",
+        "processing",
+        "processing",
+        "closed",
+        "closed",
+        "assigned",
+        "closed",
+        "closed",
+        "resolved",
+        "closed",
+        "resolved",
+        "processing",
+        "assigned",
+        "assigned",
+        "processing",
+        "resolved",
+        "resolved",
+        "closed",
+        "resolved",
+        "closed",
+        "resolved"
+      ],
+      "fields_status": [
+        "new",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "resolved",
+        "assigned",
+        "resolved",
+        "new",
+        "assigned",
+        "processing",
+        "closed",
+        "resolved",
+        "processing",
+        "resolved",
+        "resolved",
+        "resolved",
+        "processing",
+        "closed",
+        "resolved",
+        "resolved",
+        "processing",
+        "processing",
+        "closed",
+        "closed",
+        "assigned",
+        "closed",
+        "closed",
+        "resolved",
+        "closed",
+        "resolved",
+        "processing",
+        "assigned",
+        "assigned",
+        "processing",
+        "resolved",
+        "resolved",
+        "closed",
+        "resolved",
+        "closed",
+        "resolved"
+      ],
+      "speak": "这张单最近一页 45 条。第一张 TK20250211633，状态 new。",
+      "topStatus": "多条",
+      "ambiguous": true,
+      "where": [
+        {
+          "keys": [
+            "优先级",
+            "priority"
+          ],
+          "values": [
+            "urgent"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        },
+        {
+          "keys": [
+            "priority"
+          ],
+          "values": [
+            "urgent",
+            "紧急"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "correlationId": "corr_528dc369e2ca42288c8060ca5c0c61a6",
+      "first5": [
+        {
+          "no": "TK20250211633",
+          "status": "new"
+        },
+        {
+          "no": "TK20251226865",
+          "status": "resolved"
+        },
+        {
+          "no": "384428688605184",
+          "status": "resolved"
+        },
+        {
+          "no": "384417162657792",
+          "status": "resolved"
+        },
+        {
+          "no": "TK20260104674",
+          "status": "resolved"
+        }
+      ],
+      "wuhanYunqi": [
+        {
+          "no": "TK20251226865",
+          "status": "resolved",
+          "customer": "武汉云启电子有限公司",
+          "priority": "urgent"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "kind": "工单",
+      "speech": "紧急还没关的工单",
+      "http": null,
+      "rows": 14,
+      "nos": [
+        "TK20250211633",
+        "TK20240510148",
+        "TK20250925586",
+        "TK20260105702",
+        "TK20260121514",
+        "TK20260117769",
+        "TK20240331713",
+        "TK20240403502",
+        "TK20240910202",
+        "TK20241124638",
+        "TK20250317500",
+        "TK20251103494",
+        "TK20251023622",
+        "TK20250912254"
+      ],
+      "statuses": [
+        "new",
+        "assigned",
+        "new",
+        "assigned",
+        "processing",
+        "processing",
+        "processing",
+        "processing",
+        "processing",
+        "assigned",
+        "processing",
+        "assigned",
+        "assigned",
+        "processing"
+      ],
+      "fields_status": [
+        "new",
+        "assigned",
+        "new",
+        "assigned",
+        "processing",
+        "processing",
+        "processing",
+        "processing",
+        "processing",
+        "assigned",
+        "processing",
+        "assigned",
+        "assigned",
+        "processing"
+      ],
+      "speak": "这张单最近一页 14 条。第一张 TK20250211633，状态 new。",
+      "topStatus": "多条",
+      "ambiguous": true,
+      "where": [
+        {
+          "keys": [
+            "优先级",
+            "priority"
+          ],
+          "values": [
+            "urgent"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        },
+        {
+          "keys": [
+            "priority"
+          ],
+          "values": [
+            "urgent",
+            "紧急"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        },
+        {
+          "keys": [
+            "status",
+            "state",
+            "stage"
+          ],
+          "values": [
+            "closed",
+            "resolved",
+            "done",
+            "已关闭",
+            "已解决",
+            "已完成"
+          ],
+          "not": true,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "correlationId": "corr_a7116c9fd33e4ea7bbafeef738326b25",
+      "first5": [
+        {
+          "no": "TK20250211633",
+          "status": "new"
+        },
+        {
+          "no": "TK20240510148",
+          "status": "assigned"
+        },
+        {
+          "no": "TK20250925586",
+          "status": "new"
+        },
+        {
+          "no": "TK20260105702",
+          "status": "assigned"
+        },
+        {
+          "no": "TK20260121514",
+          "status": "processing"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "kind": "销售回款",
+      "speech": "东莞联创到期合同下还有哪些待审回款？",
+      "http": null,
+      "rows": 1,
+      "nos": [
+        "PAY-2026-005"
+      ],
+      "statuses": [
+        "待审"
+      ],
+      "fields_status": [
+        "pending"
+      ],
+      "speak": "销售回款 PAY-2026-005待审。paymentNo PAY-2026-005，updatedAt 2026-06-20T13:31:48.901Z，amount 54800，paymentDate 2026-02-20，method bank_transfer，remarks 首付款，id 371066528202754，customer 杭州数澜软件有限公司，contract HT-2026-005，order SO-2026-005，orderId 371066515619840，customerId 371066446413824。用的是生产NocoBase，不是测试库。",
+      "topStatus": "待审",
+      "ambiguous": false,
+      "where": [
+        {
+          "keys": [
+            "status",
+            "state",
+            "stage"
+          ],
+          "values": [
+            "待审",
+            "pending",
+            "open",
+            "submitted",
+            "新建"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "correlationId": "corr_822cb1ebb11143649872573cbd73466d",
+      "first5": [
+        {
+          "no": "PAY-2026-005",
+          "status": "待审"
+        }
+      ]
+    }
+  ]
+}

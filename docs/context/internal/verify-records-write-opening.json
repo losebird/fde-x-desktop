@@ -1,0 +1,816 @@
+{
+  "sha": "8387d40cba55c6f40bc54bd03a0bee628ed199ed",
+  "branch": "main",
+  "hardcodedLiterals": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "speech": "待审回款 ∩ 已到期合同",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "dismissedBetweenHops": false,
+  "actions": [
+    {
+      "action": "改行",
+      "utterance": "把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-w-preview，只要预览，不要过账，不要 biz_write。",
+      "hop": true,
+      "rows": 1,
+      "first": "PAY-2026-005",
+      "previewOnly": true,
+      "confirmed": false,
+      "aiDelta": "把待审回款 ∩ 已到期合同那 标准模式 对话 轨迹 系统提示词 把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-w-preview，只要预览，不要过账，不要 biz_write。 03:06 5 次工具调用 · 3 条消息 系统提示词 系统提示词 改行预览已出，未过账、未调用 biz_write。 按「已到期合同 → 待审回款」hop，命中： 项 值 单号 PAY-2026-005 状态 待审 合同 HT-2026-005 客户 杭州数澜软件有限公司 变更 回款方式 bank_transfer → hop-w-preview preview_id pv_9c702fed36f3a88a 右边业务页应能看到这条预览；按你的要求停在预览，不写库。 用量 140K tok 用时 53秒 03:07 改行要指出字段。 将改销售回款 PAY-2026-005：将method从 bank_transfer 改为 hop-w-preview 这是预览，不是过账。 展开 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 1 轮 4 步·75 tok/s 140K tok·缓存命中 15%",
+      "thinking": false,
+      "pending": {
+        "kind": "销售回款",
+        "action": "改行",
+        "rows": 1,
+        "first": "PAY-2026-005",
+        "from": {
+          "kind": "销售合同",
+          "where": [
+            {
+              "keys": [
+                "status",
+                "state",
+                "stage"
+              ],
+              "values": [
+                "expired",
+                "已到期",
+                "到期",
+                "过期"
+              ],
+              "not": false,
+              "dateBefore": [
+                "endDate",
+                "dueDate",
+                "expireAt",
+                "expiredAt",
+                "end_date",
+                "due_date"
+              ],
+              "dateAfter": []
+            }
+          ]
+        },
+        "hopWhere": true,
+        "steps": [
+          "销售合同",
+          "销售回款"
+        ],
+        "speech": "把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-w-preview，只要预览，不要过账，不要 biz_write。",
+        "preview_id": "pv_9c702fed36f3a88a",
+        "canWrite": true
+      },
+      "tools": [
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789743981031,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789743981622,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744004646,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744005400,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744005654,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006196,
+          "kind": "销售回款",
+          "action": "过审",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006512,
+          "kind": "销售回款",
+          "action": "新建",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006670,
+          "kind": "销售回款",
+          "action": "新建",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789746562410,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789746562912,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758441771,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758452681,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        }
+      ],
+      "ui": {
+        "active": [
+          "销售回款1"
+        ],
+        "footer": "共 1 条 · 局域网业务协作适配器 · 改行 03:07",
+        "footerCount": 1,
+        "tbodyRows": 1,
+        "firstNo": "PAY-2026-005",
+        "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史工单 · 现查 · closed、resolved审批单 · 现查 · 审批单工单 · 现查 · TK20250211633工单 · 改行 · TK20250211633合同 · 现查 · 合同回款单 · 现查 · live-verify-payment-list销售回款 · 现查 · 销售回款固定资产 · 现查 · 固定资产收货明细 · 现查 · 收货明细员工档案 · 现查 · 员工档案客户 · 现查 · 客户岗位 · 现查 · 岗位仓库 · 现查 · 仓库员工档案 · 现查 · 岗位列出来员工档案？销售回款 · 现查 · 客户列出来销售回款？出入库流水 · 现查 · 出入库流水销售回款 · 现查 · 客户列出来销售合同列出来销售回款？销售回款 · 现查 · 待审回款 ∩ 已到期合同合同 · 现查 · 待审回款 ∩ 已到期合同回款单 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 待审销售回款 ∩ 已到期销售合同销售回款 · 现查 · 待审回款 ∩ 已到期合同资产领用归还 · 现查 · 资产领用归还销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-w-preview，只要预览，不要过账，不要 biz_write。",
+        "drawerOpen": true,
+        "drawerAction": "改行",
+        "drawerText": "改行确认将更新 销售回款 记录关闭操作：改行 · 业务型：销售回款回款方式银行转账→hop-w-preview取消确认过账",
+        "confirmBtn": true
+      },
+      "kind": "销售回款",
+      "fromKind": "销售合同",
+      "hopWhere": true,
+      "steps": [
+        "销售合同",
+        "销售回款"
+      ],
+      "previewId": "pv_9c702fed36f3a88a",
+      "canWrite": true,
+      "drawerAction": "改行",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-write-opening.png"
+    },
+    {
+      "action": "删除",
+      "utterance": "删除待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。",
+      "hop": true,
+      "rows": 1,
+      "first": "PAY-2026-005",
+      "previewOnly": true,
+      "confirmed": false,
+      "aiDelta": "把待审回款 ∩ 已到期合同那 标准模式 对话 轨迹 系统提示词 把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-w-preview，只要预览，不要过账，不要 biz_write。 03:06 5 次工具调用 · 3 条消息 系统提示词 系统提示词 改行预览已出，未过账、未调用 biz_write。 按「已到期合同 → 待审回款」hop，命中： 项 值 单号 PAY-2026-005 状态 待审 合同 HT-2026-005 客户 杭州数澜软件有限公司 变更 回款方式 bank_transfer → hop-w-preview preview_id pv_9c702fed36f3a88a 右边业务页应能看到这条预览；按你的要求停在预览，不写库。 用量 140K tok 用时 53秒 03:07 系统提示词 删除待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。 03:07 2 次工具调用 · 1 条消息 删除预览已出，未过账、未调用 biz_write。 按「已到期合同 → 待审回款」hop，命中并预览删除： 项 值 单号 PAY-2026-005 当前状态 待审 合同 HT-2026-005 客户 杭州数澜软件有限公司 动作 删除 preview_id pv_d9f76e1026141f73 上一笔改行预览已被这次开口换掉。右边业务页应能看到删除预览；按你的要求停在预览，不写库。 用量 102K tok 用时 18秒 03:08 上一笔没写，已被这开口换掉。 将删销售回款 PAY-2026-005，现在是待审 这是预览，不是过账。 展开 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 2 轮 6 步·88 tok/s 241K tok·缓存命中 48%",
+      "thinking": false,
+      "pending": {
+        "kind": "销售回款",
+        "action": "删除",
+        "rows": 1,
+        "first": "PAY-2026-005",
+        "from": {
+          "kind": "销售合同",
+          "where": [
+            {
+              "keys": [
+                "status",
+                "state",
+                "stage"
+              ],
+              "values": [
+                "expired",
+                "已到期",
+                "到期",
+                "过期"
+              ],
+              "not": false,
+              "dateBefore": [
+                "endDate",
+                "dueDate",
+                "expireAt",
+                "expiredAt",
+                "end_date",
+                "due_date"
+              ],
+              "dateAfter": []
+            }
+          ]
+        },
+        "hopWhere": true,
+        "steps": [
+          "销售合同",
+          "销售回款"
+        ],
+        "speech": "删除待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。",
+        "preview_id": "pv_d9f76e1026141f73",
+        "canWrite": true
+      },
+      "tools": [
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789743981622,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744004646,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744005400,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744005654,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006196,
+          "kind": "销售回款",
+          "action": "过审",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006512,
+          "kind": "销售回款",
+          "action": "新建",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006670,
+          "kind": "销售回款",
+          "action": "新建",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789746562410,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789746562912,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758441771,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758452681,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758476414,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        }
+      ],
+      "ui": {
+        "active": [
+          "销售回款1"
+        ],
+        "footer": "共 1 条 · 局域网业务协作适配器 · 删除 03:07",
+        "footerCount": 1,
+        "tbodyRows": 1,
+        "firstNo": "PAY-2026-005",
+        "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史工单 · 现查 · closed、resolved审批单 · 现查 · 审批单工单 · 现查 · TK20250211633工单 · 改行 · TK20250211633合同 · 现查 · 合同回款单 · 现查 · live-verify-payment-list销售回款 · 现查 · 销售回款固定资产 · 现查 · 固定资产收货明细 · 现查 · 收货明细员工档案 · 现查 · 员工档案客户 · 现查 · 客户岗位 · 现查 · 岗位仓库 · 现查 · 仓库员工档案 · 现查 · 岗位列出来员工档案？销售回款 · 现查 · 客户列出来销售回款？出入库流水 · 现查 · 出入库流水销售回款 · 现查 · 客户列出来销售合同列出来销售回款？销售回款 · 现查 · 待审回款 ∩ 已到期合同合同 · 现查 · 待审回款 ∩ 已到期合同回款单 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 待审销售回款 ∩ 已到期销售合同销售回款 · 现查 · 待审回款 ∩ 已到期合同资产领用归还 · 现查 · 资产领用归还销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 删除待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。销售回款 · 改行 · 把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-w-preview，只要预览，不要过账，不要 biz_write。",
+        "drawerOpen": true,
+        "drawerAction": "删除",
+        "drawerText": "删除确认将删除 1 条 销售回款记录关闭操作：删除 · 业务型：销售回款状态待审回款编号PAY-2026-005更新时间2026/06/20 21:31回款金额54800回款日期2026-02-20取消确认过账",
+        "confirmBtn": true
+      },
+      "kind": "销售回款",
+      "fromKind": "销售合同",
+      "hopWhere": true,
+      "steps": [
+        "销售合同",
+        "销售回款"
+      ],
+      "previewId": "pv_d9f76e1026141f73",
+      "canWrite": true,
+      "drawerAction": "删除",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-write-opening.png"
+    },
+    {
+      "action": "过审",
+      "utterance": "过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。",
+      "hop": true,
+      "rows": 1,
+      "first": "PAY-2026-005",
+      "previewOnly": true,
+      "confirmed": false,
+      "aiDelta": "把待审回款 ∩ 已到期合同那 标准模式 对话 轨迹 系统提示词 把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-w-preview，只要预览，不要过账，不要 biz_write。 03:06 5 次工具调用 · 3 条消息 系统提示词 系统提示词 改行预览已出，未过账、未调用 biz_write。 按「已到期合同 → 待审回款」hop，命中： 项 值 单号 PAY-2026-005 状态 待审 合同 HT-2026-005 客户 杭州数澜软件有限公司 变更 回款方式 bank_transfer → hop-w-preview preview_id pv_9c702fed36f3a88a 右边业务页应能看到这条预览；按你的要求停在预览，不写库。 用量 140K tok 用时 53秒 03:07 系统提示词 删除待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。 03:07 2 次工具调用 · 1 条消息 删除预览已出，未过账、未调用 biz_write。 按「已到期合同 → 待审回款」hop，命中并预览删除： 项 值 单号 PAY-2026-005 当前状态 待审 合同 HT-2026-005 客户 杭州数澜软件有限公司 动作 删除 preview_id pv_d9f76e1026141f73 上一笔改行预览已被这次开口换掉。右边业务页应能看到删除预览；按你的要求停在预览，不写库。 用量 102K tok 用时 18秒 03:08 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。 03:08 1 次工具调用 过审预览已出，未过账、未调用 biz_write。 按「已到期合同 → 待审回款」hop，命中： 项 值 单号 PAY-2026-005 变更 待审 → 已过 合同 HT-2026-005 客户 杭州数澜软件有限公司 preview_id pv_c049adaa24036858 上一笔删除预览已被这次开口换掉。右边业务页应能看到过审预览；按你的要求停在预览，不写库。 用量 108K tok 用时 12秒 03:08 上一笔没写，已被这开口换掉。 将改销售回款 PAY-2026-005，从待审 → 已过 这是预览，不是过账。 展开 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 3 轮 8 步·90 tok/s 350K tok·缓存命中 63%",
+      "thinking": false,
+      "pending": {
+        "kind": "销售回款",
+        "action": "过审",
+        "rows": 1,
+        "first": "PAY-2026-005",
+        "from": {
+          "kind": "销售合同",
+          "where": [
+            {
+              "keys": [
+                "status",
+                "state",
+                "stage"
+              ],
+              "values": [
+                "expired",
+                "已到期",
+                "到期",
+                "过期"
+              ],
+              "not": false,
+              "dateBefore": [
+                "endDate",
+                "dueDate",
+                "expireAt",
+                "expiredAt",
+                "end_date",
+                "due_date"
+              ],
+              "dateAfter": []
+            }
+          ]
+        },
+        "hopWhere": true,
+        "steps": [
+          "销售合同",
+          "销售回款"
+        ],
+        "speech": "过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。",
+        "preview_id": "pv_c049adaa24036858",
+        "canWrite": true
+      },
+      "tools": [
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744004646,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744005400,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744005654,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006196,
+          "kind": "销售回款",
+          "action": "过审",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006512,
+          "kind": "销售回款",
+          "action": "新建",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006670,
+          "kind": "销售回款",
+          "action": "新建",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789746562410,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789746562912,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758441771,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758452681,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758476414,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758496747,
+          "kind": "销售回款",
+          "action": "过审",
+          "rows": 1,
+          "hop": true
+        }
+      ],
+      "ui": {
+        "active": [
+          "销售回款1"
+        ],
+        "footer": "共 1 条 · 局域网业务协作适配器 · 过审 03:08",
+        "footerCount": 1,
+        "tbodyRows": 1,
+        "firstNo": "PAY-2026-005",
+        "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史工单 · 现查 · closed、resolved审批单 · 现查 · 审批单工单 · 现查 · TK20250211633工单 · 改行 · TK20250211633合同 · 现查 · 合同回款单 · 现查 · live-verify-payment-list销售回款 · 现查 · 销售回款固定资产 · 现查 · 固定资产收货明细 · 现查 · 收货明细员工档案 · 现查 · 员工档案客户 · 现查 · 客户岗位 · 现查 · 岗位仓库 · 现查 · 仓库员工档案 · 现查 · 岗位列出来员工档案？销售回款 · 现查 · 客户列出来销售回款？出入库流水 · 现查 · 出入库流水销售回款 · 现查 · 客户列出来销售合同列出来销售回款？销售回款 · 现查 · 待审回款 ∩ 已到期合同合同 · 现查 · 待审回款 ∩ 已到期合同回款单 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 待审销售回款 ∩ 已到期销售合同销售回款 · 现查 · 待审回款 ∩ 已到期合同资产领用归还 · 现查 · 资产领用归还销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。销售回款 · 删除 · 删除待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。销售回款 · 改行 · 把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-w-preview，只要预览，不要过账，不要 biz_write。",
+        "drawerOpen": true,
+        "drawerAction": "过审",
+        "drawerText": "过审确认将把 销售回款记录标记为已过审关闭操作：过审 · 业务型：销售回款没有可展示的变更内容。取消确认过账",
+        "confirmBtn": true
+      },
+      "kind": "销售回款",
+      "fromKind": "销售合同",
+      "hopWhere": true,
+      "steps": [
+        "销售合同",
+        "销售回款"
+      ],
+      "previewId": "pv_c049adaa24036858",
+      "canWrite": true,
+      "drawerAction": "过审",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-write-opening.png"
+    },
+    {
+      "action": "新建",
+      "utterance": "按待审回款 ∩ 已到期合同同一条关系链新建一条，只要预览，不要过账，不要 biz_write。",
+      "hop": true,
+      "rows": 1,
+      "first": "新单",
+      "previewOnly": true,
+      "confirmed": false,
+      "aiDelta": "把待审回款 ∩ 已到期合同那 标准模式 对话 轨迹 系统提示词 把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-w-preview，只要预览，不要过账，不要 biz_write。 03:06 5 次工具调用 · 3 条消息 系统提示词 系统提示词 改行预览已出，未过账、未调用 biz_write。 按「已到期合同 → 待审回款」hop，命中： 项 值 单号 PAY-2026-005 状态 待审 合同 HT-2026-005 客户 杭州数澜软件有限公司 变更 回款方式 bank_transfer → hop-w-preview preview_id pv_9c702fed36f3a88a 右边业务页应能看到这条预览；按你的要求停在预览，不写库。 用量 140K tok 用时 53秒 03:07 系统提示词 删除待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。 03:07 2 次工具调用 · 1 条消息 删除预览已出，未过账、未调用 biz_write。 按「已到期合同 → 待审回款」hop，命中并预览删除： 项 值 单号 PAY-2026-005 当前状态 待审 合同 HT-2026-005 客户 杭州数澜软件有限公司 动作 删除 preview_id pv_d9f76e1026141f73 上一笔改行预览已被这次开口换掉。右边业务页应能看到删除预览；按你的要求停在预览，不写库。 用量 102K tok 用时 18秒 03:08 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。 03:08 1 次工具调用 过审预览已出，未过账、未调用 biz_write。 按「已到期合同 → 待审回款」hop，命中： 项 值 单号 PAY-2026-005 变更 待审 → 已过 合同 HT-2026-005 客户 杭州数澜软件有限公司 preview_id pv_c049adaa24036858 上一笔删除预览已被这次开口换掉。右边业务页应能看到过审预览；按你的要求停在预览，不写库。 用量 108K tok 用时 12秒 03:08 按待审回款 ∩ 已到期合同同一条关系链新建一条，只要预览，不要过账，不要 biz_write。 03:08 4 次工具调用 · 1 条消息 系统提示词 新建预览已出，未过账、未调用 biz_write。 沿「已到期合同 → 待审回款」同一条关系链预览新建： 项 值 动作 新建销售回款（占位单号：新单） 合同 HT-2026-005 客户 杭州数澜软件有限公司 回款状态 pending（待审） 回款方式 bank_transfer 备注 按已到期合同关系链新建预览 preview_id pv_67720f79f5efbc39 上一笔过审预览已被这次开口换掉。右边业务页应能看到新建预览；按你的要求停在预览，不写库。 用量 220K tok 用时 25秒 03:08 上一笔没写，已被这开口换掉。 将新建销售回款 新单 这是预览，不是过账。 展开 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 4 轮 11 步·89 tok/s 569K tok·缓存命中 67%",
+      "thinking": false,
+      "pending": {
+        "kind": "销售回款",
+        "action": "新建",
+        "rows": 1,
+        "first": "新单",
+        "from": {
+          "kind": "销售合同",
+          "where": [
+            {
+              "keys": [
+                "status",
+                "state",
+                "stage"
+              ],
+              "values": [
+                "expired",
+                "已到期",
+                "到期",
+                "过期",
+                "new"
+              ],
+              "not": false,
+              "dateBefore": [
+                "endDate",
+                "dueDate",
+                "expireAt",
+                "expiredAt",
+                "end_date",
+                "due_date"
+              ],
+              "dateAfter": []
+            }
+          ]
+        },
+        "hopWhere": true,
+        "steps": [
+          "销售合同",
+          "销售回款"
+        ],
+        "speech": "按待审回款 ∩ 已到期合同同一条关系链新建一条，只要预览，不要过账，不要 biz_write。",
+        "preview_id": "pv_67720f79f5efbc39",
+        "canWrite": true
+      },
+      "tools": [
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744005400,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744005654,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006196,
+          "kind": "销售回款",
+          "action": "过审",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006512,
+          "kind": "销售回款",
+          "action": "新建",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789744006670,
+          "kind": "销售回款",
+          "action": "新建",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789746562410,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789746562912,
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758441771,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758452681,
+          "kind": "销售回款",
+          "action": "改行",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758476414,
+          "kind": "销售回款",
+          "action": "删除",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758496747,
+          "kind": "销售回款",
+          "action": "过审",
+          "rows": 1,
+          "hop": true
+        },
+        {
+          "type": "biz.sheet.pending",
+          "tool": "",
+          "ts": 1789758520868,
+          "kind": "销售回款",
+          "action": "新建",
+          "rows": 1,
+          "hop": true
+        }
+      ],
+      "ui": {
+        "active": [
+          "销售回款1"
+        ],
+        "footer": "共 1 条 · 局域网业务协作适配器 · 新建 03:08",
+        "footerCount": 1,
+        "tbodyRows": 1,
+        "firstNo": "新单",
+        "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史工单 · 现查 · closed、resolved审批单 · 现查 · 审批单工单 · 现查 · TK20250211633工单 · 改行 · TK20250211633合同 · 现查 · 合同回款单 · 现查 · live-verify-payment-list销售回款 · 现查 · 销售回款固定资产 · 现查 · 固定资产收货明细 · 现查 · 收货明细员工档案 · 现查 · 员工档案客户 · 现查 · 客户岗位 · 现查 · 岗位仓库 · 现查 · 仓库员工档案 · 现查 · 岗位列出来员工档案？销售回款 · 现查 · 客户列出来销售回款？出入库流水 · 现查 · 出入库流水销售回款 · 现查 · 客户列出来销售合同列出来销售回款？销售回款 · 现查 · 待审回款 ∩ 已到期合同合同 · 现查 · 待审回款 ∩ 已到期合同回款单 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 待审销售回款 ∩ 已到期销售合同销售回款 · 现查 · 待审回款 ∩ 已到期合同资产领用归还 · 现查 · 资产领用归还销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 按待审回款 ∩ 已到期合同同一条关系链新建一条，只要预览，不要过账，不要 biz_write。销售回款 · 过审 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。销售回款 · 删除 · 删除待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。销售回款 · 改行 · 把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-w-preview，只要预览，不要过账，不要 biz_write。",
+        "drawerOpen": true,
+        "drawerAction": "新建",
+        "drawerText": "新建确认将新建 1 条 销售回款记录关闭操作：新建 · 业务型：销售回款回款状态待确认回款方式银行转账备注按已到期合同关系链新建预览合同HT-2026-005客户杭州数澜软件有限公司取消确认过账",
+        "confirmBtn": true
+      },
+      "kind": "销售回款",
+      "fromKind": "销售合同",
+      "hopWhere": true,
+      "steps": [
+        "销售合同",
+        "销售回款"
+      ],
+      "previewId": "pv_67720f79f5efbc39",
+      "canWrite": true,
+      "drawerAction": "新建",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-write-opening.png"
+    }
+  ],
+  "connect": {
+    "connected": true,
+    "pid": 2939,
+    "error": null,
+    "reused": true
+  },
+  "sessionId": "session-bff49329-9cb3-4b11-9003-b3489880d298",
+  "mentionedKinds": [
+    "销售回款",
+    "销售合同"
+  ],
+  "relatedKinds": [
+    "销售回款",
+    "销售合同"
+  ],
+  "targetKindFromVocab": "销售回款",
+  "targetCan": [
+    "现查",
+    "改行",
+    "删除",
+    "新建",
+    "过审"
+  ],
+  "allowedWrites": [
+    "改行",
+    "删除",
+    "过审",
+    "新建"
+  ],
+  "patchFieldFromVocab": "回款方式",
+  "failCode": "",
+  "pass": true,
+  "hopByAction": {
+    "改行": "yes",
+    "删除": "yes",
+    "过审": "yes",
+    "新建": "yes"
+  },
+  "pendingByAction": {
+    "改行": "改行",
+    "删除": "删除",
+    "过审": "过审",
+    "新建": "新建"
+  },
+  "drawerByAction": {
+    "改行": "改行",
+    "删除": "删除",
+    "过审": "过审",
+    "新建": "新建"
+  }
+}

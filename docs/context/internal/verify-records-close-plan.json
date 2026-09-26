@@ -1,0 +1,729 @@
+{
+  "sha": "507e334b6289acc804b831bec0db64bfd9be70f5",
+  "branch": "cursor/records-close-session-end-fc3c",
+  "items": {
+    "01": {
+      "objects": [
+        "员工档案",
+        "资产领用归还",
+        "员工档案",
+        "考勤记录"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-01.png",
+      "leftStopped": true,
+      "replaced": true,
+      "first": {
+        "stopped": true,
+        "kind": "资产领用归还",
+        "from": "员工档案",
+        "rows": {
+          "checked": [
+            {
+              "no": "LY20231107548",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20230928179",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20230321959",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20250728138",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20220331790",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20221219273",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20250612406",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20260608801",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20250908790",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20250418871",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20230428712",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20251128527",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20230223745",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20250830969",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20220510166",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20240116354",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20240730721",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20240629138",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20211230941",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "LY20251222757",
+              "found": true,
+              "on": true
+            }
+          ],
+          "allOn": true,
+          "missingRow": false,
+          "leaked": [],
+          "offSample": []
+        }
+      },
+      "second": {
+        "stopped": true,
+        "kind": "考勤记录",
+        "from": "员工档案",
+        "rows": {
+          "checked": [
+            {
+              "no": "罗华",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "赵飞",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "谢敏军",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "蒋刚",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "蒋霞",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "罗静怡",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "郭平",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "孙梦琪",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "曾勇",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "郑秀",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "徐嘉宁",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "郭平",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "蒋霞",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "杨诗涵",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "郑娥",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "李文怡",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "冯阳",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "林敏鹏",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "潘芳",
+              "found": true,
+              "on": true
+            },
+            {
+              "no": "李勇",
+              "found": true,
+              "on": true
+            }
+          ],
+          "allOn": true,
+          "missingRow": false,
+          "leaked": [],
+          "offSample": []
+        }
+      },
+      "distinct": true,
+      "shotRole": "second-sentence",
+      "md5": "9c19dedd641aaec2c22784e63fef80bc"
+    },
+    "01a": {
+      "objects": [
+        "员工档案",
+        "资产领用归还"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-01a.png",
+      "md5": "0ada7a2071ff1fd3a8abbab0d44be894",
+      "leftStopped": true,
+      "secondSent": false,
+      "kind": "资产领用归还",
+      "from": "员工档案",
+      "firstNo": "LY20231107548",
+      "hitTotal": 320,
+      "footer": "共 320 条",
+      "sourceCountShown": false,
+      "session": "session-8e4449be-1e69-417b-9e08-276508dcf1c6"
+    },
+    "02": {
+      "objects": [
+        "员工档案",
+        "考勤记录"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-02.png",
+      "leftStopped": true,
+      "kind": "考勤记录",
+      "from": "员工档案",
+      "rows": {
+        "checked": [
+          {
+            "no": "罗华",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "赵飞",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "谢敏军",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "蒋刚",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "蒋霞",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "罗静怡",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "郭平",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "孙梦琪",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "曾勇",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "郑秀",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "徐嘉宁",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "郭平",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "蒋霞",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "杨诗涵",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "郑娥",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "李文怡",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "冯阳",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "林敏鹏",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "潘芳",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "李勇",
+            "found": true,
+            "on": true
+          }
+        ],
+        "allOn": true,
+        "missingRow": false,
+        "leaked": [],
+        "offSample": []
+      },
+      "distinct": true,
+      "session": "session-bd010919-c331-4859-8f48-df22fc67db02"
+    },
+    "03": {
+      "objects": [
+        "固定资产",
+        "资产领用归还",
+        "领用",
+        "归还"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-03.png",
+      "leftStopped": true,
+      "whereHits": [],
+      "full": 320,
+      "narrowed": 232,
+      "hitTotal": 320,
+      "hitTotalState": "known",
+      "rows": {
+        "checked": [
+          {
+            "no": "LY20231107548",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20230928179",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20230321959",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20250728138",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20220331790",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20221219273",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20250612406",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20260608801",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20250908790",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20250418871",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20230428712",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20251128527",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20230223745",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20250830969",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20220510166",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20240116354",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20240730721",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20240629138",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20211230941",
+            "found": true,
+            "on": true
+          },
+          {
+            "no": "LY20251222757",
+            "found": true,
+            "on": true
+          }
+        ],
+        "allOn": true,
+        "missingRow": false,
+        "leaked": [],
+        "offSample": []
+      },
+      "distinct": true
+    },
+    "04": {
+      "objects": [
+        "商品物料",
+        "BOM物料清单",
+        "停用",
+        "状态"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-04.png",
+      "leftStopped": true,
+      "onChild": true,
+      "onParent": true,
+      "from": "商品物料",
+      "hitTotal": 0,
+      "hitTotalState": "known",
+      "intersection": 0,
+      "footer": "共 0 条",
+      "session": "session-54322fa9-0a8d-4a97-a5d6-ffa245768e5f",
+      "md5": "4846851ee81cbfef14c2813ea1a007bc",
+      "kind": "BOM物料清单",
+      "bothChips": true,
+      "note": "empty intersection; each bound object shows the shared condition on its chip"
+    },
+    "05": {
+      "objects": [
+        "员工档案",
+        "考勤记录"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-05.png",
+      "leftStopped": true,
+      "footer": "共 600 条",
+      "state": "known",
+      "total": 600,
+      "shown": 20,
+      "pageSize": 20,
+      "pretends": false,
+      "pageText": "第 1 / 30 页",
+      "session": "session-6fd8baff-cebf-4803-b3a4-597f63d71e24"
+    },
+    "05b": {
+      "objects": [
+        "员工档案",
+        "考勤记录"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-05b.png",
+      "leftStopped": true,
+      "page": 2,
+      "footer": "共 600 条",
+      "moved": true,
+      "overlap": 7,
+      "samePlan": true,
+      "first": "邓娥萱",
+      "hitTotal": 600,
+      "hitTotalState": "known",
+      "pageText": "第 2 / 30 页",
+      "index": "21",
+      "idOverlap": 0,
+      "idCount": 20,
+      "nameOverlap": 7
+    },
+    "06": {
+      "objects": [
+        "固定资产",
+        "资产领用归还",
+        "调拨"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-06.png",
+      "leftStopped": true,
+      "whereOn": true,
+      "speechKeeps": true,
+      "from": "固定资产",
+      "kind": "资产领用归还",
+      "hitTotal": 38,
+      "hitTotalState": "known",
+      "onCount": 38,
+      "anyCount": 38,
+      "leaked": 0,
+      "wrong": 0,
+      "footer": "共 38 条",
+      "pageText": "第 1 / 2 页",
+      "prompted": 200,
+      "session": "session-5b07e599-4ccf-44a6-84ab-0ff311b87ba3",
+      "where": [
+        {
+          "kind": "资产领用归还",
+          "values": [
+            "transfer"
+          ]
+        },
+        {
+          "kind": "资产领用归还",
+          "values": [
+            "transfer"
+          ]
+        }
+      ]
+    },
+    "07": {
+      "objects": [
+        "考勤记录",
+        "随便聊聊"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-07.png",
+      "leftStopped": true,
+      "sameSheet": true,
+      "oldPath": true,
+      "previewed": 2,
+      "prompted": 0,
+      "wrote": false,
+      "historySelected": true,
+      "shotRole": "earlier-combined",
+      "supersededBy": [
+        "07a",
+        "07b",
+        "07c",
+        "07d"
+      ]
+    },
+    "07a": {
+      "objects": [
+        "考勤记录",
+        "随便聊聊，不查记录"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-07a.png",
+      "md5": "905c3168f84e513252c661a60fdada0f",
+      "leftStopped": true,
+      "sameSheet": true,
+      "cleared": false,
+      "kind": "考勤记录",
+      "from": "员工档案",
+      "first": "罗华",
+      "hitTotal": 600,
+      "footer": "共 600 条",
+      "sourceCountShown": false,
+      "session": "session-8e4449be-1e69-417b-9e08-276508dcf1c6"
+    },
+    "07b": {
+      "objects": [
+        "考勤记录"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-07b.png",
+      "md5": "147a85e9e860513d66b661fc4152aba9",
+      "previewOpen": true,
+      "posted": false,
+      "action": "改行",
+      "kind": "考勤记录",
+      "footer": "共 1 条",
+      "confirmVisible": true,
+      "session": "session-c855f3a6-30e1-4eaf-8721-33a16d0bd9d1"
+    },
+    "07c": {
+      "objects": [
+        "考勤记录"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-07c.png",
+      "md5": "e4e1cbd12b8570a00135506a5e6652f6",
+      "previewOpen": false,
+      "posted": false,
+      "sameSheet": true,
+      "kind": "考勤记录",
+      "footer": "共 600 条",
+      "session": "session-c855f3a6-30e1-4eaf-8721-33a16d0bd9d1"
+    },
+    "07d": {
+      "objects": [
+        "资产领用归还"
+      ],
+      "rowsRight": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-07d.png",
+      "md5": "8e22078d84e5b73a7e6cef505ef48470",
+      "switched": true,
+      "kind": "资产领用归还",
+      "from": "员工档案",
+      "first": "LY20231107548",
+      "footer": "共 320 条",
+      "hitTotal": 320,
+      "session": "session-c855f3a6-30e1-4eaf-8721-33a16d0bd9d1"
+    }
+  },
+  "unproven": [
+    "02-default-page-had-no-off-relation-row",
+    "06-no-off-relation-row-with-that-label"
+  ],
+  "shots": {
+    "01": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-01.png",
+    "01a": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-01a.png",
+    "02": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-02.png",
+    "03": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-03.png",
+    "04": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-04.png",
+    "05": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-05.png",
+    "05b": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-05b.png",
+    "06": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-06.png",
+    "07": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-07.png",
+    "07a": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-07a.png",
+    "07b": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-07b.png",
+    "07c": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-07c.png",
+    "07d": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-07d.png"
+  },
+  "sourceChip": {
+    "wasHeadcount": false,
+    "wasTruncatedHop": false,
+    "shownOnPriorShot": "员工档案 111",
+    "priorShot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-plan-05.png",
+    "meaning": "packed rows on the source kind",
+    "pageRows": 20,
+    "pageDistinctNames": 18,
+    "hitTotal": 600,
+    "badge": "hidden on non-result chips",
+    "commit": "b5e62701d3ee5ea607fe83d596775bf7c1e8c845",
+    "hitScopeChanged": false,
+    "reshot": []
+  }
+}

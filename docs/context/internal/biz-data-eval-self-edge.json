@@ -1,0 +1,82 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "commit": "924c64127a42328614eaf5e9f4502221509247c2",
+  "pushed": false,
+  "mergedMain": false,
+  "selfEdges": [
+    {
+      "edge": "员工档案 → 员工档案",
+      "field": "manager",
+      "libraryCount": 80,
+      "fullCount": 120,
+      "rightCount": 80,
+      "footer": "共 80 条 · 局域网业务协作适配器 · 现查 17:08",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-manager.png"
+    },
+    {
+      "edge": "员工档案 → 员工档案",
+      "field": "subordinates",
+      "libraryCount": 15,
+      "fullCount": 120,
+      "rightCount": 15,
+      "footer": "共 15 条 · 局域网业务协作适配器 · 现查 17:12",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-subordinates.png"
+    },
+    {
+      "edge": "{{t(\"Departments\")}} → {{t(\"Departments\")}}",
+      "field": "parent",
+      "libraryCount": 11,
+      "fullCount": 12,
+      "rightCount": 11,
+      "footer": "共 11 条 · 局域网业务协作适配器 · 现查 17:13",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-parent.png"
+    },
+    {
+      "edge": "{{t(\"Departments\")}} → {{t(\"Departments\")}}",
+      "field": "children",
+      "libraryCount": 4,
+      "fullCount": 12,
+      "rightCount": 4,
+      "footer": "共 4 条 · 局域网业务协作适配器 · 现查 17:13",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-children.png"
+    }
+  ],
+  "spotChecks": [
+    {
+      "edge": "客户 → 工单",
+      "field": "customer",
+      "libraryCount": 399,
+      "fullCount": 401,
+      "rightCount": 399,
+      "footer": "共 399 条 · 局域网业务协作适配器 · 现查 17:14",
+      "screenshot": null
+    },
+    {
+      "edge": "{{t(\"Roles\")}} → {{t(\"Users\")}}",
+      "field": "users",
+      "libraryCount": 14,
+      "fullCount": 14,
+      "rightCount": 14,
+      "footer": "共 14 条 · 局域网业务协作适配器 · 现查 17:14",
+      "screenshot": null
+    },
+    {
+      "edge": "{{t(\"Users\")}} → {{t(\"Roles\")}}",
+      "field": "roles",
+      "libraryCount": 8,
+      "fullCount": 11,
+      "rightCount": 8,
+      "footer": "共 8 条 · 局域网业务协作适配器 · 现查 17:14",
+      "screenshot": null
+    },
+    {
+      "edge": "{{t(\"Users\")}} → 员工档案",
+      "field": "user",
+      "libraryCount": 20,
+      "fullCount": 120,
+      "rightCount": 20,
+      "footer": "共 20 条 · 局域网业务协作适配器 · 现查 17:14",
+      "screenshot": null
+    }
+  ]
+}

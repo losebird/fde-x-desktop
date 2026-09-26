@@ -1,0 +1,50 @@
+{
+  "sessionId": "session-b14b2015-c2a9-49ab-af43-38c78d23229f",
+  "workspaceId": "1985293d-03bb-496f-ad69-5c7f2ac23149",
+  "results": [
+    {
+      "short": "product",
+      "speech": "现查商品物料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "panel": {
+        "footerText": "",
+        "state": "",
+        "rowCount": 0,
+        "pageLine": ""
+      },
+      "dest": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-adv-product.png"
+    },
+    {
+      "short": "stock-movements",
+      "speech": "现查商品物料的出入库流水，走 stockMovements。只要预览，不要过账，不要 biz_write。",
+      "panel": {
+        "footerText": "",
+        "state": "",
+        "rowCount": 0,
+        "pageLine": ""
+      },
+      "dest": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-adv-stock-movements.png"
+    },
+    {
+      "short": "warehouse",
+      "speech": "现查仓库的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "panel": {
+        "footerText": "",
+        "state": "",
+        "rowCount": 0,
+        "pageLine": ""
+      },
+      "dest": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-adv-warehouse.png"
+    },
+    {
+      "short": "roles",
+      "speech": "现查{{t(\"Departments\")}}的{{t(\"Roles\")}}。只要预览，不要过账，不要 biz_write。",
+      "panel": {
+        "footerText": "",
+        "state": "",
+        "rowCount": 0,
+        "pageLine": ""
+      },
+      "dest": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-adv-roles.png"
+    }
+  ]
+}

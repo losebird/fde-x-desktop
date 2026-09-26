@@ -1,0 +1,188 @@
+{
+  "sha": "49c8a69212c8b03920c31b5090421559268e6ac1",
+  "branch": "main",
+  "description": "家庭药箱：药名、分类（常备/处方/外用）、剩余片数、到期日、备注。要概览数字、记一笔、按分类的图和流水。能问 AI，并能撕成浮窗。",
+  "rowMarker": "药-mu82l4pf",
+  "visitName": "本周现场走访记录",
+  "hardcoded": "none",
+  "silentBizWrite": false,
+  "originPushed": false,
+  "template": false,
+  "connect": {
+    "connected": true,
+    "pid": 70863,
+    "error": null
+  },
+  "listedBefore": [
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "createdStarted": true,
+  "created": true,
+  "previewed": true,
+  "previewShot": {
+    "product": true,
+    "overview": true,
+    "compose": true,
+    "chart": true,
+    "feed": true,
+    "cards": false,
+    "uses": "ai,float",
+    "table": false,
+    "nav": "药箱"
+  },
+  "activated": true,
+  "activeApp": {
+    "id": "app_27d92ef9a8cb45719d2633f596007003",
+    "name": "家庭药箱",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T07:36:19.018Z"
+  },
+  "newAppName": "家庭药箱",
+  "visitUnchanged": true,
+  "liveShot": {
+    "product": true,
+    "overview": true,
+    "compose": true,
+    "chart": true,
+    "feed": true,
+    "cards": false,
+    "uses": "ai,float",
+    "table": false,
+    "nav": "药箱"
+  },
+  "productPage": true,
+  "formFields": 5,
+  "rowCreated": true,
+  "createNote": true,
+  "hasAi": true,
+  "hasFloat": true,
+  "aiSession": "session-26efdc9c-cc0c-4ef3-b6e8-36a2353d5842",
+  "floated": true,
+  "visitAfterReload": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "rowPersistedUi": true,
+  "reloadShot": {
+    "product": true,
+    "overview": true,
+    "compose": true,
+    "chart": true,
+    "feed": true,
+    "cards": false,
+    "uses": "ai,float",
+    "table": false,
+    "nav": "药箱"
+  },
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-create-product.png",
+  "recordsChips": [
+    "销售回款1",
+    "销售合同1",
+    "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚"
+  ],
+  "masqueradeKindChip": false,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "wide": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false,
+    "stageW": 872,
+    "shieldAttr": false,
+    "iframe": true
+  },
+  "narrow": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 360,
+    "shieldAttr": false,
+    "iframe": true
+  },
+  "resizeCollapse": true,
+  "resizeExpand": true,
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "sqliteTables": [
+    "approvals",
+    "app_field-visits__visit",
+    "app_ae-a-mu7x9pbf__item",
+    "app_ae-a-mu7xct8g__item",
+    "app_ae-a-mu7xe4t6__item",
+    "app_ae-a-mu7xg4bn__item",
+    "app_ae-a-mu7xhnsp__item",
+    "app_inventory-count__count_item",
+    "app_family-medbox__medicine"
+  ],
+  "sqliteHasRow": true,
+  "newNameInSrc": "none",
+  "templateHits": "none",
+  "bizWriteUrls": [],
+  "wired": "ai,float",
+  "pass": true
+}

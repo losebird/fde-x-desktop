@@ -1,0 +1,79 @@
+{
+  "sha": "345d5708a140dd60b19982c6beb1c424a5a3ade7",
+  "branch": "main",
+  "hardcoded": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "description": "本周现场走访记录：对方名称、走访日期、要点、状态（计划/已完成/需跟进）",
+  "rowMarker": "走访-mu7vaswd",
+  "created": true,
+  "previewed": true,
+  "activated": true,
+  "rowCreated": true,
+  "rowPersisted": true,
+  "inAppList": true,
+  "masqueradeKindChip": false,
+  "silentBizWrite": false,
+  "confirmed": false,
+  "originPushed": false,
+  "connect": {
+    "connected": true,
+    "pid": 19575,
+    "error": null
+  },
+  "leftoverIds": [
+    "app_634b18c2aea84e72a5013a91d89b8a9a",
+    "app_522b558f263e43d18c5b5993596ee1dd"
+  ],
+  "createdStarted": true,
+  "reusedDraft": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "draft"
+  },
+  "previewChrome": " AI 创建应用",
+  "listAfterActivate": [
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "kind": "generated"
+    },
+    {
+      "id": "app_634b18c2aea84e72a5013a91d89b8a9a",
+      "name": "供应商拜访台账",
+      "status": "draft",
+      "kind": "generated"
+    },
+    {
+      "id": "app_522b558f263e43d18c5b5993596ee1dd",
+      "name": "供应商拜访台账",
+      "status": "draft",
+      "kind": "generated"
+    }
+  ],
+  "activeApp": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated"
+  },
+  "formFields": 4,
+  "createNote": false,
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-tab-ac.png",
+  "recordsChips": [
+    "刷新",
+    "销售回款1",
+    "销售合同1",
+    "改行",
+    "删除",
+    "过审",
+    "上一页",
+    "下一页"
+  ],
+  "sqliteTables": [
+    "approvals",
+    "app_field-visits__visit"
+  ],
+  "sqliteHasRow": true,
+  "pass": true
+}

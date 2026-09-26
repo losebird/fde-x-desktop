@@ -1,0 +1,15 @@
+{"n":1,"pass":true,"failCode":"","kind":"工单","rows":21,"swapped":false,"swappedTo":""}
+{"n":2,"pass":true,"failCode":"","kind":"工单","rows":8,"swapped":false,"swappedTo":""}
+{"n":3,"pass":true,"failCode":"","kind":"销售回款","rows":1,"swapped":false,"swappedTo":""}
+{"n":4,"pass":true,"failCode":"","kind":"客户","rows":1,"swapped":false,"swappedTo":""}
+{"n":5,"pass":false,"failCode":"pending-unchanged","kind":"客户","rows":1,"swapped":false,"swappedTo":""}
+{"n":6,"pass":true,"failCode":"","kind":"费用报销","rows":97,"swapped":true,"swappedTo":"QJ20251101520"}
+{"n":7,"pass":false,"failCode":"pending-unchanged","kind":"工单","rows":14,"swapped":true,"swappedTo":"TK20250211633"}
+{"n":8,"pass":false,"failCode":"pending-unchanged","kind":"工单","rows":14,"swapped":false,"swappedTo":""}
+{"n":9,"pass":true,"failCode":"","kind":"请假申请","rows":1,"swapped":true,"swappedTo":"QJ20251027588"}
+{"n":10,"pass":false,"failCode":"action-mismatch(改行)","kind":"工单","rows":1,"swapped":true,"swappedTo":"PAY-2026-005"}
+{"n":11,"pass":false,"failCode":"hop-not-工单","kind":"供应商","rows":20,"swapped":false,"swappedTo":""}
+{"n":12,"pass":true,"failCode":"","kind":"供应商","rows":1,"swapped":false,"swappedTo":""}
+{"n":13,"pass":false,"failCode":"hop-not-工单","kind":"请假申请","rows":48,"swapped":false,"swappedTo":""}
+{"pass":false,"failCode":"cases:5,7,8,10,11,13","sha":"097834833b9e72e70ff3940f1e08910c2ab3f9bf","cases":[{"n":1,"pass":true},{"n":2,"pass":true},{"n":3,"pass":true},{"n":4,"pass":true},{"n":5,"pass":false},{"n":6,"pass":true},{"n":7,"pass":false},{"n":8,"pass":false},{"n":9,"pass":true},{"n":10,"pass":false},{"n":11,"pass":false},{"n":12,"pass":true},{"n":13,"pass":false}]}
+EXIT:1

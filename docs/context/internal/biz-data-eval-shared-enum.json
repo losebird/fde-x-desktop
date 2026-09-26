@@ -1,0 +1,2790 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "sha": "e2b0a78c53fdd2e842d06c107e7333c50681a9c4",
+  "workspace": "/Users/zxz/Documents/ai-project/fdex测试",
+  "classId": "shared",
+  "summary": {
+    "total": 29,
+    "gatePass": 29,
+    "livePass": 29
+  },
+  "results": [
+    {
+      "short": "priority-low-3k",
+      "say": "低",
+      "owners": [
+        "项目任务",
+        "工单",
+        "项目"
+      ],
+      "speech": "低的项目任务和工单和项目。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "项目任务",
+      "sessionId": "session-1af8ef42-0d28-472d-956e-277f17723b4f",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "项目任务",
+        "where": [
+          {
+            "keys": [
+              "优先级",
+              "priority"
+            ],
+            "values": [
+              "low"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          },
+          {
+            "keys": [
+              "priority",
+              "优先级"
+            ],
+            "values": [
+              "low"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "工单",
+            "where": [
+              {
+                "keys": [
+                  "优先级",
+                  "priority"
+                ],
+                "values": [
+                  "low"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 97
+          },
+          {
+            "kind": "项目",
+            "where": [
+              {
+                "keys": [
+                  "优先级",
+                  "priority"
+                ],
+                "values": [
+                  "low"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 38
+          }
+        ],
+        "hitTotal": 128,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "项目任务",
+          "library": null,
+          "actual": 128
+        },
+        {
+          "kind": "工单",
+          "library": null,
+          "actual": 97
+        },
+        {
+          "kind": "项目",
+          "library": null,
+          "actual": 38
+        }
+      ],
+      "right": {
+        "kind": "项目任务",
+        "hitTotal": 128,
+        "footer": "总数未知",
+        "footerCount": null,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-priority-low-3k.png"
+    },
+    {
+      "short": "priority-medium-3k",
+      "say": "中",
+      "owners": [
+        "项目任务",
+        "工单",
+        "项目"
+      ],
+      "speech": "中的项目任务和工单和项目。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "项目任务",
+      "sessionId": "session-2532315a-535a-4c8e-ac22-bdb94f7b07f6",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "项目",
+        "where": [
+          {
+            "keys": [
+              "优先级",
+              "priority"
+            ],
+            "values": [
+              "medium"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "项目任务",
+            "where": [
+              {
+                "keys": [
+                  "优先级",
+                  "priority"
+                ],
+                "values": [
+                  "medium"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 253
+          },
+          {
+            "kind": "工单",
+            "where": [
+              {
+                "keys": [
+                  "优先级",
+                  "priority"
+                ],
+                "values": [
+                  "medium"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 153
+          }
+        ],
+        "hitTotal": 80,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "项目任务",
+          "library": null,
+          "actual": 253
+        },
+        {
+          "kind": "工单",
+          "library": null,
+          "actual": 153
+        },
+        {
+          "kind": "项目",
+          "library": null,
+          "actual": 80
+        }
+      ],
+      "right": {
+        "kind": "项目",
+        "hitTotal": 80,
+        "footer": "共 80 条 · 局域网业务协作适配器 · 现查 04:10",
+        "footerCount": 80,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-priority-medium-3k.png"
+    },
+    {
+      "short": "priority-high-3k",
+      "say": "高",
+      "owners": [
+        "项目任务",
+        "工单",
+        "项目"
+      ],
+      "speech": "高的项目任务和工单和项目。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "项目任务",
+      "sessionId": "session-fdeb8886-5108-400f-a969-92587ce582ae",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "工单",
+        "where": [
+          {
+            "keys": [
+              "优先级",
+              "priority"
+            ],
+            "values": [
+              "high"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "项目任务",
+            "where": [
+              {
+                "keys": [
+                  "优先级",
+                  "priority"
+                ],
+                "values": [
+                  "high"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 154
+          },
+          {
+            "kind": "项目",
+            "where": [
+              {
+                "keys": [
+                  "优先级",
+                  "priority"
+                ],
+                "values": [
+                  "high"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 58
+          }
+        ],
+        "hitTotal": 106,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "项目任务",
+          "library": null,
+          "actual": 154
+        },
+        {
+          "kind": "工单",
+          "library": null,
+          "actual": 106
+        },
+        {
+          "kind": "项目",
+          "library": null,
+          "actual": 58
+        }
+      ],
+      "right": {
+        "kind": "工单",
+        "hitTotal": 106,
+        "footer": "共 106 条 · 局域网业务协作适配器 · 现查 04:11",
+        "footerCount": 106,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-priority-high-3k.png"
+    },
+    {
+      "short": "priority-urgent-3k",
+      "say": "紧急",
+      "owners": [
+        "项目任务",
+        "工单",
+        "项目"
+      ],
+      "speech": "紧急的项目任务和工单和项目。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "项目任务",
+      "sessionId": "session-45bd04b1-a544-4dad-b684-4a76ee1e189b",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "项目任务",
+        "where": [
+          {
+            "keys": [
+              "优先级",
+              "priority"
+            ],
+            "values": [
+              "urgent"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "工单",
+            "where": [
+              {
+                "keys": [
+                  "优先级",
+                  "priority"
+                ],
+                "values": [
+                  "urgent"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 45
+          },
+          {
+            "kind": "项目",
+            "where": [
+              {
+                "keys": [
+                  "优先级",
+                  "priority"
+                ],
+                "values": [
+                  "urgent"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 24
+          }
+        ],
+        "hitTotal": 65,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "项目任务",
+          "library": null,
+          "actual": 65
+        },
+        {
+          "kind": "工单",
+          "library": null,
+          "actual": 45
+        },
+        {
+          "kind": "项目",
+          "library": null,
+          "actual": 24
+        }
+      ],
+      "right": {
+        "kind": "项目任务",
+        "hitTotal": 65,
+        "footer": "总数未知",
+        "footerCount": null,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-priority-urgent-3k.png"
+    },
+    {
+      "short": "say-4-6k",
+      "say": "草稿",
+      "owners": [
+        "BOM物料清单",
+        "资产领用归还",
+        "采购订单",
+        "费用报销",
+        "请假申请",
+        "销售订单"
+      ],
+      "speech": "草稿的BOM物料清单和资产领用归还和采购订单和费用报销和请假申请和销售订单。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "BOM物料清单",
+      "sessionId": "session-25a17698-c952-4a69-9a2e-38f8b122c018",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "BOM物料清单",
+        "where": [
+          {
+            "keys": [
+              "状态",
+              "status"
+            ],
+            "values": [
+              "草稿"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          },
+          {
+            "keys": [
+              "状态"
+            ],
+            "values": [
+              "草稿"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "资产领用归还",
+            "where": [
+              {
+                "keys": [
+                  "处理状态",
+                  "status"
+                ],
+                "values": [
+                  "draft"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 27
+          },
+          {
+            "kind": "采购订单",
+            "where": [
+              {
+                "keys": [
+                  "订单状态",
+                  "status"
+                ],
+                "values": [
+                  "草稿"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 33
+          },
+          {
+            "kind": "费用报销",
+            "where": [
+              {
+                "keys": [
+                  "状态",
+                  "status"
+                ],
+                "values": [
+                  "草稿"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 42
+          },
+          {
+            "kind": "请假申请",
+            "where": [
+              {
+                "keys": [
+                  "审批状态",
+                  "status"
+                ],
+                "values": [
+                  "draft"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 16
+          },
+          {
+            "kind": "销售订单",
+            "where": [
+              {
+                "keys": [
+                  "订单状态",
+                  "status"
+                ],
+                "values": [
+                  "draft"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 35
+          }
+        ],
+        "hitTotal": 4,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "BOM物料清单",
+          "library": null,
+          "actual": 4
+        },
+        {
+          "kind": "资产领用归还",
+          "library": null,
+          "actual": 27
+        },
+        {
+          "kind": "采购订单",
+          "library": null,
+          "actual": 33
+        },
+        {
+          "kind": "费用报销",
+          "library": null,
+          "actual": 42
+        },
+        {
+          "kind": "请假申请",
+          "library": null,
+          "actual": 16
+        },
+        {
+          "kind": "销售订单",
+          "library": null,
+          "actual": 35
+        }
+      ],
+      "right": {
+        "kind": "BOM物料清单",
+        "hitTotal": 4,
+        "footer": "共 4 条 · 局域网业务协作适配器 · 现查 04:13",
+        "footerCount": 4,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-4-6k.png"
+    },
+    {
+      "short": "say-5-2k",
+      "say": "待审",
+      "owners": [
+        "采购订单",
+        "费用报销"
+      ],
+      "speech": "待审的采购订单和费用报销。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "采购订单",
+      "sessionId": "session-1efea937-7deb-478c-8bfa-53db1fbc3d84",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "费用报销",
+        "where": [
+          {
+            "keys": [
+              "状态",
+              "status"
+            ],
+            "values": [
+              "待审"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "采购订单",
+            "where": [
+              {
+                "keys": [
+                  "订单状态",
+                  "status"
+                ],
+                "values": [
+                  "待审"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 44
+          }
+        ],
+        "hitTotal": 97,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "采购订单",
+          "library": null,
+          "actual": 44
+        },
+        {
+          "kind": "费用报销",
+          "library": null,
+          "actual": 97
+        }
+      ],
+      "right": {
+        "kind": "费用报销",
+        "hitTotal": 97,
+        "footer": "共 97 条 · 局域网业务协作适配器 · 现查 04:14",
+        "footerCount": 97,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-5-2k.png"
+    },
+    {
+      "short": "done-multi-4k",
+      "say": "已完成",
+      "owners": [
+        "采购订单",
+        "项目任务",
+        "销售订单",
+        "项目"
+      ],
+      "speech": "已完成的采购订单和项目任务和销售订单和项目。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "采购订单",
+      "sessionId": "session-7eeafe9e-97fe-4f44-b151-515f1b64c2b2",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "项目",
+        "where": [
+          {
+            "keys": [
+              "项目状态",
+              "status"
+            ],
+            "values": [
+              "completed"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "采购订单",
+            "where": [
+              {
+                "keys": [
+                  "订单状态",
+                  "status"
+                ],
+                "values": [
+                  "已完成"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 304
+          },
+          {
+            "kind": "项目任务",
+            "where": [
+              {
+                "keys": [
+                  "任务状态",
+                  "status"
+                ],
+                "values": [
+                  "done"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 272
+          },
+          {
+            "kind": "销售订单",
+            "where": [
+              {
+                "keys": [
+                  "订单状态",
+                  "status"
+                ],
+                "values": [
+                  "completed"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 229
+          }
+        ],
+        "hitTotal": 43,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "采购订单",
+          "library": null,
+          "actual": 304
+        },
+        {
+          "kind": "项目任务",
+          "library": null,
+          "actual": 272
+        },
+        {
+          "kind": "销售订单",
+          "library": null,
+          "actual": 229
+        },
+        {
+          "kind": "项目",
+          "library": null,
+          "actual": 43
+        }
+      ],
+      "right": {
+        "kind": "项目",
+        "hitTotal": 43,
+        "footer": "共 43 条 · 局域网业务协作适配器 · 现查 04:14",
+        "footerCount": 43,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-done-multi-4k.png"
+    },
+    {
+      "short": "say-7-8k",
+      "say": "已取消",
+      "owners": [
+        "资产领用归还",
+        "项目里程碑",
+        "采购订单",
+        "请假申请",
+        "生产工单",
+        "销售订单",
+        "销售回款",
+        "项目"
+      ],
+      "speech": "已取消的资产领用归还和项目里程碑和采购订单和请假申请和生产工单和销售订单和销售回款和项目。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "销售回款",
+      "sessionId": "session-ffb790e7-cb5f-4bb6-a8d1-3b0428feb9cd",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "销售回款",
+        "where": [
+          {
+            "keys": [
+              "回款状态",
+              "status"
+            ],
+            "values": [
+              "cancelled"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          },
+          {
+            "keys": [
+              "status"
+            ],
+            "values": [
+              "cancelled"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "资产领用归还",
+            "where": [
+              {
+                "keys": [
+                  "处理状态",
+                  "status"
+                ],
+                "values": [
+                  "cancelled"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ]
+          },
+          {
+            "kind": "项目里程碑",
+            "where": [
+              {
+                "keys": [
+                  "里程碑状态",
+                  "status"
+                ],
+                "values": [
+                  "cancelled"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ]
+          },
+          {
+            "kind": "采购订单",
+            "where": [
+              {
+                "keys": [
+                  "订单状态",
+                  "status"
+                ],
+                "values": [
+                  "已取消"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 62
+          },
+          {
+            "kind": "请假申请",
+            "where": [
+              {
+                "keys": [
+                  "审批状态",
+                  "status"
+                ],
+                "values": [
+                  "cancelled"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ]
+          },
+          {
+            "kind": "生产工单",
+            "where": [
+              {
+                "keys": [
+                  "状态",
+                  "status"
+                ],
+                "values": [
+                  "已取消"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 26
+          },
+          {
+            "kind": "销售订单",
+            "where": [
+              {
+                "keys": [
+                  "订单状态",
+                  "status"
+                ],
+                "values": [
+                  "cancelled"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 29
+          },
+          {
+            "kind": "项目",
+            "where": [
+              {
+                "keys": [
+                  "项目状态",
+                  "status"
+                ],
+                "values": [
+                  "cancelled"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ]
+          }
+        ],
+        "hitTotal": 49,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "资产领用归还",
+          "library": null,
+          "actual": null
+        },
+        {
+          "kind": "项目里程碑",
+          "library": null,
+          "actual": null
+        },
+        {
+          "kind": "采购订单",
+          "library": null,
+          "actual": 62
+        },
+        {
+          "kind": "请假申请",
+          "library": null,
+          "actual": null
+        },
+        {
+          "kind": "生产工单",
+          "library": null,
+          "actual": 26
+        },
+        {
+          "kind": "销售订单",
+          "library": null,
+          "actual": 29
+        },
+        {
+          "kind": "销售回款",
+          "library": null,
+          "actual": 49
+        },
+        {
+          "kind": "项目",
+          "library": null,
+          "actual": null
+        }
+      ],
+      "right": {
+        "kind": "销售回款",
+        "hitTotal": 49,
+        "footer": "共 49 条 · 局域网业务协作适配器 · 现查 04:16",
+        "footerCount": 49,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-7-8k.png"
+    },
+    {
+      "short": "say-8-3k",
+      "say": "已确认",
+      "owners": [
+        "销售订单",
+        "销售回款",
+        "销售线索"
+      ],
+      "speech": "已确认的销售订单和销售回款和销售线索。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "销售回款",
+      "sessionId": "session-f649ad01-d1c2-4a09-8ee4-94a875795d26",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "销售回款",
+        "where": [
+          {
+            "keys": [
+              "回款状态",
+              "status"
+            ],
+            "values": [
+              "confirmed"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "销售订单",
+            "where": [
+              {
+                "keys": [
+                  "订单状态",
+                  "status"
+                ],
+                "values": [
+                  "confirmed"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 66
+          },
+          {
+            "kind": "销售线索",
+            "where": [
+              {
+                "keys": [
+                  "线索状态",
+                  "status"
+                ],
+                "values": [
+                  "qualified"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 94
+          }
+        ],
+        "hitTotal": 566,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "销售订单",
+          "library": null,
+          "actual": 66
+        },
+        {
+          "kind": "销售回款",
+          "library": null,
+          "actual": 566
+        },
+        {
+          "kind": "销售线索",
+          "library": null,
+          "actual": 94
+        }
+      ],
+      "right": {
+        "kind": "销售回款",
+        "hitTotal": 566,
+        "footer": "共 566 条 · 局域网业务协作适配器 · 现查 04:18",
+        "footerCount": 566,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-8-3k.png"
+    },
+    {
+      "short": "say-9-2k",
+      "say": "银行转账",
+      "owners": [
+        "销售回款",
+        "付款单"
+      ],
+      "speech": "银行转账的销售回款和付款单。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "销售回款",
+      "sessionId": "session-4d70b284-72c0-470e-ab65-bbf8a12bdf71",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "销售回款",
+        "where": [
+          {
+            "keys": [
+              "回款方式",
+              "method"
+            ],
+            "values": [
+              "bank_transfer"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "付款单",
+            "where": [
+              {
+                "keys": [
+                  "付款方式",
+                  "method"
+                ],
+                "values": [
+                  "银行转账"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 372
+          }
+        ],
+        "hitTotal": 523,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "销售回款",
+          "library": null,
+          "actual": 523
+        },
+        {
+          "kind": "付款单",
+          "library": null,
+          "actual": 372
+        }
+      ],
+      "right": {
+        "kind": "销售回款",
+        "hitTotal": 523,
+        "footer": "共 523 条 · 局域网业务协作适配器 · 现查 04:18",
+        "footerCount": 523,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-9-2k.png"
+    },
+    {
+      "short": "say-10-2k",
+      "say": "现金",
+      "owners": [
+        "销售回款",
+        "付款单"
+      ],
+      "speech": "现金的销售回款和付款单。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "销售回款",
+      "sessionId": "session-7a3b8773-42c6-4faa-9baa-6ca9afdd4117",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "销售回款",
+        "where": [
+          {
+            "keys": [
+              "回款方式",
+              "method"
+            ],
+            "values": [
+              "cash"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "付款单",
+            "where": [
+              {
+                "keys": [
+                  "付款方式",
+                  "method"
+                ],
+                "values": [
+                  "现金"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 54
+          }
+        ],
+        "hitTotal": 75,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "销售回款",
+          "library": null,
+          "actual": 75
+        },
+        {
+          "kind": "付款单",
+          "library": null,
+          "actual": 54
+        }
+      ],
+      "right": {
+        "kind": "销售回款",
+        "hitTotal": 75,
+        "footer": "共 75 条 · 局域网业务协作适配器 · 现查 04:19",
+        "footerCount": 75,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-10-2k.png"
+    },
+    {
+      "short": "other-multi-5k",
+      "say": "其他",
+      "owners": [
+        "费用报销",
+        "请假申请",
+        "销售合同",
+        "销售回款",
+        "员工档案"
+      ],
+      "speech": "其他的费用报销和请假申请和销售合同和销售回款和员工档案。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "费用报销",
+      "sessionId": "session-f60b85da-4e6c-4ad9-9360-f38e2fe72fcb",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "费用报销",
+        "where": [
+          {
+            "keys": [
+              "费用类别",
+              "category"
+            ],
+            "values": [
+              "其他"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          },
+          {
+            "keys": [
+              "status",
+              "category"
+            ],
+            "values": [
+              "其他"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "请假申请",
+            "where": [
+              {
+                "keys": [
+                  "请假类型",
+                  "leaveType"
+                ],
+                "values": [
+                  "other"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 26
+          },
+          {
+            "kind": "销售合同",
+            "where": [
+              {
+                "keys": [
+                  "合同类型",
+                  "contractType"
+                ],
+                "values": [
+                  "other"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ]
+          },
+          {
+            "kind": "销售回款",
+            "where": [
+              {
+                "keys": [
+                  "回款方式",
+                  "method"
+                ],
+                "values": [
+                  "other"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ]
+          },
+          {
+            "kind": "员工档案",
+            "where": [
+              {
+                "keys": [
+                  "性别",
+                  "gender"
+                ],
+                "values": [
+                  "other"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ]
+          }
+        ],
+        "hitTotal": 42,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "费用报销",
+          "library": null,
+          "actual": 42
+        },
+        {
+          "kind": "请假申请",
+          "library": null,
+          "actual": 26
+        },
+        {
+          "kind": "销售合同",
+          "library": null,
+          "actual": null
+        },
+        {
+          "kind": "销售回款",
+          "library": null,
+          "actual": null
+        },
+        {
+          "kind": "员工档案",
+          "library": null,
+          "actual": null
+        }
+      ],
+      "right": {
+        "kind": "费用报销",
+        "hitTotal": 42,
+        "footer": "共 42 条 · 局域网业务协作适配器 · 现查 04:20",
+        "footerCount": 42,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-other-multi-5k.png"
+    },
+    {
+      "short": "say-12-2k",
+      "say": "办公",
+      "owners": [
+        "费用报销",
+        "供应商"
+      ],
+      "speech": "办公的费用报销和供应商。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "费用报销",
+      "sessionId": "session-ca2fc290-2508-49a5-a5d5-58ef8cceda5f",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "费用报销",
+        "where": [
+          {
+            "keys": [
+              "费用类别",
+              "category"
+            ],
+            "values": [
+              "办公"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "供应商",
+            "where": [
+              {
+                "keys": [
+                  "供应商类别",
+                  "category"
+                ],
+                "values": [
+                  "办公"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 10
+          }
+        ],
+        "hitTotal": 136,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "费用报销",
+          "library": null,
+          "actual": 136
+        },
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 10
+        }
+      ],
+      "right": {
+        "kind": "费用报销",
+        "hitTotal": 136,
+        "footer": "总数未知",
+        "footerCount": null,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-12-2k.png"
+    },
+    {
+      "short": "say-13-3k",
+      "say": "已通过",
+      "owners": [
+        "资产领用归还",
+        "费用报销",
+        "请假申请"
+      ],
+      "speech": "已通过的资产领用归还和费用报销和请假申请。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "资产领用归还",
+      "sessionId": "session-9b85d01f-a476-4917-9eb3-8acadd145190",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "请假申请",
+        "where": [
+          {
+            "keys": [
+              "审批状态",
+              "status"
+            ],
+            "values": [
+              "approved"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "资产领用归还",
+            "where": [
+              {
+                "keys": [
+                  "处理状态",
+                  "status"
+                ],
+                "values": [
+                  "approved"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 237
+          },
+          {
+            "kind": "费用报销",
+            "where": [
+              {
+                "keys": [
+                  "状态",
+                  "status"
+                ],
+                "values": [
+                  "已通过"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 242
+          }
+        ],
+        "hitTotal": 207,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "资产领用归还",
+          "library": null,
+          "actual": 237
+        },
+        {
+          "kind": "费用报销",
+          "library": null,
+          "actual": 242
+        },
+        {
+          "kind": "请假申请",
+          "library": null,
+          "actual": 207
+        }
+      ],
+      "right": {
+        "kind": "请假申请",
+        "hitTotal": 207,
+        "footer": "共 207 条 · 局域网业务协作适配器 · 现查 04:22",
+        "footerCount": 207,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-13-3k.png"
+    },
+    {
+      "short": "say-14-2k",
+      "say": "已提交",
+      "owners": [
+        "资产领用归还",
+        "请假申请"
+      ],
+      "speech": "已提交的资产领用归还和请假申请。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "资产领用归还",
+      "sessionId": "session-443d70ce-78c8-4d6c-8c48-be66c06674ec",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "资产领用归还",
+        "where": [
+          {
+            "keys": [
+              "处理状态",
+              "status"
+            ],
+            "values": [
+              "submitted"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "请假申请",
+            "where": [
+              {
+                "keys": [
+                  "审批状态",
+                  "status"
+                ],
+                "values": [
+                  "submitted"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 48
+          }
+        ],
+        "hitTotal": 40,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "资产领用归还",
+          "library": null,
+          "actual": 40
+        },
+        {
+          "kind": "请假申请",
+          "library": null,
+          "actual": 48
+        }
+      ],
+      "right": {
+        "kind": "资产领用归还",
+        "hitTotal": 40,
+        "footer": "总数未知",
+        "footerCount": null,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-14-2k.png"
+    },
+    {
+      "short": "say-15-2k",
+      "say": "已拒绝",
+      "owners": [
+        "资产领用归还",
+        "请假申请"
+      ],
+      "speech": "已拒绝的资产领用归还和请假申请。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "资产领用归还",
+      "sessionId": "session-153c8d52-aeae-45ec-a1eb-974abf21eb8a",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "请假申请",
+        "where": [
+          {
+            "keys": [
+              "审批状态",
+              "status"
+            ],
+            "values": [
+              "rejected"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "资产领用归还",
+            "where": [
+              {
+                "keys": [
+                  "处理状态",
+                  "status"
+                ],
+                "values": [
+                  "rejected"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 16
+          }
+        ],
+        "hitTotal": 26,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "资产领用归还",
+          "library": null,
+          "actual": 16
+        },
+        {
+          "kind": "请假申请",
+          "library": null,
+          "actual": 26
+        }
+      ],
+      "right": {
+        "kind": "请假申请",
+        "hitTotal": 26,
+        "footer": "共 26 条 · 局域网业务协作适配器 · 现查 04:26",
+        "footerCount": 26,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-15-2k.png"
+    },
+    {
+      "short": "say-16-2k",
+      "say": "调拨",
+      "owners": [
+        "资产领用归还",
+        "出入库流水"
+      ],
+      "speech": "调拨的资产领用归还和出入库流水。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "资产领用归还",
+      "sessionId": "session-4d9771dd-7a9c-4557-bd97-344c80cd224d",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "资产领用归还",
+        "where": [
+          {
+            "keys": [
+              "业务类型",
+              "movementType"
+            ],
+            "values": [
+              "transfer"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "出入库流水",
+            "where": [
+              {
+                "keys": [
+                  "业务类型",
+                  "movementType"
+                ],
+                "values": [
+                  "调拨"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 47
+          }
+        ],
+        "hitTotal": 38,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "资产领用归还",
+          "library": null,
+          "actual": 38
+        },
+        {
+          "kind": "出入库流水",
+          "library": null,
+          "actual": 47
+        }
+      ],
+      "right": {
+        "kind": "资产领用归还",
+        "hitTotal": 38,
+        "footer": "共 38 条 · 局域网业务协作适配器 · 现查 04:26",
+        "footerCount": 38,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-16-2k.png"
+    },
+    {
+      "short": "say-17-2k",
+      "say": "黑名单",
+      "owners": [
+        "供应商",
+        "客户"
+      ],
+      "speech": "黑名单的供应商和客户。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "供应商",
+      "sessionId": "session-c28b3ad8-6960-467a-90c0-0ee443ef97e7",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "供应商",
+        "where": [
+          {
+            "keys": [
+              "状态",
+              "status"
+            ],
+            "values": [
+              "黑名单"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "客户",
+            "where": [
+              {
+                "keys": [
+                  "客户状态",
+                  "status"
+                ],
+                "values": [
+                  "blacklist"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ]
+          }
+        ],
+        "hitTotal": 2,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 2
+        },
+        {
+          "kind": "客户",
+          "library": null,
+          "actual": null
+        }
+      ],
+      "right": {
+        "kind": "供应商",
+        "hitTotal": 2,
+        "footer": "共 2 条 · 局域网业务协作适配器 · 现查 04:27",
+        "footerCount": 2,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-17-2k.png"
+    },
+    {
+      "short": "say-18-2k",
+      "say": "华东",
+      "owners": [
+        "供应商",
+        "客户"
+      ],
+      "speech": "华东的供应商和客户。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "供应商",
+      "sessionId": "session-ba09d23d-8489-497c-bc92-306216b85118",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "供应商",
+        "where": [
+          {
+            "keys": [
+              "所属区域",
+              "region"
+            ],
+            "values": [
+              "华东"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          },
+          {
+            "keys": [
+              "region",
+              "所属区域"
+            ],
+            "values": [
+              "华东"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "客户",
+            "where": [
+              {
+                "keys": [
+                  "所属区域",
+                  "region"
+                ],
+                "values": [
+                  "华东"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 101
+          }
+        ],
+        "hitTotal": 10,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 10
+        },
+        {
+          "kind": "客户",
+          "library": null,
+          "actual": 101
+        }
+      ],
+      "right": {
+        "kind": "供应商",
+        "hitTotal": 10,
+        "footer": "共 10 条 · 局域网业务协作适配器 · 现查 04:28",
+        "footerCount": 10,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-18-2k.png"
+    },
+    {
+      "short": "say-19-2k",
+      "say": "华北",
+      "owners": [
+        "供应商",
+        "客户"
+      ],
+      "speech": "华北的供应商和客户。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "供应商",
+      "sessionId": "session-a5e7adce-5632-4b2d-b49d-270225db1b7a",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "供应商",
+        "where": [
+          {
+            "keys": [
+              "所属区域",
+              "region"
+            ],
+            "values": [
+              "华北"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "客户",
+            "where": [
+              {
+                "keys": [
+                  "所属区域",
+                  "region"
+                ],
+                "values": [
+                  "华北"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 48
+          }
+        ],
+        "hitTotal": 13,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 13
+        },
+        {
+          "kind": "客户",
+          "library": null,
+          "actual": 48
+        }
+      ],
+      "right": {
+        "kind": "供应商",
+        "hitTotal": 13,
+        "footer": "总数未知",
+        "footerCount": null,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-19-2k.png"
+    },
+    {
+      "short": "say-20-2k",
+      "say": "华南",
+      "owners": [
+        "供应商",
+        "客户"
+      ],
+      "speech": "华南的供应商和客户。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "供应商",
+      "sessionId": "session-6e41f99e-eefb-40ec-bb1e-d3f1ad7ebd70",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "供应商",
+        "where": [
+          {
+            "keys": [
+              "所属区域",
+              "region"
+            ],
+            "values": [
+              "华南"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "客户",
+            "where": [
+              {
+                "keys": [
+                  "所属区域",
+                  "region"
+                ],
+                "values": [
+                  "华南"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 65
+          }
+        ],
+        "hitTotal": 15,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 15
+        },
+        {
+          "kind": "客户",
+          "library": null,
+          "actual": 65
+        }
+      ],
+      "right": {
+        "kind": "供应商",
+        "hitTotal": 15,
+        "footer": "共 15 条 · 局域网业务协作适配器 · 现查 04:29",
+        "footerCount": 15,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-20-2k.png"
+    },
+    {
+      "short": "say-21-2k",
+      "say": "华中",
+      "owners": [
+        "供应商",
+        "客户"
+      ],
+      "speech": "华中的供应商和客户。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "供应商",
+      "sessionId": "session-641aad23-d6f9-45d6-ae37-d08ec0852856",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "客户",
+        "where": [
+          {
+            "keys": [
+              "所属区域",
+              "region"
+            ],
+            "values": [
+              "华中"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "供应商",
+            "where": [
+              {
+                "keys": [
+                  "所属区域",
+                  "region"
+                ],
+                "values": [
+                  "华中"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 12
+          }
+        ],
+        "hitTotal": 32,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 12
+        },
+        {
+          "kind": "客户",
+          "library": null,
+          "actual": 32
+        }
+      ],
+      "right": {
+        "kind": "客户",
+        "hitTotal": 32,
+        "footer": "共 32 条 · 局域网业务协作适配器 · 现查 04:30",
+        "footerCount": 32,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-21-2k.png"
+    },
+    {
+      "short": "say-22-2k",
+      "say": "西南",
+      "owners": [
+        "供应商",
+        "客户"
+      ],
+      "speech": "西南的供应商和客户。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "供应商",
+      "sessionId": "session-140d4544-63bf-4e30-a3dc-ce72615402e1",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "供应商",
+        "where": [
+          {
+            "keys": [
+              "所属区域",
+              "region"
+            ],
+            "values": [
+              "西南"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "客户",
+            "where": [
+              {
+                "keys": [
+                  "所属区域",
+                  "region"
+                ],
+                "values": [
+                  "西南"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 26
+          }
+        ],
+        "hitTotal": 13,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 13
+        },
+        {
+          "kind": "客户",
+          "library": null,
+          "actual": 26
+        }
+      ],
+      "right": {
+        "kind": "供应商",
+        "hitTotal": 13,
+        "footer": "共 13 条 · 局域网业务协作适配器 · 现查 04:30",
+        "footerCount": 13,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-22-2k.png"
+    },
+    {
+      "short": "say-23-2k",
+      "say": "西北",
+      "owners": [
+        "供应商",
+        "客户"
+      ],
+      "speech": "西北的供应商和客户。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "供应商",
+      "sessionId": "session-17f8c290-5be9-4501-a9c0-a90a9ebcfd25",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "客户",
+        "where": [
+          {
+            "keys": [
+              "所属区域",
+              "region"
+            ],
+            "values": [
+              "西北"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "供应商",
+            "where": [
+              {
+                "keys": [
+                  "所属区域",
+                  "region"
+                ],
+                "values": [
+                  "西北"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 7
+          }
+        ],
+        "hitTotal": 12,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 7
+        },
+        {
+          "kind": "客户",
+          "library": null,
+          "actual": 12
+        }
+      ],
+      "right": {
+        "kind": "客户",
+        "hitTotal": 12,
+        "footer": "共 12 条 · 局域网业务协作适配器 · 现查 04:31",
+        "footerCount": 12,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-23-2k.png"
+    },
+    {
+      "short": "say-24-2k",
+      "say": "东北",
+      "owners": [
+        "供应商",
+        "客户"
+      ],
+      "speech": "东北的供应商和客户。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "供应商",
+      "sessionId": "session-305a5537-2e58-4a10-adbe-8dc8ca560103",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "供应商",
+        "where": [
+          {
+            "keys": [
+              "所属区域",
+              "region"
+            ],
+            "values": [
+              "东北"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "客户",
+            "where": [
+              {
+                "keys": [
+                  "所属区域",
+                  "region"
+                ],
+                "values": [
+                  "东北"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 16
+          }
+        ],
+        "hitTotal": 10,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 10
+        },
+        {
+          "kind": "客户",
+          "library": null,
+          "actual": 16
+        }
+      ],
+      "right": {
+        "kind": "供应商",
+        "hitTotal": 10,
+        "footer": "总数未知",
+        "footerCount": null,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-24-2k.png"
+    },
+    {
+      "short": "say-25-2k",
+      "say": "原材料",
+      "owners": [
+        "商品物料",
+        "供应商"
+      ],
+      "speech": "原材料的商品物料和供应商。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "商品物料",
+      "sessionId": "session-c5ee4f45-a47c-4fb9-9a90-68d947477f18",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "供应商",
+        "where": [
+          {
+            "keys": [
+              "供应商类别",
+              "category"
+            ],
+            "values": [
+              "原材料"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "商品物料",
+            "where": [
+              {
+                "keys": [
+                  "物料类型",
+                  "productType"
+                ],
+                "values": [
+                  "原材料"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 110
+          }
+        ],
+        "hitTotal": 43,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "商品物料",
+          "library": null,
+          "actual": 110
+        },
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 43
+        }
+      ],
+      "right": {
+        "kind": "供应商",
+        "hitTotal": 43,
+        "footer": "共 43 条 · 局域网业务协作适配器 · 现查 04:36",
+        "footerCount": 43,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-25-2k.png"
+    },
+    {
+      "short": "say-26-5k",
+      "say": "停用",
+      "owners": [
+        "BOM物料清单",
+        "商品物料",
+        "供应商",
+        "仓库",
+        "岗位"
+      ],
+      "speech": "停用的BOM物料清单和商品物料和供应商和仓库和岗位。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "BOM物料清单",
+      "sessionId": "session-16e668ff-17f7-4ebd-b8b3-f5ef65d04ebf",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "BOM物料清单",
+        "where": [
+          {
+            "keys": [
+              "状态",
+              "status"
+            ],
+            "values": [
+              "停用"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          },
+          {
+            "keys": [
+              "状态"
+            ],
+            "values": [
+              "停用"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "商品物料",
+            "where": [
+              {
+                "keys": [
+                  "状态",
+                  "status"
+                ],
+                "values": [
+                  "停用"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 37
+          },
+          {
+            "kind": "供应商",
+            "where": [
+              {
+                "keys": [
+                  "状态",
+                  "status"
+                ],
+                "values": [
+                  "停用"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 10
+          },
+          {
+            "kind": "仓库",
+            "where": [
+              {
+                "keys": [
+                  "状态",
+                  "status"
+                ],
+                "values": [
+                  "停用"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ]
+          },
+          {
+            "kind": "岗位",
+            "where": [
+              {
+                "keys": [
+                  "状态",
+                  "status"
+                ],
+                "values": [
+                  "inactive"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 5
+          }
+        ],
+        "hitTotal": 6,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "BOM物料清单",
+          "library": null,
+          "actual": 6
+        },
+        {
+          "kind": "商品物料",
+          "library": null,
+          "actual": 37
+        },
+        {
+          "kind": "供应商",
+          "library": null,
+          "actual": 10
+        },
+        {
+          "kind": "仓库",
+          "library": null,
+          "actual": null
+        },
+        {
+          "kind": "岗位",
+          "library": null,
+          "actual": 5
+        }
+      ],
+      "right": {
+        "kind": "BOM物料清单",
+        "hitTotal": 6,
+        "footer": "共 6 条 · 局域网业务协作适配器 · 现查 04:38",
+        "footerCount": 6,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-26-5k.png"
+    },
+    {
+      "short": "say-27-3k",
+      "say": "启用",
+      "owners": [
+        "BOM物料清单",
+        "仓库",
+        "岗位"
+      ],
+      "speech": "启用的BOM物料清单和仓库和岗位。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "BOM物料清单",
+      "sessionId": "session-4bffa2ac-3d6a-41ed-8d7c-536cb474dd1c",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "BOM物料清单",
+        "where": [
+          {
+            "keys": [
+              "状态",
+              "status"
+            ],
+            "values": [
+              "启用"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "仓库",
+            "where": [
+              {
+                "keys": [
+                  "状态",
+                  "status"
+                ],
+                "values": [
+                  "启用"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 6
+          },
+          {
+            "kind": "岗位",
+            "where": [
+              {
+                "keys": [
+                  "状态",
+                  "status"
+                ],
+                "values": [
+                  "active"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 35
+          }
+        ],
+        "hitTotal": 50,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "BOM物料清单",
+          "library": null,
+          "actual": 50
+        },
+        {
+          "kind": "仓库",
+          "library": null,
+          "actual": 6
+        },
+        {
+          "kind": "岗位",
+          "library": null,
+          "actual": 35
+        }
+      ],
+      "right": {
+        "kind": "BOM物料清单",
+        "hitTotal": 50,
+        "footer": "共 50 条 · 局域网业务协作适配器 · 现查 04:38",
+        "footerCount": 50,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-say-27-3k.png"
+    },
+    {
+      "short": "doing-multi-2k",
+      "say": "进行中",
+      "owners": [
+        "项目任务",
+        "项目"
+      ],
+      "speech": "进行中的项目任务和项目。只要预览，不要过账，不要 biz_write。",
+      "requestKind": "项目任务",
+      "sessionId": "session-f0f9dd80-9a05-4c1a-82b4-7fb2e171daaf",
+      "gatePass": true,
+      "livePass": true,
+      "plan": {
+        "kind": "项目任务",
+        "where": [
+          {
+            "keys": [
+              "任务状态",
+              "status"
+            ],
+            "values": [
+              "doing"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "steps": [],
+        "peers": [
+          {
+            "kind": "项目",
+            "where": [
+              {
+                "keys": [
+                  "项目状态",
+                  "status"
+                ],
+                "values": [
+                  "active"
+                ],
+                "not": false,
+                "dateBefore": [],
+                "dateAfter": []
+              }
+            ],
+            "hitTotal": 96
+          }
+        ],
+        "hitTotal": 161,
+        "hitTotalState": "known"
+      },
+      "counts": [
+        {
+          "kind": "项目任务",
+          "library": null,
+          "actual": 161
+        },
+        {
+          "kind": "项目",
+          "library": null,
+          "actual": 96
+        }
+      ],
+      "right": {
+        "kind": "项目任务",
+        "hitTotal": 161,
+        "footer": "共 161 条 · 局域网业务协作适配器 · 现查 04:39",
+        "footerCount": 161,
+        "planLine": "📁fdex测试1"
+      },
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-doing-multi-2k.png"
+    }
+  ]
+}

@@ -1,0 +1,221 @@
+{
+  "branch": "cursor/records-close-session-end-fc3c",
+  "sha": "e0f594a9f01aacfced48206a6989ae7bf39a063e",
+  "uiPid": 1985,
+  "runtimePid": 98168,
+  "attacks": [
+    {
+      "id": "01",
+      "rule": "长名里面的枚举词不再额外当条件",
+      "objects": [
+        "固定资产",
+        "资产领用归还"
+      ],
+      "speech": "现查固定资产关联的资产领用归还。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-01.png",
+      "note": "条件没有写进 where。右边 320 条里业务类型同时有领用和归还，长名里的枚举没有再收窄。chip 命中是种类名本身含有那个词。"
+    },
+    {
+      "id": "06",
+      "rule": "关系的上游不能只用第一页的编号",
+      "objects": [
+        "商品物料",
+        "BOM物料清单"
+      ],
+      "speech": "现查商品物料关联的BOM物料清单。只要预览，不要过账，不要 biz_write。",
+      "pierced": true,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-06.png",
+      "note": "on=60 firstPageChildren=0 hitTotal=0 state=known from=商品物料 allSampledOnFirstPage=false"
+    },
+    {
+      "id": "07",
+      "rule": "页脚是命中集合的总数，不是这一页的行数",
+      "objects": [
+        "固定资产",
+        "资产领用归还"
+      ],
+      "speech": "现查固定资产关联的资产领用归还。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-07.png",
+      "note": "页脚写的是共 320 条，这一页 20 行，页码第 1/16 页。没有把一页的长度印成总数。"
+    },
+    {
+      "id": "08",
+      "rule": "翻页仍是同一个命中集合，不能换成另一次查询",
+      "objects": [
+        "固定资产",
+        "资产领用归还"
+      ],
+      "speech": "现查固定资产关联的资产领用归还。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-08.png",
+      "note": "下一页后仍是共 320 条、第 2/16 页。翻页请求带 replay，上游仍是固定资产，原话没换，没有新开一轮。"
+    },
+    {
+      "id": "10",
+      "rule": "一轮没结束不把过程表画到右边",
+      "objects": [
+        "商品物料",
+        "BOM物料清单"
+      ],
+      "speech": "现查商品物料关联的BOM物料清单。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-10.png",
+      "note": "这一轮跑的时候右边页脚没有换成过程表。结束后才是这一轮的空结果。"
+    },
+    {
+      "id": "11",
+      "rule": "结束后交的是这一轮的正式结果",
+      "objects": [
+        "商品物料",
+        "BOM物料清单"
+      ],
+      "speech": "现查商品物料关联的BOM物料清单。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-11.png",
+      "note": "结束后正式结果是这一轮的商品物料关联 BOM物料清单，0 条。不是上一轮的资产领用归还。0 条本身是上游只用了第一页。"
+    },
+    {
+      "id": "12",
+      "rule": "闲聊不换表、不清空",
+      "objects": [
+        "固定资产",
+        "资产领用归还"
+      ],
+      "speech": "你好，在吗",
+      "pierced": false,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-12.png",
+      "note": "你好之后右边还是资产领用归还，页脚仍是共 320 条，行还在。闲聊没有把表清掉或换成另一张。"
+    },
+    {
+      "id": "13",
+      "rule": "改行不走这一轮",
+      "objects": [
+        "固定资产",
+        "资产领用归还"
+      ],
+      "pierced": false,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-13.png",
+      "note": "点了改行。页上停在「改行要指出字段」，表还是原来的现查，没有新开一轮，没有过账。"
+    },
+    {
+      "id": "15",
+      "rule": "取消不走这一轮",
+      "objects": [
+        "固定资产",
+        "资产领用归还"
+      ],
+      "pierced": false,
+      "reached": false,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-15.png",
+      "note": "改行没打开带取消的抽屉：不改字段时停在「改行要指出字段」；改了一个单元格后再点改行，抽屉仍没出现。取消没点到。"
+    },
+    {
+      "id": "14",
+      "rule": "过审不走这一轮",
+      "objects": [
+        "固定资产",
+        "资产领用归还"
+      ],
+      "pierced": false,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-14.png",
+      "note": "点了过审。没有新开一轮，没有过账，也没有出现确认过账。条上变成「拟改 320 行 · 待确认」，来源标成过审，页脚仍是共 320 条。"
+    },
+    {
+      "id": "16",
+      "rule": "点历史不走这一轮",
+      "objects": [
+        "固定资产",
+        "资产领用归还",
+        "BOM",
+        "BOM物料清单"
+      ],
+      "pierced": false,
+      "reached": false,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-16.png",
+      "note": "历史下拉只有当前这一条 BOM物料清单现查，没有另一条可点。没有因此新开一轮。"
+    },
+    {
+      "id": "02",
+      "rule": "一个条件要加到每一个拥有它的已绑对象",
+      "objects": [
+        "资产领用归还",
+        "出入库流水",
+        "调拨"
+      ],
+      "speech": "现查资产领用归还并且出入库流水，调拨。只要预览，不要过账，不要 biz_write。",
+      "pierced": true,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-02.png",
+      "note": "两个对象都有这个枚举。右边只出了出入库流水的调拨 47 条，资产领用归还没有带上。模型写原话里的调拨被当成条件，所以只出了出入库流水。"
+    },
+    {
+      "id": "03",
+      "rule": "条件不加到没绑上的对象",
+      "objects": [
+        "固定资产",
+        "资产领用归还",
+        "年假"
+      ],
+      "speech": "现查固定资产关联的资产领用归还，年假。只要预览，不要过账，不要 biz_write。",
+      "pierced": true,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-03.png",
+      "note": "年假属于请假申请，这句话没绑请假申请。闸把请假申请的预览 hop 回了资产领用归还，模型记了两次预览都回到资产领用归还。"
+    },
+    {
+      "id": "04",
+      "rule": "短名是别名就绑长对象，不绑另一个独立对象",
+      "objects": [
+        "BOM",
+        "BOM物料清单",
+        "BOM明细"
+      ],
+      "speech": "现查BOM。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-04.png",
+      "note": "短名 BOM 绑到 BOM物料清单，没有绑到独立对象 BOM明细。"
+    },
+    {
+      "id": "05",
+      "rule": "两个独立对象分不清时先选，不默默挑长的",
+      "objects": [
+        "订单",
+        "采购订单明细",
+        "采购订单",
+        "销售订单明细"
+      ],
+      "speech": "现查订单。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "reached": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-05.png",
+      "note": "闸把订单落到销售订单，这是订单的别名，不是采购订单，也不是采购订单明细。模型写右侧摊开最近一页 20/433。没有先选。"
+    },
+    {
+      "id": "09",
+      "rule": "有关系又有条件时，不在关系上的行不出现",
+      "objects": [
+        "销售线索",
+        "销售商机",
+        "方案报价"
+      ],
+      "speech": "现查销售线索关联的销售商机，方案报价。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "reached": false,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-adv-09.png",
+      "note": "结果 0 条。现场这个枚举在关系上有 72 条，关系外有 30 条。0 条不是把关系外的行放进来，也看不出关系外的行被排除，因为关系内的也没出现。"
+    }
+  ],
+  "writes": 0
+}

@@ -1,0 +1,93 @@
+{
+  "sha": "85d38878b9c8bcefb3d0d4d29e24bef874f9fd69",
+  "branch": "main",
+  "hardcodedLiterals": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "speech": "待审回款 ∩ 已到期合同",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "connect": {
+    "connected": true,
+    "pid": 4564,
+    "error": null
+  },
+  "sessionId": "session-7c7d4166-1152-4fef-a277-985b08c1e773",
+  "mentionedKinds": [
+    "销售回款",
+    "销售合同"
+  ],
+  "relatedKinds": [
+    "销售回款",
+    "销售合同"
+  ],
+  "targetKindFromVocab": "销售回款",
+  "sideKindFromVocab": "销售合同",
+  "afterHop": {
+    "kind": "销售回款",
+    "action": "现查",
+    "pendingRows": 1,
+    "first": "PAY-2026-005",
+    "footerCount": 1,
+    "tbodyRows": 1,
+    "kindChips": [
+      "销售回款1",
+      "销售合同1"
+    ],
+    "fromKind": "销售合同",
+    "fromRows": 1,
+    "fromFirst": "HT-2026-005",
+    "fromHasRows": true,
+    "steps": [
+      "销售合同",
+      "销售回款"
+    ],
+    "hopWhere": true
+  },
+  "targetChip": {
+    "kind": "销售回款",
+    "count": 1,
+    "text": "销售回款1"
+  },
+  "sideChip": {
+    "kind": "销售合同",
+    "count": 1,
+    "text": "销售合同1"
+  },
+  "sideClick": {
+    "ok": true,
+    "disabled": false,
+    "text": "销售合同1"
+  },
+  "afterSideClick": {
+    "kind": "销售合同1",
+    "rows": 1,
+    "footerCount": 1,
+    "first": "HT-2026-005",
+    "kindChips": [
+      "销售回款1",
+      "销售合同1"
+    ],
+    "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 1 分钟前本会话浮现历史销售合同 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同工单 · 现查 · 现查销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。",
+    "pendingKind": "销售回款",
+    "pendingRows": 1,
+    "pendingFirst": "PAY-2026-005"
+  },
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-kind-chip.png",
+  "sideIsThisHop": true,
+  "sideIsCatalog": false,
+  "afterTargetClick": {
+    "kind": "销售回款1",
+    "rows": 1,
+    "footerCount": 1,
+    "first": "PAY-2026-005",
+    "kindChips": [
+      "销售回款1",
+      "销售合同1"
+    ]
+  },
+  "backIsThisHop": true,
+  "failCode": "",
+  "pass": true
+}

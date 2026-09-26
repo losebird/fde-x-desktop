@@ -1,0 +1,455 @@
+{
+  "sha": "d2f7eaae1d4b095435c0252b68a2bf54d29d4cdc",
+  "branch": "main",
+  "hardcodedInSrc": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "originPushed": false,
+  "pnpm5174": true,
+  "cases": [
+    {
+      "n": 1,
+      "speech": "停用客户还有哪些没关的工单？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "客户"
+      ],
+      "mentioned": [
+        "客户",
+        "工单"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "工单",
+      "action": "现查",
+      "rows": 22,
+      "first": "TK20260623126",
+      "banner": "AI 刚查了 工单 · 22 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？",
+      "footerCount": 22,
+      "tbodyRows": 10,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": true,
+        "steps": [
+          "客户",
+          "工单"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "emptyHint": false,
+      "previewId": null,
+      "chips": {
+        "ok": true,
+        "failCode": "",
+        "chips": [
+          {
+            "kind": "工单",
+            "count": 22,
+            "text": "工单22"
+          },
+          {
+            "kind": "客户",
+            "count": 15,
+            "text": "客户15"
+          }
+        ],
+        "mixed": false,
+        "selected": {
+          "kind": "工单",
+          "count": 22,
+          "text": "工单22"
+        },
+        "side": {
+          "kind": "客户",
+          "count": 15,
+          "text": "客户15"
+        },
+        "afterSide": {
+          "selectedChip": "客户15",
+          "tbodyRows": 10,
+          "footerCount": 15,
+          "firstNo": "CUST2262",
+          "catalog": false
+        },
+        "connectorSeparate": true
+      }
+    },
+    {
+      "n": 2,
+      "speech": "故障类而且紧急、还没关的工单是哪家客户的？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "工单"
+      ],
+      "mentioned": [
+        "工单",
+        "客户"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "工单",
+      "action": "现查",
+      "rows": 1,
+      "first": "TK20260105702",
+      "banner": "AI 刚查了 工单 · 1 行 · 会话 session- · 刚刚本会话浮现历史工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？客户 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": false,
+        "steps": [
+          "客户",
+          "工单"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "emptyHint": false,
+      "previewId": null,
+      "chips": {
+        "ok": true,
+        "failCode": "",
+        "chips": [
+          {
+            "kind": "工单",
+            "count": 1,
+            "text": "工单1"
+          },
+          {
+            "kind": "客户",
+            "count": 1,
+            "text": "客户1"
+          }
+        ],
+        "mixed": false,
+        "selected": {
+          "kind": "工单",
+          "count": 1,
+          "text": "工单1"
+        },
+        "side": {
+          "kind": "客户",
+          "count": 1,
+          "text": "客户1"
+        },
+        "afterSide": {
+          "selectedChip": "客户1",
+          "tbodyRows": 1,
+          "footerCount": 1,
+          "firstNo": "CUST2276",
+          "catalog": false
+        },
+        "connectorSeparate": true
+      }
+    },
+    {
+      "n": 3,
+      "speech": "待审回款挂在哪些合同上？把已到期的那些摊出来。",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "销售回款",
+        "销售合同"
+      ],
+      "mentioned": [
+        "销售回款",
+        "销售合同"
+      ],
+      "hopNeed": true,
+      "pass": true,
+      "kind": "销售回款",
+      "action": "现查",
+      "rows": 1,
+      "first": "PAY-2026-005",
+      "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？客户 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？客户 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": true,
+        "steps": [
+          "销售合同",
+          "销售回款"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "emptyHint": false,
+      "previewId": null,
+      "chips": {
+        "ok": true,
+        "failCode": "",
+        "chips": [
+          {
+            "kind": "销售回款",
+            "count": 1,
+            "text": "销售回款1"
+          },
+          {
+            "kind": "销售合同",
+            "count": 1,
+            "text": "销售合同1"
+          }
+        ],
+        "mixed": false,
+        "selected": {
+          "kind": "销售回款",
+          "count": 1,
+          "text": "销售回款1"
+        },
+        "side": {
+          "kind": "销售合同",
+          "count": 1,
+          "text": "销售合同1"
+        },
+        "afterSide": {
+          "selectedChip": "销售合同1",
+          "tbodyRows": 1,
+          "footerCount": 1,
+          "firstNo": "HT-2026-005",
+          "catalog": false
+        },
+        "connectorSeparate": true
+      }
+    },
+    {
+      "n": 4,
+      "speech": "把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+      "want": "改行",
+      "write": true,
+      "queryThenWrite": false,
+      "related": [
+        "客户"
+      ],
+      "mentioned": [
+        "客户"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "客户",
+      "action": "改行",
+      "rows": 1,
+      "first": "CUST2056",
+      "banner": "AI 刚查了 客户 · 1 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？客户 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？客户 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？销售合同 · 现查 · 待审回款挂在哪些合同上？把已到期的那些摊出来。客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": false,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": false,
+        "steps": []
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "改行",
+      "hasFieldDiffs": true,
+      "emptyHint": false,
+      "previewId": "pv_a92e9774f1ff52b6",
+      "chips": {
+        "ok": true,
+        "failCode": "",
+        "chips": [
+          {
+            "kind": "客户",
+            "count": 1,
+            "text": "客户1"
+          }
+        ],
+        "mixed": false,
+        "selected": {
+          "kind": "客户",
+          "count": 1,
+          "text": "客户1"
+        },
+        "afterSide": null,
+        "connectorSeparate": true
+      },
+      "cancelledPreviewId": "pv_a92e9774f1ff52b6",
+      "cancelBefore": {
+        "first": "CUST2056",
+        "tbodyRows": 1,
+        "drawerOpen": true
+      },
+      "afterCancel": {
+        "clicked": true,
+        "drawerOpen": false,
+        "drawerAction": "",
+        "first": "CUST2056",
+        "tbodyRows": 1
+      },
+      "cancelHeld": true
+    },
+    {
+      "n": 5,
+      "speech": "待审报销单都过一下。只要预览，不要过账，不要 biz_write。",
+      "want": "过审",
+      "write": true,
+      "queryThenWrite": false,
+      "related": [
+        "报销单"
+      ],
+      "mentioned": [
+        "报销单"
+      ],
+      "hopNeed": false,
+      "pass": false,
+      "failCode": "action-mismatch(改行)",
+      "error": "action-mismatch(改行)",
+      "prompted": {
+        "http": 200,
+        "accepted": true,
+        "error": null
+      },
+      "aiDelta": "新建） 青岛云启信息技术有限公司 CUST2046 TK20260202412 性能问题（已分派） 深圳恒通电子有限公司 CUST2056 TK20240626910 报表错误（已分派） 青岛启明数据服务有限公司 CUST2112 TK20260105175 报表错误（已分派） 厦门嘉信电子有限公司 CUST2054 TK20241017268 数据同步异常（处理中） 南京博远信息技术有限公司 CUST2123 TK20260303283 性能问题（处理中） 说明： 结果在右边业务页也能看。 这是「最近一页」；停用客户总量可能更多，但本页这 15 家都带着未关工单。 需要某张单详情或按优先级/处理人再筛，直接说单号或条件即可。 用时 1分42秒 11:17 系统提示词 故障类而且紧急、还没关的工单是哪家客户的？ 11:18 3 次工具调用 · 1 条消息 现查结果：满足「故障类 + 紧急 + 未关闭」的工单目前只有 1 张，客户是： 苏州中天工业有限公司（CUST2276，潜在客户） 对应工单： 单号 标题 类型 优先级 状态 联系人 处理人 TK20260105702 权限申请 故障 紧急 已分派 徐芳霞 李娜 右边业务页也能看到这张单。要看详情、改派或继续按其他条件筛，直接说即可。 用时 37秒 11:18 系统提示词 待审回款挂在哪些合同上？把已到期的那些摊出来。 11:18 7 次工具调用 · 3 条消息 系统提示词 系统提示词 待审回款 ∩ 已到期合同 = 1 张（现查） 回款单 状态 金额 回款日 方式 客户 合同 销售订单 备注 PAY-2026-005 待确认 54,800 2026-02-20 银行转账 杭州数澜软件有限公司 HT-2026-005 SO-2026-005 首付款 挂靠合同：HT-2026-005（已到期） 名称：杭州数澜软件有限公司 软件订阅服务合同 合同金额：186,000 结束日：2027-01-28 备注：按季度付款 从已到期合同 hop 到待审回款，目前就这一张。右边业务页也能看。要打开 PAY-2026-005 或 HT-2026-005，说一声即可。 用时 1分25秒 11:20 系统提示词 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。 11:20 6 次工具调用 · 2 条消息 系统提示词 改行预览已出，未过账、未调用 biz_write。 拟改客户：深圳恒通电子有限公司（CUST2056） 项 现值 状态 暂停合作（inactive）→ 拟改为成交客户（active） 类型 企业客户 · C 级 行业 供应链 区域 华东 负责人 赵强 电话 18550260818 动作：改行（预览） 预览令牌：pv_a92e9774f1ff52b6（可用、未使用） 环境：生产 NocoBase 按你的要求停在预览。右边业务页也能看这次变更。 用量 285K tok 用时 1分01秒 11:21 待审报销单都过一下。只要预览，不要过账，不要 biz_write。 11:21 17 次工具调用 · 4 条消息 系统提示词 系统提示词 系统提示词 系统提示词 系统提示词 系统提示词 系统提示词 系统提示词 批量过审预览已出，未过账、未调用 biz_write。 拟过审：待审费用报销 97 条（当前列表一页，最多 100） 项 内容 动作 过审（批量预览） 状态变更 待审 → 过审 预览令牌 pv_f96535e005d7f708（可用、未使用） 环境 生产 NocoBase 清单固定 以预览时服务器锁定的 97 个单号为准 首几张示例： EXP20251224598 差旅 · 9,053.38 · 销售中心 · EMP1033 EXP20250404126 招待 · 19,438.39 · 总经办 · EMP1097 EXP20260620992 交通 · 12,272.88 · 质量管理部 · EMP1048 … 右边业务页也能看完整 97 条。按你的要求停在预览。 用量 1.5M tok 用时 3分06秒 11:24 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 5 轮 32 步·95 tok/s 3.8M tok·缓存命中 73%",
+      "leftSnippet": " 4 条消息 系统提示词 系统提示词 系统提示词 系统提示词 系统提示词 系统提示词 系统提示词 系统提示词 批量过审预览已出，未过账、未调用 biz_write。 拟过审：待审费用报销 97 条（当前列表一页，最多 100） 项 内容 动作 过审（批量预览） 状态变更 待审 → 过审 预览令牌 pv_f96535e005d7f708（可用、未使用） 环境 生产 NocoBase 清单固定 以预览时服务器锁定的 97 个单号为准 首几张示例： EXP20251224598 差旅 · 9,053.38 · 销售中心 · EMP1033 EXP20250404126 招待 · 19,438.39 · 总经办 · EMP1097 EXP20260620992 交通 · 12,272.88 · 质量管理部 · EMP1048 … 右边业务页也能看完整 97 条。按你的要求停在预览。 用量 1.5M tok 用时 3分06秒 11:24 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 5 轮 32 步·95 tok/s 3.8M tok·缓存命中 73%",
+      "pending": {
+        "kind": "费用报销",
+        "action": "改行",
+        "rows": 0,
+        "first": "",
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "fromHasRows": false,
+        "hopWhere": false,
+        "steps": [],
+        "speech": "待审报销单都过一下。只要预览，不要过账，不要 biz_write。",
+        "preview_id": null,
+        "sessionId": "session-e81b06ed-56c6-4188-98bb-333bc9763c57",
+        "changes": [],
+        "where": []
+      },
+      "ui": {
+        "footerCount": 0,
+        "tbodyRows": 1,
+        "firstNo": "",
+        "banner": "AI 刚查了 费用报销 · 0 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？客户 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？客户 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？销售合同 · 现查 · 待审回款挂在哪些合同上？把已到期的那些摊出来。客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。费用报销 · 过审 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。费用报销 · 现查 · 待审的费用报销报销单 · 过审 · 待审报销单 EXP20251224598 过审预览费用报销 · 改行 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+        "kindChips": [
+          "费用报销"
+        ],
+        "drawerAction": ""
+      }
+    }
+  ],
+  "portsBefore": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "connect": {
+    "connected": true,
+    "pid": 58519,
+    "error": null
+  },
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "localAppNames": [
+    "家里的菜谱",
+    "阳台植物浇水",
+    "小区水电抄表",
+    "小区水电抄表",
+    "资料卡片板",
+    "家庭药箱",
+    "库存盘点",
+    "库存盘点",
+    "设备故障报修",
+    "本周现场走访记录",
+    "AE归档-mu7xhnsp",
+    "AE归档-mu7xg4bn",
+    "AE归档-mu7x9pbf",
+    "AE归档-mu7xct8g",
+    "AE归档-mu7xe4t6"
+  ],
+  "sessionId": "session-e81b06ed-56c6-4188-98bb-333bc9763c57",
+  "sessionGet": {
+    "http": 200,
+    "code": "",
+    "message": "",
+    "id": "session-e81b06ed-56c6-4188-98bb-333bc9763c57"
+  },
+  "failCode": "case-5:action-mismatch(改行)",
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "createWizard": true,
+  "opsTabOk": true,
+  "askAiButton": true,
+  "aiLeft": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "catalogHasVisit": true,
+  "visitOpened": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "wide": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "narrow": {
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false
+  },
+  "portsEnd": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "req": {
+    "cases": false,
+    "cancel": true,
+    "history": false,
+    "session": false
+  },
+  "d22": {
+    "tabs": true,
+    "create": true,
+    "stretch": true,
+    "askAi": true,
+    "visit": true
+  },
+  "autoIm": false,
+  "pass": false
+}

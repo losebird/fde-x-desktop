@@ -1,0 +1,34 @@
+{
+  "kind": "费用报销",
+  "action": "现查",
+  "rows": 97,
+  "first": "EXP20251224598",
+  "statuses": [
+    "待审"
+  ],
+  "preview_id": null,
+  "speech": "待审报销单都过一下。只要预览，不要过账，不要 biz_write。",
+  "drawerOpen": false,
+  "drawerAction": "",
+  "drawerHasConfirm": false,
+  "drawerHasApprove": false,
+  "drawerChange": false,
+  "footer": "共 97 条 · 连接器 · 过审 23:49",
+  "tbodyRows": 10,
+  "firstNo": "EXP20251224598",
+  "selectedChip": "费用报销97",
+  "confirmClicked": false,
+  "historyPick": {
+    "ok": true,
+    "options": [
+      "本会话浮现历史",
+      "工单 · 改行 · 371713516372058",
+      "工单 · 删除 · TK20260305892",
+      "工单 · 现查 · processing",
+      "工单 · 现查 · processing",
+      "客户 · 现查 · inactive、停用",
+      "费用报销 · 过审 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。"
+    ],
+    "label": "费用报销 · 过审 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。"
+  }
+}

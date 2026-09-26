@@ -1,0 +1,624 @@
+{
+  "sha": "a41c6307ff373184bb29ba8c4ca676703a11972f",
+  "branch": "main",
+  "rowMarker": "am-mu85u4k7",
+  "boardName": "资料卡片板",
+  "visitName": "本周现场走访记录",
+  "hardcoded": "none",
+  "silentBizWrite": false,
+  "originPushed": false,
+  "createdNewApp": false,
+  "listedBefore": [
+    {
+      "id": "app_6a81181028a64219a373626cb6514921",
+      "name": "资料卡片板",
+      "status": "active",
+      "updatedAt": "2026-09-19T08:42:28.161Z"
+    },
+    {
+      "id": "app_27d92ef9a8cb45719d2633f596007003",
+      "name": "家庭药箱",
+      "status": "active",
+      "updatedAt": "2026-09-19T07:36:19.018Z"
+    },
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:36:50.727Z"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:33:47.810Z"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:26:09.893Z"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:03:58.932Z"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:05.598Z"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:02.947Z"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.866Z"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.860Z"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.853Z"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "openedApp": {
+    "id": "app_6a81181028a64219a373626cb6514921",
+    "name": "资料卡片板",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T08:42:28.161Z"
+  },
+  "ledgerApp": {
+    "id": "app_27d92ef9a8cb45719d2633f596007003",
+    "name": "家庭药箱",
+    "updatedAt": "2026-09-19T07:36:19.018Z"
+  },
+  "liveShot": {
+    "product": true,
+    "ledger": false,
+    "overview": false,
+    "compose": true,
+    "chart": false,
+    "feed": false,
+    "cards": true,
+    "cardCount": 6,
+    "cardGroups": [
+      "文档",
+      "网页",
+      "备忘"
+    ],
+    "groupLayouts": [
+      {
+        "key": "文档",
+        "label": "文档",
+        "count": 3,
+        "boxes": [
+          {
+            "title": "接口说明",
+            "left": 794,
+            "top": 455,
+            "width": 204,
+            "height": 196
+          },
+          {
+            "title": "验收清单",
+            "left": 1010,
+            "top": 455,
+            "width": 204,
+            "height": 196
+          },
+          {
+            "title": "入门手册",
+            "left": 1226,
+            "top": 455,
+            "width": 204,
+            "height": 196
+          }
+        ],
+        "horizontal": true
+      },
+      {
+        "key": "网页",
+        "label": "网页",
+        "count": 2,
+        "boxes": [
+          {
+            "title": "设计规范",
+            "left": 794,
+            "top": 707,
+            "width": 204,
+            "height": 196
+          },
+          {
+            "title": "周报模板",
+            "left": 1010,
+            "top": 707,
+            "width": 204,
+            "height": 196
+          }
+        ],
+        "horizontal": true
+      },
+      {
+        "key": "备忘",
+        "label": "备忘",
+        "count": 1,
+        "boxes": [
+          {
+            "title": "待办备忘",
+            "left": 794,
+            "top": 959,
+            "width": 204,
+            "height": 196
+          }
+        ],
+        "horizontal": false
+      }
+    ],
+    "horizontalGroup": {
+      "key": "文档",
+      "label": "文档",
+      "count": 3,
+      "boxes": [
+        {
+          "title": "接口说明",
+          "left": 794,
+          "top": 455,
+          "width": 204,
+          "height": 196
+        },
+        {
+          "title": "验收清单",
+          "left": 1010,
+          "top": 455,
+          "width": 204,
+          "height": 196
+        },
+        {
+          "title": "入门手册",
+          "left": 1226,
+          "top": 455,
+          "width": 204,
+          "height": 196
+        }
+      ],
+      "horizontal": true
+    },
+    "cardActions": 6,
+    "table": false,
+    "nav": "资料板",
+    "uses": "ai,float",
+    "editSpec": false,
+    "rollback": false,
+    "builderOpen": true,
+    "builderDrawer": false,
+    "cardTitles": [
+      "接口说明",
+      "验收清单",
+      "入门手册",
+      "设计规范",
+      "周报模板",
+      "待办备忘"
+    ],
+    "serialCardTitle": false,
+    "workspaceText": "返回列表\n资料卡片板\n运行中\n建造\n资料板\n问 AI\n撕出浮窗\n资料卡片\n文档\n接口说明\n\n字段和错误码 am-mu85schy\n\n打开\n验收清单\n\n发布前对照 am-mu85schy\n\n打开\n入门手册\n\n新同事先看这个 al-mu84card1\n\n打开\n网页\n设计规范\n\n间距和字号 am-mu85schy\n\n打开\n周报模板\n\n每周五更新\n\n打开\n备忘\n待办备忘\n\n临时记下\n\n打开\n添加资料\n标题 *\n说明\n来源 *\n请选择\n文档\n网页\n备忘\n打开链接 *\n添加资料"
+  },
+  "builderOffDaily": true,
+  "openedVisit": false,
+  "cardsBefore": 6,
+  "addedTitles": [
+    "验收清单",
+    "接口说明",
+    "设计规范"
+  ],
+  "rowCreated": true,
+  "afterAdd": {
+    "product": true,
+    "ledger": false,
+    "overview": false,
+    "compose": true,
+    "chart": false,
+    "feed": false,
+    "cards": true,
+    "cardCount": 6,
+    "cardGroups": [
+      "文档",
+      "网页",
+      "备忘"
+    ],
+    "groupLayouts": [
+      {
+        "key": "文档",
+        "label": "文档",
+        "count": 3,
+        "boxes": [
+          {
+            "title": "接口说明",
+            "left": 794,
+            "top": 455,
+            "width": 204,
+            "height": 196
+          },
+          {
+            "title": "验收清单",
+            "left": 1010,
+            "top": 455,
+            "width": 204,
+            "height": 196
+          },
+          {
+            "title": "入门手册",
+            "left": 1226,
+            "top": 455,
+            "width": 204,
+            "height": 196
+          }
+        ],
+        "horizontal": true
+      },
+      {
+        "key": "网页",
+        "label": "网页",
+        "count": 2,
+        "boxes": [
+          {
+            "title": "设计规范",
+            "left": 794,
+            "top": 707,
+            "width": 204,
+            "height": 196
+          },
+          {
+            "title": "周报模板",
+            "left": 1010,
+            "top": 707,
+            "width": 204,
+            "height": 196
+          }
+        ],
+        "horizontal": true
+      },
+      {
+        "key": "备忘",
+        "label": "备忘",
+        "count": 1,
+        "boxes": [
+          {
+            "title": "待办备忘",
+            "left": 794,
+            "top": 959,
+            "width": 204,
+            "height": 196
+          }
+        ],
+        "horizontal": false
+      }
+    ],
+    "horizontalGroup": {
+      "key": "文档",
+      "label": "文档",
+      "count": 3,
+      "boxes": [
+        {
+          "title": "接口说明",
+          "left": 794,
+          "top": 455,
+          "width": 204,
+          "height": 196
+        },
+        {
+          "title": "验收清单",
+          "left": 1010,
+          "top": 455,
+          "width": 204,
+          "height": 196
+        },
+        {
+          "title": "入门手册",
+          "left": 1226,
+          "top": 455,
+          "width": 204,
+          "height": 196
+        }
+      ],
+      "horizontal": true
+    },
+    "cardActions": 6,
+    "table": false,
+    "nav": "资料板",
+    "uses": "ai,float",
+    "editSpec": false,
+    "rollback": false,
+    "builderOpen": true,
+    "builderDrawer": false,
+    "cardTitles": [
+      "接口说明",
+      "验收清单",
+      "入门手册",
+      "设计规范",
+      "周报模板",
+      "待办备忘"
+    ],
+    "serialCardTitle": false,
+    "workspaceText": "返回列表\n资料卡片板\n运行中\n建造\n资料板\n问 AI\n撕出浮窗\n资料卡片\n文档\n接口说明\n\n字段和错误码 am-mu85schy\n\n打开\n验收清单\n\n发布前对照 am-mu85schy\n\n打开\n入门手册\n\n新同事先看这个 al-mu84card1\n\n打开\n网页\n设计规范\n\n间距和字号 am-mu85schy\n\n打开\n周报模板\n\n每周五更新\n\n打开\n备忘\n待办备忘\n\n临时记下\n\n打开\n添加资料\n标题 *\n说明\n来源 *\n请选择\n文档\n网页\n备忘\n打开链接 *\n添加资料"
+  },
+  "sameGroupHorizontal": true,
+  "titleIsBusinessName": true,
+  "hasOpenAction": true,
+  "actionHref": "https://example.com/api",
+  "actionTarget": "_blank",
+  "openedHref": "https://example.com/api",
+  "openLinkReal": true,
+  "hasAi": true,
+  "hasFloat": true,
+  "aiSession": "session-63f60d89-8916-4b66-9552-e65eeb10f82f",
+  "floated": true,
+  "rowPersistedUi": true,
+  "reloadShot": {
+    "product": true,
+    "ledger": false,
+    "overview": false,
+    "compose": true,
+    "chart": false,
+    "feed": false,
+    "cards": true,
+    "cardCount": 6,
+    "cardGroups": [
+      "文档",
+      "网页",
+      "备忘"
+    ],
+    "groupLayouts": [
+      {
+        "key": "文档",
+        "label": "文档",
+        "count": 3,
+        "boxes": [
+          {
+            "title": "接口说明",
+            "left": 454,
+            "top": 455,
+            "width": 204,
+            "height": 196
+          },
+          {
+            "title": "验收清单",
+            "left": 670,
+            "top": 455,
+            "width": 204,
+            "height": 196
+          },
+          {
+            "title": "入门手册",
+            "left": 886,
+            "top": 455,
+            "width": 204,
+            "height": 196
+          }
+        ],
+        "horizontal": true
+      },
+      {
+        "key": "网页",
+        "label": "网页",
+        "count": 2,
+        "boxes": [
+          {
+            "title": "设计规范",
+            "left": 454,
+            "top": 707,
+            "width": 204,
+            "height": 196
+          },
+          {
+            "title": "周报模板",
+            "left": 670,
+            "top": 707,
+            "width": 204,
+            "height": 196
+          }
+        ],
+        "horizontal": true
+      },
+      {
+        "key": "备忘",
+        "label": "备忘",
+        "count": 1,
+        "boxes": [
+          {
+            "title": "待办备忘",
+            "left": 454,
+            "top": 959,
+            "width": 204,
+            "height": 196
+          }
+        ],
+        "horizontal": false
+      }
+    ],
+    "horizontalGroup": {
+      "key": "文档",
+      "label": "文档",
+      "count": 3,
+      "boxes": [
+        {
+          "title": "接口说明",
+          "left": 454,
+          "top": 455,
+          "width": 204,
+          "height": 196
+        },
+        {
+          "title": "验收清单",
+          "left": 670,
+          "top": 455,
+          "width": 204,
+          "height": 196
+        },
+        {
+          "title": "入门手册",
+          "left": 886,
+          "top": 455,
+          "width": 204,
+          "height": 196
+        }
+      ],
+      "horizontal": true
+    },
+    "cardActions": 6,
+    "table": false,
+    "nav": "资料板",
+    "uses": "ai,float",
+    "editSpec": false,
+    "rollback": false,
+    "builderOpen": true,
+    "builderDrawer": false,
+    "cardTitles": [
+      "接口说明",
+      "验收清单",
+      "入门手册",
+      "设计规范",
+      "周报模板",
+      "待办备忘"
+    ],
+    "serialCardTitle": false,
+    "workspaceText": "返回列表\n资料卡片板\n运行中\n建造\n资料板\n问 AI\n撕出浮窗\n资料卡片\n文档\n接口说明\n\n字段和错误码 am-mu85schy\n\n打开\n验收清单\n\n发布前对照 am-mu85schy\n\n打开\n入门手册\n\n新同事先看这个 al-mu84card1\n\n打开\n网页\n设计规范\n\n间距和字号 am-mu85schy\n\n打开\n周报模板\n\n每周五更新\n\n打开\n备忘\n待办备忘\n\n临时记下\n\n打开\n添加资料\n标题 *\n说明\n来源 *\n请选择\n文档\n网页\n备忘\n打开链接 *\n添加资料"
+  },
+  "sameGroupHorizontalAfterReload": true,
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-product-am.png",
+  "visitAfterBoard": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "ledgerUnchangedAfterBoard": true,
+  "ledgerShot": {
+    "product": true,
+    "ledger": true,
+    "overview": true,
+    "compose": true,
+    "chart": true,
+    "feed": true,
+    "cards": false,
+    "cardCount": 0,
+    "cardGroups": [],
+    "groupLayouts": [],
+    "horizontalGroup": null,
+    "cardActions": 0,
+    "table": false,
+    "nav": "药箱",
+    "uses": "ai,float",
+    "editSpec": false,
+    "rollback": false,
+    "builderOpen": true,
+    "builderDrawer": false,
+    "cardTitles": [],
+    "serialCardTitle": false,
+    "workspaceText": "返回列表\n家庭药箱\n运行中\n建造\n药箱\n问 AI\n撕出浮窗\n药品种类\n4\n剩余片数合计\n31\n记一笔药品\n药名 *\n分类 *\n请选择\n常备\n处方\n外用\n剩余片数 *\n到期日\n备注\n记一笔药品\n按分类\n常备\n0\n处方\n0\n外用\n0\n药品流水\n还没有记录。上面记下一条就会出现在这里。"
+  },
+  "ledgerStillFull": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "sameApp": true,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "masqueradeKindChip": false,
+  "wide": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "stageW": 872
+  },
+  "narrow": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "stageW": 360
+  },
+  "resizeCollapse": true,
+  "resizeExpand": true,
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "sqliteRows": [
+    {
+      "title": "入门手册",
+      "source": "文档",
+      "url": "https://example.com/manual"
+    },
+    {
+      "title": "周报模板",
+      "source": "网页",
+      "url": "https://example.org/weekly"
+    },
+    {
+      "title": "待办备忘",
+      "source": "备忘",
+      "url": "https://example.net/memo"
+    },
+    {
+      "title": "验收清单",
+      "source": "文档",
+      "url": "https://example.com/checklist"
+    },
+    {
+      "title": "接口说明",
+      "source": "文档",
+      "url": "https://example.com/api"
+    },
+    {
+      "title": "设计规范",
+      "source": "网页",
+      "url": "https://example.org/design"
+    }
+  ],
+  "sqliteHasRow": true,
+  "sqliteGroupCounts": {
+    "文档": 3,
+    "网页": 2,
+    "备忘": 1
+  },
+  "templateHits": "none",
+  "bizWriteUrls": [],
+  "wired": "ai,float",
+  "pass": true,
+  "openLinkNote": "headless popup url empty; DOM a[href][target=_blank] still http(s)"
+}

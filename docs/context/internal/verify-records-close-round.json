@@ -1,0 +1,111 @@
+{
+  "slice": "records-close-round",
+  "sha": "e3f481fff48cf24026f5c8251f345c3cac25253c",
+  "branch": "cursor/records-close-session-round-947a",
+  "proofs": {
+    "p1": {
+      "pass": false,
+      "failCode": "not-this-send",
+      "checkPass": "每一句停转后，右边 = 这一句。转的时候不跟丢、不跟成自己再查的表。",
+      "checkFail": "你没说下一句，表自己换了；或下一句停转后还是上一句的表。",
+      "turn1": {
+        "kind": "",
+        "action": "",
+        "rows": null,
+        "first": "",
+        "dump": false,
+        "fromKind": "",
+        "hopWhere": false,
+        "steps": [],
+        "speech": "",
+        "roundId": "",
+        "running": false,
+        "thinking": false,
+        "leftoverJump": false,
+        "painted": []
+      },
+      "turn2": {
+        "kind": "考勤记录",
+        "action": "现查",
+        "rows": 20,
+        "first": "罗静怡",
+        "dump": false,
+        "fromKind": "员工档案",
+        "hopWhere": false,
+        "steps": [
+          "员工档案",
+          "考勤记录"
+        ],
+        "speech": "现查员工档案关联的考勤记录。只要预览，不要过账，不要 biz_write。",
+        "roundId": "rnd_mubejw3o_amhcnx",
+        "running": false,
+        "thinking": false,
+        "leftoverJump": false,
+        "painted": []
+      }
+    },
+    "p2": {
+      "pass": true,
+      "failCode": "",
+      "checkPass": "正式表已经在右边，左边没有「深度求索中」，输入框可以再发。",
+      "checkFail": "右边表有了，左边还一直转。把等待再加长不算过。",
+      "thinking": false,
+      "running": false,
+      "composer": {
+        "thinking": false,
+        "hasInput": true,
+        "disabled": false,
+        "sendLabel": false
+      },
+      "extraWaitUsed": false
+    },
+    "p3": {
+      "pass": false,
+      "failCode": "not-relation-target",
+      "checkPass": "右边是关系指向的那张，并且带着这一句的条件，不是某种对象的默认第一页。",
+      "checkFail": "右边是没筛条件的一页列表；或跳到的不是词表关系指向的那张。",
+      "snap": {
+        "kind": "",
+        "action": "",
+        "rows": null,
+        "first": "",
+        "dump": false,
+        "fromKind": "",
+        "hopWhere": false,
+        "steps": [],
+        "speech": "",
+        "roundId": ""
+      },
+      "running": true,
+      "thinking": true,
+      "leftoverJump": false
+    }
+  },
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "workspaceId": "1985293d-03bb-496f-ad69-5c7f2ac23149",
+  "kindCount": 40,
+  "relationCount": 85,
+  "livePairs": 43,
+  "speeches": {
+    "first": "第一句（现场词表已发布关系）",
+    "second": "第二句（另一条已发布关系）",
+    "hop": "有关系的那一句"
+  },
+  "sessionA": "session-a41523f0-bd3f-48cd-a929-e9c8ad843146",
+  "shots": {
+    "round01": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-01.png",
+      "exists": true
+    },
+    "round02": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-02.png",
+      "exists": true
+    },
+    "round03": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-03.png",
+      "exists": true
+    }
+  },
+  "sessionB": "session-a354973c-bc62-41a7-bf3e-c6c94d5a6b53",
+  "pass": false
+}

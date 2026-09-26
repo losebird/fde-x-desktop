@@ -1,0 +1,333 @@
+{
+  "sha": "0e853573e251324439b86d7a002dc86a83dd10e6",
+  "branch": "main",
+  "hardcodedInSrc": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "originPushed": false,
+  "pnpm5174": true,
+  "cases": [
+    {
+      "n": 1,
+      "speech": "停用客户还有哪些没关的工单？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "客户"
+      ],
+      "mentioned": [
+        "客户",
+        "工单"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "工单",
+      "action": "现查",
+      "rows": 22,
+      "first": "TK20260623126",
+      "footerCount": 22,
+      "tbodyRows": 10,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": true,
+        "steps": [
+          "客户",
+          "工单"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "emptyHint": false,
+      "previewId": null,
+      "chips": {
+        "ok": true,
+        "failCode": "",
+        "chips": [
+          {
+            "kind": "工单",
+            "count": 22,
+            "text": "工单22"
+          },
+          {
+            "kind": "客户",
+            "count": 15,
+            "text": "客户15"
+          }
+        ],
+        "mixed": false,
+        "selected": {
+          "kind": "工单",
+          "count": 22,
+          "text": "工单22"
+        },
+        "side": {
+          "kind": "客户",
+          "count": 15,
+          "text": "客户15"
+        },
+        "afterSide": {
+          "selectedChip": "客户15",
+          "tbodyRows": 10,
+          "footerCount": 15,
+          "firstNo": "CUST2262",
+          "catalog": false
+        },
+        "connectorSeparate": true
+      }
+    },
+    {
+      "n": 2,
+      "speech": "故障类而且紧急、还没关的工单是哪家客户的？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "工单"
+      ],
+      "mentioned": [
+        "工单",
+        "客户"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "工单",
+      "action": "现查",
+      "rows": 1,
+      "first": "TK20260105702",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": false,
+        "steps": [
+          "客户",
+          "工单"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "emptyHint": false,
+      "previewId": null,
+      "chips": {
+        "ok": true,
+        "failCode": "",
+        "chips": [
+          {
+            "kind": "工单",
+            "count": 1,
+            "text": "工单1"
+          },
+          {
+            "kind": "客户",
+            "count": 1,
+            "text": "客户1"
+          }
+        ],
+        "mixed": false,
+        "selected": {
+          "kind": "工单",
+          "count": 1,
+          "text": "工单1"
+        },
+        "side": {
+          "kind": "客户",
+          "count": 1,
+          "text": "客户1"
+        },
+        "afterSide": {
+          "selectedChip": "客户1",
+          "tbodyRows": 1,
+          "footerCount": 1,
+          "firstNo": "CUST2276",
+          "catalog": false
+        },
+        "connectorSeparate": true
+      }
+    },
+    {
+      "n": 3,
+      "speech": "待审回款挂在哪些合同上？把已到期的那些摊出来。",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "销售回款",
+        "销售合同"
+      ],
+      "mentioned": [
+        "销售回款",
+        "销售合同"
+      ],
+      "hopNeed": true,
+      "pass": false,
+      "failCode": "sheet-mismatch(footer=1,tbody=1,pending=1,ui=TK20260105702,pendingFirst=PAY-2026-005)",
+      "error": "sheet-mismatch(footer=1,tbody=1,pending=1,ui=TK20260105702,pendingFirst=PAY-2026-005)",
+      "prompted": {
+        "http": 200,
+        "accepted": true,
+        "error": null
+      },
+      "aiDelta": "结果已在右侧业务页；要看某一家的全部未关单，或翻下一页，直接说客户名/单号即可。 用量 345K tok 用时 1分22秒 02:22 系统提示词 停用客户还有哪些没关的工单？ 02:23 3 次工具调用 · 2 条消息 系统提示词 现查结果（停用客户 → 未关工单）：最近一页 22 条。 按客户汇总： 客户 编号 未关工单 成都青云信息技术有限公司 CUST-008 TK20240201467 功能咨询（新建）· TK20260118524 数据同步异常（处理中）· TK20240217639 功能咨询（已分派）· TK20241215682 设备报警（已分派） 厦门卓越智能装备有限公司 CUST2009 TK20241111823 性能问题（已分派）· TK20251003193 功能咨询（已分派）· TK20250804369 数据同步异常（已分派） 成都中天科技有限公司 CUST2144 TK20241209280 报表错误（已分派）· TK20250207164 权限申请（新建） 苏州远见实业集团 CUST2189 TK20250422233 功能咨询（处理中）· TK20251007677 报表错误（已分派） 南京智航交通科技有限公司 CUST-016 TK20260623126 性能问题（处理中） 华东嘉信科技有限公司 CUST2262 TK20250920953 报表错误（处理中） 苏州鼎盛数据服务有限公司 CUST2107 TK20240223580 权限申请（新建） 西安天工装备有限公司 CUST-020 TK20240815759 设备报警（处理中） 西安汇川智能装备有限公司 CUST2149 TK20250925592 权限申请（已分派） 华东中天信息技术有限公司 CUST2079 TK20240530927 系统无法登录（新建） 青岛云启信息技术有限公司 CUST2046 TK20260202412 性能问题（已分派） 深圳恒通电子有限公司 CUST2056 TK20240626910 报表错误（已分派） 青岛启明数据服务有限公司 CUST2112 TK20260105175 报表错误（已分派） 厦门嘉信电子有限公司 CUST2054 TK20241017268 数据同步异常（处理中） 南京博远信息技术有限公司 CUST2123 TK20260303283 性能问题（处理中） 本页停用客户起点 15 家，每家至少有一张未关单。明细在右侧业务页；要某一家全量或翻下一页，直接说客户名/单号即可。 用量 468K tok 用时 35秒 02:23 系统提示词 故障类而且紧急、还没关的工单是哪家客户的？ 02:24 3 次工具调用 · 2 条消息 系统提示词 现查命中 1 张：故障 + 紧急 + 未关。 客户是 苏州中天工业有限公司（CUST2276，潜在客户）。 字段 值 单号 TK20260105702 标题 权限申请 类型 故障（incident） 优先级 紧急（urgent） 状态 已分派（assigned） 联系人 徐芳霞 处理人 李娜 截止 2026-01-10 明细在右侧业务页。 用量 572K tok 用时 27秒 02:24 系统提示词 待审回款挂在哪些合同上？把已到期的那些摊出来。 02:24 5 次工具调用 · 2 条消息 系统提示词 现查结果（已到期合同 ∩ 待审回款）：命中 1 笔。 挂在合同 HT-2026-005 上： 项 内容 合同 HT-2026-005 · 杭州数澜软件有限公司 软件订阅服务合同 合同状态 已到期（expired） 客户 杭州数澜软件有限公司 合同金额 186,000 起止 2026-01-28 → 2027-01-28 待审回款 PAY-2026-005 回款金额 54,800（首付款） 回款日 2026-02-20 方式 银行转账 关联订单 SO-2026-005 明细在右侧业务页。目前按闸返回就这一笔；若要继续摊其他已到期合同或看这张回款明细，直接说即可。 用量 648K tok 用时 32秒 02:25 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 4 轮 18 步·98 tok/s 2M tok·缓存命中 82%",
+      "leftSnippet": "理人 李娜 截止 2026-01-10 明细在右侧业务页。 用量 572K tok 用时 27秒 02:24 系统提示词 待审回款挂在哪些合同上？把已到期的那些摊出来。 02:24 5 次工具调用 · 2 条消息 系统提示词 现查结果（已到期合同 ∩ 待审回款）：命中 1 笔。 挂在合同 HT-2026-005 上： 项 内容 合同 HT-2026-005 · 杭州数澜软件有限公司 软件订阅服务合同 合同状态 已到期（expired） 客户 杭州数澜软件有限公司 合同金额 186,000 起止 2026-01-28 → 2027-01-28 待审回款 PAY-2026-005 回款金额 54,800（首付款） 回款日 2026-02-20 方式 银行转账 关联订单 SO-2026-005 明细在右侧业务页。目前按闸返回就这一笔；若要继续摊其他已到期合同或看这张回款明细，直接说即可。 用量 648K tok 用时 32秒 02:25 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 4 轮 18 步·98 tok/s 2M tok·缓存命中 82%",
+      "pending": {
+        "kind": "销售回款",
+        "action": "现查",
+        "rows": 1,
+        "first": "PAY-2026-005",
+        "fromKind": "销售合同",
+        "fromRows": 1,
+        "fromFirst": "HT-2026-005",
+        "fromHasRows": true,
+        "hopWhere": true,
+        "steps": [
+          "销售合同",
+          "销售回款"
+        ],
+        "speech": "待审回款挂在哪些合同上？把已到期的那些摊出来。",
+        "preview_id": null,
+        "sessionId": "session-a823c0af-3b34-4856-bfed-03459d350e26",
+        "changes": [],
+        "where": [
+          {
+            "keys": [
+              "status",
+              "state",
+              "stage"
+            ],
+            "values": [
+              "pending",
+              "open",
+              "submitted",
+              "待审",
+              "新建"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ]
+      },
+      "ui": {
+        "footerCount": 1,
+        "tbodyRows": 1,
+        "firstNo": "TK20260105702",
+        "kindChips": [
+          "工单1",
+          "客户1"
+        ],
+        "drawerAction": ""
+      }
+    }
+  ],
+  "portsBefore": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "connect": {
+    "connected": true,
+    "pid": 37231,
+    "error": null
+  },
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "localAppNames": [
+    "家里的菜谱",
+    "阳台植物浇水",
+    "小区水电抄表",
+    "小区水电抄表",
+    "资料卡片板",
+    "家庭药箱",
+    "库存盘点",
+    "库存盘点",
+    "设备故障报修",
+    "本周现场走访记录",
+    "AE归档-mu7xhnsp",
+    "AE归档-mu7xg4bn",
+    "AE归档-mu7x9pbf",
+    "AE归档-mu7xct8g",
+    "AE归档-mu7xe4t6"
+  ],
+  "sessionId": "session-a823c0af-3b34-4856-bfed-03459d350e26",
+  "sessionGet": {
+    "http": 200,
+    "code": "",
+    "message": "",
+    "id": "session-a823c0af-3b34-4856-bfed-03459d350e26"
+  },
+  "rateLimited": true,
+  "failCode": "case-3:sheet-mismatch(footer=1,tbody=1,pending=1,ui=TK20260105702,pendingFirst=PAY-2026-005)",
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "createWizard": true,
+  "opsTabOk": true,
+  "askAiButton": true,
+  "aiLeft": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "catalogHasVisit": true,
+  "visitOpened": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "wide": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "narrow": {
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false
+  },
+  "portsEnd": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "req": {
+    "cases": false,
+    "cancel": false,
+    "history": false,
+    "session": false
+  },
+  "d22": {
+    "tabs": true,
+    "create": true,
+    "stretch": true,
+    "askAi": true,
+    "visit": true
+  },
+  "autoIm": false,
+  "pass": false
+}

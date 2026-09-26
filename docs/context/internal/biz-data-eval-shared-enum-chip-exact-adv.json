@@ -1,0 +1,212 @@
+{
+  "attack": "chip-exact-adv",
+  "branch": "cursor/eval-three-causes-2d90",
+  "headCommit": "7f535ce427d565ae91c4fa364ec319240257f80b",
+  "expectedHeadCommit": "7f535ce427d565ae91c4fa364ec319240257f80b",
+  "headCommitMatches": true,
+  "focusKindRouteOn4318": true,
+  "workspace": "/Users/zxz/Documents/ai-project/fdex测试",
+  "vitePort5174": 5174,
+  "vitePid5174": 42443,
+  "runtimePort": 4318,
+  "runtimePid4318": 81661,
+  "library": {
+    "项目任务": 161,
+    "项目": 96,
+    "费用报销": 42,
+    "请假申请": 26,
+    "销售合同": 0,
+    "仓库": 1
+  },
+  "taskVsProject": {
+    "task": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-exact-adv-doing-项目任务.png",
+      "sha256": "93d00dfbca32953e002a18f99756667734206984ac49aab2b1666b5d3c4425ad",
+      "officialKind": "项目任务",
+      "click": {
+        "chipSelector": "[data-records-footer] >> xpath=ancestor::div[contains(@class,\"space-y-3\")][1]//div[contains(@class,\"items-center\") and contains(@class,\"gap-1\") and contains(@class,\"flex-wrap\")] >> button.btn (nth=0 in bar)",
+        "chipButtonFullText": "项目任务进行中161",
+        "resolvedSideKind": "项目任务",
+        "matchRule": "longest literal kind on bar; no Playwright hasText prefix"
+      }
+    },
+    "project": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-exact-adv-doing-项目.png",
+      "sha256": "4f96e2be4a32f764300ff54f55871efa0fa248d9243a84ed3254724513ee4e29",
+      "officialKind": "项目",
+      "click": {
+        "chipSelector": "[data-records-footer] >> xpath=ancestor::div[contains(@class,\"space-y-3\")][1]//div[contains(@class,\"items-center\") and contains(@class,\"gap-1\") and contains(@class,\"flex-wrap\")] >> button.btn (nth=1 in bar)",
+        "chipButtonFullText": "项目进行中96",
+        "resolvedSideKind": "项目",
+        "matchRule": "longest literal kind on bar; no Playwright hasText prefix"
+      }
+    },
+    "sha256Distinct": true
+  },
+  "shotsDistinct": true,
+  "captures": [
+    {
+      "short": "doing-项目任务",
+      "group": "doing",
+      "object": "项目任务",
+      "library": 161,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "click": {
+        "chipSelector": "[data-records-footer] >> xpath=ancestor::div[contains(@class,\"space-y-3\")][1]//div[contains(@class,\"items-center\") and contains(@class,\"gap-1\") and contains(@class,\"flex-wrap\")] >> button.btn (nth=0 in bar)",
+        "chipButtonFullText": "项目任务进行中161",
+        "resolvedSideKind": "项目任务",
+        "matchRule": "longest literal kind on bar; no Playwright hasText prefix"
+      },
+      "rightHitTotal": 161,
+      "hitTotalState": "known",
+      "footerText": "共 161 条 · 局域网业务协作适配器 · 现查 12:59",
+      "footerAttr": "共 161 条",
+      "footerCount": 161,
+      "tableRowCount": 20,
+      "tableHeaders": [
+        "序号",
+        "单号",
+        "状态",
+        "优先级",
+        "更新时间",
+        "开始日期",
+        "截止日期",
+        "进度百分比",
+        "任务说明",
+        "项目",
+        "负责人",
+        "操作"
+      ],
+      "tableSample": "1方案设计26进行中高2026/06/24 11:132025-07-092025-08-0670项目任务MES系统项目49zxz改行删除 | 2验收33进行中高2026/06/24 11:132024-06-062024-06-1243项目任务客户门户项目69zxz改行删除 | 3部署上线31进行中中2026/06/24 11:132025-08-312025-09-0546项目任务能耗监控项目12王芳改行删除",
+      "pagination": {
+        "page": 1,
+        "pages": 9
+      },
+      "officialSheet": {
+        "kind": "项目任务",
+        "hitTotal": 161,
+        "hitTotalState": "known"
+      },
+      "prevSheetKindBeforeClick": "项目任务",
+      "pass": true,
+      "note": "一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-exact-adv-doing-项目任务.png",
+      "bytes": 69245,
+      "sha256": "93d00dfbca32953e002a18f99756667734206984ac49aab2b1666b5d3c4425ad",
+      "sessionId": "session-8ac0f44a-7df4-4312-ada5-6ebd00a12f7a",
+      "speech": "进行中的项目任务和项目。只要预览，不要过账，不要 biz_write。"
+    },
+    {
+      "short": "doing-项目",
+      "group": "doing",
+      "object": "项目",
+      "library": 96,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "click": {
+        "chipSelector": "[data-records-footer] >> xpath=ancestor::div[contains(@class,\"space-y-3\")][1]//div[contains(@class,\"items-center\") and contains(@class,\"gap-1\") and contains(@class,\"flex-wrap\")] >> button.btn (nth=1 in bar)",
+        "chipButtonFullText": "项目进行中96",
+        "resolvedSideKind": "项目",
+        "matchRule": "longest literal kind on bar; no Playwright hasText prefix"
+      },
+      "rightHitTotal": 96,
+      "hitTotalState": "known",
+      "footerText": "共 96 条 · 连接器 · 现查 12:59",
+      "footerAttr": "共 96 条",
+      "footerCount": 96,
+      "tableRowCount": 20,
+      "tableHeaders": [
+        "序号",
+        "单号",
+        "状态",
+        "项目名称",
+        "优先级",
+        "更新时间",
+        "开始日期",
+        "结束日期",
+        "预算",
+        "项目说明",
+        "客户",
+        "项目经理",
+        "操作"
+      ],
+      "tableSample": "1PRJ-2026-007进行中苏州博远精密制造有限公司 服务台升级低2026/06/26 14:262026-02-022026-05-01210000项目范围包含流程优化和权限配置。苏州博远精密制造有限公司Ace Admin改行删除 | 2PRJ2179进行中产线自动化项目45高2026/06/24 11:132025-05-102025-09-152041035.66企业信息化建设项目合肥天和信息技术有限公司孙磊改行删除 | 3PRJ2177进行中质量追溯项目28中2026/06/24 11:132025-07-152026-06-221675610.98企业信息化建设项目北京启明数据服务有限公司王芳改行删除",
+      "pagination": {
+        "page": 1,
+        "pages": 5
+      },
+      "officialSheet": {
+        "kind": "项目",
+        "hitTotal": 96,
+        "hitTotalState": "known"
+      },
+      "prevSheetKindBeforeClick": "项目任务",
+      "pass": true,
+      "note": "一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-exact-adv-doing-项目.png",
+      "bytes": 69888,
+      "sha256": "4f96e2be4a32f764300ff54f55871efa0fa248d9243a84ed3254724513ee4e29",
+      "sessionId": "session-8ac0f44a-7df4-4312-ada5-6ebd00a12f7a",
+      "speech": "进行中的项目任务和项目。只要预览，不要过账，不要 biz_write。"
+    },
+    {
+      "short": "warehouse-semi",
+      "group": "spot",
+      "object": "仓库",
+      "library": 1,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "click": {
+        "chipSelector": null,
+        "note": "session settle after turn; no extra chip click"
+      },
+      "rightHitTotal": 1,
+      "hitTotalState": "known",
+      "footerText": "共 1 条 · 局域网业务协作适配器 · 现查 13:09",
+      "footerAttr": "共 1 条",
+      "footerCount": 1,
+      "tableRowCount": 1,
+      "officialSheet": {
+        "kind": "仓库",
+        "hitTotal": 1,
+        "hitTotalState": "known"
+      },
+      "pass": true,
+      "note": "一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-exact-adv-warehouse-semi.png",
+      "bytes": 80115,
+      "sha256": "c5338094a8b05bc6d1e20539a7dcc897e6afdc3905c0c6c0ef322bdc32be1a26",
+      "sessionId": "session-d3195047-848d-4806-b577-5c556667a7ea",
+      "speech": "半成品库的仓库。只要预览，不要过账，不要 biz_write。"
+    },
+    {
+      "short": "other-销售合同",
+      "group": "other",
+      "object": "销售合同",
+      "library": 0,
+      "librarySource": "nocobase meta.count read-only :13000",
+      "click": {
+        "chipSelector": "button.btn nth=2",
+        "chipButtonFullText": "销售合同other",
+        "resolvedSideKind": "销售合同"
+      },
+      "rightHitTotal": 0,
+      "hitTotalState": "known",
+      "footerText": "共 0 条 · 连接器 · 现查 13:11",
+      "footerCount": 0,
+      "officialSheet": {
+        "kind": "销售合同",
+        "hitTotal": 0,
+        "hitTotalState": "known"
+      },
+      "pass": true,
+      "note": "一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-exact-adv-other-销售合同.png",
+      "bytes": 65750,
+      "sha256": "80b3bc237321a0cb232e8a66deda750ddff1b306bdb93d2494d504afed5e21fa",
+      "sessionId": "session-a7c33db0-a5c4-442a-ae1e-371142cd048d",
+      "speech": "其他的费用报销和请假申请和销售合同。只要预览，不要过账，不要 biz_write。"
+    }
+  ],
+  "allPass": true,
+  "runError": null,
+  "capturedAt": "2026-09-23T05:11:15.375Z"
+}

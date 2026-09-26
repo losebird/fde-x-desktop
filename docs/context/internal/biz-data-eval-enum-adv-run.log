@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "pierced": [
+    "供应商 / C",
+    "出入库流水 / 生产领料",
+    "仓库 / 半成品库",
+    "仓库 / 综合库"
+  ],
+  "spot": [
+    {
+      "label": "抽查 商品物料→出入库流水",
+      "pierced": false,
+      "footer": 5135
+    },
+    {
+      "label": "抽查 部门→角色",
+      "pierced": false,
+      "footer": 0
+    },
+    {
+      "label": "抽查 员工直属上级",
+      "pierced": true,
+      "footer": 120
+    },
+    {
+      "label": "抽查 客户→工单",
+      "pierced": false,
+      "footer": 399
+    }
+  ]
+}

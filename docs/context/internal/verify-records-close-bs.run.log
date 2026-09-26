@@ -1,0 +1,15 @@
+{"n":1,"pass":true,"failCode":"","kind":"工单","rows":21,"swapped":false,"swappedTo":"","reusedFromPrior":true}
+{"n":2,"pass":true,"failCode":"","kind":"工单","rows":8,"swapped":false,"swappedTo":"","reusedFromPrior":true}
+{"n":3,"pass":true,"failCode":"","kind":"销售回款","rows":1,"swapped":false,"swappedTo":"","reusedFromPrior":true}
+{"n":4,"pass":true,"failCode":"","kind":"客户","rows":1,"swapped":false,"swappedTo":"","reusedFromPrior":true}
+{"n":5,"pass":false,"failCode":"left-ai-missing-row","kind":"","rows":null,"swapped":false,"swappedTo":""}
+{"n":6,"pass":false,"failCode":"left-ai-missing-row","kind":"","rows":null,"swapped":true,"swappedTo":"QJ20251027588"}
+{"n":7,"pass":false,"failCode":"left-ai-missing-row","kind":"","rows":null,"swapped":true,"swappedTo":"TK20250211633"}
+{"n":8,"pass":false,"failCode":"left-ai-missing-row","kind":"","rows":null,"swapped":false,"swappedTo":""}
+{"n":9,"pass":false,"failCode":"action-mismatch(现查)","kind":"","rows":null,"swapped":true,"swappedTo":"QJ20251101520"}
+{"n":10,"pass":false,"failCode":"pending-unchanged","kind":"","rows":null,"swapped":false,"swappedTo":""}
+{"n":11,"pass":false,"failCode":"left-ai-missing-row","kind":"","rows":null,"swapped":false,"swappedTo":""}
+{"n":12,"pass":false,"failCode":"action-mismatch(过审)","kind":"","rows":null,"swapped":false,"swappedTo":""}
+{"n":13,"pass":false,"failCode":"left-ai-missing-row","kind":"","rows":null,"swapped":false,"swappedTo":""}
+{"pass":false,"failCode":"cases:5,6,7,8,9,10,11,12,13","sha":"7058eec8f686b52a5e598db0255310b13fc72486","cases":[{"n":1,"pass":true},{"n":2,"pass":true},{"n":3,"pass":true},{"n":4,"pass":true},{"n":5,"pass":false},{"n":6,"pass":false},{"n":7,"pass":false},{"n":8,"pass":false},{"n":9,"pass":false},{"n":10,"pass":false},{"n":11,"pass":false},{"n":12,"pass":false},{"n":13,"pass":false}]}
+EXIT:1

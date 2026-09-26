@@ -1,0 +1,455 @@
+{
+  "sha": "cb694ad6246fc9ad913682f5f6e78b66b740480e",
+  "branch": "main",
+  "visitId": "app_5d1eef0062114901b4797d705e5166b5",
+  "silentBizWrite": false,
+  "originPushed": false,
+  "createdApp": true,
+  "createDesc": "阳台植物浇水：按品种分组卡片，尽量挤密一行，主操作是打开养护说明链接。本地台账。",
+  "reviseDesc": "卡片排成一行，色块矮一点，标题放到色块下面。",
+  "listedBefore": [
+    {
+      "id": "app_4b3607a735ea42d295306f4ab9499d1f",
+      "name": "家里的菜谱",
+      "status": "active",
+      "revision": 1,
+      "updatedAt": "2026-09-19T17:05:09.385Z"
+    },
+    {
+      "id": "app_b03684ff6d4e4758b16c45ed20a1a129",
+      "name": "阳台植物浇水",
+      "status": "active",
+      "revision": 1,
+      "updatedAt": "2026-09-19T16:53:24.354Z"
+    },
+    {
+      "id": "app_07cd41a2204f4cbab1d583185f7fdcae",
+      "name": "小区水电抄表",
+      "status": "draft",
+      "revision": 1,
+      "updatedAt": "2026-09-19T14:46:20.401Z"
+    },
+    {
+      "id": "app_9de6038b186a4e9786e28bc4f48add9d",
+      "name": "小区水电抄表",
+      "status": "active",
+      "revision": 1,
+      "updatedAt": "2026-09-19T14:45:27.484Z"
+    },
+    {
+      "id": "app_6a81181028a64219a373626cb6514921",
+      "name": "资料卡片板",
+      "status": "active",
+      "revision": 2,
+      "updatedAt": "2026-09-19T09:19:30.066Z"
+    },
+    {
+      "id": "app_27d92ef9a8cb45719d2633f596007003",
+      "name": "家庭药箱",
+      "status": "active",
+      "revision": 1,
+      "updatedAt": "2026-09-19T07:36:19.018Z"
+    },
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active",
+      "revision": 1,
+      "updatedAt": "2026-09-19T06:36:50.727Z"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft",
+      "revision": 1,
+      "updatedAt": "2026-09-19T06:33:47.810Z"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft",
+      "revision": 1,
+      "updatedAt": "2026-09-19T06:26:09.893Z"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "revision": 1,
+      "updatedAt": "2026-09-19T06:03:58.932Z"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived",
+      "revision": 1,
+      "updatedAt": "2026-09-19T05:10:05.598Z"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived",
+      "revision": 1,
+      "updatedAt": "2026-09-19T05:10:02.947Z"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived",
+      "revision": 1,
+      "updatedAt": "2026-09-19T05:08:49.866Z"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived",
+      "revision": 1,
+      "updatedAt": "2026-09-19T05:08:49.860Z"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived",
+      "revision": 1,
+      "updatedAt": "2026-09-19T05:08:49.853Z"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "recipeBeforeDetail": {
+    "id": "app_4b3607a735ea42d295306f4ab9499d1f",
+    "name": "家里的菜谱",
+    "status": "active",
+    "revision": 1,
+    "surface": null,
+    "uses": [
+      "ai"
+    ],
+    "pages": [
+      {
+        "id": "page-recipe",
+        "label": "菜谱卡片",
+        "kinds": [
+          "cards",
+          "compose"
+        ]
+      },
+      {
+        "id": "page-cook",
+        "label": "试做台账",
+        "kinds": [
+          "stats",
+          "compose",
+          "chart",
+          "feed"
+        ]
+      }
+    ],
+    "slug": "home-recipes"
+  },
+  "recipeRevBefore": 1,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "catalogRunningFirst": true,
+  "draftDialog": true,
+  "createConnect": "local",
+  "createPreview": {
+    "product": true,
+    "overview": false,
+    "chart": false,
+    "feed": false,
+    "cards": true,
+    "play": false,
+    "open": true,
+    "titles": [
+      "芦荟",
+      "龟背竹",
+      "薄荷",
+      "小番茄"
+    ],
+    "nav": "tabs",
+    "density": "packed",
+    "hero": "below",
+    "primaryWhere": "card",
+    "columns": "",
+    "composeChart": "pair",
+    "usesAttr": "",
+    "titleOnHero": false,
+    "titleBelowHero": true,
+    "heroH": 64,
+    "playCount": 4,
+    "ledgerStrip": false,
+    "askAi": false,
+    "plan": false,
+    "navText": "阳台植物",
+    "productText": "阳台植物 登记植物 植物名 * 品种 * 多肉 观叶 开花 香草 藤本 蔬菜 养护要点 养护说明 * 登记植物 按品种 多肉 芦荟 见养护说明 打开 观叶 龟背竹 见养护说明 打开 开花 薄荷 见养护说明 打开 香草 小番茄 见养护说明 打开"
+  },
+  "createdId": "app_b03684ff6d4e4758b16c45ed20a1a129",
+  "createdDetail": {
+    "id": "app_b03684ff6d4e4758b16c45ed20a1a129",
+    "name": "阳台植物浇水",
+    "status": "active",
+    "revision": 1,
+    "surface": {
+      "nav": "tabs",
+      "density": "packed",
+      "defaultPage": "page-plant",
+      "cards": {
+        "minWidth": "narrow",
+        "hero": "below"
+      },
+      "ledger": {
+        "composeChart": "pair",
+        "feed": "rows"
+      },
+      "primary": {
+        "where": "card",
+        "kind": "open"
+      }
+    },
+    "uses": [],
+    "pages": [
+      {
+        "id": "page-plant",
+        "label": "阳台植物",
+        "kinds": [
+          "cards",
+          "compose"
+        ]
+      }
+    ],
+    "slug": "balcony-plants"
+  },
+  "seedCreated": {
+    "seeded": false,
+    "count": 4
+  },
+  "createdLive": {
+    "product": true,
+    "overview": false,
+    "chart": false,
+    "feed": false,
+    "cards": true,
+    "play": false,
+    "open": true,
+    "titles": [
+      "芦荟",
+      "龟背竹",
+      "薄荷",
+      "小番茄"
+    ],
+    "nav": "tabs",
+    "density": "packed",
+    "hero": "below",
+    "primaryWhere": "card",
+    "columns": "",
+    "composeChart": "pair",
+    "usesAttr": "",
+    "titleOnHero": false,
+    "titleBelowHero": true,
+    "heroH": 64,
+    "playCount": 4,
+    "ledgerStrip": false,
+    "askAi": false,
+    "plan": false,
+    "navText": "阳台植物",
+    "productText": "阳台植物 登记植物 植物名 * 品种 * 多肉 观叶 开花 香草 藤本 蔬菜 养护要点 养护说明 * 登记植物 按品种 多肉 芦荟 见养护说明 打开 观叶 龟背竹 见养护说明 打开 开花 薄荷 见养护说明 打开 香草 小番茄 见养护说明 打开"
+  },
+  "recipeBeforeLive": {
+    "product": true,
+    "overview": false,
+    "chart": false,
+    "feed": false,
+    "cards": true,
+    "play": true,
+    "open": false,
+    "titles": [
+      "红烧排骨",
+      "番茄炒蛋",
+      "清炒时蔬"
+    ],
+    "nav": "tabs",
+    "density": "cozy",
+    "hero": "cover",
+    "primaryWhere": "card",
+    "columns": "",
+    "composeChart": "pair",
+    "usesAttr": "ai",
+    "titleOnHero": true,
+    "titleBelowHero": false,
+    "heroH": 112,
+    "playCount": 3,
+    "ledgerStrip": false,
+    "askAi": true,
+    "plan": false,
+    "navText": "菜谱卡片 试做台账",
+    "productText": "菜谱卡片 试做台账 记下菜谱 菜名 * 菜系 * 家常 川菜 粤菜 湘菜 江浙 面点 汤羹 西式 日韩 其他 做法说明 教学视频 记下菜谱 问 AI 按菜系 家常 红烧排骨 小火慢炖到骨肉分离。 播放 番茄炒蛋 番茄炒蛋 说明 播放 粤菜 清炒时蔬 大火快炒，少油快出锅。 播放"
+  },
+  "recipeAfterDetail": {
+    "id": "app_4b3607a735ea42d295306f4ab9499d1f",
+    "name": "家里的菜谱",
+    "status": "active",
+    "revision": 3,
+    "surface": {
+      "nav": "tabs",
+      "density": "packed",
+      "defaultPage": "page-recipe",
+      "cards": {
+        "minWidth": "narrow",
+        "hero": "below",
+        "columns": 6
+      },
+      "ledger": {
+        "composeChart": "pair",
+        "feed": "rows"
+      },
+      "primary": {
+        "where": "card",
+        "kind": "play"
+      }
+    },
+    "uses": [
+      "ai"
+    ],
+    "pages": [
+      {
+        "id": "page-recipe",
+        "label": "菜谱卡片",
+        "kinds": [
+          "cards",
+          "compose"
+        ]
+      },
+      {
+        "id": "page-cook",
+        "label": "试做台账",
+        "kinds": [
+          "stats",
+          "compose",
+          "chart",
+          "feed"
+        ]
+      }
+    ],
+    "slug": "home-recipes"
+  },
+  "recipeReviseBumped": true,
+  "recipeAfterLive": {
+    "product": true,
+    "overview": false,
+    "chart": false,
+    "feed": false,
+    "cards": true,
+    "play": true,
+    "open": false,
+    "titles": [
+      "红烧排骨",
+      "番茄炒蛋",
+      "清炒时蔬"
+    ],
+    "nav": "tabs",
+    "density": "packed",
+    "hero": "below",
+    "primaryWhere": "card",
+    "columns": "6",
+    "composeChart": "pair",
+    "usesAttr": "ai",
+    "titleOnHero": false,
+    "titleBelowHero": true,
+    "heroH": 64,
+    "playCount": 3,
+    "ledgerStrip": false,
+    "askAi": true,
+    "plan": false,
+    "navText": "菜谱卡片 试做台账",
+    "productText": "菜谱卡片 试做台账 记下菜谱 菜名 * 菜系 * 家常 川菜 粤菜 湘菜 江浙 面点 汤羹 西式 日韩 其他 做法说明 教学视频 记下菜谱 问 AI 按菜系 家常 红烧排骨 小火慢炖到骨肉分离。 播放 番茄炒蛋 番茄炒蛋 说明 播放 粤菜 清炒时蔬 大火快炒，少油快出锅。 播放"
+  },
+  "ledgerLive": {
+    "product": true,
+    "overview": true,
+    "chart": true,
+    "feed": true,
+    "cards": false,
+    "play": false,
+    "open": false,
+    "titles": [],
+    "nav": "tabs",
+    "density": "cozy",
+    "hero": "cover",
+    "primaryWhere": "card",
+    "columns": "",
+    "composeChart": "pair",
+    "usesAttr": "ai,plan",
+    "titleOnHero": false,
+    "titleBelowHero": false,
+    "heroH": 0,
+    "playCount": 0,
+    "ledgerStrip": false,
+    "askAi": true,
+    "plan": true,
+    "navText": "本月抄表",
+    "productText": "本月抄表 本月抄表笔数 1 本月用量合计 12 记一笔抄表 表名 * 用量 * 抄表日 * 类别 * 水 电 气 记一笔抄表 问 AI 摘成待办 分类用量 12 水 12 100% 电 0 0% 气 0 0% 水 电 气 抄表流水 水 东门水表 2026-09-19 12"
+  },
+  "aiLeft": {
+    "asideW": 48,
+    "hit": false,
+    "snippet": ""
+  },
+  "planEntry": true,
+  "playOrOpen": true,
+  "catalogHasVisit": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "wide": {
+    "asideW": 224,
+    "asideOpen": true
+  },
+  "narrow": {
+    "asideW": 48,
+    "asideOpen": false
+  },
+  "autoIm": false,
+  "pnpm5174": true,
+  "gate1": true,
+  "gate2": true,
+  "gate3": true,
+  "pass1": true,
+  "pass2": true,
+  "pass3": true,
+  "d22": {
+    "tabs": true,
+    "create": true,
+    "draftDialog": true,
+    "delete": true,
+    "catalogRunningFirst": true,
+    "plan": true,
+    "openPlay": true,
+    "askAi": true,
+    "declaredOnly": true,
+    "stretch": true,
+    "visit": true
+  },
+  "pass": true,
+  "pngBytes": 154401,
+  "pngHeader": "89504e470d0a1a0a",
+  "bizWriteUrls": [],
+  "imSendUrls": []
+}

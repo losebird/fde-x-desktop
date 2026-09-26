@@ -1,0 +1,1 @@
+{"pass":false,"failCode":"case-2:still-thinking","sha":"aa203915fab594be8a6c0c79502b8a18f9487849","cases":[{"n":1,"pass":true,"kind":"工单","rows":21},{"n":2,"pass":false,"failCode":"still-thinking"}],"d22":{"tabs":true,"create":true,"stretch":true,"askAi":true,"visit":true},"rateLimited":false,"silentBizWrite":false}

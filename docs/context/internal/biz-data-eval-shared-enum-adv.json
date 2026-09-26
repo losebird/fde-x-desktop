@@ -1,0 +1,388 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "sha": "e2b0a78c53fdd2e842d06c107e7333c50681a9c4",
+  "vitePid5174": 1985,
+  "runtimePort": 4318,
+  "workspace": "/Users/zxz/Documents/ai-project/fdex测试",
+  "classId": "shared-adv",
+  "summary": {
+    "commitVerified": "e2b0a78c53fdd2e842d06c107e7333c50681a9c4",
+    "vitePid5174": 1985,
+    "runtime4318": true,
+    "librarySource": "NocoBase :list meta.count via lookupToken",
+    "mainGroupVerdict": {
+      "done": "四边库 304/272/229/43；闸过、无假 hop；项目计划含 completed；页脚与库一致（pending-sheet hitTotal 切芯片后常滞后）",
+      "other": "费用报销库 42、页脚 42；请假 26 一致；库 0 的三对象页脚为总数未知；无假 hop",
+      "doing": "项目任务 161 一致；项目库 96 但切到项目芯片页脚仍 161"
+    },
+    "spotVerdict": "直属上级 80 一致；半成品库/C/生产领料 sheet hitTotal 对库但页脚总数未知",
+    "slotsHardcode": "未发现"
+  },
+  "codeAudit": {
+    "slotsJsPath": "/Users/zxz/WorkBuddy/2026-09-08-20-34-42/scene-39-personal-workstation/runtime/vendor-overlays/dsh-lan-assist/slots.js",
+    "hardcodedLiterals": [],
+    "pierced": false
+  },
+  "mainGroups": [
+    {
+      "group": "done",
+      "say": "已完成",
+      "speech": "已完成的采购订单和项目任务和销售订单和项目。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-0f6f5b21-ca95-45aa-bea1-7049cea66f13",
+      "gatePass": true,
+      "fakeHop": false,
+      "sides": [
+        {
+          "object": "采购订单",
+          "library": 304,
+          "fullTable": 599,
+          "rightHitTotal": 304,
+          "hitTotalState": "known",
+          "footerText": "共 304 条 · 连接器 · 现查 05:35",
+          "footerAttr": "共 304 条",
+          "footerCount": 304,
+          "planValues": [
+            "已完成"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": true,
+          "note": "一致",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-done-采购订单.png",
+          "sheetKind": "项目",
+          "groupSay": "已完成",
+          "rightHitTotalUi": 304,
+          "pendingSheetHitTotal": 43,
+          "pendingSheetKindMismatch": true
+        },
+        {
+          "object": "项目任务",
+          "library": 272,
+          "fullTable": 600,
+          "rightHitTotal": 272,
+          "hitTotalState": "known",
+          "footerText": "共 272 条 · 连接器 · 现查 05:35",
+          "footerAttr": "共 272 条",
+          "footerCount": 272,
+          "planValues": [
+            "done"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": true,
+          "note": "一致",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-done-项目任务.png",
+          "sheetKind": "项目",
+          "groupSay": "已完成",
+          "rightHitTotalUi": 272,
+          "pendingSheetHitTotal": 43,
+          "pendingSheetKindMismatch": true
+        },
+        {
+          "object": "销售订单",
+          "library": 229,
+          "fullTable": 433,
+          "rightHitTotal": 229,
+          "hitTotalState": "known",
+          "footerText": "共 229 条 · 连接器 · 现查 05:35",
+          "footerAttr": "共 229 条",
+          "footerCount": 229,
+          "planValues": [
+            "completed"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": true,
+          "note": "一致",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-done-销售订单.png",
+          "sheetKind": "项目",
+          "groupSay": "已完成",
+          "rightHitTotalUi": 229,
+          "pendingSheetHitTotal": 43,
+          "pendingSheetKindMismatch": true
+        },
+        {
+          "object": "项目",
+          "library": 43,
+          "fullTable": 200,
+          "rightHitTotal": 43,
+          "hitTotalState": "known",
+          "footerText": "共 43 条 · 局域网业务协作适配器 · 现查 05:35",
+          "footerAttr": "共 43 条",
+          "footerCount": 43,
+          "planValues": [
+            "completed"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": true,
+          "note": "一致",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-done-项目.png",
+          "sheetKind": "项目",
+          "groupSay": "已完成",
+          "rightHitTotalUi": 43,
+          "pendingSheetHitTotal": 43,
+          "pendingSheetKindMismatch": false
+        }
+      ],
+      "groupPass": true
+    },
+    {
+      "group": "other",
+      "say": "其他",
+      "speech": "其他的费用报销和请假申请和销售合同和销售回款和员工档案。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-d2eed754-8738-469e-a72a-156b68f182c1",
+      "gatePass": true,
+      "fakeHop": false,
+      "sides": [
+        {
+          "object": "费用报销",
+          "library": 42,
+          "fullTable": 799,
+          "rightHitTotal": 42,
+          "hitTotalState": "known",
+          "footerText": "共 42 条 · 局域网业务协作适配器 · 现查 05:36",
+          "footerAttr": "共 42 条",
+          "footerCount": 42,
+          "planValues": [
+            "其他"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": true,
+          "note": "一致",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-other-费用报销.png",
+          "sheetKind": "费用报销",
+          "groupSay": "其他",
+          "rightHitTotalUi": 42,
+          "pendingSheetHitTotal": 42,
+          "pendingSheetKindMismatch": false
+        },
+        {
+          "object": "请假申请",
+          "library": 26,
+          "fullTable": 300,
+          "rightHitTotal": 26,
+          "hitTotalState": "known",
+          "footerText": "共 26 条 · 连接器 · 现查 05:36",
+          "footerAttr": "共 26 条",
+          "footerCount": 26,
+          "planValues": [
+            "other"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": true,
+          "note": "一致",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-other-请假申请.png",
+          "sheetKind": "费用报销",
+          "groupSay": "其他",
+          "rightHitTotalUi": 26,
+          "pendingSheetHitTotal": 42,
+          "pendingSheetKindMismatch": true
+        },
+        {
+          "object": "销售合同",
+          "library": 0,
+          "fullTable": 300,
+          "rightHitTotal": 42,
+          "hitTotalState": "known",
+          "footerText": "总数未知 · 连接器 · 现查 05:36",
+          "footerAttr": "总数未知",
+          "footerCount": null,
+          "planValues": [
+            "other"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": false,
+          "note": "库0页脚未知",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-other-销售合同.png",
+          "sheetKind": "费用报销",
+          "groupSay": "其他",
+          "rightHitTotalUi": null,
+          "pendingSheetHitTotal": 42,
+          "pendingSheetKindMismatch": true
+        },
+        {
+          "object": "销售回款",
+          "library": 0,
+          "fullTable": 712,
+          "rightHitTotal": 42,
+          "hitTotalState": "known",
+          "footerText": "总数未知 · 连接器 · 现查 05:36",
+          "footerAttr": "总数未知",
+          "footerCount": null,
+          "planValues": [
+            "other"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": false,
+          "note": "库0页脚未知",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-other-销售回款.png",
+          "sheetKind": "费用报销",
+          "groupSay": "其他",
+          "rightHitTotalUi": null,
+          "pendingSheetHitTotal": 42,
+          "pendingSheetKindMismatch": true
+        },
+        {
+          "object": "员工档案",
+          "library": 0,
+          "fullTable": 120,
+          "rightHitTotal": 42,
+          "hitTotalState": "known",
+          "footerText": "总数未知 · 连接器 · 现查 05:36",
+          "footerAttr": "总数未知",
+          "footerCount": null,
+          "planValues": [
+            "other"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": false,
+          "note": "库0页脚未知",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-other-员工档案.png",
+          "sheetKind": "费用报销",
+          "groupSay": "其他",
+          "rightHitTotalUi": null,
+          "pendingSheetHitTotal": 42,
+          "pendingSheetKindMismatch": true
+        }
+      ],
+      "groupPass": false
+    },
+    {
+      "group": "doing",
+      "say": "进行中",
+      "speech": "进行中的项目任务和项目。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-601498ad-7dbe-4b85-8aa8-79e2400daa19",
+      "gatePass": true,
+      "fakeHop": false,
+      "sides": [
+        {
+          "object": "项目任务",
+          "library": 161,
+          "fullTable": 600,
+          "rightHitTotal": 161,
+          "hitTotalState": "known",
+          "footerText": "共 161 条 · 局域网业务协作适配器 · 现查 05:37",
+          "footerAttr": "共 161 条",
+          "footerCount": 161,
+          "planValues": [
+            "doing"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": true,
+          "note": "一致",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-doing-项目任务.png",
+          "sheetKind": "项目任务",
+          "groupSay": "进行中",
+          "rightHitTotalUi": 161,
+          "pendingSheetHitTotal": 161,
+          "pendingSheetKindMismatch": false
+        },
+        {
+          "object": "项目",
+          "library": 96,
+          "fullTable": 200,
+          "rightHitTotal": 161,
+          "hitTotalState": "known",
+          "footerText": "共 161 条 · 局域网业务协作适配器 · 现查 05:37",
+          "footerAttr": "共 161 条",
+          "footerCount": 161,
+          "planValues": [
+            "active"
+          ],
+          "gatePass": true,
+          "fakeHop": false,
+          "fakeHopReason": null,
+          "pass": false,
+          "note": "页脚161≠库96",
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-doing-项目.png",
+          "sheetKind": "项目任务",
+          "groupSay": "进行中",
+          "rightHitTotalUi": 161,
+          "pendingSheetHitTotal": 161,
+          "pendingSheetKindMismatch": true
+        }
+      ],
+      "groupPass": false
+    }
+  ],
+  "spotChecks": [
+    {
+      "short": "warehouse-semi",
+      "speech": "半成品库的仓库。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-0270a666-9250-4de6-b0f2-780fa1bba2b3",
+      "library": 1,
+      "fullTable": 6,
+      "rightHitTotal": 1,
+      "footerText": "总数未知",
+      "footerAttr": "总数未知",
+      "footerCount": null,
+      "sheetKind": "仓库",
+      "pass": false,
+      "note": "库1 右1 脚null",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-spot-warehouse-semi.png"
+    },
+    {
+      "short": "supplier-c",
+      "speech": "C的供应商。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-109f4719-d551-4616-b2eb-e20dd979c218",
+      "library": 16,
+      "fullTable": 80,
+      "rightHitTotal": 16,
+      "footerText": "总数未知",
+      "footerAttr": "总数未知",
+      "footerCount": null,
+      "sheetKind": "供应商",
+      "pass": false,
+      "note": "库16 右16 脚null",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-spot-supplier-c.png"
+    },
+    {
+      "short": "movement-production",
+      "speech": "生产领料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-f24f495e-9c6c-4d01-9c01-f85faaaee69a",
+      "library": 1647,
+      "fullTable": 5135,
+      "rightHitTotal": 1647,
+      "footerText": "总数未知",
+      "footerAttr": "总数未知",
+      "footerCount": null,
+      "sheetKind": "出入库流水",
+      "pass": false,
+      "note": "库1647 右1647 脚null",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-spot-movement-production.png"
+    },
+    {
+      "short": "spot-manager",
+      "speech": "现查员工档案的直属上级。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-236647b5-935d-4285-bd32-692992c06294",
+      "library": 80,
+      "fullTable": 120,
+      "rightHitTotal": 80,
+      "footerText": "共 80 条 · 局域网业务协作适配器 · 现查 05:41",
+      "footerAttr": "共 80 条",
+      "footerCount": 80,
+      "sheetKind": "员工档案",
+      "pass": true,
+      "note": "一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-adv-spot-manager.png"
+    }
+  ],
+  "allPass": false
+}

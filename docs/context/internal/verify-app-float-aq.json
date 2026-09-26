@@ -1,0 +1,337 @@
+{
+  "sha": "dc0ea9c0a52e5985ab1b360f7c041eb27fc24dc3",
+  "branch": "main",
+  "boardName": "资料卡片板",
+  "otherName": "家庭药箱",
+  "visitName": "本周现场走访记录",
+  "hardcoded": "none",
+  "silentBizWrite": false,
+  "originPushed": false,
+  "createdNewApp": false,
+  "listedBefore": [
+    {
+      "id": "app_6a81181028a64219a373626cb6514921",
+      "name": "资料卡片板",
+      "status": "active",
+      "updatedAt": "2026-09-19T09:19:30.066Z"
+    },
+    {
+      "id": "app_27d92ef9a8cb45719d2633f596007003",
+      "name": "家庭药箱",
+      "status": "active",
+      "updatedAt": "2026-09-19T07:36:19.018Z"
+    },
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:36:50.727Z"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:33:47.810Z"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:26:09.893Z"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:03:58.932Z"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:05.598Z"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:02.947Z"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.866Z"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.860Z"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.853Z"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "board": {
+    "id": "app_6a81181028a64219a373626cb6514921",
+    "name": "资料卡片板",
+    "status": "active",
+    "kind": "generated",
+    "revision": 2,
+    "updatedAt": "2026-09-19T09:19:30.066Z"
+  },
+  "other": {
+    "id": "app_27d92ef9a8cb45719d2633f596007003",
+    "name": "家庭药箱",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T07:36:19.018Z"
+  },
+  "clickMem": {
+    "top": "ok",
+    "opened": "head:记忆",
+    "heads": [
+      "记忆"
+    ]
+  },
+  "memoryHome": {
+    "head": "记忆",
+    "pane": "home",
+    "floatKeys": [],
+    "openExplore": true,
+    "homeHint": false,
+    "studio": true,
+    "ioTitle": true,
+    "returnBtn": false,
+    "importJson": false,
+    "slice": "记忆 拖拽 系统在线 · fdex测试 Failed to fetch 打开探索 运行推理 记忆梳理 搜索 引擎设置 01 图谱工作室 探索 浏览图谱并切换视图。 → 02 推理引擎 分析 查询当前图并测试推理规则。 → 03 决策智能 决策 会话里协助拍板，记下后看依据→决策→后果。 → 04 知识审计 导入导出 导入、导出、对齐并审计图实体。 → 05 模式治理 知识分类 加载、浏览、改和检查词表。 → 06 图谱治理 管理 摄取进度在这一页最上。下面是血缘、本体与治理。"
+  },
+  "ioCard": "ok",
+  "memoryBeforeTear": {
+    "head": "记忆",
+    "pane": "io",
+    "floatKeys": [],
+    "openExplore": false,
+    "homeHint": false,
+    "studio": false,
+    "ioTitle": true,
+    "returnBtn": true,
+    "importJson": true,
+    "slice": "记忆 拖拽 返回 导入导出 导入 JSON 导入 CSV 导出 RDF 导入导出 导入新数据集，或导出当前知识库。 导入实体与关系 拖放或点击浏览 .json 或 .csv 上传到图 导出图谱快照 格式 JSON CSV 会带上什么 完整图快照：节点属性、边权重和元数据，JSON。 下载导出"
+  },
+  "memoryTearInstant": {
+    "head": "",
+    "pane": "io",
+    "floatKeys": [
+      "memory"
+    ],
+    "openExplore": false,
+    "homeHint": false,
+    "studio": false,
+    "ioTitle": true,
+    "returnBtn": true,
+    "importJson": true,
+    "slice": "记忆 返回 导入导出 导入 JSON 导入 CSV 导出 RDF 导入导出 导入新数据集，或导出当前知识库。 导入实体与关系 拖放或点击浏览 .json 或 .csv 上传到图 导出图谱快照 格式 JSON CSV 会带上什么 完整图快照：节点属性、边权重和元数据，JSON。 下载导出"
+  },
+  "memoryTearSettled": {
+    "head": "",
+    "pane": "io",
+    "floatKeys": [
+      "memory"
+    ],
+    "openExplore": false,
+    "homeHint": false,
+    "studio": false,
+    "ioTitle": true,
+    "returnBtn": true,
+    "importJson": true,
+    "slice": "记忆 返回 导入导出 导入 JSON 导入 CSV 导出 RDF 导入导出 导入新数据集，或导出当前知识库。 导入实体与关系 拖放或点击浏览 .json 或 .csv 上传到图 导出图谱快照 格式 JSON CSV 会带上什么 完整图快照：节点属性、边权重和元数据，JSON。 下载导出"
+  },
+  "memoryTearHits": [],
+  "memoryTearFlashedHome": false,
+  "memoryDockInstant": {
+    "head": "记忆",
+    "pane": "io",
+    "floatKeys": [],
+    "openExplore": false,
+    "homeHint": false,
+    "studio": false,
+    "ioTitle": true,
+    "returnBtn": true,
+    "importJson": true,
+    "slice": "记忆 拖拽 返回 导入导出 导入 JSON 导入 CSV 导出 RDF 导入导出 导入新数据集，或导出当前知识库。 导入实体与关系 拖放或点击浏览 .json 或 .csv 上传到图 导出图谱快照 格式 JSON CSV 会带上什么 完整图快照：节点属性、边权重和元数据，JSON。 下载导出"
+  },
+  "memoryDockSettled": {
+    "head": "记忆",
+    "pane": "io",
+    "floatKeys": [],
+    "openExplore": false,
+    "homeHint": false,
+    "studio": false,
+    "ioTitle": true,
+    "returnBtn": true,
+    "importJson": true,
+    "slice": "记忆 拖拽 返回 导入导出 导入 JSON 导入 CSV 导出 RDF 导入导出 导入新数据集，或导出当前知识库。 导入实体与关系 拖放或点击浏览 .json 或 .csv 上传到图 导出图谱快照 格式 JSON CSV 会带上什么 完整图快照：节点属性、边权重和元数据，JSON。 下载导出"
+  },
+  "memoryDockHits": [],
+  "memoryDockFlashedHome": false,
+  "memoryRemembered": true,
+  "clickPlan": {
+    "top": "ok",
+    "opened": "head:计划",
+    "heads": [
+      "计划"
+    ]
+  },
+  "planDom": {
+    "missing": false,
+    "tab": "todo",
+    "heads": [
+      "计划"
+    ],
+    "btn": [
+      "待办",
+      "日程",
+      "工作流"
+    ],
+    "head": "计划"
+  },
+  "planClickSchedule": "ok",
+  "planBeforeTear": {
+    "head": "计划",
+    "heads": [
+      "计划"
+    ],
+    "tab": "schedule",
+    "scheduleOn": true,
+    "todoOn": false,
+    "floatKeys": []
+  },
+  "otherModule": "plan",
+  "planTearClick": "ok",
+  "planAfterDock": {
+    "head": "计划",
+    "heads": [
+      "计划"
+    ],
+    "tab": "schedule",
+    "scheduleOn": true,
+    "todoOn": false,
+    "floatKeys": []
+  },
+  "planRemembered": true,
+  "clickBrief": {
+    "top": "ok",
+    "opened": "head:早报",
+    "heads": [
+      "早报"
+    ]
+  },
+  "briefClickCustom": "ok",
+  "briefBeforeTear": {
+    "head": "早报",
+    "settings": "open",
+    "customTitle": false,
+    "floatKeys": []
+  },
+  "briefAfterDock": {
+    "head": "早报",
+    "settings": "open",
+    "customTitle": false,
+    "floatKeys": []
+  },
+  "briefingRemembered": false,
+  "clickData": {
+    "top": "ok",
+    "opened": "head:业务应用",
+    "heads": [
+      "业务应用"
+    ]
+  },
+  "floatButtonText": "浮窗",
+  "floatButtonOk": true,
+  "oldLabelGone": true,
+  "appTear": {
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "checking": false,
+    "connectorEmpty": false,
+    "floatCount": 1,
+    "appFloatCount": 1,
+    "floatBtn": "浮窗"
+  },
+  "twoBeforeCount": 2,
+  "twoAfter": {
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "checking": false,
+    "connectorEmpty": false,
+    "floatCount": 1,
+    "appFloatCount": 1,
+    "floatBtn": "浮窗"
+  },
+  "onlyOneDocked": true,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "preDrag": {
+    "mainW": 752,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 760
+  },
+  "wide": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false,
+    "stageW": 872
+  },
+  "narrow": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 360
+  },
+  "resizeCollapse": true,
+  "resizeExpand": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-float-aq.png",
+  "pngBytes": 600703,
+  "pass": true,
+  "bizWriteUrls": [],
+  "dualMd": "Error: ENOENT: no such file or directory, mkdir '/cursor'",
+  "dualJson": "Error: ENOENT: no such file or directory, mkdir '/cursor'",
+  "dualPng": "Error: ENOENT: no such file or directory, mkdir '/cursor'"
+}

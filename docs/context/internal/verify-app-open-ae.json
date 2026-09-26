@@ -1,0 +1,122 @@
+{
+  "sha": "98e3e5f9f555a9201baecd9b79c7bf1309b11a2f",
+  "branch": "main",
+  "hardcoded": "none",
+  "silentBizWrite": false,
+  "confirmed": false,
+  "originPushed": false,
+  "draftIsDialog": true,
+  "useLeavesList": true,
+  "draftDeleted": true,
+  "activeDeleteConfirm": true,
+  "activeDefaultSoft": true,
+  "threeTabs": true,
+  "kindChipsRemain": true,
+  "acRowsVisible": true,
+  "acNewButton": true,
+  "draftCreate": {
+    "ok": true,
+    "data": {
+      "appId": "app_0bd1507d92694ca9a56cd1e0a52c5eab",
+      "revision": 1
+    },
+    "correlationId": "corr_39d5e3516bb54c94934ca9bda0e79a41"
+  },
+  "liveCreate": {
+    "ok": true,
+    "data": {
+      "appId": "app_46a354a9157f4496a94233af5f3eef68",
+      "revision": 1
+    },
+    "correlationId": "corr_c4885809fdc1415fbf136d358f5da6ae"
+  },
+  "liveActivate": {
+    "ok": true,
+    "data": {
+      "status": "active",
+      "applied": [
+        "CREATE TABLE IF NOT EXISTS \"app_ae-a-mu7xhnsp__item\" (\n        id TEXT PRIMARY KEY,\n        workspace_cwd TEXT NOT NULL,\n        created_at INTEGER NOT NULL,\n        updated_at INTEGER NOT NULL,\n        deleted_at INTEGER,\n        \"title\" TEXT,\n        \"status\" TEXT\n      )"
+      ]
+    },
+    "correlationId": "corr_9a58d476e9864b97b4cca0ab4d263159"
+  },
+  "listed": [
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "active"
+    },
+    {
+      "id": "app_0bd1507d92694ca9a56cd1e0a52c5eab",
+      "name": "AE草稿-mu7xhnsp",
+      "status": "draft"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active"
+    },
+    {
+      "id": "app_634b18c2aea84e72a5013a91d89b8a9a",
+      "name": "供应商拜访台账",
+      "status": "draft"
+    },
+    {
+      "id": "app_522b558f263e43d18c5b5993596ee1dd",
+      "name": "供应商拜访台账",
+      "status": "draft"
+    }
+  ],
+  "acApp": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated"
+  },
+  "dialogSnippet": "AE草稿-mu7xhnsp\n草稿预览 · 采纳后进入工作面，不在列表页填表\n列表\n新建\n采纳并激活\n删除草稿\n编辑 spec\n\t标题\t状态\n\t标题 1\t计划\n\t标题 2\t完成\n\t标题 3\t计划\n共 3 条\n上一页\n下一页",
+  "workspaceSnippet": "返回列表\n本周现场走访记录\n独立工作面 · 可从业务应用面板标题栏撕出浮窗并排\n运行中\n列表\n登记\n看板\n总数\n编辑 spec\n版本回滚…\n修订 1\n删除\n新建\n状态\n计划\n已完成\n需跟进\n\t对方名称\t走访日期\t要点\t状态\n\t走访-mu7vaswd\t2026-09-19\t要点 走访-mu7vaswd\t计划\n共 1 条\n上一页\n下一页\n标为完成\n标记跟进",
+  "draftConfirmText": "删除草稿\n确认后这条草稿从列表拿掉。同名草稿按各自一条删，不会当成同一个。\n取消\n确认删除",
+  "draftGoneFromUi": true,
+  "activeHardChecked": false,
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-open-ae.png",
+  "activeArchivedInApi": true,
+  "activeGoneFromUi": true,
+  "softKeepTable": true,
+  "recordsTabOpen": true,
+  "kindChips": [
+    "📁fdex测试1",
+    "销售回款1",
+    "销售合同1",
+    "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚",
+    "1",
+    "PAY-2026-005",
+    "PAY-2026-005",
+    "2026/06/20 21:31",
+    "54800",
+    "2026-02-20",
+    "HT-2026-005",
+    "SO-2026-005"
+  ],
+  "opsTabOpen": true,
+  "pass": true
+}

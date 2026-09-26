@@ -1,0 +1,61 @@
+{
+  "pass": true,
+  "sha": "b686f9b65e9dd5228e6bcb5d7643f444863c9ab0",
+  "items": {
+    "1": {
+      "pass": true,
+      "note": "家里的菜谱 vs 小区水电抄表"
+    },
+    "2": {
+      "pass": true,
+      "note": "cards=true play=true ledger=true/true/true"
+    },
+    "3": {
+      "pass": true,
+      "note": "toolbar=false ai={\"title\":\"家里的菜谱 · 问\",\"listHit\":true,\"asideW\":224}"
+    },
+    "4": {
+      "pass": true,
+      "note": "local→modules boxes=[false,false,false] back=local"
+    },
+    "5": {
+      "pass": true,
+      "note": "{\"count\":2,\"hit\":true,\"titles\":[\"小区水电抄表\",\"小区水电抄表\"]}"
+    },
+    "6": {
+      "pass": true,
+      "note": "cardTitle=true ledgerTitle=true"
+    },
+    "7": {
+      "pass": true,
+      "note": "href=https://example.com/watch?v=av-clip popup="
+    },
+    "8": {
+      "pass": true,
+      "note": "{\"runningCount\":6,\"draftsOpen\":false,\"draftRowCount\":0,\"draftIds\":[],\"sameName\":[[\"小区水电抄表\",[\"app_9de6038b186a4e9786e28bc4f48add9d\",\"app_07cd41a2204f4cbab1d583185f7fdcae\"]],[\"库存盘点\",[\"app_6be6759badbc4cdd974df12afd647607\",\"app_bbebf633d0764a2fbd09901eb74dbcda\"]]],\"sameNameSeparate\":true,\"runningFirst\":true,\"draftIdsExpanded\":[\"app_07cd41a2204f4cbab1d583185f7fdcae\",\"app_bbebf633d0764a2fbd09901eb74dbcda\",\"app_52bc18aedc654cdcace1271c5cf7ee56\"]}"
+    }
+  },
+  "cardApp": {
+    "id": "app_4b3607a735ea42d295306f4ab9499d1f",
+    "name": "家里的菜谱",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T14:28:05.023Z"
+  },
+  "ledgerApp": {
+    "id": "app_9de6038b186a4e9786e28bc4f48add9d",
+    "name": "小区水电抄表",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T14:45:27.484Z"
+  },
+  "visitUnchanged": true,
+  "wide": 48,
+  "narrow": 224,
+  "pngBytes": 305257,
+  "pngHeader": "89504e470d0a1a0a",
+  "error": null,
+  "failCode": null
+}

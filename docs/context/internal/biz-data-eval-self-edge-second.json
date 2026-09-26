@@ -1,0 +1,120 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "commit": "f8aed846d0035e8870ae8cb88713323cb97c4094",
+  "base": "924c64127a42328614eaf5e9f4502221509247c2",
+  "pushed": false,
+  "libraryNote": "库里按库重数。员工挂了上级是 managerId 非空，挂了下属是被人当成上级的人。部门挂了上级部门是 parentId 非空，挂了子部门是被别人当成上级的部门。工单抽查是 customerId 非空。角色用户是关联表里不同的人、不同的角色。用户到员工档案是 userId 非空。",
+  "structured": [
+    {
+      "name": "steps-manager",
+      "shape": "同一对象两步，后一步 relation 为已发布的上级",
+      "library": 80,
+      "fullTable": 120,
+      "right": 80,
+      "footer": "共 80 条 · 局域网业务协作适配器 · 现查 18:09"
+    },
+    {
+      "name": "steps-parent",
+      "shape": "同一对象两步，后一步 relation 为已发布的上级部门",
+      "library": 11,
+      "fullTable": 12,
+      "right": 11,
+      "footer": "共 11 条 · 局域网业务协作适配器 · 现查 18:10"
+    },
+    {
+      "name": "steps-children",
+      "shape": "同一对象两步，后一步 relation 为已发布的子部门",
+      "library": 4,
+      "fullTable": 12,
+      "right": 4,
+      "footer": "共 4 条 · 局域网业务协作适配器 · 现查 18:10"
+    },
+    {
+      "name": "from-inner-manager",
+      "shape": "from 外层同对象不带关系，内层同对象带上级那条关系",
+      "library": 80,
+      "fullTable": 120,
+      "right": 80,
+      "footer": "共 80 条 · 局域网业务协作适配器 · 现查 18:10"
+    }
+  ],
+  "speech": [
+    {
+      "name": "zhishu",
+      "speech": "现查员工档案的直属上级。只要预览，不要过账，不要 biz_write。",
+      "swapSpeech": "现查直属上级关联的员工档案。只要预览，不要过账，不要 biz_write。",
+      "library": 80,
+      "fullTable": 120,
+      "right": 80,
+      "swapRight": 80,
+      "sameBatchAsSwap": true,
+      "footer": "共 80 条 · 局域网业务协作适配器 · 现查 18:04",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-second-zhishu.png"
+    },
+    {
+      "name": "xiashu",
+      "speech": "现查员工档案的下属。只要预览，不要过账，不要 biz_write。",
+      "swapSpeech": "现查下属关联的员工档案。只要预览，不要过账，不要 biz_write。",
+      "library": 15,
+      "fullTable": 120,
+      "right": 15,
+      "swapRight": 15,
+      "sameBatchAsSwap": true,
+      "sameBatchAsOtherDirection": false,
+      "footer": "共 15 条 · 局域网业务协作适配器 · 现查 18:04",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-second-xiashu.png"
+    },
+    {
+      "name": "shangji-bumen",
+      "speech": "现查{{t(\"Departments\")}}的{{t(\"Superior department\")}}。只要预览，不要过账，不要 biz_write。",
+      "swapSpeech": "现查{{t(\"Superior department\")}}关联的{{t(\"Departments\")}}。只要预览，不要过账，不要 biz_write。",
+      "library": 11,
+      "fullTable": 12,
+      "right": 11,
+      "swapRight": 11,
+      "sameBatchAsSwap": true,
+      "footer": "共 11 条 · 局域网业务协作适配器 · 现查 18:04",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-second-shangji-bumen.png"
+    },
+    {
+      "name": "zibumen",
+      "speech": "现查{{t(\"Departments\")}}的children。只要预览，不要过账，不要 biz_write。",
+      "swapSpeech": "现查children关联的{{t(\"Departments\")}}。只要预览，不要过账，不要 biz_write。",
+      "library": 4,
+      "fullTable": 12,
+      "right": 4,
+      "swapRight": 4,
+      "sameBatchAsSwap": true,
+      "sameBatchAsOtherDirection": false,
+      "rows": ["人力资源部", "生产中心", "销售中心", "总经办"],
+      "footer": "共 4 条 · 局域网业务协作适配器 · 现查 18:04",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-second-zibumen.png"
+    }
+  ],
+  "spotChecks": [
+    {
+      "edge": "客户 → 工单",
+      "library": 399,
+      "right": 399,
+      "footer": "共 399 条 · 局域网业务协作适配器 · 现查 18:10"
+    },
+    {
+      "edge": "{{t(\"Roles\")}} → {{t(\"Users\")}}",
+      "library": 14,
+      "right": 14,
+      "footer": "共 14 条 · 局域网业务协作适配器 · 现查 18:10"
+    },
+    {
+      "edge": "{{t(\"Users\")}} → {{t(\"Roles\")}}",
+      "library": 8,
+      "right": 8,
+      "footer": "共 8 条 · 局域网业务协作适配器 · 现查 18:10"
+    },
+    {
+      "edge": "{{t(\"Users\")}} → 员工档案",
+      "library": 20,
+      "right": 20,
+      "footer": "共 20 条 · 局域网业务协作适配器 · 现查 18:10"
+    }
+  ]
+}

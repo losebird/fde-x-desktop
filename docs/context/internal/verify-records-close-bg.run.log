@@ -1,0 +1,6 @@
+{"n":1,"pass":true,"failCode":"","kind":"工单","rows":21,"first":"TK20260623126"}
+{"n":2,"pass":true,"failCode":"","kind":"工单","rows":8,"first":"TK20250211633","quiz":false,"marker":true}
+{"n":3,"pass":true,"failCode":"","kind":"销售回款","rows":1,"first":"PAY-2026-005"}
+{"n":4,"pass":true,"failCode":"","kind":"客户","rows":1,"first":"CUST2058"}
+{"n":5,"pass":false,"failCode":"empty-sheet","kind":"","rows":null,"first":""}
+{"pass":false,"failCode":"case-5:empty-sheet","sha":"2d4bbaca1b8d89257032f0c80c3acc33a4e1d217","cases":[{"n":1,"pass":true,"kind":"工单","rows":21},{"n":2,"pass":true,"kind":"工单","rows":8},{"n":3,"pass":true,"kind":"销售回款","rows":1},{"n":4,"pass":true,"kind":"客户","rows":1},{"n":5,"pass":false,"failCode":"empty-sheet"}],"d22":{"tabs":true,"create":true,"stretch":true,"askAi":true,"visit":true},"rateLimited":false,"silentBizWrite":false}

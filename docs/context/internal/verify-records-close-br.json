@@ -1,0 +1,36 @@
+{
+  "slice": "BR-original-10-and-live-corners",
+  "sha": "b69c4427cd86adc51e77d7131efa15b425749774",
+  "branch": "main",
+  "hardcodedInSrc": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "originPushed": false,
+  "pnpm5174": true,
+  "cases": [],
+  "portsBefore": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "reloadWaitSec": 1,
+  "connect": {
+    "connected": true,
+    "pid": 37808,
+    "error": null
+  },
+  "sessionId": "session-09634ff7-eb94-4249-9a6f-33888c64aa84",
+  "lookupSessionId": "session-dc61c6e3-6e13-4cac-a9be-b9066d5c6362",
+  "dshAlive": {
+    "ok": false,
+    "left": "",
+    "iframe": null
+  },
+  "failCode": "dsh-iframe-missing",
+  "pass": false,
+  "error": "dsh-iframe-missing",
+  "autoIm": false
+}

@@ -1,0 +1,177 @@
+{
+  "sha": "99deed04950deeab4ad9384d56b7281fd9734e8f",
+  "branch": "main",
+  "hardcodedLiterals": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "start": {
+    "footer": "共 1 条 · 连接器 · 现查 01:18",
+    "footerCount": 1,
+    "tbodyRows": 1,
+    "firstNo": "PAY-2026-005",
+    "historyValue": "q:{\"kind\":\"销售回款\",\"action\":\"现查\",\"where\":[{\"keys\":[\"stage\",\"state\",\"status\"],\"values\":[\"open\",\"pending\",\"submitted\",\"待审\",\"新建\"],\"dateBefore\":[],\"dateAfter\":[],\"value\":[\"pending\",\"open\",\"submitted\",\"待审\",\"新建\"]}],\"hopWhere\":[{\"keys\":[\"stage\",\"state\",\"status\"],\"values\":[\"expired\",\"到期\",\"已到期\",\"过期\"],\"dateBefore\":[\"dueDate\",\"due_date\",\"endDate\",\"end_date\",\"expireAt\",\"expiredAt\"],\"dateAfter\":[],\"value\":[\"expired\",\"已到期\",\"到期\",\"过期\"]}],\"from\":{\"kind\":\"销售合同\",\"where\":[{\"keys\":[\"stage\",\"state\",\"status\"],\"values\":[\"expired\",\"到期\",\"已到期\",\"过期\"],\"dateBefore\":[\"dueDate\",\"due_date\",\"endDate\",\"end_date\",\"expireAt\",\"expiredAt\"],\"dateAfter\":[],\"value\":[\"expired\",\"已到期\",\"到期\",\"过期\"]}]},\"steps\":[\"销售合同\",\"销售回款\"]}",
+    "options": [
+      {
+        "value": "",
+        "label": "本会话浮现历史"
+      },
+      {
+        "value": "q:{\"kind\":\"工单\",\"action\":\"改行\",\"where\":[],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "工单 · 改行 · 371713516372058"
+      },
+      {
+        "value": "q:{\"kind\":\"工单\",\"action\":\"删除\",\"where\":[],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "工单 · 删除 · TK20260305892"
+      },
+      {
+        "value": "q:{\"kind\":\"审批单\",\"action\":\"现查\",\"where\":[],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "审批单 · 现查 · QJ20240425718"
+      },
+      {
+        "value": "q:{\"kind\":\"工单\",\"action\":\"现查\",\"where\":[{\"keys\":[\"status\"],\"values\":[\"processing\"],\"dateBefore\":[],\"dateAfter\":[],\"value\":[\"processing\"]}],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "工单 · 现查 · processing"
+      },
+      {
+        "value": "q:{\"kind\":\"工单\",\"action\":\"现查\",\"where\":[{\"keys\":[\"状态\"],\"values\":[\"processing\"],\"dateBefore\":[],\"dateAfter\":[],\"value\":[\"processing\"]}],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "工单 · 现查 · processing"
+      },
+      {
+        "value": "q:{\"kind\":\"客户\",\"action\":\"现查\",\"where\":[{\"keys\":[\"status\"],\"values\":[\"inactive\",\"停用\"],\"dateBefore\":[],\"dateAfter\":[],\"value\":[\"inactive\",\"停用\"]}],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "客户 · 现查 · inactive、停用"
+      },
+      {
+        "value": "q:{\"kind\":\"销售回款\",\"action\":\"现查\",\"where\":[{\"keys\":[\"stage\",\"state\",\"status\"],\"values\":[\"open\",\"pending\",\"submitted\",\"待审\",\"新建\"],\"dateBefore\":[],\"dateAfter\":[],\"value\":[\"pending\",\"open\",\"submitted\",\"待审\",\"新建\"]}],\"hopWhere\":[{\"keys\":[\"stage\",\"state\",\"status\"],\"values\":[\"expired\",\"到期\",\"已到期\",\"过期\"],\"dateBefore\":[\"dueDate\",\"due_date\",\"endDate\",\"end_date\",\"expireAt\",\"expiredAt\"],\"dateAfter\":[],\"value\":[\"expired\",\"已到期\",\"到期\",\"过期\"]}],\"from\":{\"kind\":\"销售合同\",\"where\":[{\"keys\":[\"stage\",\"state\",\"status\"],\"values\":[\"expired\",\"到期\",\"已到期\",\"过期\"],\"dateBefore\":[\"dueDate\",\"due_date\",\"endDate\",\"end_date\",\"expireAt\",\"expiredAt\"],\"dateAfter\":[],\"value\":[\"expired\",\"已到期\",\"到期\",\"过期\"]}]},\"steps\":[\"销售合同\",\"销售回款\"]}",
+        "label": "销售回款 · 现查 · 待审回款 ∩ 已到期合同"
+      },
+      {
+        "value": "q:{\"kind\":\"工单处理记录\",\"action\":\"现查\",\"where\":[],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "工单处理记录 · 现查 · 371713514274894"
+      }
+    ]
+  },
+  "clockOnly": [],
+  "checked": [
+    {
+      "label": "工单 · 改行 · 371713516372058",
+      "third": "371713516372058",
+      "speech": "",
+      "scoped": false,
+      "cacheFirst": "371713516372058",
+      "cacheFound": true
+    },
+    {
+      "label": "工单 · 删除 · TK20260305892",
+      "third": "TK20260305892",
+      "speech": "",
+      "scoped": false,
+      "cacheFirst": "TK20260305892",
+      "cacheFound": true
+    },
+    {
+      "label": "审批单 · 现查 · QJ20240425718",
+      "third": "QJ20240425718",
+      "speech": "",
+      "scoped": false,
+      "cacheFirst": "QJ20240425718",
+      "cacheFound": true
+    },
+    {
+      "label": "工单 · 现查 · processing",
+      "third": "processing",
+      "speech": "",
+      "scoped": true,
+      "cacheFirst": "371713516372058",
+      "cacheFound": true
+    },
+    {
+      "label": "工单 · 现查 · processing",
+      "third": "processing",
+      "speech": "",
+      "scoped": true,
+      "cacheFirst": "371713516372058",
+      "cacheFound": true
+    },
+    {
+      "label": "客户 · 现查 · inactive、停用",
+      "third": "inactive、停用",
+      "speech": "",
+      "scoped": true,
+      "cacheFirst": "CUST2150",
+      "cacheFound": true
+    },
+    {
+      "label": "销售回款 · 现查 · 待审回款 ∩ 已到期合同",
+      "third": "待审回款 ∩ 已到期合同",
+      "speech": "待审回款 ∩ 已到期合同",
+      "scoped": true,
+      "cacheFirst": "PAY-2026-005",
+      "cacheFound": true
+    },
+    {
+      "label": "工单处理记录 · 现查 · 371713514274894",
+      "third": "371713514274894",
+      "speech": "",
+      "scoped": false,
+      "cacheFirst": "371713514274894",
+      "cacheFound": true
+    }
+  ],
+  "picked": {
+    "value": "q:{\"kind\":\"工单\",\"action\":\"改行\",\"where\":[],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+    "label": "工单 · 改行 · 371713516372058",
+    "cache": {
+      "found": true,
+      "kind": "工单",
+      "action": "改行",
+      "rows": 1,
+      "first": "371713516372058",
+      "speech": ""
+    }
+  },
+  "after": {
+    "footer": "共 1 条 · 连接器 · 改行 01:18",
+    "footerCount": 1,
+    "tbodyRows": 1,
+    "firstNo": "371713516372058",
+    "historyValue": "q:{\"kind\":\"工单\",\"action\":\"改行\",\"where\":[],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+    "options": [
+      {
+        "value": "",
+        "label": "本会话浮现历史"
+      },
+      {
+        "value": "q:{\"kind\":\"工单\",\"action\":\"改行\",\"where\":[],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "工单 · 改行 · 371713516372058"
+      },
+      {
+        "value": "q:{\"kind\":\"工单\",\"action\":\"删除\",\"where\":[],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "工单 · 删除 · TK20260305892"
+      },
+      {
+        "value": "q:{\"kind\":\"审批单\",\"action\":\"现查\",\"where\":[],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "审批单 · 现查 · QJ20240425718"
+      },
+      {
+        "value": "q:{\"kind\":\"工单\",\"action\":\"现查\",\"where\":[{\"keys\":[\"status\"],\"values\":[\"processing\"],\"dateBefore\":[],\"dateAfter\":[],\"value\":[\"processing\"]}],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "工单 · 现查 · processing"
+      },
+      {
+        "value": "q:{\"kind\":\"工单\",\"action\":\"现查\",\"where\":[{\"keys\":[\"状态\"],\"values\":[\"processing\"],\"dateBefore\":[],\"dateAfter\":[],\"value\":[\"processing\"]}],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "工单 · 现查 · processing"
+      },
+      {
+        "value": "q:{\"kind\":\"客户\",\"action\":\"现查\",\"where\":[{\"keys\":[\"status\"],\"values\":[\"inactive\",\"停用\"],\"dateBefore\":[],\"dateAfter\":[],\"value\":[\"inactive\",\"停用\"]}],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "客户 · 现查 · inactive、停用"
+      },
+      {
+        "value": "q:{\"kind\":\"销售回款\",\"action\":\"现查\",\"where\":[{\"keys\":[\"stage\",\"state\",\"status\"],\"values\":[\"open\",\"pending\",\"submitted\",\"待审\",\"新建\"],\"dateBefore\":[],\"dateAfter\":[],\"value\":[\"pending\",\"open\",\"submitted\",\"待审\",\"新建\"]}],\"hopWhere\":[{\"keys\":[\"stage\",\"state\",\"status\"],\"values\":[\"expired\",\"到期\",\"已到期\",\"过期\"],\"dateBefore\":[\"dueDate\",\"due_date\",\"endDate\",\"end_date\",\"expireAt\",\"expiredAt\"],\"dateAfter\":[],\"value\":[\"expired\",\"已到期\",\"到期\",\"过期\"]}],\"from\":{\"kind\":\"销售合同\",\"where\":[{\"keys\":[\"stage\",\"state\",\"status\"],\"values\":[\"expired\",\"到期\",\"已到期\",\"过期\"],\"dateBefore\":[\"dueDate\",\"due_date\",\"endDate\",\"end_date\",\"expireAt\",\"expiredAt\"],\"dateAfter\":[],\"value\":[\"expired\",\"已到期\",\"到期\",\"过期\"]}]},\"steps\":[\"销售合同\",\"销售回款\"]}",
+        "label": "销售回款 · 现查 · 待审回款 ∩ 已到期合同"
+      },
+      {
+        "value": "q:{\"kind\":\"工单处理记录\",\"action\":\"现查\",\"where\":[],\"hopWhere\":[],\"from\":null,\"steps\":[]}",
+        "label": "工单处理记录 · 现查 · 371713514274894"
+      }
+    ]
+  },
+  "pass": true,
+  "failCode": ""
+}

@@ -1,0 +1,328 @@
+{
+  "sha": "81232bb7b8a584585eb0081ff9e7918385ad3e8e",
+  "branch": "main",
+  "pass": true,
+  "wizardInAppTab": true,
+  "newAppName": "库存盘点",
+  "visitUnchanged": true,
+  "resizeOk": true,
+  "silentBizWrite": false,
+  "hardcoded": "none",
+  "origin": "not pushed",
+  "error": "",
+  "appsCopyHits": "none",
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "threeTabs": true,
+  "before": {
+    "hasCatalog": true,
+    "wizardStep": "describe",
+    "wizardText": "创建应用\n这里没有官方台账。写下对象、字段和要看的视图，生成你自己的应用。\n关闭\n描述需求\nPreset\n生成",
+    "createEntry": true,
+    "createBtn": true,
+    "visitInList": true,
+    "visitRow": {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "text": "本周现场走访记录 修订 1 · active · 9/19 14:03 运行中 删除"
+    },
+    "rows": [
+      {
+        "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+        "text": "库存盘点 修订 1 · draft · 9/19 14:33 草稿 删除"
+      },
+      {
+        "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+        "text": "设备故障报修 修订 1 · draft · 9/19 14:26 草稿 删除"
+      },
+      {
+        "id": "app_5d1eef0062114901b4797d705e5166b5",
+        "text": "本周现场走访记录 修订 1 · active · 9/19 14:03 运行中 删除"
+      }
+    ],
+    "emptyCopy": true,
+    "openedVisit": false
+  },
+  "catalogReady": {
+    "hasCatalog": true,
+    "wizardStep": "describe",
+    "wizardText": "创建应用\n这里没有官方台账。写下对象、字段和要看的视图，生成你自己的应用。\n关闭\n描述需求\nPreset\n生成",
+    "createEntry": true,
+    "createBtn": true,
+    "visitInList": true,
+    "visitRow": {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "text": "本周现场走访记录 修订 1 · active · 9/19 14:03 运行中 删除"
+    },
+    "rows": [
+      {
+        "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+        "text": "库存盘点 修订 1 · draft · 9/19 14:33 草稿 删除"
+      },
+      {
+        "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+        "text": "设备故障报修 修订 1 · draft · 9/19 14:26 草稿 删除"
+      },
+      {
+        "id": "app_5d1eef0062114901b4797d705e5166b5",
+        "text": "本周现场走访记录 修订 1 · active · 9/19 14:03 运行中 删除"
+      }
+    ],
+    "emptyCopy": true,
+    "openedVisit": false
+  },
+  "appDelete": true,
+  "wizardSteps": [
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "generating",
+    "preview"
+  ],
+  "preview": {
+    "hasCatalog": true,
+    "wizardStep": "preview",
+    "wizardText": "创建应用\n这里没有官方台账。写下对象、字段和要看的视图，生成你自己的应用。\n关闭\n预览 · 库存盘点\n确认 spec 后采纳并激活，进入这个应用的工作面。\n盘点列表\n录入盘点\n按状态\n盘点条数\n采纳并激活\n编辑 spec\n版本回滚…\n修订 1\n状态\n待盘\n已盘\n差异\n\t货品名称\t数量\t库位\t盘点日期\t状态\n\t货品名称 1\t1\t库位 1\t2026-09-01\t待盘\n\t货品名称 2\t2\t库位 2\t2026-09-01\t已盘\n\t货品名称 3\t3\t库位 3\t2026-09-01\t差异\n共 3 条\n上一页\n下一页\n标记已盘\n标记差异\n改回待盘",
+    "createEntry": true,
+    "createBtn": true,
+    "visitInList": true,
+    "visitRow": {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "text": "本周现场走访记录 修订 1 · active · 9/19 14:03 运行中 删除"
+    },
+    "rows": [
+      {
+        "id": "app_6be6759badbc4cdd974df12afd647607",
+        "text": "库存盘点 修订 1 · draft · 9/19 14:36 草稿 删除"
+      },
+      {
+        "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+        "text": "库存盘点 修订 1 · draft · 9/19 14:33 草稿 删除"
+      },
+      {
+        "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+        "text": "设备故障报修 修订 1 · draft · 9/19 14:26 草稿 删除"
+      },
+      {
+        "id": "app_5d1eef0062114901b4797d705e5166b5",
+        "text": "本周现场走访记录 修订 1 · active · 9/19 14:03 运行中 删除"
+      }
+    ],
+    "emptyCopy": true,
+    "openedVisit": false
+  },
+  "workspace": {
+    "title": "库存盘点",
+    "isVisit": false,
+    "back": true
+  },
+  "enteredWorkspace": true,
+  "after": {
+    "hasCatalog": true,
+    "wizardStep": null,
+    "wizardText": "",
+    "createEntry": true,
+    "createBtn": true,
+    "visitInList": true,
+    "visitRow": {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "text": "本周现场走访记录 修订 1 · active · 9/19 14:03 运行中 删除"
+    },
+    "rows": [
+      {
+        "id": "app_6be6759badbc4cdd974df12afd647607",
+        "text": "库存盘点 修订 1 · active · 9/19 14:36 运行中 删除"
+      },
+      {
+        "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+        "text": "库存盘点 修订 1 · draft · 9/19 14:33 草稿 删除"
+      },
+      {
+        "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+        "text": "设备故障报修 修订 1 · draft · 9/19 14:26 草稿 删除"
+      },
+      {
+        "id": "app_5d1eef0062114901b4797d705e5166b5",
+        "text": "本周现场走访记录 修订 1 · active · 9/19 14:03 运行中 删除"
+      }
+    ],
+    "emptyCopy": false,
+    "openedVisit": false
+  },
+  "visitStillListed": true,
+  "newAppInList": true,
+  "openedVisitAfter": false,
+  "kindChips": [
+    "待审回款 ∩ 已到期合同09/19 11:04",
+    "待审回款 ∩ 已到期合同09/19 11:00",
+    "待审回款 ∩ 已到期合同09/19 10:57",
+    "待审回款 ∩ 已到期合同09/19 10:54",
+    "待审回款 ∩ 已到期合同09/19 10:19",
+    "把待审回款 ∩ 已到期合同那09/19 04:04",
+    "把待审回款 ∩ 已到期合同那09/19 03:08",
+    "把待审回款 ∩ 已到期合同那09/19 02:22",
+    "把待审回款 ∩ 已到期合同那09/19 02:17",
+    "把待审回款 ∩ 已到期合同那09/19 02:10",
+    "把待审回款 ∩ 已到期合同那09/19 01:50",
+    "待审回款 ∩ 已到期合同09/19 01:24",
+    "待审回款 ∩ 已到期合同09/19 00:20",
+    "销售回款1",
+    "销售合同1",
+    "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚"
+  ],
+  "kindChipHasVisit": false,
+  "kindChipHasNew": false,
+  "kindChipClean": true,
+  "opsTab": true,
+  "appListAfter": true,
+  "appDeleteAfter": true,
+  "wide": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false,
+    "stageW": 872,
+    "shieldAttr": false,
+    "iframe": true
+  },
+  "resizeCollapse": true,
+  "narrow": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 360,
+    "shieldAttr": false,
+    "iframe": true
+  },
+  "resizeExpand": true,
+  "newNameInSrc": "none",
+  "bizWriteUrls": [],
+  "followup": true,
+  "followupCatalog": {
+    "visit": true,
+    "visitActive": true,
+    "neu": true,
+    "neuActive": true,
+    "openedVisit": false,
+    "createBtn": true,
+    "deleteBtn": true,
+    "wizard": true,
+    "tabs": {
+      "app": true,
+      "records": true,
+      "ops": true
+    },
+    "rows": [
+      "库存盘点 修订 1 · active · 9/19 14:36 运行中 删除",
+      "库存盘点 修订 1 · draft · 9/19 14:33 草稿 删除",
+      "设备故障报修 修订 1 · draft · 9/19 14:26 草稿 删除",
+      "本周现场走访记录 修订 1 · active · 9/19 14:03 运行中 删除"
+    ]
+  },
+  "chipCheck": {
+    "chips": [
+      "销售回款20"
+    ],
+    "hasVisit": false,
+    "hasNew": false
+  },
+  "collapsedMeasure": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false,
+    "stageW": 872,
+    "shieldAttr": false,
+    "iframe": true
+  },
+  "expandedMeasure": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 360,
+    "shieldAttr": false,
+    "iframe": true
+  }
+}

@@ -1,0 +1,232 @@
+{
+  "sha": "b38b1c3ffac36a73c6d0bd4e212e8b914bb2a431",
+  "branch": "main",
+  "boardName": "资料卡片板",
+  "otherName": "家庭药箱",
+  "visitName": "本周现场走访记录",
+  "hardcoded": "none",
+  "silentBizWrite": false,
+  "originPushed": false,
+  "createdNewApp": false,
+  "listedBefore": [
+    {
+      "id": "app_6a81181028a64219a373626cb6514921",
+      "name": "资料卡片板",
+      "status": "active",
+      "updatedAt": "2026-09-19T09:19:30.066Z"
+    },
+    {
+      "id": "app_27d92ef9a8cb45719d2633f596007003",
+      "name": "家庭药箱",
+      "status": "active",
+      "updatedAt": "2026-09-19T07:36:19.018Z"
+    },
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:36:50.727Z"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:33:47.810Z"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:26:09.893Z"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:03:58.932Z"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:05.598Z"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:02.947Z"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.866Z"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.860Z"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.853Z"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "board": {
+    "id": "app_6a81181028a64219a373626cb6514921",
+    "name": "资料卡片板",
+    "status": "active",
+    "kind": "generated",
+    "revision": 2,
+    "updatedAt": "2026-09-19T09:19:30.066Z"
+  },
+  "other": {
+    "id": "app_27d92ef9a8cb45719d2633f596007003",
+    "name": "家庭药箱",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T07:36:19.018Z"
+  },
+  "beforeTear": {
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "checking": false,
+    "connectorEmpty": false,
+    "checkingOnStage": false,
+    "connectorOnStage": false,
+    "healthy": true,
+    "floatCount": 0,
+    "appFloatCount": 0
+  },
+  "floatButtonText": "浮窗",
+  "floatButtonOk": true,
+  "oldLabelGone": true,
+  "tearInstant": {
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "checking": false,
+    "connectorEmpty": false,
+    "checkingOnStage": false,
+    "connectorOnStage": false,
+    "healthy": true,
+    "floatCount": 1,
+    "appFloatCount": 1
+  },
+  "tearSettled": {
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "checking": false,
+    "connectorEmpty": false,
+    "checkingOnStage": false,
+    "connectorOnStage": false,
+    "healthy": true,
+    "floatCount": 1,
+    "appFloatCount": 1
+  },
+  "tearHits": [],
+  "tearFlashed": false,
+  "tearKeptApp": true,
+  "dockInstant": {
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "checking": false,
+    "connectorEmpty": false,
+    "checkingOnStage": false,
+    "connectorOnStage": false,
+    "healthy": true,
+    "floatCount": 0,
+    "appFloatCount": 0
+  },
+  "dockSettled": {
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "checking": false,
+    "connectorEmpty": false,
+    "checkingOnStage": false,
+    "connectorOnStage": false,
+    "healthy": true,
+    "floatCount": 0,
+    "appFloatCount": 0
+  },
+  "dockHits": [],
+  "dockFlashed": false,
+  "dockedToApp": true,
+  "twoBeforeCount": 2,
+  "twoAfter": {
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "checking": false,
+    "connectorEmpty": false,
+    "checkingOnStage": false,
+    "connectorOnStage": false,
+    "healthy": true,
+    "floatCount": 1,
+    "appFloatCount": 1
+  },
+  "onlyOneDocked": true,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "preDrag": {
+    "mainW": 752,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 760
+  },
+  "wide": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false,
+    "stageW": 872
+  },
+  "narrow": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 360
+  },
+  "resizeCollapse": true,
+  "resizeExpand": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-float-ap.png",
+  "pngBytes": 657440,
+  "noFlash": true,
+  "pass": true,
+  "bizWriteUrls": []
+}

@@ -1,0 +1,55 @@
+{
+  "commit": "2321ed1b9a7fe7cb6b370632c817fbe77826f141",
+  "branch": "cursor/eval-three-causes-2d90",
+  "aiConnected": true,
+  "library": {
+    "customer-individual": 0,
+    "customer-enterprise": 212
+  },
+  "wholeTableGuards": {
+    "客户": 302
+  },
+  "cases": [
+    {
+      "short": "customer-individual",
+      "label": "客户 / 个人客户",
+      "speech": "个人客户的客户。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-91c8f149-55de-4246-a66d-9457dcbab805",
+      "libraryHit": 0,
+      "rightHitTotal": 0,
+      "sheetHitTotal": 0,
+      "hitTotalState": "known",
+      "wantFooter": "共 0 条",
+      "footer": 0,
+      "footerText": "共 0 条",
+      "action": "现查",
+      "promptHttp": 200,
+      "previewHttp": 200,
+      "previewError": null,
+      "pass": true,
+      "failReasons": [],
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-empty-zero-2-customer-individual.png"
+    },
+    {
+      "short": "customer-enterprise",
+      "label": "客户 / 企业客户",
+      "speech": "企业客户的客户。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-057a4564-eaf9-48a0-b8c7-b20153d9e74c",
+      "libraryHit": 212,
+      "rightHitTotal": 212,
+      "sheetHitTotal": 212,
+      "hitTotalState": "known",
+      "wantFooter": "共 212 条",
+      "footer": 212,
+      "footerText": "共 212 条",
+      "action": "现查",
+      "promptHttp": 200,
+      "previewHttp": null,
+      "previewError": null,
+      "pass": true,
+      "failReasons": [],
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-empty-zero-2-customer-enterprise.png"
+    }
+  ],
+  "allPass": true
+}

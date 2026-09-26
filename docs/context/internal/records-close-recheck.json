@@ -1,0 +1,66 @@
+{
+  "branch": "cursor/records-close-session-end-fc3c",
+  "sha": "0384c0527dc4936fda191c710651360167f052b4",
+  "uiPid": 1985,
+  "runtimePid": 16408,
+  "writes": 0,
+  "checks": [
+    {
+      "id": "02",
+      "speech": "现查资产领用归还并且出入库流水，调拨。只要预览，不要过账，不要 biz_write。",
+      "objects": [
+        "资产领用归还",
+        "出入库流水"
+      ],
+      "label": "调拨",
+      "pierced": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-recheck-02.png",
+      "note": "右边只有资产领用归还，页脚共 38 条，业务类型是调拨，不是 320 条整表。没有出入库流水标签可点，官方结果也没有第二个对象。对话里写了出入库流水调拨 47 条，没有交到右边。"
+    },
+    {
+      "id": "06",
+      "speech": "现查商品物料关联的BOM物料清单。只要预览，不要过账，不要 biz_write。",
+      "objects": [
+        "商品物料",
+        "BOM物料清单"
+      ],
+      "pierced": false,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-recheck-06.png",
+      "note": "页脚共 60 条，命中 60，型是 BOM物料清单，上游是商品物料。现场关联 60，第一页上游 0。不是 0，也不是只拿第一页。"
+    },
+    {
+      "id": "long",
+      "speech": "现查固定资产关联的资产领用归还。只要预览，不要过账，不要 biz_write。",
+      "objects": [
+        "固定资产",
+        "资产领用归还"
+      ],
+      "pierced": false,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-recheck-long.png",
+      "note": "页脚 共 320 条，命中 320。名字里的「领用」单独是 129，整表 320。这一页业务类型 领用/归还/维修。where 空。"
+    },
+    {
+      "id": "chat",
+      "speech": "你好，在吗",
+      "objects": [
+        "资产领用归还"
+      ],
+      "pierced": false,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-recheck-chat.png",
+      "note": "闲聊前 共 320 条 20 行；闲聊后 共 320 条 20 行，型 资产领用归还 命中 320。"
+    },
+    {
+      "id": "unbound",
+      "speech": "现查固定资产关联的资产领用归还，年假。只要预览，不要过账，不要 biz_write。",
+      "objects": [
+        "固定资产",
+        "资产领用归还",
+        "年假",
+        "请假申请"
+      ],
+      "pierced": true,
+      "shot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-recheck-unbound.png",
+      "note": "结果型 资产领用归还 命中 320 页脚 共 320 条。回复提到请假申请=true。"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{"n":1,"pass":true,"failCode":"","kind":"工单","rows":21,"swapped":false,"swappedTo":""}
+{"n":2,"pass":true,"failCode":"","kind":"工单","rows":8,"swapped":false,"swappedTo":""}
+{"n":3,"pass":true,"failCode":"","kind":"销售回款","rows":1,"swapped":false,"swappedTo":""}
+{"n":4,"pass":true,"failCode":"","kind":"客户","rows":1,"swapped":false,"swappedTo":""}
+{"n":5,"pass":true,"failCode":"","kind":"费用报销","rows":97,"swapped":false,"swappedTo":""}
+{"n":6,"pass":true,"failCode":"","kind":"请假申请","rows":1,"swapped":true,"swappedTo":"QJ20251027588"}
+{"n":7,"pass":true,"failCode":"","kind":"工单","rows":1,"swapped":true,"swappedTo":"TK20250211633"}
+{"n":8,"pass":true,"failCode":"","kind":"采购订单","rows":1,"swapped":false,"swappedTo":""}
+{"n":9,"pass":true,"failCode":"","kind":"请假申请","rows":1,"swapped":true,"swappedTo":"QJ20251027588"}
+{"n":10,"pass":true,"failCode":"","kind":"销售回款","rows":1,"swapped":false,"swappedTo":""}
+{"pass":true,"sha":"a31ca544cbf7adb92b35c4466645fc15e987fe9a","cases":[{"n":1,"pass":true},{"n":2,"pass":true},{"n":3,"pass":true},{"n":4,"pass":true},{"n":5,"pass":true},{"n":6,"pass":true},{"n":7,"pass":true},{"n":8,"pass":true},{"n":9,"pass":true},{"n":10,"pass":true}]}

@@ -1,0 +1,95 @@
+{
+  "slice": "BN-original-6-10-frozen-contract",
+  "sha": "e8ac09f7047f4e8dc111e755fe2b5f8204037023",
+  "branch": "main",
+  "hardcodedInSrc": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "originPushed": false,
+  "pnpm5174": true,
+  "cases": [
+    {
+      "n": 6,
+      "speech": "过一下请假单 LV-2026-018。只要预览，不要过账，不要 biz_write。",
+      "want": "过审",
+      "write": true,
+      "queryThenWrite": false,
+      "related": [],
+      "mentioned": [],
+      "hopNeed": false,
+      "pass": false,
+      "failCode": "过审-empty-changes",
+      "error": "过审-empty-changes",
+      "pending": {
+        "kind": "请假申请",
+        "action": "过审",
+        "rows": 1,
+        "first": "LV-2026-018",
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "fromHasRows": false,
+        "fromNos": [],
+        "hopWhere": false,
+        "steps": [],
+        "speech": "过一下请假单 LV-2026-018。只要预览，不要过账，不要 biz_write。",
+        "preview_id": "pv_9674f395f7f4cdf9",
+        "sessionId": "session-cb82519f-e9c5-44e9-8381-63bb07c31e5a",
+        "changes": [],
+        "where": [],
+        "listed": false,
+        "ambiguous": false,
+        "nos": [
+          "LV-2026-018"
+        ]
+      }
+    },
+    {
+      "n": 7,
+      "speech": "把武汉云启那张紧急工单改成已解决。只要预览，不要过账，不要 biz_write。",
+      "pass": false,
+      "failCode": "stopped-before"
+    },
+    {
+      "n": 8,
+      "speech": "昆明精密机电还有哪些待审采购单？",
+      "pass": false,
+      "failCode": "stopped-before"
+    },
+    {
+      "n": 9,
+      "speech": "产假那张待审请假单是谁请的？过一下。只要预览，不要过账，不要 biz_write。",
+      "pass": false,
+      "failCode": "stopped-before"
+    },
+    {
+      "n": 10,
+      "speech": "东莞联创到期合同下还有哪些待审回款？把备注改成催收。只要预览，不要过账，不要 biz_write。",
+      "pass": false,
+      "failCode": "stopped-before"
+    }
+  ],
+  "portsBefore": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "connect": {
+    "connected": true,
+    "pid": 96500,
+    "error": null
+  },
+  "sessionId": "session-cb82519f-e9c5-44e9-8381-63bb07c31e5a",
+  "kindCatalogCount": 40,
+  "failCode": "case-6:过审-empty-changes",
+  "autoIm": false,
+  "portsEnd": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "pass": false
+}

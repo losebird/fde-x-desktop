@@ -1,0 +1,49 @@
+{
+  "commit": "0dec12b",
+  "branch": "cursor/eval-three-causes-2d90",
+  "rootCause": "listSheetMeta had hitTotalState known but hitTotal omitted (0 not carried on materialized/pending sheet), so hitFooterText fell through to 总数未知 without using the unknown branch.",
+  "fix": [
+    "coalesceKnownHitTotal in biz-list-query + operation-kind-sheet materialize",
+    "applySheet coalesces before setListSheetMeta",
+    "sheet-payload / packSheet keep hitTotal 0 when querySettled and known"
+  ],
+  "unitTests": [
+    "coalesceKnownHitTotal fills missing zero for known settled sheet",
+    "materialize known settled peer copies hitTotal zero for footer"
+  ],
+  "library": {
+    "customer-individual": 0,
+    "customer-enterprise": 212
+  },
+  "cases": [
+    {
+      "short": "customer-individual",
+      "label": "客户 / 个人客户",
+      "libraryHit": 0,
+      "rightHitTotal": 0,
+      "sheetHitTotal": 0,
+      "hitTotalState": "known",
+      "wantFooter": "共 0 条",
+      "footerText": "",
+      "pass": false,
+      "note": "BFF preview OK; Playwright harness did not mount records footer in this VM run (see screenshot). Logic fix verified by unit tests.",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-0a6906a0-16c2-5f36-a8da-c639b8233124/files/media/biz-data-eval-empty-zero-customer-individual.png"
+    },
+    {
+      "short": "customer-enterprise",
+      "label": "客户 / 企业客户",
+      "libraryHit": 212,
+      "rightHitTotal": 212,
+      "sheetHitTotal": 212,
+      "hitTotalState": "known",
+      "wantFooter": "共 212 条",
+      "footerText": "",
+      "pass": false,
+      "note": "Sanity case; same harness gap as individual.",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-0a6906a0-16c2-5f36-a8da-c639b8233124/files/media/biz-data-eval-empty-zero-customer-enterprise.png"
+    }
+  ],
+  "allPass": false,
+  "overlayReload": true,
+  "aiConnected": true
+}

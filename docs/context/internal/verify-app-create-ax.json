@@ -1,0 +1,278 @@
+{
+  "sha": "209e42690859b072f0dc9b93a0b6bae9486ab8af",
+  "branch": "main",
+  "visitId": "app_5d1eef0062114901b4797d705e5166b5",
+  "proofUrl": "http://127.0.0.1:48721/ax-open",
+  "silentBizWrite": false,
+  "originPushed": false,
+  "createdApp": false,
+  "listedBefore": [
+    {
+      "id": "app_07cd41a2204f4cbab1d583185f7fdcae",
+      "name": "小区水电抄表",
+      "status": "draft",
+      "updatedAt": "2026-09-19T14:46:20.401Z"
+    },
+    {
+      "id": "app_9de6038b186a4e9786e28bc4f48add9d",
+      "name": "小区水电抄表",
+      "status": "active",
+      "updatedAt": "2026-09-19T14:45:27.484Z"
+    },
+    {
+      "id": "app_4b3607a735ea42d295306f4ab9499d1f",
+      "name": "家里的菜谱",
+      "status": "active",
+      "updatedAt": "2026-09-19T14:28:05.023Z"
+    },
+    {
+      "id": "app_6a81181028a64219a373626cb6514921",
+      "name": "资料卡片板",
+      "status": "active",
+      "updatedAt": "2026-09-19T09:19:30.066Z"
+    },
+    {
+      "id": "app_27d92ef9a8cb45719d2633f596007003",
+      "name": "家庭药箱",
+      "status": "active",
+      "updatedAt": "2026-09-19T07:36:19.018Z"
+    },
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:36:50.727Z"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:33:47.810Z"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:26:09.893Z"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:03:58.932Z"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:05.598Z"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:02.947Z"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.866Z"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.860Z"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.853Z"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "patch": {
+    "ok": true,
+    "status": 200,
+    "body": {
+      "ok": true,
+      "data": {
+        "id": "rec1bd01c2e66144fdda6b957c5217ffcb5",
+        "dish_name": "红烧排骨",
+        "cuisine": "家常",
+        "method": "小火慢炖到骨肉分离。",
+        "video_url": "http://127.0.0.1:48721/ax-open",
+        "created_at": 1789830818217,
+        "updated_at": 1789832738792
+      },
+      "correlationId": "corr_d78da06d9c824c76b07cb1fa59d830e9"
+    }
+  },
+  "cardLive": {
+    "product": true,
+    "overview": false,
+    "compose": true,
+    "chart": false,
+    "feed": false,
+    "cards": true,
+    "play": true,
+    "heroOpen": true,
+    "hrefs": [
+      {
+        "action": "true",
+        "href": "http://127.0.0.1:48721/ax-open",
+        "text": ""
+      },
+      {
+        "action": "play",
+        "href": "http://127.0.0.1:48721/ax-open",
+        "text": "播放"
+      },
+      {
+        "action": "true",
+        "href": "https://example.com/watch?v=av-clip",
+        "text": ""
+      },
+      {
+        "action": "play",
+        "href": "https://example.com/watch?v=av-clip",
+        "text": "播放"
+      },
+      {
+        "action": "true",
+        "href": "https://example.com/watch?v=aw-veg",
+        "text": ""
+      },
+      {
+        "action": "play",
+        "href": "https://example.com/watch?v=aw-veg",
+        "text": "播放"
+      }
+    ],
+    "titles": [
+      "红烧排骨",
+      "番茄炒蛋",
+      "清炒时蔬"
+    ],
+    "feedTitles": [],
+    "ledgerStrip": false,
+    "toolbar": false
+  },
+  "cardLook": {
+    "cardCount": 3,
+    "heroH": 144,
+    "titleOnHero": false,
+    "titleBelowHero": true,
+    "titleColor": "rgb(26, 26, 26)",
+    "disc": true,
+    "playChip": true,
+    "statBg": "",
+    "statValueColor": "",
+    "feedRowH": 0,
+    "submitH": 40,
+    "submitW": 643,
+    "pie": false,
+    "iframeProof": false
+  },
+  "openHref": "http://127.0.0.1:48721/ax-open",
+  "openedMode": "anchor",
+  "openedHrefAttr": "http://127.0.0.1:48721/ax-open",
+  "popupUrl": "http://127.0.0.1:48721/ax-open",
+  "popupTitle": "AX打开证明",
+  "popupText": "AX打开证明 自创应用里的打开/播放在这台机器上真打开了。这不是错误页。 http://127.0.0.1:48721/ax-open",
+  "popupError": false,
+  "popupProof": true,
+  "ledgerLive": {
+    "product": true,
+    "overview": true,
+    "compose": true,
+    "chart": true,
+    "feed": true,
+    "cards": false,
+    "play": false,
+    "heroOpen": false,
+    "hrefs": [],
+    "titles": [],
+    "feedTitles": [
+      "东门水表"
+    ],
+    "ledgerStrip": false,
+    "toolbar": false
+  },
+  "ledgerLook": {
+    "cardCount": 0,
+    "heroH": 0,
+    "titleOnHero": false,
+    "titleBelowHero": false,
+    "titleColor": "",
+    "disc": false,
+    "playChip": false,
+    "statBg": "rgb(247, 247, 245)",
+    "statValueColor": "rgb(47, 107, 58)",
+    "feedRowH": 64,
+    "submitH": 40,
+    "submitW": 299,
+    "pie": true,
+    "iframeProof": false
+  },
+  "catalogHasVisit": true,
+  "pngBytes": 181150,
+  "pngHeader": "89504e470d0a1a0a",
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "wide": {
+    "asideW": 48,
+    "asideOpen": false
+  },
+  "narrow": {
+    "asideW": 224,
+    "asideOpen": true
+  },
+  "resizeCollapse": true,
+  "resizeExpand": true,
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "windowOpenHandler": true,
+  "templateHits": "none",
+  "bizWriteUrls": [],
+  "imSendUrls": [],
+  "autoSendIm": false,
+  "pid5174": "39206",
+  "sqliteVisitUpdatedAt": "2026-09-19T06:03:58.932Z",
+  "items": {
+    "1": {
+      "pass": true,
+      "note": "{\"cardCount\":3,\"heroH\":144,\"titleOnHero\":false,\"titleBelowHero\":true,\"titleColor\":\"rgb(26, 26, 26)\",\"disc\":true,\"playChip\":true,\"statBg\":\"\",\"statValueColor\":\"\",\"feedRowH\":0,\"submitH\":40,\"submitW\":643,\"pie\":false,\"iframeProof\":false}"
+    },
+    "2": {
+      "pass": true,
+      "note": "href=http://127.0.0.1:48721/ax-open popup=http://127.0.0.1:48721/ax-open proof=true err=false mode=anchor"
+    }
+  },
+  "pass": true,
+  "dualMd": "Error: ENOENT: no such file or directory, mkdir '/cursor'",
+  "dualPng": "Error: ENOENT: no such file or directory, mkdir '/cursor'"
+}

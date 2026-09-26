@@ -1,0 +1,32 @@
+{
+  "allPass": true,
+  "commit": "f1b927585c334bf839192ee3ab6d5f41bd914769",
+  "cases": [
+    {
+      "short": "edge-speech-a",
+      "pass": true,
+      "note": "整表与边库同数 6，须对行号"
+    },
+    {
+      "short": "edge-speech-b",
+      "pass": true,
+      "note": "整表与边库同数 6，须对行号"
+    },
+    {
+      "short": "chip-parent",
+      "pass": true,
+      "note": "整表与边库同数 6，须对行号"
+    }
+  ]
+}
+{
+  "allPass": false,
+  "commit": "f1b927585c334bf839192ee3ab6d5f41bd914769",
+  "cases": [
+    {
+      "short": "chip-parent",
+      "pass": false,
+      "note": "整表与边库同数 6，须对行号；回合内未点到员工档案芯片"
+    }
+  ]
+}

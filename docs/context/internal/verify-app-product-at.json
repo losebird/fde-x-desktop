@@ -1,0 +1,370 @@
+{
+  "sha": "d5e67b4cfd2747163beae3b86e91386e58334483",
+  "branch": "main",
+  "boardName": "资料卡片板",
+  "visitName": "本周现场走访记录",
+  "hardcoded": "none",
+  "silentBizWrite": false,
+  "originPushed": false,
+  "createdNewApp": false,
+  "clickedNod": false,
+  "listedBefore": [
+    {
+      "id": "app_6a81181028a64219a373626cb6514921",
+      "name": "资料卡片板",
+      "status": "active",
+      "updatedAt": "2026-09-19T09:19:30.066Z"
+    },
+    {
+      "id": "app_27d92ef9a8cb45719d2633f596007003",
+      "name": "家庭药箱",
+      "status": "active",
+      "updatedAt": "2026-09-19T07:36:19.018Z"
+    },
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:36:50.727Z"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:33:47.810Z"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:26:09.893Z"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:03:58.932Z"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:05.598Z"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:02.947Z"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.866Z"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.860Z"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.853Z"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "openedApp": {
+    "id": "app_6a81181028a64219a373626cb6514921",
+    "name": "资料卡片板",
+    "status": "active",
+    "kind": "generated",
+    "revision": 2,
+    "updatedAt": "2026-09-19T09:19:30.066Z"
+  },
+  "chrome": {
+    "navText": "资料板",
+    "topText": "资料板",
+    "toolbarInNav": false,
+    "toolbarInProductTop": false,
+    "tearLabel": false,
+    "declared": [
+      "ai",
+      "float",
+      "files",
+      "memory",
+      "im",
+      "briefing",
+      "biz"
+    ],
+    "columnUses": "ai,files,memory,im,briefing,biz",
+    "buttons": [
+      {
+        "use": "float",
+        "text": "浮窗",
+        "inNav": false,
+        "inProduct": false,
+        "inCompose": false,
+        "inWorkspace": true,
+        "inDrawer": false,
+        "inView": true,
+        "top": 234
+      },
+      {
+        "use": "ai",
+        "text": "问 AI",
+        "inNav": false,
+        "inProduct": true,
+        "inCompose": true,
+        "inWorkspace": false,
+        "inDrawer": false,
+        "inView": true,
+        "top": 694
+      },
+      {
+        "use": "files",
+        "text": "引用文件",
+        "inNav": false,
+        "inProduct": true,
+        "inCompose": true,
+        "inWorkspace": false,
+        "inDrawer": false,
+        "inView": true,
+        "top": 694
+      },
+      {
+        "use": "memory",
+        "text": "起草记忆卡片",
+        "inNav": false,
+        "inProduct": true,
+        "inCompose": true,
+        "inWorkspace": false,
+        "inDrawer": false,
+        "inView": true,
+        "top": 694
+      },
+      {
+        "use": "im",
+        "text": "拟回进输入框",
+        "inNav": false,
+        "inProduct": true,
+        "inCompose": true,
+        "inWorkspace": false,
+        "inDrawer": false,
+        "inView": true,
+        "top": 694
+      },
+      {
+        "use": "briefing",
+        "text": "打开早报",
+        "inNav": false,
+        "inProduct": true,
+        "inCompose": true,
+        "inWorkspace": false,
+        "inDrawer": false,
+        "inView": true,
+        "top": 694
+      },
+      {
+        "use": "biz",
+        "text": "打开业务记录",
+        "inNav": false,
+        "inProduct": true,
+        "inCompose": true,
+        "inWorkspace": false,
+        "inDrawer": false,
+        "inView": true,
+        "top": 694
+      }
+    ],
+    "compose": true,
+    "composeBeforeCards": true,
+    "builderOpen": false,
+    "product": true,
+    "workspace": true
+  },
+  "navIsColumns": true,
+  "floatInWorkspace": true,
+  "floatInProduct": false,
+  "tearLabelGone": true,
+  "undeclaredButton": false,
+  "entriesInDrawerOnly": false,
+  "builderClosed": true,
+  "composeBeforeCards": true,
+  "declared": [
+    "ai",
+    "float",
+    "files",
+    "memory",
+    "im",
+    "briefing",
+    "biz"
+  ],
+  "entries": [
+    {
+      "use": "ai",
+      "present": true,
+      "inView": true,
+      "inNav": false,
+      "inCompose": true,
+      "inDrawer": false,
+      "text": "问 AI"
+    },
+    {
+      "use": "files",
+      "present": true,
+      "inView": true,
+      "inNav": false,
+      "inCompose": true,
+      "inDrawer": false,
+      "text": "引用文件"
+    },
+    {
+      "use": "memory",
+      "present": true,
+      "inView": true,
+      "inNav": false,
+      "inCompose": true,
+      "inDrawer": false,
+      "text": "起草记忆卡片"
+    },
+    {
+      "use": "im",
+      "present": true,
+      "inView": true,
+      "inNav": false,
+      "inCompose": true,
+      "inDrawer": false,
+      "text": "拟回进输入框"
+    },
+    {
+      "use": "briefing",
+      "present": true,
+      "inView": true,
+      "inNav": false,
+      "inCompose": true,
+      "inDrawer": false,
+      "text": "打开早报"
+    },
+    {
+      "use": "biz",
+      "present": true,
+      "inView": true,
+      "inNav": false,
+      "inCompose": true,
+      "inDrawer": false,
+      "text": "打开业务记录"
+    }
+  ],
+  "allDeclaredFindable": true,
+  "floatFindable": true,
+  "sessionsBeforeAi": "会话 资料卡片板 · 问 09/19 21:16 资料卡片板 · 问 09/19 18:01 资料卡片板 · 问 09/19 17:56 资料卡片板 · 问 09/19 17:25 资料卡片板 · 问 09/19 17:25 资料卡片板 · 问 09/19 17:08 资料卡片板 · 问 09/19 17:08 资料卡片板 · 问 09/19 17:08 资料卡片板 · 问 09/19 17:08 资料卡片板 · 问 09/19 17:03 资料卡片板 · 问 09/19 17:02 应用构建 · 我要一个资料卡片板。每条资料有标题、说明 09/19 16:40 家庭药箱 · 问 09/19 16:14 家庭药箱 · 问 09/19 16:10 家庭药箱 · 问 09/19 15:56 家庭药箱 · 问 09/19 15:56 家庭药箱 · 问 09/19 15:56 家庭药箱 · 问 09/19 15:56 家庭药箱 · 问 09/19 15:52 家庭药箱 · 问 09/19 15:36 应用构建 · 家庭药箱：药名、分类（常备/处方/外用） 09/19 15:32 应用构建 · 库存盘点：货品名称、数量、库位、盘点日期 09/19 14:33 应用构建 · 库存盘点：货品名称、数量、库位、盘点日期 09/19 14:31 应用构建 · 设备故障报修：设备名称、故障现象、报修人 09/19 14:24 应用构建 · 本周现场走访记录：对方名称、走访日期、要 09/19 11:59 ping from ac; do not 09/19 11:59 未命名会话 09/19 11:56 应用构建 · 本周现场走访记录：对方名称、走访日期、要 09/19 11:55 应用构建 · 本周现场走访记录：对方名称、走访日期、要 09/19 11:47 待审回款 ∩ 已到期合同 09/",
+  "aiOpen": {
+    "title": "资料卡片板 · 问",
+    "listHit": true,
+    "active": true,
+    "asideW": 224,
+    "leftOpen": true,
+    "asideSnippet": "会话 资料卡片板 · 问 09/19 21:29 资料卡片板 · 问 09/19 21:16 资料卡片板 · 问 09/19 18:01 资料卡片板 · 问 09/19 17:56 资料卡片板 · 问 09/19 17:25 资料卡片板 · 问 09/19 17:25 资料卡片板 · 问 09/19 17:08 资料卡片板 · 问 09/19 17:08 资料卡片板 · 问 09/19 17:08 资料卡片板 · 问 09/19 17:08 资料卡片板 · 问 09/19 17:03 资料卡片板 · 问 09/19 17:02 应用构建 · 我要一个资料卡片板。每条资料有标题、说明 09/19 16:40 家庭药箱 · 问 09/19 16:14 家庭药箱 · 问 09/19 16:10 家庭药箱 · 问 09/19 15:56 家庭药箱 · 问 09/19 15:56 家庭药箱 · 问 09/19 15:56 家庭药箱 · 问 09/19 15:56 家庭药箱 · 问 09/19 15:52 家庭药箱 · 问 09/19 15:36 应用构建 · 家庭药箱：药名、分类（常备/处方/外"
+  },
+  "aiLeftVisible": true,
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-product-at.png",
+  "pngBytes": 225245,
+  "pngHeader": "89504e470d0a1a0a",
+  "files": {
+    "stageHead": "文件",
+    "hasFileTree": true
+  },
+  "filesOk": true,
+  "memoryUi": {
+    "draftCard": true,
+    "draftStatus": "起草",
+    "nodButton": true,
+    "graphStudio": false
+  },
+  "memoryOk": true,
+  "im": {
+    "stageHead": true,
+    "composerFilled": true
+  },
+  "imOk": true,
+  "briefing": {
+    "stageHead": true,
+    "morning": false,
+    "fake": false
+  },
+  "briefingOk": true,
+  "biz": {
+    "recordsTab": true,
+    "preview": true
+  },
+  "bizOk": true,
+  "floatOpen": {
+    "surface": true,
+    "productInFloat": true,
+    "workspaceStill": true
+  },
+  "floatDock": {
+    "surface": false,
+    "workspace": true,
+    "product": true,
+    "checking": false
+  },
+  "floatOk": true,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "preDrag": {
+    "mainW": 1012,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 500
+  },
+  "wide": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false,
+    "stageW": 872
+  },
+  "narrow": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 360
+  },
+  "resizeCollapse": true,
+  "resizeExpand": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "bizWriteUrls": [],
+  "imSendUrls": [],
+  "cwdHeaderHits": [],
+  "autoSendIm": false,
+  "pass": true
+}

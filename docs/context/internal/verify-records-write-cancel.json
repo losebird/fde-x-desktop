@@ -1,0 +1,94 @@
+{
+  "sha": "1a28a96d8fbf2bd4da463535924dfabb6414ad08",
+  "branch": "main",
+  "hardcodedLiterals": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "speech": "待审回款 ∩ 已到期合同",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "cancelledPreviewId": "pv_818c3c72293633aa",
+  "nextHopDrawerAction": "过审",
+  "approveHasFieldDiffs": true,
+  "silentBizWrite": false,
+  "connect": {
+    "connected": true,
+    "pid": 15614,
+    "error": null,
+    "reused": false
+  },
+  "sessionId": "session-8fd1178c-b21b-4d61-9c2b-c9c8a6337842",
+  "mentionedKinds": [
+    "销售回款",
+    "销售合同"
+  ],
+  "relatedKinds": [
+    "销售回款",
+    "销售合同"
+  ],
+  "targetKindFromVocab": "销售回款",
+  "targetCan": [
+    "现查",
+    "改行",
+    "删除",
+    "新建",
+    "过审"
+  ],
+  "allowedWrites": [
+    "改行",
+    "删除",
+    "过审",
+    "新建"
+  ],
+  "patchFieldFromVocab": "回款方式",
+  "firstAction": "改行",
+  "firstHop": {
+    "action": "改行",
+    "previewId": "pv_818c3c72293633aa",
+    "drawerAction": "改行",
+    "kind": "销售回款",
+    "first": "PAY-2026-005",
+    "sessionId": "session-8fd1178c-b21b-4d61-9c2b-c9c8a6337842",
+    "hop": true
+  },
+  "afterCancel": {
+    "drawerOpen": false,
+    "drawerAction": "",
+    "pendingAction": null,
+    "pendingPreviewId": null,
+    "kind": [
+      "销售回款20"
+    ],
+    "first": "PAY202508027115",
+    "rows": 10,
+    "sessionId": ""
+  },
+  "nextHop": {
+    "action": "过审",
+    "previewId": "pv_76666241e6bb6fda",
+    "drawerAction": "过审",
+    "kind": "销售回款",
+    "first": "PAY-2026-005",
+    "sessionId": "session-8fd1178c-b21b-4d61-9c2b-c9c8a6337842",
+    "hop": true,
+    "emptyHint": false,
+    "changeBlocks": [
+      {
+        "label": "回款状态",
+        "line": "回款状态待确认→已过",
+        "arrow": true
+      }
+    ],
+    "changes": [
+      {
+        "field": "status",
+        "label": "回款状态",
+        "from": "pending",
+        "to": "已过"
+      }
+    ]
+  },
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-write-cancel.png",
+  "failCode": "",
+  "pass": true
+}

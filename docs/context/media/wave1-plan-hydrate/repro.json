@@ -1,0 +1,54 @@
+{
+  "planGets": [
+    {
+      "status": 200,
+      "via": "proxy"
+    },
+    {
+      "status": 200,
+      "via": "proxy"
+    },
+    {
+      "status": 200,
+      "via": "proxy"
+    },
+    {
+      "status": 201,
+      "via": "proxy"
+    },
+    {
+      "status": 200,
+      "via": "proxy"
+    },
+    {
+      "status": 200,
+      "via": "proxy"
+    },
+    {
+      "status": 200,
+      "via": "proxy"
+    }
+  ],
+  "afterSwitch": {
+    "taskCount": 0,
+    "titles": [],
+    "err": null
+  },
+  "afterPlan": {
+    "taskCount": 0,
+    "hasA2": false,
+    "err": null
+  },
+  "visA": true,
+  "created": "验收 A2",
+  "afterCreate": {
+    "taskCount": 0,
+    "titles": []
+  },
+  "afterReload": {
+    "taskCount": 0,
+    "hasA2": false,
+    "err": null
+  },
+  "cmdHit": true
+}

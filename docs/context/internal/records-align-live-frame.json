@@ -1,0 +1,548 @@
+{
+  "sha": "635787a5a3f534f30cc762415c9ddc8b5de15c0c",
+  "hardcodedLiterals": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "pending": {
+    "kind": null,
+    "action": null,
+    "rows": 0,
+    "first": "",
+    "nos": [],
+    "hopWhere": false,
+    "from": "",
+    "steps": [],
+    "speech": "",
+    "sessionId": ""
+  },
+  "frameBefore": {
+    "tableCount": 1,
+    "tbodyDomTr": 10,
+    "tbodyDirect": [
+      {
+        "tag": 7,
+        "key": null,
+        "name": ""
+      }
+    ],
+    "hostTrCount": 10,
+    "hostTrKeys": [
+      "TK20260623126",
+      "TK20240201467",
+      "TK20241209280",
+      "TK20250920953",
+      "TK20250422233",
+      "TK20250207164",
+      "TK20240223580",
+      "TK20240815759",
+      "TK20241111823",
+      "TK20250925592"
+    ],
+    "keys": [
+      {
+        "index": 0,
+        "fiberKey": "TK20260623126",
+        "text": "1TK20260623126处理中性能问题咨询低2026/08/25 09:122026/06/29 09:05客户报障工单南京智航交通科技有限公司李明zxz改行删除"
+      },
+      {
+        "index": 1,
+        "fiberKey": "TK20240201467",
+        "text": "2TK20240201467新建功能咨询故障低2026/06/24 11:132024/02/03 01:30客户报障工单成都青云信息技术有限公司周磊李娜改行删除"
+      },
+      {
+        "index": 2,
+        "fiberKey": "TK20241209280",
+        "text": "3TK20241209280已分派报表错误咨询中2026/06/24 11:132024/12/16 20:17客户报障工单成都中天科技有限公司郑华孙磊改行删除"
+      },
+      {
+        "index": 3,
+        "fiberKey": "TK20250920953",
+        "text": "4TK20250920953处理中报表错误服务请求低2026/06/24 11:132025/09/25 09:12客户报障工单华东嘉信科技有限公司周强王芳改行删除"
+      },
+      {
+        "index": 4,
+        "fiberKey": "TK20250422233",
+        "text": "5TK20250422233处理中功能咨询咨询高2026/06/24 11:132025/04/28 09:05客户报障工单苏州远见实业集团周霞刘洋改行删除"
+      },
+      {
+        "index": 5,
+        "fiberKey": "TK20250207164",
+        "text": "6TK20250207164新建权限申请故障中2026/06/24 11:132025/02/09 04:15客户报障工单成都中天科技有限公司郑华周敏改行删除"
+      },
+      {
+        "index": 6,
+        "fiberKey": "TK20240223580",
+        "text": "7TK20240223580新建权限申请故障低2026/06/24 11:132024/02/25 11:35客户报障工单苏州鼎盛数据服务有限公司王超郑勇改行删除"
+      },
+      {
+        "index": 7,
+        "fiberKey": "TK20240815759",
+        "text": "8TK20240815759处理中设备报警服务请求中2026/06/24 11:132024/08/16 15:51客户报障工单西安天工装备有限公司罗静怡郑勇改行删除"
+      },
+      {
+        "index": 8,
+        "fiberKey": "TK20241111823",
+        "text": "9TK20241111823已分派性能问题故障高2026/06/24 11:132024/11/15 05:47客户报障工单厦门卓越智能装备有限公司高伟娜冯丽改行删除"
+      },
+      {
+        "index": 9,
+        "fiberKey": "TK20250925592",
+        "text": "10TK20250925592已分派权限申请服务请求中2026/06/24 11:132025/10/01 20:53客户报障工单西安汇川智能装备有限公司郭洋芳刘洋改行删除"
+      }
+    ],
+    "duplicateFiberKeys": [],
+    "uniqueFiberKeys": [
+      "TK20260623126",
+      "TK20240201467",
+      "TK20241209280",
+      "TK20250920953",
+      "TK20250422233",
+      "TK20250207164",
+      "TK20240223580",
+      "TK20240815759",
+      "TK20241111823",
+      "TK20250925592"
+    ],
+    "footer": "共 22 条 · 连接器 · 现查 23:49",
+    "footerCount": 22,
+    "banner": "AI 刚查了 工单 · 22 行 · 刚刚本会话浮现历史销售回款 · 新建 · 09/18 23:06销售回款 · 新建 · 09/18 23:06销售回款 · 过审 · 09/18 23:06销售回款 · 删除 · 09/18 23:06销售回款 · 删除 · 09/18 23:06销售回款 · 改行 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 新建 · 09/18 23:03销售回款 · 新建 · 09/18 23:03销售回款 · 过审 · 09/18 23:03销售回款 · 过审 · 09/18 23:03销售回款 · 删除 · 09/18 23:03销售回款 · 改行 · 09/18 23:03销售回款 · 改行 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售合同 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 新建 · 09/18 23:01销售回款 · 新建 · 09/18 23:01销售回款 · 过审 · 09/18 23:01销售回款 · 删除 · 09/18 23:01销售回款 · 删除 · 09/18 23:01销售回款 · 改行 · 09/18 23:01销售回款 · 现查 · 09/18 23:00销售回款 · 现查 · 09/18 23:00",
+    "bannerRows": 22,
+    "chips": [
+      "工单22"
+    ],
+    "active": [
+      "工单22"
+    ],
+    "historyValue": "",
+    "historyOptionsCount": 41,
+    "historyOptions": [
+      {
+        "value": "",
+        "label": "本会话浮现历史"
+      },
+      {
+        "value": "bsurf_50134bace2874ac1ac2c065365875b24",
+        "label": "销售回款 · 新建 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_ad1eb257108148dbadf7d3679b7ac176",
+        "label": "销售回款 · 新建 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_f319a8b556e8484e97fff9f008086886",
+        "label": "销售回款 · 过审 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_94ca6fca37b641689dba504c63cb3065",
+        "label": "销售回款 · 删除 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_363740a186eb44469545060236f777f2",
+        "label": "销售回款 · 删除 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_3f889acc71f94c7bbb3d7e06dcea5629",
+        "label": "销售回款 · 改行 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_ac1407c427954c13a6a158f945f23dce",
+        "label": "销售回款 · 现查 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_712bf54179e941feb499351ecdb4e8a1",
+        "label": "销售回款 · 现查 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_93aea30084e34e57949f126ce2d2351a",
+        "label": "销售回款 · 现查 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_5321c3eb4f4e4a2ab7d94e9caf3feb74",
+        "label": "销售回款 · 现查 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_9cf213a9ffd94ef98c066dba1a349473",
+        "label": "销售回款 · 现查 · 09/18 23:06"
+      }
+    ],
+    "panelFound": true,
+    "pendingHook": {
+      "kind": "工单",
+      "action": "现查",
+      "rows": 22,
+      "sessionId": "",
+      "previewId": ""
+    },
+    "pageHook": {
+      "value": 1
+    },
+    "rowsState": {
+      "hook": 12,
+      "len": 22,
+      "nos": [
+        "TK20260623126",
+        "TK20240201467",
+        "TK20241209280",
+        "TK20250920953",
+        "TK20250422233",
+        "TK20250207164",
+        "TK20240223580",
+        "TK20240815759",
+        "TK20241111823",
+        "TK20250925592",
+        "TK20240530927",
+        "TK20260202412"
+      ]
+    },
+    "memoRows": [
+      {
+        "hook": 40,
+        "len": 2,
+        "nos": [
+          "app_634b18c2aea84e72a5013a91d89b8a9a",
+          "app_522b558f263e43d18c5b5993596ee1dd"
+        ]
+      },
+      {
+        "hook": 81,
+        "len": 22,
+        "nos": [
+          "TK20260623126",
+          "TK20240201467",
+          "TK20241209280",
+          "TK20250920953",
+          "TK20250422233",
+          "TK20250207164",
+          "TK20240223580",
+          "TK20240815759",
+          "TK20241111823",
+          "TK20250925592",
+          "TK20240530927",
+          "TK20260202412"
+        ]
+      },
+      {
+        "hook": 82,
+        "len": 22,
+        "nos": [
+          "TK20260623126",
+          "TK20240201467",
+          "TK20241209280",
+          "TK20250920953",
+          "TK20250422233",
+          "TK20250207164",
+          "TK20240223580",
+          "TK20240815759",
+          "TK20241111823",
+          "TK20250925592",
+          "TK20240530927",
+          "TK20260202412"
+        ]
+      },
+      {
+        "hook": 84,
+        "len": 10,
+        "nos": [
+          "TK20260623126",
+          "TK20240201467",
+          "TK20241209280",
+          "TK20250920953",
+          "TK20250422233",
+          "TK20250207164",
+          "TK20240223580",
+          "TK20240815759",
+          "TK20241111823",
+          "TK20250925592"
+        ]
+      }
+    ],
+    "identities": [
+      {
+        "from": "state:12",
+        "len": 22,
+        "sameAsRowsState": true,
+        "sameAsPrev": null
+      },
+      {
+        "from": "memo:40",
+        "len": 2,
+        "sameAsRowsState": false,
+        "sameAsPrev": false
+      },
+      {
+        "from": "memo:81",
+        "len": 22,
+        "sameAsRowsState": true,
+        "sameAsPrev": false
+      },
+      {
+        "from": "memo:82",
+        "len": 22,
+        "sameAsRowsState": true,
+        "sameAsPrev": true
+      },
+      {
+        "from": "memo:84",
+        "len": 10,
+        "sameAsRowsState": false,
+        "sameAsPrev": false
+      }
+    ]
+  },
+  "target": {
+    "mentioned": [
+      "销售回款",
+      "销售合同"
+    ],
+    "related": [
+      "销售回款",
+      "销售合同"
+    ],
+    "targetCandidates": [
+      "销售回款",
+      "销售合同"
+    ]
+  },
+  "hopPreview": {
+    "target": "销售回款",
+    "http": 200,
+    "error": null,
+    "kind": "销售回款",
+    "rows": 1,
+    "first": "PAY-2026-005",
+    "hopWhere": true,
+    "from": "销售合同",
+    "steps": [
+      "销售合同",
+      "销售回款"
+    ],
+    "speech": "待审回款 ∩ 已到期合同",
+    "blob": "{\"data\":{\"ok\":true,\"kind\":\"销售回款\",\"no\":\"PAY-2026-005\",\"action\":\"现查\",\"speak\":\"销售回款 PAY-2026-005待审。paymentNo PAY-2026-005，updatedAt 2026-06-20T13:31:48.901Z，amount 54800，paymentDate 2026-02-20，method bank_transfer，remarks 首付款，id 371066528202754，customer 杭州数澜软件有限公司，contract HT-2026-005，order SO-2026-005，orderId 371066515619840，customerId 371066446413824。用的是生产NocoBase，不是测试库。\",\"status\":\"待审\",\"fields\":{\"paymentNo\":\"PAY-2026-005\",\"updatedAt\":\"2026-06-20T13:31:48.901Z\",\"amount\":\"54800\",\"paymentDate\":\"2026-02-20\",\"method\":\"bank_transfer\",\"status\":\"pending\",\"remarks\":\"首付款\",\"id\":\"371066528202754\",\"customer\":\"杭州数澜软件有限公司\",\"contract\":\"HT-2026-005\",\"order\":\"SO-2026-005\",\"orderId\":\"371066515619840\",\"customerId\":\"371066446413824\",\"contractId\":\"371066500939778\",\"createdById\":\"1\",\"updatedById\":\"1\"},\"matches\":["
+  },
+  "pendingAfter": {
+    "kind": "销售回款",
+    "rows": 1,
+    "first": "PAY-2026-005",
+    "hopWhere": true,
+    "speech": "待审回款 ∩ 已到期合同"
+  },
+  "frameAfter": {
+    "tableCount": 1,
+    "tbodyDomTr": 1,
+    "tbodyDirect": [
+      {
+        "tag": 7,
+        "key": null,
+        "name": ""
+      }
+    ],
+    "hostTrCount": 1,
+    "hostTrKeys": [
+      "371066515619840"
+    ],
+    "keys": [
+      {
+        "index": 0,
+        "fiberKey": "371066515619840",
+        "text": "1PAY-2026-005待审PAY-2026-0052026/06/20 21:31548002026-02-20银行转账首付款杭州数澜软件有限公司HT-2026-005SO-2026-005改行删除过审"
+      }
+    ],
+    "duplicateFiberKeys": [],
+    "uniqueFiberKeys": [
+      "371066515619840"
+    ],
+    "footer": "共 1 条 · 局域网业务协作适配器 · 现查 23:49",
+    "footerCount": 1,
+    "banner": "AI 刚查了 销售回款 · 1 行 · 刚刚本会话浮现历史销售回款 · 现查 · status,state,stage=pending,open,submitted,待审,新建销售回款 · 现查 · status,state,stage=pending,open,submitted,待审,新建销售回款 · 新建 · 09/18 23:06销售回款 · 新建 · 09/18 23:06销售回款 · 过审 · 09/18 23:06销售回款 · 删除 · 09/18 23:06销售回款 · 删除 · 09/18 23:06销售回款 · 改行 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 现查 · 09/18 23:06销售回款 · 新建 · 09/18 23:03销售回款 · 新建 · 09/18 23:03销售回款 · 过审 · 09/18 23:03销售回款 · 过审 · 09/18 23:03销售回款 · 删除 · 09/18 23:03销售回款 · 改行 · 09/18 23:03销售回款 · 改行 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售合同 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 现查 · 09/18 23:03销售回款 · 新建 · 09/18 23:01销售回款 · 新建 · 09/18 23:01销售回款 · 过审 · 09/18 23:01销售回款 · 删除 · 09/18 23:01销售回款 · 删除 · 09/18 23:01销售回款 · 改行 · 09/18 23:01",
+    "bannerRows": 1,
+    "chips": [
+      "销售回款1"
+    ],
+    "active": [
+      "销售回款1"
+    ],
+    "historyValue": "",
+    "historyOptionsCount": 41,
+    "historyOptions": [
+      {
+        "value": "",
+        "label": "本会话浮现历史"
+      },
+      {
+        "value": "bsurf_65a94b7f6daa4489ab1120dff9a2d087",
+        "label": "销售回款 · 现查 · status,state,stage=pending,open,submitted,待审,新建"
+      },
+      {
+        "value": "bsurf_a2dbb9f39f8b46beaf8c3556b8e73213",
+        "label": "销售回款 · 现查 · status,state,stage=pending,open,submitted,待审,新建"
+      },
+      {
+        "value": "bsurf_50134bace2874ac1ac2c065365875b24",
+        "label": "销售回款 · 新建 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_ad1eb257108148dbadf7d3679b7ac176",
+        "label": "销售回款 · 新建 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_f319a8b556e8484e97fff9f008086886",
+        "label": "销售回款 · 过审 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_94ca6fca37b641689dba504c63cb3065",
+        "label": "销售回款 · 删除 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_363740a186eb44469545060236f777f2",
+        "label": "销售回款 · 删除 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_3f889acc71f94c7bbb3d7e06dcea5629",
+        "label": "销售回款 · 改行 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_ac1407c427954c13a6a158f945f23dce",
+        "label": "销售回款 · 现查 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_712bf54179e941feb499351ecdb4e8a1",
+        "label": "销售回款 · 现查 · 09/18 23:06"
+      },
+      {
+        "value": "bsurf_93aea30084e34e57949f126ce2d2351a",
+        "label": "销售回款 · 现查 · 09/18 23:06"
+      }
+    ],
+    "panelFound": true,
+    "pendingHook": {
+      "kind": "销售回款",
+      "action": "现查",
+      "rows": 1,
+      "sessionId": "",
+      "previewId": ""
+    },
+    "pageHook": {
+      "value": 1
+    },
+    "rowsState": {
+      "hook": 12,
+      "len": 1,
+      "nos": [
+        "371066515619840"
+      ]
+    },
+    "memoRows": [
+      {
+        "hook": 40,
+        "len": 2,
+        "nos": [
+          "app_634b18c2aea84e72a5013a91d89b8a9a",
+          "app_522b558f263e43d18c5b5993596ee1dd"
+        ]
+      },
+      {
+        "hook": 81,
+        "len": 1,
+        "nos": [
+          "371066515619840"
+        ]
+      },
+      {
+        "hook": 82,
+        "len": 1,
+        "nos": [
+          "371066515619840"
+        ]
+      },
+      {
+        "hook": 84,
+        "len": 1,
+        "nos": [
+          "371066515619840"
+        ]
+      }
+    ],
+    "identities": [
+      {
+        "from": "state:12",
+        "len": 1,
+        "sameAsRowsState": true,
+        "sameAsPrev": null
+      },
+      {
+        "from": "memo:40",
+        "len": 2,
+        "sameAsRowsState": false,
+        "sameAsPrev": false
+      },
+      {
+        "from": "memo:81",
+        "len": 1,
+        "sameAsRowsState": true,
+        "sameAsPrev": false
+      },
+      {
+        "from": "memo:82",
+        "len": 1,
+        "sameAsRowsState": true,
+        "sameAsPrev": true
+      },
+      {
+        "from": "memo:84",
+        "len": 1,
+        "sameAsRowsState": false,
+        "sameAsPrev": false
+      }
+    ]
+  },
+  "verdict": {
+    "rateLimited": false,
+    "chrome1": true,
+    "tbodyGt1": false,
+    "rowsStateLen": 1,
+    "memoLens": [
+      2,
+      1,
+      1,
+      1
+    ],
+    "identities": [
+      {
+        "from": "state:12",
+        "len": 1,
+        "sameAsRowsState": true,
+        "sameAsPrev": null
+      },
+      {
+        "from": "memo:40",
+        "len": 2,
+        "sameAsRowsState": false,
+        "sameAsPrev": false
+      },
+      {
+        "from": "memo:81",
+        "len": 1,
+        "sameAsRowsState": true,
+        "sameAsPrev": false
+      },
+      {
+        "from": "memo:82",
+        "len": 1,
+        "sameAsRowsState": true,
+        "sameAsPrev": true
+      },
+      {
+        "from": "memo:84",
+        "len": 1,
+        "sameAsRowsState": false,
+        "sameAsPrev": false
+      }
+    ],
+    "duplicateKeys": [],
+    "hostTrCount": 1,
+    "tbodyDomTr": 1,
+    "pendingApiRows": 1,
+    "pendingHookRows": 1,
+    "firstDom": "371066515619840",
+    "hopFirst": "PAY-2026-005"
+  }
+}

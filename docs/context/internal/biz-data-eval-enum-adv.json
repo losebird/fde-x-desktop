@@ -1,0 +1,805 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "commit": "ea1b261793a10ebcf64b4ed253e5e056a0073ccd",
+  "vitePid5174": 1985,
+  "workspace": "/Users/zxz/Documents/ai-project/fdex测试",
+  "library": {
+    "full": {
+      "biz_tickets": 401,
+      "biz_suppliers": 80,
+      "biz_projects": 200,
+      "biz_project_tasks": 600,
+      "biz_stock_movements": 5135,
+      "biz_warehouses": 6,
+      "biz_employees": 120
+    },
+    "byCase": {
+      "ticket-resolved": 121,
+      "ticket-closed": 115,
+      "supplier-a": 19,
+      "supplier-b": 34,
+      "supplier-c": 16,
+      "supplier-d": 11,
+      "project-active": 96,
+      "task-pending": 130,
+      "task-doing": 161,
+      "movement-transfer": 47,
+      "movement-sales": 880,
+      "movement-production": 1647,
+      "movement-inventory": 841,
+      "warehouse-semi": 1,
+      "warehouse-mixed": 1,
+      "spot-product-movements": 5135,
+      "spot-dept-roles": 0,
+      "spot-manager": 80,
+      "spot-customer-tickets": 399
+    }
+  },
+  "codeReview": {
+    "commit": "ea1b261793a10ebcf64b4ed253e5e056a0073ccd",
+    "piercedInDiff": false,
+    "residualVocabOrMergeRisk": [
+      "runtime/vendor-overlays/dsh-lan-assist/vocab/spoken.json:122-124（同一 say 仍列 resolved+closed+done，依赖 resolveClueValuesForField 按口语拆码）",
+      "runtime/vendor-overlays/dsh-lan-assist/vocab/spoken.json:169-171（没关/未关 not 线索仍 OR 多个 closed 类码）"
+    ],
+    "fixedInCommit": [
+      "runtime/vendor-overlays/dsh-lan-assist/slots.js:compressSameKeyTerms 不再把同 keys 不同 values OR 合并",
+      "runtime/vendor-overlays/dsh-lan-assist/slots.js:resolveClueValuesForField 按 schema 枚举拆命中集",
+      "runtime/vendor-overlays/dsh-lan-assist/slots.js:kindMentionOverlapsEnumLabel 避免短 kind 挡住更长枚举标签"
+    ],
+    "hardcodedEvalCountsInRuntime": false
+  },
+  "cases": [
+    {
+      "useCase": "工单 / 已解决",
+      "speech": "已解决的工单。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-9278bf65-2898-48fb-b8f7-46696cbc437d",
+      "libraryHit": 121,
+      "fullTable": 401,
+      "rightHitTotal": 121,
+      "rightKind": "工单",
+      "footer": 121,
+      "footerText": "共 121 条",
+      "planLine": "",
+      "banner": "AI 刚查了 工单 · 20 行 · 会话 session- · 刚刚本会话浮现历史工单 · 现查 · 已解决的工单。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "工单状态",
+            "status"
+          ],
+          "values": [
+            "resolved"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-ticket-resolved.png"
+    },
+    {
+      "useCase": "工单 / 已关闭",
+      "speech": "已关闭的工单。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-5fd77ae4-9d32-4555-b8c5-5c484951e867",
+      "libraryHit": 115,
+      "fullTable": 401,
+      "rightHitTotal": 115,
+      "rightKind": "工单",
+      "footer": 115,
+      "footerText": "共 115 条",
+      "planLine": "",
+      "banner": "AI 刚查了 工单 · 20 行 · 会话 session- · 刚刚本会话浮现历史工单 · 现查 · 已关闭的工单。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "工单状态",
+            "status"
+          ],
+          "values": [
+            "closed"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-ticket-closed.png"
+    },
+    {
+      "useCase": "供应商 / A",
+      "speech": "A的供应商。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-38c65ab5-4ecb-4380-8b5d-2b640d2decac",
+      "libraryHit": 19,
+      "fullTable": 80,
+      "rightHitTotal": 19,
+      "rightKind": "供应商",
+      "footer": 19,
+      "footerText": "共 19 条",
+      "planLine": "",
+      "banner": "AI 刚查了 供应商 · 19 行 · 会话 session- · 刚刚本会话浮现历史供应商 · 现查 · A的供应商。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "供应商评级",
+            "rating"
+          ],
+          "values": [
+            "A"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-supplier-a.png"
+    },
+    {
+      "useCase": "供应商 / B",
+      "speech": "B的供应商。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-34c2cb20-5241-4615-9948-22edbe60a671",
+      "libraryHit": 34,
+      "fullTable": 80,
+      "rightHitTotal": 34,
+      "rightKind": "供应商",
+      "footer": 34,
+      "footerText": "共 34 条",
+      "planLine": "",
+      "banner": "AI 刚查了 供应商 · 20 行 · 会话 session- · 刚刚本会话浮现历史供应商 · 现查 · B的供应商。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "供应商评级",
+            "rating"
+          ],
+          "values": [
+            "B"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-supplier-b.png"
+    },
+    {
+      "useCase": "供应商 / C",
+      "speech": "C的供应商。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-219c1a7a-5537-41e1-8ae8-f26f5990e065",
+      "libraryHit": 16,
+      "fullTable": 80,
+      "rightHitTotal": 80,
+      "rightKind": "供应商",
+      "footer": 80,
+      "footerText": "共 80 条",
+      "planLine": "",
+      "banner": "AI 刚查了 供应商 · 20 行 · 会话 session- · 刚刚本会话浮现历史供应商 · 现查 · C的供应商。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "供应商评级",
+            "rating"
+          ],
+          "values": [
+            "C"
+          ],
+          "not": false
+        }
+      ],
+      "pierced": true,
+      "note": "右边 hitTotal=80，库=16；页脚=80，库=16；命中整表 80",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-supplier-c.png"
+    },
+    {
+      "useCase": "供应商 / D",
+      "speech": "D的供应商。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-15a61391-ae74-4e5d-bece-411aa4e1bb06",
+      "libraryHit": 11,
+      "fullTable": 80,
+      "rightHitTotal": 11,
+      "rightKind": "供应商",
+      "footer": 11,
+      "footerText": "共 11 条",
+      "planLine": "",
+      "banner": "AI 刚查了 供应商 · 11 行 · 会话 session- · 刚刚本会话浮现历史供应商 · 现查 · D的供应商。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "供应商评级",
+            "rating"
+          ],
+          "values": [
+            "D"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-supplier-d.png"
+    },
+    {
+      "useCase": "项目 / 进行中",
+      "speech": "进行中的项目。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-3ff0e150-3046-4b9e-bce6-fc603e3365d8",
+      "libraryHit": 96,
+      "fullTable": 200,
+      "rightHitTotal": 96,
+      "rightKind": "项目",
+      "footer": 96,
+      "footerText": "共 96 条",
+      "planLine": "",
+      "banner": "AI 刚查了 项目 · 20 行 · 会话 session- · 刚刚本会话浮现历史项目 · 现查 · 进行中的项目。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "项目状态",
+            "status"
+          ],
+          "values": [
+            "active"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-project-active.png"
+    },
+    {
+      "useCase": "项目任务 / 待处理",
+      "speech": "待处理的项目任务。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-9d405c1d-6a94-401e-9803-e032c3c2edea",
+      "libraryHit": 130,
+      "fullTable": 600,
+      "rightHitTotal": 130,
+      "rightKind": "项目任务",
+      "footer": 130,
+      "footerText": "共 130 条",
+      "planLine": "",
+      "banner": "AI 刚查了 项目任务 · 20 行 · 会话 session- · 刚刚本会话浮现历史项目任务 · 现查 · 待处理的项目任务。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "任务状态",
+            "status"
+          ],
+          "values": [
+            "todo"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-task-pending.png"
+    },
+    {
+      "useCase": "项目任务 / 进行中",
+      "speech": "进行中的项目任务。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-c856f98a-10e5-4b0c-a375-7f1b20ea91b3",
+      "libraryHit": 161,
+      "fullTable": 600,
+      "rightHitTotal": 161,
+      "rightKind": "项目任务",
+      "footer": 161,
+      "footerText": "共 161 条",
+      "planLine": "",
+      "banner": "AI 刚查了 项目任务 · 20 行 · 会话 session- · 刚刚本会话浮现历史项目任务 · 现查 · 进行中的项目任务。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "任务状态",
+            "status"
+          ],
+          "values": [
+            "doing"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-task-doing.png"
+    },
+    {
+      "useCase": "出入库流水 / 库存调拨",
+      "speech": "库存调拨的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-eff80636-42e1-4f7d-8372-1f8071b25b07",
+      "libraryHit": 47,
+      "fullTable": 5135,
+      "rightHitTotal": 47,
+      "rightKind": "出入库流水",
+      "footer": 47,
+      "footerText": "共 47 条",
+      "planLine": "",
+      "banner": "AI 刚查了 出入库流水 · 20 行 · 会话 session- · 刚刚本会话浮现历史出入库流水 · 现查 · 库存调拨的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "来源单据类型",
+            "refType"
+          ],
+          "values": [
+            "库存调拨"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-movement-transfer.png"
+    },
+    {
+      "useCase": "出入库流水 / 销售出库",
+      "speech": "销售出库的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-7576102f-8529-4619-b309-9ea2b8ab5232",
+      "libraryHit": 880,
+      "fullTable": 5135,
+      "rightHitTotal": 880,
+      "rightKind": "出入库流水",
+      "footer": 880,
+      "footerText": "共 880 条",
+      "planLine": "",
+      "banner": "AI 刚查了 出入库流水 · 20 行 · 会话 session- · 刚刚本会话浮现历史出入库流水 · 现查 · 销售出库的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "业务类型"
+          ],
+          "values": [
+            "销售出库"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-movement-sales.png"
+    },
+    {
+      "useCase": "出入库流水 / 生产领料",
+      "speech": "生产领料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-892843b9-297e-4288-b2bc-8e207700d79c",
+      "libraryHit": 1647,
+      "fullTable": 5135,
+      "rightHitTotal": null,
+      "rightKind": null,
+      "footer": 0,
+      "footerText": "共 0 条",
+      "planLine": "",
+      "banner": "",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [],
+      "pierced": true,
+      "note": "落点型=undefined，期望 出入库流水；右边 hitTotal=null，库=1647；页脚=0，库=1647",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-movement-production.png"
+    },
+    {
+      "useCase": "出入库流水 / 库存盘点",
+      "speech": "库存盘点的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-2e50e519-7103-4913-b506-4e0e3ae006aa",
+      "libraryHit": 841,
+      "fullTable": 5135,
+      "rightHitTotal": 841,
+      "rightKind": "出入库流水",
+      "footer": 841,
+      "footerText": "共 841 条",
+      "planLine": "",
+      "banner": "AI 刚查了 出入库流水 · 20 行 · 会话 session- · 刚刚本会话浮现历史出入库流水 · 现查 · 库存盘点的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "来源单据类型",
+            "refType"
+          ],
+          "values": [
+            "库存盘点"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-movement-inventory.png"
+    },
+    {
+      "useCase": "仓库 / 半成品库",
+      "speech": "半成品库的仓库。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-bad87e7c-192f-472d-95fb-faac2e97e223",
+      "libraryHit": 1,
+      "fullTable": 6,
+      "rightHitTotal": null,
+      "rightKind": "仓库",
+      "footer": null,
+      "footerText": "总数未知",
+      "planLine": "",
+      "banner": "AI 刚查了 仓库 · 1 行 · 会话 session- · 刚刚本会话浮现历史仓库 · 现查 · 半成品库的仓库。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "仓库类型",
+            "whType"
+          ],
+          "values": [
+            "半成品库"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": true,
+      "note": "右边 hitTotal=null，库=1；页脚=null，库=1",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-warehouse-semi.png"
+    },
+    {
+      "useCase": "仓库 / 综合库",
+      "speech": "综合库的仓库。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-6ce36d71-b917-4f30-b173-03b78cf88aa0",
+      "libraryHit": 1,
+      "fullTable": 6,
+      "rightHitTotal": null,
+      "rightKind": "仓库",
+      "footer": null,
+      "footerText": "总数未知",
+      "planLine": "",
+      "banner": "AI 刚查了 仓库 · 1 行 · 会话 session- · 刚刚本会话浮现历史仓库 · 现查 · 综合库的仓库。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [
+        {
+          "keys": [
+            "仓库类型",
+            "whType"
+          ],
+          "values": [
+            "综合库"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pierced": true,
+      "note": "右边 hitTotal=null，库=1；页脚=null，库=1",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-adv-warehouse-mixed.png"
+    }
+  ],
+  "spotChecks": [
+    {
+      "useCase": "抽查 商品物料→出入库流水",
+      "speech": "现查商品物料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-fba01a08-0cfa-4037-aede-c86dfcac86a6",
+      "libraryHit": 5135,
+      "fullTable": 5135,
+      "rightHitTotal": 5135,
+      "rightKind": "出入库流水",
+      "footer": 5135,
+      "footerText": "共 5135 条",
+      "planLine": "",
+      "banner": "AI 刚查了 出入库流水 · 20 行 · 会话 session- · 刚刚本会话浮现历史出入库流水 · 现查 · 现查商品物料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": null
+    },
+    {
+      "useCase": "抽查 部门→角色",
+      "speech": "现查{{t(\"Departments\")}}的{{t(\"Roles\")}}。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-bc5e3361-32ec-4faf-b9fa-1dafd83cddc3",
+      "libraryHit": 0,
+      "fullTable": null,
+      "rightHitTotal": 0,
+      "rightKind": "{{t(\"Roles\")}}",
+      "footer": 0,
+      "footerText": "共 0 条",
+      "planLine": "",
+      "banner": "AI 刚查了 {{t(\"Roles\")}} · 0 行 · 会话 session- · 刚刚本会话浮现历史{{t(\"Roles\")}} · 现查 · 现查{{t(\"Departments\")}}的{{t(\"Roles\")}}。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": null
+    },
+    {
+      "useCase": "抽查 员工直属上级",
+      "speech": "现查员工档案的直属上级。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-04edc16c-621d-47b7-b603-526f6ad17a6e",
+      "libraryHit": 80,
+      "fullTable": 120,
+      "rightHitTotal": 120,
+      "rightKind": "员工档案",
+      "footer": 120,
+      "footerText": "共 120 条",
+      "planLine": "",
+      "banner": "AI 刚查了 员工档案 · 20 行 · 会话 session- · 刚刚本会话浮现历史员工档案 · 现查 · 现查员工档案的直属上级。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [],
+      "pierced": true,
+      "note": "右边 hitTotal=120，库=80；页脚=120，库=80；抽查期望 80",
+      "screenshot": null
+    },
+    {
+      "useCase": "抽查 客户→工单",
+      "speech": "现查客户的工单。只要预览，不要过账，不要 biz_write。",
+      "sessionId": "session-6cbad521-36b9-4085-a080-2d0c169c99fd",
+      "libraryHit": 399,
+      "fullTable": 401,
+      "rightHitTotal": 399,
+      "rightKind": "工单",
+      "footer": 399,
+      "footerText": "共 399 条",
+      "planLine": "",
+      "banner": "AI 刚查了 工单 · 20 行 · 会话 session- · 刚刚本会话浮现历史工单 · 现查 · 现查客户的工单。只要预览，不要过账，不要 biz_write。",
+      "kindChips": [
+        "📁fdex测试1",
+        "IM2",
+        "早报",
+        "计划",
+        "文件",
+        "业务应用",
+        "MCP",
+        "Skills",
+        "记忆",
+        "设置",
+        "⌘K"
+      ],
+      "where": [],
+      "pierced": false,
+      "note": "库、右边、页脚一致",
+      "screenshot": null
+    }
+  ]
+}

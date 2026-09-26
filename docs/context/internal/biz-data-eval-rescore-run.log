@@ -1,0 +1,37 @@
+rescore 362 @ f1b927585c334bf839192ee3ab6d5f41bd914769
+progress 40/362
+progress 80/362
+progress 120/362
+progress 160/362
+progress 200/362
+progress 240/362
+progress 280/362
+progress 320/362
+progress 360/362
+{
+  "edge": {
+    "total": 85,
+    "gatePass": 68,
+    "livePass": 63
+  },
+  "enum": {
+    "total": 220,
+    "gatePass": 170,
+    "livePass": 164
+  },
+  "cover": {
+    "total": 6,
+    "gatePass": 5,
+    "livePass": 5
+  },
+  "shared": {
+    "total": 29,
+    "gatePass": 29,
+    "livePass": 29
+  },
+  "schema-gap": {
+    "total": 22,
+    "gatePass": 17,
+    "livePass": 17
+  }
+}

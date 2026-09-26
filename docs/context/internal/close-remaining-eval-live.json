@@ -1,0 +1,65 @@
+{
+  "commit": "bee827d9b638f681258958a35e08bcaa7b1e5b49",
+  "repo": "/Users/zxz/WorkBuddy/2026-09-08-20-34-42/scene-39-personal-workstation",
+  "overlay": "cp runtime/vendor-overlays/dsh-lan-assist → ~/.dsh-fde-x/vendor/dsh-lan-assist; ai disconnect+connect",
+  "library": {
+    "employees": 120,
+    "departments": 12,
+    "empWithManager": 80,
+    "empWithSubordinates": 15,
+    "deptWithParent": 11,
+    "deptWithChildren": 4
+  },
+  "categories": [
+    {
+      "id": "self-loop",
+      "allPass": false,
+      "cases": [
+        {
+          "short": "emp-subordinates-official",
+          "speech": "员工档案的员工档案。只要预览，不要过账，不要 biz_write。",
+          "sessionId": "session-4a39bb73-dcd7-47b5-b842-011d60438d58",
+          "libraryHit": 15,
+          "forbidFull": 120,
+          "peerWant": 80,
+          "rightHitTotal": 15,
+          "peerTotals": [
+            {
+              "relation": "manager",
+              "hitTotal": 80
+            }
+          ],
+          "footer": 15,
+          "footerText": "共 80 条",
+          "hitTotalStateUi": "known",
+          "turnDone": true,
+          "pass": false,
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/close-remaining-eval/self-loop-emp-subordinates-official.png",
+          "peerScreenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/close-remaining-eval/self-loop-emp-subordinates-official-peer.png"
+        },
+        {
+          "short": "dept-self-loop",
+          "speech": "{{t(\"Departments\")}}的{{t(\"Departments\")}}。只要预览，不要过账，不要 biz_write。",
+          "sessionId": "session-76a8461b-2f40-4d04-86a9-dd9c9e564024",
+          "libraryHit": null,
+          "forbidFull": 12,
+          "peerWant": null,
+          "rightHitTotal": null,
+          "peerTotals": [],
+          "footer": null,
+          "footerText": "总数未知",
+          "hitTotalStateUi": "",
+          "turnDone": true,
+          "pass": false,
+          "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/close-remaining-eval/self-loop-dept-self-loop.png",
+          "peerScreenshot": null
+        }
+      ]
+    }
+  ],
+  "serial362": {
+    "skipped": true,
+    "reason": "prior category incomplete"
+  },
+  "allCategoriesPass": false
+}

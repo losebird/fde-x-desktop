@@ -1,0 +1,45 @@
+workspace 1985293d-03bb-496f-ad69-5c7f2ac23149 /Users/zxz/Documents/ai-project/fdex测试
+openSession session-a41523f0-bd3f-48cd-a929-e9c8ad843146
+seeded session-a41523f0-bd3f-48cd-a929-e9c8ad843146
+prompt session-a41523f0-bd3f-48cd-a929-e9c8ad843146 expected=资产领用归还
+prompted http=200
+turn-closed kind= dump=false thinking=false
+prompt session-a41523f0-bd3f-48cd-a929-e9c8ad843146 expected=考勤记录
+prompted http=200
+turn-closed kind=考勤记录 dump=false thinking=false
+openSession session-a354973c-bc62-41a7-bf3e-c6c94d5a6b53
+seeded session-a354973c-bc62-41a7-bf3e-c6c94d5a6b53
+prompt session-a354973c-bc62-41a7-bf3e-c6c94d5a6b53 expected=资产领用归还
+prompted http=200
+{
+  "pass": false,
+  "sha": "e3f481fff48cf24026f5c8251f345c3cac25253c",
+  "proofs": {
+    "p1": {
+      "pass": false,
+      "failCode": "not-this-send"
+    },
+    "p2": {
+      "pass": true,
+      "failCode": ""
+    },
+    "p3": {
+      "pass": false,
+      "failCode": "not-relation-target"
+    }
+  },
+  "shots": {
+    "round01": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-01.png",
+      "exists": true
+    },
+    "round02": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-02.png",
+      "exists": true
+    },
+    "round03": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-03.png",
+      "exists": true
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "stopped": true,
+  "reason": "现场没有「保存前查询不编、保存后才能用」的缺口。连接器里缺在图上的边，现查已经按 schema 走通；词表没列的枚举，现查也已经按连接器枚举筛对。自环边写进图之后，现有查询路径仍然不用。没有保存，没有改代码，没有造行。",
+  "branch": null,
+  "sha": "980839056de7a92bee47635fb6bac8a7ac5780bc",
+  "worktree": "cursor/records-close-session-end-fc3c",
+  "worktreeMatchesMain": true,
+  "branchOpened": false,
+  "codeChanged": false,
+  "savedConnection": false,
+  "mergedMain": false,
+  "pushed": false,
+  "structure": null,
+  "whyQueryDidNotInventBeforeSave": "没有这样一项。词表没有、图上也没有的「联系人→工单 / contact」，replay 现查「联系人还有哪些工单」仍然走出 联系人→工单 两步（schemaRelatedField 从连接器 m2o 读到 target）。词表工单字段只有 ticketNo、单号、状态，没有「优先级」，replay 现查「紧急的工单」仍然把条件绑到 优先级/priority=urgent，命中 45 条，抽看的行都是 urgent。",
+  "rightRowsAfterSave": null,
+  "images": {
+    "before": null,
+    "after": null
+  },
+  "measured": {
+    "connectorCollections": 40,
+    "publishedConceptsWithResource": 40,
+    "builderRelations": 153,
+    "publishedRelations": 85,
+    "builderRelationsMissingFromPublished": 68,
+    "missingButSchemaAlreadyHops": 64,
+    "missingAndSchemaBlind": [
+      { "from": "资产分类", "to": "资产分类", "field": "parent" },
+      { "from": "资产分类", "to": "资产分类", "field": "children" },
+      { "from": "商品分类", "to": "商品分类", "field": "parent" },
+      { "from": "商品分类", "to": "商品分类", "field": "children" }
+    ],
+    "alreadyPublishedExample": { "from": "客户", "to": "工单", "field": "customer" },
+    "ticketConceptFields": ["ticketNo", "单号", "状态"],
+    "ticketConceptRelations": [
+      { "from": "工单", "to": "工单处理记录", "field": "ticket" },
+      { "from": "客户", "to": "工单", "field": "customer" }
+    ],
+    "contactConceptRelations": [],
+    "probes": [
+      {
+        "speech": "联系人还有哪些工单",
+        "kind": "工单",
+        "replay": true,
+        "steps": ["联系人", "工单"],
+        "fromKind": "联系人",
+        "hitTotal": 399,
+        "note": "图上没有 contact 边。步骤仍被现查写出来。from 是全部联系人，所以右边不是某一条联系人的工单。"
+      },
+      {
+        "speech": "紧急的工单",
+        "kind": "工单",
+        "replay": true,
+        "whereKeys": ["优先级", "priority"],
+        "values": ["urgent", "紧急"],
+        "hitTotal": 45,
+        "hitTotalState": "known",
+        "rows": [
+          { "no": "TK20250211633", "status": "new", "priority": "urgent", "title": "功能咨询" },
+          { "no": "TK20251226865", "status": "resolved", "priority": "urgent", "title": "报表错误" },
+          { "no": "384428688605184", "status": "resolved", "priority": "urgent", "title": "电脑故障紧急保修" },
+          { "no": "384417162657792", "status": "resolved", "priority": "urgent", "title": "电脑故障紧急保修" }
+        ]
+      }
+    ]
+  },
+  "ui": {
+    "port5174": "listening",
+    "pid": 1985
+  }
+}

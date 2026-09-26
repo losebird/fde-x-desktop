@@ -1,0 +1,68 @@
+{
+  "commit": "3c58dadd874104d89d3cd0f505362a6945322405",
+  "branch": "cursor/eval-three-causes-2d90",
+  "cases": [
+    {
+      "label": "供应商 / C",
+      "speech": "C的供应商。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 16,
+      "rightHitTotal": 16,
+      "footer": 16,
+      "where": [
+        {
+          "keys": ["供应商评级", "rating"],
+          "values": ["C"],
+          "not": false
+        }
+      ],
+      "pass": true,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-2-supplier-c.png"
+    },
+    {
+      "label": "出入库流水 / 生产领料",
+      "speech": "生产领料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 1647,
+      "rightHitTotal": 1647,
+      "footer": 1647,
+      "where": [
+        {
+          "keys": ["业务类型"],
+          "values": ["生产领料"],
+          "not": false
+        }
+      ],
+      "pass": true,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-2-movement-production.png",
+      "captureCommit": "41605d7dade42ef3d053d18e060d0e0d3672707a"
+    },
+    {
+      "label": "仓库 / 半成品库",
+      "speech": "半成品库的仓库。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 1,
+      "rightHitTotal": null,
+      "footer": null,
+      "footerText": "总数未知",
+      "where": [
+        {
+          "keys": ["仓库类型", "whType"],
+          "values": ["半成品库"],
+          "not": false
+        }
+      ],
+      "pass": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-2-warehouse-semi.png",
+      "captureCommit": "85ec76e29852289a617255fe3eb504a0c4875dc8",
+      "note": "计划 where 在；页脚仍总数未知。3c58dad 已补 short-page 总数与 footer 逻辑，需在 5174 栈上重跑本条确认。"
+    },
+    {
+      "label": "抽查 员工直属上级",
+      "speech": "现查员工档案的直属上级。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 80,
+      "rightHitTotal": 80,
+      "footer": 80,
+      "where": [],
+      "pass": true,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-2-spot-manager.png"
+    }
+  ]
+}

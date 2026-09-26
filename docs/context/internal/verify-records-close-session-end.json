@@ -1,0 +1,208 @@
+{
+  "slice": "records-close-session-end",
+  "sha": "dfb28ab85a525209b337844d7775f3c5884ae164",
+  "branch": "cursor/records-close-session-end-fc3c",
+  "proofs": {
+    "p1": {
+      "pass": false,
+      "failCode": "ui-not-this-send",
+      "checkPass": "每一句停转后，右边 = 这一句。转的时候不跟丢、不跟成自己再查的表。",
+      "checkFail": "你没说下一句，表自己换了；或下一句停转后还是上一句的表。",
+      "turn1": {
+        "kind": "资产领用归还",
+        "action": "现查",
+        "rows": 232,
+        "first": "LY20231107548",
+        "dump": false,
+        "fromKind": "固定资产",
+        "hopWhere": false,
+        "steps": [
+          "固定资产",
+          "资产领用归还"
+        ],
+        "speech": "现查固定资产关联的资产领用归还。只要预览，不要过账，不要 biz_write。",
+        "roundId": "",
+        "wheres": [
+          {
+            "kind": "资产领用归还",
+            "terms": [
+              {
+                "keys": [
+                  "业务类型",
+                  "movementType"
+                ],
+                "values": [
+                  "checkout",
+                  "return"
+                ],
+                "not": false
+              }
+            ]
+          },
+          {
+            "kind": "资产领用归还",
+            "terms": [
+              {
+                "keys": [
+                  "业务类型",
+                  "movementType"
+                ],
+                "values": [
+                  "checkout",
+                  "return"
+                ],
+                "not": false
+              }
+            ]
+          }
+        ],
+        "valueSets": {
+          "movementType": [
+            "checkout",
+            "return"
+          ]
+        },
+        "running": false,
+        "thinking": true,
+        "leftoverJump": false,
+        "painted": false,
+        "uiPainted": false
+      },
+      "turn2": {
+        "kind": "考勤记录",
+        "action": "现查",
+        "rows": 20,
+        "first": "罗静怡",
+        "dump": false,
+        "fromKind": "员工档案",
+        "hopWhere": false,
+        "steps": [
+          "员工档案",
+          "考勤记录"
+        ],
+        "speech": "现查员工档案关联的考勤记录。只要预览，不要过账，不要 biz_write。",
+        "roundId": "",
+        "wheres": [],
+        "valueSets": {},
+        "running": false,
+        "thinking": false,
+        "leftoverJump": false,
+        "painted": false,
+        "uiPainted": false
+      }
+    },
+    "p2": {
+      "pass": true,
+      "failCode": "",
+      "checkPass": "正式表已经在右边，左边没有「深度求索中」，输入框可以再发。",
+      "checkFail": "右边表有了，左边还一直转。把等待再加长不算过。",
+      "thinking": false,
+      "running": false,
+      "composer": {
+        "thinking": false,
+        "hasInput": true,
+        "disabled": false,
+        "sendLabel": false
+      },
+      "extraWaitUsed": false
+    },
+    "p3": {
+      "pass": false,
+      "failCode": "not-relation-target",
+      "checkPass": "右边是关系指向的那张，并且带着这一句的条件，不是某种对象的默认第一页。",
+      "checkFail": "右边是没筛条件的一页列表；或跳到的不是词表关系指向的那张。",
+      "snap": {
+        "kind": "资产领用归还",
+        "action": "现查",
+        "rows": 232,
+        "first": "LY20231107548",
+        "dump": false,
+        "fromKind": "固定资产",
+        "hopWhere": false,
+        "steps": [
+          "固定资产",
+          "资产领用归还"
+        ],
+        "speech": "现查固定资产关联的资产领用归还。只要预览，不要过账，不要 biz_write。",
+        "roundId": "",
+        "wheres": [
+          {
+            "kind": "资产领用归还",
+            "terms": [
+              {
+                "keys": [
+                  "业务类型",
+                  "movementType"
+                ],
+                "values": [
+                  "checkout",
+                  "return"
+                ],
+                "not": false
+              }
+            ]
+          },
+          {
+            "kind": "资产领用归还",
+            "terms": [
+              {
+                "keys": [
+                  "业务类型",
+                  "movementType"
+                ],
+                "values": [
+                  "checkout",
+                  "return"
+                ],
+                "not": false
+              }
+            ]
+          }
+        ],
+        "valueSets": {
+          "movementType": [
+            "checkout",
+            "return"
+          ]
+        }
+      },
+      "running": false,
+      "thinking": true,
+      "leftoverJump": false,
+      "uiPainted": false
+    }
+  },
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "workspaceId": "1985293d-03bb-496f-ad69-5c7f2ac23149",
+  "kindCount": 40,
+  "relationCount": 85,
+  "livePairs": 43,
+  "speeches": {
+    "first": "第一句（现场词表已发布关系）",
+    "second": "第二句（另一条已发布关系）",
+    "hop": "有关系的那一句"
+  },
+  "sessionA": "session-b757635c-18dd-41b6-9f26-86bca2a322a7",
+  "shots": {
+    "round01": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-01.png",
+      "exists": true,
+      "md5": "05c4c9468b149a5b3a84aee95d2feb40",
+      "distinct": true
+    },
+    "round02": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-02.png",
+      "exists": true,
+      "md5": "fef95e194844903c632f40c31a014cea",
+      "distinct": true
+    },
+    "round03": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-03.png",
+      "exists": true,
+      "md5": "a56fbd2e3fb79ddf30c6c490dcca98f6",
+      "distinct": true
+    }
+  },
+  "sessionB": "session-805af5ef-70a1-4cd3-ac8e-df59bce9ac48",
+  "pass": false
+}

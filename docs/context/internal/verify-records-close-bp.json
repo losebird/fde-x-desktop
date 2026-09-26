@@ -1,0 +1,2248 @@
+{
+  "slice": "BP-unheld-closed-set-prove-10",
+  "sha": "21d0141bb8cffd24ffc50a8bdcc31ae25fcd9fb0",
+  "branch": "main",
+  "hardcodedInSrc": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "originPushed": false,
+  "pnpm5174": true,
+  "cases": [
+    {
+      "n": 1,
+      "speech": "停用客户还有哪些没关的工单？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [],
+      "mentioned": [
+        "客户",
+        "工单"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "工单",
+      "action": "现查",
+      "rows": 21,
+      "first": "TK20260623126",
+      "banner": "AI 刚查了 工单 · 21 行 · 会话 session- · 刚刚本会话浮现历史工单 · 现查 · 停用客户还有哪些没关的工单？销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查",
+      "footerCount": 21,
+      "tbodyRows": 10,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": true,
+        "steps": [
+          "客户",
+          "工单"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "previewId": null,
+      "alreadyAtTarget": false,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "pendingSpeech": "停用客户还有哪些没关的工单？",
+      "nos": [
+        "TK20260623126",
+        "TK20240201467",
+        "TK20241209280",
+        "TK20250920953",
+        "TK20250422233",
+        "TK20250207164",
+        "TK20240223580",
+        "TK20240815759",
+        "TK20241111823",
+        "TK20250925592",
+        "TK20240530927",
+        "TK20260202412",
+        "TK20251007677",
+        "TK20260118524",
+        "TK20260105175",
+        "TK20251003193",
+        "TK20241017268",
+        "TK20250804369",
+        "TK20240217639",
+        "TK20260303283",
+        "TK20241215682"
+      ],
+      "canWrite": false,
+      "speak": "",
+      "contract": {
+        "C1": "pass",
+        "C2": "pass",
+        "C3": "pass",
+        "C4": "pass"
+      },
+      "failCode": ""
+    },
+    {
+      "n": 2,
+      "speech": "故障类而且紧急、还没关的工单是哪家客户的？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [],
+      "mentioned": [
+        "工单",
+        "客户"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "工单",
+      "action": "现查",
+      "rows": 8,
+      "first": "TK20250211633",
+      "banner": "AI 刚查了 工单 · 8 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？",
+      "footerCount": 8,
+      "tbodyRows": 8,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": false,
+        "steps": [
+          "客户",
+          "工单"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "previewId": null,
+      "alreadyAtTarget": false,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "pendingSpeech": "故障类而且紧急、还没关的工单是哪家客户的？",
+      "nos": [
+        "TK20250211633",
+        "TK20240510148",
+        "TK20260105702",
+        "TK20240331713",
+        "TK20240403502",
+        "TK20240910202",
+        "TK20241124638",
+        "TK20250317500"
+      ],
+      "canWrite": false,
+      "speak": "",
+      "hasBizMarker": true,
+      "fromNos": [
+        "CUST2276",
+        "CUST2242",
+        "CUST2208",
+        "CUST2199",
+        "CUST2188",
+        "CUST2122",
+        "CUST2103",
+        "CUST2028"
+      ],
+      "contract": {
+        "C1": "pass",
+        "C2": "pass",
+        "C3": "pass",
+        "C4": "pass"
+      },
+      "failCode": ""
+    },
+    {
+      "n": 3,
+      "speech": "待审回款挂在哪些合同上？把已到期的那些摊出来。",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [],
+      "mentioned": [
+        "销售回款",
+        "销售合同"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "销售回款",
+      "action": "现查",
+      "rows": 1,
+      "first": "PAY-2026-005",
+      "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？销售回款 · 现查 · 待审回款挂在哪些合同上？把已到期的那些摊出来。",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": true,
+        "steps": [
+          "销售合同",
+          "销售回款"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "previewId": null,
+      "alreadyAtTarget": false,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "pendingSpeech": "待审回款挂在哪些合同上？把已到期的那些摊出来。",
+      "nos": [
+        "PAY-2026-005"
+      ],
+      "canWrite": false,
+      "speak": "",
+      "contract": {
+        "C1": "pass",
+        "C2": "pass",
+        "C3": "pass",
+        "C4": "pass"
+      },
+      "failCode": ""
+    },
+    {
+      "n": 4,
+      "speech": "把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+      "want": "改行",
+      "write": true,
+      "queryThenWrite": false,
+      "related": [],
+      "mentioned": [
+        "客户"
+      ],
+      "hopNeed": false,
+      "pass": false,
+      "failCode": "ask-card-still-open(closed=false,thinking=true)",
+      "error": "ask-card-still-open(closed=false,thinking=true)",
+      "hitSet": {
+        "rows": 1,
+        "nos": [
+          "CUST2058"
+        ],
+        "listed": false,
+        "ambiguous": false,
+        "preview_id": "pv_78cade71c13979b7",
+        "drawerOpen": true,
+        "first": "CUST2058",
+        "footerCount": 1,
+        "tbodyRows": 1,
+        "singleMatch": true
+      },
+      "picked": {
+        "ok": true,
+        "count": 1,
+        "nos": [
+          "CUST2058"
+        ],
+        "pickedNo": "CUST2058",
+        "pickIndex": 0,
+        "singleMatch": true
+      },
+      "pending": {
+        "kind": "客户",
+        "action": "改行",
+        "rows": 1,
+        "first": "CUST2058",
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "fromHasRows": false,
+        "fromNos": [],
+        "hopWhere": false,
+        "steps": [],
+        "speech": "把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+        "preview_id": "pv_78cade71c13979b7",
+        "sessionId": "session-362775bb-3e52-445b-800e-960f566f0729",
+        "changes": [
+          {
+            "field": "status",
+            "label": "客户状态",
+            "from": "inactive",
+            "to": "成交"
+          }
+        ],
+        "where": [],
+        "listed": false,
+        "ambiguous": false,
+        "alreadyAtTarget": false,
+        "canWrite": true,
+        "speak": "",
+        "nos": [
+          "CUST2058"
+        ]
+      }
+    },
+    {
+      "n": 5,
+      "speech": "待审报销单都过一下。只要预览，不要过账，不要 biz_write。",
+      "want": "过审",
+      "write": true,
+      "queryThenWrite": false,
+      "related": [],
+      "mentioned": [
+        "费用报销"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "费用报销",
+      "action": "过审",
+      "rows": 97,
+      "first": "EXP20251224598",
+      "banner": "AI 拟改 费用报销 97 行 · 待确认本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？销售回款 · 现查 · 待审回款挂在哪些合同上？把已到期的那些摊出来。客户 · 现查费用报销 · 过审 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+      "footerCount": 97,
+      "tbodyRows": 10,
+      "hop": {
+        "hop": false,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": false,
+        "steps": []
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "过审",
+      "hasFieldDiffs": true,
+      "previewId": "pv_3164b4f2aeeaebc2",
+      "alreadyAtTarget": false,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "pendingSpeech": "待审报销单都过一下。只要预览，不要过账，不要 biz_write。",
+      "nos": [
+        "EXP20251224598",
+        "EXP20250404126",
+        "EXP20260620992",
+        "EXP20240712457",
+        "EXP20240826911",
+        "EXP20250126314",
+        "EXP20250525234",
+        "EXP20251204135",
+        "EXP20240425474",
+        "EXP20260109613",
+        "EXP20250804559",
+        "EXP20250630196",
+        "EXP20240718160",
+        "EXP20250526739",
+        "EXP20251106273",
+        "EXP20240717752",
+        "EXP20250526377",
+        "EXP20251031839",
+        "EXP20250211657",
+        "EXP20240603510",
+        "EXP20250711232",
+        "EXP20250423386",
+        "EXP20250429511",
+        "EXP20241028118",
+        "EXP20250915382",
+        "EXP20240623443",
+        "EXP20260414945",
+        "EXP20240130891",
+        "EXP20250624354",
+        "EXP20250107865",
+        "EXP20241029327",
+        "EXP20240309147",
+        "EXP20250701442",
+        "EXP20251026727",
+        "EXP20251002767",
+        "EXP20260113900",
+        "EXP20240623177",
+        "EXP20260521286",
+        "EXP20251010501",
+        "EXP20250131962",
+        "EXP20241227471",
+        "EXP20260216226",
+        "EXP20250613580",
+        "EXP20250104829",
+        "EXP20240725157",
+        "EXP20240211656",
+        "EXP20240217559",
+        "EXP20241109273",
+        "EXP20240118690",
+        "EXP20260221190",
+        "EXP20250428410",
+        "EXP20241106414",
+        "EXP20260223243",
+        "EXP20240729652",
+        "EXP20250808614",
+        "EXP20260529310",
+        "EXP20240312191",
+        "EXP20250823783",
+        "EXP20240616833",
+        "EXP20250211980",
+        "EXP20251113558",
+        "EXP20260316791",
+        "EXP20240511632",
+        "EXP20260212267",
+        "EXP20250330363",
+        "EXP20260502928",
+        "EXP20251115432",
+        "EXP20241208635",
+        "EXP20250526138",
+        "EXP20240417557",
+        "EXP20251011836",
+        "EXP20250315855",
+        "EXP20250111323",
+        "EXP20250828957",
+        "EXP20240709627",
+        "EXP20240709371",
+        "EXP20260517647",
+        "EXP20240314359",
+        "EXP20250315356",
+        "EXP20250103490",
+        "EXP20240506528",
+        "EXP20260120336",
+        "EXP20250808204",
+        "EXP20260525407",
+        "EXP20250924579",
+        "EXP20250407542",
+        "EXP20240413522",
+        "EXP20250811395",
+        "EXP20250120181",
+        "EXP20250824712",
+        "EXP20240518590",
+        "EXP20250421553",
+        "EXP20251220532",
+        "EXP20240325527",
+        "EXP20241102191",
+        "EXP20250117616",
+        "EXP20250516745"
+      ],
+      "canWrite": true,
+      "speak": "",
+      "contract": {
+        "C1": "pass",
+        "C2": "pass",
+        "C3": "pass",
+        "C4": "pass"
+      },
+      "failCode": ""
+    },
+    {
+      "n": 6,
+      "speech": "过一下请假单 QJ20251027588。只要预览，不要过账，不要 biz_write。",
+      "want": "过审",
+      "write": true,
+      "queryThenWrite": false,
+      "related": [],
+      "mentioned": [],
+      "hopNeed": false,
+      "pass": true,
+      "connectedKind": "请假申请",
+      "preDriftLookup": {
+        "http": 502,
+        "kind": "请假申请",
+        "action": "",
+        "nos": [],
+        "statuses": [],
+        "items": [],
+        "where": [],
+        "rows": 0,
+        "alreadyAtTarget": false,
+        "error": "NOT_FOUND",
+        "speak": ""
+      },
+      "preDriftFallback": {
+        "http": 200,
+        "kind": "请假申请",
+        "action": "现查",
+        "nos": [
+          "QJ20251027588",
+          "QJ20251101520",
+          "QJ20250110249",
+          "QJ20260401299",
+          "QJ20251208449",
+          "QJ20240830442",
+          "QJ20260430818",
+          "QJ20241010724",
+          "QJ20240625277",
+          "QJ20260102470",
+          "QJ20240605948",
+          "QJ20241114149",
+          "QJ20240703519",
+          "QJ20250428564",
+          "QJ20250713654",
+          "QJ20240715207",
+          "QJ20240124157",
+          "QJ20240606531",
+          "QJ20240425805",
+          "QJ20241117709",
+          "QJ20240118541",
+          "QJ20250502245",
+          "QJ20241112110",
+          "QJ20250716127",
+          "QJ20241024706",
+          "QJ20240421751",
+          "QJ20240408478",
+          "QJ20251109854",
+          "QJ20250505211",
+          "QJ20241024958",
+          "QJ20240812489",
+          "QJ20260522917",
+          "QJ20250614378",
+          "QJ20240116582",
+          "QJ20251212854",
+          "QJ20260105175",
+          "QJ20240421688",
+          "QJ20250919942",
+          "QJ20241104137",
+          "QJ20260411846",
+          "QJ20241126935",
+          "QJ20240407159",
+          "QJ20241227397",
+          "QJ20260302944",
+          "LV-2026-014",
+          "LV-2026-010",
+          "LV-2026-006",
+          "LV-2026-002"
+        ],
+        "statuses": [
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审"
+        ],
+        "items": [
+          {
+            "no": "QJ20251027588",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251027588\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251027588\",\"updatedAt\":\"2026-06-24T03:13:48.632Z\",\"startAt\":\"2025-10-27T16:59:22.281Z\",\"endAt\":\"2025-10-30T16:59:22.281Z\",\"leaveType\":\"personal\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713541537859\",\"employee\":\"EMP1081\",\"approver\":\"王芳\",\"employeeId\":\"371712262275132\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251101520",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251101520\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251101520\",\"updatedAt\":\"2026-06-24T03:13:48.631Z\",\"startAt\":\"2025-11-01T03:26:51.360Z\",\"endAt\":\"2025-11-03T03:26:51.360Z\",\"leaveType\":\"personal\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713541537858\",\"employee\":\"EMP1084\",\"approver\":\"李娜\",\"employeeId\":\"371712262275135\",\"approverId\":\"5\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250110249",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250110249\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250110249\",\"updatedAt\":\"2026-06-24T03:13:48.531Z\",\"startAt\":\"2025-01-10T00:27:46.472Z\",\"endAt\":\"2025-01-12T00:27:46.472Z\",\"leaveType\":\"annual\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713541537846\",\"employee\":\"EMP1080\",\"approver\":\"王芳\",\"employeeId\":\"371712262275131\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260401299",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260401299\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260401299\",\"updatedAt\":\"2026-06-24T03:13:48.513Z\",\"startAt\":\"2026-04-01T22:54:47.067Z\",\"endAt\":\"2026-04-02T22:54:47.067Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713541537845\",\"employee\":\"EMP1050\",\"approver\":\"王芳\",\"employeeId\":\"371712262275101\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251208449",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251208449\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251208449\",\"updatedAt\":\"2026-06-24T03:13:48.430Z\",\"startAt\":\"2025-12-08T20:21:57.670Z\",\"endAt\":\"2025-12-15T20:21:57.670Z\",\"leaveType\":\"personal\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713541537837\",\"employee\":\"EMP-009\",\"approver\":\"zxz\",\"employeeId\":\"371066639351810\",\"approverId\":\"2\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240830442",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240830442\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240830442\",\"updatedAt\":\"2026-06-24T03:13:48.357Z\",\"startAt\":\"2024-08-30T05:32:10.678Z\",\"endAt\":\"2024-08-30T17:32:10.678Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713541537827\",\"employee\":\"EMP1077\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275128\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260430818",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260430818\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260430818\",\"updatedAt\":\"2026-06-24T03:13:48.323Z\",\"startAt\":\"2026-04-30T17:24:01.344Z\",\"endAt\":\"2026-05-01T17:24:01.344Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713541537824\",\"employee\":\"EMP1080\",\"approver\":\"张伟\",\"employeeId\":\"371712262275131\",\"approverId\":\"3\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241010724",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241010724\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241010724\",\"updatedAt\":\"2026-06-24T03:13:48.318Z\",\"startAt\":\"2024-10-10T23:46:38.613Z\",\"endAt\":\"2024-10-17T23:46:38.613Z\",\"leaveType\":\"annual\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713541537822\",\"employee\":\"EMP1047\",\"approver\":\"张伟\",\"employeeId\":\"371712262275098\",\"approverId\":\"3\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240625277",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240625277\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240625277\",\"updatedAt\":\"2026-06-24T03:13:48.302Z\",\"startAt\":\"2024-06-25T07:34:06.550Z\",\"endAt\":\"2024-06-27T07:34:06.550Z\",\"leaveType\":\"other\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713541537821\",\"employee\":\"EMP1064\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275115\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260102470",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260102470\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260102470\",\"updatedAt\":\"2026-06-24T03:13:48.273Z\",\"startAt\":\"2026-01-02T08:19:44.177Z\",\"endAt\":\"2026-01-02T20:19:44.177Z\",\"leaveType\":\"personal\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713541537819\",\"employee\":\"EMP1109\",\"approver\":\"褚健\",\"employeeId\":\"371712262275160\",\"approverId\":\"14\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240605948",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240605948\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240605948\",\"updatedAt\":\"2026-06-24T03:13:48.197Z\",\"startAt\":\"2024-06-05T08:24:52.598Z\",\"endAt\":\"2024-06-06T08:24:52.598Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713541537809\",\"employee\":\"EMP1065\",\"approver\":\"褚健\",\"employeeId\":\"371712262275116\",\"approverId\":\"14\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241114149",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241114149\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241114149\",\"updatedAt\":\"2026-06-24T03:13:48.157Z\",\"startAt\":\"2024-11-14T03:49:28.286Z\",\"endAt\":\"2024-11-14T15:49:28.286Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713541537804\",\"employee\":\"EMP1043\",\"approver\":\"Ace Admin\",\"employeeId\":\"371712262275094\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240703519",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240703519\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240703519\",\"updatedAt\":\"2026-06-24T03:13:48.118Z\",\"startAt\":\"2024-07-03T15:26:03.973Z\",\"endAt\":\"2024-07-10T15:26:03.973Z\",\"leaveType\":\"annual\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713541537801\",\"employee\":\"EMP1047\",\"approver\":\"周敏\",\"employeeId\":\"371712262275098\",\"approverId\":\"10\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250428564",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250428564\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250428564\",\"updatedAt\":\"2026-06-24T03:13:48.060Z\",\"startAt\":\"2025-04-28T09:15:50.783Z\",\"endAt\":\"2025-05-01T09:15:50.783Z\",\"leaveType\":\"sick\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713541537795\",\"employee\":\"EMP1045\",\"approver\":\"陈静\",\"employeeId\":\"371712262275096\",\"approverId\":\"7\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250713654",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250713654\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250713654\",\"updatedAt\":\"2026-06-24T03:13:47.946Z\",\"startAt\":\"2025-07-13T19:48:15.579Z\",\"endAt\":\"2025-07-14T07:48:15.579Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440738\",\"employee\":\"EMP1022\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275072\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240715207",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240715207\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240715207\",\"updatedAt\":\"2026-06-24T03:13:47.885Z\",\"startAt\":\"2024-07-15T16:09:19.964Z\",\"endAt\":\"2024-07-18T16:09:19.964Z\",\"leaveType\":\"marriage\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440732\",\"employee\":\"EMP1059\",\"approver\":\"赵强\",\"employeeId\":\"371712262275110\",\"approverId\":\"8\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240124157",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240124157\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240124157\",\"updatedAt\":\"2026-06-24T03:13:47.821Z\",\"startAt\":\"2024-01-24T22:35:22.278Z\",\"endAt\":\"2024-01-26T22:35:22.278Z\",\"leaveType\":\"personal\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440725\",\"employee\":\"EMP1104\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275155\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240606531",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240606531\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240606531\",\"updatedAt\":\"2026-06-24T03:13:47.803Z\",\"startAt\":\"2024-06-06T21:06:17.242Z\",\"endAt\":\"2024-06-07T21:06:17.242Z\",\"leaveType\":\"marriage\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440723\",\"employee\":\"EMP1095\",\"approver\":\"王芳\",\"employeeId\":\"371712262275146\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240425805",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240425805\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240425805\",\"updatedAt\":\"2026-06-24T03:13:47.750Z\",\"startAt\":\"2024-04-25T19:20:58.086Z\",\"endAt\":\"2024-04-26T19:20:58.086Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440717\",\"employee\":\"EMP1092\",\"approver\":\"zxz\",\"employeeId\":\"371712262275143\",\"approverId\":\"2\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241117709",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241117709\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241117709\",\"updatedAt\":\"2026-06-24T03:13:47.714Z\",\"startAt\":\"2024-11-17T19:06:24.208Z\",\"endAt\":\"2024-11-18T07:06:24.208Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440714\",\"employee\":\"EMP1048\",\"approver\":\"周敏\",\"employeeId\":\"371712262275099\",\"approverId\":\"10\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240118541",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240118541\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240118541\",\"updatedAt\":\"2026-06-24T03:13:47.635Z\",\"startAt\":\"2024-01-18T02:14:55.293Z\",\"endAt\":\"2024-01-20T02:14:55.293Z\",\"leaveType\":\"sick\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440705\",\"employee\":\"EMP1039\",\"approver\":\"张伟\",\"employeeId\":\"371712262275090\",\"approverId\":\"3\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250502245",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250502245\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250502245\",\"updatedAt\":\"2026-06-24T03:13:47.612Z\",\"startAt\":\"2025-05-02T04:39:35.442Z\",\"endAt\":\"2025-05-03T04:39:35.442Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440704\",\"employee\":\"EMP1055\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275106\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241112110",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241112110\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241112110\",\"updatedAt\":\"2026-06-24T03:13:47.463Z\",\"startAt\":\"2024-11-12T02:43:28.781Z\",\"endAt\":\"2024-11-12T14:43:28.781Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440689\",\"employee\":\"EMP1039\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275090\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250716127",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250716127\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250716127\",\"updatedAt\":\"2026-06-24T03:13:47.460Z\",\"startAt\":\"2025-07-16T02:47:45.379Z\",\"endAt\":\"2025-07-21T02:47:45.379Z\",\"leaveType\":\"annual\",\"days\":\"5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713539440688\",\"employee\":\"EMP1101\",\"approver\":\"冯丽\",\"employeeId\":\"371712262275152\",\"approverId\":\"13\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241024706",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241024706\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241024706\",\"updatedAt\":\"2026-06-24T03:13:47.419Z\",\"startAt\":\"2024-10-24T18:25:27.372Z\",\"endAt\":\"2024-10-25T18:25:27.372Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440685\",\"employee\":\"EMP1045\",\"approver\":\"李娜\",\"employeeId\":\"371712262275096\",\"approverId\":\"5\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240421751",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240421751\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240421751\",\"updatedAt\":\"2026-06-24T03:13:47.348Z\",\"startAt\":\"2024-04-21T08:50:30.730Z\",\"endAt\":\"2024-04-28T08:50:30.730Z\",\"leaveType\":\"sick\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440676\",\"employee\":\"EMP1095\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275146\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240408478",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240408478\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240408478\",\"updatedAt\":\"2026-06-24T03:13:47.328Z\",\"startAt\":\"2024-04-08T03:55:50.439Z\",\"endAt\":\"2024-04-10T03:55:50.439Z\",\"leaveType\":\"other\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713539440675\",\"employee\":\"EMP1065\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275116\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251109854",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251109854\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251109854\",\"updatedAt\":\"2026-06-24T03:13:47.185Z\",\"startAt\":\"2025-11-09T05:47:18.889Z\",\"endAt\":\"2025-11-09T17:47:18.889Z\",\"leaveType\":\"personal\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713539440659\",\"employee\":\"EMP1045\",\"approver\":\"冯丽\",\"employeeId\":\"371712262275096\",\"approverId\":\"13\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250505211",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250505211\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250505211\",\"updatedAt\":\"2026-06-24T03:13:47.083Z\",\"startAt\":\"2025-05-05T15:27:18.511Z\",\"endAt\":\"2025-05-06T15:27:18.511Z\",\"leaveType\":\"personal\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440645\",\"employee\":\"EMP-003\",\"approver\":\"刘洋\",\"employeeId\":\"371066635157506\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241024958",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241024958\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241024958\",\"updatedAt\":\"2026-06-24T03:13:47.047Z\",\"startAt\":\"2024-10-24T12:28:07.192Z\",\"endAt\":\"2024-10-25T12:28:07.192Z\",\"leaveType\":\"other\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713539440642\",\"employee\":\"EMP1106\",\"approver\":\"刘洋\",\"employeeId\":\"371712262275157\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240812489",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240812489\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240812489\",\"updatedAt\":\"2026-06-24T03:13:46.874Z\",\"startAt\":\"2024-08-12T10:17:38.153Z\",\"endAt\":\"2024-08-13T10:17:38.153Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713537343592\",\"employee\":\"EMP1054\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275105\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260522917",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260522917\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260522917\",\"updatedAt\":\"2026-06-24T03:13:46.856Z\",\"startAt\":\"2026-05-22T21:59:49.242Z\",\"endAt\":\"2026-05-25T21:59:49.242Z\",\"leaveType\":\"personal\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343591\",\"employee\":\"EMP1032\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275083\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250614378",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250614378\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250614378\",\"updatedAt\":\"2026-06-24T03:13:46.768Z\",\"startAt\":\"2025-06-14T12:39:16.290Z\",\"endAt\":\"2025-06-15T00:39:16.290Z\",\"leaveType\":\"sick\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713537343580\",\"employee\":\"EMP1108\",\"approver\":\"周敏\",\"employeeId\":\"371712262275159\",\"approverId\":\"10\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240116582",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240116582\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240116582\",\"updatedAt\":\"2026-06-24T03:13:46.746Z\",\"startAt\":\"2024-01-16T17:17:08.355Z\",\"endAt\":\"2024-01-21T17:17:08.355Z\",\"leaveType\":\"other\",\"days\":\"5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713537343579\",\"employee\":\"EMP1041\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275092\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251212854",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251212854\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251212854\",\"updatedAt\":\"2026-06-24T03:13:46.723Z\",\"startAt\":\"2025-12-12T02:53:19.638Z\",\"endAt\":\"2025-12-12T14:53:19.638Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713537343577\",\"employee\":\"EMP-006\",\"approver\":\"郑勇\",\"employeeId\":\"371066637254658\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260105175",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260105175\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260105175\",\"updatedAt\":\"2026-06-24T03:13:46.680Z\",\"startAt\":\"2026-01-05T18:16:35.421Z\",\"endAt\":\"2026-01-06T18:16:35.421Z\",\"leaveType\":\"personal\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343571\",\"employee\":\"EMP1023\",\"approver\":\"陈静\",\"employeeId\":\"371712262275073\",\"approverId\":\"7\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240421688",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240421688\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240421688\",\"updatedAt\":\"2026-06-24T03:13:46.633Z\",\"startAt\":\"2024-04-21T08:13:26.957Z\",\"endAt\":\"2024-04-26T08:13:26.957Z\",\"leaveType\":\"personal\",\"days\":\"5\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343564\",\"employee\":\"EMP1097\",\"approver\":\"Ace Admin\",\"employeeId\":\"371712262275148\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250919942",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250919942\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250919942\",\"updatedAt\":\"2026-06-24T03:13:46.629Z\",\"startAt\":\"2025-09-19T12:07:43.016Z\",\"endAt\":\"2025-09-20T12:07:43.016Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713537343563\",\"employee\":\"EMP1059\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275110\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241104137",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241104137\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241104137\",\"updatedAt\":\"2026-06-24T03:13:46.576Z\",\"startAt\":\"2024-11-04T08:36:36.124Z\",\"endAt\":\"2024-11-11T08:36:36.124Z\",\"leaveType\":\"sick\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713537343554\",\"employee\":\"EMP1086\",\"approver\":\"刘洋\",\"employeeId\":\"371712262275137\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260411846",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260411846\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260411846\",\"updatedAt\":\"2026-06-24T03:13:46.438Z\",\"startAt\":\"2026-04-11T08:30:31.227Z\",\"endAt\":\"2026-04-12T08:30:31.227Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713537343534\",\"employee\":\"EMP1030\",\"approver\":\"赵强\",\"employeeId\":\"371712262275074\",\"approverId\":\"8\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241126935",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241126935\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241126935\",\"updatedAt\":\"2026-06-24T03:13:46.410Z\",\"startAt\":\"2024-11-26T09:38:04.606Z\",\"endAt\":\"2024-11-27T09:38:04.606Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343532\",\"employee\":\"EMP1110\",\"approver\":\"冯丽\",\"employeeId\":\"371712262275161\",\"approverId\":\"13\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240407159",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240407159\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240407159\",\"updatedAt\":\"2026-06-24T03:13:46.364Z\",\"startAt\":\"2024-04-07T08:53:08.778Z\",\"endAt\":\"2024-04-14T08:53:08.778Z\",\"leaveType\":\"annual\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713537343528\",\"employee\":\"EMP1069\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275120\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241227397",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241227397\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241227397\",\"updatedAt\":\"2026-06-24T03:13:46.226Z\",\"startAt\":\"2024-12-27T04:56:36.457Z\",\"endAt\":\"2025-01-03T04:56:36.457Z\",\"leaveType\":\"personal\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343517\",\"employee\":\"EMP1067\",\"approver\":\"刘洋\",\"employeeId\":\"371712262275118\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260302944",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260302944\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260302944\",\"updatedAt\":\"2026-06-24T03:13:46.188Z\",\"startAt\":\"2026-03-02T00:36:15.077Z\",\"endAt\":\"2026-03-03T00:36:15.077Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713537343514\",\"employee\":\"EMP1048\",\"approver\":\"王芳\",\"employeeId\":\"371712262275099\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-014",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-014\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-014\",\"updatedAt\":\"2026-06-20T13:33:08.961Z\",\"startAt\":\"2026-07-03T09:00:00.000Z\",\"endAt\":\"2026-07-04T18:00:00.000Z\",\"leaveType\":\"sick\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"证件办理\",\"id\":\"371066695974915\",\"employee\":\"EMP-014\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066643546112\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-010",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-010\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-010\",\"updatedAt\":\"2026-06-20T13:33:07.755Z\",\"startAt\":\"2026-06-29T09:00:00.000Z\",\"endAt\":\"2026-06-30T18:00:00.000Z\",\"leaveType\":\"marriage\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"参加考试\",\"id\":\"371066693877762\",\"employee\":\"EMP-010\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066641448960\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-006",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-006\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-006\",\"updatedAt\":\"2026-06-20T13:33:06.570Z\",\"startAt\":\"2026-06-25T09:00:00.000Z\",\"endAt\":\"2026-06-26T18:00:00.000Z\",\"leaveType\":\"other\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家庭事务\",\"id\":\"371066691780609\",\"employee\":\"EMP-006\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066637254658\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-002",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-002\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-002\",\"updatedAt\":\"2026-06-20T13:33:05.367Z\",\"startAt\":\"2026-06-21T09:00:00.000Z\",\"endAt\":\"2026-06-22T18:00:00.000Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371066689683457\",\"employee\":\"EMP-002\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066635157505\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          }
+        ],
+        "where": [
+          {
+            "keys": [
+              "status",
+              "state",
+              "stage"
+            ],
+            "values": [
+              "待审",
+              "pending",
+              "open",
+              "submitted",
+              "新建"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "rows": 48,
+        "alreadyAtTarget": false,
+        "error": null,
+        "speak": "这张单最近一页 48 条。第一张 QJ20251027588，状态 待审。"
+      },
+      "swappedFrom": "LV-2026-018",
+      "swappedTo": "QJ20251027588",
+      "swapped": true,
+      "driftNote": "fixture-drift(lookup-failed)→待审请假",
+      "kind": "请假申请",
+      "action": "过审",
+      "rows": 1,
+      "first": "QJ20251027588",
+      "banner": "AI 拟改 请假申请 1 行 · 待确认本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？销售回款 · 现查 · 待审回款挂在哪些合同上？把已到期的那些摊出来。客户 · 现查费用报销 · 现查 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。请假申请 · 过审 · 待审的请假申请费用报销 · 过审 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": false,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": false,
+        "steps": []
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "过审",
+      "hasFieldDiffs": true,
+      "previewId": "pv_36aa10930babbb02",
+      "alreadyAtTarget": false,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "pendingSpeech": "待审的请假申请",
+      "nos": [
+        "QJ20251027588"
+      ],
+      "canWrite": true,
+      "speak": "",
+      "contract": {
+        "C1": "pass",
+        "C2": "pass",
+        "C3": "pass",
+        "C4": "pass"
+      },
+      "failCode": ""
+    },
+    {
+      "n": 7,
+      "speech": "把工单 TK20250211633 改成已解决。只要预览，不要过账，不要 biz_write。",
+      "want": "改行",
+      "write": true,
+      "queryThenWrite": false,
+      "related": [],
+      "mentioned": [
+        "工单"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "connectedKind": "工单",
+      "preDriftLookup": {
+        "http": 200,
+        "kind": "工单",
+        "action": "改行",
+        "nos": [
+          "TK20251226865"
+        ],
+        "statuses": [
+          "resolved"
+        ],
+        "items": [
+          {
+            "no": "TK20251226865",
+            "status": "resolved",
+            "blob": "{\"no\":\"TK20251226865\",\"status\":\"resolved\",\"fields\":{\"ticketNo\":\"TK20251226865\",\"title\":\"报表错误\",\"category\":\"consulting\",\"priority\":\"urgent\",\"updatedAt\":\"2026-09-03T13:22:22.539Z\",\"dueAt\":\"2025-12-27T22:58:45.349Z\",\"id\":\"371713512177771\",\"status\":\"resolved\",\"description\":\"客户报障工单\",\"customer\":\"武汉云启电子有限公司\",\"contact\":\"高娟洋\",\"assignee\":\"孙磊\",\"customerId\":\"371712729939978\",\"contactId\":\"371712742522975\",\"assigneeId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          }
+        ],
+        "where": [],
+        "rows": 1,
+        "alreadyAtTarget": false,
+        "error": null,
+        "speak": "将改工单 TK20251226865：将状态从 resolved 改为 resolved。这是预览，不是过账。负责人不是这台号。"
+      },
+      "preDriftFallback": {
+        "http": 200,
+        "kind": "工单",
+        "action": "现查",
+        "nos": [
+          "TK20250211633",
+          "TK20240510148",
+          "TK20250925586",
+          "TK20260105702",
+          "TK20260121514",
+          "TK20260117769",
+          "TK20240331713",
+          "TK20240403502",
+          "TK20240910202",
+          "TK20241124638",
+          "TK20250317500",
+          "TK20251103494",
+          "TK20251023622",
+          "TK20250912254"
+        ],
+        "statuses": [
+          "new",
+          "assigned",
+          "new",
+          "assigned",
+          "processing",
+          "processing",
+          "processing",
+          "processing",
+          "processing",
+          "assigned",
+          "processing",
+          "assigned",
+          "assigned",
+          "processing"
+        ],
+        "items": [
+          {
+            "no": "TK20250211633",
+            "status": "new",
+            "blob": "{\"no\":\"TK20250211633\",\"status\":\"new\",\"fields\":{\"ticketNo\":\"TK20250211633\",\"title\":\"功能咨询\",\"category\":\"incident\",\"priority\":\"urgent\",\"updatedAt\":\"2026-09-18T20:49:03.191Z\",\"dueAt\":\"2025-02-13T12:54:28.332Z\",\"id\":\"371713516372048\",\"status\":\"new\",\"description\":\"客户报障工单\",\"customer\":\"华东远见电子有限公司\",\"contact\":\"林文强\",\"assignee\":\"孙磊\",\"customerId\":\"371712732037187\",\"contactId\":\"371712740425743\",\"assigneeId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20240510148",
+            "status": "assigned",
+            "blob": "{\"no\":\"TK20240510148\",\"status\":\"assigned\",\"fields\":{\"ticketNo\":\"TK20240510148\",\"title\":\"数据同步异常\",\"category\":\"incident\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:37.730Z\",\"dueAt\":\"2024-05-13T06:32:02.049Z\",\"id\":\"371713518469208\",\"status\":\"assigned\",\"description\":\"客户报障工单\",\"customer\":\"杭州启明网络科技有限公司\",\"contact\":\"刘明\",\"assignee\":\"刘洋\",\"customerId\":\"371712734134276\",\"contactId\":\"371712740425758\",\"assigneeId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20250925586",
+            "status": "new",
+            "blob": "{\"no\":\"TK20250925586\",\"status\":\"new\",\"fields\":{\"ticketNo\":\"TK20250925586\",\"title\":\"报表错误\",\"category\":\"request\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:37.623Z\",\"dueAt\":\"2025-09-30T02:05:59.158Z\",\"id\":\"371713518469191\",\"status\":\"new\",\"description\":\"客户报障工单\",\"customer\":\"武汉光谷生物科技有限公司\",\"contact\":\"马浩然\",\"assignee\":\"zxz\",\"customerId\":\"371066454802432\",\"contactId\":\"371066469482496\",\"assigneeId\":\"2\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20260105702",
+            "status": "assigned",
+            "blob": "{\"no\":\"TK20260105702\",\"status\":\"assigned\",\"fields\":{\"ticketNo\":\"TK20260105702\",\"title\":\"权限申请\",\"category\":\"incident\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:37.602Z\",\"dueAt\":\"2026-01-10T14:45:47.123Z\",\"id\":\"371713518469189\",\"status\":\"assigned\",\"description\":\"客户报障工单\",\"customer\":\"苏州中天工业有限公司\",\"contact\":\"徐芳霞\",\"assignee\":\"李娜\",\"customerId\":\"371712734134310\",\"contactId\":\"371712742522927\",\"assigneeId\":\"5\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20260121514",
+            "status": "processing",
+            "blob": "{\"no\":\"TK20260121514\",\"status\":\"processing\",\"fields\":{\"ticketNo\":\"TK20260121514\",\"title\":\"数据同步异常\",\"category\":\"consulting\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:37.437Z\",\"dueAt\":\"2026-01-27T21:23:45.877Z\",\"id\":\"371713518469169\",\"status\":\"processing\",\"description\":\"客户报障工单\",\"customer\":\"合肥启明科技有限公司\",\"contact\":\"胡婷\",\"assignee\":\"周敏\",\"customerId\":\"371712734134309\",\"contactId\":\"371712736231493\",\"assigneeId\":\"10\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20260117769",
+            "status": "processing",
+            "blob": "{\"no\":\"TK20260117769\",\"status\":\"processing\",\"fields\":{\"ticketNo\":\"TK20260117769\",\"title\":\"设备报警\",\"category\":\"consulting\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:36.831Z\",\"dueAt\":\"2026-01-23T12:41:40.947Z\",\"id\":\"371713516372053\",\"status\":\"processing\",\"description\":\"客户报障工单\",\"customer\":\"苏州云启实业集团\",\"contact\":\"李玲\",\"assignee\":\"陈静\",\"customerId\":\"371712732037153\",\"contactId\":\"371712742522901\",\"assigneeId\":\"7\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20240331713",
+            "status": "processing",
+            "blob": "{\"no\":\"TK20240331713\",\"status\":\"processing\",\"fields\":{\"ticketNo\":\"TK20240331713\",\"title\":\"接口故障\",\"category\":\"incident\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:36.459Z\",\"dueAt\":\"2024-04-04T06:11:35.397Z\",\"id\":\"371713516372019\",\"status\":\"processing\",\"description\":\"客户报障工单\",\"customer\":\"东莞云启智能装备有限公司\",\"contact\":\"胡丽\",\"assignee\":\"冯丽\",\"customerId\":\"371712729940053\",\"contactId\":\"371712738328578\",\"assigneeId\":\"13\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20240403502",
+            "status": "processing",
+            "blob": "{\"no\":\"TK20240403502\",\"status\":\"processing\",\"fields\":{\"ticketNo\":\"TK20240403502\",\"title\":\"设备报警\",\"category\":\"incident\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:36.080Z\",\"dueAt\":\"2024-04-06T07:07:02.658Z\",\"id\":\"371713516371975\",\"status\":\"processing\",\"description\":\"客户报障工单\",\"customer\":\"深圳博远数据服务有限公司\",\"contact\":\"胡敏\",\"assignee\":\"褚健\",\"customerId\":\"371712727842844\",\"contactId\":\"371712736231492\",\"assigneeId\":\"14\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20240910202",
+            "status": "processing",
+            "blob": "{\"no\":\"TK20240910202\",\"status\":\"processing\",\"fields\":{\"ticketNo\":\"TK20240910202\",\"title\":\"权限申请\",\"category\":\"incident\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:36.056Z\",\"dueAt\":\"2024-09-11T17:19:53.973Z\",\"id\":\"371713516371973\",\"status\":\"processing\",\"description\":\"客户报障工单\",\"customer\":\"武汉汇川网络科技有限公司\",\"contact\":\"黄敏\",\"assignee\":\"孙磊\",\"customerId\":\"371712732037176\",\"contactId\":\"371712740425745\",\"assigneeId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20241124638",
+            "status": "assigned",
+            "blob": "{\"no\":\"TK20241124638\",\"status\":\"assigned\",\"fields\":{\"ticketNo\":\"TK20241124638\",\"title\":\"设备报警\",\"category\":\"incident\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:35.877Z\",\"dueAt\":\"2024-11-25T14:16:28.837Z\",\"id\":\"371713514274908\",\"status\":\"assigned\",\"description\":\"客户报障工单\",\"customer\":\"苏州中天网络科技有限公司\",\"contact\":\"杨芳\",\"assignee\":\"刘洋\",\"customerId\":\"371712729940034\",\"contactId\":\"371712738328631\",\"assigneeId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20250317500",
+            "status": "processing",
+            "blob": "{\"no\":\"TK20250317500\",\"status\":\"processing\",\"fields\":{\"ticketNo\":\"TK20250317500\",\"title\":\"接口故障\",\"category\":\"incident\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:35.083Z\",\"dueAt\":\"2025-03-21T12:52:31.246Z\",\"id\":\"371713514274823\",\"status\":\"processing\",\"description\":\"客户报障工单\",\"customer\":\"东莞卓越网络科技有限公司\",\"contact\":\"何丽\",\"assignee\":\"Ace Admin\",\"customerId\":\"371712732037196\",\"contactId\":\"371712742522909\",\"assigneeId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20251103494",
+            "status": "assigned",
+            "blob": "{\"no\":\"TK20251103494\",\"status\":\"assigned\",\"fields\":{\"ticketNo\":\"TK20251103494\",\"title\":\"性能问题\",\"category\":\"consulting\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:35.058Z\",\"dueAt\":\"2025-11-04T23:51:29.592Z\",\"id\":\"371713514274821\",\"status\":\"assigned\",\"description\":\"客户报障工单\",\"customer\":\"武汉鼎盛工业有限公司\",\"contact\":\"高丽涛\",\"assignee\":\"孙磊\",\"customerId\":\"371712734134282\",\"contactId\":\"371712742522976\",\"assigneeId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20251023622",
+            "status": "assigned",
+            "blob": "{\"no\":\"TK20251023622\",\"status\":\"assigned\",\"fields\":{\"ticketNo\":\"TK20251023622\",\"title\":\"设备报警\",\"category\":\"consulting\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:35.013Z\",\"dueAt\":\"2025-10-24T09:14:59.683Z\",\"id\":\"371713512177787\",\"status\":\"assigned\",\"description\":\"客户报障工单\",\"customer\":\"广州云启网络科技有限公司\",\"contact\":\"林平涛\",\"assignee\":\"刘洋\",\"customerId\":\"371712732037168\",\"contactId\":\"371712738328628\",\"assigneeId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "TK20250912254",
+            "status": "processing",
+            "blob": "{\"no\":\"TK20250912254\",\"status\":\"processing\",\"fields\":{\"ticketNo\":\"TK20250912254\",\"title\":\"权限申请\",\"category\":\"consulting\",\"priority\":\"urgent\",\"updatedAt\":\"2026-06-24T03:13:34.982Z\",\"dueAt\":\"2025-09-19T21:01:38.229Z\",\"id\":\"371713512177782\",\"status\":\"processing\",\"description\":\"客户报障工单\",\"customer\":\"合肥启明科技有限公司\",\"contact\":\"徐磊\",\"assignee\":\"郑勇\",\"customerId\":\"371712734134309\",\"contactId\":\"371712744620082\",\"assigneeId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          }
+        ],
+        "where": [
+          {
+            "keys": [
+              "优先级",
+              "priority"
+            ],
+            "values": [
+              "urgent"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          },
+          {
+            "keys": [
+              "priority"
+            ],
+            "values": [
+              "urgent",
+              "紧急"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          },
+          {
+            "keys": [
+              "status",
+              "state",
+              "stage"
+            ],
+            "values": [
+              "closed",
+              "resolved",
+              "done",
+              "已关闭",
+              "已解决",
+              "已完成"
+            ],
+            "not": true,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "rows": 14,
+        "alreadyAtTarget": false,
+        "error": null,
+        "speak": "这张单最近一页 14 条。第一张 TK20250211633，状态 new。"
+      },
+      "swappedFrom": "TK20251226865",
+      "swappedTo": "TK20250211633",
+      "swapped": true,
+      "driftNote": "fixture-drift(wuhan-already-resolved)→紧急工单",
+      "kind": "工单",
+      "action": "改行",
+      "rows": 1,
+      "first": "TK20250211633",
+      "banner": "AI 拟改 工单 1 行 · 待确认本会话浮现历史销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？销售回款 · 现查 · 待审回款挂在哪些合同上？把已到期的那些摊出来。客户 · 现查费用报销 · 现查 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。请假申请 · 现查 · 待审的请假申请销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同工单 · 改行 · 紧急还没关的工单请假申请 · 过审 · 待审的请假申请费用报销 · 过审 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": false,
+        "steps": [
+          "生产工单",
+          "工单"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "改行",
+      "hasFieldDiffs": true,
+      "previewId": "pv_64b5dea23af12e64",
+      "alreadyAtTarget": false,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "pendingSpeech": "紧急还没关的工单",
+      "nos": [
+        "TK20250211633"
+      ],
+      "canWrite": true,
+      "speak": "",
+      "contract": {
+        "C1": "pass",
+        "C2": "pass",
+        "C3": "pass",
+        "C4": "pass"
+      },
+      "failCode": ""
+    },
+    {
+      "n": 8,
+      "speech": "昆明精密机电还有哪些待审采购单？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [],
+      "mentioned": [],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "采购订单",
+      "action": "现查",
+      "rows": 1,
+      "first": "PO20250407926",
+      "banner": "AI 刚查了 采购订单 · 1 行 · 会话 session- · 刚刚本会话浮现历史请假申请 · 现查 · 待审的请假申请采购订单 · 现查 · 昆明精密机电还有哪些待审采购单？销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 把武汉云启那张紧急工单改成已解决。销售回款 · 现查 · 待审回款挂在哪些合同上？把已到期的那些摊出来。客户 · 现查费用报销 · 现查 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。工单 · 改行 · 紧急还没关的工单请假申请 · 过审 · 待审的请假申请费用报销 · 过审 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": false,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": false,
+        "steps": []
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "previewId": null,
+      "alreadyAtTarget": false,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "pendingSpeech": "昆明精密机电还有哪些待审采购单？",
+      "nos": [
+        "PO20250407926"
+      ],
+      "canWrite": false,
+      "speak": "",
+      "contract": {
+        "C1": "pass",
+        "C2": "pass",
+        "C3": "pass",
+        "C4": "pass"
+      },
+      "failCode": ""
+    },
+    {
+      "n": 9,
+      "speech": "过一下请假单 QJ20251027588。只要预览，不要过账，不要 biz_write。",
+      "want": "过审",
+      "write": true,
+      "queryThenWrite": true,
+      "related": [],
+      "mentioned": [],
+      "hopNeed": false,
+      "pass": true,
+      "connectedKind": "请假申请",
+      "preDriftLookup": {
+        "http": 200,
+        "kind": "请假申请",
+        "action": "现查",
+        "nos": [
+          "QJ20251027588",
+          "QJ20251101520",
+          "QJ20250110249",
+          "QJ20260401299",
+          "QJ20251208449",
+          "QJ20240830442",
+          "QJ20260430818",
+          "QJ20241010724",
+          "QJ20240625277",
+          "QJ20260102470",
+          "QJ20240605948",
+          "QJ20241114149",
+          "QJ20240703519",
+          "QJ20250428564",
+          "QJ20250713654",
+          "QJ20240715207",
+          "QJ20240124157",
+          "QJ20240606531",
+          "QJ20240425805",
+          "QJ20241117709",
+          "QJ20240118541",
+          "QJ20250502245",
+          "QJ20241112110",
+          "QJ20250716127",
+          "QJ20241024706",
+          "QJ20240421751",
+          "QJ20240408478",
+          "QJ20251109854",
+          "QJ20250505211",
+          "QJ20241024958",
+          "QJ20240812489",
+          "QJ20260522917",
+          "QJ20250614378",
+          "QJ20240116582",
+          "QJ20251212854",
+          "QJ20260105175",
+          "QJ20240421688",
+          "QJ20250919942",
+          "QJ20241104137",
+          "QJ20260411846",
+          "QJ20241126935",
+          "QJ20240407159",
+          "QJ20241227397",
+          "QJ20260302944",
+          "LV-2026-014",
+          "LV-2026-010",
+          "LV-2026-006",
+          "LV-2026-002"
+        ],
+        "statuses": [
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审"
+        ],
+        "items": [
+          {
+            "no": "QJ20251027588",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251027588\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251027588\",\"updatedAt\":\"2026-06-24T03:13:48.632Z\",\"startAt\":\"2025-10-27T16:59:22.281Z\",\"endAt\":\"2025-10-30T16:59:22.281Z\",\"leaveType\":\"personal\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713541537859\",\"employee\":\"EMP1081\",\"approver\":\"王芳\",\"employeeId\":\"371712262275132\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251101520",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251101520\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251101520\",\"updatedAt\":\"2026-06-24T03:13:48.631Z\",\"startAt\":\"2025-11-01T03:26:51.360Z\",\"endAt\":\"2025-11-03T03:26:51.360Z\",\"leaveType\":\"personal\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713541537858\",\"employee\":\"EMP1084\",\"approver\":\"李娜\",\"employeeId\":\"371712262275135\",\"approverId\":\"5\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250110249",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250110249\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250110249\",\"updatedAt\":\"2026-06-24T03:13:48.531Z\",\"startAt\":\"2025-01-10T00:27:46.472Z\",\"endAt\":\"2025-01-12T00:27:46.472Z\",\"leaveType\":\"annual\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713541537846\",\"employee\":\"EMP1080\",\"approver\":\"王芳\",\"employeeId\":\"371712262275131\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260401299",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260401299\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260401299\",\"updatedAt\":\"2026-06-24T03:13:48.513Z\",\"startAt\":\"2026-04-01T22:54:47.067Z\",\"endAt\":\"2026-04-02T22:54:47.067Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713541537845\",\"employee\":\"EMP1050\",\"approver\":\"王芳\",\"employeeId\":\"371712262275101\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251208449",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251208449\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251208449\",\"updatedAt\":\"2026-06-24T03:13:48.430Z\",\"startAt\":\"2025-12-08T20:21:57.670Z\",\"endAt\":\"2025-12-15T20:21:57.670Z\",\"leaveType\":\"personal\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713541537837\",\"employee\":\"EMP-009\",\"approver\":\"zxz\",\"employeeId\":\"371066639351810\",\"approverId\":\"2\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240830442",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240830442\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240830442\",\"updatedAt\":\"2026-06-24T03:13:48.357Z\",\"startAt\":\"2024-08-30T05:32:10.678Z\",\"endAt\":\"2024-08-30T17:32:10.678Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713541537827\",\"employee\":\"EMP1077\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275128\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260430818",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260430818\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260430818\",\"updatedAt\":\"2026-06-24T03:13:48.323Z\",\"startAt\":\"2026-04-30T17:24:01.344Z\",\"endAt\":\"2026-05-01T17:24:01.344Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713541537824\",\"employee\":\"EMP1080\",\"approver\":\"张伟\",\"employeeId\":\"371712262275131\",\"approverId\":\"3\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241010724",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241010724\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241010724\",\"updatedAt\":\"2026-06-24T03:13:48.318Z\",\"startAt\":\"2024-10-10T23:46:38.613Z\",\"endAt\":\"2024-10-17T23:46:38.613Z\",\"leaveType\":\"annual\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713541537822\",\"employee\":\"EMP1047\",\"approver\":\"张伟\",\"employeeId\":\"371712262275098\",\"approverId\":\"3\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240625277",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240625277\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240625277\",\"updatedAt\":\"2026-06-24T03:13:48.302Z\",\"startAt\":\"2024-06-25T07:34:06.550Z\",\"endAt\":\"2024-06-27T07:34:06.550Z\",\"leaveType\":\"other\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713541537821\",\"employee\":\"EMP1064\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275115\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260102470",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260102470\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260102470\",\"updatedAt\":\"2026-06-24T03:13:48.273Z\",\"startAt\":\"2026-01-02T08:19:44.177Z\",\"endAt\":\"2026-01-02T20:19:44.177Z\",\"leaveType\":\"personal\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713541537819\",\"employee\":\"EMP1109\",\"approver\":\"褚健\",\"employeeId\":\"371712262275160\",\"approverId\":\"14\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240605948",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240605948\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240605948\",\"updatedAt\":\"2026-06-24T03:13:48.197Z\",\"startAt\":\"2024-06-05T08:24:52.598Z\",\"endAt\":\"2024-06-06T08:24:52.598Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713541537809\",\"employee\":\"EMP1065\",\"approver\":\"褚健\",\"employeeId\":\"371712262275116\",\"approverId\":\"14\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241114149",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241114149\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241114149\",\"updatedAt\":\"2026-06-24T03:13:48.157Z\",\"startAt\":\"2024-11-14T03:49:28.286Z\",\"endAt\":\"2024-11-14T15:49:28.286Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713541537804\",\"employee\":\"EMP1043\",\"approver\":\"Ace Admin\",\"employeeId\":\"371712262275094\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240703519",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240703519\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240703519\",\"updatedAt\":\"2026-06-24T03:13:48.118Z\",\"startAt\":\"2024-07-03T15:26:03.973Z\",\"endAt\":\"2024-07-10T15:26:03.973Z\",\"leaveType\":\"annual\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713541537801\",\"employee\":\"EMP1047\",\"approver\":\"周敏\",\"employeeId\":\"371712262275098\",\"approverId\":\"10\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250428564",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250428564\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250428564\",\"updatedAt\":\"2026-06-24T03:13:48.060Z\",\"startAt\":\"2025-04-28T09:15:50.783Z\",\"endAt\":\"2025-05-01T09:15:50.783Z\",\"leaveType\":\"sick\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713541537795\",\"employee\":\"EMP1045\",\"approver\":\"陈静\",\"employeeId\":\"371712262275096\",\"approverId\":\"7\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250713654",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250713654\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250713654\",\"updatedAt\":\"2026-06-24T03:13:47.946Z\",\"startAt\":\"2025-07-13T19:48:15.579Z\",\"endAt\":\"2025-07-14T07:48:15.579Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440738\",\"employee\":\"EMP1022\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275072\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240715207",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240715207\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240715207\",\"updatedAt\":\"2026-06-24T03:13:47.885Z\",\"startAt\":\"2024-07-15T16:09:19.964Z\",\"endAt\":\"2024-07-18T16:09:19.964Z\",\"leaveType\":\"marriage\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440732\",\"employee\":\"EMP1059\",\"approver\":\"赵强\",\"employeeId\":\"371712262275110\",\"approverId\":\"8\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240124157",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240124157\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240124157\",\"updatedAt\":\"2026-06-24T03:13:47.821Z\",\"startAt\":\"2024-01-24T22:35:22.278Z\",\"endAt\":\"2024-01-26T22:35:22.278Z\",\"leaveType\":\"personal\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440725\",\"employee\":\"EMP1104\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275155\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240606531",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240606531\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240606531\",\"updatedAt\":\"2026-06-24T03:13:47.803Z\",\"startAt\":\"2024-06-06T21:06:17.242Z\",\"endAt\":\"2024-06-07T21:06:17.242Z\",\"leaveType\":\"marriage\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440723\",\"employee\":\"EMP1095\",\"approver\":\"王芳\",\"employeeId\":\"371712262275146\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240425805",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240425805\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240425805\",\"updatedAt\":\"2026-06-24T03:13:47.750Z\",\"startAt\":\"2024-04-25T19:20:58.086Z\",\"endAt\":\"2024-04-26T19:20:58.086Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440717\",\"employee\":\"EMP1092\",\"approver\":\"zxz\",\"employeeId\":\"371712262275143\",\"approverId\":\"2\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241117709",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241117709\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241117709\",\"updatedAt\":\"2026-06-24T03:13:47.714Z\",\"startAt\":\"2024-11-17T19:06:24.208Z\",\"endAt\":\"2024-11-18T07:06:24.208Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440714\",\"employee\":\"EMP1048\",\"approver\":\"周敏\",\"employeeId\":\"371712262275099\",\"approverId\":\"10\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240118541",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240118541\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240118541\",\"updatedAt\":\"2026-06-24T03:13:47.635Z\",\"startAt\":\"2024-01-18T02:14:55.293Z\",\"endAt\":\"2024-01-20T02:14:55.293Z\",\"leaveType\":\"sick\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440705\",\"employee\":\"EMP1039\",\"approver\":\"张伟\",\"employeeId\":\"371712262275090\",\"approverId\":\"3\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250502245",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250502245\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250502245\",\"updatedAt\":\"2026-06-24T03:13:47.612Z\",\"startAt\":\"2025-05-02T04:39:35.442Z\",\"endAt\":\"2025-05-03T04:39:35.442Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440704\",\"employee\":\"EMP1055\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275106\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241112110",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241112110\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241112110\",\"updatedAt\":\"2026-06-24T03:13:47.463Z\",\"startAt\":\"2024-11-12T02:43:28.781Z\",\"endAt\":\"2024-11-12T14:43:28.781Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440689\",\"employee\":\"EMP1039\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275090\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250716127",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250716127\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250716127\",\"updatedAt\":\"2026-06-24T03:13:47.460Z\",\"startAt\":\"2025-07-16T02:47:45.379Z\",\"endAt\":\"2025-07-21T02:47:45.379Z\",\"leaveType\":\"annual\",\"days\":\"5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713539440688\",\"employee\":\"EMP1101\",\"approver\":\"冯丽\",\"employeeId\":\"371712262275152\",\"approverId\":\"13\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241024706",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241024706\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241024706\",\"updatedAt\":\"2026-06-24T03:13:47.419Z\",\"startAt\":\"2024-10-24T18:25:27.372Z\",\"endAt\":\"2024-10-25T18:25:27.372Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440685\",\"employee\":\"EMP1045\",\"approver\":\"李娜\",\"employeeId\":\"371712262275096\",\"approverId\":\"5\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240421751",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240421751\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240421751\",\"updatedAt\":\"2026-06-24T03:13:47.348Z\",\"startAt\":\"2024-04-21T08:50:30.730Z\",\"endAt\":\"2024-04-28T08:50:30.730Z\",\"leaveType\":\"sick\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440676\",\"employee\":\"EMP1095\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275146\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240408478",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240408478\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240408478\",\"updatedAt\":\"2026-06-24T03:13:47.328Z\",\"startAt\":\"2024-04-08T03:55:50.439Z\",\"endAt\":\"2024-04-10T03:55:50.439Z\",\"leaveType\":\"other\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713539440675\",\"employee\":\"EMP1065\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275116\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251109854",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251109854\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251109854\",\"updatedAt\":\"2026-06-24T03:13:47.185Z\",\"startAt\":\"2025-11-09T05:47:18.889Z\",\"endAt\":\"2025-11-09T17:47:18.889Z\",\"leaveType\":\"personal\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713539440659\",\"employee\":\"EMP1045\",\"approver\":\"冯丽\",\"employeeId\":\"371712262275096\",\"approverId\":\"13\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250505211",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250505211\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250505211\",\"updatedAt\":\"2026-06-24T03:13:47.083Z\",\"startAt\":\"2025-05-05T15:27:18.511Z\",\"endAt\":\"2025-05-06T15:27:18.511Z\",\"leaveType\":\"personal\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440645\",\"employee\":\"EMP-003\",\"approver\":\"刘洋\",\"employeeId\":\"371066635157506\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241024958",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241024958\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241024958\",\"updatedAt\":\"2026-06-24T03:13:47.047Z\",\"startAt\":\"2024-10-24T12:28:07.192Z\",\"endAt\":\"2024-10-25T12:28:07.192Z\",\"leaveType\":\"other\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713539440642\",\"employee\":\"EMP1106\",\"approver\":\"刘洋\",\"employeeId\":\"371712262275157\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240812489",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240812489\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240812489\",\"updatedAt\":\"2026-06-24T03:13:46.874Z\",\"startAt\":\"2024-08-12T10:17:38.153Z\",\"endAt\":\"2024-08-13T10:17:38.153Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713537343592\",\"employee\":\"EMP1054\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275105\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260522917",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260522917\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260522917\",\"updatedAt\":\"2026-06-24T03:13:46.856Z\",\"startAt\":\"2026-05-22T21:59:49.242Z\",\"endAt\":\"2026-05-25T21:59:49.242Z\",\"leaveType\":\"personal\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343591\",\"employee\":\"EMP1032\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275083\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250614378",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250614378\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250614378\",\"updatedAt\":\"2026-06-24T03:13:46.768Z\",\"startAt\":\"2025-06-14T12:39:16.290Z\",\"endAt\":\"2025-06-15T00:39:16.290Z\",\"leaveType\":\"sick\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713537343580\",\"employee\":\"EMP1108\",\"approver\":\"周敏\",\"employeeId\":\"371712262275159\",\"approverId\":\"10\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240116582",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240116582\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240116582\",\"updatedAt\":\"2026-06-24T03:13:46.746Z\",\"startAt\":\"2024-01-16T17:17:08.355Z\",\"endAt\":\"2024-01-21T17:17:08.355Z\",\"leaveType\":\"other\",\"days\":\"5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713537343579\",\"employee\":\"EMP1041\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275092\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251212854",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251212854\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251212854\",\"updatedAt\":\"2026-06-24T03:13:46.723Z\",\"startAt\":\"2025-12-12T02:53:19.638Z\",\"endAt\":\"2025-12-12T14:53:19.638Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713537343577\",\"employee\":\"EMP-006\",\"approver\":\"郑勇\",\"employeeId\":\"371066637254658\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260105175",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260105175\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260105175\",\"updatedAt\":\"2026-06-24T03:13:46.680Z\",\"startAt\":\"2026-01-05T18:16:35.421Z\",\"endAt\":\"2026-01-06T18:16:35.421Z\",\"leaveType\":\"personal\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343571\",\"employee\":\"EMP1023\",\"approver\":\"陈静\",\"employeeId\":\"371712262275073\",\"approverId\":\"7\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240421688",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240421688\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240421688\",\"updatedAt\":\"2026-06-24T03:13:46.633Z\",\"startAt\":\"2024-04-21T08:13:26.957Z\",\"endAt\":\"2024-04-26T08:13:26.957Z\",\"leaveType\":\"personal\",\"days\":\"5\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343564\",\"employee\":\"EMP1097\",\"approver\":\"Ace Admin\",\"employeeId\":\"371712262275148\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250919942",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250919942\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250919942\",\"updatedAt\":\"2026-06-24T03:13:46.629Z\",\"startAt\":\"2025-09-19T12:07:43.016Z\",\"endAt\":\"2025-09-20T12:07:43.016Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713537343563\",\"employee\":\"EMP1059\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275110\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241104137",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241104137\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241104137\",\"updatedAt\":\"2026-06-24T03:13:46.576Z\",\"startAt\":\"2024-11-04T08:36:36.124Z\",\"endAt\":\"2024-11-11T08:36:36.124Z\",\"leaveType\":\"sick\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713537343554\",\"employee\":\"EMP1086\",\"approver\":\"刘洋\",\"employeeId\":\"371712262275137\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260411846",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260411846\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260411846\",\"updatedAt\":\"2026-06-24T03:13:46.438Z\",\"startAt\":\"2026-04-11T08:30:31.227Z\",\"endAt\":\"2026-04-12T08:30:31.227Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713537343534\",\"employee\":\"EMP1030\",\"approver\":\"赵强\",\"employeeId\":\"371712262275074\",\"approverId\":\"8\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241126935",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241126935\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241126935\",\"updatedAt\":\"2026-06-24T03:13:46.410Z\",\"startAt\":\"2024-11-26T09:38:04.606Z\",\"endAt\":\"2024-11-27T09:38:04.606Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343532\",\"employee\":\"EMP1110\",\"approver\":\"冯丽\",\"employeeId\":\"371712262275161\",\"approverId\":\"13\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240407159",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240407159\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240407159\",\"updatedAt\":\"2026-06-24T03:13:46.364Z\",\"startAt\":\"2024-04-07T08:53:08.778Z\",\"endAt\":\"2024-04-14T08:53:08.778Z\",\"leaveType\":\"annual\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713537343528\",\"employee\":\"EMP1069\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275120\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241227397",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241227397\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241227397\",\"updatedAt\":\"2026-06-24T03:13:46.226Z\",\"startAt\":\"2024-12-27T04:56:36.457Z\",\"endAt\":\"2025-01-03T04:56:36.457Z\",\"leaveType\":\"personal\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343517\",\"employee\":\"EMP1067\",\"approver\":\"刘洋\",\"employeeId\":\"371712262275118\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260302944",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260302944\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260302944\",\"updatedAt\":\"2026-06-24T03:13:46.188Z\",\"startAt\":\"2026-03-02T00:36:15.077Z\",\"endAt\":\"2026-03-03T00:36:15.077Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713537343514\",\"employee\":\"EMP1048\",\"approver\":\"王芳\",\"employeeId\":\"371712262275099\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-014",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-014\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-014\",\"updatedAt\":\"2026-06-20T13:33:08.961Z\",\"startAt\":\"2026-07-03T09:00:00.000Z\",\"endAt\":\"2026-07-04T18:00:00.000Z\",\"leaveType\":\"sick\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"证件办理\",\"id\":\"371066695974915\",\"employee\":\"EMP-014\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066643546112\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-010",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-010\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-010\",\"updatedAt\":\"2026-06-20T13:33:07.755Z\",\"startAt\":\"2026-06-29T09:00:00.000Z\",\"endAt\":\"2026-06-30T18:00:00.000Z\",\"leaveType\":\"marriage\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"参加考试\",\"id\":\"371066693877762\",\"employee\":\"EMP-010\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066641448960\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-006",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-006\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-006\",\"updatedAt\":\"2026-06-20T13:33:06.570Z\",\"startAt\":\"2026-06-25T09:00:00.000Z\",\"endAt\":\"2026-06-26T18:00:00.000Z\",\"leaveType\":\"other\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家庭事务\",\"id\":\"371066691780609\",\"employee\":\"EMP-006\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066637254658\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-002",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-002\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-002\",\"updatedAt\":\"2026-06-20T13:33:05.367Z\",\"startAt\":\"2026-06-21T09:00:00.000Z\",\"endAt\":\"2026-06-22T18:00:00.000Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371066689683457\",\"employee\":\"EMP-002\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066635157505\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          }
+        ],
+        "where": [
+          {
+            "keys": [
+              "考勤状态",
+              "status"
+            ],
+            "values": [
+              "leave",
+              "待审",
+              "pending",
+              "open",
+              "submitted",
+              "新建"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "rows": 48,
+        "alreadyAtTarget": false,
+        "error": null,
+        "speak": "这张单最近一页 48 条。第一张 QJ20251027588，状态 待审。"
+      },
+      "maternityEmpty": true,
+      "driftNote": "产假待审切片为空，改走同条件待审请假过审",
+      "preDriftFallback": {
+        "http": 200,
+        "kind": "请假申请",
+        "action": "现查",
+        "nos": [
+          "QJ20251027588",
+          "QJ20251101520",
+          "QJ20250110249",
+          "QJ20260401299",
+          "QJ20251208449",
+          "QJ20240830442",
+          "QJ20260430818",
+          "QJ20241010724",
+          "QJ20240625277",
+          "QJ20260102470",
+          "QJ20240605948",
+          "QJ20241114149",
+          "QJ20240703519",
+          "QJ20250428564",
+          "QJ20250713654",
+          "QJ20240715207",
+          "QJ20240124157",
+          "QJ20240606531",
+          "QJ20240425805",
+          "QJ20241117709",
+          "QJ20240118541",
+          "QJ20250502245",
+          "QJ20241112110",
+          "QJ20250716127",
+          "QJ20241024706",
+          "QJ20240421751",
+          "QJ20240408478",
+          "QJ20251109854",
+          "QJ20250505211",
+          "QJ20241024958",
+          "QJ20240812489",
+          "QJ20260522917",
+          "QJ20250614378",
+          "QJ20240116582",
+          "QJ20251212854",
+          "QJ20260105175",
+          "QJ20240421688",
+          "QJ20250919942",
+          "QJ20241104137",
+          "QJ20260411846",
+          "QJ20241126935",
+          "QJ20240407159",
+          "QJ20241227397",
+          "QJ20260302944",
+          "LV-2026-014",
+          "LV-2026-010",
+          "LV-2026-006",
+          "LV-2026-002"
+        ],
+        "statuses": [
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审",
+          "待审"
+        ],
+        "items": [
+          {
+            "no": "QJ20251027588",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251027588\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251027588\",\"updatedAt\":\"2026-06-24T03:13:48.632Z\",\"startAt\":\"2025-10-27T16:59:22.281Z\",\"endAt\":\"2025-10-30T16:59:22.281Z\",\"leaveType\":\"personal\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713541537859\",\"employee\":\"EMP1081\",\"approver\":\"王芳\",\"employeeId\":\"371712262275132\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251101520",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251101520\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251101520\",\"updatedAt\":\"2026-06-24T03:13:48.631Z\",\"startAt\":\"2025-11-01T03:26:51.360Z\",\"endAt\":\"2025-11-03T03:26:51.360Z\",\"leaveType\":\"personal\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713541537858\",\"employee\":\"EMP1084\",\"approver\":\"李娜\",\"employeeId\":\"371712262275135\",\"approverId\":\"5\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250110249",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250110249\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250110249\",\"updatedAt\":\"2026-06-24T03:13:48.531Z\",\"startAt\":\"2025-01-10T00:27:46.472Z\",\"endAt\":\"2025-01-12T00:27:46.472Z\",\"leaveType\":\"annual\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713541537846\",\"employee\":\"EMP1080\",\"approver\":\"王芳\",\"employeeId\":\"371712262275131\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260401299",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260401299\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260401299\",\"updatedAt\":\"2026-06-24T03:13:48.513Z\",\"startAt\":\"2026-04-01T22:54:47.067Z\",\"endAt\":\"2026-04-02T22:54:47.067Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713541537845\",\"employee\":\"EMP1050\",\"approver\":\"王芳\",\"employeeId\":\"371712262275101\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251208449",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251208449\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251208449\",\"updatedAt\":\"2026-06-24T03:13:48.430Z\",\"startAt\":\"2025-12-08T20:21:57.670Z\",\"endAt\":\"2025-12-15T20:21:57.670Z\",\"leaveType\":\"personal\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713541537837\",\"employee\":\"EMP-009\",\"approver\":\"zxz\",\"employeeId\":\"371066639351810\",\"approverId\":\"2\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240830442",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240830442\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240830442\",\"updatedAt\":\"2026-06-24T03:13:48.357Z\",\"startAt\":\"2024-08-30T05:32:10.678Z\",\"endAt\":\"2024-08-30T17:32:10.678Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713541537827\",\"employee\":\"EMP1077\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275128\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260430818",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260430818\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260430818\",\"updatedAt\":\"2026-06-24T03:13:48.323Z\",\"startAt\":\"2026-04-30T17:24:01.344Z\",\"endAt\":\"2026-05-01T17:24:01.344Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713541537824\",\"employee\":\"EMP1080\",\"approver\":\"张伟\",\"employeeId\":\"371712262275131\",\"approverId\":\"3\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241010724",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241010724\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241010724\",\"updatedAt\":\"2026-06-24T03:13:48.318Z\",\"startAt\":\"2024-10-10T23:46:38.613Z\",\"endAt\":\"2024-10-17T23:46:38.613Z\",\"leaveType\":\"annual\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713541537822\",\"employee\":\"EMP1047\",\"approver\":\"张伟\",\"employeeId\":\"371712262275098\",\"approverId\":\"3\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240625277",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240625277\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240625277\",\"updatedAt\":\"2026-06-24T03:13:48.302Z\",\"startAt\":\"2024-06-25T07:34:06.550Z\",\"endAt\":\"2024-06-27T07:34:06.550Z\",\"leaveType\":\"other\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713541537821\",\"employee\":\"EMP1064\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275115\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260102470",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260102470\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260102470\",\"updatedAt\":\"2026-06-24T03:13:48.273Z\",\"startAt\":\"2026-01-02T08:19:44.177Z\",\"endAt\":\"2026-01-02T20:19:44.177Z\",\"leaveType\":\"personal\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713541537819\",\"employee\":\"EMP1109\",\"approver\":\"褚健\",\"employeeId\":\"371712262275160\",\"approverId\":\"14\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240605948",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240605948\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240605948\",\"updatedAt\":\"2026-06-24T03:13:48.197Z\",\"startAt\":\"2024-06-05T08:24:52.598Z\",\"endAt\":\"2024-06-06T08:24:52.598Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713541537809\",\"employee\":\"EMP1065\",\"approver\":\"褚健\",\"employeeId\":\"371712262275116\",\"approverId\":\"14\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241114149",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241114149\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241114149\",\"updatedAt\":\"2026-06-24T03:13:48.157Z\",\"startAt\":\"2024-11-14T03:49:28.286Z\",\"endAt\":\"2024-11-14T15:49:28.286Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713541537804\",\"employee\":\"EMP1043\",\"approver\":\"Ace Admin\",\"employeeId\":\"371712262275094\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240703519",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240703519\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240703519\",\"updatedAt\":\"2026-06-24T03:13:48.118Z\",\"startAt\":\"2024-07-03T15:26:03.973Z\",\"endAt\":\"2024-07-10T15:26:03.973Z\",\"leaveType\":\"annual\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713541537801\",\"employee\":\"EMP1047\",\"approver\":\"周敏\",\"employeeId\":\"371712262275098\",\"approverId\":\"10\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250428564",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250428564\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250428564\",\"updatedAt\":\"2026-06-24T03:13:48.060Z\",\"startAt\":\"2025-04-28T09:15:50.783Z\",\"endAt\":\"2025-05-01T09:15:50.783Z\",\"leaveType\":\"sick\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713541537795\",\"employee\":\"EMP1045\",\"approver\":\"陈静\",\"employeeId\":\"371712262275096\",\"approverId\":\"7\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250713654",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250713654\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250713654\",\"updatedAt\":\"2026-06-24T03:13:47.946Z\",\"startAt\":\"2025-07-13T19:48:15.579Z\",\"endAt\":\"2025-07-14T07:48:15.579Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440738\",\"employee\":\"EMP1022\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275072\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240715207",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240715207\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240715207\",\"updatedAt\":\"2026-06-24T03:13:47.885Z\",\"startAt\":\"2024-07-15T16:09:19.964Z\",\"endAt\":\"2024-07-18T16:09:19.964Z\",\"leaveType\":\"marriage\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440732\",\"employee\":\"EMP1059\",\"approver\":\"赵强\",\"employeeId\":\"371712262275110\",\"approverId\":\"8\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240124157",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240124157\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240124157\",\"updatedAt\":\"2026-06-24T03:13:47.821Z\",\"startAt\":\"2024-01-24T22:35:22.278Z\",\"endAt\":\"2024-01-26T22:35:22.278Z\",\"leaveType\":\"personal\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440725\",\"employee\":\"EMP1104\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275155\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240606531",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240606531\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240606531\",\"updatedAt\":\"2026-06-24T03:13:47.803Z\",\"startAt\":\"2024-06-06T21:06:17.242Z\",\"endAt\":\"2024-06-07T21:06:17.242Z\",\"leaveType\":\"marriage\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440723\",\"employee\":\"EMP1095\",\"approver\":\"王芳\",\"employeeId\":\"371712262275146\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240425805",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240425805\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240425805\",\"updatedAt\":\"2026-06-24T03:13:47.750Z\",\"startAt\":\"2024-04-25T19:20:58.086Z\",\"endAt\":\"2024-04-26T19:20:58.086Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440717\",\"employee\":\"EMP1092\",\"approver\":\"zxz\",\"employeeId\":\"371712262275143\",\"approverId\":\"2\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241117709",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241117709\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241117709\",\"updatedAt\":\"2026-06-24T03:13:47.714Z\",\"startAt\":\"2024-11-17T19:06:24.208Z\",\"endAt\":\"2024-11-18T07:06:24.208Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440714\",\"employee\":\"EMP1048\",\"approver\":\"周敏\",\"employeeId\":\"371712262275099\",\"approverId\":\"10\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240118541",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240118541\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240118541\",\"updatedAt\":\"2026-06-24T03:13:47.635Z\",\"startAt\":\"2024-01-18T02:14:55.293Z\",\"endAt\":\"2024-01-20T02:14:55.293Z\",\"leaveType\":\"sick\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440705\",\"employee\":\"EMP1039\",\"approver\":\"张伟\",\"employeeId\":\"371712262275090\",\"approverId\":\"3\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250502245",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250502245\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250502245\",\"updatedAt\":\"2026-06-24T03:13:47.612Z\",\"startAt\":\"2025-05-02T04:39:35.442Z\",\"endAt\":\"2025-05-03T04:39:35.442Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440704\",\"employee\":\"EMP1055\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275106\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241112110",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241112110\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241112110\",\"updatedAt\":\"2026-06-24T03:13:47.463Z\",\"startAt\":\"2024-11-12T02:43:28.781Z\",\"endAt\":\"2024-11-12T14:43:28.781Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440689\",\"employee\":\"EMP1039\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275090\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250716127",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250716127\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250716127\",\"updatedAt\":\"2026-06-24T03:13:47.460Z\",\"startAt\":\"2025-07-16T02:47:45.379Z\",\"endAt\":\"2025-07-21T02:47:45.379Z\",\"leaveType\":\"annual\",\"days\":\"5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713539440688\",\"employee\":\"EMP1101\",\"approver\":\"冯丽\",\"employeeId\":\"371712262275152\",\"approverId\":\"13\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241024706",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241024706\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241024706\",\"updatedAt\":\"2026-06-24T03:13:47.419Z\",\"startAt\":\"2024-10-24T18:25:27.372Z\",\"endAt\":\"2024-10-25T18:25:27.372Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713539440685\",\"employee\":\"EMP1045\",\"approver\":\"李娜\",\"employeeId\":\"371712262275096\",\"approverId\":\"5\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240421751",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240421751\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240421751\",\"updatedAt\":\"2026-06-24T03:13:47.348Z\",\"startAt\":\"2024-04-21T08:50:30.730Z\",\"endAt\":\"2024-04-28T08:50:30.730Z\",\"leaveType\":\"sick\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713539440676\",\"employee\":\"EMP1095\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275146\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240408478",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240408478\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240408478\",\"updatedAt\":\"2026-06-24T03:13:47.328Z\",\"startAt\":\"2024-04-08T03:55:50.439Z\",\"endAt\":\"2024-04-10T03:55:50.439Z\",\"leaveType\":\"other\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713539440675\",\"employee\":\"EMP1065\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275116\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251109854",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251109854\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251109854\",\"updatedAt\":\"2026-06-24T03:13:47.185Z\",\"startAt\":\"2025-11-09T05:47:18.889Z\",\"endAt\":\"2025-11-09T17:47:18.889Z\",\"leaveType\":\"personal\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713539440659\",\"employee\":\"EMP1045\",\"approver\":\"冯丽\",\"employeeId\":\"371712262275096\",\"approverId\":\"13\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250505211",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250505211\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250505211\",\"updatedAt\":\"2026-06-24T03:13:47.083Z\",\"startAt\":\"2025-05-05T15:27:18.511Z\",\"endAt\":\"2025-05-06T15:27:18.511Z\",\"leaveType\":\"personal\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713539440645\",\"employee\":\"EMP-003\",\"approver\":\"刘洋\",\"employeeId\":\"371066635157506\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241024958",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241024958\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241024958\",\"updatedAt\":\"2026-06-24T03:13:47.047Z\",\"startAt\":\"2024-10-24T12:28:07.192Z\",\"endAt\":\"2024-10-25T12:28:07.192Z\",\"leaveType\":\"other\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713539440642\",\"employee\":\"EMP1106\",\"approver\":\"刘洋\",\"employeeId\":\"371712262275157\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240812489",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240812489\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240812489\",\"updatedAt\":\"2026-06-24T03:13:46.874Z\",\"startAt\":\"2024-08-12T10:17:38.153Z\",\"endAt\":\"2024-08-13T10:17:38.153Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713537343592\",\"employee\":\"EMP1054\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275105\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260522917",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260522917\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260522917\",\"updatedAt\":\"2026-06-24T03:13:46.856Z\",\"startAt\":\"2026-05-22T21:59:49.242Z\",\"endAt\":\"2026-05-25T21:59:49.242Z\",\"leaveType\":\"personal\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343591\",\"employee\":\"EMP1032\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275083\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250614378",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250614378\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250614378\",\"updatedAt\":\"2026-06-24T03:13:46.768Z\",\"startAt\":\"2025-06-14T12:39:16.290Z\",\"endAt\":\"2025-06-15T00:39:16.290Z\",\"leaveType\":\"sick\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713537343580\",\"employee\":\"EMP1108\",\"approver\":\"周敏\",\"employeeId\":\"371712262275159\",\"approverId\":\"10\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240116582",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240116582\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240116582\",\"updatedAt\":\"2026-06-24T03:13:46.746Z\",\"startAt\":\"2024-01-16T17:17:08.355Z\",\"endAt\":\"2024-01-21T17:17:08.355Z\",\"leaveType\":\"other\",\"days\":\"5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713537343579\",\"employee\":\"EMP1041\",\"approver\":\"吴秀英\",\"employeeId\":\"371712262275092\",\"approverId\":\"11\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20251212854",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20251212854\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20251212854\",\"updatedAt\":\"2026-06-24T03:13:46.723Z\",\"startAt\":\"2025-12-12T02:53:19.638Z\",\"endAt\":\"2025-12-12T14:53:19.638Z\",\"leaveType\":\"annual\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713537343577\",\"employee\":\"EMP-006\",\"approver\":\"郑勇\",\"employeeId\":\"371066637254658\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260105175",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260105175\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260105175\",\"updatedAt\":\"2026-06-24T03:13:46.680Z\",\"startAt\":\"2026-01-05T18:16:35.421Z\",\"endAt\":\"2026-01-06T18:16:35.421Z\",\"leaveType\":\"personal\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343571\",\"employee\":\"EMP1023\",\"approver\":\"陈静\",\"employeeId\":\"371712262275073\",\"approverId\":\"7\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240421688",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240421688\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240421688\",\"updatedAt\":\"2026-06-24T03:13:46.633Z\",\"startAt\":\"2024-04-21T08:13:26.957Z\",\"endAt\":\"2024-04-26T08:13:26.957Z\",\"leaveType\":\"personal\",\"days\":\"5\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343564\",\"employee\":\"EMP1097\",\"approver\":\"Ace Admin\",\"employeeId\":\"371712262275148\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20250919942",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20250919942\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20250919942\",\"updatedAt\":\"2026-06-24T03:13:46.629Z\",\"startAt\":\"2025-09-19T12:07:43.016Z\",\"endAt\":\"2025-09-20T12:07:43.016Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713537343563\",\"employee\":\"EMP1059\",\"approver\":\"孙磊\",\"employeeId\":\"371712262275110\",\"approverId\":\"9\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241104137",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241104137\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241104137\",\"updatedAt\":\"2026-06-24T03:13:46.576Z\",\"startAt\":\"2024-11-04T08:36:36.124Z\",\"endAt\":\"2024-11-11T08:36:36.124Z\",\"leaveType\":\"sick\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"调休\",\"id\":\"371713537343554\",\"employee\":\"EMP1086\",\"approver\":\"刘洋\",\"employeeId\":\"371712262275137\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260411846",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260411846\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260411846\",\"updatedAt\":\"2026-06-24T03:13:46.438Z\",\"startAt\":\"2026-04-11T08:30:31.227Z\",\"endAt\":\"2026-04-12T08:30:31.227Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"年假休息\",\"id\":\"371713537343534\",\"employee\":\"EMP1030\",\"approver\":\"赵强\",\"employeeId\":\"371712262275074\",\"approverId\":\"8\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241126935",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241126935\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241126935\",\"updatedAt\":\"2026-06-24T03:13:46.410Z\",\"startAt\":\"2024-11-26T09:38:04.606Z\",\"endAt\":\"2024-11-27T09:38:04.606Z\",\"leaveType\":\"annual\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343532\",\"employee\":\"EMP1110\",\"approver\":\"冯丽\",\"employeeId\":\"371712262275161\",\"approverId\":\"13\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20240407159",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20240407159\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20240407159\",\"updatedAt\":\"2026-06-24T03:13:46.364Z\",\"startAt\":\"2024-04-07T08:53:08.778Z\",\"endAt\":\"2024-04-14T08:53:08.778Z\",\"leaveType\":\"annual\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"家中有事\",\"id\":\"371713537343528\",\"employee\":\"EMP1069\",\"approver\":\"郑勇\",\"employeeId\":\"371712262275120\",\"approverId\":\"12\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20241227397",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20241227397\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20241227397\",\"updatedAt\":\"2026-06-24T03:13:46.226Z\",\"startAt\":\"2024-12-27T04:56:36.457Z\",\"endAt\":\"2025-01-03T04:56:36.457Z\",\"leaveType\":\"personal\",\"days\":\"7\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371713537343517\",\"employee\":\"EMP1067\",\"approver\":\"刘洋\",\"employeeId\":\"371712262275118\",\"approverId\":\"6\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "QJ20260302944",
+            "status": "待审",
+            "blob": "{\"no\":\"QJ20260302944\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"QJ20260302944\",\"updatedAt\":\"2026-06-24T03:13:46.188Z\",\"startAt\":\"2026-03-02T00:36:15.077Z\",\"endAt\":\"2026-03-03T00:36:15.077Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"个人事务\",\"id\":\"371713537343514\",\"employee\":\"EMP1048\",\"approver\":\"王芳\",\"employeeId\":\"371712262275099\",\"approverId\":\"4\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-014",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-014\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-014\",\"updatedAt\":\"2026-06-20T13:33:08.961Z\",\"startAt\":\"2026-07-03T09:00:00.000Z\",\"endAt\":\"2026-07-04T18:00:00.000Z\",\"leaveType\":\"sick\",\"days\":\"2\",\"status\":\"submitted\",\"reason\":\"证件办理\",\"id\":\"371066695974915\",\"employee\":\"EMP-014\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066643546112\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-010",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-010\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-010\",\"updatedAt\":\"2026-06-20T13:33:07.755Z\",\"startAt\":\"2026-06-29T09:00:00.000Z\",\"endAt\":\"2026-06-30T18:00:00.000Z\",\"leaveType\":\"marriage\",\"days\":\"3\",\"status\":\"submitted\",\"reason\":\"参加考试\",\"id\":\"371066693877762\",\"employee\":\"EMP-010\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066641448960\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-006",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-006\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-006\",\"updatedAt\":\"2026-06-20T13:33:06.570Z\",\"startAt\":\"2026-06-25T09:00:00.000Z\",\"endAt\":\"2026-06-26T18:00:00.000Z\",\"leaveType\":\"other\",\"days\":\"0.5\",\"status\":\"submitted\",\"reason\":\"家庭事务\",\"id\":\"371066691780609\",\"employee\":\"EMP-006\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066637254658\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          },
+          {
+            "no": "LV-2026-002",
+            "status": "待审",
+            "blob": "{\"no\":\"LV-2026-002\",\"status\":\"待审\",\"fields\":{\"requestNo\":\"LV-2026-002\",\"updatedAt\":\"2026-06-20T13:33:05.367Z\",\"startAt\":\"2026-06-21T09:00:00.000Z\",\"endAt\":\"2026-06-22T18:00:00.000Z\",\"leaveType\":\"sick\",\"days\":\"1\",\"status\":\"submitted\",\"reason\":\"身体不适\",\"id\":\"371066689683457\",\"employee\":\"EMP-002\",\"approver\":\"Ace Admin\",\"employeeId\":\"371066635157505\",\"approverId\":\"1\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          }
+        ],
+        "where": [
+          {
+            "keys": [
+              "status",
+              "state",
+              "stage"
+            ],
+            "values": [
+              "待审",
+              "pending",
+              "open",
+              "submitted",
+              "新建"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "rows": 48,
+        "alreadyAtTarget": false,
+        "error": null,
+        "speak": "这张单最近一页 48 条。第一张 QJ20251027588，状态 待审。"
+      },
+      "swappedTo": "QJ20251027588",
+      "swapped": true,
+      "kind": "请假申请",
+      "action": "过审",
+      "rows": 1,
+      "first": "QJ20251027588",
+      "banner": "AI 拟改 请假申请 1 行 · 待确认本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 把武汉云启那张紧急工单改成已解决。销售回款 · 现查 · 待审回款挂在哪些合同上？把已到期的那些摊出来。客户 · 现查费用报销 · 现查 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。请假申请 · 现查 · 待审的请假申请采购订单 · 现查 · 昆明精密机电还有哪些待审采购单？请假申请 · 过审 · 待审的请假申请工单 · 改行 · 紧急还没关的工单请假申请 · 过审 · 待审的请假申请费用报销 · 过审 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": false,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": false,
+        "steps": []
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "过审",
+      "hasFieldDiffs": true,
+      "previewId": "pv_c06be01092416273",
+      "alreadyAtTarget": false,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "pendingSpeech": "待审的请假申请",
+      "nos": [
+        "QJ20251027588"
+      ],
+      "canWrite": true,
+      "speak": "",
+      "contract": {
+        "C1": "pass",
+        "C2": "pass",
+        "C3": "pass",
+        "C4": "pass"
+      },
+      "failCode": ""
+    },
+    {
+      "n": 10,
+      "speech": "东莞联创到期合同下还有哪些待审回款？把备注改成催收。只要预览，不要过账，不要 biz_write。",
+      "want": "改行",
+      "write": true,
+      "queryThenWrite": true,
+      "related": [],
+      "mentioned": [
+        "销售合同",
+        "销售回款"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "connectedKind": "销售合同",
+      "preDriftLookup": {
+        "http": 200,
+        "kind": "销售回款",
+        "action": "现查",
+        "nos": [
+          "PAY-2026-005"
+        ],
+        "statuses": [
+          "待审"
+        ],
+        "items": [
+          {
+            "no": "PAY-2026-005",
+            "status": "待审",
+            "blob": "{\"no\":\"PAY-2026-005\",\"status\":\"待审\",\"fields\":{\"paymentNo\":\"PAY-2026-005\",\"updatedAt\":\"2026-06-20T13:31:48.901Z\",\"amount\":\"54800\",\"paymentDate\":\"2026-02-20\",\"method\":\"bank_transfer\",\"status\":\"pending\",\"remarks\":\"首付款\",\"id\":\"371066528202754\",\"customer\":\"杭州数澜软件有限公司\",\"contract\":\"HT-2026-005\",\"order\":\"SO-2026-005\",\"orderId\":\"371066515619840\",\"customerId\":\"371066446413824\",\"contractId\":\"371066500939778\",\"createdById\":\"1\",\"updatedById\":\"1\"}}"
+          }
+        ],
+        "where": [
+          {
+            "keys": [
+              "status",
+              "state",
+              "stage"
+            ],
+            "values": [
+              "待审",
+              "pending",
+              "open",
+              "submitted",
+              "新建"
+            ],
+            "not": false,
+            "dateBefore": [],
+            "dateAfter": []
+          }
+        ],
+        "rows": 1,
+        "alreadyAtTarget": false,
+        "error": null,
+        "speak": "销售回款 PAY-2026-005待审。paymentNo PAY-2026-005，updatedAt 2026-06-20T13:31:48.901Z，amount 54800，paymentDate 2026-02-20，method bank_transfer，remarks 首付款，id 371066528202754，customer 杭州数澜软件有限公司，contract HT-2026-005，order SO-2026-005，orderId 371066515619840，customerId 371066446413824。用的是生产NocoBase，不是测试库。"
+      },
+      "query": {
+        "want": "现查",
+        "speech": "东莞联创到期合同下还有哪些待审回款？",
+        "write": false,
+        "pickThenWrite": false,
+        "prompted": {
+          "http": 200,
+          "accepted": true,
+          "error": null
+        },
+        "aiDelta": "范围 待审 → 过审 条数 97 条 环境 NocoBase · 生产 preview_id pv_3164b4f2aeeaebc2 首单示例 EXP20251224598（差旅 · 9,053.38）等 清单已铺在右边业务页（状态列将显示待审 → 过审）。按你的要求只停在预览；若要真正过账，再说一声。 用量 212K tok 用时 16秒 06:54 过一下请假单 QJ20251027588。只要预览，不要过账，不要 biz_write。 06:54 2 次工具调用 · 1 条消息 过审预览已出，未过账、未调用 biz_write。 项 内容 单号 QJ20251027588 动作 过审：待审 → 已过 类型 事假 · 3 天 时间 2025-10-27 → 2025-10-30 事由 年假休息 员工 EMP1081 审批人 王芳 环境 NocoBase · 生产 preview_id pv_36aa10930babbb02 明细在右边业务页。按你的要求只停在预览；若要真正过账，再说一声。 用量 233K tok 用时 10秒 06:54 把工单 TK20250211633 改成已解决。只要预览，不要过账，不要 biz_write。 06:54 2 次工具调用 改行预览已出，未过账、未调用 biz_write。 项 内容 单号 TK20250211633 变更 状态 new（新建）→ resolved（已解决） 标题 功能咨询 类型 / 优先级 故障 · 紧急 客户 华东远见电子有限公司 处理人 孙磊 环境 NocoBase · 生产 preview_id pv_64b5dea23af12e64 明细在右边业务页。按你的要求只停在预览；若要真正过账，再说一声。 用量 239K tok 用时 10秒 06:54 昆明精密机电还有哪些待审采购单？ 06:54 9 次工具调用 · 3 条消息 系统提示词 现查结果：供应商 昆明精密机电贸易有限公司 名下，当前待审采购单命中 1 张： 单号 状态 订单金额 税额 下单日 期望到货 仓库 采购员 PO20250407926 待审 501,496.89 65,194.60 2025-04-07 2025-05-18 华北原料仓 周敏 说明：在待审采购单本页（44 条）里，供应商名含「昆明精密机电」的只有这一张。明细已铺在右边业务页；闸提示该单不在你名下，这边只能看到列表字段。 用量 710K tok 用时 44秒 06:55 系统提示词 过一下请假单 QJ20251027588。只要预览，不要过账，不要 biz_write。 06:55 2 次工具调用 过审预览已出，未过账、未调用 biz_write。 项 内容 单号 QJ20251027588 动作 过审：待审 → 已过 类型 事假 · 3 天 时间 2025-10-27 → 2025-10-30 事由 年假休息 员工 EMP1081 审批人 王芳 环境 NocoBase · 生产 preview_id pv_c06be01092416273 明细在右边业务页。按你的要求只停在预览；若要真正过账，再说一声。 用量 337K tok 用时 10秒 06:55 东莞联创到期合同下还有哪些待审回款？ 06:55 9 次工具调用 · 3 条消息 系统提示词 现查结论：东莞联创到期合同下的待审回款 = 0。 1. 客户对不上 按「东莞联创」去套客户再查，业务侧对不上这家名（此前同题现查也是 NOT_FOUND）。 2. 已到期合同 ∩ 待审回款（全库现况） 当前闸仍只摊出这一笔，不是东莞联创： 回款单 状态 金额 客户 合同 合同状态 PAY-2026-005 待确认 54,800 杭州数澜软件有限公司 HT-2026-005 已到期 3. 相近线索（不是答案） 合同标题含「联创」的 HT20251125899（联创项目采购合同）：客户是杭州数澜，状态是已签署，不是已到期。 如果你手头有东莞联创的正式客户全称或合同号，发我后我再按单号现查。 用量 927K tok 用时 48秒 06:56 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 10 轮 30 步·104 tok/s 3.4M tok·缓存命中 87%",
+        "thinking": false,
+        "pending": {
+          "kind": "销售回款",
+          "action": "现查",
+          "rows": 1,
+          "first": "PAY-2026-005",
+          "fromKind": "销售合同",
+          "fromRows": 1,
+          "fromFirst": "HT-2026-005",
+          "fromHasRows": true,
+          "fromNos": [
+            "HT-2026-005"
+          ],
+          "hopWhere": true,
+          "steps": [
+            "销售合同",
+            "销售回款"
+          ],
+          "speech": "东莞联创到期合同下还有哪些待审回款？",
+          "preview_id": null,
+          "sessionId": "session-362775bb-3e52-445b-800e-960f566f0729",
+          "changes": [],
+          "where": [
+            {
+              "keys": [
+                "status",
+                "state",
+                "stage"
+              ],
+              "values": [
+                "待审",
+                "pending",
+                "open",
+                "submitted",
+                "新建"
+              ],
+              "not": false,
+              "dateBefore": [],
+              "dateAfter": []
+            }
+          ],
+          "listed": false,
+          "ambiguous": false,
+          "alreadyAtTarget": false,
+          "canWrite": false,
+          "speak": "",
+          "nos": [
+            "PAY-2026-005"
+          ]
+        },
+        "ui": {
+          "kindChips": [
+            "销售回款1",
+            "销售合同1"
+          ],
+          "selectedChip": "销售回款1",
+          "footer": "共 1 条 · 局域网业务协作适配器 · 现查 06:56",
+          "footerCount": 1,
+          "tbodyRows": 1,
+          "firstNo": "PAY-2026-005",
+          "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 把武汉云启那张紧急工单改成已解决。销售回款 · 现查 · 待审回款挂在哪些合同上？把已到期的那些摊出来。客户 · 现查费用报销 · 现查 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。请假申请 · 现查 · 待审的请假申请采购订单 · 现查 · 昆明精密机电还有哪些待审采购单？请假申请 · 过审 · 待审的请假申请工单 · 改行 · 紧急还没关的工单请假申请 · 过审 · 待审的请假申请费用报销 · 过审 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+          "kinds": [
+            "请假申请",
+            "资产领用归还",
+            "资产分类",
+            "考勤记录",
+            "BOM物料清单",
+            "销售合同",
+            "员工档案",
+            "费用报销",
+            "销售线索",
+            "生产领料单",
+            "销售商机",
+            "销售回款",
+            "商品物料",
+            "采购订单明细",
+            "采购订单",
+            "采购收货单",
+            "销售订单明细",
+            "出入库流水",
+            "工单处理记录",
+            "BOM明细",
+            "联系人",
+            "客户",
+            "{{t(\"Departments\")}}",
+            "固定资产",
+            "库存",
+            "发票",
+            "项目里程碑",
+            "订单",
+            "付款单",
+            "岗位",
+            "商品分类",
+            "项目",
+            "项目任务",
+            "收货明细",
+            "{{t(\"Roles\")}}",
+            "供应商",
+            "工单",
+            "{{t(\"Users\")}}",
+            "仓库",
+            "生产工单"
+          ],
+          "drawerOpen": false,
+          "drawerAction": "",
+          "drawerText": "",
+          "emptyHint": false,
+          "alreadyAtTarget": false,
+          "changeBlocks": [],
+          "crashJson": false
+        },
+        "hop": {
+          "hop": true,
+          "fromKind": "",
+          "fromRows": 0,
+          "fromFirst": "",
+          "hopWhere": true,
+          "steps": [
+            "销售合同",
+            "销售回款"
+          ]
+        },
+        "leftHasFirst": true,
+        "leftSnippet": "按你的要求只停在预览；若要真正过账，再说一声。 用量 337K tok 用时 10秒 06:55 东莞联创到期合同下还有哪些待审回款？ 06:55 9 次工具调用 · 3 条消息 系统提示词 现查结论：东莞联创到期合同下的待审回款 = 0。 1. 客户对不上 按「东莞联创」去套客户再查，业务侧对不上这家名（此前同题现查也是 NOT_FOUND）。 2. 已到期合同 ∩ 待审回款（全库现况） 当前闸仍只摊出这一笔，不是东莞联创： 回款单 状态 金额 客户 合同 合同状态 PAY-2026-005 待确认 54,800 杭州数澜软件有限公司 HT-2026-005 已到期 3. 相近线索（不是答案） 合同标题含「联创」的 HT20251125899（联创项目采购合同）：客户是杭州数澜，状态是已签署，不是已到期。 如果你手头有东莞联创的正式客户全称或合同号，发我后我再按单号现查。 用量 927K tok 用时 48秒 06:56 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 10 轮 30 步·104 tok/s 3.4M tok·缓存命中 87%"
+      },
+      "kind": "销售回款",
+      "action": "改行",
+      "rows": 1,
+      "first": "PAY-2026-005",
+      "banner": "AI 拟改 销售回款 1 行 · 待确认本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 把武汉云启那张紧急工单改成已解决。销售回款 · 现查 · 待审回款挂在哪些合同上？把已到期的那些摊出来。客户 · 现查费用报销 · 现查 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。请假申请 · 现查 · 待审的请假申请采购订单 · 现查 · 昆明精密机电还有哪些待审采购单？销售回款 · 改行 · 东莞联创到期合同下还有哪些待审回款？把备注改成催收。只要预览，不要过账，不要 biz_write。请假申请 · 过审 · 待审的请假申请工单 · 改行 · 紧急还没关的工单请假申请 · 过审 · 待审的请假申请费用报销 · 过审 · 待审报销单都过一下。只要预览，不要过账，不要 biz_write。客户 · 改行 · 把停用客户恒通改成成交。只要预览，不要过账，不要 biz_write。",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": true,
+        "steps": [
+          "销售合同",
+          "销售回款"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "改行",
+      "hasFieldDiffs": true,
+      "previewId": "pv_3a31b579881714c2",
+      "alreadyAtTarget": false,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "pendingSpeech": "东莞联创到期合同下还有哪些待审回款？把备注改成催收。只要预览，不要过账，不要 biz_write。",
+      "nos": [
+        "PAY-2026-005"
+      ],
+      "canWrite": true,
+      "speak": "",
+      "contract": {
+        "C1": "pass",
+        "C2": "pass",
+        "C3": "pass",
+        "C4": "pass"
+      },
+      "failCode": ""
+    }
+  ],
+  "portsBefore": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "reloadWaitSec": 1,
+  "connect": {
+    "connected": true,
+    "pid": 82868,
+    "error": null
+  },
+  "sessionId": "session-362775bb-3e52-445b-800e-960f566f0729",
+  "lookupSessionId": "session-0af69db9-700b-4822-bb27-0788695c0ef7",
+  "kindCatalogCount": 40,
+  "kindsFetchUrl": "http://127.0.0.1:4318/api/v1/biz/kinds?cwd=%2FUsers%2Fzxz%2FDocuments%2Fai-project%2Ffdex%E6%B5%8B%E8%AF%95",
+  "valves": {
+    "graphOnly": {
+      "kind": "GraphOnlyConcept",
+      "fromCatalog": false,
+      "preview": {
+        "http": 400,
+        "error": "validation_error",
+        "kind": "",
+        "hint": "",
+        "message": "该对象没有连接业务表"
+      },
+      "pass": true
+    },
+    "case1Gongdan": {
+      "kind": "工单",
+      "rows": 21,
+      "failCode": "",
+      "pass": true
+    },
+    "alreadyAtTarget": {
+      "liveAlready": false,
+      "explicit": false,
+      "待审Diffs": [
+        5,
+        6,
+        9
+      ],
+      "已过SliceEmpty": [
+        9
+      ],
+      "pass": true
+    },
+    "emptyCover": {
+      "case1NotCustomerZero": true,
+      "laterEmpty": [
+        4
+      ],
+      "pass": true
+    },
+    "reopen": {
+      "sid": "session-28c61729-3178-44bf-b278-8f74b4443279",
+      "pendingKind": "销售回款",
+      "pendingSession": "session-362775bb-3e52-445b-800e-960f566f0729",
+      "pendingRows": 1,
+      "tbodyRows": 1,
+      "firstNo": "",
+      "pass": false
+    }
+  },
+  "autoIm": false,
+  "portsEnd": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "pass": false,
+  "failCode": "cases:4"
+}

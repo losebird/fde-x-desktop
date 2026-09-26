@@ -1,0 +1,354 @@
+{
+  "sha": "d6d71a559791a8da55cc5f8d5329ed5c7df0c109",
+  "branch": "main",
+  "boardName": "资料卡片板",
+  "otherName": "家庭药箱",
+  "visitName": "本周现场走访记录",
+  "hardcoded": "none",
+  "silentBizWrite": false,
+  "originPushed": false,
+  "createdNewApp": false,
+  "listedBefore": [
+    {
+      "id": "app_6a81181028a64219a373626cb6514921",
+      "name": "资料卡片板",
+      "status": "active",
+      "updatedAt": "2026-09-19T09:19:30.066Z"
+    },
+    {
+      "id": "app_27d92ef9a8cb45719d2633f596007003",
+      "name": "家庭药箱",
+      "status": "active",
+      "updatedAt": "2026-09-19T07:36:19.018Z"
+    },
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:36:50.727Z"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:33:47.810Z"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:26:09.893Z"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:03:58.932Z"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:05.598Z"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:02.947Z"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.866Z"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.860Z"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.853Z"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "board": {
+    "id": "app_6a81181028a64219a373626cb6514921",
+    "name": "资料卡片板",
+    "status": "active",
+    "kind": "generated",
+    "revision": 2,
+    "updatedAt": "2026-09-19T09:19:30.066Z"
+  },
+  "other": {
+    "id": "app_27d92ef9a8cb45719d2633f596007003",
+    "name": "家庭药箱",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T07:36:19.018Z"
+  },
+  "floatButtonText": "浮窗",
+  "floatButtonOk": true,
+  "oldLabelGone": true,
+  "boardFloat": {
+    "present": true,
+    "title": "资料卡片板",
+    "surface": true,
+    "product": true,
+    "hasAppTab": false,
+    "hasRecordsTab": false,
+    "hasOpsTab": false,
+    "hasDock": true,
+    "bodySlice": "资料卡片板\n建造\n资料板\n问 AI\n浮窗\n引用文件\n起草记忆卡片\n拟回进输入框\n打开早报\n打开业务记录\n资料卡片\n文档\n接口说明\n\n字段和错误码 am-mu85schy\n\n打开\n验收清单\n\n发布前对照 am-mu85schy\n\n打开\n入门手册\n\n新同事先看这个 al-mu84card1\n\n打开\n网页\n设计规范\n\n间距和字号 am-mu85schy\n\n打开\n周"
+  },
+  "stageWhileBoardFloat": {
+    "stageHead": "业务应用",
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "threeTabs": {
+      "app": true,
+      "records": true,
+      "ops": true
+    },
+    "createEntry": false,
+    "deleteEntry": false,
+    "desktopIcons": false,
+    "floatCount": 1,
+    "appFloatCount": 1,
+    "memoryFloat": false,
+    "memoryExplore": false,
+    "memoryHome": false,
+    "briefing": false
+  },
+  "boardFloatIsApp": true,
+  "stageKeptBiz": true,
+  "afterDock": {
+    "stageHead": "业务应用",
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "threeTabs": {
+      "app": true,
+      "records": true,
+      "ops": true
+    },
+    "createEntry": false,
+    "deleteEntry": false,
+    "desktopIcons": false,
+    "floatCount": 0,
+    "appFloatCount": 0,
+    "memoryFloat": false,
+    "memoryExplore": false,
+    "memoryHome": false,
+    "briefing": false
+  },
+  "boardFloatAfterDock": {
+    "present": false
+  },
+  "dockedToApp": true,
+  "secondKey": "app:app_27d92ef9a8cb45719d2633f596007003",
+  "secondKind": "app",
+  "twoBefore": {
+    "stageHead": "业务应用",
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "threeTabs": {
+      "app": true,
+      "records": true,
+      "ops": true
+    },
+    "createEntry": false,
+    "deleteEntry": false,
+    "desktopIcons": false,
+    "floatCount": 2,
+    "appFloatCount": 2,
+    "memoryFloat": false,
+    "memoryExplore": false,
+    "memoryHome": false,
+    "briefing": false
+  },
+  "twoBeforeBoard": {
+    "present": true,
+    "title": "资料卡片板",
+    "surface": true,
+    "product": true,
+    "hasAppTab": false,
+    "hasRecordsTab": false,
+    "hasOpsTab": false,
+    "hasDock": true,
+    "bodySlice": "资料卡片板\n建造\n资料板\n问 AI\n浮窗\n引用文件\n起草记忆卡片\n拟回进输入框\n打开早报\n打开业务记录\n资料卡片\n文档\n接口说明\n\n字段和错误码 am-mu85schy\n\n打开\n验收清单\n\n发布前对照 am-mu85schy\n\n打开\n入门手册\n\n新同事先看这个 al-mu84card1\n\n打开\n网页\n设计规范\n\n间距和字号 am-mu85schy\n\n打开\n周"
+  },
+  "twoBeforeOther": {
+    "present": true,
+    "title": "家庭药箱",
+    "surface": true,
+    "product": true,
+    "hasAppTab": false,
+    "hasRecordsTab": false,
+    "hasOpsTab": false,
+    "hasDock": true,
+    "bodySlice": "家庭药箱\n建造\n药箱\n问 AI\n浮窗\n药品种类\n4\n剩余片数合计\n31\n记一笔药品\n药名 *\n分类 *\n请选择\n常备\n处方\n外用\n剩余片数 *\n到期日\n备注\n记一笔药品\n按分类\n常备\n31\n处方\n0\n外用\n0\n药品流水\n备注 药-mu82l4pf\n常备\n2026-09-19\n备注 备注 药-mu82l4pf\n12\n备注 记-mu83ag8l\n常备\n2026-"
+  },
+  "twoAfter": {
+    "stageHead": "业务应用",
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "threeTabs": {
+      "app": true,
+      "records": true,
+      "ops": true
+    },
+    "createEntry": false,
+    "deleteEntry": false,
+    "desktopIcons": false,
+    "floatCount": 1,
+    "appFloatCount": 1,
+    "memoryFloat": false,
+    "memoryExplore": false,
+    "memoryHome": false,
+    "briefing": false
+  },
+  "twoAfterBoard": {
+    "present": false
+  },
+  "twoAfterOther": {
+    "present": true,
+    "title": "家庭药箱",
+    "surface": true,
+    "product": true,
+    "hasAppTab": false,
+    "hasRecordsTab": false,
+    "hasOpsTab": false,
+    "hasDock": true,
+    "bodySlice": "家庭药箱\n建造\n药箱\n问 AI\n浮窗\n药品种类\n4\n剩余片数合计\n31\n记一笔药品\n药名 *\n分类 *\n请选择\n常备\n处方\n外用\n剩余片数 *\n到期日\n备注\n记一笔药品\n按分类\n常备\n31\n处方\n0\n外用\n0\n药品流水\n备注 药-mu82l4pf\n常备\n2026-09-19\n备注 备注 药-mu82l4pf\n12\n备注 记-mu83ag8l\n常备\n2026-"
+  },
+  "twoAfterSecond": 1,
+  "onlyOneDocked": true,
+  "afterCloseX": {
+    "stageHead": "业务应用",
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "threeTabs": {
+      "app": true,
+      "records": true,
+      "ops": true
+    },
+    "createEntry": false,
+    "deleteEntry": false,
+    "desktopIcons": false,
+    "floatCount": 0,
+    "appFloatCount": 0,
+    "memoryFloat": false,
+    "memoryExplore": false,
+    "memoryHome": false,
+    "briefing": false
+  },
+  "xKeepsRight": true,
+  "briefingOpened": {
+    "stageHead": "业务应用",
+    "workspace": false,
+    "catalog": false,
+    "product": false,
+    "threeTabs": {
+      "app": true,
+      "records": true,
+      "ops": true
+    },
+    "createEntry": false,
+    "deleteEntry": false,
+    "desktopIcons": false,
+    "floatCount": 0,
+    "appFloatCount": 0,
+    "memoryFloat": false,
+    "memoryExplore": false,
+    "memoryHome": false,
+    "briefing": false
+  },
+  "backFromBriefing": {
+    "stageHead": "",
+    "workspace": false,
+    "catalog": false,
+    "product": false,
+    "threeTabs": {
+      "app": false,
+      "records": false,
+      "ops": false
+    },
+    "createEntry": false,
+    "deleteEntry": false,
+    "desktopIcons": false,
+    "floatCount": 0,
+    "appFloatCount": 0,
+    "memoryFloat": false,
+    "memoryExplore": false,
+    "memoryHome": false,
+    "briefing": false
+  },
+  "rememberedAppAfterBriefing": true,
+  "memoryRemembered": false,
+  "memoryError": "openThumb 记忆: no-card:早报|关闭早报|业务应用|关闭业务应用",
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "memoryDraftUi": 0,
+  "memoryButton": true,
+  "preDrag": {
+    "mainW": 1012,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 500
+  },
+  "wide": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false,
+    "stageW": 872
+  },
+  "narrow": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 360
+  },
+  "resizeCollapse": true,
+  "resizeExpand": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-float-ao.png",
+  "pngBytes": 762474,
+  "pass": true,
+  "bizWriteUrls": []
+}

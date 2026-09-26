@@ -1,0 +1,116 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "commit": "3dd20f6a3e30662aa0974906e2f1075896cf1edd",
+  "vitePid5174": 1985,
+  "workspace": "/Users/zxz/Documents/ai-project/fdex测试",
+  "library": {
+    "movementsWithProduct": 5135,
+    "movementsWithWarehouse": 5135,
+    "deptRoleHits": 0,
+    "full": {
+      "movements": 5135,
+      "products": 301,
+      "warehouses": 6,
+      "roles": 11,
+      "departments": 12
+    },
+    "fkNote": "product 与 stockMovements 共用流水表 product/productId；warehouse 走 warehouse/warehouseId；部门→角色为 departmentsRoles 行数。"
+  },
+  "codeReview": {
+    "commit": "3dd20f6a3e30662aa0974906e2f1075896cf1edd",
+    "hardcodedLiterals": false,
+    "piercePaths": [
+      "runtime/vendor-overlays/dsh-lan-assist/write.js:833-834（peer 无 hitTotal 时用 matches.length）",
+      "runtime/vendor-overlays/dsh-lan-assist/write.js:1053-1054（listing 无 hitTotal 时用 allRows.length）",
+      "runtime/vendor-overlays/dsh-lan-assist/lookup.js:503-504（hitPack known 时用 rows.length）"
+    ],
+    "note": "提交 diff 未写死 5135/0 或对象名片段；同会话切换边时右侧曾串单（首轮 roles 图脚 5135），属 UI 未跟 pending 对齐，非字面量打穿。"
+  },
+  "cases": [
+    {
+      "edge": "商品物料 → 出入库流水（product）",
+      "speech": "现查商品物料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 5135,
+      "fullTable": 5135,
+      "parentFull": 301,
+      "rightHitTotal": 5135,
+      "rightKind": "出入库流水",
+      "footer": "共 5135 条",
+      "footerCount": 5135,
+      "rowsOnPage": 20,
+      "pageLine": "第 1 / 257 页",
+      "kindChips": ["出入库流水5135", "商品物料"],
+      "planBanner": "现查商品物料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "note": "落点出入库流水；芯片未落成商品物料 301 或仓库 6；页脚与库命中 5135 一致，本页 20 行。",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-adv-product.png",
+      "sessionId": "session-f07e3baa-ffd7-4c53-b27a-58e1bc74c139"
+    },
+    {
+      "edge": "商品物料 → 出入库流水（stockMovements）",
+      "speech": "现查商品物料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 5135,
+      "fullTable": 5135,
+      "parentFull": 301,
+      "rightHitTotal": 5135,
+      "rightKind": "出入库流水",
+      "footer": "共 5135 条",
+      "footerCount": 5135,
+      "rowsOnPage": 20,
+      "pageLine": "第 1 / 257 页",
+      "kindChips": ["出入库流水5135", "商品物料"],
+      "planBanner": "现查商品物料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "note": "与 product 词表公开说法相同，图上无法区分 field；数值与库一致。命中集等于流水整表 5135，但未落成商品整表 301。",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-adv-stock-movements.png",
+      "sessionId": "session-3b4c16ca-c985-4766-93a4-4cb784df3368"
+    },
+    {
+      "edge": "仓库 → 出入库流水（warehouse）",
+      "speech": "现查仓库的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 5135,
+      "fullTable": 5135,
+      "parentFull": 6,
+      "rightHitTotal": 5135,
+      "rightKind": "出入库流水",
+      "footer": "共 5135 条",
+      "footerCount": 5135,
+      "rowsOnPage": 20,
+      "pageLine": "第 1 / 257 页",
+      "kindChips": ["出入库流水5135", "仓库"],
+      "planBanner": "现查仓库的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "note": "落点出入库流水；计划条为仓库边；芯片为仓库非 6 条整表标签；页脚 5135 与库一致，未落成仓库整表 6。",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-adv-warehouse.png",
+      "sessionId": "session-8f9364d7-f32e-49f6-8d3a-2dbef5c82079"
+    },
+    {
+      "edge": "{{t(\"Departments\")}} → {{t(\"Roles\")}}（roles）",
+      "speech": "现查{{t(\"Departments\")}}的{{t(\"Roles\")}}。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 0,
+      "fullTable": 11,
+      "parentFull": 12,
+      "rightHitTotal": 0,
+      "rightKind": "{{t(\"Roles\")}}",
+      "footer": "共 0 条",
+      "footerCount": 0,
+      "rowsOnPage": 0,
+      "pageLine": "第 1 / 1 页",
+      "kindChips": ["{{t(\"Roles\")}}", "{{t(\"Departments\")}}"],
+      "planBanner": "现查{{t(\"Departments\")}}的{{t(\"Roles\")}}。只要预览，不要过账，不要 biz_write。",
+      "pierced": false,
+      "note": "独立会话补拍：角色空表、页脚 0，与库 departmentsRoles 0 一致；未写成角色整表 11。首轮同会话连拍曾串成流水 5135（已废弃）。",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-adv-roles.png",
+      "sessionId": "session-892f63d3-db48-4007-9bcf-794902e3fae5"
+    }
+  ],
+  "spotChecksUntouched": {
+    "note": "本轮未打枚举/非自环边；未动 managedWarehouses。",
+    "fixtures": [
+      "员工档案直属上级 80",
+      "员工档案下属 15",
+      "部门 children 4",
+      "客户→工单 399"
+    ]
+  }
+}

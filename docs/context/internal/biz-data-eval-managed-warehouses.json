@@ -1,0 +1,84 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "commit": "7f535ce427d565ae91c4fa364ec319240257f80b",
+  "edge": {
+    "from": "员工档案",
+    "to": "仓库",
+    "field": "managedWarehouses"
+  },
+  "libraryCount": 6,
+  "pushed": false,
+  "cases": [
+    {
+      "short": "edge-speech",
+      "speech": "员工档案的仓库",
+      "sessionId": "mw-eval-a-1790140970960",
+      "library": 6,
+      "hitTotal": 6,
+      "hitTotalState": "known",
+      "sheetKind": "仓库",
+      "rowCount": 6,
+      "steps": [
+        {
+          "kind": "员工档案"
+        },
+        {
+          "kind": "仓库"
+        }
+      ],
+      "fromKind": "员工档案",
+      "pass": true,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-managed-warehouses-edge-speech.png"
+    },
+    {
+      "short": "edge-speech-2",
+      "speech": "员工档案的仓库",
+      "sessionId": "mw-eval-b-1790140970961",
+      "library": 6,
+      "hitTotal": 6,
+      "hitTotalState": "known",
+      "sheetKind": "仓库",
+      "rowCount": 6,
+      "steps": [
+        {
+          "kind": "员工档案"
+        },
+        {
+          "kind": "仓库"
+        }
+      ],
+      "fromKind": "员工档案",
+      "pass": true
+    }
+  ],
+  "adversarial": {
+    "reverseSpeech": {
+      "ok": true,
+      "error": null,
+      "kind": "仓库",
+      "hitTotal": 6,
+      "hitTotalState": "known",
+      "rowCount": 6,
+      "steps": [
+        {
+          "kind": "员工档案"
+        },
+        {
+          "kind": "仓库"
+        }
+      ],
+      "fromKind": "员工档案"
+    },
+    "fieldLabelSpeech": {
+      "ok": true,
+      "error": null,
+      "kind": "仓库",
+      "hitTotal": 6,
+      "hitTotalState": "known",
+      "rowCount": 6,
+      "steps": null,
+      "fromKind": null
+    }
+  },
+  "allPass": true
+}

@@ -1,0 +1,327 @@
+{
+  "sha": "3d038a104384800ff61c5dbba0ff1ad7fe14a0a1",
+  "branch": "main",
+  "boardName": "资料卡片板",
+  "otherName": "家庭药箱",
+  "visitName": "本周现场走访记录",
+  "hardcoded": "none",
+  "silentBizWrite": false,
+  "autoImSend": false,
+  "originPushed": false,
+  "createdNewApp": false,
+  "listedBefore": [
+    {
+      "id": "app_6a81181028a64219a373626cb6514921",
+      "name": "资料卡片板",
+      "status": "active",
+      "updatedAt": "2026-09-19T09:19:30.066Z"
+    },
+    {
+      "id": "app_27d92ef9a8cb45719d2633f596007003",
+      "name": "家庭药箱",
+      "status": "active",
+      "updatedAt": "2026-09-19T07:36:19.018Z"
+    },
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:36:50.727Z"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:33:47.810Z"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:26:09.893Z"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:03:58.932Z"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:05.598Z"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:02.947Z"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.866Z"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.860Z"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.853Z"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "board": {
+    "id": "app_6a81181028a64219a373626cb6514921",
+    "name": "资料卡片板",
+    "status": "active",
+    "kind": "generated",
+    "revision": 2,
+    "updatedAt": "2026-09-19T09:19:30.066Z"
+  },
+  "other": {
+    "id": "app_27d92ef9a8cb45719d2633f596007003",
+    "name": "家庭药箱",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T07:36:19.018Z"
+  },
+  "clickIm": {
+    "top": "ok",
+    "opened": "head:IM",
+    "heads": [
+      "IM"
+    ]
+  },
+  "imExpand": "ok",
+  "imRoster": {
+    "list": 5,
+    "compact": 0,
+    "empty": false
+  },
+  "imPick": {
+    "ok": true,
+    "count": 5,
+    "mode": "list",
+    "before": "pk_self_aa57ef46546c811d",
+    "clicked": "🌿"
+  },
+  "imBeforeTear": {
+    "thread": "pk_self_ed07358f9ad8e31c",
+    "topic": "",
+    "draftAttr": "AR未发送稿-不要发出去",
+    "name": "xxx",
+    "textarea": "AR未发送稿-不要发出去",
+    "head": [
+      "IM"
+    ],
+    "floatKeys": [],
+    "emptyPick": false,
+    "selectedName": "🌿",
+    "slice": "IM 拖拽 联系人 · 4 🌿 zxz （转发）测试一下 🌿 xxx 127.0.0.1:19021 🌿 林督 你好，请问有什么可以帮你？ ☀️ 测试甲 哈喽 话题群 · 1 灰度上线 测试话题 添加同事 / 话题群 🦊 Ace 🌿 xxx 联系人 离线 · 127.0.0.1:19021 记录 与 xxx 开始对话 拟回与先例会由 AI 生成后自动回填输入框 拟回 采纳 先例 交接 问本机 摘要 表情 文件 记录 AI 结果会先回填，不会自动发送 发送"
+  },
+  "imTearInstant": {
+    "thread": "pk_self_ed07358f9ad8e31c",
+    "topic": "",
+    "draftAttr": "AR未发送稿-不要发出去",
+    "name": "xxx",
+    "textarea": "AR未发送稿-不要发出去",
+    "head": [],
+    "floatKeys": [
+      "im"
+    ],
+    "emptyPick": false,
+    "selectedName": "",
+    "slice": "IM 🌿 🌿 🌿 ☀️ 🌿 xxx 联系人 离线 · 127.0.0.1:19021 记录 与 xxx 开始对话 拟回与先例会由 AI 生成后自动回填输入框 拟回 采纳 先例 交接 问本机 摘要 表情 文件 记录 AI 结果会先回填，不会自动发送 发送"
+  },
+  "imTearSettled": {
+    "thread": "pk_self_ed07358f9ad8e31c",
+    "topic": "",
+    "draftAttr": "AR未发送稿-不要发出去",
+    "name": "xxx",
+    "textarea": "AR未发送稿-不要发出去",
+    "head": [],
+    "floatKeys": [
+      "im"
+    ],
+    "emptyPick": false,
+    "selectedName": "",
+    "slice": "IM 🌿 🌿 🌿 ☀️ 🌿 xxx 联系人 离线 · 127.0.0.1:19021 记录 与 xxx 开始对话 拟回与先例会由 AI 生成后自动回填输入框 拟回 采纳 先例 交接 问本机 摘要 表情 文件 记录 AI 结果会先回填，不会自动发送 发送"
+  },
+  "imDockInstant": {
+    "thread": "pk_self_ed07358f9ad8e31c",
+    "topic": "",
+    "draftAttr": "AR未发送稿-不要发出去",
+    "name": "xxx",
+    "textarea": "AR未发送稿-不要发出去",
+    "head": [
+      "IM"
+    ],
+    "floatKeys": [],
+    "emptyPick": false,
+    "selectedName": "",
+    "slice": "IM 拖拽 🌿 🌿 🌿 ☀️ 🌿 xxx 联系人 离线 · 127.0.0.1:19021 记录 与 xxx 开始对话 拟回与先例会由 AI 生成后自动回填输入框 拟回 采纳 先例 交接 问本机 摘要 表情 文件 记录 AI 结果会先回填，不会自动发送 发送"
+  },
+  "imDockSettled": {
+    "thread": "pk_self_ed07358f9ad8e31c",
+    "topic": "",
+    "draftAttr": "AR未发送稿-不要发出去",
+    "name": "xxx",
+    "textarea": "AR未发送稿-不要发出去",
+    "head": [
+      "IM"
+    ],
+    "floatKeys": [],
+    "emptyPick": false,
+    "selectedName": "",
+    "slice": "IM 拖拽 🌿 🌿 🌿 ☀️ 🌿 xxx 联系人 离线 · 127.0.0.1:19021 记录 与 xxx 开始对话 拟回与先例会由 AI 生成后自动回填输入框 拟回 采纳 先例 交接 问本机 摘要 表情 文件 记录 AI 结果会先回填，不会自动发送 发送"
+  },
+  "imRemembered": true,
+  "imStoppedAt": {
+    "before": "xxx:pk_self_ed07358f9ad8e31c",
+    "float": "xxx:pk_self_ed07358f9ad8e31c",
+    "dock": "xxx:pk_self_ed07358f9ad8e31c"
+  },
+  "clickMem": {
+    "top": "ok",
+    "opened": "head:记忆",
+    "heads": [
+      "记忆"
+    ]
+  },
+  "memoryTearClick": "ok",
+  "memoryRemembered": true,
+  "memoryBefore": {
+    "head": "记忆",
+    "pane": "io",
+    "floatKeys": [],
+    "openExplore": false,
+    "ioTitle": true,
+    "returnBtn": true
+  },
+  "memoryAfter": {
+    "head": "记忆",
+    "pane": "io",
+    "floatKeys": [],
+    "openExplore": false,
+    "ioTitle": true,
+    "returnBtn": true
+  },
+  "clickPlan": {
+    "top": "ok",
+    "opened": "head:计划",
+    "heads": [
+      "计划"
+    ],
+    "ensured": 0
+  },
+  "planBeforeTear": {
+    "head": "计划",
+    "tab": "schedule",
+    "scheduleOn": true,
+    "floatKeys": []
+  },
+  "planTearClick": "ok",
+  "planRemembered": true,
+  "planAfter": {
+    "head": "计划",
+    "tab": "schedule",
+    "scheduleOn": true,
+    "floatKeys": []
+  },
+  "clickData": {
+    "top": "ok",
+    "opened": "head:业务应用",
+    "heads": [
+      "业务应用"
+    ]
+  },
+  "floatButtonText": "浮窗",
+  "floatButtonOk": true,
+  "oldLabelGone": true,
+  "appTear": {
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "checking": false,
+    "connectorEmpty": false,
+    "floatCount": 1,
+    "appFloatCount": 1
+  },
+  "appNoFlash": true,
+  "twoBeforeCount": 2,
+  "twoAfter": {
+    "workspace": true,
+    "catalog": false,
+    "product": true,
+    "checking": false,
+    "connectorEmpty": false,
+    "floatCount": 1,
+    "appFloatCount": 1
+  },
+  "onlyOneDocked": true,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "preDrag": {
+    "mainW": 752,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 760
+  },
+  "wide": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false,
+    "stageW": 872
+  },
+  "narrow": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 360
+  },
+  "resizeCollapse": true,
+  "resizeExpand": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-float-ar.png",
+  "pngBytes": 540290,
+  "pass": true,
+  "bizWriteUrls": [],
+  "imSendUrls": [],
+  "dualMd": "Error: ENOENT: no such file or directory, mkdir '/cursor'",
+  "dualPng": "Error: ENOENT: no such file or directory, mkdir '/cursor'",
+  "dualJson": "Error: ENOENT: no such file or directory, mkdir '/cursor'"
+}

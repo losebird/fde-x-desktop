@@ -1,0 +1,214 @@
+{
+  "sha": "8d6266c8f707284a62d44003e551e8bc960a4b69",
+  "branch": "cursor/records-bind-pipe-bh-96ba",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "hardcodedInSrc": "none",
+  "gateInjected": false,
+  "overlayCause": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "originPushed": false,
+  "pnpm5174": true,
+  "portsBefore": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "connect": {
+    "connected": true,
+    "pid": 81167,
+    "error": null
+  },
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "sessionId": "session-c55b9aca-9b0c-48bc-a35c-76c7355ca7af",
+  "kinds": {
+    "http": 200,
+    "count": 40,
+    "spokenBatchIsKind": false,
+    "spokenShortIsKind": false,
+    "spokenBatchAlias": "费用报销",
+    "spokenShortAlias": "请假申请"
+  },
+  "orphan": {
+    "http": 400,
+    "error": {
+      "code": "validation_error",
+      "message": "该对象没有连接业务表"
+    },
+    "message": "该对象没有连接业务表",
+    "kind": null,
+    "action": null,
+    "rows": 0,
+    "first": "",
+    "preview_id": null,
+    "speech": "preview a concept with no business table"
+  },
+  "batchPreview": {
+    "http": 200,
+    "error": null,
+    "message": "",
+    "kind": "费用报销",
+    "action": "现查",
+    "rows": 97,
+    "first": "EXP20251224598",
+    "preview_id": null,
+    "speech": "待审报销一批"
+  },
+  "batchUi": {
+    "kindChips": [
+      "费用报销97"
+    ],
+    "selectedChip": "费用报销97",
+    "footer": "共 97 条 · 局域网业务协作适配器 · 现查 18:17",
+    "footerCount": 97,
+    "tbodyRows": 10,
+    "firstNo": "EXP20251224598",
+    "banner": "AI 刚查了 费用报销 · 97 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查费用报销 · 现查 · 待审报销一批销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同",
+    "drawerOpen": false,
+    "drawerText": ""
+  },
+  "batchOnScreen": true,
+  "covering": {
+    "http": 502,
+    "error": {
+      "code": "NOT_FOUND",
+      "message": "费用报销这边对不上「一批」，0 条，不是没去查。"
+    },
+    "message": "费用报销这边对不上「一批」，0 条，不是没去查。",
+    "kind": null,
+    "action": null,
+    "rows": 0,
+    "first": "",
+    "preview_id": null,
+    "speech": "待审报销一批"
+  },
+  "afterCover": {
+    "kindChips": [
+      "费用报销97"
+    ],
+    "selectedChip": "费用报销97",
+    "footer": "共 97 条 · 局域网业务协作适配器 · 现查 18:17",
+    "footerCount": 97,
+    "tbodyRows": 10,
+    "firstNo": "EXP20251224598",
+    "banner": "AI 刚查了 费用报销 · 97 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查费用报销 · 现查 · 待审报销一批",
+    "drawerOpen": false,
+    "drawerText": ""
+  },
+  "coverHeld": true,
+  "editedCell": true,
+  "openWrite": {
+    "ok": true,
+    "action": "改行"
+  },
+  "beforeCancel": {
+    "kindChips": [
+      "费用报销97"
+    ],
+    "selectedChip": "费用报销97",
+    "footer": "共 1 条 · 局域网业务协作适配器 · 改行 18:17",
+    "footerCount": 1,
+    "tbodyRows": 1,
+    "firstNo": "EXP20251224598",
+    "banner": "AI 刚查了 费用报销 · 1 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查费用报销 · 现查 · 待审报销一批",
+    "drawerOpen": true,
+    "drawerText": "改行确认将更新 费用报销 记录关闭操作：改行 · 业务型：费用报销状态待审→待审*取消确认过账"
+  },
+  "clickedCancel": true,
+  "afterCancel": {
+    "kindChips": [
+      "费用报销97"
+    ],
+    "selectedChip": "费用报销97",
+    "footer": "共 97 条 · 局域网业务协作适配器 · 现查 18:17",
+    "footerCount": 97,
+    "tbodyRows": 10,
+    "firstNo": "EXP20251224598",
+    "banner": "AI 刚查了 费用报销 · 97 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同费用报销 · 改行 · 待审报销一批费用报销 · 现查 · 待审报销一批",
+    "drawerOpen": false,
+    "drawerText": ""
+  },
+  "cancelHeld": true,
+  "shortPreview": {
+    "http": 200,
+    "error": null,
+    "message": "",
+    "kind": "请假申请",
+    "action": "现查",
+    "rows": 20,
+    "first": "QJ20240425718",
+    "preview_id": null,
+    "speech": "same-shape short name"
+  },
+  "shortUi": {
+    "kindChips": [
+      "请假申请20"
+    ],
+    "selectedChip": "请假申请20",
+    "footer": "共 20 条 · 局域网业务协作适配器 · 现查 18:17",
+    "footerCount": 20,
+    "tbodyRows": 10,
+    "firstNo": "QJ20240425718",
+    "banner": "AI 刚查了 请假申请 · 20 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查请假申请 · 现查 · same-shape short name费用报销 · 改行 · 待审报销一批费用报销 · 现查 · 待审报销一批",
+    "drawerOpen": false,
+    "drawerText": ""
+  },
+  "shortOk": true,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "createWizard": true,
+  "opsTabOk": true,
+  "askAiButton": true,
+  "aiLeft": {
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false
+  },
+  "catalogHasVisit": true,
+  "visitOpened": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "wide": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "narrow": {
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false
+  },
+  "portsEnd": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "d22": {
+    "tabs": true,
+    "create": true,
+    "stretch": true,
+    "askAi": true,
+    "visit": true
+  },
+  "autoIm": false,
+  "pass": true
+}

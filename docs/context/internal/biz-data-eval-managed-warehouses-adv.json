@@ -1,0 +1,71 @@
+{
+  "commit": "6c7429fb03b949dbf3be7a56a12688008e029bd4",
+  "branch": "cursor/eval-three-causes-2d90",
+  "edge": {
+    "from": "员工档案",
+    "to": "仓库",
+    "field": "managedWarehouses"
+  },
+  "library": {
+    "edgeLibraryCount": 6,
+    "fullTableWarehouses": 6,
+    "fullEqualsEdge": true,
+    "resource": "biz_warehouses",
+    "edgeFilter": {
+      "managerId": {
+        "$notEmpty": true
+      }
+    }
+  },
+  "cases": [
+    {
+      "short": "edge-speech-a",
+      "speech": "员工档案的仓库",
+      "sessionId": "session-fb0058b3-5157-487f-9a69-36bc57ed8998",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-managed-warehouses-adv-edge-speech-a.png",
+      "libraryHit": 6,
+      "fullTable": 6,
+      "rightHitTotal": 16,
+      "hitTotalState": "known",
+      "sheetKind": "供应商",
+      "footerText": "",
+      "footerAttr": "",
+      "pagination": "",
+      "planLine": "现查员工档案的直属上级。只09/23 05:40",
+      "visibleRowCount": 0,
+      "tableHeaders": [],
+      "rowLabels": [],
+      "planSteps": null,
+      "planMatchesSpeech": false,
+      "pierced": true,
+      "pass": false,
+      "note": "空会话或未见右边表；未见页脚；表内无可见行；计划条与口语不一致 plan=现查员工档案的直属上级。只09/23 05:40 speech=员工档案的仓库；刮入上一轮计划条；sheet.kind=供应商 期望 仓库；steps 非 员工档案→仓库: null；rightHit=16 库=6"
+    },
+    {
+      "short": "edge-speech-b",
+      "speech": "管理的仓库",
+      "sessionId": "session-eb984fdf-c8fb-4b3c-a447-ccf386d310f5",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-managed-warehouses-adv-edge-speech-b.png",
+      "libraryHit": 6,
+      "fullTable": 6,
+      "rightHitTotal": null,
+      "hitTotalState": null,
+      "sheetKind": null,
+      "footerText": "",
+      "footerAttr": "",
+      "pagination": "",
+      "planLine": "现查员工档案的直属上级。只09/23 05:40",
+      "visibleRowCount": 0,
+      "tableHeaders": [],
+      "rowLabels": [],
+      "planSteps": null,
+      "planMatchesSpeech": false,
+      "pierced": true,
+      "pass": false,
+      "note": "空会话或未见右边表；未见页脚；表内无可见行；计划条与口语不一致 plan=现查员工档案的直属上级。只09/23 05:40 speech=管理的仓库；刮入上一轮计划条；sheet.kind=null 期望 仓库；steps 非 员工档案→仓库: null"
+    }
+  ],
+  "allPass": false
+}

@@ -1,0 +1,311 @@
+{
+  "sha": "7898736a4db22ddfedcc58db7196f5196aced0a8",
+  "branch": "main",
+  "boardName": "资料卡片板",
+  "visitName": "本周现场走访记录",
+  "hardcoded": "none",
+  "silentBizWrite": false,
+  "originPushed": false,
+  "createdNewApp": false,
+  "clickedNod": false,
+  "listedBefore": [
+    {
+      "id": "app_6a81181028a64219a373626cb6514921",
+      "name": "资料卡片板",
+      "status": "active",
+      "updatedAt": "2026-09-19T09:19:30.066Z"
+    },
+    {
+      "id": "app_27d92ef9a8cb45719d2633f596007003",
+      "name": "家庭药箱",
+      "status": "active",
+      "updatedAt": "2026-09-19T07:36:19.018Z"
+    },
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:36:50.727Z"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:33:47.810Z"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:26:09.893Z"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:03:58.932Z"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:05.598Z"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:02.947Z"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.866Z"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.860Z"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.853Z"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "openedApp": {
+    "id": "app_6a81181028a64219a373626cb6514921",
+    "name": "资料卡片板",
+    "status": "active",
+    "kind": "generated",
+    "revision": 2,
+    "updatedAt": "2026-09-19T09:19:30.066Z"
+  },
+  "cardsBeforeIds": [
+    {
+      "id": "memory:aff12daf",
+      "status": "已入档"
+    },
+    {
+      "id": "memory:8bf27120",
+      "status": "已入档"
+    },
+    {
+      "id": "memory:9d258200",
+      "status": "已入档"
+    },
+    {
+      "id": "memory:acae2b3a",
+      "status": "起草"
+    },
+    {
+      "id": "memory:28def3cf",
+      "status": "起草"
+    }
+  ],
+  "uses": "ai,float,files,memory,im,briefing,biz",
+  "buttons": [
+    {
+      "use": "ai",
+      "text": "问 AI"
+    },
+    {
+      "use": "float",
+      "text": "撕出浮窗"
+    },
+    {
+      "use": "files",
+      "text": "引用文件"
+    },
+    {
+      "use": "memory",
+      "text": "起草记忆卡片"
+    },
+    {
+      "use": "im",
+      "text": "拟回进输入框"
+    },
+    {
+      "use": "briefing",
+      "text": "打开早报"
+    },
+    {
+      "use": "biz",
+      "text": "打开业务记录"
+    }
+  ],
+  "undeclaredButton": false,
+  "memoryUi": {
+    "product": true,
+    "cards": 6,
+    "draftCard": true,
+    "draftBody": "资料卡片板\n按来源分组铺资料卡片，点打开链接\n应用动作只起草卡片，等人点头才入档。",
+    "draftStatus": "起草",
+    "nodButton": true,
+    "graphStudio": false,
+    "failedFetch": false,
+    "memoryPanel": false
+  },
+  "memoryPost": {
+    "http": 200,
+    "id": "memory:17442d99",
+    "status": "起草"
+  },
+  "newCards": [
+    {
+      "id": "memory:17442d99",
+      "label": "资料卡片板 按来源分组铺资料卡片，点打开链接 应用动作只起草卡片，等人点头才入档。",
+      "status": "起草",
+      "source": "",
+      "then": {
+        "now": false,
+        "label": "当时 · 没有日期 · 起草 · 不是现在",
+        "status": "起草",
+        "valid_from": "",
+        "undated": true
+      },
+      "valid_until": "",
+      "current": true,
+      "suggest": {
+        "type": "confirms",
+        "target": "memory:aff12daf"
+      },
+      "actions": [
+        {
+          "op": "open"
+        },
+        {
+          "op": "file"
+        },
+        {
+          "op": "retire"
+        },
+        {
+          "op": "link"
+        }
+      ]
+    }
+  ],
+  "memoryListed": {
+    "id": "memory:17442d99",
+    "label": "资料卡片板 按来源分组铺资料卡片，点打开链接 应用动作只起草卡片，等人点头才入档。",
+    "status": "起草",
+    "source": "",
+    "then": {
+      "now": false,
+      "label": "当时 · 没有日期 · 起草 · 不是现在",
+      "status": "起草",
+      "valid_from": "",
+      "undated": true
+    },
+    "valid_until": "",
+    "current": true,
+    "suggest": {
+      "type": "confirms",
+      "target": "memory:aff12daf"
+    },
+    "actions": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "file"
+      },
+      {
+        "op": "retire"
+      },
+      {
+        "op": "link"
+      }
+    ]
+  },
+  "memoryIsDraft": true,
+  "autoFiled": false,
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-product-an.png",
+  "files": {
+    "stageHead": "文件",
+    "hasFileTree": true,
+    "titleHint": true
+  },
+  "filesOk": true,
+  "im": {
+    "stageHead": true,
+    "composer": "资料卡片板\n按来源分组铺资料卡片，点打开链接\n这条只放进输入框。请人过目后点发送，不要自动群发。",
+    "composerFilled": true,
+    "textareaCount": 1
+  },
+  "imOk": true,
+  "briefing": {
+    "stageHead": true,
+    "morning": false,
+    "customize": true,
+    "fake": false
+  },
+  "briefingOk": true,
+  "biz": {
+    "recordsTab": true,
+    "preview": true,
+    "confirmPost": false
+  },
+  "bizOk": true,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "preDrag": {
+    "mainW": 1012,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 500,
+    "graphStudio": false
+  },
+  "wide": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false,
+    "stageW": 872,
+    "graphStudio": false
+  },
+  "narrow": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true,
+    "stageW": 360,
+    "graphStudio": false
+  },
+  "resizeCollapse": true,
+  "resizeExpand": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "templateHits": "none",
+  "bizWriteUrls": [],
+  "imSendUrls": [],
+  "autoSendIm": false,
+  "pass": true
+}

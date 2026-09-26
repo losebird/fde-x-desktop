@@ -1,0 +1,2 @@
+{"n":6,"pass":false,"failCode":"过审-empty-changes","kind":"","rows":null}
+{"pass":false,"failCode":"case-6:过审-empty-changes","sha":"e8ac09f7047f4e8dc111e755fe2b5f8204037023","cases":[{"n":6,"pass":false},{"n":7,"pass":false},{"n":8,"pass":false},{"n":9,"pass":false},{"n":10,"pass":false}]}

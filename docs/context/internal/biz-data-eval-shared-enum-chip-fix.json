@@ -1,0 +1,55 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "headCommit": "ccc53c949858d72f636c93600aa38bbbd299ff22",
+  "shotsDistinct": true,
+  "taskVsProject": {
+    "task": {
+      "bytes": 69426,
+      "sha256": "4fc7d57140c5def1975ace30f016dc47858673af5e6dc130a16d7f4b12ae9a85"
+    },
+    "project": {
+      "bytes": 70033,
+      "sha256": "f8028dc9abbaf909be0d369530e2c6a2044910e5cf613d2d0bc9196fbb208c2a"
+    }
+  },
+  "captures": [
+    {
+      "slug": "doing-项目任务",
+      "kind": "项目任务",
+      "library": 161,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-doing-项目任务.png",
+      "bytes": 69426,
+      "sha256": "4fc7d57140c5def1975ace30f016dc47858673af5e6dc130a16d7f4b12ae9a85",
+      "pass": true
+    },
+    {
+      "slug": "doing-项目",
+      "kind": "项目",
+      "library": 96,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-doing-项目.png",
+      "bytes": 70033,
+      "sha256": "f8028dc9abbaf909be0d369530e2c6a2044910e5cf613d2d0bc9196fbb208c2a",
+      "pass": true
+    },
+    {
+      "slug": "contract-empty",
+      "kind": "销售合同",
+      "library": 0,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-contract-empty.png",
+      "bytes": 64976,
+      "sha256": "afa1cd40817ff7d7a0a82e63125c38022cbc7115c9209a6c106f36b44282c328",
+      "pass": true
+    },
+    {
+      "slug": "warehouse-semi",
+      "kind": "仓库",
+      "library": 1,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-shared-enum-chip-fix-warehouse-semi.png",
+      "bytes": 80110,
+      "sha256": "9a3ae3ff6afbe276eb2815936e5fe5a8fc298eab024048d8c987269b94828ff7",
+      "pass": true
+    }
+  ],
+  "allPass": true,
+  "capturedAt": "2026-09-22T22:47:46.400Z"
+}

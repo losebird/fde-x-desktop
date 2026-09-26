@@ -1,0 +1,163 @@
+{
+  "commit": "3c58dadd874104d89d3cd0f505362a6945322405",
+  "branch": "cursor/eval-three-causes-2d90",
+  "vendorOverlayApplied": true,
+  "aiReload": true,
+  "primary": [
+    {
+      "label": "仓库 / 半成品库",
+      "speech": "半成品库的仓库。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 1,
+      "rightHitTotal": 1,
+      "footer": 1,
+      "footerText": "共 1 条",
+      "where": [
+        {
+          "keys": [
+            "仓库类型",
+            "whType"
+          ],
+          "values": [
+            "半成品库"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pass": true,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-3-warehouse-semi.png"
+    },
+    {
+      "label": "仓库 / 综合库",
+      "speech": "综合库的仓库。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 1,
+      "rightHitTotal": 1,
+      "footer": 1,
+      "footerText": "共 1 条",
+      "where": [
+        {
+          "keys": [
+            "仓库类型",
+            "whType"
+          ],
+          "values": [
+            "综合库"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pass": true,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-3-warehouse-mixed.png"
+    }
+  ],
+  "spotChecks": [
+    {
+      "label": "supplier-c",
+      "speech": "C的供应商。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 16,
+      "rightHitTotal": 16,
+      "footer": 16,
+      "footerText": "共 16 条",
+      "where": [
+        {
+          "keys": [
+            "供应商评级",
+            "rating"
+          ],
+          "values": [
+            "C"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pass": true
+    },
+    {
+      "label": "movement-production",
+      "speech": "生产领料的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 1647,
+      "rightHitTotal": 1647,
+      "footer": 1647,
+      "footerText": "共 1647 条",
+      "where": [
+        {
+          "keys": [
+            "业务类型",
+            "movementType",
+            "来源单据类型",
+            "refType"
+          ],
+          "values": [
+            "生产领料"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pass": true
+    },
+    {
+      "label": "spot-manager",
+      "speech": "现查员工档案的直属上级。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 80,
+      "rightHitTotal": 80,
+      "footer": 80,
+      "footerText": "共 80 条",
+      "where": [],
+      "pass": true
+    },
+    {
+      "label": "ticket-resolved",
+      "speech": "已解决的工单。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 121,
+      "rightHitTotal": 121,
+      "footer": 121,
+      "footerText": "共 121 条",
+      "where": [
+        {
+          "keys": [
+            "工单状态",
+            "status"
+          ],
+          "values": [
+            "resolved"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pass": true
+    },
+    {
+      "label": "ticket-closed",
+      "speech": "已关闭的工单。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 115,
+      "rightHitTotal": 115,
+      "footer": 115,
+      "footerText": "共 115 条",
+      "where": [
+        {
+          "keys": [
+            "工单状态",
+            "status"
+          ],
+          "values": [
+            "closed"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "pass": true
+    }
+  ],
+  "allPass": true
+}

@@ -1,0 +1,305 @@
+# FDEX工作台
+
+## 方案与决策
+- [x] [项目上下文](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/project-context.md) — 决策 17 印证一次写完；决策 22 不得搞坏现有功能
+- [x] [业务记录五问](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/records-panel-decisions.md) — §12 模糊命中多条先选再继续
+- [ ] [跨对象现查对齐计划](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/hop-intersection-plan.md) — 合同侧 chip 已是这次 hop 1 行
+- [ ] [业务记录对齐方案](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/records-align-plan.md) — 整块没收口，第 4 条问卡未关
+- [x] [收口总因](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/records-close-root-cause.md) — 三问已钉，只按四条契约修
+- [ ] [和 Palantir 比，准确性还差什么](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/palantir-accuracy-gap.md) — 六处都在修复计划里，等这页落地
+- [x] [业务记录修复计划](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/records-close-fix-plan.md) — 已进本地 main `9808390`，未推
+- [x] [客户工单边怎么补](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/records-close-human-edge-patch.md) — 人能查能补，正路是保存连接生成词表
+- [x] [业务应用可生产交接](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/HANDOFF-BIZ-APP-PRODUCTION.md) — 按 handoff 技能写完；临时副本在 Mac `$TMPDIR/fdex-biz-app-handoff.md`
+- [ ] [业务应用可生产方案](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-plan.md) — 正在把项目文件放进仓库并写交接；单表现网是 `3cf7d1b`，红字还在
+  - [ ] [Copy context and handoff](bc-5784db1f-2f8e-5b3a-91b4-bd8a5b570c54) — 拷进 docs/context，索引，临时目录交接
+  - [x] [Check live single sheet](bc-83103e6c-5a3c-54cc-b112-1a6754ae8192) — 核心和页面已是这笔提交
+  - [x] [Land single published sheet](bc-159f7397-4120-5577-87c9-a27eecf8cb1a) — 本地 `3cf7d1b`，136 项过了，说明在 [单发布表落地](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-sheet-single-writer-land.md)
+  - [x] [Review single sheet land](bc-12016ed2-8e3b-5d9d-b430-4bac0813d279) — 有条件收下，两处没钉死
+  - [x] [Map semantic graph basis](bc-c4dc08fa-561c-5448-b51a-14c63a50c1ad) — 关系在型上，手册知识库流程进不了预览，见 [语义图和业务数据](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/semantic-graph-biz-base.md)
+  - [x] [Write single writer plan](bc-e0c98ae5-a3ed-5810-b672-0a315c4eb77b) — 九份断点已钉，碰坏点写在方案页
+  - [x] [Review biz data coverage](bc-ec9cab12-bce5-5e4a-9450-242921c62fb1) — 8 处写漏、1 处写错，已补进架构页
+  - [x] [Review remaining app coverage](bc-bda098bf-f0c8-54b0-877e-b9275c603d1c) — 壳上触点已补进架构页
+  - [x] [Map utterance to records](bc-9b8e4e07-3b9c-5959-8a40-d733675be2c2) — 一句到右栏已画进架构页
+  - [x] [Map app shell and audit](bc-3f857a59-c1bc-59e6-a54e-a966b7941fbc) — 应用真值在 SQLite，操作执行不进审计
+  - [x] [Trace 14:33 settle abort](bc-98339b43-337b-5491-8123-cc95e77afd2a) — overlay 是 71c43570，第二枪只有 AbortError
+  - [x] [Review settle cancel order](bc-0d2b395c-feeb-550f-a3d1-de28f43a4061) — 有条件收下，审阅在 [第一刀落地审阅](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land-review.md)
+  - [x] [Stop abort red after settle](bc-789da699-a148-5793-857b-eb2edb28160f) — 本地 `07fb1595`，说明在 [业务应用第一刀落地](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land.md)
+  - [x] [Review records auto apply](bc-5cf20b28-a6b8-5fb3-9009-330bbd56774a) — 有条件收下，审阅在 [第一刀落地审阅](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land-review.md)
+  - [x] [Fix records auto apply](bc-33a9458b-8116-5b9f-8d88-aef08d7d44c8) — 本地 `71c43570`，说明在 [业务应用第一刀落地](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land.md)
+  - [x] [Review empty refresh fix](bc-30ace66e-982f-5264-beb1-645a03286496) — 有条件收下，审阅在 [第一刀落地审阅](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land-review.md)
+  - [x] [Fix empty records refresh](bc-e662aac5-0917-5a0e-95aa-353135fc7357) — 本地 `17a62b30`，说明在 [业务应用第一刀落地](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land.md)
+  - [x] [Review approve batch where](bc-85b9a1c0-4521-5a80-a1fb-0f3d1904246b) — 有条件收下，审阅在 [第一刀落地审阅](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land-review.md)
+  - [x] [Fix approve batch where](bc-cd366731-cbf0-5cb0-91ca-e67051959c38) — 本地 `2316d753`，说明在 [业务应用第一刀落地](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land.md)
+  - [x] [Trace pending and approve](bc-864198b7-ce90-5da7-9a00-ae7edc8025fb) — 现查 96 对，过审 TOO_MANY 上台杂状态
+  - [x] [Trace records page skip](bc-6762ce14-7aea-5d27-ad96-81cb07c05d93) — 13:12 已 emit，13:27 仍在设置页
+  - [x] [Review user-speech settle key](bc-733b8ac5-6da2-5a79-b535-4025adef584a) — 有条件收下，审阅在 [第一刀落地审阅](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land-review.md)
+  - [x] [Key settle on user speech](bc-8d135133-7ccf-511e-b9ef-56d6fb84b059) — 本地 `8a73914d`，说明在 [业务应用第一刀落地](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land.md)
+  - [x] [Review utterance settle key](bc-12e91a53-1653-500a-9092-a8264578990e) — 有条件收下，审阅在 [第一刀落地审阅](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land-review.md)
+  - [x] [Settle same utterance once](bc-89e4a39c-39f1-57e6-93f1-4128d528f06e) — 本地 `a886ff32`，说明在 [业务应用第一刀落地](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land.md)
+  - [x] [Trace Qwen settle abort](bc-61eca0fd-c2fb-58b3-9456-fbcadeac45f1) — abort 是 leftover，三枪因 from 换键
+  - [x] [Land settle then end](bc-fdeba9f2-5c87-5ada-b470-49da08f7848b) — 闸侧 `567d5baa`，说明在 [业务应用第一刀落地](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land.md)
+  - [x] [Review leftover cancel wire](bc-8f518d3e-e60f-582b-90b6-bb449ef5e559) — 4.1.3 有条件收下，审阅在 [第一刀落地审阅](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-land-review.md)
+  - [x] [Wire settle leftover cancel](bc-fa806a10-50ae-5d35-861c-94cd524f4a0b) — 本地 `4966f68d`
+  - [ ] [业务应用模块收口](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-module-plan.md) — 三页没收口，清单在 [业务应用模块缺口](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-module-gaps.md)
+  - [x] [Audit app shell gaps](bc-9ddd22c6-b341-52ec-b97a-726b19b4277c) — 管道能跑，观感和能力未齐
+  - [x] [Audit records hop gaps](bc-8e72aefd-4765-506e-a4a2-d97810bc91c1) — 整块没收口，方案和现网图审对不上
+  - [x] [Audit write crud gaps](bc-4f0ddf01-acc7-5ae3-b12d-d2dfef82622e) — 现查评测齐，过账手验和右栏仍咬人
+- [ ] [应用打开与能力](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/apps-open-and-capability.md) — 创建和改走 spec.surface，观感与能力条未齐
+- [x] [业务记录对齐根因](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/records-align-root-cause.md) — chrome 1、表体旧行；历史下拉不粘
+- [x] [可执行规格包](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/specs/README.md) — Ace 已确认 04 §4 / 05 §6 / 06 §4，按此执行
+- [ ] [AI Native 平台方案](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/platform-design.md) — 已拍板；功能波次 1–4 代码在 main
+- [ ] [单一安装包与跨平台方案](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/packaging-design.md) — 正式包装最后做；P1 脚本已进 main，默认停
+
+## 功能验收
+- [ ] 首页 — 本地 `cfdee525`，等你刷新看红字 0 和已接通
+  - [ ] 设置存储状态 — 本地 `890971de`，等你刷新看说明
+  - [x] [Dig IM runtime pending row](bc-338efcf7-c150-564a-88c4-6ea5dfef7b3d) — 只扫插件目录，从未标正常
+  - [ ] 核心 — 已通，等你看接通、会话和现查还在不在
+- [ ] 设置局域网配对 — 本地 `fb925253`，等你看运行环境这块没了
+- [ ] 模型与提供方 — 协议和窗口已补，等你重载核心后再看 grok2api
+  - [x] [Judge DSH features to add](bc-13ea148b-4a49-5707-a0c6-02a84b8edbcc) — 该加写入对齐，别加官方整页
+  - [x] [Audit biz plus handbook bind](bc-5db0b7ba-db59-5365-b8f0-d16ca9552b6a) — 部分能：会话可连用，闸不认手册
+  - [x] [Trace WHERE_UNBOUND bind drop](bc-90aa1041-45ab-5f13-bc1b-1c0b09d392e4) — 第一跳「停用」对不上「暂停合作」
+  - [x] [Review one-bind land diff](bc-11670e2d-ae92-523f-9fa8-ddceed995637) — 实现有条件收下，方案未过关
+  - [x] [Fix reload dual BFF](bc-8548a0ab-2ad7-549f-a378-6cc80624f6cb) — 灯已接通，一套 BFF 一套 DSH
+  - [x] [Recheck core after reload](bc-cc8e77e8-c6db-5b02-8ea1-79fac230881e) — 灯亮、一套进程、overlay 还在
+  - [x] [Trace Qwen turn not ending](bc-e8e305fe-740e-50bd-bf5b-2c3454327368) — 现查已过，9 分钟耗在查完后的长思考
+  - [x] [Review speech-action land](bc-178061c7-87ea-5182-a588-108e38bb9ce9) — 实现收下
+  - [x] [Trace Qwen slow runtime](bc-597abeba-ed9a-5930-8cb8-fb504c3501a9) — 慢在硅基单步推理，工具约 2 秒
+  - [ ] [Qwen 慢能收什么](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/qwen-slow-runtime-plan.md) — 已收进 [业务应用可生产方案](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-app-production-plan.md) 第一刀
+  - [ ] [Qwen 为什么特别慢](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/qwen-slow-runtime.md) — 9 分钟里 104 秒已出表
+  - [ ] [原话定动作审阅](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/speech-action-authority-review.md) — 等你用 Qwen 打四句
+  - [x] [Land speech action authority](bc-edb5f241-37cb-5d05-b42b-038d75828c12) — 本地 `6dcee573`
+  - [ ] [原话定动作落地](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/speech-action-authority-land.md) — 实现收下，现网手验未齐
+  - [ ] [原话定动作](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/speech-action-authority-plan.md) — 已落地，等手验
+  - [x] [Trace 待审 became 过审](bc-b4ea4803-291e-5006-908b-f55a4b2f7596) — 模型填过审，词表没教，退路没响
+  - [ ] [待审为什么变成过审](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/qwen-pending-as-approve.md) — 待审是状态，不是过审 say
+  - [x] [Check pending expense intent](bc-aa4d4512-1a25-56be-b4af-19a12063d710) — 对象对，action 是过审
+  - [ ] [待审报销是现查还是过审](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/qwen-pending-expense-intent.md) — 96 行过审预览，有令牌
+  - [ ] [Qwen 21 行出了回合不收](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/qwen-turn-not-end.md) — 绑定过了，agent 环不收
+  - [ ] [重载只留一套](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/core-reload-dual-bff.md) — 灯亮；第 1 句表现在对，回合太长
+  - [x] [Check live overlay loaded](bc-a9313865-7d49-501f-bd79-7442921c5d01) — overlay 当时已刷上
+  - [ ] [小模型业务格子审阅](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/small-model-biz-ops-land-review.md) — 实现收下，现网验收未打
+  - [x] [Land one-bind biz path](bc-a3cc32f5-5f74-59a9-b1f9-467117231410) — 本地 `5c8e2230`
+  - [ ] [小模型业务格子落地](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/small-model-biz-ops-land.md) — 单测过，现网没打到
+  - [ ] [小模型怎么才能精准操作业务数据](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/small-model-biz-ops-plan.md) — 实现收下，现网未过
+  - [ ] [WHERE_UNBOUND 为什么误触](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/where-unbound-root.md) — 现查/找行还会撞；写值那刀已换收口
+  - [ ] [现查 where 按格子收](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/expense-pending-unbound-plan.md) — 仍有效，本句还要补词表同义
+  - [x] [Compare Qwen Grok same query](bc-8b4bc97d-70a6-5fc4-aaf7-6104cc871361) — 同闸；grok 靠 replay 查出 21 行
+  - [ ] [同一句 Qwen 和 grok 各走哪](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/qwen-vs-grok-same-query.md) — hop 都拒，恢复丢给模型
+  - [x] [Dig LIVEEV WorkBuddy thought](bc-09c1cd9b-9de3-5bec-a556-99b2b85af2ee) — 模型自己猜的，不是两份旧版
+  - [ ] [LIVE 和 WorkBuddy 那句思考](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/liveev-workbuddy-thought.md) — 读到两份拷贝，grep 不一致就贴了旧版
+  - [x] [Dig Qwen unbound think loop](bc-cada43c3-5c51-535f-a2b2-3ce287a2b67e) — 跨对象现查被闸拦住，不是没连业务
+  - [ ] [Qwen 查停用工单为什么空转](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/qwen-ticket-unbound-loop.md) — hop 绑定后 terms 空了；正路 grok 也过不去
+  - [x] [Align model write with official](bc-0333d1d2-5ddd-5190-b182-e2f1c39ec602) — 硅基问好已通，误灌推理档已拿掉
+  - [ ] [模型写入对齐官方](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/fdex-model-write-align-plan.md) — 本地 `386d9589`，等你重载核心后再看设置
+  - [ ] [哪些 DSH 能力该接到工作台](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/fdex-dsh-features-fit.md) — 写入已按官方收一刀
+  - [x] [Audit remaining DSH model gaps](bc-8d590b1f-667f-5503-bfe0-740b47d21c78) — 还差 8 条
+  - [ ] [FDE-X 和 DSH 模型还差哪几条](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/fdex-dsh-parity-gaps.md) — 家目录和推理档是主缝
+  - [x] [Compare FDEX DSH model picker](bc-1c402c66-6575-5dd7-b652-780f448a0832) — 选模型同一套，家目录里多写了推理档
+  - [ ] [FDE-X 和 DSH 选模型还差在哪](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/fdex-dsh-model-picker.md) — 早年固定注入 reasoningEfforts
+  - [x] [Dig Qwen 400 context error](bc-6673813c-95db-566d-b705-222717d0a902) — Off 仍发 developer
+  - [ ] [硅基 Qwen 怎么收](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/siliio-qwen-400-plan.md) — 发 system，等你点头
+  - [ ] [硅基 Qwen 400 是怎么回事](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/siliio-qwen-400.md) — 关 Off 不够，发出去还是 developer
+  - [x] [Land official-parity model editor](bc-c558fc66-8f48-59b6-8644-890c42eed9dd) — 协议走 schema，模型行能改窗口
+  - [x] [Plan DSH-parity model manage](bc-59731bb9-3c9e-5577-bf19-f17765690caf) — 不能嵌官方页，按同一套字段做
+  - [ ] [模型与提供方管理怎么补](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/settings-provider-manage-plan.md) — 已落地，等你点验
+  - [x] [Land provider row management](bc-7ff04045-b2f8-52d7-8154-b0f562cd3901) — 目录换钥，自定义能删
+  - [x] [Dig provider manage gap](bc-76d719d6-9873-5bd6-bf7c-23e1211c3f67) — 不嵌 DSH 管理页，改删由工作台补
+  - [ ] [模型与提供方管理怎么补](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/settings-provider-manage-plan.md) — 已落地，等你点验
+  - [ ] [模型与提供方管理缺口](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/settings-provider-manage.md) — 只有一套账，缺管理
+  - [x] [Remove settings LAN pair shell](bc-ecbf8432-daa3-5ea2-a283-5f0f3d56736b) — 设置删壳，IM 留入口
+  - [x] [Dig settings LAN pair leftover](bc-1c24ebe3-eb88-535c-ba3f-8a4f5061ec27) — 平行重复壳
+  - [ ] [设置里局域网配对怎么拿掉](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/settings-lan-pair-plan.md) — 已落地，等你看
+  - [ ] [设置里局域网配对能不能拿掉](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/settings-lan-pair.md) — 同一条路，壳已删
+  - [x] [Land core reload supervisor](bc-98dc6bef-21b8-5143-ad05-d2bf9f36ef44) — 口不通就杀掉再拉
+  - [x] [Dig why core reload fails](bc-09ca2480-c7c7-50a1-ac96-d6fbab6d269f) — 口没了，旧进程还在
+  - [ ] [重载核心怎么收](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/core-reload-fail-plan.md) — 已落地，等你看设置
+  - [ ] [重载核心为什么无效](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/core-reload-fail.md) — 复用监督死锁，已按方案补
+  - [x] [Recover down AI core](bc-5812e505-730a-5ae7-b1c4-888eb446b5ee) — 你停了，没再拉
+  - [x] [Recover down AI core](bc-612670c6-04ee-5de1-9e4c-be64c82282db) — 并线已停
+  - [ ] [运行环境 IM 行怎么收](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/runtime-im-pending-plan.md) — 本地 `d7c3d3ab`，核心起不来先搁下
+  - [x] [Land IM health row](bc-11ea1f2d-b3db-50d9-b715-130114f5c765) — 健康检查跟灯走；4318 当时还是旧进程
+  - [ ] [运行环境 IM 行为什么还待接通](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/runtime-im-pending.md) — 怕误报，真通了也没改这行
+  - [x] [Hide persist key on settings](bc-974a55ad-13e4-5fec-b1cd-246aa5867717) — 键名和过渡中已从页面拿掉
+  - [x] [Dig storage transition banner](bc-d000ca33-2f76-56af-83de-d92959e2ef38) — 名字是习惯，不是契约
+  - [ ] [存储状态为什么还写过渡中](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/storage-compat-cache.md) — 说明已按存法改，桶名未改
+  - [x] [Land home light and red count](bc-d889dd24-fb06-5358-9d5d-198c0f1899ca) — 红字不数演练；灯跟在线走
+  - [x] [Dig exception and pending connector](bc-d7ca08dd-da56-5309-ae79-91b8ccf5f3c7) — 灯不是查写开关；红字只在首页卡上
+  - [ ] [首页异常和待启用怎么收](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/home-exception-connector-plan.md) — 已落地，等你看首页
+  - [ ] [首页那个 1 和待启用](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/home-exception-connector.md) — 灯没接到钥匙上
+  - [ ] 业务记录 — 4 张已推出，页面曾挂旧 BFF；刷新后再验恒通工单
+  - [x] [Dig why land missed tickets](bc-a986d98e-dda8-5c13-afd9-0f6db8608a3f) — 事件流没接到新 BFF
+  - [ ] [右边只跟这一句的表](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/hop-sheet-stuck-plan.md) — 查到了就上台
+  - [x] [Dig delayed ticket sheet paint](bc-1aaf16b4-dfce-5d67-94fe-806187a4c607) — 12:16 画的是 11:41 那张官方工单
+  - [ ] [工单查到了右边仍是改行](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/hop-sheet-stuck-root.md) — 新问一句才把旧官方表画上
+  - [ ] [为什么口语是固定的「回退」](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/rollback-speech-upstream.md) — 记号占了原话格
+  - [x] [Dig why speech is 回退](bc-5c6c2315-6030-5c4c-8557-e0d369e5f5bb) — 根因已对上
+  - [ ] [Dig delete by description miss](bc-0e2331f9-2d06-52d0-8a61-2e91f8d99dea) — 上游已钉，未改产品
+  - [ ] [Land write lookup-key fix](bc-ef79a5c7-7771-52b0-96ee-17983e71742d) — 改行过账已手过；现查自停还没挖
+  - [ ] [过账再找行：为什么、怎么收](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/write-lookup-key-plan.md) — 已落地，现网点账未证
+  - [ ] [过账再找行打在哪一类](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/write-lookup-key-scope.md) — 空业务号时改行出红条；删除过审 0 行仍当成功
+  - [x] [Scope write lookup key](bc-f9c44edc-5fa8-54eb-8870-1aacf34d450f) — 范围已钉，未改产品
+  - [ ] [先建后改为什么插新行](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/alter-write-twenty-root.md) — 「新增」盖成新建；改行用 ticketNo 滤，主键对上了也改不到
+  - [x] [Dig stale fields after retry](bc-351a5ec9-38ea-54cc-9a75-2c3de694578b) — 点确认后红条已钉，未改产品
+  - [ ] [Land three write-class fixes](bc-aee10adf-ea27-5232-bf3e-a7265d9dcc00) — 三刀已进闸；这次改行手验炸了
+  - [ ] [这三条准备怎么收](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/create-write-fix-plan.md) — 通用绑+空牌+回执已落地，现网点账未证
+  - [x] [Plan three write-class fixes](bc-77f882a3-40a8-53d2-902e-85195edbe1c2) — 收法已写，未改产品
+  - [ ] [这三条打在哪一类](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/create-write-class-scope.md) — 外键新建改行；空行仅新建；leftover 四种写共用
+  - [x] [Scope three bugs across CRUD](bc-a6bbce72-5cdd-5850-8b94-e1d8e041fb70) — 范围已钉，未改产品
+  - [ ] [这笔新建的上游](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/create-write-three-upstream.md) — 词表图对不齐；空令牌先写后废；无筛选现查仍 leftover
+  - [ ] [这笔新建的三条根因](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/create-write-three-bugs.md) — ace 收不成 id；一次确认写了空令牌；无 where 现查仍 leftover
+  - [x] [Dig upstream of three causes](bc-4f471b38-6d66-541c-be0b-cdd0a2d18432) — 上游已钉，未改产品
+  - [x] [Dig three create write bugs](bc-b2c308ab-bde3-5d92-9a6c-3e65a1064836) — 三条已钉，未改产品
+  - [ ] [Collapse write confirm authority](bc-6ed18618-ce89-5bef-90b1-b8843f5ee1ce) — 令牌开抽屉已进代码；同一次确认仍会两发
+  - [ ] [连弹确认根因](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/write-confirm-root-cause.md) — 契约已进代码，现网点账未证
+  - [ ] [新建三次确认](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/double-confirm-plan.md) — 四种写动作同一条，等手验
+  - [x] [Audit live triple confirm](bc-94f53eba-0e68-5c30-ba2e-5307448bd7a5) — 第二张同令牌 USED；第三张新令牌新建
+  - [x] [Audit write confirm state machine](bc-be3309bb-3280-5b82-93e2-997f588e2480) — 至少 7 份可确认副本
+  - [x] [Audit write stack layers](bc-254e07d5-801d-5286-a758-ac57c7c64f83) — 开抽屉不认 token.used
+  - [x] [Fix double confirm write](bc-7abca8b4-7f65-5a36-b8ec-f7ac02e42ec9) — 已停，未改产品
+  - [x] [Review apply seam robustness](bc-1244abbc-ca7f-5cdc-a4ba-cb13b06f5c00) — 结论在 [apply 缝够壮吗](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/apply-seam-robustness.md)
+  - [x] [Explain spoken-write empty panel](bc-b22bee18-866d-5176-b735-ece0fe7fbdfd) — 因果在 [口语进库后右栏为什么空](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/spoken-write-empty-panel.md)
+  - [x] [Apply settled sheet to panel](bc-63b38672-9319-55dd-983c-6936ce183465) — 本地 `5e37f0b6`；映射失败仍画表，不再 clear
+  - [x] [Dig sheet apply miss](bc-40c73890-62a4-55a4-9ab0-8cc0dab564d1) — apply 失败会清表；有当前型就不再拉 pending
+  - [x] [Dig empty records panel](bc-72cf2216-324f-5923-8be7-fcd67483ec16) — 闸有行；SSE 18:02:30 已到
+  - [x] [Emit preview sheet immediately](bc-d7804af7-0c1a-5125-85b7-e4f02073e646) — 已停，没改产品
+  - [ ] [口语进库](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/spoken-write-audit.md) — 关系/过审/where 已收；数字日期未做
+  - [ ] [增删改审交互](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-write-interaction-audit.md) — 四层岔开；W24 不过；leftover 现网未证
+  - [x] [Apply spoken write overlay](bc-633608b2-9c46-57e2-b527-6725b2243159) — DSH 曾 23047，后又因复制补丁重连
+  - [x] [Fix spoken write bindings](bc-4b8b26f8-d45d-5e6b-b98a-887476c61512) — 本地 `c184266b`，单测 6/6
+  - [x] [Fix handler bigint write](bc-8e7a4f06-3f03-5ccc-bb46-441b888e65a2) — 本地 `e61b9bc9`；口语收成 `assigneeId`
+- [ ] 会话复制 — 补丁已进 `/dsh-app`，等你刷新后点「复制」
+  - [x] [Restart BFF for clipboard](bc-6cb3fc6f-0f36-55ae-908e-930841cc91c2) — 4318 现 26724，HTML 含 clipboard-patch
+  - [x] [Fix chat copy button](bc-3e4ccd3a-59e9-5885-acf0-bdcb31839e4b) — 本地 `e7f9b1fe`；writeText 失败走 execCommand
+  - [x] [Apply leftover overlay live](bc-a1a93225-9dd2-5a97-b230-65ce4221a05b) — vendor 已与 `20c234fb` 对齐，DSH 已换新进程
+  - [x] [Stop leftover cancel abort](bc-197ecf79-6a07-5c40-b4ef-8cc4c9adda2b) — 本地 `20c234fb`，单测 77，现网等交互审计
+  - [x] [Dig silent tool abort](bc-53b37f61-f16b-5cbb-82b1-e4ec62fd8f71) — 根因在 [tool call aborted](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/tool-call-abort-root-cause.md)
+  - [x] [Dig silent tool abort](bc-53b37f61-f16b-5cbb-82b1-e4ec62fd8f71) — 根因在 [tool call aborted](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/tool-call-abort-root-cause.md)
+  - [x] [Block model auto write](bc-3d51a5b6-9737-5d43-8de2-30313b00e37a) — 模型写被拒；过期显示原文；失败收抽屉
+  - [x] [Dig create write abort](bc-ced362fd-16b0-5905-9623-4ed269a2390f) — 根因在 [W1 新建过账](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-write-w1-root-cause.md)
+  - [ ] [增删改审手测集](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-write-eval.md) — 你手测，W1 未过
+  - [x] [Recheck inline record actions](bc-5932e8da-076a-591b-9dde-9c93ec132d90) — 四下图过，本地 main `9808390`，未推
+  - [x] [Attack records close rules](bc-cba0fd77-f982-5f74-8ba3-003fc00c94ff) — 60 条过了；第二个对象后来已补上
+  - [ ] [Land records close plan](bc-39f33ea4-24c9-560d-b385-2ef3b2b38652) — 你在直接跟它说；交回的仍是 `507e334`
+  - [ ] [Hand round result on end](bc-32b86a01-9462-5f49-8db8-601a48cefc3c) — 1、2 图过；第 3 块左边未停，已交下一刀
+  - [ ] [Land official round result](bc-791c5c75-f15b-51a1-8527-93ee4154947a) — 读槽旁支作废，不进 main
+  - [ ] [Close records complex cases](bc-41293846-e0c1-578b-ad3b-fac83a7baa04) — 已停；方案已交 [Land official round result](bc-791c5c75-f15b-51a1-8527-93ee4154947a)
+  - [ ] [Stress-test records close](bc-07833bb8-76ca-59ee-aabc-efaabe962f5b) — 已停；在你这台 Mac 打过 scene-39，杀过 4318，本地 main 有提交，没推远程没写业务库
+  - [ ] [Finish records close once](bc-f9f4acbe-8dd0-57b7-843d-aea8170b9ae8) — 图审没过，图没进 Context，第 4 条点选和落表不一致
+  - [x] [Verify then land on main](bc-3b1af745-a3de-5e50-b68b-dd474f759e20) — 工单21图过，已进本地 main `bca5c09`
+  - [x] [Publish connector associations](bc-4cf596a8-c0b0-5434-96a1-8e9d1d758372) — 已进 main，整块没收口
+  - [ ] [Publish connector associations](bc-2ae03a76-18ad-5252-9148-8396db651e9f) — 已停，未发边
+  - [ ] [Publish missing schema edges](bc-9a7b3101-89c7-5b0d-b19f-06475ca28539) — 已停，未发边
+  - [x] [Document human edge patch](bc-f0ff42ec-3d62-5f47-a67e-4b7fbd099cba) — 人能查能补，正路是保存连接生成词表
+  - [ ] [Finish unheld closed valves](bc-49c7c18d-c8dd-5232-ba33-89058548e2e1) — 图审没过，第 1 条工单 21，第 4 条问卡未关
+  - [ ] [Close remaining nine valves](bc-27c6efb7-c120-5574-9806-0352b659aceb) — 图审没过，第 1 条客户 0
+  - [ ] [Prove remaining six fixtures](bc-a68307c8-e09e-506b-8226-745920d49815) — 第 6 条不是新根因
+  - [ ] [Prove ten live fixtures](bc-93f004e6-77da-5a92-a9fb-dc89f066d73f) — 当时停在第 5 条过审空表
+  - [x] [Land 过审 preview token](bc-7b7bb2ea-74a3-5505-8008-f26a4464b282) — 第 5 条过审令牌图过，6–10 没跑
+  - [ ] [Finish records close contract](bc-65938102-285e-52d8-8c72-e577d75077f2) — 1–2 对，当时 3 没过
+  - [ ] [Land bind pipe on main](bc-06b75c78-8054-517d-b564-725c03e5d708) — 自报进 main，图审没过，报销单仍能预览
+  - [x] [Hold sheet after cancel](bc-1f1823c1-e8f3-5614-b957-cb967aaa8b1d) — 取消后仍是 hop 21，图过
+  - [x] [Fix spoken-kind bind pipe](bc-868bf743-0b36-56fe-ad61-c7a4767a96ba) — 现查97和取消图对，过审一批没对，旁支未进 main
+  - [x] [Finish ten-case records close](bc-e8b23ddd-6eb2-56cf-959d-4bbb493f8898) — 1–4 过，第 5 条报销单空表
+  - [x] [Fix stale-sheet query miss](bc-5daf733e-77b4-50a6-ba8b-6bf33bbaa01d) — 第 2 条查出 8 行，第 3 条没夹带
+  - [x] [Finish records close remainder](bc-259bfdbd-9c31-5269-aee8-a3734d416e90) — 第 2 条报 0 并出选择题
+  - [x] [Finish builder spec revise path](bc-74ab66a4-c9e1-5ba4-b947-c7e73ef89595) — 三条图过，问 AI 你点过，`cb694ad`
+  - [x] [Finish app look in one pass](bc-468a8cb8-dcca-53f1-96f5-f1443de076ce) — 通栏播放、记一笔胶囊，`4df6629`
+  - [x] [Fix look and app URLs](bc-40c518ac-b8d6-5e55-a7df-42fe0d401c41) — 播放打开证明页，观感未齐，`209e426`
+  - [x] [Close leftover create-app tails](bc-60d13af3-4103-5cbf-ad7d-a5263ed6532f) — 计划待办和打开图过，观感未齐，`ffa4767`
+  - [x] [Finish remaining create-app gaps](bc-564b3342-8335-5dca-8acd-3b7c98ff40e6) — 八项功能面图过，`b686f9b`
+  - [x] [Fold app capability actions](bc-2ae88857-fc83-5978-a1e8-55632ffe2c16) — 工作面不再叠事务底座条，能力和添加资料同一行
+  - [x] [Show declared capability entries](bc-483e62cb-051b-5218-b864-63a8e53e7df7) — 记下栏能看见入口，问 AI 开了左栏
+  - [x] [Tidy app capability chrome](bc-8b880fb7-1d38-5008-b0bc-dccf832ae94c) — 栏目顶不再是工具条，说明剥了探针字
+  - [x] [Remember IM float state](bc-e84f3e6a-316e-56f1-ba2d-c803cdc05cc4) — IM 同一会话撕出收回还在
+  - [x] [Restore module float state](bc-829465ca-41a2-5eaf-a50a-5a19f0a02b75) — 记忆导入导出、计划日程撕出收回还在
+  - [x] [Stop biz float flash](bc-dfca177b-751d-5b3e-bd35-0a8e1e45dc30) — 撕出收回不再闪默认页
+  - [x] [Ship app-only float](bc-ac3a6733-203f-5f14-9465-7c65ac18e13e) — 应用浮窗图过，「—」收回右侧
+  - [x] [Retry app capability wiring](bc-bbbf789e-fc38-5059-8485-273aa2a4ad93) — 验证图已进 Context，记忆起草卡图过
+  - [x] [Wire declared app capabilities](bc-fbd2311f-7c7c-51b1-b775-bfa4da76809a) — 未过，记忆开了图谱
+  - [x] [Raise card density look](bc-e1d0beb7-6588-5ac8-b255-550425b23ee6) — 同组横排多卡，`a41c630`
+  - [x] [Ship grouped product cards](bc-ad72e771-8154-517d-b860-4e75598a4994) — 分组能打开链接，`e1367c4`
+  - [x] [Match product page look](bc-894f8d42-ac04-5a35-ba3f-8b9337ac4515) — 整屏能记，`f5ee4da`
+  - [x] [Finish product page quality](bc-e3c27668-b75e-55f6-bb0b-fc07e64a145a) — 建造让开，栏目卡片有了，`49ad21d`
+  - [x] [Ship product-shaped app create](bc-b6203436-dde6-546c-b69d-0eada14a8a49) — 药箱仪表盘能存，`49c8a69`
+  - [x] [Tidy catalog and preview](bc-64cc7ede-24fe-5335-9c13-146b2a727256) — 已停，目录分层不是真应用
+  - [x] [Ship in-tab app create](bc-c76608d0-e3dc-56d4-abc0-fe67af93102c) — 向导在应用 Tab，`81232bb`
+  - [x] [Prove kanban card drag](bc-e5a38b10-8cc2-5a87-a660-37d99c76c771) — 已停，未当产品去优化走访应用
+  - [x] [Retry kanban field rollback](bc-16301578-a52f-55e9-a5f8-6f1a33d094d2) — 看板加列回滚图过，`12aa131`
+  - [x] [Restore session list resize](bc-8a7f0579-5dca-5a20-a100-71bf36f821d7) — 拉宽收起、拉窄展开
+  - [x] [Prove kanban field rollback](bc-1f72d5d8-0ab1-569b-94f9-e2309316d5e2) — 已停，未改布局
+  - [x] [Open apps in surfaces](bc-8ae62cbe-d0dc-5821-a103-92fc9ce25625) — 草稿对话框，已激活软删确认
+  - [x] [Ship app tab end-to-end](bc-8aef5f9c-8e51-558a-8b23-f31883a365ff) — 走访记录已激活，新建行还在
+  - [x] [Prove hop kind chips](bc-9ec2818b-ce90-5118-9b44-d3ffa75249ba) — 合同 1 行 HT-2026-005，不是目录 20
+- [ ] 词表与图 — 卡片比连接器少列，现查已按连接器走通
+  - [x] [Publish connector vocab edges](bc-5932e8da-076a-591b-9dde-9c93ec132d90) — 没有可补的准确性缺口，未改代码
+  - [x] [Shoot 改行 on 操作列](bc-cc0e0f47-5adc-5607-b885-a19defe63dd9) — 图已对上
+  - [x] [Drop hardcoded 金额 单号](bc-3ffbc2d5-c537-554a-b2b8-c70f9f18387d) — `cafefaa`；字段只看 schema
+- [x] [Push Context docs to GitHub](bc-659126c5-fd7e-5c36-8f3b-e9ed13186d07) — Context docs 已在 GitHub [`docs/`](https://github.com/losebird/fde-x-desktop/tree/main/docs) [`dbffbf0`](https://github.com/losebird/fde-x-desktop/commit/dbffbf0ce831d9c6906b0abd499ad0082152c070)
+- [x] [Hide scrollbars keep scrolling](bc-6196f70d-4888-5351-a120-63c758f02306) — 全站藏条，本地 `aee8655`，未推
+- [x] [业务数据评测](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-data-eval.md) — 五类闸/现网都满；Roles→Users 14、Users→Roles 8
+  - [x] [Close Roles Users edge counts](bc-9b70780b-8cd1-5219-98e8-33b5d43aa708) — through 15 是关联次数，库数按目标去重，未改产品
+  - [x] [Fix official counts then rescore](bc-5b8e9b63-68f9-5b5d-a5dd-7b59ccd14cbe) — hop 分批 `$in`，m2m 走 through，串行 362 已换表
+  - [x] [Dig hop and t() counts](bc-cee6c60a-e268-54ad-b11d-c08ed6de33c5) — 根因在 [hop / t() 条数](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/hop-t-count-root-cause.md)
+  - [x] [Shoot remaining eval live](bc-a2fe6a4f-bb90-53e9-81c7-2bce113622e8) — 已停，交给你做
+  - [x] [Close remaining eval classes](bc-e735711a-1f6f-5ccb-9d8c-47e01bf44e5f) — 代码进 main；现网 chip 80 可见，点开页脚仍 15
+  - [x] [Ship semantic-os with GitHub](bc-ec6d9089-0cc7-54b6-ac91-1942a50786c6) — 树在 [`runtime/data/semantic-os/`](https://github.com/losebird/fde-x-desktop/tree/main/runtime/data/semantic-os)，两大库走 LFS
+  - [x] [Simplify clone and start](bc-209d252f-ea8c-50f2-95d0-8bb4a7845a97) — `npm start` 已推 [losebird/fde-x-desktop](https://github.com/losebird/fde-x-desktop)
+  - [x] [Check local semantic-os tree](bc-0d47db88-defe-58de-b4df-05b9e38211a8) — 本地 `runtime/` 也没有 semantic-os，不是漏推
+  - [x] [Merge main then push GitHub](bc-68f57f2a-7fa7-50f9-8ba5-87b29efbb13b) — 快进合入 main，已推 GitHub
+  - [x] [Show self-loop official rows](bc-09e8664e-60d5-5a6b-9494-2a78ba133165) — 图审：员工档案 15，共 15 条，不是空表也不是 120
+  - [x] [Diagnose self-loop 120 miss](bc-72fe9410-8555-57ed-a556-4c28164c9f42) — 数出 80/15；官方表空表共 0 条
+  - [x] [Fix self-loop live peers](bc-f4df393e-49b6-517d-b068-a7375cbd4c7d) — 已停，不再同一套空转
+  - [x] [Shoot self-loop fix live](bc-5d3a5d06-380d-5082-b5cf-2419af819ef8) — 图审：员工共 120 条
+  - [x] [Fix generated self-loop speech](bc-232c27c6-8fe2-5f7c-991a-dd996fe4e441) — `e3e4d6a` 图审仍是整表 120/12，部门子级 4 被搞成 12
+  - [x] [Shoot generated self-loop speech](bc-ea48ff03-fc17-52d2-824b-2c00ad65e6e8) — 图审：员工 120/120，部门 12/4
+  - [x] [Attack empty-zero after retry](bc-7e766af0-1f72-5ba3-bc8a-f87a05db9724) — 图审：个人客户共 0 条，企业客户共 212 条
+  - [x] [Retry empty-set footer zero](bc-da7a20e0-65bc-5c61-a447-d42291bebdda) — `2321ed1`，图审个人客户共 0 条，企业客户共 212 条
+  - [x] [Attack empty-set footer zero](bc-510596ca-318d-5c81-bda7-723d08d9c191) — 图审：个人客户仍是总数未知，企业客户共 212 条
+  - [x] [Fix empty-set footer zero](bc-0a6906a0-16c2-5f36-a8da-c639b8233124) — `0dec12b`，图审只有会话页，没有业务记录页脚
+  - [x] [Attack remaining enum live](bc-64c1d50a-767c-52d7-a2f2-0516912551d1) — 图审 6 过；个人客户空表页脚仍是总数未知
+  - [x] [Shoot remaining enum live](bc-83c3543d-4950-56a1-b621-dbe7e2bbedc5) — 6 条图对；个人客户空表页脚是总数未知
+  - [x] [Fix remaining enum live](bc-f874c5b6-db2b-561c-8c04-d7bb3a92f910) — 你在直接问它评测做完没；它答了还没完
+  - [x] [Rescore 362 serially](bc-bec3ec81-0e0c-5ba1-ba02-bd63bfdc2300) — 边 81/74，枚举 220/213，其余三类满
+  - [x] [Rescore 362 eval set](bc-8cbeab33-34b0-5007-8087-9b6199497acf) — 8 路并发串单，表作废
+  - [x] [Attack warehouse hop sheet](bc-55dd84dc-ea15-5ec5-8eaa-d14d09a68184) — 你补点了员工芯片；图上芯片亮着，表仍是 WH01–WH06
+  - [x] [Prove warehouse hop sheet](bc-61e81b3d-a880-5f00-9d99-c0ed8bec748c) — WH01–WH06，共 6 条
+  - [x] [Attack managed warehouse hop](bc-d67823d0-5cd8-57ef-84d2-9a37bdeec274) — 一张供应商三选一，一张额度用尽
+  - [x] [Fix managed warehouse hop](bc-d2e57a39-df21-5ee6-8f21-3dafaeff562c) — 自称库 6 右 6，交回的是空会话
+  - [x] [Attack exact chip click](bc-12e5cf2f-e544-56e4-99bd-b9268f76d39a) — 项目 96 的 1/5，任务 161 的 1/9，图不同
+  - [x] [Finish chip exact verify](bc-1a335b0c-61ab-5163-88f8-da2c28645252) — 任务 161 的 1/9、项目 96 的 1/5，图不同
+  - [x] [Resume exact chip click](bc-5c522e62-6a89-53c3-a7a3-84dcb6daf642) — 交回仍是 `kind is not defined`，没关
+  - [x] [Attack chip focus and paging](bc-693c9788-e7bf-5889-85bd-c2fdc64c32c4) — 项目和任务图哈希相同，都是任务 161
+  - [x] [Fix chip focus and paging](bc-bc6d6554-0938-51dd-a868-eae84320184f) — `ccc53c9` 任务 161 的 1/9、项目 96 的 1/5
+  - [x] [Attack peer chip official sheet](bc-9f48d2c0-9a14-54fb-ba3d-3fef1485f5a0) — 项目和任务图哈希相同，都是 161
+  - [x] [Drop row-count footer fallback](bc-05d2ec99-8bcf-51d1-9e88-556f03999162) — `278cdcb` 删了屏幕行数退路；自测图对上，上级格子仍空
+  - [x] [Attack footer count source](bc-85506e23-9732-525d-85d8-2f3cc60a4baa) — 1/1/16/1647/80 对上；上级格子是空的；退路还在
+  - [x] [Remove literal single-row total](bc-d36edf61-bea5-50fc-9c62-674bf17be996) — `1325277` 删了字面量 1；报告 allPass 和半成品库字段不一致
+  - [x] [Attack remaining enum fixes](bc-a3362b7e-e932-5717-91e7-f2c7ba459ceb) — C 16、领料 1647、仓库各 1；单行 hitTotal=1 没过
+  - [x] [Explain fieldSpeak hardcoding](bc-e0a7820b-f720-54ae-85e4-58ceb63816a7) — `3589272` 带进 main，六处调用，之后没改过
+  - [x] [Fix warehouse enum footer](bc-679bbba0-afc4-5687-949b-46697c3ed996) — 半成品库、综合库页脚共 1 条，vendor reload，无新提交
+  - [x] [Close remaining enum misses](bc-8ca651ef-66d4-5325-a6f5-6a2b2c750397) — C 16、领料 1647、上级 80，`3c58dad`
+  - [x] [Attack enum filter accuracy](bc-90013d4d-ff61-5e3b-a2a0-b120ddcddf1b) — C 整表 80，领料 0，半成品库总数未知，上级 120
+  - [x] [Fix enum filter accuracy](bc-eaa1f8fc-f02b-578a-896d-9c4438bc9fa8) — 121/115 对了，`ea1b261`，四处没过
+  - [x] [Attack missing match totals](bc-4b26a09b-1138-51fa-a5ce-a31b395e1471) — 独立会话 5135/0 过了
+  - [x] [Fix missing match totals](bc-5a70c347-70d1-5238-8b2f-681b812f3844) — `3dd20f6`，未进 main
+  - [x] [Attack self-edge walks](bc-7885eeb1-5758-5572-bac7-ebe66a4a8798) — 结构化四条落到 80/11/4/80
+  - [x] [Close self-edge second path](bc-5a70c347-70d1-5238-8b2f-681b812f3844) — `f8aed84`，未进 main
+  - [x] [Fix self-edge walks](bc-5932e8da-076a-591b-9dde-9c93ec132d90) — 人话对上，`924c641`，第二条路径还在
+  - [x] [Attack edge target landing](bc-cba0fd77-f982-5f74-8ba3-003fc00c94ff) — 11 张图右边都在下游，没有打穿
+- [x] [三条没过的原因](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/biz-data-eval-root.md) — 六条重打 6/6，旁支 `472226c` 未进 main
+- [ ] 日常真缺口 — 切会话崩溃先放下，等人先做应用 Tab
+
+## 已完成
+- [x] [Stop verify 问 AI clicks](bc-14a7d80c-0137-5524-8dbe-1f25ed36fc1e) — 收口 verify 已跳过抄表问 AI
+- [x] [Diagnose core reload timeout](bc-a5fda9a3-dcc5-573a-bb16-8c1e4a6fda9c) — 僵尸 4318 + 20s 探活；`0be0152`
+- [x] 业务动作通用绑定 — 动作跟 `can`；模块已进 overlay
+  - [x] [Fix overlay gate-action import](bc-af4f7876-71fd-59de-b1b5-200390bbedf6) — `8f23673`
+  - [x] [Bind actions from vocab can](bc-4460b724-968a-5fa7-a4ca-fbc7bffc8468) — `e4988dc`
+  - [x] [Make all biz actions generic](bc-1442d0a0-5fe8-5c3e-b94f-ce15b1957a2d) — `bfa5c1c`
+
+## 参考
+- [AI Native 改善建议](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/ai-native-recommendations.md)
+- [项目评估报告](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/docs/project-assessment.md)
+- [archived.md](/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/archived.md)

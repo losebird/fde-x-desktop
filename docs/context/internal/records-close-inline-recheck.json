@@ -1,0 +1,40 @@
+{
+  "sha": "f562d108719d4669d108dc2e95224c63db24f198",
+  "mainSha": "980839056de7a92bee47635fb6bac8a7ac5780bc",
+  "branch": "cursor/records-close-session-end-fc3c",
+  "ancestor": "507e334b6289acc804b831bec0db64bfd9be70f5",
+  "sessionId": "session-35abbdcf-ece4-4c90-9014-2469a8650683",
+  "posted": false,
+  "edit": {
+    "right": "原表",
+    "previewOpen": true,
+    "confirmClicked": false,
+    "footer": "共 1 条",
+    "rows": 1,
+    "image": "/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/media/records-close-recheck-edit.png"
+  },
+  "cancel": {
+    "right": "原表",
+    "previewOpen": false,
+    "footer": "共 60 条",
+    "rows": 20,
+    "sameAsBeforeCancel": true,
+    "image": "/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/media/records-close-recheck-cancel.png"
+  },
+  "review": {
+    "right": "原表",
+    "previewOpen": true,
+    "newRound": false,
+    "posted": false,
+    "footer": "共 1 条",
+    "rows": 1,
+    "image": "/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/media/records-close-recheck-review.png"
+  },
+  "history": {
+    "right": "历史那张",
+    "empty": false,
+    "footer": "共 320 条",
+    "rows": 20,
+    "image": "/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/media/records-close-recheck-history.png"
+  }
+}

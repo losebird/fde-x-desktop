@@ -1,0 +1,214 @@
+{
+  "commit": "196cb38d9625ae37dedf4ec32683a63115b52650",
+  "branch": "cursor/eval-three-causes-2d90",
+  "bffPort": 4318,
+  "vitePid5174": 1985,
+  "vitePort5174": 5174,
+  "dataCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "codeAudit": {
+    "ensurePlanSelfHopHardcode": {
+      "pierced": false,
+      "note": "ensurePlanSelfHop 未写死对象名、关系名或条数"
+    },
+    "lookupJsRowsLengthHitTotal": {
+      "pierced": false,
+      "note": "lookup.js 未把 rows.length / listed.rows.length 写入 hitTotal"
+    }
+  },
+  "library": {
+    "full": {
+      "biz_employees": 120,
+      "biz_warehouses": 6,
+      "biz_suppliers": 80,
+      "biz_stock_movements": 5135
+    },
+    "byCase": {
+      "manager-a": 80,
+      "manager-b": 80,
+      "subordinates": 15,
+      "warehouse-semi": 1,
+      "supplier-c": 16,
+      "movement-production": 1647
+    },
+    "sides": {
+      "withManager": 80,
+      "subordinatesSide": 15,
+      "fullTable": 120
+    }
+  },
+  "managerFootersMatch": true,
+  "cases": [
+    {
+      "short": "manager-a",
+      "useCase": "现查 员工档案→直属上级 (session 1)",
+      "speech": "现查员工档案的直属上级",
+      "sessionId": "session-a06d11e1-6fe1-4dcc-884d-59eddd76ff62",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-adv-manager-a.png",
+      "planSteps": [
+        {
+          "kind": "员工档案"
+        },
+        {
+          "kind": "员工档案"
+        }
+      ],
+      "libraryHit": 80,
+      "fullTable": 120,
+      "rightHitTotal": 80,
+      "hitTotalState": "known",
+      "sheetKind": "员工档案",
+      "footerText": "共 80 条 · 局域网业务协作适配器 · 现查 03:36",
+      "footerAttr": "共 80 条",
+      "pagination": "第 1 / 4 页",
+      "planLine": "现查员工档案的直属上级09/23 03:04",
+      "visibleRowCount": 20,
+      "managerColumnEmpty": false,
+      "pierced": false,
+      "pass": true,
+      "note": "库、右边、页脚一致",
+      "sheetSpeech": "现查员工档案的直属上级",
+      "planMatchesSpeech": true
+    },
+    {
+      "short": "manager-b",
+      "useCase": "现查 员工档案→直属上级 (session 2)",
+      "speech": "现查员工档案的直属上级",
+      "sessionId": "session-3b41b529-b063-483d-9ec4-639175a309da",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-adv-manager-b.png",
+      "planSteps": [
+        {
+          "kind": "员工档案"
+        },
+        {
+          "kind": "员工档案"
+        }
+      ],
+      "libraryHit": 80,
+      "fullTable": 120,
+      "rightHitTotal": 80,
+      "hitTotalState": "known",
+      "sheetKind": "员工档案",
+      "footerText": "共 80 条 · 局域网业务协作适配器 · 现查 03:38",
+      "footerAttr": "共 80 条",
+      "pagination": "第 1 / 4 页",
+      "planLine": "现查员工档案的直属上级09/23 03:04",
+      "visibleRowCount": 20,
+      "managerColumnEmpty": false,
+      "pierced": false,
+      "pass": true,
+      "note": "库、右边、页脚一致",
+      "sheetSpeech": "现查员工档案的直属上级",
+      "planMatchesSpeech": true
+    },
+    {
+      "short": "subordinates",
+      "useCase": "现查 员工档案→下属",
+      "speech": "现查员工档案的下属",
+      "sessionId": "session-68c98bbe-5e2e-4fa4-bc23-4a9802da255e",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-adv-subordinates.png",
+      "planSteps": [
+        {
+          "kind": "员工档案"
+        },
+        {
+          "kind": "员工档案"
+        }
+      ],
+      "libraryHit": 15,
+      "fullTable": 120,
+      "rightHitTotal": 15,
+      "hitTotalState": "known",
+      "sheetKind": "员工档案",
+      "footerText": "共 15 条 · 局域网业务协作适配器 · 现查 03:40",
+      "footerAttr": "共 15 条",
+      "pagination": "第 1 / 1 页",
+      "planLine": "现查员工档案的下属09/23 03:10",
+      "visibleRowCount": 15,
+      "managerColumnEmpty": null,
+      "pierced": false,
+      "pass": true,
+      "note": "库、右边、页脚一致",
+      "sheetSpeech": "现查员工档案的下属",
+      "planMatchesSpeech": true
+    },
+    {
+      "short": "warehouse-semi",
+      "useCase": "仓库 / 半成品库",
+      "speech": "半成品库的仓库",
+      "sessionId": "session-506386ac-bb8c-4043-ad35-a14151ab28d0",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-adv-warehouse-semi.png",
+      "planSteps": null,
+      "libraryHit": 1,
+      "fullTable": 6,
+      "rightHitTotal": 1,
+      "hitTotalState": "known",
+      "sheetKind": "仓库",
+      "footerText": "共 1 条 · 局域网业务协作适配器 · 现查 03:41",
+      "footerAttr": "共 1 条",
+      "pagination": "第 1 / 1 页",
+      "planLine": "现查员工档案的下属09/23 03:10",
+      "visibleRowCount": 1,
+      "managerColumnEmpty": null,
+      "pierced": true,
+      "pass": false,
+      "note": "计划条与口语不一致 visible=现查员工档案的下属09/23 03:10 sheet=半成品库的仓库",
+      "sheetSpeech": "半成品库的仓库",
+      "planMatchesSpeech": false
+    },
+    {
+      "short": "supplier-c",
+      "useCase": "供应商 / C",
+      "speech": "C的供应商",
+      "sessionId": "session-8275a2f0-0674-4df6-b670-e6259a714c0d",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-adv-supplier-c.png",
+      "planSteps": null,
+      "libraryHit": 16,
+      "fullTable": 80,
+      "rightHitTotal": 16,
+      "hitTotalState": "known",
+      "sheetKind": "供应商",
+      "footerText": "共 16 条 · 局域网业务协作适配器 · 现查 03:43",
+      "footerAttr": "共 16 条",
+      "pagination": "第 1 / 1 页",
+      "planLine": "现查员工档案的下属09/23 03:10",
+      "visibleRowCount": 16,
+      "managerColumnEmpty": null,
+      "pierced": true,
+      "pass": false,
+      "note": "计划条与口语不一致 visible=现查员工档案的下属09/23 03:10 sheet=C的供应商",
+      "sheetSpeech": "C的供应商",
+      "planMatchesSpeech": false
+    },
+    {
+      "short": "movement-production",
+      "useCase": "出入库流水 / 生产领料",
+      "speech": "生产领料的出入库流水",
+      "sessionId": "session-b30cb6c1-1e9c-454a-a1f7-694017677356",
+      "promptHttp": 200,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-manager-adv-movement-production.png",
+      "planSteps": null,
+      "libraryHit": 1647,
+      "fullTable": 5135,
+      "rightHitTotal": 1647,
+      "hitTotalState": "known",
+      "sheetKind": "出入库流水",
+      "footerText": "共 1647 条 · 局域网业务协作适配器 · 现查 03:44",
+      "footerAttr": "共 1647 条",
+      "pagination": "第 1 / 83 页",
+      "planLine": "现查员工档案的下属09/23 03:10",
+      "visibleRowCount": 20,
+      "managerColumnEmpty": null,
+      "pierced": true,
+      "pass": false,
+      "note": "计划条与口语不一致 visible=现查员工档案的下属09/23 03:10 sheet=生产领料的出入库流水",
+      "sheetSpeech": "生产领料的出入库流水",
+      "planMatchesSpeech": false
+    }
+  ],
+  "allPass": false
+}

@@ -1,0 +1,8 @@
+file:///Users/zxz/Library/Application%20Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/internal/biz-data-eval-self-loop-generated-fix-2-run.mjs:187
+    `${JSON.stringify({ commit: COMMIT, fixCommits: FIX_COMMITS, branch: 'cursor/eval-three-causes-2d90', blocked: 'ai/not-connected', aiStatus: status.json?.data || null }, null, 2)}\n`,
+                                ^
+
+ReferenceError: COMMIT is not defined
+    at file:///Users/zxz/Library/Application%20Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/internal/biz-data-eval-self-loop-generated-fix-2-run.mjs:187:33
+
+Node.js v26.7.0

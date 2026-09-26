@@ -1,0 +1,399 @@
+{
+  "sha": "98af48853bcb98306b865423e02611976a974aa5",
+  "branch": "cursor/records-query-miss-bf-a01d",
+  "hardcodedInSrc": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "originPushed": false,
+  "pnpm5174": true,
+  "cases": [
+    {
+      "n": 1,
+      "speech": "停用客户还有哪些没关的工单？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "客户"
+      ],
+      "mentioned": [
+        "客户",
+        "工单"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "工单",
+      "action": "现查",
+      "rows": 21,
+      "first": "TK20260623126",
+      "banner": "AI 刚查了 工单 · 21 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同",
+      "footerCount": 21,
+      "tbodyRows": 10,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": true,
+        "steps": [
+          "客户",
+          "工单"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "emptyHint": false,
+      "previewId": null,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "askAfterPick": null,
+      "pendingSpeech": "停用客户还有哪些没关的工单？",
+      "nos": [
+        "TK20260623126",
+        "TK20240201467",
+        "TK20241209280",
+        "TK20250920953",
+        "TK20250422233",
+        "TK20250207164",
+        "TK20240223580",
+        "TK20240815759",
+        "TK20241111823",
+        "TK20250925592",
+        "TK20240530927",
+        "TK20260202412",
+        "TK20251007677",
+        "TK20260118524",
+        "TK20260105175",
+        "TK20251003193",
+        "TK20241017268",
+        "TK20250804369",
+        "TK20240217639",
+        "TK20260303283",
+        "TK20241215682"
+      ],
+      "chips": {
+        "ok": true,
+        "failCode": "",
+        "chips": [
+          {
+            "kind": "工单",
+            "count": 21,
+            "text": "工单21"
+          },
+          {
+            "kind": "客户",
+            "count": 14,
+            "text": "客户14"
+          }
+        ],
+        "mixed": false,
+        "selected": {
+          "kind": "工单",
+          "count": 21,
+          "text": "工单21"
+        },
+        "side": {
+          "kind": "客户",
+          "count": 14,
+          "text": "客户14"
+        },
+        "afterSide": {
+          "selectedChip": "客户14",
+          "tbodyRows": 10,
+          "footerCount": 14,
+          "firstNo": "CUST2262",
+          "catalog": false
+        },
+        "connectorSeparate": true
+      }
+    },
+    {
+      "n": 2,
+      "speech": "故障类而且紧急、还没关的工单是哪家客户的？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "工单"
+      ],
+      "mentioned": [
+        "工单",
+        "客户"
+      ],
+      "hopNeed": false,
+      "pass": true,
+      "kind": "工单",
+      "action": "现查",
+      "rows": 8,
+      "first": "TK20250211633",
+      "banner": "AI 刚查了 工单 · 8 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？客户 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？",
+      "footerCount": 8,
+      "tbodyRows": 8,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": false,
+        "steps": [
+          "客户",
+          "工单"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "emptyHint": false,
+      "previewId": null,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "askAfterPick": null,
+      "pendingSpeech": "故障类而且紧急、还没关的工单是哪家客户的？",
+      "nos": [
+        "TK20250211633",
+        "TK20240510148",
+        "TK20260105702",
+        "TK20240331713",
+        "TK20240403502",
+        "TK20240910202",
+        "TK20241124638",
+        "TK20250317500"
+      ],
+      "chips": {
+        "ok": true,
+        "failCode": "",
+        "chips": [
+          {
+            "kind": "工单",
+            "count": 8,
+            "text": "工单8"
+          },
+          {
+            "kind": "客户",
+            "count": 8,
+            "text": "客户8"
+          }
+        ],
+        "mixed": false,
+        "selected": {
+          "kind": "工单",
+          "count": 8,
+          "text": "工单8"
+        },
+        "side": {
+          "kind": "客户",
+          "count": 8,
+          "text": "客户8"
+        },
+        "afterSide": {
+          "selectedChip": "客户8",
+          "tbodyRows": 8,
+          "footerCount": 8,
+          "firstNo": "CUST2276",
+          "catalog": false
+        },
+        "connectorSeparate": true
+      },
+      "quiz": false,
+      "askOpen": false,
+      "fromNos": [
+        "CUST2276",
+        "CUST2242",
+        "CUST2208",
+        "CUST2199",
+        "CUST2188",
+        "CUST2122",
+        "CUST2103",
+        "CUST2028"
+      ],
+      "fromRows": 8,
+      "hasBizMarker": true
+    },
+    {
+      "n": 3,
+      "speech": "待审回款挂在哪些合同上？把已到期的那些摊出来。",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "销售回款",
+        "销售合同"
+      ],
+      "mentioned": [
+        "销售回款",
+        "销售合同"
+      ],
+      "hopNeed": true,
+      "pass": true,
+      "kind": "销售回款",
+      "action": "现查",
+      "rows": 1,
+      "first": "PAY-2026-005",
+      "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查工单 · 现查 · 停用客户还有哪些没关的工单？客户 · 现查 · 停用客户还有哪些没关的工单？工单 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？客户 · 现查 · 故障类而且紧急、还没关的工单是哪家客户的？",
+      "footerCount": 1,
+      "tbodyRows": 1,
+      "hop": {
+        "hop": true,
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "hopWhere": true,
+        "steps": [
+          "销售合同",
+          "销售回款"
+        ]
+      },
+      "leftHasFirst": true,
+      "sameSheet": true,
+      "drawerAction": "",
+      "emptyHint": false,
+      "previewId": null,
+      "hitSet": null,
+      "picked": null,
+      "afterPick": null,
+      "askAfterPick": null,
+      "pendingSpeech": "待审回款挂在哪些合同上？把已到期的那些摊出来。",
+      "nos": [
+        "PAY-2026-005"
+      ],
+      "chips": {
+        "ok": true,
+        "failCode": "",
+        "chips": [
+          {
+            "kind": "销售回款",
+            "count": 1,
+            "text": "销售回款1"
+          },
+          {
+            "kind": "销售合同",
+            "count": 1,
+            "text": "销售合同1"
+          }
+        ],
+        "mixed": false,
+        "selected": {
+          "kind": "销售回款",
+          "count": 1,
+          "text": "销售回款1"
+        },
+        "side": {
+          "kind": "销售合同",
+          "count": 1,
+          "text": "销售合同1"
+        },
+        "afterSide": {
+          "selectedChip": "销售合同1",
+          "tbodyRows": 1,
+          "footerCount": 1,
+          "firstNo": "HT-2026-005",
+          "catalog": false
+        },
+        "connectorSeparate": true
+      }
+    }
+  ],
+  "portsBefore": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "connect": {
+    "connected": true,
+    "pid": 32288,
+    "error": null
+  },
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "localAppNames": [
+    "家里的菜谱",
+    "阳台植物浇水",
+    "小区水电抄表",
+    "小区水电抄表",
+    "资料卡片板",
+    "家庭药箱",
+    "库存盘点",
+    "库存盘点",
+    "设备故障报修",
+    "本周现场走访记录",
+    "AE归档-mu7xhnsp",
+    "AE归档-mu7xg4bn",
+    "AE归档-mu7x9pbf",
+    "AE归档-mu7xct8g",
+    "AE归档-mu7xe4t6"
+  ],
+  "sessionId": "session-027630c4-c3d1-419f-bbaf-616f18686e3f",
+  "sessionGet": {
+    "http": 200,
+    "code": "",
+    "message": "",
+    "id": "session-027630c4-c3d1-419f-bbaf-616f18686e3f"
+  },
+  "req": {
+    "cases": true,
+    "history": "skipped",
+    "session": "skipped",
+    "cancel": "skipped"
+  },
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "createWizard": true,
+  "opsTabOk": true,
+  "askAiButton": true,
+  "aiLeft": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "catalogHasVisit": true,
+  "visitOpened": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "wide": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "narrow": {
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false
+  },
+  "portsEnd": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "d22": {
+    "tabs": true,
+    "create": true,
+    "stretch": true,
+    "askAi": true,
+    "visit": true
+  },
+  "autoIm": false,
+  "pass": true
+}

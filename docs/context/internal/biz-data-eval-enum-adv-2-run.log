@@ -1,0 +1,100 @@
+{
+  "spotChecks": {
+    "resolvedNotSameAsClosed": true,
+    "projectActiveNotZero": true,
+    "transferNotFullLedger": true,
+    "productMovementsFooterHasTotal": true,
+    "deptRolesIsZero": true
+  },
+  "cases": [
+    {
+      "useCase": "供应商 / C",
+      "libraryHit": 16,
+      "right": 16,
+      "footer": "共 16 条",
+      "pierced": false,
+      "pass": true
+    },
+    {
+      "useCase": "出入库流水 / 生产领料",
+      "libraryHit": 1647,
+      "right": 1647,
+      "footer": "共 1647 条",
+      "pierced": false,
+      "pass": true
+    },
+    {
+      "useCase": "仓库 / 半成品库",
+      "libraryHit": 1,
+      "right": 1,
+      "footer": "共 1 条",
+      "pierced": false,
+      "pass": true
+    },
+    {
+      "useCase": "仓库 / 综合库",
+      "libraryHit": 1,
+      "right": 1,
+      "footer": "共 1 条",
+      "pierced": false,
+      "pass": true
+    },
+    {
+      "useCase": "员工档案 / 直属上级（现查）",
+      "libraryHit": 80,
+      "right": 80,
+      "footer": "共 80 条",
+      "pierced": false,
+      "pass": true
+    },
+    {
+      "useCase": "抽查 工单 / 已解决",
+      "libraryHit": 121,
+      "right": 121,
+      "footer": "共 121 条",
+      "pierced": false,
+      "pass": true
+    },
+    {
+      "useCase": "抽查 工单 / 已关闭",
+      "libraryHit": 115,
+      "right": 115,
+      "footer": "共 115 条",
+      "pierced": false,
+      "pass": true
+    },
+    {
+      "useCase": "抽查 项目 / 进行中",
+      "libraryHit": 96,
+      "right": 96,
+      "footer": "共 96 条",
+      "pierced": false,
+      "pass": true
+    },
+    {
+      "useCase": "抽查 出入库流水 / 库存调拨",
+      "libraryHit": 47,
+      "right": 47,
+      "footer": "共 47 条",
+      "pierced": false,
+      "pass": true
+    },
+    {
+      "useCase": "抽查 商品物料→出入库流水",
+      "libraryHit": 5135,
+      "right": null,
+      "footer": "共 0 条",
+      "pierced": false,
+      "pass": false
+    },
+    {
+      "useCase": "抽查 部门→角色",
+      "libraryHit": 0,
+      "right": 0,
+      "footer": "共 0 条",
+      "pierced": false,
+      "pass": false
+    }
+  ]
+}
+DONE

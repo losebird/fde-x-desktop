@@ -1,0 +1,102 @@
+{
+  "sha": "1358425669b5311760961b727125a6e19730c642",
+  "branch": "main",
+  "hardcodedLiterals": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "speech": "待审回款 ∩ 已到期合同",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "connect": {
+    "connected": true,
+    "pid": 27756,
+    "error": null
+  },
+  "sessionId": "session-99d282ee-c1f2-4b1c-ae1e-c2ae748f96d0",
+  "mentionedKinds": [
+    "销售回款",
+    "销售合同"
+  ],
+  "relatedKinds": [
+    "销售回款",
+    "销售合同"
+  ],
+  "targetKindFromVocab": "销售回款",
+  "targetCan": [
+    "现查",
+    "改行",
+    "删除",
+    "新建",
+    "过审"
+  ],
+  "writeAction": "改行",
+  "beforeWrite": {
+    "kind": "销售回款",
+    "action": "现查",
+    "pendingRows": 1,
+    "first": "PAY-2026-005",
+    "footerCount": 1,
+    "tbodyRows": 1,
+    "kindChips": [
+      "销售回款1",
+      "销售合同20"
+    ],
+    "connectorOptions": [
+      "局域网业务协作适配器",
+      "本地 · 供应商拜访台账",
+      "本地 · 供应商拜访台账"
+    ],
+    "connectorSelected": "局域网业务协作适配器",
+    "mixedLocalOnKindRow": false,
+    "sessionId": "session-99d282ee-c1f2-4b1c-ae1e-c2ae748f96d0"
+  },
+  "beforeCancel": {
+    "kind": "销售回款",
+    "action": "改行",
+    "previewId": "pv_db5988bfb1d20012",
+    "pendingRows": 1,
+    "first": "PAY-2026-005",
+    "footerCount": 1,
+    "tbodyRows": 1,
+    "drawerOpen": true,
+    "drawerAction": "改行",
+    "kindChips": [
+      "销售回款1",
+      "销售合同"
+    ],
+    "mixedLocalOnKindRow": false
+  },
+  "cancelledPreviewId": "pv_db5988bfb1d20012",
+  "afterCancel": {
+    "drawerOpen": false,
+    "drawerAction": "",
+    "pendingAction": null,
+    "pendingPreviewId": null,
+    "kind": [
+      "销售回款1",
+      "销售合同20"
+    ],
+    "first": "PAY-2026-005",
+    "footerCount": 1,
+    "tbodyRows": 1,
+    "pendingRows": 0,
+    "kindChips": [
+      "销售回款1",
+      "销售合同20"
+    ],
+    "connectorOptions": [
+      "局域网业务协作适配器",
+      "本地 · 供应商拜访台账",
+      "本地 · 供应商拜访台账"
+    ],
+    "connectorSelected": "局域网业务协作适配器",
+    "mixedLocalOnKindRow": false,
+    "sessionId": "",
+    "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史审批单 · 现查 · 审批单工单 · 现查 · TK20250211633工单 · 改行 · TK20250211633合同 · 现查 · 合同回款单 · 现查 · live-verify-payment-list销售回款 · 现查 · 销售回款固定资产 · 现查 · 固定资产收货明细 · 现查 · 收货明细员工档案 · 现查 · 员工档案客户 · 现查 · 客户岗位 · 现查 · 岗位仓库 · 现查 · 仓库员工档案 · 现查 · 岗位列出来员工档案？销售回款 · 现查 · 客户列出来销售回款？出入库流水 · 现查 · 出入库流水销售回款 · 现查 · 客户列出来销售合同列出来销售回款？销售回款 · 现查 · 待审回款 ∩ 已到期合同合同 · 现查 · 待审回款 ∩ 已到期合同回款单 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 现查 · 待审销售回款 ∩ 已到期销售合同销售回款 · 现查 · 待审回款 ∩ 已到期合同资产领用归还 · 现查 · 资产领用归还销售回款 · 新建 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同工单 · 现查 · closed、resolved销售回款 · 改行 · 把待审回款 ∩ 已到期合同那一行的回款方式改成 hop-z-preview，只要预览，不要过账，不要 biz_write。"
+  },
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-chips-cancel.png",
+  "sameSheetAfterCancel": true,
+  "failCode": "",
+  "pass": true
+}

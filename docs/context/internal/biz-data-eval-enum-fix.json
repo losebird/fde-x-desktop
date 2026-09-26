@@ -1,0 +1,157 @@
+{
+  "commit": "ea1b261793a10ebcf64b4ed253e5e056a0073ccd",
+  "branch": "cursor/eval-three-causes-2d90",
+  "cases": [
+    {
+      "label": "工单 / 已解决",
+      "speech": "已解决的工单。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 121,
+      "fullTable": 401,
+      "rightHitTotal": 121,
+      "footer": 121,
+      "footerText": "共 121 条",
+      "planWhere": [
+        {
+          "keys": [
+            "工单状态",
+            "status"
+          ],
+          "values": [
+            "resolved"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-ticket-resolved.png",
+      "pass": true
+    },
+    {
+      "label": "工单 / 已关闭",
+      "speech": "已关闭的工单。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 115,
+      "fullTable": 401,
+      "rightHitTotal": 115,
+      "footer": 115,
+      "footerText": "共 115 条",
+      "planWhere": [
+        {
+          "keys": [
+            "工单状态",
+            "status"
+          ],
+          "values": [
+            "closed"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-ticket-closed.png",
+      "pass": true
+    },
+    {
+      "label": "供应商 / A",
+      "speech": "A的供应商。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 19,
+      "fullTable": 80,
+      "rightHitTotal": 19,
+      "footer": 19,
+      "footerText": "共 19 条",
+      "planWhere": [
+        {
+          "keys": [
+            "供应商评级",
+            "rating"
+          ],
+          "values": [
+            "A"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-supplier-a.png",
+      "pass": true
+    },
+    {
+      "label": "项目 / 进行中",
+      "speech": "进行中的项目。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 96,
+      "fullTable": 200,
+      "rightHitTotal": 96,
+      "footer": 96,
+      "footerText": "共 96 条",
+      "planWhere": [
+        {
+          "keys": [
+            "项目状态",
+            "status"
+          ],
+          "values": [
+            "active"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-project-active.png",
+      "pass": true
+    },
+    {
+      "label": "出入库流水 / 库存调拨",
+      "speech": "库存调拨的出入库流水。只要预览，不要过账，不要 biz_write。",
+      "libraryHit": 47,
+      "fullTable": 5135,
+      "rightHitTotal": 47,
+      "footer": 47,
+      "footerText": "共 47 条",
+      "planWhere": [
+        {
+          "keys": [
+            "来源单据类型",
+            "refType"
+          ],
+          "values": [
+            "库存调拨"
+          ],
+          "not": false,
+          "dateBefore": [],
+          "dateAfter": []
+        }
+      ],
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-enum-fix-movement-transfer.png",
+      "pass": true
+    }
+  ],
+  "spotChecks": [
+    {
+      "label": "商品物料→出入库流水页脚总数",
+      "libraryHit": 5135,
+      "rightHitTotal": 5135,
+      "pass": true
+    },
+    {
+      "label": "部门→角色 0",
+      "libraryHit": 0,
+      "rightHitTotal": 0,
+      "pass": true
+    },
+    {
+      "label": "员工直属上级 80",
+      "libraryHit": 80,
+      "rightHitTotal": 80,
+      "pass": true
+    },
+    {
+      "label": "客户→工单 399",
+      "libraryHit": 399,
+      "rightHitTotal": 399,
+      "pass": true
+    }
+  ]
+}

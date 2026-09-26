@@ -1,0 +1,79 @@
+{
+  "commit": "f1b927585c334bf839192ee3ab6d5f41bd914769",
+  "branch": "cursor/eval-three-causes-2d90",
+  "edge": {
+    "from": "员工档案",
+    "to": "仓库",
+    "field": "managedWarehouses"
+  },
+  "library": {
+    "edgeLibraryCount": 6,
+    "fullTableWarehouses": 6,
+    "resource": "biz_warehouses"
+  },
+  "dbWarehouseNos": [
+    "WH01",
+    "WH02",
+    "WH03",
+    "WH04",
+    "WH05",
+    "WH06"
+  ],
+  "cases": [
+    {
+      "short": "edge-speech",
+      "speech": "员工档案的仓库",
+      "sessionId": "session-ac5e51c0-c38c-423b-a058-70d3ee21bef5",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-managed-warehouses-sheet-edge-speech.png",
+      "libraryHit": 6,
+      "fullTable": 6,
+      "rightHitTotal": 6,
+      "hitTotalState": "known",
+      "sheetKind": "仓库",
+      "sheetNos": [
+        "WH01",
+        "WH02",
+        "WH03",
+        "WH04",
+        "WH05",
+        "WH06"
+      ],
+      "dbNos": [
+        "WH01",
+        "WH02",
+        "WH03",
+        "WH04",
+        "WH05",
+        "WH06"
+      ],
+      "setMatch": true,
+      "footerText": "共 6 条 · 局域网业务协作适配器 · 现查 14:30",
+      "footerAttr": "共 6 条",
+      "visibleRowCount": 6,
+      "tableHeaders": [
+        "序号",
+        "单号",
+        "状态",
+        "仓库名称",
+        "更新时间",
+        "仓库类型",
+        "所在地点",
+        "仓库管理员",
+        "操作"
+      ],
+      "rowLabels": [
+        "1WH06启用西南综合仓2026/06/24 11:05综合库成都EMP-017改行删除",
+        "2WH05启用半成品周转仓2026/06/24 11:05半成品库苏州EMP1035改行删除",
+        "3WH04启用华北原料仓2026/06/24 11:05原料库北京EMP1117改行删除",
+        "4WH03启用华南成品仓2026/06/24 11:05成品库深圳EMP1033改行删除",
+        "5WH02启用成品中心仓2026/06/24 11:05成品库上海EMP1098改行删除",
+        "6WH01启用原料中心仓2026/06/24 11:05原料库上海EMP1068改行删除"
+      ],
+      "planLine": "",
+      "pass": true,
+      "note": "库、WH 行集、页脚一致"
+    }
+  ],
+  "allPass": true,
+  "pushed": false
+}

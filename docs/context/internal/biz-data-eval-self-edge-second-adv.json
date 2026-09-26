@@ -1,0 +1,242 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "commit": "f8aed846d0035e8870ae8cb88713323cb97c4094",
+  "pid": 1985,
+  "port": 5174,
+  "hardcode": {
+    "pierced": false,
+    "note": "f8aed84 改 plan.js、slots.js、biz.mjs 和对应测试。没有员工档案、Departments、manager、subordinates、parent、children、80、15、11、4。"
+  },
+  "leftoverPath": {
+    "pierced": false,
+    "note": "上次三条 leftover 在本提交已改。结构化重放不再把右边打回整表。",
+    "sites": [
+      {
+        "file": "runtime/vendor-overlays/dsh-lan-assist/plan.js",
+        "line": 56,
+        "status": "changed",
+        "text": "seen.has(kind) 时若有 relation 先收下再 break，不再无条件停掉自环"
+      },
+      {
+        "file": "runtime/vendor-overlays/dsh-lan-assist/slots.js",
+        "line": 1237,
+        "status": "changed",
+        "text": "已有 from 或 steps 时仍返回，但同对象且无 relation 时按词表补 spokenSelfRelation"
+      },
+      {
+        "file": "runtime/routes/biz.mjs",
+        "line": 270,
+        "status": "changed",
+        "text": "steps 送进闸时保留 relation"
+      }
+    ]
+  },
+  "counts": {
+    "员工档案": 120,
+    "员工档案挂了上级": 80,
+    "员工档案挂了下属": 15,
+    "部门": 12,
+    "部门挂了上级部门": 11,
+    "部门挂了子部门": 4,
+    "note": "自己从 NocoBase 整表走完数出，不是抄交回。"
+  },
+  "structured": [
+    {
+      "shape": "steps 同对象两步，后一步 relation=manager",
+      "request": {
+        "kind": "员工档案",
+        "speech": "现查员工档案的直属上级。只要预览，不要过账，不要 biz_write。",
+        "steps": [
+          { "kind": "员工档案" },
+          { "kind": "员工档案", "relation": "manager", "from": "员工档案" }
+        ]
+      },
+      "librarySide": 80,
+      "fullTable": 120,
+      "rightHitTotal": 80,
+      "pierced": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-second-adv-steps-manager.png"
+    },
+    {
+      "shape": "steps 同对象两步，后一步 relation=parent",
+      "request": {
+        "kind": "{{t(\"Departments\")}}",
+        "speech": "现查{{t(\"Departments\")}}的{{t(\"Superior department\")}}。只要预览，不要过账，不要 biz_write。",
+        "steps": [
+          { "kind": "{{t(\"Departments\")}}" },
+          { "kind": "{{t(\"Departments\")}}", "relation": "parent", "from": "{{t(\"Departments\")}}" }
+        ]
+      },
+      "librarySide": 11,
+      "fullTable": 12,
+      "rightHitTotal": 11,
+      "pierced": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-second-adv-steps-parent.png"
+    },
+    {
+      "shape": "steps 同对象两步，后一步 relation=children",
+      "request": {
+        "kind": "{{t(\"Departments\")}}",
+        "speech": "现查{{t(\"Departments\")}}的children。只要预览，不要过账，不要 biz_write。",
+        "steps": [
+          { "kind": "{{t(\"Departments\")}}" },
+          { "kind": "{{t(\"Departments\")}}", "relation": "children", "from": "{{t(\"Departments\")}}" }
+        ]
+      },
+      "librarySide": 4,
+      "fullTable": 12,
+      "rightHitTotal": 4,
+      "pierced": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-second-adv-steps-children.png"
+    },
+    {
+      "shape": "from 外层同对象无关系，内层同对象 relation=manager",
+      "request": {
+        "kind": "员工档案",
+        "speech": "现查员工档案的直属上级。只要预览，不要过账，不要 biz_write。",
+        "from": {
+          "kind": "员工档案",
+          "from": { "kind": "员工档案", "relation": "manager" }
+        }
+      },
+      "librarySide": 80,
+      "fullTable": 120,
+      "rightHitTotal": 80,
+      "pierced": false,
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-edge-second-adv-nested-from-manager.png"
+    }
+  ],
+  "probes": [
+    {
+      "shape": "重复对象两步，这一步没有关系，speech 也不点自环",
+      "request": {
+        "kind": "员工档案",
+        "speech": "现查员工档案。只要预览，不要过账，不要 biz_write。",
+        "steps": [{ "kind": "员工档案" }, { "kind": "员工档案" }]
+      },
+      "librarySide": null,
+      "fullTable": 120,
+      "rightHitTotal": 120,
+      "pierced": false,
+      "note": "停在整表 120。没有滤成挂了上级 80，也没有滤成挂了下属 15。"
+    },
+    {
+      "shape": "重复对象嵌套 from，这一步没有关系，speech 也不点自环",
+      "request": {
+        "kind": "员工档案",
+        "speech": "现查员工档案。只要预览，不要过账，不要 biz_write。",
+        "from": { "kind": "员工档案", "from": { "kind": "员工档案" } }
+      },
+      "librarySide": null,
+      "fullTable": 120,
+      "rightHitTotal": 120,
+      "pierced": false,
+      "note": "停在整表 120。没有滤成 80 或 15。"
+    },
+    {
+      "shape": "同一次人话同时带直属上级和下属",
+      "request": {
+        "kind": "员工档案",
+        "speech": "现查员工档案的直属上级和下属。只要预览，不要过账，不要 biz_write。"
+      },
+      "librarySideManager": 80,
+      "librarySideSubordinates": 15,
+      "fullTable": 120,
+      "rightHitTotal": 80,
+      "landedSide": "直属上级 / manager",
+      "pierced": false,
+      "note": "落在上级那一侧 80，不是下属 15，也不是两批合并。"
+    },
+    {
+      "shape": "同一次 steps 同时带 manager 再 subordinates",
+      "request": {
+        "kind": "员工档案",
+        "speech": "现查员工档案的直属上级和下属。只要预览，不要过账，不要 biz_write。",
+        "steps": [
+          { "kind": "员工档案" },
+          { "kind": "员工档案", "relation": "manager", "from": "员工档案" },
+          { "kind": "员工档案", "relation": "subordinates", "from": "员工档案" }
+        ]
+      },
+      "librarySideManager": 80,
+      "librarySideSubordinates": 15,
+      "fullTable": 120,
+      "rightHitTotal": 15,
+      "landedSide": "下属 / subordinates",
+      "pierced": false,
+      "note": "落在下属那一侧 15，不是上级 80，也不是两批合并。"
+    }
+  ],
+  "human": [
+    {
+      "edge": "员工档案 → 员工档案",
+      "speech": "现查员工档案的直属上级。只要预览，不要过账，不要 biz_write。",
+      "librarySide": 80,
+      "fullTable": 120,
+      "rightHitTotal": 80,
+      "swapSpeech": "现查直属上级关联的员工档案。只要预览，不要过账，不要 biz_write。",
+      "swapRightHitTotal": 80,
+      "sameBatchAsOtherDirection": false,
+      "pierced": false
+    },
+    {
+      "edge": "员工档案 → 员工档案",
+      "speech": "现查员工档案的下属。只要预览，不要过账，不要 biz_write。",
+      "librarySide": 15,
+      "fullTable": 120,
+      "rightHitTotal": 15,
+      "swapSpeech": "现查下属关联的员工档案。只要预览，不要过账，不要 biz_write。",
+      "swapRightHitTotal": 15,
+      "sameBatchAsOtherDirection": false,
+      "pierced": false
+    },
+    {
+      "edge": "{{t(\"Departments\")}} → {{t(\"Departments\")}}",
+      "speech": "现查{{t(\"Departments\")}}的{{t(\"Superior department\")}}。只要预览，不要过账，不要 biz_write。",
+      "librarySide": 11,
+      "fullTable": 12,
+      "rightHitTotal": 11,
+      "swapSpeech": "现查{{t(\"Superior department\")}}关联的{{t(\"Departments\")}}。只要预览，不要过账，不要 biz_write。",
+      "swapRightHitTotal": 11,
+      "sameBatchAsOtherDirection": false,
+      "pierced": false
+    },
+    {
+      "edge": "{{t(\"Departments\")}} → {{t(\"Departments\")}}",
+      "speech": "现查{{t(\"Departments\")}}的children。只要预览，不要过账，不要 biz_write。",
+      "librarySide": 4,
+      "fullTable": 12,
+      "rightHitTotal": 4,
+      "swapSpeech": "现查children关联的{{t(\"Departments\")}}。只要预览，不要过账，不要 biz_write。",
+      "swapRightHitTotal": 4,
+      "sameBatchAsOtherDirection": false,
+      "pierced": false
+    }
+  ],
+  "spotChecks": [
+    {
+      "edge": "客户 → 工单",
+      "librarySide": 399,
+      "rightHitTotal": 399,
+      "pierced": false
+    },
+    {
+      "edge": "{{t(\"Roles\")}} → {{t(\"Users\")}}",
+      "librarySide": 14,
+      "rightHitTotal": 14,
+      "pierced": false
+    },
+    {
+      "edge": "{{t(\"Users\")}} → {{t(\"Roles\")}}",
+      "librarySide": 8,
+      "rightHitTotal": 8,
+      "pierced": false
+    },
+    {
+      "edge": "{{t(\"Users\")}} → 员工档案",
+      "librarySide": 20,
+      "rightHitTotal": 20,
+      "pierced": false
+    }
+  ]
+}

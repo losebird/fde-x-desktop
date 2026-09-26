@@ -1,0 +1,168 @@
+{
+  "sha": "4700fe69567dd92a4c53911ad9db9b5db9c7a5c3",
+  "branch": "main",
+  "hardcodedInSrc": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "gateInjected": false,
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "originPushed": false,
+  "pnpm5174": true,
+  "cases": [
+    {
+      "n": 1,
+      "speech": "停用客户还有哪些没关的工单？",
+      "want": "现查",
+      "write": false,
+      "queryThenWrite": false,
+      "related": [
+        "客户"
+      ],
+      "mentioned": [
+        "客户",
+        "工单"
+      ],
+      "hopNeed": false,
+      "pass": false,
+      "failCode": "pending-unchanged",
+      "error": "pending-unchanged",
+      "prompted": {
+        "http": 200,
+        "accepted": true,
+        "error": null
+      },
+      "aiDelta": "停用客户还有哪些没关的工单 标准模式 对话 轨迹 系统提示词 停用客户还有哪些没关的工单？ 14:18 3 次工具调用 系统提示词 没有在知识图谱（Session + Workspace 文档）中找到任何“停用客户”相关工单记录。 当前图谱状态 查询词 停用客户、工单停用、客户停用、停用客户还有哪些没关的工单 等全量匹配后，没有包含具体工单号、单号、类型、状态为“停用”的摘录。 图谱里仅存在极少量纯文本重复的询问记录（24 条左右），全部都是用户自己问的问题，没有后续的“还有哪些没关的工单”或具体工单列表。 图谱中明确登记的工单类只有： 工单 / ticket 生产工单 / work-order 采购单、销售订单、付款单、回款单、合同、报销单、请假单、收货单、发票、领料单、资产领用、出入库单 等（均需通过 biz_preview / assist 现查才能看到实时数据）。 建议下一步（推荐走 live 通道） 因为停用客户最可能影响的是关联的业务单据，建议直接用以下方式现查（这些都是已登记、可现查的类型）： 销售合同 / 销售订单（最可能被停用客户关联） 回款单 / 付款单 请购单 / 采购单（如果有采购涉及） 生产工单（如果有生产相关） 客户本身（看客户停用后是否还存在未关联的工单） 要我现在帮你现查吗？ 直接告诉我你想看哪类单据（例如“看销售合同中客户停用后还有哪些未关闭的”），我就可以调用 biz_preview 给你实时列表。 或者你想让我先把图谱里的所有“工单”类节点都打开看一遍（包括是否还有“停用”状态的记录），也可以告诉我。 用量 116K tok 用时 31秒 14:19 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 1 轮 4 步·65 tok/s 116K tok·缓存命中 16%",
+      "leftSnippet": "产工单 / work-order 采购单、销售订单、付款单、回款单、合同、报销单、请假单、收货单、发票、领料单、资产领用、出入库单 等（均需通过 biz_preview / assist 现查才能看到实时数据）。 建议下一步（推荐走 live 通道） 因为停用客户最可能影响的是关联的业务单据，建议直接用以下方式现查（这些都是已登记、可现查的类型）： 销售合同 / 销售订单（最可能被停用客户关联） 回款单 / 付款单 请购单 / 采购单（如果有采购涉及） 生产工单（如果有生产相关） 客户本身（看客户停用后是否还存在未关联的工单） 要我现在帮你现查吗？ 直接告诉我你想看哪类单据（例如“看销售合同中客户停用后还有哪些未关闭的”），我就可以调用 biz_preview 给你实时列表。 或者你想让我先把图谱里的所有“工单”类节点都打开看一遍（包括是否还有“停用”状态的记录），也可以告诉我。 用量 116K tok 用时 31秒 14:19 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 1 轮 4 步·65 tok/s 116K tok·缓存命中 16%",
+      "pending": {
+        "kind": null,
+        "action": null,
+        "rows": 0,
+        "first": "",
+        "fromKind": "",
+        "fromRows": 0,
+        "fromFirst": "",
+        "fromHasRows": false,
+        "hopWhere": false,
+        "steps": [],
+        "speech": "",
+        "preview_id": null,
+        "sessionId": "",
+        "changes": [],
+        "where": [],
+        "listed": false,
+        "ambiguous": false,
+        "nos": []
+      },
+      "ui": {
+        "footerCount": 1,
+        "tbodyRows": 1,
+        "firstNo": "PAY-2026-005",
+        "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 过审待审回款 ∩ 已到期合同那一行，只要预览，不要过账，不要 biz_write。工单 · 改行 · 现查工单 · 现查 · 现查销售回款 · 现查 · 销售回款销售回款 · 现查 · 待审回款 ∩ 已到期合同销售回款 · 改行 · 待审回款 ∩ 已到期合同销售回款 · 删除 · 待审回款 ∩ 已到期合同销售回款 · 过审 · 待审回款 ∩ 已到期合同销售回款 · 新建 · 待审回款 ∩ 已到期合同",
+        "kindChips": [
+          "销售回款1",
+          "销售合同1"
+        ],
+        "drawerAction": ""
+      }
+    }
+  ],
+  "portsBefore": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "connect": {
+    "connected": true,
+    "pid": 94368,
+    "error": null
+  },
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "localAppNames": [
+    "家里的菜谱",
+    "阳台植物浇水",
+    "小区水电抄表",
+    "小区水电抄表",
+    "资料卡片板",
+    "家庭药箱",
+    "库存盘点",
+    "库存盘点",
+    "设备故障报修",
+    "本周现场走访记录",
+    "AE归档-mu7xhnsp",
+    "AE归档-mu7xg4bn",
+    "AE归档-mu7x9pbf",
+    "AE归档-mu7xct8g",
+    "AE归档-mu7xe4t6"
+  ],
+  "sessionId": "session-ebb7b8a1-1ad7-4d28-b1f4-c50be041f43f",
+  "sessionGet": {
+    "http": 200,
+    "code": "",
+    "message": "",
+    "id": "session-ebb7b8a1-1ad7-4d28-b1f4-c50be041f43f"
+  },
+  "failCode": "case-1:pending-unchanged",
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "createWizard": true,
+  "opsTabOk": true,
+  "askAiButton": true,
+  "aiLeft": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "catalogHasVisit": true,
+  "visitOpened": true,
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "wide": {
+    "asideW": 224,
+    "asideOpen": true,
+    "sessionTitle": true
+  },
+  "narrow": {
+    "asideW": 48,
+    "asideOpen": false,
+    "sessionTitle": false
+  },
+  "portsEnd": {
+    "vite": 200,
+    "bff": 200,
+    "ok": true
+  },
+  "req": {
+    "cases": false,
+    "cancel": false,
+    "history": false,
+    "session": false
+  },
+  "d22": {
+    "tabs": true,
+    "create": true,
+    "stretch": true,
+    "askAi": true,
+    "visit": true
+  },
+  "autoIm": false,
+  "pass": false
+}

@@ -1,0 +1,720 @@
+{
+  "sha": "4555a3743e7f3b96a8f4798dda08bc6751b19006",
+  "branch": "main",
+  "hardcodedLiterals": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "speech": "待审回款 ∩ 已到期合同",
+  "gateInjected": false,
+  "reconnect": {
+    "error": null
+  },
+  "connect": {
+    "connected": true,
+    "pid": 79946,
+    "error": null,
+    "reused": true
+  },
+  "sessionId": "session-1705ad85-1715-4f6b-8ceb-4d2b0ec7c39d",
+  "aiDelta": "待审回款 ∩ 已到期合同 标准模式 对话 轨迹 系统提示词 待审回款 ∩ 已到期合同 01:24 8 次工具调用 · 3 条消息 系统提示词 系统提示词 系统提示词 待审回款 ∩ 已到期合同 = 1 张（现查，生产 NocoBase） 回款单 状态 金额 回款日 方式 客户 合同 销售订单 备注 PAY-2026-005 待确认 54,800 2026-02-20 银行转账 杭州数澜软件有限公司 HT-2026-005 SO-2026-005 首付款 从已到期合同 hop 到待审回款，目前就这一张。要打开 PAY-2026-005 或 HT-2026-005，说一声即可。 用量 158K tok 用时 1分51秒 01:26 发消息或创建任务, / 调用指令, @ 文件或对话 完全权限 grok-4.5 High 1 轮 5 步·203 tok/s 158K tok·缓存命中 1%",
+  "thinking": false,
+  "pending": {
+    "kind": "销售回款",
+    "action": "现查",
+    "rows": 1,
+    "first": "PAY-2026-005",
+    "from": {
+      "kind": "销售合同",
+      "where": [
+        {
+          "keys": [
+            "status",
+            "state",
+            "stage"
+          ],
+          "values": [
+            "expired",
+            "已到期",
+            "到期",
+            "过期"
+          ],
+          "not": false,
+          "dateBefore": [
+            "endDate",
+            "dueDate",
+            "expireAt",
+            "expiredAt",
+            "end_date",
+            "due_date"
+          ],
+          "dateAfter": []
+        }
+      ]
+    },
+    "hopWhere": true,
+    "steps": [
+      "销售合同",
+      "销售回款"
+    ],
+    "speech": "待审回款 ∩ 已到期合同"
+  },
+  "tools": [
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743014461,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743014796,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743015250,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743015373,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743284715,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743284723,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743285424,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743285714,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743286153,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743286554,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743286863,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743303912,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743304327,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743304831,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743305037,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743305093,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743305870,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743434257,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743435004,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743435012,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743435419,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743435846,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743435943,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743436363,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743436990,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743483014,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743483524,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743484005,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743484191,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743484256,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743485000,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743621298,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743622376,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743622378,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743623000,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743623460,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743623671,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743624062,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743624276,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743682343,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743682890,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743683292,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743683404,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743683466,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743684318,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743807366,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743807472,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743808931,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743809452,
+      "kind": "销售合同",
+      "rows": 0,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743809515,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743810507,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743810511,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743811513,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743811523,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743819166,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743819468,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743819801,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743820676,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743820683,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743820923,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743821959,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743976938,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743977653,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743978624,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743978626,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743979386,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743979697,
+      "kind": "销售回款",
+      "rows": 20,
+      "hop": false
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743980294,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743980616,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743981031,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789743981622,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789744004646,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789744005400,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789744005654,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789744006196,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789744006512,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789744006670,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789746562410,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    },
+    {
+      "type": "biz.sheet.pending",
+      "tool": "",
+      "ts": 1789746562912,
+      "kind": "销售回款",
+      "rows": 1,
+      "hop": true
+    }
+  ],
+  "aiCount": 1,
+  "ui": {
+    "active": [
+      "销售回款1"
+    ],
+    "footer": "共 1 条 · 连接器 · 现查 01:27",
+    "footerCount": 1,
+    "tbodyRows": 1,
+    "firstCell": "1PAY-2026-005待审PAY-2026-0052026/06/20 21:31548002026-02-20银行转账首付款杭州数澜软件有限公司HT-2026-005SO-2026-005改行删除过审",
+    "firstNo": "PAY-2026-005",
+    "banner": "AI 刚查了 销售回款 · 1 行 · 会话 session- · 刚刚本会话浮现历史销售回款 · 现查 · 待审回款 ∩ 已到期合同"
+  },
+  "toolNames": [],
+  "bashUsed": false,
+  "previewCallCount": 0,
+  "failCode": "",
+  "pass": true,
+  "leftoverLive": {
+    "http": 502,
+    "kind": "线索",
+    "error": "NO_CONNECTOR",
+    "hint": "线索：没连业务，不能装成已查。",
+    "sheetKind": null,
+    "rows": 0,
+    "previewId": null
+  }
+}

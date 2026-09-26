@@ -1,0 +1,213 @@
+{
+  "sha": "f5ee4dad01f27e795aa79b4a814cbb72b50b4f9b",
+  "branch": "main",
+  "rowMarker": "ak-mu842l76",
+  "humanTitle": "对乙酰氨基酚",
+  "visitName": "本周现场走访记录",
+  "hardcoded": "none",
+  "silentBizWrite": false,
+  "originPushed": false,
+  "template": false,
+  "listedBefore": [
+    {
+      "id": "app_27d92ef9a8cb45719d2633f596007003",
+      "name": "家庭药箱",
+      "status": "active",
+      "updatedAt": "2026-09-19T07:36:19.018Z"
+    },
+    {
+      "id": "app_6be6759badbc4cdd974df12afd647607",
+      "name": "库存盘点",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:36:50.727Z"
+    },
+    {
+      "id": "app_bbebf633d0764a2fbd09901eb74dbcda",
+      "name": "库存盘点",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:33:47.810Z"
+    },
+    {
+      "id": "app_52bc18aedc654cdcace1271c5cf7ee56",
+      "name": "设备故障报修",
+      "status": "draft",
+      "updatedAt": "2026-09-19T06:26:09.893Z"
+    },
+    {
+      "id": "app_5d1eef0062114901b4797d705e5166b5",
+      "name": "本周现场走访记录",
+      "status": "active",
+      "updatedAt": "2026-09-19T06:03:58.932Z"
+    },
+    {
+      "id": "app_46a354a9157f4496a94233af5f3eef68",
+      "name": "AE归档-mu7xhnsp",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:05.598Z"
+    },
+    {
+      "id": "app_8d20ff7f227c41a595678e82d0ef0427",
+      "name": "AE归档-mu7xg4bn",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:10:02.947Z"
+    },
+    {
+      "id": "app_ddc877a092674b15a2d8b2627164e1da",
+      "name": "AE归档-mu7x9pbf",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.866Z"
+    },
+    {
+      "id": "app_7435cfa0af3349dba2d21e940ee1aec1",
+      "name": "AE归档-mu7xct8g",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.860Z"
+    },
+    {
+      "id": "app_0d71a45202f6421d83b785e4798a70ff",
+      "name": "AE归档-mu7xe4t6",
+      "status": "archived",
+      "updatedAt": "2026-09-19T05:08:49.853Z"
+    }
+  ],
+  "visitBefore": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "openedApp": {
+    "id": "app_27d92ef9a8cb45719d2633f596007003",
+    "name": "家庭药箱",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T07:36:19.018Z"
+  },
+  "liveShot": {
+    "product": true,
+    "ledger": true,
+    "overview": true,
+    "compose": true,
+    "chart": true,
+    "feed": true,
+    "cards": false,
+    "cardCount": 0,
+    "cardGroups": [],
+    "cardActions": 0,
+    "table": false,
+    "nav": "药箱",
+    "navButtons": [
+      "药箱"
+    ],
+    "uses": "ai,float",
+    "editSpec": false,
+    "rollback": false,
+    "builderOpen": true,
+    "builderDrawer": false,
+    "cardTitles": [],
+    "feedTitles": [
+      "常备",
+      "常备",
+      "对乙酰氨基酚"
+    ],
+    "serialCardTitle": false,
+    "serialFeedTitle": false,
+    "workspaceText": "返回列表\n家庭药箱\n运行中\n建造\n药箱\n问 AI\n撕出浮窗\n药品种类\n3\n剩余片数合计\n23\n记一笔药品\n药名 *\n分类 *\n请选择\n常备\n处方\n外用\n剩余片数 *\n到期日\n备注\n记一笔药品\n按分类\n常备\n23\n处方\n0\n外用\n0\n药品流水\n常备\n常备\n2026-09-19\n12\n常备\n常备\n2026-09-19\n3\n对乙酰氨基酚\n常备\n2026-09-19\n8"
+  },
+  "builderOffDaily": true,
+  "openedVisit": false,
+  "formFields": 5,
+  "rowCreated": true,
+  "hasAi": true,
+  "hasFloat": true,
+  "aiSession": "session-1d919885-abd8-4a92-b6e6-fd7df73a9ef7",
+  "floated": true,
+  "rowPersistedUi": true,
+  "reloadShot": {
+    "product": true,
+    "ledger": true,
+    "overview": true,
+    "compose": true,
+    "chart": true,
+    "feed": true,
+    "cards": false,
+    "cardCount": 0,
+    "cardGroups": [],
+    "cardActions": 0,
+    "table": false,
+    "nav": "药箱",
+    "navButtons": [
+      "药箱"
+    ],
+    "uses": "ai,float",
+    "editSpec": false,
+    "rollback": false,
+    "builderOpen": true,
+    "builderDrawer": false,
+    "cardTitles": [],
+    "feedTitles": [
+      "常备",
+      "常备",
+      "对乙酰氨基酚",
+      "对乙酰氨基酚"
+    ],
+    "serialCardTitle": false,
+    "serialFeedTitle": false,
+    "workspaceText": "返回列表\n家庭药箱\n运行中\n建造\n药箱\n问 AI\n撕出浮窗\n药品种类\n4\n剩余片数合计\n31\n记一笔药品\n药名 *\n分类 *\n请选择\n常备\n处方\n外用\n剩余片数 *\n到期日\n备注\n记一笔药品\n按分类\n常备\n31\n处方\n0\n外用\n0\n药品流水\n常备\n常备\n2026-09-19\n12\n常备\n常备\n2026-09-19\n3\n对乙酰氨基酚\n常备\n2026-09-19\n8\n对乙酰氨基酚\n常备\n2026-09-19\n8"
+  },
+  "ledgerOrGrouped": true,
+  "titleIsBusinessName": true,
+  "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/app-product-ak.png",
+  "visitAfter": {
+    "id": "app_5d1eef0062114901b4797d705e5166b5",
+    "name": "本周现场走访记录",
+    "status": "active",
+    "kind": "generated",
+    "revision": 1,
+    "updatedAt": "2026-09-19T06:03:58.932Z"
+  },
+  "visitUnchanged": true,
+  "threeTabs": {
+    "app": true,
+    "records": true,
+    "ops": true
+  },
+  "createEntry": true,
+  "deleteEntry": true,
+  "masqueradeKindChip": false,
+  "wide": {
+    "mainW": 640,
+    "asideW": 48,
+    "asideOpen": false,
+    "stageW": 872
+  },
+  "narrow": {
+    "mainW": 1152,
+    "asideW": 224,
+    "asideOpen": true,
+    "stageW": 360
+  },
+  "resizeCollapse": true,
+  "resizeExpand": true,
+  "iframeShieldCss": true,
+  "stageShieldFn": true,
+  "sqliteTables": [
+    "approvals",
+    "app_field-visits__visit",
+    "app_ae-a-mu7x9pbf__item",
+    "app_ae-a-mu7xct8g__item",
+    "app_ae-a-mu7xe4t6__item",
+    "app_ae-a-mu7xg4bn__item",
+    "app_ae-a-mu7xhnsp__item",
+    "app_inventory-count__count_item",
+    "app_family-medbox__medicine"
+  ],
+  "sqliteHasRow": true,
+  "templateHits": "none",
+  "bizWriteUrls": [],
+  "wired": "ai,float",
+  "pass": true
+}

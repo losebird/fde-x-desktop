@@ -1,0 +1,92 @@
+{
+  "branch": "cursor/eval-three-causes-2d90",
+  "commit": "3dd20f6a3e30662aa0974906e2f1075896cf1edd",
+  "base": "f8aed846d0035e8870ae8cb88713323cb97c4094",
+  "pushed": false,
+  "libraryNote": "库里按库重数。出入库流水命中集是流水的外键落在对应主表主键上的行。商品物料的 product 与 stockMovements 都走 productId，仓库的 warehouse 走 warehouseId。部门到角色是关联表 departmentsRoles 里、部门主键对得上的角色；关联表是空的。整表是目标表全部行，不拿来当命中集。",
+  "edges": [
+    {
+      "name": "product",
+      "from": "商品物料",
+      "to": "出入库流水",
+      "field": "product",
+      "library": 5135,
+      "fullTable": 5135,
+      "parentTable": 301,
+      "right": 5135,
+      "rowsOnPage": 20,
+      "footer": "共 5135 条 · 局域网业务协作适配器 · 现查 19:09",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-product.png"
+    },
+    {
+      "name": "stock-movements",
+      "from": "商品物料",
+      "to": "出入库流水",
+      "field": "stockMovements",
+      "library": 5135,
+      "fullTable": 5135,
+      "parentTable": 301,
+      "right": 5135,
+      "rowsOnPage": 20,
+      "footer": "共 5135 条 · 局域网业务协作适配器 · 现查 19:09",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-stock-movements.png"
+    },
+    {
+      "name": "warehouse",
+      "from": "仓库",
+      "to": "出入库流水",
+      "field": "warehouse",
+      "library": 5135,
+      "fullTable": 5135,
+      "parentTable": 6,
+      "right": 5135,
+      "rowsOnPage": 20,
+      "footer": "共 5135 条 · 局域网业务协作适配器 · 现查 19:09",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-warehouse.png"
+    },
+    {
+      "name": "roles",
+      "from": "{{t(\"Departments\")}}",
+      "to": "{{t(\"Roles\")}}",
+      "field": "roles",
+      "library": 0,
+      "fullTable": 11,
+      "parentTable": 12,
+      "right": 0,
+      "rowsOnPage": 0,
+      "footer": "共 0 条 · 局域网业务协作适配器 · 现查 19:16",
+      "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-missing-total-roles.png"
+    }
+  ],
+  "spotChecks": [
+    {
+      "edge": "员工档案直属上级",
+      "library": 80,
+      "fullTable": 120,
+      "right": 80
+    },
+    {
+      "edge": "员工档案下属",
+      "library": 15,
+      "fullTable": 120,
+      "right": 15
+    },
+    {
+      "edge": "部门 children",
+      "library": 4,
+      "fullTable": 12,
+      "right": 4
+    },
+    {
+      "edge": "客户 → 工单",
+      "library": 399,
+      "fullTable": 401,
+      "right": 399
+    }
+  ],
+  "leftAlone": {
+    "edge": "员工档案 → 仓库 managedWarehouses",
+    "library": 6,
+    "right": 3
+  }
+}

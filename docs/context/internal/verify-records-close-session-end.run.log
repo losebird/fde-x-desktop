@@ -1,0 +1,58 @@
+workspace 1985293d-03bb-496f-ad69-5c7f2ac23149 /Users/zxz/Documents/ai-project/fdex测试
+openSession session-b757635c-18dd-41b6-9f26-86bca2a322a7
+seeded session-b757635c-18dd-41b6-9f26-86bca2a322a7
+prompt session-b757635c-18dd-41b6-9f26-86bca2a322a7 expected=资产领用归还
+prompted http=200
+turn-closed kind= dump=false thinking=true
+prompt session-b757635c-18dd-41b6-9f26-86bca2a322a7 expected=考勤记录
+prompted http=200
+turn-closed kind=考勤记录 dump=false thinking=false
+openSession session-805af5ef-70a1-4cd3-ac8e-df59bce9ac48
+seeded session-805af5ef-70a1-4cd3-ac8e-df59bce9ac48
+prompt session-805af5ef-70a1-4cd3-ac8e-df59bce9ac48 expected=资产领用归还
+prompted http=200
+turn-closed kind= dump=false thinking=true
+{
+  "pass": false,
+  "sha": "dfb28ab85a525209b337844d7775f3c5884ae164",
+  "proofs": {
+    "p1": {
+      "pass": false,
+      "failCode": "ui-not-this-send"
+    },
+    "p2": {
+      "pass": true,
+      "failCode": ""
+    },
+    "p3": {
+      "pass": false,
+      "failCode": "not-relation-target"
+    }
+  },
+  "shots": {
+    "round01": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-01.png",
+      "exists": true,
+      "md5": "05c4c9468b149a5b3a84aee95d2feb40",
+      "distinct": true
+    },
+    "round02": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-02.png",
+      "exists": true,
+      "md5": "fef95e194844903c632f40c31a014cea",
+      "distinct": true
+    },
+    "round03": {
+      "path": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/records-close-round-03.png",
+      "exists": true,
+      "md5": "a56fbd2e3fb79ddf30c6c490dcca98f6",
+      "distinct": true
+    }
+  },
+  "hashes": {
+    "round01": "05c4c9468b149a5b3a84aee95d2feb40",
+    "round02": "fef95e194844903c632f40c31a014cea",
+    "round03": "a56fbd2e3fb79ddf30c6c490dcca98f6"
+  }
+}
+EXIT:1

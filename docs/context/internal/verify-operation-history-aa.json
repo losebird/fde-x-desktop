@@ -1,0 +1,42 @@
+{
+  "sha": "46a44a2617777ddf54ded20db293be07ef2c835c",
+  "branch": "main",
+  "hardcodedLiterals": "none",
+  "workspaceCwd": "/Users/zxz/Documents/ai-project/fdex测试",
+  "wrote": false,
+  "confirmed": false,
+  "silentBizWrite": false,
+  "searchShrinks": true,
+  "pageStaysOn2": false,
+  "pageSize": 20,
+  "liveCount": 14,
+  "filteredCount": 5,
+  "searchQuery": "回退",
+  "actionTones": {
+    "回退": "red",
+    "改行": "blue"
+  },
+  "statusTones": {
+    "已完成": "green",
+    "已回退": "teal"
+  },
+  "actionColorsDistinct": true,
+  "statusColorsDistinct": true,
+  "colorsByActionAndStatus": true,
+  "pageAfterRefresh": null,
+  "nextEnabled": false,
+  "pagerText": "第 1 / 1 页",
+  "fail": "",
+  "searchPlaceholder": "对象、动作、单号、变更摘要",
+  "actionColors": {
+    "回退": "rgb(200, 85, 61)",
+    "改行": "rgb(61, 111, 200)"
+  },
+  "statusColors": {
+    "已完成": "rgb(47, 107, 58)",
+    "已回退": "rgb(45, 157, 143)"
+  },
+  "sameRowClash": false,
+  "page2Reason": "live 14 rows < page size 20",
+  "pass": true
+}

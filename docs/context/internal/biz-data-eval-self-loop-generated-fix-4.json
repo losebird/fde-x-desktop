@@ -1,0 +1,27 @@
+{
+  "commit": "0c05a4774649e74722e09dc5a2c9fb44f9925b20",
+  "branch": "cursor/eval-three-causes-2d90",
+  "repo": "/Users/zxz/WorkBuddy/2026-09-08-20-34-42/scene-39-personal-workstation",
+  "rootCause": "biz_preview 槽里 speech 被落成动作码「现查」或空，isGeneratedSelfLoopSpeech 对不上用户「X的X」，generatedSelfLoopEdgePeers 返回空，整表 120。",
+  "fix": "translateBizIntent 不再用 action 顶替 speech、转发 userSpeech；pickHopSpeech 丢弃动作码；enrich/recover 与 write 侧 userSpeech 回退挂 peer。",
+  "library": {
+    "employees": 120,
+    "empWithManager": 80,
+    "empWithSubordinates": 15
+  },
+  "case": {
+    "speech": "员工档案的员工档案。只要预览，不要过账，不要 biz_write。",
+    "sessionId": "session-6e7f8333-3780-489c-9346-4f0e27e919a6",
+    "turnDone": false,
+    "peerTotals": [],
+    "footerText": "总数未知",
+    "footer": null,
+    "rightHitTotal": null,
+    "fullTable": 120,
+    "hasOfficialTable": true,
+    "hasKindChips": false,
+    "chipLabels": [],
+    "pass": false,
+    "screenshot": "/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/media/biz-data-eval-self-loop-generated-fix-4-emp.png"
+  }
+}
