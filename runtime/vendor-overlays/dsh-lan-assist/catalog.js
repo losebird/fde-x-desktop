@@ -291,6 +291,7 @@ export function briefFollowup(spec) {
   }
   if (hasSearch) {
     lines.push('search_text 只查当时、出处、之前聊过。有单号或在问现在库里怎样时，不要先 search_text，直接 biz_preview。图不是现况。')
+    lines.push('现查已结算后不要再用 search_text 拖回合。')
   } else {
     lines.push('这台没装语义，不要装成已查图。')
   }
@@ -311,6 +312,7 @@ export function briefFollowup(spec) {
     lines.push('action 只能是现查、改行、删除、新建、过审。型名用工作区已登记的，不要改词表。')
     lines.push('同一笔改单只出一张预览卡。多个字段、多张单都并在这一张上，人点一次执行。不要一张卡一个字段。')
     lines.push('「这个 / 这张」只可用会话里刚点名过的焦点单号。没有焦点就开口问单号，不要猜。纯数字不当单号。')
+    lines.push('现查回执会写对象集总量（共 N 条，本页 M 条）。同一句同一 hop 已结算后，不要再 biz_preview 或 search_text 补同一跳；人要翻页、换对象或改条件再说。')
   }
   if (extras.length) {
     lines.push('目录里有、可以按需点名：' + extras.map((row) => speakCatalogLine(row)).join('、') + '。没点头不要写业务。')

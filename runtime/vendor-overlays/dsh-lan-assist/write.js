@@ -13,6 +13,12 @@ import { columnScopedSpeech, dropSpokenBatchRowId, enrichStructuredSlots, ensure
 import { WHERE_LIST_CAP } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
+import {
+  createSettledQueryStore,
+  materializeSettledRepeat,
+  previewSettledLookup,
+  settledHopKey,
+} from './query-settle.mjs'
 import { redactEnvelopeText, refLabel } from './ref.js'
 import {
   approveNextStatusCode,
@@ -27,24 +33,6 @@ export { relationSchemaField } from './relation-bind.js'
 
 export const SYSTEM_TABLES = ['users', 'fields', 'aiMessages']
 export const PREVIEW_TTL_MS = 90_000
-
-const HOP_XIANCHA_CACHE_MAX = 32
-const hopXianchaCache = new Map()
-
-function hopXianchaCacheKey(sessionId, workspace, speech, page) {
-  const n = Number(page)
-  const at = Number.isFinite(n) && n > 0 ? Math.floor(n) : 1
-  return `${String(sessionId || '')}\0${String(workspace || '')}\0${String(speech || '')}\0现查\0${at}`
-}
-
-function hopXianchaCacheSet(key, value) {
-  if (hopXianchaCache.has(key)) hopXianchaCache.delete(key)
-  hopXianchaCache.set(key, value)
-  while (hopXianchaCache.size > HOP_XIANCHA_CACHE_MAX) {
-    const oldest = hopXianchaCache.keys().next().value
-    hopXianchaCache.delete(oldest)
-  }
-}
 
 function speakWithActionAsk(speak, kind, askAction) {
   const act = String(askAction || '').trim()
@@ -533,13 +521,6 @@ async function decorateFromHits(fromNode, hitsByKind, extra = {}) {
   }
 }
 
-function hopSheetHasKindHits(result) {
-  const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
-  if (!sheet || typeof sheet !== 'object') return false
-  const rows = Array.isArray(sheet.rows) ? sheet.rows.length : 0
-  return rows > 0
-}
-
 async function withSheet(result, extra = {}) {
   let schemaFields = extra.schemaFields
   const sheetKind = String((result && result.kind) || extra.kind || '').trim()
@@ -805,6 +786,7 @@ export function createGate(opts = {}) {
   const tokens = new Map()
   const traces = opts.traces || createTraceLog()
   const rememberedAsk = new Map()
+  const settledQueries = createSettledQueryStore()
 
   function refuse(error, hint) {
     return { ok: false, error, hint }
@@ -1341,7 +1323,13 @@ export function createGate(opts = {}) {
       }
     }
     const speak = speakLookup({ kind: sheetKind, no: rows.length === 1 ? rows[0].no : '' }, {
-      ...found, matches: rows, listed: rows.length > 1, ambiguous: rows.length > 1,
+      ...found,
+      matches: rows,
+      listed: rows.length > 1,
+      ambiguous: rows.length > 1,
+      hitTotal,
+      hitTotalState,
+      pageRows: rows.length,
     })
     async function sheet(result, more = {}) {
       const hopFrom = plan.steps && plan.steps.length > 1
@@ -1707,31 +1695,23 @@ export function createGate(opts = {}) {
     }
     const sessionId = String(spec.sessionId || '').trim()
     const workspaceKey = String(spec.workspace || '')
-    const speechForHop = String(plan.speech || '').trim()
-    const rememberedHop = String(userSpeech || '').trim()
-    const hopSpeech = (
-      relatedMentionedKinds(speechForHop, loaded.vocab, enrichExtra).related.length >= 2
-        ? speechForHop
-        : (relatedMentionedKinds(rememberedHop, loaded.vocab, enrichExtra).related.length >= 2 ? rememberedHop : '')
-    )
-    if (plan.action === '现查' && sessionId && hopSpeech) {
-      const cached = hopXianchaCache.get(hopXianchaCacheKey(sessionId, workspaceKey, hopSpeech, plan.page))
-      if (cached && hopSheetHasKindHits(cached)) return cached
+    const settledKey = (plan.action === '现查' && sessionId && !replaying && spec.picked !== true)
+      ? settledHopKey({
+        sessionId,
+        workspace: workspaceKey,
+        speech: plan.speech,
+        plan,
+        spec,
+        targetKind: resolvedKind,
+      })
+      : ''
+    if (settledKey) {
+      const cached = settledQueries.get(settledKey)
+      if (cached && previewSettledLookup(cached)) return materializeSettledRepeat(cached)
     }
     if (spec.picked === true) enriched.picked = true
     const result = await previewStructured(plan, enriched, loaded)
-    if (
-      plan.action === '现查'
-      && Array.isArray(plan.steps) && plan.steps.length >= 2
-      && sessionId
-      && hopSpeech
-      && result && result.ok !== false
-    ) {
-      hopXianchaCacheSet(hopXianchaCacheKey(sessionId, workspaceKey, hopSpeech, plan.page), result)
-      if (speechForHop && speechForHop !== hopSpeech) {
-        hopXianchaCacheSet(hopXianchaCacheKey(sessionId, workspaceKey, speechForHop, plan.page), result)
-      }
-    }
+    if (settledKey && previewSettledLookup(result)) settledQueries.set(settledKey, result)
     return result
   }
 

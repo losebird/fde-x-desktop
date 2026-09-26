@@ -68,6 +68,22 @@ export function nudgeDueAt(text, t) {
 }
 
 /**
+ * Object-set footer for a settled 现查 page. N is hitTotal, not page row count.
+ * @param {{ hitTotalState?: string, hitTotal?: number | null }} found
+ * @param {number} pageCount
+ */
+export function speakObjectSetTotal(found, pageCount) {
+  const m = Number.isFinite(Number(pageCount)) ? Math.max(0, Math.floor(Number(pageCount))) : 0
+  const state = String((found && found.hitTotalState) || '').trim()
+  if (state === 'known' && Number.isFinite(Number(found && found.hitTotal))) {
+    return `共 ${Number(found.hitTotal)} 条，本页 ${m} 条。`
+  }
+  if (state === 'incomplete') return `对象集总数未算全，本页 ${m} 条。`
+  if (state === 'unknown' || state === '') return `对象集总数未知，本页 ${m} 条。`
+  return `本页 ${m} 条。`
+}
+
+/**
  * @param {{ kind?: string, no?: string } | null | undefined} ref
  * @param {{ ok?: boolean, status?: string, mine?: boolean, error?: string } | null | undefined} found
  */
@@ -79,10 +95,17 @@ export function speakLookup(ref, found) {
       const kind = String((ref && ref.kind) || '').trim()
       const rest = String((found && found.rest) || '').trim()
         || (!looksLikeTicket((ref && ref.no) || '') ? String((ref && ref.no) || '').trim() : '')
+      const missState = String((found && found.hitTotalState) || '').trim()
+      const missPage = Number.isFinite(Number(found && found.pageRows))
+        ? Math.max(0, Math.floor(Number(found.pageRows)))
+        : 0
+      const totalLine = missState ? speakObjectSetTotal(found, missPage) : ''
       if (rest) {
         const who = kind || '这张单'
-        return `${who}这边对不上「${rest}」，0 条，不是没去查。`
+        const tail = totalLine || '0 条，不是没去查。'
+        return `${who}这边对不上「${rest}」，${tail}`
       }
+      if (totalLine) return `${label}${totalLine}不是没去查。`
       return `${label}业务系统里没有。不是没去查。`
     }
     if (found && found.error === 'FORBIDDEN') return `${label}不在你名下。这台号看不见明细。`
@@ -97,7 +120,10 @@ export function speakLookup(ref, found) {
   if (found.listed && !found.rest && Array.isArray(found.matches) && found.matches.length) {
     const first = found.matches[0] || {}
     const n = found.matches.length
-    return `${label}最近一页 ${n} 条。第一张 ${first.no || ''}，状态 ${first.status || '未知'}。`
+    const totalLine = String((found && found.hitTotalState) || '').trim()
+      ? speakObjectSetTotal(found, n)
+      : `最近一页 ${n} 条。`
+    return `${label}${totalLine}第一张 ${first.no || ''}，状态 ${first.status || '未知'}。`
   }
   if (found.ambiguous) {
     const nos = ((found.matches || []).map((item) => item.no).filter(Boolean)).slice(0, 5)
@@ -109,8 +135,13 @@ export function speakLookup(ref, found) {
   const status = String(found.status || '').trim()
   const via = speakVia(found)
   const detail = speakFields(found.fields)
-  if (/已过|已过账|已审|done|posted/i.test(status)) return `${label}已经过了。${detail}${via}`
-  if (/待审|待办|pending|open/i.test(status)) return `${label}待审。${detail}${via}`
+  const pageRows = Array.isArray(found.matches) ? found.matches.length : (found.pageRows != null ? Number(found.pageRows) : 1)
+  const totalPrefix = String((found && found.hitTotalState) || '').trim()
+    ? speakObjectSetTotal(found, pageRows)
+    : ''
+  if (/已过|已过账|已审|done|posted/i.test(status)) return `${label}${totalPrefix}已经过了。${detail}${via}`
+  if (/待审|待办|pending|open/i.test(status)) return `${label}${totalPrefix}待审。${detail}${via}`
+  if (totalPrefix) return `${label}${totalPrefix}${detail}${via}`
   return `${label}现在是${status || '未知'}。${detail}${via}`
 }
 
