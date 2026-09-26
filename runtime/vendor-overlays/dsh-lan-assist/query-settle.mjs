@@ -126,7 +126,9 @@ export function materializeSettledRepeat(cached) {
     ? prior
     : `${prior}${/。$/.test(prior) || !prior ? '' : '。'}${SETTLED_REPEAT_NOTE}`
   const sheet = sheetOf(cached)
-  const nextSheet = sheet ? { ...sheet, speak } : sheet
+  const nextSheet = sheet
+    ? { ...sheet, speak, querySettledRepeat: true, error: 'QUERY_SETTLED' }
+    : sheet
   return {
     ...cached,
     ok: true,

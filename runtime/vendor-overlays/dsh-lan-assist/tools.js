@@ -223,9 +223,12 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
         userSpeech: lastUserSpeech(exec) || '',
       })
       if (rounds && typeof rounds.noteToolSheet === 'function') {
-        const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
-        if (sheet && typeof sheet === 'object' && sessionId && !String(sheet.sessionId || '').trim()) {
-          sheet.sessionId = sessionId
+        const base = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
+        const sheet = base && typeof base === 'object' ? { ...base } : base
+        if (sheet && typeof sheet === 'object') {
+          if (result && result.querySettledRepeat === true) sheet.querySettledRepeat = true
+          if (result && result.error === 'QUERY_SETTLED') sheet.error = 'QUERY_SETTLED'
+          if (sessionId && !String(sheet.sessionId || '').trim()) sheet.sessionId = sessionId
         }
         const outcome = rounds.noteToolSheet(sessionId, sheet)
         if (outcome && outcome.cancel) {

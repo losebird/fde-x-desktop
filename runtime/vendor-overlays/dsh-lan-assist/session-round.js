@@ -26,6 +26,19 @@ function sheetSpeech(sheet) {
   return String((sheet && sheet.speech) || '').trim()
 }
 
+function sheetPage(sheet) {
+  const page = Number(sheet && sheet.page)
+  return Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
+}
+
+/** Next page of the same 现查 is not leftover cancel. */
+function isPagedLookupContinuation(candidate, incoming) {
+  if (!candidate || !incoming) return false
+  if (sheetAction(candidate) !== '现查' || sheetAction(incoming) !== '现查') return false
+  if (sheetPreviewId(candidate) || sheetPreviewId(incoming)) return false
+  return sheetPage(incoming) > sheetPage(candidate)
+}
+
 function sheetNos(sheet) {
   if (!sheet || typeof sheet !== 'object' || !Array.isArray(sheet.rows)) return []
   return sheet.rows.map((row) => {
@@ -211,13 +224,24 @@ export function stampWroteLookup(spec, identity) {
   return next
 }
 
+/** Same hop 现查 already settled; connector returned QUERY_SETTLED or search_text drags the turn. */
+export function isSettledQueryRepeatLeftover(candidate, incoming) {
+  if (!candidate || !incoming || typeof candidate !== 'object' || typeof incoming !== 'object') return false
+  if (candidate.querySettled !== true) return false
+  if (sheetAction(candidate) !== '现查' || sheetPreviewId(candidate)) return false
+  if (incoming.querySettledRepeat === true || incoming.error === 'QUERY_SETTLED') return true
+  return false
+}
+
 export function isLeftoverAfterCandidate(candidate, incoming) {
   if (!candidate || !incoming) return false
+  if (isSettledQueryRepeatLeftover(candidate, incoming)) return true
   if (leftoverQueryCoveringWrite(candidate, incoming)) return true
   if (isUnfilteredListSheet(incoming)) {
     if (candidate.wroteReceipt === true) return false
     return true
   }
+  if (isPagedLookupContinuation(candidate, incoming)) return false
   if (sheetRowCount(candidate) > 0 && sheetRowCount(incoming) === 0) return true
   return false
 }
@@ -328,6 +352,11 @@ export function createSessionRoundStore() {
       return { emit: false, official: null, cancel: false, process: true }
     }
 
+    if (round.candidate && isSettledQueryRepeatLeftover(round.candidate, incomingRaw)) {
+      const closed = closeRound(sid, 'leftover')
+      return { ...closed, cancel: true, leftover: true, cancelKind: 'plugin-leftover', process: false }
+    }
+
     if (round.candidate && explicitLiveLookupSupersedesWrite(round.candidate, incomingRaw)) {
       round.candidate = incomingRaw
       round.kindFocus = null
@@ -394,11 +423,31 @@ export function createSessionRoundStore() {
     if (round) round.wroteFollowup = false
   }
 
+  /** Host tools (e.g. search_text) after a settled 现查 on this hop — stop the tool loop. */
+  function notePostSettledHopTool(sessionId, toolName) {
+    const sid = String(sessionId || '').trim()
+    const name = String(toolName || '').trim()
+    if (!sid || name !== 'search_text') {
+      return { emit: false, official: null, cancel: false, process: false }
+    }
+    const round = peek(sid)
+    if (!round || !round.open || !round.candidate) {
+      return { emit: false, official: round ? round.official : null, cancel: false, process: true }
+    }
+    const candidate = round.candidate
+    if (candidate.querySettled !== true || sheetAction(candidate) !== '现查' || sheetPreviewId(candidate)) {
+      return { emit: false, official: null, cancel: false, process: true }
+    }
+    const closed = closeRound(sid, 'leftover')
+    return { ...closed, cancel: true, leftover: true, cancelKind: 'plugin-leftover', process: false }
+  }
+
   return {
     peek,
     startRound,
     closeRound,
     noteToolSheet,
+    notePostSettledHopTool,
     officialSheet,
     focusKindSheet,
     servedSheet,

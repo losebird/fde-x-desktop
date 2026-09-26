@@ -324,6 +324,16 @@ export async function apply(ctx, config) {
           }).catch(() => undefined)
           return
         }
+        if (event && event.type === 'tool/call') {
+          const toolName = event.data && typeof event.data.name === 'string' ? event.data.name.trim() : ''
+          if (toolName === 'search_text' && typeof sessionRounds.notePostSettledHopTool === 'function') {
+            const outcome = sessionRounds.notePostSettledHopTool(sessionId, toolName)
+            if (outcome && outcome.cancel) {
+              void cancelLeftover(sessionId, outcome.cancelKind).catch(() => undefined)
+            }
+          }
+          return
+        }
         const speech = extractUserSpeech(event)
         if (!speech) return
         sessionRounds.noteHumanUtterance(sessionId)
@@ -429,6 +439,7 @@ export async function apply(ctx, config) {
   try {
     registerTools(ctx, { defineTool }, secretary, {
       noteToolSheet: (sessionId, sheet) => sessionRounds.noteToolSheet(sessionId, sheet),
+      notePostSettledHopTool: (sessionId, toolName) => sessionRounds.notePostSettledHopTool(sessionId, toolName),
       cancelLeftover,
     })
   } catch (error) {

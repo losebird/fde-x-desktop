@@ -15,6 +15,7 @@ cpSync(overlayDir, staged, { recursive: true })
 const { createGate } = await import(pathToFileURL(join(staged, 'write.js')).href)
 const { speakLookup, speakObjectSetTotal } = await import(pathToFileURL(join(staged, 'probe.js')).href)
 const { previewSettledLookup, settledHopKey } = await import(pathToFileURL(join(staged, 'query-settle.mjs')).href)
+const { createSessionRoundStore } = await import(pathToFileURL(join(staged, 'session-round.js')).href)
 
 const hopVocab = [
   {
@@ -177,6 +178,146 @@ test('different hop bind key allows another 现查', async () => {
     kind: 'ChildB',
     action: '现查',
     speech: otherSpeech,
+  })
+  assert.notEqual(again.error, 'QUERY_SETTLED')
+})
+
+function sheetOfPreview(result) {
+  return result.sheet && typeof result.sheet === 'object' ? result.sheet : result
+}
+
+test('QUERY_SETTLED repeat preview is plugin-leftover; page/write/bind are not', async () => {
+  const g = gate()
+  const rounds = createSessionRoundStore()
+  const sessionId = 'sess-settle-leftover'
+  const base = {
+    workspace: '/tmp/settle-ws',
+    sessionId,
+    kind: 'ChildB',
+    speech,
+  }
+  rounds.startRound(sessionId)
+  const first = await g.preview({ ...base, action: '现查' })
+  assert.equal(first.ok, true)
+  rounds.noteToolSheet(sessionId, sheetOfPreview(first))
+  const second = await g.preview({ ...base, action: '现查' })
+  const repeatSheet = {
+    ...sheetOfPreview(second),
+    querySettledRepeat: second.querySettledRepeat,
+    error: second.error,
+  }
+  const leftover = rounds.noteToolSheet(sessionId, repeatSheet)
+  assert.equal(leftover.cancel, true)
+  assert.equal(leftover.leftover, true)
+  assert.equal(leftover.cancelKind, 'plugin-leftover')
+
+  const roundsPage = createSessionRoundStore()
+  roundsPage.startRound('sess-page')
+  const settled = await g.preview({ ...base, sessionId: 'sess-page', action: '现查' })
+  roundsPage.noteToolSheet('sess-page', sheetOfPreview(settled))
+  const page2 = await g.preview({ ...base, sessionId: 'sess-page', action: '现查', page: 2 })
+  const pageOutcome = roundsPage.noteToolSheet('sess-page', sheetOfPreview(page2))
+  assert.notEqual(pageOutcome.cancel, true)
+
+  const roundsWrite = createSessionRoundStore()
+  roundsWrite.startRound('sess-write')
+  const settledW = await g.preview({ ...base, sessionId: 'sess-write', action: '现查' })
+  roundsWrite.noteToolSheet('sess-write', sheetOfPreview(settledW))
+  const approve = await g.preview({
+    ...base,
+    sessionId: 'sess-write',
+    action: '过审',
+    speech: `${speech} 过一下`,
+  })
+  const writeOutcome = roundsWrite.noteToolSheet('sess-write', sheetOfPreview(approve))
+  assert.notEqual(writeOutcome.cancel, true)
+})
+
+test('settled 现查 then search_text on same hop is plugin-leftover', async () => {
+  const g = gate()
+  const rounds = createSessionRoundStore()
+  const sessionId = 'sess-settle-search'
+  rounds.startRound(sessionId)
+  const first = await g.preview({
+    workspace: '/tmp/settle-ws',
+    sessionId,
+    kind: 'ChildB',
+    action: '现查',
+    speech,
+  })
+  rounds.noteToolSheet(sessionId, sheetOfPreview(first))
+  const searchLeft = rounds.notePostSettledHopTool(sessionId, 'search_text')
+  assert.equal(searchLeft.cancel, true)
+  assert.equal(searchLeft.cancelKind, 'plugin-leftover')
+})
+
+test('columnMiss and bare askAction do not settle; where change changes hop key', () => {
+  assert.equal(previewSettledLookup({
+    ok: true,
+    action: '现查',
+    querySettled: true,
+    rows: [{ no: 'R1' }],
+    where: [{ keys: ['status'], values: ['pending'] }],
+    columnMiss: true,
+  }), false)
+  assert.equal(previewSettledLookup({
+    ok: true,
+    action: '现查',
+    querySettled: true,
+    askAction: '改还是查',
+    rows: [],
+  }), false)
+  const sessionId = 'sess-where-fix'
+  const keyA = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    speech,
+    plan: {
+      speech,
+      steps: [{ kind: 'ChildB', where: [{ keys: ['status'], values: ['pending'] }] }],
+      targetIndex: 0,
+      page: 1,
+    },
+    spec: {},
+    targetKind: 'ChildB',
+  })
+  const keyB = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    speech,
+    plan: {
+      speech,
+      steps: [{ kind: 'ChildB', where: [{ keys: ['status'], values: ['active'] }] }],
+      targetIndex: 0,
+      page: 1,
+    },
+    spec: {},
+    targetKind: 'ChildB',
+  })
+  assert.notEqual(keyA, keyB)
+})
+
+test('WHERE_UNBOUND and replay results do not count as settled', async () => {
+  assert.equal(previewSettledLookup({ ok: false, error: 'WHERE_UNBOUND' }), false)
+  const g = gate()
+  const replay = await g.preview({
+    workspace: '/tmp/settle-ws',
+    sessionId: 'sess-replay',
+    kind: 'ChildB',
+    action: '现查',
+    speech,
+    replay: true,
+    steps: [{ kind: 'ChildB', where: [{ keys: ['status'], values: ['pending'] }] }],
+  })
+  assert.equal(replay.ok, true)
+  const again = await g.preview({
+    workspace: '/tmp/settle-ws',
+    sessionId: 'sess-replay',
+    kind: 'ChildB',
+    action: '现查',
+    speech,
+    replay: true,
+    steps: [{ kind: 'ChildB', where: [{ keys: ['status'], values: ['pending'] }] }],
   })
   assert.notEqual(again.error, 'QUERY_SETTLED')
 })
