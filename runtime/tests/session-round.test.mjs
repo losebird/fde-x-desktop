@@ -226,7 +226,7 @@ test('non-sheet tool result does not open a round', () => {
   assert.equal(rounds.servedSheet('sess-a'), null)
 })
 
-test('weak unfiltered is official only when the round produced nothing else', () => {
+test('weak unfiltered is not promoted when the round produced nothing else', () => {
   const rounds = createSessionRoundStore()
   rounds.startRound('sess-a')
   const first = rounds.noteToolSheet('sess-a', dumpSheet())
@@ -234,8 +234,9 @@ test('weak unfiltered is official only when the round produced nothing else', ()
   assert.equal(first.cancel, false)
   assert.equal(rounds.servedSheet('sess-a'), null)
   const closed = rounds.closeRound('sess-a')
-  assert.equal(closed.emit, true)
-  assert.equal(isUnfilteredListSheet(closed.official), true)
+  assert.equal(closed.emit, false)
+  assert.equal(closed.official, null)
+  assert.equal(rounds.servedSheet('sess-a'), null)
 })
 
 test('a settled 现查 with no rows is eligible and becomes the official sheet', () => {

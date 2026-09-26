@@ -375,7 +375,7 @@ export function createSessionRoundStore() {
       const bareFollowup = Boolean(
         round.wroteFollowup && next && !sheetCarriesWrittenIdentity(next, round.wroteIdentity),
       )
-      if (next && !bareFollowup) {
+      if (next && !bareFollowup && canPublishSheet(next)) {
         const prevKey = roundOfficialKey(round.official)
         round.official = next
         const nextKey = roundOfficialKey(next)

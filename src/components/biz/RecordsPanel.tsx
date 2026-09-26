@@ -1633,8 +1633,9 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
             }
           }
         } catch {
-          /* gate did not republish */
+          /* keep the published sheet */
         }
+        return
       }
       if (peerChip) return
       applyLocal()
