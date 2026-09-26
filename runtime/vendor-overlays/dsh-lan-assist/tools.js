@@ -231,15 +231,21 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
           if (sessionId && !String(sheet.sessionId || '').trim()) sheet.sessionId = sessionId
         }
         const outcome = rounds.noteToolSheet(sessionId, sheet)
+        const payload = JSON.stringify(result)
         if (outcome && outcome.cancel) {
           const cancelKind = String(outcome.cancelKind || 'plugin-leftover').trim() || 'plugin-leftover'
           const live = exec && exec.agent
-          if (live && typeof live.cancel === 'function') {
-            try { live.cancel({ kind: cancelKind }, { keepInbox: true }) } catch { /* leftover cancel is best-effort */ }
-          } else if (typeof rounds.cancelLeftover === 'function') {
-            void Promise.resolve(rounds.cancelLeftover(sessionId, cancelKind)).catch(() => undefined)
+          const deferCancel = () => {
+            if (live && typeof live.cancel === 'function') {
+              try { live.cancel({ kind: cancelKind }, { keepInbox: true }) } catch { /* leftover cancel is best-effort */ }
+            } else if (typeof rounds.cancelLeftover === 'function') {
+              void Promise.resolve(rounds.cancelLeftover(sessionId, cancelKind)).catch(() => undefined)
+            }
           }
+          if (typeof queueMicrotask === 'function') queueMicrotask(deferCancel)
+          else setTimeout(deferCancel, 0)
         }
+        return payload
       }
       return JSON.stringify(result)
     },

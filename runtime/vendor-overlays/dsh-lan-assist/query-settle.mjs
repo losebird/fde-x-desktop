@@ -3,83 +3,18 @@
  * @module dsh-lan-assist/query-settle
  */
 
-function stableWhere(where) {
-  if (!Array.isArray(where) || !where.length) return []
-  return where.map((term) => {
-    if (!term || typeof term !== 'object') return null
-    const keys = (Array.isArray(term.keys) ? term.keys : []).map(String).sort()
-    const values = (Array.isArray(term.values) ? term.values : []).map(String).sort()
-    const dateBefore = (Array.isArray(term.dateBefore) ? term.dateBefore : []).map(String).sort()
-    const dateAfter = (Array.isArray(term.dateAfter) ? term.dateAfter : []).map(String).sort()
-    return {
-      keys,
-      values,
-      not: !!term.not,
-      dateBefore,
-      dateAfter,
-    }
-  }).filter(Boolean)
-}
-
-function stableSteps(steps) {
-  if (!Array.isArray(steps) || !steps.length) return []
-  return steps.map((step) => {
-    if (!step || typeof step !== 'object') return null
-    return {
-      kind: String(step.kind || '').trim(),
-      no: String(step.no || '').trim(),
-      from: String(step.from || '').trim(),
-      relation: String(step.relation || '').trim(),
-      join: String(step.join || '').trim() === 'or' ? 'or' : 'and',
-      where: stableWhere(step.where),
-    }
-  }).filter(Boolean)
-}
-
-function stableFrom(from) {
-  if (!from || typeof from !== 'object' || Array.isArray(from)) return null
-  const kind = String(from.kind || '').trim()
-  if (!kind) return null
-  return {
-    kind,
-    no: String(from.no || '').trim(),
-    where: stableWhere(from.where),
-  }
-}
-
-function planBind(plan, spec = {}) {
-  const targetStep = (plan && plan.steps && plan.steps[plan.targetIndex])
-    || (plan && plan.steps && plan.steps[0])
-  const startStep = plan && plan.steps && plan.steps[0]
-  const listWhere = (targetStep && targetStep.where && targetStep.where.length)
-    ? targetStep.where
-    : (Array.isArray(spec.where) && spec.where.length ? spec.where : [])
-  const hopWhere = (plan && plan.steps && plan.steps.length > 1 && startStep && startStep.where && startStep.where.length)
-    ? startStep.where
-    : []
-  return { listWhere, hopWhere }
-}
-
-/** Stable hop bind key: utterance + target kind + bound steps/where/from + page. */
+/** Stable hop bind key: utterance + target kind + page (not connector request shape). */
 export function settledHopKey(ctx = {}) {
   const sessionId = String(ctx.sessionId || '').trim()
   const workspace = String(ctx.workspace || '').trim()
   const speech = String(ctx.speech || '').trim()
   const targetKind = String(ctx.targetKind || '').trim()
   const plan = ctx.plan && typeof ctx.plan === 'object' ? ctx.plan : {}
-  const spec = ctx.spec && typeof ctx.spec === 'object' ? ctx.spec : {}
   const page = Number(plan.page) > 0 ? Math.floor(Number(plan.page)) : 1
-  const lookupNo = String(plan.no || spec.no || '').trim()
-  const { listWhere, hopWhere } = planBind(plan, spec)
   const payload = {
     speech,
     targetKind,
-    lookupNo,
     page,
-    steps: stableSteps(plan.steps),
-    listWhere: stableWhere(listWhere),
-    hopWhere: stableWhere(hopWhere),
-    from: stableFrom(spec.from),
   }
   return `${sessionId}\0${workspace}\0${JSON.stringify(payload)}`
 }

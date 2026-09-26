@@ -251,7 +251,7 @@ test('settled 现查 then search_text on same hop is plugin-leftover', async () 
   assert.equal(searchLeft.cancelKind, 'plugin-leftover')
 })
 
-test('columnMiss and bare askAction do not settle; where change changes hop key', () => {
+test('columnMiss and bare askAction do not settle; same speech ignores plan where shape in hop key', () => {
   assert.equal(previewSettledLookup({
     ok: true,
     action: '现查',
@@ -291,10 +291,43 @@ test('columnMiss and bare askAction do not settle; where change changes hop key'
       targetIndex: 0,
       page: 1,
     },
-    spec: {},
+    spec: { from: { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] } },
     targetKind: 'ChildB',
   })
-  assert.notEqual(keyA, keyB)
+  assert.equal(keyA, keyB)
+})
+
+test('repeat 现查 after ok table: model from/where shape changes still QUERY_SETTLED', async () => {
+  const g = gate()
+  const sessionId = 'sess-from-shape'
+  const base = {
+    workspace: '/tmp/settle-ws',
+    sessionId,
+    kind: 'ChildB',
+    action: '现查',
+    speech,
+  }
+  const first = await g.preview({
+    ...base,
+    from: { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired', 'inactive'] }] },
+  })
+  assert.equal(first.ok, true)
+  assert.ok(previewSettledLookup(first))
+
+  const second = await g.preview({
+    ...base,
+    from: { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] },
+  })
+  assert.equal(second.error, 'QUERY_SETTLED')
+  assert.equal(second.querySettledRepeat, true)
+
+  const third = await g.preview({ ...base })
+  assert.equal(third.error, 'QUERY_SETTLED')
+  assert.equal(third.querySettledRepeat, true)
+
+  const fourth = await g.preview({ ...base })
+  assert.equal(fourth.error, 'QUERY_SETTLED')
+  assert.match(String(fourth.speak || ''), /已结算|共 \d+ 条/)
 })
 
 test('WHERE_UNBOUND and replay results do not count as settled', async () => {
