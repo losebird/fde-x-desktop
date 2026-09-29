@@ -18,6 +18,65 @@ function sheetPreviewId(sheet) {
   return String(sheet.preview_id || sheet.previewId || '').trim()
 }
 
+export function shouldCancelDshAfterWritePreview(action, previewId) {
+  return Boolean(String(previewId || '').trim()) && String(action || '').trim() !== '现查'
+}
+
+/** Human can confirm this sheet on the workstation. Chat must not keep asking. */
+export function isConfirmableWritePreview(sheet) {
+  if (!sheet || typeof sheet !== 'object') return false
+  const previewId = sheetPreviewId(sheet)
+  const action = sheetAction(sheet)
+  if (!shouldCancelDshAfterWritePreview(action, previewId)) return false
+  if (sheet.picked === true) return true
+  if (sheet.canWrite === true || sheet.can_write === true) return true
+  return Array.isArray(sheet.changes) && sheet.changes.length > 0
+}
+
+function sheetHasPicks(sheet) {
+  const cells = Array.isArray(sheet && sheet.cells) ? sheet.cells : []
+  return cells.some((cell) => cell && Array.isArray(cell.picks) && cell.picks.length > 0)
+}
+
+/** This utterance's write result: token, listed pick, or pick-cells. Goes to candidate. */
+export function isRoundWriteResult(sheet) {
+  if (!sheet || typeof sheet !== 'object') return false
+  const action = sheetAction(sheet)
+  if (!action || action === '现查') return false
+  if (!isEligibleRoundSheet(sheet)) return false
+  if (shouldCancelDshAfterWritePreview(action, sheetPreviewId(sheet))) return true
+  if (isConfirmableWritePreview(sheet)) return true
+  if (canPickListedWrite(sheet)) return true
+  if (sheetHasPicks(sheet)) return true
+  return false
+}
+
+/** Alias of isRoundWriteResult: this sheet is the round write candidate. */
+export function isWorkstationHeldWrite(sheet) {
+  return isRoundWriteResult(sheet)
+}
+
+function canPickListedWrite(sheet) {
+  if (!sheet || typeof sheet !== 'object') return false
+  const action = sheetAction(sheet)
+  if (!action || action === '现查') return false
+  if (sheet.blockConfirm === true) return false
+  if (sheet.listed !== true && sheet.ambiguous !== true) return false
+  return sheetRowCount(sheet) >= 2
+}
+
+/** Live token or listed write that a row pick can mint. */
+export function holdsWorkstationAsk(sheet) {
+  if (isConfirmableWritePreview(sheet)) return true
+  return canPickListedWrite(sheet)
+}
+
+/** Ask stays blocked only while the right side can confirm or pick. */
+export function roundBlocksChatAsk(round, _writeSpeech) {
+  if (!round) return false
+  return holdsWorkstationAsk(round.candidate)
+}
+
 function sheetKind(sheet) {
   return String((sheet && sheet.kind) || '').trim()
 }
@@ -67,80 +126,16 @@ export function isUnfilteredListSheet(sheet) {
 export function isEligibleRoundSheet(sheet) {
   if (!sheet || typeof sheet !== 'object') return false
   if (sheet.ok === false) return false
+  const action = sheetAction(sheet)
+  if (sheet.officialBound === true && action === '现查') return true
   if (isUnfilteredListSheet(sheet)) return false
   const rows = sheetRowCount(sheet)
-  const action = sheetAction(sheet)
   const previewId = sheetPreviewId(sheet)
   if (action === '现查' && rows <= 0 && sheet.querySettled !== true) return false
-  if (action && action !== '现查' && rows <= 0 && !previewId && !(sheet.ambiguous || sheet.listed)) {
+  if (action && action !== '现查' && rows <= 0 && !previewId && !(sheet.ambiguous || sheet.listed) && !sheetHasPicks(sheet)) {
     return false
   }
-  return rows > 0 || Boolean(previewId) || Boolean(sheet.ambiguous || sheet.listed) || sheet.querySettled === true
-}
-
-function sharesWrittenRows(prev, incoming) {
-  const prevNos = sheetNos(prev)
-  if (!prevNos.length) return false
-  const incomingNos = sheetNos(incoming)
-  if (incomingNos.some((no) => prevNos.includes(no))) return true
-  const speech = sheetSpeech(incoming)
-  return prevNos.some((no) => no && speech.includes(no))
-}
-
-/** Tool-called 现查 (no write token) replaces a same-round speech-bound write preview instead of leftover-cancel. */
-function explicitLiveLookupSupersedesWrite(prev, incoming) {
-  if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
-  if (sheetAction(incoming) !== '现查' || sheetPreviewId(incoming)) return false
-  if (incoming.picked === true) return false
-  const prevAct = sheetAction(prev)
-  if (!prevAct || prevAct === '现查') return false
-  if (prev.picked === true) return false
-  if (prev.ambiguous || prev.listed) return false
-  if (isUnfilteredListSheet(incoming) && !sharesWrittenRows(prev, incoming)) return false
-  return true
-}
-
-function leftoverQueryCoveringWrite(prev, incoming) {
-  if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
-  if (explicitLiveLookupSupersedesWrite(prev, incoming)) return false
-  const prevAct = sheetAction(prev)
-  if (!prevAct || prevAct === '现查') return false
-  if (sheetAction(incoming) !== '现查') return false
-  if (incoming.picked === true) return false
-  const prevKind = sheetKind(prev)
-  const nextKind = sheetKind(incoming)
-  if (prevKind && nextKind && prevKind !== nextKind) return false
-  const waitingHit = Boolean(
-    sheetRowCount(prev) > 1
-    && !sheetPreviewId(prev)
-    && (prev.ambiguous || prev.listed),
-  )
-  if (waitingHit) return true
-  const prevNos = sheetNos(prev)
-  if (!prevNos.length) return false
-  const incomingNos = sheetNos(incoming)
-  const speech = sheetSpeech(incoming)
-  return incomingNos.some((no) => prevNos.includes(no))
-    || prevNos.some((no) => no && speech.includes(no))
-}
-
-function relationFromKind(sheet) {
-  const from = sheet && sheet.from
-  if (!from || typeof from !== 'object' || Array.isArray(from)) return ''
-  return String(from.kind || '').trim()
-}
-
-/** An empty sheet of a third kind does not replace this round's relation. */
-export function emptyOtherKindStealsRelation(candidate, incoming) {
-  if (!candidate || !incoming) return false
-  if (sheetRowCount(incoming) > 0) return false
-  if (sheetAction(incoming) && sheetAction(incoming) !== '现查') return false
-  const prev = sheetKind(candidate)
-  const next = sheetKind(incoming)
-  if (!prev || !next || prev === next) return false
-  const fromKind = relationFromKind(candidate)
-  if (!fromKind || next === fromKind) return false
-  return true
+  return rows > 0 || Boolean(previewId) || Boolean(sheet.ambiguous || sheet.listed) || sheetHasPicks(sheet) || sheet.querySettled === true
 }
 
 export function sheetCarriesIdentity(sheet) {
@@ -197,22 +192,46 @@ function specHasIdentity(spec) {
   return false
 }
 
-/** Fill a wrote follow-up lookup with the identity just written, when the call left it off. */
-export function stampWroteLookup(spec, identity) {
-  const next = spec && typeof spec === 'object' ? { ...spec } : {}
-  if (!identity || typeof identity !== 'object' || specHasIdentity(next)) return next
-  const no = String(identity.no || '').trim()
-  if (no) {
-    next.no = no
-    return next
-  }
-  if (Array.isArray(identity.where) && identity.where.length) {
-    next.where = identity.where
-    return next
-  }
-  const nos = Array.isArray(identity.nos)
+function identityNos(identity) {
+  const no = String((identity && identity.no) || '').trim()
+  const nos = Array.isArray(identity && identity.nos)
     ? identity.nos.map((item) => String(item || '').trim()).filter(Boolean)
     : []
+  if (no && !nos.includes(no)) nos.unshift(no)
+  return nos
+}
+
+export function wroteLookupLocksSpec(spec, identity) {
+  if (!identity || typeof identity !== 'object') return false
+  const specKind = String((spec && spec.kind) || '').trim()
+  const identKind = String(identity.kind || '').trim()
+  if (specKind && identKind && specKind !== identKind) return false
+  return identityNos(identity).length > 0 || Boolean(identKind)
+}
+
+/** Fill a wrote follow-up lookup with the written identity. lock: same kind, identity over write-speech where. */
+export function stampWroteLookup(spec, identity, opts = {}) {
+  const next = spec && typeof spec === 'object' ? { ...spec } : {}
+  if (!identity || typeof identity !== 'object') return next
+  const nos = identityNos(identity)
+  const identityNo = nos.length === 1 ? nos[0] : ''
+  const identKind = String(identity.kind || '').trim()
+  if (opts.lock === true) {
+    if (!wroteLookupLocksSpec(next, identity)) return next
+    next.speech = ''
+    next.userSpeech = ''
+    delete next.where
+    delete next.quote
+    if (identKind && !String(next.kind || '').trim()) next.kind = identKind
+    if (identityNo) next.no = identityNo
+    else if (nos.length) next.nos = nos
+    return next
+  }
+  if (specHasIdentity(next)) return next
+  if (identityNo) {
+    next.no = identityNo
+    return next
+  }
   if (nos.length === 1) next.no = nos[0]
   return next
 }
@@ -222,6 +241,7 @@ export function isSettledQueryRepeatLeftover(candidate, incoming) {
   if (!candidate || !incoming || typeof candidate !== 'object' || typeof incoming !== 'object') return false
   if (candidate.querySettled !== true) return false
   if (sheetAction(candidate) !== '现查' || sheetPreviewId(candidate)) return false
+  if (String(candidate.kind || '').trim() !== String(incoming.kind || '').trim()) return false
   if (incoming.querySettledRepeat === true || incoming.error === 'QUERY_SETTLED') return true
   return false
 }
@@ -229,13 +249,7 @@ export function isSettledQueryRepeatLeftover(candidate, incoming) {
 export function isLeftoverAfterCandidate(candidate, incoming) {
   if (!candidate || !incoming) return false
   if (isSettledQueryRepeatLeftover(candidate, incoming)) return true
-  if (leftoverQueryCoveringWrite(candidate, incoming)) return true
-  if (isUnfilteredListSheet(incoming)) {
-    if (candidate.wroteReceipt === true) return false
-    return true
-  }
-  if (isPagedLookupContinuation(candidate, incoming)) return false
-  if (sheetRowCount(candidate) > 0 && sheetRowCount(incoming) === 0) return true
+  if (isUnfilteredListSheet(incoming) && candidate.wroteReceipt !== true) return true
   return false
 }
 
@@ -250,16 +264,34 @@ function canPublishSheet(sheet) {
   return true
 }
 
+function settledRepeatFromOf(incoming, fallback) {
+  if (incoming && (incoming.querySettledRepeat === true || incoming.error === 'QUERY_SETTLED')) {
+    return incoming
+  }
+  return fallback || null
+}
+
+function leftoverCancelNote(incoming, extra = {}) {
+  const settledRepeatFrom = settledRepeatFromOf(incoming, extra.settledRepeatFrom)
+  return {
+    emit: false,
+    official: extra.official === undefined ? null : extra.official,
+    cancel: false,
+    leftover: true,
+    process: false,
+    ...(settledRepeatFrom ? { settledRepeatFrom } : {}),
+  }
+}
+
 function blankRound(id, prev) {
   return {
     roundId: id,
     open: false,
     candidate: null,
-    weak: null,
+    boundSheet: null,
     official: prev ? prev.official : null,
     publishedKey: prev && prev.publishedKey ? prev.publishedKey : '',
     officialBeforeWrite: prev ? (prev.officialBeforeWrite || null) : null,
-    kindFocus: null,
     handed: Boolean(prev && prev.official),
     closedBy: '',
     wroteFollowup: false,
@@ -282,6 +314,7 @@ function roundOfficialKey(sheet) {
 
 export function createSessionRoundStore() {
   const bySession = new Map()
+  let lastPublishedSid = ''
 
   function peek(sessionId) {
     const sid = String(sessionId || '').trim()
@@ -293,30 +326,51 @@ export function createSessionRoundStore() {
     const sid = String(sessionId || '').trim()
     if (!sid) return ''
     const prev = peek(sid)
+    if (opts.utterance) {
+      if (prev && prev.open) closeRound(sid, 'turn')
+      const prior = peek(sid) || prev
+      const id = newRoundId()
+      const round = blankRound(id, prior)
+      round.open = true
+      round.userSpeech = String(opts.speech || '').trim()
+      round.boundSheet = null
+      round.candidate = null
+      bySession.set(sid, round)
+      return id
+    }
     if (prev && prev.open) return prev.roundId
     const id = newRoundId()
-    const wroteFollowup = Boolean(opts.followup && prev && prev.wroteFollowup)
+    const inheritFollowup = Boolean(prev && prev.wroteFollowup)
     const round = blankRound(id, prev)
     round.open = true
-    round.wroteFollowup = wroteFollowup
-    round.wroteIdentity = wroteFollowup && prev ? (prev.wroteIdentity || null) : null
+    round.wroteFollowup = inheritFollowup
+    round.wroteIdentity = inheritFollowup && prev ? (prev.wroteIdentity || null) : null
     bySession.set(sid, round)
     return id
   }
 
-  function publishInto(round, sheet) {
+  function publishInto(round, sheet, sessionId) {
     if (!round || !canPublishSheet(sheet)) return false
     const key = roundOfficialKey(sheet)
     if (key && key === round.publishedKey) return false
     const act = sheetAction(sheet)
     const prev = round.official
-    if (act && act !== '现查' && sheetPreviewId(sheet) && prev && sheetAction(prev) === '现查') {
+    if (act && act !== '现查' && sheetPreviewId(sheet) && prev && !sheetPreviewId(prev)) {
       round.officialBeforeWrite = prev
     }
-    round.official = sheet
+    const sid = String(sessionId || sheet.sessionId || '').trim()
+    let stamped = sheet
+    if (sid && String(stamped.sessionId || '').trim() !== sid) stamped = { ...stamped, sessionId: sid }
+    stamped = { ...stamped, roundId: newRoundId() }
+    round.official = stamped
     round.publishedKey = key
     round.handed = false
     return true
+  }
+
+  function markPublished(sessionId) {
+    const sid = String(sessionId || '').trim()
+    if (sid) lastPublishedSid = sid
   }
 
   function publishOfficial(sessionId, sheet) {
@@ -327,7 +381,9 @@ export function createSessionRoundStore() {
       bySession.set(sid, blankRound(newRoundId(), null))
       round = peek(sid)
     }
-    return publishInto(round, sheet)
+    const ok = publishInto(round, sheet, sid)
+    if (ok) markPublished(sid)
+    return ok
   }
 
   function republishAfterDismiss(sessionId, restored) {
@@ -349,7 +405,7 @@ export function createSessionRoundStore() {
     }
     const prevKey = round.publishedKey
     round.publishedKey = ''
-    const ok = publishInto(round, sheet)
+    const ok = publishInto(round, sheet, sid)
     if (!ok) round.publishedKey = prevKey
     else round.officialBeforeWrite = null
     return ok
@@ -361,30 +417,41 @@ export function createSessionRoundStore() {
     if (!round) return { official: null, emit: false, cancel: false }
     if (reason === 'wrote') {
       round.candidate = null
-      round.weak = null
       round.open = false
-      round.kindFocus = null
       round.closedBy = 'wrote'
       round.wroteFollowup = true
       round.wroteIdentity = extra && extra.identity ? extra.identity : (round.wroteIdentity || null)
       return { official: round.official || null, emit: false, cancel: false }
     }
+    if (reason === 'leftover') {
+      return { official: round.official || null, emit: false, cancel: false }
+    }
     if (round.open) {
       round.open = false
-      const next = round.candidate || round.weak
-      const bareFollowup = Boolean(
-        round.wroteFollowup && next && !sheetCarriesWrittenIdentity(next, round.wroteIdentity),
+      const writePreview = isRoundWriteResult(round.candidate) ? round.candidate : null
+      const next = writePreview || round.boundSheet
+      const ident = round.wroteIdentity
+      const sameKind = Boolean(
+        ident
+        && ident.kind
+        && String((next && next.kind) || '').trim()
+        && String(next.kind).trim() === String(ident.kind).trim(),
       )
-      if (next && !bareFollowup && canPublishSheet(next)) {
+      const bareFollowup = Boolean(
+        round.wroteFollowup
+        && next
+        && (!ident || !ident.kind || sameKind)
+        && !sheetCarriesWrittenIdentity(next, ident),
+      )
+      if (next && canPublishSheet(next) && !bareFollowup) {
         const prevKey = roundOfficialKey(round.official)
-        round.official = next
         const nextKey = roundOfficialKey(next)
-        round.publishedKey = nextKey
+        publishInto(round, next, sid)
         if (nextKey && nextKey !== prevKey) round.handed = false
+        markPublished(sid)
       }
     }
-    round.kindFocus = null
-    round.closedBy = reason === 'leftover' ? 'leftover' : 'turn'
+    round.closedBy = 'turn'
     const emit = Boolean(round.official) && !round.handed
     if (emit) round.handed = true
     return { official: emit ? round.official : null, emit, cancel: false }
@@ -397,36 +464,39 @@ export function createSessionRoundStore() {
     }
     let round = peek(sid)
     if (!round || !round.open) {
-      if (round && round.closedBy === 'leftover') {
-        const settledRepeat = incomingRaw.querySettledRepeat === true || incomingRaw.error === 'QUERY_SETTLED'
-        return {
-          emit: false,
-          official: round.official,
-          cancel: true,
-          leftover: true,
-          cancelKind: 'plugin-leftover',
-          process: false,
-          ...(settledRepeat ? { settledRepeatFrom: incomingRaw } : {}),
-        }
-      }
       if (round && round.official && isLeftoverAfterCandidate(round.official, incomingRaw)) {
         const settledRepeat = isSettledQueryRepeatLeftover(round.official, incomingRaw)
-        return {
-          emit: false,
+        return leftoverCancelNote(incomingRaw, {
           official: round.official,
-          cancel: true,
-          leftover: true,
-          cancelKind: 'plugin-leftover',
-          process: false,
-          ...(settledRepeat ? {
-            settledRepeatFrom: (incomingRaw.querySettledRepeat === true || incomingRaw.error === 'QUERY_SETTLED')
-              ? incomingRaw
-              : round.official,
-          } : {}),
-        }
+          ...(settledRepeat ? { settledRepeatFrom: round.official } : {}),
+        })
       }
       if (!isEligibleRoundSheet(incomingRaw) && !isUnfilteredListSheet(incomingRaw)) {
         return { emit: false, official: round ? round.official : null, cancel: false, process: false }
+      }
+      const harvestWrite = isRoundWriteResult(incomingRaw)
+      const harvestLookup = Boolean(
+        sheetAction(incomingRaw) === '现查'
+        && canPublishSheet(incomingRaw)
+        && !isUnfilteredListSheet(incomingRaw),
+      )
+      const emptyClosed = Boolean(
+        round
+        && !round.open
+        && round.closedBy === 'turn'
+        && !round.boundSheet
+        && !isRoundWriteResult(round.candidate),
+      )
+      if (emptyClosed && (harvestLookup || harvestWrite)) {
+        round.open = true
+        if (harvestWrite) round.candidate = incomingRaw
+        else round.boundSheet = incomingRaw
+        const closed = closeRound(sid, 'turn')
+        return {
+          ...closed,
+          process: true,
+          leftover: false,
+        }
       }
       startRound(sid)
       round = peek(sid)
@@ -436,46 +506,45 @@ export function createSessionRoundStore() {
       incomingRaw = { ...incomingRaw, wroteReceipt: true }
     }
 
-    if (round.candidate && emptyOtherKindStealsRelation(round.candidate, incomingRaw)) {
-      return { emit: false, official: null, cancel: false, process: true }
-    }
+    const ident = round.wroteIdentity
+    const sameKind = Boolean(
+      ident
+      && ident.kind
+      && String(incomingRaw.kind || '').trim() === String(ident.kind).trim(),
+    )
+    const followupMiss = Boolean(
+      round.wroteFollowup
+      && ident
+      && (!ident.kind || sameKind)
+      && !sheetCarriesWrittenIdentity(incomingRaw, ident),
+    )
 
-    if (round.candidate && isSettledQueryRepeatLeftover(round.candidate, incomingRaw)) {
-      const settledRepeatFrom = (incomingRaw.querySettledRepeat === true || incomingRaw.error === 'QUERY_SETTLED')
-        ? incomingRaw
-        : round.candidate
-      const closed = closeRound(sid, 'leftover')
-      return {
-        ...closed,
-        cancel: true,
-        leftover: true,
-        cancelKind: 'plugin-leftover',
-        process: false,
-        settledRepeatFrom,
+    if (sheetAction(incomingRaw) === '现查' && incomingRaw.picked !== true && !sheetPreviewId(incomingRaw)) {
+      if (isRoundWriteResult(round.candidate)) {
+        return leftoverCancelNote(incomingRaw)
+      }
+      if (incomingRaw.querySettledRepeat === true || incomingRaw.error === 'QUERY_SETTLED') {
+        return leftoverCancelNote(incomingRaw, {
+          settledRepeatFrom: round.boundSheet || round.candidate,
+          cancel: false,
+        })
+      }
+      if (isUnfilteredListSheet(incomingRaw) && (round.boundSheet || round.candidate)) {
+        return leftoverCancelNote(incomingRaw)
+      }
+      if (!followupMiss && (canPublishSheet(incomingRaw) || incomingRaw.officialBound === true)) {
+        round.boundSheet = incomingRaw
       }
     }
 
-    if (round.candidate && explicitLiveLookupSupersedesWrite(round.candidate, incomingRaw)) {
+    if (isRoundWriteResult(incomingRaw)) {
       round.candidate = incomingRaw
-      round.kindFocus = null
-      publishInto(round, incomingRaw)
-      return { emit: false, official: null, cancel: false, process: true }
-    }
-
-    if (round.candidate && isLeftoverAfterCandidate(round.candidate, incomingRaw)) {
-      const closed = closeRound(sid, 'leftover')
-      return { ...closed, cancel: true, leftover: true, cancelKind: 'plugin-leftover', process: false }
-    }
-
-    if (isUnfilteredListSheet(incomingRaw)) {
-      if (!round.weak) round.weak = incomingRaw
-      return { emit: false, official: null, cancel: false, leftover: Boolean(round.candidate), process: true }
-    }
-
-    if (isEligibleRoundSheet(incomingRaw)) {
-      round.candidate = incomingRaw
-      round.kindFocus = null
-      publishInto(round, incomingRaw)
+      return {
+        emit: false,
+        official: null,
+        cancel: false,
+        process: true,
+      }
     }
 
     return { emit: false, official: null, cancel: false, process: true }
@@ -487,17 +556,9 @@ export function createSessionRoundStore() {
     return round.official || null
   }
 
-  function focusKindSheet(sessionId, view) {
-    const sid = String(sessionId || '').trim()
-    if (!sid || !view || typeof view !== 'object') return false
-    const round = peek(sid)
-    if (!round || !round.official) return false
-    round.kindFocus = view
-    return true
-  }
-
   function servedSheet(sessionId) {
-    const round = peek(sessionId)
+    const sid = String(sessionId || '').trim() || lastPublishedSid
+    const round = peek(sid)
     if (!round) return null
     return round.official || null
   }
@@ -521,23 +582,14 @@ export function createSessionRoundStore() {
     if (round) round.wroteFollowup = false
   }
 
-  /** Host tools (e.g. search_text) after a settled 现查 on this hop — stop the tool loop. */
+  /** Host search_text is not leftover-cancelled. Official sheet stays the round candidate. */
   function notePostSettledHopTool(sessionId, toolName) {
     const sid = String(sessionId || '').trim()
     const name = String(toolName || '').trim()
     if (!sid || name !== 'search_text') {
       return { emit: false, official: null, cancel: false, process: false }
     }
-    const round = peek(sid)
-    if (!round || !round.open || !round.candidate) {
-      return { emit: false, official: round ? round.official : null, cancel: false, process: true }
-    }
-    const candidate = round.candidate
-    if (candidate.querySettled !== true || sheetAction(candidate) !== '现查' || sheetPreviewId(candidate)) {
-      return { emit: false, official: null, cancel: false, process: true }
-    }
-    const closed = closeRound(sid, 'leftover')
-    return { ...closed, cancel: true, leftover: true, cancelKind: 'plugin-leftover', process: false }
+    return { emit: false, official: null, cancel: false, process: true }
   }
 
   return {
@@ -549,11 +601,13 @@ export function createSessionRoundStore() {
     publishOfficial,
     republishAfterDismiss,
     officialSheet,
-    focusKindSheet,
     servedSheet,
     isOpen,
     isWroteFollowup,
     wroteIdentity,
     noteHumanUtterance,
+    roundSpeech(sessionId) {
+      return String((peek(sessionId) && peek(sessionId).userSpeech) || '').trim()
+    },
   }
 }

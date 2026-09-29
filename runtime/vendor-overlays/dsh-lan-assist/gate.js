@@ -7,7 +7,7 @@
 
 import { OPENING_TTL_MS, PLUGIN } from './home.js'
 import { randomHex } from './crypto.js'
-import { packSheet, speakBundlePreview, speakBundleReceipt } from './write.js'
+import { packSheet, speakBundlePreview, speakBundleReceipt, WORKSTATION_CONFIRM_HINT } from './write.js'
 import { relatedFilterField, relatedHopId } from './lookup.js'
 import { briefFollowup } from './catalog.js'
 
@@ -266,33 +266,59 @@ export function createGate(bag) {
     return (pending && pending.sessionId && String(pending.sessionId)) || sid
   }
 
+  function isWaitingListedWrite(sheet) {
+    if (!sheet || typeof sheet !== 'object') return false
+    if (!(sheet.ambiguous || sheet.listed)) return false
+    if (String(sheet.preview_id || sheet.previewId || '').trim()) return false
+    const act = String(sheet.action || '').trim()
+    if (!act || act === '现查') return false
+    return true
+  }
+
   async function previewBiz(spec = {}) {
     if (!opts.gate || typeof opts.gate.preview !== 'function') {
       return { ok: false, error: 'NO_CONNECTOR', hint: '没连业务，不能装成已过账。' }
     }
-    const pending = (await store.get()).pendingSheet
+    const hall = (await store.get()).pendingSheet
+    const sid = String(spec.sessionId || (hall && hall.sessionId) || '').trim()
+    const official = sid && typeof opts.officialSheet === 'function' ? opts.officialSheet(sid) : null
+    const listedPlan = isWaitingListedWrite(official) ? official : hall
     const pickNo = String(spec.no || spec.ticket || '').trim()
-    const waiting = pending
-      && (pending.ambiguous || pending.listed)
-      && !String(pending.preview_id || pending.previewId || '').trim()
-    const onHits = waiting && pickNo && (Array.isArray(pending.rows) ? pending.rows : [])
-      .some((row) => String((row && row.no) || '') === pickNo)
+    const pickLookup = spec.lookup && typeof spec.lookup === 'object' && !Array.isArray(spec.lookup)
+      ? spec.lookup
+      : null
+    const pickField = pickLookup ? String(pickLookup.field || '').trim() : ''
+    const pickValue = pickLookup && pickLookup.value != null ? String(pickLookup.value).trim() : ''
+    const waiting = isWaitingListedWrite(listedPlan)
+    const onHits = waiting && (pickNo || (pickField && pickValue)) && (Array.isArray(listedPlan.rows) ? listedPlan.rows : [])
+      .some((row) => {
+        if (!row || typeof row !== 'object') return false
+        if (pickNo && String(row.no || '').trim() === pickNo) return true
+        if (pickField && pickValue && row.lookup && String(row.lookup.field || '').trim() === pickField
+          && String(row.lookup.value ?? '').trim() === pickValue) return true
+        return false
+      })
     let incoming = spec
     if (onHits) {
       const fromChanges = {}
-      for (const row of Array.isArray(pending.changes) ? pending.changes : []) {
+      for (const row of Array.isArray(listedPlan.changes) ? listedPlan.changes : []) {
         if (row && row.field) fromChanges[row.field] = row.to
       }
+      const planPatch = listedPlan.patch && typeof listedPlan.patch === 'object' && Object.keys(listedPlan.patch).length
+        ? listedPlan.patch
+        : fromChanges
       const patch = spec.patch && typeof spec.patch === 'object' && Object.keys(spec.patch).length
         ? spec.patch
-        : (pending.patch && typeof pending.patch === 'object' && Object.keys(pending.patch).length
-          ? pending.patch
-          : fromChanges)
+        : planPatch
+      const pendingTo = String(listedPlan.to || '').trim()
+      const pendingAction = String(listedPlan.action || '').trim()
       incoming = {
         ...spec,
         picked: true,
-        speech: pending.speech || spec.speech,
+        ...(pendingAction ? { action: pendingAction } : {}),
+        speech: listedPlan.speech || spec.speech,
         patch,
+        ...(pendingTo && !String(spec.to || '').trim() ? { to: pendingTo } : {}),
       }
     }
     const preview = await opts.gate.preview(incoming)
@@ -330,8 +356,7 @@ export function createGate(bag) {
           : `现查未对上 · ${(preview && preview.hint) || (preview && preview.error) || ''}`, now())
       })
       typeof opts.onPreview === 'function' && (() => { try { opts.onPreview(preview) } catch { /* card refresh is best-effort */ } })()
-      const hall = await snapshot(sheetSid)
-      return { ...preview, sessionId: sheetSid, workspace: cwd, sheet: (hall && hall.pendingSheet) || preview.sheet }
+      return { ...preview, sessionId: sheetSid, workspace: cwd }
     }
     const writeIncoming = {
       ...(preview && preview.sheet && typeof preview.sheet === 'object' ? preview.sheet : {}),
@@ -345,8 +370,7 @@ export function createGate(bag) {
     const hallPrev = (await store.get()).pendingSheet
     if (shouldKeepPopulatedListSheet(hallPrev, writeIncoming)) {
       typeof opts.onPreview === 'function' && (() => { try { opts.onPreview(preview) } catch { /* card refresh is best-effort */ } })()
-      const hall = await snapshot(given || letterSid)
-      return { ...preview, sessionId: given || letterSid, workspace: cwd, sheet: (hall && hall.pendingSheet) || preview.sheet }
+      return { ...preview, sessionId: given || letterSid, workspace: cwd }
     }
     const namedOpening = String(spec.openingId || spec.trace_id || spec.traceId || '').trim()
     const mergeWindow = spec.merge !== false
@@ -439,7 +463,7 @@ export function createGate(bag) {
     if (!wanted) return { ok: false, error: 'NEED_PREVIEW', hint: '先预览。旧画面不能拿去写。' }
     const source = String(spec.source || '').trim()
     if (source !== 'workstation') {
-      const hint = '请在右侧确认过账'
+      const hint = WORKSTATION_CONFIRM_HINT
       return {
         ok: false,
         failed: true,
@@ -546,6 +570,7 @@ export function createGate(bag) {
     const ok = results.some((row) => row && row.ok && !row.failed)
     const failed = results.every((row) => row && (row.failed || row.ok === false))
     const speak = speakBundleReceipt(results)
+    const listedSheet = (results.find((row) => row && row.ok && !row.failed && row.sheet && typeof row.sheet === 'object') || {}).sheet
     const result = {
       ok,
       failed,
@@ -554,6 +579,7 @@ export function createGate(bag) {
       receiptId: results.map((row) => row && row.receiptId).filter(Boolean).join(','),
       preview_id: wanted || (jobs[0] && jobs[0].preview_id) || '',
       lines: results,
+      ...(listedSheet ? { sheet: listedSheet } : {}),
     }
     const consumed = results.some((row) => row && (row.error === 'USED' || row.error === 'DUP_TRACE'))
     if (ok) voidOpeningTokens(lines)
@@ -590,16 +616,15 @@ export function createGate(bag) {
     const sid = ok && !failed && String(pending.sessionId || spec.sessionId || '').trim()
     const wroteRows = results.filter((row) => row && row.ok && !row.failed)
     const wroteNos = wroteRows.map((row) => String(row.no || '').trim()).filter(Boolean)
-    const sheetWhere = pending && pending.sheet && Array.isArray(pending.sheet.where) ? pending.sheet.where : []
     sid && await reopenReplyDraft(sid) && (result.followup = {
       sessionId: sid,
       plugin: PLUGIN,
       workspace: pending.workspace || '',
       roundClose: 'wrote',
       wroteIdentity: {
+        kind: String((pending && pending.kind) || spec.kind || '').trim(),
         no: wroteNos.length === 1 ? wroteNos[0] : '',
         nos: wroteNos,
-        ...(sheetWhere.length ? { where: sheetWhere } : {}),
       },
       text: briefFollowup({
         quote: [result.speak, '库里已改上。回信要用现在的值，不要沿用预览前的旧号。'].filter(Boolean).join('\n'),
@@ -614,6 +639,7 @@ export function createGate(bag) {
 
   async function dismissWrite(spec = {}) {
     const wanted = String((spec && (spec.preview_id || spec.previewId)) || '').trim()
+    if (wanted) voidUnusedTokens(opts.gate && opts.gate.tokens, [wanted])
     await store.update((s) => {
       const pending = s.pendingWrite
       const lines = pending && Array.isArray(pending.lines) ? pending.lines : []

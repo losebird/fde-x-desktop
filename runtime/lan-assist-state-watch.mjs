@@ -5,6 +5,7 @@ import { sheetAfterDismissedWrite } from './biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw } from './biz/sheet-payload.mjs'
 import { reconcileLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 
+
 const POLL_MS = 1000
 
 function fingerprintPendingSheet(sheet) {
@@ -87,6 +88,50 @@ function emitOfficialSheet(sheet, deps, source = 'round-end', surfaceId, writePr
 /**
  * @param {{ lanAssist: Function, cwd: string, onPendingSheet?: Function, prepareSurface?: Function }} deps
  */
+export function subscribeLanAssistMailbox({ origin, cookie, onEvent, onLive, onDown }) {
+  const ac = new AbortController()
+  const url = new URL('/lan-assist/events', origin)
+  void (async () => {
+    while (!ac.signal.aborted) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            cookie: String(cookie || ''),
+            origin: String(origin || ''),
+            accept: 'text/event-stream',
+          },
+          signal: ac.signal,
+        })
+        if (!response.ok || !response.body) throw new Error('mailbox sse unavailable')
+        if (typeof onLive === 'function') onLive()
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const chunks = buf.split('\n\n')
+          buf = chunks.pop() || ''
+          for (const block of chunks) {
+            const dataLine = block.split('\n').find((line) => line.startsWith('data:'))
+            if (!dataLine) continue
+            try {
+              onEvent(JSON.parse(dataLine.slice(5).trim()))
+            } catch { /* ignore malformed mailbox frames */ }
+          }
+        }
+        if (typeof onDown === 'function') onDown()
+      } catch {
+        if (typeof onDown === 'function') onDown()
+        if (ac.signal.aborted) return
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+    }
+  })()
+  return () => ac.abort()
+}
+
 export function startLanAssistStateWatch(deps) {
   const { lanAssist, cwd, db } = deps
   let lastSheetFp = ''
@@ -140,9 +185,10 @@ export function startLanAssistStateWatch(deps) {
     }
   }
 
-  const flushPendingSheet = async () => {
+  const flushPendingSheet = async (sessionId) => {
     try {
-      const state = await lanAssist('/state', { search: { sessionId: '' } })
+      const sid = String(sessionId || '').trim()
+      const state = await lanAssist('/state', { search: { sessionId: sid } })
       if (!state || state.ok === false) return false
       const sheet = officialFromState(state)
       if (!sheet) return false
@@ -153,7 +199,39 @@ export function startLanAssistStateWatch(deps) {
   }
 
   void tick()
-  const timer = setInterval(() => { void tick() }, POLL_MS)
-  if (typeof timer.unref === 'function') timer.unref()
-  return { stop: () => clearInterval(timer), flushPendingSheet }
+  let timer = null
+  const startPoll = () => {
+    if (timer) return
+    timer = setInterval(() => { void tick() }, POLL_MS)
+    if (typeof timer.unref === 'function') timer.unref()
+  }
+  const stopPoll = () => {
+    if (!timer) return
+    clearInterval(timer)
+    timer = null
+  }
+  let stopMailbox = () => {}
+  if (typeof deps.subscribeLanMailbox === 'function') {
+    startPoll()
+    stopMailbox = deps.subscribeLanMailbox((payload) => {
+      if (payload && String(payload.type || '') === 'official-sheet') {
+        void flushPendingSheet(payload.sessionId).then((ok) => {
+          if (!ok) startPoll()
+        })
+        return
+      }
+      void tick()
+    }, {
+      onDown: startPoll,
+    })
+  } else {
+    startPoll()
+  }
+  return {
+    stop: () => {
+      stopPoll()
+      stopMailbox()
+    },
+    flushPendingSheet,
+  }
 }

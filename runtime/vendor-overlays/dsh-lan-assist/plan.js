@@ -6,7 +6,6 @@
 import { normalizeAliasWhere } from './where-pass.js'
 
 export const PAGE_SIZE = 20
-export const BATCH_LIMIT = 100
 /** @deprecated Prefer each kind's `can`; kept for callers that union catalog actions. */
 export const PLAN_ACTIONS = ['现查', '改行', '删除', '新建', '过审']
 
@@ -21,12 +20,15 @@ function normalizeTerm(raw) {
   const dateBefore = list(raw.dateBefore)
   const dateAfter = list(raw.dateAfter)
   if (!keys.length && !values.length && !dateBefore.length && !dateAfter.length) return null
+  const textPass = String(raw.textPass || '').trim()
   return {
     keys,
     values,
     not: !!raw.not,
     dateBefore,
     dateAfter,
+    ...(raw.text === true || textPass === 'contains' ? { text: true } : {}),
+    ...(textPass ? { textPass } : {}),
   }
 }
 
@@ -147,6 +149,7 @@ export function normalizePlan(spec = {}) {
     steps,
     targetIndex: steps.length ? steps.length - 1 : 0,
     patch: spec.patch && typeof spec.patch === 'object' && !Array.isArray(spec.patch) ? { ...spec.patch } : {},
+    to: String(spec.to || '').trim(),
     no: String(spec.no || spec.ticket || '').trim(),
     line: String(spec.line || spec.行号 || '').trim(),
     structured,

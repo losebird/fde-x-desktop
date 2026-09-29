@@ -30,6 +30,16 @@ export function incomingSheetIsIdentifiedLookup(sheet?: Record<string, unknown> 
   return sheetCarriesLookupIdentity(sheet)
 }
 
+/** Unused write token with rows. Next-round confirm, not a catalog dump. */
+export function incomingSheetIsLiveWriteConfirm(sheet?: Record<string, unknown> | null) {
+  if (!sheet || typeof sheet !== 'object') return false
+  if (sheet.ok === false) return false
+  const id = String(sheet.preview_id || sheet.previewId || '').trim()
+  const action = String(sheet.action || '').trim()
+  if (!id || !action || action === '现查') return false
+  return Array.isArray(sheet.rows) && sheet.rows.length > 0
+}
+
 export function shouldBlockIncomingSheetForHistoryPin(
   pinnedSurfaceId: string,
   incomingSurfaceId?: string,
@@ -40,6 +50,7 @@ export function shouldBlockIncomingSheetForHistoryPin(
   const incoming = String(incomingSurfaceId || '').trim()
   if (incoming && incoming === pinned) return false
   if (incomingSheetIsIdentifiedLookup(sheet)) return false
+  if (incomingSheetIsLiveWriteConfirm(sheet)) return false
   if (!incoming) return true
   return incoming !== pinned
 }

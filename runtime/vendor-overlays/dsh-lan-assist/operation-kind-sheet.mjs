@@ -79,24 +79,49 @@ function operationKindHitSheets(sheet) {
     if (!name || seen.has(name)) return
     seen.add(name)
     const same = name === String(sheet.kind || '').trim()
-    out.push({
+    const list = Array.isArray(rows) ? rows : []
+    const next = {
       ...sheet,
       kind: name,
-      rows: Array.isArray(rows) ? rows : [],
+      rows: list,
       columns: Array.isArray(columns) ? columns : [],
       action: same ? sheet.action : '现查',
       preview_id: same ? sheet.preview_id : undefined,
       previewId: same ? sheet.previewId : undefined,
       canWrite: same ? sheet.canWrite : false,
       ...(extra || {}),
-    })
+    }
+    if (!same) {
+      const ownTotal = finiteHitTotal(next.hitTotal)
+      next.hitTotal = ownTotal != null ? ownTotal : list.length
+      next.hitTotalState = next.hitTotalState || 'known'
+      next.page = Number(next.page) > 0 ? Math.floor(Number(next.page)) : 1
+      if (next.hopWhere === sheet.hopWhere) delete next.hopWhere
+      if (next.where === sheet.where) delete next.where
+      if (extra && Object.prototype.hasOwnProperty.call(extra, 'where')) next.where = extra.where
+    }
+    out.push(next)
   }
   push(String(sheet.kind || ''), sheet.rows, sheet.columns)
   const walk = (raw, depth = 0) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 8) return
     const row = raw
     if (Object.prototype.hasOwnProperty.call(row, 'rows')) {
-      push(String(row.kind || ''), row.rows, row.columns)
+      const list = row.rows
+      const n = Array.isArray(list) ? list.length : 0
+      const ownTotal = finiteHitTotal(row.hitTotal)
+      push(String(row.kind || ''), list, row.columns, {
+        where: row.where,
+        hopWhere: row.hopWhere,
+        hitTotal: ownTotal != null ? ownTotal : n,
+        hitTotalState: row.hitTotalState || 'known',
+        querySettled: true,
+        page: Number(row.page) > 0 ? Math.floor(Number(row.page)) : 1,
+        pageSize: Number(row.pageSize) > 0 ? Math.floor(Number(row.pageSize)) : undefined,
+        pageFull: row.pageFull === true,
+        from: undefined,
+        steps: undefined,
+      })
     }
     walk(row.from, depth + 1)
   }
@@ -106,7 +131,21 @@ function operationKindHitSheets(sheet) {
     for (const step of sheet.steps) {
       if (!step || typeof step !== 'object' || Array.isArray(step)) continue
       if (Object.prototype.hasOwnProperty.call(step, 'rows')) {
-        push(String(step.kind || ''), step.rows, step.columns)
+        const list = step.rows
+        const n = Array.isArray(list) ? list.length : 0
+        const ownTotal = finiteHitTotal(step.hitTotal)
+        push(String(step.kind || ''), list, step.columns, {
+          where: step.where,
+          hopWhere: step.hopWhere,
+          hitTotal: ownTotal != null ? ownTotal : n,
+          hitTotalState: step.hitTotalState || 'known',
+          querySettled: true,
+          page: Number(step.page) > 0 ? Math.floor(Number(step.page)) : 1,
+          pageSize: Number(step.pageSize) > 0 ? Math.floor(Number(step.pageSize)) : undefined,
+          pageFull: step.pageFull === true,
+          from: undefined,
+          steps: undefined,
+        })
       }
     }
   }
@@ -131,6 +170,20 @@ function operationKindHitSheets(sheet) {
     }
   }
   return out
+}
+
+/** One side of the published sheet. Never a new preview. */
+export function projectOfficialKind(official, wanted, kindIndex = null) {
+  const base = official && typeof official === 'object' ? official : null
+  const want = String(wanted || '').trim()
+  if (!base) return { ok: false, error: 'NO_OFFICIAL', hint: '这一轮还没有官方表。' }
+  if (!want) return { ok: false, error: 'NO_KIND', hint: '这个型不在本轮命中里。' }
+  if (String(base.kind || '').trim() === want || kindNamesEqual(want, String(base.kind || ''), kindIndex)) {
+    return { ok: true, sheet: base, published: false }
+  }
+  const view = materializeOperationKindSheet(base, want, kindIndex)
+  if (!view) return { ok: false, error: 'NO_KIND', hint: '这个型不在本轮命中里。' }
+  return { ok: true, sheet: view, published: false }
 }
 
 export function materializeOperationKindSheet(sheet, kind, kindIndex = null) {

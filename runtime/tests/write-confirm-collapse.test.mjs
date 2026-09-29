@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { FDE_DSH_HOME } from '../config.mjs'
-import { recoverWriteIntent } from '../vendor-overlays/dsh-lan-assist/slots.js'
 import { createSessionRoundStore } from '../vendor-overlays/dsh-lan-assist/session-round.js'
 import {
   previewTokenIndex,
@@ -13,7 +12,11 @@ import {
   releaseEmittedConfirm,
   writeTokenStatus,
 } from '../biz/write-confirm.mjs'
-import { shouldOpenWriteConfirm } from '../../src/lib/write-confirm.ts'
+import {
+  shouldOpenWriteConfirm,
+  writeTokenLive,
+  writeTokenStatus as sheetWriteTokenStatus,
+} from '../../src/lib/write-confirm.ts'
 
 const overlayDir = join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist')
 const vendorDir = join(FDE_DSH_HOME, 'vendor', 'dsh-lan-assist')
@@ -60,6 +63,192 @@ test('drawer opens only while the write token is unused', () => {
     shouldOpenWriteConfirm({ ...live, canWrite: false, changes: [] }, { dismissed: false, hasChanges: false, alreadyAtTarget: true }),
     true,
   )
+  assert.equal(
+    shouldOpenWriteConfirm({ ...live, canWrite: false }, { dismissed: false, hasChanges: true, alreadyAtTarget: false }),
+    true,
+  )
+  assert.equal(sheetWriteTokenStatus(live), 'live')
+  assert.equal(writeTokenLive(live, { 'pv-open': 'used' }), false)
+  assert.equal(
+    shouldOpenWriteConfirm(live, { dismissed: false, hasChanges: true, alreadyAtTarget: false, tokenIndex: { 'pv-open': 'used' } }),
+    false,
+  )
+})
+
+test('write success rereads written identity 现查 and does not keep the write preview as official', async () => {
+  const rows = [
+    { no: 'ROW-1', status: 'open', fields: { id: '1', status: 'open', title: '甲' } },
+  ]
+  const g = createGate({
+    vocab,
+    lookupTodo(spec) {
+      const no = String((spec && spec.no) || '').trim()
+      if (no && no !== 'ROW-1') return { ok: false, error: 'NOT_FOUND', matches: [] }
+      return { ok: true, matches: rows, hitTotal: 1, hitTotalState: 'known', no: 'ROW-1', status: 'open', fields: rows[0].fields }
+    },
+    collectionsOf: async () => [{ name: 'kind_w', title: kind }],
+    async fieldsOf() {
+      return [{ name: 'status', title: '状态', enums: { open: 'open', done: 'done' } }, { name: 'title', title: '标题' }]
+    },
+    postWrite: async () => ({ ok: true, receiptId: 'rcpt-1', no: 'ROW-1' }),
+  })
+  const previewed = await g.preview({
+    workspace: '/tmp/write-reread-ws',
+    kind,
+    action: '新建',
+    patch: { title: '甲' },
+    speech: '新建一笔',
+    userSpeech: '新建一笔',
+  })
+  const previewId = String(previewed.preview_id || previewed.sheet?.preview_id || '')
+  assert.ok(previewId)
+  const written = await g.write({ preview_id: previewId, workspace: '/tmp/write-reread-ws' })
+  assert.equal(written.ok, true)
+  const listed = written.sheet && typeof written.sheet === 'object' ? written.sheet : null
+  assert.ok(listed)
+  assert.equal(listed.action, '现查')
+  assert.equal(listed.canWrite, false)
+  assert.ok(!listed.preview_id)
+  assert.equal(listed.lookupNo, 'ROW-1')
+  assert.equal(listed.querySettled, true)
+})
+
+test('post-write identity 现查 ignores listBind where that no longer matches', async () => {
+  const before = {
+    no: 'LV-1',
+    status: 'pending',
+    fields: { id: '1', status: 'pending', code: 'LV-1', reason: 'maternity' },
+  }
+  const after = {
+    no: 'LV-1',
+    status: 'approved',
+    fields: { id: '1', status: 'approved', code: 'LV-1', reason: 'maternity' },
+  }
+  let phase = 'preview'
+  const g = createGate({
+    vocab,
+    lookupTodo(spec) {
+      const no = String((spec && spec.no) || '').trim()
+      const where = Array.isArray(spec && spec.where) ? spec.where : []
+      const wantsPending = where.some((term) => {
+        const values = Array.isArray(term && term.values) ? term.values.map(String) : []
+        return values.includes('pending') || values.includes('待审')
+      })
+      const row = phase === 'preview' ? before : after
+      if (wantsPending && phase !== 'preview') {
+        return { ok: true, matches: [], hitTotal: 0, hitTotalState: 'known', no: '', status: '', fields: {} }
+      }
+      if (no && no !== 'LV-1') return { ok: false, error: 'NOT_FOUND', matches: [] }
+      return {
+        ok: true,
+        matches: [row],
+        hitTotal: 1,
+        hitTotalState: 'known',
+        no: 'LV-1',
+        status: row.status,
+        fields: row.fields,
+      }
+    },
+    collectionsOf: async () => [{ name: 'kind_w', title: kind }],
+    async fieldsOf() {
+      return [
+        { name: 'status', title: '状态', enums: { pending: '待审', approved: '已通过' } },
+        { name: 'code', title: '单号' },
+      ]
+    },
+    postWrite: async () => {
+      phase = 'written'
+      return { ok: true, receiptId: 'rcpt-lv', no: 'LV-1' }
+    },
+  })
+  const previewed = await g.preview({
+    workspace: '/tmp/write-identity-ws',
+    kind,
+    action: '过审',
+    no: 'LV-1',
+    to: 'approved',
+    where: [{ keys: ['status'], values: ['pending', '待审'] }],
+    speech: '待审产假过一下',
+    userSpeech: '待审产假过一下',
+  })
+  const previewId = String(previewed.preview_id || previewed.sheet?.preview_id || '')
+  assert.ok(previewId)
+  const written = await g.write({ preview_id: previewId, workspace: '/tmp/write-identity-ws' })
+  assert.equal(written.ok, true)
+  const sheet = written.sheet && typeof written.sheet === 'object' ? written.sheet : null
+  assert.ok(sheet)
+  assert.equal(sheet.action, '现查')
+  assert.equal(sheet.lookupNo, 'LV-1')
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].no, 'LV-1')
+  assert.equal(String(rows[0].status || rows[0].fields?.status || ''), 'approved')
+})
+
+test('0-row identity 现查 keeps the write receipt instead of an empty official', async () => {
+  const row = {
+    no: 'GONE-1',
+    status: 'open',
+    fields: { id: 'g1', status: 'open', code: 'GONE-1', title: '甲' },
+  }
+  let phase = 'preview'
+  const g = createGate({
+    vocab,
+    lookupTodo(spec) {
+      const no = String((spec && spec.no) || '').trim()
+      if (phase === 'written') {
+        return { ok: true, matches: [], hitTotal: 0, hitTotalState: 'known', no: '', status: '', fields: {} }
+      }
+      if (no && no !== 'GONE-1') return { ok: false, error: 'NOT_FOUND', matches: [] }
+      return { ok: true, matches: [row], hitTotal: 1, hitTotalState: 'known', no: 'GONE-1', status: 'open', fields: row.fields }
+    },
+    collectionsOf: async () => [{ name: 'kind_w', title: kind }],
+    async fieldsOf() {
+      return [{ name: 'status', title: '状态', enums: { open: 'open', done: 'done' } }, { name: 'title', title: '标题' }]
+    },
+    postWrite: async () => {
+      phase = 'written'
+      return { ok: true, receiptId: 'rcpt-gone', no: 'GONE-1' }
+    },
+  })
+  const previewed = await g.preview({
+    workspace: '/tmp/write-empty-id-ws',
+    kind,
+    action: '改行',
+    no: 'GONE-1',
+    patch: { title: '乙' },
+    speech: '改标题',
+    userSpeech: '改标题',
+  })
+  const previewId = String(previewed.preview_id || previewed.sheet?.preview_id || '')
+  assert.ok(previewId)
+  const written = await g.write({ preview_id: previewId, workspace: '/tmp/write-empty-id-ws' })
+  assert.equal(written.ok, true)
+  assert.equal(written.receiptId, 'rcpt-gone')
+  assert.equal(written.sheet, undefined)
+})
+
+test('dismissed write token cannot be confirmed again', async () => {
+  const g = createGate({
+    vocab,
+    lookupTodo() {
+      return { ok: true, matches: [], no: '', status: '', fields: {} }
+    },
+    fieldsOf: async () => [{ name: 'title', title: '标题' }],
+  })
+  const minted = await g.preview({
+    kind,
+    action: '新建',
+    patch: { title: '甲' },
+    speech: '新建一笔',
+    workspace: '/tmp/confirm-ws',
+  })
+  const previewId = String(minted.preview_id || '')
+  assert.ok(previewId)
+  voidUnusedTokens(g.tokens, [previewId])
+  const written = await g.write({ preview_id: previewId, workspace: '/tmp/confirm-ws' })
+  assert.equal(written.ok, false)
+  assert.equal(written.error, 'USED')
 })
 
 test('write success drops canWrite from the reconnect picture', () => {
@@ -84,8 +273,8 @@ test('write success drops canWrite from the reconnect picture', () => {
   assert.equal(expired.writeToken, 'expired')
   assert.equal(expired.canWrite, false)
   const gone = projectWriteConfirm({ ...picture, preview_id: 'pv-missing' }, index)
-  assert.equal(gone.writeToken, 'absent')
-  assert.equal(gone.canWrite, false)
+  assert.equal(gone.canWrite, true)
+  assert.equal(gone.writeToken, undefined)
   const lookup = projectWriteConfirm({ ...picture, action: '现查', preview_id: 'pv-open', canWrite: false }, index)
   assert.equal(lookup.action, '现查')
   assert.equal(lookup.writeToken, undefined)
@@ -122,22 +311,6 @@ test('successful post voids sibling tokens from the same opening', () => {
 
 test('wrote follow-up lookup stays a lookup and does not mint a write token', async () => {
   const speech = '新增一笔 KindW'
-  const unlocked = recoverWriteIntent({
-    kind,
-    action: '现查',
-    speech,
-  }, vocab, {})
-  assert.equal(unlocked.action, '新建')
-
-  const locked = recoverWriteIntent({
-    kind,
-    action: '现查',
-    speech,
-    lookupLocked: true,
-  }, vocab, {})
-  assert.equal(locked.action, '现查')
-  assert.equal(locked.patch, undefined)
-
   const rounds = createSessionRoundStore()
   rounds.startRound('sess-a')
   rounds.closeRound('sess-a', 'wrote')
@@ -166,10 +339,10 @@ test('wrote follow-up lookup stays a lookup and does not mint a write token', as
     patch: { title: '甲' },
     workspace: '/tmp/confirm-ws',
   })
-  assert.equal(minted.action, '新建')
-  assert.ok(String(minted.preview_id || '').trim())
-  assert.equal(gate.tokens.size, before + 1)
-  assert.equal(gate.previewTokenIndex()[minted.preview_id], 'open')
+  const mintedSheet = minted.sheet && typeof minted.sheet === 'object' ? minted.sheet : minted
+  assert.equal(String(minted.action || mintedSheet.action || ''), '现查')
+  assert.equal(String(minted.preview_id || mintedSheet.preview_id || '').trim(), '')
+  assert.equal(gate.tokens.size, before)
 
   const looked = await gate.preview({
     kind,
@@ -181,7 +354,7 @@ test('wrote follow-up lookup stays a lookup and does not mint a write token', as
   const lookedSheet = looked.sheet && typeof looked.sheet === 'object' ? looked.sheet : looked
   assert.equal(String(looked.action || lookedSheet.action || ''), '现查')
   assert.equal(String(looked.preview_id || lookedSheet.preview_id || '').trim(), '')
-  assert.equal(gate.tokens.size, before + 1)
+  assert.equal(gate.tokens.size, before)
   assert.ok(lookups >= 1)
 })
 

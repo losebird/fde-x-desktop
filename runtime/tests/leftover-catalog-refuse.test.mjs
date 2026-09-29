@@ -95,6 +95,20 @@ function gate() {
   })
 }
 
+test('hop parent missing from the graph catalog is refused', async () => {
+  const out = await gate().preview({
+    workspace: '/tmp/leftover-ws',
+    kind: 'AlphaWidget',
+    action: '现查',
+    speech: 'AlphaWidget',
+    replay: true,
+    steps: [{ kind: 'GhostKind' }, { kind: 'AlphaWidget' }],
+  })
+  assert.equal(out.ok, false)
+  assert.equal(out.error, 'NO_CONNECTOR')
+  assert.match(String(out.hint || ''), /没连业务/)
+})
+
 test('leftover kind not in connector catalog is refused as preview target', async () => {
   const out = await gate().preview({
     workspace: '/tmp/leftover-ws',
@@ -111,9 +125,11 @@ test('leftover kind not in connector catalog is refused as preview target', asyn
 test('spoken leftover still binds to connected vocab kind and hops', async () => {
   const out = await gate().preview({
     workspace: '/tmp/leftover-ws',
-    kind: 'Widget',
+    kind: 'AlphaWidget',
     action: '现查',
     speech,
+    from: { kind: 'AlphaGadget', where: [{ keys: ['status'], values: ['expired'] }] },
+    where: [{ keys: ['status'], values: ['pending'] }],
   })
   assert.notEqual(out.error, 'NO_CONNECTOR')
   const sheet = out.sheet && typeof out.sheet === 'object' ? out.sheet : out
@@ -337,4 +353,29 @@ test('describeKindCatalog lists only connector-backed kinds', () => {
   )
   assert.equal(out.kinds.length, 1)
   assert.equal(out.kinds[0].kind, 'AlphaWidget')
+})
+
+test('describeKindCatalog attaches status enums for 过审 kinds', () => {
+  const out = describeKindCatalog(
+    [
+      { kind: '请假申请', resource: 'biz_leave', catalogVersion: 'schema:1', can: ['现查', '过审'] },
+      { kind: '员工档案', resource: 'biz_staff', catalogVersion: 'schema:1', can: ['现查'] },
+    ],
+    {
+      collections: [
+        {
+          name: 'biz_leave',
+          title: '请假申请',
+          fields: [
+            { name: 'status', title: '审批状态', enums: { pending: '待审', approved: '已通过' } },
+          ],
+        },
+        { name: 'biz_staff', title: '员工档案', fields: [{ name: 'name', title: '姓名' }] },
+      ],
+    },
+  )
+  const leave = out.kinds.find((row) => row.kind === '请假申请')
+  const staff = out.kinds.find((row) => row.kind === '员工档案')
+  assert.deepEqual(leave.status, { field: 'status', enums: { pending: '待审', approved: '已通过' } })
+  assert.equal(staff.status, undefined)
 })

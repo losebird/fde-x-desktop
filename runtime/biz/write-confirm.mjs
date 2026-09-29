@@ -37,12 +37,13 @@ export function projectWriteConfirm(sheet, index) {
   if (!id) return sheet
   if (String(sheet.action || '').trim() === '现查') return sheet
   const known = Object.prototype.hasOwnProperty.call(index, id)
-  const status = known ? String(index[id] || '') : 'absent'
+  if (!known) return sheet
+  const status = String(index[id] || '')
   if (status === 'open') return { ...sheet, writeToken: 'open' }
-  const closed = status === 'expired' ? 'expired' : (status === 'used' ? 'used' : 'absent')
+  if (status !== 'used' && status !== 'expired') return sheet
   return {
     ...sheet,
-    writeToken: closed,
+    writeToken: status,
     canWrite: false,
     can_write: false,
   }

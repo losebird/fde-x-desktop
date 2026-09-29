@@ -12,9 +12,12 @@ import { expandNegatedClosedValues } from './enum-clues.js'
 import {
   bindWhereKeys,
   fieldLabelsFromRawCollection,
+  identityNameRestFilter,
   listLimitForWhere,
   resolveShapeKey,
+  schemaIdentityNameKeys,
   termFilterPart as whereTermFilterPart,
+  termWantsContainsKeep,
   vocabRow,
 } from './where-pass.js'
 import { kindLabelsMatch, kindLabelTokens, neutralizeKindLabel } from './kind-label.js'
@@ -30,6 +33,40 @@ const WRITE = /(?:^|\/|:)(?:create|update|destroy|remove|delete|approve|reject|p
  */
 export function isWritePath(path) {
   return WRITE.test(String(path || ''))
+}
+
+/** Nested `fields` is an association. `fields=` selects SQL columns and 400s. */
+export const COLLECTIONS_LIST_PATHS = Object.freeze([
+  '/api/collections:list?paginate=false&appends=fields',
+  '/api/collections:list?paginate=false&appends[]=fields',
+])
+
+function rowUpdatedAt(row) {
+  if (!row || typeof row !== 'object') return ''
+  return String(row.updatedAt || row.updated_at || '').trim()
+}
+
+function rowForMatchNo(rawRows, no) {
+  const want = String(no || '').trim()
+  const list = Array.isArray(rawRows) ? rawRows : []
+  const first = list.find((row) => row && typeof row === 'object') || {}
+  if (!want) return first
+  const hit = list.find((row) => {
+    if (!row || typeof row !== 'object') return false
+    return [row.no, row.code, row.id, row.ticket].some((value) => String(value || '').trim() === want)
+  })
+  return hit || first
+}
+
+/** One hit: 单号:状态:更新时间. Many hits: kind:tag:nos. Hop and ticket share this. */
+export function lookupHitsFingerprint(kind, tag, matches, rawRows) {
+  const list = Array.isArray(matches) ? matches : []
+  if (list.length === 1) {
+    const hit = list[0] || {}
+    return `${String(hit.no || '').trim()}:${String(hit.status || '').trim()}:${rowUpdatedAt(rowForMatchNo(rawRows, hit.no))}`
+  }
+  const nos = list.map((item) => String((item && item.no) || '').trim()).filter(Boolean)
+  return `${String(kind || '').trim()}:${String(tag || '').trim()}:${nos.join(',')}`
 }
 
 /**
@@ -361,6 +398,16 @@ function mapFromCollections(name, collections) {
 
 const SHAPE_FIELDS = new Set(['单号', '状态', '行号', '系统', '环境', '型'])
 
+function resourceNamesMatch(a, b) {
+  const x = String(a || '').trim()
+  const y = String(b || '').trim()
+  if (!x || !y) return false
+  if (x === y) return true
+  if (kindLabelsMatch(x, y)) return true
+  const strip = (s) => s.replace(/^(biz|crm|erp|oa)_/i, '')
+  return strip(x) === strip(y) || kindLabelsMatch(strip(x), strip(y))
+}
+
 function resourceStem(resource) {
   const raw = String(resource || '').trim()
   if (!raw) return ''
@@ -623,13 +670,20 @@ export function createLookup(opts = {}) {
       return cached
     }
     if (conn.dialect === 'rest') return cached
-    const found = await get('/api/collections:list?paginate=false&fields=name,title,fields', conn)
-    if (!found.ok) return cached
-    const loaded = listRows(found.body).map((row) => ({
-      name: String((row && (row.name || row.key)) || '').trim(),
-      title: String((row && (row.title || row.label)) || '').trim(),
-      fields: Array.isArray(row && row.fields) ? row.fields : [],
-    })).filter((row) => row.name)
+    let loaded = []
+    for (const path of COLLECTIONS_LIST_PATHS) {
+      const found = await get(path, conn)
+      if (!found.ok) continue
+      const rows = listRows(found.body).map((row) => ({
+        name: String((row && (row.name || row.key)) || '').trim(),
+        title: String((row && (row.title || row.label)) || '').trim(),
+        titleField: String((row && row.titleField) || '').trim(),
+        fields: Array.isArray(row && row.fields) ? row.fields : [],
+      })).filter((row) => row.name)
+      if (!rows.length) continue
+      loaded = rows
+      if (rows.some((row) => row.fields.length)) break
+    }
     if (loaded.length) {
       collectionsCache = loaded
       conn.collections = loaded
@@ -648,6 +702,10 @@ export function createLookup(opts = {}) {
     }
     const collections = await collectionsOf(conn, { needEnums: true })
     extra.collections = collections
+    if (related && typeof related === 'object' && related.field) {
+      const incoming = hopIncomingField(related.kind, kind, related.field, extra)
+      if (incoming) related.field = incoming
+    }
     const known = (mapped && mapped.resource ? mapped : null) || mapKind(kind, {
       vocab: vocab || conn.vocab,
       kinds: conn.kinds,
@@ -673,34 +731,43 @@ export function createLookup(opts = {}) {
     const rawFieldLabels = fieldLabelsFromRawCollection(spec && spec.resource, collections)
     clues.terms = bindWhereKeys(clues.terms || [], kind, vocabRows, schemaFields, rawFieldLabels)
     clues.terms = bindClueEnums(clues.terms, schemaFields, vocabRows)
-    const relationCtx = {
-      conn,
-      fetchImpl: async (url, init) => {
-        const baseUrl = String(conn.baseUrl || '').replace(/\/+$/, '')
-        const path = String(url || '').startsWith(baseUrl) ? String(url).slice(baseUrl.length) : url
-        const got = await get(path, conn)
-        return { ok: !!got.ok, json: async () => (got.body || {}) }
-      },
-      extra: { vocab: vocabRows, collections },
+    const unfit = (Array.isArray(clues.terms) ? clues.terms : []).filter((term) => (
+      !termFitsCollection(term, schemaFields, vocabHit, rawFieldLabels)
+    ))
+    if (Array.isArray(where) && where.length && unfit.length && !looksLikeRef(ticket)) {
+      return {
+        ok: false,
+        error: 'WHERE_UNBOUND',
+        status: '没有',
+        matches: [],
+        hint: unboundWhereSpeak(kind, unfit, schemaFields, vocabRows),
+      }
     }
-    const claimedTerms = Array.isArray(clues.terms) ? clues.terms.slice() : []
-    clues.terms = await bindWhereRelationTerms(
+    const boundCells = await bindWhereRelationTerms(
       clues.terms,
       schemaFields,
       { kind, vocab: vocabRows, mapped: spec },
-      relationCtx,
+      {},
       vocabHit,
       rawFieldLabels,
     )
-    clues.terms = expandNegatedClosedValues(clues.terms, schemaFields, kind, vocabRows)
-    clues.terms = clues.terms.filter((term) => termFitsCollection(term, schemaFields, vocabHit, rawFieldLabels))
+    if (Array.isArray(where) && where.length && boundCells.unbound.length && !looksLikeRef(ticket)) {
+      return {
+        ok: false,
+        error: 'WHERE_UNBOUND',
+        status: '没有',
+        matches: [],
+        hint: unboundWhereSpeak(kind, boundCells.unbound, schemaFields, vocabRows),
+      }
+    }
+    clues.terms = expandNegatedClosedValues(boundCells.terms, schemaFields, kind, vocabRows)
     if (Array.isArray(where) && where.length && !clues.terms.length && !looksLikeRef(ticket)) {
       return {
         ok: false,
         error: 'WHERE_UNBOUND',
         status: '没有',
         matches: [],
-        hint: unboundWhereSpeak(kind, claimedTerms, schemaFields, vocabRows),
+        hint: unboundWhereSpeak(kind, clues.terms, schemaFields, vocabRows),
       }
     }
     const asked = Number(limit)
@@ -713,11 +780,14 @@ export function createLookup(opts = {}) {
       if (!resource) return { ok: false, error: 'UNKNOWN_KIND' }
       if (related.filled === true) {
         const relField = String(related.field || '').trim()
-        let fk = relationColumn(kind, relField, extra) || relField
-        if (fk && !schemaFields.some((row) => row && row.name === fk) && schemaFields.some((row) => row && row.name === `${fk}Id`)) {
-          fk = `${fk}Id`
-        }
-        if (!fk || !schemaFields.some((row) => row && row.name === fk)) {
+        let fk = hopIncomingField(related.kind, kind, relField, extra) || relationColumn(kind, relField, extra) || relField
+        const names = schemaFields.map((row) => row && row.name).filter(Boolean)
+        if (fk && !names.includes(fk) && names.includes(`${fk}Id`)) fk = `${fk}Id`
+        const fkOnChild = Boolean(fk) && (
+          names.includes(fk)
+          || (fk.endsWith('Id') && names.includes(fk.slice(0, -2)))
+        )
+        if (!fkOnChild) {
           return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
         }
         const filter = encodeURIComponent(JSON.stringify({ [fk]: { $notEmpty: true } }))
@@ -725,7 +795,7 @@ export function createLookup(opts = {}) {
         const listed = await listAll(path, conn, {
           limit: whereLimit,
           keep: (row) => {
-            if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
+            if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and', nameKeepPass(clues.terms, schemaFields))) return false
             if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, identityNameKeys(fields, schemaFields))) return false
             return true
           },
@@ -746,7 +816,7 @@ export function createLookup(opts = {}) {
           status: matches.length > 1 ? '多条' : matches[0].status,
           no: matches.length === 1 ? matches[0].no : '',
           fields: matches.length === 1 ? matches[0].fields : {},
-          fingerprint: `${kind || ''}:related-filled:${matches.map((item) => item.no).join(',')}`,
+          fingerprint: lookupHitsFingerprint(kind, 'related-filled', matches, listed.rows),
           workspace: workspace || '',
           system: conn.system || '',
           env: conn.env || '',
@@ -757,7 +827,10 @@ export function createLookup(opts = {}) {
         }
       }
       if (!relatedIds.length) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
-      let fk = (related && related.field) || relatedFilterField(related.kind, kind, {}, extra) || relatedField(related.kind, kind, extra)
+      let fk = hopIncomingField(related.kind, kind, related && related.field, extra)
+        || (related && related.field)
+        || relatedFilterField(related.kind, kind, {}, extra)
+        || relatedField(related.kind, kind, extra)
       if (!fk) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
       const parentMapped = mapKind(related.kind, {
         vocab: vocab || conn.vocab,
@@ -785,7 +858,7 @@ export function createLookup(opts = {}) {
       }
       const keepRow = (row, idSet) => {
         if (!relatedRowLinks(row, fk, idSet)) return false
-        if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and')) return false
+        if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and', nameKeepPass(clues.terms, schemaFields))) return false
         if (clues.rest && !looksLikeRef(clues.rest) && !rowMatches(row, clues.rest, identityNameKeys(fields, schemaFields))) return false
         return true
       }
@@ -879,7 +952,7 @@ export function createLookup(opts = {}) {
         status: matches.length > 1 ? '多条' : matches[0].status,
         no: matches.length === 1 ? matches[0].no : '',
         fields: matches.length === 1 ? matches[0].fields : {},
-        fingerprint: `${kind || ''}:related:${matches.map((item) => item.no).join(',')}`,
+        fingerprint: lookupHitsFingerprint(kind, 'related', matches, listed.rows),
         workspace: workspace || '',
         system: conn.system || '',
         env: conn.env || '',
@@ -896,12 +969,12 @@ export function createLookup(opts = {}) {
       const resource = spec && spec.resource
       if (!resource) return { ok: false, error: 'UNKNOWN_KIND' }
       const listPath = withRelationAppends(`/api/${resource}:list?pageSize=${PAGE_SIZE}&sort=-updatedAt`, extra.collections, resource)
-      const filteredPath = withRelationAppends(nameCluePath(resource, ticket, nameKeys, clues), extra.collections, resource)
+      const filteredPath = withRelationAppends(nameCluePath(resource, ticket, nameKeys, clues, schemaFields), extra.collections, resource)
       const dateClue = (clues.terms || []).some((term) => (
         (Array.isArray(term.dateBefore) && term.dateBefore.length)
         || (Array.isArray(term.dateAfter) && term.dateAfter.length)
       ))
-      const textTerms = (clues.terms || []).some((term) => term && term.text === true)
+      const textTerms = (clues.terms || []).some((term) => termWantsContainsKeep(term, schemaFields))
       const firstPath = dateClue ? listPath : filteredPath
       const matchRow = (row, textPass) => {
         if (looksLikeRef(ticket)) {
@@ -913,25 +986,29 @@ export function createLookup(opts = {}) {
         if (!clues.terms.length && nameRest) return rowMatches(row, nameRest, nameKeys)
         return clues.terms.length || hasNameRest || !!clues.rest || looksLikeRef(ticket)
       }
-      let listed = await listAll(firstPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, 'exact') })
+      let listed = await listAll(firstPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, textTerms ? 'contains' : 'exact') })
       if (!listed.ok && listed.error === 'LOOKUP') {
-        listed = await listAll(listPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, 'exact') })
+        listed = await listAll(listPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, textTerms ? 'contains' : 'exact') })
       }
       if (!listed.ok) return listed
       let hit = listed.rows
       if (!hit.length && textTerms) {
         const containsClues = {
           ...clues,
-          terms: clues.terms.map((term) => (term && term.text === true ? { ...term, textPass: 'contains' } : term)),
+          terms: clues.terms.map((term) => (
+            termWantsContainsKeep(term, schemaFields)
+              ? { ...term, text: true, textPass: 'contains' }
+              : term
+          )),
         }
-        const containsPath = withRelationAppends(nameCluePath(resource, ticket, nameKeys, containsClues), extra.collections, resource)
+        const containsPath = withRelationAppends(nameCluePath(resource, ticket, nameKeys, containsClues, schemaFields), extra.collections, resource)
         const again = await listAll(containsPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, 'contains') })
         if (again.ok) {
           hit = again.rows
           listed = again
         }
       } else if (!hit.length && clues.terms.length && firstPath !== listPath) {
-        const again = await listAll(listPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, 'exact') })
+        const again = await listAll(listPath, conn, { limit: whereLimit, keep: (row) => matchRow(row, textTerms ? 'contains' : 'exact') })
         if (again.ok) hit = again.rows
       }
       const matches = hit.map((row) => ({
@@ -946,7 +1023,7 @@ export function createLookup(opts = {}) {
           ambiguous: true,
           matches,
           status: '多条',
-          fingerprint: `${ticket}:ambiguous:${matches.map((item) => item.no).join(',')}`,
+          fingerprint: lookupHitsFingerprint(kind, 'ambiguous', matches, hit),
           workspace: workspace || '',
           system: conn.system || '',
           env: conn.env || '',
@@ -967,7 +1044,7 @@ export function createLookup(opts = {}) {
         no: resolvedNo,
         matches,
         fields: matches[0].fields,
-        fingerprint: `${resolvedNo}:${status}:${row.updatedAt || row.updated_at || ''}`,
+        fingerprint: lookupHitsFingerprint(kind, 'ticket', matches, hit),
         mine,
         workspace: workspace || '',
         system: conn.system || '',
@@ -986,7 +1063,7 @@ export function createLookup(opts = {}) {
       if (!restLook) return { ok: false, error: 'UNKNOWN_KIND' }
       const foundRest = await get(restLook, conn)
       if (!foundRest.ok) return foundRest
-      const textTerms = (clues.terms || []).some((term) => term && term.text === true)
+      const textTerms = (clues.terms || []).some((term) => termWantsContainsKeep(term, schemaFields))
       const keepRest = (row, textPass) => {
         if (clues.terms.length && !rowMatchesAll(row, clues.terms, clues.join || 'and', textPass)) return false
         if (look) return rowMatches(row, look, fields.length ? fields : Object.keys(row || {}))
@@ -1007,7 +1084,7 @@ export function createLookup(opts = {}) {
         status: matches.length > 1 ? '多条' : matches[0].status,
         no: matches.length === 1 ? matches[0].no : '',
         fields: matches.length === 1 ? matches[0].fields : {},
-        fingerprint: `${kind || ''}:rest-name:${matches.map((item) => item.no).join(',')}`,
+        fingerprint: lookupHitsFingerprint(kind, 'rest-name', matches, hit),
         workspace: workspace || '',
         system: conn.system || '',
         env: conn.env || '',
@@ -1037,7 +1114,7 @@ export function createLookup(opts = {}) {
         status: matches.length > 1 ? '多条' : matches[0].status,
         no: matches.length === 1 ? matches[0].no : '',
         fields: matches.length === 1 ? matches[0].fields : {},
-        fingerprint: `${kind || ''}:list:${matches.map((item) => item.no).join(',')}`,
+        fingerprint: lookupHitsFingerprint(kind, 'list', matches, listed.rows),
         workspace: workspace || '',
         system: conn.system || '',
         env: conn.env || '',
@@ -1064,7 +1141,7 @@ export function createLookup(opts = {}) {
         ambiguous: true,
         matches,
         status: '多条',
-        fingerprint: `${ticket}:ambiguous:${matches.map((item) => item.no).join(',')}`,
+        fingerprint: lookupHitsFingerprint(kind, 'ambiguous', matches, resolved.matches.map((item) => item.row)),
         workspace: workspace || '',
         system: conn.system || '',
         env: conn.env || '',
@@ -1083,7 +1160,7 @@ export function createLookup(opts = {}) {
       no: resolvedNo,
       matches,
       fields: packMatchFields(row, fields),
-      fingerprint: `${resolvedNo}:${status}:${row.updatedAt || row.updated_at || ''}`,
+      fingerprint: lookupHitsFingerprint(kind, 'ticket', matches, [row]),
       mine,
       workspace: workspace || '',
       system: conn.system || '',
@@ -1167,12 +1244,31 @@ export function collectionsCarryEnums(rows) {
   return false
 }
 
+export function collectionTitleField(resource, collections) {
+  const want = String(resource || '').trim()
+  if (!want) return ''
+  const rows = Array.isArray(collections) ? collections : []
+  const hit = rows.find((row) => String((row && (row.name || row.resource)) || '').trim() === want)
+    || rows.find((row) => {
+      const name = String((row && (row.name || row.resource)) || '').trim()
+      const title = String((row && (row.title || row.label)) || '').trim()
+      return title === want || kindLabelsMatch(title, want) || kindLabelsMatch(name, want)
+    })
+  return String((hit && hit.titleField) || '').trim()
+}
+
 export function collectionFields(resource, collections) {
   const want = String(resource || '').trim()
   if (!want) return []
-  for (const row of Array.isArray(collections) ? collections : []) {
+  const rows = Array.isArray(collections) ? collections : []
+  const exact = rows.find((row) => String((row && (row.name || row.resource)) || '').trim() === want)
+  const fuzzy = rows.find((row) => {
     const name = String((row && (row.name || row.resource)) || '').trim()
-    if (name !== want) continue
+    const title = String((row && (row.title || row.label)) || '').trim()
+    return title === want || kindLabelsMatch(title, want) || kindLabelsMatch(name, want)
+  })
+  const matched = exact || fuzzy
+  for (const row of (matched ? [matched] : [])) {
     const out = []
     for (const item of [].concat((row && row.fields) || [])) {
       if (!item) continue
@@ -1192,6 +1288,12 @@ export function collectionFields(resource, collections) {
       for (const key of ['foreignKey', 'through', 'otherKey', 'sourceKey', 'targetKey']) {
         const value = String(item[key] || '').trim()
         if (value) packed[key] = value
+      }
+      const reverse = item.reverseField || item.reverse
+      if (typeof reverse === 'string' && reverse.trim()) packed.reverseField = reverse.trim()
+      else if (reverse && typeof reverse === 'object') {
+        const reverseName = String(reverse.name || '').trim()
+        if (reverseName) packed.reverseField = reverseName
       }
       const enums = enumMap(item)
       if (Object.keys(enums).length) packed.enums = enums
@@ -1234,10 +1336,7 @@ export function termFitsCollection(term, schemaFields, vocabHit, extraLabels) {
     const resolved = resolveShapeKey(key, fields, vocabHit, extraLabels)
     return row.name === resolved || row.name === key
   }))
-  if (!hit) {
-    if (keys.some((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(key || '')))) return true
-    return !fields.length
-  }
+  if (!hit) return !fields.length
   return true
 }
 
@@ -1407,6 +1506,94 @@ function soleParentAssociation(fromKind, toKind, extra) {
   })
   if (hits.length !== 1) return ''
   return hits[0].name
+}
+
+function isSystemAssoc(row) {
+  const name = String((row && row.name) || '').trim()
+  const iface = String((row && row.interface) || '').trim()
+  return /^(createdBy|updatedBy)$/i.test(iface) || /^(createdBy|updatedBy)$/i.test(name)
+}
+
+function childKeyOfAssoc(row) {
+  if (!row || typeof row !== 'object') return ''
+  return String(row.foreignKey || row.otherKey || '').trim()
+}
+
+function targetsKind(row, resource, kindName) {
+  const target = String((row && row.target) || '').trim()
+  if (!target) return false
+  return resourceNamesMatch(target, resource) || resourceNamesMatch(target, kindName)
+}
+
+/** Child-table key for a hop relation name: entering field or source o2m. */
+export function hopIncomingField(fromKind, toKind, relationName, extra) {
+  const want = String(relationName || '').trim()
+  const from = String(fromKind || '').trim()
+  const to = String(toKind || '').trim()
+  if (!from || !to || !want) return ''
+  const onChild = relationColumn(to, want, extra)
+  if (onChild) return onChild
+  const parent = mapKind(from, extra || {})
+  const child = mapKind(to, extra || {})
+  if (parent && child && parent.resource && child.resource) {
+    const parentFields = collectionFields(parent.resource, extra && extra.collections)
+    const childFields = collectionFields(child.resource, extra && extra.collections)
+    const wantNames = want.endsWith('Id') ? [want, want.slice(0, -2)] : [want]
+    const incoming = childFields.find((row) => (
+      row && wantNames.includes(row.name) && !isSystemAssoc(row) && targetsKind(row, parent.resource, from)
+    ))
+    if (incoming) {
+      const fk = childKeyOfAssoc(incoming)
+      return fk || relationColumn(to, incoming.name, extra) || incoming.name
+    }
+    const outgoing = parentFields.find((row) => (
+      row && wantNames.includes(row.name) && !isSystemAssoc(row) && (
+        targetsKind(row, child.resource, to)
+        || /^(o2m|hasMany|m2m|belongsToMany|linkTo|hasOne)$/i.test(String(row.interface || row.type || ''))
+      )
+    ))
+    if (outgoing && (targetsKind(outgoing, child.resource, to) || !outgoing.target)) {
+      const outgoingIface = String(outgoing.interface || outgoing.type || '')
+      if (!/^(m2m|belongsToMany)$/i.test(outgoingIface)) {
+        const fk = childKeyOfAssoc(outgoing)
+        if (fk) return fk
+        const paired = childFields.filter((row) => (
+          row && !isSystemAssoc(row) && targetsKind(row, parent.resource, from)
+          && childKeyOfAssoc(row) && childKeyOfAssoc(row) === childKeyOfAssoc(outgoing)
+        ))
+        if (paired.length === 1) {
+          return childKeyOfAssoc(paired[0]) || relationColumn(to, paired[0].name, extra) || paired[0].name
+        }
+      }
+    }
+    const incomingByFk = childFields.filter((row) => (
+      row && !isSystemAssoc(row) && targetsKind(row, parent.resource, from)
+    ))
+    if (incomingByFk.length === 1) {
+      const fk = childKeyOfAssoc(incomingByFk[0])
+      return fk || relationColumn(to, incomingByFk[0].name, extra) || incomingByFk[0].name
+    }
+  }
+  return hopIncomingFieldFromVocab(from, to, want, extra)
+}
+
+function hopIncomingFieldFromVocab(from, to, want, extra) {
+  const bag = extra || {}
+  const rels = []
+  for (const row of Array.isArray(bag.vocab) ? bag.vocab : []) {
+    for (const rel of Array.isArray(row && row.relations) ? row.relations : []) {
+      if (!rel || typeof rel !== 'object') continue
+      const frm = resolveKindAlias(String(rel.from || rel.fromKind || '').trim(), bag)
+      const dest = resolveKindAlias(String(rel.to || rel.toKind || '').trim(), bag)
+      const field = String(rel.field || '').trim()
+      if (kindLabelsMatch(frm, from) && kindLabelsMatch(dest, to) && field) rels.push(field)
+    }
+  }
+  if (!rels.includes(want)) return ''
+  if (hopFilterFieldOnChild(from, to, want, extra)) return relationColumn(to, want, extra) || want
+  const onChild = [...new Set(rels.filter((field) => field !== want))].filter((field) => hopFilterFieldOnChild(from, to, field, extra))
+  if (onChild.length === 1) return relationColumn(to, onChild[0], extra) || onChild[0]
+  return ''
 }
 
 function parentAssociationField(fromKind, toKind, fieldName, extra) {
@@ -1662,17 +1849,12 @@ function relatedListPath(resource, related, toKind, clues, extra) {
   const parts = [manyName ? { [manyName]: { [nestedKey]: idClause } } : (ids.length === 1 ? { [field]: ids[0] } : { [field]: { $in: ids } })]
   const terms = clues && Array.isArray(clues.terms) ? clues.terms : []
   const schemaFields = collectionFields(resource, extra && extra.collections)
-  const vocabHit = vocabRow(toKind, extra && extra.vocab)
   const rawFieldLabels = fieldLabelsFromRawCollection(resource, extra && extra.collections)
-  for (const term of terms) {
-    const key = (term.keys || [])
-      .map((item) => resolveShapeKey(item, schemaFields, vocabHit, rawFieldLabels))
-      .find((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
-    const vals = (term.values || []).map((item) => String(item || '').trim()).filter(Boolean)
-    if (!key || !vals.length) continue
-    parts.push(term.not
-      ? (vals.length === 1 ? { [key]: { $ne: vals[0] } } : { [key]: { $notIn: vals } })
-      : (vals.length === 1 ? { [key]: vals[0] } : { [key]: { $in: vals } }))
+  const today = new Date().toISOString().slice(0, 10)
+  const bound = bindWhereKeys(terms, toKind, extra && extra.vocab, schemaFields, rawFieldLabels)
+  for (const term of bound) {
+    const part = termFilterPart(term, today, schemaFields)
+    if (part) parts.push(part)
   }
   const clause = parts.length === 1 ? parts[0] : { $and: parts }
   const filter = encodeURIComponent(JSON.stringify(clause))
@@ -1688,8 +1870,8 @@ function clueFields(conn, spec) {
   return [...new Set(extras)]
 }
 
-function termFilterPart(term, today) {
-  const packed = whereTermFilterPart(term, today)
+function termFilterPart(term, today, schemaFields) {
+  const packed = whereTermFilterPart(term, today, schemaFields)
   if (packed) return packed
   const dateParts = (Array.isArray(term.dateBefore) ? term.dateBefore : [])
     .map((item) => String(item || '').trim())
@@ -1699,14 +1881,16 @@ function termFilterPart(term, today) {
   return dateParts.length === 1 ? dateParts[0] : { $or: dateParts }
 }
 
+function nameKeepPass(terms, schemaFields) {
+  return (Array.isArray(terms) ? terms : []).some((term) => termWantsContainsKeep(term, schemaFields))
+    ? 'contains'
+    : 'exact'
+}
+
 function identityNameKeys(fields, schemaFields) {
-  const named = []
-  for (const field of Array.isArray(schemaFields) ? schemaFields : []) {
-    const name = String((field && field.name) || '').trim()
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue
-    const title = String((field && (field.title || (field.uiSchema && field.uiSchema.title))) || '')
-    if (/^(name|title)$/i.test(name) || /名称/.test(title)) named.push(name)
-  }
+  const named = schemaIdentityNameKeys(schemaFields)
+    .map((item) => String(item || '').trim())
+    .filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
   if (named.length) return [...new Set(named)]
   const fallback = (Array.isArray(fields) ? fields : [])
     .map((item) => String(item || '').trim())
@@ -1714,23 +1898,27 @@ function identityNameKeys(fields, schemaFields) {
   return fallback.length ? fallback : ['name', 'title']
 }
 
-function nameCluePath(resource, ticket, fields, clues) {
+function nameCluePath(resource, ticket, fields, clues, schemaFields) {
   const terms = clues && Array.isArray(clues.terms) ? clues.terms : []
   const today = new Date().toISOString().slice(0, 10)
   const packed = groupClueTerms(terms, (clues && clues.join) || 'and')
   const parts = packed.groups.map((group) => {
-    const slice = group.map((term) => termFilterPart(term, today)).filter(Boolean)
+    const slice = group.map((term) => termFilterPart(term, today, schemaFields)).filter(Boolean)
     if (!slice.length) return null
     return slice.length === 1 ? slice[0] : { $or: slice }
   }).filter(Boolean)
   const rest = String((clues && clues.rest) || '').trim()
   if (rest && !looksLikeRef(rest)) {
-    const keys = identityNameKeys(fields, [])
-      .map((item) => String(item || '').trim())
-      .filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
-    const ors = keys.map((field) => ({ [field]: { $includes: rest } }))
-    if (ors.length === 1) parts.push(ors[0])
-    else if (ors.length) parts.push({ $or: ors })
+    const restFilter = identityNameRestFilter(rest, schemaFields)
+    if (restFilter) parts.push(restFilter)
+    else {
+      const keys = identityNameKeys(fields, schemaFields)
+        .map((item) => String(item || '').trim())
+        .filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
+      const ors = keys.map((field) => ({ [field]: { $includes: rest } }))
+      if (ors.length === 1) parts.push(ors[0])
+      else if (ors.length) parts.push({ $or: ors })
+    }
   }
   if (!parts.length) return `/api/${resource}:list?pageSize=${PAGE_SIZE}&sort=-updatedAt`
   const join = packed.join === 'or' ? '$or' : '$and'
@@ -1757,25 +1945,31 @@ function skipsIdentityFilter(row) {
   return /^(datetime|date|time|unixTimestamp|number|integer|percent|json|formula)$/i.test(iface)
 }
 
-/** Ticket lookup keys that are real columns. Relation names and labels that are not columns make the whole filter fail. */
+function isIdentityColumn(row) {
+  if (!row || skipsIdentityFilter(row)) return false
+  const iface = String((row.interface || row.type) || '')
+  if (/^(snowflakeId|uuid|nanoid)$/i.test(iface)) return true
+  if (/^(select|multipleSelect|radio|checkbox|textarea|markdown|richText|json|formula|boolean)$/i.test(iface)) {
+    return false
+  }
+  const name = String(row.name || '').trim()
+  const title = String(row.title || '').trim()
+  if (/^(id|code|no)$/i.test(name) || /(No|Code|Number)$/.test(name)) return true
+  if (/单号|编号/.test(title)) return true
+  return false
+}
+
+/** Identity columns only: schema identifiers and input-shaped 单号. Enum / text dumps stay out of $or. */
 export function identityFilterKeys(spec, schemaFields, look) {
   const fields = Array.isArray(schemaFields) ? schemaFields : []
-  const attributes = fields.filter((row) => row && row.name && !skipsIdentityFilter(row))
-  const byName = new Set(attributes.map((row) => row.name))
-  const byTitle = new Map()
-  for (const row of attributes) {
-    const title = String(row.title || '').trim()
-    if (title && !byTitle.has(title)) byTitle.set(title, row.name)
-  }
   const keys = []
   if (/^\d{6,}$/.test(String(look || ''))) keys.push(...identifierFieldNames(fields))
-  for (const raw of ticketColumns(spec)) {
-    const name = String(raw || '').trim()
-    if (!name) continue
-    if (byName.has(name)) keys.push(name)
-    else if (byTitle.has(name)) keys.push(byTitle.get(name))
+  for (const row of fields) {
+    if (!isIdentityColumn(row)) continue
+    const name = String(row.name || '').trim()
+    if (name) keys.push(name)
   }
-  if (!keys.length && !attributes.length) {
+  if (!keys.length) {
     const ticketField = String((spec && spec.ticketField) || '').trim()
     if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(ticketField)) keys.push(ticketField)
   }
@@ -1790,6 +1984,41 @@ function scalarEqual(row, field, look) {
   const text = String(raw).trim()
   if (!text || text !== look) return ''
   return text
+}
+
+/** Write identity captured from a hop row. Schema identifier first, then a 单号 cell that equals row.no. */
+export function captureWriteIdentity(row, schemaFields) {
+  const fields = row && row.fields && typeof row.fields === 'object' ? row.fields : row
+  if (!fields || typeof fields !== 'object') return null
+  const schema = Array.isArray(schemaFields) ? schemaFields : []
+  for (const name of identifierFieldNames(schema)) {
+    const raw = fields[name]
+    if (raw == null || raw === '' || typeof raw === 'object') continue
+    const text = String(raw).trim()
+    if (text) return { field: name, value: text }
+  }
+  const idCell = fields.id
+  if (idCell != null && idCell !== '' && typeof idCell !== 'object') {
+    const text = String(idCell).trim()
+    if (text) return { field: 'id', value: text }
+  }
+  const no = String((row && row.no) || fields.no || '').trim()
+  if (!no) return null
+  const pk = new Set(['id', ...identifierFieldNames(schema)])
+  for (const col of schema) {
+    if (!isIdentityColumn(col)) continue
+    const name = String(col.name || '').trim()
+    if (!name || pk.has(name)) continue
+    const cell = scalarEqual(fields, name, no)
+    if (cell) return { field: name, value: cell }
+  }
+  for (const key of Object.keys(fields)) {
+    if (pk.has(key)) continue
+    if (!/^(code|no)$/i.test(key) && !/(No|Code|Number)$/.test(key)) continue
+    const cell = scalarEqual(fields, key, no)
+    if (cell) return { field: key, value: cell }
+  }
+  return null
 }
 
 /**

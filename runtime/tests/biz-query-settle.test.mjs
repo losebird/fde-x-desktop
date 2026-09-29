@@ -124,6 +124,7 @@ test('settled hop blocks a second identical 现查 in the same session', async (
   assert.match(String(second.speak || ''), /已结算/)
   const sheet = second.sheet && typeof second.sheet === 'object' ? second.sheet : second
   assert.equal(sheet.kind, 'ChildB')
+  assert.deepEqual(sheet.rows || [], [])
 })
 
 test('next page and write preview are not blocked by settled 现查', async () => {
@@ -138,7 +139,14 @@ test('next page and write preview are not blocked by settled 现查', async () =
   assert.equal(first.ok, true)
   const page2 = await g.preview({ ...base, action: '现查', page: 2 })
   assert.notEqual(page2.error, 'QUERY_SETTLED')
-  const approve = await g.preview({ ...base, action: '过审', speech: `${speech} 过一下` })
+  const approve = await g.preview({
+    ...base,
+    action: '过审',
+    speech: `${speech} 过一下`,
+    to: 'approved',
+    from: { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] },
+    where: [{ keys: ['status'], values: ['pending'] }],
+  })
   assert.notEqual(approve.error, 'QUERY_SETTLED')
   assert.ok(String(approve.preview_id || approve.sheet?.preview_id || '').startsWith('pv_'))
 })
@@ -186,14 +194,37 @@ function sheetOfPreview(result) {
   return result.sheet && typeof result.sheet === 'object' ? result.sheet : result
 }
 
-test('biz_preview defers plugin-leftover cancel until tool/result', () => {
+test('biz_preview does not schedule leftover agent cancel', () => {
   const tools = readFileSync(join(overlayDir, 'tools.js'), 'utf8')
-  assert.doesNotMatch(tools, /queueMicrotask\s*\(\s*deferCancel/)
-  assert.match(tools, /scheduleLeftoverCancel/)
+  assert.doesNotMatch(tools, /scheduleLeftoverCancel/)
+  assert.doesNotMatch(tools, /cancelLeftover/)
   const index = readFileSync(join(overlayDir, 'index.js'), 'utf8')
-  assert.match(index, /tool\/result/)
-  assert.match(index, /scheduleLeftoverCancel/)
-  assert.match(index, /flushLeftoverCancel/)
+  assert.doesNotMatch(index, /createLeftoverCancel/)
+  assert.doesNotMatch(index, /cancelLeftover/)
+})
+
+test('QUERY_SETTLED leftover returns settled JSON and does not abort the agent', async () => {
+  const tools = readFileSync(join(overlayDir, 'tools.js'), 'utf8')
+  const start = tools.indexOf("name: 'biz_preview'")
+  const execute = tools.slice(start, start + 4500)
+  assert.match(execute, /settledRepeat/)
+  assert.doesNotMatch(execute, /scheduleLeftoverCancel/)
+  const payload = materializeSettledRepeat({
+    ok: true,
+    error: 'QUERY_SETTLED',
+    querySettledRepeat: true,
+    kind: 'ChildB',
+    action: '现查',
+    speak: '共 3 条，本页 3 条。',
+    sheet: { kind: 'ChildB', action: '现查', querySettled: true, hitTotal: 3 },
+  })
+  assert.equal(payload.error, 'QUERY_SETTLED')
+  assert.equal(payload.ok, true)
+  assert.match(String(payload.speak || ''), /已结算/)
+  assert.notEqual(String(payload.speak || ''), 'Error: tool call aborted')
+  const sheet = payload.sheet && typeof payload.sheet === 'object' ? payload.sheet : payload
+  assert.deepEqual(sheet.rows || [], [])
+  assert.equal(sheet.hitTotal, 3)
 })
 
 test('QUERY_SETTLED repeat preview is plugin-leftover; page/write/bind are not', async () => {
@@ -217,9 +248,9 @@ test('QUERY_SETTLED repeat preview is plugin-leftover; page/write/bind are not',
     error: second.error,
   }
   const leftover = rounds.noteToolSheet(sessionId, repeatSheet)
-  assert.equal(leftover.cancel, true)
+  assert.equal(leftover.cancel, false)
   assert.equal(leftover.leftover, true)
-  assert.equal(leftover.cancelKind, 'plugin-leftover')
+  assert.ok(leftover.settledRepeatFrom)
 
   const roundsPage = createSessionRoundStore()
   roundsPage.startRound('sess-page')
@@ -243,6 +274,27 @@ test('QUERY_SETTLED repeat preview is plugin-leftover; page/write/bind are not',
   assert.notEqual(writeOutcome.cancel, true)
 })
 
+test('0-row settled 现查 allows search_text recovery', () => {
+  const rounds = createSessionRoundStore()
+  rounds.startRound('sess-empty-search')
+  rounds.noteToolSheet('sess-empty-search', {
+    kind: 'KindPay',
+    action: '现查',
+    speech: 'first spoken line',
+    sessionId: 'sess-empty-search',
+    from: { kind: 'KindCust' },
+    hopWhere: [{ keys: ['status'], values: ['pending'] }],
+    querySettled: true,
+    listed: true,
+    hitTotalState: 'incomplete',
+    rows: [],
+  })
+  const search = rounds.notePostSettledHopTool('sess-empty-search', 'search_text')
+  assert.equal(search.cancel, false)
+  assert.equal(search.process, true)
+  assert.equal(rounds.isOpen('sess-empty-search'), true)
+})
+
 test('settled 现查 then search_text on same hop is plugin-leftover', async () => {
   const g = gate()
   const rounds = createSessionRoundStore()
@@ -257,11 +309,12 @@ test('settled 现查 then search_text on same hop is plugin-leftover', async () 
   })
   rounds.noteToolSheet(sessionId, sheetOfPreview(first))
   const searchLeft = rounds.notePostSettledHopTool(sessionId, 'search_text')
-  assert.equal(searchLeft.cancel, true)
-  assert.equal(searchLeft.cancelKind, 'plugin-leftover')
+  assert.equal(searchLeft.cancel, false)
+  assert.equal(searchLeft.process, true)
+  assert.equal(rounds.isOpen(sessionId), true)
 })
 
-test('columnMiss and bare askAction do not settle; same speech ignores plan where shape in hop key', () => {
+test('columnMiss and bare askAction do not settle; hop shape is in the settle key', () => {
   assert.equal(previewSettledLookup({
     ok: true,
     action: '现查',
@@ -304,7 +357,115 @@ test('columnMiss and bare askAction do not settle; same speech ignores plan wher
     spec: { from: { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] } },
     targetKind: 'ChildB',
   })
-  assert.equal(keyA, keyB)
+  assert.notEqual(keyA, keyB)
+  const keyC = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    speech,
+    plan: {
+      speech,
+      from: { kind: 'ParentA' },
+      steps: [{ kind: 'ChildB', where: [{ keys: ['status'], values: ['pending'] }] }],
+      targetIndex: 0,
+      page: 1,
+    },
+    spec: { from: { kind: 'ParentA' } },
+    targetKind: 'ChildB',
+  })
+  const keyD = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    speech,
+    plan: {
+      speech,
+      from: { kind: 'ParentA' },
+      steps: [{ kind: 'ChildB', where: [{ keys: ['status'], values: ['active'] }] }],
+      targetIndex: 0,
+      page: 1,
+    },
+    spec: { from: { kind: 'ParentA' } },
+    targetKind: 'ChildB',
+  })
+  assert.notEqual(keyC, keyD)
+  const keyExpired = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    speech,
+    spec: { from: { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] } },
+    targetKind: 'ChildB',
+  })
+  const keyPending = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    speech,
+    spec: { from: { kind: 'ParentA', where: [{ keys: ['status'], values: ['pending'] }] } },
+    targetKind: 'ChildB',
+  })
+  assert.notEqual(keyExpired, keyPending)
+  const keyNestedA = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    speech,
+    spec: {
+      from: {
+        kind: 'ParentA',
+        where: [{ keys: ['status'], values: ['expired'] }],
+        from: { kind: 'Cust', where: [{ keys: ['name'], values: ['甲'] }] },
+      },
+    },
+    targetKind: 'ChildB',
+  })
+  const keyNestedB = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    speech,
+    spec: {
+      from: {
+        kind: 'ParentA',
+        where: [{ keys: ['status'], values: ['expired'] }],
+        from: { kind: 'Cust', where: [{ keys: ['name'], values: ['乙'] }] },
+      },
+    },
+    targetKind: 'ChildB',
+  })
+  assert.notEqual(keyNestedA, keyNestedB)
+  const harvestedFrom = {
+    kind: 'ParentA',
+    where: [{ keys: ['status'], values: ['expired'] }],
+  }
+  const keyPlanFrom = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    speech,
+    plan: {
+      speech,
+      from: harvestedFrom,
+      steps: [
+        { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] },
+        { kind: 'ChildB', where: [{ keys: ['status'], values: ['pending'] }] },
+      ],
+      page: 1,
+    },
+    spec: { from: { kind: 'ChildB', where: [{ keys: ['status'], values: ['pending'] }] } },
+    targetKind: 'ChildB',
+  })
+  const keyOnlyPlan = settledHopKey({
+    sessionId,
+    workspace: '/tmp/settle-ws',
+    speech,
+    plan: {
+      speech,
+      from: harvestedFrom,
+      steps: [
+        { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] },
+        { kind: 'ChildB', where: [{ keys: ['status'], values: ['pending'] }] },
+      ],
+      page: 1,
+    },
+    spec: {},
+    targetKind: 'ChildB',
+  })
+  assert.equal(keyPlanFrom, keyOnlyPlan)
 })
 
 test('settled hop key uses user utterance not model speech suffix', async () => {
@@ -355,7 +516,7 @@ test('settled hop key uses user utterance not model speech suffix', async () => 
     error: third.error,
   }
   const leftover = rounds.noteToolSheet(sessionId, repeatSheet)
-  assert.equal(leftover.cancel, true)
+  assert.equal(leftover.cancel, false)
   assert.ok(leftover.settledRepeatFrom)
   assert.equal(materializeSettledRepeat(leftover.settledRepeatFrom).error, 'QUERY_SETTLED')
   assert.equal(third.error, 'QUERY_SETTLED')
@@ -366,7 +527,7 @@ test('settled hop key uses user utterance not model speech suffix', async () => 
   roundsClosed.noteToolSheet(sessionId, sheetOfPreview(first))
   roundsClosed.noteToolSheet(sessionId, repeatSheet)
   const afterLeftover = roundsClosed.noteToolSheet(sessionId, repeatSheet)
-  assert.equal(afterLeftover.cancel, true)
+  assert.equal(afterLeftover.cancel, false)
   assert.ok(afterLeftover.settledRepeatFrom)
 })
 
@@ -391,16 +552,12 @@ test('repeat 现查 after ok table: model from/where shape changes still QUERY_S
     ...base,
     from: { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] },
   })
-  assert.equal(second.error, 'QUERY_SETTLED')
-  assert.equal(second.querySettledRepeat, true)
+  assert.notEqual(second.error, 'QUERY_SETTLED')
+  assert.equal(second.ok, true)
 
   const third = await g.preview({ ...base })
-  assert.equal(third.error, 'QUERY_SETTLED')
-  assert.equal(third.querySettledRepeat, true)
-
-  const fourth = await g.preview({ ...base })
-  assert.equal(fourth.error, 'QUERY_SETTLED')
-  assert.match(String(fourth.speak || ''), /已结算|共 \d+ 条/)
+  assert.notEqual(third.error, 'QUERY_SETTLED')
+  assert.equal(third.ok, true)
 })
 
 test('WHERE_UNBOUND and replay results do not count as settled', async () => {

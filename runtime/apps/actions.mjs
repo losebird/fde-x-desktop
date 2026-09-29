@@ -1,4 +1,4 @@
-import { appendAudit, createId, enqueueEvent } from '../db.mjs'
+import { appendAudit, createId, enqueueEvent, insertBizWriteAudit } from '../db.mjs'
 import { patchRecord } from './records.mjs'
 
 /**
@@ -21,7 +21,22 @@ export function executeSetAction(db, input) {
   const results = []
   for (const rid of rids) {
     const row = patchRecord(db, spec, entity, workspaceCwd, rid, setValues)
-    if (row) results.push(row)
+    if (!row) continue
+    results.push(row)
+    const changes = Object.entries(setValues).map(([field, to]) => ({ field, to }))
+    insertBizWriteAudit(db, {
+      workspaceCwd,
+      traceId: createId('tr'),
+      kind: entity,
+      action: String(action.name || ''),
+      recordNo: String(row.no || row.id || rid),
+      receiptId: '',
+      sessionId: '',
+      source: 'workstation',
+      changes,
+      columns: [],
+      lookupBind: { entity, rid },
+    })
   }
   return { kind: 'applied', rows: results }
 }

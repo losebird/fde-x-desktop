@@ -290,7 +290,13 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
     ...(previewWhere.length ? { where: previewWhere } : {}),
     ...(fromHop ? { from: fromHop } : {}),
     ...(steps.length ? { steps } : {}),
+    ...(typeof body.sessionId === 'string' && body.sessionId.trim() ? { sessionId: body.sessionId.trim() } : {}),
     ...(body.picked === true ? { picked: true } : {}),
+    ...(body.lookup && typeof body.lookup === 'object' && String(body.lookup.field || '').trim() && body.lookup.value != null
+      ? { lookup: { field: String(body.lookup.field).trim(), value: String(body.lookup.value) } }
+      : {}),
+    ...(typeof body.to === 'string' && body.to.trim() ? { to: body.to.trim() } : {}),
+    ...(body.batch === true ? { batch: true } : {}),
     ...(body.replay === true ? { replay: true } : {}),
     ...(Number(body.page) > 0 ? { page: Math.floor(Number(body.page)) } : {}),
   }
@@ -343,7 +349,7 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
   return true
 }
 
-function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emitEvent = true, hallSheet } = {}) {
+function recordSurfaceFromPreview(db, workspaceCwd, body, preview) {
   const sheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
   const kind = String(sheet?.kind || body.kind || '')
   const action = String(sheet?.action || body.action || '')
@@ -354,7 +360,7 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emi
   const connectionId = typeof body.connectionId === 'string' ? body.connectionId : undefined
   if (!kind || !action) return undefined
 
-  const surfaceId = insertBizSurface(db, {
+  return insertBizSurface(db, {
     workspaceCwd,
     connectionId,
     kind,
@@ -364,8 +370,6 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview, source, { emi
     rowCount: rows.length,
     columnsJson: JSON.stringify(columns),
   })
-  if (emitEvent) emitBizSheetPending(sheet, { sessionId, source, workspaceCwd, surfaceId, hallSheet })
-  return surfaceId
 }
 
 function resolveBizWorkspace(url, aiRuntime) {
@@ -874,16 +878,19 @@ export async function handleBizRoutes(request, response, url, deps) {
       const officialRaw = state.officialRoundSheet
       const official = sheetAfterDismissedWrite(sheetPayloadFromRaw(officialRaw))
       const writePreview = state.writePreview && typeof state.writePreview === 'object' ? state.writePreview : null
-      const bizCwd = requestMemoryCwd(url, {}) || FDE_AI_WORKSPACE
+      const sheetWorkspace = official && typeof official.workspace === 'string' && official.workspace.startsWith('/')
+        ? official.workspace
+        : ''
+      const bizCwd = requestMemoryCwd(url, {}) || sheetWorkspace || resolveBizWorkspace(url, aiRuntime)
       let handed = official
       if (handed) {
         try {
           const kinds = await loadWorkspaceKinds(aiRuntime, bizCwd)
           const next = canonicalizeSheetKind(handed, kinds)
-          handed = next || null
+          if (next) handed = next
         } catch { /* keep official sheet */ }
       }
-      const served = sheetForOfficialGet(handed, null, querySessionId)
+      const served = sheetForOfficialGet(handed, querySessionId)
       sendJson(response, 200, {
         data: {
           sheet: served ? stripSecrets(served) : null,
@@ -941,9 +948,8 @@ export async function handleBizRoutes(request, response, url, deps) {
     const preview = await aiRuntime.lanAssist('/preview', { method: 'POST', body: translated.payload })
     const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
     const previewSheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
-    const published = preview && preview.published === true
-    if (body.replay !== true && published) {
-      recordSurfaceFromPreview(db, bizCwd, body, preview, 'ui', { emitEvent: true })
+    if (body.replay !== true && preview && preview.ok !== false) {
+      recordSurfaceFromPreview(db, bizCwd, body, preview)
     }
     const previewAction = String(translated.payload?.action || previewSheet?.action || '').trim()
     if (preview && preview.ok !== false && previewAction === '现查') {
@@ -952,7 +958,12 @@ export async function handleBizRoutes(request, response, url, deps) {
         reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true })
       } catch { /* lamp is best-effort */ }
     }
-    sendJson(response, 200, { data: preview, correlationId })
+    const previewOut = preview && typeof preview === 'object'
+      ? (preview.published === true
+        ? preview
+        : { ...preview, published: false, source: 'ui' })
+      : preview
+    sendJson(response, 200, { data: previewOut, correlationId })
     return true
   }
 
@@ -1046,15 +1057,18 @@ export async function handleBizRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && url.pathname === '/api/v1/biz/preview/dismiss') {
     const body = await readJson(request).catch(() => ({}))
-    let previewId = typeof body.preview_id === 'string' ? body.preview_id.trim() : ''
+    const previewId = typeof body.preview_id === 'string' ? body.preview_id.trim() : ''
     let hall = {}
     try {
       hall = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
     } catch {
       hall = {}
     }
-    if (!previewId) previewId = hallPreviewIdFromState(hall) || sheetPreviewIdFromRaw(hall?.pendingSheet ?? hall?.pendingWrite)
-    if (previewId) rememberBizPreviewDismissed(previewId)
+    if (!previewId) {
+      sendJson(response, 200, { data: { ok: true, skipped: true }, correlationId })
+      return true
+    }
+    rememberBizPreviewDismissed(previewId)
     try {
       const liveId = hallPreviewIdFromState(hall)
       let dismissed = { ok: true, skipped: true }
@@ -1128,24 +1142,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       return true
     }
     if (written && written.ok === false) {
-      const lines = Array.isArray(written.lines) ? written.lines : []
-      const line0 = lines.find((row) => row && (row.hint || row.error))
-      const code = String((line0 && line0.error) || written.error || 'biz_write_failed')
-      markRollbackBlockedIfPermanent(db, rollbackOfTraceId, code, 400)
-      sendError(
-        response,
-        400,
-        code,
-        String(
-          (line0 && line0.hint)
-            || written.hint
-            || written.speak
-            || (line0 && line0.error === 'EXPIRED' ? '预览过期了。要写再预览一次。' : '')
-            || written.error
-            || '过账失败，请重新预览后再试',
-        ),
-        correlationId,
-      )
+      sendJson(response, 200, { data: written, correlationId })
       return true
     }
     const bizCwd = requestMemoryCwd(url, body) || bizWorkspace || FDE_AI_WORKSPACE
@@ -1156,6 +1153,7 @@ export async function handleBizRoutes(request, response, url, deps) {
     const traceId = String(body.trace_id || written?.trace_id || written?.traceId || createId('trace'))
     const isRollbackWrite = Boolean(rollbackOfTraceId)
     const lookupBind = captureLookupBind(sheet, body)
+    if (written && written.verified === false) lookupBind.verified = false
     if (isRollbackWrite) {
       const original = getBizWriteAuditByTraceId(db, rollbackOfTraceId)
       const originalBind = parseLookupBind(original)
@@ -1178,7 +1176,7 @@ export async function handleBizRoutes(request, response, url, deps) {
         recordNo: auditRecordNo(sheet, body, written),
         receiptId: String(written?.receipt_id || written?.receiptId || ''),
         sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || lookupBind.sessionId || ''),
-        source: String(body.source || (sheet?.sessionId ? 'ai' : 'workstation')),
+        source: writeSource,
         changes: auditChanges,
         columns: Array.isArray(sheet?.columns) ? sheet.columns : (Array.isArray(body.columns) ? body.columns : []),
         lookupBind,
@@ -1186,6 +1184,11 @@ export async function handleBizRoutes(request, response, url, deps) {
     } catch { /* audit must not block write */ }
     if (rollbackOfTraceId) {
       setBizWriteAuditRollbackState(db, rollbackOfTraceId, ROLLBACK_STATE_ROLLED_BACK)
+    }
+    const listed = written && written.sheet && typeof written.sheet === 'object' ? written.sheet : null
+    if (listed) {
+      const listedSid = String(listed.sessionId || body.sessionId || body.session_id || '').trim()
+      emitBizSheetPending(listed, { sessionId: listedSid, source: 'round-end', workspaceCwd: bizCwd })
     }
     emit('biz.write.done', {
       kind: String(written?.kind || ''),

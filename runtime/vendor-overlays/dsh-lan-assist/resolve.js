@@ -7,7 +7,7 @@
 import { collectGateActionCodes } from './gate-action-codes.mjs'
 import { ensureSpoken } from './vocab/spoken.js'
 
-const SPEAK_ONLY = new Set(['问句', '型', '动作', '列举', '助词', '标点', '连接', '改写', '焦点', '口语', '单号列', '关联列', '时间', '交接'])
+const SPEAK_ONLY = new Set(['问句', '型', '动作', '列举', '限定', '助词', '标点', '连接', '改写', '焦点', '口语', '单号列', '关联列', '时间', '交接'])
 const ACTION_PRIORITY = ['删除', '新建', '过审', '改行', '现查']
 
 export function parseWriteAction(text, extra) {
@@ -84,7 +84,7 @@ export function pickNo(row, fields, extra) {
 export function fieldText(row, field) {
   const raw = row && row[field]
   if (raw == null) return ''
-  if (typeof raw === 'object') return String(raw.name || raw.code || raw.id || '').trim()
+  if (typeof raw === 'object') return String(raw.name || raw.title || raw.label || raw.code || raw.id || '').trim()
   return String(raw).trim()
 }
 
@@ -287,7 +287,7 @@ function actionClues(extra) {
 function stripFillers(text, extra) {
   let s = String(text || '')
   const rewrite = new Set(vocabRoleSays(extra, '改写'))
-  for (const role of ['动作', '列举', '问句', '口语', '焦点', '连接', '助词', '标点', '时间']) {
+  for (const role of ['动作', '列举', '问句', '限定', '口语', '焦点', '连接', '助词', '标点', '时间']) {
     if (role === '动作') {
       s = stripSays(s, vocabRoleSays(extra, role).filter((say) => !rewrite.has(say)))
       continue

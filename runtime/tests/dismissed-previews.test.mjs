@@ -34,6 +34,52 @@ test('sheetPayloadFromRaw keeps changes array for preview diff', () => {
   assert.equal(sheet.changes[0].field, 'title')
 })
 
+test('sheetPayloadFromRaw keeps roundId so a new official round can paint', () => {
+  const sheet = sheetPayloadFromRaw({
+    kind: '工单',
+    action: '现查',
+    speech: '故障类而且紧急、还没关的工单是哪家客户的？',
+    roundId: 'rnd_paint',
+    officialBound: true,
+    rows: [{ no: 'TK-1' }],
+  })
+  assert.ok(sheet)
+  assert.equal(sheet.roundId, 'rnd_paint')
+})
+
+test('sheetPayloadFromRaw keeps listed write slots so pick can bring them back', () => {
+  const sheet = sheetPayloadFromRaw({
+    kind: '示例型',
+    action: '过审',
+    listed: true,
+    ambiguous: true,
+    to: '已通过',
+    patch: { status: 'approved' },
+    cells: [{ field: 'status', picks: ['approved'] }],
+    speech: '过审示例',
+    where: [{ keys: ['type'], values: ['a'] }],
+    rows: [{ no: 'R-1', lookup: { field: 'id', value: '1' } }],
+  })
+  assert.ok(sheet)
+  assert.equal(sheet.listed, true)
+  assert.equal(sheet.to, '已通过')
+  assert.deepEqual(sheet.patch, { status: 'approved' })
+  assert.equal(sheet.cells.length, 1)
+  assert.equal(sheet.picked, undefined)
+  assert.equal(sheet.blockConfirm, undefined)
+  const blocked = sheetPayloadFromRaw({
+    kind: '示例型',
+    action: '过审',
+    listed: true,
+    blockConfirm: true,
+    picked: true,
+    rows: [{ no: 'R-1' }],
+  })
+  assert.equal(blocked.blockConfirm, true)
+  assert.equal(blocked.picked, true)
+  assert.equal(blocked.to, undefined)
+})
+
 test('sheetPayloadFromRaw keeps speech, nested from, and hop steps', () => {
   const sheet = sheetPayloadFromRaw({
     kind: 'ChildC',

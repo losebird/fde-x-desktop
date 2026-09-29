@@ -3,7 +3,8 @@
  * @module dsh-lan-assist/relation-bind
  */
 
-import { enumMap, saysOf } from './resolve.js'
+import { enumMap } from './resolve.js'
+import { enumValueMatches } from './enum-clues.js'
 import { ensureSpoken, vocabWithSpoken } from './vocab/spoken.js'
 import { resolveShapeKey, vocabRow } from './where-pass.js'
 
@@ -177,63 +178,9 @@ export function stripRelationKeys(patch, schemaFields) {
   return out
 }
 
-function approvedStatusHints(vocab) {
-  const hints = new Set()
-  const rows = ensureSpoken(vocab)
-  for (const row of rows) {
-    const clues = row && row.clues
-    const list = Array.isArray(clues) ? clues : (clues && typeof clues === 'object' ? Object.values(clues) : [])
-    for (const clue of list) {
-      if (!clue || typeof clue !== 'object') continue
-      const keys = (Array.isArray(clue.keys) ? clue.keys : []).map((k) => String(k || '').toLowerCase())
-      if (!keys.some((k) => /^(status|stage|state|workflowstatus)$/.test(k))) continue
-      const says = []
-      if (Array.isArray(clue.say)) says.push(...clue.say)
-      else if (clue.say) says.push(clue.say)
-      const approvedSay = says.some((s) => /过审|已过账|已通过|approved|posted/i.test(String(s || '')))
-      if (!approvedSay) continue
-      const vals = Array.isArray(clue.values) ? clue.values : []
-      for (const v of vals) hints.add(String(v ?? '').trim())
-      for (const s of says) hints.add(String(s ?? '').trim())
-    }
-  }
-  for (const bit of saysOf({ vocab }, '已过账')) hints.add(String(bit || '').trim())
-  return [...hints].filter(Boolean)
-}
-
 export function statusFieldRow(schemaFields) {
   const fields = Array.isArray(schemaFields) ? schemaFields : []
   return fields.find((row) => row && /^(status|stage|state|workflowStatus)$/i.test(String(row.name || ''))) || null
-}
-
-export function approveNextStatusCode(schemaFields, vocab, currentStatus) {
-  const row = statusFieldRow(schemaFields)
-  if (!row) return ''
-  const enums = (row.enums && typeof row.enums === 'object' && Object.keys(row.enums).length)
-    ? row.enums
-    : enumMap(row)
-  if (!enums || !Object.keys(enums).length) return ''
-  const hints = new Set(approvedStatusHints(vocab))
-  const cur = String(currentStatus ?? '').trim()
-  for (const [code, label] of Object.entries(enums)) {
-    const codeS = String(code)
-    const labelS = String(label || '')
-    if (!hints.has(codeS) && !hints.has(labelS)) continue
-    if (codeS === cur || labelS === cur) continue
-    return codeS
-  }
-  for (const hint of hints) {
-    if (Object.prototype.hasOwnProperty.call(enums, hint)) {
-      if (String(hint) !== cur) return String(hint)
-    }
-  }
-  for (const [code, label] of Object.entries(enums)) {
-    const codeS = String(code)
-    const labelS = String(label || '')
-    if (codeS === cur || labelS === cur) continue
-    if (hints.has(codeS) || hints.has(labelS)) return codeS
-  }
-  return ''
 }
 
 export function statusLabelForCode(schemaFields, code) {
@@ -253,10 +200,20 @@ function list(vals) {
   return Array.isArray(vals) ? vals : (vals == null ? [] : [vals])
 }
 
+function isLocalFkId(value) {
+  return /^\d+$/.test(String(value || '').trim())
+}
+
+/**
+ * Bind where cells on the current kind. Relation names belong in from/steps —
+ * a spoken name on an m2o key is unbound. Any unbound cell is returned so the
+ * caller can stop the whole utterance.
+ */
 export async function bindWhereRelationTerms(terms, schemaFields, spec, ctx, vocabHit, extraLabels) {
   const fields = Array.isArray(schemaFields) ? schemaFields : []
   const vocab = vocabWithSpoken((spec && spec.vocab) || (ctx && ctx.extra && ctx.extra.vocab) || [])
   const out = []
+  const unbound = []
   for (const term of Array.isArray(terms) ? terms : []) {
     if (!term || typeof term !== 'object') {
       out.push(term)
@@ -264,27 +221,25 @@ export async function bindWhereRelationTerms(terms, schemaFields, spec, ctx, voc
     }
     const keys = list(term.keys).map((key) => resolveShapeKey(key, fields, vocabHit, extraLabels))
     const field = keys.map((key) => fieldNamed(fields, key)).find(Boolean) || null
+    if (!field) {
+      if (keys.length) unbound.push(term)
+      else out.push(term)
+      continue
+    }
     const mode = schemaCellMode(field, fields)
     if (mode === 'relation') {
-      const rel = relationSchemaField(fields, field.name)
       const values = []
+      let named = false
       for (const raw of list(term.values)) {
         const spoken = String(raw ?? '').trim()
         if (!spoken) continue
-        if (/^\d+$/.test(spoken)) {
-          values.push(spoken)
-          continue
-        }
-        const resolved = await resolveRelated(field.name, spoken, spec, { ...ctx, fieldRow: rel })
-        let ids = []
-        if (resolved.status === 'one' && resolved.id) ids = [resolved.id]
-        else if (resolved.status === 'many' && resolved.rows.length) {
-          ids = resolved.rows.map((row) => String(row.id))
-        }
-        if (ids.length === 1) values.push(ids[0])
-        else if (ids.length > 1) values.push(...ids)
+        if (isLocalFkId(spoken)) values.push(spoken)
+        else named = true
       }
-      if (!values.length && list(term.values).length) continue
+      if (named || (!values.length && list(term.values).length)) {
+        unbound.push({ ...term, keys: [field.name] })
+        continue
+      }
       out.push({ ...term, keys: [field.name], values })
       continue
     }
@@ -296,7 +251,10 @@ export async function bindWhereRelationTerms(terms, schemaFields, spec, ctx, voc
         const hits = enumHits(field, spoken, vocab)
         if (hits.length === 1) values.push(hits[0].code)
       }
-      if (!values.length && list(term.values).length) continue
+      if (!values.length && list(term.values).length) {
+        unbound.push({ ...term, keys: [field.name] })
+        continue
+      }
       const next = { ...term, keys: [field.name], values }
       delete next.text
       out.push(next)
@@ -304,7 +262,7 @@ export async function bindWhereRelationTerms(terms, schemaFields, spec, ctx, voc
     }
     out.push(term)
   }
-  return out
+  return { terms: out, unbound }
 }
 
 function cellTitle(row) {
@@ -418,9 +376,14 @@ export function enumHits(row, spoken, vocab) {
   const seen = new Set()
   if (!want) return hits
   for (const [code, label] of Object.entries(enums)) {
-    if (String(code) === want || String(label || '') === want) {
-      addEnumHit(hits, seen, code, label)
-    }
+    if (String(code) === want || String(label || '') === want) addEnumHit(hits, seen, code, label)
+  }
+  if (hits.length === 1) return hits
+  if (hits.length > 1) return hits
+  for (const [code, label] of Object.entries(enums)) {
+    const say = String(label || '').trim()
+    const key = String(code)
+    if (want.length >= 2 && say && say !== key && say.startsWith(want)) addEnumHit(hits, seen, code, label)
   }
   if (hits.length === 1) return hits
   if (hits.length > 1) return hits
@@ -431,7 +394,7 @@ export function enumHits(row, spoken, vocab) {
     const mappedSeen = new Set()
     for (const item of list(clue.values || clue.value)) {
       for (const [code, label] of Object.entries(enums)) {
-        if (String(code) !== item && String(label || '') !== item) continue
+        if (!enumValueMatches(String(item || ''), code, label)) continue
         if (mappedSeen.has(String(code))) continue
         mappedSeen.add(String(code))
         mapped.push({ code: String(code), label: String(label || code) })
@@ -626,9 +589,10 @@ export async function bindSpokenCells(patch, schemaFields, spec, ctx) {
       hint: '',
     })
   }
+  const collapsed = collapseCellsByField(cells)
   const writePatch = {}
   const displayPatch = {}
-  for (const cell of cells) {
+  for (const cell of collapsed) {
     if (!cell.bound || cell.write == null || cell.write === '' || !cell.writeKey) continue
     writePatch[cell.writeKey] = cell.write
     displayPatch[cell.key] = cell.display
@@ -636,7 +600,42 @@ export async function bindSpokenCells(patch, schemaFields, spec, ctx) {
   return {
     writePatch,
     displayPatch,
-    cells,
-    blockConfirm: cells.some(cellBlocks),
+    cells: collapsed,
+    blockConfirm: collapsed.some(cellBlocks),
   }
+}
+
+function collapseCellsByField(cells) {
+  const groups = new Map()
+  for (const cell of Array.isArray(cells) ? cells : []) {
+    if (!cell || typeof cell !== 'object') continue
+    const id = String(cell.writeKey || cell.key || '').trim()
+    if (!id) continue
+    if (!groups.has(id)) groups.set(id, [])
+    groups.get(id).push(cell)
+  }
+  const out = []
+  for (const group of groups.values()) {
+    const bound = group.filter((cell) => cell.bound && cell.write != null && String(cell.write) !== '')
+    const writes = [...new Set(bound.map((cell) => String(cell.write)))]
+    if (writes.length > 1) {
+      const lead = group[0]
+      out.push({
+        ...lead,
+        bound: false,
+        required: true,
+        display: '',
+        hint: UNBOUND_HINT,
+        write: undefined,
+        writeKey: undefined,
+      })
+      continue
+    }
+    if (bound.length) {
+      out.push(bound[0])
+      continue
+    }
+    out.push(group[0])
+  }
+  return out
 }

@@ -169,6 +169,24 @@ export function resolveConnectedKind(
   return ''
 }
 
+export function unresolvedKindBlocksOfficial(
+  sheet: Record<string, unknown> | null | undefined,
+  catalog: ConnectedKindIndex | ConnectedKindRow[] | null | undefined,
+  newAuthority: boolean,
+): boolean {
+  if (newAuthority) return false
+  const rows = Array.isArray(catalog) ? catalog : catalog && Array.isArray(catalog.kinds) ? catalog.kinds : []
+  if (!rows.length) return false
+  const kind = String((sheet && sheet.kind) || '').trim()
+  if (!kind) return false
+  if (resolveConnectedKind(kind, catalog)) return false
+  const previewId = String((sheet && (sheet.preview_id || sheet.previewId)) || '').trim()
+  const action = String((sheet && sheet.action) || '').trim()
+  const count = Array.isArray(sheet && sheet.rows) ? sheet.rows.length : 0
+  if (previewId && action !== '现查' && count > 0) return false
+  return true
+}
+
 export function canonicalizeSheetKind(
   sheet: Record<string, unknown> | null | undefined,
   index: ConnectedKindIndex | ConnectedKindRow[] | null | undefined,
@@ -239,6 +257,22 @@ function isWriteAction(sheet: Record<string, unknown> | null | undefined): boole
   return Boolean(action && action !== '现查')
 }
 
+function explicitLiveLookupSupersedesWrite(
+  prev: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  if (String(incoming.action || '').trim() !== '现查' || sheetPreviewId(incoming)) return false
+  if (sheetPicked(incoming)) return false
+  if (!isWriteAction(prev)) return false
+  if (sheetPicked(prev)) return false
+  if (isConnectorCatalogDump(incoming)) return false
+  if (prev.ambiguous || prev.listed) {
+    return incoming.querySettled === true
+  }
+  return true
+}
+
 /** Leftover 现查 of the same object must not cover a write hit-set or write preview. */
 function sheetNos(sheet: Record<string, unknown> | null | undefined): string[] {
   if (!sheet || typeof sheet !== 'object' || !Array.isArray(sheet.rows)) return []
@@ -254,6 +288,7 @@ function leftoverQueryCoveringWrite(
   incoming: Record<string, unknown> | null | undefined,
 ): boolean {
   if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  if (explicitLiveLookupSupersedesWrite(prev, incoming)) return false
   if (!isWriteAction(prev)) return false
   if (String(incoming.action || '').trim() !== '现查') return false
   if (sheetPicked(incoming)) return false
@@ -267,6 +302,50 @@ function leftoverQueryCoveringWrite(
   const speech = sheetSpeech(incoming)
   return incomingNos.some((no) => prevNos.includes(no))
     || prevNos.some((no) => no && speech.includes(no))
+}
+
+function officialQueryIdentity(sheet: Record<string, unknown> | null | undefined): string {
+  if (!sheet || typeof sheet !== 'object') return ''
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  const first = rows[0] && typeof rows[0] === 'object'
+    ? String((rows[0] as { no?: unknown }).no || '').trim()
+    : ''
+  const steps = Array.isArray(sheet.steps)
+    ? sheet.steps.map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return ''
+      return String((row as { kind?: unknown }).kind || '').trim()
+    }).filter(Boolean)
+    : []
+  const from = sheet.from && typeof sheet.from === 'object' && !Array.isArray(sheet.from)
+    ? String((sheet.from as { kind?: unknown }).kind || '').trim()
+    : ''
+  return JSON.stringify({
+    kind: sheetKindName(sheet),
+    action: String(sheet.action || '').trim(),
+    speech: sheetSpeech(sheet),
+    where: sheet.where ?? sheet.listWhere ?? [],
+    hopWhere: sheet.hopWhere ?? [],
+    from,
+    steps,
+    n: rows.length,
+    first,
+  })
+}
+
+/** Turn-end official: a new roundId is a new result. Sheets without roundId fall back to speech / query identity. */
+export function isNewOfficialRound(
+  displayed: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!incoming || typeof incoming !== 'object') return false
+  const prev = String((displayed && displayed.roundId) || '').trim()
+  const next = String(incoming.roundId || '').trim()
+  if (next) return next !== prev
+  if (isNewSpokenUtterance(displayed, incoming)) return true
+  if (!displayed || typeof displayed !== 'object') return true
+  const prevId = officialQueryIdentity(displayed)
+  const nextId = officialQueryIdentity(incoming)
+  return Boolean(prevId && nextId && prevId !== nextId)
 }
 
 /** This-turn spoken sheet: new speech, or a new kind+action with rows. Empty leftover guns are not this. */
@@ -287,7 +366,6 @@ export function isNewSpokenUtterance(
   return Boolean((nextKind && nextKind !== prevKind) || (nextAct && nextAct !== prevAct))
 }
 
-/** BFF/watch/remember: do not cover a populated this-utterance sheet. */
 export function shouldSkipCoveringPending(
   prev: Record<string, unknown> | null | undefined,
   incoming: Record<string, unknown> | null | undefined,

@@ -145,6 +145,39 @@ export function sheetRowBusinessNo(row: SheetRow) {
   return String(row.no ?? row.orderId ?? row.id ?? '').trim()
 }
 
+/** Rebind target. Listed many-row sheets use the selected row, not the lead no. */
+export function writeTargetNo(
+  sheet: Record<string, unknown> | null | undefined,
+  selectedRow?: SheetRow | null,
+) {
+  if (!sheet || typeof sheet !== 'object') return ''
+  const rows = normalizeSheetRows(sheet.rows)
+  const listedMany = (sheet.listed === true || sheet.ambiguous === true) && rows.length > 1
+  if (listedMany) return selectedRow ? sheetRowBusinessNo(selectedRow) : ''
+  const no = String(sheet.no || '').trim()
+  if (no) return no
+  if (rows.length === 1) return sheetRowBusinessNo(rows[0])
+  if (selectedRow) return sheetRowBusinessNo(selectedRow)
+  return ''
+}
+
+export function writeTargetRow(
+  sheet: Record<string, unknown> | null | undefined,
+  selectedRow?: SheetRow | null,
+): SheetRow | null {
+  if (!sheet || typeof sheet !== 'object') return null
+  const rows = normalizeSheetRows(sheet.rows)
+  const no = writeTargetNo(sheet, selectedRow)
+  if (no) {
+    const hit = rows.find((row) => sheetRowBusinessNo(row) === no)
+    if (hit) return hit
+    if (selectedRow && sheetRowBusinessNo(selectedRow) === no) return selectedRow
+    return null
+  }
+  if (rows.length === 1) return rows[0]
+  return selectedRow || null
+}
+
 export function resolveSheetEnumLabel(column: SheetColumn | undefined, value: unknown): string | null {
   const enums = column?.enums
   if (!enums || value == null || value === '') return null

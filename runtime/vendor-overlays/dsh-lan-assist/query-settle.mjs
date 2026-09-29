@@ -3,7 +3,52 @@
  * @module dsh-lan-assist/query-settle
  */
 
-/** Stable hop bind key: utterance + target kind + page (not connector request shape). */
+import { planReceipt } from './plan-receipt.mjs'
+
+function whereShape(where) {
+  const list = Array.isArray(where) ? where : []
+  return list.map((term) => {
+    const keys = (Array.isArray(term && term.keys) ? term.keys : []).map((item) => String(item || '')).sort()
+    const values = (Array.isArray(term && term.values) ? term.values : []).map((item) => String(item || '')).sort()
+    return { keys, values }
+  }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+}
+
+function fromHopChain(node) {
+  const hops = []
+  const seen = new Set()
+  let cur = node
+  while (cur && typeof cur === 'object' && !Array.isArray(cur)) {
+    const kind = String(cur.kind || '').trim()
+    if (!kind || seen.has(kind)) break
+    seen.add(kind)
+    hops.push({ kind, where: whereShape(cur.where) })
+    cur = cur.from
+  }
+  return hops
+}
+
+function hopShape(ctx = {}) {
+  const plan = ctx.plan && typeof ctx.plan === 'object' ? ctx.plan : {}
+  const spec = ctx.spec && typeof ctx.spec === 'object' ? ctx.spec : {}
+  const from = plan.from && typeof plan.from === 'object' && String(plan.from.kind || '').trim()
+    ? plan.from
+    : (spec.from && typeof spec.from === 'object' ? spec.from : null)
+  const fromKind = String((from && from.kind) || '').trim()
+  const steps = Array.isArray(plan.steps)
+    ? plan.steps.map((step) => {
+      const kind = String((step && step.kind) || '').trim()
+      if (!kind) return null
+      return { kind, where: whereShape(step && step.where) }
+    }).filter(Boolean)
+    : []
+  const fromWhere = whereShape(from && from.where)
+  const hopWhere = whereShape(plan.hopWhere || spec.hopWhere)
+  const fromHops = fromHopChain(from)
+  return { fromKind, steps, fromWhere, hopWhere, fromHops }
+}
+
+/** Same utterance + same hop (kinds and bound where on each step / from / page). */
 export function settledHopKey(ctx = {}) {
   const sessionId = String(ctx.sessionId || '').trim()
   const workspace = String(ctx.workspace || '').trim()
@@ -12,10 +57,16 @@ export function settledHopKey(ctx = {}) {
   const targetKind = String(ctx.targetKind || '').trim()
   const plan = ctx.plan && typeof ctx.plan === 'object' ? ctx.plan : {}
   const page = Number(plan.page) > 0 ? Math.floor(Number(plan.page)) : 1
+  const shape = hopShape(ctx)
   const payload = {
     speech,
     targetKind,
     page,
+    fromKind: shape.fromKind,
+    steps: shape.steps,
+    fromWhere: shape.fromWhere,
+    hopWhere: shape.hopWhere,
+    fromHops: shape.fromHops,
   }
   return `${sessionId}\0${workspace}\0${JSON.stringify(payload)}`
 }
@@ -53,26 +104,8 @@ export function previewSettledLookup(result) {
   return sheetCarriesIdentity(sheet) || sheet.querySettled === true
 }
 
-const SETTLED_REPEAT_NOTE = '这一句这一跳现查已结算，表在业务页，不要重复 preview。'
-
 export function materializeSettledRepeat(cached) {
-  if (!cached || typeof cached !== 'object') return cached
-  const prior = String(cached.speak || sheetOf(cached)?.speak || '').trim()
-  const speak = prior.includes('已结算')
-    ? prior
-    : `${prior}${/。$/.test(prior) || !prior ? '' : '。'}${SETTLED_REPEAT_NOTE}`
-  const sheet = sheetOf(cached)
-  const nextSheet = sheet
-    ? { ...sheet, speak, querySettledRepeat: true, error: 'QUERY_SETTLED' }
-    : sheet
-  return {
-    ...cached,
-    ok: true,
-    error: 'QUERY_SETTLED',
-    querySettledRepeat: true,
-    speak,
-    ...(nextSheet ? { sheet: nextSheet } : {}),
-  }
+  return planReceipt(cached, { settledRepeat: true })
 }
 
 export function createSettledQueryStore(max = 48) {

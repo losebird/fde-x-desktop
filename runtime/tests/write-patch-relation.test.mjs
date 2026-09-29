@@ -13,7 +13,6 @@ cpSync(vendorDir, staged, { recursive: true })
 cpSync(overlayDir, staged, { recursive: true })
 const { shapePatch, relationSchemaField } = await import(pathToFileURL(join(staged, 'write.js')).href)
 const {
-  approveNextStatusCode,
   bindSpokenCells,
   bindWhereRelationTerms,
   spokenMatchColumns,
@@ -115,26 +114,17 @@ test('shapePatch does not pass spoken assignee through when lookup misses', asyn
   assert.equal(shaped.assigneeId, undefined)
 })
 
-test('bindWhereRelationTerms resolves customer name on where keys', async () => {
-  const fetchImpl = mockFetch([
-    ['biz_customers:list', [{ id: 99, name: '恒通', code: 'CUST-HT' }]],
-  ])
+test('bindWhereRelationTerms leaves a customer name on where unbound', async () => {
   const terms = await bindWhereRelationTerms(
     [{ keys: ['customer'], values: ['恒通'] }],
     ticketFields,
     { kind: '工单', mapped: { resource: 'biz_tickets' } },
-    { conn: { baseUrl: 'http://nb.local', token: 't' }, fetchImpl, extra: { collections: [customerCollection] } },
+    {},
     null,
     {},
   )
-  assert.equal(terms[0].values[0], '99')
-})
-
-test('approveNextStatusCode uses schema enum not 已过 literal', () => {
-  const vocab = [{ clues: [{ say: ['已过审'], keys: ['status'], values: ['approved', 'posted'] }] }]
-  const code = approveNextStatusCode(ticketFields, vocab, 'pending')
-  assert.equal(code, 'approved')
-  assert.notEqual(code, '已过')
+  assert.equal(terms.terms.length, 0)
+  assert.equal(terms.unbound.length, 1)
 })
 
 test('spoken match columns come from the target schema only', () => {
@@ -297,6 +287,52 @@ test('enum binds one schema option and stops on zero', async () => {
   assert.equal(missed.blockConfirm, true)
   assert.equal(missed.writePatch.priority, undefined)
   assert.equal(missed.cells[0].bound, false)
+})
+
+test('enum unique prefix and same-field keys collapse to one bound cell', async () => {
+  const customerFields = [
+    { name: 'name', title: '客户名称', interface: 'input' },
+    { name: 'status', title: '客户状态', interface: 'select', enums: { inactive: '暂停合作', active: '成交客户' } },
+  ]
+  const prefix = await bindSpokenCells(
+    { status: '成交' },
+    customerFields,
+    { kind: '客户' },
+    { schemaFields: customerFields },
+  )
+  assert.equal(prefix.blockConfirm, false)
+  assert.equal(prefix.writePatch.status, 'active')
+  assert.equal(prefix.displayPatch.status, '成交客户')
+  assert.equal(prefix.cells.length, 1)
+
+  const collapsed = await bindSpokenCells(
+    { status: '成交', 客户状态: '成交客户' },
+    customerFields,
+    { kind: '客户' },
+    { schemaFields: customerFields },
+  )
+  assert.equal(collapsed.blockConfirm, false)
+  assert.equal(collapsed.writePatch.status, 'active')
+  assert.equal(collapsed.cells.length, 1)
+  assert.equal(collapsed.cells[0].bound, true)
+
+  const codePrefix = await bindSpokenCells(
+    { status: 'in' },
+    customerFields,
+    { kind: '客户' },
+    { schemaFields: customerFields },
+  )
+  assert.equal(codePrefix.blockConfirm, true)
+  assert.equal(codePrefix.writePatch.status, undefined)
+
+  const clash = await bindSpokenCells(
+    { status: '成交客户', 客户状态: '暂停合作' },
+    customerFields,
+    { kind: '客户' },
+    { schemaFields: customerFields },
+  )
+  assert.equal(clash.blockConfirm, true)
+  assert.equal(clash.writePatch.status, undefined)
 })
 
 test('a key that is not a schema cell is not dropped into an empty write', async () => {

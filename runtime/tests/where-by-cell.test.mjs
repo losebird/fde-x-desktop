@@ -6,7 +6,6 @@ import { join } from 'node:path'
 const root = join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist')
 const { bindWhereRelationTerms } = await import(pathToFileURL(join(root, 'relation-bind.js')).href)
 const { createLookup } = await import(pathToFileURL(join(root, 'lookup.js')).href)
-const { enrichStructuredSlots } = await import(pathToFileURL(join(root, 'slots.js')).href)
 
 const QUOTE = '客户胡文今天12点电脑故障紧急保修，现在已处理完成'
 
@@ -98,11 +97,11 @@ test('description text where survives relation bind and would hit that column', 
       extra: { collections: [customerCollection] },
     },
   )
-  assert.equal(terms.length, 1)
-  assert.deepEqual(terms[0].values, [QUOTE])
-  assert.equal(terms[0].text, true)
-  assert.equal(terms[0].keys.includes('description'), true)
-  assert.equal(JSON.stringify(terms).includes('WHERE_UNBOUND'), false)
+  assert.equal(terms.unbound.length, 0)
+  assert.equal(terms.terms.length, 1)
+  assert.deepEqual(terms.terms[0].values, [QUOTE])
+  assert.equal(terms.terms[0].text, true)
+  assert.equal(terms.terms[0].keys.includes('description'), true)
 
   const urls = []
   const lookup = lookupFor(
@@ -130,24 +129,28 @@ test('description text where survives relation bind and would hit that column', 
   assert.equal(filters.some((filter) => filter.includes('description') && filter.includes(QUOTE)), true)
 })
 
-test('spoken foreign key still becomes an id', async () => {
+test('spoken name on a relation where key stays unbound', async () => {
   const terms = await bindWhereRelationTerms(
     [{ keys: ['customer'], values: ['恒通'] }],
     ticketFields,
     { kind: '工单', mapped: { resource: 'biz_tickets' } },
-    {
-      conn: { baseUrl: 'http://nb.local', token: 't' },
-      fetchImpl: async (url) => {
-        if (String(url).includes('biz_customers:list')) {
-          return { ok: true, json: async () => ({ data: [{ id: 99, name: '恒通', code: 'CUST-HT' }], meta: { count: 1 } }) }
-        }
-        return { ok: true, json: async () => ({ data: [], meta: { count: 0 } }) }
-      },
-      extra: { collections: [customerCollection] },
-    },
+    {},
   )
-  assert.equal(terms.length, 1)
-  assert.equal(terms[0].values[0], '99')
+  assert.equal(terms.terms.length, 0)
+  assert.equal(terms.unbound.length, 1)
+  assert.equal(terms.unbound[0].keys.includes('customer'), true)
+})
+
+test('numeric id on a relation where key stays a local fk filter', async () => {
+  const terms = await bindWhereRelationTerms(
+    [{ keys: ['customer'], values: ['99'] }],
+    ticketFields,
+    { kind: '工单', mapped: { resource: 'biz_tickets' } },
+    {},
+  )
+  assert.equal(terms.unbound.length, 0)
+  assert.equal(terms.terms.length, 1)
+  assert.deepEqual(terms.terms[0].values, ['99'])
 })
 
 test('a failed foreign key does not dump an unfiltered list', async () => {
@@ -173,7 +176,7 @@ test('a failed foreign key does not dump an unfiltered list', async () => {
   assert.equal(ticketLists.some((url) => !url.includes('filter=')), false)
 })
 
-test('a failed foreign key unbinds only that cell', async () => {
+test('a relation name mixed with a bound enum stops the whole utterance', async () => {
   const urls = []
   const lookup = lookupFor(
     [{ kind: '工单', resource: 'biz_tickets', fields: ['ticketNo'] }],
@@ -203,12 +206,10 @@ test('a failed foreign key unbinds only that cell', async () => {
       { keys: ['customer'], values: ['没有这个客户'] },
     ],
   })
-  assert.notEqual(found.error, 'WHERE_UNBOUND')
-  assert.equal(found.ok, true)
-  const filters = decodedFilters(urls.filter((url) => url.includes('/api/biz_tickets:list')))
-  assert.equal(filters.some((filter) => filter.includes('pending') || filter.includes('待处理')), true)
-  assert.equal(filters.some((filter) => filter.includes('没有这个客户')), false)
-  assert.equal(filters.some((filter) => filter === '{}' || filter === ''), false)
+  assert.equal(found.ok, false)
+  assert.equal(found.error, 'WHERE_UNBOUND')
+  const ticketLists = urls.filter((url) => url.includes('/api/biz_tickets:list'))
+  assert.equal(ticketLists.length, 0)
 })
 
 test('enum column still requires an enum option', async () => {
@@ -218,7 +219,8 @@ test('enum column still requires an enum option', async () => {
     { kind: '工单' },
     {},
   )
-  assert.equal(missedCell.some((term) => (term.values || []).includes('not-real')), false)
+  assert.equal(missedCell.terms.length, 0)
+  assert.equal(missedCell.unbound.length, 1)
 
   const hitCell = await bindWhereRelationTerms(
     [{ keys: ['优先级'], values: ['紧急'] }],
@@ -226,41 +228,11 @@ test('enum column still requires an enum option', async () => {
     { kind: '工单' },
     {},
   )
-  assert.equal(hitCell.length, 1)
-  assert.deepEqual(hitCell[0].values, ['urgent'])
-  assert.equal(hitCell[0].text, undefined)
+  assert.equal(hitCell.unbound.length, 0)
+  assert.equal(hitCell.terms.length, 1)
+  assert.deepEqual(hitCell.terms[0].values, ['urgent'])
+  assert.equal(hitCell.terms[0].text, undefined)
 
-  const vocab = [
-    {
-      kind: '工单',
-      resource: 'biz_tickets',
-      can: ['现查', '删除', '过审'],
-    },
-  ]
-  const extra = { vocab, schemaByKind: { 工单: ticketFields } }
-  const missed = enrichStructuredSlots({
-    kind: '工单',
-    action: '过审',
-    speech: '把优先级那笔工单过审',
-    where: [{ keys: ['priority', '优先级'], values: ['整句不是枚举'] }],
-  }, vocab, extra)
-  const values = (Array.isArray(missed.where) ? missed.where : []).flatMap((term) => term.values || [])
-  assert.equal(values.includes('整句不是枚举'), false)
-  assert.equal(values.includes('urgent'), false)
-
-  const hit = enrichStructuredSlots({
-    kind: '工单',
-    action: '删除',
-    speech: '把优先级是紧急的那笔工单删除',
-    where: [
-      { keys: ['priority'], values: ['not-real'] },
-      { keys: ['priority'], values: ['urgent'] },
-    ],
-  }, vocab, extra)
-  const kept = (Array.isArray(hit.where) ? hit.where : []).flatMap((term) => term.values || [])
-  assert.equal(kept.includes('urgent'), true)
-  assert.equal(kept.includes('not-real'), false)
-  assert.equal((hit.where || []).some((term) => term && term.text === true), false)
 })
 
 const aliasParentFields = [
@@ -299,8 +271,9 @@ test('field vocab say binds the unique schema option whose label differs', async
     { kind: 'ParentA', vocab: aliasVocab },
     {},
   )
-  assert.equal(terms.length, 1)
-  assert.deepEqual(terms[0].values, ['off'])
+  assert.equal(terms.unbound.length, 0)
+  assert.equal(terms.terms.length, 1)
+  assert.deepEqual(terms.terms[0].values, ['off'])
 })
 
 test('seed field say binds schema code when the live label is not the oral form', async () => {
@@ -310,8 +283,9 @@ test('seed field say binds schema code when the live label is not the oral form'
     { kind: 'ParentA', vocab: [] },
     {},
   )
-  assert.equal(terms.length, 1)
-  assert.deepEqual(terms[0].values, ['inactive'])
+  assert.equal(terms.unbound.length, 0)
+  assert.equal(terms.terms.length, 1)
+  assert.deepEqual(terms.terms[0].values, ['inactive'])
 })
 
 test('ambiguous field vocab values stay unbound on that cell', async () => {
@@ -327,7 +301,8 @@ test('ambiguous field vocab values stay unbound on that cell', async () => {
     },
     {},
   )
-  assert.equal(terms.some((term) => (term.values || []).includes('off') || (term.values || []).includes('on')), false)
+  assert.equal(terms.terms.length, 0)
+  assert.equal(terms.unbound.length, 1)
 })
 
 test('hop parent bound by vocab alias can list; child hop still lists', async () => {

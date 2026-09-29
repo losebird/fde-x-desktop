@@ -5,12 +5,12 @@
  */
 
 import { randomHex } from './crypto.js'
-import { collectionFields, connectorCatalogPresent, hopLinkParentIds, kindPreviewableInCatalog, mapKind, matchedWriteIdentity, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, rowIdentity, ticketColumn, writableFieldChoices } from './lookup.js'
+import { bindClueEnums, captureWriteIdentity, collectionFields, connectorCatalogPresent, hopIncomingField, hopLinkParentIds, kindLabelsMatch, mapKind, matchedWriteIdentity, relatedChildId, relatedField, relatedHopId, relatedRowLinks, registeredKinds, relationColumn, resolveConnectedKindName, resolveKindAlias, rowIdentity, schemaRelatedField, termFitsCollection, ticketColumn, writableFieldChoices } from './lookup.js'
 import { enumMap, looksLikeRef, looksLikeTicket, mergeAskClue, pickNo, saysOf } from './resolve.js'
 import { ensureSpoken } from './vocab/spoken.js'
-import { BATCH_LIMIT, PAGE_SIZE, normalizePlan } from './plan.js'
-import { columnScopedSpeech, dropSpokenBatchRowId, enrichStructuredSlots, ensurePlanSelfHop, generatedSelfLoopEdgePeers, kindMentions, leftoverKindMissingFromCatalog, leftoverNameIdentity, nestFromSteps, pickHopSpeech, recalledUserSpeech, recoverWriteIntent, relatedMentionedKinds, rowsForClickedWrite, spokenWantsBatch, unlinkedConditionKinds } from './slots.js'
-import { WHERE_LIST_CAP, bindWhereKeys, rowsMatchingWhere } from './where-pass.js'
+import { PAGE_SIZE, normalizePlan } from './plan.js'
+import { leftoverKindMissingFromCatalog, nestFromSteps, recalledUserSpeech, rowsForClickedWrite, unpreviewablePlanKind } from './slots.js'
+import { WHERE_LIST_CAP, bindWhereKeys, fieldLabelsFromRawCollection, rowsMatchingWhere } from './where-pass.js'
 import { createTraceLog } from './traces.js'
 import { speakLookup } from './probe.js'
 import {
@@ -20,13 +20,16 @@ import {
   settledHopKey,
 } from './query-settle.mjs'
 import { redactEnvelopeText, refLabel } from './ref.js'
+
+export const WORKSTATION_CONFIRM_HINT = '请在右侧确认过账'
 import {
-  approveNextStatusCode,
   bindSpokenCells,
+  bindWhereRelationTerms,
   fkColumnForRelation,
   relationSchemaField,
   resolveRelatedId,
   statusLabelForCode,
+  unboundWhereSpeak,
 } from './relation-bind.js'
 
 export { relationSchemaField } from './relation-bind.js'
@@ -75,9 +78,19 @@ export function speakPreview(ref, found) {
   }
 }
 
+function speakUnboundWrite(kind, no, cells) {
+  const who = [String(kind || '').trim(), String(no || '').trim()].filter(Boolean).join(' ') || '这张单'
+  const labels = (Array.isArray(cells) ? cells : [])
+    .filter((cell) => cell && cell.bound !== true)
+    .map((cell) => String(cell.label || cell.key || '').trim())
+    .filter(Boolean)
+  if (!labels.length) return `${who}这一格对不上。不能预览过账。`
+  return `${who}的${labels.join('、')}对不上。不能预览过账。`
+}
+
 /**
  * Page payload for the secretary 业务 face. Not a write.
- * 0 / 1 / many rows; canWrite only when one row and a live preview_id.
+ * canWrite when a live preview_id covers one row or a bound set.
  */
 export function packSheet(spec = {}) {
   const kind = String(spec.kind || '').trim()
@@ -85,6 +98,7 @@ export function packSheet(spec = {}) {
   const patch = spec.patch && typeof spec.patch === 'object' ? spec.patch : {}
   const fields = spec.fields && typeof spec.fields === 'object' ? spec.fields : null
   const matches = Array.isArray(spec.matches) ? spec.matches : []
+  const schemaFields = Array.isArray(spec.schemaFields) ? spec.schemaFields : []
   let rows = []
   if (matches.length) {
     rows = matches.map((item) => {
@@ -92,22 +106,28 @@ export function packSheet(spec = {}) {
       const fallback = fields && String(item && item.no || '') === String(spec.no || '') ? fields : null
       const packedFields = own && Object.keys(own).length ? own : (fallback || {})
       const no = String((item && item.no) || packedFields.code || packedFields.name || packedFields.title || '')
+      const lookup = (item && item.lookup && item.lookup.field && item.lookup.value != null)
+        ? { field: String(item.lookup.field), value: String(item.lookup.value) }
+        : captureWriteIdentity({ no, fields: packedFields }, schemaFields)
       return {
         no,
         status: String((item && item.status) || packedFields.status || ''),
         fields: packedFields,
+        ...(lookup ? { lookup } : {}),
       }
     })
   } else if (fields && Object.keys(fields).length) {
+    const no = String(spec.no || fields.code || fields.name || '')
+    const lookup = captureWriteIdentity({ no, fields }, schemaFields)
     rows = [{
-      no: String(spec.no || fields.code || fields.name || ''),
+      no,
       status: String(spec.status || fields.status || ''),
       fields,
+      ...(lookup ? { lookup } : {}),
     }]
   }
   const columns = []
   const seen = new Set()
-  const schemaFields = Array.isArray(spec.schemaFields) ? spec.schemaFields : []
   function schemaEnums(key) {
     const hit = schemaFields.find((item) => {
       const name = typeof item === 'string' ? item : (item && item.name)
@@ -224,11 +244,13 @@ export function packSheet(spec = {}) {
       to,
     }]
   })
-  const many = rows.length > 1
   const previewId = String(spec.preview_id || '').trim()
-  const alreadyAtTarget = action === '过审' && rows.length > 0 && changes.length === 0
-  let canWrite = !!previewId && action !== '现查' && (!many || !!spec.batch)
-  if (action === '过审') canWrite = canWrite && changes.length > 0
+  const alreadyAtTarget = action === '过审'
+    && rows.length > 0
+    && Object.keys(patch).length > 0
+    && !rows.some((row) => rowPatchMoves(row, changePatch, action, fromFallback))
+  let canWrite = !!previewId && action !== '现查' && rows.length > 0
+  if (action === '过审') canWrite = canWrite && rows.some((row) => rowPatchMoves(row, changePatch, action, fromFallback))
   if (spec.blockConfirm) canWrite = false
   let speak = String(spec.speak || spec.hint || '').trim()
   const askAction = String(spec.askAction || '').trim()
@@ -276,6 +298,7 @@ export function packSheet(spec = {}) {
     ambiguous: !!spec.ambiguous,
     ...(spec.picked === true ? { picked: true } : {}),
     ...(alreadyAtTarget ? { alreadyAtTarget: true } : {}),
+    ...(String(spec.to || '').trim() ? { to: String(spec.to).trim() } : {}),
     ...(spec.patch && typeof spec.patch === 'object' && !Array.isArray(spec.patch) && Object.keys(spec.patch).length
       ? { patch: spec.patch }
       : {}),
@@ -299,8 +322,12 @@ export function packSheet(spec = {}) {
     ...(String(spec.lookupNo || '').trim() ? { lookupNo: String(spec.lookupNo).trim() } : {}),
     ...(Array.isArray(spec.cells) && spec.cells.length ? { cells: spec.cells } : {}),
     ...(spec.blockConfirm ? { blockConfirm: true } : {}),
+    ...(spec.statusDomain && spec.statusDomain.field && spec.statusDomain.enums
+      ? { statusDomain: spec.statusDomain }
+      : {}),
     ...(spec.columnMiss === true ? { columnMiss: true } : {}),
     ...(askAction && action === '现查' ? { askAction } : {}),
+    ...(spec.officialBound === true ? { officialBound: true } : {}),
   }
 }
 
@@ -349,12 +376,15 @@ function hopLinkIds(fromKind, toKind, matches, extra, relation) {
       }
     }
   }
-  const named = relationColumn(toKind, relation, extra) || relationColumn(fromKind, relation, extra)
+  const incoming = hopIncomingField(fromKind, toKind, rel, extra)
+  const named = incoming
+    || relationColumn(toKind, relation, extra)
+    || relationColumn(fromKind, relation, extra)
   const forward = hopRelatedIds(fromKind, toKind, matches, extra)
   if (forward.length) {
     return {
       ids: forward,
-      field: named || hopRelatedField(fromKind, toKind, matches, extra),
+      field: incoming || named || hopRelatedField(fromKind, toKind, matches, extra),
       targetKey: hopTargetKey(matches),
     }
   }
@@ -392,6 +422,29 @@ function planStepsForSheet(plan) {
     }))
 }
 
+function coerceJsonSlot(value) {
+  if (typeof value !== 'string') return value
+  const text = value.trim()
+  if (!text) return value
+  const start = text[0]
+  if (start !== '{' && start !== '[') return value
+  try {
+    return JSON.parse(text)
+  } catch {
+    return value
+  }
+}
+
+function coercePreviewSpec(spec) {
+  if (!spec || typeof spec !== 'object') return spec
+  const next = { ...spec }
+  for (const key of ['where', 'from', 'steps', 'patch', 'hopWhere']) {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) continue
+    next[key] = coerceJsonSlot(next[key])
+  }
+  return next
+}
+
 function sheetWhereFromPlan(plan, spec = {}) {
   const targetStep = (plan && plan.steps && plan.steps[plan.targetIndex]) || (plan && plan.steps && plan.steps[0])
   const startStep = plan && plan.steps && plan.steps[0]
@@ -404,32 +457,173 @@ function sheetWhereFromPlan(plan, spec = {}) {
   return { where: listWhere, hopWhere }
 }
 
-/** Enrich may drop model where when speech omits enum words; batch write still needs bound terms. */
-function stampRecoveredWhereOnPlan(plan, recovered, spec) {
-  const action = String(plan.action || '').trim()
-  if (!action || action === '现查') return
-  const incoming = (Array.isArray(recovered.where) && recovered.where.length)
-    ? recovered.where
-    : (Array.isArray(spec.where) && spec.where.length ? spec.where : null)
-  if (!incoming || !incoming.length) return
-  const steps = Array.isArray(plan.steps) ? plan.steps : []
-  if (!steps.length) return
-  const idx = Number.isFinite(plan.targetIndex) && plan.targetIndex >= 0
-    ? Math.min(Math.floor(plan.targetIndex), steps.length - 1)
-    : steps.length - 1
-  const step = steps[idx]
-  if (!step || (Array.isArray(step.where) && step.where.length)) return
-  step.where = incoming.map((term) => (term && typeof term === 'object' ? { ...term } : term)).filter(Boolean)
+function lookupBindExtra(plan, spec = {}) {
+  const { where, hopWhere } = sheetWhereFromPlan(plan, spec)
+  const no = String((plan && plan.no) || '').trim()
+  return {
+    clue: plan && plan.no,
+    speech: plan && plan.speech,
+    ...(where && where.length ? { where } : {}),
+    ...(hopWhere && hopWhere.length ? { hopWhere } : {}),
+    ...(no ? { lookupNo: no } : {}),
+  }
+}
+
+function speakConstrainedMiss(kind, plan, spec = {}) {
+  const { where, hopWhere } = sheetWhereFromPlan(plan, spec)
+  const bits = []
+  const take = (terms) => {
+    for (const term of Array.isArray(terms) ? terms : []) {
+      const vals = Array.isArray(term && term.values)
+        ? term.values.map((item) => String(item ?? '').trim()).filter(Boolean)
+        : []
+      if (vals.length) bits.push(vals.join('、'))
+    }
+  }
+  take(where)
+  take(hopWhere)
+  const who = String(kind || '').trim() || '这张单'
+  if (!bits.length) return `${who}对不上。`
+  return `${who}对不上（${bits.join('，')}）。`
+}
+
+function listHitAccount(found, allRows, listing) {
+  const rows = Array.isArray(allRows) ? allRows : []
+  const reported = found && found.hitTotalState
+  const state = reported === 'incomplete' || reported === 'unknown' || reported === 'known' ? reported : ''
+  if (listing) {
+    let hitTotalState = state || 'unknown'
+    let hitTotal = null
+    if (hitTotalState === 'known') {
+      const given = Number(found && found.hitTotal)
+      if (Number.isFinite(given)) hitTotal = given
+      else hitTotalState = 'unknown'
+    }
+    return { hitTotal, hitTotalState }
+  }
+  if (rows.length >= WHERE_LIST_CAP) return { hitTotal: null, hitTotalState: 'incomplete' }
+  if (state === 'incomplete') return { hitTotal: null, hitTotalState: 'incomplete' }
+  return { hitTotal: rows.length, hitTotalState: 'known' }
+}
+
+function whereTermsConstrain(where) {
+  if (!Array.isArray(where)) return false
+  return where.some((term) => {
+    if (!term || typeof term !== 'object') return false
+    const vals = Array.isArray(term.values)
+      ? term.values.map((item) => String(item ?? '').trim()).filter(Boolean)
+      : []
+    if (!vals.length) return false
+    if (term.text === true || term.textPass === 'contains') return true
+    const keys = Array.isArray(term.keys) ? term.keys.map((item) => String(item || '').trim()).filter(Boolean) : []
+    return keys.length > 0
+  })
+}
+
+function writeLookupBound(plan, spec = {}) {
+  const no = String((plan && plan.no) || (spec && spec.no) || '').trim()
+  if (no && (looksLikeTicket(no) || looksLikeRef(no))) return true
+  if (spec && spec.lookup && spec.lookup.field && spec.lookup.value != null) return true
+  if (spec && spec.picked === true && no) return true
+  const related = spec && spec.related
+  if (related && related.kind && Array.isArray(related.ids) && related.ids.length) return true
+  if (textColumnTerms(plan).length > 0) return true
+  if (whereTermsConstrain(plan && plan.where)) return true
+  if (whereTermsConstrain(plan && plan.from && plan.from.where)) return true
+  const steps = plan && Array.isArray(plan.steps) ? plan.steps : []
+  return steps.some((step) => {
+    const stepNo = String((step && step.no) || '').trim()
+    if (stepNo && (looksLikeTicket(stepNo) || looksLikeRef(stepNo))) return true
+    return whereTermsConstrain(step && step.where)
+  })
 }
 
 function writeHasIdentity(plan, spec = {}) {
-  if (String((plan && plan.no) || (spec && spec.no) || '').trim()) return true
-  if (spec && spec.related && spec.related.kind) return true
-  const steps = plan && Array.isArray(plan.steps) ? plan.steps : []
-  return steps.some((step) => (
-    String((step && step.no) || '').trim()
-    || (Array.isArray(step && step.where) && step.where.length)
-  ))
+  return writeLookupBound(plan, spec)
+}
+
+function lookupEquals(lookup, field, value) {
+  if (!lookup || !field) return false
+  return String(lookup.field || '').trim() === String(field).trim()
+    && String(lookup.value ?? '').trim() === String(value).trim()
+}
+
+function matchPickedRow(rows, spec = {}) {
+  const list = Array.isArray(rows) ? rows : []
+  const lookup = spec && spec.lookup && typeof spec.lookup === 'object' ? spec.lookup : null
+  const field = lookup ? String(lookup.field || '').trim() : ''
+  const value = lookup && lookup.value != null ? String(lookup.value).trim() : ''
+  if (field && value) {
+    const hit = list.find((row) => {
+      if (!row || typeof row !== 'object') return false
+      if (lookupEquals(row.lookup, field, value)) return true
+      const fields = row.fields && typeof row.fields === 'object' ? row.fields : {}
+      return String(fields[field] ?? row[field] ?? '').trim() === value
+    })
+    if (hit) return hit
+  }
+  const no = String((spec && spec.no) || '').trim()
+  if (!no) return null
+  return list.find((row) => {
+    if (!row || typeof row !== 'object') return false
+    if (String(row.no || '').trim() === no) return true
+    const fields = row.fields && typeof row.fields === 'object' ? row.fields : {}
+    if (String(fields.id ?? '').trim() === no) return true
+    if (lookupEquals(row.lookup, row.lookup && row.lookup.field, no)) return true
+    return Object.keys(fields).some((key) => (
+      (/^(code|no)$/i.test(key) || /(No|Code|Number)$/.test(key))
+      && String(fields[key] ?? '').trim() === no
+    ))
+  }) || null
+}
+
+function tokenListBind(plan, spec) {
+  const { where } = sheetWhereFromPlan(plan, spec)
+  const bind = {}
+  if (Array.isArray(where) && where.length) bind.where = where
+  const from = plan && plan.from
+  if (from && typeof from === 'object' && !Array.isArray(from) && String(from.kind || '').trim()) {
+    bind.from = from
+  }
+  if (Array.isArray(plan && plan.steps) && plan.steps.length) bind.steps = plan.steps
+  return Object.keys(bind).length ? bind : null
+}
+
+function vocabDeclaresHop(fromKind, toKind, extra) {
+  const from = String(fromKind || '').trim()
+  const to = String(toKind || '').trim()
+  if (!from || !to) return false
+  for (const row of Array.isArray(extra && extra.vocab) ? extra.vocab : []) {
+    for (const rel of Array.isArray(row && row.relations) ? row.relations : []) {
+      if (!rel || typeof rel !== 'object') continue
+      const frm = resolveKindAlias(String(rel.from || rel.fromKind || '').trim(), extra)
+      const dest = resolveKindAlias(String(rel.to || rel.toKind || '').trim(), extra)
+      if (kindLabelsMatch(frm, from) && kindLabelsMatch(dest, to)) return true
+    }
+  }
+  return false
+}
+
+function kindOnCatalog(kind, extra) {
+  const name = String(kind || '').trim()
+  if (!name) return false
+  return !unpreviewablePlanKind({ kind: name, steps: [{ kind: name }] }, extra)
+}
+
+function missingPlanRelation(plan, extra) {
+  const steps = Array.isArray(plan && plan.steps) ? plan.steps : []
+  for (let i = 1; i < steps.length; i += 1) {
+    const toKind = String((steps[i] && steps[i].kind) || '').trim()
+    const fromKind = String((steps[i] && steps[i].from) || (steps[i - 1] && steps[i - 1].kind) || '').trim()
+    if (!fromKind || !toKind || fromKind === toKind) continue
+    if (!kindOnCatalog(fromKind, extra) || !kindOnCatalog(toKind, extra)) continue
+    const rel = String((steps[i] && steps[i].relation) || '').trim()
+    const linked = schemaRelatedField(fromKind, toKind, extra)
+      || hopIncomingField(fromKind, toKind, rel, extra)
+      || vocabDeclaresHop(fromKind, toKind, extra)
+    if (!linked) return { from: fromKind, to: toKind }
+  }
+  return null
 }
 
 function catalogVersionOf(vocab) {
@@ -549,10 +743,10 @@ async function withSheet(result, extra = {}) {
     } catch { /* keep the already loaded schema */ }
   }
   const ask = String((extra && extra.askAction) || (result && result.askAction) || '').trim()
-  const packed = {
+  const packed = stampWorkstationConfirm({
     ...result,
     ...(ask ? { askAction: ask } : {}),
-  }
+  })
   const sheet = packSheet({ ...packed, ...extra, schemaFields })
   if (result && result.ok === false) {
     sheet.ok = false
@@ -561,8 +755,28 @@ async function withSheet(result, extra = {}) {
   }
   const out = { ...packed, sheet }
   if (sheet && sheet.speak) out.speak = sheet.speak
+  if (packed.confirm) out.confirm = packed.confirm
+  if (packed.hint) out.hint = packed.hint
   delete out.vocab
   return out
+}
+
+function stampWorkstationConfirm(result) {
+  if (!result || typeof result !== 'object') return result
+  if (result.ok === false) return result
+  const action = String(result.action || '').trim()
+  const previewId = String(result.preview_id || result.previewId || '').trim()
+  if (!previewId || action === '现查') return result
+  const hint = String(result.hint || '').trim() || WORKSTATION_CONFIRM_HINT
+  const speak = String(result.speak || '').trim()
+  return {
+    ...result,
+    confirm: 'workstation',
+    hint,
+    speak: speak.includes(WORKSTATION_CONFIRM_HINT)
+      ? speak
+      : [speak, WORKSTATION_CONFIRM_HINT].filter(Boolean).join(' '),
+  }
 }
 
 function hideDisplayKey(key, value) {
@@ -773,23 +987,6 @@ export function actionAllowed(action, row) {
   return can.includes(act)
 }
 
-export function nextStatus(action, status, schemaFields, vocab) {
-  if (String(action || '') === '过审') {
-    const code = approveNextStatusCode(schemaFields, vocab, status)
-    if (code) return statusLabelForCode(schemaFields, code)
-  }
-  return String(status || '未知').trim() || '未知'
-}
-
-/**
- * Write mouth. Lookup stays GET-only. Secretary mailbox never calls this.
- * @param {{
- *   vocab?: Array<Record<string, unknown>>,
- *   lookupTodo?: Function,
- *   postWrite?: Function,
- *   now?: () => number,
- * }} [opts]
- */
 function textColumnTerms(source) {
   const out = []
   const take = (where) => {
@@ -802,6 +999,15 @@ function textColumnTerms(source) {
   return out
 }
 
+/**
+ * Write mouth. Lookup stays GET-only. Secretary mailbox never calls this.
+ * @param {{
+ *   vocab?: Array<Record<string, unknown>>,
+ *   lookupTodo?: Function,
+ *   postWrite?: Function,
+ *   now?: () => number,
+ * }} [opts]
+ */
 export function createGate(opts = {}) {
   const staticVocab = Array.isArray(opts.vocab) && opts.vocab.length ? opts.vocab : null
   const now = opts.now || (() => Date.now())
@@ -865,9 +1071,77 @@ export function createGate(opts = {}) {
     return { ok: true, kind: name, action: act, mapped, row }
   }
 
+  async function schemaForSlotWhere(kind, vocab, workspace) {
+    let schemaFields = []
+    if (typeof opts.fieldsOf === 'function') {
+      try {
+        const loaded = await opts.fieldsOf(kind, vocab)
+        if (Array.isArray(loaded)) schemaFields = loaded
+      } catch { /* collections may still bind */ }
+    }
+    let collections = []
+    if (typeof opts.collectionsOf === 'function') {
+      try {
+        const loaded = await opts.collectionsOf(workspace)
+        if (Array.isArray(loaded)) collections = loaded
+      } catch { /* fieldsOf may still bind */ }
+    }
+    const extra = { vocab, collections }
+    const mapped = mapKind(kind, extra)
+    const collFields = mapped && mapped.resource ? collectionFields(mapped.resource, collections) : []
+    const fields = collFields.length ? collFields : schemaFields
+    return {
+      fields,
+      rawFieldLabels: fieldLabelsFromRawCollection(mapped && mapped.resource, collections),
+    }
+  }
+
+  async function bindSlotWhere(kind, where, vocab, schema) {
+    const claimed = Array.isArray(where) ? where : []
+    if (!claimed.length) return { where: claimed }
+    const fields = Array.isArray(schema && schema.fields) ? schema.fields : []
+    if (!fields.length) return { where: claimed }
+    const vocabRows = Array.isArray(vocab) ? vocab : []
+    const vocabHit = vocabRow(kind, vocabRows)
+    let terms = bindWhereKeys(claimed, kind, vocabRows, fields, schema.rawFieldLabels)
+    terms = bindClueEnums(terms, fields, vocabRows)
+    const unfit = terms.filter((term) => !termFitsCollection(term, fields, vocabHit, schema.rawFieldLabels))
+    if (unfit.length) {
+      return {
+        error: {
+          ok: false,
+          error: 'WHERE_UNBOUND',
+          status: '没有',
+          matches: [],
+          hint: unboundWhereSpeak(kind, unfit, fields, vocabRows),
+        },
+      }
+    }
+    const bound = await bindWhereRelationTerms(terms, fields, { kind, vocab: vocabRows }, {}, vocabHit, schema.rawFieldLabels)
+    if (bound.unbound.length) {
+      return {
+        error: {
+          ok: false,
+          error: 'WHERE_UNBOUND',
+          status: '没有',
+          matches: [],
+          hint: unboundWhereSpeak(kind, bound.unbound, fields, vocabRows),
+        },
+      }
+    }
+    return { where: bound.terms }
+  }
+
   async function probe(spec) {
     if (typeof opts.lookupTodo !== 'function') return { ok: false, error: 'NO_CONNECTOR' }
     try {
+      let where = spec.where
+      if (Array.isArray(where) && where.length) {
+        const schema = await schemaForSlotWhere(spec.kind, spec.vocab, spec.workspace)
+        const bound = await bindSlotWhere(spec.kind, where, spec.vocab, schema)
+        if (bound.error) return bound.error
+        where = bound.where
+      }
       return await opts.lookupTodo({
         kind: spec.kind,
         no: spec.no,
@@ -879,9 +1153,27 @@ export function createGate(opts = {}) {
         speech: '',
         related: spec.related,
         asAsk: !!spec.asAsk,
-        where: spec.where,
+        where,
         join: spec.join,
         limit: spec.limit,
+      })
+    } catch {
+      return { ok: false, error: 'LOOKUP' }
+    }
+  }
+
+  async function probeRow(spec) {
+    if (typeof opts.lookupTodo !== 'function') return { ok: false, error: 'NO_CONNECTOR' }
+    try {
+      return await opts.lookupTodo({
+        kind: spec.kind,
+        no: spec.no,
+        line: spec.line,
+        workspace: spec.workspace || '',
+        staffId: spec.staffId || '',
+        vocab: spec.vocab,
+        mapped: spec.mapped,
+        speech: '',
       })
     } catch {
       return { ok: false, error: 'LOOKUP' }
@@ -1136,7 +1428,9 @@ export function createGate(opts = {}) {
       const page = Number(plan.page) > 0 ? Math.floor(Number(plan.page)) : 1
       const state = account && account.hitTotalState === 'incomplete' ? 'incomplete' : 'known'
       const total = state === 'known' ? 0 : null
-      const missed = missSpeak(kindName, { ok: false, error: 'NOT_FOUND' })
+      const missed = writeLookupBound(plan, spec)
+        ? { speak: speakConstrainedMiss(kindName, plan, spec) }
+        : missSpeak(kindName, { ok: false, error: 'NOT_FOUND' })
       return sheet({
         ok: true,
         kind: kindName,
@@ -1168,7 +1462,7 @@ export function createGate(opts = {}) {
     if ((plan.filterRefused || plan.contradicts) && recognized.action === '现查') {
       return settledList(recognized.kind, { hitTotalState: 'known' })
     }
-    const patchAction = recognized.action === '改行' || recognized.action === '新建'
+    const patchAction = recognized.action === '改行' || recognized.action === '新建' || recognized.action === '过审'
     const spokenBind = patchAction
       ? await bindSpokenPreview(plan.patch, schemaFields, recognized, loaded.vocab, spec.workspace)
       : { writePatch: {}, displayPatch: {}, cells: [], blockConfirm: false }
@@ -1176,6 +1470,30 @@ export function createGate(opts = {}) {
     const writePatch = spokenBind.writePatch || {}
     const spokenCells = Array.isArray(spokenBind.cells) ? spokenBind.cells : []
     const blockConfirm = spokenBind.blockConfirm === true
+    for (let i = 0; i < plan.steps.length; i += 1) {
+      const step = plan.steps[i]
+      if (!step || !step.kind) continue
+      let claimed = Array.isArray(step.where) && step.where.length ? step.where : []
+      if (!claimed.length && i === plan.targetIndex && Array.isArray(spec.where) && spec.where.length) {
+        claimed = spec.where
+      }
+      if (!claimed.length) continue
+      const schema = await schemaForSlotWhere(step.kind, loaded.vocab, spec.workspace)
+      const bound = await bindSlotWhere(step.kind, claimed, loaded.vocab, schema)
+      if (bound.error) {
+        const err = bound.error
+        const missedSpeak = err && err.hint
+          ? { speak: String(err.hint) }
+          : missSpeak(step.kind, err)
+        return await sheet(refuse(String((err && err.error) || 'WHERE_UNBOUND'), missedSpeak.speak), {
+          kind: step.kind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech,
+          speak: missedSpeak.speak, matches: [],
+          ...sheetWhereFromPlan(plan, spec),
+          ...(missedSpeak.columnMiss ? { columnMiss: true } : {}),
+        })
+      }
+      step.where = bound.where
+    }
     if (spec.related && spec.related.kind) {
       const hopped = await probe({
         kind: recognized.kind, no: plan.no, line: plan.line, workspace: spec.workspace, staffId: spec.staffId,
@@ -1192,7 +1510,7 @@ export function createGate(opts = {}) {
           ...(missed.columnMiss ? { columnMiss: true } : {}),
         })
       }
-      return finishStructured(recognized, rows, hopped, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, undefined, displayPatch, spokenCells, blockConfirm)
+      return finishStructured(recognized, rows, hopped, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, extra, displayPatch, spokenCells, blockConfirm)
     }
     if (recognized.action === '新建') {
       const labelNo = looksLikeTicket(plan.no) ? plan.no : '新单'
@@ -1255,7 +1573,9 @@ export function createGate(opts = {}) {
       }
       const missedSpeak = (parentFound && parentFound.error === 'NO_CONNECTOR')
         ? { speak: `${emptyKind}：没连业务，不能装成已查。` }
-        : missSpeak(missKind, parentFound && parentFound.ok === false ? parentFound : { ok: false, error: 'NOT_FOUND' })
+        : (writeLookupBound(plan, spec)
+          ? { speak: speakConstrainedMiss(missKind, plan, spec) }
+          : missSpeak(missKind, parentFound && parentFound.ok === false ? parentFound : { ok: false, error: 'NOT_FOUND' }))
       return await sheet(refuse(parentFound && parentFound.error ? parentFound.error : 'NOT_FOUND', missedSpeak.speak), {
         kind: emptyKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: missedSpeak.speak, matches: [],
         ...sheetWhereFromPlan(plan, spec),
@@ -1280,7 +1600,9 @@ export function createGate(opts = {}) {
           if (recognized.action === '现查') {
             return settledList(hopKind, { hitTotalState: upstreamIncomplete ? 'incomplete' : 'known' })
           }
-          const missed = missSpeak(hopKind, { ok: false, error: 'NOT_FOUND' })
+          const missed = writeLookupBound(plan, spec)
+            ? { speak: speakConstrainedMiss(hopKind, plan, spec) }
+            : missSpeak(hopKind, { ok: false, error: 'NOT_FOUND' })
           return await sheet(refuse('NOT_FOUND', missed.speak), {
             kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: missed.speak, matches: [],
             ...(missed.columnMiss ? { columnMiss: true } : {}),
@@ -1303,7 +1625,9 @@ export function createGate(opts = {}) {
               hitTotalState: lookupFailed || upstreamIncomplete ? 'incomplete' : 'known',
             })
           }
-          const missed = missSpeak(hopKind, hopped && hopped.ok === false ? hopped : { ok: false, error: 'NOT_FOUND' })
+          const missed = writeLookupBound(plan, spec)
+            ? { speak: speakConstrainedMiss(hopKind, plan, spec) }
+            : missSpeak(hopKind, hopped && hopped.ok === false ? hopped : { ok: false, error: 'NOT_FOUND' })
           return await sheet(refuse('NOT_FOUND', missed.speak), {
             kind: hopKind, no: '', action: recognized.action, clue: plan.no, speech: plan.speech, speak: missed.speak, matches: [],
             ...(missed.columnMiss ? { columnMiss: true } : {}),
@@ -1320,31 +1644,43 @@ export function createGate(opts = {}) {
       if (upstreamIncomplete && found) found = { ...found, hitTotalState: 'incomplete', hitTotal: null }
       return finishStructured(recognized, targetRows, found, writePatch, plan, spec, loaded, schemaFields, target.kind, hitsByKind, extra, displayPatch, spokenCells, blockConfirm)
     }
-    return finishStructured(recognized, parentMatches, parentFound, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, undefined, displayPatch, spokenCells, blockConfirm)
+    return finishStructured(recognized, parentMatches, parentFound, writePatch, plan, spec, loaded, schemaFields, recognized.kind, undefined, extra, displayPatch, spokenCells, blockConfirm)
   }
 
   async function finishStructured(recognized, matches, found, writePatch, plan, spec, loaded, schemaFields, kind, hitsByKind, hopExtra, displayPatch = writePatch, spokenCells = [], blockConfirm = false) {
     const sheetKind = kind || recognized.kind
     const matched = Array.isArray(matches) ? matches : []
-    const allRows = recognized.action === '现查'
-      ? matched
-      : rowsForClickedWrite(matched, plan.no)
+    const looked = String(plan.no || '').trim()
+    const rowClick = spec.picked === true || looksLikeTicket(looked) || looksLikeRef(looked)
+    const targetWhere = sheetWhereFromPlan(plan, spec).where
+    const writeHits = recognized.action !== '现查' && Array.isArray(targetWhere) && targetWhere.length
+      ? rowsMatchingWhere(matched, targetWhere, schemaFields)
+      : matched
+    const allRows = (recognized.action === '现查' || !rowClick)
+      ? writeHits
+      : rowsForClickedWrite(writeHits, looked)
     const listing = recognized.action === '现查'
     const page = Number(plan.page) > 0 ? Math.floor(Number(plan.page)) : 1
-    const rows = listing
+    const fullBound = spec.confirmSet === true
+    let rows = listing && !fullBound
       ? allRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
       : allRows.slice(0, WHERE_LIST_CAP)
-    const reported = found && found.hitTotalState
-    let hitTotalState = reported === 'incomplete' || reported === 'unknown' || reported === 'known' ? reported : ''
-    let hitTotal = null
-    if (listing) {
-      if (!hitTotalState) hitTotalState = 'unknown'
-      if (hitTotalState === 'known') {
-        const given = Number(found && found.hitTotal)
-        if (Number.isFinite(given)) hitTotal = given
-        else hitTotalState = 'unknown'
+    const { hitTotal, hitTotalState } = listHitAccount(found, allRows, listing)
+    const listExtra = listing
+      ? {
+        querySettled: true,
+        hitTotal,
+        hitTotalState,
+        page,
+        pageSize: PAGE_SIZE,
+        pageFull: rows.length >= PAGE_SIZE,
       }
-    }
+      : {
+        hitTotal,
+        hitTotalState,
+        page: 1,
+        ...(rows.length ? { pageSize: rows.length } : {}),
+      }
     const speak = speakLookup({ kind: sheetKind, no: rows.length === 1 ? rows[0].no : '' }, {
       ...found,
       matches: rows,
@@ -1398,90 +1734,115 @@ export function createGate(opts = {}) {
         listed: rows.length > 1, ambiguous: rows.length > 1,
         workspace: (found && found.workspace) || spec.workspace || '',
       }, {
-        clue: plan.no,
-        speech: plan.speech,
-        where: listWhere,
-        hopWhere,
-        ...(String(plan.no || '').trim() ? { lookupNo: String(plan.no).trim() } : {}),
+        ...lookupBindExtra(plan, spec),
         ...(stepsMeta.length > 1 ? { steps: stepsMeta } : {}),
-        ...(listing ? {
-          querySettled: true,
-          hitTotal,
-          hitTotalState,
-          page,
-          pageSize: PAGE_SIZE,
-          pageFull: rows.length >= PAGE_SIZE,
-        } : {}),
+        ...listExtra,
       })
     }
-    if (rows.length !== 1) {
-      const bag = { vocab: loaded.vocab, ...(hopExtra && typeof hopExtra === 'object' ? hopExtra : {}) }
-      const nameIdentity = leftoverNameIdentity(plan.speech, loaded.vocab, bag, spec)
-      const wantsBatch = spec.batch === true || spokenWantsBatch(plan.speech, loaded.vocab, bag)
-      const textScoped = textColumnTerms(plan).length > 0
-      if ((nameIdentity || textScoped) && !wantsBatch && spec.picked !== true) {
-        return await sheet({
-          ok: true, kind: sheetKind, no: '', action: recognized.action, speak,
-          patch: recognized.action === '现查' ? undefined : displayPatch,
-          status: found && found.status, fields: {}, matches: rows,
-          fingerprint: found && found.fingerprint, listed: true, ambiguous: true,
-          workspace: (found && found.workspace) || spec.workspace || '',
-          cells: spokenCells,
-          blockConfirm,
-        }, { clue: plan.no, speech: plan.speech })
-      }
-      const identity = writeHasIdentity(plan, spec)
-      const writeable = (spec.batch === true || wantsBatch || identity) && (
-        recognized.action === '删除' || recognized.action === '过审'
-        || (recognized.action === '改行' && !blockConfirm && writePatch && Object.keys(writePatch).length)
-      )
-      if (!writeable || !rows.length) {
-        if (!identity && rows.length > 1) {
-          return await sheet(refuse('NO_REF', `${sheetKind}要指出改哪几条，不能整表当预览。`), {
-            kind: sheetKind, action: recognized.action, matches: [], speech: plan.speech,
-          })
-        }
-        return await sheet({
-          ok: true, kind: sheetKind, no: '', action: recognized.action, speak,
-          patch: recognized.action === '现查' ? undefined : displayPatch,
-          status: found && found.status, fields: {}, matches: rows,
-          fingerprint: found && found.fingerprint, listed: true, ambiguous: true,
-          workspace: (found && found.workspace) || spec.workspace || '',
-          cells: spokenCells,
-          blockConfirm,
-        }, { clue: plan.no, speech: plan.speech })
-      }
-      const { where: batchWhere } = sheetWhereFromPlan(plan, spec)
-      let hitRows = rows
-      if (Array.isArray(batchWhere) && batchWhere.length) {
-        const bound = bindWhereKeys(batchWhere, sheetKind, loaded.vocab, schemaFields)
-        hitRows = rowsMatchingWhere(allRows, bound, schemaFields).slice(0, WHERE_LIST_CAP)
-      }
-      if (hitRows.length > BATCH_LIMIT) {
-        return await sheet(refuse('TOO_MANY', `${sheetKind}一次最多改 ${BATCH_LIMIT} 条。勾少一点再预览。`), {
+    const previewPatch = previewWritePatch(recognized, writePatch, found, spec, plan, schemaFields)
+    const bound = writeLookupBound(plan, spec)
+    const missTarget = recognized.action === '过审' && !(previewPatch && Object.keys(previewPatch).length)
+    const domain = recognized.action === '过审'
+      ? statusDomainOf(schemaFields, recognized.mapped, recognized.kind, found)
+      : undefined
+    const toolTo = String((spec && spec.to) || (plan && plan.to) || '').trim()
+    if (spec.picked === true && rows.length) {
+      const hit = matchPickedRow(rows, spec)
+      if (!hit) {
+        return await sheet(refuse('NO_LOOKUP', '对不上这一行，不能过账。'), {
           kind: sheetKind, action: recognized.action, matches: [], speech: plan.speech,
         })
       }
-      const nos = hitRows.map((row) => String(row.no || '').trim()).filter(Boolean)
-      const catalogVersion = catalogVersionOf(loaded.vocab)
-      const previewId = `pv_${randomHex(8)}`
-      const token = {
-        preview_id: previewId, kind: recognized.kind, no: '', nos, batch: true, line: plan.line,
-        action: recognized.action, patch: recognized.action === '改行' ? { ...(writePatch || {}) } : undefined,
-        vocab: loaded.vocab, mapped: recognized.mapped, catalogVersion,
-        workspace: spec.workspace || '',
-        system: String(spec.system || (found && found.system) || '').trim(),
-        env: String(spec.env || (found && found.env) || '').trim(),
-        connectionId: String((found && found.connectionId) || spec.connectionId || '').trim(),
-        from: hitRows.length, to: recognized.action, fingerprint: `batch:${recognized.kind}:${nos.join(',')}`,
-        expiresAt: now() + PREVIEW_TTL_MS, used: false,
-        speak: `${recognized.action}${sheetKind}${nos.length}条。这是预览，不是过账。`,
-      }
-      tokens.set(previewId, token)
+      rows = [hit]
+    }
+    if (missTarget) {
+      const missSpeak = speakMissTarget(sheetKind, toolTo, domain)
       return await sheet({
-        ok: true, ...token, speak: token.speak, matches: hitRows, listed: true,
+        ok: false, error: 'MISS_TARGET', hint: missSpeak, kind: sheetKind, no: rows.length === 1 ? rows[0].no : '',
+        action: recognized.action, speak: missSpeak,
+        patch: displayPatch && Object.keys(displayPatch).length ? displayPatch : {},
+        preview_id: '', matches: rows, cells: spokenCells,
+        status: found && found.status, fields: (rows[0] && rows[0].fields) || {},
+        fingerprint: found && found.fingerprint,
         workspace: (found && found.workspace) || spec.workspace || '',
-      }, { clue: plan.no, speech: plan.speech, batch: true, nos })
+        statusDomain: domain,
+        to: toolTo || undefined,
+      }, { clue: plan.no, speech: plan.speech, ...lookupBindExtra(plan, spec), ...listExtra })
+    }
+    if (rows.length !== 1) {
+      if (bound && !rows.length) {
+        return await sheet({
+          ok: true, kind: sheetKind, no: '', action: recognized.action,
+          speak: speakConstrainedMiss(sheetKind, plan, spec),
+          patch: displayPatch, preview_id: '', cells: spokenCells,
+          status: found && found.status, fields: {}, matches: [],
+          workspace: (found && found.workspace) || spec.workspace || '',
+        }, { ...lookupBindExtra(plan, spec), ...listExtra })
+      }
+      if (!bound) {
+        return await sheet(refuse('NO_REF', `${sheetKind}要指出改哪几条，不能整表当预览。`), {
+          kind: sheetKind, action: recognized.action, matches: [], speech: plan.speech,
+        })
+      }
+      const listedPatch = recognized.action === '删除'
+        ? undefined
+        : (previewPatch && Object.keys(previewPatch).length ? previewPatch : displayPatch)
+      const mintSet = spec.batch === true
+        && boundWriteChange(recognized, previewPatch, writePatch, blockConfirm)
+        && rows.length >= 2
+      const rowLookups = mintSet ? collectRowLookups(rows, schemaFields, previewPatch) : []
+      if (mintSet && rowLookups.length === rows.length) {
+        const nos = rowLookups.map((row) => row.no).filter(Boolean)
+        const setPatch = recognized.action === '删除' ? undefined : previewPatch
+        const approveCol = statusColumn(recognized.mapped, recognized.kind, found)
+        const to = recognized.action === '过审'
+          ? (statusLabelForCode(schemaFields, setPatch && approveCol ? setPatch[approveCol] : '') || patchSpeak(setPatch))
+          : recognized.action === '删除' ? '删除' : patchSpeak(writePatch)
+        const fingerprint = setMembershipFingerprint(recognized.kind, rows, setPatch)
+        const spoken = speakPreview({ kind: recognized.kind, no: '' }, {
+          ok: true, status: rows[0] && rows[0].status, from: rows[0] && rows[0].status, to,
+          action: recognized.action, fingerprint, mine: found && found.mine,
+        })
+        const previewId = `pv_${randomHex(8)}`
+        const listBind = tokenListBind(plan, spec)
+        const token = {
+          preview_id: previewId, kind: recognized.kind, no: '', nos, line: plan.line, action: recognized.action,
+          patch: setPatch,
+          vocab: loaded.vocab, mapped: recognized.mapped, catalogVersion: catalogVersionOf(loaded.vocab),
+          workspace: spec.workspace || '',
+          system: String(spec.system || (found && found.system) || '').trim(),
+          env: String(spec.env || (found && found.env) || '').trim(),
+          connectionId: String((found && found.connectionId) || spec.connectionId || '').trim(),
+          from: spoken.from, to: spoken.to || to, fingerprint,
+          expiresAt: now() + PREVIEW_TTL_MS, used: false, speak: spoken.speak,
+          speech: String(plan.speech || spec.speech || '').trim(),
+          sessionId: String(spec.sessionId || '').trim(),
+          rowLookups,
+          batch: true,
+          fromFields: pickFromFields(rows[0] && rows[0].fields, setPatch),
+          ...(listBind ? { listBind } : {}),
+        }
+        tokens.set(previewId, token)
+        const sheetPatch = displayPatch && Object.keys(displayPatch).length ? displayPatch : token.patch
+        return await sheet({
+          ok: true, ...token, patch: sheetPatch, speak: spoken.speak,
+          fields: (rows[0] && rows[0].fields) || {}, status: rows[0] && rows[0].status, matches: rows,
+          cells: spokenCells, listed: false, ambiguous: false, batch: true, nos,
+          statusDomain: domain,
+        }, { clue: plan.no, speech: plan.speech, where: tokenListWhere(token), ...listExtra })
+      }
+      return await sheet({
+        ok: true, kind: sheetKind, no: '', action: recognized.action, speak,
+        patch: listedPatch,
+        status: found && found.status, fields: {}, matches: rows,
+        fingerprint: found && found.fingerprint, listed: true, ambiguous: true,
+        preview_id: '',
+        workspace: (found && found.workspace) || spec.workspace || '',
+        cells: spokenCells,
+        blockConfirm,
+        to: toolTo || undefined,
+        statusDomain: domain,
+      }, { ...lookupBindExtra(plan, spec), ...listExtra })
     }
     if (recognized.action === '改行' && (!(writePatch && Object.keys(writePatch).length) || blockConfirm)) {
       if (!(writePatch && Object.keys(writePatch).length) && !spokenCells.length) {
@@ -1490,32 +1851,51 @@ export function createGate(opts = {}) {
         })
       }
       return await sheet({
-        ok: true, kind: sheetKind, no: rows[0].no, action: recognized.action, speak,
+        ok: true, kind: sheetKind, no: rows[0].no, action: recognized.action,
+        speak: speakUnboundWrite(sheetKind, rows[0].no, spokenCells),
         patch: displayPatch, preview_id: '', cells: spokenCells, blockConfirm: true,
         status: found && found.status, fields: (rows[0] && rows[0].fields) || {}, matches: rows,
       }, { clue: plan.no, speech: plan.speech })
     }
     const row = rows[0]
-    const looked = String(plan.no || '').trim()
     const rowPk = row && row.fields && row.fields.id != null ? String(row.fields.id).trim() : ''
     const resolvedNo = (looked && rowPk && looked === rowPk)
       ? looked
       : String(row.no || plan.no).trim()
     const change = recognized.action === '改行' ? patchChange(displayPatch, row.fields) : null
-    const approveCode = recognized.action === '过审'
-      ? approveNextStatusCode(schemaFields, loaded.vocab, row.status)
-      : ''
+    if (recognized.action === '过审' && blockConfirm) {
+      return await sheet({
+        ok: true, kind: sheetKind, no: resolvedNo, action: recognized.action,
+        speak: speakUnboundWrite(sheetKind, resolvedNo, spokenCells),
+        patch: displayPatch && Object.keys(displayPatch).length ? displayPatch : {},
+        preview_id: '', matches: rows, cells: spokenCells, blockConfirm: true,
+        status: found && found.status, fields: (rows[0] && rows[0].fields) || {},
+        fingerprint: found && found.fingerprint,
+        workspace: (found && found.workspace) || spec.workspace || '',
+        statusDomain: domain,
+      }, { clue: plan.no, speech: plan.speech })
+    }
+    const approveCol = statusColumn(recognized.mapped, recognized.kind, found)
     const to = recognized.action === '过审'
-      ? (approveCode ? statusLabelForCode(schemaFields, approveCode) : nextStatus('过审', row.status, schemaFields, loaded.vocab))
+      ? (statusLabelForCode(schemaFields, previewPatch && approveCol ? previewPatch[approveCol] : '') || patchSpeak(previewPatch))
       : recognized.action === '删除' ? '删除' : (change && change.speak) || patchSpeak(writePatch)
     const spoken = speakPreview({ kind: recognized.kind, no: resolvedNo }, {
       ok: true, status: row.status, from: change ? change.from : row.status, to,
       action: recognized.action, fingerprint: found && found.fingerprint, mine: found && found.mine,
     })
+    const rowLookup = (spec.lookup && spec.lookup.field && spec.lookup.value != null)
+      ? { field: String(spec.lookup.field), value: String(spec.lookup.value) }
+      : captureWriteIdentity(row, schemaFields)
+    if (!rowLookup) {
+      return await sheet(refuse('NO_IDENTITY', `${sheetKind}缺身份。`), {
+        kind: sheetKind, no: resolvedNo, action: recognized.action, speech: plan.speech, matches: rows,
+      })
+    }
     const previewId = `pv_${randomHex(8)}`
+    const listBind = tokenListBind(plan, spec)
     const token = {
       preview_id: previewId, kind: recognized.kind, no: resolvedNo, line: plan.line, action: recognized.action,
-      patch: buildPreviewPatch(recognized, writePatch, found, approveCode || to),
+      patch: previewPatch,
       vocab: loaded.vocab, mapped: recognized.mapped, catalogVersion: catalogVersionOf(loaded.vocab),
       workspace: spec.workspace || '',
       system: String(spec.system || (found && found.system) || '').trim(),
@@ -1523,13 +1903,21 @@ export function createGate(opts = {}) {
       connectionId: String((found && found.connectionId) || spec.connectionId || '').trim(),
       from: spoken.from, to: spoken.to || to, fingerprint: spoken.fingerprint,
       expiresAt: now() + PREVIEW_TTL_MS, used: false, speak: spoken.speak,
+      speech: String(plan.speech || spec.speech || '').trim(),
+      sessionId: String(spec.sessionId || '').trim(),
+      lookup: rowLookup,
+      fromFields: pickFromFields(row && row.fields, previewPatch),
+      ...(listBind ? { listBind } : {}),
     }
     tokens.set(previewId, token)
+    const sheetPatch = displayPatch && Object.keys(displayPatch).length ? displayPatch : token.patch
     return await sheet({
-      ok: true, ...token, patch: displayPatch, speak: spoken.speak, fields: row.fields || {}, status: row.status, matches: rows,
+      ok: true, ...token, patch: sheetPatch, speak: spoken.speak, fields: row.fields || {}, status: row.status, matches: rows,
       cells: spokenCells,
       blockConfirm,
-    }, { clue: plan.no, speech: plan.speech })
+      statusDomain: domain,
+      ...(spec.picked === true ? { picked: true } : {}),
+    }, { clue: plan.no, speech: plan.speech, where: tokenListWhere(token) })
   }
 
   async function previewConn(workspace) {
@@ -1568,6 +1956,7 @@ export function createGate(opts = {}) {
   }
 
   async function preview(spec = {}) {
+    spec = coercePreviewSpec(spec)
     const kind = String(spec.kind || '').trim()
     const no = String(spec.no || spec.ticket || '').trim()
     const line = String(spec.line || spec.行号 || '').trim()
@@ -1603,80 +1992,61 @@ export function createGate(opts = {}) {
         enrichExtra.collections = await opts.collectionsOf(spec.workspace)
       } catch { /* collections optional for enrich */ }
     }
-    const userSpeech = String(spec.userSpeech || '').trim() || recalledUserSpeech(spec.sessionId)
+    const identityLookup = spec.lookupLocked === true
+      || (spec.rereadAfterWrite === true && spec.confirmSet !== true)
+    const frozenSpeech = typeof opts.roundSpeech === 'function'
+      ? String(opts.roundSpeech(spec.sessionId) || '').trim()
+      : ''
+    const userSpeech = identityLookup
+      ? ''
+      : (frozenSpeech || String(spec.userSpeech || '').trim() || recalledUserSpeech(spec.sessionId))
     const replaying = spec.replay === true && Array.isArray(spec.steps) && spec.steps.length
-    if (!replaying) {
-      const picked = pickHopSpeech(spec.speech || spec.quote, userSpeech, loaded.vocab, enrichExtra)
-      if (picked) spec = { ...spec, speech: picked, userSpeech }
-    }
-    if (!replaying && typeof opts.fieldsOf === 'function') {
-      const mentioned = new Set()
-      const speech = String(spec.speech || spec.quote || '').trim()
-      if (kind) mentioned.add(kind)
-      const registered = registeredKinds(enrichExtra)
-      for (const row of kindMentions(speech, registered, enrichExtra)) {
-        mentioned.add(row.kind)
+    if (identityLookup) {
+      spec = { ...spec, speech: '', userSpeech: '' }
+      const nos = Array.isArray(spec.nos) ? spec.nos.map((item) => String(item || '').trim()).filter(Boolean) : []
+      const one = String(spec.no || '').trim() || (nos.length === 1 ? nos[0] : '')
+      if (one) spec = { ...spec, no: one }
+      else if (nos.length) {
+        const mapped = mapKind(String(spec.kind || '').trim(), loaded.vocab)
+        const field = ticketColumn(mapped, spec.kind)
+        if (field) spec = { ...spec, where: [{ keys: [field], values: nos }] }
+        else {
+          const parts = []
+          for (const n of nos) {
+            const part = await preview({
+              ...spec,
+              no: n,
+              nos: undefined,
+              where: undefined,
+              speech: '',
+              userSpeech: '',
+              lookupLocked: spec.lookupLocked === true,
+              rereadAfterWrite: spec.rereadAfterWrite === true,
+            })
+            if (part && (part.sheet || part.rows || part.matches)) parts.push(part)
+          }
+          return mergeIdentityLookups(parts)
+        }
       }
-      const schemaByKind = {}
-      for (const kindName of mentioned) {
-        try {
-          const fields = await opts.fieldsOf(kindName, loaded.vocab)
-          if (Array.isArray(fields) && fields.length) schemaByKind[kindName] = fields
-        } catch { /* skip kind */ }
-      }
-      enrichExtra.schemaByKind = schemaByKind
     }
-    const recovered = replaying ? { ...spec } : recoverWriteIntent(spec, loaded.vocab, enrichExtra)
-    let enriched = replaying
-      ? { ...spec, speech: String(spec.speech || '').trim() }
-      : enrichStructuredSlots(recovered, loaded.vocab, enrichExtra)
+    const lookupAction = String(spec.action || '').trim() || '现查'
+    const bindOfficialLookup = !replaying
+      && spec.picked !== true
+      && spec.rereadAfterWrite !== true
+      && spec.lookupLocked !== true
+      && ['现查', '改行', '删除', '过审', '新建'].includes(lookupAction)
+    let enriched = {
+      ...spec,
+      kind: String(spec.kind || '').trim(),
+      action: lookupAction,
+      speech: String(spec.speech || spec.quote || '').trim(),
+    }
     if (!replaying && spec.lookupLocked === true && String(spec.action || '').trim() === '现查') {
       enriched = { ...enriched, action: '现查' }
       delete enriched.patch
     }
-    if (!replaying) {
-      const batchSpeech = String(enriched.speech || spec.speech || userSpeech || '').trim()
-      const batchKind = String(enriched.kind || spec.kind || '').trim()
-      const scanSpeech = columnScopedSpeech(batchSpeech, batchKind, loaded.vocab, enrichExtra)
-      let selfLoopPeers = generatedSelfLoopEdgePeers(batchKind, scanSpeech, enriched, loaded.vocab, enrichExtra)
-      if (!selfLoopPeers.length && userSpeech && userSpeech !== batchSpeech) {
-        selfLoopPeers = generatedSelfLoopEdgePeers(batchKind, columnScopedSpeech(userSpeech, batchKind, loaded.vocab, enrichExtra), enriched, loaded.vocab, enrichExtra)
-      }
-      enriched.peers = mergePlanPeerRows(
-        unlinkedConditionKinds(scanSpeech, batchKind, loaded.vocab, enrichExtra),
-        selfLoopPeers,
-      )
-    }
     const catalogExtra = { vocab: loaded.vocab, ...enrichExtra }
-    const batchSpeech = String(enriched.speech || spec.speech || spec.quote || userSpeech || '').trim()
-    const keptNo = dropSpokenBatchRowId(enriched.no || spec.no, batchSpeech, loaded.vocab, catalogExtra)
-    if (keptNo) {
-      enriched.no = keptNo
-      spec.no = keptNo
-    } else {
-      delete enriched.no
-      delete spec.no
-    }
-    if (Array.isArray(enriched.steps)) {
-      enriched.steps = enriched.steps.map((step) => {
-        if (!step || typeof step !== 'object') return step
-        const stepNo = dropSpokenBatchRowId(step.no, batchSpeech, loaded.vocab, catalogExtra)
-        if (!stepNo) {
-          const copy = { ...step }
-          delete copy.no
-          return copy
-        }
-        return { ...step, no: stepNo }
-      })
-    }
     const plan = normalizePlan(enriched)
-    plan.no = dropSpokenBatchRowId(plan.no, batchSpeech, loaded.vocab, catalogExtra)
-    if (Array.isArray(plan.steps)) {
-      for (const step of plan.steps) {
-        if (!step) continue
-        step.no = dropSpokenBatchRowId(step.no, batchSpeech, loaded.vocab, catalogExtra)
-      }
-    }
     let resolvedKind = String(
       (plan.steps[plan.targetIndex] && plan.steps[plan.targetIndex].kind)
       || enriched.kind
@@ -1708,24 +2078,49 @@ export function createGate(opts = {}) {
       plan.steps = collapsed
       plan.targetIndex = collapsed.length ? collapsed.length - 1 : 0
     }
-    if (!replaying) stampRecoveredWhereOnPlan(plan, recovered, spec)
-    ensurePlanSelfHop(plan, plan.speech, catalogExtra)
     if (spec.from && typeof spec.from === 'object' && spec.from.kind) {
       const connectedFrom = resolveConnectedKindName(spec.from.kind, catalogExtra)
       if (connectedFrom) spec.from = { ...spec.from, kind: connectedFrom }
     }
-    if (leftoverKindMissingFromCatalog(resolvedKind, catalogExtra)) {
-      return refuse('NO_CONNECTOR', `${resolvedKind}：没连业务，不能装成已查。`)
+    const identityNo = String(spec.no || spec.ticket || '').trim()
+    if (
+      identityNo
+      && spec.picked !== true
+      && spec.lookupLocked !== true
+      && spec.rereadAfterWrite !== true
+      && spec.confirmSet !== true
+      && !thisCallCarriesBind(spec)
+    ) {
+      plan.steps = [{
+        kind: resolvedKind || String(spec.kind || '').trim(),
+        no: identityNo,
+        where: [],
+        from: '',
+        relation: '',
+        join: 'and',
+      }]
+      plan.targetIndex = 0
+      plan.no = identityNo
     }
-    if (!kindPreviewableInCatalog(resolvedKind, catalogExtra)) {
-      return refuse('NO_CONNECTOR', `${resolvedKind}：没连业务，不能装成已查。`)
-    }
-    if (connectorCatalogPresent(catalogExtra) && !resolveConnectedKindName(resolvedKind, catalogExtra) && !mapKind(resolvedKind, catalogExtra)) {
-      return refuse('NO_CONNECTOR', `${resolvedKind}：没连业务，不能装成已查。`)
+    const missRel = missingPlanRelation(plan, catalogExtra)
+    if (missRel) return refuse('NO_RELATION', `${missRel.from}到${missRel.to}缺关系。`)
+    const miss = unpreviewablePlanKind(plan, catalogExtra)
+    if (miss) return refuse('NO_CONNECTOR', `${miss}：没连业务，不能装成已查。`)
+    const writeActs = ['改行', '删除', '过审']
+    if (
+      !replaying
+      && spec.picked !== true
+      && spec.lookupLocked !== true
+      && spec.rereadAfterWrite !== true
+      && writeActs.includes(lookupAction)
+      && !writeHasIdentity(plan, spec)
+    ) {
+      const who = resolvedKind || String(spec.kind || '').trim() || '这张单'
+      return refuse('NO_IDENTITY', `${who}缺身份。`)
     }
     const sessionId = String(spec.sessionId || '').trim()
     const workspaceKey = String(spec.workspace || '')
-    const settledKey = (plan.action === '现查' && sessionId && !replaying && spec.picked !== true)
+    const settledKey = (plan.action === '现查' && sessionId && !replaying && spec.picked !== true && spec.rereadAfterWrite !== true && spec.confirmSet !== true)
       ? settledHopKey({
         sessionId,
         workspace: workspaceKey,
@@ -1741,9 +2136,236 @@ export function createGate(opts = {}) {
       if (cached && previewSettledLookup(cached)) return materializeSettledRepeat(cached)
     }
     if (spec.picked === true) enriched.picked = true
+    if (spec.lookup && spec.lookup.field && spec.lookup.value != null) {
+      enriched.lookup = { field: String(spec.lookup.field), value: String(spec.lookup.value) }
+    }
     const result = await previewStructured(plan, enriched, loaded)
+    if (plan.action === '现查' && bindOfficialLookup && result && typeof result === 'object') {
+      result.officialBound = true
+      if (result.sheet && typeof result.sheet === 'object') result.sheet.officialBound = true
+    }
     if (settledKey && previewSettledLookup(result)) settledQueries.set(settledKey, result)
     return result
+  }
+
+  function mergeIdentityLookups(parts) {
+    if (!Array.isArray(parts) || !parts.length) return null
+    const rows = []
+    for (const part of parts) {
+      const sheet = part && part.sheet && typeof part.sheet === 'object' ? part.sheet : part
+      const list = Array.isArray(sheet && sheet.rows)
+        ? sheet.rows
+        : (Array.isArray(sheet && sheet.matches) ? sheet.matches : [])
+      for (const row of list) if (row) rows.push(row)
+    }
+    const lead = parts[0].sheet && typeof parts[0].sheet === 'object' ? parts[0].sheet : parts[0]
+    const nos = rows.map((row) => String((row && row.no) || '').trim()).filter(Boolean)
+    const sheet = {
+      ...lead,
+      action: '现查',
+      preview_id: '',
+      canWrite: false,
+      speech: '',
+      rows,
+      nos,
+    }
+    return { ...parts[0], ok: true, action: '现查', sheet }
+  }
+
+  async function rereadWrittenIdentity(token, spec) {
+    const kind = String((token && token.kind) || '').trim()
+    if (!kind) return null
+    const rawNo = String(token.no || '').trim()
+    const identityNo = (rawNo && !(token.action === '新建' && rawNo === '新单') ? rawNo : '')
+    const nos = Array.isArray(token.nos) ? token.nos.map((item) => String(item || '').trim()).filter(Boolean) : []
+    const lookup = token.lookup && token.lookup.field && token.lookup.value != null
+      ? { field: String(token.lookup.field), value: String(token.lookup.value) }
+      : null
+    if (!identityNo && !lookup && !nos.length) return null
+    try {
+      return await preview({
+        kind,
+        action: '现查',
+        sessionId: String(spec.sessionId || token.sessionId || '').trim(),
+        workspace: spec.workspace || token.workspace || '',
+        speech: '',
+        userSpeech: '',
+        rereadAfterWrite: true,
+        ...(identityNo ? { no: identityNo } : {}),
+        ...(nos.length && !identityNo ? { nos } : {}),
+        ...(lookup && !nos.length ? { lookup } : {}),
+      })
+    } catch {
+      return null
+    }
+  }
+
+  async function rereadBoundSet(token, spec) {
+    const bind = token && token.listBind && typeof token.listBind === 'object' ? token.listBind : {}
+    try {
+      return await preview({
+        kind: token.kind,
+        action: '现查',
+        sessionId: String(spec.sessionId || token.sessionId || '').trim(),
+        workspace: spec.workspace || token.workspace || '',
+        speech: '',
+        userSpeech: '',
+        rereadAfterWrite: true,
+        confirmSet: true,
+        ...(Array.isArray(bind.where) && bind.where.length ? { where: bind.where } : {}),
+        ...(bind.from && typeof bind.from === 'object' ? { from: bind.from } : {}),
+        ...(Array.isArray(bind.steps) && bind.steps.length ? { steps: bind.steps } : {}),
+      })
+    } catch {
+      return null
+    }
+  }
+
+  async function withIdentityReread(okResult, token, spec) {
+    if (!okResult || okResult.ok === false) return okResult
+    const looked = await rereadWrittenIdentity(token, spec)
+    const sheet = looked && looked.sheet && typeof looked.sheet === 'object' ? looked.sheet : null
+    const identityNo = String(token.no || '').trim()
+    const identityNos = new Set(
+      identityNo
+        ? [identityNo]
+        : (Array.isArray(token.nos) ? token.nos.map((item) => String(item || '').trim()).filter(Boolean) : []),
+    )
+    const rows = sheet && Array.isArray(sheet.rows) ? sheet.rows : []
+    const identityRows = rows.filter((row) => {
+      if (!row || typeof row !== 'object') return false
+      const no = String(row.no || '').trim()
+      if (!no) return false
+      return identityNos.size ? identityNos.has(no) : true
+    })
+    if (!sheet || identityRows.length <= 0) return okResult
+    return {
+      ...okResult,
+      sheet: {
+        ...sheet,
+        action: '现查',
+        preview_id: '',
+        canWrite: false,
+        querySettled: true,
+        wroteReceipt: true,
+        speech: '',
+        rows: identityRows,
+        ...(identityNo ? { no: identityNo, lookupNo: identityNo } : { nos: [...identityNos] }),
+      },
+    }
+  }
+
+  async function writeBoundSet(token, spec, previewId, traceId, schemaFields) {
+    const frozenNos = Array.isArray(token.nos) ? token.nos.map((item) => String(item || '').trim()).filter(Boolean) : []
+    const live = await rereadBoundSet(token, spec)
+    const liveSheet = live && live.sheet && typeof live.sheet === 'object' ? live.sheet : live
+    const liveRows = liveSheet && Array.isArray(liveSheet.rows) ? liveSheet.rows : []
+    const liveNos = liveRows.map((row) => String((row && row.no) || '').trim()).filter(Boolean)
+    if (!sameNos(liveNos, frozenNos)) {
+      return refuse('STALE', '刚才那版不是现在这版。不要拿旧预览去写。')
+    }
+    const liveByNo = new Map()
+    for (const row of liveRows) {
+      const no = String((row && row.no) || '').trim()
+      if (no) liveByNo.set(no, row)
+    }
+    const rowLookups = Array.isArray(token.rowLookups) ? token.rowLookups : []
+    for (const row of rowLookups) {
+      const liveRow = liveByNo.get(String((row && row.no) || '').trim())
+      const found = liveRow
+        ? {
+          ok: true,
+          no: liveRow.no,
+          status: liveRow.status,
+          fields: liveRow.fields || {},
+        }
+        : { ok: false, error: 'NO_LOOKUP' }
+      const hold = patchedFieldsHold({
+        ...token,
+        fromFields: row && row.fromFields,
+      }, found, schemaFields)
+      if (!hold.ok) return { ok: false, error: hold.error, hint: hold.hint }
+    }
+    const ref = { kind: token.kind, no: frozenNos[0] || '' }
+    token.posting = true
+    tokens.set(previewId, token)
+    if (typeof opts.postWrite !== 'function') {
+      token.used = true
+      token.posting = false
+      tokens.set(previewId, token)
+      const spoken = speakReceipt(ref, {})
+      return withIdentityReread({
+        ok: true, receiptId: '', preview_id: previewId, trace_id: traceId, speak: spoken.speak, kind: spoken.kind,
+      }, token, spec)
+    }
+    const written = []
+    for (const row of rowLookups) {
+      const liveRow = liveByNo.get(String((row && row.no) || '').trim())
+      let posted
+      try {
+        posted = await opts.postWrite(writeMouthSpec(token, {
+          no: row.no,
+          lookup: row.lookup,
+          fields: (liveRow && liveRow.fields) || {},
+          workspace: spec.workspace || token.workspace,
+          preview_id: previewId,
+          trace_id: traceId,
+        }))
+      } catch (error) {
+        posted = { ok: false, failed: true, error: error instanceof Error ? error.message : String(error) }
+      }
+      if (!posted || posted.ok === false || posted.failed) {
+        token.posting = false
+        tokens.set(previewId, token)
+        const spoken = speakReceipt({ kind: token.kind, no: row.no }, { failed: true })
+        const hint = String((posted && posted.hint) || spoken.speak)
+        return {
+          ok: false,
+          error: 'WRITE_FAILED',
+          failed: true,
+          hint,
+          speak: hint,
+          kind: spoken.kind,
+          preview_id: previewId,
+          no: row.no,
+        }
+      }
+      written.push(row.no)
+    }
+    token.used = true
+    token.posting = false
+    tokens.set(previewId, token)
+    let verified = true
+    if (token.patch && Object.keys(token.patch).length && (token.action === '改行' || token.action === '过审')) {
+      for (const no of written) {
+        const after = await probeRow({
+          kind: token.kind, no, line: token.line,
+          workspace: token.workspace, vocab: token.vocab, mapped: token.mapped,
+        })
+        if (!patchApplied(token.patch, after && after.fields, schemaFields)) {
+          verified = false
+          break
+        }
+      }
+    }
+    const receiptId = written.length ? `set:${written.length}` : ''
+    if (traceId) await traces.remember(traceId, spec.workspace || token.workspace, {
+      kind: token.kind, no: written.join(','), action: token.action, receiptId, sessionId: spec.sessionId || token.sessionId,
+    })
+    const spoken = speakReceipt({ kind: token.kind, no: written[0] || '' }, { receiptId, ok: true })
+    const hint = verified ? undefined : '业务已收，回读对不上。'
+    return withIdentityReread({
+      ok: true,
+      receiptId,
+      no: written[0] || '',
+      nos: written,
+      preview_id: previewId,
+      trace_id: traceId,
+      speak: hint ? `${spoken.speak}${hint}` : spoken.speak,
+      kind: spoken.kind,
+      verified,
+      ...(hint ? { hint } : {}),
+    }, token, spec)
   }
 
   async function write(spec = {}) {
@@ -1752,6 +2374,7 @@ export function createGate(opts = {}) {
     const token = tokens.get(previewId)
     if (!token) return refuse('NEED_PREVIEW', '先预览。没有这张令牌，不能写。')
     if (token.used) return refuse('USED', '这张预览已经用过。要写再预览一次。')
+    if (token.posting) return refuse('USED', '正在过账。')
     if (now() > Number(token.expiresAt || 0)) return refuse('EXPIRED', '预览过期了。要写再预览一次。')
     const traceId = String(spec.trace_id || spec.traceId || '').trim()
     if (traceId && await traces.seen(traceId, spec.workspace || token.workspace)) {
@@ -1759,6 +2382,9 @@ export function createGate(opts = {}) {
     }
     if (token.action === '改行' && (!token.patch || !Object.keys(token.patch).length)) {
       return refuse('NO_PATCH', '改行要指出字段。')
+    }
+    if (token.action === '过审' && (!token.patch || !Object.keys(token.patch).length)) {
+      return refuse('NO_PATCH', '过审要指出落到哪一档。')
     }
     if (token.action === '新建' && (!token.patch || !Object.keys(token.patch).length)) {
       return refuse('NO_PATCH', '空牌不能过账。')
@@ -1785,99 +2411,66 @@ export function createGate(opts = {}) {
         return refuse('STALE_CATALOG', '目录已发布新版本。要写再预览一次。')
       }
     }
-    if (token.batch && Array.isArray(token.nos)) {
-      if (token.action === '删除' && spec.confirm !== true && spec.confirmDelete !== true) {
-        return refuse('NEED_CONFIRM', '批量删除要单独确认。')
-      }
-      const nos = token.nos.map((item) => String(item || '').trim()).filter(Boolean).slice(0, BATCH_LIMIT)
-      token.used = true
-      tokens.set(previewId, token)
-      const done = []
-      const failed = []
-      if (typeof opts.postWrite !== 'function') {
-        if (traceId) await traces.remember(traceId, spec.workspace || token.workspace, {
-          kind: token.kind, action: token.action, no: nos.join(','), sessionId: spec.sessionId || token.sessionId,
-        })
-        return { ok: true, preview_id: previewId, trace_id: traceId, nos, done: nos, speak: `已按预览处理${nos.length}条。` }
-      }
-      for (const no of nos) {
-        try {
-          let lookup
-          let fields
-          if (token.action !== '新建') {
-            const found = await probe({ ...token, no })
-            fields = found && found.fields
-            lookup = found && found.ok !== false
-              ? writeIdentity({ ...token, no }, found, writeExtra.collections)
-              : null
-            if (!lookup) {
-              failed.push(no)
-              continue
-            }
-          }
-          const posted = await opts.postWrite({
-            ...token,
-            no,
-            lookup,
-            fields,
-            batch: false,
-            nos: undefined,
-            preview_id: previewId,
-            trace_id: traceId ? `${traceId}:${no}` : '',
-          })
-          if (!posted || posted.ok === false || posted.failed) failed.push(no)
-          else done.push(no)
-        } catch {
-          failed.push(no)
-        }
-      }
-      if (failed.length) {
-        return {
-          ok: false, error: 'WRITE_FAILED', failed: true, preview_id: previewId, done, nos: failed,
-          hint: `写到一半停了。成了 ${done.length} 条，没成 ${failed.join('、')}。`,
-          speak: `写到一半停了。成了 ${done.length} 条，没成 ${failed.join('、')}。`,
-        }
-      }
-      if (traceId) await traces.remember(traceId, spec.workspace || token.workspace, {
-        kind: token.kind, action: token.action, no: done.join(','), sessionId: spec.sessionId || token.sessionId,
-      })
-      return { ok: true, preview_id: previewId, trace_id: traceId, nos, done, speak: `已按预览处理${done.length}条。` }
-    }
     let lookup
     let rowFields
-    if (token.action !== '新建') {
-      const found = await probe(token)
-      const gate = previewStillHolds(token, found)
-      if (!gate.ok) return { ok: false, error: gate.error, hint: gate.hint }
-      rowFields = found && found.fields
-      lookup = writeIdentity(token, found, writeExtra.collections)
-      if (!lookup) return refuse('NO_LOOKUP', '对不上这一行，不能过账。')
+    const schemaFields = collectionFields(token.mapped && token.mapped.resource, writeExtra.collections)
+    if (token.action !== '新建' && isSetWriteToken(token)) {
+      return writeBoundSet(token, spec, previewId, traceId, schemaFields)
     }
-    token.used = true
-    tokens.set(previewId, token)
+    if (token.action !== '新建') {
+      lookup = (token.lookup && token.lookup.field && token.lookup.value != null)
+        ? { field: String(token.lookup.field), value: String(token.lookup.value) }
+        : null
+      if (!lookup) return refuse('NO_LOOKUP', '对不上这一行，不能过账。')
+      let found
+      if (typeof opts.lookupTodo === 'function') {
+        found = await opts.lookupTodo({
+          kind: token.kind,
+          no: '',
+          line: token.line,
+          workspace: token.workspace,
+          vocab: token.vocab,
+          mapped: token.mapped,
+          speech: '',
+          where: [{ keys: [lookup.field], values: [lookup.value] }],
+        })
+      }
+      if (!found || found.ok === false) {
+        return refuse('NO_LOOKUP', '对不上这一行，不能过账。')
+      }
+      const hold = patchedFieldsHold(token, found, schemaFields)
+      if (!hold.ok) return { ok: false, error: hold.error, hint: hold.hint }
+      rowFields = found.fields
+    } else {
+      lookup = token.lookup || null
+    }
     const ref = { kind: token.kind, no: token.no }
+    token.posting = true
+    tokens.set(previewId, token)
     if (typeof opts.postWrite !== 'function') {
+      token.used = true
+      token.posting = false
+      tokens.set(previewId, token)
       const spoken = speakReceipt(ref, {})
-      return { ok: true, receiptId: '', preview_id: previewId, trace_id: traceId, speak: spoken.speak, kind: spoken.kind }
+      return withIdentityReread({
+        ok: true, receiptId: '', preview_id: previewId, trace_id: traceId, speak: spoken.speak, kind: spoken.kind,
+      }, token, spec)
     }
     let posted
     try {
-      posted = await opts.postWrite({
-        ...token,
+      posted = await opts.postWrite(writeMouthSpec(token, {
         lookup,
         fields: rowFields,
+        workspace: spec.workspace || token.workspace,
         preview_id: previewId,
         trace_id: traceId,
-      })
+      }))
     } catch (error) {
       posted = { ok: false, failed: true, error: error instanceof Error ? error.message : String(error) }
     }
-    if (posted && posted.ok !== false && !posted.failed && token.action === '新建' && posted.no) {
-      token.no = posted.no
-      ref.no = posted.no
-      tokens.set(previewId, token)
-    }
     if (!posted || posted.ok === false || posted.failed) {
+      token.posting = false
+      tokens.set(previewId, token)
       const spoken = speakReceipt(ref, { failed: true })
       const hint = String((posted && posted.hint) || spoken.speak)
       return {
@@ -1890,35 +2483,53 @@ export function createGate(opts = {}) {
         preview_id: previewId,
       }
     }
-    if (token.action === '改行' && token.patch && Object.keys(token.patch).length) {
-      const after = await probe(token)
-      if (!patchApplied(token.patch, after && after.fields)) {
-        const spoken = speakReceipt(ref, { failed: true })
-        return {
-          ok: false,
-          error: 'WRITE_FAILED',
-          failed: true,
-          hint: '业务回了，但字段还是旧的。不能记已处理。',
-          speak: '业务回了，但字段还是旧的。不能记已处理。',
-          kind: spoken.kind,
-          preview_id: previewId,
-        }
+    token.used = true
+    token.posting = false
+    const postedNo = String((posted && posted.no) || '').trim()
+    const planNo = String(token.no || '').trim()
+    const createNo = postedNo || (planNo && planNo !== '新单' && looksLikeTicket(planNo) ? planNo : '')
+    if (token.action === '新建' && createNo) {
+      token.no = createNo
+      ref.no = createNo
+    }
+    tokens.set(previewId, token)
+    let verified = true
+    let verifyHint
+    if (token.action === '新建') {
+      if (!createNo) {
+        verified = false
+        verifyHint = '写了但没回单号。'
+      } else {
+        const after = await probeRow({
+          kind: token.kind, no: createNo, line: token.line,
+          workspace: token.workspace, vocab: token.vocab, mapped: token.mapped,
+        })
+        verified = Boolean(after && after.ok !== false && (String(after.no || '').trim() || (after.fields && Object.keys(after.fields).length)))
       }
+    } else if (token.patch && Object.keys(token.patch).length && (token.action === '改行' || token.action === '过审')) {
+      const after = await probeRow({
+        kind: token.kind, no: ref.no, line: token.line,
+        workspace: token.workspace, vocab: token.vocab, mapped: token.mapped,
+      })
+      verified = patchApplied(token.patch, after && after.fields, schemaFields)
     }
     const receiptId = String(posted.receiptId || '').trim()
     if (traceId) await traces.remember(traceId, spec.workspace || token.workspace, {
       kind: token.kind, no: ref.no, action: token.action, receiptId, sessionId: spec.sessionId || token.sessionId,
     })
     const spoken = speakReceipt(ref, { receiptId, ok: true })
-    return {
+    const hint = verified ? undefined : (verifyHint || '业务已收，回读对不上。')
+    return withIdentityReread({
       ok: true,
       receiptId,
       no: ref.no,
       preview_id: previewId,
       trace_id: traceId,
-      speak: spoken.speak,
+      speak: hint ? `${spoken.speak}${hint}` : spoken.speak,
       kind: spoken.kind,
-    }
+      verified,
+      ...(hint ? { hint } : {}),
+    }, token, spec)
   }
 
   async function fileAskClue(spec = {}) {
@@ -2019,10 +2630,29 @@ function fieldSpeak(key) {
   return name
 }
 
+function scalarField(value) {
+  if (value == null || value === '') return ''
+  if (typeof value !== 'object') return String(value)
+  if (Array.isArray(value)) return value.map((item) => scalarField(item)).filter(Boolean).join(',')
+  return String(value.value ?? value.code ?? value.name ?? value.label ?? '').trim()
+}
+
+function rowPatchMoves(row, changePatch, action, fromFallback) {
+  const patch = changePatch && typeof changePatch === 'object' ? changePatch : {}
+  const fields = (row && row.fields && typeof row.fields === 'object') ? row.fields : {}
+  const fromBase = String((row && row.status) || fromFallback || '').trim()
+  return Object.keys(patch).some((key) => {
+    const to = String(patch[key] ?? '').trim()
+    const from = (fieldValue(fields, key) || fromBase).trim()
+    if (action === '新建') return Boolean(to)
+    return Boolean(to) && to !== from
+  })
+}
+
 function fieldValue(fields, key) {
   if (!fields || typeof fields !== 'object') return ''
   const want = String(key || '').trim()
-  if (fields[want] != null && fields[want] !== '') return String(fields[want])
+  if (fields[want] != null && fields[want] !== '') return scalarField(fields[want])
   const aliases = {
     phone: ['phone', 'mobile', 'tel', 'telephone', '电话', '手机'],
     mobile: ['mobile', 'phone', 'tel', '电话', '手机'],
@@ -2034,7 +2664,7 @@ function fieldValue(fields, key) {
     地址: ['地址', 'address', 'addr'],
   }
   for (const name of aliases[want] || []) {
-    if (fields[name] != null && fields[name] !== '') return String(fields[name])
+    if (fields[name] != null && fields[name] !== '') return scalarField(fields[name])
   }
   return ''
 }
@@ -2076,13 +2706,93 @@ function rowHasField(fields, key) {
   return (aliases[want] || []).some((name) => Object.prototype.hasOwnProperty.call(fields, name))
 }
 
-function patchApplied(patch, fields) {
+export function patchApplied(patch, fields, schemaFields) {
   if (!patch || typeof patch !== 'object') return true
   if (!fields || typeof fields !== 'object') return false
   return Object.keys(patch).every((key) => {
     if (!rowHasField(fields, key)) return false
-    return fieldValue(fields, key) === String(patch[key] ?? '')
+    return fieldMatchesPatch(fields, key, patch[key], schemaFields)
   })
+}
+
+function fieldMatchesPatch(fields, key, wantRaw, schemaFields) {
+  const want = String(wantRaw ?? '').trim()
+  const got = fieldValue(fields, key)
+  if (!want) return !got
+  if (got === want) return true
+  const packed = enumMap(schemaFieldNamed(schemaFields, key))
+  if (packed && Object.keys(packed).length) {
+    for (const [code, label] of Object.entries(packed)) {
+      const lab = String(label || '').trim()
+      if (want !== String(code) && want !== lab) continue
+      if (got === String(code) || got === lab) return true
+    }
+  }
+  return false
+}
+
+function schemaFieldNamed(schemaFields, key) {
+  const want = String(key || '').trim()
+  if (!want) return null
+  return (Array.isArray(schemaFields) ? schemaFields : []).find((row) => {
+    const name = typeof row === 'string' ? row : (row && row.name)
+    return String(name || '') === want
+  }) || null
+}
+
+function tokenListWhere(token) {
+  if (!token || typeof token !== 'object') return undefined
+  const bind = token.listBind && Array.isArray(token.listBind.where) ? token.listBind.where : null
+  if (bind && bind.length) return bind
+  if (Array.isArray(token.where) && token.where.length) return token.where
+  return undefined
+}
+
+function pickFromFields(fields, patch) {
+  if (!patch || typeof patch !== 'object') return undefined
+  const src = fields && typeof fields === 'object' ? fields : {}
+  const out = {}
+  for (const key of Object.keys(patch)) {
+    out[key] = rowHasField(src, key) ? src[key] : ''
+  }
+  return out
+}
+
+function patchedFieldsHold(token, found, schemaFields) {
+  if (!found || found.ok === false) {
+    return { ok: false, error: 'NO_LOOKUP', hint: '点头前再查失败。没连上，不能装成已过账。' }
+  }
+  const patch = token && token.patch && typeof token.patch === 'object' ? token.patch : null
+  if (!patch || !Object.keys(patch).length) return { ok: true }
+  const fromFields = token && token.fromFields && typeof token.fromFields === 'object' ? token.fromFields : {}
+  const fields = found.fields && typeof found.fields === 'object' ? found.fields : {}
+  for (const key of Object.keys(patch)) {
+    if (fieldMatchesPatch(fields, key, patch[key], schemaFields)) continue
+    if (fieldMatchesPatch(fields, key, scalarField(fromFields[key]), schemaFields)) continue
+    return { ok: false, error: 'STALE', hint: '刚才那版不是现在这版。不要拿旧预览去写。' }
+  }
+  return { ok: true }
+}
+
+function writeMouthSpec(token, extra = {}) {
+  return {
+    kind: token.kind,
+    no: extra.no || token.no,
+    line: token.line,
+    action: token.action,
+    patch: token.patch,
+    lookup: extra.lookup || token.lookup,
+    fields: extra.fields,
+    mapped: token.mapped,
+    vocab: token.vocab,
+    connectionId: token.connectionId,
+    workspace: extra.workspace || token.workspace,
+    preview_id: extra.preview_id,
+    trace_id: extra.trace_id,
+    sessionId: token.sessionId,
+    system: token.system,
+    env: token.env,
+  }
 }
 
 function patchSpeak(patch) {
@@ -2122,24 +2832,26 @@ export function createNocoWrite(opts = {}) {
       if (spec.kind && conn.collections) {
         schemaFields = collectionFields(mapped.resource, conn.collections)
       }
-      const approveBody = spec.action === '过审'
-        ? (() => {
+      let values
+      if (spec.action === '过审') {
+        const fromPatch = spec.patch && typeof spec.patch === 'object' && !Array.isArray(spec.patch)
+          ? spec.patch
+          : null
+        if (fromPatch && Object.keys(fromPatch).length) {
+          values = await shapePatch(fromPatch, { ...spec, vocab }, { extra: { ...extra, vocab }, conn, fetchImpl, schemaFields })
+        } else {
           const col = statusColumn(mapped, spec.kind, conn)
-          const fromPatch = spec.patch && typeof spec.patch === 'object' ? spec.patch[col] : ''
-          const code = String(fromPatch ?? '').trim()
-            || approveNextStatusCode(schemaFields, vocab, spec.from || spec.status)
-          if (!col || !code) return null
-          return { [col]: code }
-        })()
-        : null
-      if (spec.action === '过审' && !approveBody) {
-        return { ok: false, failed: true, error: 'NO_PATCH', hint: '过审下一状态收成不了枚举 code。' }
+          const code = toolToStatusCode(schemaFields, spec.to, col)
+          values = col && code ? { [col]: code } : null
+        }
+        if (!values || !Object.keys(values).length) {
+          return { ok: false, failed: true, error: 'NO_PATCH', hint: '过审下一状态收成不了枚举 code。' }
+        }
+      } else if (spec.action === '删除') {
+        values = undefined
+      } else {
+        values = await shapePatch(spec.patch, { ...spec, vocab }, { extra: { ...extra, vocab }, conn, fetchImpl, schemaFields })
       }
-      const values = spec.action === '过审'
-        ? approveBody
-        : spec.action === '删除'
-          ? undefined
-          : await shapePatch(spec.patch, { ...spec, vocab }, { extra: { ...extra, vocab }, conn, fetchImpl, schemaFields })
       const identity = spec.action === '新建'
         ? null
         : resolveWriteIdentity(spec, look, schemaFields, mapped)
@@ -2273,16 +2985,132 @@ function pickReceiptId(reply) {
   return String(raw || '').trim()
 }
 
-function buildPreviewPatch(recognized, writePatch, found, toStatus) {
-  const act = String(recognized.action || '').trim()
-  if (act === '改行') return { ...(writePatch || {}) }
-  if (act === '过审') {
-    const col = statusColumn(recognized.mapped, recognized.kind, found)
-    const to = String(toStatus ?? '').trim()
-    if (!col || !to) return undefined
-    return { [col]: to }
+function toolToStatusCode(schemaFields, to, statusCol) {
+  const want = String(to || '').trim()
+  if (!want) return ''
+  const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const named = String(statusCol || '').trim()
+  const scan = named
+    ? fields.filter((field) => String((field && field.name) || '') === named)
+    : fields
+  let sawEnum = false
+  for (const field of scan) {
+    const packed = enumMap(field)
+    if (!packed || typeof packed !== 'object') continue
+    if (!Object.keys(packed).length) continue
+    sawEnum = true
+    for (const [code, label] of Object.entries(packed)) {
+      if (want === String(code) || want === String(label || '').trim()) return String(code)
+    }
   }
-  return undefined
+  return sawEnum ? '' : want
+}
+
+function previewWritePatch(recognized, writePatch, found, spec, plan, schemaFields) {
+  const act = String(recognized.action || '').trim()
+  if (act === '改行') {
+    return writePatch && Object.keys(writePatch).length ? { ...writePatch } : undefined
+  }
+  if (act !== '过审') return undefined
+  if (writePatch && Object.keys(writePatch).length) return { ...writePatch }
+  const toolTo = String((spec && spec.to) || (plan && plan.to) || '').trim()
+  const col = statusColumn(recognized.mapped, recognized.kind, found)
+  const code = toolToStatusCode(schemaFields, toolTo, col)
+  if (!col || !code) return undefined
+  return { [col]: code }
+}
+
+function statusDomainOf(schemaFields, mapped, kind, found) {
+  const col = statusColumn(mapped, kind, found)
+  if (!col) return undefined
+  const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const row = fields.find((item) => {
+    const name = typeof item === 'string' ? item : (item && item.name)
+    return String(name || '') === col
+  })
+  if (!row || typeof row !== 'object') return undefined
+  const packed = (row.enums && typeof row.enums === 'object' && !Array.isArray(row.enums) && Object.keys(row.enums).length)
+    ? row.enums
+    : enumMap(row)
+  if (!packed || !Object.keys(packed).length) return undefined
+  return { field: col, enums: packed }
+}
+
+function speakMissTarget(kind, to, domain) {
+  const who = String(kind || '').trim() || '这张单'
+  const want = String(to || '').trim() || '这一档'
+  const pairs = domain && domain.enums && typeof domain.enums === 'object'
+    ? Object.entries(domain.enums)
+      .map(([code, label]) => `${code}=${String(label || '').trim() || code}`)
+      .filter(Boolean)
+      .join('、')
+    : ''
+  const head = `${who}状态对不上「${want}」。`
+  return pairs ? `${head}这档是${pairs}。` : `${head}这档对不上。`
+}
+
+function boundWriteChange(recognized, previewPatch, writePatch, blockConfirm) {
+  const act = String((recognized && recognized.action) || '').trim()
+  if (act === '删除') return true
+  if (act === '过审') return !!(previewPatch && Object.keys(previewPatch).length)
+  if (act === '改行') return !!(writePatch && Object.keys(writePatch).length) && !blockConfirm
+  return false
+}
+
+function thisCallCarriesBind(spec) {
+  if (!spec || typeof spec !== 'object') return false
+  const where = spec.where
+  if (typeof where === 'string' && where.trim()) return true
+  if (Array.isArray(where) && where.length) return true
+  if (spec.from && typeof spec.from === 'object' && !Array.isArray(spec.from) && String(spec.from.kind || '').trim()) {
+    return true
+  }
+  if (Array.isArray(spec.steps) && spec.steps.length) return true
+  return false
+}
+
+function collectRowLookups(rows, schemaFields, previewPatch) {
+  const out = []
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || typeof row !== 'object') continue
+    const lookup = (row.lookup && row.lookup.field && row.lookup.value != null)
+      ? { field: String(row.lookup.field), value: String(row.lookup.value) }
+      : captureWriteIdentity(row, schemaFields)
+    if (!lookup) continue
+    out.push({
+      no: String(row.no || '').trim(),
+      lookup,
+      fromFields: pickFromFields(row.fields, previewPatch),
+      status: String(row.status || '').trim(),
+    })
+  }
+  return out
+}
+
+function setMembershipFingerprint(kind, rows, patch) {
+  const parts = (Array.isArray(rows) ? rows : [])
+    .map((row) => `${String((row && row.no) || '').trim()}:${String((row && row.status) || '').trim()}`)
+    .filter((item) => item !== ':')
+    .sort()
+  const patchKeys = patch && typeof patch === 'object'
+    ? Object.keys(patch).sort().map((key) => `${key}=${String(patch[key] ?? '').trim()}`).join(',')
+    : ''
+  return `${String(kind || '').trim()}:set:${parts.join(',')}:${patchKeys}`
+}
+
+function sameNos(left, right) {
+  const a = [...new Set((Array.isArray(left) ? left : []).map((item) => String(item || '').trim()).filter(Boolean))].sort()
+  const b = [...new Set((Array.isArray(right) ? right : []).map((item) => String(item || '').trim()).filter(Boolean))].sort()
+  return a.length === b.length && a.every((no, index) => no === b[index])
+}
+
+function isSetWriteToken(token) {
+  return Boolean(
+    token
+    && token.batch === true
+    && Array.isArray(token.rowLookups)
+    && token.rowLookups.length >= 2,
+  )
 }
 
 function statusColumn(mapped, kind, conn) {
@@ -2296,13 +3124,6 @@ function statusColumn(mapped, kind, conn) {
   const resource = String((mapped && mapped.resource) || '').toLowerCase()
   if (/opportunit|lead/.test(resource)) return 'stage'
   return 'status'
-}
-
-function writeIdentity(token, found, collections) {
-  const mapped = token && token.mapped
-  const look = String((token && token.no) || (found && found.no) || '').trim()
-  const schemaFields = collectionFields(mapped && mapped.resource, collections)
-  return matchedWriteIdentity(found && found.fields, look, schemaFields, mapped)
 }
 
 function resolveWriteIdentity(spec, look, schemaFields, mapped) {

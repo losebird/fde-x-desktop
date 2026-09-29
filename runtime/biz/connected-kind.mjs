@@ -1,7 +1,6 @@
 /** Decision 15: object = connected table; spoken name = alias; graph = relations. */
 
 import { createRequire } from 'node:module'
-import { isUnfilteredListSheet, sheetCarriesIdentity } from '../vendor-overlays/dsh-lan-assist/session-round.js'
 
 const require = createRequire(import.meta.url)
 const spokenSeed = require('../vendor-overlays/dsh-lan-assist/vocab/spoken.json')
@@ -155,6 +154,20 @@ export function resolveConnectedKind(spoken, index) {
     if (Array.isArray(row.aliases) && row.aliases.includes(name)) return row.kind
   }
   return ''
+}
+
+export function unresolvedKindBlocksOfficial(sheet, catalog, newAuthority) {
+  if (newAuthority) return false
+  const rows = Array.isArray(catalog) ? catalog : catalog && Array.isArray(catalog.kinds) ? catalog.kinds : []
+  if (!rows.length) return false
+  const kind = String((sheet && sheet.kind) || '').trim()
+  if (!kind) return false
+  if (resolveConnectedKind(kind, catalog)) return false
+  const previewId = String((sheet && (sheet.preview_id || sheet.previewId)) || '').trim()
+  const action = String((sheet && sheet.action) || '').trim()
+  const count = Array.isArray(sheet && sheet.rows) ? sheet.rows.length : 0
+  if (previewId && action !== '现查' && count > 0) return false
+  return true
 }
 
 export function canonicalizeSheetKind(sheet, index) {
@@ -314,6 +327,17 @@ function isWriteAction(sheet) {
   return Boolean(action && action !== '现查')
 }
 
+function explicitLiveLookupSupersedesWrite(prev, incoming) {
+  if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  if (String(incoming.action || '').trim() !== '现查' || sheetPreviewId(incoming)) return false
+  if (sheetPicked(incoming)) return false
+  if (!isWriteAction(prev)) return false
+  if (sheetPicked(prev)) return false
+  if (isConnectorCatalogDump(incoming)) return false
+  if (prev.ambiguous || prev.listed) return incoming.querySettled === true
+  return true
+}
+
 function sheetNos(sheet) {
   if (!sheet || typeof sheet !== 'object' || !Array.isArray(sheet.rows)) return []
   return sheet.rows.map((row) => {
@@ -324,6 +348,7 @@ function sheetNos(sheet) {
 
 function leftoverQueryCoveringWrite(prev, incoming) {
   if (!prev || !incoming || typeof prev !== 'object' || typeof incoming !== 'object') return false
+  if (explicitLiveLookupSupersedesWrite(prev, incoming)) return false
   if (!isWriteAction(prev)) return false
   if (String(incoming.action || '').trim() !== '现查') return false
   if (sheetPicked(incoming)) return false
@@ -337,6 +362,44 @@ function leftoverQueryCoveringWrite(prev, incoming) {
   const speech = sheetSpeech(incoming)
   return incomingNos.some((no) => prevNos.includes(no))
     || prevNos.some((no) => no && speech.includes(no))
+}
+
+function officialQueryIdentity(sheet) {
+  if (!sheet || typeof sheet !== 'object') return ''
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  const first = rows[0] && typeof rows[0] === 'object' ? String(rows[0].no || '').trim() : ''
+  const steps = Array.isArray(sheet.steps)
+    ? sheet.steps.map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return ''
+      return String(row.kind || '').trim()
+    }).filter(Boolean)
+    : []
+  const from = sheet.from && typeof sheet.from === 'object' && !Array.isArray(sheet.from)
+    ? String(sheet.from.kind || '').trim()
+    : ''
+  return JSON.stringify({
+    kind: sheetKindName(sheet),
+    action: String(sheet.action || '').trim(),
+    speech: sheetSpeech(sheet),
+    where: sheet.where ?? sheet.listWhere ?? [],
+    hopWhere: sheet.hopWhere ?? [],
+    from,
+    steps,
+    n: rows.length,
+    first,
+  })
+}
+
+export function isNewOfficialRound(displayed, incoming) {
+  if (!incoming || typeof incoming !== 'object') return false
+  const prev = String((displayed && displayed.roundId) || '').trim()
+  const next = String(incoming.roundId || '').trim()
+  if (next) return next !== prev
+  if (isNewSpokenUtterance(displayed, incoming)) return true
+  if (!displayed || typeof displayed !== 'object') return true
+  const prevId = officialQueryIdentity(displayed)
+  const nextId = officialQueryIdentity(incoming)
+  return Boolean(prevId && nextId && prevId !== nextId)
 }
 
 /** This-turn spoken sheet: new speech, or a new kind+action with rows. Empty leftover guns are not this. */
@@ -384,20 +447,7 @@ export function shouldSkipCoveringPending(prev, incoming) {
   return false
 }
 
-/** Cancel/GET: keep the utterance sheet; never let a covering dump win from either side. */
-export function sheetAfterCancelCover(hallSheet, lastEmitted) {
-  const hall = hallSheet && typeof hallSheet === 'object' ? hallSheet : null
-  const last = lastEmitted && typeof lastEmitted === 'object' ? lastEmitted : null
-  if (hall && last) {
-    if (shouldSkipCoveringPending(hall, last)) return hall
-    if (shouldSkipCoveringPending(last, hall)) return last
-  }
-  if (hall && !isConnectorCatalogDump(hall)) return hall
-  if (last && !isConnectorCatalogDump(last)) return last
-  return null
-}
-
-/** Named session GET/hydrate: never serve another session's hall or lastEmitted. */
+/** Named session GET/hydrate: never serve another session's sheet. */
 export function sheetForNamedSession(sheet, sessionId) {
   const sid = String(sessionId || '').trim()
   if (!sid) return sheet && typeof sheet === 'object' ? sheet : null
@@ -405,59 +455,11 @@ export function sheetForNamedSession(sheet, sessionId) {
   return String(sheet.sessionId || '').trim() === sid ? sheet : null
 }
 
-/**
- * GET pending-sheet: dump vs utterance cover, then named-session filter.
- * Unstamped lan-assist hall must not wipe this session's last emit (改行 preview 200 → GET empty).
- */
-export function sheetForPendingGet(hallSheet, lastEmitted, sessionId) {
-  const last = lastEmitted && typeof lastEmitted === 'object' ? lastEmitted : null
-  const covered = sheetAfterCancelCover(hallSheet, last)
-  const namedCovered = sheetForNamedSession(covered, sessionId)
-  if (namedCovered) return namedCovered
-  const namedLast = sheetForNamedSession(last, sessionId)
-  if (!namedLast) return null
-  if (!covered) return namedLast
-  const coveredSid = String(covered.sessionId || '').trim()
-  const sid = String(sessionId || '').trim()
-  if (coveredSid && coveredSid !== sid) return namedLast
-  if (!coveredSid && shouldSkipCoveringPending(namedLast, covered)) return namedLast
-  if (!coveredSid && sid) return { ...covered, sessionId: sid }
-  return namedLast
-}
-
-function isHumanWritePreview(sheet) {
-  if (!sheet || typeof sheet !== 'object') return false
-  const action = String(sheet.action || '').trim()
-  const previewId = String(sheet.preview_id || sheet.previewId || '').trim()
-  return Boolean(previewId) && action !== '现查'
-}
-
-/** This utterance's settled 现查. Unfiltered and catalog dumps are not it. */
-function isSettledUtteranceLookup(sheet) {
-  if (!sheet || typeof sheet !== 'object') return false
-  if (String(sheet.action || '').trim() !== '现查') return false
-  if (sheet.picked === true) return false
-  if (isUnfilteredListSheet(sheet) || isConnectorCatalogDump(sheet)) return false
-  if (!sheetCarriesIdentity(sheet)) return false
-  if (sheetRowCount(sheet) > 0) return true
-  return sheet.querySettled === true
-}
-
-/**
- * GET/hydrate: this utterance's settled 现查, else the unused write preview.
- * A later catalog or unidentified list does not replace the write.
- */
-export function sheetForOfficialGet(official, lastEmitted, sessionId) {
-  const last = lastEmitted && typeof lastEmitted === 'object' ? lastEmitted : null
+/** GET/hydrate: this session's official sheet only. */
+export function sheetForOfficialGet(official, sessionId) {
   let off = official && typeof official === 'object' ? official : null
   const sid = String(sessionId || '').trim()
   if (off && sid && !String(off.sessionId || '').trim()) off = { ...off, sessionId: sid }
-  if (!sid) {
-    if (isHumanWritePreview(last) && !isSettledUtteranceLookup(off)) return last
-    return off || last
-  }
-  const namedLast = sheetForNamedSession(last, sid)
-  const namedOff = sheetForNamedSession(off, sid)
-  if (isHumanWritePreview(namedLast) && !isSettledUtteranceLookup(namedOff)) return namedLast
-  return namedOff || namedLast
+  if (!sid) return off
+  return sheetForNamedSession(off, sid)
 }

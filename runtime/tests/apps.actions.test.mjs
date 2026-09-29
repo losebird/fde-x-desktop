@@ -37,6 +37,11 @@ describe('apps actions', () => {
       workspaceCwd: CWD,
     })
     assert.equal(result.rows[0].status, '需跟进')
+    const audit = db.prepare('SELECT kind, action, source, record_no FROM biz_write_audit').get()
+    assert.equal(audit.kind, 'visit')
+    assert.equal(audit.action, 'mark-follow')
+    assert.equal(audit.source, 'workstation')
+    assert.ok(String(audit.record_no || ''))
     db.close()
   })
 

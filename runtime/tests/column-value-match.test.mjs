@@ -4,125 +4,11 @@ import { cpSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { enrichStructuredSlots } from '../vendor-overlays/dsh-lan-assist/slots.js'
 import { termFilterPart } from '../vendor-overlays/dsh-lan-assist/where-pass.js'
 import { rowMatchesAll } from '../vendor-overlays/dsh-lan-assist/resolve.js'
 import { FDE_DSH_HOME } from '../config.mjs'
 
 const QUOTE = '客户胡文今天12点电脑故障紧急保修，现在已处理完成'
-const SPEECH = `把问题描述是"${QUOTE}"的那笔工单删除`
-
-const vocab = [
-  {
-    kind: '客户',
-    resource: 'biz_customers',
-    can: ['现查', '改行', '删除', '过审'],
-  },
-  {
-    kind: '工单',
-    resource: 'biz_tickets',
-    can: ['现查', '改行', '删除', '过审', '新建'],
-    relations: [{ from: '客户', to: '工单', field: 'customer' }],
-  },
-]
-
-const ticketFields = [
-  { name: 'description', title: '问题描述', interface: 'textarea' },
-  { name: 'type', title: '工单类型', interface: 'select', enums: { incident: '故障', request: '请求' } },
-  { name: 'priority', title: '优先级', interface: 'select', enums: { urgent: '紧急', low: '低' } },
-  { name: 'customer', title: '客户', interface: 'm2o', target: 'biz_customers' },
-]
-
-const extra = {
-  vocab,
-  schemaByKind: {
-    工单: ticketFields,
-    客户: [{ name: 'name', title: '客户名称', interface: 'input' }],
-  },
-  relations: [{ from: '客户', to: '工单', field: 'customer' }],
-}
-
-function valuesOf(where) {
-  return (Array.isArray(where) ? where : []).flatMap((term) => term.values || [])
-}
-
-function textTerm(where) {
-  return (Array.isArray(where) ? where : []).find((term) => term && term.text === true)
-}
-
-test('quoted description delete keeps that text column and does not hop', () => {
-  const out = enrichStructuredSlots({
-    kind: '工单',
-    action: '删除',
-    speech: SPEECH,
-    where: [{ keys: ['description', '问题描述'], values: [QUOTE] }],
-  }, vocab, extra)
-  const term = textTerm(out.where)
-  assert.ok(term)
-  assert.deepEqual(term.keys, ['description'])
-  assert.deepEqual(term.values, [QUOTE])
-  assert.equal(term.title, '问题描述')
-  assert.equal(out.from, undefined)
-  assert.equal(out.no, undefined)
-  assert.equal(valuesOf(out.where).includes('incident'), false)
-  assert.equal(valuesOf(out.where).includes('urgent'), false)
-})
-
-test('words inside the scoped text do not become enum filters or a customer hop', () => {
-  const out = enrichStructuredSlots({
-    kind: '工单',
-    action: '改行',
-    speech: `问题描述是「${QUOTE}」的工单改一下`,
-    where: [{ keys: ['问题描述'], values: [QUOTE] }],
-  }, vocab, extra)
-  const where = Array.isArray(out.where) ? out.where : []
-  assert.equal(where.some((term) => (term.values || []).includes('incident')), false)
-  assert.equal(where.some((term) => (term.values || []).includes('urgent')), false)
-  assert.equal(out.from, undefined)
-  assert.notEqual(out.no, '胡文')
-  const steps = Array.isArray(out.steps) ? out.steps : []
-  assert.equal(steps.some((step) => step && step.kind === '客户'), false)
-})
-
-test('unmatched column does not leftover-scan another kind', () => {
-  const out = enrichStructuredSlots({
-    kind: '工单',
-    action: '删除',
-    speech: '把备注是"客户胡文今天故障"的那笔工单删除',
-    where: [{ keys: ['备注'], values: ['客户胡文今天故障'] }],
-  }, vocab, extra)
-  assert.notEqual(out.no, '胡文')
-  assert.equal(out.from, undefined)
-  const where = Array.isArray(out.where) ? out.where : []
-  assert.equal(where.some((term) => (term.keys || []).includes('name')), false)
-  assert.equal(where.some((term) => (term.values || []).includes('客户胡文今天故障')), false)
-  assert.equal(where.some((term) => (term.values || []).includes('incident')), false)
-  assert.equal(textTerm(where), undefined)
-})
-
-test('enum column still requires an enum hit', () => {
-  const missed = enrichStructuredSlots({
-    kind: '工单',
-    action: '过审',
-    speech: '把优先级那笔工单过审',
-    where: [{ keys: ['priority', '优先级'], values: ['整句不是枚举'] }],
-  }, vocab, extra)
-  assert.equal(valuesOf(missed.where).includes('整句不是枚举'), false)
-  assert.equal(valuesOf(missed.where).includes('urgent'), false)
-
-  const hit = enrichStructuredSlots({
-    kind: '工单',
-    action: '删除',
-    speech: '把优先级是紧急的那笔工单删除',
-    where: [
-      { keys: ['priority'], values: ['not-real'] },
-      { keys: ['priority'], values: ['urgent'] },
-    ],
-  }, vocab, extra)
-  assert.equal(valuesOf(hit.where).includes('urgent'), true)
-  assert.equal(valuesOf(hit.where).includes('not-real'), false)
-  assert.equal(textTerm(hit.where), undefined)
-})
 
 test('text column filter is exact first, then contains', () => {
   const term = { keys: ['description'], values: [QUOTE], text: true }
@@ -224,7 +110,7 @@ test('column miss replaces the previous sheet', async () => {
     kind: '工单',
     action: '删除',
     columnMiss: true,
-    speech: SPEECH,
+    speech: '按色号删工单',
     sessionId,
     workspace,
   })

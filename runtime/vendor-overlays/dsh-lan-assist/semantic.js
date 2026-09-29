@@ -27,7 +27,7 @@ const MAX_SPEECH = 400
 export function extractUserSpeech(event) {
   if (!event || event.type !== 'user/message') return ''
   const data = event.data || {}
-  const source = data.source || {}
+  const source = data.source || event.source || {}
   if (source.kind && source.kind !== 'user') return ''
   if (source.plugin === 'dsh-lan-assist') return ''
   const blocks = Array.isArray(data.content) ? data.content : []

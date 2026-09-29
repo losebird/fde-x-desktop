@@ -50,6 +50,8 @@ function gate(catalog = mixedCatalog, { respectWhere = false } = {}) {
     vocab: docVocab,
     lookupTodo(spec) {
       let rows = catalog.slice()
+      const no = String(spec.no || spec.ticket || '').trim()
+      if (no) rows = rows.filter((row) => String(row.no || '') === no)
       if (respectWhere) {
         const where = Array.isArray(spec.where) ? spec.where : []
         if (where.length) {
@@ -85,7 +87,7 @@ function sheetOf(result) {
   return result && result.sheet && typeof result.sheet === 'object' ? result.sheet : result
 }
 
-test('batch 过审 applies plan where before BATCH_LIMIT and previews pending hit set', async () => {
+test('batch 过审 mints one set token for the pending hit set', async () => {
   const g = gate(mixedCatalog, { respectWhere: false })
   const result = await g.preview({
     workspace: '/tmp/batch-where-ws',
@@ -93,19 +95,46 @@ test('batch 过审 applies plan where before BATCH_LIMIT and previews pending hi
     action: '过审',
     batch: true,
     where: pendingWhere,
+    to: 'approved',
     speech: '都过一下',
     userSpeech: '都过一下',
   })
   assert.equal(result.ok, true)
   assert.notEqual(result.error, 'TOO_MANY')
-  assert.ok(String(result.preview_id || '').startsWith('pv_'))
   const sheet = sheetOf(result)
   const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  assert.ok(String(result.preview_id || sheet.preview_id || '').startsWith('pv_'))
+  assert.equal(sheet.listed, false)
+  assert.equal(sheet.batch, true)
+  assert.equal(sheet.canWrite, true)
   assert.equal(rows.length, 96)
+  assert.equal(sheet.hitTotal, 96)
+  assert.equal(sheet.hitTotalState, 'known')
   assert.ok(rows.every((row) => String(row.status || row.fields?.status || '') === 'pending'))
+
+  const first = rows[0]
+  const picked = await g.preview({
+    workspace: '/tmp/batch-where-ws',
+    kind: '单据',
+    action: '过审',
+    batch: true,
+    where: pendingWhere,
+    to: 'approved',
+    speech: '都过一下',
+    userSpeech: '都过一下',
+    picked: true,
+    no: first.no,
+    lookup: first.lookup,
+  })
+  const pickedSheet = sheetOf(picked)
+  const pickedRows = Array.isArray(pickedSheet.rows) ? pickedSheet.rows : []
+  assert.equal(picked.ok, true)
+  assert.ok(String(picked.preview_id || pickedSheet.preview_id || '').startsWith('pv_'))
+  assert.equal(pickedRows.length, 1)
+  assert.equal(pickedRows[0].no, first.no)
 })
 
-test('unfiltered batch over limit stays TOO_MANY and is not an official round sheet', async () => {
+test('unfiltered batch without identity is 缺身份 and is not an official round sheet', async () => {
   const onlyMany = Array.from({ length: 150 }, (_, i) => ({
     no: `M-${i + 1}`,
     status: 'pending',
@@ -117,14 +146,14 @@ test('unfiltered batch over limit stays TOO_MANY and is not an official round sh
     kind: '单据',
     action: '过审',
     batch: true,
+    to: 'approved',
     speech: '都过一下',
     userSpeech: '都过一下',
   })
   assert.equal(result.ok, false)
-  assert.equal(result.error, 'TOO_MANY')
+  assert.equal(result.error, 'NO_IDENTITY')
   const sheet = sheetOf(result)
-  assert.equal(sheet.ok, false)
-  assert.equal(sheet.error, 'TOO_MANY')
+  assert.equal(String(result.hint || sheet.hint || result.speak || '').includes('缺身份'), true)
   assert.equal(Array.isArray(sheet.rows) ? sheet.rows.length : 0, 0)
   assert.equal(isEligibleRoundSheet(sheet), false)
 
@@ -136,4 +165,90 @@ test('unfiltered batch over limit stays TOO_MANY and is not an official round sh
   const closed = rounds.closeRound('sess-batch-too-many')
   assert.equal(closed.emit, false)
   assert.equal(closed.official, null)
+})
+
+test('json-string where still binds the pending hit set', async () => {
+  const g = gate(mixedCatalog, { respectWhere: true })
+  const result = await g.preview({
+    workspace: '/tmp/batch-where-ws',
+    kind: '单据',
+    action: '过审',
+    batch: true,
+    where: JSON.stringify(pendingWhere),
+    to: 'approved',
+    speech: '都过一下',
+    userSpeech: '都过一下',
+  })
+  assert.notEqual(result.error, 'TOO_MANY')
+  assert.equal(result.ok, true)
+  const sheet = sheetOf(result)
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  assert.equal(rows.length, 96)
+})
+
+test('batch write with no where does not copy official listed where', async () => {
+  const g = gate(mixedCatalog, { respectWhere: true })
+  const result = await g.preview({
+    workspace: '/tmp/batch-where-ws',
+    kind: '单据',
+    action: '过审',
+    batch: true,
+    to: 'approved',
+    speech: '都过一下',
+    userSpeech: '都过一下',
+    officialSheet: {
+      kind: '单据',
+      action: '现查',
+      where: pendingWhere,
+      rows: mixedCatalog.slice(0, 20),
+      hitTotal: 96,
+    },
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.error, 'NO_IDENTITY')
+})
+
+test('official listed where of another kind does not bind this write', async () => {
+  const g = gate(mixedCatalog, { respectWhere: true })
+  const result = await g.preview({
+    workspace: '/tmp/batch-where-ws',
+    kind: '单据',
+    action: '过审',
+    batch: true,
+    to: 'approved',
+    speech: '都过一下',
+    userSpeech: '都过一下',
+    officialSheet: {
+      kind: 'OtherKind',
+      action: '现查',
+      where: pendingWhere,
+      rows: mixedCatalog.slice(0, 20),
+    },
+  })
+  assert.equal(result.error, 'NO_IDENTITY')
+  assert.equal(result.ok, false)
+})
+
+test('write with row identity does not inherit official listed where', async () => {
+  const g = gate(mixedCatalog, { respectWhere: true })
+  const result = await g.preview({
+    workspace: '/tmp/batch-where-ws',
+    kind: '单据',
+    action: '过审',
+    no: 'P-1',
+    speech: '过一下这张 P-1',
+    userSpeech: '过一下这张 P-1',
+    officialSheet: {
+      kind: '单据',
+      action: '现查',
+      where: pendingWhere,
+      rows: mixedCatalog.slice(0, 20),
+      hitTotal: 96,
+    },
+  })
+  assert.notEqual(result.error, 'TOO_MANY')
+  const sheet = sheetOf(result)
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].no, 'P-1')
 })

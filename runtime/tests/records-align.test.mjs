@@ -59,6 +59,16 @@ test('pinned history blocks a different or unknown incoming surface', async () =
   }
   assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', undefined, dump), true)
   assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', 'other', dump), true)
+  const writeConfirm = {
+    kind: 'KindLeave',
+    action: '过审',
+    preview_id: 'pv_live',
+    canWrite: true,
+    rows: [{ no: 'LV-1' }],
+    changes: [{ field: 'status', from: 'pending', to: 'passed' }],
+  }
+  assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', 'bsurf_new', writeConfirm), false)
+  assert.equal(shouldBlockIncomingSheetForHistoryPin('pin', undefined, writeConfirm), false)
 })
 
 test('row render keys include sheet identity so the same 单号 remounts', () => {
@@ -75,11 +85,18 @@ test('RecordsPanel keeps history pin, closes write preview, and skips empty draw
   assert.doesNotMatch(src, /useEvents\(\['biz\.sheet\.pending'\][\s\S]{0,400}historyPinnedSurfaceIdRef\.current = ''/)
   assert.doesNotMatch(src, /useEvents\(\['ai\.tool\.finished'\][\s\S]{0,400}historyPinnedSurfaceIdRef\.current = ''/)
   assert.match(src, /const normalizedRows = cloneSheetRows\(sheet\.rows\)/)
-  assert.match(src, /const appliedSheet = \{ \.\.\.sheet, rows: normalizedRows/)
+  assert.match(src, /const appliedSheet = coalesceKnownHitTotal\(/)
   assert.match(src, /sheetRowRenderKey\(row, absoluteIndex, sheetIdentity\)/)
   assert.match(src, /<tbody key=\{sheetIdentity/)
   assert.match(src, /selectSessionHistorySurfaces/)
-  assert.match(src, /source === 'lan-assist'/)
+  assert.match(src, /shouldApplyPendingSheetSource/)
+  const overlayIndex = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/index.js'), 'utf8')
+  assert.match(overlayIndex, /official-sheet/)
+  assert.match(overlayIndex, /if \(outcome && outcome.emit\)/)
+  assert.match(src, /PENDING_HYDRATE_MS/)
+  const watch = readFileSync(join(repoRoot, 'runtime/lan-assist-state-watch.mjs'), 'utf8')
+  assert.match(watch, /subscribeLanMailbox/)
+  assert.match(watch, /official-sheet/)
   assert.match(src, /setDrawer\(null\)/)
   assert.match(src, /shouldOpenWritePreviewDrawer/)
   assert.match(src, /sheetHasConfirmablePreviewChanges/)
@@ -90,6 +107,18 @@ test('RecordsPanel keeps history pin, closes write preview, and skips empty draw
   assert.doesNotMatch(src, /return scoped\.length \? scoped : sorted/)
 })
 
+test('history surface navigation hides the drawer and does not void the write token', () => {
+  const src = readFileSync(join(repoRoot, 'src/components/biz/RecordsPanel.tsx'), 'utf8')
+  const loadSurface = src.slice(src.indexOf('const loadSurface'), src.indexOf('const selectKind'))
+  assert.doesNotMatch(loadSurface, /dismissBizPreviewId/)
+  assert.doesNotMatch(loadSurface, /bizDismissPreview/)
+  const back = src.slice(src.indexOf('const handleRecordsBack'), src.indexOf('const dismissPreviewDrawer'))
+  assert.match(back, /dismissBizPreviewId/)
+  assert.match(back, /bizDismissPreview/)
+  const close = src.slice(src.indexOf('const dismissPreviewDrawer'), src.indexOf('const loadSurfaces'))
+  assert.match(close, /dismissBizPreviewId/)
+})
+
 test('RecordsPanel separates connector picker from operation kind chips and cancel keeps the floated sheet', () => {
   const src = readFileSync(join(repoRoot, 'src/components/biz/RecordsPanel.tsx'), 'utf8')
   assert.match(src, />连接器</)
@@ -98,8 +127,10 @@ test('RecordsPanel separates connector picker from operation kind chips and canc
   assert.match(src, /displayBeforeWriteRef/)
   assert.match(src, /surfacedKindChips/)
   assert.doesNotMatch(src, /现查\$\{incomingKind\}/)
-  assert.doesNotMatch(src, /const dismissPreviewDrawer = useCallback\(\(\) => \{[\s\S]*?restoreRecordsList\(\)/)
-  assert.doesNotMatch(src, /runtimeApi\.bizPreview\(\{[\s\S]{0,500}action: '现查'/)
+  assert.doesNotMatch(src.slice(src.indexOf('const dismissPreviewDrawer'), src.indexOf('const dismissPreviewDrawer') + 900), /restoreRecordsList\(/)
+  const finishSelect = src.slice(src.indexOf('const finishSelect'), src.indexOf('void finishSelect()'))
+  assert.doesNotMatch(finishSelect, /runtimeApi\.bizPreview/)
+  assert.match(finishSelect, /bizFocusKind/)
   assert.match(src, /extractBoundKindHints/)
   assert.match(src, /operationKindHitSheets/)
   assert.match(src, /operationKindViewRef/)
@@ -226,6 +257,7 @@ test('a clicked row is not the whole hit set', async () => {
   assert.equal(rowsForClickedWrite(rows, '2')[0].fields.id, '2')
   assert.equal(rowsForClickedWrite(rows, 'LY-9').length, 1)
   assert.equal(rowsForClickedWrite(rows, '').length, 3)
+  assert.equal(rowsForClickedWrite(rows, 'NOPE').length, 0)
 })
 
 test('source-kind packed rows are not shown as a headcount badge', async () => {
@@ -339,6 +371,7 @@ test('official hop terminal paints over an earlier kind chip view', async () => 
     hitTotalState: 'known',
   }
   assert.equal(shouldHoldSideKindView('员工档案', warehouseOfficial, employeeSide), false)
+  assert.equal(shouldHoldSideKindView('员工档案', warehouseOfficial, employeeSide, false, '员工档案'), true)
 })
 
 test('empty incoming never paints over a populated list', async () => {
@@ -414,10 +447,36 @@ test('empty write without preview_id and catalog dump must not cover a populated
 
 test('RecordsPanel apply/SSE refuse another session pending', () => {
   const source = readFileSync(join(repoRoot, 'src/components/biz/RecordsPanel.tsx'), 'utf8')
-  assert.match(source, /liveSid && !sheetBelongsToSession\(next, liveSid\)/)
+  assert.match(source, /sheetForLiveSession/)
   assert.match(source, /abortLeftoverAskTurn/)
-  assert.match(source, /shouldCancelDshAfterWritePreview/)
+  assert.match(source, /shouldAbortLeftoverAskForWritePreview/)
   assert.match(source, /historySessionIdRef\.current = sid/)
+  const applyPending = source.slice(source.indexOf('const applyPendingSheet'), source.indexOf('const applyPendingSheetRef'))
+  assert.match(applyPending, /abortLeftoverAskTurn/)
+  assert.doesNotMatch(applyPending, /shouldBlockIncomingSheetForHistoryPin/)
+  assert.match(applyPending, /isNewOfficialRound/)
+  assert.match(applyPending, /if \(!newAuthority\)/)
+  assert.match(applyPending, /unresolvedKindBlocksOfficial/)
+  assert.match(applyPending, /rememberBizPendingSheet\(next\)/)
+  const rememberIdx = applyPending.indexOf('rememberBizPendingSheet(next)')
+  const applyIdx = applyPending.indexOf('applySheet(next')
+  assert.ok(applyIdx >= 0 && rememberIdx > applyIdx)
+  const runPreview = source.slice(source.indexOf('const runPreview'))
+  assert.match(runPreview, /abortLeftoverAskTurn/)
+  assert.match(runPreview, /waitingPick/)
+  assert.match(runPreview, /blockConfirm !== true/)
+  assert.match(runPreview, /picked: true/)
+  assert.match(runPreview, /hopBind\.to/)
+  assert.match(runPreview, /previewAction/)
+  assert.match(runPreview, /sessionId: liveSid/)
+  assert.match(source, /rowWriteIdentityExtra/)
+  const identityExtra = source.slice(source.indexOf('function rowWriteIdentityExtra'), source.indexOf('function pendingSheetNeedsHydrateHint'))
+  assert.match(identityExtra, /no: sheetRowBusinessNo\(row\)/)
+  assert.doesNotMatch(identityExtra, /fields\.id/)
+  assert.match(source, /pendingSheetNeedsHydrateHint/)
+  const confirmWrite = source.slice(source.indexOf('const confirmWrite'))
+  assert.match(confirmWrite, /written && written.ok === false/)
+  assert.doesNotMatch(confirmWrite, /dismissBizPreviewId\(failedPreviewId\)/)
 })
 
 test('records panel keeps footer meta when row fingerprint is unchanged', () => {
@@ -463,9 +522,9 @@ test('materialize known settled peer copies hitTotal zero for footer', async () 
   assert.equal(peerView.hitTotalState, 'known')
 })
 
-test('shared-enum peer becomes official when focus-kind is set', async () => {
+test('focus-kind projects a hop side and leaves official kind', async () => {
   const { createSessionRoundStore } = await import('../vendor-overlays/dsh-lan-assist/session-round.js')
-  const { materializeOperationKindSheet } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
+  const { projectOfficialKind } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
   const rounds = createSessionRoundStore()
   rounds.startRound('sess-a')
   const official = {
@@ -473,30 +532,33 @@ test('shared-enum peer becomes official when focus-kind is set', async () => {
     action: '现查',
     speech: 'shared label on two kinds',
     sessionId: 'sess-a',
+    officialBound: true,
     rows: [{ no: 'B-1' }],
     hitTotal: 1,
     hitTotalState: 'known',
     querySettled: true,
-    peers: [{
+    from: {
       kind: 'KindA',
-      action: '现查',
-      rows: [],
-      hitTotal: 0,
-      hitTotalState: 'known',
-      querySettled: true,
-      where: [{ values: ['on'] }],
-    }],
+      rows: [{ no: 'A-1' }, { no: 'A-2' }],
+      columns: [{ key: 'no' }],
+    },
+    steps: [{ kind: 'KindA' }, { kind: 'KindB' }],
   }
   rounds.noteToolSheet('sess-a', official)
   rounds.closeRound('sess-a')
-  const peerView = materializeOperationKindSheet(rounds.officialSheet('sess-a'), 'KindA')
-  assert.ok(peerView)
-  assert.equal(peerView.kind, 'KindA')
-  assert.equal(peerView.hitTotal, 0)
-  assert.equal(peerView.hitTotalState, 'known')
-  assert.equal(rounds.focusKindSheet('sess-a', peerView), true)
-  assert.equal(rounds.servedSheet('sess-a').kind, 'KindA')
-  assert.equal(rounds.servedSheet('sess-a').hitTotal, 0)
+  const focused = projectOfficialKind(rounds.officialSheet('sess-a'), 'KindA')
+  assert.equal(focused.ok, true)
+  assert.equal(focused.published, false)
+  assert.equal(focused.sheet.kind, 'KindA')
+  assert.equal(focused.sheet.rows.length, 2)
+  assert.equal(focused.sheet.hitTotal, 2)
+  assert.equal(focused.sheet.page, 1)
+  assert.equal(rounds.officialSheet('sess-a').kind, 'KindB')
+  assert.equal(rounds.officialSheet('sess-a').hitTotal, 1)
+  assert.equal(rounds.servedSheet('sess-a').kind, 'KindB')
+  const back = projectOfficialKind(rounds.officialSheet('sess-a'), 'KindB')
+  assert.equal(back.sheet.kind, 'KindB')
+  assert.equal(back.published, false)
 })
 
 test('materialize peer kind prefers exact kind over alias bucket', async () => {
@@ -557,7 +619,14 @@ test('biz focus-kind route updates official pending', () => {
   const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
   assert.match(source, /\/api\/v1\/biz\/focus-kind/)
   assert.match(source, /\/focus-kind/)
-  assert.match(source, /force: true/)
+  assert.match(source, /published === true/)
+})
+
+test('focus-kind gate projects published sheet and does not previewBiz', () => {
+  const index = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/index.js'), 'utf8')
+  assert.match(index, /projectOfficialKind/)
+  const focusFn = index.slice(index.indexOf('focusOperationKind'))
+  assert.doesNotMatch(focusFn.slice(0, 400), /previewBiz/)
 })
 
 test('AI official handoff does not paint from the shared pending slot', () => {
@@ -566,5 +635,6 @@ test('AI official handoff does not paint from the shared pending slot', () => {
   assert.match(watch, /round-end/)
   assert.doesNotMatch(watch, /pendingSheet \?\? state\?\.pendingWrite/)
   const autoOpen = readFileSync(join(repoRoot, 'src/lib/biz-records-auto-open.ts'), 'utf8')
-  assert.match(autoOpen, /source === 'lan-assist'/)
+  assert.match(autoOpen, /shouldApplyPendingSheetSource/)
+  assert.doesNotMatch(autoOpen, /rememberBizPendingSheet/)
 })

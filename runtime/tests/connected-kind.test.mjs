@@ -7,10 +7,10 @@ import {
   isConnectorCatalogDump,
   isSpokenActionOrBatchToken,
   resolveConnectedKind,
-  sheetAfterCancelCover,
+  unresolvedKindBlocksOfficial,
   sheetForNamedSession,
-  sheetForPendingGet,
   sheetForOfficialGet,
+  isNewOfficialRound,
   shouldSkipCoveringPending,
   speechWantsMatchSet,
 } from '../biz/connected-kind.mjs'
@@ -222,29 +222,36 @@ test('person pick and waiting hit-set are not covered by a leftover write', () =
   }), true)
 })
 
-test('cancel cover keeps the hall list and never substitutes a catalog dump', () => {
-  const hop = {
-    kind: 'LongKind',
+test('new official 现查 is not blocked when the catalog has not mapped the kind', () => {
+  const catalog = [{ kind: 'KindKnown', resource: 'res_known', can: ['现查'] }]
+  const lookup = { kind: 'KindUnknown', action: '现查', roundId: 'rnd_2', rows: [{ no: 'U-1' }] }
+  assert.equal(unresolvedKindBlocksOfficial(lookup, catalog, true), false)
+  assert.equal(unresolvedKindBlocksOfficial(lookup, catalog, false), true)
+})
+
+test('new official roundId is a new result even with the same speech', () => {
+  const prev = { kind: 'KindA', action: '现查', speech: 'same line', roundId: 'rnd_1', rows: [{ no: 'A-1' }] }
+  const next = { kind: 'KindA', action: '现查', speech: 'same line', roundId: 'rnd_2', rows: [{ no: 'A-2' }] }
+  assert.equal(isNewOfficialRound(prev, next), true)
+  assert.equal(isNewOfficialRound(next, { ...next, rows: [{ no: 'A-2' }] }), false)
+})
+
+test('stripped roundId still treats a different 现查 as a new official round', () => {
+  const prev = {
+    kind: '工单',
     action: '现查',
-    speech: 'batch this table',
-    hopWhere: [{ keys: ['status'], values: ['open'] }],
-    rows: [{ no: 'ROW-1' }, { no: 'ROW-2' }],
+    speech: '停用客户还有哪些没关的工单？',
+    where: [{ keys: ['客户状态'], values: ['停用'] }],
+    rows: Array.from({ length: 20 }, (_, i) => ({ no: `TK-OLD-${i}` })),
   }
-  const catalog = {
-    kind: 'LongKind',
+  const next = {
+    kind: '工单',
     action: '现查',
-    rows: Array.from({ length: 20 }, (_, index) => ({ no: `C-${index}` })),
+    speech: '故障类而且紧急、还没关的工单是哪家客户的？',
+    where: [{ keys: ['工单类型'], values: ['故障'] }],
+    rows: [{ no: 'TK-NEW-1' }],
   }
-  const stripped = {
-    kind: 'LongKind',
-    action: '现查',
-    rows: hop.rows,
-  }
-  assert.equal(sheetAfterCancelCover(hop, catalog), hop)
-  assert.equal(sheetAfterCancelCover(stripped, catalog), stripped)
-  assert.equal(sheetAfterCancelCover(catalog, hop), hop)
-  assert.equal(sheetAfterCancelCover(null, catalog), null)
-  assert.equal(sheetAfterCancelCover(null, hop), hop)
+  assert.equal(isNewOfficialRound(prev, next), true)
 })
 
 test('named session GET does not serve another session hall', () => {
@@ -254,62 +261,7 @@ test('named session GET does not serve another session hall', () => {
   assert.equal(sheetForNamedSession(other, 'sess-a'), null)
   assert.equal(sheetForNamedSession(live, ''), live)
   assert.equal(sheetForNamedSession(null, 'sess-a'), null)
-  const covered = sheetAfterCancelCover(null, other)
-  assert.equal(sheetForNamedSession(covered, 'sess-a'), null)
-  assert.equal(sheetForNamedSession(covered, 'sess-b'), other)
-})
-
-test('named GET keeps session write when hall is unstamped or a covering dump', () => {
-  const stamped = {
-    kind: 'KindW',
-    action: '改行',
-    sessionId: 'sess-a',
-    preview_id: 'pv-1',
-    speech: 'change this row',
-    rows: [{ no: 'ROW-9' }],
-  }
-  const unstampedHall = {
-    kind: 'KindW',
-    action: '改行',
-    preview_id: 'pv-1',
-    speech: 'change this row',
-    rows: [{ no: 'ROW-9' }],
-  }
-  const dump = {
-    kind: 'KindW',
-    action: '现查',
-    rows: Array.from({ length: 20 }, (_, index) => ({ no: `C-${index}` })),
-  }
-  const emptyWrite = {
-    kind: 'KindW',
-    action: '过审',
-    speech: 'change this row',
-    rows: [],
-  }
-  const otherQuery = {
-    kind: 'KindQ',
-    action: '现查',
-    speech: 'list the other table',
-    rows: [{ no: 'Q-1' }],
-  }
-  const gotWrite = sheetForPendingGet(unstampedHall, stamped, 'sess-a')
-  assert.equal(gotWrite?.kind, 'KindW')
-  assert.equal(gotWrite?.action, '改行')
-  assert.equal(gotWrite?.sessionId, 'sess-a')
-  assert.equal(sheetForPendingGet(dump, stamped, 'sess-a'), stamped)
-  const kept = sheetForPendingGet(emptyWrite, stamped, 'sess-a')
-  assert.equal(kept?.action, '改行')
-  assert.equal(kept?.rows?.length, 1)
-  const next = sheetForPendingGet(otherQuery, stamped, 'sess-a')
-  assert.equal(next?.kind, 'KindQ')
-  assert.equal(next?.action, '现查')
-  assert.equal(sheetForPendingGet(unstampedHall, stamped, 'sess-b'), null)
-  assert.equal(sheetForPendingGet({
-    kind: 'KindB',
-    action: '改行',
-    sessionId: 'sess-b',
-    rows: [{ no: 'B-1' }],
-  }, null, 'sess-a'), null)
+  assert.equal(sheetForNamedSession(other, 'sess-b'), other)
 })
 
 test('new spoken utterance replaces a picked write; leftover 现查 and empty cover still skip', () => {
@@ -360,22 +312,37 @@ test('new spoken utterance replaces a picked write; leftover 现查 and empty co
   assert.equal(shouldSkipCoveringPending(pickedWrite, nextSpeechWrite), false)
   assert.equal(shouldSkipCoveringPending(pickedWrite, nextKindActionNoSpeech), false)
   assert.equal(shouldSkipCoveringPending(pickedWrite, leftoverXiancha), true)
+  assert.equal(shouldSkipCoveringPending(pickedWrite, {
+    kind: 'KindTicket',
+    action: '现查',
+    speech: 'another lookup',
+    rows: [{ no: 'T-1' }, { no: 'T-2' }],
+  }), false)
   assert.equal(shouldSkipCoveringPending(pickedWrite, emptyCover), true)
   assert.equal(shouldSkipCoveringPending(pickedWrite, emptyNewSpeech), true)
   assert.equal(shouldSkipCoveringPending(pickedWrite, dump), true)
-  const stampedWrite = { ...pickedWrite, sessionId: 'sess-a' }
-  const gotNext = sheetForPendingGet(nextSpeechWrite, stampedWrite, 'sess-a')
-  assert.equal(gotNext?.kind, 'KindQ')
-  assert.equal(gotNext?.action, '过审')
-  assert.equal(gotNext?.speech, 'batch the other table')
-  const keptWrite = sheetForPendingGet(leftoverXiancha, stampedWrite, 'sess-a')
-  assert.equal(keptWrite?.action, '改行')
-  assert.equal(keptWrite?.rows?.[0]?.no, 'ROW-9')
-  const keptEmpty = sheetForPendingGet(emptyCover, stampedWrite, 'sess-a')
-  assert.equal(keptEmpty?.action, '改行')
 })
 
-test('official GET prefers last handed and never takes hall process', () => {
+test('post-write 现查 reread replaces the write preview of the same row', () => {
+  const writePreview = {
+    kind: 'KindW',
+    action: '过审',
+    preview_id: 'pv-open',
+    canWrite: true,
+    speech: '过一下这张 ROW-9',
+    rows: [{ no: 'ROW-9' }],
+  }
+  const reread = {
+    kind: 'KindW',
+    action: '现查',
+    querySettled: true,
+    speech: '现查 ROW-9 现在的值',
+    rows: [{ no: 'ROW-9', status: 'done' }],
+  }
+  assert.equal(shouldSkipCoveringPending(writePreview, reread), false)
+})
+
+test('official GET serves this session official only', () => {
   const official = {
     kind: 'KindLeaf',
     action: '现查',
@@ -383,35 +350,10 @@ test('official GET prefers last handed and never takes hall process', () => {
     from: { kind: 'KindParent' },
     rows: [{ no: 'HIT-1' }],
   }
-  const last = {
-    kind: 'KindW',
-    action: '改行',
-    sessionId: 'sess-a',
-    preview_id: 'pv-human',
-    rows: [{ no: 'ROW-1' }],
-  }
-  assert.equal(sheetForOfficialGet(official, last, 'sess-a')?.action, '现查')
-  assert.equal(sheetForOfficialGet(official, last, 'sess-a')?.rows?.[0]?.no, 'HIT-1')
-  assert.equal(sheetForOfficialGet(last, last, 'sess-a')?.action, '改行')
-  assert.equal(sheetForOfficialGet(null, last, 'sess-a')?.preview_id, 'pv-human')
-  const hallProcess = {
-    kind: 'KindLeaf',
-    action: '现查',
-    sessionId: 'sess-a',
-    speech: '库里已改上',
-    rows: [{ no: 'ROW-1' }],
-  }
-  assert.equal(sheetForOfficialGet(hallProcess, last, 'sess-a')?.action, '改行')
-  assert.equal(sheetForOfficialGet(official, null, 'sess-a')?.kind, 'KindLeaf')
-  assert.equal(sheetForOfficialGet(official, last, 'sess-b'), null)
-  const laterList = {
-    kind: 'KindOther',
-    action: '现查',
-    sessionId: 'sess-a',
-    rows: [{ no: 'PAGE-2' }],
-  }
-  assert.equal(sheetForOfficialGet(official, laterList, 'sess-a')?.kind, 'KindLeaf')
-  assert.equal(sheetForOfficialGet(official, laterList, 'sess-a')?.rows?.[0]?.no, 'HIT-1')
+  assert.equal(sheetForOfficialGet(official, 'sess-a')?.kind, 'KindLeaf')
+  assert.equal(sheetForOfficialGet(official, 'sess-a')?.rows?.[0]?.no, 'HIT-1')
+  assert.equal(sheetForOfficialGet(official, 'sess-b'), null)
+  assert.equal(sheetForOfficialGet(null, 'sess-a'), null)
   const unstamped = {
     kind: 'KindLeaf',
     action: '现查',
@@ -420,8 +362,8 @@ test('official GET prefers last handed and never takes hall process', () => {
     hitTotalState: 'known',
     rows: [],
   }
-  const stamped = sheetForOfficialGet(unstamped, null, 'sess-a')
+  const stamped = sheetForOfficialGet(unstamped, 'sess-a')
   assert.equal(stamped?.sessionId, 'sess-a')
   assert.equal(stamped?.hitTotal, 0)
-  assert.equal(sheetForOfficialGet({ ...unstamped, sessionId: 'sess-a' }, null, 'sess-b'), null)
+  assert.equal(sheetForOfficialGet({ ...unstamped, sessionId: 'sess-a' }, 'sess-b'), null)
 })

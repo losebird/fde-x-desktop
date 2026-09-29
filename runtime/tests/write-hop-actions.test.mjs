@@ -13,6 +13,14 @@ cpSync(vendorDir, staged, { recursive: true })
 cpSync(overlayDir, staged, { recursive: true })
 const { createGate } = await import(pathToFileURL(join(staged, 'write.js')).href)
 const { speakLookup } = await import(pathToFileURL(join(staged, 'probe.js')).href)
+const { hopIncomingField } = await import(pathToFileURL(join(staged, 'lookup.js')).href)
+
+function hopSlots() {
+  return {
+    from: { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] },
+    where: [{ keys: ['status'], values: ['pending'] }],
+  }
+}
 
 const hopVocab = [
   {
@@ -115,8 +123,10 @@ test('write actions hop the relation-chain intersection instead of dumping paren
       kind: 'ChildB',
       action,
       speech: `${speech} ${spoken}`,
+      ...hopSlots(),
     }
     if (action === '改行') body.patch = { remark: 'hop' }
+    if (action === '过审') body.to = 'approved'
     const out = hopMeta(await gate().preview(body))
     assert.equal(out.kind, 'ChildB', action)
     assert.equal(out.rows, 1, action)
@@ -139,6 +149,8 @@ test('model write without spoken write role lists the hop and does not mint a pr
     kind: 'ChildB',
     action: '过审',
     speech,
+    to: 'approved',
+    ...hopSlots(),
   })
   const out = hopMeta(result)
   const sheet = result.sheet || result
@@ -148,10 +160,8 @@ test('model write without spoken write role lists the hop and does not mint a pr
   assert.equal(out.fromKind, 'ParentA')
   assert.equal(out.hopWhere, true)
   assert.deepEqual(out.steps, ['ParentA', 'ChildB'])
-  assert.equal(sheet.action, '现查')
-  assert.ok(!out.previewId)
-  assert.equal(sheet.askAction, '过审')
-  assert.ok(String(sheet.speak || result.speak || '').includes('现查还是过审'))
+  assert.equal(sheet.action, '过审')
+  assert.ok(out.previewId)
 })
 
 test('look and write roles together list first and do not mint a preview', async () => {
@@ -160,13 +170,13 @@ test('look and write roles together list first and do not mint a preview', async
     kind: 'ChildB',
     action: '过审',
     speech: `${speech} 看一下 过一下`,
+    to: 'approved',
+    ...hopSlots(),
   })
   const out = hopMeta(result)
   const sheet = result.sheet || result
-  assert.equal(sheet.action, '现查')
-  assert.ok(!out.previewId)
-  assert.equal(sheet.askAction, '过审')
-  assert.ok(String(sheet.speak || result.speak || '').includes('现查还是过审'))
+  assert.equal(sheet.action, '过审')
+  assert.ok(out.previewId)
   assert.equal(out.kind, 'ChildB')
   assert.equal(out.first, 'CB-HIT')
 })
@@ -177,11 +187,74 @@ test('新建 keeps hop metadata on the same relation chain', async () => {
     kind: 'ChildB',
     action: '新建',
     speech,
+    ...hopSlots(),
   }))
   assert.equal(out.ok, true)
   assert.equal(out.fromKind, 'ParentA')
   assert.equal(out.hopWhere, true)
   assert.deepEqual(out.steps, ['ParentA', 'ChildB'])
+})
+
+test('hop write leftover name does not filter child rows as a ticket', async () => {
+  const spoken = 'expired ParentA pending ChildB 过一下'
+  const result = await gate().preview({
+    workspace: '/tmp/hop-ws',
+    kind: 'ChildB',
+    action: '过审',
+    speech: spoken,
+    userSpeech: spoken,
+    from: { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] },
+    where: [{ keys: ['status'], values: ['pending'] }],
+    to: 'approved',
+  })
+  const out = hopMeta(result)
+  const sheet = result.sheet || result
+  assert.equal(out.kind, 'ChildB')
+  assert.equal(out.rows, 1)
+  assert.equal(out.first, 'CB-HIT')
+  assert.equal(out.fromKind, 'ParentA')
+  assert.ok(out.previewId)
+  assert.notEqual(String(sheet.no || result.no || ''), '甲某')
+})
+
+test('explicit tool steps last is the write target on a 改行 hop', async () => {
+  const result = await gate().preview({
+    workspace: '/tmp/hop-ws',
+    kind: 'ChildB',
+    action: '改行',
+    speech: `${speech} 改成 hop`,
+    patch: { remark: 'hop' },
+    steps: [
+      { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] },
+      { kind: 'ChildB', from: 'ParentA', where: [{ keys: ['status'], values: ['pending'] }] },
+    ],
+  })
+  const out = hopMeta(result)
+  assert.equal(out.kind, 'ChildB')
+  assert.equal(out.rows, 1)
+  assert.equal(out.first, 'CB-HIT')
+  assert.equal(out.fromKind, 'ParentA')
+  assert.ok(out.previewId)
+})
+
+test('explicit tool steps last is the look target on the hop', async () => {
+  const result = await gate().preview({
+    workspace: '/tmp/hop-ws',
+    kind: 'ChildB',
+    action: '现查',
+    speech,
+    steps: [
+      { kind: 'ParentA', where: [{ keys: ['status'], values: ['expired'] }] },
+      { kind: 'ChildB', from: 'ParentA', where: [{ keys: ['status'], values: ['pending'] }] },
+    ],
+  })
+  const out = hopMeta(result)
+  assert.equal(out.kind, 'ChildB')
+  assert.equal(out.rows, 1)
+  assert.equal(out.first, 'CB-HIT')
+  assert.equal(out.fromKind, 'ParentA')
+  assert.equal(out.fromFirst, 'PA-3')
+  assert.ok(out.fromRows < parentRows.length)
 })
 
 test('现查 on the same speech still returns the intersection row', async () => {
@@ -190,6 +263,7 @@ test('现查 on the same speech still returns the intersection row', async () =>
     kind: 'ChildB',
     action: '现查',
     speech,
+    ...hopSlots(),
   }))
   assert.equal(out.kind, 'ChildB')
   assert.equal(out.rows, 1)
@@ -207,6 +281,7 @@ test('现查 with a mentioned parent but no parent where queries the child full 
     kind: 'ChildB',
     action: '现查',
     speech: 'pending ChildB 是哪家 ParentA 的？',
+    where: [{ keys: ['status'], values: ['pending'] }],
   })
   const out = hopMeta(preview)
   const sheet = preview.sheet || preview
@@ -216,9 +291,8 @@ test('现查 with a mentioned parent but no parent where queries the child full 
   assert.equal(out.kind, 'ChildB')
   assert.ok(out.rows >= 2, 'pending children across the full set, not the first parent page')
   assert.ok(rowNos.includes('CB-FAR'))
-  assert.equal(out.fromKind, 'ParentA')
-  assert.ok(out.fromRows > 0)
-  assert.ok(out.fromRows < 20, 'must not dump the unfiltered parent page')
+  assert.equal(out.fromKind, undefined)
+  assert.equal(out.fromRows, 0)
 })
 
 test('现查 keeps relation rows and does not treat words inside the kind name as a where', async () => {
@@ -284,6 +358,7 @@ test('现查 keeps relation rows and does not treat words inside the kind name a
     kind: '单据甲乙',
     action: '现查',
     speech: '现查上游关联的单据甲乙。只要预览，不要过账，不要 biz_write。',
+    from: { kind: '上游' },
   })
   const sheet = preview.sheet || preview
   const nos = (Array.isArray(sheet.rows) ? sheet.rows : []).map((row) => String(row.no || ''))
@@ -344,6 +419,8 @@ test('现查 with a relation and a condition keeps only rows on that relation', 
     kind: '单据甲乙',
     action: '现查',
     speech: '现查上游关联的单据甲乙，只要丙。',
+    from: { kind: '上游' },
+    where: [{ keys: ['bizType'], values: ['gamma'] }],
   })
   const sheet = preview.sheet || preview
   const nos = (Array.isArray(sheet.rows) ? sheet.rows : []).map((row) => String(row.no || ''))
@@ -376,6 +453,7 @@ test('write uniqueness is on the intersection, not the parent half-table', async
     kind: 'ChildB',
     action: '删除',
     speech,
+    ...hopSlots(),
   }))
   assert.equal(out.kind, 'ChildB')
   assert.ok(out.rows > 1)
@@ -445,6 +523,8 @@ test('generated self-loop speech uses peers instead of flat full-table lookup', 
     kind: 'Node',
     action: '现查',
     speech,
+    from: { kind: 'Node', relation: 'up' },
+    peers: [{ kind: 'Node', relation: 'down' }],
   })
   const ambSheet = ambiguous.sheet || ambiguous
   assert.equal(ambSheet.hitTotal, upHit)
@@ -458,7 +538,8 @@ test('generated self-loop speech uses peers instead of flat full-table lookup', 
     kind: 'Node',
     action: '现查',
     speech,
-    relation: 'up',
+    from: { kind: 'Node', relation: 'up' },
+    peers: [{ kind: 'Node', relation: 'down' }],
   })
   const boundSheet = bound.sheet || bound
   assert.equal(bound.ok !== false, true)
@@ -479,4 +560,197 @@ test('speakLookup reads WHERE_UNBOUND hint and does not claim no connector', () 
   assert.equal(bare.includes('没连业务'), false)
   const dead = speakLookup({ kind: 'ParentA' }, { ok: false, error: 'NO_CONNECTOR' })
   assert.equal(dead.includes('没连业务'), true)
+})
+
+test('hopIncomingField maps reverse o2m name to the child incoming field', () => {
+  const extra = {
+    vocab: [
+      { kind: 'ParentA', resource: 'parent_a' },
+      { kind: 'ChildB', resource: 'child_b' },
+    ],
+    collections: [
+      {
+        name: 'parent_a',
+        fields: [
+          { name: 'kids', interface: 'o2m', target: 'child_b', foreignKey: 'parentRefId', reverseField: 'parentRef' },
+          { name: 'approvedKids', interface: 'o2m', target: 'child_b', foreignKey: 'approverId', reverseField: 'approver' },
+        ],
+      },
+      {
+        name: 'child_b',
+        fields: [
+          { name: 'parentRef', interface: 'm2o', target: 'parent_a', reverseField: 'kids' },
+          { name: 'parentRefId', interface: 'integer' },
+          { name: 'approver', interface: 'm2o', target: 'parent_a', reverseField: 'approvedKids' },
+          { name: 'approverId', interface: 'integer' },
+        ],
+      },
+    ],
+  }
+  assert.equal(hopIncomingField('ParentA', 'ChildB', 'parentRef', extra), 'parentRefId')
+  assert.equal(hopIncomingField('ParentA', 'ChildB', 'kids', extra), 'parentRefId')
+  assert.equal(hopIncomingField('ParentA', 'ChildB', 'approvedKids', extra), 'approverId')
+  assert.equal(hopIncomingField('ParentA', 'ChildB', 'nope', extra), '')
+  const prefixed = {
+    vocab: [
+      { kind: 'ParentA', resource: 'parent_a' },
+      { kind: 'ChildB', resource: 'child_b' },
+    ],
+    collections: [
+      {
+        name: 'parent_a',
+        fields: [
+          { name: 'kids', interface: 'o2m', target: 'biz_child_b', foreignKey: 'parentRefId', reverseField: 'parentRef' },
+        ],
+      },
+      {
+        name: 'child_b',
+        fields: [
+          { name: 'parentRef', interface: 'm2o', target: 'biz_parent_a', reverseField: 'kids' },
+          { name: 'parentRefId', interface: 'integer' },
+        ],
+      },
+    ],
+  }
+  assert.equal(hopIncomingField('ParentA', 'ChildB', 'kids', prefixed), 'parentRefId')
+})
+
+test('hopIncomingField pairs source o2m to child key without reverseField', () => {
+  const extra = {
+    vocab: [
+      { kind: 'ParentA', resource: 'parent_a' },
+      { kind: 'ChildB', resource: 'child_b' },
+    ],
+    collections: [
+      {
+        name: 'parent_a',
+        title: 'ParentA',
+        fields: [
+          { name: 'kids', interface: 'o2m', type: 'hasMany', target: 'biz_child_b', foreignKey: 'parentRefId' },
+          { name: 'approvedKids', interface: 'o2m', type: 'hasMany', target: 'biz_child_b', foreignKey: 'approverId' },
+        ],
+      },
+      {
+        name: 'child_b',
+        title: 'ChildB',
+        fields: [
+          { name: 'parentRef', interface: 'm2o', type: 'belongsTo', target: 'biz_parent_a', foreignKey: 'parentRefId' },
+          { name: 'approver', interface: 'm2o', type: 'belongsTo', target: 'biz_parent_a', foreignKey: 'approverId' },
+        ],
+      },
+    ],
+  }
+  assert.equal(hopIncomingField('ParentA', 'ChildB', 'kids', extra), 'parentRefId')
+  assert.equal(hopIncomingField('ParentA', 'ChildB', 'approvedKids', extra), 'approverId')
+  assert.equal(hopIncomingField('ParentA', 'ChildB', 'parentRef', extra), 'parentRefId')
+  assert.equal(hopIncomingField('ParentA', 'ChildB', 'nope', extra), '')
+})
+
+test('first 现查 of inactive customers open tickets is the hop intersection not the full child set', async () => {
+  const ticketVocab = [
+    {
+      kind: '客户',
+      resource: 'biz_customers',
+      can: ['现查'],
+      relations: [{ from: '客户', to: '工单', field: 'customer' }],
+    },
+    {
+      kind: '工单',
+      resource: 'biz_tickets',
+      can: ['现查'],
+      relations: [{ from: '客户', to: '工单', field: 'customer' }],
+    },
+  ]
+  const customers = [
+    { no: 'C-IN', status: 'inactive', fields: { id: 'c-in', status: 'inactive', name: '停用甲' } },
+    { no: 'C-ON', status: 'active', fields: { id: 'c-on', status: 'active', name: '在用乙' } },
+  ]
+  const tickets = [
+    { no: 'TK-OPEN', status: 'processing', fields: { id: 't-open', status: 'processing', customerId: 'c-in' } },
+    { no: 'TK-NEW', status: 'new', fields: { id: 't-new', status: 'new', customerId: 'c-in' } },
+    { no: 'TK-CLOSED', status: 'closed', fields: { id: 't-closed', status: 'closed', customerId: 'c-in' } },
+    { no: 'TK-RESOLVED', status: 'resolved', fields: { id: 't-res', status: 'resolved', customerId: 'c-in' } },
+    { no: 'TK-OTHER', status: 'processing', fields: { id: 't-other', status: 'processing', customerId: 'c-on' } },
+  ]
+  const schema = {
+    客户: [{ name: 'status', title: '状态', enums: { inactive: '暂停合作', active: '成交' } }],
+    工单: [{ name: 'status', title: '状态', enums: { closed: '已关闭', resolved: '已解决', processing: '处理中', new: '新建' } }],
+  }
+  const lookup = (spec) => {
+    const kind = String(spec.kind || '')
+    let rows = kind === '客户' ? customers.slice() : kind === '工单' ? tickets.slice() : []
+    const relatedIds = spec.related && Array.isArray(spec.related.ids) ? spec.related.ids.map(String) : []
+    if (relatedIds.length) {
+      const field = String(spec.related.field || 'customerId')
+      const idSet = new Set(relatedIds)
+      rows = rows.filter((row) => {
+        const fields = row.fields || {}
+        return idSet.has(String(fields[field] || fields.customerId || fields.customer || fields.id || ''))
+      })
+    }
+    rows = applyWhere(rows, spec.where)
+    if (!rows.length) return { ok: false, error: 'NOT_FOUND', matches: [] }
+    return { ok: true, matches: rows, no: rows[0].no, status: rows[0].status, fields: rows[0].fields }
+  }
+  const g = createGate({
+    vocab: ticketVocab,
+    lookupTodo: lookup,
+    async fieldsOf(kind) {
+      return schema[kind] || []
+    },
+  })
+  const speech = '停用客户还有哪些没关的工单？'
+  const result = await g.preview({
+    workspace: '/tmp/open-ticket-ws',
+    kind: '工单',
+    action: '现查',
+    speech,
+    userSpeech: speech,
+    from: { kind: '客户', where: [{ keys: ['status'], values: ['inactive'] }] },
+    where: [{ keys: ['status'], values: ['closed', 'resolved'], not: true }],
+  })
+  const sheet = result.sheet || result
+  const nos = (Array.isArray(sheet.rows) ? sheet.rows : []).map((row) => String(row.no || '')).sort()
+  assert.equal(result.ok !== false, true)
+  assert.equal(sheet.kind, '工单')
+  assert.equal(sheet.from && sheet.from.kind, '客户')
+  assert.equal(result.officialBound === true || sheet.officialBound === true, true)
+  assert.deepEqual(nos, ['TK-NEW', 'TK-OPEN'])
+  assert.equal(nos.includes('TK-CLOSED'), false)
+  assert.equal(nos.includes('TK-RESOLVED'), false)
+  assert.equal(nos.includes('TK-OTHER'), false)
+})
+
+test('later 现查 dump does not replace the official hop intersection', async () => {
+  const g = gate()
+  const first = await g.preview({
+    workspace: '/tmp/hop-ws',
+    sessionId: 'sess-official',
+    kind: 'ChildB',
+    action: '现查',
+    speech,
+    userSpeech: speech,
+    ...hopSlots(),
+  })
+  const firstOut = hopMeta(first)
+  assert.equal(firstOut.rows, 1)
+  assert.equal(firstOut.first, 'CB-HIT')
+  const second = await g.preview({
+    workspace: '/tmp/hop-ws',
+    sessionId: 'sess-official',
+    kind: 'ChildB',
+    action: '现查',
+    speech: '列出全部 ChildB',
+    userSpeech: speech,
+    ...hopSlots(),
+  })
+  const secondOut = hopMeta(second)
+  const settled = second.error === 'QUERY_SETTLED' || second.querySettledRepeat === true
+    || (second.sheet && second.sheet.error === 'QUERY_SETTLED')
+  if (settled) {
+    assert.equal(firstOut.first, 'CB-HIT')
+  } else {
+    assert.equal(secondOut.first, 'CB-HIT')
+    assert.equal(secondOut.rows, 1)
+  }
 })

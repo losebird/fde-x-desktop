@@ -97,3 +97,22 @@ test('pendingSheetWatchFingerprint differs when sessionId differs', () => {
   })
   assert.notEqual(a, b)
 })
+
+test('pendingSheetWatchFingerprint differs when roundId differs', () => {
+  const row = { no: '1' }
+  const a = pendingSheetWatchFingerprint({
+    kind: 'T',
+    action: '现查',
+    rows: [row],
+    speech: 'same speech',
+    roundId: 'rnd_1',
+  })
+  const b = pendingSheetWatchFingerprint({
+    kind: 'T',
+    action: '现查',
+    rows: [row],
+    speech: 'same speech',
+    roundId: 'rnd_2',
+  })
+  assert.notEqual(a, b)
+})

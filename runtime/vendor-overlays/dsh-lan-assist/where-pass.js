@@ -3,7 +3,7 @@
  * @module dsh-lan-assist/where-pass
  */
 
-import { enumMap } from './resolve.js'
+import { enumMap, looksLikeRef } from './resolve.js'
 import { PAGE_SIZE } from './plan.js'
 
 export const WHERE_LIST_CAP = 5000
@@ -446,10 +446,191 @@ function textFilterPart(key, vals, term) {
   return enumFilterPart(key, vals, term && term.not)
 }
 
-export function termFilterPart(term, today) {
+function fieldTitleOf(row) {
+  if (!row || typeof row !== 'object') return ''
+  return String(row.title || (row.uiSchema && row.uiSchema.title) || '').trim()
+}
+
+function schemaFieldByName(schemaFields, key) {
+  const want = String(key || '').trim()
+  if (!want) return null
+  return (Array.isArray(schemaFields) ? schemaFields : []).find((row) => row && String(row.name || '') === want) || null
+}
+
+function isAsciiFieldName(key) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(key || ''))
+}
+
+function isNameTitleKey(key) {
+  const k = String(key || '').trim()
+  return k === '名称' || /名称$/.test(k) || k === '姓名' || /姓名$/.test(k)
+}
+
+function objectNameTitle(title) {
+  const text = String(title || '').trim()
+  if (!text) return false
+  return /名称/.test(text) || /姓名$/.test(text) || text === '姓名'
+}
+
+function isSurrogateIdentityKey(key, schemaFields) {
+  const k = String(key || '').trim()
+  if (!k) return false
+  if (/^(id|pk|uuid|uid|key)$/i.test(k)) return true
+  if (/Id$/.test(k)) return true
+  const hit = schemaFieldByName(schemaFields, k)
+  if (!hit) return false
+  if (hit.primaryKey === true) return true
+  const iface = String(hit.interface || '')
+  const typ = String(hit.type || '')
+  if (/^(snowflakeId|integer|bigInt|uid|uuid|id)$/i.test(iface)) return true
+  if (/^(snowflakeId|integer|bigInt|uid|uuid)$/i.test(typ)) return true
+  const title = fieldTitleOf(hit)
+  if (/^(id|ID|主键)$/.test(title)) return true
+  return false
+}
+
+export function isIdentityNameKey(key, schemaFields) {
+  const k = String(key || '').trim()
+  if (!k) return false
+  if (isSurrogateIdentityKey(k, schemaFields)) return false
+  if (/^(name|title)$/i.test(k) || isNameTitleKey(k)) return true
+  return objectNameTitle(fieldTitleOf(schemaFieldByName(schemaFields, k)))
+}
+
+export function isObjectNameKey(key, schemaFields, extra = {}) {
+  const k = String(key || '').trim()
+  if (!k) return false
+  if (isSurrogateIdentityKey(k, schemaFields)) return false
+  const titleField = String((extra && extra.titleField) || '').trim()
+  if (titleField && k === titleField && k !== 'title' && !isSurrogateIdentityKey(titleField, schemaFields)) return true
+  if (/^name$/i.test(k) || isNameTitleKey(k)) return true
+  if (/^title$/i.test(k)) return false
+  return objectNameTitle(fieldTitleOf(schemaFieldByName(schemaFields, k)))
+}
+
+export function schemaObjectNameKeys(schemaFields, extra = {}) {
+  const named = []
+  for (const field of Array.isArray(schemaFields) ? schemaFields : []) {
+    const name = String((field && field.name) || '').trim()
+    if (!name) continue
+    if (isObjectNameKey(name, schemaFields, extra)) named.push(name)
+  }
+  const titleField = String((extra && extra.titleField) || '').trim()
+  if (
+    titleField
+    && titleField !== 'title'
+    && !isSurrogateIdentityKey(titleField, schemaFields)
+    && !named.includes(titleField)
+  ) {
+    const hit = schemaFieldByName(schemaFields, titleField)
+    if (hit || !Array.isArray(schemaFields) || !schemaFields.length) named.push(titleField)
+  }
+  return [...new Set(named)]
+}
+
+export function isAssocRelationField(key, schemaFields) {
+  const hit = schemaFieldByName(schemaFields, key)
+  if (!hit) return false
+  const iface = String(hit.interface || hit.type || '')
+  return /^(m2o|o2o|belongsTo)$/i.test(iface)
+}
+
+export function isNameRelationField(key, schemaFields) {
+  if (!isAssocRelationField(key, schemaFields)) return false
+  return isIdentityNameKey(key, schemaFields)
+}
+
+export function nestedNameContainsPart(key, vals) {
+  const want = vals.filter((value) => value && !looksLikeRef(value))
+  if (!key || !want.length) return null
+  const inner = want.flatMap((value) => [
+    { name: { $includes: value } },
+    { title: { $includes: value } },
+  ])
+  return { [key]: inner.length === 1 ? inner[0] : { $or: inner } }
+}
+
+export function shouldContainNameTerm(keys, vals, term, schemaFields) {
+  if (!keys.length || !vals.length) return false
+  if (Array.isArray(term && term.dateBefore) && term.dateBefore.length) return false
+  if (Array.isArray(term && term.dateAfter) && term.dateAfter.length) return false
+  if (!keys.some((key) => isIdentityNameKey(key, schemaFields))) return false
+  return vals.some((value) => !looksLikeRef(value))
+}
+
+export function termWantsContainsKeep(term, schemaFields) {
+  if (!term || typeof term !== 'object') return false
+  if (term.text === true) return true
+  return shouldContainNameTerm(list(term.keys), list(term.values), term, schemaFields)
+}
+
+export function schemaIdentityNameKeys(schemaFields) {
+  const named = []
+  for (const field of Array.isArray(schemaFields) ? schemaFields : []) {
+    const name = String((field && field.name) || '').trim()
+    if (!name) continue
+    if (isIdentityNameKey(name, schemaFields)) named.push(name)
+  }
+  return [...new Set(named)]
+}
+
+export function identityNameRestFilter(rest, schemaFields) {
+  const want = String(rest || '').trim()
+  if (!want || looksLikeRef(want)) return null
+  const keys = schemaIdentityNameKeys(schemaFields).filter(isAsciiFieldName)
+  const use = keys.length ? keys : ['name', 'title']
+  const parts = use.map((key) => (
+    isNameRelationField(key, schemaFields)
+      ? nestedNameContainsPart(key, [want])
+      : { [key]: { $includes: want } }
+  )).filter(Boolean)
+  if (!parts.length) return null
+  return parts.length === 1 ? parts[0] : { $or: parts }
+}
+
+function asciiKeysForTerm(keys, schemaFields) {
+  const ascii = [...new Set(keys.filter(isAsciiFieldName))]
+  if (ascii.length) return ascii
+  const fields = Array.isArray(schemaFields) ? schemaFields : []
+  const fromSchema = []
+  for (const key of keys) {
+    for (const row of fields) {
+      const name = String((row && row.name) || '').trim()
+      if (!isAsciiFieldName(name)) continue
+      const title = fieldTitleOf(row)
+      if (name === key || title === key) fromSchema.push(name)
+      else if (isNameTitleKey(key) && isIdentityNameKey(name, schemaFields)) fromSchema.push(name)
+    }
+  }
+  if (fromSchema.length) return [...new Set(fromSchema)]
+  if (keys.some(isNameTitleKey)) return ['name', 'title']
+  return []
+}
+
+function nameContainsFilterParts(asciiKeys, vals, term, schemaFields) {
+  const nested = asciiKeys.map((key) => (
+    isAssocRelationField(key, schemaFields) || isNameRelationField(key, schemaFields)
+      ? nestedNameContainsPart(key, vals)
+      : null
+  )).filter(Boolean)
+  const nameKeys = asciiKeys.filter((key) => (
+    isIdentityNameKey(key, schemaFields)
+    && !isAssocRelationField(key, schemaFields)
+    && !isNameRelationField(key, schemaFields)
+  ))
+  const scalar = nameKeys.map((key) => textFilterPart(key, vals, { ...term, textPass: 'contains' })).filter(Boolean)
+  return [...nested, ...scalar]
+}
+
+export function termFilterPart(term, today, schemaFields) {
   const keys = list(term.keys)
   const vals = list(term.values)
-  const asciiKeys = [...new Set(keys.filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item)))]
+  const asciiKeys = asciiKeysForTerm(keys, schemaFields)
+  const wantsContains = (term && (term.text === true || term.textPass === 'contains'))
+    || shouldContainNameTerm(asciiKeys.length ? asciiKeys : keys, vals, term, schemaFields)
+  const nameParts = wantsContains ? nameContainsFilterParts(asciiKeys, vals, term, schemaFields) : []
+  if (nameParts.length === 1) return nameParts[0]
+  if (nameParts.length > 1) return { $or: nameParts }
   if (term && term.text === true) {
     return textFilterPart(asciiKeys[0], vals, term)
   }
@@ -496,18 +677,30 @@ function schemaEnumsForKey(schemaFields, key) {
 
 function rowFieldRaw(row, key) {
   const fields = row && row.fields && typeof row.fields === 'object' ? row.fields : {}
-  if (fields[key] != null && fields[key] !== '') return String(fields[key])
-  if (row && row[key] != null && row[key] !== '') return String(row[key])
+  if (fields[key] != null && fields[key] !== '') {
+    if (typeof fields[key] === 'object') {
+      const label = fields[key].name || fields[key].title || fields[key].label
+      if (label != null && String(label).trim()) return String(label).trim()
+    } else return String(fields[key])
+  }
+  if (row && row[key] != null && row[key] !== '') {
+    if (typeof row[key] === 'object') {
+      const label = row[key].name || row[key].title || row[key].label
+      if (label != null && String(label).trim()) return String(label).trim()
+    } else return String(row[key])
+  }
   return ''
 }
 
-function valueMatchesTerm(raw, vals, enums) {
+function valueMatchesTerm(raw, vals, enums, contains) {
   const text = String(raw || '').trim()
   if (!text) return false
+  const folded = text.toLowerCase()
   for (const v of vals) {
     const want = String(v || '').trim()
     if (!want) continue
     if (text === want) return true
+    if (contains && folded.includes(want.toLowerCase())) return true
     if (!enums) continue
     for (const [code, label] of Object.entries(enums)) {
       const labelText = String(label || '').trim()
@@ -525,10 +718,13 @@ function rowMatchesTerm(row, term, schemaFields) {
   const keys = list(term.keys)
   const vals = list(term.values)
   if (!keys.length || !vals.length) return true
+  const asciiKeys = keys.filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
+  const contains = term.textPass === 'contains'
+    || shouldContainNameTerm(asciiKeys.length ? asciiKeys : keys, vals, term, schemaFields)
   const hit = keys.some((key) => {
     const enums = schemaEnumsForKey(schemaFields, key)
     const raw = rowFieldRaw(row, key)
-    return valueMatchesTerm(raw, vals, enums)
+    return valueMatchesTerm(raw, vals, enums, contains)
   })
   return term.not ? !hit : hit
 }

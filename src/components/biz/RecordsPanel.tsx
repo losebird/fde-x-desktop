@@ -3,6 +3,7 @@ import { ArrowLeft, Bot, CircleAlert, Plus, Search } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Empty } from '@/components/ui'
 import { BizPreviewDrawer } from '@/components/biz/BizPreviewDrawer'
+import { PreviewChangesList } from '@/components/biz/PreviewChangesList'
 import {
   cloneSheetRows,
   formatSheetCellDisplayValue,
@@ -12,10 +13,13 @@ import {
   normalizeSheetRows,
   pickFilledSheetInput,
   pickSheetRowPatch,
+  buildPreviewSummary,
   sheetHasConfirmablePreviewChanges,
   sheetRowBusinessNo,
   sheetRowKey,
   sheetRowRenderKey,
+  writeTargetNo,
+  writeTargetRow,
   type SheetRow,
 } from '@/lib/biz-sheet-display'
 import { ContextChips } from '@/components/ai/ContextChips'
@@ -55,8 +59,9 @@ import {
 } from '@/lib/biz-list-query'
 import {
   resolveConnectedKind,
-  isNewSpokenUtterance,
+  isNewOfficialRound,
   shouldSkipCoveringPending,
+  unresolvedKindBlocksOfficial,
   type ConnectedKindRow,
 } from '@/lib/connected-kind'
 import {
@@ -67,10 +72,8 @@ import {
 import {
   historyIdForSheet,
   historyMissHint,
-  incomingSheetIsIdentifiedLookup,
   mergeHistorySurfaces,
   selectSessionHistorySurfaces,
-  shouldBlockIncomingSheetForHistoryPin,
 } from '@/lib/biz-records-history'
 import {
   clearBizPendingSheet,
@@ -80,19 +83,26 @@ import {
   peekBizPendingSheet,
   rememberBizPendingSheet,
   sheetBelongsToSession,
+  sheetForLiveSession,
 } from '@/lib/biz-session-sheet'
-import { shouldStageRoundEndPending } from '@/lib/biz-pending-stage'
+import {
+  shouldApplyPendingSheetSource,
+  shouldStageRoundEndPending,
+  writePendingHeadline,
+  writePendingViewFromSheet,
+  writeResultAffordance,
+} from '@/lib/biz-pending-stage'
 import { shouldFocusBizRecordsForPending } from '@/lib/biz-records-auto-open'
 import {
   resolveHitSetPickCancelSessionId,
-  shouldCancelDshAfterHitSetPick,
   shouldAbortLeftoverAskForWritePreview,
 } from '@/lib/biz-hit-set-pick-cancel'
 import { useEvents } from '@/lib/events'
-import { shouldOpenWriteConfirm } from '@/lib/write-confirm.ts'
+import { shouldOpenWriteConfirm, stampWriteTokenUsed, writeTokenLive } from '@/lib/write-confirm.ts'
 
 const PAGE_SIZE = 10
 const ROW_DISPLAY_INDEX_LABEL = '序号'
+const PENDING_HYDRATE_MS = 2000
 
 function sheetHitState(sheet: Record<string, unknown> | null | undefined) {
   const state = String(sheet?.hitTotalState || '')
@@ -151,6 +161,9 @@ type PendingSurface = {
   previewId?: string
   rows: number
   canWrite?: boolean
+  listed?: boolean
+  blockConfirm?: boolean
+  hasPicks?: boolean
   source?: string
   sessionId?: string
   at: number
@@ -259,22 +272,14 @@ function isApproveAlreadyAtTarget(sheet: Record<string, unknown>) {
 function shouldOpenWritePreviewDrawer(
   sheet: Record<string, unknown>,
   _historyPinned: boolean,
+  tokenIndex?: Record<string, string> | null,
 ) {
   return shouldOpenWriteConfirm(sheet, {
     dismissed: isBizPreviewDismissed(sheet),
     hasChanges: sheetHasConfirmablePreviewChanges(sheet),
     alreadyAtTarget: isApproveAlreadyAtTarget(sheet),
+    tokenIndex,
   })
-}
-
-function writeTokenBlocksDrawer(
-  sheet: Record<string, unknown>,
-  index: Record<string, string> | null,
-): boolean {
-  const id = String(sheet.preview_id || sheet.previewId || '').trim()
-  if (!id || !index || !Object.prototype.hasOwnProperty.call(index, id)) return false
-  const status = String(index[id] || '')
-  return status === 'used' || status === 'expired' || status === 'absent'
 }
 
 function isSingleRowWritePreview(sheet: Record<string, unknown>) {
@@ -293,6 +298,46 @@ function sameSheetRowKeySet(a: SheetRow[], b: SheetRow[]) {
 
 function incomingSheetRowCount(sheet: Record<string, unknown>) {
   return Array.isArray(sheet.rows) ? sheet.rows.length : 0
+}
+
+function sheetRowWriteLookup(row: SheetRow): { field: string, value: string } | undefined {
+  const lookup = row.lookup
+  if (!lookup || typeof lookup !== 'object' || Array.isArray(lookup)) return undefined
+  const rec = lookup as { field?: unknown, value?: unknown }
+  const field = String(rec.field || '').trim()
+  if (!field || rec.value == null) return undefined
+  const value = String(rec.value).trim()
+  if (!value) return undefined
+  return { field, value }
+}
+
+function rowWriteIdentityExtra(row: SheetRow): Record<string, unknown> {
+  const lookup = sheetRowWriteLookup(row)
+  return {
+    no: sheetRowBusinessNo(row),
+    ...(lookup ? { lookup } : {}),
+  }
+}
+
+function pendingSheetNeedsHydrateHint(
+  pending: Record<string, unknown>,
+  displayed: Record<string, unknown> | null | undefined,
+): boolean {
+  if (incomingSheetRowCount(pending) <= 0) return false
+  if (!displayed || incomingSheetRowCount(displayed) <= 0) return true
+  const pendingId = sheetPreviewId(pending)
+  const displayedId = sheetPreviewId(displayed)
+  if (pendingId && displayedId) return pendingId !== displayedId
+  const pendingFp = sheetRowsFingerprint(pending)
+  const displayedFp = sheetRowsFingerprint(displayed)
+  if (pendingFp && displayedFp) return pendingFp !== displayedFp
+  const pendingKind = String(pending.kind || '').trim()
+  const displayedKind = String(displayed.kind || '').trim()
+  if (pendingKind && displayedKind && pendingKind !== displayedKind) return true
+  const pendingAction = String(pending.action || '').trim()
+  const displayedAction = String(displayed.action || '').trim()
+  if (pendingAction && displayedAction && pendingAction !== displayedAction) return true
+  return false
 }
 
 function listRestoreDiffersFromIncoming(restore: ListRestoreSnapshot, incoming: Record<string, unknown>) {
@@ -416,6 +461,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const liveSessionIdRef = useRef('')
   const cancelledWritePreviewRef = useRef('')
   const operationKindViewRef = useRef('')
+  const kindChipPinnedRef = useRef('')
   const displayedSheetRef = useRef<Record<string, unknown> | null>(null)
   const writePreviewRef = useRef<Record<string, string> | null>(null)
   liveSessionIdRef.current = String(activeAiSessionId || '').trim()
@@ -810,13 +856,12 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       : (historySessionIdRef.current || undefined)
     if (nextSessionId) historySessionIdRef.current = nextSessionId
     setPending({
-      kind: String(restoreSheet.kind || ''),
-      action: String(restoreSheet.action || ''),
-      previewId: sheetPreviewId(restoreSheet) || undefined,
-      rows: nextRows.length,
-      canWrite: Boolean(restoreSheet.canWrite ?? restoreSheet.can_write),
+      ...writePendingViewFromSheet(restoreSheet, {
+        sessionId: nextSessionId,
+        at: Date.now(),
+        tokenIndex: writePreviewRef.current,
+      }),
       source: 'ai',
-      sessionId: nextSessionId,
       at: Date.now(),
     })
     return true
@@ -936,13 +981,12 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (nextSessionId) historySessionIdRef.current = nextSessionId
     if (!keepPending) {
       setPending({
-        kind: String(sheet.kind || ''),
-        action: String(sheet.action || ''),
-        previewId: sheetPreviewId(sheet) || undefined,
-        rows: normalizedRows.length,
-        canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+        ...writePendingViewFromSheet(appliedSheet, {
+          sessionId: nextSessionId,
+          at: typeof surfacedAt === 'number' ? surfacedAt : Date.now(),
+          tokenIndex: writePreviewRef.current,
+        }),
         source: 'ai',
-        sessionId: nextSessionId,
         at: typeof surfacedAt === 'number' ? surfacedAt : Date.now(),
       })
     }
@@ -993,7 +1037,6 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
   const abortLeftoverAskTurn = (sheet: Record<string, unknown>) => {
     const previewId = sheetPreviewId(sheet)
-    const action = String(sheet.action || '')
     if (!shouldAbortLeftoverAskForWritePreview(sheet)) return
     if (cancelledWritePreviewRef.current === previewId) return
     const cancelSessionId = resolveHitSetPickCancelSessionId({
@@ -1011,55 +1054,52 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (!shouldStageRoundEndPending(sheet)) return false
     const connected = kindCatalog
     let next = sheet
-    if (isNewSpokenUtterance(displayedSheetRef.current, next)) {
+    const displayed = displayedSheetRef.current
+    const newAuthority = isNewOfficialRound(displayed, next)
+    if (newAuthority) {
       operationKindViewRef.current = ''
+      kindChipPinnedRef.current = ''
+      historyPinnedSurfaceIdRef.current = ''
       appliedSheetFpRef.current = ''
     }
+    if (unresolvedKindBlocksOfficial(next, connected, newAuthority)) return false
     if (connected.length) {
-      const incomingKind = String(sheet.kind || '').trim()
+      const incomingKind = String(next.kind || '').trim()
       const resolved = resolveConnectedKind(incomingKind, connected)
-      if (!resolved) {
-        const gatedWrite = isWritePreviewSheet(sheet) && incomingSheetRowCount(sheet) > 0
-        if (!gatedWrite) return false
-      } else if (resolved !== incomingKind) {
-        next = { ...sheet, kind: resolved }
-      }
+      if (resolved && resolved !== incomingKind) next = { ...next, kind: resolved }
     }
     const liveSid = String(liveSessionIdRef.current || '').trim()
-    if (liveSid && !sheetBelongsToSession(next, liveSid)) return false
+    const admitted = sheetForLiveSession(next, liveSid, newAuthority)
+    if (!admitted) return false
+    next = admitted
     const rowCount = incomingSheetRowCount(next)
     if (!rowCount && !next.kind) return false
-    if (shouldSkipCoveringPending(displayedSheetRef.current, next)) return false
-    if (shouldRejectIncomingCovering(next, displayedRowCountRef.current, displayedSheetRef.current, connected)) return false
-    if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId, next)) {
-      return false
+    if (!newAuthority) {
+      if (shouldSkipCoveringPending(displayedSheetRef.current, next)) return false
+      if (shouldRejectIncomingCovering(next, displayedRowCountRef.current, displayedSheetRef.current, connected)) return false
+      if (shouldHoldSideKindView(
+        operationKindViewRef.current,
+        next,
+        displayedSheetRef.current,
+        isWritePreviewSheet(next),
+        kindChipPinnedRef.current,
+      )) {
+        return false
+      }
     }
     const incomingKind = String(next.kind || '').trim()
-    if (shouldHoldSideKindView(
-      operationKindViewRef.current,
-      next,
-      displayedSheetRef.current,
-      isWritePreviewSheet(next),
-    )) {
-      return false
-    }
     if (incomingKind) operationKindViewRef.current = incomingKind
     const previewId = sheetPreviewId(next)
     const action = String(next.action || '')
     const isWritePreview = Boolean(previewId && !isBizListQueryAction(action))
 
     if (isWritePreview && isBizPreviewDismissed(next)) {
+      setDrawer(null)
       return true
     }
 
-    const pinnedSurfaceId = String(historyPinnedSurfaceIdRef.current || '').trim()
-    if (incomingSheetIsIdentifiedLookup(next) && String(surfaceId || '').trim() !== pinnedSurfaceId) {
-      historyPinnedSurfaceIdRef.current = ''
-    }
-
-    if (isWritePreview) abortLeftoverAskTurn(next)
-
     if (isWritePreview) ensureListRestoreBeforeWritePreview(next)
+    abortLeftoverAskTurn(next)
 
     const incomingQueryFp = listQueryFingerprint(next)
     if (incomingQueryFp && incomingQueryFp !== activeListQueryFpRef.current) {
@@ -1076,7 +1116,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         setListSheetMeta(appliedSheet)
         displayedSheetRef.current = appliedSheet
       }
-      if (shouldOpenWritePreviewDrawer(next, historyPinned) && !writeTokenBlocksDrawer(next, writePreviewRef.current)) {
+      if (shouldOpenWritePreviewDrawer(next, historyPinned, writePreviewRef.current)) {
         setDrawer((prev) => {
           const prevId = prev?.previewId || ''
           const prevAction = String(prev?.sheet?.action || '')
@@ -1087,22 +1127,23 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
             canWrite: Boolean(next.canWrite ?? next.can_write),
           }
         })
-      } else if (previewId) {
+      } else if (isBizPreviewDismissed(next) || !writeTokenLive(next, writePreviewRef.current)) {
         setDrawer(null)
       }
       return rowCount > 0 || Boolean(next.kind)
     }
     const conn = connections.find((c) => c.id === connectionId) || connections[0]
-    rememberBizPendingSheet(next)
     maybeSaveListRestore(next)
     applySheet(next, conn?.name || '连接器', surfaceId)
-    if (!shouldOpenWritePreviewDrawer(next, historyPinned) || writeTokenBlocksDrawer(next, writePreviewRef.current)) setDrawer(null)
-    else {
+    rememberBizPendingSheet(next)
+    if (shouldOpenWritePreviewDrawer(next, historyPinned, writePreviewRef.current)) {
       setDrawer({
         previewId,
         sheet: next,
         canWrite: Boolean(next.canWrite ?? next.can_write),
       })
+    } else if (isBizPreviewDismissed(next) || !writeTokenLive(next, writePreviewRef.current)) {
+      setDrawer(null)
     }
     void bindSurfaceIdIfKnown(next, surfaceId)
     return rowCount > 0 || Boolean(next.kind)
@@ -1119,7 +1160,6 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   }, [kindCatalog])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
-    if (historyPinnedSurfaceIdRef.current && !surfaceId) return false
     const sid = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
     const tryApply = (sheet: Record<string, unknown>) => {
       if (isBizPreviewDismissed(sheet)) return false
@@ -1127,20 +1167,17 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       if (!sheetBelongsToSession(sheet, sid)) return false
       return applyPendingSheet(sheet, surfaceId)
     }
-    const cached = peekBizPendingSheet(sid || undefined)
-    if (cached && !isWritePreviewSheet(cached)) tryApply(cached)
     try {
       const { sheet, writePreview } = await runtimeApi.getBizPendingSheet(undefined, sid || undefined)
       if (writePreview) writePreviewRef.current = writePreview
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (liveSid && sid && liveSid !== sid) return false
       if (!sheet || typeof sheet !== 'object') return false
-      rememberBizPendingSheet(sheet)
       if (tryApply(sheet)) return true
       if (
         sheetBelongsToSession(sheet, sid)
         && !isBizPreviewDismissed(sheet)
-        && incomingSheetRowCount(sheet) > 0
+        && pendingSheetNeedsHydrateHint(sheet, displayedSheetRef.current)
       ) {
         setStaleHint('闸里已有待确认预览，表格暂未载入。')
       }
@@ -1154,6 +1191,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     if (!runtimeReady || !workspaceCwd) return
     historyPinnedSurfaceIdRef.current = ''
     operationKindViewRef.current = ''
+    kindChipPinnedRef.current = ''
     cancelledWritePreviewRef.current = ''
     const sid = String(activeAiSessionId || '').trim()
     liveSessionIdRef.current = sid
@@ -1172,15 +1210,8 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       setSheetIdentity('')
     }
 
-    const cached = sid ? peekBizPendingSheet(sid) : null
-    if (
-      cached
-      && !isWritePreviewSheet(cached)
-      && sheetBelongsToSession(cached, sid)
-      && !isBizPreviewDismissed(cached)
-    ) {
-      applyPendingSheetRef.current(cached)
-    } else {
+    const shown = displayedSheetRef.current
+    if (!shown || !sheetBelongsToSession(shown, sid)) {
       clearDisplayedForSession()
     }
     void runtimeApi.getBizPendingSheet(undefined, sid || undefined).then(({ sheet, writePreview }) => {
@@ -1192,9 +1223,19 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         && !isBizPreviewDismissed(sheet)
         && sheetBelongsToSession(sheet, sid)
       ) {
-        rememberBizPendingSheet(sheet)
         if (applyPendingSheetRef.current(sheet)) return
-        setStaleHint('闸里已有待确认预览，表格暂未载入。')
+        if (pendingSheetNeedsHydrateHint(sheet, displayedSheetRef.current)) {
+          setStaleHint('闸里已有待确认预览，表格暂未载入。')
+        }
+        return
+      }
+      const painted = displayedSheetRef.current
+      if (
+        painted
+        && sheetBelongsToSession(painted, sid)
+        && shouldStageRoundEndPending(painted)
+        && !isBizPreviewDismissed(painted)
+      ) {
         return
       }
       if (liveSessionIdRef.current === sid) clearDisplayedForSession()
@@ -1219,7 +1260,6 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   hydrateFromPendingRef.current = hydrateFromPending
   useEffect(() => {
     if (!runtimeReady || !workspaceCwd) return
-    if (historyPinnedSurfaceIdRef.current) return
     void hydrateFromPendingRef.current()
   }, [runtimeReady, workspaceCwd])
 
@@ -1231,20 +1271,21 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     })()
   }, [activeAiSessionId, runtimeReady, surfaces, workspaceCwd])
 
+  useEffect(() => {
+    if (!runtimeReady || !workspaceCwd) return
+    const timer = window.setInterval(() => {
+      void hydrateFromPendingRef.current()
+    }, PENDING_HYDRATE_MS)
+    return () => window.clearInterval(timer)
+  }, [runtimeReady, workspaceCwd])
+
   useEvents(['biz.sheet.pending'], (event) => {
     const payload = event.payload as PendingSheetEvent
     const source = String(event.source || payload.source || '').trim()
-    if (source === 'lan-assist') return
+    if (!shouldApplyPendingSheetSource(source)) return
     if (payload.sheet && typeof payload.sheet === 'object') {
       if (!shouldStageRoundEndPending(payload.sheet as Record<string, unknown>)) return
       const incomingSurfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : undefined
-      if (shouldBlockIncomingSheetForHistoryPin(
-        historyPinnedSurfaceIdRef.current,
-        incomingSurfaceId,
-        payload.sheet as Record<string, unknown>,
-      )) {
-        return
-      }
       const sheetWithSession = payload.sheet as Record<string, unknown>
       const eventSessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : ''
       const stamped = eventSessionId && !sheetWithSession.sessionId
@@ -1253,7 +1294,6 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       if (payload.writePreview && typeof payload.writePreview === 'object') {
         writePreviewRef.current = payload.writePreview
       }
-      rememberBizPendingSheet(stamped)
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (liveSid && !sheetBelongsToSession(stamped, liveSid)) return
       if (shouldFocusBizRecordsForPending(stamped)) {
@@ -1274,7 +1314,6 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
             })
           }
           if (!surfaceId) return
-          if (shouldBlockIncomingSheetForHistoryPin(historyPinnedSurfaceIdRef.current, surfaceId, stamped)) return
           const conn = connections.find((c) => c.id === connectionId) || connections[0]
           const connName = conn?.name || '连接器'
           rememberBizSurfaceSheet(bizCwd, surfaceId, stamped, connName)
@@ -1307,9 +1346,22 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       const bindSheet = (listSheetMeta && pendingSheet)
         ? { ...pendingSheet, ...listSheetMeta }
         : (listSheetMeta || pendingSheet)
-      const waitingPick = Boolean(bindSheet && (bindSheet.ambiguous || bindSheet.listed) && !sheetPreviewId(bindSheet))
+      const waitingPick = Boolean(
+        bindSheet
+        && (bindSheet.ambiguous === true || bindSheet.listed === true)
+        && bindSheet.blockConfirm !== true
+        && !sheetPreviewId(bindSheet)
+        && !isBizListQueryAction(String(bindSheet.action || ''))
+        && action !== '新建'
+        && !isBizListQueryAction(action),
+      )
+      const previewAction = waitingPick
+        ? (String(bindSheet.action || '').trim() || action)
+        : action
+      const liveSid = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
       let previewBody: Record<string, unknown> = { ...payloadExtra }
-      if (action === '改行' && originalRow) {
+      if (waitingPick) previewBody.picked = true
+      if (previewAction === '改行' && originalRow) {
         const draft = (payloadExtra.input && typeof payloadExtra.input === 'object')
           ? payloadExtra.input as SheetRow
           : originalRow
@@ -1327,7 +1379,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
           previewBody = { ...payloadExtra, input: patch, ...(waitingPick ? { picked: true } : {}) }
         }
       }
-      if (action === '新建') {
+      if (previewAction === '新建') {
         previewBody = { ...payloadExtra, input: pickFilledSheetInput((payloadExtra.input || {}) as Record<string, unknown>) }
       }
       const hopBind: Record<string, unknown> = {}
@@ -1340,13 +1392,24 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         if (Array.isArray(bindSheet.where) && bindSheet.where.length) hopBind.where = bindSheet.where
         if (Array.isArray(bindSheet.hopWhere) && bindSheet.hopWhere.length) hopBind.hopWhere = bindSheet.hopWhere
         if (Array.isArray(bindSheet.steps) && bindSheet.steps.length) hopBind.steps = bindSheet.steps
+        if (waitingPick) {
+          if (bindSheet.patch && typeof bindSheet.patch === 'object' && !Array.isArray(bindSheet.patch)
+            && Object.keys(bindSheet.patch as object).length) {
+            hopBind.input = bindSheet.patch
+          }
+          const boundTo = String(bindSheet.to || '').trim()
+          if (boundTo) hopBind.to = boundTo
+        }
       }
       const data = await runtimeApi.bizPreview({
         kind,
-        action,
+        action: previewAction,
         system,
         connectionId,
-        speech: `${action}${kind}`,
+        speech: waitingPick
+          ? String(bindSheet.speech || hopBind.speech || `${previewAction}${kind}`)
+          : `${previewAction}${kind}`,
+        ...(liveSid ? { sessionId: liveSid } : {}),
         ...hopBind,
         ...previewBody,
       })
@@ -1360,10 +1423,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         : rawSheet
       const previewId = sheetPreviewId(sheet)
       const canWrite = Boolean(sheet.canWrite ?? sheet.can_write ?? data.canWrite)
-      if (!isBizListQueryAction(action) && previewId) ensureListRestoreBeforeWritePreview(sheet)
+      if (!isBizListQueryAction(previewAction) && previewId) ensureListRestoreBeforeWritePreview(sheet)
       maybeSaveListRestore(sheet)
       applySheet(sheet, conn?.name || '连接器')
-      if (!isBizListQueryAction(action) && previewId) {
+      if (!isBizListQueryAction(previewAction) && previewId) {
         clearBizPreviewDismissed(previewId)
         setDrawer({
           previewId,
@@ -1371,15 +1434,13 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
           canWrite,
           gateReason: typeof data.hint === 'string' ? data.hint : undefined,
           originalRow,
-          patch: action === '改行' && previewBody.input && typeof previewBody.input === 'object'
+          patch: previewAction === '改行' && previewBody.input && typeof previewBody.input === 'object'
             ? previewBody.input as Record<string, unknown>
             : undefined,
         })
       }
-      if (shouldCancelDshAfterHitSetPick(waitingPick, action, previewId)) {
-        abortLeftoverAskTurn(sheet)
-      }
-      if (action === '新建') setCreateDraft(null)
+      abortLeftoverAskTurn(sheet)
+      if (previewAction === '新建') setCreateDraft(null)
       void loadSurfaces()
     } catch (cause) {
       setError(cause instanceof RuntimeApiError ? cause.message : cause instanceof Error ? cause.message : '预览失败')
@@ -1429,16 +1490,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   }, [resolveSurfaceSheet])
 
   const loadSurface = useCallback(async (surface: BizSurfaceRecord) => {
-    const openPreviewId = drawer?.previewId
-      || sheetPreviewId(peekActivePending() || {})
-    if (openPreviewId) {
-      dismissBizPreviewId(openPreviewId)
-      void runtimeApi.bizDismissPreview(openPreviewId).catch(() => undefined)
-    }
     setHistorySurfaceId(surface.id)
     historyPinnedSurfaceIdRef.current = surface.id
     operationKindViewRef.current = surface.kind || ''
-    setDrawer(null)
+    kindChipPinnedRef.current = surface.kind || ''
     commitListRestore(null)
     appliedSheetFpRef.current = ''
     setSheetIdentity('')
@@ -1458,17 +1513,19 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       setColumns(Array.isArray(surface.columns) ? surface.columns as SheetColumn[] : [])
       setListSheetMeta({ kind: surface.kind, action: surface.action, rows: [] })
       setPending({
-        kind: surface.kind,
-        action: surface.action,
-        previewId: surface.previewId || undefined,
-        rows: 0,
+        ...writePendingViewFromSheet({
+          kind: surface.kind,
+          action: surface.action,
+          preview_id: surface.previewId || '',
+          rows: [],
+        }, { sessionId: surface.sessionId, at: surface.createdAt, tokenIndex: writePreviewRef.current }),
         source: 'ai',
-        sessionId: surface.sessionId || undefined,
         at: surface.createdAt,
       })
       setStaleHint(historyMissHint({
         scope: surfaceHistoryLabel(surface),
       }))
+      setDrawer(null)
       return
     }
 
@@ -1484,14 +1541,16 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     const action = String(sheet.action || surface.action || '')
     const writePreviewId = surface.previewId || sheetPreviewId(sheet)
     const previewSheet = writePreviewId ? { ...sheet, previewId: writePreviewId, action } : sheet
-    if (shouldOpenWritePreviewDrawer(previewSheet, true)) {
+    if (shouldOpenWritePreviewDrawer(previewSheet, true, writePreviewRef.current)) {
       setDrawer({
         previewId: writePreviewId,
         sheet,
         canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
       })
+    } else {
+      setDrawer(null)
     }
-  }, [applySheet, commitListRestore, drawer?.previewId, resolveSurfaceSheet, surfaceHistoryLabel])
+  }, [applySheet, commitListRestore, resolveSurfaceSheet, surfaceHistoryLabel])
 
   const selectKind = useCallback((nextKind: string, nextRelation?: string) => {
     const pendingSheet = peekActivePending()
@@ -1512,6 +1571,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     setSelectedRow(null)
     setSelectedRowKey('')
     operationKindViewRef.current = canonical
+    kindChipPinnedRef.current = canonical
     historyPinnedSurfaceIdRef.current = ''
     const anchor = anchorForKind
     const sessionId = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
@@ -1617,6 +1677,29 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
     const mainRel = sheetPrimaryRelation(anchor)
     const peerChip = Boolean(String(wantedRelation || '').trim() && String(wantedRelation || '').trim() !== mainRel)
+    const officialKind = resolveConnectedKind(String(listSheetMeta?.kind || ''), kindCatalog)
+      || String(listSheetMeta?.kind || '')
+    const sideView = Boolean(canonical && officialKind && !operationKindMatches(canonical, officialKind, kindCatalog))
+    const applyProjected = (sheet: Record<string, unknown>) => {
+      applySheet(sheet, '连接器', undefined, undefined, sideView)
+    }
+    const restoreOfficialChip = () => {
+      const back = displayedKind || officialKind
+      setKind(back)
+      setKindRelation('')
+      operationKindViewRef.current = back
+      kindChipPinnedRef.current = back
+    }
+    const projectFromPublished = () => {
+      const projected = materializeOperationKindSheet(anchor, canonical, kindCatalog, wantedRelation)
+      const rows = Array.isArray(projected?.rows) ? projected.rows : []
+      const hasSnapshot = Boolean(projected && (rows.length > 0 || projected.querySettled === true || String(projected.hitTotalState || '') === 'known'))
+      if (hasSnapshot && projected) {
+        applyProjected(projected)
+        return true
+      }
+      return false
+    }
     const finishSelect = async () => {
       if (sessionId) {
         try {
@@ -1628,13 +1711,15 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
           if (data.sheet && typeof data.sheet === 'object') {
             const focusedKind = String(data.sheet.kind || '').trim()
             if (operationKindMatches(canonical, focusedKind, kindCatalog)) {
-              applySheet(data.sheet, '连接器')
+              applyProjected(data.sheet)
               return
             }
           }
         } catch {
-          /* keep the published sheet */
+          /* project the published sheet */
         }
+        if (projectFromPublished()) return
+        restoreOfficialChip()
         return
       }
       if (peerChip) return
@@ -1783,7 +1868,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       }
       const sheetChanges = Array.isArray(writeSheet.changes) ? writeSheet.changes : []
       const sheetColumns = Array.isArray(writeSheet.columns) ? writeSheet.columns : []
-      await runtimeApi.bizWrite(previewId, undefined, sheetWorkspace, {
+      const written = await runtimeApi.bizWrite(previewId, undefined, sheetWorkspace, {
         source: 'workstation',
         changes: sheetChanges,
         columns: sheetColumns,
@@ -1793,23 +1878,43 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
         sessionId: String(writeSheet.sessionId || drawer.sheet.sessionId || ''),
         speech: String(writeSheet.speech || drawer.sheet.speech || ''),
       })
+      if (written && written.ok === false) {
+        const hint = typeof written.hint === 'string' && written.hint.trim()
+          ? written.hint
+          : (typeof written.speak === 'string' && written.speak.trim()
+            ? written.speak
+            : '过账失败，请重新预览后再试')
+        setError(hint)
+        return
+      }
       clearBizPreviewDismissed(drawer.previewId)
       clearBizPendingSheet(String(activeAiSessionId || historySessionIdRef.current || '').trim() || undefined)
-      setNotice('已过账，表格保留本次预览行供核对')
+      const usedId = String(previewId || drawer.previewId || '').trim()
+      if (usedId) {
+        writePreviewRef.current = { ...(writePreviewRef.current || {}), [usedId]: 'used' }
+      }
+      const usedSheet = stampWriteTokenUsed(writeSheet)
+      setListSheetMeta((prev) => {
+        if (!prev) return usedSheet
+        const prevId = sheetPreviewId(prev)
+        if (prevId && prevId === usedId) return { ...prev, writeToken: 'used', write_token: 'used' }
+        return prev
+      })
       setDrawer(null)
       commitListRestore(null)
+      historyPinnedSurfaceIdRef.current = ''
+      const listed = written && written.sheet && typeof written.sheet === 'object'
+        ? written.sheet as Record<string, unknown>
+        : null
+      if (listed) applyPendingSheet(listed)
+      else void hydrateFromPending()
+      const verifyMiss = written && written.verified === false
+      setNotice(verifyMiss
+        ? (typeof written.hint === 'string' && written.hint.trim() ? written.hint : '业务已收，回读对不上。')
+        : '已过账')
       void loadSurfaces()
     } catch (cause) {
-      const failedPreviewId = drawer?.previewId
       setError(formatBizPanelError(cause, '过账失败，请重新预览后再试'))
-      if (failedPreviewId) {
-        dismissBizPreviewId(failedPreviewId)
-        clearBizPendingSheet(String(activeAiSessionId || historySessionIdRef.current || '').trim() || undefined)
-        setDrawer(null)
-        displayBeforeWriteRef.current = null
-        restoreRecordsList()
-        void runtimeApi.bizDismissPreview(failedPreviewId).catch(() => undefined)
-      }
     } finally {
       setLoading(false)
     }
@@ -1861,11 +1966,26 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     return <Empty title="先在设置登记业务连接器" hint="登记后可在此对 AI 浮现的业务行做过账" />
   }
 
-  const pendingText = pending
-    ? isBizListQueryAction(pending.action)
-      ? `AI 刚查了 ${pending.kind} · ${pending.rows} 行${pending.sessionId ? ` · 会话 ${pending.sessionId.slice(0, 8)}` : ''} · ${formatSurfaceTime(pending.at)}`
-      : `AI 拟改 ${pending.kind} ${pending.rows} 行 · 待确认`
+  const officialSheet = listSheetMeta || peekActivePending()
+  const officialView = officialSheet
+    ? writePendingViewFromSheet(officialSheet, {
+      sessionId: pending?.sessionId,
+      at: pending?.at,
+      tokenIndex: writePreviewRef.current,
+    })
+    : pending
+  const pendingText = officialView
+    ? (
+      isBizListQueryAction(String(officialView.action || ''))
+        ? `${writePendingHeadline(officialView)} · ${formatSurfaceTime(Number(officialView.at) || pending?.at || Date.now())}`
+        : writePendingHeadline(officialView)
+    )
     : ''
+  const sheetCellAffordance = officialView ? writeResultAffordance(officialView) : 'lookup'
+  const showSheetCells = Boolean(!drawer && officialSheet && (sheetCellAffordance === 'pick-cells' || sheetCellAffordance === 'unbound'))
+  const sheetCellChanges = showSheetCells && officialSheet
+    ? buildPreviewSummary(officialSheet, { columns }).changes
+    : []
 
   if (!hasSurfacedData) {
     return (
@@ -2010,6 +2130,32 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
             {sourceLabel && <span>来源：{sourceLabel}</span>}
           </div>
         )}
+        {sheetCellChanges.length > 0 && officialSheet && (
+          <div className="px-3 py-2 border-b border-line">
+            <PreviewChangesList
+              changes={sheetCellChanges}
+              onPick={(field, id) => {
+                const action = String(officialSheet.action || pending?.action || '')
+                const input = spokenCellInput(officialSheet, { [field]: id })
+                const no = writeTargetNo(officialSheet, selectedRow)
+                const primary = writeTargetRow(officialSheet, selectedRow)
+                if (!no || !primary) {
+                  setError('先点一行再点格')
+                  return
+                }
+                if (action === '改行') {
+                  void runPreview(action, {
+                    no,
+                    input: { ...primary, ...input },
+                    originalRow: primary,
+                  })
+                  return
+                }
+                void runPreview(action || '新建', { input, no })
+              }}
+            />
+          </div>
+        )}
         <div className="overflow-x-auto overflow-y-auto max-h-[min(70vh,560px)] [-webkit-overflow-scrolling:touch]">
           <table className="w-full min-w-max border-separate border-spacing-0 text-xs text-ink">
             <thead>
@@ -2092,16 +2238,13 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
                           disabled={!lanReady || loading}
                           onClick={(e) => {
                             e.stopPropagation()
-                            const recordId = row.fields && typeof row.fields === 'object' && row.fields.id != null
-                              ? String(row.fields.id)
-                              : ''
                             const extra = rowAction === '改行'
                               ? {
-                                no: recordId || sheetRowBusinessNo(row),
+                                ...rowWriteIdentityExtra(row),
                                 input: pickSheetRowPatch(row, draftRow, tableColumns),
                                 originalRow: row,
                               }
-                              : { no: recordId || sheetRowBusinessNo(row) }
+                              : rowWriteIdentityExtra(row)
                             void runPreview(rowAction, extra)
                           }}
                         >
@@ -2180,16 +2323,21 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
           onPick={(field, id) => {
             const action = String(drawer.sheet.action || '')
             const input = spokenCellInput(drawer.sheet, { [field]: id })
-            const primary = normalizeSheetRows(drawer.sheet.rows)[0]
-            if (action === '改行' && primary) {
+            const no = writeTargetNo(drawer.sheet, selectedRow)
+            const primary = writeTargetRow(drawer.sheet, selectedRow)
+            if (!no || !primary) {
+              setError('先点一行再点格')
+              return
+            }
+            if (action === '改行') {
               void runPreview(action, {
-                no: sheetRowBusinessNo(primary) || String(drawer.sheet.no || ''),
+                no,
                 input: { ...primary, ...input },
                 originalRow: primary,
               })
               return
             }
-            void runPreview(action || '新建', { input })
+            void runPreview(action || '新建', { input, no })
           }}
         />
       )}

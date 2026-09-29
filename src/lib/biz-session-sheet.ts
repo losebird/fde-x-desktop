@@ -1,8 +1,6 @@
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { rememberBizKindListSheet } from '@/lib/biz-kind-list-cache'
 import { isFailedRoundEndSheet } from '@/lib/biz-pending-stage'
-import { shouldSkipCoveringPending } from './connected-kind.ts'
-
 const GLOBAL_PENDING_KEY = ''
 
 /** In-memory pending preview sheets keyed by AI session (not persisted). */
@@ -48,16 +46,7 @@ function sheetSessionKey(sheet: Record<string, unknown>): string {
   return sid || GLOBAL_PENDING_KEY
 }
 
-/** Named session only hydrates a sheet stamped with that sessionId. */
-export function sheetBelongsToSession(
-  sheet: Record<string, unknown> | null | undefined,
-  sessionId?: string | null,
-): boolean {
-  const sid = String(sessionId || '').trim()
-  if (!sid) return true
-  if (!sheet || typeof sheet !== 'object') return false
-  return String(sheet.sessionId || '').trim() === sid
-}
+export { sheetBelongsToSession, sheetForLiveSession } from './sheet-session.ts'
 
 export function sheetPreviewIdFromRecord(sheet: Record<string, unknown>) {
   const id = sheet.preview_id ?? sheet.previewId
@@ -94,18 +83,7 @@ export function rememberBizPendingSheet(sheet: Record<string, unknown>) {
     const ws = loadCurrentWorkspaceCwd()
     if (ws.ok) rememberBizKindListSheet(ws.cwd, sheet)
   }
-  const key = sheetSessionKey(sheet)
-  const prev = pendingBySession.get(key)?.sheet ?? null
-  const prevRows = Array.isArray(prev?.rows) ? prev.rows : []
-  if (shouldSkipCoveringPending(prev, sheet)) return
-  if (
-    String(sheet.action || '') === '现查'
-    && Array.isArray(sheet.rows)
-    && sheet.rows.length === 0
-    && prevRows.length > 0
-    && sheet.querySettled !== true
-  ) return
-  pendingBySession.set(key, { sheet, at: Date.now() })
+  pendingBySession.set(sheetSessionKey(sheet), { sheet, at: Date.now() })
 }
 
 export function peekBizPendingSheet(sessionId?: string | null): Record<string, unknown> | null {

@@ -30,12 +30,31 @@ describe('biz surfaces and live execute', () => {
     assert.doesNotMatch(source, /\/catalog',\s*\{\s*search:\s*\{\s*sessionId/)
   })
 
+  test('ui preview stamps source ui and does not emit official pending', () => {
+    const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
+    const previewFn = source.slice(source.indexOf("url.pathname === '/api/v1/biz/preview'"))
+    const previewBlock = previewFn.slice(0, previewFn.indexOf("url.pathname === '/api/v1/biz/catalog'"))
+    assert.match(previewBlock, /source: 'ui'/)
+    assert.match(previewBlock, /published: false/)
+    assert.match(previewBlock, /preview.published === true/)
+    assert.doesNotMatch(previewBlock, /emitBizSheetPending/)
+    assert.doesNotMatch(previewBlock, /emitEvent/)
+    assert.match(previewBlock, /recordSurfaceFromPreview\(/)
+    const recorder = source.slice(source.indexOf('function recordSurfaceFromPreview'))
+    const recorderBlock = recorder.slice(0, recorder.indexOf('function resolveBizWorkspace'))
+    assert.doesNotMatch(recorderBlock, /emitBizSheetPending/)
+    assert.doesNotMatch(recorderBlock, /emitEvent/)
+  })
+
   test('biz pending-sheet serves official or last handed, not hall process', () => {
     const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
     assert.match(source, /\/api\/v1\/biz\/pending-sheet/)
     assert.match(source, /officialRoundSheet/)
-    assert.match(source, /sheetForOfficialGet/)
+    assert.match(source, /sheetForOfficialGet\(handed, querySessionId\)/)
+    assert.match(source, /body.sessionId/)
     assert.doesNotMatch(source, /sheetForPendingGet\(/)
+    assert.match(source, /if \(next\) handed = next/)
+    assert.doesNotMatch(source, /handed = next \|\| null/)
   })
 
   test('biz write and dismiss map lan-assist errors without IM copy', () => {
@@ -47,13 +66,15 @@ describe('biz surfaces and live execute', () => {
     assert.match(source, /biz_write_failed|bizWriteFailureMessage/)
     assert.match(source, /writeSource !== 'workstation'/)
     assert.match(source, /source: writeSource/)
+    assert.match(source, /if \(written && written.ok === false\)/)
+    assert.match(source, /sendJson\(response, 200, \{ data: written/)
     assert.doesNotMatch(source, /lanAssist\('\/send'/)
   })
 
   test('commitWrite rejects model path without workstation source', () => {
     const gate = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/gate.js'), 'utf8')
     assert.match(gate, /source !== 'workstation'/)
-    assert.match(gate, /请在右侧确认过账/)
+    assert.match(gate, /WORKSTATION_CONFIRM_HINT/)
   })
 
   test('lanAssist surfaces write line hints on HTTP 400', () => {

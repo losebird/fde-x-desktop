@@ -145,7 +145,7 @@ export function createLocalHandler(opts) {
       const body = await readJson(req)
       const result = await dispatch(secretary, path, body, followup, { translate, restoreHandoff, focusOperationKind })
       if (!QUIET_POST[path]) sse.emit('mailbox', { type: path.slice(1) || 'post' })
-      json(res, result && result.ok === false ? 400 : 200, result)
+      json(res, 200, result)
     } catch (error) {
       json(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
     }
@@ -319,7 +319,7 @@ export async function dispatch(secretary, path, body, followup, extra) {
     case '/preview':
       if (b.kind || b.no || b.action) {
         return typeof secretary.previewBiz === 'function'
-          ? secretary.previewBiz(b)
+          ? secretary.previewBiz({ ...b, workstation: true })
           : { ok: false, error: 'NO_CONNECTOR', hint: '没连业务，不能装成已过账。' }
       }
       return secretary.previewWrite(letterId(b))

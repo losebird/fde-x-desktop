@@ -123,15 +123,15 @@ export function speakLookup(ref, found) {
     const totalLine = String((found && found.hitTotalState) || '').trim()
       ? speakObjectSetTotal(found, n)
       : `最近一页 ${n} 条。`
-    return `${label}${totalLine}第一张 ${first.no || ''}，状态 ${first.status || '未知'}。`
+    return withMineFootnote(`${label}${totalLine}第一张 ${first.no || ''}，状态 ${first.status || '未知'}。`, found)
   }
   if (found.ambiguous) {
     const nos = ((found.matches || []).map((item) => item.no).filter(Boolean)).slice(0, 5)
-    return nos.length
+    const body = nos.length
       ? `${label}对上${found.matches.length}条：${nos.join('、')}。回一张单号再查。`
       : `${label}对上多条。回一张单号再查。`
+    return withMineFootnote(body, found)
   }
-  if (found.mine === false) return `${label}不在你名下。这台号看不见明细。`
   const status = String(found.status || '').trim()
   const via = speakVia(found)
   const detail = speakFields(found.fields)
@@ -139,10 +139,19 @@ export function speakLookup(ref, found) {
   const totalPrefix = String((found && found.hitTotalState) || '').trim()
     ? speakObjectSetTotal(found, pageRows)
     : ''
-  if (/已过|已过账|已审|done|posted/i.test(status)) return `${label}${totalPrefix}已经过了。${detail}${via}`
-  if (/待审|待办|pending|open/i.test(status)) return `${label}${totalPrefix}待审。${detail}${via}`
-  if (totalPrefix) return `${label}${totalPrefix}${detail}${via}`
-  return `${label}现在是${status || '未知'}。${detail}${via}`
+  let speak
+  if (/已过|已过账|已审|done|posted/i.test(status)) speak = `${label}${totalPrefix}已经过了。${detail}${via}`
+  else if (/待审|待办|pending|open/i.test(status)) speak = `${label}${totalPrefix}待审。${detail}${via}`
+  else if (totalPrefix) speak = `${label}${totalPrefix}${detail}${via}`
+  else speak = `${label}现在是${status || '未知'}。${detail}${via}`
+  return withMineFootnote(speak, found)
+}
+
+function withMineFootnote(speak, found) {
+  if (!found || found.mine !== false) return speak
+  const base = String(speak || '').trim()
+  if (base.includes('负责人不是这台号')) return base
+  return `${base}${/。$/.test(base) ? '' : '。'}负责人不是这台号。`
 }
 
 function speakFields(fields) {

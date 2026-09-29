@@ -5,6 +5,8 @@
  * Dialect type/interface only choose hop direction; they never gate whether to publish.
  */
 
+import { COLLECTIONS_LIST_PATHS } from '../../vendor-overlays/dsh-lan-assist/lookup.js'
+
 const REL_THIS_IS_CHILD = /^(m2o|o2o|obo|belongsTo|belongsToArray|linkTo)$/i
 const REL_THIS_IS_PARENT = /^(o2m|oho|hasMany|hasOne|m2m|belongsToMany)$/i
 const SKIP_FIELDS = /^(id|createdAt|updatedAt|createdBy|updatedBy|createdById|updatedById)$/i
@@ -216,21 +218,27 @@ export async function fetchNocoBaseCollections(conn) {
   const token = String(conn.token || '').trim()
   const fetchImpl = conn.fetchImpl || fetch
   if (!baseUrl || !token) return { ok: false, error: 'NO_CONNECTOR' }
-  const url = `${baseUrl}/api/collections:list?paginate=false&fields=name,title,fields`
-  const res = await fetchImpl(url, {
-    headers: {
-      authorization: `Bearer ${token}`,
-      'content-type': 'application/json',
-    },
-  })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: String((body && body.errors && body.errors[0] && body.errors[0].message) || body.message || `HTTP_${res.status}`),
+  let lastError = 'LOOKUP'
+  let fallback = []
+  for (const path of COLLECTIONS_LIST_PATHS) {
+    const res = await fetchImpl(`${baseUrl}${path}`, {
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      lastError = String((body && body.errors && body.errors[0] && body.errors[0].message) || body.message || `HTTP_${res.status}`)
+      continue
     }
+    const data = body && body.data
+    const list = Array.isArray(data) ? data : (Array.isArray(data?.rows) ? data.rows : [])
+    if (list.some((row) => Array.isArray(row && row.fields) && row.fields.length)) {
+      return { ok: true, collections: list }
+    }
+    if (list.length) fallback = list
   }
-  const data = body && body.data
-  const list = Array.isArray(data) ? data : (Array.isArray(data?.rows) ? data.rows : [])
-  return { ok: true, collections: list }
+  if (fallback.length) return { ok: true, collections: fallback }
+  return { ok: false, error: lastError }
 }

@@ -8,7 +8,6 @@ import { FDE_DSH_HOME } from '../config.mjs'
 import { openDatabase } from '../db.mjs'
 import { rollbackPreviewBody, rollbackPreviewRequest } from '../biz/audit-lookup.mjs'
 import { resolveBizCorpusOrigin } from '../biz/corpus-origin.mjs'
-import { enrichStructuredSlots } from '../vendor-overlays/dsh-lan-assist/slots.js'
 import { nocobasePath } from '../vendor-overlays/dsh-lan-assist/lookup.js'
 import { historyOptionLabel } from '../../src/lib/biz-list-query.ts'
 
@@ -66,10 +65,8 @@ test('CUST2056-style rollback keeps the row pk and never name-includes 回退', 
   assert.equal(body.no, PK)
   assert.equal(String(body.speech || ''), '')
   assert.equal(body.where, undefined)
-  const filled = enrichStructuredSlots(body, customerVocab)
-  assert.equal(filled.no, PK)
-  assert.notEqual(filled.no, '回退')
-  const path = nocobasePath(customerMapped, filled.no, KIND, customerSchema)
+  assert.notEqual(body.no, '回退')
+  const path = nocobasePath(customerMapped, body.no, KIND, customerSchema)
   assertPkFilter(filterOf(`http://nb.local${path}`))
 })
 
@@ -102,19 +99,6 @@ test('old audit without a row pk misses and does not build an unfiltered list', 
   const dumped = nocobasePath(customerMapped, '', KIND, customerSchema)
   assert.equal(dumped.includes('filter='), false)
   assert.equal(missed.listPath, undefined)
-})
-
-test('spoken 改行 still lets a leftover name replace a filled number', () => {
-  const speech = '把客户恒通改成测试修改'
-  const filled = enrichStructuredSlots({
-    kind: KIND,
-    action: '改行',
-    no: CODE,
-    speech,
-    patch: { notes: '测试修改' },
-  }, customerVocab)
-  assert.equal(filled.no, '恒通')
-  assert.notEqual(filled.no, CODE)
 })
 
 test('confirm write uses the same row pk the rollback preview looked up', async () => {

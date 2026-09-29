@@ -182,10 +182,11 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
     if (!name || seen.has(slot)) return
     seen.add(slot)
     const same = name === String(sheet.kind || '').trim()
-    out.push({
+    const list = Array.isArray(rows) ? rows : []
+    const next: Record<string, unknown> = {
       ...sheet,
       kind: name,
-      rows: Array.isArray(rows) ? rows : [],
+      rows: list,
       columns: Array.isArray(columns) ? columns : [],
       action: same ? sheet.action : '现查',
       preview_id: same ? sheet.preview_id : undefined,
@@ -193,7 +194,17 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
       canWrite: same ? sheet.canWrite : false,
       ...(extra?.relation ? { relation: extra.relation } : {}),
       ...(extra || {}),
-    })
+    }
+    if (!same) {
+      const own = Number(next.hitTotal)
+      next.hitTotal = Number.isFinite(own) ? own : list.length
+      next.hitTotalState = next.hitTotalState || 'known'
+      next.page = Number(next.page) > 0 ? Math.floor(Number(next.page)) : 1
+      if (next.hopWhere === sheet.hopWhere) delete next.hopWhere
+      if (next.where === sheet.where) delete next.where
+      if (extra && Object.prototype.hasOwnProperty.call(extra, 'where')) next.where = extra.where
+    }
+    out.push(next)
   }
   push(String(sheet.kind || ''), sheet.rows, sheet.columns, {
     relation: sheetPrimaryRelation(sheet),
@@ -202,7 +213,21 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) || depth > 8) return
     const row = raw as Record<string, unknown>
     if (Object.prototype.hasOwnProperty.call(row, 'rows')) {
-      push(String(row.kind || ''), row.rows, row.columns)
+      const list = row.rows
+      const n = Array.isArray(list) ? list.length : 0
+      const own = Number(row.hitTotal)
+      push(String(row.kind || ''), list, row.columns, {
+        where: row.where,
+        hopWhere: row.hopWhere,
+        hitTotal: Number.isFinite(own) ? own : n,
+        hitTotalState: row.hitTotalState || 'known',
+        querySettled: true,
+        page: Number(row.page) > 0 ? Math.floor(Number(row.page)) : 1,
+        pageSize: Number(row.pageSize) > 0 ? Math.floor(Number(row.pageSize)) : undefined,
+        pageFull: row.pageFull === true,
+        from: undefined,
+        steps: undefined,
+      })
     }
     walk(row.from, depth + 1)
   }
@@ -213,7 +238,21 @@ export function operationKindHitSheets(sheet: Record<string, unknown> | null | u
       if (!step || typeof step !== 'object' || Array.isArray(step)) continue
       const row = step as Record<string, unknown>
       if (Object.prototype.hasOwnProperty.call(row, 'rows')) {
-        push(String(row.kind || ''), row.rows, row.columns)
+        const list = row.rows
+        const n = Array.isArray(list) ? list.length : 0
+        const own = Number(row.hitTotal)
+        push(String(row.kind || ''), list, row.columns, {
+          where: row.where,
+          hopWhere: row.hopWhere,
+          hitTotal: Number.isFinite(own) ? own : n,
+          hitTotalState: row.hitTotalState || 'known',
+          querySettled: true,
+          page: Number(row.page) > 0 ? Math.floor(Number(row.page)) : 1,
+          pageSize: Number(row.pageSize) > 0 ? Math.floor(Number(row.pageSize)) : undefined,
+          pageFull: row.pageFull === true,
+          from: undefined,
+          steps: undefined,
+        })
       }
     }
   }
@@ -448,15 +487,17 @@ export function shouldHoldSideKindView(
   incoming: Record<string, unknown> | null | undefined,
   displayed: Record<string, unknown> | null | undefined,
   incomingIsWritePreview = false,
+  pinnedKind = '',
 ): boolean {
   const view = String(viewKind || '').trim()
   const incomingKind = incoming && typeof incoming === 'object' ? String(incoming.kind || '').trim() : ''
   if (!view || !incomingKind || view === incomingKind) return false
   if (incomingIsWritePreview) return false
+  const pinned = String(pinnedKind || '').trim()
   const hopSteps = stableStepsSlice(incoming?.steps)
   if (hopSteps.length > 1 && incomingKind === hopSteps[hopSteps.length - 1]) {
     const sideIndex = hopSteps.indexOf(view)
-    if (sideIndex >= 0 && sideIndex < hopSteps.length - 1) return false
+    if (sideIndex >= 0 && sideIndex < hopSteps.length - 1 && pinned !== view) return false
   }
   const shownRows = displayed && Array.isArray(displayed.rows) ? displayed.rows.length : 0
   if (shownRows <= 0) return false

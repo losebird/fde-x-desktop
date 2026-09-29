@@ -73,7 +73,7 @@ import { handleMcpRoutes } from './routes/mcp.mjs'
 import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
 import { configureEventBus, emit } from './events.mjs'
-import { startLanAssistStateWatch } from './lan-assist-state-watch.mjs'
+import { startLanAssistStateWatch, subscribeLanAssistMailbox } from './lan-assist-state-watch.mjs'
 import { refreshLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
 import { handleAppsRoutes } from './routes/apps.mjs'
@@ -3185,6 +3185,15 @@ server.listen(port, host, () => {
   startLanAssistStateWatch({
     db,
     lanAssist: (path, options) => aiRuntime.lanAssist(path, options),
+    ...(aiRuntime.origin ? {
+      subscribeLanMailbox: (onEvent, hooks) => subscribeLanAssistMailbox({
+        origin: aiRuntime.origin,
+        cookie: aiRuntime.cookie,
+        onEvent,
+        onLive: hooks && hooks.onLive,
+        onDown: hooks && hooks.onDown,
+      }),
+    } : {}),
     cwd: FDE_AI_WORKSPACE,
     prepareSurface: (sheet, sessionId) => {
       const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
@@ -3194,7 +3203,7 @@ server.listen(port, host, () => {
         kind: sheet.kind,
         action: sheet.action,
         sessionId,
-      }, { sheet }, 'ai', { emitEvent: false })
+      }, { sheet })
     },
   })
   startBriefingScheduler({ db, aiRuntime, defaultCwd: FDE_AI_WORKSPACE })

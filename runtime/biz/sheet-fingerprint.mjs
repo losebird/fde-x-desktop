@@ -91,6 +91,7 @@ export function pendingSheetWatchFingerprint(sheet) {
     canWrite: sheet.canWrite ?? sheet.can_write,
     speech: String(sheet.speech || '').slice(0, 120),
     sessionId: String(sheet.sessionId || ''),
+    roundId: String(sheet.roundId || ''),
     page: Number(sheet.page) > 0 ? Math.floor(Number(sheet.page)) : 1,
     ...(peers.length ? { peers } : {}),
   })

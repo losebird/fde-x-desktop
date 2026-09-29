@@ -20,21 +20,30 @@ import { importPeer } from './peers.js'
 import { createSecretary } from './secretary.js'
 import { createSemanticBridge, cwdFromWorkspaceStore, extractUserSpeech, looksLikeChoice, readLeftIds } from './semantic.js'
 import { createStore } from './store.js'
-import { registerTools } from './tools.js'
+import { registerTools, toolSessionId } from './tools.js'
 import { createLookup, collapseKindsToConnectedTables } from './lookup.js'
 import { translateQuote } from './translate.js'
 import { createEyesSee, hasEyes } from './eyes-bridge.js'
-import { createGate, createNocoWrite } from './write.js'
-import { rememberUserSpeech } from './slots.js'
+import { createGate, createNocoWrite, WORKSTATION_CONFIRM_HINT } from './write.js'
+import { rememberUserSpeech, speechHoldsWorkstationWrite } from './slots.js'
 import { createTraceLog } from './traces.js'
-import { createSessionRoundStore, stampWroteLookup } from './session-round.js'
+import {
+  createSessionRoundStore,
+  stampWroteLookup,
+  wroteLookupLocksSpec,
+  roundBlocksChatAsk,
+  isConfirmableWritePreview,
+  sheetCarriesWrittenIdentity,
+} from './session-round.js'
+import { projectOfficialKind } from './operation-kind-sheet.mjs'
+import { describeKindCatalog } from './catalog.js'
 
 const schemaMod = await importPeer('@deepseek-ai/schemastery')
 const { defineTool } = await importPeer('@deepseek-ai/dsh-tools')
 const Schema = schemaMod.default
 
 export const name = PLUGIN
-export const inject = ['tools', 'webServer', 'llm']
+export const inject = ['tools', 'webServer', 'llm', 'agents']
 
 export const Config = Schema.object({
   lanPort: Schema.number().default(DEFAULT_LAN_PORT),
@@ -64,47 +73,7 @@ export async function apply(ctx, config) {
   const sessionRounds = createSessionRoundStore()
   let lan = null
   /** @type {any} */
-  let agentsCtx = null
-
-  const lastCancelAt = new Map()
-  /** biz_preview QUERY_SETTLED leftover: cancel only after tool/result is on the transcript. */
-  const leftoverCancelAfterResult = new Map()
-
-  function scheduleLeftoverCancel(sessionId, cancelKind = 'plugin-leftover') {
-    const sid = String(sessionId || '').trim()
-    if (!sid) return
-    const kind = String(cancelKind || 'plugin-leftover').trim() || 'plugin-leftover'
-    leftoverCancelAfterResult.set(sid, kind)
-  }
-
-  async function flushLeftoverCancel(sessionId) {
-    const sid = String(sessionId || '').trim()
-    if (!sid) return
-    const kind = leftoverCancelAfterResult.get(sid)
-    if (!kind) return
-    leftoverCancelAfterResult.delete(sid)
-    await cancelLeftover(sid, kind)
-  }
-
-  async function cancelLeftover(sessionId, cancelKind = 'plugin-leftover') {
-    const sid = String(sessionId || '').trim()
-    if (!sid) return
-    const kind = String(cancelKind || 'plugin-leftover').trim() || 'plugin-leftover'
-    const now = Date.now()
-    const prev = Number(lastCancelAt.get(sid) || 0)
-    if (now - prev < 1500) return
-    const agents = agentsCtx && (agentsCtx.agents || (typeof agentsCtx.get === 'function' ? agentsCtx.get('agents') : null))
-    const agent = agents && typeof agents.get === 'function' ? agents.get(sid) : null
-    if (agent && typeof agent.cancel === 'function') {
-      try { agent.cancel({ kind }, { keepInbox: true }) } catch { /* leftover cancel is best-effort */ }
-      lastCancelAt.set(sid, now)
-      return
-    }
-    if (agent && typeof agent.abort === 'function') {
-      try { await agent.abort() } catch { /* leftover cancel is best-effort */ }
-      lastCancelAt.set(sid, now)
-    }
-  }
+  let agentsCtx = ctx
 
   async function deliverFollowup(followup) {
     const sid = String(followup && followup.sessionId || '').trim()
@@ -181,6 +150,7 @@ export async function apply(ctx, config) {
     collectionsOf: () => lookup.collectionsFor(),
     resolveConnections,
     postWrite: (spec) => writer.write(spec),
+    roundSpeech: (sid) => sessionRounds.roundSpeech(sid),
     loadVocab: async (workspace) => loadWorkspaceVocab(semantic, workspace),
     saveVocab: async (workspace, concept) => semantic.upsertVocab(workspace, concept),
     traces,
@@ -210,6 +180,7 @@ export async function apply(ctx, config) {
     traces,
     saveVocab: async (workspace, concept) => semantic.upsertVocab(workspace, concept),
     gate,
+    officialSheet: (sessionId) => sessionRounds.officialSheet(sessionId),
     onPreview: () => sse.emit('mailbox', { type: 'preview' }),
     hasEyes: () => hasEyes(ctx),
     see: createEyesSee(ctx),
@@ -230,19 +201,96 @@ export async function apply(ctx, config) {
     const writePreview = typeof gate.previewTokenIndex === 'function' ? gate.previewTokenIndex() : {}
     return { ...view, officialRoundSheet: sessionRounds.servedSheet(sid), writePreview }
   }
+  if (typeof secretary.describeBiz === 'function') {
+    secretary.describeBiz = async (spec = {}) => {
+      const cwd = String((spec && spec.workspace) || '').trim()
+      if (!cwd) return { ok: false, error: 'NO_CWD', hint: '这封没绑工作区，不能打开目录。' }
+      let vocab = []
+      try {
+        const loaded = await loadWorkspaceVocab(semantic, cwd)
+        vocab = Array.isArray(loaded) ? loaded : []
+      } catch {
+        vocab = []
+      }
+      let collections = []
+      try {
+        collections = await lookup.collectionsFor()
+      } catch {
+        collections = []
+      }
+      const catalog = describeKindCatalog(vocab, { collections })
+      const want = String((spec && spec.kind) || '').trim()
+      if (!want) return catalog
+      return {
+        ...catalog,
+        kinds: catalog.kinds.filter((row) => row.kind === want),
+        relations: catalog.relations.filter((row) => row.from === want || row.to === want),
+      }
+    }
+  }
   const origPreviewBiz = secretary.previewBiz.bind(secretary)
   secretary.previewBiz = async (spec = {}) => {
     const sid = String((spec && spec.sessionId) || '').trim()
     const toolAction = String((spec && spec.action) || '').trim()
-    const locked = Boolean(sid && sessionRounds.isWroteFollowup(sid) && toolAction === '现查')
-    const ident = locked && typeof sessionRounds.wroteIdentity === 'function' ? sessionRounds.wroteIdentity(sid) : null
-    const stamped = ident ? stampWroteLookup(spec, ident) : spec
-    const result = await origPreviewBiz(locked ? { ...stamped, lookupLocked: true } : spec)
-    const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : null
-    const publishSid = String((result && result.sessionId) || sid || (sheet && sheet.sessionId) || '').trim()
-    const published = Boolean(sheet && publishSid && sessionRounds.publishOfficial(publishSid, sheet))
-    if (result && typeof result === 'object') return { ...result, published }
+    const followup = Boolean(sid && sessionRounds.isWroteFollowup(sid) && toolAction === '现查')
+    const ident = followup && typeof sessionRounds.wroteIdentity === 'function' ? sessionRounds.wroteIdentity(sid) : null
+    if (followup && ident) {
+      const official = sessionRounds.officialSheet(sid)
+      if (
+        official
+        && String(official.action || '').trim() === '现查'
+        && sheetCarriesWrittenIdentity(official, ident)
+        && Array.isArray(official.rows)
+        && official.rows.some((row) => String((row && row.no) || '').trim())
+      ) {
+        return {
+          ok: true,
+          action: '现查',
+          kind: official.kind,
+          querySettled: true,
+          querySettledRepeat: true,
+          error: 'QUERY_SETTLED',
+          sheet: official,
+          published: true,
+        }
+      }
+    }
+    const locked = Boolean(ident && wroteLookupLocksSpec(spec, ident))
+    const stamped = locked ? stampWroteLookup(spec, ident, { lock: true }) : spec
+    const incoming = locked ? { ...stamped, lookupLocked: true } : stamped
+    const result = await origPreviewBiz(incoming)
+    const sheet = result && result.sheet && typeof result.sheet === 'object'
+      ? result.sheet
+      : (result && typeof result === 'object' ? result : null)
+    const publishSid = String((spec && spec.sessionId) || (sheet && sheet.sessionId) || sid || '').trim()
+    if (
+      spec && spec.workstation === true
+      && publishSid
+      && result && result.ok !== false
+      && isConfirmableWritePreview(sheet)
+    ) {
+      const published = sessionRounds.publishOfficial(publishSid, { ...sheet, ok: true, sessionId: publishSid })
+      if (published) sse.emit('mailbox', { type: 'official-sheet', sessionId: publishSid })
+      if (result && typeof result === 'object') return { ...result, published: true }
+      return result
+    }
+    if (result && typeof result === 'object') return { ...result, published: false }
     return result
+  }
+  if (typeof secretary.commitWrite === 'function') {
+    const origCommitWrite = secretary.commitWrite.bind(secretary)
+    secretary.commitWrite = async (spec = {}) => {
+      const sid = String((spec && spec.sessionId) || '').trim()
+      const official = sid ? sessionRounds.officialSheet(sid) : null
+      const result = await origCommitWrite(official ? { ...spec, officialSheet: official } : spec)
+      const sheet = result && result.sheet && typeof result.sheet === 'object' ? result.sheet : null
+      const publishSid = String((spec && spec.sessionId) || (sheet && sheet.sessionId) || sid || '').trim()
+      if (result && result.ok && sheet && publishSid) {
+        const published = sessionRounds.publishOfficial(publishSid, sheet)
+        if (published) sse.emit('mailbox', { type: 'official-sheet', sessionId: publishSid })
+      }
+      return result
+    }
   }
   if (typeof secretary.dismissWrite === 'function') {
     const origDismissWrite = secretary.dismissWrite.bind(secretary)
@@ -335,10 +383,31 @@ export async function apply(ctx, config) {
 
   lan = createLanServer({ port, host, onFrame: onLanFrame })
 
-  ctx.inject(['agents'], (actx) => {
-    agentsCtx = actx
-    return () => { agentsCtx = null }
-  })
+  function refuseWorkstationChatAsk(request, next) {
+    const round = sessionRounds.peek(toolSessionId(request))
+    const writeSpeech = Boolean(round && speechHoldsWorkstationWrite(round.userSpeech))
+    if (roundBlocksChatAsk(round, writeSpeech)) {
+      const err = new Error(WORKSTATION_CONFIRM_HINT)
+      err.code = 'NEED_WORKSTATION_CONFIRM'
+      return Promise.reject(err)
+    }
+    return next()
+  }
+
+  const boundAskRefuse = new WeakSet()
+  function bindWorkstationAskRefuse(agent) {
+    if (!agent || boundAskRefuse.has(agent)) return
+    const scoped = agent.ctx
+    if (!scoped || typeof scoped.on !== 'function') return
+    scoped.on('user-questions/request', refuseWorkstationChatAsk, { prepend: true })
+    boundAskRefuse.add(agent)
+  }
+
+  ctx.on('agent/created', ({ agent }) => bindWorkstationAskRefuse(agent))
+  const liveAgents = ctx.agents
+  if (liveAgents && typeof liveAgents.list === 'function') {
+    for (const agent of liveAgents.list()) bindWorkstationAskRefuse(agent)
+  }
 
   ctx.inject(['sessions'], (sctx) => {
     try {
@@ -359,30 +428,22 @@ export async function apply(ctx, config) {
           sessionRounds.startRound(sessionId, { followup })
         }
         if (event && event.type === 'turn/end') {
-          sessionRounds.closeRound(sessionId)
+          const closed = sessionRounds.closeRound(sessionId, 'turn')
+          if (closed.emit) sse.emit('mailbox', { type: 'official-sheet', sessionId: String(sessionId || '') })
           void secretary.finalizeDraftFromSession(sessionId).then((result) => {
             if (result && result.ok) sse.emit('mailbox', { type: 'draft' })
           }).catch(() => undefined)
           return
         }
-        if (event && event.type === 'tool/call') {
-          const toolName = event.data && typeof event.data.name === 'string' ? event.data.name.trim() : ''
-          if (toolName === 'search_text' && typeof sessionRounds.notePostSettledHopTool === 'function') {
-            const outcome = sessionRounds.notePostSettledHopTool(sessionId, toolName)
-            if (outcome && outcome.cancel) {
-              void cancelLeftover(sessionId, outcome.cancelKind).catch(() => undefined)
-            }
-          }
-          return
-        }
-        if (event && event.type === 'tool/result') {
-          void flushLeftoverCancel(sessionId).catch(() => undefined)
-          return
-        }
         const speech = extractUserSpeech(event)
         if (!speech) return
         sessionRounds.noteHumanUtterance(sessionId)
-        sessionRounds.startRound(sessionId)
+        const prevRound = sessionRounds.peek(sessionId)
+        if (prevRound && prevRound.open) {
+          const closed = sessionRounds.closeRound(sessionId, 'turn')
+          if (closed.emit) sse.emit('mailbox', { type: 'official-sheet', sessionId: String(sessionId || '') })
+        }
+        sessionRounds.startRound(sessionId, { utterance: true, speech })
         rememberUserSpeech(sessionId, speech)
         const workspace = session && session.header && typeof session.header.cwd === 'string'
           ? session.header.cwd.trim()
@@ -403,28 +464,7 @@ export async function apply(ctx, config) {
     restoreHandoff: (spec) => tryRestoreHandoff(agentsCtx, spec),
     translate: (quote) => translateQuote((ctx.llm || (ctx.get && ctx.get('llm'))), quote),
     focusOperationKind: async (sessionId, kind) => {
-      const base = sessionRounds.officialSheet(sessionId)
-      if (!base) return { ok: false, error: 'NO_OFFICIAL', hint: '这一轮还没有官方表。' }
-      const wanted = String(kind || '').trim()
-      if (!wanted) return { ok: false, error: 'NO_KIND', hint: '这个型不在本轮命中里。' }
-      if (wanted === String(base.kind || '').trim()) {
-        return { ok: true, sheet: base, published: false }
-      }
-      const result = await secretary.previewBiz({
-        kind: wanted,
-        action: '现查',
-        speech: String(base.speech || '').trim(),
-        sessionId,
-        workspace: String(base.workspace || '').trim(),
-        ...(base.from && typeof base.from === 'object' ? { from: base.from } : {}),
-        ...(Array.isArray(base.where) && base.where.length ? { where: base.where } : {}),
-        ...(Array.isArray(base.hopWhere) && base.hopWhere.length ? { hopWhere: base.hopWhere } : {}),
-      })
-      const sheet = sessionRounds.servedSheet(sessionId)
-      if (!sheet || String(sheet.kind || '').trim() !== wanted || (result && result.ok === false)) {
-        return { ok: false, error: (result && result.error) || 'NO_KIND', hint: '这个型不在本轮命中里。' }
-      }
-      return { ok: true, sheet, published: Boolean(result && result.published) }
+      return projectOfficialKind(sessionRounds.officialSheet(sessionId), kind)
     },
   })
 
@@ -488,10 +528,20 @@ export async function apply(ctx, config) {
 
   try {
     registerTools(ctx, { defineTool }, secretary, {
-      noteToolSheet: (sessionId, sheet) => sessionRounds.noteToolSheet(sessionId, sheet),
+      noteToolSheet: (sessionId, sheet) => {
+        const outcome = sessionRounds.noteToolSheet(sessionId, sheet)
+        if (outcome && outcome.emit) {
+          sse.emit('mailbox', { type: 'official-sheet', sessionId: String(sessionId || '') })
+        }
+        return outcome
+      },
       notePostSettledHopTool: (sessionId, toolName) => sessionRounds.notePostSettledHopTool(sessionId, toolName),
-      cancelLeftover,
-      scheduleLeftoverCancel,
+    })
+    ctx.tools.guard((exec) => {
+      if (!exec || String(exec.name || '') !== 'ask_user_question') return
+      const round = sessionRounds.peek(toolSessionId(exec))
+      const writeSpeech = Boolean(round && speechHoldsWorkstationWrite(round.userSpeech))
+      if (roundBlocksChatAsk(round, writeSpeech)) return WORKSTATION_CONFIRM_HINT
     })
   } catch (error) {
     ctx.logger?.warn?.(`[${PLUGIN}] tools: ${error instanceof Error ? error.message : error}`)

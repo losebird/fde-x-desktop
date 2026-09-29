@@ -2156,7 +2156,7 @@ export class RuntimeApi {
     const path = sid
       ? `/api/v1/biz/pending-sheet?sessionId=${encodeURIComponent(sid)}`
       : '/api/v1/biz/pending-sheet'
-    const result = await this.request<{ data: { sheet: Record<string, unknown> | null; writePreview?: Record<string, string> | null } }>(path, { signal })
+    const result = await this.request<{ data: { sheet: Record<string, unknown> | null; writePreview?: Record<string, string> | null } }>(withWorkspaceCwd(path), { signal })
     const writePreview = result.data.writePreview && typeof result.data.writePreview === 'object'
       ? result.data.writePreview
       : null

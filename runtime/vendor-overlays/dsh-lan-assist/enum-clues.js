@@ -9,6 +9,17 @@ import { resolveShapeKey, vocabRow } from './where-pass.js'
 
 const CLOSED_LABEL = /关|关闭|resolved|closed|done|completed|cancelled|canceled|void/i
 
+/** Code is exact. Oral prefix (≥2 chars) applies to the label argument only. */
+export function enumValueMatches(after, code, label) {
+  const want = String(after || '').trim()
+  const key = String(code || '').trim()
+  const say = String(label || '').trim()
+  if (!want) return false
+  if (key === want || say === want) return true
+  if (want.length >= 2 && say.startsWith(want)) return true
+  return false
+}
+
 function stringList(value) {
   if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean)
   if (typeof value === 'string') {

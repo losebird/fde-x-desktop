@@ -65,8 +65,16 @@ export function sheetPayloadFromRaw(raw) {
     ...(raw.from && typeof raw.from === 'object' && !Array.isArray(raw.from) ? { from: raw.from } : {}),
     ...(Array.isArray(raw.steps) && raw.steps.length ? { steps: raw.steps } : {}),
     ...(typeof raw.speech === 'string' && raw.speech.trim() ? { speech: raw.speech.trim() } : {}),
+    ...(typeof raw.roundId === 'string' && raw.roundId.trim() ? { roundId: raw.roundId.trim() } : {}),
     ...(raw.listed ? { listed: true } : {}),
     ...(raw.ambiguous ? { ambiguous: true } : {}),
+    ...(raw.picked === true ? { picked: true } : {}),
+    ...(raw.blockConfirm === true ? { blockConfirm: true } : {}),
+    ...(typeof raw.to === 'string' && raw.to.trim() ? { to: raw.to.trim() } : {}),
+    ...(raw.patch && typeof raw.patch === 'object' && !Array.isArray(raw.patch) && Object.keys(raw.patch).length
+      ? { patch: raw.patch }
+      : {}),
+    ...(Array.isArray(raw.cells) && raw.cells.length ? { cells: raw.cells } : {}),
     ...(raw.related && typeof raw.related === 'object' && !Array.isArray(raw.related) ? { related: raw.related } : {}),
     ...(typeof raw.line === 'string' && raw.line ? { line: raw.line } : {}),
     ...(typeof raw.connectionId === 'string' && raw.connectionId ? { connectionId: raw.connectionId } : {}),
