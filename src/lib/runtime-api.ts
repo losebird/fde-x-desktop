@@ -1481,7 +1481,7 @@ export class RuntimeApi {
   }
 
   async getLatestBriefing(onOpen = false, signal?: AbortSignal): Promise<{ definition: BriefingDefinition; briefing: BriefingSnapshot | null; schedule: BriefingSchedule }> {
-    const path = withWorkspaceCwd(`/api/v1/briefing/latest${onOpen ? '&onOpen=1' : ''}`)
+    const path = withWorkspaceCwd(onOpen ? '/api/v1/briefing/latest?onOpen=1' : '/api/v1/briefing/latest')
     const result = await this.request<{ ok: true; data: { definition: BriefingDefinition; briefing: BriefingSnapshot | null; schedule: BriefingSchedule } }>(path, { signal })
     return result.data
   }

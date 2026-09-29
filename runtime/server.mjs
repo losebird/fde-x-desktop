@@ -82,6 +82,7 @@ import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes } from './rout
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleCorpusRoute } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
+import { mergePageCors } from './proxy-cors.mjs'
 import { tryServeStatic } from './routes/static.mjs'
 import { reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import {
@@ -723,6 +724,10 @@ function outboundProxyHeaders(incoming) {
   return headers
 }
 
+function outboundSemanticHeaders(incoming, response) {
+  return mergePageCors(outboundProxyHeaders(incoming), corsHeaders(response))
+}
+
 function destroySocketPair(a, b) {
   if (a && !a.destroyed) a.destroy()
   if (b && !b.destroyed) b.destroy()
@@ -807,7 +812,7 @@ function proxySemanticOs(request, response, url) {
         method,
         headers,
       }, (incoming) => {
-        response.writeHead(incoming.statusCode || 200, outboundProxyHeaders(incoming))
+        response.writeHead(incoming.statusCode || 200, outboundSemanticHeaders(incoming, response))
         pipeProxyStreams(incoming, response)
       })
     } catch {

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -128,6 +129,47 @@ test('briefing-submit merge', async () => {
   const content = JSON.parse(row.content_json)
   assert.equal(content.sections[0].items.length, 1)
   db.close()
+})
+
+test('latest path puts onOpen in the query', () => {
+  const src = readFileSync(join(repoRoot, 'src/lib/runtime-api.ts'), 'utf8')
+  assert.match(src, /\/api\/v1\/briefing\/latest\?onOpen=1/)
+  assert.doesNotMatch(src, /latest\$\{onOpen \? '&onOpen=1'/)
+})
+
+test('latest accepts cwd and onOpen with CORS', async (t) => {
+  await startServer()
+  t.after(stopServer)
+  const otherCwd = '/tmp/fde-x-briefing-cwd-alt'
+  await mkdir(otherCwd, { recursive: true })
+  await fetch(`${base}/api/v1/workspaces`, {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: 'ws_brief_cwd',
+      name: 'cwd',
+      description: 't',
+      metadata: { cwd: otherCwd },
+    }),
+  })
+
+  const latest = await fetch(`${base}/api/v1/briefing/latest?onOpen=1&cwd=${encodeURIComponent(otherCwd)}`, {
+    headers: { Origin: origin },
+  })
+  assert.equal(latest.status, 200)
+  assert.equal(latest.headers.get('access-control-allow-origin'), origin)
+  const latestBody = await latest.json()
+  assert.equal(latestBody.data.definition.workspaceCwd, otherCwd)
+
+  const viaWorkspace = await fetch(`${base}/api/v1/briefing/latest?workspace=${encodeURIComponent(otherCwd)}`, {
+    headers: { Origin: origin },
+  })
+  assert.equal(viaWorkspace.status, 200)
+  assert.equal((await viaWorkspace.json()).data.definition.workspaceCwd, otherCwd)
+
+  const missing = await fetch(`${base}/api/v1/briefing/no-such`, { headers: { Origin: origin } })
+  assert.equal(missing.status, 404)
+  assert.equal(missing.headers.get('access-control-allow-origin'), origin)
 })
 
 test('scheduler tick with injected clock', async () => {

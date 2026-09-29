@@ -8,30 +8,47 @@ import { rescheduleBriefingForWorkspace, shouldRunOnOpen } from '../briefing/sch
 import { resolveWorkspaceCwd } from '../briefing/workspace.mjs'
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 
-function briefingError(response, status, error, message, correlationId) {
+function briefingCors(request, allowedOrigins) {
+  const origin = resolveAllowedRequestOrigin(request, allowedOrigins)
+  if (!origin) return {}
+  return {
+    'Access-Control-Allow-Origin': origin,
+    Vary: 'Origin',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Correlation-Id',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+  }
+}
+
+function briefingError(response, status, error, message, correlationId, cors = {}) {
   const body = JSON.stringify({ ok: false, error, message, correlationId })
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
     'Cache-Control': 'no-store',
+    ...cors,
   })
   response.end(body)
 }
 
-function briefingOk(response, status, data, correlationId) {
+function briefingOk(response, status, data, correlationId, cors = {}) {
   const body = JSON.stringify({ ok: true, data, correlationId })
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
     'Cache-Control': 'no-store',
+    ...cors,
   })
   response.end(body)
 }
 
-function requireWorkspaceQuery(db, url, response, correlationId, fallbackCwd) {
-  const cwd = resolveWorkspaceCwd(db, url.searchParams.get('workspace'), fallbackCwd)
+function queryWorkspace(url) {
+  return url.searchParams.get('cwd') || url.searchParams.get('workspace')
+}
+
+function requireWorkspaceQuery(db, url, response, correlationId, fallbackCwd, cors) {
+  const cwd = resolveWorkspaceCwd(db, queryWorkspace(url), fallbackCwd)
   if (!cwd.startsWith('/')) {
-    briefingError(response, 400, 'missing_workspace', '需要 workspace 绝对路径', correlationId)
+    briefingError(response, 400, 'missing_workspace', '需要 workspace 绝对路径', correlationId, cors)
     return ''
   }
   return cwd
@@ -56,6 +73,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
 
   const pathname = url.pathname
   if (!pathname.startsWith('/api/v1/briefing')) return false
+  const cors = briefingCors(request, allowedOrigins)
 
   const writeMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method ?? '')
   if (writeMethod) {
@@ -67,10 +85,10 @@ export async function handleBriefingRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/briefing/definition') {
-    const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd)
+    const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd, cors)
     if (!cwd) return true
     const def = getOrCreateDefinition(db, cwd)
-    briefingOk(response, 200, def, correlationId)
+    briefingOk(response, 200, def, correlationId, cors)
     return true
   }
 
@@ -80,7 +98,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       ? body.workspaceCwd
       : resolveWorkspaceCwd(db, body.workspace, defaultWorkspaceCwd)
     if (!cwd.startsWith('/')) {
-      briefingError(response, 400, 'missing_workspace', '需要 workspaceCwd', correlationId)
+      briefingError(response, 400, 'missing_workspace', '需要 workspaceCwd', correlationId, cors)
       return true
     }
     const errors = [
@@ -89,7 +107,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       ...validateSources(body.sources),
     ]
     if (errors.length) {
-      briefingError(response, 422, 'validation_error', errors.join('；'), correlationId)
+      briefingError(response, 422, 'validation_error', errors.join('；'), correlationId, cors)
       return true
     }
     const saved = saveDefinition(db, cwd, {
@@ -98,7 +116,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       sources: body.sources,
     })
     rescheduleBriefingForWorkspace(db, cwd)
-    briefingOk(response, 200, saved, correlationId)
+    briefingOk(response, 200, saved, correlationId, cors)
     return true
   }
 
@@ -108,7 +126,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       ? body.workspaceCwd
       : resolveWorkspaceCwd(db, body.workspace, defaultWorkspaceCwd)
     if (!cwd.startsWith('/')) {
-      briefingError(response, 400, 'missing_workspace', '需要 workspaceCwd', correlationId)
+      briefingError(response, 400, 'missing_workspace', '需要 workspaceCwd', correlationId, cors)
       return true
     }
     const mode = body.mode === 'internal-only' ? 'internal-only' : 'full'
@@ -118,15 +136,15 @@ export async function handleBriefingRoutes(request, response, url, deps) {
         mode,
         definitionId: typeof body.definitionId === 'string' ? body.definitionId : undefined,
       })
-      briefingOk(response, 200, { briefingId: result.briefingId, briefing: result.briefing }, correlationId)
+      briefingOk(response, 200, { briefingId: result.briefingId, briefing: result.briefing }, correlationId, cors)
     } catch (error) {
-      briefingError(response, 500, 'briefing_run_failed', error instanceof Error ? error.message : '生成失败', correlationId)
+      briefingError(response, 500, 'briefing_run_failed', error instanceof Error ? error.message : '生成失败', correlationId, cors)
     }
     return true
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/briefing/latest') {
-    const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd)
+    const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd, cors)
     if (!cwd) return true
     const onOpen = url.searchParams.get('onOpen') === '1'
     if (onOpen && shouldRunOnOpen(db, cwd)) {
@@ -146,7 +164,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       definition: def,
       briefing: latest,
       schedule: def.schedule,
-    }, correlationId)
+    }, correlationId, cors)
     return true
   }
 
@@ -154,15 +172,15 @@ export async function handleBriefingRoutes(request, response, url, deps) {
   if (request.method === 'GET' && idMatch && idMatch[1] !== 'definition' && idMatch[1] !== 'latest' && idMatch[1] !== 'run' && !idMatch[1].startsWith('sources')) {
     const row = getBriefing(db, decodeURIComponent(idMatch[1]))
     if (!row) {
-      briefingError(response, 404, 'not_found', '早报不存在', correlationId)
+      briefingError(response, 404, 'not_found', '早报不存在', correlationId, cors)
       return true
     }
-    briefingOk(response, 200, row, correlationId)
+    briefingOk(response, 200, row, correlationId, cors)
     return true
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/briefing/sources/mcp') {
-    const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd)
+    const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd, cors)
     if (!cwd) return true
     let text = ''
     try {
@@ -172,7 +190,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
     }
     const servers = await buildMcpServersV2(aiRuntime, text)
     const configured = parseMcpPatchEntries(text).map((row) => row.serverName)
-    briefingOk(response, 200, { servers, configured }, correlationId)
+    briefingOk(response, 200, { servers, configured }, correlationId, cors)
     return true
   }
 
