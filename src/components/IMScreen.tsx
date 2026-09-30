@@ -5,6 +5,9 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { onBizSheetPending } from '@/lib/biz-records-auto-open'
 import { runtimeApi } from '@/lib/runtime-api'
+import { imBrowseWhenHidden, imPaneOpen, imUnreadMouth } from '@/lib/im-letter-home'
+import { useImMailbox } from '@/lib/im-mailbox'
+import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import AI from '@/pages/AI'
 import { CommandPalette } from './CommandPalette'
 import { FloatingPanel } from './FloatingPanel'
@@ -67,27 +70,27 @@ export function IMScreen() {
     navigate('/ai', { replace: true })
   }, [navigate, routeKey])
 
-  const applyImUnreadBadge = (data: Record<string, unknown>) => {
-    const im = useApp.getState().panels.find((panel) => panel.id === 'im')
-    if (im && (im.state === 'full' || im.state === 'half')) return
-    const rows = Array.isArray(data.requests) ? data.requests as Array<Record<string, unknown>> : []
-    const n = rows.filter((row) => row.unread && row.kind === 'incoming').length
-    const badge = n || undefined
-    if (im?.badge === badge) return
-    useApp.getState().setPanelBadge('im', badge)
-  }
+  const activeWorkspaceId = useApp((state) => state.activeWorkspaceId)
+  const imPanelState = useApp((state) => state.panels.find((panel) => panel.id === 'im')?.state)
+  const imFloating = useApp((state) => Boolean(state.floating.im))
+  const imVisible = imPaneOpen(imPanelState, imFloating)
+  const mailbox = useImMailbox()
 
   useEffect(() => {
-    let alive = true
-    void runtimeApi.imState().then((data) => {
-      if (alive) applyImUnreadBadge(data)
-    }).catch(() => undefined)
-    return () => { alive = false }
-  }, [])
+    const next = imBrowseWhenHidden(useApp.getState().imBrowse, imVisible)
+    const cur = useApp.getState().imBrowse
+    if (cur.threadId === next.threadId && cur.topicId === next.topicId && cur.lane === next.lane) return
+    useApp.getState().setImBrowse(next)
+  }, [imVisible])
 
-  useEvents(['im.unread.changed'], () => {
-    void runtimeApi.imState().then(applyImUnreadBadge).catch(() => undefined)
-  })
+  useEffect(() => {
+    const here = loadCurrentWorkspaceCwd()
+    const n = imUnreadMouth(mailbox.sheet, imVisible, here.ok ? here.cwd : '')
+    const badge = n || undefined
+    const im = useApp.getState().panels.find((panel) => panel.id === 'im')
+    if (im?.badge === badge) return
+    useApp.getState().setPanelBadge('im', badge)
+  }, [mailbox.revision, mailbox.sheet, imVisible, activeWorkspaceId])
 
   useEvents(['biz.sheet.pending'], onBizSheetPending)
 

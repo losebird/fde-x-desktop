@@ -1,6 +1,26 @@
 import { computeStat } from '../apps/records.mjs'
 import { findActiveAppBySlug } from '../apps/repository.mjs'
+import { incomingUnread, letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
 import { workspaceIdForCwd } from './workspace.mjs'
+
+async function dshWorkspaceCwds(aiRuntime, workspaceCwd) {
+  const paths = [workspaceCwd]
+  if (!aiRuntime?.stream) return paths
+  const abort = new AbortController()
+  try {
+    for await (const frame of aiRuntime.stream('workspace/follow', {}, abort.signal)) {
+      if (frame?.type === 'baseline') {
+        abort.abort()
+        const items = Array.isArray(frame.value?.items) ? frame.value.items : []
+        for (const item of items) paths.push(item.path || item.cwd)
+        break
+      }
+    }
+  } catch {
+    /* keep the briefing cwd */
+  }
+  return paths
+}
 
 function dayBounds() {
   const start = new Date()
@@ -87,7 +107,9 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
       }
       const state = await aiRuntime.lanAssist('/state', { search: {} })
       const requests = Array.isArray(state?.requests) ? state.requests : []
-      const unread = requests.filter((row) => row?.unread && row.kind !== 'outgoing')
+      const here = normalizeCwd(workspaceCwd)
+      const locals = localCwdSet(await dshWorkspaceCwds(aiRuntime, workspaceCwd))
+      const unread = requests.filter((row) => incomingUnread(row) && letterHome(row, requests, locals) === here)
       const items = unread.slice(0, 8).map((row) => ({
         text: String(row.body || row.excerpt || row.last || '').slice(0, 120),
         sub: String(row.fromName || row.from || ''),

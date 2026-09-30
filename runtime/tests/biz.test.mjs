@@ -20,6 +20,7 @@ describe('biz surfaces and live execute', () => {
     const source = readFileSync(join(repoRoot, 'runtime/dsh-core.mjs'), 'utf8')
     assert.match(source, /'\/catalog'/)
     assert.match(source, /'\/traces'/)
+    assert.match(source, /'\/place'/)
   })
 
   test('biz kinds/traces forward workspace to lan-assist catalog/traces', () => {

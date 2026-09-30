@@ -229,6 +229,8 @@ export async function dispatch(secretary, path, body, followup, extra) {
         : { ok: false, error: 'NO_GROUP' }
     case '/compose':
       return secretary.compose(b)
+    case '/place':
+      return secretary.placeLetters(b)
     case '/handoff/pack':
       return typeof secretary.packSession === 'function'
         ? secretary.packSession(b.sessionId)

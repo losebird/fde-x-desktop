@@ -6,6 +6,7 @@ import {
   PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2, Wifi, WifiOff, X,
 } from 'lucide-react'
 import clsx from 'clsx'
+import { openFilesAtPath } from '@/lib/app-platform'
 import { useApp } from '@/store/app'
 import { clearAskAiNotice, getAskAiNotice, subscribeAskAiNotice } from '@/lib/ask-ai'
 import { extractComposerBody } from '@/lib/im-ai'
@@ -480,6 +481,14 @@ export default function AI() {
           useApp.getState().setIMComposerDraft(threadId, body)
           window.dispatchEvent(new CustomEvent('fde-x-im-fill', { detail: { threadId, text: body } }))
           setSessionNotice(body ? '已放进 IM 输入框' : '左边写完了，但没有可放进输入框的正文')
+        }
+        return
+      }
+      if (data?.type === 'fde-x-dsh-ready' && data.op === 'openFile') {
+        const path = typeof data.path === 'string' ? data.path : ''
+        const cwd = typeof data.cwd === 'string' ? data.cwd : ''
+        if (!openFilesAtPath(path, { cwd })) {
+          setSessionNotice('无法在当前工作区打开这个文件')
         }
         return
       }

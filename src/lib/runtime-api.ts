@@ -1577,39 +1577,6 @@ export class RuntimeApi {
     return result.data
   }
 
-  async imMailbox(signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const state = await this.imState(undefined, signal)
-    const peers = Array.isArray(state.peers) ? state.peers as Array<Record<string, unknown>> : []
-    const groups = Array.isArray(state.groups) ? state.groups as Array<Record<string, unknown>> : []
-    const hall = Array.isArray(state.requests) ? state.requests as Array<Record<string, unknown>> : []
-    const merged: Array<Record<string, unknown>> = []
-    const seen = new Set<string>()
-    const take = (rows: unknown) => {
-      if (!Array.isArray(rows)) return
-      for (const row of rows) {
-        if (!row || typeof row !== 'object') continue
-        const id = String((row as Record<string, unknown>).id || '')
-        if (!id || seen.has(id)) continue
-        seen.add(id)
-        merged.push(row as Record<string, unknown>)
-      }
-    }
-    for (const peer of peers) {
-      if (peer.unpaired || !peer.id) continue
-      try {
-        take((await this.imThread({ peerId: String(peer.id) }, signal)).requests)
-      } catch { /* 大厅摘要兜底 */ }
-    }
-    for (const group of groups) {
-      if (!group.id) continue
-      try {
-        take((await this.imThread({ groupId: String(group.id) }, signal)).requests)
-      } catch { /* 大厅摘要兜底 */ }
-    }
-    take(hall)
-    return { ...state, requests: merged, conversations: merged }
-  }
-
   async imCopyAttach(body: { requestId: string; index: number; workspace?: string }, signal?: AbortSignal): Promise<Record<string, unknown>> {
     return this.lanAssist('/attach/copy', { method: 'POST', signal, body })
   }
@@ -1740,6 +1707,16 @@ export class RuntimeApi {
 
   async imMarkRead(requestId: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     return this.lanAssist('/read', { method: 'POST', signal, body: { requestId } })
+  }
+
+  async imPlaceLetters(body: { requestIds: string[]; workspace: string }, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/im/place', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return result.data
   }
 
   async imShout(signal?: AbortSignal): Promise<Record<string, unknown>> {

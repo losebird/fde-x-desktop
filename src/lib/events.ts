@@ -84,6 +84,16 @@ function dispatchEvent(event: FdeEvent) {
   }
 }
 
+let followedWorkspace = false
+function followWorkspaceForStream() {
+  if (followedWorkspace) return
+  followedWorkspace = true
+  useApp.subscribe(() => {
+    if (listeners.size === 0 && !eventSource) return
+    ensureStreamSubscription()
+  })
+}
+
 function parseEnvelope(raw: string): FdeEvent | null {
   try {
     return JSON.parse(raw) as FdeEvent
@@ -195,6 +205,7 @@ export function getEventStream(): EventSource {
 }
 
 function ensureStreamSubscription() {
+  followWorkspaceForStream()
   const workspace = currentWorkspaceFromStore()
   if (!eventSource || boundWorkspace !== workspace) {
     connectEventStream(workspace)
@@ -273,4 +284,12 @@ export function useEventStreamStatus(): StreamStatus {
     () => streamStatus,
     () => streamStatus,
   )
+}
+
+export function onEventStreamStatus(fn: (status: StreamStatus) => void): () => void {
+  const wrap = () => fn(streamStatus)
+  statusSubscribers.add(wrap)
+  return () => {
+    statusSubscribers.delete(wrap)
+  }
 }

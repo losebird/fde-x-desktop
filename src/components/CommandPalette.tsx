@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { runtimeApi } from '@/lib/runtime-api'
 import { loadCurrentAiTarget } from '@/lib/ai-target'
 import { Search, FileText, MessageSquare, Bot, CheckSquare, LayoutGrid, Repeat, Brain } from 'lucide-react'
-import { useApp, useCurrentFiles, useCurrentAgents, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
+import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
 import { useNavigate } from 'react-router-dom'
 import { openRef, type OpenRefHref } from '@/lib/open-ref'
 
@@ -78,9 +78,6 @@ export function CommandPalette() {
   const tasks = useCurrentTasks()
   const workflows = useCurrentWorkflows()
 
-  const setActiveFile = useApp((s) => s.setActiveFile)
-  const setActiveAgent = useApp((s) => s.setActiveAgent)
-  const setActiveChat = useApp((s) => s.setActiveChat)
   const openIMPanel = useApp((s) => s.openIMPanel)
   const togglePanel = useApp((s) => s.togglePanel)
   const setActivePlanTab = useApp((s) => s.setActivePlanTab)
@@ -127,7 +124,7 @@ export function CommandPalette() {
     { group: '功能', icon: LayoutGrid, id: 'p_im',     title: 'IM 消息面板',       action: () => { openIMPanel(); navigate('/ai'); close() } },
     { group: '功能', icon: LayoutGrid, id: 'p_brief',  title: '早报',              action: () => openPanel('briefing') },
     { group: '功能', icon: LayoutGrid, id: 'p_plan',   title: '计划 / 任务 / 日程', action: () => openPanel('plan') },
-    { group: '功能', icon: LayoutGrid, id: 'p_files',  title: '文件',              action: () => openPanel('files') },
+    { group: '功能', icon: LayoutGrid, id: 'p_files',  title: '文件',              action: () => { openRef({ panel: 'files' }); navigate('/ai'); close() } },
     { group: '功能', icon: LayoutGrid, id: 'p_data',   title: '业务应用 / 数据操作', action: () => openPanel('data') },
     { group: '功能', icon: LayoutGrid, id: 'p_mcp',    title: 'MCP 管理',          action: () => openPanel('mcp') },
     { group: '功能', icon: LayoutGrid, id: 'p_skills', title: 'Skills 管理',       action: () => openPanel('skills') },
@@ -143,7 +140,7 @@ export function CommandPalette() {
       list.push({
         group: '文件', icon: FileText, id: `f_${f.id}`, title: f.name,
         hint: f.kind === 'directory' ? '文件夹' : `${f.kind} · ${f.size}B`,
-        action: () => { togglePanel('files', 'full'); close(); navigate('/ai') },
+        action: () => { openRef({ panel: 'files', path: f.id }); close(); navigate('/ai') },
       })
     })
     contacts.filter((c) => !q || c.name.includes(q) || c.handle.includes(q)).slice(0, 5).forEach((c) => {

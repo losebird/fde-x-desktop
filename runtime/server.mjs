@@ -2458,6 +2458,13 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'POST' && url.pathname === '/api/v1/im/place') {
+      const body = await readJson(request)
+      const result = await aiRuntime.lanAssist('/place', { method: 'POST', body })
+      sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
+      return
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/v1/im/peer') {
       const body = await readJson(request)
       const peerId = String(body.peerId || '')

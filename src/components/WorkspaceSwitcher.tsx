@@ -2,10 +2,12 @@
 // 下拉与模态框通过 Portal 渲染到 body，避免被顶部横向滚动容器裁切。
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, Check, FolderOpen, Link2, Plus, Settings, Unlink, X, Trash2 } from 'lucide-react'
+import { ChevronDown, Check, FolderOpen, Inbox, Link2, Plus, Settings, Unlink, X, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 import { useApp, useCurrentWorkspace, useWorkspaces } from '@/store/app'
 import { runtimeApi } from '@/lib/runtime-api'
+import { normalizeCwd } from '@/lib/im-letter-home'
+import { useImMailbox } from '@/lib/im-mailbox'
 import {
   getDirectoryPermission,
   getWorkspaceDirectory,
@@ -48,6 +50,7 @@ export function WorkspaceSwitcher() {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [menuPos, setMenuPos] = useState({ left: 0, top: 0 })
+  const mailbox = useImMailbox()
 
   useEffect(() => {
     if (!open) return
@@ -113,6 +116,12 @@ export function WorkspaceSwitcher() {
   }, [dialog, current?.id])
 
   if (!current) return null
+
+  const unreadOf = (cwd?: string) => mailbox.sheet.byCwd[normalizeCwd(cwd)] || 0
+  const imUnassignedUnread = mailbox.sheet.unassigned
+  const otherUnread = workspaces.reduce((sum, row) => (
+    row.id === current.id ? sum : sum + unreadOf(row.cwd)
+  ), 0) + imUnassignedUnread
 
   const openDialog = (kind: 'manage' | 'new') => {
     setOpen(false)
@@ -212,6 +221,11 @@ export function WorkspaceSwitcher() {
         <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', COLOR_DOT[current.color ?? 'slate'] ?? 'bg-slate-500')} />
         <span className="text-base leading-none">{current.emoji}</span>
         <span className="font-medium max-w-[120px] truncate">{current.name}</span>
+        {otherUnread > 0 && (
+          <span className="min-w-3.5 h-3.5 px-1 rounded-full bg-accent-red text-white text-[9px] flex items-center justify-center">
+            {otherUnread > 99 ? '99+' : otherUnread}
+          </span>
+        )}
         <ChevronDown size={12} className={clsx('text-ink-subtle transition-transform', open && 'rotate-180')} />
       </button>
 
@@ -225,6 +239,7 @@ export function WorkspaceSwitcher() {
           <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-ink-subtle">切换工作区</div>
           {workspaces.map((w) => {
             const active = w.id === current.id
+            const unread = unreadOf(w.cwd)
             return (
               <button
                 key={w.id}
@@ -240,10 +255,36 @@ export function WorkspaceSwitcher() {
                   </div>
                   <div className="text-[11px] text-ink-muted mt-0.5 line-clamp-2 leading-snug">{w.desc}</div>
                 </div>
-                {active && <Check size={14} className="text-brand mt-1 shrink-0" />}
+                {unread > 0 && (
+                  <span className="min-w-4 h-4 px-1 rounded-full bg-accent-red text-white text-[9px] flex items-center justify-center mt-0.5 shrink-0">
+                    {unread > 99 ? '99+' : unread}
+                  </span>
+                )}
+                {active && unread === 0 && <Check size={14} className="text-brand mt-1 shrink-0" />}
               </button>
             )
           })}
+          <div className="my-1 border-t border-line" />
+          <button
+            onClick={() => {
+              useApp.getState().setImBrowse({ lane: 'unassigned', threadId: null, topicId: null })
+              useApp.getState().togglePanel('im', 'full')
+              setOpen(false)
+            }}
+            className="w-full px-3 py-2 flex items-center gap-2.5 text-left hover:bg-surface-2"
+            role="menuitem"
+          >
+            <Inbox size={16} className="text-amber-800/80 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm">未分工作区</div>
+              <div className="text-[11px] text-ink-muted mt-0.5">对面新来、还没归到本机工作区的信</div>
+            </div>
+            {imUnassignedUnread > 0 && (
+              <span className="min-w-4 h-4 px-1 rounded-full bg-accent-red text-white text-[9px] flex items-center justify-center shrink-0">
+                {imUnassignedUnread > 99 ? '99+' : imUnassignedUnread}
+              </span>
+            )}
+          </button>
           <div className="my-1 border-t border-line" />
           <button onClick={() => openDialog('manage')} className="w-full px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-ink-muted" role="menuitem">
             <Settings size={14} /> 管理当前工作区…

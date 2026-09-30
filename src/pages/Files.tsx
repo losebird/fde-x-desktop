@@ -7,6 +7,8 @@ import {
   Upload, Plus, Trash2, ArrowLeft, Download, Eye, MoreHorizontal, Hash, Send,
 } from 'lucide-react'
 import clsx from 'clsx'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useApp } from '@/store/app'
 import type { FileNode, FileVersion } from '@/lib/types'
 import { PageTitle, Card, Tag, Empty } from '@/components/ui'
@@ -60,6 +62,32 @@ function formatBytes(n: number) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
+function formatListTime(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+}
+
+function ancestorDirs(parentId: string) {
+  if (!parentId || parentId === '.') return ['.']
+  const parts = parentId.split('/').filter(Boolean)
+  const dirs = ['.']
+  let acc = ''
+  for (const part of parts) {
+    acc = acc ? `${acc}/${part}` : part
+    dirs.push(acc)
+  }
+  return dirs
+}
+
 function renderPreview(file: FileNode, sessionId?: string | null) {
   const raw = rawFileUrl(file.id, sessionId)
   if (file.kind === 'image') {
@@ -104,11 +132,7 @@ function renderPreview(file: FileNode, sessionId?: string | null) {
     )
   }
   if (file.kind === 'markdown') {
-    return (
-      <div className="bg-surface border border-line rounded p-6">
-        <pre className="font-sans whitespace-pre-wrap text-sm leading-6 text-ink">{file.content || '(空)'}</pre>
-      </div>
-    )
+    return <MarkdownPreview content={file.content || ''} />
   }
   if (file.kind === 'code') {
     return (
@@ -148,6 +172,45 @@ function renderPreview(file: FileNode, sessionId?: string | null) {
   return (
     <div className="bg-surface border border-line rounded p-6 text-sm whitespace-pre-wrap">
       {file.content || '(此类型暂无内嵌预览)'}
+    </div>
+  )
+}
+
+function MarkdownPreview({ content }: { content: string }) {
+  return (
+    <div className="bg-surface border border-line rounded p-6 text-sm leading-6 text-ink overflow-auto max-h-[640px]">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => <h1 className="text-xl font-semibold tracking-tight mt-4 mb-2 first:mt-0">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-lg font-semibold mt-4 mb-2 first:mt-0">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-sm font-semibold mt-3 mb-1.5 first:mt-0">{children}</h3>,
+          p: ({ children }) => <p className="mb-2">{children}</p>,
+          ul: ({ children }) => <ul className="mb-2 pl-5 list-disc">{children}</ul>,
+          ol: ({ children }) => <ol className="mb-2 pl-5 list-decimal">{children}</ol>,
+          li: ({ children }) => <li className="mb-0.5">{children}</li>,
+          blockquote: ({ children }) => <blockquote className="border-l-2 border-line pl-3 my-2 text-ink-muted">{children}</blockquote>,
+          hr: () => <hr className="border-line my-3" />,
+          a: ({ href, children }) => <a href={href} className="text-brand underline" target="_blank" rel="noreferrer">{children}</a>,
+          code: ({ className, children }) => (
+            className
+              ? <code className="font-mono text-[13px] leading-6">{children}</code>
+              : <code className="font-mono text-[13px] bg-surface-2 px-1 rounded">{children}</code>
+          ),
+          pre: ({ children }) => <pre className="bg-surface-2 rounded p-3 overflow-auto mb-2 text-[13px] leading-6">{children}</pre>,
+          table: ({ children }) => (
+            <div className="overflow-auto border border-line rounded my-2">
+              <table className="w-full text-sm">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-surface-2">{children}</thead>,
+          th: ({ children }) => <th className="text-left px-3 py-2 font-medium">{children}</th>,
+          td: ({ children }) => <td className="px-3 py-2 border-t border-line">{children}</td>,
+          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+        }}
+      >
+        {content || '(空)'}
+      </Markdown>
     </div>
   )
 }
@@ -300,20 +363,34 @@ export default function Files() {
   const workspaces = useApp((s) => s.workspaces)
   const workspaceCwd = workspaces.find((item) => item.id === activeWsId)?.cwd
   const setFilesBrowse = useApp((s) => s.setFilesBrowse)
+  const filesBrowse = useApp((s) => s.filesBrowse)
+  const parentId = filesBrowse.workspaceId === activeWsId ? filesBrowse.parentId : null
+  const selectedId = filesBrowse.workspaceId === activeWsId ? filesBrowse.selectedId : null
   const [files, setFiles] = useState<FileNode[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [filesReady, setFilesReady] = useState(false)
   const [filesError, setFilesError] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(() => useApp.getState().filesBrowse.selectedId)
   const [editMode, setEditMode] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [folderLoading, setFolderLoading] = useState(false)
   const [fileNotice, setFileNotice] = useState('')
-  const [parentId, setParentId] = useState<string | null>(() => useApp.getState().filesBrowse.parentId)
+  const [q, setQ] = useState('')
+  const [sortKey, setSortKey] = useState<'name' | 'updatedAt' | 'size'>('updatedAt')
+  const [showStarred, setShowStarred] = useState(false)
   const uploadRef = useRef<HTMLInputElement>(null)
   const listingRef = useRef<{ sessionId?: string; cwd?: string }>({})
   const loadedDirs = useRef(new Set<string>())
+  const filesRef = useRef(files)
+  filesRef.current = files
+
+  function setParentId(id: string | null) {
+    setFilesBrowse({ workspaceId: activeWsId, parentId: id })
+  }
+
+  function setSelectedId(id: string | null) {
+    setFilesBrowse({ workspaceId: activeWsId, selectedId: id })
+  }
 
   function mergeChildren(parentId: string, listing: { path?: string; entries?: Array<{ name: string; type: string; size?: number }> }) {
     const now = new Date().toISOString()
@@ -399,8 +476,11 @@ export default function Files() {
           updatedAt: now,
         }])
         mergeChildren(rootPath, listing)
-        setParentId(sameWs && browse.parentId ? browse.parentId : rootPath)
-        setSelectedId(sameWs ? browse.selectedId : null)
+        if (!sameWs) {
+          setFilesBrowse({ workspaceId: activeWsId, parentId: rootPath, selectedId: null })
+        } else if (!browse.parentId) {
+          setFilesBrowse({ workspaceId: activeWsId, parentId: rootPath })
+        }
       } catch (error) {
         if (alive) {
           setFiles([])
@@ -418,12 +498,8 @@ export default function Files() {
 
   const navigate = useNavigate()
   useEffect(() => {
-    if (!parentId) return
-    setFilesBrowse({ workspaceId: activeWsId, parentId, selectedId })
-  }, [activeWsId, parentId, selectedId, setFilesBrowse])
-  const [q, setQ] = useState('')
-  const [sortKey, setSortKey] = useState<'name' | 'updatedAt' | 'size'>('updatedAt')
-  const [showStarred, setShowStarred] = useState(false)
+    setEditMode(false)
+  }, [selectedId])
 
   // 工作区根目录(父 id = null 的那个 folder)
   const root = useMemo(() => files.find((f) => f.parentId === null), [files])
@@ -437,30 +513,49 @@ export default function Files() {
   // 工作区切换时:同步 setState 给下次渲染用
   useEffect(() => {
     if (root && validParentId !== parentId) {
-      setParentId(root.id)
+      setFilesBrowse({ workspaceId: activeWsId, parentId: root.id, selectedId: null })
       navigate(`/files`)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWsId])
 
-  const current = files.find((f) => f.id === selectedId)
+  const selectedNode = files.find((f) => f.id === selectedId)
+  const current = selectedNode && selectedNode.kind !== 'folder' ? selectedNode : undefined
   const folder = files.find((f) => f.id === validParentId && f.kind === 'folder')
 
   useEffect(() => {
-    if (!validParentId || loadedDirs.current.has(validParentId)) return
+    if (selectedNode?.kind !== 'folder') return
+    setFilesBrowse({ workspaceId: activeWsId, parentId: selectedNode.id, selectedId: null })
+  }, [activeWsId, selectedId, selectedNode?.id, selectedNode?.kind, setFilesBrowse])
+
+  useEffect(() => {
+    if (!filesReady) return
     if (!listingRef.current.sessionId && !listingRef.current.cwd) return
+    const target = parentId
+    if (!target) return
+    const missingSelected = Boolean(selectedId && !filesRef.current.some((f) => f.id === selectedId))
+    if (missingSelected) loadedDirs.current.delete(target)
+    const pending = ancestorDirs(target).filter((dir) => !loadedDirs.current.has(dir))
+    if (pending.length === 0) return
     let alive = true
     setFolderLoading(true)
-    void fetchListing(validParentId).then((listing) => {
-      if (!alive) return
-      mergeChildren(validParentId, listing)
-    }).catch((error) => {
-      if (alive) setFilesError(error instanceof Error ? error.message : '列出子目录失败')
-    }).finally(() => {
-      if (alive) setFolderLoading(false)
-    })
+    void (async () => {
+      try {
+        for (const dir of pending) {
+          if (!alive) return
+          if (loadedDirs.current.has(dir)) continue
+          const listing = await fetchListing(dir)
+          if (!alive) return
+          mergeChildren(dir, listing)
+        }
+      } catch (error) {
+        if (alive) setFilesError(error instanceof Error ? error.message : '列出子目录失败')
+      } finally {
+        if (alive) setFolderLoading(false)
+      }
+    })()
     return () => { alive = false }
-  }, [validParentId])
+  }, [filesReady, parentId, selectedId])
 
   useEffect(() => {
     if (!current || current.kind === 'folder' || isBinaryKind(current.kind) || current.content !== undefined) return
@@ -802,7 +897,7 @@ export default function Files() {
               <Empty title="这个目录是空的" hint="试试上传文件,或新建一个文件夹" />
             ) : (
               <Card className="p-0 overflow-x-auto">
-                <div className="min-w-[320px] grid grid-cols-[minmax(120px,1fr)_110px_50px] @xl:grid-cols-[minmax(160px,1fr)_120px_100px_120px_50px] text-xs text-ink-muted uppercase tracking-wider border-b border-line px-4 py-2.5">
+                <div className="min-w-[448px] grid grid-cols-[minmax(120px,1fr)_168px_96px] @xl:grid-cols-[minmax(160px,1fr)_120px_100px_168px_96px] text-xs text-ink-muted uppercase tracking-wider border-b border-line px-4 py-2.5">
                   <div>名称</div>
                   <div className="hidden @xl:block">类型</div>
                   <div className="hidden @xl:block text-right pr-2">大小</div>
@@ -826,7 +921,7 @@ export default function Files() {
                         event.dataTransfer.setData('text/plain', `fde-file:${payload}`)
                         event.dataTransfer.effectAllowed = 'copy'
                       }}
-                      className="min-w-[320px] grid grid-cols-[minmax(120px,1fr)_110px_50px] @xl:grid-cols-[minmax(160px,1fr)_120px_100px_120px_50px] items-center px-4 py-2.5 border-b border-line last:border-b-0 hover:bg-surface-2/40 group"
+                      className="min-w-[448px] grid grid-cols-[minmax(120px,1fr)_168px_96px] @xl:grid-cols-[minmax(160px,1fr)_120px_100px_168px_96px] items-center px-4 py-2.5 border-b border-line last:border-b-0 hover:bg-surface-2/40 group"
                     >
                       <button
                         className="flex items-center gap-2 min-w-0 text-left"
@@ -845,8 +940,8 @@ export default function Files() {
                       </button>
                       <div className="hidden @xl:block"><Tag>{f.kind}</Tag></div>
                       <div className="hidden @xl:block text-right pr-2 text-xs text-ink-muted tabular-nums">{f.kind === 'folder' ? '—' : formatBytes(f.size)}</div>
-                      <div className="text-xs text-ink-muted">{new Date(f.updatedAt).toLocaleString('zh-CN').slice(0, 16)}</div>
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="text-xs text-ink-muted tabular-nums whitespace-nowrap pr-2">{formatListTime(f.updatedAt)}</div>
+                      <div className="flex items-center justify-end gap-1 shrink-0">
                         <button
                           className="btn-ghost p-1 text-ink-subtle hover:text-brand"
                           onClick={() => setFiles((nodes) => nodes.map((node) => node.id === f.id ? { ...node, starred: !node.starred } : node))}

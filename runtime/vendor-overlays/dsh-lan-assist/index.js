@@ -18,6 +18,7 @@ import { createNatsTransport, relayCredsPath, relayUrl, setRelayStore } from './
 import { installUserAutostart, removeUserAutostart, startListenDaemon, stopListenDaemon } from './listen.js'
 import { importPeer } from './peers.js'
 import { createSecretary } from './secretary.js'
+import { normalizeCwd, talkMemberIds } from './letter-home.js'
 import { createSemanticBridge, cwdFromWorkspaceStore, extractUserSpeech, looksLikeChoice, readLeftIds } from './semantic.js'
 import { createStore } from './store.js'
 import { registerTools, toolSessionId } from './tools.js'
@@ -187,6 +188,31 @@ export async function apply(ctx, config) {
     readSession: (sessionId) => readSessionTurns(agentsCtx, sessionId),
   })
   const grantListen = secretary.grantListen
+  secretary.placeLetters = async (spec = {}) => {
+    const cwd = normalizeCwd(spec && spec.workspace)
+    if (!cwd) {
+      return { ok: false, error: 'NO_CWD', hint: '要归到一个本机工作区目录。' }
+    }
+    const ids = Array.isArray(spec.requestIds)
+      ? spec.requestIds.map((id) => String(id || '')).filter(Boolean)
+      : []
+    if (!ids.length) return { ok: false, error: 'NO_LETTER', hint: '没有要归的信。' }
+    const at = Date.now()
+    await store.update((s) => {
+      const expanded = new Set()
+      for (const id of ids) {
+        for (const member of talkMemberIds(s.requests, id)) expanded.add(member)
+      }
+      for (const id of expanded) {
+        const row = s.requests && s.requests[id]
+        if (!row || normalizeCwd(row.workspace)) continue
+        row.workspace = cwd
+        row.updatedAt = at
+      }
+    })
+    const view = typeof secretary.snapshot === 'function' ? await secretary.snapshot() : {}
+    return { ok: true, workspace: cwd, requestIds: ids, ...view }
+  }
   secretary.grantListen = async (on) => {
     const result = await grantListen(on)
     try {

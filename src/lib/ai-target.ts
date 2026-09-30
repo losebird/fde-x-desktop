@@ -19,10 +19,14 @@ export function isPrimarySession(session: AiSessionSummary) {
   return session.origin !== 'subagent' && !session.parentSessionId
 }
 
-export function sessionMatchesCwd(session: AiSessionSummary, cwd: string) {
-  const here = cwd.replace(/\/+$/u, '')
-  const there = String(session.cwd || '').replace(/\/+$/u, '')
+export function sameWorkspaceCwd(left: string, right: string) {
+  const here = String(left || '').replace(/\/+$/u, '')
+  const there = String(right || '').replace(/\/+$/u, '')
   return Boolean(here && there && here === there)
+}
+
+export function sessionMatchesCwd(session: AiSessionSummary, cwd: string) {
+  return sameWorkspaceCwd(session.cwd || '', cwd)
 }
 
 export function pickCurrentAiSession(

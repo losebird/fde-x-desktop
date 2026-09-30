@@ -241,6 +241,7 @@ export interface IMContact {
   memberIds?: ID[]
   ownerId?: ID
   announcement?: string
+  origin?: 'local' | 'roster'
 }
 
 export interface IMMessage {
@@ -249,6 +250,8 @@ export interface IMMessage {
   authorId: ID
   text: string
   ts: string
+  /** Computed local cwd, or '' when the letter is still 未分工作区. */
+  home?: string
   read?: boolean
   topicId?: ID
   topic?: boolean
@@ -261,6 +264,7 @@ export interface IMMessage {
   translation?: string
   recalledAt?: string
   pending?: boolean
+  pendingPeerIds?: ID[]
 }
 
 export interface BusinessRow {

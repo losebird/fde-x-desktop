@@ -2,12 +2,20 @@
 import { Bell, Volume2, VolumeX, Plus } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { useNavigate } from 'react-router-dom'
+import { imPaneOpen, imUnreadMouth, normalizeCwd } from '@/lib/im-letter-home'
+import { useImMailbox } from '@/lib/im-mailbox'
 import { IMTopNav } from './IMTopNav'
 
 export function IMMiniHeader() {
   const muted = useApp((s) => s.imMuted)
   const setMuted = useApp((s) => s.setIMMuted)
-  const unread = 0
+  const imPanelState = useApp((s) => s.panels.find((panel) => panel.id === 'im')?.state)
+  const imFloating = useApp((s) => Boolean(s.floating.im))
+  const workspaces = useApp((s) => s.workspaces)
+  const activeWorkspaceId = useApp((s) => s.activeWorkspaceId)
+  const mailbox = useImMailbox()
+  const currentHome = normalizeCwd(workspaces.find((row) => row.id === activeWorkspaceId)?.cwd)
+  const unread = imUnreadMouth(mailbox.sheet, imPaneOpen(imPanelState, imFloating), currentHome)
   const markAll = useApp((s) => s.markAllNotifRead)
   const nav = useNavigate()
 
@@ -32,7 +40,7 @@ export function IMMiniHeader() {
 
       <button
         className="btn-ghost h-7 w-7 p-0 relative"
-        title={muted ? 'IM 已静音,点击恢复' : 'IM 在线,点击静音'}
+        title={muted ? '通知已关，投递照常' : '通知开着，点击只关提示'}
         onClick={() => setMuted(!muted)}
       >
         {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}

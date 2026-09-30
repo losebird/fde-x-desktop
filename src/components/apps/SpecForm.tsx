@@ -9,7 +9,8 @@ import {
   specHasUse,
   type FdeAppSpec,
 } from '@/lib/app-spec'
-import { lookupBizKind, openFilesAtPath, requestFilePick } from '@/lib/app-platform'
+import { lookupBizKind, requestFilePick } from '@/lib/app-platform'
+import { openRef } from '@/lib/open-ref'
 import { RuntimeApiError, runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -182,7 +183,9 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
               className="btn h-7 mt-1"
               data-app-file-pick={field.name}
               onClick={() => {
-                openFilesAtPath(String(values[field.name] || ''))
+                const path = String(values[field.name] || '')
+                if (path) openRef({ panel: 'files', path })
+                else openRef({ panel: 'files' })
                 void requestFilePick().then((path) => {
                   if (path) setValues((v) => ({ ...v, [field.name]: path }))
                 })

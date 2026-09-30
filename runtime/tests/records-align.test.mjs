@@ -633,6 +633,8 @@ test('AI official handoff does not paint from the shared pending slot', () => {
   const watch = readFileSync(join(repoRoot, 'runtime/lan-assist-state-watch.mjs'), 'utf8')
   assert.match(watch, /officialRoundSheet/)
   assert.match(watch, /round-end/)
+  assert.match(watch, /emit\('im\.unread\.changed', mailboxSheet, \{ workspaceCwd: null, source: 'lan-assist' \}\)/)
+  assert.match(watch, /emit\('im\.message\.received', message, \{ workspaceCwd: null, source: 'lan-assist' \}\)/)
   assert.doesNotMatch(watch, /pendingSheet \?\? state\?\.pendingWrite/)
   const autoOpen = readFileSync(join(repoRoot, 'src/lib/biz-records-auto-open.ts'), 'utf8')
   assert.match(autoOpen, /shouldApplyPendingSheetSource/)

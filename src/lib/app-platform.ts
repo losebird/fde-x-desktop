@@ -1,4 +1,4 @@
-import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { loadCurrentWorkspaceCwd, sameWorkspaceCwd } from '@/lib/ai-target'
 import {
   externalUrlForTarget,
   isSafeExternalUrl,
@@ -85,17 +85,48 @@ function firstPeerId(mailbox: Record<string, unknown>): string {
   return ''
 }
 
-function openFilesModule(selectedId?: string) {
+function pathEscapesWorkspace(rel: string) {
+  let depth = 0
+  for (const part of rel.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      depth -= 1
+      if (depth < 0) return true
+      continue
+    }
+    depth += 1
+  }
+  return false
+}
+
+function workspaceRelativePath(path: string, cwd: string): string | null {
+  const href = String(path || '').replace(/^file:\/\//i, '').replace(/\\/g, '/').replace(/^(?:\.\/)+/, '')
+  if (!href || href === '.') return ''
+  const absolute = href.startsWith('/') || /^[A-Za-z]:/.test(href) || href.startsWith('//')
+  if (absolute) {
+    const root = String(cwd || '').replace(/\\/g, '/').replace(/\/+$/u, '')
+    if (!root) return null
+    if (href === root) return ''
+    if (href.startsWith(`${root}/`)) {
+      const rel = href.slice(root.length + 1)
+      return pathEscapesWorkspace(rel) ? null : rel
+    }
+    return null
+  }
+  return pathEscapesWorkspace(href) ? null : href
+}
+
+function openFilesModule(selectedId?: string, workspaceId?: string) {
   const state = useApp.getState()
   const cwd = loadCurrentWorkspaceCwd()
-  const href = String(selectedId || '').replace(/^file:\/\//i, '')
-  const parent = href.includes('/') ? href.split('/').slice(0, -1).join('/') || '.' : '.'
+  const href = String(selectedId || '').replace(/^file:\/\//i, '').replace(/\\/g, '/')
+  const selected = !href || href === '.' ? null : href
+  const parent = selected && selected.includes('/') ? selected.split('/').slice(0, -1).join('/') || '.' : '.'
   state.setFilesBrowse({
-    workspaceId: cwd.ok ? cwd.workspaceId : state.activeWorkspaceId,
-    parentId: href ? parent : '.',
-    selectedId: href || null,
+    workspaceId: workspaceId || (cwd.ok ? cwd.workspaceId : state.activeWorkspaceId),
+    parentId: parent,
+    selectedId: selected,
   })
-  if (href) state.setActiveFile(href)
   state.togglePanel('files', 'full')
 }
 
@@ -232,8 +263,16 @@ export async function runDeclaredPlatformUse(
   throw new Error('未知能力')
 }
 
-export function openFilesAtPath(path: string) {
-  openFilesModule(path)
+export function openFilesAtPath(path: string, source?: { cwd?: string }) {
+  const workspace = loadCurrentWorkspaceCwd()
+  if (!workspace.ok) return false
+  if (source && Object.prototype.hasOwnProperty.call(source, 'cwd') && !sameWorkspaceCwd(source.cwd || '', workspace.cwd)) {
+    return false
+  }
+  const relative = workspaceRelativePath(path, workspace.cwd)
+  if (relative === null) return false
+  openFilesModule(relative, workspace.workspaceId)
+  return true
 }
 
 type OpenGesture = {

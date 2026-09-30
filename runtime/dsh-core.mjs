@@ -764,7 +764,7 @@ export class DshCoreConnector {
 
   async lanAssist(path, options = {}) {
     this.assertConnected()
-    const allowed = new Set(['/state', '/thread', '/attach', '/attach/copy', '/send', '/reply', '/reply/draft', '/compose', '/read', '/shout', '/sleep', '/withdraw', '/presend/cancel', '/pair/mint', '/pair/handshake', '/pair/accept', '/pair/reject', '/name', '/note', '/unpair', '/peer/flags', '/door', '/group/create', '/group/update', '/group/dissolve', '/preview', '/translate', '/write', '/lookup/config', '/catalog/publish', '/catalog', '/traces', '/focus-kind'])
+    const allowed = new Set(['/state', '/thread', '/attach', '/attach/copy', '/send', '/reply', '/reply/draft', '/compose', '/place', '/read', '/shout', '/sleep', '/withdraw', '/presend/cancel', '/pair/mint', '/pair/handshake', '/pair/accept', '/pair/reject', '/name', '/note', '/unpair', '/peer/flags', '/door', '/group/create', '/group/update', '/group/dissolve', '/preview', '/translate', '/write', '/lookup/config', '/catalog/publish', '/catalog', '/traces', '/focus-kind'])
     if (!allowed.has(path)) throw new AiRemoteError('ai/forbidden', 'IM 路径不允许')
     const url = new URL(`/lan-assist${path}`, this.origin)
     if (options.search && typeof options.search === 'object') {

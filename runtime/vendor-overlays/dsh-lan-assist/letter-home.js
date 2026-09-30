@@ -1,0 +1,251 @@
+/**
+ * IM letter home: a talk (1:1 pair, or one topic) has one home.
+ * Opening a talk stamps send-time cwd. Follow-ups inherit the root.
+ * Incoming follows the parent letter. Sender paths are not a home.
+ * @module dsh-lan-assist/letter-home
+ */
+
+export function normalizeCwd(value) {
+  const raw = String(value || '').trim()
+  if (!raw.startsWith('/')) return ''
+  return raw.replace(/\/+$/, '') || '/'
+}
+
+export function localCwdSet(workspaces) {
+  const out = new Set()
+  for (const row of workspaces || []) {
+    const cwd = normalizeCwd(typeof row === 'string' ? row : (row && (row.cwd || row.path)))
+    if (cwd) out.add(cwd)
+  }
+  return out
+}
+
+export function talkKey(req) {
+  if (!req) return ''
+  const groupId = String(req.groupId || '')
+  if (groupId) {
+    const thread = String(req.threadId || '')
+    if (thread) return `t:${thread}`
+    const id = String(req.id || '')
+    return id ? `t:${id}` : ''
+  }
+  const ids = [req.from, ...(Array.isArray(req.to) ? req.to : [])]
+    .map((id) => String(id || ''))
+    .filter(Boolean)
+  const unique = [...new Set(ids)].sort()
+  return unique.length ? `d:${unique.join('\0')}` : ''
+}
+
+export function dmTalkId(selfId, peerId) {
+  return talkKey({ from: selfId, to: [peerId] })
+}
+
+export function topicTalkId(rootId) {
+  const id = String(rootId || '')
+  return id ? `t:${id}` : ''
+}
+
+export function homeForIncoming(state, inner) {
+  const requests = state && state.requests ? state.requests : {}
+  const seen = new Set()
+  let cursorId = String((inner && inner.threadId) || '')
+  while (cursorId && !seen.has(cursorId)) {
+    seen.add(cursorId)
+    const parent = requests[cursorId]
+    if (!parent) break
+    const inherited = normalizeCwd(parent.workspace)
+    if (inherited) return inherited
+    cursorId = String(parent.threadId || parent.parentId || '')
+  }
+  return ''
+}
+
+/** Follow-up inherits the root. New 1:1 / new topic stamps cwd. */
+export function homeForOutgoing(state, inner) {
+  const thread = String((inner && inner.threadId) || '').trim()
+  if (thread) return homeForIncoming(state, { threadId: thread })
+  const groupId = String((inner && inner.groupId) || '').trim()
+  if (groupId) return normalizeCwd(inner && inner.workspace)
+  const requests = state && state.requests ? Object.values(state.requests) : []
+  const key = talkKey({
+    from: state && state.self && state.self.id,
+    to: inner && inner.to,
+    groupId: '',
+  })
+  if (!key) return normalizeCwd(inner && inner.workspace)
+  const homes = new Set()
+  let seen = false
+  for (const row of requests) {
+    if (!row || talkKey(row) !== key) continue
+    seen = true
+    homes.add(normalizeCwd(row.workspace))
+  }
+  if (!seen) return normalizeCwd(inner && inner.workspace)
+  if (homes.size === 1) return [...homes][0]
+  return ''
+}
+
+/** Root + follow-ups of one talk. 归到 writes this set, empty homes only. */
+export function talkMemberIds(requests, id) {
+  const list = Array.isArray(requests) ? requests : Object.values(requests || {})
+  const want = String(id || '')
+  const row = list.find((item) => item && String(item.id || '') === want)
+  if (!row) return []
+  const thread = String(row.threadId || '')
+  if (thread || row.topic) {
+    const rootId = thread || String(row.id || '')
+    return list
+      .filter((item) => item && (String(item.id || '') === rootId || String(item.threadId || '') === rootId))
+      .map((item) => String(item.id))
+  }
+  const key = talkKey(row)
+  if (!key) return [want]
+  return list.filter((item) => talkKey(item) === key).map((item) => String(item.id))
+}
+
+/** A roster with no mail, or mail with empty home, belongs on the unassigned lane. */
+export function mailOnLane(homes, lane, currentHome, emptyToUnassigned) {
+  const list = Array.isArray(homes) ? homes.map((home) => normalizeCwd(home)) : []
+  if (lane === 'unassigned') {
+    if (list.some((home) => !home)) return true
+    return !!(emptyToUnassigned && list.length === 0)
+  }
+  const here = normalizeCwd(currentHome)
+  return !!(here && list.some((home) => home === here))
+}
+
+export function letterHome(req, all, localCwds) {
+  if (!req) return ''
+  const locals = localCwds instanceof Set ? localCwds : localCwdSet(localCwds)
+  const list = Array.isArray(all) ? all : Object.values(all || {})
+  const byId = new Map()
+  for (const row of list) {
+    if (row && row.id) byId.set(String(row.id), row)
+  }
+  const seen = new Set()
+  let cursor = req
+  while (cursor && !seen.has(String(cursor.id || ''))) {
+    seen.add(String(cursor.id || ''))
+    const stored = normalizeCwd(cursor.workspace)
+    if (stored && locals.has(stored)) return stored
+    const parentId = String(cursor.threadId || cursor.parentId || '')
+    cursor = parentId ? byId.get(parentId) : null
+  }
+  const key = talkKey(req)
+  if (!key) return ''
+  const homes = new Set()
+  for (const row of byId.values()) {
+    if (talkKey(row) !== key) continue
+    const stored = normalizeCwd(row.workspace)
+    if (stored && locals.has(stored)) homes.add(stored)
+  }
+  if (homes.size === 1) return [...homes][0]
+  return ''
+}
+
+/** Hall shells carry computed `unread`. Opened-thread rows carry `reads` and omit `unread`. */
+export function incomingUnread(row, selfId) {
+  if (!row || row.kind !== 'incoming' || row.roster) return false
+  if (row.status === 'withdrawn' || row.status === 'closed' || row.status === 'failed') return false
+  if (typeof row.unread === 'boolean') return row.unread
+  const reads = row.reads && typeof row.reads === 'object' && !Array.isArray(row.reads) ? row.reads : null
+  const id = String(selfId || '')
+  if (id) return !(reads && reads[id])
+  return !reads || !Object.keys(reads).length
+}
+
+export function emptyUnreadSheet() {
+  return { talks: [], byTalk: {}, byCwd: {}, unassigned: 0 }
+}
+
+/** One talk row per 1:1 pair or topic. Group id is roster only. */
+export function unreadSheet(requests, localCwds, selfId) {
+  const locals = localCwds instanceof Set ? localCwds : localCwdSet(localCwds)
+  const list = Array.isArray(requests) ? requests : Object.values(requests || {})
+  /** @type {Map<string, { talkId: string, rosterId: string, home: string, n: number }>} */
+  const byTalkRows = new Map()
+  for (const row of list) {
+    if (!incomingUnread(row, selfId)) continue
+    const talkId = talkKey(row)
+    if (!talkId) continue
+    const home = letterHome(row, list, locals)
+    const rosterId = String(row.groupId || '')
+    const cur = byTalkRows.get(talkId)
+    if (!cur) {
+      byTalkRows.set(talkId, { talkId, rosterId, home, n: 1 })
+      continue
+    }
+    cur.n += 1
+    if (cur.home !== home) cur.home = ''
+  }
+  const talks = [...byTalkRows.values()]
+  /** @type {Record<string, number>} */
+  const byTalk = {}
+  /** @type {Record<string, number>} */
+  const byCwd = {}
+  for (const cwd of locals) byCwd[cwd] = 0
+  let unassigned = 0
+  for (const row of talks) {
+    byTalk[row.talkId] = row.n
+    if (!row.home) unassigned += row.n
+    else byCwd[row.home] = (byCwd[row.home] || 0) + row.n
+  }
+  return { talks, byTalk, byCwd, unassigned }
+}
+
+export function unreadByHome(requests, localCwds, selfId) {
+  const sheet = unreadSheet(requests, localCwds, selfId)
+  return { byCwd: sheet.byCwd, unassigned: sheet.unassigned }
+}
+
+export function unreadOfTalk(sheet, talkId, lane, currentHome) {
+  const want = String(talkId || '')
+  if (!sheet || !want) return 0
+  const talks = Array.isArray(sheet.talks) ? sheet.talks : []
+  const row = talks.find((item) => item && item.talkId === want)
+  if (!row) return 0
+  if (lane) return mailOnLane([row.home], lane, currentHome, false) ? Number(row.n) || 0 : 0
+  return Number(row.n) || 0
+}
+
+export function unreadOfRoster(sheet, rosterId, lane, currentHome) {
+  const want = String(rosterId || '')
+  if (!sheet || !want) return 0
+  let n = 0
+  for (const row of Array.isArray(sheet.talks) ? sheet.talks : []) {
+    if (!row || row.rosterId !== want) continue
+    if (mailOnLane([row.home], lane, currentHome, false)) n += Number(row.n) || 0
+  }
+  return n
+}
+
+/** IM 面板 full/half 或撕出的浮窗才是可见区。 */
+export function imPaneOpen(panelState, floatingIm) {
+  return panelState === 'full' || panelState === 'half' || !!floatingIm
+}
+
+/**
+ * IM closed: current cwd + 未分. IM open: 未分 only. Folds unreadSheet.
+ */
+export function imUnreadMouth(split, imOpen, currentHome) {
+  const byCwd = split && split.byCwd && typeof split.byCwd === 'object' ? split.byCwd : {}
+  const currentN = currentHome ? (Number(byCwd[normalizeCwd(currentHome)]) || 0) : 0
+  const unassigned = Number(split && split.unassigned) || 0
+  return (imOpen ? 0 : currentN) + unassigned
+}
+
+/**
+ * Leaving IM closes the open talk. Coming back lands on the list.
+ * Mail that arrived while the pane was hidden stays unread until the human opens it.
+ */
+export function imBrowseWhenHidden(browse, imVisible) {
+  const lane = browse && browse.lane === 'unassigned' ? 'unassigned' : 'workspace'
+  if (imVisible) {
+    return {
+      threadId: browse && browse.threadId ? String(browse.threadId) : null,
+      topicId: browse && browse.topicId ? String(browse.topicId) : null,
+      lane,
+    }
+  }
+  return { threadId: null, topicId: null, lane }
+}

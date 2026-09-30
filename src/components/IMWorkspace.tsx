@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Search, Send, Paperclip, Plus, Command, ChevronsLeft, ChevronsRight,
-  Smile, History, Settings2, Users, UserRound, BellOff, Pin, Trash2, X,
+  Smile, History, Settings2, Users, UserRound, BellOff, Pin, Trash2, X, Inbox,
   Check, MessageSquareText, ListTodo, Languages, Forward, Brain,
   Sparkles, ChevronRight, ChevronDown, Play, Copy, MoreHorizontal, LoaderCircle,
 } from 'lucide-react'
@@ -11,6 +11,8 @@ import { useParams } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { runtimeApi } from '@/lib/runtime-api'
 import { isPrimarySession, loadCurrentAiTarget, loadCurrentWorkspaceCwd, sessionMatchesCwd } from '@/lib/ai-target'
+import { dmTalkId, imPaneOpen, incomingUnread, letterHome, localCwdSet, mailOnLane, normalizeCwd, topicTalkId, unreadOfRoster, unreadOfTalk } from '@/lib/im-letter-home'
+import { pullImMailbox, stampImMailboxRead, startImMailbox, useImMailbox } from '@/lib/im-mailbox'
 import { IM_AVATARS, imAvatar } from '@/lib/im-avatar'
 import { buildImAiPrompt, extractComposerBody, isUnsafeToSend, lastIncomingText, threadExcerpt } from '@/lib/im-ai'
 import { buildContextPack, renderContextForPrompt, type ContextPack } from '@/lib/context-pack'
@@ -24,6 +26,26 @@ function withdrawnOf(row: Record<string, unknown>, to: string, outgoing: boolean
   const list = Array.isArray(row.withdrawn) ? row.withdrawn.map(String) : []
   if (!list.length) return false
   return outgoing ? list.includes(to) : true
+}
+
+function peerStampMap(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function pendingPeerIdsOf(row: Record<string, unknown>): string[] {
+  if (row.kind !== 'outgoing') return []
+  const to = Array.isArray(row.to) ? row.to.map(String) : []
+  const withdrawn = new Set(Array.isArray(row.withdrawn) ? row.withdrawn.map(String) : [])
+  const delivered = peerStampMap(row.delivered)
+  const relayed = peerStampMap(row.relayed)
+  return to.filter((id) => id && !withdrawn.has(id) && !delivered[id] && !relayed[id])
+}
+
+function letterPending(row: Record<string, unknown>): boolean {
+  if (row.kind !== 'outgoing') return false
+  const status = String(row.status || '')
+  if (status === 'queued' || status === 'retry' || status === 'failed') return true
+  return pendingPeerIdsOf(row).length > 0 && status !== 'sent' && status !== 'presend'
 }
 
 function ImFace({ avatar, name, size = 36, group = false }: { avatar?: string; name?: string; size?: number; group?: boolean }) {
@@ -485,6 +507,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const activeThreadId = useApp((s) => s.activeThreadId)
   const imBrowse = useApp((s) => s.imBrowse)
   const setImBrowse = useApp((s) => s.setImBrowse)
+  const mailbox = useImMailbox()
   const [wsFiles, setWsFiles] = useState<FileNode[]>([])
   const [filesNote, setFilesNote] = useState('')
 
@@ -598,16 +621,18 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     })
     const rooms = groups.map((group) => {
       const members = Array.isArray(group.members) ? group.members.map((id) => String(id)) : []
+      const memberNames = members.map((id) => people.find((p) => p.id === id)?.name || id.slice(-4))
       return {
         id: String(group.id || ''),
         kind: 'topic-group' as const,
         name: String(group.name || '话题群'),
-        handle: `${members.length} 人`,
+        handle: ['我', ...memberNames].join('、'),
         avatarColor: '#1A1A1A',
-        online: true,
+        online: members.some((id) => people.find((p) => p.id === id)?.online),
         pinned: Boolean(group.pin),
         muted: Boolean(group.mute),
         memberIds: members,
+        origin: group.origin === 'roster' ? 'roster' as const : 'local' as const,
       }
     })
     const nextContacts = [...people, ...rooms]
@@ -617,10 +642,12 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       rememberImMailbox(nextContacts, liveMessages ?? [])
     }
     const requests = Array.isArray(data.requests) ? data.requests as Array<Record<string, unknown>> : []
+    const localCwds = localCwdSet(useApp.getState().workspaces)
     const me = String(self?.id || selfId)
     let latestPresend: { id: string; threadId: string; text: string } | null = null
     const mapped: IMMessage[] = []
     for (const row of requests) {
+      if (row.roster) continue
       const to = Array.isArray(row.to) ? String(row.to[0] || '') : ''
       const from = String(row.from || '')
       const outgoing = row.kind === 'outgoing'
@@ -670,13 +697,15 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         fromName: String(row.fromName || ''),
         text,
         ts: created ? new Date(created).toISOString() : new Date().toISOString(),
-        read: markedReadRef.current.has(String(row.id || '')) || !row.unread,
-        pending: row.status === 'queued' || row.status === 'retry',
+        read: markedReadRef.current.has(String(row.id || '')) || !incomingUnread(row, me),
+        pending: letterPending(row),
+        pendingPeerIds: pendingPeerIdsOf(row),
         attachments: files.length ? files : undefined,
         handoff,
         recalledAt: withdrawnOf(row, to, outgoing)
           ? new Date(Number(row.updatedAt || created) || Date.now()).toISOString()
           : undefined,
+        home: letterHome(row, requests, localCwds),
       })
     }
     pendingPresendRef.current = latestPresend
@@ -703,7 +732,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
             : (row.text.length >= old.text.length ? row.text : old.text),
           attachments: row.attachments?.length ? row.attachments : old.attachments,
           handoff: mergeHandoffPackages(row.handoff, old.handoff) ?? row.handoff ?? old.handoff,
-          read: markedReadRef.current.has(row.id) || row.read || old.read,
+          read: markedReadRef.current.has(row.id) || row.read,
         })
       }
       const next = [...byId.values()]
@@ -740,25 +769,14 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   }
 
   useEffect(() => {
-    let alive = true
-    const pull = () => {
-      void runtimeApi.imMailbox().then((data) => {
-        if (alive) applyMailbox(data)
-      }).catch(() => undefined)
-    }
-    void runtimeApi.imMailbox().then(async (data) => {
-      if (!alive) return
-      applyMailbox(data)
-      await runtimeApi.imShout().catch(() => undefined)
-      const again = await runtimeApi.imMailbox().catch(() => null)
-      if (alive && again) applyMailbox(again)
-    }).catch(() => undefined)
-    const timer = window.setInterval(pull, 2000)
-    return () => {
-      alive = false
-      window.clearInterval(timer)
-    }
+    startImMailbox()
+    void runtimeApi.imShout().then(() => pullImMailbox()).catch(() => undefined)
   }, [])
+  useEffect(() => {
+    applyMailbox(mailbox.hall)
+    const contact = openContactRef.current
+    if (contact) void pullThread(contact).catch(() => undefined)
+  }, [mailbox.revision])
 
   const [q, setQ] = useState('')
   const [input, setInput] = useState(() => {
@@ -791,7 +809,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     index?: number
   } | null>(null)
   const [sending, setSending] = useState(false)
-  const [topicDraft, setTopicDraft] = useState('')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; message: IMMessage } | null>(null)
   const [forwardMessage, setForwardMessage] = useState<IMMessage | null>(null)
   const [composerHeight, setComposerHeight] = useState(168)
@@ -803,6 +820,14 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const chatPaneRef = useRef<HTMLDivElement>(null)
   const composerResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
 
+  const workspaces = useApp((s) => s.workspaces)
+  const currentWorkspace = workspaces.find((row) => row.id === activeWorkspaceId)
+  const currentHome = normalizeCwd(currentWorkspace?.cwd)
+  const lane = imBrowse.lane === 'unassigned' ? 'unassigned' : 'workspace'
+  const matchesLane = (row: IMMessage, forLane: 'workspace' | 'unassigned') => (
+    forLane === 'unassigned' ? !row.home : row.home === currentHome
+  )
+  const inLane = (row: IMMessage) => matchesLane(row, lane)
   const filtered = useMemo(() => {
     const sorted = [...contacts].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
     if (!q) return sorted
@@ -810,11 +835,19 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   }, [contacts, q])
   const people = filtered.filter((c) => c.kind === 'contact')
   const groups = filtered.filter((c) => c.kind === 'topic-group')
+  const homesOf = (id: string) => messages.filter((row) => row.threadId === id).map((row) => row.home)
+  const onLane = (c: IMContact, forLane: 'workspace' | 'unassigned') => (
+    mailOnLane(homesOf(c.id), forLane, currentHome, c.kind === 'topic-group')
+  )
+  const peopleHere = people.filter((c) => onLane(c, 'workspace'))
+  const peopleOpen = people.filter((c) => onLane(c, 'unassigned'))
+  const groupsHere = groups.filter((c) => onLane(c, 'workspace'))
+  const groupsOpen = groups.filter((c) => onLane(c, 'unassigned'))
   const rememberedThreadId = imBrowse.threadId
   const foundContact = rememberedThreadId
     ? contacts.find((c) => c.id === rememberedThreadId)
     : undefined
-  const activeContact = foundContact ?? (rememberedThreadId ? undefined : contacts[0])
+  const activeContact = foundContact
   const selectedTopicId = imBrowse.threadId === activeContact?.id ? imBrowse.topicId : null
   const setSelectedTopicId = (id: string | null) => {
     setImBrowse({ threadId: activeContact?.id ?? rememberedThreadId, topicId: id })
@@ -823,35 +856,58 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     if (!activeContact) return
     if (activeThreadId !== activeContact.id) setActiveThread(activeContact.id)
     if (imBrowse.threadId !== activeContact.id) {
-      setImBrowse({ threadId: activeContact.id, topicId: null })
+      setImBrowse({ threadId: activeContact.id, topicId: null, lane })
     }
-  }, [activeContact?.id, activeThreadId, imBrowse.threadId, setActiveThread, setImBrowse])
+  }, [activeContact?.id, activeThreadId, imBrowse.threadId, lane, setActiveThread, setImBrowse])
+  useEffect(() => {
+    setImBrowse({ lane: 'workspace' })
+  }, [activeWorkspaceId, setImBrowse])
   openContactRef.current = activeContact
   useEffect(() => {
     void pullThread(activeContact)
   }, [activeContact?.id])
   const byTime = (a: IMMessage, b: IMMessage) => new Date(a.ts).getTime() - new Date(b.ts).getTime()
-  const groupTopics = messages.filter((m) => m.threadId === activeContact?.id && m.topic && !m.parentId)
   const activeMsgs = messages.filter((m) => {
-    if (m.threadId !== activeContact?.id) return false
+    if (m.threadId !== activeContact?.id || !inLane(m)) return false
     if (activeContact?.kind !== 'topic-group') return true
     if (selectedTopicId) return m.id === selectedTopicId || m.parentId === selectedTopicId
     return Boolean(m.topic && !m.parentId)
   }).slice().sort(byTime)
-  const allThreadMsgs = messages.filter((m) => m.threadId === activeContact?.id).slice().sort(byTime)
-  const lastFor = (id: string) => messages.filter((m) => m.threadId === id).slice().sort(byTime).at(-1)
-  const unreadFor = (id: string) => messages.filter((m) => m.threadId === id && !m.read && !markedReadRef.current.has(m.id) && m.authorId !== selfId && m.authorId !== 'u_self').length
+  const allThreadMsgs = messages.filter((m) => m.threadId === activeContact?.id && inLane(m)).slice().sort(byTime)
+  const lastFor = (id: string, forLane: 'workspace' | 'unassigned' = lane) => {
+    return messages.filter((m) => m.threadId === id && matchesLane(m, forLane)).slice().sort(byTime).at(-1)
+  }
+  const hallSelf = mailbox.hall.self && typeof mailbox.hall.self === 'object'
+    ? String((mailbox.hall.self as Record<string, unknown>).id || '')
+    : ''
+  const me = hallSelf || selfId
+  const unreadFor = (id: string, forLane: 'workspace' | 'unassigned' = lane) => {
+    const contact = contacts.find((row) => row.id === id)
+    if (contact?.kind === 'topic-group') return unreadOfRoster(mailbox.sheet, id, forLane, currentHome)
+    return unreadOfTalk(mailbox.sheet, dmTalkId(me, id), forLane, currentHome)
+  }
+  const unassignedUnread = mailbox.sheet.unassigned
   const latestKey = `${activeContact?.id || ''}:${selectedTopicId || ''}:${activeMsgs.at(-1)?.id || ''}:${activeMsgs.length}`
 
   useEffect(() => {
     if (!activeContact) return
-    const unread = messages.filter((m) => m.threadId === activeContact.id && !m.read && !markedReadRef.current.has(m.id))
+    const state = useApp.getState()
+    const im = state.panels.find((panel) => panel.id === 'im')
+    if (!imPaneOpen(im?.state, state.floating.im)) return
+    const unread = activeMsgs.filter((m) => !m.read && !markedReadRef.current.has(m.id) && m.authorId !== selfId && m.authorId !== 'u_self')
     if (!unread.length) return
-    unread.forEach((m) => markedReadRef.current.add(m.id))
-    const ids = new Set(unread.map((m) => m.id))
-    setLiveMessages((prev) => (prev ?? []).map((row) => ids.has(row.id) ? { ...row, read: true } : row))
-    void Promise.all(unread.map((m) => runtimeApi.imMarkRead(m.id).catch(() => undefined)))
-  }, [activeContact?.id, messages])
+    const ids = unread.map((m) => m.id)
+    ids.forEach((id) => markedReadRef.current.add(id))
+    stampImMailboxRead(ids)
+    const idSet = new Set(ids)
+    setLiveMessages((prev) => (prev ?? []).map((row) => idSet.has(row.id) ? { ...row, read: true } : row))
+    void Promise.all(ids.map((id) => runtimeApi.imMarkRead(id).then((row) => {
+      if (row && row.ok === false) throw new Error(String(row.hint || row.error || 'read'))
+    }))).catch(() => {
+      ids.forEach((id) => markedReadRef.current.delete(id))
+      void pullImMailbox()
+    })
+  }, [activeContact?.id, selectedTopicId, latestKey, selfId])
   useEffect(() => {
     if (!activeContact) return
     setInput(composerDrafts[activeContact.id] ?? '')
@@ -888,12 +944,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     ro.observe(inner)
     return () => ro.disconnect()
   }, [activeContact?.id])
-  useEffect(() => {
-    const n = contacts.reduce((sum, contact) => sum + (contact.id === activeContact?.id ? 0 : unreadFor(contact.id)), 0)
-    const badge = n || undefined
-    if (useApp.getState().panels.find((panel) => panel.id === 'im')?.badge === badge) return
-    useApp.getState().setPanelBadge('im', badge)
-  }, [messages, contacts, activeContact?.id, selfId])
   useEffect(() => {
     const close = () => setContextMenu(null)
     window.addEventListener('click', close)
@@ -1092,7 +1142,9 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       if (pending && pending.threadId === activeContact.id && pending.text.trim() === text && toSend.length === 0 && !handoff) {
         const sent = await runtimeApi.imSend({ requestId: pending.id })
         if (sent && sent.ok === false) throw new Error(String(sent.hint || sent.error || '没发出去'))
-        return runtimeApi.imState()
+        await pullImMailbox()
+        await pullThread(activeContact).catch(() => undefined)
+        return
       }
       if (pending && pending.threadId === activeContact.id) {
         await runtimeApi.imCancelPresend(pending.id).catch(() => undefined)
@@ -1130,10 +1182,10 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         excerpt: text || (handoff ? handoff.summary : (toSend.map((item) => item.name).join('、') || '（附件）')),
         attachments: packed,
       }
-      if (target.ok) {
-        body.sessionId = target.sessionId
-        body.workspace = target.cwd
-      }
+      const folder = loadCurrentWorkspaceCwd()
+      if (!folder.ok) throw new Error(folder.error)
+      body.workspace = normalizeCwd(folder.cwd)
+      if (target.ok) body.sessionId = target.sessionId
       if (activeContact.kind === 'topic-group') {
         body.groupId = activeContact.id
         if (selectedTopicId) body.threadId = selectedTopicId
@@ -1145,6 +1197,15 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       if (composed.ok === false || !requestId) throw new Error(String(composed.hint || composed.error || '没写成'))
       const sent = await runtimeApi.imSend({ requestId })
       if (sent && sent.ok === false) throw new Error(String(sent.hint || sent.error || '没发出去'))
+      const live = Array.isArray(sent.requests)
+        ? (sent.requests as Array<Record<string, unknown>>).find((row) => String(row.id || '') === requestId)
+        : null
+      const pendingIds = live ? pendingPeerIdsOf(live) : []
+      const sentHome = live
+        ? normalizeCwd(live.workspace)
+        : (selectedTopicId
+          ? (messages.find((row) => row.id === selectedTopicId)?.home || '')
+          : (messages.find((row) => row.threadId === activeContact.id && inLane(row))?.home || normalizeCwd(folder.cwd)))
       setLiveMessages((prev) => [...(prev ?? []).filter((row) => row.id !== requestId), {
         id: requestId,
         threadId: activeContact.id,
@@ -1153,13 +1214,17 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         text,
         ts: new Date().toISOString(),
         read: true,
+        pending: live ? letterPending(live) : pendingIds.length > 0,
+        pendingPeerIds: pendingIds,
         attachments: toSend.length ? toSend : undefined,
         handoff: handoff || undefined,
+        home: sentHome,
       }])
-      return runtimeApi.imMailbox()
-    }).then(async (state) => {
-      applyMailbox(state)
+      const nextLane: 'workspace' | 'unassigned' = sentHome === currentHome ? 'workspace' : sentHome ? lane : 'unassigned'
+      setImBrowse({ threadId: activeContact.id, topicId: selectedTopicId, lane: nextLane })
+      await pullImMailbox()
       await pullThread(activeContact).catch(() => undefined)
+    }).then(async () => {
       setComposer('')
       setAttachments([])
       setPendingHandoff(null)
@@ -1248,9 +1313,33 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     })().catch((cause) => setAiHint(cause instanceof Error ? cause.message : '没发起'))
   }
 
-  const selectContact = (id: string) => {
+  const selectContact = (id: string, nextLane: 'workspace' | 'unassigned' = 'workspace') => {
     setActiveThread(id)
-    setImBrowse({ threadId: id, topicId: null })
+    setImBrowse({ threadId: id, topicId: null, lane: nextLane })
+  }
+
+  const placeActiveTalk = () => {
+    if (!activeContact || !currentHome) {
+      setAiHint('当前顶栏工作区没有本机目录')
+      return
+    }
+    const ids = messages.filter((row) => {
+      if (row.threadId !== activeContact.id || row.home || !inLane(row)) return false
+      if (selectedTopicId) return row.id === selectedTopicId || row.parentId === selectedTopicId
+      return true
+    }).map((row) => row.id)
+    if (!ids.length) return
+    setAiHint('正在归到当前工作区…')
+    void runtimeApi.imPlaceLetters({ requestIds: ids, workspace: currentHome })
+      .then((result) => {
+        if (result.ok === false) throw new Error(String(result.hint || result.error || '没归上'))
+        return pullImMailbox()
+      })
+      .then(() => {
+        setImBrowse({ lane: 'workspace', threadId: activeContact.id })
+        setAiHint('')
+      })
+      .catch((cause) => setAiHint(cause instanceof Error ? cause.message : '没归上'))
   }
 
   const attachFile = (file: FileNode) => {
@@ -1397,13 +1486,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     })().catch((cause) => setImBanner({ kind: 'err', text: cause instanceof Error ? cause.message : '转发失败' }))
   }
 
-  const createTopic = () => {
-    if (!activeContact || activeContact.kind !== 'topic-group' || !topicDraft.trim()) return
-    const id = useApp.getState().addIMTopic({ groupId: activeContact.id, title: topicDraft.trim(), createdBy: 'u_self' })
-    setSelectedTopicId(id)
-    setTopicDraft('')
-  }
-
   useEffect(() => {
     if (!filePickerOpen && !handoffOpen) return
     let alive = true
@@ -1449,18 +1531,18 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const [pinnedContacts, setPinnedContacts] = useState(false)
   const contactsCollapsed = compact ? !pinnedContacts : (panelOpen && !overlayPanel && !pinnedContacts)
 
-  const renderContactButton = (c: IMContact, compact = false) => {
-    const unread = unreadFor(c.id)
-    const isActive = c.id === activeContact?.id
+  const renderContactButton = (c: IMContact, compact = false, forLane: 'workspace' | 'unassigned' = 'workspace') => {
+    const unread = unreadFor(c.id, forLane)
+    const isActive = c.id === activeContact?.id && lane === forLane
     if (compact) return (
-      <button key={c.id} onClick={() => selectContact(c.id)} className={clsx('relative rounded-full shrink-0', isActive && 'ring-2 ring-brand ring-offset-2')} title={c.name}>
+      <button key={`${forLane}-${c.id}`} onClick={() => selectContact(c.id, forLane)} className={clsx('relative rounded-full shrink-0', isActive && 'ring-2 ring-brand ring-offset-2', forLane === 'unassigned' && 'ring-1 ring-amber-300')} title={forLane === 'unassigned' ? `${c.name} · 未分工作区` : c.name}>
         <ImFace avatar={c.avatar} name={c.name} size={36} group={c.kind === 'topic-group'} />
         {unread > 0 && <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-accent-red text-white text-[9px] flex items-center justify-center">{unread}</span>}
       </button>
     )
-    const last = lastFor(c.id)
+    const last = lastFor(c.id, forLane)
     return (
-      <button key={c.id} onClick={() => selectContact(c.id)} className={clsx('w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-surface-2', isActive && 'bg-brand-soft border-l-2 border-brand')}>
+      <button key={`${forLane}-${c.id}`} onClick={() => selectContact(c.id, forLane)} className={clsx('w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-surface-2', isActive && 'bg-brand-soft border-l-2 border-brand')} title={forLane === 'unassigned' ? '未分工作区' : undefined}>
         <ImFace avatar={c.avatar} name={c.name} size={36} group={c.kind === 'topic-group'} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1"><span className="text-sm font-medium truncate">{c.name}</span>{c.pinned && <Pin size={10} className="text-brand" />}{c.muted && <BellOff size={10} className="text-ink-subtle" />}</div>
@@ -1499,7 +1581,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
             onClick={() => {
               setPairBusy(true)
               setPairHint('')
-              void runtimeApi.imPairReject().then(() => runtimeApi.imState()).then(applyMailbox).catch((cause) => setPairHint(cause instanceof Error ? cause.message : '拒绝失败')).finally(() => setPairBusy(false))
+              void runtimeApi.imPairReject().then(() => pullImMailbox()).catch((cause) => setPairHint(cause instanceof Error ? cause.message : '拒绝失败')).finally(() => setPairBusy(false))
             }}
           >拒绝</button>
           <button
@@ -1512,9 +1594,8 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
               void runtimeApi.imPairAccept()
                 .then((data) => {
                   if (data.ok === false) setPairHint(String(data.hint || data.error || '配对失败'))
-                  return runtimeApi.imState()
+                  return pullImMailbox()
                 })
-                .then(applyMailbox)
                 .catch((cause) => setPairHint(cause instanceof Error ? cause.message : '配对失败'))
                 .finally(() => setPairBusy(false))
             }}
@@ -1529,7 +1610,23 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                 <div className="w-14 bg-white border-r border-line flex flex-col items-center shrink-0 py-2 gap-1.5 overflow-y-auto">
                   <button onClick={() => setPinnedContacts(true)} className="p-1.5 rounded hover:bg-surface-2 text-ink-muted" title="展开会话列表"><ChevronsRight size={16} /></button>
                   <div className="w-6 border-t border-line my-1" />
-                  {filtered.map((c) => renderContactButton(c, true))}
+                  {peopleOpen.length + groupsOpen.length > 0 && (
+                    <>
+                      <div className="relative py-0.5" title={unassignedUnread > 0 ? `未分工作区 · ${unassignedUnread}` : '未分工作区'}>
+                        <Inbox size={16} className="text-amber-800/80" />
+                        {unassignedUnread > 0 && (
+                          <span className="absolute -top-1 -right-1 min-w-3.5 h-3.5 px-0.5 rounded-full bg-accent-red text-white text-[8px] flex items-center justify-center">
+                            {unassignedUnread > 99 ? '99+' : unassignedUnread}
+                          </span>
+                        )}
+                      </div>
+                      {peopleOpen.map((c) => renderContactButton(c, true, 'unassigned'))}
+                      {groupsOpen.map((c) => renderContactButton(c, true, 'unassigned'))}
+                      <div className="w-6 border-t border-line my-1" />
+                    </>
+                  )}
+                  {peopleHere.map((c) => renderContactButton(c, true, 'workspace'))}
+                  {groupsHere.map((c) => renderContactButton(c, true, 'workspace'))}
                 </div>
               ) : (
                 <div className="w-64 bg-white border-r border-line flex flex-col shrink-0">
@@ -1539,8 +1636,22 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                     {panelOpen && <button onClick={() => setPinnedContacts(false)} className="p-1.5 rounded hover:bg-surface-2 text-ink-muted" title="收起会话列表"><ChevronsLeft size={13} /></button>}
                   </div>
                   <div className="flex-1 overflow-auto">
-                    <div className="px-3 py-2 text-[10px] uppercase tracking-wide text-ink-subtle flex items-center gap-1"><UserRound size={10} /> 联系人 · {people.length}</div>
-                    {people.map((c) => renderContactButton(c))}
+                    {peopleOpen.length + groupsOpen.length > 0 && (
+                      <div className="mb-1 bg-amber-50/70 border-b border-amber-100">
+                        <div className="px-3 py-2 text-[10px] uppercase tracking-wide text-amber-800/80 flex items-center gap-1.5">
+                          <Inbox size={10} /> 未分工作区
+                          {unassignedUnread > 0 && (
+                            <span className="ml-auto px-1.5 min-w-5 h-5 rounded-full bg-accent-red text-white text-[10px] flex items-center justify-center">
+                              {unassignedUnread}
+                            </span>
+                          )}
+                        </div>
+                        {peopleOpen.map((c) => renderContactButton(c, false, 'unassigned'))}
+                        {groupsOpen.map((c) => renderContactButton(c, false, 'unassigned'))}
+                      </div>
+                    )}
+                    <div className="px-3 py-2 text-[10px] uppercase tracking-wide text-ink-subtle flex items-center gap-1"><UserRound size={10} /> 联系人 · {peopleHere.length}</div>
+                    {peopleHere.map((c) => renderContactButton(c, false, 'workspace'))}
                     {people.length === 0 && (
                       <div className="px-3 py-4 text-xs text-ink-muted leading-5">
                         还没有配对同事。本机门牌 <span className="font-mono">{doorPort ? `127.0.0.1:${doorPort}` : '连接核心后显示'}</span>
@@ -1564,8 +1675,11 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                         <div className="mt-3 text-[11px] text-ink-subtle">本机第二套：另开终端 <span className="font-mono">pnpm run dev:peer</span>。门牌填对面 IM 里显示的「本机门牌」，不要填 5174/5175。</div>
                       </div>
                     )}
-                    <div className="px-3 py-2 mt-1 border-t border-line text-[10px] uppercase tracking-wide text-ink-subtle flex items-center gap-1"><Users size={10} /> 话题群 · {groups.length}</div>
-                    {groups.map((c) => renderContactButton(c))}
+                    {people.length > 0 && peopleHere.length === 0 && peopleOpen.length === 0 && (
+                      <div className="px-3 py-4 text-xs text-ink-muted leading-5">这个工作区还没有往来。从右下角选同事，发出去的信会落在这里。</div>
+                    )}
+                    <div className="px-3 py-2 mt-1 border-t border-line text-[10px] uppercase tracking-wide text-ink-subtle flex items-center gap-1"><Users size={10} /> 话题群 · {groupsHere.length}</div>
+                    {groupsHere.map((c) => renderContactButton(c, false, 'workspace'))}
                   </div>
                   <div className="p-2 border-t border-line space-y-1">
                     <button type="button" onClick={() => openManage('add')} className="w-full px-2 py-1.5 text-xs text-ink-muted hover:bg-surface-2 rounded flex items-center gap-1.5"><Plus size={12} /> 添加同事 / 话题群</button>
@@ -1581,13 +1695,24 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                 {activeContact ? <>
                   <div className="h-12 border-b border-line flex items-center px-4 gap-3 shrink-0">
                     <ImFace avatar={activeContact.avatar} name={activeContact.name} size={32} group={activeContact.kind === 'topic-group'} />
-                    <div className="flex-1 min-w-0"><div className="text-sm font-medium flex items-center gap-1.5">{activeContact.name}{selectedTopicId && activeContact.kind === 'topic-group' ? <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-2 text-ink-muted">话题</span> : <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-2 text-ink-muted">{activeContact.kind === 'topic-group' ? '话题群' : '联系人'}</span>}</div><div className="text-[10px] text-ink-muted truncate">{activeContact.kind === 'topic-group' ? (selectedTopicId ? '跟帖会进当前话题' : `${activeContact.handle}`) : `${activeContact.online ? '在线' : '离线'} · ${activeContact.handle}`}</div></div>
+                    <div className="flex-1 min-w-0"><div className="text-sm font-medium flex items-center gap-1.5">{activeContact.name}{selectedTopicId && activeContact.kind === 'topic-group' ? <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-2 text-ink-muted">话题</span> : lane === 'unassigned' ? <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200">未分工作区</span> : <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-2 text-ink-muted">{activeContact.kind === 'topic-group' ? '话题群' : '联系人'}</span>}</div><div className="text-[10px] text-ink-muted truncate">{activeContact.kind === 'topic-group' ? (selectedTopicId ? '跟帖会进当前话题' : `${activeContact.handle}`) : `${activeContact.online ? '在线' : '离线'} · ${activeContact.handle}`}</div></div>
                     {selectedTopicId && activeContact.kind === 'topic-group' && (
                       <button type="button" className="text-xs text-ink-muted hover:text-ink" onClick={() => setSelectedTopicId(null)}>返回群</button>
                     )}
                     <button onClick={() => setHistoryOpen(true)} className="px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 rounded flex items-center gap-1"><History size={12} /> 记录</button>
                     <button onClick={() => activeContact && openManage('detail', activeContact.id)} className="p-1.5 text-ink-muted hover:bg-surface-2 rounded" title="当前会话资料"><Settings2 size={14} /></button>
                   </div>
+                  {lane === 'unassigned' && (
+                    <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center gap-3 shrink-0">
+                      <Inbox size={14} className="text-amber-800 shrink-0" />
+                      <div className="flex-1 min-w-0 text-xs text-amber-950 leading-5">
+                        这些往来还没归工作区。归到当前「{currentWorkspace?.name || '工作区'}」后，切走才会从这里消失。
+                      </div>
+                      <button type="button" className="btn-primary h-8 px-3 shrink-0" onClick={placeActiveTalk} disabled={!currentHome}>
+                        归到当前工作区
+                      </button>
+                    </div>
+                  )}
                   {imBanner && (
                     <div className={clsx(
                       'px-4 py-3 text-sm font-medium flex items-center gap-2 shrink-0 border-b',
@@ -1607,16 +1732,34 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
 
                   <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
                     <div ref={listContentRef} className="space-y-3 pb-8">
-                    {activeMsgs.length === 0 && <div className="text-center text-sm text-ink-subtle mt-12">{activeContact.kind === 'topic-group' ? (selectedTopicId ? '还没有跟帖' : '发一条，成为群里的话题') : `与 ${activeContact.name} 开始对话`}<div className="text-xs mt-2">拟回与先例会由 AI 生成后自动回填输入框</div></div>}
+                    {activeMsgs.length === 0 && <div className="text-center text-sm text-ink-subtle mt-12">{lane === 'unassigned' ? '没有未分到工作区的往来' : activeContact.kind === 'topic-group' ? (selectedTopicId ? '还没有跟帖' : '发一条，成为群里的话题') : `与 ${activeContact.name} 开始对话`}<div className="text-xs mt-2">{lane === 'unassigned' ? '从左边未分工作区点开一串，再归到当前工作区' : '拟回与先例会由 AI 生成后自动回填输入框'}</div></div>}
                     {activeMsgs.map((m) => {
                       const isMe = m.authorId === selfId || m.authorId === 'u_self'
                       const followCount = messages.filter((row) => row.parentId === m.id).length
                       if (activeContact.kind === 'topic-group' && !selectedTopicId && m.topic) {
+                        const topicUnread = unreadOfTalk(mailbox.sheet, topicTalkId(m.id), lane, currentHome)
                         return (
-                          <button key={m.id} type="button" onClick={() => setSelectedTopicId(m.id)} className="w-full text-left rounded-2xl border border-line bg-white px-4 py-3 hover:border-brand/40">
-                            <div className="text-[11px] text-ink-muted mb-1">{isMe ? '我' : (m.fromName || contacts.find((c) => c.id === m.authorId)?.name || activeContact.name)} · {new Date(m.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</div>
-                            <div className="text-sm text-ink whitespace-pre-wrap">{m.text}</div>
-                            <div className="mt-2 text-xs text-brand">{followCount} 条跟帖 · 点开进话题</div>
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setSelectedTopicId(m.id)}
+                            className={clsx(
+                              'w-full text-left rounded-2xl border bg-white px-4 py-3 hover:border-brand/40',
+                              topicUnread > 0 ? 'border-accent-red/30' : 'border-line',
+                            )}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[11px] text-ink-muted mb-1">{isMe ? '我' : (m.fromName || contacts.find((c) => c.id === m.authorId)?.name || activeContact.name)} · {new Date(m.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</div>
+                                <div className="text-sm text-ink whitespace-pre-wrap">{m.text}</div>
+                                <div className="mt-2 text-xs text-brand">{followCount} 条跟帖 · 点开进话题</div>
+                              </div>
+                              {topicUnread > 0 && (
+                                <span className="mt-0.5 px-1.5 min-w-5 h-5 rounded-full bg-accent-red text-white text-[10px] flex items-center justify-center shrink-0">
+                                  {topicUnread > 99 ? '99+' : topicUnread}
+                                </span>
+                              )}
+                            </div>
                           </button>
                         )
                       }
@@ -1632,7 +1775,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                             {(m.translation || translations[m.id]) && <div className={clsx('mt-2 pt-2 border-t text-xs leading-5', isMe ? 'border-white/20 text-white/85' : 'border-line text-ink-muted')}><span className="text-[9px] uppercase tracking-wide opacity-70">English</span><div>{m.translation || translations[m.id]}</div></div>}
                             {m.recalledAt && <div className={clsx('italic text-xs', isMe ? 'text-white/70' : 'text-ink-subtle')}>{isMe ? '你撤回了一条消息' : '对方撤回了一条消息'}</div>}
                           </div>
-                          <div className={clsx('text-[10px] mt-0.5 flex items-center gap-2', isMe ? 'justify-end text-ink-subtle' : 'text-ink-subtle')}><span>{new Date(m.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>{m.pending && isMe && <button type="button" className="text-accent-red hover:underline" onClick={() => { void runtimeApi.imSleep(false).catch(() => undefined).then(() => runtimeApi.imSend({ requestId: m.id })).then(() => runtimeApi.imState()).then(applyMailbox).catch((cause) => setAiHint(cause instanceof Error ? cause.message : '没发出去')) }}>未发出 · 再送</button>}{isMe && !m.recalledAt && !m.pending && clock - new Date(m.ts).getTime() <= 120000 && (
+                          <div className={clsx('text-[10px] mt-0.5 flex items-center gap-2', isMe ? 'justify-end text-ink-subtle' : 'text-ink-subtle')}><span>{new Date(m.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>{m.pending && isMe && <button type="button" className="text-accent-red hover:underline" onClick={() => { void runtimeApi.imSleep(false).catch(() => undefined).then(() => runtimeApi.imSend({ requestId: m.id })).then(() => pullImMailbox()).catch((cause) => setAiHint(cause instanceof Error ? cause.message : '没发出去')) }}>未发出 · 再送{(m.pendingPeerIds || []).length ? ` · ${(m.pendingPeerIds || []).map((id) => contacts.find((c) => c.id === id)?.name || id.slice(-4)).join('、')}` : ''}</button>}{isMe && !m.recalledAt && !m.pending && clock - new Date(m.ts).getTime() <= 120000 && (
                               <button
                                 type="button"
                                 className="text-brand hover:underline"
@@ -1643,8 +1786,8 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                                   void Promise.all(peers.map((peerId) => runtimeApi.imWithdraw({ requestId: m.id, peerId }))).then((results) => {
                                     const fail = results.find((row) => row && row.ok === false)
                                     if (fail) throw new Error(String(fail.hint || fail.error || '撤回失败'))
-                                    return runtimeApi.imState()
-                                  }).then(applyMailbox).catch((cause) => setAiHint(cause instanceof Error ? cause.message : '撤回失败'))
+                                    return pullImMailbox()
+                                  }).catch((cause) => setAiHint(cause instanceof Error ? cause.message : '撤回失败'))
                                 }}
                               >
                                 撤回 {Math.max(0, Math.ceil((120000 - Math.max(0, clock - new Date(m.ts).getTime())) / 1000))}s
@@ -1752,7 +1895,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                           event.preventDefault()
                           attachNativeFiles(images)
                         }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }} placeholder={activeContact.kind === 'topic-group' ? (selectedTopicId ? '写跟帖… Enter 发送' : '发一条成为话题… Enter 发送') : `发给 ${activeContact.name}… Enter 发送，Shift+Enter 换行`} className="w-full min-h-0 flex-1 px-3 py-2 text-sm resize-none focus:outline-none bg-transparent" />
-                      <div className="px-2 py-1.5 border-t border-line flex items-center gap-2"><span className="text-[10px] text-ink-subtle flex-1">{aiHint || (activeContact.kind === 'topic-group' ? (selectedTopicId ? '跟帖进当前话题' : '发送后成为一条话题') : 'AI 结果会先回填，不会自动发送')}</span><button onClick={handleSend} disabled={sending || (!input.trim() && attachments.length === 0 && !pendingHandoff)} className="px-3 py-1.5 text-xs bg-brand text-white rounded hover:bg-brand/90 disabled:opacity-40 flex items-center gap-1"><Send size={12} /> {sending ? '发送中' : '发送'}</button></div>
+                      <div className="px-2 py-1.5 border-t border-line flex items-center gap-2"><span className="text-[10px] text-ink-subtle flex-1">{aiHint || (activeContact.kind === 'topic-group' ? (selectedTopicId ? '跟帖进当前话题' : '发送后成为一条话题') : 'AI 结果会先回填，不会自动发送')}</span><button onClick={handleSend} disabled={sending || (!input.trim() && attachments.length === 0 && !pendingHandoff)} className="px-3 py-1.5 text-xs bg-brand text-white rounded hover:bg-brand/90 disabled:opacity-40 flex items-center gap-1"><Send size={12} /> {sending ? '发送中' : activeContact.kind === 'topic-group' ? (selectedTopicId ? '跟帖' : '发新话题') : '发送'}</button></div>
                     </div>
                   </div>
                 </> : <div className="flex-1 flex items-center justify-center text-sm text-ink-subtle">选择联系人或话题群开始对话</div>}
@@ -1804,7 +1947,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           doorPort={doorPort}
           selfName={selfName}
           selfAvatar={selfAvatar}
-          onRefresh={() => runtimeApi.imState().then(applyMailbox)}
+          onRefresh={() => { void pullImMailbox() }}
           initialPanel={manageTarget.panel}
           initialId={manageTarget.id}
           onSelect={selectContact}
@@ -2020,16 +2163,19 @@ function ContactManager({
           {panel === 'group' && (
             <div>
               <div className="text-sm font-medium mb-1">新建话题群</div>
-              <div className="text-xs text-ink-muted mb-4">至少勾选一个已配对的同事。</div>
+              <div className="text-xs text-ink-muted mb-4">本机先有这个群。勾上的人要等花名册信封落到，才会在对面出现。离线也能勾，发出去时这个人单独失败。</div>
               <label className="block text-xs text-ink-muted mb-1">群名</label>
               <input className="input w-full mb-3" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
-              <div className="text-xs text-ink-muted mb-2">成员 · 已选 {memberIds.length}</div>
+              <div className="text-xs text-ink-muted mb-2">成员 · 我 + 已选 {memberIds.length}</div>
               <div className="grid grid-cols-2 gap-2 max-h-52 overflow-y-auto border border-line rounded-lg p-2 mb-4">
                 {people.map((person) => (
                   <label key={person.id} className={clsx('p-2 rounded border flex items-center gap-2 text-xs cursor-pointer', memberIds.includes(person.id) ? 'border-brand bg-brand-soft' : 'border-line hover:border-brand/50')}>
                     <input type="checkbox" checked={memberIds.includes(person.id)} onChange={() => setMemberIds((ids) => ids.includes(person.id) ? ids.filter((id) => id !== person.id) : [...ids, person.id])} />
                     <ImFace avatar={person.avatar} name={person.name} size={24} />
-                    <span className="truncate">{person.name}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate">{person.name}</span>
+                      <span className="block text-[10px] text-ink-muted truncate">{person.online ? '在线' : '离线'} · {person.handle}</span>
+                    </span>
                   </label>
                 ))}
                 {people.length === 0 && <div className="col-span-2 text-xs text-ink-subtle p-2">先配对同事再建模</div>}
@@ -2044,9 +2190,7 @@ function ContactManager({
                   setHint(String(data.hint || data.error || '没建成'))
                   return
                 }
-                setHint('话题群已建立')
-                setGroupName('')
-                setMemberIds([])
+                setHint('本机已有这个群。对面要等花名册信封落到。')
                 await onRefresh()
                 setPanel('detail')
                 if (typeof data.groupId === 'string') setSelectedId(data.groupId)
@@ -2056,6 +2200,7 @@ function ContactManager({
           {panel === 'detail' && selected && selected.kind === 'contact' && (
             <div className="text-sm">
               <div className="text-lg font-medium mb-2">{selected.displayName || selected.name}</div>
+              <button type="button" className="btn-primary h-8 px-3 mb-4" onClick={() => { onSelect(selected.id); onClose() }}>打开会话</button>
               <div className="text-xs text-ink-muted space-y-1 mb-4">
                 <div>对面名字 <span className="text-ink">{selected.displayName || selected.name}</span></div>
                 <div>稳定 ID <span className="font-mono">{selected.id.slice(0, 18)}…</span></div>
@@ -2095,18 +2240,22 @@ function ContactManager({
           {panel === 'detail' && selected && selected.kind === 'topic-group' && (
             <div className="text-sm">
               <div className="text-lg font-medium mb-2">{selected.name}</div>
+              <div className="flex flex-wrap gap-2 mb-4">
+                <button type="button" className="btn-primary h-8 px-3" onClick={() => { onSelect(selected.id); onClose() }}>打开会话</button>
+                <button type="button" className="btn h-8 px-3" onClick={() => { onSelect(selected.id); onClose() }}>发第一条话题</button>
+              </div>
               <div className="text-xs text-ink-muted mb-4">
                 成员 我、{people.filter((p) => (memberIds.length ? memberIds : selected.memberIds ?? []).includes(p.id)).map((p) => p.name).join('、') || '未选'}
                 <div>话题 {messages.filter((m) => m.threadId === selected.id && m.topic && !m.parentId).length} 条</div>
               </div>
               <label className="block text-xs text-ink-muted mb-1">群名</label>
               <input className="input w-full mb-3" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
-              <div className="text-xs text-ink-muted mb-2">勾上的人在群里。自己不能踢。</div>
+              <div className="text-xs text-ink-muted mb-2">勾上的人在群里。自己不能踢。离线也能勾。</div>
               <div className="space-y-1 mb-4">
                 {people.map((person) => {
                   const checked = (memberIds.length ? memberIds : selected.memberIds ?? []).includes(person.id)
                   return (
-                    <label key={person.id} className="flex items-center gap-2 py-1 text-sm">
+                    <label key={person.id} className="flex items-center gap-2 py-1.5 text-sm">
                       <input
                         type="checkbox"
                         checked={checked}
@@ -2115,7 +2264,11 @@ function ContactManager({
                           setMemberIds(current.includes(person.id) ? current.filter((id) => id !== person.id) : [...current, person.id])
                         }}
                       />
-                      {person.name}
+                      <ImFace avatar={person.avatar} name={person.name} size={24} />
+                      <span className="min-w-0">
+                        <span className="block truncate">{person.name}</span>
+                        <span className="block text-[10px] text-ink-muted truncate">{person.online ? '在线' : '离线'} · {person.handle}</span>
+                      </span>
                     </label>
                   )
                 })}
@@ -2143,7 +2296,7 @@ function ContactManager({
                       return
                     }
                     const data = await runtimeApi.imUpdateGroup({ groupId: selected.id, name: groupName.trim() || selected.name, members, pin: editPinned, mute: editMuted })
-                    setHint(data.ok === false ? String(data.hint || data.error || '没改成') : '已保存')
+                    setHint(data.ok === false ? String(data.hint || data.error || '没改成') : '本机名单已改，对面等下一封花名册。')
                     await onRefresh()
                   })}>保存</button>
                 </div>

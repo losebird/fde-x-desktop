@@ -4,6 +4,7 @@ import { pendingSheetWatchFingerprint } from './biz/sheet-fingerprint.mjs'
 import { sheetAfterDismissedWrite } from './biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw } from './biz/sheet-payload.mjs'
 import { reconcileLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
+import { localCwdSet, unreadSheet } from './vendor-overlays/dsh-lan-assist/letter-home.js'
 
 
 const POLL_MS = 1000
@@ -23,17 +24,26 @@ function incomingRequestIds(state) {
   return ids
 }
 
-function buildUnread(state) {
+function hallLocals(state) {
   const requests = Array.isArray(state?.requests) ? state.requests : []
-  const byPeer = {}
-  let total = 0
+  return localCwdSet(requests.map((row) => row && row.workspace).filter(Boolean))
+}
+
+function hallFp(state) {
+  const requests = Array.isArray(state?.requests) ? state.requests : []
+  const unread = []
   for (const row of requests) {
-    if (!row?.unread || row.kind !== 'incoming') continue
-    total += 1
-    const peerId = String(row.from || row.peerId || '')
-    if (peerId) byPeer[peerId] = (byPeer[peerId] || 0) + 1
+    if (!row || row.kind !== 'incoming') continue
+    unread.push(`${row.id}:${row.unread ? 1 : 0}:${row.workspace || ''}:${row.status || ''}`)
   }
-  return { total, byPeer }
+  unread.sort()
+  const peers = (Array.isArray(state?.peers) ? state.peers : [])
+    .map((row) => `${row.id}:${row.online ? 1 : 0}:${row.lastHeard || ''}`)
+    .sort()
+  const groups = (Array.isArray(state?.groups) ? state.groups : [])
+    .map((row) => String(row.id || ''))
+    .sort()
+  return JSON.stringify({ unread, peers, groups, n: requests.length })
 }
 
 function hasHandoff(row) {
@@ -135,7 +145,7 @@ export function subscribeLanAssistMailbox({ origin, cookie, onEvent, onLive, onD
 export function startLanAssistStateWatch(deps) {
   const { lanAssist, cwd, db } = deps
   let lastSheetFp = ''
-  let lastUnreadFp = ''
+  let lastHallFp = ''
   let knownIncomingIds = new Set()
   let bootstrapped = false
 
@@ -162,11 +172,12 @@ export function startLanAssistStateWatch(deps) {
       const sheet = officialFromState(state)
       if (sheet) processOfficialSheet(sheet, { writePreview: state.writePreview })
 
-      const unread = buildUnread(state)
-      const unreadFp = JSON.stringify(unread)
-      if (unreadFp !== lastUnreadFp) {
-        lastUnreadFp = unreadFp
-        emit('im.unread.changed', unread, { workspaceCwd: cwd, source: 'lan-assist' })
+      const nextHallFp = hallFp(state)
+      if (nextHallFp !== lastHallFp) {
+        lastHallFp = nextHallFp
+        const requests = Array.isArray(state.requests) ? state.requests : []
+        const mailboxSheet = unreadSheet(requests, hallLocals(state), state.self && state.self.id)
+        emit('im.unread.changed', mailboxSheet, { workspaceCwd: null, source: 'lan-assist' })
       }
 
       if (!bootstrapped) {
@@ -176,7 +187,7 @@ export function startLanAssistStateWatch(deps) {
         const fresh = newIncomingMessages(state, knownIncomingIds)
         for (const message of fresh) {
           knownIncomingIds.add(message.requestId)
-          emit('im.message.received', message, { workspaceCwd: cwd, source: 'lan-assist' })
+          emit('im.message.received', message, { workspaceCwd: null, source: 'lan-assist' })
         }
       }
     } catch {

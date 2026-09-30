@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Download, ExternalLink, FileText, LayoutDashboard, Monitor, Presentation, Image as ImageIcon, X } from 'lucide-react'
 import clsx from 'clsx'
 import type { ChatArtifact, FileNode } from '@/lib/types'
+import { openRef } from '@/lib/open-ref'
 import { useApp } from '@/store/app'
 
 const KIND_LABEL: Record<ChatArtifact['kind'], string> = {
@@ -65,15 +66,12 @@ export function ArtifactPreviewDialog({
   onClose: () => void
 }) {
   const files = useApp((s) => s.files)
-  const setActiveFile = useApp((s) => s.setActiveFile)
-  const togglePanel = useApp((s) => s.togglePanel)
   const file = artifact?.fileId ? files.find((f) => f.id === artifact.fileId) : null
   if (!artifact) return null
 
   const openInFiles = () => {
     if (!file) return
-    setActiveFile(file.id)
-    togglePanel('files', 'full')
+    openRef({ panel: 'files', path: file.id })
     onClose()
   }
 

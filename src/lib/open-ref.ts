@@ -1,3 +1,4 @@
+import { openFilesAtPath } from '@/lib/app-platform'
 import { useApp } from '@/store/app'
 
 export type OpenRefHref = {
@@ -11,6 +12,7 @@ export type OpenRefHref = {
   entity?: string
   kind?: string
   briefingId?: string
+  path?: string
 }
 
 export function openRef(href: OpenRefHref) {
@@ -36,7 +38,8 @@ export function openRef(href: OpenRefHref) {
     return
   }
   if (panel === 'files') {
-    app.togglePanel('files', 'full')
+    if (href.path) openFilesAtPath(href.path)
+    else app.togglePanel('files', 'full')
     return
   }
   if (panel) app.togglePanel(panel, 'full')

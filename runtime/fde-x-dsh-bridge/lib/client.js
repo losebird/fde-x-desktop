@@ -1,10 +1,175 @@
 window.__ModuleLoader__.load({
   id: "fde-x-dsh-bridge",
   factory: () => {
-    const inject = ["sessions", "remote", "remote.agentPresets", "workspaces", "conversation"];
+    const inject = ["sessions", "remote", "remote.agentPresets", "workspaces", "conversation", "sidebarRight"];
     function apply(ctx) {
       const sessions = ctx.sessions;
       window.__fdeXSessions = sessions;
+      var FILE_ADDRESS_PREFIX = "dsh-resource://file/";
+      function isDriveSegment(segment) {
+        return segment !== void 0 && /^[A-Za-z]:$/.test(segment);
+      }
+      function parseFileAddress(address) {
+        try {
+          if (!address || !address.startsWith(FILE_ADDRESS_PREFIX)) return void 0;
+          var end = address.search(/[?#]/);
+          var parts = address.slice(20, end === -1 ? void 0 : end).split("/");
+          var scope = parts[0];
+          var rest = parts.slice(1);
+          if (scope === "session") {
+            var id = rest[0];
+            var segments = rest.slice(1);
+            if (id === void 0 || id === "" || segments.length === 0) return void 0;
+            return {
+              scope: scope,
+              sessionId: decodeURIComponent(id),
+              path: segments.map(decodeURIComponent).join("/")
+            };
+          }
+          if (scope === "absolute") {
+            var unc = rest[0] === "" && rest.length > 1;
+            var decoded = (unc ? rest.slice(1) : rest).map(decodeURIComponent);
+            if (decoded.length === 0 || decoded[0] === "") return void 0;
+            if (unc) return { scope: scope, path: "//" + decoded.join("/") };
+            return {
+              scope: scope,
+              path: isDriveSegment(decoded[0]) ? decoded.join("/") : "/" + decoded.join("/")
+            };
+          }
+          return;
+        } catch (e) {
+          return;
+        }
+      }
+      function isAbsoluteWorkspacePath(path) {
+        return path.startsWith("/") || /^[A-Za-z]:[/\\]/.test(path) || path.startsWith("\\\\");
+      }
+      function workspaceRelativePath(path, cwd) {
+        var normalized = String(path || "").replace(/\\/g, "/").replace(/^(?:\.\/)+/, "");
+        if (!normalized) return "";
+        if (!isAbsoluteWorkspacePath(normalized)) {
+          var depth = 0;
+          var bits = normalized.split("/");
+          for (var i = 0; i < bits.length; i++) {
+            var part = bits[i];
+            if (!part || part === ".") continue;
+            if (part === "..") {
+              depth -= 1;
+              if (depth < 0) return null;
+              continue;
+            }
+            depth += 1;
+          }
+          return normalized;
+        }
+        var root = String(cwd || "").replace(/\\/g, "/").replace(/\/+$/, "");
+        if (!root) return null;
+        if (normalized === root) return "";
+        if (normalized.startsWith(root + "/")) return normalized.slice(root.length + 1);
+        return null;
+      }
+      function sessionCwd(sessionId) {
+        var listed = sessions.list && sessions.list.getSnapshot && sessions.list.getSnapshot();
+        return listed && listed.byId && listed.byId[sessionId] ? listed.byId[sessionId].cwd : "";
+      }
+      function landSessionPath(sessionId, path) {
+        if (!path) return false;
+        var cwd = sessionCwd(sessionId);
+        var relative = workspaceRelativePath(path, cwd);
+        if (relative === null) return false;
+        if (window.parent !== window) {
+          window.parent.postMessage({
+            type: "fde-x-dsh-ready",
+            op: "openFile",
+            sessionId: sessionId || "",
+            path: relative,
+            cwd: cwd || ""
+          }, "*");
+        }
+        return true;
+      }
+      function presentedPath(sessionId, seq, index) {
+        var binding = sessions.binding && sessions.binding(sessionId);
+        var src = binding && binding.session && binding.session.eventSource;
+        if (!src || typeof src.getSnapshot !== "function") return "";
+        var entries = (src.getSnapshot().entries) || [];
+        var want = Number(seq);
+        var at = Number(index);
+        if (!Number.isFinite(want) || !Number.isFinite(at) || at < 0) return "";
+        for (var i = 0; i < entries.length; i++) {
+          var row = entries[i];
+          var ev = row && row.event;
+          if (!ev || ev.type !== "deliverables/presented") continue;
+          var eventSeq = Number(ev.seq);
+          if (!Number.isFinite(eventSeq) && row) eventSeq = Number(row.seq);
+          if (eventSeq !== want) continue;
+          var files = ev.data && ev.data.files;
+          var file = Array.isArray(files) ? files[at] : null;
+          return file && typeof file.path === "string" ? String(file.path).trim() : "";
+        }
+        return "";
+      }
+      function wrapOpenResource() {
+        var sidebar = ctx.sidebarRight;
+        if (!sidebar || typeof sidebar.openResource !== "function" || sidebar.openResource.__fdeOpenFile) return;
+        var origOpenResource = sidebar.openResource.bind(sidebar);
+        var origOpenResourceIn = typeof sidebar.openResourceIn === "function" ? sidebar.openResourceIn.bind(sidebar) : null;
+        function landFile(address, sessionIdHint) {
+          var parsed = parseFileAddress(address);
+          if (!parsed) return false;
+          if (parsed.scope !== "session") return true;
+          landSessionPath(parsed.sessionId || sessionIdHint || "", parsed.path);
+          return true;
+        }
+        var wrappedOpen = function (address, options) {
+          if (landFile(address, "")) return;
+          return origOpenResource(address, options);
+        };
+        wrappedOpen.__fdeOpenFile = true;
+        sidebar.openResource = wrappedOpen;
+        if (origOpenResourceIn) {
+          var wrappedOpenIn = function (sessionId, address, options) {
+            if (landFile(address, sessionId)) return;
+            return origOpenResourceIn(sessionId, address, options);
+          };
+          wrappedOpenIn.__fdeOpenFile = true;
+          sidebar.openResourceIn = wrappedOpenIn;
+        }
+      }
+      wrapOpenResource();
+      function wrapPresentOpen() {
+        if (typeof window.fetch !== "function" || window.fetch.__fdePresentOpen) return;
+        var origFetch = window.fetch.bind(window);
+        function presentOpenUrl(input, init) {
+          var method = "GET";
+          if (init && init.method) method = String(init.method);
+          else if (input && typeof input === "object" && input.method) method = String(input.method);
+          if (String(method).toUpperCase() !== "POST") return null;
+          var raw = typeof input === "string" ? input : (input && input.url) || "";
+          if (!raw) return null;
+          try {
+            var parsed = new URL(raw, location.href);
+            if (parsed.pathname !== "/api/present.open") return null;
+            return parsed;
+          } catch (e) {
+            return null;
+          }
+        }
+        var wrapped = function (input, init) {
+          var parsed = presentOpenUrl(input, init);
+          if (!parsed) return origFetch(input, init);
+          var sessionId = parsed.searchParams.get("sessionId") || "";
+          var path = presentedPath(sessionId, parsed.searchParams.get("seq"), parsed.searchParams.get("index"));
+          if (!landSessionPath(sessionId, path)) return origFetch(input, init);
+          return Promise.resolve(new Response(null, {
+            status: 204,
+            headers: { "cache-control": "no-store" }
+          }));
+        };
+        wrapped.__fdePresentOpen = true;
+        window.fetch = wrapped;
+      }
+      wrapPresentOpen();
       function bindWorkspace(sessionId, workspaceId) {
         if (!sessionId || !workspaceId) return
         try {

@@ -132,7 +132,7 @@ interface UIState {
   setMemoryBrowse: (patch: Partial<AppState['memoryBrowse']>) => void
   briefingBrowse: { settingsOpen: boolean }
   setBriefingBrowse: (patch: Partial<AppState['briefingBrowse']>) => void
-  imBrowse: { threadId: string | null; topicId: string | null }
+  imBrowse: { threadId: string | null; topicId: string | null; lane: 'workspace' | 'unassigned' }
   setImBrowse: (patch: Partial<AppState['imBrowse']>) => void
 
   // 当前激活(IM 联系人)
@@ -145,9 +145,6 @@ interface UIState {
   // AI 抽屉当前 Agent(null = 当前工作区还没有 Agent)
   activeAgentId: ID | null
   setActiveAgent: (id: ID) => void
-  // 文件抽屉当前打开
-  activeFileId: ID | null
-  setActiveFile: (id: ID | null) => void
   // 业务数据抽屉当前表
   activeBusinessTable: ID | null
   setActiveBusinessTable: (id: ID | null) => void
@@ -376,7 +373,6 @@ export const useApp = create<AppState>()(
             activeWorkspaceId: id,
             activeChatId: null,
             activeAiSessionId: null,
-            activeFileId: null,
             activeAgentId: nextAgent,
             selectedTaskId: null,
           }
@@ -434,7 +430,6 @@ export const useApp = create<AppState>()(
           activeWorkspaceId: s.activeWorkspaceId === id ? nextWorkspace.id : s.activeWorkspaceId,
           activeChatId: s.activeWorkspaceId === id ? null : s.activeChatId,
           activeAiSessionId: s.activeWorkspaceId === id ? null : s.activeAiSessionId,
-          activeFileId: s.activeWorkspaceId === id ? null : s.activeFileId,
           activeAgentId: s.activeWorkspaceId === id ? nextAgent : s.activeAgentId,
         }))
         return true
@@ -586,7 +581,7 @@ export const useApp = create<AppState>()(
       briefingBrowse: { settingsOpen: false },
       setBriefingBrowse: (patch) =>
         set((s) => ({ briefingBrowse: { ...s.briefingBrowse, ...patch } })),
-      imBrowse: { threadId: null, topicId: null },
+      imBrowse: { threadId: null, topicId: null, lane: 'workspace' },
       setImBrowse: (patch) =>
         set((s) => ({ imBrowse: { ...s.imBrowse, ...patch } })),
 
@@ -599,6 +594,7 @@ export const useApp = create<AppState>()(
             imBrowse: {
               threadId,
               topicId: s.imBrowse.threadId === threadId ? s.imBrowse.topicId : null,
+              lane: s.imBrowse.lane || 'workspace',
             },
           }))
         }
@@ -610,8 +606,6 @@ export const useApp = create<AppState>()(
 
       activeAgentId: 'a_main',
       setActiveAgent: (id) => set({ activeAgentId: id }),
-      activeFileId: null,
-      setActiveFile: (id) => set({ activeFileId: id }),
       activeBusinessTable: 'bt_orders',
       setActiveBusinessTable: (id) => set({ activeBusinessTable: id }),
       activePlanTab: 'todo',
@@ -794,7 +788,6 @@ export const useApp = create<AppState>()(
       addFile: (f) => set((s) => ({ files: [{ ...f, id: uid('f'), updatedAt: now(), workspaceId: s.activeWorkspaceId }, ...s.files] })),
       removeFile: (id) => set((s) => ({
         files: s.files.filter((x) => x.id !== id),
-        activeFileId: s.activeFileId === id ? null : s.activeFileId,
       })),
       toggleStar: (id) =>
         set((s) => ({ files: s.files.map((x) => (x.id === id ? { ...x, starred: !x.starred } : x)) })),
