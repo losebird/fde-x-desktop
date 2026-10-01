@@ -12,6 +12,7 @@ import {
   runtimeApi,
   type BusinessAppRecord,
   type BusinessConnectionRecord,
+  type BizVocabSheet,
   type OperationTrace,
   type RuntimeHealth,
   type RuntimeOperation,
@@ -22,13 +23,13 @@ import type { JsonValue, RiskLevel } from '@/lib/contracts'
 import { countHomeOperationExceptions } from '@/lib/home-operation-exception'
 import { AppCreateWizard } from '@/components/apps/AppCreateWizard'
 import { AppRuntime } from '@/components/apps/AppRuntime'
-import { isFdeAppSpec, specHasUse, type FdeAppDetail } from '@/lib/app-spec'
+import { appIsTrashed, isFdeAppSpec, specHasUse, type FdeAppDetail } from '@/lib/app-spec'
 import { runDeclaredPlatformUse } from '@/lib/app-platform'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { RecordsPanel } from '@/components/biz/RecordsPanel'
 import { OperationControlPanel } from '@/components/biz/OperationControlPanel'
+import { dataLandView } from '@/lib/data-browse'
 
-type View = 'overview' | 'records' | 'operations'
 type Tone = 'default' | 'red' | 'amber' | 'blue' | 'purple' | 'teal' | 'green'
 
 type DataSurfaceSnap = {
@@ -37,12 +38,14 @@ type DataSurfaceSnap = {
   connections: BusinessConnectionRecord[]
   apps: BusinessAppRecord[]
   operations: RuntimeOperation[]
-  catalogCount: number
+  vocab: BizVocabSheet | null
+  vocabKnown: boolean
   error: string
   details: Record<string, FdeAppDetail>
 }
 
 let dataSurfaceSnap: DataSurfaceSnap | null = null
+let lastOverviewLand = 0
 
 function peekDataSurface(workspaceId: string): DataSurfaceSnap | null {
   return dataSurfaceSnap?.workspaceId === workspaceId ? dataSurfaceSnap : null
@@ -61,7 +64,8 @@ function rememberAppDetail(workspaceId: string, detail: FdeAppDetail) {
     connections: prev?.connections ?? [],
     apps: prev?.apps ?? [],
     operations: prev?.operations ?? [],
-    catalogCount: prev?.catalogCount ?? 0,
+    vocab: prev?.vocab ?? null,
+    vocabKnown: prev?.vocabKnown ?? false,
     error: prev?.error ?? '',
     details: { [detail.id]: detail },
   })
@@ -112,14 +116,15 @@ const RISK_TONE: Record<RiskLevel, Tone> = {
 export default function Data() {
   const activeWorkspaceId = useApp((state) => state.activeWorkspaceId)
   const workspace = useApp((state) => state.workspaces.find((item) => item.id === state.activeWorkspaceId))
-  const view = useApp((state) => state.activeDataSubview)
+  const view = useApp((state) => state.dataBrowse.view)
   const setView = useApp((state) => state.setActiveDataSubview)
   const snap = peekDataSurface(activeWorkspaceId)
   const [health, setHealth] = useState<RuntimeHealth | null>(snap?.health ?? null)
   const [connections, setConnections] = useState<BusinessConnectionRecord[]>(snap?.connections ?? [])
   const [apps, setApps] = useState<BusinessAppRecord[]>(snap?.apps ?? [])
   const [operations, setOperations] = useState<RuntimeOperation[]>(snap?.operations ?? [])
-  const [catalogCount, setCatalogCount] = useState(snap?.catalogCount ?? 0)
+  const [vocab, setVocab] = useState<BizVocabSheet | null>(snap?.vocab ?? null)
+  const [vocabKnown, setVocabKnown] = useState(snap?.vocabKnown ?? false)
   const [loading, setLoading] = useState(!snap)
   const [error, setError] = useState(snap?.error ?? '')
 
@@ -135,19 +140,25 @@ export default function Data() {
         name: workspace?.name ?? '当前工作区',
         description: workspace?.desc ?? '',
       })
-      const [nextHealth, nextConnections, nextApps, nextOperations, mailbox] = await Promise.all([
+      const cwd = workspace?.cwd && workspace.cwd.startsWith('/') ? workspace.cwd : undefined
+      const [nextHealth, nextConnections, nextApps, nextOperations, vocabResult] = await Promise.all([
         runtimeApi.health(),
         runtimeApi.listBusinessConnections(activeWorkspaceId),
         runtimeApi.listBusinessApps(activeWorkspaceId),
         runtimeApi.listOperations(activeWorkspaceId),
-        runtimeApi.imState().catch(() => ({})),
+        runtimeApi.listBizKinds(undefined, cwd).then((data) => ({ ok: true as const, data })).catch(() => ({ ok: false as const })),
       ])
-      const catalog = Array.isArray((mailbox as { catalog?: unknown[] }).catalog) ? (mailbox as { catalog: unknown[] }).catalog : []
+      const prev = peekDataSurface(activeWorkspaceId)
+      const nextVocab = vocabResult.ok
+        ? vocabResult.data
+        : (prev?.vocabKnown ? prev.vocab : prev?.vocab ?? null)
+      const nextKnown = vocabResult.ok || Boolean(prev?.vocabKnown)
       setHealth(nextHealth)
       setConnections(nextConnections)
       setApps(nextApps)
       setOperations(nextOperations)
-      setCatalogCount(catalog.length)
+      setVocab(nextVocab)
+      setVocabKnown(nextKnown)
       setError('')
       rememberDataSurface({
         workspaceId: activeWorkspaceId,
@@ -155,7 +166,8 @@ export default function Data() {
         connections: nextConnections,
         apps: nextApps,
         operations: nextOperations,
-        catalogCount: catalog.length,
+        vocab: nextVocab,
+        vocabKnown: nextKnown,
         error: '',
       })
     } catch (cause) {
@@ -167,7 +179,7 @@ export default function Data() {
     } finally {
       setLoading(false)
     }
-  }, [activeWorkspaceId, workspace?.desc, workspace?.name])
+  }, [activeWorkspaceId, workspace?.cwd, workspace?.desc, workspace?.name])
 
   useEffect(() => {
     void refresh()
@@ -191,7 +203,7 @@ export default function Data() {
       />
 
       {view === 'records' && (
-        <AuthorityStrip health={health} loading={loading} error={error} catalogCount={catalogCount} onRefresh={refresh} />
+        <AuthorityStrip health={health} loading={loading} error={error} vocabKnown={vocabKnown} kindCount={vocab?.kinds.length ?? 0} onRefresh={refresh} />
       )}
 
       {view === 'overview' && (
@@ -210,14 +222,15 @@ export default function Data() {
       {view === 'records' && (
         <RecordsPanel
           connections={connections}
-          apps={apps}
+          apps={apps.filter((app) => !appIsTrashed(app))}
           runtimeReady={!error}
+          vocab={vocab}
           onPlan={() => setView('operations')}
           onPlanWithTarget={() => setView('operations')}
         />
       )}
       {view === 'operations' && (
-        <OperationControlPanel runtimeReady={!error} />
+        <OperationControlPanel runtimeReady={!error} vocab={vocab} />
       )}
     </div>
   )
@@ -239,8 +252,11 @@ function ViewButton({ active, badge, children, onClick }: { active: boolean; bad
   )
 }
 
-function AuthorityStrip({ health, loading, error, catalogCount, onRefresh }: { health: RuntimeHealth | null; loading: boolean; error: string; catalogCount: number; onRefresh: () => Promise<void> }) {
+function AuthorityStrip({ health, loading, error, vocabKnown, kindCount, onRefresh }: { health: RuntimeHealth | null; loading: boolean; error: string; vocabKnown: boolean; kindCount: number; onRefresh: () => Promise<void> }) {
   const state = error ? 'offline' : health?.state ?? 'checking'
+  const vocabClause = !vocabKnown
+    ? ''
+    : `；词表 ${kindCount > 0 ? `已配 ${kindCount} 项` : '未配'}`
   return (
     <div className={clsx(
       'mb-4 border px-3 py-2.5 flex items-start gap-3',
@@ -259,7 +275,7 @@ function AuthorityStrip({ health, loading, error, catalogCount, onRefresh }: { h
         <div className="text-xs text-ink-muted mt-0.5 leading-relaxed">
           {error
             ? `${error}。当前仍可浏览原型数据，但不能创建可审计操作。请启动本地运行时后重试。`
-            : `事务记录由 SQLite 管理${health ? ` · ${health.persistence.database.tableCount} 张表 · ${health.persistence.migrations.length} 个迁移` : ''}；词表 ${catalogCount > 0 ? `已配 ${catalogCount} 项` : '未配'}；外部业务记录仍以源系统为准。`}
+            : `事务记录由 SQLite 管理${health ? ` · ${health.persistence.database.tableCount} 张表 · ${health.persistence.migrations.length} 个迁移` : ''}${vocabClause}；外部业务记录仍以源系统为准。`}
         </div>
       </div>
       <button type="button" className="btn !py-1 shrink-0" disabled={loading} onClick={() => void onRefresh()}>
@@ -378,36 +394,47 @@ function AppDraftEditor({
   )
 }
 
-function catalogApps(apps: BusinessAppRecord[]) {
-  return apps.filter((app) => app.status !== 'archived')
-}
-
 function AppCatalogRow({
-  app, onOpen, onDelete,
+  app, onOpen, actions,
 }: {
   app: BusinessAppRecord
-  onOpen: () => void
-  onDelete: () => void
+  onOpen?: () => void
+  actions: ReactNode
 }) {
-  const running = app.status === 'active'
+  const trashed = appIsTrashed(app)
+  const running = app.status === 'active' && !trashed
+  const kindLabel = trashed
+    ? '已删除'
+    : isFdeAppSpec(app.definition) ? app.status : app.appKind === 'generated' ? '草稿' : '系统应用'
+  const body = (
+    <>
+      <div className="w-9 h-9 border border-line bg-surface-2 flex items-center justify-center text-brand shrink-0">
+        {app.appKind === 'generated' ? <Bot size={16} /> : <AppWindow size={16} />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium truncate" data-app-row-name={app.name}>{app.name}</div>
+        <div className="text-xs text-ink-muted mt-0.5">修订 {app.currentRevision} · {kindLabel} · {formatTime(trashed ? app.deletedAt || app.updatedAt : app.updatedAt)}</div>
+      </div>
+      <Tag kind={trashed ? 'amber' : running ? 'green' : 'amber'}>
+        {trashed ? '已删除' : running ? '运行中' : '草稿'}
+      </Tag>
+      {onOpen ? <ChevronRight size={14} className="text-ink-subtle" /> : null}
+    </>
+  )
   return (
-    <div data-app-row={app.id} className="px-4 py-3 flex items-center gap-3 hover:bg-surface-2 transition-colors">
-      <button type="button" onClick={onOpen} className="min-w-0 flex-1 flex items-center gap-3 text-left">
-        <div className="w-9 h-9 border border-line bg-surface-2 flex items-center justify-center text-brand shrink-0">
-          {app.appKind === 'generated' ? <Bot size={16} /> : <AppWindow size={16} />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium truncate" data-app-row-name={app.name}>{app.name}</div>
-          <div className="text-xs text-ink-muted mt-0.5">修订 {app.currentRevision} · {isFdeAppSpec(app.definition) ? app.status : app.appKind === 'generated' ? '草稿' : '系统应用'} · {formatTime(app.updatedAt)}</div>
-        </div>
-        <Tag kind={running ? 'green' : 'amber'}>
-          {running ? '运行中' : '草稿'}
-        </Tag>
-        <ChevronRight size={14} className="text-ink-subtle" />
-      </button>
-      <button type="button" className="btn h-7 shrink-0" onClick={onDelete}>
-        <Trash2 size={12} /> 删除
-      </button>
+    <div
+      data-app-row={app.id}
+      className={clsx(
+        'px-4 py-3 flex items-center gap-3 transition-colors',
+        trashed ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-surface-2',
+      )}
+    >
+      {onOpen ? (
+        <button type="button" onClick={onOpen} className="min-w-0 flex-1 flex items-center gap-3 text-left">{body}</button>
+      ) : (
+        <div className="min-w-0 flex-1 flex items-center gap-3">{body}</div>
+      )}
+      {actions}
     </div>
   )
 }
@@ -429,9 +456,14 @@ function Overview({
   const [draftsOpen, setDraftsOpen] = useState(false)
   const [dialogAppId, setDialogAppId] = useState('')
   const workspaceAppId = useApp((state) => state.dataBrowse.workspaceAppId) || ''
+  const landSlug = useApp((state) => state.dataBrowse.slug)
+  const dataLand = useApp((state) => state.dataBrowse.land)
   const setDataBrowse = useApp((state) => state.setDataBrowse)
   const setWorkspaceAppId = (id: string) => setDataBrowse({ workspaceAppId: id || null })
   const [deleteTarget, setDeleteTarget] = useState<BusinessAppRecord | null>(null)
+  const [purgeTarget, setPurgeTarget] = useState<BusinessAppRecord | null>(null)
+  const [trashedOpen, setTrashedOpen] = useState(false)
+  const [binNote, setBinNote] = useState('')
   const [declarativeApp, setDeclarativeApp] = useState<FdeAppDetail | null>(() => {
     if (!workspaceAppId) return null
     return peekDataSurface(useApp.getState().activeWorkspaceId)?.details[workspaceAppId] ?? null
@@ -440,18 +472,43 @@ function Overview({
     const cwd = loadCurrentWorkspaceCwd()
     return cwd.ok ? cwd.cwd : ''
   })
-  const visibleApps = catalogApps(apps)
-  const runningApps = visibleApps.filter((app) => app.status === 'active')
-  const draftApps = visibleApps.filter((app) => app.status !== 'active')
+  const liveApps = apps.filter((app) => !appIsTrashed(app))
+  const trashedApps = apps.filter((app) => appIsTrashed(app))
+  const runningApps = liveApps.filter((app) => app.status === 'active')
+  const draftApps = liveApps.filter((app) => app.status !== 'active')
   const showDrafts = draftsOpen || runningApps.length === 0
+  const showTrashed = trashedOpen || liveApps.length === 0
   const openAppId = workspaceAppId || dialogAppId
-  const selected = apps.find((app) => app.id === openAppId) || null
-  const workspaceApp = visibleApps.find((app) => app.id === workspaceAppId) || null
+  const selected = liveApps.find((app) => app.id === openAppId) || null
+  const workspaceApp = liveApps.find((app) => app.id === workspaceAppId) || null
 
   useEffect(() => {
     const cwd = loadCurrentWorkspaceCwd()
     if (cwd.ok) setWorkspaceCwd(cwd.cwd)
   }, [])
+
+  useEffect(() => {
+    if (!workspaceAppId) return
+    const row = apps.find((app) => app.id === workspaceAppId)
+    if (row && appIsTrashed(row)) setWorkspaceAppId('')
+  }, [apps, workspaceAppId])
+
+  useEffect(() => {
+    if (!dataLand || dataLand === lastOverviewLand) return
+    if (dataLandView() !== 'overview') {
+      lastOverviewLand = dataLand
+      return
+    }
+    const slug = String(landSlug || '').trim()
+    if (!slug) {
+      lastOverviewLand = dataLand
+      return
+    }
+    if (!apps.length) return
+    const hit = liveApps.find((app) => isFdeAppSpec(app.definition) && app.definition.slug === slug)
+    if (hit && hit.id !== workspaceAppId) setWorkspaceAppId(hit.id)
+    lastOverviewLand = dataLand
+  }, [dataLand, landSlug, apps, liveApps, workspaceAppId])
 
   useEffect(() => {
     const id = workspaceAppId || ((selected && isFdeAppSpec(selected.definition)) ? selected.id : '')
@@ -479,6 +536,7 @@ function Overview({
   }, [workspaceAppId, selected?.id, selected?.currentRevision, selected?.definition])
 
   const openApp = (app: BusinessAppRecord) => {
+    if (appIsTrashed(app)) return
     if (app.status === 'active' && isFdeAppSpec(app.definition)) {
       setDialogAppId('')
       setWorkspaceAppId(app.id)
@@ -488,9 +546,25 @@ function Overview({
     setDialogAppId(app.id)
   }
 
+  const restoreOne = async (app: BusinessAppRecord) => {
+    setBinNote('')
+    try {
+      await runtimeApi.restoreDeclarativeApp(app.id)
+      await onCreated()
+    } catch (cause) {
+      setBinNote(formatError(cause))
+    }
+  }
+
   const afterRuntimeChange = async (appId: string) => {
     await onCreated()
     const detail = await runtimeApi.getDeclarativeApp(appId).catch(() => null)
+    if (detail && appIsTrashed(detail)) {
+      setDeclarativeApp(null)
+      setWorkspaceAppId('')
+      setDialogAppId('')
+      return
+    }
     if (detail) {
       setDeclarativeApp(detail)
       rememberAppDetail(useApp.getState().activeWorkspaceId, detail)
@@ -558,7 +632,7 @@ function Overview({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 @3xl:grid-cols-4 gap-3">
-        <Metric icon={AppWindow} label="业务应用" value={visibleApps.length} hint={`${visibleApps.filter((item) => item.appKind === 'generated').length} 个由 AI 创建`} />
+        <Metric icon={AppWindow} label="业务应用" value={liveApps.length} hint={`${liveApps.filter((item) => item.appKind === 'generated').length} 个由 AI 创建`} />
         <Metric icon={Database} label="系统连接" value={connections.length} hint={`${connections.filter((item) => item.status === 'connected').length} 个已接通`} />
         <Metric icon={FileClock} label="待审批" value={pendingApproval} hint="写入不会绕过确认" tone={pendingApproval ? 'amber' : 'default'} />
         <Metric icon={Activity} label="异常待处理" value={unresolved} hint={`${operations.length} 次操作留有记录`} tone={unresolved ? 'red' : 'default'} />
@@ -587,7 +661,7 @@ function Overview({
               onClose={() => setShowCreate(false)}
             />
           )}
-          {visibleApps.length === 0 ? (
+          {liveApps.length === 0 && trashedApps.length === 0 ? (
             <div className="px-4 py-10 text-center text-sm text-ink-muted">这里没有官方台账。描述你的需求，生成你自己的应用。</div>
           ) : (
             <div className="divide-y divide-line">
@@ -596,7 +670,16 @@ function Overview({
                   <div className="px-4 py-2 text-[11px] text-ink-muted bg-surface">运行中</div>
                   <div className="divide-y divide-line">
                     {runningApps.map((app) => (
-                      <AppCatalogRow key={app.id} app={app} onOpen={() => openApp(app)} onDelete={() => setDeleteTarget(app)} />
+                      <AppCatalogRow
+                        key={app.id}
+                        app={app}
+                        onOpen={() => openApp(app)}
+                        actions={(
+                          <button type="button" className="btn h-7 shrink-0" onClick={() => setDeleteTarget(app)}>
+                            <Trash2 size={12} /> 删除
+                          </button>
+                        )}
+                      />
                     ))}
                   </div>
                 </div>
@@ -616,7 +699,55 @@ function Overview({
                   {showDrafts && (
                     <div className="divide-y divide-line bg-surface-2">
                       {draftApps.map((app) => (
-                        <AppCatalogRow key={app.id} app={app} onOpen={() => openApp(app)} onDelete={() => setDeleteTarget(app)} />
+                        <AppCatalogRow
+                          key={app.id}
+                          app={app}
+                          onOpen={() => openApp(app)}
+                          actions={(
+                            <button type="button" className="btn h-7 shrink-0" onClick={() => setDeleteTarget(app)}>
+                              <Trash2 size={12} /> 删除
+                            </button>
+                          )}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {trashedApps.length > 0 && (
+                <div data-app-catalog-section="trashed">
+                  <button
+                    type="button"
+                    data-app-trashed-toggle="true"
+                    data-app-trashed-open={showTrashed ? 'true' : 'false'}
+                    className="w-full px-4 py-2 flex items-center justify-between gap-2 text-left bg-amber-50/70 hover:bg-amber-50 border-y border-amber-100"
+                    onClick={() => setTrashedOpen((value) => !value)}
+                  >
+                    <span className="text-[11px] text-amber-800/80 inline-flex items-center gap-1.5">
+                      <Trash2 size={10} /> 已删除 · {trashedApps.length}
+                    </span>
+                    <ChevronDown size={14} className={clsx('text-amber-800/60 transition-transform', showTrashed ? 'rotate-180' : '')} />
+                  </button>
+                  {showTrashed && (
+                    <div className="divide-y divide-amber-100">
+                      {binNote && (
+                        <div className="px-4 py-2 text-xs text-accent-red bg-amber-50/40">{binNote}</div>
+                      )}
+                      {trashedApps.map((app) => (
+                        <AppCatalogRow
+                          key={app.id}
+                          app={app}
+                          actions={(
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button type="button" className="btn h-7" onClick={() => void restoreOne(app)}>
+                                <RefreshCw size={12} /> 恢复
+                              </button>
+                              <button type="button" className="btn h-7" onClick={() => setPurgeTarget(app)}>
+                                <Trash2 size={12} /> 彻底删除
+                              </button>
+                            </div>
+                          )}
+                        />
                       ))}
                     </div>
                   )}
@@ -701,6 +832,19 @@ function Overview({
           }}
         />
       )}
+      {purgeTarget && (
+        <AppPurgeConfirm
+          app={purgeTarget}
+          onCancel={() => setPurgeTarget(null)}
+          onDone={async () => {
+            const id = purgeTarget.id
+            setPurgeTarget(null)
+            if (dialogAppId === id) setDialogAppId('')
+            if (workspaceAppId === id) setWorkspaceAppId('')
+            await onCreated()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -712,22 +856,14 @@ function AppDeleteConfirm({
   onCancel: () => void
   onDone: () => Promise<void>
 }) {
-  const [hardDelete, setHardDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
-  const active = app.status === 'active'
 
   const confirm = async () => {
     setBusy(true)
     setNote('')
     try {
-      if (!active) {
-        await runtimeApi.discardDeclarativeApp(app.id)
-      } else if (hardDelete) {
-        await runtimeApi.purgeDeclarativeApp(app.id)
-      } else {
-        await runtimeApi.archiveDeclarativeApp(app.id)
-      }
+      await runtimeApi.trashDeclarativeApp(app.id)
       await onDone()
     } catch (cause) {
       setNote(formatError(cause))
@@ -739,33 +875,57 @@ function AppDeleteConfirm({
   return (
     <div className="fixed inset-0 z-[90] bg-ink/30 flex items-center justify-center p-4" data-app-delete-confirm="true" onClick={onCancel}>
       <div className="w-full max-w-md bg-surface border border-line rounded-xl shadow-2xl p-4 space-y-3" onClick={(event) => event.stopPropagation()}>
-        <div className="text-sm font-medium">{active ? '删除运行中的应用' : '删除草稿'}</div>
-        {active ? (
-          <div className="text-xs text-ink-muted leading-relaxed">
-            再确认一次。默认只从列表拿掉（归档），台账表先留着。只有勾选「连数据一起删」才会硬删这张应用自己的表。
-          </div>
-        ) : (
-          <div className="text-xs text-ink-muted leading-relaxed">
-            确认后这条草稿从列表拿掉。同名草稿按各自一条删，不会当成同一个。
-          </div>
-        )}
-        {active && (
-          <label className="flex items-start gap-2 text-xs">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              data-app-hard-delete="true"
-              checked={hardDelete}
-              onChange={(event) => setHardDelete(event.target.checked)}
-            />
-            <span>连数据一起删（硬删表，不可恢复）</span>
-          </label>
-        )}
+        <div className="text-sm font-medium">删除这个应用</div>
+        <div className="text-xs text-ink-muted leading-relaxed">
+          确认后进已删除，之后可以恢复。彻底删除要到已删除里再做。
+        </div>
         {note && <div className="text-xs text-accent-red">{note}</div>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn h-8" disabled={busy} onClick={onCancel}>取消</button>
           <button type="button" className="btn-brand h-8" disabled={busy} onClick={() => void confirm()}>
-            {busy ? '处理中' : active && hardDelete ? '确认硬删' : '确认删除'}
+            {busy ? '处理中' : '确认删除'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AppPurgeConfirm({
+  app, onCancel, onDone,
+}: {
+  app: BusinessAppRecord
+  onCancel: () => void
+  onDone: () => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+
+  const confirm = async () => {
+    setBusy(true)
+    setNote('')
+    try {
+      await runtimeApi.purgeDeclarativeApp(app.id)
+      await onDone()
+    } catch (cause) {
+      setNote(formatError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[90] bg-ink/30 flex items-center justify-center p-4" data-app-purge-confirm="true" onClick={onCancel}>
+      <div className="w-full max-w-md bg-surface border border-line rounded-xl shadow-2xl p-4 space-y-3" onClick={(event) => event.stopPropagation()}>
+        <div className="text-sm font-medium">彻底删除</div>
+        <div className="text-xs text-ink-muted leading-relaxed">
+          确认后应用和它的表一起删掉，不能恢复。
+        </div>
+        {note && <div className="text-xs text-accent-red">{note}</div>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn h-8" disabled={busy} onClick={onCancel}>取消</button>
+          <button type="button" className="btn-brand h-8" disabled={busy} onClick={() => void confirm()}>
+            {busy ? '处理中' : '确认彻底删除'}
           </button>
         </div>
       </div>

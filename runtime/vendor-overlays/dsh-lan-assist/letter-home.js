@@ -1,7 +1,8 @@
 /**
  * IM letter home: a talk (1:1 pair, or one topic) has one home.
- * Opening a talk stamps send-time cwd. Follow-ups inherit the root.
- * Incoming follows the parent letter. Sender paths are not a home.
+ * Empty is not a home. New outgoing stamps send-time cwd.
+ * Unique home: incoming and replies follow it. Two homes stay unassigned.
+ * 回一句 fills empty members of the talk. Sender paths are not a home.
  * @module dsh-lan-assist/letter-home
  */
 
@@ -45,44 +46,77 @@ export function topicTalkId(rootId) {
   return id ? `t:${id}` : ''
 }
 
+/** Non-empty homes of one talk. Empty is not a home. */
+export function talkHomes(requests, key) {
+  const want = String(key || '')
+  const homes = new Set()
+  if (!want) return homes
+  const list = Array.isArray(requests) ? requests : Object.values(requests || {})
+  for (const row of list) {
+    if (!row || talkKey(row) !== want) continue
+    const stored = normalizeCwd(row.workspace)
+    if (stored) homes.add(stored)
+  }
+  return homes
+}
+
+function uniqueTalkHome(requests, key) {
+  const homes = talkHomes(requests, key)
+  return homes.size === 1 ? [...homes][0] : ''
+}
+
+function talkKeyOf(inner, fallback) {
+  if (fallback && talkKey(fallback)) return talkKey(fallback)
+  return talkKey({
+    from: inner && inner.from,
+    to: inner && inner.to,
+    groupId: inner && inner.groupId,
+    threadId: inner && inner.threadId,
+    id: inner && (inner.id || inner.requestId),
+    topic: inner && inner.topic,
+  })
+}
+
 export function homeForIncoming(state, inner) {
   const requests = state && state.requests ? state.requests : {}
   const seen = new Set()
   let cursorId = String((inner && inner.threadId) || '')
+  let root = null
   while (cursorId && !seen.has(cursorId)) {
     seen.add(cursorId)
     const parent = requests[cursorId]
     if (!parent) break
+    root = parent
     const inherited = normalizeCwd(parent.workspace)
     if (inherited) return inherited
     cursorId = String(parent.threadId || parent.parentId || '')
   }
-  return ''
+  return uniqueTalkHome(requests, talkKeyOf(inner, root))
 }
 
-/** Follow-up inherits the root. New 1:1 / new topic stamps cwd. */
+/** Unique home is kept. No home stamps send cwd. Two homes stay unassigned. */
 export function homeForOutgoing(state, inner) {
+  const stamp = normalizeCwd(inner && inner.workspace)
+  const requests = state && state.requests ? state.requests : {}
   const thread = String((inner && inner.threadId) || '').trim()
-  if (thread) return homeForIncoming(state, { threadId: thread })
+  if (thread) {
+    const inherited = homeForIncoming(state, inner)
+    if (inherited) return inherited
+    const root = requests[thread]
+    if (talkHomes(requests, talkKeyOf(inner, root)).size > 1) return ''
+    return stamp
+  }
   const groupId = String((inner && inner.groupId) || '').trim()
-  if (groupId) return normalizeCwd(inner && inner.workspace)
-  const requests = state && state.requests ? Object.values(state.requests) : []
+  if (groupId) return stamp
   const key = talkKey({
     from: state && state.self && state.self.id,
     to: inner && inner.to,
     groupId: '',
   })
-  if (!key) return normalizeCwd(inner && inner.workspace)
-  const homes = new Set()
-  let seen = false
-  for (const row of requests) {
-    if (!row || talkKey(row) !== key) continue
-    seen = true
-    homes.add(normalizeCwd(row.workspace))
-  }
-  if (!seen) return normalizeCwd(inner && inner.workspace)
+  const homes = talkHomes(requests, key)
   if (homes.size === 1) return [...homes][0]
-  return ''
+  if (homes.size > 1) return ''
+  return stamp
 }
 
 /** Root + follow-ups of one talk. 归到 writes this set, empty homes only. */
@@ -101,6 +135,25 @@ export function talkMemberIds(requests, id) {
   const key = talkKey(row)
   if (!key) return [want]
   return list.filter((item) => talkKey(item) === key).map((item) => String(item.id))
+}
+
+/** Write cwd onto empty members of the talks seeded by ids. Already-homed rows stay. */
+export function placeEmptyHomes(requests, ids, cwd, at) {
+  const home = normalizeCwd(cwd)
+  if (!home || !requests || typeof requests !== 'object' || Array.isArray(requests)) return []
+  const expanded = new Set()
+  for (const id of Array.isArray(ids) ? ids : []) {
+    for (const member of talkMemberIds(requests, id)) expanded.add(member)
+  }
+  const placed = []
+  for (const id of expanded) {
+    const row = requests[id]
+    if (!row || normalizeCwd(row.workspace)) continue
+    row.workspace = home
+    if (at) row.updatedAt = at
+    placed.push(id)
+  }
+  return placed
 }
 
 /** A roster with no mail, or mail with empty home, belongs on the unassigned lane. */

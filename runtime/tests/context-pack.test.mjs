@@ -9,6 +9,23 @@ import { fileURLToPath } from 'node:url'
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const dbPath = '/tmp/fde-x-context-pack-test.sqlite'
 
+test('renderContextForPrompt omits one hit by id', () => {
+  const pack = {
+    generatedAt: Date.now(),
+    workspace: { cwd: '/tmp/ws', name: '测试' },
+    memory: {
+      hits: [
+        { id: 'memory:aa', excerpt: '留下这条', sourceRef: 'memory:aa' },
+        { id: 'memory:bb', excerpt: '丢掉这条', sourceRef: 'memory:bb' },
+      ],
+      precedents: [],
+    },
+  }
+  const text = renderContextForPrompt(pack, new Set(['memory:hit:memory:bb']))
+  assert.match(text, /留下这条/)
+  assert.equal(text.includes('丢掉这条'), false)
+})
+
 test('renderContextForPrompt respects 1500 char cap', () => {
   const pack = {
     generatedAt: Date.now(),

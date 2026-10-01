@@ -1,5 +1,6 @@
 import { computeStat } from '../apps/records.mjs'
 import { findActiveAppBySlug } from '../apps/repository.mjs'
+import { memoryLandHref } from '../memory/identity.mjs'
 import { incomingUnread, letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
 import { workspaceIdForCwd } from './workspace.mjs'
 
@@ -172,12 +173,18 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
       } catch (error) {
         return baseSection(def, { error: error instanceof Error ? error.message : '记忆列表失败' })
       }
-      const items = cards.slice(0, limit).map((card) => ({
-        text: String(card.title || card.label || '记忆卡片'),
-        sub: String(card.excerpt || card.body || '').slice(0, 120),
-        href: { panel: 'memory' },
-        ref: `memory:${card.id || card.card_id || ''}`,
-      }))
+      const items = cards
+        .filter((card) => String(card.status || '') === '已入档')
+        .slice(0, limit)
+        .map((card) => {
+          const id = String(card.id || card.card_id || '')
+          return {
+            text: String(card.title || card.label || '记忆卡片'),
+            sub: String(card.excerpt || card.body || '').slice(0, 120),
+            href: memoryLandHref(id),
+            ref: id,
+          }
+        })
       return baseSection(def, { items })
     }
 

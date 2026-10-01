@@ -172,6 +172,37 @@ test('latest accepts cwd and onOpen with CORS', async (t) => {
   assert.equal(missing.headers.get('access-control-allow-origin'), origin)
 })
 
+test('memory briefing section only lists 已入档 and lands on the archive', async () => {
+  const { collectInternalSection } = await import('../briefing/collectors.mjs')
+  const path = '/tmp/fde-x-briefing-memory-section.sqlite'
+  await rm(path, { force: true }).catch(() => undefined)
+  const db = openDatabase(path, join(repoRoot, 'runtime', 'migrations'))
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    semanticOs: async (_path, options) => {
+      assert.equal(options.op, 'list_memory_cards')
+      assert.equal(options.args.include_filed, true)
+      return {
+        cards: [
+          { id: 'memory:draft1', label: '起草还不能上早报', status: '起草' },
+          { id: 'memory:filed1', label: '已入档这条', status: '已入档', excerpt: '依据' },
+        ],
+      }
+    },
+  }
+  const section = await collectInternalSection(
+    { db, aiRuntime },
+    { id: 'memory-daily', type: 'memory', title: '昨日记忆', render: 'list', params: { limit: 5 } },
+    wsCwd,
+  )
+  db.close()
+  assert.equal(section.items.length, 1)
+  assert.equal(section.items[0].ref, 'memory:filed1')
+  assert.equal(section.items[0].href.panel, 'memory')
+  assert.equal(section.items[0].href.pane, 'cards')
+  assert.equal(section.items[0].href.cardId, 'memory:filed1')
+})
+
 test('scheduler tick with injected clock', async () => {
   const migrations = join(repoRoot, 'runtime', 'migrations')
   const db = openDatabase('/tmp/fde-x-briefing-sched.sqlite', migrations)

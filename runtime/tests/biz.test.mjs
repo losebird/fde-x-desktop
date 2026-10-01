@@ -25,10 +25,13 @@ describe('biz surfaces and live execute', () => {
 
   test('biz kinds/traces forward workspace to lan-assist catalog/traces', () => {
     const source = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
-    assert.match(source, /lanAssist\('\/catalog',\s*\{\s*search:\s*\{\s*workspace/)
+    const sheet = readFileSync(join(repoRoot, 'runtime/biz/vocab-sheet.mjs'), 'utf8')
+    assert.match(sheet, /lanAssist\('\/catalog',\s*\{\s*search:\s*\{\s*workspace/)
+    assert.match(source, /loadBizVocab\(/)
     assert.match(source, /lanAssist\('\/traces',\s*\{\s*search:\s*\{\s*workspace/)
     assert.match(source, /row\.can/)
     assert.doesNotMatch(source, /\/catalog',\s*\{\s*search:\s*\{\s*sessionId/)
+    assert.doesNotMatch(sheet, /\/catalog',\s*\{\s*search:\s*\{\s*sessionId/)
   })
 
   test('ui preview stamps source ui and does not emit official pending', () => {

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { loadCurrentAiTarget } from '@/lib/ai-target'
-import { openRef } from '@/lib/open-ref'
+import { classifyHitId, originOfCard } from '@/lib/memory-identity'
+import { askOriginFromCard, askOriginFromHit } from '@/lib/ask-origin'
+import { openRef, type OpenRefHref } from '@/lib/open-ref'
 import { PageTitle, Empty } from '@/components/ui'
 import { runtimeApi } from '@/lib/runtime-api'
+import { installSemanticOsHttp } from '@/lib/semantic-http'
 import { useApp, useCurrentWorkspace, useWorkspaces } from '@/store/app'
 
 const CANVASES = [
@@ -37,9 +39,14 @@ const DRAWERS = ['entity', 'decision', 'health', 'lineage', 'find', 'import', 'e
 
 type CanvasId = (typeof CANVASES)[number]['id']
 type DrawerId = (typeof DRAWERS)[number]
+type MemoryPane = 'home' | 'cards' | 'studio' | CanvasId
 
 function isCanvasId(value: string): value is CanvasId {
   return CANVASES.some((row) => row.id === value)
+}
+
+function isMemoryPane(value: string): value is MemoryPane {
+  return value === 'home' || value === 'cards' || value === 'studio' || isCanvasId(value)
 }
 
 function isDrawerId(value: string): value is DrawerId {
@@ -114,9 +121,9 @@ export default function Memory() {
   const storedPane = useApp((s) => s.memoryBrowse.pane)
   const storedDrawer = useApp((s) => s.memoryBrowse.drawer)
   const setMemoryBrowse = useApp((s) => s.setMemoryBrowse)
-  const pane: 'home' | CanvasId = (storedPane === 'home' || isCanvasId(storedPane)) ? storedPane : 'home'
+  const pane: MemoryPane = isMemoryPane(storedPane) ? storedPane : 'home'
   const drawer: DrawerId | '' = isDrawerId(storedDrawer) ? storedDrawer : ''
-  const setPane = (next: 'home' | CanvasId) => setMemoryBrowse({ pane: next })
+  const setPane = (next: MemoryPane) => setMemoryBrowse({ pane: next })
   const setDrawer = (next: DrawerId | '') => setMemoryBrowse({ drawer: next })
   const [ready, setReady] = useState<Record<string, unknown> | null>(null)
   const [cover, setCover] = useState<Array<{ id?: string; n?: number }>>([])
@@ -131,7 +138,7 @@ export default function Memory() {
   useEffect(() => {
     if (cwdRef.current === cwd) return
     cwdRef.current = cwd
-    setMemoryBrowse({ pane: 'home', drawer: '' })
+    setMemoryBrowse({ pane: 'home', drawer: '', cardId: '', originId: '' })
   }, [cwd, setMemoryBrowse])
 
   useEffect(() => {
@@ -185,12 +192,14 @@ export default function Memory() {
     }
   }, [cwd])
 
-  const goHome = () => { setPane('home'); setDrawer('') }
+  const goHome = () => { setMemoryBrowse({ pane: 'home', drawer: '', cardId: '', originId: '' }) }
+  const goCards = () => { setMemoryBrowse({ pane: 'cards', drawer: '', cardId: '', originId: '' }) }
+  const goStudio = () => { setMemoryBrowse({ pane: 'studio', drawer: '', cardId: '', originId: '' }) }
 
   const hostActions = useMemo(() => {
-    if (!pane || pane === 'home' || OWN_CHROME.has(pane)) return []
+    if (!isCanvasId(pane) || OWN_CHROME.has(pane)) return []
     const actions: Array<{ id: string; label: string; onClick: () => void }> = [
-      { id: 'home', label: '返回', onClick: goHome },
+      { id: 'home', label: '返回', onClick: goStudio },
     ]
     if (pane === 'explore') {
       actions.push(
@@ -221,7 +230,7 @@ export default function Memory() {
   }, [pane, cwd])
 
   useEffect(() => {
-    if (pane === 'home' || !cwd) return
+    if (!isCanvasId(pane) || !cwd) return
     const el = hostRef.current
     if (!el) return
     let cancelled = false
@@ -234,6 +243,7 @@ export default function Memory() {
     el.setAttribute('data-dsos-semantic', '')
     el.setAttribute('data-cwd', cwd)
     el.dataset.cwd = cwd
+    const stopHttp = installSemanticOsHttp(el, cwd)
     void loadCanvasModule(pane).then((mod) => {
       if (typeof mod.mount !== 'function') {
         if (!cancelled) setCanvasError('语义画布未就绪。请重启本地核心后再打开。')
@@ -250,6 +260,7 @@ export default function Memory() {
     })
     return () => {
       cancelled = true
+      stopHttp()
       if (unmount) {
         try { unmount() } catch { /* 官方画布卸载失败不能挡住切页 */ }
       }
@@ -318,6 +329,59 @@ export default function Memory() {
     }).catch((error) => setToast(error instanceof Error ? error.message : '导出失败'))
   }
 
+  const graphHub = cwd ? (
+    <>
+      {cover.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {cover.map((row) => (
+            <span key={String(row.id || row.n)} className="tag">
+              {COVER_LABEL[String(row.id || '')] || row.id} {Number(row.n || 0)}
+            </span>
+          ))}
+        </div>
+      )}
+      {note && <div className="text-xs text-ink-muted mb-3 break-all">{note}</div>}
+      {ingestState && ingestState !== 'idle' && ingestState !== 'done' && (
+        <div className="text-xs text-ink-muted mb-3">摄取 {ingestState}{ingest?.detail ? ` · ${String(ingest.detail)}` : ''}</div>
+      )}
+      <div className="flex flex-wrap gap-2 mb-5">
+        <button type="button" className="btn-primary" onClick={() => setPane('explore')}>打开探索</button>
+        <button type="button" className="btn" onClick={() => setPane('analyze')}>运行推理</button>
+        <button type="button" className="btn" onClick={() => setDrawer('health')}>记忆梳理</button>
+        <button type="button" className="btn" onClick={() => setDrawer('find')}>搜索</button>
+        <button type="button" className="btn" onClick={openSettings}>引擎设置</button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+        {CANVASES.map((row) => (
+          <button
+            key={row.id}
+            type="button"
+            className="card p-4 text-left hover:bg-surface-2 transition-colors min-w-0"
+            onClick={() => setPane(row.id)}
+          >
+            <div className="text-[11px] text-ink-subtle mb-2">{row.no}</div>
+            <div className="text-[11px] text-ink-muted">{row.kicker}</div>
+            <div className="text-base font-medium mt-1">{row.title}</div>
+            <div className="text-xs text-ink-muted mt-1 leading-5">{row.desc}</div>
+            <div className="text-ink-subtle mt-3">→</div>
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {CAPS.map((row) => (
+          <button
+            key={row.label}
+            type="button"
+            className="tag hover:bg-surface-2"
+            onClick={() => { if (isCanvasId(row.pane)) setPane(row.pane) }}
+          >
+            {row.label}
+          </button>
+        ))}
+      </div>
+    </>
+  ) : null
+
   const home = (
     <div className="h-full min-h-0 overflow-auto px-6 py-5">
       <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted mb-2">
@@ -326,77 +390,52 @@ export default function Memory() {
         <span className="text-ink-subtle">·</span>
         <span className="truncate min-w-0" title={cwd || undefined}>{title}</span>
       </div>
-      <PageTitle title="语义" subtitle="把当前目录里的知识画成一张图。点开就能看谁和谁有关，也能记下当时为什么这么定。" />
-      {!cwd && <Empty title="没有工作区目录" hint="请在顶栏选择一个带本机路径的工作区。语义图按目录隔离。" />}
+      <PageTitle title="记忆" subtitle="档案等人点头入档。图谱是当前目录里的知识图。" />
+      {!cwd && <Empty title="没有工作区目录" hint="请在顶栏选择一个带本机路径的工作区。" />}
       {cwd && (
         <>
-          {cover.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-4">
-              {cover.map((row) => (
-                <span key={String(row.id || row.n)} className="tag">
-                  {COVER_LABEL[String(row.id || '')] || row.id} {Number(row.n || 0)}
-                </span>
-              ))}
-            </div>
-          )}
-          {note && <div className="text-xs text-ink-muted mb-3 break-all">{note}</div>}
-          {ingestState && ingestState !== 'idle' && ingestState !== 'done' && (
-            <div className="text-xs text-ink-muted mb-3">摄取 {ingestState}{ingest?.detail ? ` · ${String(ingest.detail)}` : ''}</div>
-          )}
-          <div className="flex flex-wrap gap-2 mb-5">
-            <button type="button" className="btn-primary" onClick={() => setPane('explore')}>打开探索</button>
-            <button type="button" className="btn" onClick={() => setPane('analyze')}>运行推理</button>
-            <button type="button" className="btn" onClick={() => setDrawer('health')}>记忆梳理</button>
-            <button type="button" className="btn" onClick={() => setDrawer('find')}>搜索</button>
-            <button type="button" className="btn" onClick={openSettings}>引擎设置</button>
+          <div className="grid grid-cols-1 gap-3 mb-5">
+            <button type="button" className="card p-4 text-left hover:bg-surface-2 transition-colors min-w-0" onClick={goCards}>
+              <div className="text-base font-medium mt-1">档案</div>
+              <div className="text-xs text-ink-muted mt-1 leading-5">起草与已入档。人点头才入档。</div>
+              <div className="text-ink-subtle mt-3">→</div>
+            </button>
           </div>
-          <div className="grid grid-cols-1 @md:grid-cols-2 @2xl:grid-cols-3 gap-3 mb-5">
-            {CANVASES.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                className="card p-4 text-left hover:bg-surface-2 transition-colors min-w-0"
-                onClick={() => setPane(row.id)}
-              >
-                <div className="text-[11px] text-ink-subtle mb-2">{row.no}</div>
-                <div className="text-[11px] text-ink-muted">{row.kicker}</div>
-                <div className="text-base font-medium mt-1">{row.title}</div>
-                <div className="text-xs text-ink-muted mt-1 leading-5">{row.desc}</div>
-                <div className="text-ink-subtle mt-3">→</div>
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {CAPS.map((row) => (
-              <button
-                key={row.label}
-                type="button"
-                className="tag hover:bg-surface-2"
-                onClick={() => { if (isCanvasId(row.pane)) setPane(row.pane) }}
-              >
-                {row.label}
-              </button>
-            ))}
-          </div>
+          {graphHub}
         </>
       )}
     </div>
   )
 
-  const canvas = pane !== 'home' && (
+  const studio = (
+    <div className="h-full min-h-0 overflow-auto px-6 py-5">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted mb-2">
+        <button type="button" className="btn" onClick={goHome}>返回</button>
+        <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${online ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+        <span>{online ? '系统在线' : '引擎未就绪'}</span>
+        <span className="text-ink-subtle">·</span>
+        <span className="truncate min-w-0" title={cwd || undefined}>{title}</span>
+      </div>
+      <PageTitle title="语义" subtitle="把当前目录里的知识画成一张图。点开就能看谁和谁有关，也能记下当时为什么这么定。" />
+      {!cwd && <Empty title="没有工作区目录" hint="请在顶栏选择一个带本机路径的工作区。语义图按目录隔离。" />}
+      {graphHub}
+    </div>
+  )
+
+  const canvas = isCanvasId(pane) && (
     <div className="h-full min-h-0 flex flex-col">
-      {OWN_CHROME.has(pane) && (
+      {(OWN_CHROME.has(pane) || canvasError) && (
         <div className="shrink-0 px-3 py-2 border-b border-line flex flex-wrap items-center gap-2 min-w-0">
-          <button type="button" className="btn" onClick={goHome}>返回</button>
+          <button type="button" className="btn" onClick={goStudio}>返回</button>
           <div className="text-sm font-medium truncate min-w-0">{CANVASES.find((row) => row.id === pane)?.title}</div>
-          {pane === 'io' && (
+          {OWN_CHROME.has(pane) && pane === 'io' && (
             <>
               <button type="button" className="btn" onClick={() => pickImport('json')}>导入 JSON</button>
               <button type="button" className="btn" onClick={() => pickImport('csv')}>导入 CSV</button>
               <button type="button" className="btn" onClick={exportRdf}>导出 RDF</button>
             </>
           )}
-          {pane === 'admin' && (
+          {OWN_CHROME.has(pane) && pane === 'admin' && (
             <>
               <button type="button" className="btn" onClick={() => runIngest('start')}>再摄取</button>
               <button type="button" className="btn" onClick={() => setDrawer('bridge')}>建桥</button>
@@ -418,7 +457,7 @@ export default function Memory() {
 
   return (
     <div className="relative h-full min-h-0 min-w-0 flex flex-col dsos-root" data-dsos-semantic="" data-cwd={cwd || undefined} data-memory-pane={pane}>
-      {pane === 'home' ? home : canvas}
+      {pane === 'home' ? home : pane === 'cards' ? <CardsArchive cwd={cwd} onBack={goHome} /> : pane === 'studio' ? studio : canvas}
       {drawer && cwd && (
         <aside className="absolute inset-y-0 right-0 w-full max-w-md bg-surface border-l border-line shadow-lg z-10 flex flex-col min-h-0">
           <div className="shrink-0 px-4 py-3 border-b border-line flex items-center justify-between gap-2">
@@ -443,6 +482,130 @@ export default function Memory() {
           </div>
         </aside>
       )}
+    </div>
+  )
+}
+
+function cardTags(row: Record<string, unknown>) {
+  const props = asRecord(row.properties)
+  const raw = props?.tags ?? row.tags
+  if (Array.isArray(raw)) return raw.map(String)
+  if (typeof raw === 'string' && raw.trim()) return raw.split(/[\s,]+/u).filter(Boolean)
+  return []
+}
+
+function validFromDay(row: Record<string, unknown>) {
+  const then = asRecord(row.then)
+  return String(then?.valid_from || row.valid_from || '').slice(0, 10)
+}
+
+function CardsArchive({ cwd, onBack }: { cwd: string; onBack: () => void }) {
+  const cardId = useApp((s) => s.memoryBrowse.cardId || '')
+  const originId = useApp((s) => s.memoryBrowse.originId || '')
+  const [tab, setTab] = useState<'起草' | '已入档'>('起草')
+  const [layer, setLayer] = useState<'当前' | '当日' | '标签'>('当前')
+  const [tagQuery, setTagQuery] = useState('')
+  const [rows, setRows] = useState<Array<Record<string, unknown>>>([])
+  const [note, setNote] = useState('')
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    if (!cwd) {
+      setRows([])
+      return
+    }
+    const includeFiled = tab === '已入档' || Boolean(cardId || originId)
+    void runtimeApi.listMemoryCards(includeFiled).then((data) => {
+      setRows(asRows(data.cards))
+      setNote('')
+    }).catch((cause) => {
+      setRows([])
+      setNote(cause instanceof Error ? cause.message : '读不到档案')
+    })
+  }, [cwd, tab, cardId, originId, tick])
+
+  useEffect(() => {
+    if (!cardId) return
+    const found = rows.find((row) => String(row.id || '') === cardId)
+    if (found && String(found.status || '') === '已入档' && tab !== '已入档') setTab('已入档')
+  }, [cardId, rows, tab])
+
+  const today = new Date().toISOString().slice(0, 10)
+  const visible = rows.filter((row) => {
+    const status = String(row.status || '')
+    if (tab === '起草' && status && status !== '起草') return false
+    if (tab === '已入档' && status !== '已入档') return false
+    if (originId && originOfCard(row) !== originId) return false
+    if (layer === '当日' && validFromDay(row) !== today) return false
+    if (layer === '标签') {
+      const tags = cardTags(row)
+      const q = tagQuery.trim()
+      return q ? tags.some((tag) => tag.includes(q)) : tags.length > 0
+    }
+    return true
+  })
+
+  const ask = (row: Record<string, unknown>) => {
+    void askOriginFromCard(row).then((result) => {
+      if (!result.ok) setNote(result.error)
+    }).catch((cause) => setNote(cause instanceof Error ? cause.message : '没问出去'))
+  }
+
+  const openOrigin = (id: string) => {
+    void runtimeApi.fetchCorpus(id).then((doc) => {
+      if (doc.href) openRef(doc.href as OpenRefHref)
+      else setNote('找不到来源跳转')
+    }).catch((cause) => setNote(cause instanceof Error ? cause.message : '读不出来源'))
+  }
+
+  return (
+    <div className="h-full min-h-0 overflow-auto px-6 py-5">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <button type="button" className="btn" onClick={onBack}>返回</button>
+        <div className="text-sm font-medium">档案</div>
+      </div>
+      <div className="flex flex-wrap gap-2 mb-3">
+        {(['起草', '已入档'] as const).map((id) => (
+          <button key={id} type="button" className={tab === id ? 'btn-primary' : 'btn'} onClick={() => setTab(id)}>{id}</button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2 mb-3">
+        {(['当前', '当日', '标签'] as const).map((id) => (
+          <button key={id} type="button" className={layer === id ? 'btn-primary' : 'btn'} onClick={() => setLayer(id)}>{id}</button>
+        ))}
+        {layer === '标签' && (
+          <input className="input" value={tagQuery} onChange={(e) => setTagQuery(e.target.value)} placeholder="标签" />
+        )}
+      </div>
+      {originId && (
+        <div className="text-xs text-ink-muted mb-3 flex flex-wrap items-center gap-2">
+          <span>来源 {originId}</span>
+          <button type="button" className="btn h-7 px-2" onClick={() => openOrigin(originId)}>打开来源</button>
+        </div>
+      )}
+      {note && <div className="text-xs text-accent-red mb-2">{note}</div>}
+      {!cwd && <Empty title="没有工作区目录" hint="请在顶栏选择一个带本机路径的工作区。" />}
+      {cwd && visible.length === 0 && !note && <div className="text-xs text-ink-muted">这一栏是空的。</div>}
+      {visible.map((row) => {
+        const id = String(row.id || '')
+        const status = String(row.status || '起草')
+        const origin = originOfCard(row)
+        return (
+          <div key={id} className={`text-xs border rounded p-2 mb-2 break-words min-w-0 ${id === cardId ? 'border-brand' : 'border-line'}`}>
+            <div className="text-ink-subtle mb-1">{status}{origin ? ` · ${origin}` : ''}</div>
+            <div>{String(row.label || row.content || id)}</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {status === '起草' && (
+                <button type="button" className="btn h-7 px-2" onClick={() => {
+                  void runtimeApi.nodMemoryCard(id).then(() => setTick((n) => n + 1)).catch((cause) => setNote(cause instanceof Error ? cause.message : '点头失败'))
+                }}>点头入档</button>
+              )}
+              {origin && <button type="button" className="btn h-7 px-2" onClick={() => openOrigin(origin)}>打开来源</button>}
+              <button type="button" className="btn h-7 px-2" onClick={() => ask(row)}>问这条</button>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -565,20 +728,70 @@ function hitWhen(row: Record<string, unknown>) {
   )
 }
 
+function healthItemKey(row: Record<string, unknown>) {
+  return `${row.kind || ''}\0${row.id || ''}\0${row.other || ''}`
+}
+
+function mergeHealthGroups(prev: Array<Record<string, unknown>>, next: Array<Record<string, unknown>>) {
+  const byKind = Object.fromEntries(prev.map((row) => [String(row.kind || ''), row]))
+  return next.map((row) => {
+    const kind = String(row.kind || '')
+    const old = byKind[kind]
+    const fresh = asRows(row.items)
+    if (!old) return { ...row, items: fresh, count: Math.max(fresh.length, Number(row.count || 0)) }
+    const seen = new Set(asRows(old.items).map(healthItemKey))
+    const extra = fresh.filter((item) => !seen.has(healthItemKey(item)))
+    const items = asRows(old.items).concat(extra)
+    return { ...row, items, count: Math.max(items.length, Number(row.count || 0)) }
+  })
+}
+
+function healthOpLabel(op: string) {
+  const labels: Record<string, string> = {
+    open: '打开来源',
+    source: '出处',
+    retire: '停用',
+    retire_group: '停用本组',
+    link: '连边',
+    merge: '合并',
+    extract: '抽取',
+    renew: '续期',
+    mute: '静音',
+  }
+  return labels[op] || ''
+}
+
 function HealthPanel({ cwd, ready, onRetry }: { cwd: string; ready: Record<string, unknown> | null; onRetry: () => void }) {
   const [groups, setGroups] = useState<Array<Record<string, unknown>>>([])
   const [err, setErr] = useState('')
-  useEffect(() => {
+  const [busy, setBusy] = useState(false)
+  const load = (from: { offset?: number; dup_offset?: number }, append = false) => {
     setErr('')
-    void runtimeApi.semanticPython('memory_health', { limit: 80, offset: 0 }, cwd).then((data) => {
+    void runtimeApi.memoryHealth(from).then((data) => {
       const rows = asRows(data.groups)
-      const issues = asRows(data.issues)
-      setGroups(rows.length ? rows : issues.length ? [{ kind: '待整理', items: issues, count: issues.length }] : [])
+      setGroups((prev) => append ? mergeHealthGroups(prev, rows) : rows)
     }).catch((cause) => {
-      setGroups([])
+      if (!append) setGroups([])
       setErr(cause instanceof Error ? cause.message : '梳理失败')
     })
-  }, [cwd])
+  }
+  useEffect(() => { load({ offset: 0, dup_offset: 0 }) }, [cwd])
+  const act = (body: Record<string, unknown>, confirmLabel?: string, count?: number) => {
+    if (busy) return
+    if (confirmLabel && !window.confirm(count ? `${confirmLabel} · ${count}` : confirmLabel)) return
+    setErr('')
+    setBusy(true)
+    void runtimeApi.memoryHealthAct(body).then(() => {
+      load({ offset: 0, dup_offset: 0 })
+    }).catch((cause) => {
+      setErr(cause instanceof Error ? cause.message : '梳理写入失败')
+    }).finally(() => setBusy(false))
+  }
+  const openRow = (row: Record<string, unknown>) => {
+    const id = String(row.id || '')
+    if (!id) return
+    openRef(classifyHitId(id).href)
+  }
   return (
     <div className="space-y-3 text-sm min-w-0">
       <div>引擎 {ready?.ready ? '就绪' : '未就绪'}{cwd ? ` · ${cwd.split('/').filter(Boolean).at(-1)}` : ''}</div>
@@ -588,14 +801,79 @@ function HealthPanel({ cwd, ready, onRetry }: { cwd: string; ready: Record<strin
       {groups.length === 0 && !err && <div className="text-xs text-ink-muted">这一类没有待办。</div>}
       {groups.map((group) => {
         const items = asRows(group.items)
+        const kind = String(group.kind || '')
+        const next = asRecord(group.next)
         return (
-          <div key={String(group.kind || 'x')} className="border border-line rounded p-2 min-w-0">
-            <div className="text-xs font-medium mb-1">{String(group.kind || '待整理')} · {Number(group.count || items.length)}</div>
-            {items.slice(0, 8).map((row, index) => (
-              <div key={String(row.id || index)} className="text-xs text-ink-muted break-words py-1 border-t border-line first:border-0">
-                {String(row.label || row.id || '')}
+          <div key={kind || 'x'} className="border border-line rounded p-2 min-w-0">
+            <div className="text-xs font-medium mb-1">{kind} · {Number(group.count || items.length)}</div>
+            {(Array.isArray(group.actions) ? group.actions : []).map((op) => {
+              const name = String(op || '')
+              const label = healthOpLabel(name)
+              if (!label) return null
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  className="btn h-7 px-2 mb-1 mr-1"
+                  disabled={busy}
+                  onClick={() => {
+                    const payload: Record<string, unknown> = { op: name, kind }
+                    if (name === 'retire_group') {
+                      payload.ids = items.flatMap((row) => {
+                        const extra = Array.isArray(row.ids) ? row.ids.map((item) => String(item || '')).filter(Boolean) : []
+                        if (extra.length) return extra
+                        const id = String(row.id || '')
+                        return id ? [id] : []
+                      })
+                    }
+                    act(payload, label, items.length)
+                  }}
+                >{label}</button>
+              )
+            })}
+            {items.map((row, index) => (
+              <div key={healthItemKey(row) || String(index)} className="text-xs text-ink-muted break-words py-1 border-t border-line first:border-0">
+                <div>{String(row.label || row.id || '')}</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {asRows(row.actions).map((action, actionIndex) => {
+                    const op = String(action.op || '')
+                    const label = healthOpLabel(op)
+                    if (!label) return null
+                    if (op === 'open') {
+                      return (
+                        <button key={`${op}${actionIndex}`} type="button" className="btn h-7 px-2" onClick={() => openRow(row)}>{label}</button>
+                      )
+                    }
+                    return (
+                      <button
+                        key={`${op}${actionIndex}`}
+                        type="button"
+                        className="btn h-7 px-2"
+                        disabled={busy}
+                        onClick={() => act({
+                          op,
+                          id: row.id,
+                          other: action.other || row.other,
+                          type: action.type || row.type,
+                          source: action.source || row.origin || row.source,
+                          kind: row.kind || kind,
+                        }, op === 'merge' ? label : undefined)}
+                      >{label}</button>
+                    )
+                  })}
+                </div>
               </div>
             ))}
+            {group.has_more && next && (
+              <button
+                type="button"
+                className="btn h-7 px-2 mt-1"
+                onClick={() => load({
+                  offset: Number(next.offset || 0),
+                  dup_offset: Number(next.dup_offset || 0),
+                }, true)}
+              >更多</button>
+            )}
           </div>
         )
       })}
@@ -623,15 +901,7 @@ function LineagePanel({ cwd }: { cwd: string }) {
   )
 }
 
-function sessionIdFromHit(row: Record<string, unknown>) {
-  const node = asRecord(row.node)
-  const raw = String(row.id || node?.id || '')
-  const matched = raw.match(/^session:(session-[^:]+)/) || raw.match(/^session:([^:]+)/)
-  return matched ? matched[1] : ''
-}
-
 function FindPanel() {
-  const nav = useNavigate()
   const [q, setQ] = useState('')
   const [hits, setHits] = useState<Array<Record<string, unknown>>>([])
   const [note, setNote] = useState('')
@@ -662,40 +932,28 @@ function FindPanel() {
       {note && !hits.length && <div className="text-xs text-ink-muted">{note}</div>}
       {hits.map((row, index) => {
         const hitId = String(row.id || '')
-        const isSession = hitId.startsWith('session:')
+        const land = classifyHitId(hitId)
         return (
         <div key={String(row.id || index)} className="text-xs border border-line rounded p-2 mb-2 break-words min-w-0">
           <div className="text-ink-subtle mb-1">{hitWhen(row) || String(row.title || row.id || '')}</div>
           {String(row.snippet || row.excerpt || row.text || row.content || '')}
           <div className="mt-2 flex flex-wrap gap-2">
             <button type="button" className="btn h-7 px-2" onClick={() => {
-              const snippet = String(row.snippet || row.excerpt || row.text || row.content || '')
-              void loadCurrentAiTarget().then((target) => {
-                if (!target.ok) {
-                  setNote(target.error)
-                  return
-                }
-                return runtimeApi.promptAi(target.sessionId, { text: `【记忆摘录】\n${snippet}\n出处 ${hitId}` })
-              }).then(() => {
-                useApp.getState().togglePanel('memory', 'tab')
-                nav('/ai')
+              void askOriginFromHit(row).then((result) => {
+                if (!result.ok) setNote(result.error)
               }).catch((cause) => setNote(cause instanceof Error ? cause.message : '没问出去'))
             }}>问 AI</button>
-            {!isSession && hitId && (
+            {hitId && (
               <button type="button" className="btn h-7 px-2" onClick={() => {
+                if (land.class === 'graph' || land.class === 'session') {
+                  openRef(land.href)
+                  return
+                }
                 void runtimeApi.fetchCorpus(hitId).then((doc) => {
-                  if (doc.href) openRef(doc.href)
-                  else setNote('找不到来源跳转')
+                  if (doc.href) openRef(doc.href as OpenRefHref)
+                  else openRef(land.href)
                 }).catch((cause) => setNote(cause instanceof Error ? cause.message : '读不出来源'))
               }}>打开来源</button>
-            )}
-            {sessionIdFromHit(row) && (
-              <button type="button" className="btn h-7 px-2" onClick={() => {
-                const sid = sessionIdFromHit(row)
-                useApp.getState().setActiveAiSessionId(sid)
-                useApp.getState().togglePanel('memory', 'tab')
-                nav(`/ai/${encodeURIComponent(sid)}`)
-              }}>打开会话</button>
             )}
           </div>
         </div>

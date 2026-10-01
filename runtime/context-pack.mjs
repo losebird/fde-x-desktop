@@ -1,4 +1,5 @@
 import { listBusinessApps, listBusinessConnections, listOperations, listWorkspaces } from './db.mjs'
+import { memoryLandHref } from './memory/identity.mjs'
 
 const PACK_BUDGET_MS = 3000
 
@@ -68,11 +69,13 @@ function mapFindHits(data, limit = 5) {
         : []
   for (const row of items.slice(0, limit)) {
     if (!row || typeof row !== 'object') continue
+    const id = String(row.id || row.node?.id || '')
     rows.push({
-      id: String(row.id || row.node?.id || ''),
+      id,
       score: typeof row.score === 'number' ? row.score : undefined,
       excerpt: String(row.snippet || row.excerpt || row.text || row.content || '').slice(0, 400),
-      sourceRef: String(row.id || ''),
+      sourceRef: id,
+      href: memoryLandHref(id),
       at: row.then || row.at || row.ts || undefined,
     })
   }
@@ -182,7 +185,7 @@ async function fillBiz(db, pack, workspaceCwd) {
 async function fillApps(db, pack, workspaceCwd) {
   const row = workspaceRowForCwd(db, workspaceCwd)
   const workspaceId = row?.id || 'ws_personal'
-  const apps = listBusinessApps(db, { workspaceId }).slice(0, 8).map((app) => {
+  const apps = listBusinessApps(db, { workspaceId }).filter((app) => !String(app.deletedAt || '').trim()).slice(0, 8).map((app) => {
     let entities = []
     try {
       const def = app.definition && typeof app.definition === 'object' ? app.definition : {}
@@ -309,7 +312,7 @@ export function renderContextForPrompt(pack, omit = new Set()) {
   }
   if (pack.tasks && !omit.has('tasks')) {
     const t = pack.tasks
-    const today = Array.isArray(t.today) ? t.today : []
+    const today = (Array.isArray(t.today) ? t.today : []).filter((row) => !omit.has(`tasks:${row.id}`))
     lines.push('【今日待办】', today.length ? today.map((row) => `- ${row.title}（${row.status}）`).join('\n') : '（无）')
     if (typeof t.overdue === 'number' && t.overdue > 0) lines.push(`逾期 ${t.overdue} 条`)
   }
@@ -332,12 +335,12 @@ export function renderContextForPrompt(pack, omit = new Set()) {
   }
   if (pack.memory && !omit.has('memory')) {
     const mem = pack.memory
-    const hits = Array.isArray(mem.hits) ? mem.hits : []
+    const hits = (Array.isArray(mem.hits) ? mem.hits : []).filter((h) => !omit.has(h.id) && !omit.has(`memory:hit:${h.id}`))
     if (hits.length) {
       lines.push('【相关记忆】')
       for (const h of hits) lines.push(`- ${h.excerpt}（${h.id}）`)
     }
-    const prec = Array.isArray(mem.precedents) ? mem.precedents : []
+    const prec = (Array.isArray(mem.precedents) ? mem.precedents : []).filter((p) => !omit.has(p.id) && !omit.has(`memory:prec:${p.id}`))
     if (prec.length) {
       lines.push('【先例】')
       for (const p of prec) lines.push(`- ${p.title}：${p.excerpt}`)

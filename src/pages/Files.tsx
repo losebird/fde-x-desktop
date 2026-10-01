@@ -505,10 +505,13 @@ export default function Files() {
   const root = useMemo(() => files.find((f) => f.parentId === null), [files])
 
   // 当前 parentId 在新工作区可能找不到,fallback 到根,避免 TreeNode 渲染崩溃
-  const validParentId = useMemo(
-    () => (files.some((f) => f.id === parentId) ? parentId : root?.id ?? null),
-    [files, parentId, root],
-  )
+  const validParentId = useMemo(() => {
+    if (files.some((f) => f.id === parentId)) return parentId
+    if (selectedId && parentId && parentId !== '.' && (selectedId === parentId || selectedId.startsWith(`${parentId}/`))) {
+      return parentId
+    }
+    return root?.id ?? null
+  }, [files, parentId, selectedId, root])
 
   // 工作区切换时:同步 setState 给下次渲染用
   useEffect(() => {
@@ -531,10 +534,18 @@ export default function Files() {
   useEffect(() => {
     if (!filesReady) return
     if (!listingRef.current.sessionId && !listingRef.current.cwd) return
-    const target = parentId
+    const selectedParent = selectedId && selectedId.includes('/')
+      ? selectedId.slice(0, selectedId.lastIndexOf('/'))
+      : (selectedId && selectedId !== '.' ? '.' : '')
+    const target = selectedParent || parentId
     if (!target) return
     const missingSelected = Boolean(selectedId && !filesRef.current.some((f) => f.id === selectedId))
-    if (missingSelected) loadedDirs.current.delete(target)
+    const missingFolder = Boolean(selectedParent && selectedParent !== '.' && !filesRef.current.some((f) => f.id === selectedParent))
+    if (missingSelected || missingFolder) {
+      for (const dir of ancestorDirs(selectedParent || target)) {
+        loadedDirs.current.delete(dir)
+      }
+    }
     const pending = ancestorDirs(target).filter((dir) => !loadedDirs.current.has(dir))
     if (pending.length === 0) return
     let alive = true

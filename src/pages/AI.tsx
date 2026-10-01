@@ -290,7 +290,10 @@ export default function AI() {
       const detail = (event as CustomEvent<{ sessionId?: string; title?: string }>).detail
       const sid = String(detail?.sessionId || '').trim()
       const title = String(detail?.title || '').trim()
-      if (!sid) return
+      if (!sid) {
+        nav('/ai')
+        return
+      }
       void reloadRemoteSessions().then((rows) => {
         if (title) {
           setRemoteSessions(rows.map((row) => (row.sessionId === sid ? { ...row, title } : row)))

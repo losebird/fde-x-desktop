@@ -14,7 +14,7 @@ export type ContextPack = {
     precedents: { id: string; title: string; excerpt: string; at?: string }[]
     decisionBrief?: string
   }
-  entity?: { kind: 'task' | 'im' | 'biz-row' | 'app-record' | 'memory-card' | 'file'; ref: string; fields: Record<string, unknown> }
+  entity?: { kind: string; ref: string; fields: Record<string, unknown> }
   generatedAt: number
 }
 
@@ -48,7 +48,7 @@ export function renderContextForPrompt(pack: ContextPack, omit: Set<string> = ne
     if (w.activeSessionTitle) lines.push(`当前会话：${w.activeSessionTitle}`)
   }
   if (pack.tasks && !omit.has('tasks')) {
-    const today = pack.tasks.today ?? []
+    const today = (pack.tasks.today ?? []).filter((row) => !omit.has(`tasks:${row.id}`))
     lines.push('【今日待办】', today.length ? today.map((row) => `- ${row.title}（${row.status}）`).join('\n') : '（无）')
     if (pack.tasks.overdue > 0) lines.push(`逾期 ${pack.tasks.overdue} 条`)
   }
@@ -65,12 +65,12 @@ export function renderContextForPrompt(pack: ContextPack, omit: Set<string> = ne
     lines.push('【应用】', (pack.apps ?? []).map((a) => `${a.name}（${(a.entities || []).join(',')}）`).join('\n'))
   }
   if (pack.memory && !omit.has('memory')) {
-    const hits = pack.memory.hits ?? []
+    const hits = (pack.memory.hits ?? []).filter((h) => !omit.has(h.id) && !omit.has(`memory:hit:${h.id}`))
     if (hits.length) {
       lines.push('【相关记忆】')
       for (const h of hits) lines.push(`- ${h.excerpt}（${h.id}）`)
     }
-    const prec = pack.memory.precedents ?? []
+    const prec = (pack.memory.precedents ?? []).filter((p) => !omit.has(p.id) && !omit.has(`memory:prec:${p.id}`))
     if (prec.length) {
       lines.push('【先例】')
       for (const p of prec) lines.push(`- ${p.title}：${p.excerpt}`)

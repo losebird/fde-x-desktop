@@ -66,11 +66,12 @@ DSH    官方 Harness（脑子；会话文件在 ~/.dsh-fde-* /sessions）
 |---|---|
 | `src/components/IMWorkspace.tsx` | IM 大厅+线程、粘贴/预览/保存、交接弹层、接着做、右键菜单、黄条 `imBanner` |
 | `src/lib/runtime-api.ts` | `exportAiSession` / `restoreAiSessions` / `imTranslate` / `imCompose`+`imSend` / `draftMemoryCard` |
-| `src/lib/types.ts` | `IMHandoffPackage.sessions[]`（sessionId/title/files{name,size,data}） |
+| `src/lib/types.ts` | `IMHandoffPackage.sessions[]`（sessionId/title/files，可选 members） |
+| `runtime/session-tree.mjs` | 同一口：按 `header.parentSession` 收子树、按帧写回、子会话改 cwd/parentSession |
 | `src/lib/im-ai.ts` | 拟回/采纳 prompt、`extractComposerBody`、`isUnsafeToSend` |
 | `src/pages/AI.tsx` | `fde-x-ai-restore` 打开新会话、rename、禁止复原时空窗自动建空会话 |
 | `src/components/IMScreen.tsx` | IM 全开时跳过大厅未读轮询 |
-| `runtime/server.mjs` | `GET .../sessions/:id/export`、`POST .../sessions/restore`、zstd 改写/嫁接、`POST /ai/reload` 退出 BFF |
+| `runtime/server.mjs` | `GET .../sessions/:id/export`、`POST .../sessions/restore` 调 `readSessionTree`/`writeSessionTree`、`POST /ai/reload` 退出 BFF |
 | `runtime/dsh-core.mjs` | DSH 子进程、lanAssist 白名单（已加 `/translate`） |
 | `runtime/fde-x-dsh-bridge/lib/client.js` | iframe：prompt/select/rename/watchAssistant |
 | `runtime/fde-x-dsh-bridge/lib/index.js` | Host：`/fde-session/export` 备用（DSH webServer） |
@@ -88,13 +89,15 @@ DSH    官方 Harness（脑子；会话文件在 ~/.dsh-fde-* /sessions）
 - 第一帧必须 **恰好一行 header + `\n`**。整份压成一帧 → `first frame is not exactly one header line`，DSH **启动即崩**。
 - Header 含 `id`、`cwd`、`createdAt`、`isSeeded`… 必须与目录名、项目路径一致，否则 `corrupt session log` / `header id ... and cwd identify ...`。
 - `session/create` 会在内存里记下 header。若把原日志（旧 `createdAt`）盖上去 → `session source headers conflict`。
-- **正确复原**：`session/create` 得到新 id → 保留 **新会话第一帧 header** → 只把交接包里 **seq 严格递增** 的事件帧接上（`graftZstdSessionLog`）。原日志末尾曾出现 seq 255 后跳回 3 的 `session/title`，整份拒读、界面空白。
+- **正确复原**：`session/create` 得到新 id（新 header 的 id/cwd/createdAt）→ 保留 **新建会话第一帧 header** → 把交接包里的 **原 zstd 事件帧按帧接上**。某一帧内部若出现 seq 回退，只重压这一帧里仍递增的行；未改动的帧保留原压缩字节。禁止把全部事件糊进一帧：轮次条按完整 turnOutline 能画出第 N 轮，跳转要靠 `data-chat-anchor-key` 或 `loadThrough` 翻页，一帧日志会让分页按 seq 当下标对不上。
+- 子会话跟父日志走同一口：export 扫 **同一项目目录下的兄弟目录**，认 `header.parentSession` 链（子目录名是裸 uuid，不是 `session-{uuid}`）。restore 只对父会话 `session/create`；子目录按原 basename 落到新父目录的兄弟位置，改 cwd，并把直系子的 `parentSession` 改成新父 id，孙代仍指向子 id。子 id 保持不变，父日志里的 catalog `childId` 才能对上。
+- 旧包没有 `members` 时仍只复原父日志。
 - 列表标题来自 **projections.values.title**（`session/rename`），**不是** 日志里的 `session/title` 事件。复原后必须在 DSH reload **之后** rename，并在 `fde-x-ai-restore` 里 `tellDsh('rename')`。
 - create 后 DSH **内存里是空会话**。只改磁盘不 reload，左边点开会是白的。restore 末尾 `aiRuntime.reload()`（只重启 DSH 子进程，不是退出 4318）。
 - reload 瞬间列表空 → `AI.tsx` 曾 **自动新建空会话**，用户点中空的那条。已加 8s 宽限 + `restoreHoldUntilRef`；`activeId` 优先 URL `chatId`，不要回落到 `visibleSessions[0]`。
 - 坏日志会让 **整个 DSH 起不来**（workspace 插件 list 时抛）。隔离目录：`~/.dsh-fde-peer/sessions-corrupt-handoff/`。
 
-参考实现：`runtime/server.mjs` 中 `scanZstdFrames` / `graftZstdSessionLog` / `collectIncreasingEvents` / `POST /api/v1/ai/sessions/restore`。
+参考实现：`runtime/session-tree.mjs` 的 `readSessionTree` / `writeSessionTree` / `increasingEventFrames`；`runtime/server.mjs` 的 `GET/POST .../sessions/export|restore`。
 
 官方校验：`@deepseek-ai/dsh-session-persistence-jsonl` `assertStoredIdentity`；冲突：`@deepseek-ai/dsh-session-query` `assertSessionHeadersCompatible`。
 
@@ -105,15 +108,15 @@ DSH    官方 Harness（脑子；会话文件在 ~/.dsh-fde-* /sessions）
 发送方：
 
 1. 交接弹层列 `listAiSessions`，勾选会话 + 工作区文件。
-2. `GET /api/v1/ai/sessions/:id/export` 读磁盘文件（跳过 lock）。
-3. `packHandoffAttach` 打进 `dsh-handoff.json`（`v:2, sessions[].files[]`）。
+2. `GET /api/v1/ai/sessions/:id/export` 读父目录文件 + `members`（跳过 lock）。
+3. `packHandoffAttach` 打进 `dsh-handoff.json`（`v:2, sessions[].files[]`，有子树则带 `members`）。
 4. 放入 IM 输入区，人点发送（compose+send）。芯片应显示 `标题 / session.v3.jsonl.zstd · N KB`。
 
 接收方：
 
 1. 气泡可能显示「0 个会话文件」（incoming 映射没把 pack.sessions 填上）。**接着做** 必须按附件 **原始序号** 扫 `imAttach`，`parseHandoffPack` 取出 `sessions`。
-2. `restoreAiSessions({ cwd, workspaceId?, sessions })`。
-3. 服务端 create → graft → `aiRuntime.reload()` → rename。
+2. `restoreAiSessions({ cwd, workspaceId?, sessions })`，同一行带上 `sessionId` 与 `members`。
+3. 服务端对父会话 create → 按帧写回父日志并写下成员目录 → `aiRuntime.reload()` → rename。
 4. 派 `fde-x-ai-restore`；AI 页刷新 iframe、nav 到新 id、tellDsh rename。
 5. IM 顶栏黄条「正在复原…」，成功绿、失败红。过程中禁止连点。
 

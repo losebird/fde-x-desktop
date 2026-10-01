@@ -7,7 +7,6 @@ import {
   operationCountsAsHomeException,
 } from '../biz/home-operation-exception.mjs'
 import {
-  businessKindsDescribedInLanAssistState,
   desiredLanAssistConnectionStatus,
   imBusinessAdapterHealthFromState,
   lookupReadyFromLanAssistState,
@@ -27,31 +26,39 @@ test('dry_run uncertain is not a homepage exception; real failures still are', (
   ]), 1)
 })
 
-test('lan-assist lamp follows lookup + described kinds, or recent biz success', () => {
+test('lan-assist lamp follows lookup + connector, vocab sheet, or recent biz success', () => {
   const readyState = {
     ok: true,
     lookup: { configured: true, baseUrl: 'http://127.0.0.1:13000' },
-    kinds: [{ kind: '客户', resource: 'customers', catalogVersion: 'schema:1', fields: ['no'] }],
+    capabilities: { connector: true },
   }
+  const lookupOnly = {
+    ok: true,
+    lookup: { configured: true, baseUrl: 'http://127.0.0.1:13000' },
+  }
+  const vocab = { kinds: [{ kind: 'KindA', resource: 'kind_a', catalogVersion: 'schema:1', fields: ['no'] }] }
   assert.equal(lookupReadyFromLanAssistState(readyState), true)
-  assert.equal(businessKindsDescribedInLanAssistState(readyState), true)
   assert.equal(desiredLanAssistConnectionStatus(readyState), 'connected')
+  assert.equal(desiredLanAssistConnectionStatus(lookupOnly, { vocab }), 'connected')
+  assert.equal(desiredLanAssistConnectionStatus(lookupOnly), 'pending')
+  assert.equal(desiredLanAssistConnectionStatus(lookupOnly, { vocab: { kinds: [] } }), 'pending')
+  assert.equal(desiredLanAssistConnectionStatus({
+    ok: true,
+    lookup: { configured: true },
+    catalog: [{ name: 'search_text' }],
+    kinds: vocab.kinds,
+  }), 'pending')
   assert.equal(desiredLanAssistConnectionStatus(null), 'pending')
   assert.equal(desiredLanAssistConnectionStatus({ ok: false }), 'pending')
   assert.equal(desiredLanAssistConnectionStatus({ ok: true, lookup: {} }), 'pending')
   assert.equal(desiredLanAssistConnectionStatus({ ok: true, lookup: { configured: true } }, { bizSucceeded: true }), 'connected')
-  assert.equal(desiredLanAssistConnectionStatus({
-    ok: true,
-    lookup: { configured: true, hasToken: true },
-    capabilities: { connector: true },
-  }), 'connected')
 })
 
 test('imBusinessAdapterHealthFromState matches connection lamp connected vs pending', () => {
   const readyState = {
     ok: true,
     lookup: { configured: true, baseUrl: 'http://127.0.0.1:13000' },
-    kinds: [{ kind: '客户', resource: 'customers', catalogVersion: 'schema:1', fields: ['no'] }],
+    capabilities: { connector: true },
   }
   assert.equal(desiredLanAssistConnectionStatus(readyState), 'connected')
   assert.deepEqual(imBusinessAdapterHealthFromState(readyState), {
@@ -70,10 +77,16 @@ test('reconcileLanAssistConnectionLamp updates provider rows in sqlite', () => {
   reconcileLanAssistConnectionLamp(db, {
     ok: true,
     lookup: { configured: true, baseUrl: 'http://127.0.0.1:13000' },
-    kinds: [{ kind: '客户', resource: 'customers', catalogVersion: 'schema:1', fields: ['no'] }],
+    capabilities: { connector: true },
   })
   const after = db.prepare(`SELECT status FROM business_connections WHERE provider = 'lan-assist'`).get()
   assert.equal(after.status, 'connected')
+  reconcileLanAssistConnectionLamp(db, {
+    ok: true,
+    lookup: { configured: true, baseUrl: 'http://127.0.0.1:13000' },
+  }, { vocab: { kinds: [{ kind: 'KindA' }] } })
+  const withVocab = db.prepare(`SELECT status FROM business_connections WHERE provider = 'lan-assist'`).get()
+  assert.equal(withVocab.status, 'connected')
   reconcileLanAssistConnectionLamp(db, null)
   const offline = db.prepare(`SELECT status FROM business_connections WHERE provider = 'lan-assist'`).get()
   assert.equal(offline.status, 'pending')

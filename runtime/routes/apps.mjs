@@ -19,15 +19,15 @@ import {
 } from '../apps/records.mjs'
 import {
   activateApp,
-  archiveApp,
   createAppDraft,
-  discardDraftApp,
   findActiveAppBySlug,
   getAppById,
   listApps,
   purgeApp,
   putAppSpec,
+  restoreApp,
   rollbackApp,
+  trashApp,
 } from '../apps/repository.mjs'
 
 function defaultWorkspaceCwd() {
@@ -169,6 +169,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
         slug: row.slug,
         revision: row.currentRevision,
         appKind: row.appKind,
+        deletedAt: row.deletedAt || '',
       })),
       correlationId,
     })
@@ -211,16 +212,12 @@ export async function handleAppsRoutes(request, response, url, deps) {
       return true
     }
     if (request.method === 'DELETE') {
-      const result = discardDraftApp(db, appId, { correlationId })
+      const result = trashApp(db, appId, { correlationId })
       if (result.kind === 'not_found') {
         sendError(response, 404, 'not_found', '应用不存在', correlationId)
         return true
       }
-      if (result.kind === 'not_draft') {
-        sendError(response, 409, 'not_draft', '运行中的应用请确认后归档，或勾选连数据一起删', correlationId)
-        return true
-      }
-      sendJson(response, 200, { ok: true, correlationId })
+      sendJson(response, 200, { ok: true, data: result.data, correlationId })
       return true
     }
   }
@@ -239,6 +236,10 @@ export async function handleAppsRoutes(request, response, url, deps) {
     }
     if (result.kind === 'validation') {
       sendJson(response, 422, { ok: false, errors: result.errors, correlationId })
+      return true
+    }
+    if (result.kind === 'trashed') {
+      sendError(response, 409, 'trashed', '应用在已删除里，请先恢复', correlationId)
       return true
     }
     if (result.kind === 'breaking') {
@@ -261,6 +262,10 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendJson(response, 422, { ok: false, errors: result.errors, correlationId })
       return true
     }
+    if (result.kind === 'trashed') {
+      sendError(response, 409, 'trashed', '应用在已删除里，请先恢复', correlationId)
+      return true
+    }
     if (result.kind === 'breaking') {
       sendJson(response, 422, { ok: false, error: 'breaking_change', errors: result.errors, correlationId })
       return true
@@ -269,14 +274,22 @@ export async function handleAppsRoutes(request, response, url, deps) {
     return true
   }
 
-  const archiveMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/archive$/)
-  if (request.method === 'POST' && archiveMatch) {
-    const ok = archiveApp(db, decodeURIComponent(archiveMatch[1]))
-    if (!ok) {
+  const restoreMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/restore$/)
+  if (request.method === 'POST' && restoreMatch) {
+    const result = restoreApp(db, decodeURIComponent(restoreMatch[1]), { correlationId })
+    if (result.kind === 'not_found') {
       sendError(response, 404, 'not_found', '应用不存在', correlationId)
       return true
     }
-    sendJson(response, 200, { ok: true, correlationId })
+    if (result.kind === 'not_trashed') {
+      sendError(response, 409, 'not_trashed', '应用不在已删除里', correlationId)
+      return true
+    }
+    if (result.kind === 'slug_taken') {
+      sendError(response, 409, 'slug_taken', '同名还在用', correlationId)
+      return true
+    }
+    sendJson(response, 200, { ok: true, data: result.data, correlationId })
     return true
   }
 
@@ -287,8 +300,8 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendError(response, 404, 'not_found', '应用不存在', correlationId)
       return true
     }
-    if (result.kind === 'use_discard') {
-      sendError(response, 409, 'use_discard', '草稿请直接删除，不要走硬删', correlationId)
+    if (result.kind === 'not_trashed') {
+      sendError(response, 409, 'not_trashed', '先删除进已删除，再彻底删除', correlationId)
       return true
     }
     sendJson(response, 200, { ok: true, data: result.data, correlationId })
@@ -587,6 +600,9 @@ export function handleAppsBridge(sub, body, db, workspaceCwd) {
       }
       if (result.kind === 'validation') {
         return { ok: false, errors: result.errors }
+      }
+      if (result.kind === 'trashed') {
+        return { ok: false, errors: [{ path: 'appId', message: '应用在已删除里，请先恢复' }] }
       }
       if (result.kind === 'breaking') {
         return { ok: false, errors: result.errors, error: 'breaking_change' }

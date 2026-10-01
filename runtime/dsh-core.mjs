@@ -665,6 +665,13 @@ export class DshCoreConnector {
         'query_decisions',
         'lineage',
         'list_graph_nodes',
+        'memory_health',
+        'enrich_dedup',
+        'retire_memory_card',
+        'source_memory_card',
+        'nod_memory_edge',
+        'mute_health_kind',
+        'renew_memory_card',
       ])
       if (!allowedOps.has(op)) {
         throw new AiRemoteError('ai/forbidden', '记忆操作不允许')
@@ -689,7 +696,7 @@ export class DshCoreConnector {
       }
       return payload
     }
-    const semanticPages = new Set(['/ready', '/retry-ready', '/settings', '/deps', '/usage', '/session-ingest', '/session-ingest/now', '/people', '/settings/probe'])
+    const semanticPages = new Set(['/ready', '/retry-ready', '/settings', '/deps', '/usage', '/session-ingest', '/session-ingest/now', '/people', '/settings/probe', '/extract-session', '/api/enrich/merge'])
     if (semanticPages.has(path)) {
       const { cwd: requestCwd, ascii: asciiCwd } = semanticCwd(options, this.cwd)
       const url = new URL(`/semantic-os${path}`, this.origin)

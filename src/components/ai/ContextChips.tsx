@@ -43,14 +43,13 @@ export function ContextChips({ pack, warnings, omit, onToggleOmit }: Props) {
       {open && items.length > 0 && (
         <div className="absolute bottom-full mb-1 left-0 bg-white border border-line rounded-md shadow-lg py-1 min-w-52 z-30 max-h-48 overflow-auto">
           {items.map((item) => {
-            const scopeKey = item.key.split(':')[0]
-            const off = omit.has(scopeKey) || omit.has(item.key)
+            const off = omit.has(item.key)
             return (
               <button
                 key={item.key}
                 type="button"
                 className="w-full px-3 py-1.5 text-xs text-left hover:bg-surface-2"
-                onClick={() => onToggleOmit(scopeKey)}
+                onClick={() => onToggleOmit(item.key)}
               >
                 {off ? '（已取消）' : ''}{item.label}
               </button>

@@ -4,8 +4,39 @@ import { withProductLayout } from './layout.mjs'
 import { detectBreakingSpecChange, quoteTable, tableNameForEntity, validateAppSpec } from './spec.mjs'
 
 const APP_TABLE_RE = /^app_[a-z][a-z0-9-]{1,30}__[a-z][a-z0-9_]{0,30}$/
+const LIVE_APP = `(deleted_at IS NULL OR deleted_at = '')`
+const APP_COLUMNS = `id, workspace_id, name, app_kind, status, current_revision, definition_json, created_at, updated_at, deleted_at`
 
 const isoNow = () => new Date().toISOString()
+
+function safeSlug(def) {
+  return def && typeof def === 'object' && typeof def.slug === 'string' ? def.slug : null
+}
+
+function tombstoneOf(value) {
+  return String(value || '').trim()
+}
+
+function mapApp(row) {
+  const spec = JSON.parse(row.definition_json)
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    appKind: row.app_kind,
+    status: row.status,
+    currentRevision: row.current_revision,
+    slug: safeSlug(spec),
+    spec,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    deletedAt: tombstoneOf(row.deleted_at),
+  }
+}
+
+export function appIsTrashed(app) {
+  return Boolean(app && tombstoneOf(app.deletedAt))
+}
 
 /**
  * @param {import('node:sqlite').DatabaseSync} db
@@ -18,6 +49,7 @@ export function isSlugTaken(db, workspaceId, slug, excludeAppId, { activeOnly = 
     SELECT id FROM business_apps
     WHERE workspace_id = ?
       AND json_extract(definition_json, '$.slug') = ?
+      AND ${LIVE_APP}
       ${activeOnly ? "AND status = 'active'" : ''}
     LIMIT 1
   `).get(workspaceId, slug)
@@ -32,7 +64,7 @@ export function isSlugTaken(db, workspaceId, slug, excludeAppId, { activeOnly = 
  */
 export function getAppById(db, appId) {
   const row = db.prepare(`
-    SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json, created_at, updated_at
+    SELECT ${APP_COLUMNS}
     FROM business_apps WHERE id = ?
   `).get(appId)
   if (!row) return null
@@ -40,18 +72,7 @@ export function getAppById(db, appId) {
     SELECT revision, change_note, created_at, materialize_status
     FROM business_app_revisions WHERE app_id = ? ORDER BY revision DESC
   `).all(appId)
-  return {
-    id: row.id,
-    workspaceId: row.workspace_id,
-    name: row.name,
-    appKind: row.app_kind,
-    status: row.status,
-    currentRevision: row.current_revision,
-    spec: JSON.parse(row.definition_json),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    revisions,
-  }
+  return { ...mapApp(row), revisions }
 }
 
 /**
@@ -60,26 +81,11 @@ export function getAppById(db, appId) {
  */
 export function listApps(db, workspaceId) {
   return db.prepare(`
-    SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json, created_at, updated_at
+    SELECT ${APP_COLUMNS}
     FROM business_apps
     WHERE workspace_id = ?
     ORDER BY updated_at DESC
-  `).all(workspaceId).map((row) => ({
-    id: row.id,
-    workspaceId: row.workspace_id,
-    name: row.name,
-    appKind: row.app_kind,
-    status: row.status,
-    currentRevision: row.current_revision,
-    slug: safeSlug(JSON.parse(row.definition_json)),
-    spec: JSON.parse(row.definition_json),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }))
-}
-
-function safeSlug(def) {
-  return def && typeof def === 'object' && typeof def.slug === 'string' ? def.slug : null
+  `).all(workspaceId).map(mapApp)
 }
 
 /**
@@ -140,6 +146,7 @@ export function createAppDraft(db, input) {
 export function putAppSpec(db, appId, input) {
   const app = getAppById(db, appId)
   if (!app) return { kind: 'not_found' }
+  if (appIsTrashed(app)) return { kind: 'trashed' }
   const laidOut = withProductLayout(input.spec, { fillPages: false })
   const validation = validateAppSpec(laidOut, {
     slugTaken: isSlugTaken(db, app.workspaceId, String(laidOut.slug), appId, { activeOnly: true }),
@@ -189,6 +196,7 @@ export function putAppSpec(db, appId, input) {
 export function activateApp(db, appId, hooks = {}) {
   const app = getAppById(db, appId)
   if (!app) return { kind: 'not_found' }
+  if (appIsTrashed(app)) return { kind: 'trashed' }
   const validation = validateAppSpec(app.spec, {
     slugTaken: isSlugTaken(db, app.workspaceId, String(app.spec.slug), appId, { activeOnly: true }),
   })
@@ -247,14 +255,6 @@ export function activateApp(db, appId, hooks = {}) {
   return { kind: 'ok', data: { status: 'active', applied } }
 }
 
-export function archiveApp(db, appId) {
-  const now = isoNow()
-  const result = db.prepare(`
-    UPDATE business_apps SET status = 'archived', updated_at = ? WHERE id = ?
-  `).run(now, appId)
-  return result.changes > 0
-}
-
 function dropAppEntityTables(db, spec) {
   const dropped = []
   const entities = Array.isArray(spec?.entities) ? spec.entities : []
@@ -272,35 +272,70 @@ function deleteAppMetadata(db, appId) {
   db.prepare('DELETE FROM business_apps WHERE id = ?').run(appId)
 }
 
-export function discardDraftApp(db, appId, hooks = {}) {
+export function trashApp(db, appId, hooks = {}) {
   const app = getAppById(db, appId)
   if (!app) return { kind: 'not_found' }
-  if (app.status !== 'draft') return { kind: 'not_draft' }
+  if (appIsTrashed(app)) return { kind: 'ok', data: { deletedAt: app.deletedAt } }
+  const now = isoNow()
   const correlationId = hooks.correlationId ?? createId('corr')
   db.exec('BEGIN IMMEDIATE;')
   try {
-    deleteAppMetadata(db, appId)
+    db.prepare(`
+      UPDATE business_apps SET deleted_at = ?, updated_at = ? WHERE id = ?
+    `).run(now, now, appId)
     appendAudit(db, {
       workspaceId: app.workspaceId,
       actorId: hooks.actorId ?? 'actor_local_user',
-      action: 'app.spec.discard',
+      action: 'app.trashed',
       targetRef: `fde://workstation/app/${appId}`,
       outcome: 'succeeded',
       correlationId,
-      details: { name: app.name, status: 'draft' },
+      details: { name: app.name, status: app.status },
     })
     db.exec('COMMIT;')
   } catch (error) {
     db.exec('ROLLBACK;')
     throw error
   }
-  return { kind: 'ok' }
+  return { kind: 'ok', data: { deletedAt: now } }
+}
+
+export function restoreApp(db, appId, hooks = {}) {
+  const app = getAppById(db, appId)
+  if (!app) return { kind: 'not_found' }
+  if (!appIsTrashed(app)) return { kind: 'not_trashed' }
+  const slug = String((app.spec && app.spec.slug) || app.slug || '')
+  if (slug && isSlugTaken(db, app.workspaceId, slug, appId)) {
+    return { kind: 'slug_taken' }
+  }
+  const now = isoNow()
+  const correlationId = hooks.correlationId ?? createId('corr')
+  db.exec('BEGIN IMMEDIATE;')
+  try {
+    db.prepare(`
+      UPDATE business_apps SET deleted_at = NULL, updated_at = ? WHERE id = ?
+    `).run(now, appId)
+    appendAudit(db, {
+      workspaceId: app.workspaceId,
+      actorId: hooks.actorId ?? 'actor_local_user',
+      action: 'app.restored',
+      targetRef: `fde://workstation/app/${appId}`,
+      outcome: 'succeeded',
+      correlationId,
+      details: { name: app.name, status: app.status },
+    })
+    db.exec('COMMIT;')
+  } catch (error) {
+    db.exec('ROLLBACK;')
+    throw error
+  }
+  return { kind: 'ok', data: { status: app.status } }
 }
 
 export function purgeApp(db, appId, hooks = {}) {
   const app = getAppById(db, appId)
   if (!app) return { kind: 'not_found' }
-  if (app.status === 'draft') return { kind: 'use_discard' }
+  if (!appIsTrashed(app)) return { kind: 'not_trashed' }
   const correlationId = hooks.correlationId ?? createId('corr')
   db.exec('BEGIN IMMEDIATE;')
   try {
@@ -309,7 +344,7 @@ export function purgeApp(db, appId, hooks = {}) {
     appendAudit(db, {
       workspaceId: app.workspaceId,
       actorId: hooks.actorId ?? 'actor_local_user',
-      action: 'app.purge',
+      action: 'app.purged',
       targetRef: `fde://workstation/app/${appId}`,
       outcome: 'succeeded',
       correlationId,
@@ -324,6 +359,8 @@ export function purgeApp(db, appId, hooks = {}) {
 }
 
 export function rollbackApp(db, appId, revision) {
+  const app = getAppById(db, appId)
+  if (!app || appIsTrashed(app)) return null
   const row = db.prepare(`
     SELECT definition_json FROM business_app_revisions WHERE app_id = ? AND revision = ?
   `).get(appId, revision)
@@ -345,21 +382,10 @@ export function rollbackApp(db, appId, revision) {
 export function findActiveAppBySlug(db, workspaceId, slug, workspaceCwd) {
   const cwd = String(workspaceCwd || '').trim()
   const rows = db.prepare(`
-    SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json, created_at, updated_at
+    SELECT ${APP_COLUMNS}
     FROM business_apps
-    WHERE status = 'active'
-  `).all().map((row) => ({
-    id: row.id,
-    workspaceId: row.workspace_id,
-    name: row.name,
-    appKind: row.app_kind,
-    status: row.status,
-    currentRevision: row.current_revision,
-    slug: safeSlug(JSON.parse(row.definition_json)),
-    spec: JSON.parse(row.definition_json),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  })).filter((row) => row.slug === slug)
+    WHERE status = 'active' AND ${LIVE_APP}
+  `).all().map(mapApp).filter((row) => row.slug === slug)
   if (cwd) {
     const byCwd = rows.find((row) => row.spec && row.spec._workspaceCwd === cwd)
     if (byCwd) return byCwd

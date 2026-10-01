@@ -208,7 +208,9 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                           appId={appId}
                           uses={actionUses}
                           title={title || app.spec.name}
+                          blurb={blurb}
                           rowId={String(row.id)}
+                          entity={view.entity}
                         />
                       ) : null}
                     </div>

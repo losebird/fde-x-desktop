@@ -8,7 +8,7 @@ import { SpecStat } from '@/components/apps/SpecStat'
 import { SpecTable } from '@/components/apps/SpecTable'
 import { SpecForm } from '@/components/apps/SpecForm'
 import { SpecEditor } from '@/components/apps/SpecEditor'
-import { hasProductPages, isCurrentRevisionPending, isFdeAppSpec, mockRowsForEntity, type FdeAppDetail } from '@/lib/app-spec'
+import { appIsTrashed, hasProductPages, isCurrentRevisionPending, isFdeAppSpec, mockRowsForEntity, type FdeAppDetail } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
@@ -37,9 +37,10 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
   const [reviseDescription, setReviseDescription] = useState('')
   const [reviseGenerating, setReviseGenerating] = useState(false)
   const [reviseError, setReviseError] = useState('')
-  const previewRows = app.status !== 'active' ? mockRows(spec) : undefined
+  const trashed = appIsTrashed(app)
+  const previewRows = app.status !== 'active' || trashed ? mockRows(spec) : undefined
   const current = views.find((v) => (v.id || v.type) === viewId) || views[0]
-  const live = app.status === 'active'
+  const live = app.status === 'active' && !trashed
   const pendingMaterialize = isCurrentRevisionPending(app)
   const product = hasProductPages(spec)
   const daily = variant === 'workspace' && product
@@ -58,13 +59,12 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
     }
   }
 
-  const archive = async () => {
+  const requestDelete = () => {
     if (onRequestDelete) {
       onRequestDelete()
       return
     }
-    await runtimeApi.archiveDeclarativeApp(app.id)
-    onChanged()
+    void runtimeApi.trashDeclarativeApp(app.id).then(onChanged)
   }
 
   const submitRevisePrompt = async () => {
@@ -142,15 +142,15 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
 
   const builderControls = (
     <div className="flex flex-wrap gap-2">
-      {pendingMaterialize && (
+      {pendingMaterialize && !trashed && (
         <button type="button" className="btn-brand h-7" onClick={() => void activate()}>
           {app.status === 'draft' ? '采纳并激活' : '激活本次修订'}
         </button>
       )}
-      {app.status === 'draft' && onRequestDelete && (
+      {app.status === 'draft' && !trashed && onRequestDelete && (
         <button type="button" className="btn h-7" onClick={onRequestDelete}>删除草稿</button>
       )}
-      {variant !== 'dialog' && (
+      {variant !== 'dialog' && !trashed && (
         <select
           className="input h-7 text-xs"
           defaultValue=""
@@ -166,8 +166,8 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
           ))}
         </select>
       )}
-      {app.status === 'active' && (
-        <button type="button" className="btn h-7" onClick={() => void archive()}>删除</button>
+      {app.status === 'active' && !trashed && (
+        <button type="button" className="btn h-7" onClick={() => requestDelete()}>删除</button>
       )}
     </div>
   )
@@ -266,9 +266,6 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
             workspaceCwd={workspaceCwd}
             onRefresh={onChanged}
           />
-          {app.status === 'archived' && (
-            <div className="text-xs text-ink-muted mt-2">已归档，只读。</div>
-          )}
         </div>
       ) : (
       <div className="px-4 py-3">
@@ -302,9 +299,6 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
               onDone={onChanged}
             />
           </div>
-        )}
-        {app.status === 'archived' && (
-          <div className="text-xs text-ink-muted mt-2">已归档，只读。</div>
         )}
       </div>
       )}

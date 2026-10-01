@@ -172,6 +172,11 @@ export interface IMHandoffPackage {
     sessionId: string
     title: string
     files: Array<{ name: string; size?: number; data: string }>
+    members?: Array<{
+      sessionId: string
+      dir?: string
+      files: Array<{ name: string; size?: number; data: string }>
+    }>
   }>
   /** 交接包 sessions 正在从 imAttach 懒加载 */
   sessionsLoading?: boolean

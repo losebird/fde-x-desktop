@@ -12,7 +12,7 @@ import { namesOf } from './dock.js'
 import { consumeDraftsOnSend, dropReplyDraft } from './draft-state.js'
 import { rememberMail } from './mail-proj.js'
 import { letterIds, requestIdOf } from './conversation.js'
-import { homeForIncoming, homeForOutgoing, normalizeCwd } from './letter-home.js'
+import { homeForIncoming, homeForOutgoing, normalizeCwd, placeEmptyHomes } from './letter-home.js'
 import {
   applyPeerResult,
   clearPendingWait,
@@ -138,6 +138,7 @@ export function createMailbox(bag) {
         threadId: thread,
       }
       if (thread && s.requests[thread]) s.requests[thread].updatedAt = now()
+      if (cwd) placeEmptyHomes(s.requests, [id], cwd, now())
     })
     if (cwd) {
       const live = await store.get()
@@ -385,12 +386,18 @@ export function createMailbox(bag) {
         const ref = (inner.ref && inner.ref.no)
           ? { kind: inner.ref.kind || '单据', no: String(inner.ref.no) }
           : parseBusinessRef(excerpt, [])
+        const cwd = homeForIncoming(state, {
+          ...inner,
+          from: peer.id,
+          to: [state.self.id],
+          id,
+        })
         state.requests[id] = {
           id,
           kind: 'incoming',
           status: 'open',
           sessionId: '',
-          workspace: homeForIncoming(state, inner),
+          workspace: cwd,
           ref,
           excerpt,
           body,
@@ -415,6 +422,7 @@ export function createMailbox(bag) {
           createdAt: now(),
           updatedAt: now(),
         }
+        if (cwd) placeEmptyHomes(state.requests, [id], cwd, now())
         note(state, `收下信封 · ${id} · ${peer.displayName || peer.id}`)
         inner.threadId && state.requests[inner.threadId] && (state.requests[inner.threadId].updatedAt = now())
         inner.groupId && inner.groupName && upsertGroup(state, inner, peer, now, 'roster')

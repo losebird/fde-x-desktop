@@ -8,6 +8,8 @@ import {
   localCwdSet,
   mailOnLane,
   normalizeCwd,
+  placeEmptyHomes,
+  talkHomes,
   talkKey,
   talkMemberIds,
   unreadByHome,
@@ -149,14 +151,77 @@ describe('im letter home', () => {
     assert.equal(homeForOutgoing(state, { threadId: 'req_root', workspace: b, groupId: 'g_1' }), a)
   })
 
-  test('outgoing follow-up of an unassigned root stays unassigned', () => {
+  test('outgoing follow-up of an unassigned root stamps send cwd', () => {
     const state = {
       self: { id: self },
       requests: {
         req_root: { id: 'req_root', workspace: '', topic: true, groupId: 'g_1' },
       },
     }
+    assert.equal(homeForOutgoing(state, { threadId: 'req_root', workspace: a, groupId: 'g_1' }), a)
+  })
+
+  test('empty is not a unique home so a reply stamps send cwd', () => {
+    const state = {
+      self: { id: self },
+      requests: {
+        req_in: { id: 'req_in', from: peer, to: [self], workspace: '' },
+      },
+    }
+    assert.deepEqual([...talkHomes(state.requests, dmTalkId(self, peer))], [])
+    assert.equal(homeForOutgoing(state, { to: [peer], workspace: a }), a)
+    assert.equal(homeForIncoming(state, { from: peer, to: [self], workspace: '/Users/other/proj' }), '')
+  })
+
+  test('incoming DM inherits the unique local talk home', () => {
+    const state = {
+      self: { id: self },
+      requests: {
+        req_1: { id: 'req_1', from: self, to: [peer], workspace: a },
+      },
+    }
+    assert.equal(homeForIncoming(state, { from: peer, to: [self], workspace: '/Users/other/proj' }), a)
+  })
+
+  test('topic follow-up with two homes stays unassigned', () => {
+    const state = {
+      self: { id: self },
+      requests: {
+        req_root: { id: 'req_root', workspace: '', topic: true, groupId: 'g_1' },
+        req_a: { id: 'req_a', workspace: a, groupId: 'g_1', threadId: 'req_root' },
+        req_b: { id: 'req_b', workspace: b, groupId: 'g_1', threadId: 'req_root' },
+      },
+    }
     assert.equal(homeForOutgoing(state, { threadId: 'req_root', workspace: a, groupId: 'g_1' }), '')
+    assert.equal(homeForIncoming(state, { threadId: 'req_root', groupId: 'g_1', workspace: '/Users/other/proj' }), '')
+  })
+
+  test('two local homes keep incoming and outgoing unassigned', () => {
+    const state = {
+      self: { id: self },
+      requests: {
+        req_a: { id: 'req_a', from: self, to: [peer], workspace: a },
+        req_b: { id: 'req_b', from: self, to: [peer], workspace: b },
+      },
+    }
+    assert.equal(homeForIncoming(state, { from: peer, to: [self], workspace: '/Users/other/proj' }), '')
+    assert.equal(homeForOutgoing(state, { to: [peer], workspace: a }), '')
+  })
+
+  test('placeEmptyHomes fills empty talk members and leaves other talks', () => {
+    const rows = {
+      req_root: { id: 'req_root', topic: true, groupId: 'g_1', threadId: '', workspace: '' },
+      req_follow: { id: 'req_follow', groupId: 'g_1', threadId: 'req_root', workspace: '' },
+      req_kept: { id: 'req_kept', groupId: 'g_1', threadId: 'req_root', workspace: b },
+      req_other: { id: 'req_other', topic: true, groupId: 'g_1', threadId: '', workspace: '' },
+    }
+    const placed = placeEmptyHomes(rows, ['req_follow'], a, 9)
+    assert.deepEqual(new Set(placed), new Set(['req_root', 'req_follow']))
+    assert.equal(rows.req_root.workspace, a)
+    assert.equal(rows.req_follow.workspace, a)
+    assert.equal(rows.req_follow.updatedAt, 9)
+    assert.equal(rows.req_kept.workspace, b)
+    assert.equal(rows.req_other.workspace, '')
   })
 
   test('new topic stamps send-time cwd', () => {

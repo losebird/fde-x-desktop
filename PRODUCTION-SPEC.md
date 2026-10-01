@@ -502,8 +502,8 @@ node runtime/smoke.mjs
 
 | 缺口 | 接法 |
 |---|---|
-| 记忆页不能「问这条」 | 摘录按钮：`promptAi(current, 摘录+出处 id)` 并打开 AI |
-| 命中 `session:…` 不能跳会话 | 解析 id → `nav(/ai/:sessionId)` + `tellDsh('select')` |
+| 记忆页不能「问这条」 | 壳读 corpus/屏幕行，拼 【来源实体】 后 `promptAi(current)` 并打开 AI |
+| 命中 `session:…` 不能跳会话 | `openRef({ panel: 'ai', sessionId })` → `fde-x-ai-open` |
 | ⌘K 不搜记忆 | 有 query 时 `searchMemory`，点开记忆或问 AI |
 | 早报保存到记忆与那场 `promptAi` 无关联 | 同一 `sessionId` 写入卡片 label |
 

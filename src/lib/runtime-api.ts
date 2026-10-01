@@ -1,6 +1,33 @@
 import type { JsonValue, OperationIntent, OperationRecord } from './contracts'
 import type { Task, PlanEvent, Workflow, ScheduleEvent } from './types'
 import { useApp } from '@/store/app'
+import {
+  sessionCreateBody,
+  sessionRestoreBody,
+  type SessionCreateInput,
+  type SessionRestoreInput,
+} from '@/lib/session-bind'
+
+export type SearchHit = {
+  kind: string
+  id: string
+  title: string
+  hint?: string
+  href: {
+    panel?: string
+    pane?: string
+    tab?: string
+    path?: string
+    taskId?: string
+    requestId?: string
+    peerId?: string
+    groupId?: string
+    sessionId?: string
+    agentId?: string
+    cardId?: string
+    originId?: string
+  }
+}
 
 function currentWorkspaceCwd(): string {
   const state = useApp.getState()
@@ -243,6 +270,20 @@ export interface AiSessionCreateResult {
   agentPreset?: string
 }
 
+export type AiSessionDiskFile = { name: string; size?: number; data: string }
+
+export type AiSessionTreeMember = {
+  sessionId: string
+  dir?: string
+  files: AiSessionDiskFile[]
+}
+
+export type AiSessionTree = {
+  sessionId: string
+  files: AiSessionDiskFile[]
+  members?: AiSessionTreeMember[]
+}
+
 export interface AiStreamMessage {
   id: string
   seq: number
@@ -320,6 +361,24 @@ export interface BizConnectionWithHealth extends BusinessConnectionRecord {
   catalogVersion?: unknown
 }
 
+export interface BizVocabKind {
+  kind: string
+  label: string
+  fields: JsonValue[]
+  can?: string[]
+  relations?: JsonValue[]
+  resource?: string
+  catalogVersion?: string
+  aliases?: string[]
+}
+
+export interface BizVocabSheet {
+  kinds: BizVocabKind[]
+  relations: JsonValue[]
+  catalogVersion: unknown
+  aliases?: Record<string, string>
+}
+
 export interface BizSurfaceRecord {
   id: string
   workspaceCwd: string
@@ -343,6 +402,7 @@ export interface BusinessAppRecord {
   definition: JsonValue
   createdAt: string
   updatedAt: string
+  deletedAt?: string
 }
 
 export interface OperationTrace {
@@ -1189,34 +1249,35 @@ export class RuntimeApi {
     return result.data.items
   }
 
-  async exportAiSession(sessionId: string, signal?: AbortSignal): Promise<{ sessionId: string; files: Array<{ name: string; size?: number; data: string }> }> {
-    const result = await this.request<{ data: { sessionId: string; files: Array<{ name: string; size?: number; data: string }> } }>(
+  async exportAiSession(sessionId: string, signal?: AbortSignal): Promise<AiSessionTree> {
+    const result = await this.request<{ data: AiSessionTree }>(
       `/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/export`,
       { signal },
     )
     return result.data
   }
 
-  async restoreAiSessions(input: {
-    workspaceId?: string
-    cwd?: string
-    sessions: Array<{ title?: string; files: Array<{ name: string; size?: number; data: string }> }>
-  }, signal?: AbortSignal): Promise<{ sessions: Array<{ sessionId: string; title: string }>; warnings?: string[] }> {
+  async restoreAiSessions(input: SessionRestoreInput<Array<{
+    sessionId?: string
+    title?: string
+    files: AiSessionDiskFile[]
+    members?: AiSessionTreeMember[]
+  }>>, signal?: AbortSignal): Promise<{ sessions: Array<{ sessionId: string; title: string }>; warnings?: string[] }> {
     const result = await this.request<{ data: { sessions: Array<{ sessionId: string; title: string }>; warnings?: string[] } }>('/api/v1/ai/sessions/restore', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify(sessionRestoreBody(input)),
     })
     return result.data
   }
 
-  async createAiSession(input: { workspaceId?: string; cwd?: string; sessionId?: string; agentPreset?: string } = {}, signal?: AbortSignal): Promise<AiSessionCreateResult> {
+  async createAiSession(input: SessionCreateInput, signal?: AbortSignal): Promise<AiSessionCreateResult> {
     const result = await this.request<{ data: AiSessionCreateResult }>('/api/v1/ai/sessions', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify(sessionCreateBody(input)),
     })
     return result.data
   }
@@ -1445,8 +1506,28 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listMemoryCards(signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd('/api/v1/memory/cards'), { signal })
+  async listMemoryCards(includeFiled = false, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const path = includeFiled ? '/api/v1/memory/cards?include_filed=true' : '/api/v1/memory/cards'
+    const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd(path), { signal })
+    return result.data
+  }
+
+  async memoryHealth(input: { offset?: number; dup_offset?: number } = {}, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams()
+    if (Number(input.offset || 0) > 0) params.set('offset', String(Number(input.offset)))
+    if (Number(input.dup_offset || 0) > 0) params.set('dup_offset', String(Number(input.dup_offset)))
+    const suffix = params.size ? `?${params.toString()}` : ''
+    const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd(`/api/v1/memory/health${suffix}`), { signal })
+    return result.data
+  }
+
+  async memoryHealthAct(body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/memory/health/act', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(workspaceCwdBody({ ...body, nodded: true })),
+    })
     return result.data
   }
 
@@ -1491,12 +1572,12 @@ export class RuntimeApi {
     return result.data
   }
 
-  async draftMemoryCard(label: string, cause: 'correction' | 'choice' = 'correction', signal?: AbortSignal): Promise<MemoryDraftCard> {
+  async draftMemoryCard(label: string, cause: 'correction' | 'choice' = 'correction', origin?: string, signal?: AbortSignal): Promise<MemoryDraftCard> {
     const result = await this.request<{ data: MemoryDraftCard }>(withWorkspaceCwd('/api/v1/memory/cards'), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(workspaceCwdBody({ label, cause })),
+      body: JSON.stringify(workspaceCwdBody({ label, cause, ...(origin ? { origin } : {}) })),
     })
     return result.data
   }
@@ -1513,6 +1594,17 @@ export class RuntimeApi {
 
   async searchMemory(query: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd(`/api/v1/memory/search?q=${encodeURIComponent(query)}`), { signal })
+    return result.data
+  }
+
+  async search(query = '', signal?: AbortSignal): Promise<{ cwd: string; query: string; hits: SearchHit[] }> {
+    const params = new URLSearchParams()
+    if (query) params.set('q', query)
+    const suffix = params.size ? `?${params.toString()}` : ''
+    const result = await this.request<{ data: { cwd: string; query: string; hits: SearchHit[] } }>(
+      withWorkspaceCwd(`/api/v1/search${suffix}`),
+      { signal },
+    )
     return result.data
   }
 
@@ -1533,9 +1625,8 @@ export class RuntimeApi {
     return { pack: result.data, warnings: result.warnings ?? [] }
   }
 
-  async fetchCorpus(id: string, signal?: AbortSignal): Promise<{ ok: boolean; id: string; title?: string; text?: string; message?: string; href?: Record<string, unknown> }> {
-    const safeId = String(id || '').replace(/[^A-Za-z0-9:_-]/g, '')
-    const path = withWorkspaceCwd(`/api/v1/corpus/${safeId}`)
+  async fetchCorpus(id: string, signal?: AbortSignal): Promise<{ ok: boolean; id: string; title?: string; text?: string; message?: string; href?: Record<string, unknown>; status?: string; origin?: string }> {
+    const path = withWorkspaceCwd(`/api/v1/corpus/${encodeURIComponent(String(id || ''))}`)
     let response: Response
     try {
       response = await fetch(this.uiFetchUrl(path), { signal })
@@ -1549,6 +1640,8 @@ export class RuntimeApi {
       text?: string
       message?: string
       href?: Record<string, unknown>
+      status?: string
+      origin?: string
       error?: { code?: string; message?: string } | string
       correlationId?: string
     }
@@ -1568,6 +1661,8 @@ export class RuntimeApi {
       text: payload.text,
       message: payload.message,
       href: payload.href,
+      status: payload.status,
+      origin: payload.origin,
     }
   }
 
@@ -1577,7 +1672,7 @@ export class RuntimeApi {
     return result.data
   }
 
-  async imCopyAttach(body: { requestId: string; index: number; workspace?: string }, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  async imCopyAttach(body: { requestId: string; index?: number; workspace?: string; path?: string; dests?: string[] }, signal?: AbortSignal): Promise<Record<string, unknown>> {
     return this.lanAssist('/attach/copy', { method: 'POST', signal, body })
   }
 
@@ -1898,12 +1993,18 @@ export class RuntimeApi {
     )
   }
 
-  async archiveDeclarativeApp(appId: string, signal?: AbortSignal) {
-    return this.request<{ ok: boolean }>(`/api/v1/apps/${encodeURIComponent(appId)}/archive`, { method: 'POST', signal })
+  async trashDeclarativeApp(appId: string, signal?: AbortSignal) {
+    return this.request<{ ok: boolean; data?: { deletedAt?: string } }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}`,
+      { method: 'DELETE', signal },
+    )
   }
 
-  async discardDeclarativeApp(appId: string, signal?: AbortSignal) {
-    return this.request<{ ok: boolean }>(`/api/v1/apps/${encodeURIComponent(appId)}`, { method: 'DELETE', signal })
+  async restoreDeclarativeApp(appId: string, signal?: AbortSignal) {
+    return this.request<{ ok: boolean; data?: { status?: string } }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}/restore`,
+      { method: 'POST', signal },
+    )
   }
 
   async purgeDeclarativeApp(appId: string, signal?: AbortSignal) {
@@ -2113,12 +2214,12 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listBizKinds(signal?: AbortSignal, workspaceCwd?: string): Promise<{ kinds: { kind: string; label: string; fields: JsonValue[]; can?: string[]; relations?: JsonValue[]; resource?: string; catalogVersion?: string; aliases?: string[] }[]; relations: JsonValue[]; catalogVersion: unknown; aliases?: Record<string, string> }> {
+  async listBizKinds(signal?: AbortSignal, workspaceCwd?: string): Promise<BizVocabSheet> {
     const cwd = workspaceCwd?.trim().startsWith('/') ? workspaceCwd.trim() : currentWorkspaceCwd()
     const path = cwd
       ? `/api/v1/biz/kinds?cwd=${encodeURIComponent(cwd)}`
       : withWorkspaceCwd('/api/v1/biz/kinds')
-    const result = await this.request<{ data: { kinds: { kind: string; label: string; fields: JsonValue[]; can?: string[]; relations?: JsonValue[] }[]; relations: JsonValue[]; catalogVersion: unknown } }>(path, { signal })
+    const result = await this.request<{ data: BizVocabSheet }>(path, { signal })
     return result.data
   }
 
@@ -2162,6 +2263,14 @@ export class RuntimeApi {
   async listBizTraces(limit = 50, signal?: AbortSignal): Promise<{ rows: JsonValue[]; receipt: unknown }> {
     const result = await this.request<{ data: { rows: JsonValue[]; receipt: unknown } }>(withWorkspaceCwd(`/api/v1/biz/traces?limit=${limit}`), { signal })
     return result.data
+  }
+
+  async getBizTrace(traceId: string, signal?: AbortSignal): Promise<JsonValue | null> {
+    const id = String(traceId || '').trim()
+    if (!id) return null
+    const q = new URLSearchParams({ id })
+    const result = await this.request<{ data: { row?: JsonValue } }>(withWorkspaceCwd(`/api/v1/biz/traces?${q}`), { signal })
+    return result.data?.row ?? null
   }
 
   async executeOperation(operationId: string, signal?: AbortSignal): Promise<RuntimeOperation> {

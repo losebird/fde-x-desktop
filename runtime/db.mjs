@@ -318,7 +318,7 @@ export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd
   const rows = cwd
     ? db.prepare(`
         SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
-               created_by, created_at, updated_at
+               created_by, created_at, updated_at, deleted_at
         FROM business_apps
         WHERE workspace_id = ?
            OR json_extract(definition_json, '$._workspaceCwd') = ?
@@ -326,7 +326,7 @@ export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd
       `).all(workspaceId, cwd)
     : db.prepare(`
         SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
-               created_by, created_at, updated_at
+               created_by, created_at, updated_at, deleted_at
         FROM business_apps
         WHERE workspace_id = ?
         ORDER BY updated_at DESC
@@ -346,6 +346,7 @@ export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd
       createdBy: row.created_by,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      deletedAt: String(row.deleted_at || '').trim(),
     }]
   })
 }
@@ -396,10 +397,11 @@ export function createBusinessApp(db, input) {
 
 export function updateBusinessApp(db, id, input) {
   const existing = db.prepare(`
-    SELECT id, workspace_id, name, current_revision, definition_json
+    SELECT id, workspace_id, name, current_revision, definition_json, deleted_at
     FROM business_apps WHERE id = ?
   `).get(id)
   if (!existing) return null
+  if (String(existing.deleted_at || '').trim()) return null
   const definition = input.definition && typeof input.definition === 'object' ? input.definition : JSON.parse(existing.definition_json)
   const name = typeof input.name === 'string' && input.name.trim() ? input.name.trim() : existing.name
   const nextRevision = Number(existing.current_revision || 1) + 1

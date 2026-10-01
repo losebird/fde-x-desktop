@@ -130,12 +130,14 @@
 
 | 路由 | 说明 |
 |---|---|
-| `GET /api/v1/apps?workspace` | 列表（含 status、slug、revision） |
+| `GET /api/v1/apps?workspace` | 列表（含 status、slug、revision、deletedAt） |
 | `POST /api/v1/apps` | `{ workspaceCwd, spec }` → 校验 → 存 `draft`；返回 `{ ok, data:{ appId, revision }, errors?: [{ path, message }] }`（422 时 errors 非空） |
-| `GET /api/v1/apps/:id` | 含 spec、revisions 摘要 |
-| `PUT /api/v1/apps/:id/spec` | 新 spec → 校验 → 若 `active` 则做 breaking 检查 → 新 revision（不物化）|
-| `POST /api/v1/apps/:id/activate` | 物化当前 revision → `status='active'` → `emit('app.activated')`；409 `slug_taken`、422 校验 |
-| `POST /api/v1/apps/:id/archive` | `status='archived'`（表保留） |
+| `GET /api/v1/apps/:id` | 含 spec、revisions 摘要、deletedAt |
+| `PUT /api/v1/apps/:id/spec` | 新 spec → 校验 → 若 `active` 则做 breaking 检查 → 新 revision（不物化）；409 `trashed` |
+| `POST /api/v1/apps/:id/activate` | 物化当前 revision → `status='active'` → `emit('app.activated')`；409 `trashed`、422 校验 |
+| `DELETE /api/v1/apps/:id` | 进已删除（写 `deleted_at`，status 不变） |
+| `POST /api/v1/apps/:id/restore` | 从已删除恢复；409 `not_trashed` / `slug_taken` |
+| `POST /api/v1/apps/:id/purge` | 仅已删除可彻底删除（丢表+元数据）；409 `not_trashed` |
 | `POST /api/v1/apps/:id/rollback` | `{ revision }` |
 | `GET /api/v1/apps/:slug/:entity?workspace&filter=<json>&sort=&page=&size=` | 行列表 `{ rows, columns, total }`；`ref: biz:*` 字段附 `display` 快照 |
 | `GET /api/v1/apps/:slug/:entity/:rid` | 单行 |
@@ -161,7 +163,7 @@
 
 | 组件 | props | 说明 |
 |---|---|---|
-| `AppRuntime` | `{ app }` | 顶部视图切换（views 标签，复用现有 Tab 样式）+ 渲染当前视图；右上「编辑 spec」「版本」「归档」 |
+| `AppRuntime` | `{ app }` | 顶部视图切换（views 标签，复用现有 Tab 样式）+ 渲染当前视图；右上「编辑 spec」「版本」「删除」 |
 | `SpecTable` | `{ app, view }` | 列 = `view.columns`（默认全部）；筛选 = `view.filters`（enum 下拉、text 搜索、date 范围）；排序；分页 20；行选中；行内动作菜单（来自 `actions`）；`ref:biz` 显示快照 + 「现查」小按钮 |
 | `SpecForm` | `{ app, entity, rid? , onDone }` | 按字段类型渲染控件（text/longtext/number/bool/date/datetime/enum/ref 选择器/json 文本）；required 校验；提交 POST/PATCH；错误 422 逐字段显示 |
 | `SpecDetail` | `{ app, entity, rid }` | 只读字段 + 动作按钮 + 「编辑」切 form |
@@ -170,7 +172,7 @@
 | `AppCreateWizard` | `{ onCreated }` | 步骤：① 描述需求（textarea）+ 选 preset（默认 `fde-app-builder`）+ 可选勾外部型（`biz_describe` 列表）② 生成中（左栏出现新会话）③ 预览（`AppRuntime` 用 3 行假数据渲染 draft）+ 校验错误列表 ④「采纳并激活」/「让 AI 改」（把错误或用户修改意见再发同会话） |
 | `SpecEditor` | `{ app }` | 现有 `AppDraftEditor` 改造：JSON 编辑 + 校验结果 + 「保存为新修订」 |
 
-放置：业务应用「应用」Tab 选中 `active` 应用 → `AppRuntime`；`draft` → 预览 + 激活按钮；`archived` → 只读。所有样式复用现有 token 与 className。
+放置：业务应用「应用」Tab 选中在用的 `active` 应用 → `AppRuntime`；在用的 `draft` → 预览 + 激活按钮；`deletedAt` 有值 → 目录「已删除」里恢复或彻底删除，不打开工作面。所有样式复用现有 token 与 className。
 
 Builder 流程（前端）：
 

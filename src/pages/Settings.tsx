@@ -187,14 +187,6 @@ export default function Settings() {
                 <Toggle label="MCP 连接异常时推送" hint="MCP 状态变更时通知" value={false} onChange={() => {}} />
                 <Toggle label="静音时不接收任何 IM" hint="连任务提醒也会停" value={false} onChange={() => {}} />
               </Card>
-              <Card>
-                <div className="text-base font-medium mb-3">通知白名单</div>
-                <ul className="text-sm space-y-2">
-                  <li className="flex items-center justify-between"><span>合同 / 法务提醒</span><Tag kind="red">高优</Tag></li>
-                  <li className="flex items-center justify-between"><span>客户经理(阿宁 / 小航)</span><Tag kind="blue">所有人</Tag></li>
-                  <li className="flex items-center justify-between"><span>业务数据异常</span><Tag kind="amber">关键</Tag></li>
-                </ul>
-              </Card>
             </>
           )}
 

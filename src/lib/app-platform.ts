@@ -74,7 +74,7 @@ export function isBizPreviewStep(data: unknown): data is { step: 'preview'; inte
 }
 
 function firstPeerId(mailbox: Record<string, unknown>): string {
-  const bags = [mailbox.catalog, mailbox.conversations, mailbox.requests, mailbox.peers]
+  const bags = [mailbox.conversations, mailbox.requests, mailbox.peers]
   for (const bag of bags) {
     if (!Array.isArray(bag) || !bag.length) continue
     const row = bag[0]
@@ -188,7 +188,7 @@ export async function runDeclaredPlatformUse(
   use: FdePlatformUse,
   spec: FdeAppSpec,
   appId?: string,
-  context?: { title?: string; rowId?: string },
+  context?: { title?: string; rowId?: string; entity?: string; blurb?: string },
 ): Promise<DeclaredPlatformUseResult> {
   const state = useApp.getState()
   if (use === 'ai') {
@@ -228,10 +228,14 @@ export async function runDeclaredPlatformUse(
     return '已打开文件模块，应用只留引用'
   }
   if (use === 'memory') {
-    const card = await runtimeApi.draftMemoryCard(
-      `${spec.name}\n${spec.description || ''}\n应用动作只起草卡片，等人点头才入档。`,
-      'choice',
-    )
+    const slug = String(spec.slug || '').trim()
+    const entity = String(context?.entity || '').trim()
+    const rowId = String(context?.rowId || '').trim()
+    if (!slug || !entity || !rowId) throw new Error('没有可起草的条目')
+    const origin = `app:${slug}:${entity}:${rowId}`
+    const label = [context?.title, context?.blurb].filter((part) => String(part || '').trim()).join('\n')
+    if (!label.trim()) throw new Error('没有可起草的条目')
+    const card = await runtimeApi.draftMemoryCard(label, 'choice', origin)
     return card
   }
   if (use === 'im') {
@@ -266,7 +270,8 @@ export async function runDeclaredPlatformUse(
 export function openFilesAtPath(path: string, source?: { cwd?: string }) {
   const workspace = loadCurrentWorkspaceCwd()
   if (!workspace.ok) return false
-  if (source && Object.prototype.hasOwnProperty.call(source, 'cwd') && !sameWorkspaceCwd(source.cwd || '', workspace.cwd)) {
+  const sourceCwd = source && typeof source.cwd === 'string' ? source.cwd.trim() : ''
+  if (sourceCwd && !sameWorkspaceCwd(sourceCwd, workspace.cwd)) {
     return false
   }
   const relative = workspaceRelativePath(path, workspace.cwd)

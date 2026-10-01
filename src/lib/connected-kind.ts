@@ -16,6 +16,38 @@ export type ConnectedKindIndex = {
   aliases: Record<string, string>
 }
 
+export function kindRowsFromVocab(vocab: {
+  kinds?: Array<{
+    kind: string
+    label?: string
+    can?: unknown[]
+    resource?: string
+    catalogVersion?: string
+    aliases?: string[]
+  }>
+  aliases?: Record<string, string>
+} | null | undefined): ConnectedKindRow[] {
+  if (!vocab || !Array.isArray(vocab.kinds)) return []
+  const aliasBag = vocab.aliases && typeof vocab.aliases === 'object' ? vocab.aliases : {}
+  return vocab.kinds.map((row) => {
+    const kind = String(row.kind || '').trim()
+    return {
+      kind,
+      label: String(row.label || kind),
+      can: Array.isArray(row.can) ? row.can.map(String) : [],
+      resource: typeof row.resource === 'string' ? row.resource : undefined,
+      catalogVersion: typeof row.catalogVersion === 'string' ? row.catalogVersion : undefined,
+      aliases: [...new Set([
+        ...(Array.isArray(row.aliases) ? row.aliases.map(String) : []),
+        ...Object.entries(aliasBag)
+          .filter(([, canonical]) => canonical === kind)
+          .map(([spoken]) => spoken)
+          .filter((spoken) => spoken !== kind),
+      ])],
+    }
+  }).filter((row) => row.kind)
+}
+
 function kindName(row: ConnectedKindRow | Record<string, unknown> | null | undefined): string {
   if (!row || typeof row !== 'object') return ''
   return String((row as ConnectedKindRow).kind || (row as { label?: string }).label || '').trim()

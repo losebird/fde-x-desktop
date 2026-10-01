@@ -18,7 +18,8 @@ import { createNatsTransport, relayCredsPath, relayUrl, setRelayStore } from './
 import { installUserAutostart, removeUserAutostart, startListenDaemon, stopListenDaemon } from './listen.js'
 import { importPeer } from './peers.js'
 import { createSecretary } from './secretary.js'
-import { normalizeCwd, talkMemberIds } from './letter-home.js'
+import { copyLetterAttach } from './copy-attach.js'
+import { normalizeCwd, placeEmptyHomes } from './letter-home.js'
 import { createSemanticBridge, cwdFromWorkspaceStore, extractUserSpeech, looksLikeChoice, readLeftIds } from './semantic.js'
 import { createStore } from './store.js'
 import { registerTools, toolSessionId } from './tools.js'
@@ -199,19 +200,15 @@ export async function apply(ctx, config) {
     if (!ids.length) return { ok: false, error: 'NO_LETTER', hint: '没有要归的信。' }
     const at = Date.now()
     await store.update((s) => {
-      const expanded = new Set()
-      for (const id of ids) {
-        for (const member of talkMemberIds(s.requests, id)) expanded.add(member)
-      }
-      for (const id of expanded) {
-        const row = s.requests && s.requests[id]
-        if (!row || normalizeCwd(row.workspace)) continue
-        row.workspace = cwd
-        row.updatedAt = at
-      }
+      placeEmptyHomes(s.requests, ids, cwd, at)
     })
     const view = typeof secretary.snapshot === 'function' ? await secretary.snapshot() : {}
     return { ok: true, workspace: cwd, requestIds: ids, ...view }
+  }
+  const origCopyAttachment = secretary.copyAttachment
+  const origGetAttachment = secretary.getAttachment
+  if (typeof origCopyAttachment === 'function' && typeof origGetAttachment === 'function') {
+    secretary.copyAttachment = (spec) => copyLetterAttach(origCopyAttachment, origGetAttachment, spec)
   }
   secretary.grantListen = async (on) => {
     const result = await grantListen(on)

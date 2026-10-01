@@ -3,6 +3,8 @@ import { access } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { listBusinessConnections } from '../db.mjs'
+import { FDE_AI_WORKSPACE } from '../config.mjs'
+import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
 
 const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/u
 
@@ -159,9 +161,17 @@ export async function buildConnectors(db, aiRuntime) {
     console.warn('mcp connectors state failed', error)
   }
   const lookup = state?.lookup && typeof state.lookup === 'object' ? state.lookup : {}
-  const catalogVersion = typeof state.catalogVersion === 'string'
-    ? state.catalogVersion
-    : (Array.isArray(state.catalog) && state.catalog[0]?.version ? String(state.catalog[0].version) : '')
+  const cwd = typeof aiRuntime.cwd === 'string' && aiRuntime.cwd.startsWith('/')
+    ? aiRuntime.cwd
+    : FDE_AI_WORKSPACE
+  let catalogVersion = ''
+  try {
+    const vocab = await loadBizVocab(aiRuntime, cwd)
+    const version = vocabCatalogVersion(vocab)
+    catalogVersion = version == null ? '' : String(version)
+  } catch {
+    catalogVersion = ''
+  }
   const lookupRegistered = Boolean(lookup.configured || lookup.hasToken)
   const online = Boolean(state.capabilities?.connector || lookupRegistered)
   return rows.map((row) => ({

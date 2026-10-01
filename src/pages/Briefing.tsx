@@ -3,7 +3,7 @@ import {
   Circle, Clock, Sparkles, ArrowUpRight, MessageSquare, Calendar, ListTodo, FileText, Settings2, Loader2,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import {
   runtimeApi,
@@ -64,7 +64,6 @@ function buildImComposeBody(briefing: BriefingSnapshot | null, sections: Briefin
 }
 
 export default function Briefing() {
-  const nav = useNavigate()
   const ws = useApp((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
   const settingsOpen = useApp((s) => s.briefingBrowse.settingsOpen)
   const setBriefingBrowse = useApp((s) => s.setBriefingBrowse)
@@ -332,9 +331,10 @@ export default function Briefing() {
                       setAiNote('还没有可保存的早报内容')
                       return
                     }
-                    void runtimeApi.draftMemoryCard(`${title}\n${body}`, 'correction')
+                    const origin = briefing?.id ? `briefing:${briefing.id}` : ''
+                    void runtimeApi.draftMemoryCard(`${title}\n${body}`, 'correction', origin || undefined)
+                      .then(() => openRef({ panel: 'memory', pane: 'cards', ...(origin ? { originId: origin } : {}) }))
                       .catch((cause) => setAiNote(cause instanceof Error ? cause.message : '保存到记忆失败'))
-                    nav('/memory')
                   }}
                 >
                   保存到记忆

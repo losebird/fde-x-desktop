@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileClock, FileSearch, Loader2, RefreshCw, RotateCcw, Search } from 'lucide-react'
+import clsx from 'clsx'
 import { Card, Tag } from '@/components/ui'
 import { DrawerShell } from '@/components/DrawerShell'
 import { BizRollbackConfirmDrawer, rollbackDrawerChanges } from '@/components/biz/BizRollbackConfirmDrawer'
 import { PreviewChangesList, rollbackChangesFromAudit } from '@/components/biz/PreviewChangesList'
-import { RuntimeApiError, runtimeApi } from '@/lib/runtime-api'
+import { RuntimeApiError, runtimeApi, type BizVocabSheet } from '@/lib/runtime-api'
+import { kindRowsFromVocab } from '@/lib/connected-kind'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { dataLandView } from '@/lib/data-browse'
+import { useApp } from '@/store/app'
 import {
   formatSheetCellDisplayValue,
   normalizeSheetColumns,
@@ -46,6 +50,7 @@ export type BizTraceRow = {
 
 type Props = {
   runtimeReady: boolean
+  vocab: BizVocabSheet | null
 }
 
 const RECORD_ACTION_ALIASES: Record<string, string> = {
@@ -105,6 +110,35 @@ function traceDisplayChanges(row: BizTraceRow): PreviewChange[] {
   }).filter(Boolean) as PreviewChange[]
 }
 
+function mapBizTraceRow(row: Record<string, unknown>): BizTraceRow | null {
+  const traceId = String(row.traceId || row.id || '')
+  if (!traceId) return null
+  const rollbackBadge = normalizeRollbackBadge(
+    Boolean(row.canRollback),
+    typeof row.rollbackBadge === 'string' ? row.rollbackBadge : undefined,
+    typeof row.rollbackState === 'string' ? row.rollbackState : undefined,
+  )
+  return {
+    id: traceId,
+    traceId,
+    at: Number(row.at || 0),
+    kind: String(row.kind || ''),
+    no: String(row.no || ''),
+    action: normalizeTraceAction(String(row.action || '')),
+    receiptId: String(row.receiptId || row.receipt_id || ''),
+    sessionId: String(row.sessionId || row.session_id || ''),
+    source: String(row.source || ''),
+    changesSummary: String(row.changesSummary || '—'),
+    rollbackBadge,
+    canRollback: rollbackBadge === 'can',
+    rollbackState: String(row.rollbackState || 'none'),
+    changes: Array.isArray(row.changes) ? row.changes as BizTraceRow['changes'] : [],
+    columns: Array.isArray(row.columns) ? row.columns as BizTraceRow['columns'] : [],
+  }
+}
+
+let lastOpenedLand = 0
+
 function listChangeDetail(row: BizTraceRow): string {
   const diffs = traceDisplayChanges(row)
   if (!diffs.length) {
@@ -146,13 +180,15 @@ type CorpusView =
   | { state: 'ok'; title: string; text: string }
   | { state: 'error'; message: string }
 
-export function OperationRecordPanel({ runtimeReady }: Props) {
+export function OperationRecordPanel({ runtimeReady, vocab }: Props) {
+  const land = useApp((state) => state.dataBrowse.land)
+  const landTraceId = useApp((state) => state.dataBrowse.traceId)
   const [rows, setRows] = useState<BizTraceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
-  const [kindCatalog, setKindCatalog] = useState<Array<{ kind: string; label: string; can: string[] }>>([])
+  const kindCatalog = useMemo(() => kindRowsFromVocab(vocab), [vocab])
   const [traceOpen, setTraceOpen] = useState(false)
   const [selected, setSelected] = useState<BizTraceRow | null>(null)
   const [corpusView, setCorpusView] = useState<CorpusView>({ state: 'idle' })
@@ -191,35 +227,9 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
     setError('')
     try {
       const { rows: next } = await runtimeApi.listBizTraces(200)
-      const mapped = (Array.isArray(next) ? next : []).map((row) => {
-        const item = row as Record<string, unknown>
-        const traceId = String(item.traceId || item.id || '')
-        return {
-          id: traceId,
-          traceId,
-          at: Number(item.at || 0),
-          kind: String(item.kind || ''),
-          no: String(item.no || ''),
-          action: normalizeTraceAction(String(item.action || '')),
-          receiptId: String(item.receiptId || item.receipt_id || ''),
-          sessionId: String(item.sessionId || item.session_id || ''),
-          source: String(item.source || ''),
-          changesSummary: String(item.changesSummary || '—'),
-          rollbackBadge: normalizeRollbackBadge(
-            Boolean(item.canRollback),
-            typeof item.rollbackBadge === 'string' ? item.rollbackBadge : undefined,
-            typeof item.rollbackState === 'string' ? item.rollbackState : undefined,
-          ),
-          canRollback: normalizeRollbackBadge(
-            Boolean(item.canRollback),
-            typeof item.rollbackBadge === 'string' ? item.rollbackBadge : undefined,
-            typeof item.rollbackState === 'string' ? item.rollbackState : undefined,
-          ) === 'can',
-          rollbackState: String(item.rollbackState || 'none'),
-          changes: Array.isArray(item.changes) ? item.changes as BizTraceRow['changes'] : [],
-          columns: Array.isArray(item.columns) ? item.columns as BizTraceRow['columns'] : [],
-        }
-      }).filter((row) => row.traceId)
+      const mapped = (Array.isArray(next) ? next : [])
+        .map((row) => mapBizTraceRow(row as Record<string, unknown>))
+        .filter((row): row is BizTraceRow => Boolean(row))
       setRows(mapped)
     } catch (cause) {
       setError(formatError(cause))
@@ -233,26 +243,51 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
     void refresh()
   }, [refresh])
 
-  useEffect(() => {
-    if (!runtimeReady) return
-    const workspace = loadCurrentWorkspaceCwd()
-    const cwd = workspace.ok ? workspace.cwd : undefined
-    void runtimeApi.listBizKinds(undefined, cwd).then((data) => {
-      const kinds = Array.isArray(data.kinds) ? data.kinds : []
-      setKindCatalog(kinds.map((k) => ({
-        kind: String(k.kind || ''),
-        label: String(k.label || k.kind || ''),
-        can: Array.isArray(k.can) ? k.can.map((item) => String(item || '').trim()).filter(Boolean) : [],
-      })))
-    }).catch(() => undefined)
-  }, [runtimeReady])
-
   const openTrace = (row: BizTraceRow) => {
     setSelected(row)
     setCorpusView({ state: 'idle' })
     setRollbackError('')
     setTraceOpen(true)
+    useApp.getState().setDataBrowse({ traceId: row.traceId })
   }
+
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+
+  useEffect(() => {
+    const id = String(landTraceId || '').trim()
+    if (!id || !land || land === lastOpenedLand) return
+    if (dataLandView() !== 'operations') {
+      lastOpenedLand = land
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const listed = rowsRef.current
+      let hit = listed.find((row) => row.traceId === id) || null
+      if (!hit) {
+        try {
+          const raw = await runtimeApi.getBizTrace(id)
+          if (raw && typeof raw === 'object') hit = mapBizTraceRow(raw as Record<string, unknown>)
+        } catch {
+          hit = rowsRef.current.find((row) => row.traceId === id) || null
+        }
+      }
+      if (cancelled) return
+      lastOpenedLand = land
+      if (!hit) return
+      const listedAt = rowsRef.current.findIndex((row) => row.traceId === hit.traceId)
+      if (listedAt >= 0) setPage(Math.floor(listedAt / HISTORY_PAGE_SIZE) + 1)
+      else {
+        setRows((prev) => (prev.some((row) => row.traceId === hit.traceId) ? prev : [hit, ...prev]))
+        setPage(1)
+      }
+      openTrace(hit)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [land, landTraceId])
 
   const closeTrace = () => {
     setTraceOpen(false)
@@ -402,7 +437,10 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
 
   const actionTokens = useMemo(() => {
     const items: string[] = []
-    for (const row of kindCatalog) items.push(...row.can)
+    for (const row of kindCatalog) {
+      const can = Array.isArray(row.can) ? row.can.map((item) => String(item || '').trim()).filter(Boolean) : []
+      items.push(...can)
+    }
     for (const row of rows) items.push(normalizeTraceAction(row.action))
     return collectActionTokens(items)
   }, [kindCatalog, rows])
@@ -503,7 +541,10 @@ export function OperationRecordPanel({ runtimeReady }: Props) {
                     key={row.traceId}
                     type="button"
                     onClick={() => openTrace(row)}
-                    className="w-full px-4 py-3 text-left flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-surface-2"
+                    className={clsx(
+                      'w-full px-4 py-3 text-left flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-surface-2',
+                      row.traceId === landTraceId && 'bg-brand-soft/80',
+                    )}
                     data-history-action={action}
                     data-history-action-tone={tone}
                     data-history-status={status?.label || ''}

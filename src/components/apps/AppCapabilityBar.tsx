@@ -24,9 +24,11 @@ type Props = {
   primary?: ReactNode
   title?: string
   rowId?: string
+  entity?: string
+  blurb?: string
 }
 
-export function AppCapabilityBar({ spec, appId, uses: usesProp, primary, title, rowId }: Props) {
+export function AppCapabilityBar({ spec, appId, uses: usesProp, primary, title, rowId, entity, blurb }: Props) {
   const uses = (usesProp ?? recordActionUses(spec)).filter((use) => use !== 'float')
   const [note, setNote] = useState('')
   const [draftCard, setDraftCard] = useState<MemoryDraftCard | null>(null)
@@ -37,7 +39,7 @@ export function AppCapabilityBar({ spec, appId, uses: usesProp, primary, title, 
     setNote('')
     if (use !== 'memory') setDraftCard(null)
     try {
-      const result = await runDeclaredPlatformUse(use, spec, appId, { title, rowId })
+      const result = await runDeclaredPlatformUse(use, spec, appId, { title, rowId, entity, blurb })
       if (isMemoryDraftCard(result)) {
         setDraftCard(result)
         setNote('已起草记忆卡片，点头才入档')

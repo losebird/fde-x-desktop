@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
+  appIsTrashed,
   bizKindFromRef,
   entityDef,
   fieldDef,
@@ -14,7 +15,7 @@ import { openRef } from '@/lib/open-ref'
 import { RuntimeApiError, runtimeApi } from '@/lib/runtime-api'
 
 type Props = {
-  app: { id: string; spec: FdeAppSpec; status: string }
+  app: { id: string; spec: FdeAppSpec; status: string; deletedAt?: string }
   entity: string
   workspaceCwd: string
   rid?: string
@@ -42,7 +43,7 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
   if (!ent) return <div className="text-xs text-ink-muted">未知实体</div>
 
   const submit = async () => {
-    if (readOnly || app.status === 'archived') return
+    if (readOnly || appIsTrashed(app)) return
     setSaving(true)
     setErrors({})
     setNote('')
@@ -74,7 +75,7 @@ export function SpecForm({ app, entity, workspaceCwd, rid, initial, readOnly, on
   }
 
   const compose = layout === 'compose'
-  const canSubmit = !readOnly && app.status !== 'archived'
+  const canSubmit = !readOnly && !appIsTrashed(app)
   const submitButton = canSubmit ? (
     <button
       type="button"

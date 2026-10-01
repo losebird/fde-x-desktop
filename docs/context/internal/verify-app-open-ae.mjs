@@ -153,7 +153,7 @@ try {
     }
     if (String(row.name).startsWith('AE归档-') && row.status === 'active') {
       await page.evaluate(async (id) => {
-        await fetch(`/api/v1/apps/${encodeURIComponent(id)}/archive`, { method: 'POST' })
+        await fetch(`/api/v1/apps/${encodeURIComponent(id)}`, { method: 'DELETE' })
       }, row.id)
     }
   }

@@ -1,5 +1,5 @@
-import { connectorCatalogPresent } from '../vendor-overlays/dsh-lan-assist/lookup.js'
 import { updateBusinessConnectionStatusByProvider } from '../db.mjs'
+import { vocabHasKinds } from './vocab-sheet.mjs'
 
 /** Providers whose lamp follows lan-assist /state (same set as shared ws_personal seed). */
 export const LAN_ASSIST_CONNECTION_PROVIDER = 'lan-assist'
@@ -11,49 +11,27 @@ export function lookupReadyFromLanAssistState(state) {
   return Boolean(baseUrl)
 }
 
-export function businessKindsDescribedInLanAssistState(state) {
-  if (!state || state.ok === false) return false
-  if (String(state.catalogVersion || state.catalog_version || '').trim()) return true
-  const direct = {
-    kinds: state.kinds,
-    maps: state.maps,
-    collections: state.collections,
-  }
-  if (connectorCatalogPresent(direct)) return true
-  const catalog = Array.isArray(state.catalog) ? state.catalog : []
-  for (const row of catalog) {
-    if (!row || typeof row !== 'object') continue
-    if (connectorCatalogPresent({
-      kinds: row.kinds,
-      maps: row.maps,
-      collections: row.collections,
-    })) return true
-  }
-  if (Array.isArray(state.vocab) && connectorCatalogPresent({ kinds: state.vocab })) return true
-  return false
-}
-
 export function lanAssistAdapterHealthy(state) {
   if (!state || state.ok === false) return false
   if (!lookupReadyFromLanAssistState(state)) return false
   return Boolean(state.capabilities?.connector)
 }
 
-export function desiredLanAssistConnectionStatus(state, { bizSucceeded = false } = {}) {
+export function desiredLanAssistConnectionStatus(state, { bizSucceeded = false, vocab } = {}) {
   const reachable = Boolean(state && state.ok !== false)
   if (!reachable) return 'pending'
   if (bizSucceeded) return 'connected'
   if (lanAssistAdapterHealthy(state)) return 'connected'
-  if (lookupReadyFromLanAssistState(state) && businessKindsDescribedInLanAssistState(state)) {
+  if (lookupReadyFromLanAssistState(state) && vocabHasKinds(vocab)) {
     return 'connected'
   }
   return 'pending'
 }
 
 /** Same «can work now» signal as business_connections lamp → GET /health im-business-adapter. */
-export function imBusinessAdapterHealthFromState(state, { capabilityDetail = '' } = {}) {
+export function imBusinessAdapterHealthFromState(state, { capabilityDetail = '', vocab } = {}) {
   const prefix = String(capabilityDetail || '').trim() || 'IM 与业务系统操作能力'
-  if (desiredLanAssistConnectionStatus(state) === 'connected') {
+  if (desiredLanAssistConnectionStatus(state, { vocab }) === 'connected') {
     return {
       state: 'healthy',
       detail: `${prefix}；当前可执行业务操作`,

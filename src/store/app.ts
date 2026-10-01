@@ -10,6 +10,7 @@ import type {
 } from '@/lib/types'
 import { seedUser } from '@/data/seed'
 import { runtimeApi } from '@/lib/runtime-api'
+import { emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
 
 const PLAN_UNAVAILABLE = '计划服务未就绪'
 
@@ -126,9 +127,9 @@ interface UIState {
   focusFloating: (view: FloatingKey) => void
   filesBrowse: { workspaceId: string | null; parentId: string | null; selectedId: string | null }
   setFilesBrowse: (patch: Partial<AppState['filesBrowse']>) => void
-  dataBrowse: { workspaceAppId: string | null }
-  setDataBrowse: (patch: Partial<AppState['dataBrowse']>) => void
-  memoryBrowse: { pane: string; drawer: string }
+  dataBrowse: DataBrowse
+  setDataBrowse: (patch: Partial<DataBrowse>) => void
+  memoryBrowse: { pane: string; drawer: string; cardId?: string; originId?: string }
   setMemoryBrowse: (patch: Partial<AppState['memoryBrowse']>) => void
   briefingBrowse: { settingsOpen: boolean }
   setBriefingBrowse: (patch: Partial<AppState['briefingBrowse']>) => void
@@ -151,9 +152,7 @@ interface UIState {
   // 计划页面当前 Tab
   activePlanTab: 'todo' | 'schedule' | 'workflow'
   setActivePlanTab: (t: 'todo' | 'schedule' | 'workflow') => void
-  // 业务应用内子视图（AI 浮现业务记录时自动切到 records）
-  activeDataSubview: 'overview' | 'records' | 'operations'
-  setActiveDataSubview: (v: 'overview' | 'records' | 'operations') => void
+  setActiveDataSubview: (v: DataView) => void
   focusBizRecordsPanel: () => void
 
   // 命令面板
@@ -542,8 +541,7 @@ export const useApp = create<AppState>()(
             const already = dataPanel?.state === 'full' || dataPanel?.state === 'half'
             return {
               floating,
-              dataBrowse: { ...s.dataBrowse, workspaceAppId: appId },
-              activeDataSubview: 'overview' as const,
+              dataBrowse: { ...s.dataBrowse, workspaceAppId: appId, view: 'overview' as const },
               ...(already ? {} : { panels: withPanelFull(s.panels, 'data') }),
             }
           }
@@ -572,10 +570,10 @@ export const useApp = create<AppState>()(
       filesBrowse: { workspaceId: null, parentId: null, selectedId: null },
       setFilesBrowse: (patch) =>
         set((s) => ({ filesBrowse: { ...s.filesBrowse, ...patch } })),
-      dataBrowse: { workspaceAppId: null },
+      dataBrowse: emptyDataBrowse(),
       setDataBrowse: (patch) =>
         set((s) => ({ dataBrowse: { ...s.dataBrowse, ...patch } })),
-      memoryBrowse: { pane: 'home', drawer: '' },
+      memoryBrowse: { pane: 'home', drawer: '', cardId: '', originId: '' },
       setMemoryBrowse: (patch) =>
         set((s) => ({ memoryBrowse: { ...s.memoryBrowse, ...patch } })),
       briefingBrowse: { settingsOpen: false },
@@ -610,14 +608,14 @@ export const useApp = create<AppState>()(
       setActiveBusinessTable: (id) => set({ activeBusinessTable: id }),
       activePlanTab: 'todo',
       setActivePlanTab: (t) => set({ activePlanTab: t }),
-      activeDataSubview: 'overview',
-      setActiveDataSubview: (v) => set({ activeDataSubview: v }),
+      setActiveDataSubview: (v) =>
+        set((s) => ({ dataBrowse: { ...s.dataBrowse, view: v } })),
       focusBizRecordsPanel: () => {
         set((s) => {
           if (s.floating.data) {
             const z = nextZ(s)
             return {
-              activeDataSubview: 'records',
+              dataBrowse: { ...s.dataBrowse, view: 'records' as const },
               floating: {
                 ...s.floating,
                 data: { ...s.floating.data, zIndex: z },
@@ -626,7 +624,7 @@ export const useApp = create<AppState>()(
             }
           }
           return {
-            activeDataSubview: 'records',
+            dataBrowse: { ...s.dataBrowse, view: 'records' as const },
             panels: s.panels.map((p) => {
               if (p.id === 'data') return { ...p, state: 'full' }
               if (p.state === 'full' || p.state === 'half') return { ...p, state: 'tab' }

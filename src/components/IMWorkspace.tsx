@@ -10,6 +10,7 @@ import clsx from 'clsx'
 import { useParams } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { runtimeApi } from '@/lib/runtime-api'
+import { openRef } from '@/lib/open-ref'
 import { isPrimarySession, loadCurrentAiTarget, loadCurrentWorkspaceCwd, sessionMatchesCwd } from '@/lib/ai-target'
 import { dmTalkId, imPaneOpen, incomingUnread, letterHome, localCwdSet, mailOnLane, normalizeCwd, topicTalkId, unreadOfRoster, unreadOfTalk } from '@/lib/im-letter-home'
 import { pullImMailbox, stampImMailboxRead, startImMailbox, useImMailbox } from '@/lib/im-mailbox'
@@ -271,7 +272,9 @@ function buildThreadHandoff(input: {
     summary: text,
     sourceWorkspaceId: String(row.workspace || parsedPack?.workspace || ''),
     sourceChatIds: packSessionIds,
-    fileIds: files.filter((item) => item.name !== HANDOFF_NAME).map((item) => item.fileId),
+    fileIds: Array.isArray(parsedPack?.fileIds)
+      ? (parsedPack.fileIds as unknown[]).map((id) => String(id || '')).filter(Boolean)
+      : files.filter((item) => item.name !== HANDOFF_NAME).map((item) => item.fileId),
     ...(packSessions?.length ? { sessions: packSessions } : {}),
     ...(handoffAttachIndex >= 0 ? { attachIndex: handoffAttachIndex } : {}),
     ...(needsLazySessions ? { sessionsLoading: false } : {}),
@@ -313,13 +316,28 @@ function speakSessionFileError(cause: unknown) {
   return msg
 }
 
-function handoffSessionFiles(pkg: IMHandoffPackage) {
-  return (pkg.sessions || []).flatMap((row) => (row.files || []).map((file) => ({
-    sessionId: row.sessionId,
-    sessionTitle: row.title || row.sessionId,
+function sessionFileRows(
+  files: Array<{ name: string; size?: number; data?: string }> | undefined,
+  sessionId: string,
+  sessionTitle: string,
+) {
+  return (files || []).map((file) => ({
+    sessionId,
+    sessionTitle,
     name: file.name,
     size: Number(file.size || 0),
-  })))
+  }))
+}
+
+function handoffSessionFiles(pkg: IMHandoffPackage) {
+  return (pkg.sessions || []).flatMap((row) => [
+    ...sessionFileRows(row.files, row.sessionId, row.title || row.sessionId),
+    ...(row.members || []).flatMap((member) => sessionFileRows(
+      member.files,
+      member.sessionId,
+      member.dir || member.sessionId,
+    )),
+  ])
 }
 
 function handoffSessionCount(pkg: IMHandoffPackage) {
@@ -1154,9 +1172,10 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       if (handoff) packed.push(packHandoffAttach(handoff, target.ok ? target.cwd : ''))
       if (toSend.length) {
         for (const item of toSend) {
+          const attachName = handoff ? (item.fileId || item.name) : item.name
           if (item.data) {
             packed.push({
-              name: item.name,
+              name: attachName,
               mime: item.mime || mimeFromName(item.name),
               size: item.size,
               data: item.data,
@@ -1168,7 +1187,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           const data = String(file.data || '')
           if (!data) throw new Error(`读不出附件 ${item.name}`)
           packed.push({
-            name: item.name,
+            name: attachName,
             mime: file.mime || mimeFromName(item.name),
             size: Number(file.size || item.size || 0),
             data,
@@ -1377,25 +1396,47 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     setAiHint('正在复原交接会话…')
     void (async () => {
       let sessions = message.handoff?.sessions || []
-      if (!sessions.length) {
-        for (const index of handoffAttachIndices(message)) {
-          const raw = attachBytes(await runtimeApi.imAttach(message.id, index).catch(() => null))
-          if (!raw) continue
-          const parsed = parseHandoffPack(raw)
-          if (!parsed) continue
-          sessions = handoffSessionsFromPack(parsed) || []
-          break
-        }
+      let dests: string[] = []
+      for (const index of handoffAttachIndices(message)) {
+        const raw = attachBytes(await runtimeApi.imAttach(message.id, index).catch(() => null))
+        if (!raw) continue
+        const parsed = parseHandoffPack(raw)
+        if (!parsed) continue
+        if (!sessions.length) sessions = handoffSessionsFromPack(parsed) || []
+        dests = Array.isArray(parsed.fileIds) ? parsed.fileIds.map((id) => String(id || '')).filter(Boolean) : []
+        break
       }
+      if (!dests.length) dests = (message.handoff?.fileIds || []).map((id) => String(id || '')).filter(Boolean)
       if (!sessions.length) throw new Error('交接包里没有 AI 会话文件（请确认发出时预览里已有 session.v3.jsonl.zstd）')
       const workspace = loadCurrentWorkspaceCwd()
       if (!workspace.ok) throw new Error(workspace.error)
+      let copyCount = 0
+      const copyWarnings: string[] = []
+      if (dests.length) {
+        const copied = await runtimeApi.imCopyAttach({
+          requestId: message.id,
+          workspace: workspace.cwd,
+          dests,
+        })
+        if (copied && copied.ok === false) {
+          copyWarnings.push(String(copied.hint || copied.error || '工作区文件没落下'))
+        } else {
+          copyCount = Number(copied.copied || 0)
+          if (Array.isArray(copied.warnings)) copyWarnings.push(...copied.warnings.map((item) => String(item)))
+        }
+      }
       const workspaceId = workspace.workspaceId.startsWith('ws_') ? '' : workspace.workspaceId
-      const restored = await runtimeApi.restoreAiSessions({
-        ...(workspaceId ? { workspaceId } : {}),
-        cwd: workspace.cwd,
-        sessions: sessions.map((row) => ({ title: row.title, files: row.files })),
-      })
+      const sessionsPayload = sessions.map((row) => ({
+        sessionId: row.sessionId,
+        title: row.title,
+        files: row.files,
+        ...(row.members?.length ? { members: row.members } : {}),
+      }))
+      const restored = await runtimeApi.restoreAiSessions(
+        workspaceId
+          ? { workspaceId, writeCwd: workspace.cwd, sessions: sessionsPayload }
+          : { cwd: workspace.cwd, sessions: sessionsPayload },
+      )
       const ids = (restored.sessions || []).map((row) => row.sessionId).filter(Boolean)
       if (!ids.length) throw new Error('会话没有复原出来')
       window.dispatchEvent(new CustomEvent('fde-x-ai-restore', {
@@ -1404,9 +1445,10 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           sessions: restored.sessions || [],
         },
       }))
-      const ok = restored.warnings?.length
-        ? `复原成功，但：${restored.warnings.join('；')}`
-        : `已复原 ${ids.length} 个 AI 会话，请看左边会话列表`
+      const bits = [`已复原 ${ids.length} 个 AI 会话，请看左边会话列表`]
+      if (copyCount) bits.push(`落下 ${copyCount} 个工作区文件`)
+      const warnings = [...(restored.warnings || []), ...copyWarnings]
+      const ok = warnings.length ? `${bits.join('，')}。${warnings.join('；')}` : bits.join('，')
       setAiHint(ok)
       setImBanner({ kind: 'ok', text: ok })
     })().catch((cause) => {
@@ -1438,9 +1480,10 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       return
     }
     setImBanner({ kind: 'working', text: '正在写成记忆卡片…' })
-    void runtimeApi.draftMemoryCard(`IM · ${activeContact?.name || ''}\n${text}`, 'correction').then(() => {
+    const origin = `im:${message.id}`
+    void runtimeApi.draftMemoryCard(`IM · ${activeContact?.name || ''}\n${text}`, 'correction', origin).then(() => {
       setImBanner({ kind: 'ok', text: '已写成记忆卡片，打开记忆页可点头入档' })
-      useApp.getState().togglePanel('memory', 'full')
+      openRef({ panel: 'memory', pane: 'cards', originId: origin })
     }).catch((cause) => setImBanner({ kind: 'err', text: cause instanceof Error ? cause.message : '没写成卡片' }))
   }
 
@@ -1706,7 +1749,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                     <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center gap-3 shrink-0">
                       <Inbox size={14} className="text-amber-800 shrink-0" />
                       <div className="flex-1 min-w-0 text-xs text-amber-950 leading-5">
-                        这些往来还没归工作区。归到当前「{currentWorkspace?.name || '工作区'}」后，切走才会从这里消失。
+                        这些往来还没归工作区。回一句会归到当前「{currentWorkspace?.name || '工作区'}」。只看不回也可以点归到。
                       </div>
                       <button type="button" className="btn-primary h-8 px-3 shrink-0" onClick={placeActiveTalk} disabled={!currentHome}>
                         归到当前工作区
@@ -2369,11 +2412,18 @@ function HandoffDialog({
       const bundle = await runtimeApi.exportAiSession(id)
       const title = sessions.find((row) => row.sessionId === id)?.title || id
       if (!bundle.files?.length) throw new Error(`「${title}」没有可交接的会话文件`)
-      return { sessionId: id, title, files: bundle.files }
+      return {
+        sessionId: bundle.sessionId || id,
+        title,
+        files: bundle.files,
+        ...(bundle.members?.length ? { members: bundle.members } : {}),
+      }
     })).then((exported) => {
       const sessionLines = exported.map((row) => {
         const files = (row.files || []).map((file) => `${file.name}（${Math.max(1, Math.round(Number(file.size || 0) / 1024))} KB）`).join('、')
-        return `${row.title}：${files || '没有会话文件'}`
+        const memberCount = (row.members || []).length
+        const memberLine = memberCount ? `；连同 ${memberCount} 个会话目录` : ''
+        return `${row.title}：${files || '没有会话文件'}${memberLine}`
       }).join('\n')
       const pkg: IMHandoffPackage = {
         id: `handoff_${Math.random().toString(36).slice(2, 9)}`,
@@ -2422,7 +2472,11 @@ function HandoffDialog({
                 const bundle = await runtimeApi.exportAiSession(id)
                 const title = sessions.find((row) => row.sessionId === id)?.title || id
                 const lines = (bundle.files || []).map((file) => `${file.name} · ${Math.max(1, Math.round(Number(file.size || 0) / 1024))} KB`)
-                return `${title}\n${lines.join('\n') || '没有会话文件'}`
+                const members = (bundle.members || []).map((member) => {
+                  const kb = (member.files || []).reduce((sum, file) => sum + Number(file.size || 0), 0)
+                  return `${member.dir || member.sessionId} · ${Math.max(1, Math.round(kb / 1024))} KB`
+                })
+                return `${title}\n${lines.join('\n') || '没有会话文件'}${members.length ? `\n${members.join('\n')}` : ''}`
               })).then((rows) => {
                 setSessionPreview(rows.join('\n\n'))
               }).catch((cause) => {

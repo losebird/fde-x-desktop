@@ -1,91 +1,69 @@
-// ⌘+K 全局命令面板:文件 / 联系人 / Agent / 任务 / 页面 / Workflow 五类统一搜索
+// ⌘+K 命令面板：只渲染 GET /api/v1/search 的检索表
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { runtimeApi } from '@/lib/runtime-api'
-import { loadCurrentAiTarget } from '@/lib/ai-target'
-import { Search, FileText, MessageSquare, Bot, CheckSquare, LayoutGrid, Repeat, Brain } from 'lucide-react'
-import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
-import { useNavigate } from 'react-router-dom'
-import { openRef, type OpenRefHref } from '@/lib/open-ref'
+import {
+  Search, FileText, MessageSquare, Bot, CheckSquare, LayoutGrid, Repeat, Brain,
+  Users, Wand2, Plug, MessagesSquare,
+} from 'lucide-react'
+import { runtimeApi, type SearchHit } from '@/lib/runtime-api'
+import { useApp } from '@/store/app'
+import { openRef } from '@/lib/open-ref'
 
 type Result = {
   group: string
   id: string
   title: string
   hint?: string
-  icon: any
-  action: () => void
+  icon: typeof FileText
+  href: SearchHit['href']
+}
+
+const GROUP_LABEL: Record<string, string> = {
+  session: '会话',
+  file: '文件',
+  contact: '联系人',
+  letter: '聊天记录',
+  group: '群',
+  agent: 'Agent',
+  task: '任务',
+  workflow: '工作流',
+  memory: '记忆',
+  skill: 'Skills',
+  mcp: 'MCP',
+  page: '功能',
+}
+
+const GROUP_ICON: Record<string, typeof FileText> = {
+  session: MessagesSquare,
+  file: FileText,
+  contact: MessageSquare,
+  letter: MessageSquare,
+  group: Users,
+  agent: Bot,
+  task: CheckSquare,
+  workflow: Repeat,
+  memory: Brain,
+  skill: Wand2,
+  mcp: Plug,
+  page: LayoutGrid,
+}
+
+function toResult(hit: SearchHit): Result {
+  return {
+    group: GROUP_LABEL[hit.kind] || hit.kind,
+    id: `${hit.kind}:${hit.id}`,
+    title: hit.title,
+    hint: hit.hint,
+    icon: GROUP_ICON[hit.kind] || Search,
+    href: hit.href || {},
+  }
 }
 
 export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen)
   const setOpen = useApp((s) => s.setPaletteOpen)
-  // 文件 / Agent / 工作流 按当前工作区过滤(全局搜索也应只搜当前工作区内容)
-  const storeContacts = useApp((s) => s.imContacts)
-  const [liveContacts, setLiveContacts] = useState(storeContacts)
-  const [files, setFiles] = useState<Array<{ id: string; name: string; kind: string; size: number }>>([])
-  const [agents, setAgents] = useState<Array<{ id: string; name: string; desc: string; emoji: string }>>([])
-  const [memories, setMemories] = useState<Array<{ id: string; title: string; snippet: string }>>([])
-  useEffect(() => {
-    void runtimeApi.imState().then((data) => {
-      const peers = Array.isArray(data.peers) ? data.peers as Array<Record<string, unknown>> : []
-      if (!peers.length) {
-        setLiveContacts([])
-        return
-      }
-      setLiveContacts(peers.map((peer) => ({
-        id: String(peer.id || ''),
-        kind: 'contact' as const,
-        name: String(peer.displayName || peer.id || ''),
-        handle: String(peer.door || ''),
-        avatarColor: 'bg-slate-700',
-        online: Boolean(peer.online),
-      })))
-    }).catch(() => setLiveContacts([]))
-    void (async () => {
-      try {
-        const status = await runtimeApi.aiStatus()
-        if (!status.connected) {
-          setFiles([])
-          setAgents([])
-          return
-        }
-        const roster = await runtimeApi.listAiPresets().catch(() => ({ presets: [] as Array<{ id: string; name?: string; description?: string }> }))
-        setAgents((roster.presets ?? []).map((preset) => ({
-          id: preset.id,
-          name: preset.name ?? preset.id,
-          desc: preset.description ?? '',
-          emoji: '✦',
-        })))
-        const target = await loadCurrentAiTarget()
-        if (!target.ok) {
-          setFiles([])
-          return
-        }
-        const listing = await runtimeApi.listWorkspaceFiles(target.sessionId, '.')
-        setFiles((listing.entries ?? []).map((entry) => ({
-          id: entry.name,
-          name: entry.name,
-          kind: entry.type,
-          size: entry.size ?? 0,
-        })))
-      } catch {
-        setFiles([])
-        setAgents([])
-      }
-    })()
-  }, [open])
-  const contacts = liveContacts
-  const tasks = useCurrentTasks()
-  const workflows = useCurrentWorkflows()
-
-  const openIMPanel = useApp((s) => s.openIMPanel)
-  const togglePanel = useApp((s) => s.togglePanel)
-  const setActivePlanTab = useApp((s) => s.setActivePlanTab)
-  const selectTask = useApp((s) => s.selectTask)
-
-  const navigate = useNavigate()
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
+  const [hits, setHits] = useState<SearchHit[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
 
   const close = () => setOpen(false)
@@ -94,113 +72,32 @@ export function CommandPalette() {
     if (open) setTimeout(() => inputRef.current?.focus(), 30)
     if (!open) {
       setQ('')
-      setMemories([])
+      setHits([])
     }
   }, [open])
 
   useEffect(() => {
-    if (!open || q.trim().length < 2) {
-      setMemories([])
-      return
-    }
+    if (!open) return
+    const ac = new AbortController()
+    const delay = q.trim() ? 280 : 0
     const handle = window.setTimeout(() => {
-      void runtimeApi.searchMemory(q.trim()).then((data) => {
-        const items = Array.isArray(data.items) ? data.items as Array<Record<string, unknown>> : []
-        const excerpts = Array.isArray(data.excerpts) ? data.excerpts as Array<Record<string, unknown>> : []
-        const rows = items.length ? items : excerpts
-        setMemories(rows.slice(0, 5).map((row, index) => ({
-          id: String(row.id || index),
-          title: String(row.then || row.title || row.id || '摘录'),
-          snippet: String(row.snippet || row.excerpt || row.text || row.content || ''),
-        })))
-      }).catch(() => setMemories([]))
-    }, 280)
-    return () => window.clearTimeout(handle)
+      void runtimeApi.search(q.trim(), ac.signal).then((data) => {
+        if (ac.signal.aborted) return
+        setHits(Array.isArray(data.hits) ? data.hits : [])
+      }).catch(() => {
+        if (ac.signal.aborted) return
+        setHits([])
+      })
+    }, delay)
+    return () => {
+      window.clearTimeout(handle)
+      ac.abort()
+    }
   }, [q, open])
 
-  const openPanel = (id: string) => { togglePanel(id, 'full'); navigate('/ai'); close() }
-  const pages: Result[] = [
-    { group: '功能', icon: LayoutGrid, id: 'p_ai',     title: 'AI 主工作区',       action: () => { navigate('/ai'); close() } },
-    { group: '功能', icon: LayoutGrid, id: 'p_im',     title: 'IM 消息面板',       action: () => { openIMPanel(); navigate('/ai'); close() } },
-    { group: '功能', icon: LayoutGrid, id: 'p_brief',  title: '早报',              action: () => openPanel('briefing') },
-    { group: '功能', icon: LayoutGrid, id: 'p_plan',   title: '计划 / 任务 / 日程', action: () => openPanel('plan') },
-    { group: '功能', icon: LayoutGrid, id: 'p_files',  title: '文件',              action: () => { openRef({ panel: 'files' }); navigate('/ai'); close() } },
-    { group: '功能', icon: LayoutGrid, id: 'p_data',   title: '业务应用 / 数据操作', action: () => openPanel('data') },
-    { group: '功能', icon: LayoutGrid, id: 'p_mcp',    title: 'MCP 管理',          action: () => openPanel('mcp') },
-    { group: '功能', icon: LayoutGrid, id: 'p_skills', title: 'Skills 管理',       action: () => openPanel('skills') },
-    { group: '功能', icon: LayoutGrid, id: 'p_mem',    title: '记忆系统',          action: () => openPanel('memory') },
-    { group: '功能', icon: LayoutGrid, id: 'p_set',    title: '设置',              action: () => openPanel('settings') },
-  ]
+  const results = useMemo(() => hits.map(toResult), [hits])
 
-  const results = useMemo<Result[]>(() => {
-    const list: Result[] = []
-    const lower = q.toLowerCase()
-
-    files.filter((f) => !q || f.name.toLowerCase().includes(lower)).slice(0, 8).forEach((f) => {
-      list.push({
-        group: '文件', icon: FileText, id: `f_${f.id}`, title: f.name,
-        hint: f.kind === 'directory' ? '文件夹' : `${f.kind} · ${f.size}B`,
-        action: () => { openRef({ panel: 'files', path: f.id }); close(); navigate('/ai') },
-      })
-    })
-    contacts.filter((c) => !q || c.name.includes(q) || c.handle.includes(q)).slice(0, 5).forEach((c) => {
-      list.push({
-        group: '联系人', icon: MessageSquare, id: `c_${c.id}`, title: c.name,
-        hint: c.handle,
-        action: () => { openIMPanel(c.id); close(); navigate('/ai') },
-      })
-    })
-    agents.filter((a) => !q || a.name.includes(q)).slice(0, 5).forEach((a) => {
-      list.push({
-        group: 'Agent', icon: Bot, id: `a_${a.id}`, title: `${a.emoji} ${a.name}`,
-        hint: a.desc,
-        action: () => { close(); navigate('/ai') },
-      })
-    })
-    tasks.filter((t) => !q || t.title.includes(q)).slice(0, 5).forEach((t) => {
-      list.push({
-        group: '任务', icon: CheckSquare, id: `t_${t.id}`, title: t.title,
-        hint: `${t.status} · ${t.priority}`,
-        action: () => {
-          setActivePlanTab('todo')
-          selectTask(t.id)
-          togglePanel('plan', 'full')
-          close()
-          navigate('/ai')
-        },
-      })
-    })
-    workflows.filter((w) => !q || w.name.includes(q)).slice(0, 5).forEach((w) => {
-      list.push({
-        group: '工作流', icon: Repeat, id: `wf_${w.id}`, title: `${w.emoji} ${w.name}`,
-        hint: w.description.slice(0, 30),
-        action: () => { togglePanel('plan', 'full'); close(); navigate('/ai') },
-      })
-    })
-    memories.forEach((row) => {
-      list.push({
-        group: '记忆', icon: Brain, id: `m_${row.id}`, title: row.snippet.slice(0, 40) || row.title,
-        hint: row.title,
-        action: () => {
-          close()
-          navigate('/ai')
-          if (row.id && !row.id.startsWith('session:')) {
-            void runtimeApi.fetchCorpus(row.id).then((doc) => {
-              if (doc.href) openRef(doc.href as OpenRefHref)
-              else togglePanel('memory', 'full')
-            }).catch(() => togglePanel('memory', 'full'))
-            return
-          }
-          togglePanel('memory', 'full')
-        },
-      })
-    })
-    pages.filter((p) => !q || p.title.includes(q)).forEach((p) => list.push(p))
-
-    return list
-  }, [q, files, contacts, agents, tasks, workflows, memories])
-
-  useEffect(() => { setIdx(0) }, [q])
+  useEffect(() => { setIdx(0) }, [q, hits])
 
   const grouped = useMemo(() => {
     const m = new Map<string, Result[]>()
@@ -211,7 +108,12 @@ export function CommandPalette() {
     return Array.from(m.entries())
   }, [results])
 
-  const runByIdx = (i: number) => results[i]?.action()
+  const runByIdx = (i: number) => {
+    const row = results[i]
+    if (!row) return
+    close()
+    openRef(row.href)
+  }
 
   if (!open) return null
 
@@ -233,7 +135,7 @@ export function CommandPalette() {
               else if (e.key === 'Enter') { e.preventDefault(); runByIdx(idx) }
               else if (e.key === 'Escape') close()
             }}
-            placeholder="搜文件、联系人、Agent、任务、Workflow、页面..."
+            placeholder="搜文件、联系人、会话、聊天记录、Agent、任务、Workflow、页面..."
             className="flex-1 bg-transparent focus:outline-none text-base placeholder:text-ink-subtle"
           />
           <kbd className="kbd">⌘K</kbd>
@@ -252,7 +154,7 @@ export function CommandPalette() {
                     <button
                       key={r.id}
                       onMouseEnter={() => setIdx(flatIdx)}
-                      onClick={r.action}
+                      onClick={() => runByIdx(flatIdx)}
                       className={`w-full px-4 py-2 flex items-center gap-2 text-left text-sm ${flatIdx === idx ? 'bg-brand-soft text-brand' : 'text-ink hover:bg-surface-2'}`}
                     >
                       <Icon size={14} className="text-ink-subtle shrink-0" />

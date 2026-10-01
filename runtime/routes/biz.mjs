@@ -1,5 +1,6 @@
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { loadMemoryWorkspaceVocab } from '../biz/memory-vocab.mjs'
+import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
 import { generateWorkspaceVocabFromConnector } from '../biz/vocab-from-connector.mjs'
 import { isGateActionCode } from '../biz/gate-action-codes.mjs'
 import { normalizePreviewWhere } from '../biz/where.mjs'
@@ -130,19 +131,8 @@ function inferKindFromCatalog(audit, kinds) {
 
 async function loadWorkspaceKinds(aiRuntime, workspace) {
   try {
-    const catalog = await aiRuntime.lanAssist('/catalog', { search: { workspace } })
-    if (catalog && catalog.ok === false) return []
-    let data = mapKindsFromCatalog(catalog)
-    if (workspace.startsWith('/')) {
-      try {
-        const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
-        data = mergeConnectedKindCatalog(data, fromMemory)
-      } catch { /* keep catalog kinds */ }
-    } else if (!data.kinds.length) {
-      const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
-      if (fromMemory.kinds.length) data = fromMemory
-    }
-    return data.kinds || []
+    const vocab = await loadBizVocab(aiRuntime, workspace)
+    return vocab.kinds || []
   } catch {
     return []
   }
@@ -521,79 +511,6 @@ async function enrichTraceRowsAsync(db, aiRuntime, workspace, traceRows, limit) 
   })
 }
 
-function mapKindsFromCatalog(catalogPayload) {
-  const kindsRaw = Array.isArray(catalogPayload?.kinds) ? catalogPayload.kinds : []
-  const kinds = kindsRaw.map((row) => {
-    if (typeof row === 'string') return { kind: row, label: row, fields: [] }
-    const kind = String(row.kind || row.name || '')
-    const label = String(row.label || row.speak || kind)
-    const fields = Array.isArray(row.fields) ? row.fields : []
-    const can = Array.isArray(row.can) ? row.can : undefined
-    const relations = Array.isArray(row.relations) ? row.relations : undefined
-    const fieldLabels = row.fieldLabels && typeof row.fieldLabels === 'object' && !Array.isArray(row.fieldLabels)
-      ? row.fieldLabels
-      : undefined
-    const ticketField = typeof row.ticketField === 'string' && row.ticketField.trim() ? row.ticketField.trim() : undefined
-    const resource = typeof row.resource === 'string' && row.resource.trim() ? row.resource.trim() : undefined
-    const catalogVersion = typeof row.catalogVersion === 'string' && row.catalogVersion.trim()
-      ? row.catalogVersion.trim()
-      : undefined
-    const aliases = Array.isArray(row.aliases) ? row.aliases.map(String).filter(Boolean) : undefined
-    return {
-      kind,
-      label,
-      fields,
-      ...(can ? { can } : {}),
-      ...(relations ? { relations } : {}),
-      ...(ticketField ? { ticketField } : {}),
-      ...(fieldLabels ? { fieldLabels } : {}),
-      ...(resource ? { resource } : {}),
-      ...(catalogVersion ? { catalogVersion } : {}),
-      ...(aliases && aliases.length ? { aliases } : {}),
-    }
-  })
-  return {
-    kinds,
-    relations: Array.isArray(catalogPayload?.relations) ? catalogPayload.relations : [],
-    catalogVersion: catalogPayload?.catalogVersion ?? catalogPayload?.catalog_version ?? null,
-  }
-}
-
-function mergeConnectedKindCatalog(catalogData, memoryData) {
-  const catalogKinds = Array.isArray(catalogData?.kinds) ? catalogData.kinds : []
-  const memoryKinds = Array.isArray(memoryData?.kinds) ? memoryData.kinds : []
-  const byName = new Map()
-  for (const row of catalogKinds) {
-    const kind = String(row?.kind || '').trim()
-    if (kind) byName.set(kind, { ...row })
-  }
-  for (const row of memoryKinds) {
-    const kind = String(row?.kind || '').trim()
-    if (!kind) continue
-    const prev = byName.get(kind) || {}
-    byName.set(kind, {
-      ...prev,
-      ...row,
-      kind,
-      resource: row.resource || prev.resource,
-      catalogVersion: row.catalogVersion || prev.catalogVersion,
-      aliases: [...new Set([
-        ...(Array.isArray(prev.aliases) ? prev.aliases : []),
-        ...(Array.isArray(row.aliases) ? row.aliases : []),
-      ])],
-    })
-  }
-  const collapsed = collapseKindsToConnectedTables([...byName.values()])
-  return {
-    kinds: collapsed.kinds,
-    aliases: collapsed.aliases,
-    relations: Array.isArray(memoryData?.relations) && memoryData.relations.length
-      ? memoryData.relations
-      : (Array.isArray(catalogData?.relations) ? catalogData.relations : []),
-    catalogVersion: catalogData?.catalogVersion ?? memoryData?.catalogVersion ?? null,
-  }
-}
-
 /**
  * @param {import('node:http').IncomingMessage} request
  * @param {import('node:http').ServerResponse} response
@@ -658,24 +575,16 @@ export async function handleBizRoutes(request, response, url, deps) {
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/kinds') {
     const workspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
     try {
-      const catalog = await aiRuntime.lanAssist('/catalog', { search: { workspace } })
-      if (catalog && catalog.ok === false) {
-        sendError(response, 503, catalog.error || 'NO_CATALOG', catalog.hint || '事务底座未就绪', correlationId)
-        return true
-      }
-      let data = mapKindsFromCatalog(catalog)
-      if (workspace.startsWith('/')) {
-        try {
-          const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
-          data = mergeConnectedKindCatalog(data, fromMemory)
-        } catch { /* catalog kinds still returned */ }
-      } else if (!data.kinds.length) {
-        const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
-        if (fromMemory.kinds.length) data = fromMemory
-      }
+      const data = await loadBizVocab(aiRuntime, workspace)
       sendJson(response, 200, { data, correlationId })
     } catch (error) {
-      sendError(response, 503, 'lan_assist_unavailable', error instanceof Error ? error.message : '事务底座未就绪', correlationId)
+      sendError(
+        response,
+        503,
+        error?.code || 'lan_assist_unavailable',
+        error instanceof Error ? error.message : '事务底座未就绪',
+        correlationId,
+      )
     }
     return true
   }
@@ -906,17 +815,24 @@ export async function handleBizRoutes(request, response, url, deps) {
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/connections') {
     const workspaceId = url.searchParams.get('workspace') ?? url.searchParams.get('workspaceId') ?? 'ws_personal'
+    const workspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
     let online = false
     let catalogVersion = null
     let state = null
+    let vocab = null
     try {
       state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
       online = Boolean(state && state.ok !== false)
-      catalogVersion = state?.catalogVersion ?? state?.catalog_version ?? null
     } catch {
       online = false
     }
-    reconcileLanAssistConnectionLamp(db, state)
+    try {
+      vocab = await loadBizVocab(aiRuntime, workspace)
+      catalogVersion = vocabCatalogVersion(vocab)
+    } catch {
+      vocab = null
+    }
+    reconcileLanAssistConnectionLamp(db, state, { vocab })
     const items = listBusinessConnections(db, { workspaceId })
     sendJson(response, 200, {
       items: items.map((row) => ({ ...row, lanAssistOnline: online, catalogVersion })),
@@ -964,13 +880,6 @@ export async function handleBizRoutes(request, response, url, deps) {
         : { ...preview, published: false, source: 'ui' })
       : preview
     sendJson(response, 200, { data: previewOut, correlationId })
-    return true
-  }
-
-  if (request.method === 'GET' && url.pathname === '/api/v1/biz/catalog') {
-    const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
-    const items = Array.isArray(state.catalog) ? state.catalog : []
-    sendJson(response, 200, { data: { items }, correlationId })
     return true
   }
 
@@ -1044,7 +953,14 @@ export async function handleBizRoutes(request, response, url, deps) {
         }
       }
     }
-    await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options))
+    const lampWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    let lampVocab = null
+    try {
+      lampVocab = await loadBizVocab(aiRuntime, lampWorkspace)
+    } catch {
+      lampVocab = null
+    }
+    await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options), { vocab: lampVocab })
     sendJson(response, 200, {
       data: stripSecrets({
         ...saved,

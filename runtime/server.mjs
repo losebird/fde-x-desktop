@@ -6,12 +6,8 @@ import { homedir } from 'node:os'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { constants as zlibConstants, zstdCompress, zstdDecompress } from 'node:zlib'
 
 const execFileAsync = promisify(execFile)
-const zstdCompressAsync = promisify(zstdCompress)
-const zstdDecompressAsync = promisify(zstdDecompress)
-const ZSTD_MAGIC = 4247762216
 
 function scheduleRuntimeRestart() {
   const delayMs = 200
@@ -80,8 +76,18 @@ import { handleAppsRoutes } from './routes/apps.mjs'
 import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
+import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
+import { findSessionDir, readSessionTree, writeSessionTree } from './session-tree.mjs'
+import {
+  SESSION_BIND_BOTH,
+  SESSION_BIND_MISSING,
+  SESSION_RESTORE_BOTH,
+  SESSION_RESTORE_MISSING,
+  parseSessionBind,
+  restoreWriteRoot,
+} from './session-bind.mjs'
 import { mergePageCors } from './proxy-cors.mjs'
 import { tryServeStatic } from './routes/static.mjs'
 import { reclaimStrayRuntime } from './reclaim-runtime.mjs'
@@ -98,7 +104,10 @@ import {
 } from './models-settings.mjs'
 import { startBriefingScheduler } from './briefing/scheduler.mjs'
 import { startMemoryWriter } from './memory/writer.mjs'
-import { asDraftCard, draftMemoryCardInsert, validateMemoryCardLabel } from './memory/cards.mjs'
+import { asDraftCard, collapseCueCards, validateMemoryCardLabel } from './memory/cards.mjs'
+import { attachCardOrigin, draftCard } from './memory/draft.mjs'
+import { instanceOriginOf } from './memory/identity.mjs'
+import { HEALTH_PAGE, buildHealthSheet, healthWritePlan } from './memory/health.mjs'
 import {
   FDE_AI_WORKSPACE,
   FDE_ALLOWED_ORIGINS,
@@ -900,184 +909,8 @@ function proxyDsh(request, response, url) {
   pipeProxyStreams(request, up)
 }
 
-const SKIP_SESSION_FILES = new Set(['session.lock'])
-
 function sessionRootOf() {
   return process.env.FDE_DSH_SESSION_ROOT || join(aiRuntime.dshHome, 'sessions')
-}
-
-function safeSessionFileName(name) {
-  const s = String(name || '').trim()
-  if (!s || s.includes('..') || s.includes('/') || s.includes('\\') || s.includes('\0')) return ''
-  if (SKIP_SESSION_FILES.has(s) || s.startsWith('.')) return ''
-  return s
-}
-
-async function findSessionDir(sessionId) {
-  const id = String(sessionId || '').trim()
-  if (!id || id.includes('..') || id.includes('/') || id.includes('\\') || id.includes('\0')) return ''
-  const walk = async (dir, depth) => {
-    if (depth > 3) return ''
-    let entries = []
-    try {
-      entries = await readdir(dir, { withFileTypes: true })
-    } catch {
-      return ''
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      if (entry.name === id) return join(dir, entry.name)
-      const nested = await walk(join(dir, entry.name), depth + 1)
-      if (nested) return nested
-    }
-    return ''
-  }
-  return walk(sessionRootOf(), 0)
-}
-
-async function readSessionBundle(sessionId) {
-  const dir = await findSessionDir(sessionId)
-  if (!dir) {
-    const error = new Error('找不到这个会话文件')
-    error.code = 'not_found'
-    throw error
-  }
-  const names = await readdir(dir)
-  const files = []
-  for (const name of names) {
-    const safe = safeSessionFileName(name)
-    if (!safe) continue
-    const buf = await readFile(join(dir, safe))
-    files.push({ name: safe, size: buf.length, data: buf.toString('base64') })
-  }
-  if (!files.length) {
-    const error = new Error('这个会话还没有可交接的文件')
-    error.code = 'empty'
-    throw error
-  }
-  return { sessionId, files }
-}
-
-function scanZstdFrames(buffer) {
-  const frames = []
-  let offset = 0
-  while (offset < buffer.length) {
-    const start = offset
-    if (buffer.length - offset < 4) break
-    if (buffer.readUInt32LE(offset) !== ZSTD_MAGIC) throw new Error(`会话日志不是 zstd：offset ${offset}`)
-    offset += 4
-    if (offset >= buffer.length) break
-    const descriptor = buffer.readUInt8(offset)
-    offset += 1
-    const contentSizeFlag = descriptor >>> 6
-    const singleSegment = (descriptor & 32) !== 0
-    const checksum = (descriptor & 4) !== 0
-    const dictionaryFlag = descriptor & 3
-    const dictionaryBytes = dictionaryFlag === 3 ? 4 : dictionaryFlag
-    const contentSizeBytes = contentSizeFlag === 0 ? (singleSegment ? 1 : 0) : 1 << contentSizeFlag
-    offset += (singleSegment ? 0 : 1) + dictionaryBytes + contentSizeBytes
-    for (;;) {
-      if (buffer.length - offset < 3) break
-      const blockHeader = buffer.readUIntLE(offset, 3)
-      offset += 3
-      const lastBlock = (blockHeader & 1) !== 0
-      const blockType = blockHeader >>> 1 & 3
-      const blockSize = blockHeader >>> 3
-      const payloadBytes = blockType === 1 ? 1 : blockSize
-      offset += payloadBytes
-      if (lastBlock) break
-    }
-    if (checksum) offset += 4
-    frames.push({ start, end: offset })
-  }
-  return frames
-}
-
-function patchSessionHeaderLine(text, patch) {
-  const cut = text.indexOf('\n')
-  const first = cut === -1 ? text : text.slice(0, cut)
-  const rest = cut === -1 ? '' : text.slice(cut)
-  const header = JSON.parse(first)
-  if (patch.id) header.id = patch.id
-  if (patch.cwd) header.cwd = patch.cwd
-  return `${JSON.stringify(header)}${rest}`
-}
-
-async function rewriteSessionLog(name, buf, patch) {
-  if (!patch?.id && !patch?.cwd) return buf
-  if (name.endsWith('.jsonl') && !name.endsWith('.jsonl.zstd')) {
-    return Buffer.from(patchSessionHeaderLine(buf.toString('utf8'), patch), 'utf8')
-  }
-  if (!name.endsWith('.jsonl.zstd') && !name.endsWith('.zstd')) return buf
-  const frames = scanZstdFrames(buf)
-  if (!frames.length) throw new Error('会话日志里没有完整的 zstd 帧')
-  const headerPlain = await zstdDecompressAsync(buf.subarray(frames[0].start, frames[0].end))
-  const headerText = headerPlain.toString('utf8')
-  const nl = headerText.indexOf('\n')
-  if (nl === -1 || nl !== headerText.length - 1) {
-    throw new Error('会话日志第一帧不是单独的 header 行')
-  }
-  const patched = Buffer.from(patchSessionHeaderLine(headerText, patch), 'utf8')
-  if (patched.indexOf(10) !== patched.length - 1) {
-    throw new Error('改写后的 header 不是单独一行')
-  }
-  const headerFrame = await zstdCompressAsync(patched, { params: { [zlibConstants.ZSTD_c_checksumFlag]: 1 } })
-  const rest = frames.length > 1 ? buf.subarray(frames[0].end) : Buffer.alloc(0)
-  return Buffer.concat([headerFrame, rest])
-}
-
-async function collectIncreasingEvents(buf) {
-  const frames = scanZstdFrames(buf)
-  const lines = []
-  let lastSeq = -1
-  for (let i = 1; i < frames.length; i += 1) {
-    const text = (await zstdDecompressAsync(buf.subarray(frames[i].start, frames[i].end))).toString('utf8')
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue
-      let event
-      try {
-        event = JSON.parse(line)
-      } catch {
-        continue
-      }
-      if (typeof event.seq === 'number') {
-        if (event.seq <= lastSeq) continue
-        lastSeq = event.seq
-      }
-      lines.push(line)
-    }
-  }
-  return lines
-}
-
-async function graftZstdSessionLog(createdPath, incomingBuf) {
-  const createdBuf = await readFile(createdPath)
-  const createdFrames = scanZstdFrames(createdBuf)
-  if (!createdFrames.length) throw new Error('新建会话还没有 header 帧')
-  const header = createdBuf.subarray(createdFrames[0].start, createdFrames[0].end)
-  const lines = await collectIncreasingEvents(incomingBuf)
-  if (!lines.length) throw new Error('交接会话里没有可接上的事件')
-  const eventFrame = await zstdCompressAsync(Buffer.from(`${lines.join('\n')}\n`), {
-    params: { [zlibConstants.ZSTD_c_checksumFlag]: 1 },
-  })
-  await writeFile(createdPath, Buffer.concat([header, eventFrame]))
-}
-
-async function writeSessionBundle(dir, files, patch = {}) {
-  await mkdir(dir, { recursive: true })
-  for (const file of Array.isArray(files) ? files : []) {
-    const name = safeSessionFileName(file && file.name)
-    if (!name) continue
-    const buf = Buffer.from(String((file && file.data) || ''), 'base64')
-    if (!buf.length) continue
-    const dest = join(dir, name)
-    if (name.endsWith('.jsonl.zstd') && existsSync(dest)) {
-      await graftZstdSessionLog(dest, buf)
-      continue
-    }
-    const next = await rewriteSessionLog(name, buf, patch)
-    await writeFile(dest, next)
-  }
 }
 
 const server = createServer(async (request, response) => {
@@ -1158,6 +991,14 @@ const server = createServer(async (request, response) => {
       readJson,
       correlationId: currentCorrelationId,
       sendError,
+    })) return
+
+    if (await handleSearchRoute(request, response, url, {
+      db,
+      aiRuntime,
+      sendJson,
+      sendError,
+      correlationId: currentCorrelationId,
     })) return
 
     if (await handleCorpusRoute(request, response, url, {
@@ -1994,21 +1835,18 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/ai/sessions') {
       const body = await readJson(request)
-      const workspaceId = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
-      const cwd = typeof body.cwd === 'string' && body.cwd.startsWith('/') ? body.cwd : ''
-      if (workspaceId && cwd) {
-        sendError(response, 400, 'validation_error', '创建会话只能带 workspaceId 或 cwd，不能两个都带', currentCorrelationId)
+      const bound = parseSessionBind(body)
+      if (!bound.ok) {
+        sendError(response, 400, 'validation_error', bound.code === 'both' ? SESSION_BIND_BOTH : SESSION_BIND_MISSING, currentCorrelationId)
         return
       }
+      const workspaceId = bound.workspaceId
+      const cwd = bound.cwd
       const requestBody = {
         ...(workspaceId ? { workspaceId } : {}),
-        ...(!workspaceId && cwd ? { cwd } : {}),
+        ...(cwd ? { cwd } : {}),
         ...(typeof body.sessionId === 'string' && body.sessionId ? { sessionId: body.sessionId } : {}),
         ...(typeof body.agentPreset === 'string' && body.agentPreset ? { agentPreset: body.agentPreset } : {}),
-      }
-      if (!requestBody.workspaceId && !requestBody.cwd) {
-        sendError(response, 400, 'validation_error', '创建会话需要 workspaceId 或绝对路径 cwd', currentCorrelationId)
-        return
       }
       const session = await aiRuntime.call('session/create', { request: requestBody })
       if (workspaceId && session?.sessionId) {
@@ -2035,13 +1873,14 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/ai/sessions/restore') {
       const body = await readJson(request)
-      const workspaceId = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
-      const cwd = typeof body.cwd === 'string' && body.cwd.startsWith('/') ? body.cwd : ''
-      const rows = Array.isArray(body.sessions) ? body.sessions : []
-      if (!workspaceId && !cwd) {
-        sendError(response, 400, 'validation_error', '复原会话需要 workspaceId 或绝对路径 cwd', currentCorrelationId)
+      const bound = parseSessionBind(body)
+      if (!bound.ok) {
+        sendError(response, 400, 'validation_error', bound.code === 'both' ? SESSION_RESTORE_BOTH : SESSION_RESTORE_MISSING, currentCorrelationId)
         return
       }
+      const workspaceId = bound.workspaceId
+      const cwd = bound.cwd
+      const rows = Array.isArray(body.sessions) ? body.sessions : []
       if (!rows.length) {
         sendError(response, 400, 'validation_error', '交接包里没有可复原的会话文件', currentCorrelationId)
         return
@@ -2054,7 +1893,7 @@ const server = createServer(async (request, response) => {
         const created = await aiRuntime.call('session/create', {
           request: {
             ...(workspaceId ? { workspaceId } : {}),
-            ...(!workspaceId && cwd ? { cwd } : {}),
+            ...(cwd ? { cwd } : {}),
           },
         })
         const sid = String(created?.sessionId || '')
@@ -2066,14 +1905,22 @@ const server = createServer(async (request, response) => {
             warnings.push(`会话 ${sid} 未能挂到工作区：${error instanceof Error ? error.message : String(error)}`)
           }
         }
-        let dir = await findSessionDir(sid)
+        let dir = await findSessionDir(sessionRootOf(), sid)
         if (!dir) {
           await new Promise((wait) => setTimeout(wait, 200))
-          dir = await findSessionDir(sid)
+          dir = await findSessionDir(sessionRootOf(), sid)
         }
         if (!dir) throw new Error('会话目录还没出现，文件写不进去')
-        const liveCwd = cwd || String(created.cwd || created.header?.cwd || '').trim()
-        await writeSessionBundle(dir, files, { id: sid, cwd: liveCwd })
+        const liveCwd = restoreWriteRoot(body, created, cwd)
+        const written = await writeSessionTree({
+          parentDir: dir,
+          files,
+          members: Array.isArray(row?.members) ? row.members : [],
+          cwd: liveCwd,
+          createdId: sid,
+          sourceId: String(row?.sessionId || '').trim(),
+        })
+        if (Array.isArray(written?.warnings)) warnings.push(...written.warnings)
         const title = String(row?.title || '').trim()
         restored.push({ sessionId: sid, title: title || sid })
       }
@@ -2103,7 +1950,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && aiExportMatch) {
       const sessionId = decodeURIComponent(aiExportMatch[1])
       try {
-        const bundle = await readSessionBundle(sessionId)
+        const bundle = await readSessionTree(sessionRootOf(), sessionId)
         sendJson(response, 200, { data: bundle, correlationId: currentCorrelationId })
       } catch (error) {
         const message = error instanceof Error ? error.message : '导不出这个会话'
@@ -2292,10 +2139,107 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/v1/memory/health') {
+      const cwd = requestMemoryCwd(url)
+      const offset = Math.max(0, Number(url.searchParams.get('offset') || 0) || 0)
+      const dupOffset = Math.max(0, Number(url.searchParams.get('dup_offset') || 0) || 0)
+      const health = await aiRuntime.semanticOs('/python', {
+        op: 'memory_health',
+        args: { limit: HEALTH_PAGE, offset },
+        ...(cwd ? { cwd } : {}),
+      })
+      if (health && typeof health === 'object' && health.error) {
+        sendError(response, 502, 'memory_error', String(health.hint || health.error || '梳理失败'), currentCorrelationId)
+        return
+      }
+      const dups = await aiRuntime.semanticOs('/python', {
+        op: 'enrich_dedup',
+        args: { threshold: 0.95 },
+        ...(cwd ? { cwd } : {}),
+      }).catch(() => ({ duplicates: [] }))
+      const sheet = buildHealthSheet({
+        health,
+        dups,
+        offset,
+        dupOffset,
+        page: HEALTH_PAGE,
+      })
+      sendJson(response, 200, { data: sheet, correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/memory/health/act') {
+      const body = await readJson(request)
+      const cwd = requestMemoryCwd(url, body)
+      const plan = healthWritePlan(body)
+      if (plan.error === 'nodded') {
+        sendError(response, 400, 'validation_error', '梳理需要 nodded=true', currentCorrelationId)
+        return
+      }
+      if (plan.error === 'unknown_op') {
+        sendError(response, 400, 'validation_error', '不认识的梳理动作', currentCorrelationId)
+        return
+      }
+      if (plan.error) {
+        sendError(response, 400, 'validation_error', plan.error === 'NOT_A_SESSION' ? '出处只写会话或文件' : '梳理参数不完整', currentCorrelationId)
+        return
+      }
+      const runPython = async (op, args) => aiRuntime.semanticOs('/python', {
+        op,
+        args,
+        ...(cwd ? { cwd } : {}),
+      })
+      if (plan.pythonEach) {
+        const rows = []
+        for (const id of plan.ids) {
+          const result = await runPython(plan.pythonEach, { id, nodded: true })
+          if (result && typeof result === 'object' && result.error) {
+            sendError(response, 502, 'memory_error', String(result.hint || result.error || '梳理写入失败'), currentCorrelationId)
+            return
+          }
+          rows.push(result)
+        }
+        sendJson(response, 200, { data: { ok: true, rows }, correlationId: currentCorrelationId })
+        return
+      }
+      if (plan.python) {
+        const result = await runPython(plan.python, plan.args)
+        if (result && typeof result === 'object' && result.error) {
+          sendError(response, 502, 'memory_error', String(result.hint || result.error || '梳理写入失败'), currentCorrelationId)
+          return
+        }
+        sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
+        return
+      }
+      if (plan.path) {
+        const result = await aiRuntime.semanticOs(plan.path, {
+          method: 'POST',
+          cwd,
+          body: { ...plan.body, ...(cwd ? { cwd } : {}) },
+        })
+        if (result && typeof result === 'object' && (result.error || result.ok === false)) {
+          sendError(response, 502, 'memory_error', String(result.hint || result.error || '梳理写入失败'), currentCorrelationId)
+          return
+        }
+        sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
+        return
+      }
+      sendError(response, 400, 'validation_error', '梳理动作空', currentCorrelationId)
+      return
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/cards') {
       const cwd = requestMemoryCwd(url)
-      const result = await aiRuntime.semanticOs('/python', { op: 'list_memory_cards', args: { include_filed: true }, ...(cwd ? { cwd } : {}) })
-      sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
+      const includeFiled = url.searchParams.get('include_filed') === 'true'
+      const result = await aiRuntime.semanticOs('/python', {
+        op: 'list_memory_cards',
+        args: { include_filed: includeFiled, limit: 80 },
+        ...(cwd ? { cwd } : {}),
+      })
+      const cards = collapseCueCards(
+        (Array.isArray(result?.cards) ? result.cards : []).map((card) => attachCardOrigin(card)),
+      )
+      sendJson(response, 200, { data: { ...result, cards }, correlationId: currentCorrelationId })
       return
     }
 
@@ -2324,27 +2268,33 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/api/v1/memory/cards') {
       const body = await readJson(request)
       const label = typeof body.label === 'string' ? body.label.trim() : ''
-      if (!label) {
+      const origin = typeof body.origin === 'string' ? body.origin.trim() : ''
+      if (!label && !instanceOriginOf(origin)) {
         sendError(response, 400, 'validation_error', '记忆正文不能为空', currentCorrelationId)
         return
       }
-      if (!validateMemoryCardLabel(label)) {
+      if (label && !validateMemoryCardLabel(label) && !instanceOriginOf(origin)) {
         sendError(response, 400, 'validation_error', '记忆正文至少 8 个有效字符', currentCorrelationId)
         return
       }
       const cwd = requestMemoryCwd(url, body)
-      const insert = draftMemoryCardInsert(label, body.cause === 'choice' ? 'choice' : 'correction')
-      const result = await aiRuntime.semanticOs('/python', {
-        op: insert.op,
-        args: insert.args,
-        ...(cwd ? { cwd } : {}),
+      const drafted = await draftCard({ db, aiRuntime }, {
+        cwd,
+        origin,
+        cause: body.cause === 'choice' ? 'choice' : 'correction',
+        label,
+        auto: false,
       })
-      if (result && typeof result === 'object' && result.error) {
-        sendError(response, 502, 'memory_error', String(result.hint || result.error || '起草失败'), currentCorrelationId)
+      if (drafted.skipped) {
+        sendError(response, 503, 'memory_error', drafted.reason === 'semantic_down' ? '记忆引擎未就绪' : '起草被跳过', currentCorrelationId)
         return
       }
-      const card = asDraftCard({ ...(result && typeof result === 'object' ? result : {}), id: insert.args.id }, label)
-      sendJson(response, 200, { data: card, correlationId: currentCorrelationId })
+      if (!drafted.ok) {
+        const err = drafted.error && typeof drafted.error === 'object' ? drafted.error : {}
+        sendError(response, 502, 'memory_error', String(err.hint || err.error || '起草失败'), currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, { data: drafted.card || asDraftCard({ id: drafted.cardId }, label), correlationId: currentCorrelationId })
       return
     }
 
@@ -2409,16 +2359,9 @@ const server = createServer(async (request, response) => {
       const body = await readJson(request)
       await aiRuntime.lanAssist('/sleep', { method: 'POST', body: { on: false } }).catch(() => undefined)
       const result = await aiRuntime.lanAssist('/send', { method: 'POST', body })
-      const imCwd = typeof body.workspace === 'string' && body.workspace.startsWith('/')
-        ? body.workspace
-        : FDE_AI_WORKSPACE
       const requestId = String(body.requestId || result?.requestId || result?.id || '')
       if (result?.ok !== false && requestId) {
-        emit('im.message.sent', {
-          requestId,
-          text: String(body.excerpt || body.text || ''),
-          peer: String(body.peerName || body.peer || ''),
-        }, { workspaceCwd: imCwd, source: 'bff' })
+        emit('im.message.sent', { requestId }, { source: 'bff' })
       }
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
       return

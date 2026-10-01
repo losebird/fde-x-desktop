@@ -97,6 +97,9 @@ test('biz corpus returns noted original speech, never JSON dump', async () => {
   assert.equal(body.title, '当时原文')
   assert.equal(body.text, '把那一行状态改回去')
   assert.equal(body.text.includes('{'), false)
+  assert.equal(body.href.panel, 'data')
+  assert.equal(body.href.tab, 'operations')
+  assert.equal(body.href.traceId, 'trace_origin_speech')
 })
 
 test('biz corpus explains when there is no session or noted speech', async () => {
@@ -203,6 +206,79 @@ test('biz corpus reads session user turns and skips JSON dumps', async () => {
     await close()
     if (prev === undefined) delete process.env.FDE_DSH_SESSION_ROOT
     else process.env.FDE_DSH_SESSION_ROOT = prev
+  }
+})
+
+test('briefing, app slug, file, and memory card share one corpus mouth', async () => {
+  const { mkdir, writeFile, rm } = await import('node:fs/promises')
+  const cwd = '/tmp/fde-x-corpus-origins-ws'
+  await mkdir(cwd, { recursive: true })
+  await writeFile(join(cwd, 'note.md'), '文件摘录正文足够长')
+  await rm('/tmp/fde-x-corpus-origins.sqlite', { force: true }).catch(() => undefined)
+  const db = openDatabase('/tmp/fde-x-corpus-origins.sqlite', join(repoRoot, 'runtime/migrations'))
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_origins', 'o', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd }), now, now)
+  db.prepare(`
+    INSERT INTO briefing_definitions
+      (id, workspace_id, name, status, sources_json, sections_json, filters_json, schedule_json, delivery_json, template_json, created_at, updated_at)
+    VALUES ('bdef_o', 'ws_origins', 'd', 'active', '[]', '[]', '{}', '{}', '{}', '{}', ?, ?)
+  `).run(now, now)
+  db.prepare(`
+    INSERT INTO briefings (id, definition_id, state, content_json, generated_at, created_at, workspace_cwd)
+    VALUES ('brf_o', 'bdef_o', 'ready', ?, ?, ?, ?)
+  `).run(JSON.stringify({ ai: '早报正文足够长', sessionId: 'session-brief' }), now, now, cwd)
+  db.prepare(`
+    INSERT INTO business_apps
+      (id, workspace_id, name, app_kind, status, current_revision, definition_json, created_at, updated_at)
+    VALUES ('app_o', 'ws_origins', '记事', 'generated', 'active', 1, ?, ?, ?)
+  `).run(JSON.stringify({
+    slug: 'item-log',
+    name: '记事',
+    description: '日常摘录',
+    _workspaceCwd: cwd,
+  }), now, now)
+
+  const aiRuntime = {
+    semanticOs: async (_path, options) => {
+      if (options?.op === 'list_memory_cards') {
+        return { cards: [{ id: 'memory:ab12cd34', label: '已入档卡片正文足够长' }] }
+      }
+      return {}
+    },
+  }
+  const { base, close } = await withServer(async (request, response) => {
+    const url = new URL(request.url, base)
+    await handleCorpusRoute(request, response, url, { db, aiRuntime, correlationId: 'corr' })
+  })
+  try {
+    const briefing = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('briefing:brf_o')}`).then((r) => r.json())
+    assert.equal(briefing.ok, true)
+    assert.match(String(briefing.text || ''), /早报正文/)
+    assert.equal(briefing.href.panel, 'briefing')
+    assert.equal(briefing.href.sessionId, 'session-brief')
+
+    const app = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('app:item-log')}?cwd=${encodeURIComponent(cwd)}`).then((r) => r.json())
+    assert.equal(app.ok, true)
+    assert.equal(app.title, '记事')
+    assert.match(String(app.text || ''), /日常摘录/)
+    assert.equal(app.href.panel, 'data')
+
+    const file = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('file:note.md')}?cwd=${encodeURIComponent(cwd)}`).then((r) => r.json())
+    assert.equal(file.ok, true)
+    assert.match(String(file.text || ''), /文件摘录/)
+    assert.equal(file.href.panel, 'files')
+
+    const card = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('memory:ab12cd34')}?cwd=${encodeURIComponent(cwd)}`).then((r) => r.json())
+    assert.equal(card.ok, true)
+    assert.match(String(card.text || ''), /已入档卡片/)
+    assert.equal(card.href.pane, 'cards')
+    assert.equal(card.href.cardId, 'memory:ab12cd34')
+  } finally {
+    await close()
+    db.close()
   }
 })
 

@@ -23,8 +23,10 @@ import {
   type SheetRow,
 } from '@/lib/biz-sheet-display'
 import { ContextChips } from '@/components/ai/ContextChips'
-import { buildContextPack, renderContextForPrompt, type ContextPack } from '@/lib/context-pack'
-import { loadCurrentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { type ContextPack } from '@/lib/context-pack'
+import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { askWithEntity } from '@/lib/ask-origin'
+import { dataLandView } from '@/lib/data-browse'
 import { useApp } from '@/store/app'
 import {
   RuntimeApiError,
@@ -32,6 +34,7 @@ import {
   type BizSurfaceRecord,
   type BusinessAppRecord,
   type BusinessConnectionRecord,
+  type BizVocabSheet,
 } from '@/lib/runtime-api'
 import {
   listBizKindListSnapshots,
@@ -62,7 +65,7 @@ import {
   isNewOfficialRound,
   shouldSkipCoveringPending,
   unresolvedKindBlocksOfficial,
-  type ConnectedKindRow,
+  kindRowsFromVocab,
 } from '@/lib/connected-kind'
 import {
   matchSurfaceIdForSheet,
@@ -196,6 +199,7 @@ type Props = {
   connections: BusinessConnectionRecord[]
   apps: BusinessAppRecord[]
   runtimeReady: boolean
+  vocab: BizVocabSheet | null
   onPlan: () => void
   onPlanWithTarget?: (target: { targetRef: string; kind: string; no?: string }) => void
 }
@@ -406,8 +410,15 @@ function EditableSheetCell({
   )
 }
 
-export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Props) {
+let lastConsumedLand = 0
+let lastRowLand = 0
+
+export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarget }: Props) {
   const activeAiSessionId = useApp((state) => state.activeAiSessionId)
+  const dataView = useApp((state) => state.dataBrowse.view)
+  const dataLand = useApp((state) => state.dataBrowse.land)
+  const landKind = useApp((state) => state.dataBrowse.kind)
+  const landRowId = useApp((state) => state.dataBrowse.rowId)
   const activeWorkspaceCwd = useApp((state) => {
     const row = state.workspaces.find((item) => item.id === state.activeWorkspaceId)
     const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
@@ -449,7 +460,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const [contextPack, setContextPack] = useState<ContextPack | null>(null)
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [omit, setOmit] = useState<Set<string>>(new Set())
-  const [kindCatalog, setKindCatalog] = useState<ConnectedKindRow[]>([])
+  const kindCatalog = useMemo(() => kindRowsFromVocab(vocab), [vocab])
   const sheetSnapshots = useRef<Map<string, SheetSnapshot>>(new Map())
   const listRestoreRef = useRef<ListRestoreSnapshot | null>(null)
   const displayBeforeWriteRef = useRef<ListRestoreSnapshot | null>(null)
@@ -462,6 +473,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   const cancelledWritePreviewRef = useRef('')
   const operationKindViewRef = useRef('')
   const kindChipPinnedRef = useRef('')
+
   const displayedSheetRef = useRef<Record<string, unknown> | null>(null)
   const writePreviewRef = useRef<Record<string, string> | null>(null)
   liveSessionIdRef.current = String(activeAiSessionId || '').trim()
@@ -663,7 +675,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
   const currentKindCan = useMemo(() => {
     const row = kindCatalog.find((item) => item.kind === kind)
-    return row?.can?.length ? row.can : []
+    return Array.isArray(row?.can) ? row.can.map((item) => String(item || '').trim()).filter(Boolean) : []
   }, [kind, kindCatalog])
 
   const rowActions = useMemo(
@@ -679,33 +691,6 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
   useEffect(() => {
     if (activeWorkspaceCwd) setWorkspaceCwd(activeWorkspaceCwd)
   }, [activeWorkspaceCwd])
-
-  useEffect(() => {
-    if (!runtimeReady || !bizCwd) return
-    let cancelled = false
-    void runtimeApi.listBizKinds(undefined, bizCwd).then((data) => {
-      if (cancelled) return
-      setKindCatalog(data.kinds.map((row) => ({
-        kind: row.kind,
-        label: row.label,
-        can: Array.isArray(row.can) ? row.can.map(String) : [],
-        resource: typeof row.resource === 'string' ? row.resource : undefined,
-        catalogVersion: typeof row.catalogVersion === 'string' ? row.catalogVersion : undefined,
-        aliases: [
-          ...new Set([
-            ...(Array.isArray(row.aliases) ? row.aliases.map(String) : []),
-            ...Object.entries(data.aliases || {})
-              .filter(([, canonical]) => canonical === row.kind)
-              .map(([spoken]) => spoken)
-              .filter((spoken) => spoken !== row.kind),
-          ]),
-        ],
-      })))
-    }).catch(() => {
-      if (!cancelled) setKindCatalog([])
-    })
-    return () => { cancelled = true }
-  }, [bizCwd, runtimeReady])
 
   const seedKindListSnapshot = useCallback((snapshot: SheetSnapshot) => {
     const k = String(snapshot.sheet.kind || '')
@@ -1728,6 +1713,40 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
     void finishSelect()
   }, [applySheet, applyPendingSheet, bizCwd, kind, kindCatalog, listSheetMeta, loadSurface, peekActivePending, surfaces])
 
+  useEffect(() => {
+    if (dataView !== 'records') return
+    if (!dataLand || dataLand === lastConsumedLand) return
+    if (dataLandView() !== 'records') {
+      lastConsumedLand = dataLand
+      lastRowLand = dataLand
+      return
+    }
+    lastConsumedLand = dataLand
+    if (peekActivePending() || drawer) {
+      lastRowLand = dataLand
+      return
+    }
+    const wanted = String(landKind || '').trim()
+    if (wanted && wanted !== kind) selectKind(wanted)
+  }, [dataLand, dataView, landKind, kind, drawer, peekActivePending, selectKind])
+
+  useEffect(() => {
+    if (dataView !== 'records') return
+    if (!dataLand || dataLand !== lastConsumedLand || dataLand === lastRowLand) return
+    if (peekActivePending() || drawer) return
+    const wanted = String(landRowId || '').trim()
+    if (!wanted) {
+      lastRowLand = dataLand
+      return
+    }
+    const hitIndex = rows.findIndex((row) => sheetRowBusinessNo(row) === wanted || String(row.id || '') === wanted)
+    if (hitIndex < 0) return
+    const hit = rows[hitIndex]
+    lastRowLand = dataLand
+    setSelectedRow(hit)
+    setSelectedRowKey(sheetRowRenderKey(hit, hitIndex, sheetIdentity))
+  }, [rows, landRowId, dataLand, dataView, sheetIdentity, drawer, peekActivePending])
+
   const tableRows = rows
 
   const filteredRows = useMemo(() => {
@@ -1922,29 +1941,27 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
 
   const askAiForRow = async () => {
     if (!selectedRow) return
-    const target = await loadCurrentAiTarget()
-    if (!target.ok) {
-      setError(target.error)
+    const title = String(selectedRow.标题 || selectedRow.title || selectedRow.name || kind || '')
+    const result = await askWithEntity({
+      title,
+      text: title,
+      fields: selectedRow,
+      entity: {
+        kind,
+        ref: title || kind,
+        fields: selectedRow,
+      },
+      tail: `请结合上述来源实体协助我（型：${kind}）。`,
+      scopes: ['workspace', 'biz', 'memory'],
+      revealAi: false,
+    })
+    if (!result.ok) {
+      setError(result.error)
       return
     }
-    const entity = {
-      kind: 'biz-row' as const,
-      ref: `fde://external/table/${kind}/${String(selectedRow.orderId ?? selectedRow.no ?? '')}`,
-      fields: selectedRow,
-    }
-    try {
-      const packed = await buildContextPack({ scopes: ['workspace', 'biz', 'memory'], entity })
-      setContextPack(packed.pack)
-      setContextWarnings(packed.warnings)
-      const text = [
-        renderContextForPrompt(packed.pack, omit),
-        `请结合上述业务记录行协助我（型：${kind}）。`,
-      ].join('\n')
-      await runtimeApi.promptAi(target.sessionId, { text })
-      setNotice('已交给当前 AI')
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '发给 AI 失败')
-    }
+    if (result.pack) setContextPack(result.pack)
+    if (result.warnings) setContextWarnings(result.warnings)
+    setNotice('已交给当前 AI')
   }
 
   const connectorPicker = connectorOptions.length > 1 ? (
@@ -2030,7 +2047,10 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
                   kind === k.kind && (k.relation || '') === (kindRelation || sheetPrimaryRelation(listSheetMeta))
                     && '!bg-ink !text-white !border-ink',
                 )}
-                onClick={() => selectKind(k.kind, k.relation)}
+                onClick={() => {
+                  useApp.getState().setDataBrowse({ kind: k.kind, rowId: '' })
+                  selectKind(k.kind, k.relation)
+                }}
               >
                 {k.label}
                 {k.conditions.map((text) => (
@@ -2057,7 +2077,11 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
       {(pendingText || sessionSurfaces.length > 0) && (
         <div className="px-3 py-2 border border-blue-200 bg-blue-50 text-xs text-blue-800 flex flex-wrap items-center gap-2">
           {pendingText && (
-            <button type="button" className="underline" onClick={() => { if (pending) void selectKind(pending.kind) }}>
+            <button type="button" className="underline" onClick={() => {
+              if (!pending) return
+              useApp.getState().setDataBrowse({ kind: pending.kind, rowId: '' })
+              void selectKind(pending.kind)
+            }}>
               {pendingText}
             </button>
           )}
@@ -2205,6 +2229,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
                     onClick={() => {
                       setSelectedRow(row)
                       setSelectedRowKey(rowKey)
+                      useApp.getState().setDataBrowse({ rowId: sheetRowBusinessNo(row) })
                     }}
                   >
                     <td className={clsx('sticky left-0 z-[1] border-b border-r border-line/80 px-2 py-1 text-center tabular-nums text-ink-muted align-middle', rowBg)}>
@@ -2215,6 +2240,7 @@ export function RecordsPanel({ connections, runtimeReady, onPlanWithTarget }: Pr
                           event.stopPropagation()
                           setSelectedRow(row)
                           setSelectedRowKey(rowKey)
+                          useApp.getState().setDataBrowse({ rowId: sheetRowBusinessNo(row) })
                         }}
                       >
                         {displayIndex}

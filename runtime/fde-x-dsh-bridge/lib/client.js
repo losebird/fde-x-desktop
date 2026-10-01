@@ -117,9 +117,7 @@ window.__ModuleLoader__.load({
         function landFile(address, sessionIdHint) {
           var parsed = parseFileAddress(address);
           if (!parsed) return false;
-          if (parsed.scope !== "session") return true;
-          landSessionPath(parsed.sessionId || sessionIdHint || "", parsed.path);
-          return true;
+          return landSessionPath(parsed.sessionId || sessionIdHint || "", parsed.path);
         }
         var wrappedOpen = function (address, options) {
           if (landFile(address, "")) return;

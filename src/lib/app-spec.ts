@@ -176,6 +176,11 @@ export interface FdeAppDetail {
   revisions: { revision: number; change_note?: string; created_at: string; materialize_status?: string }[]
   createdAt: string
   updatedAt: string
+  deletedAt?: string
+}
+
+export function appIsTrashed(app: { deletedAt?: string | null }): boolean {
+  return Boolean(String(app.deletedAt || '').trim())
 }
 
 export interface AppRecordList {

@@ -224,18 +224,18 @@ export async function handleBridgeRoutes(request, response, url, deps) {
     }
     const title = typeof body.title === 'string' ? body.title.trim() : ''
     const cardBody = typeof body.body === 'string' ? body.body.trim() : ''
-    const layer = typeof body.layer === 'string' ? body.layer.trim() : 'project'
     const refs = Array.isArray(body.refs) ? body.refs.map(String) : []
-    if (!title || !cardBody || !refs.length) {
-      bridgeError(response, 400, 'validation_error', '需要 title、body、refs', correlationId)
+    const origin = typeof body.origin === 'string' && body.origin.trim() ? body.origin.trim() : (refs[0] || '')
+    if (!title || !cardBody || !origin) {
+      bridgeError(response, 400, 'validation_error', '需要 title、body、origin', correlationId)
       return true
     }
     const result = await draftMemoryFromBridge({ db, aiRuntime }, {
       workspaceCwd,
       title,
       body: cardBody,
-      layer,
-      refs,
+      origin,
+      auto: true,
     })
     bridgeOk(response, 200, result, correlationId)
     return true

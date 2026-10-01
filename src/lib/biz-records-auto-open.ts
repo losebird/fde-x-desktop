@@ -8,7 +8,7 @@ let registered = false
 export function shouldFocusBizRecordsForPending(sheet: Record<string, unknown>): boolean {
   const action = String(sheet.action || '').trim()
   if (action === '现查' && shouldStageRoundEndPending(sheet)) return true
-  return useApp.getState().activeDataSubview !== 'operations'
+  return useApp.getState().dataBrowse.view !== 'operations'
 }
 
 export function onBizSheetPending(event: { payload: unknown; source?: string }) {
