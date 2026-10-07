@@ -338,24 +338,30 @@ window.__ModuleLoader__.load({
         }
         return String(best || "").trim()
       }
-      var turnWatch = { sid: "", timer: 0, lastText: "", sawRun: false }
+      var turnWatch = { sid: "", timer: 0, lastText: "", sawRun: false, pending: [] }
       function stopTurnWatch() {
         if (turnWatch.timer) clearTimeout(turnWatch.timer)
         turnWatch.timer = 0
         turnWatch.sid = ""
         turnWatch.sawRun = false
         turnWatch.lastText = ""
+        turnWatch.pending = []
       }
-      function startTurnWatch(sid) {
+      function startTurnWatch(sid, requestId) {
         var id = String(sid || "")
         if (!id) return
-        if (turnWatch.sid === id && turnWatch.timer) return
-        stopTurnWatch()
-        var binding = sessions.binding && sessions.binding(id)
-        var session = binding && binding.session
-        turnWatch.sid = id
-        turnWatch.lastText = lastAssistantText(session)
-        turnWatch.sawRun = false
+        if (turnWatch.sid !== id) {
+          stopTurnWatch()
+          var binding = sessions.binding && sessions.binding(id)
+          var session = binding && binding.session
+          turnWatch.sid = id
+          turnWatch.lastText = lastAssistantText(session)
+          turnWatch.sawRun = false
+          turnWatch.pending = []
+        }
+        var rid = String(requestId || "")
+        if (rid) turnWatch.pending.push(rid)
+        if (turnWatch.timer) return
         var poll = function () {
           if (turnWatch.sid !== id) return
           var bound = sessions.binding && sessions.binding(id)
@@ -367,7 +373,8 @@ window.__ModuleLoader__.load({
           if (turnWatch.sawRun && !running && nowText && nowText !== turnWatch.lastText) {
             turnWatch.lastText = nowText
             turnWatch.sawRun = false
-            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: id, op: "assistant", text: nowText }, "*")
+            var doneId = turnWatch.pending.length ? turnWatch.pending.shift() : ""
+            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: id, op: "assistant", text: nowText, requestId: doneId }, "*")
           }
           turnWatch.timer = setTimeout(poll, 500)
         }
@@ -398,7 +405,7 @@ window.__ModuleLoader__.load({
                 else sessions.open(data.sessionId)
               }
               bindWorkspace(data.sessionId, data.workspaceId)
-              startTurnWatch(data.sessionId)
+              startTurnWatch(data.sessionId, data.requestId)
             } catch (e) {}
           }
           open()
@@ -659,7 +666,10 @@ window.__ModuleLoader__.load({
           });
         }
       }
-      const onMessage = (event) => run(event.data);
+      const onMessage = (event) => {
+        if (event.source !== window.parent) return;
+        run(event.data);
+      };
       window.addEventListener("message", onMessage);
       ctx.effect(() => () => window.removeEventListener("message", onMessage), "fde-x-dsh-bridge");
     }

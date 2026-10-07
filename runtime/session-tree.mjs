@@ -27,8 +27,17 @@ export function safeSessionDirName(name) {
 
 export function isSessionLogName(name) {
   const s = String(name || '')
-  if (s.endsWith('.jsonl.zstd')) return true
-  return s.endsWith('.jsonl') && !s.endsWith('.jsonl.zstd')
+  if (/^session(?:\.v[0-9]+)?\.jsonl(?:\.zstd)?$/.test(s)) return true
+  return /^session\.v[0-9]+\.json\.zstd$/.test(s)
+}
+
+function isPlainJsonlLog(name) {
+  const s = String(name || '')
+  return s.endsWith('.jsonl') && !s.endsWith('.jsonl.zstd') && !s.endsWith('.zstd')
+}
+
+function isZstdSessionLog(name) {
+  return String(name || '').endsWith('.zstd') && isSessionLogName(name)
 }
 
 export async function findSessionDir(sessionRoot, sessionId) {
@@ -98,6 +107,66 @@ function patchHeaderRecord(header, patch = {}, idMap = {}) {
   return next
 }
 
+function remapIdentityValue(value, idMap) {
+  if (typeof value !== 'string' || !idMap || !Object.prototype.hasOwnProperty.call(idMap, value)) return value
+  return idMap[value]
+}
+
+function rewriteEventIdentity(event, idMap) {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return event
+  if (!idMap || !Object.keys(idMap).length) return event
+  let changed = false
+  const next = { ...event }
+  const sessionId = remapIdentityValue(next.sessionId, idMap)
+  if (sessionId !== next.sessionId) {
+    next.sessionId = sessionId
+    changed = true
+  }
+  const parentSession = remapIdentityValue(next.parentSession, idMap)
+  if (parentSession !== next.parentSession) {
+    next.parentSession = parentSession
+    changed = true
+  }
+  if (next.data && typeof next.data === 'object' && !Array.isArray(next.data)) {
+    const data = { ...next.data }
+    const dataSessionId = remapIdentityValue(data.sessionId, idMap)
+    const dataParent = remapIdentityValue(data.parentSession, idMap)
+    if (dataSessionId !== data.sessionId) {
+      data.sessionId = dataSessionId
+      changed = true
+    }
+    if (dataParent !== data.parentSession) {
+      data.parentSession = dataParent
+      changed = true
+    }
+    if (changed) next.data = data
+  }
+  return changed ? next : event
+}
+
+function rewriteEventLines(text, idMap) {
+  if (!idMap || !Object.keys(idMap).length) {
+    const kept = String(text || '').split('\n').filter((line) => line.trim())
+    return { text: kept.length ? `${kept.join('\n')}\n` : '', changed: false }
+  }
+  const lines = []
+  let changed = false
+  for (const line of String(text || '').split('\n')) {
+    if (!line.trim()) continue
+    let event
+    try {
+      event = JSON.parse(line)
+    } catch {
+      lines.push(line)
+      continue
+    }
+    const next = rewriteEventIdentity(event, idMap)
+    if (next !== event) changed = true
+    lines.push(JSON.stringify(next))
+  }
+  return { text: lines.length ? `${lines.join('\n')}\n` : '', changed }
+}
+
 function headerLineOf(text) {
   const cut = text.indexOf('\n')
   const first = cut === -1 ? text : text.slice(0, cut)
@@ -129,10 +198,14 @@ async function logPathIn(dir) {
   } catch {
     return ''
   }
-  const zstd = names.find((name) => safeSessionFileName(name) && name.endsWith('.jsonl.zstd'))
-  if (zstd) return join(dir, zstd)
-  const plain = names.find((name) => safeSessionFileName(name) && name.endsWith('.jsonl'))
-  return plain ? join(dir, plain) : ''
+  const logs = names.filter((name) => safeSessionFileName(name) && isSessionLogName(name))
+  if (!logs.length) return ''
+  const ranked = logs.slice().sort((left, right) => {
+    const z = Number(right.endsWith('.zstd')) - Number(left.endsWith('.zstd'))
+    if (z) return z
+    return right.length - left.length
+  })
+  return join(dir, ranked[0])
 }
 
 export async function readLogHeader(dir) {
@@ -181,28 +254,31 @@ function keepIncreasingLines(text, lastSeq) {
   return { kept, lastSeq: seq, dropped }
 }
 
-export async function increasingEventFrames(buf) {
+export async function increasingEventFrames(buf, idMap = {}) {
   const frames = scanZstdFrames(buf)
   const out = []
   let lastSeq = -1
+  const remap = idMap && Object.keys(idMap).length ? idMap : {}
   for (let i = 1; i < frames.length; i += 1) {
     const raw = buf.subarray(frames[i].start, frames[i].end)
     const text = (await zstdDecompressAsync(raw)).toString('utf8')
     const { kept, lastSeq: nextSeq, dropped } = keepIncreasingLines(text, lastSeq)
     lastSeq = nextSeq
     if (!kept.length) continue
-    if (!dropped) {
+    const rewritten = rewriteEventLines(`${kept.join('\n')}\n`, remap)
+    if (!rewritten.changed && !dropped) {
       out.push(Buffer.from(raw))
       continue
     }
-    out.push(await zstdCompressAsync(Buffer.from(`${kept.join('\n')}\n`), ZSTD_CHECKSUM))
+    if (!rewritten.text) continue
+    out.push(await zstdCompressAsync(Buffer.from(rewritten.text), ZSTD_CHECKSUM))
   }
   return out
 }
 
-async function adoptCreatedLog(createdPath, incomingBuf) {
+async function adoptCreatedLog(createdPath, incomingBuf, idMap = {}) {
   const createdBuf = await readFile(createdPath)
-  if (createdPath.endsWith('.jsonl') && !createdPath.endsWith('.jsonl.zstd')) {
+  if (isPlainJsonlLog(createdPath)) {
     const { first, oneLine } = headerLineOf(createdBuf.toString('utf8'))
     if (!oneLine) throw new Error('新建会话还没有 header 行')
     const incoming = incomingBuf.toString('utf8')
@@ -210,31 +286,30 @@ async function adoptCreatedLog(createdPath, incomingBuf) {
     const body = cut === -1 ? '' : incoming.slice(cut + 1)
     const { kept } = keepIncreasingLines(body, -1)
     if (!kept.length) throw new Error('交接会话里没有可接上的事件')
-    await writeFile(createdPath, `${first}\n${kept.join('\n')}\n`)
+    const rewritten = rewriteEventLines(`${kept.join('\n')}\n`, idMap)
+    if (!rewritten.text.trim()) throw new Error('交接会话里没有可接上的事件')
+    await writeFile(createdPath, `${first}\n${rewritten.text}`)
     return
   }
   const createdFrames = scanZstdFrames(createdBuf)
   if (!createdFrames.length) throw new Error('新建会话还没有 header 帧')
   const header = createdBuf.subarray(createdFrames[0].start, createdFrames[0].end)
-  const eventFrames = await increasingEventFrames(incomingBuf)
+  const eventFrames = await increasingEventFrames(incomingBuf, idMap)
   if (!eventFrames.length) throw new Error('交接会话里没有可接上的事件')
   await writeFile(createdPath, Buffer.concat([header, ...eventFrames]))
 }
 
 async function rewriteSessionLog(name, buf, patch = {}, idMap = {}) {
   if (!patch?.id && !patch?.cwd && !Object.keys(idMap).length) return buf
-  if (name.endsWith('.jsonl') && !name.endsWith('.jsonl.zstd')) {
+  if (isPlainJsonlLog(name)) {
     const text = buf.toString('utf8')
-    const { first, rest, oneLine } = headerLineOf(text)
+    const { first, rest } = headerLineOf(text)
     const header = JSON.parse(first)
-    const patched = `${JSON.stringify(patchHeaderRecord(header, patch, idMap))}${oneLine ? '\n' : rest}`
-    const cut = patched.indexOf('\n')
-    const head = cut === -1 ? `${patched}\n` : patched.slice(0, cut + 1)
-    const body = cut === -1 ? '' : patched.slice(cut + 1)
-    const { kept } = keepIncreasingLines(body, -1)
-    return Buffer.from(`${head}${kept.join('\n')}${kept.length ? '\n' : ''}`, 'utf8')
+    const { kept } = keepIncreasingLines(rest, -1)
+    const rewritten = rewriteEventLines(kept.length ? `${kept.join('\n')}\n` : '', idMap)
+    return Buffer.from(`${JSON.stringify(patchHeaderRecord(header, patch, idMap))}\n${rewritten.text}`)
   }
-  if (!name.endsWith('.jsonl.zstd') && !name.endsWith('.zstd')) return buf
+  if (!isZstdSessionLog(name) && !name.endsWith('.zstd')) return buf
   const frames = scanZstdFrames(buf)
   if (!frames.length) throw new Error('会话日志里没有完整的 zstd 帧')
   const headerPlain = await zstdDecompressAsync(buf.subarray(frames[0].start, frames[0].end))
@@ -243,7 +318,7 @@ async function rewriteSessionLog(name, buf, patch = {}, idMap = {}) {
   if (!oneLine) throw new Error('会话日志第一帧不是单独的 header 行')
   const patched = Buffer.from(`${JSON.stringify(patchHeaderRecord(JSON.parse(first), patch, idMap))}\n`, 'utf8')
   const headerFrame = await zstdCompressAsync(patched, ZSTD_CHECKSUM)
-  const eventFrames = await increasingEventFrames(buf)
+  const eventFrames = await increasingEventFrames(buf, idMap)
   return Buffer.concat([headerFrame, ...eventFrames])
 }
 
@@ -258,9 +333,13 @@ async function writeSessionFiles(dir, files, options = {}) {
     const buf = Buffer.from(String((file && file.data) || ''), 'base64')
     if (!buf.length) continue
     const dest = join(dir, name)
-    if (isSessionLogName(name) && adoptExistingLog && existsSync(dest)) {
-      await adoptCreatedLog(dest, buf)
-      continue
+    if (adoptExistingLog && isSessionLogName(name)) {
+      const existing = await logPathIn(dir)
+      const adoptPath = existing || (existsSync(dest) ? dest : '')
+      if (adoptPath) {
+        await adoptCreatedLog(adoptPath, buf, idMap)
+        continue
+      }
     }
     const next = isSessionLogName(name) ? await rewriteSessionLog(name, buf, headerPatch, idMap) : buf
     await writeFile(dest, next)

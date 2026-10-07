@@ -5,6 +5,7 @@ import {
   captureLookupBind,
   effectiveBizKind,
   rollbackPreviewBody,
+  writeAuditFields,
 } from '../biz/audit-lookup.mjs'
 
 describe('audit lookup bind', () => {
@@ -19,6 +20,30 @@ describe('audit lookup bind', () => {
       'row_pk_9',
     )
     assert.equal(auditRecordNo(null, { no: 'TK-22' }, { no: 'internal-1' }), 'TK-22')
+    assert.equal(auditRecordNo(null, {}, { recordNo: 'WO-9' }), 'WO-9')
+  })
+
+  test('writeAuditFields uses vocab kind and original 单号 on rollback', () => {
+    const rollback = writeAuditFields(
+      { kind: 'receipt', action: '改行' },
+      {},
+      { kind: 'receipt', action: '', no: '' },
+      { kind: '工单', recordNo: 'TK20251226865' },
+      true,
+    )
+    assert.equal(rollback.kind, '工单')
+    assert.equal(rollback.action, '回退')
+    assert.equal(rollback.recordNo, 'TK20251226865')
+    const posted = writeAuditFields(
+      { kind: '请假申请', action: '过审', no: 'LV-1' },
+      {},
+      { kind: 'receipt' },
+      null,
+      false,
+    )
+    assert.equal(posted.kind, '请假申请')
+    assert.equal(posted.action, '过审')
+    assert.equal(posted.recordNo, 'LV-1')
   })
 
   test('captureLookupBind keeps where, hop, and original speech', () => {

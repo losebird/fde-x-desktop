@@ -10,13 +10,18 @@ import clsx from 'clsx'
 import { useParams } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { runtimeApi } from '@/lib/runtime-api'
-import { openRef, revealAi } from '@/lib/open-ref'
+import { openRef, revealAi, type OpenRefHref } from '@/lib/open-ref'
+import { mentionRowsFromSheets, mentionsInText, uniqueMentions, type MentionRow } from '@/lib/origin-href'
+import { listBizKindListSnapshots } from '@/lib/biz-kind-list-cache'
+import { listRememberedSurfaceSheets } from '@/lib/biz-surface-cache'
+import { peekBizPendingSheet } from '@/lib/biz-session-sheet'
 import { isPrimarySession, loadCurrentAiTarget, loadCurrentWorkspaceCwd, sessionMatchesCwd } from '@/lib/ai-target'
-import { dmTalkId, imBrowseForVisibleTalk, imPaneOpen, incomingUnread, letterHome, localCwdSet, mailOnLane, normalizeCwd, topicTalkId, unreadOfRoster, unreadOfTalk } from '@/lib/im-letter-home'
+import { dmTalkId, followLetter, imBrowseForVisibleTalk, imPaneOpen, incomingUnread, letterHome, localCwdSet, mailOnLane, normalizeCwd, topicTalkId, unreadOfRoster, unreadOfTalk } from '@/lib/im-letter-home'
 import { pullImMailbox, stampImMailboxRead, startImMailbox, useImMailbox } from '@/lib/im-mailbox'
 import { IM_AVATARS, imAvatar } from '@/lib/im-avatar'
 import { buildImAiPrompt, extractComposerBody, isUnsafeToSend, lastIncomingText, threadExcerpt } from '@/lib/im-ai'
 import { buildContextPack, renderContextForPrompt, type ContextPack } from '@/lib/context-pack'
+import { submitCurrentTurn } from '@/lib/current-turn'
 import { ContextChips } from '@/components/ai/ContextChips'
 import type {
   ChatThread, FileNode, IMAIAction, IMAttachment, IMContact, IMHandoffPackage, IMMessage,
@@ -31,6 +36,36 @@ function withdrawnOf(row: Record<string, unknown>, to: string, outgoing: boolean
 
 function peerStampMap(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function MentionBody({ text, evidence, mine }: { text: string; evidence: MentionRow[]; mine?: boolean }) {
+  const parts = mentionsInText(text, evidence)
+  if (parts.length === 1 && !parts[0].mention) return <>{text}</>
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (!part.mention) return <span key={index}>{part.text}</span>
+        return (
+          <button
+            key={index}
+            type="button"
+            className={clsx('underline underline-offset-2', mine ? 'text-white' : 'text-brand')}
+            onClick={(event) => {
+              event.stopPropagation()
+              openRef({
+                panel: 'data',
+                tab: 'records',
+                kind: part.mention?.kind,
+                rowId: part.mention?.no,
+              } as OpenRefHref)
+            }}
+          >
+            {part.text}
+          </button>
+        )
+      })}
+    </>
+  )
 }
 
 function pendingPeerIdsOf(row: Record<string, unknown>): string[] {
@@ -519,7 +554,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const [ctxPack, setCtxPack] = useState<ContextPack | null>(null)
   const [ctxWarnings, setCtxWarnings] = useState<string[]>([])
   const [ctxOmit, setCtxOmit] = useState<Set<string>>(() => new Set())
-  const lastImPromptBodyRef = useRef('')
+  const [mentionEvidence, setMentionEvidence] = useState<MentionRow[]>([])
   const [imBanner, setImBanner] = useState<{ kind: 'working' | 'ok' | 'err'; text: string } | null>(null)
   const [translations, setTranslations] = useState<Record<string, string>>({})
   const [selfName, setSelfName] = useState('本机')
@@ -544,6 +579,32 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const imFloating = useApp((s) => Boolean(s.floating.im))
   const imVisible = imPaneOpen(imPanelState, imFloating)
   const mailbox = useImMailbox()
+
+  useEffect(() => {
+    const folder = loadCurrentWorkspaceCwd()
+    if (!folder.ok) {
+      setMentionEvidence([])
+      return
+    }
+    let cancelled = false
+    const sheets = [
+      peekBizPendingSheet(),
+      ...listBizKindListSnapshots(folder.cwd).map((row) => row.sheet),
+      ...listRememberedSurfaceSheets(folder.cwd).map((row) => row.sheet),
+    ]
+    const fromSheets = mentionRowsFromSheets(sheets)
+    void runtimeApi.listBizTraces(80).then((data) => {
+      const rows = Array.isArray(data.rows) ? data.rows : []
+      const fromTraces = rows.map((row) => {
+        const rec = row && typeof row === 'object' ? row as Record<string, unknown> : {}
+        return { kind: String(rec.kind || ''), no: String(rec.no || rec.recordNo || '') }
+      })
+      if (!cancelled) setMentionEvidence(uniqueMentions([...fromTraces, ...fromSheets]))
+    }).catch(() => {
+      if (!cancelled) setMentionEvidence(uniqueMentions(fromSheets))
+    })
+    return () => { cancelled = true }
+  }, [activeWorkspaceId, mailbox.letterSeq])
   const [wsFiles, setWsFiles] = useState<FileNode[]>([])
   const [filesNote, setFilesNote] = useState('')
 
@@ -794,13 +855,37 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       setPairWait(wait && wait.displayName ? String(wait.displayName) : '')
       if (data.doorPort != null) setDoorPort(String(data.doorPort))
     }
+    return mapped
   }
 
-  const pullThread = (contact?: IMContact | null) => {
+  const occupyTalkLetter = (threadId: string, home: string, topicId?: string | null) => {
+    const browse = useApp.getState().imBrowse
+    const next = followLetter(browse, {
+      threadId,
+      topicId: topicId === undefined ? browse.topicId : topicId,
+      home,
+    })
+    if (next.threadId === browse.threadId && next.topicId === browse.topicId && next.lane === browse.lane) return
+    setImBrowse(next)
+  }
+
+  const pullThread = (contact?: IMContact | null, occupy = false) => {
     const row = contact ?? openContactRef.current
     if (!row) return Promise.resolve()
     const query = row.kind === 'topic-group' ? { groupId: row.id } : { peerId: row.id }
-    return runtimeApi.imThread(query).then(applyMailbox)
+    return runtimeApi.imThread(query).then((data) => {
+      const mapped = applyMailbox(data)
+      if (!occupy || !mapped) return
+      const browse = useApp.getState().imBrowse
+      if (browse.threadId !== row.id) return
+      const latest = mapped
+        .filter((item) => item.threadId === row.id)
+        .slice()
+        .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
+        .at(-1)
+      if (!latest) return
+      occupyTalkLetter(row.id, latest.home || '', browse.topicId)
+    })
   }
 
   useEffect(() => {
@@ -815,7 +900,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     if (!contact) return
     const key = mailbox.letterKey
     if (!key) return
-    if (key === '*' || key === contact.id) void pullThread(contact).catch(() => undefined)
+    if (key === '*' || key === contact.id) void pullThread(contact, true).catch(() => undefined)
   }, [mailbox.letterSeq, mailbox.letterKey])
 
   const [q, setQ] = useState('')
@@ -892,25 +977,36 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     setImBrowse({ threadId: activeContact?.id ?? rememberedThreadId, topicId: id })
   }
   useEffect(() => {
-    setImBrowse({ lane: 'workspace' })
-  }, [activeWorkspaceId, setImBrowse])
+    const browse = useApp.getState().imBrowse
+    const id = browse.threadId
+    if (!id) return
+    const homes = messages.filter((row) => row.threadId === id).map((row) => row.home)
+    const here = currentHome
+    const home = homes.some((item) => !normalizeCwd(item))
+      ? ''
+      : (homes.find((item) => normalizeCwd(item) === here) || homes.find((item) => Boolean(normalizeCwd(item))) || '')
+    occupyTalkLetter(id, home, browse.topicId)
+  }, [activeWorkspaceId])
   useEffect(() => {
     if (!imVisible) return
     if (liveContacts === null) return
-    const present = (id: string, forLane: 'workspace' | 'unassigned') => {
-      const contact = contacts.find((row) => row.id === id)
-      if (!contact) return false
-      if (onLane(contact, forLane)) return true
-      return !homesOf(id).map((home) => normalizeCwd(home)).some(Boolean)
-    }
-    const next = imBrowseForVisibleTalk(imBrowse, present)
+    const inRoster = (id: string) => contacts.some((row) => row.id === id)
+    const next = imBrowseForVisibleTalk(imBrowse, inRoster)
     if (next.threadId === imBrowse.threadId && next.topicId === imBrowse.topicId && next.lane === imBrowse.lane) return
     setImBrowse(next)
-  }, [imVisible, liveContacts, contacts, messages, currentHome, imBrowse, setImBrowse])
+  }, [imVisible, liveContacts, contacts, imBrowse, setImBrowse])
   openContactRef.current = activeContact
   useEffect(() => {
     void pullThread(activeContact)
   }, [activeContact?.id])
+  useEffect(() => {
+    const id = imBrowse.threadId
+    const topic = imBrowse.topicId
+    if (!id || !topic) return
+    const row = messages.find((item) => item.id === topic)
+    if (!row) return
+    occupyTalkLetter(id, row.home || '', topic)
+  }, [imBrowse.threadId, imBrowse.topicId, messages])
   const byTime = (a: IMMessage, b: IMMessage) => new Date(a.ts).getTime() - new Date(b.ts).getTime()
   const activeMsgs = messages.filter((m) => {
     if (m.threadId !== activeContact?.id || !inLane(m)) return false
@@ -933,6 +1029,50 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   }
   const unassignedUnread = mailbox.sheet.unassigned
   const latestKey = `${activeContact?.id || ''}:${selectedTopicId || ''}:${activeMsgs.at(-1)?.id || ''}:${activeMsgs.length}`
+  const incomingCue = lastIncomingText(allThreadMsgs.map((row) => ({
+    authorId: row.authorId,
+    fromName: row.fromName,
+    text: row.text,
+    recalledAt: row.recalledAt,
+    attachmentNames: (row.attachments || []).map((item) => item.name),
+  })), selfId)
+  useEffect(() => {
+    if (!activeContact || !imVisible) {
+      setCtxPack(null)
+      setCtxWarnings([])
+      setCtxOmit(new Set())
+      return
+    }
+    let cancelled = false
+    const turns = allThreadMsgs.map((row) => ({
+      authorId: row.authorId,
+      fromName: row.fromName,
+      text: row.text,
+      recalledAt: row.recalledAt,
+      attachmentNames: (row.attachments || []).map((item) => item.name),
+    }))
+    const thread = threadExcerpt(turns, selfId, activeContact.name)
+    void buildContextPack({
+      scopes: ['workspace', 'im', 'memory'],
+      query: incomingCue || thread,
+      intentKind: 'draft',
+      entity: {
+        kind: 'im',
+        ref: activeContact.id,
+        fields: { peer: activeContact.name, excerpt: incomingCue },
+      },
+    }).then((packed) => {
+      if (cancelled) return
+      setCtxPack(packed.pack)
+      setCtxWarnings(packed.warnings)
+      setCtxOmit(new Set())
+    }).catch(() => {
+      if (cancelled) return
+      setCtxPack(null)
+      setCtxWarnings(['memory_engine_not_ready'])
+    })
+    return () => { cancelled = true }
+  }, [activeContact?.id, imVisible, selfId, incomingCue, allThreadMsgs.length])
 
   useEffect(() => {
     if (!activeContact) return
@@ -1188,6 +1328,10 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       if (pending && pending.threadId === activeContact.id && pending.text.trim() === text && toSend.length === 0 && !handoff) {
         const sent = await runtimeApi.imSend({ requestId: pending.id })
         if (sent && sent.ok === false) throw new Error(String(sent.hint || sent.error || '没发出去'))
+        const live = Array.isArray(sent.requests)
+          ? (sent.requests as Array<Record<string, unknown>>).find((row) => String(row.id || '') === pending.id)
+          : null
+        occupyTalkLetter(activeContact.id, live ? normalizeCwd(live.workspace) : '', selectedTopicId)
         await pullImMailbox()
         await pullThread(activeContact).catch(() => undefined)
         return
@@ -1267,8 +1411,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         handoff: handoff || undefined,
         home: sentHome,
       }])
-      const nextLane: 'workspace' | 'unassigned' = sentHome === currentHome ? 'workspace' : sentHome ? lane : 'unassigned'
-      setImBrowse({ threadId: activeContact.id, topicId: selectedTopicId, lane: nextLane })
+      occupyTalkLetter(activeContact.id, sentHome, selectedTopicId)
       await pullImMailbox()
       await pullThread(activeContact).catch(() => undefined)
     }).then(async () => {
@@ -1320,7 +1463,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         setAiHint('已放入当前会话输入框')
         return
       }
-      useApp.getState().setIMFillBind({ sessionId: target.sessionId, threadId: activeContact.id })
       if (action === 'draft') {
         const letter = [...allThreadMsgs].reverse().find((row) => {
           if (row.recalledAt) return false
@@ -1331,6 +1473,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           setAiHint('对面还没有来信，拟回要用对方发来的那条')
           return
         }
+        useApp.getState().setIMFillBind({ sessionId: target.sessionId, threadId: activeContact.id })
         const drafted = await runtimeApi.imDraft({
           requestId: letter.id,
           sessionId: target.sessionId,
@@ -1339,13 +1482,44 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         if (drafted && drafted.ok === false) {
           setAiHint(String(drafted.hint || drafted.error || '拟回走会话失败，改由当前会话输入'))
         } else if (drafted.followed || drafted.via === 'session') {
-          window.dispatchEvent(new CustomEvent('fde-x-ai-prompt', { detail: { text: '', sessionId: target.sessionId, fillThreadId: activeContact.id } }))
+          revealAi(target.sessionId)
           setAiHint('拟回已交给当前会话，写好后会放进输入框')
           return
         } else {
+          useApp.getState().setIMFillBind(null)
           const rawDraft = typeof drafted.draft === 'string' ? drafted.draft : ''
           const body = extractComposerBody(rawDraft) || rawDraft.trim()
           if (body) setComposer(body)
+          setAiHint('已放入输入框，确认后发送')
+          return
+        }
+      }
+      let pack = ctxPack
+      let omit = ctxOmit
+      if (action === 'precedent' || !pack) {
+        const memoryQuery = action === 'precedent'
+          ? (quote || incoming || thread)
+          : (incoming || quote || thread)
+        try {
+          const packed = await buildContextPack({
+            scopes: action === 'precedent' ? ['memory'] : ['workspace', 'im', 'memory'],
+            query: memoryQuery,
+            intentKind: action === 'precedent' ? 'lookup' : 'draft',
+            entity: {
+              kind: 'im',
+              ref: activeContact.id,
+              fields: { peer: activeContact.name, excerpt: incoming || quote },
+            },
+          })
+          pack = packed.pack
+          setCtxPack(packed.pack)
+          setCtxWarnings(packed.warnings)
+          if (action === 'precedent') {
+            omit = new Set()
+            setCtxOmit(omit)
+          }
+        } catch {
+          setCtxWarnings(['memory_engine_not_ready'])
         }
       }
       const built = buildImAiPrompt(action, {
@@ -1355,42 +1529,17 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         extra: action === 'precedent' || action === 'local' ? (quote || input) : '',
         workspace: target.cwd,
       })
-      const memoryQuery = action === 'precedent'
-        ? (quote || incoming || thread)
-        : (incoming || quote || thread)
-      const intentKind = action === 'precedent' ? 'lookup' : 'draft'
-      const scopes = action === 'precedent'
-        ? (['memory'] as const)
-        : (['workspace', 'im', 'memory'] as const)
-      let contextText = ''
-      try {
-        const packed = await buildContextPack({
-          scopes: [...scopes],
-          query: memoryQuery,
-          intentKind,
-          entity: {
-            kind: 'im',
-            ref: activeContact.id,
-            fields: { peer: activeContact.name, excerpt: incoming || quote },
-          },
-        })
-        setCtxPack(packed.pack)
-        setCtxWarnings(packed.warnings)
-        setCtxOmit(new Set())
-        contextText = renderContextForPrompt(packed.pack, new Set())
-      } catch {
-        setCtxPack(null)
-        setCtxWarnings(['memory_engine_not_ready'])
-      }
-      lastImPromptBodyRef.current = built.text
+      const contextText = pack ? renderContextForPrompt(pack, omit) : ''
       const promptText = [contextText, built.text].filter(Boolean).join('\n\n')
-      window.dispatchEvent(new CustomEvent('fde-x-ai-prompt', {
-        detail: {
-          text: promptText,
-          fillThreadId: activeContact.id,
-          sessionId: target.sessionId,
-        },
-      }))
+      const sent = await submitCurrentTurn({
+        text: promptText,
+        fillThreadId: activeContact.id,
+        sessionId: target.sessionId,
+      })
+      if (!sent.ok) {
+        setAiHint(sent.error)
+        return
+      }
       setAiHint(built.hint)
     })().catch((cause) => setAiHint(cause instanceof Error ? cause.message : '没发起'))
   }
@@ -1417,7 +1566,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         return pullImMailbox()
       })
       .then(() => {
-        setImBrowse({ lane: 'workspace', threadId: activeContact.id })
+        occupyTalkLetter(activeContact.id, currentHome, selectedTopicId)
         setAiHint('')
       })
       .catch((cause) => setAiHint(cause instanceof Error ? cause.message : '没归上'))
@@ -1469,7 +1618,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         break
       }
       if (!dests.length) dests = (message.handoff?.fileIds || []).map((id) => String(id || '')).filter(Boolean)
-      if (!sessions.length) throw new Error('交接包里没有 AI 会话文件（请确认发出时预览里已有 session.v3.jsonl.zstd）')
+      if (!sessions.length) throw new Error('交接包里没有 AI 会话文件')
       const workspace = loadCurrentWorkspaceCwd()
       if (!workspace.ok) throw new Error(workspace.error)
       let copyCount = 0
@@ -1864,7 +2013,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                             <div className="flex items-start gap-3">
                               <div className="flex-1 min-w-0">
                                 <div className="text-[11px] text-ink-muted mb-1">{isMe ? '我' : (m.fromName || contacts.find((c) => c.id === m.authorId)?.name || activeContact.name)} · {new Date(m.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</div>
-                                <div className="text-sm text-ink whitespace-pre-wrap">{m.text}</div>
+                                <div className="text-sm text-ink whitespace-pre-wrap"><MentionBody text={m.text} evidence={mentionEvidence} /></div>
                                 <div className="mt-2 text-xs text-brand">{followCount} 条跟帖 · 点开进话题</div>
                               </div>
                               {topicUnread > 0 && (
@@ -1882,7 +2031,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                         <div className="max-w-[76%]">
                           {!isMe && <div className="text-[10px] text-ink-muted mb-0.5">{isAssistant ? '助手' : author?.name ?? activeContact.name}</div>}
                           <div className={clsx('px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words', isMe ? 'bg-brand text-white' : isAssistant ? 'bg-amber-50 border border-amber-200 text-amber-900' : 'bg-surface-2 text-ink')}>
-                            {!m.recalledAt && m.text && !(m.attachments?.length && (/^附件\s+/u.test(m.text) || m.text === '（附件）' || m.attachments.every((att) => m.text.includes(att.name)))) && <div>{m.text}</div>}
+                            {!m.recalledAt && m.text && !(m.attachments?.length && (/^附件\s+/u.test(m.text) || m.text === '（附件）' || m.attachments.every((att) => m.text.includes(att.name)))) && <div><MentionBody text={m.text} evidence={mentionEvidence} mine={isMe} /></div>}
                             {m.attachments?.length ? <div className={clsx('mt-2 grid gap-1.5', m.text && !(/^附件\s+/u.test(m.text) || m.text === '（附件）' || m.attachments.every((att) => m.text.includes(att.name))) && 'pt-2 border-t')}>{m.attachments.map((att, index) => <button key={att.id} type="button" onClick={() => previewLetterAttach(m, att)} className={clsx('rounded text-left overflow-hidden', att.kind === 'image' ? '' : (isMe ? 'px-2 py-1.5 bg-white/12 hover:bg-white/20 flex items-center gap-2' : 'px-2 py-1.5 bg-white border border-line hover:border-brand flex items-center gap-2'))}>{att.kind === 'image' ? <LetterThumb requestId={m.id} index={letterIndexOf(att, index)} name={att.name} /> : <><span>{fileIcon(att.kind)}</span><span className="min-w-0 flex-1"><span className="block text-xs truncate">{att.name}</span><span className={clsx('block text-[9px]', isMe ? 'text-white/65' : 'text-ink-subtle')}>{att.size ? `${Math.max(1, Math.round(att.size / 1024))} KB` : '附件'}</span></span></>}</button>)}</div> : null}
                             {m.handoff && <div className={clsx('mt-2 rounded-lg overflow-hidden text-left', isMe ? 'bg-white text-ink' : 'bg-white border border-line')}><div className="px-3 py-2 bg-ink text-white flex items-center gap-2"><MessageSquareText size={14} /><div className="flex-1"><div className="text-xs font-semibold">{m.handoff.title}</div><div className="text-[9px] text-white/65">交接包 · {handoffSessionCount(m.handoff)} 个 Agent 会话 · {handoffPackSessionLine(m.handoff)}{m.handoff.fileIds.length ? ` · ${m.handoff.fileIds.length} 个工作区文件` : ''}</div></div></div><div className="p-3 text-xs whitespace-pre-wrap leading-5">{m.handoff.summary}</div><div className="px-3 pb-3 flex gap-2"><button onClick={() => previewHandoff(m.handoff!)} className="flex-1 px-2 py-1.5 rounded border border-line hover:bg-surface-2">打开详情</button><button onClick={() => continueHandoff(m)} className="flex-1 px-2 py-1.5 rounded bg-brand text-white flex items-center justify-center gap-1"><Play size={11} /> 接着做</button></div></div>}
                             {(m.translation || translations[m.id]) && <div className={clsx('mt-2 pt-2 border-t text-xs leading-5', isMe ? 'border-white/20 text-white/85' : 'border-line text-ink-muted')}><span className="text-[9px] uppercase tracking-wide opacity-70">English</span><div>{m.translation || translations[m.id]}</div></div>}
@@ -1943,17 +2092,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                               const next = new Set(prev)
                               if (next.has(key)) next.delete(key)
                               else next.add(key)
-                              if (ctxPack && lastImPromptBodyRef.current) {
-                                const contextText = renderContextForPrompt(ctxPack, next)
-                                const promptText = [contextText, lastImPromptBodyRef.current].filter(Boolean).join('\n\n')
-                                window.dispatchEvent(new CustomEvent('fde-x-ai-prompt', {
-                                  detail: {
-                                    text: promptText,
-                                    fillThreadId: activeContact?.id || '',
-                                    sessionId: useApp.getState().activeAiSessionId || '',
-                                  },
-                                }))
-                              }
                               return next
                             })
                           }}

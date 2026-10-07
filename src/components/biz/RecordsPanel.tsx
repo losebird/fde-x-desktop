@@ -23,7 +23,7 @@ import {
   type SheetRow,
 } from '@/lib/biz-sheet-display'
 import { ContextChips } from '@/components/ai/ContextChips'
-import { type ContextPack } from '@/lib/context-pack'
+import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { askWithEntity } from '@/lib/ask-origin'
 import { dataLandView } from '@/lib/data-browse'
@@ -411,7 +411,6 @@ function EditableSheetCell({
 }
 
 let lastConsumedLand = 0
-let lastRowLand = 0
 
 export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarget }: Props) {
   const activeAiSessionId = useApp((state) => state.activeAiSessionId)
@@ -491,6 +490,36 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
   }, [activeAiSessionId])
   const showRecordsBack = Boolean(listRestore)
   const bizCwd = workspaceCwd || activeWorkspaceCwd
+
+  useEffect(() => {
+    if (!selectedRow) {
+      setContextPack(null)
+      setContextWarnings([])
+      return
+    }
+    let cancelled = false
+    const title = String(selectedRow.标题 || selectedRow.title || selectedRow.name || kind || '')
+    setOmit(new Set())
+    void buildContextPack({
+      scopes: ['workspace', 'biz', 'memory'],
+      query: title.slice(0, 80),
+      entity: {
+        kind,
+        ref: title || kind,
+        fields: selectedRow,
+      },
+      intentKind: 'lookup',
+    }).then((packed) => {
+      if (cancelled) return
+      setContextPack(packed.pack)
+      setContextWarnings(packed.warnings || [])
+    }).catch(() => {
+      if (cancelled) return
+      setContextPack(null)
+      setContextWarnings([])
+    })
+    return () => { cancelled = true }
+  }, [selectedRow, kind])
 
   const connectorOptions = useMemo(
     () => connections.map((c) => ({ id: c.id, label: c.name })),
@@ -1327,11 +1356,12 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     action: string,
     extra: Record<string, unknown> & { originalRow?: SheetRow } = {},
   ) => {
-    if (!lanReady || !kind) return
+    const { originalRow, kind: kindOverride, ...payloadExtra } = extra
+    const previewKind = String(kindOverride || kind || '').trim()
+    if (!lanReady || !previewKind) return
     setLoading(true)
     setError('')
     setStaleHint('')
-    const { originalRow, ...payloadExtra } = extra
     try {
       const conn = connections.find((c) => c.id === connectionId)
       const system = conn?.provider || 'NocoBase'
@@ -1339,6 +1369,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       const bindSheet = (listSheetMeta && pendingSheet)
         ? { ...pendingSheet, ...listSheetMeta }
         : (listSheetMeta || pendingSheet)
+      const instanceNo = String(payloadExtra.no || '').trim()
       const waitingPick = Boolean(
         bindSheet
         && (bindSheet.ambiguous === true || bindSheet.listed === true)
@@ -1346,7 +1377,8 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         && !sheetPreviewId(bindSheet)
         && !isBizListQueryAction(String(bindSheet.action || ''))
         && action !== '新建'
-        && !isBizListQueryAction(action),
+        && !isBizListQueryAction(action)
+        && !instanceNo,
       )
       const previewAction = waitingPick
         ? (String(bindSheet.action || '').trim() || action)
@@ -1376,7 +1408,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         previewBody = { ...payloadExtra, input: pickFilledSheetInput((payloadExtra.input || {}) as Record<string, unknown>) }
       }
       const hopBind: Record<string, unknown> = {}
-      if (bindSheet && typeof bindSheet === 'object') {
+      if (bindSheet && typeof bindSheet === 'object' && !instanceNo) {
         const boundSpeech = String(bindSheet.speech || '').trim()
         if (boundSpeech) hopBind.speech = boundSpeech
         if (bindSheet.from && typeof bindSheet.from === 'object' && !Array.isArray(bindSheet.from)) {
@@ -1395,13 +1427,13 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         }
       }
       const data = await runtimeApi.bizPreview({
-        kind,
+        kind: previewKind,
         action: previewAction,
         system,
         connectionId,
         speech: waitingPick
-          ? String(bindSheet.speech || hopBind.speech || `${previewAction}${kind}`)
-          : `${previewAction}${kind}`,
+          ? String(bindSheet.speech || hopBind.speech || `${previewAction}${previewKind}`)
+          : `${previewAction}${previewKind}`,
         ...(liveSid ? { sessionId: liveSid } : {}),
         ...hopBind,
         ...previewBody,
@@ -1726,34 +1758,37 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     if (!dataLand || dataLand === lastConsumedLand) return
     if (dataLandView() !== 'records') {
       lastConsumedLand = dataLand
-      lastRowLand = dataLand
       return
     }
+    const wantedKind = String(landKind || '').trim()
+    const wantedNo = String(landRowId || '').trim()
+    if (drawer) return
+    if (peekActivePending() && !(wantedKind && wantedNo)) return
     lastConsumedLand = dataLand
-    if (peekActivePending() || drawer) {
-      lastRowLand = dataLand
+    if (wantedKind && wantedNo) {
+      const catalog = kindRowsFromVocab(vocab)
+      const canonical = resolveConnectedKind(wantedKind, catalog) || wantedKind
+      const row = catalog.find((item) => item.kind === canonical)
+      const conn = String(row?.connection || '').trim()
+      if (conn && conn !== 'lookup') setConnectionId(conn)
+      setKind(canonical)
+      void runPreview('现查', { kind: canonical, no: wantedNo })
       return
     }
-    const wanted = String(landKind || '').trim()
-    if (wanted && wanted !== kind) selectKind(wanted)
-  }, [dataLand, dataView, landKind, kind, drawer, peekActivePending, selectKind])
+    if (wantedKind && wantedKind !== kind) selectKind(wantedKind)
+  }, [dataLand, dataView, landKind, landRowId, kind, drawer, peekActivePending, selectKind, runPreview, vocab])
 
   useEffect(() => {
     if (dataView !== 'records') return
-    if (!dataLand || dataLand !== lastConsumedLand || dataLand === lastRowLand) return
     if (peekActivePending() || drawer) return
     const wanted = String(landRowId || '').trim()
-    if (!wanted) {
-      lastRowLand = dataLand
-      return
-    }
+    if (!wanted) return
     const hitIndex = rows.findIndex((row) => sheetRowBusinessNo(row) === wanted || String(row.id || '') === wanted)
     if (hitIndex < 0) return
     const hit = rows[hitIndex]
-    lastRowLand = dataLand
     setSelectedRow(hit)
     setSelectedRowKey(sheetRowRenderKey(hit, hitIndex, sheetIdentity))
-  }, [rows, landRowId, dataLand, dataView, sheetIdentity, drawer, peekActivePending])
+  }, [rows, landRowId, dataView, sheetIdentity, drawer, peekActivePending])
 
   const tableRows = rows
 
@@ -1993,6 +2028,9 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       },
       tail: `请结合上述来源实体协助我（型：${kind}）。${skillLine}`,
       scopes: ['workspace', 'biz', 'memory'],
+      omit,
+      pack: contextPack || undefined,
+      warnings: contextWarnings,
       revealAi: false,
     })
     if (!result.ok) {

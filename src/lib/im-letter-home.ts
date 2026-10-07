@@ -220,15 +220,38 @@ export function imBrowseOccupancy(browse: ImBrowse | null | undefined): ImBrowse
   return { threadId, topicId, lane }
 }
 
-/** Occupancy of a visible IM pane. Missing talk on this lane becomes an empty list. Hidden panes keep occupancy. */
+/** Occupancy of a visible IM pane. Talk stays while it is still on the roster. Lane mismatch is an empty list, not a closed talk. Hidden panes keep occupancy. */
 export function imBrowseForVisibleTalk(
   browse: ImBrowse | null | undefined,
-  present: ((threadId: string, lane: ImBrowse['lane']) => boolean) | null | undefined,
+  inRoster: ((threadId: string) => boolean) | null | undefined,
 ): ImBrowse {
   const next = imBrowseOccupancy(browse)
   if (!next.threadId) return { threadId: null, topicId: null, lane: next.lane }
-  if (typeof present === 'function' && !present(next.threadId, next.lane)) {
+  if (typeof inRoster === 'function' && !inRoster(next.threadId)) {
     return { threadId: null, topicId: null, lane: next.lane }
   }
   return next
+}
+
+/** Lane follows this letter's home: empty home is 未分; any stored home is the workspace lane. */
+export function laneOfLetterHome(home?: string | null): ImBrowse['lane'] {
+  return normalizeCwd(home) ? 'workspace' : 'unassigned'
+}
+
+/** Keep the open talk and move lane with a landed letter. */
+export function followLetter(
+  browse: ImBrowse | null | undefined,
+  input: { threadId: string; topicId?: string | null; home?: string | null },
+): ImBrowse {
+  const threadId = String(input.threadId || '').trim()
+  if (!threadId) return imBrowseOccupancy(browse)
+  const prev = imBrowseOccupancy(browse)
+  const topicId = input.topicId === undefined
+    ? (prev.threadId === threadId ? prev.topicId : null)
+    : (input.topicId ? String(input.topicId) : null)
+  return imBrowseOccupancy({
+    threadId,
+    topicId,
+    lane: laneOfLetterHome(input.home),
+  })
 }

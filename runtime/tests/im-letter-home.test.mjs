@@ -22,6 +22,8 @@ import {
   imUnreadMouth,
   imBrowseOccupancy,
   imBrowseForVisibleTalk,
+  followLetter,
+  laneOfLetterHome,
 } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
 
 const a = '/Users/zxz/ws-a'
@@ -315,7 +317,7 @@ describe('im letter home', () => {
     assert.equal(imUnreadMouth(split, false, ''), 1)
   })
 
-  test('occupancy keeps the talk; missing talk on this lane becomes an empty list', () => {
+  test('occupancy keeps the talk; missing roster id closes it; lane mismatch does not', () => {
     const open = { threadId: 'g_1', topicId: 'req_root', lane: 'workspace' }
     assert.deepEqual(imBrowseOccupancy(open), open)
     assert.deepEqual(imBrowseForVisibleTalk(open, () => true), open)
@@ -329,6 +331,27 @@ describe('im letter home', () => {
       threadId: null,
       topicId: null,
       lane: 'workspace',
+    })
+  })
+
+  test('followLetter keeps the talk and lanes empty home to unassigned', () => {
+    assert.equal(laneOfLetterHome(''), 'unassigned')
+    assert.equal(laneOfLetterHome(a), 'workspace')
+    const open = { threadId: 'p1', topicId: 't1', lane: 'workspace' }
+    assert.deepEqual(followLetter(open, { threadId: 'p1', home: '' }), {
+      threadId: 'p1',
+      topicId: 't1',
+      lane: 'unassigned',
+    })
+    assert.deepEqual(followLetter(open, { threadId: 'p1', home: a }), {
+      threadId: 'p1',
+      topicId: 't1',
+      lane: 'workspace',
+    })
+    assert.deepEqual(followLetter(open, { threadId: 'p2', home: '', topicId: null }), {
+      threadId: 'p2',
+      topicId: null,
+      lane: 'unassigned',
     })
   })
 })

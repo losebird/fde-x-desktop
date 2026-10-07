@@ -98,7 +98,9 @@ test('biz corpus returns noted original speech, never JSON dump', async () => {
   assert.equal(body.text, '把那一行状态改回去')
   assert.equal(body.text.includes('{'), false)
   assert.equal(body.href.panel, 'data')
-  assert.equal(body.href.tab, 'operations')
+  assert.equal(body.href.tab, 'records')
+  assert.equal(body.href.kind, '项目任务')
+  assert.equal(body.href.rowId, 'row_pk_9')
   assert.equal(body.href.traceId, 'trace_origin_speech')
 })
 

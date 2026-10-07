@@ -11,6 +11,7 @@ import {
   type FdeAppSpec,
   type FdePlatformUse,
 } from '@/lib/app-spec'
+import { submitCurrentTurn } from '@/lib/current-turn'
 import { runtimeApi, type MemoryDraftCard } from '@/lib/runtime-api'
 import { toAppFloatingKey, useApp } from '@/store/app'
 
@@ -206,9 +207,12 @@ export async function runDeclaredPlatformUse(
     window.dispatchEvent(new CustomEvent('fde-x-ai-open', {
       detail: { sessionId: created.sessionId, title },
     }))
-    await runtimeApi.promptAi(created.sessionId, {
+    const sent = await submitCurrentTurn({
       text: `我正在用应用「${spec.name}」。${spec.description || ''}请根据这个应用里已有的记录帮我。不要写外部业务系统。`,
+      sessionId: created.sessionId,
+      reveal: false,
     })
+    if (!sent.ok) throw new Error(sent.error)
     return '已打开 AI 会话'
   }
   if (use === 'float') {

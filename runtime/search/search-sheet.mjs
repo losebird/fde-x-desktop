@@ -7,7 +7,8 @@ import { join } from 'node:path'
 import { letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
 import { listWorkspaces } from '../db.mjs'
 import { collectBag } from '../catalog-collect.mjs'
-import { classifyHitId, hitId, originOfCard, sessionIdOf } from '../memory/identity.mjs'
+import { classifyHitId, hitId, instanceOriginOf, originOfCard, sessionIdOf } from '../memory/identity.mjs'
+import { imHrefFromRequest, originHref } from '../memory/origin-href.mjs'
 import { KIND_CAP, KIND_ORDER, PAGE_CATALOG } from '../host-catalog.mjs'
 
 export { KIND_CAP, KIND_ORDER, PAGE_CATALOG }
@@ -104,15 +105,6 @@ function letterText(req) {
   for (const row of Array.isArray(req.replies) ? req.replies : []) parts.push(row && row.body)
   for (const row of Array.isArray(req.messages) ? req.messages : []) parts.push(row && (row.body || row.text))
   return parts.filter(Boolean).join('\n')
-}
-
-function letterPeerId(req, selfId) {
-  if (!req || req.groupId) return ''
-  const self = String(selfId || '')
-  const from = String(req.from || '')
-  if (from && from !== self) return from
-  const to = Array.isArray(req.to) ? req.to.map(String) : []
-  return to.find((id) => id && id !== self) || to[0] || ''
 }
 
 function workspaceCwdOf(row) {
@@ -348,20 +340,13 @@ export function searchSheet(bags = {}) {
       if (home && home !== cwd) continue
       const text = letterText(req)
       if (!matches(text, q) && !matches(req.fromName, q)) continue
-      const groupId = String(req.groupId || '')
-      const peerId = letterPeerId(req, selfId)
       const snippet = String(req.excerpt || req.last || req.body || text).replace(/\s+/gu, ' ').trim()
       put(bag, {
         kind: 'letter',
         id,
         title: snippet.slice(0, 40) || String(req.fromName || id),
         hint: String(req.fromName || ''),
-        href: {
-          panel: 'im',
-          requestId: id,
-          ...(peerId ? { peerId } : {}),
-          ...(groupId ? { groupId } : {}),
-        },
+        href: imHrefFromRequest(req, selfId) || { panel: 'im', requestId: id },
         score: scoreText(text, q),
       })
     }
@@ -420,10 +405,23 @@ export function searchSheet(bags = {}) {
       if (sessionIdFromFind(row)) continue
       const id = hitId(row)
       if (!id) continue
+      const snippet = findSnippet(row).replace(/\s+/gu, ' ').trim()
+      if (instanceOriginOf(id)) {
+        const href = originHref(id, { db: bags.db, mailbox: bags.mailbox }) || classifyHitId(id).href
+        const title = snippet.slice(0, 40) || String(row.title || row.then || id)
+        put(bag, {
+          kind: 'memory',
+          id,
+          title,
+          hint: String(row.title || row.then || ''),
+          href: { ...href },
+          score: scoreText(`${title}\n${snippet}`, q),
+        })
+        continue
+      }
       const cardId = originToCard.get(id)
       const classified = classifyHitId(cardId || id)
       const landId = classified.cardId || classified.originId || classified.id
-      const snippet = findSnippet(row).replace(/\s+/gu, ' ').trim()
       const title = snippet.slice(0, 40) || String(row.title || row.then || landId)
       put(bag, {
         kind: 'memory',
@@ -621,5 +619,6 @@ export async function loadSearchSheet(deps, input) {
     skills,
     mcp,
     localCwds,
+    db,
   })
 }

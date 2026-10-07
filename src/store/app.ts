@@ -142,8 +142,8 @@ interface UIState {
   openIMPanel: (threadId?: ID) => void
   imComposerDrafts: Record<ID, string>
   setIMComposerDraft: (threadId: ID, text: string) => void
-  imFillBind: { sessionId: string; threadId: ID } | null
-  setIMFillBind: (bind: { sessionId: string; threadId: ID } | null) => void
+  imFillBind: { sessionId: string; threadId: ID; requestId?: string } | null
+  setIMFillBind: (bind: { sessionId: string; threadId: ID; requestId?: string } | null) => void
 
   // AI 抽屉当前 Agent(null = 当前工作区还没有 Agent)
   activeAgentId: ID | null

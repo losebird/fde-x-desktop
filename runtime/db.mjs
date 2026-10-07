@@ -784,6 +784,34 @@ function mapBizWriteAuditRow(row) {
   }
 }
 
+export function upsertMemoryWriteLog(db, { origin, cardId, writtenAt }) {
+  const ref = String(origin || '').trim()
+  const id = String(cardId || '').trim()
+  if (!ref || !id) return false
+  db.prepare(`
+    INSERT INTO memory_write_log (ref, card_id, written_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(ref) DO UPDATE SET
+      card_id = excluded.card_id,
+      written_at = excluded.written_at
+  `).run(ref, id, Number(writtenAt || Date.now()))
+  return true
+}
+
+export function memoryWriteOriginByCardIds(db, ids) {
+  const map = new Map()
+  const list = [...new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean))]
+  if (!list.length) return map
+  const placeholders = list.map(() => '?').join(',')
+  const rows = db.prepare(`SELECT ref, card_id FROM memory_write_log WHERE card_id IN (${placeholders})`).all(...list)
+  for (const row of rows) {
+    const cardId = String(row.card_id || '').trim()
+    const origin = String(row.ref || '').trim()
+    if (cardId && origin) map.set(cardId, origin)
+  }
+  return map
+}
+
 export function getBizWriteAuditByTraceId(db, traceId) {
   const row = db.prepare(`
     SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, lookup_bind_json, written_at, rollback_state

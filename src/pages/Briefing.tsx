@@ -17,6 +17,8 @@ import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { BriefingSettingsDrawer } from '@/components/briefing/BriefingSettingsDrawer'
 import { PageTitle, SectionTitle, Card, Stat, Tag } from '@/components/ui'
 import clsx from 'clsx'
+import { ContextChips } from '@/components/ai/ContextChips'
+import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 
 function fmtTime(iso: string) {
   const d = new Date(iso)
@@ -73,6 +75,9 @@ export default function Briefing() {
   const [definition, setDefinition] = useState<BriefingDefinition | null>(null)
   const [briefing, setBriefing] = useState<BriefingSnapshot | null>(null)
   const [running, setRunning] = useState(false)
+  const [ctxPack, setCtxPack] = useState<ContextPack | null>(null)
+  const [ctxWarnings, setCtxWarnings] = useState<string[]>([])
+  const [ctxOmit, setCtxOmit] = useState<Set<string>>(() => new Set())
   const wsRef = useRef(ws?.id)
   useEffect(() => {
     if (wsRef.current === ws?.id) return
@@ -98,6 +103,30 @@ export default function Briefing() {
   useEffect(() => {
     refresh(true)
   }, [refresh, ws?.id])
+
+  useEffect(() => {
+    let cancelled = false
+    const folder = loadCurrentWorkspaceCwd()
+    if (!folder.ok) {
+      setCtxPack(null)
+      setCtxWarnings([])
+      return
+    }
+    void buildContextPack({
+      scopes: ['workspace'],
+      query: '早报',
+      intentKind: 'lookup',
+    }).then((packed) => {
+      if (cancelled) return
+      setCtxPack(packed.pack)
+      setCtxWarnings(packed.warnings || [])
+    }).catch(() => {
+      if (cancelled) return
+      setCtxPack(null)
+      setCtxWarnings([])
+    })
+    return () => { cancelled = true }
+  }, [ws?.id])
 
   useEvents(['briefing.ready'], () => {
     refresh(false)
@@ -131,7 +160,11 @@ export default function Briefing() {
     setAiNote('')
     void currentAiTarget().then((target) => {
       if (!target.ok) throw new Error(target.error)
-      return runtimeApi.runBriefing('full', { sessionId: target.sessionId, workspaceCwd: target.cwd })
+      return runtimeApi.runBriefing('full', {
+        sessionId: target.sessionId,
+        workspaceCwd: target.cwd,
+        omit: [...ctxOmit],
+      })
     }).then((data) => {
       setBriefing(data.briefing)
       refresh(false)
@@ -178,6 +211,17 @@ export default function Briefing() {
               {running ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
               生成新早报
             </button>
+            <ContextChips
+              pack={ctxPack}
+              warnings={ctxWarnings}
+              omit={ctxOmit}
+              onToggleOmit={(key) => setCtxOmit((prev) => {
+                const next = new Set(prev)
+                if (next.has(key)) next.delete(key)
+                else next.add(key)
+                return next
+              })}
+            />
           </>
         }
       />

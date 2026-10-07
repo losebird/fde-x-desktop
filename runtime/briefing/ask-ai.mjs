@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { buildContextPack } from '../context-pack.mjs'
+import { buildContextPack, renderContextForPrompt } from '../context-pack.mjs'
 import { listSessionProjectedToolNames } from '../routes/mcp.mjs'
 import { harvestTurnToolResults } from './tool-official.mjs'
 
@@ -23,6 +23,7 @@ export async function runBriefingAgent(deps, {
   internalSections,
   timeoutMs = 180_000,
   projectWaitMs = 8000,
+  omit,
 }) {
   const { db, aiRuntime } = deps
   if (!aiRuntime?.status?.().connected) {
@@ -75,7 +76,10 @@ export async function runBriefingAgent(deps, {
       query: '早报',
       intentKind: 'lookup',
     })
-    contextText = JSON.stringify(packed.pack).slice(0, 4000)
+    const omitSet = omit instanceof Set
+      ? omit
+      : new Set(Array.isArray(omit) ? omit.map((key) => String(key)).filter(Boolean) : [])
+    contextText = renderContextForPrompt(packed.pack, omitSet)
   } catch (error) {
     console.warn('briefing_agent_context_failed', error)
   }

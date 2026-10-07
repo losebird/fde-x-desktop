@@ -1,4 +1,5 @@
 import { emit } from '../events.mjs'
+import { upsertMemoryWriteLog } from '../db.mjs'
 import { looksLikeJsonDump } from '../biz/session-origin-text.mjs'
 import { loadOrigin } from '../routes/corpus.mjs'
 import { asDraftCard, draftMemoryCardInsert } from './cards.mjs'
@@ -92,6 +93,13 @@ export async function draftCard(deps, input = {}) {
     const cardId = insert.args.id
     const duplicate = Boolean(drafted && drafted.status === 'exists')
     emit('memory.card.drafted', { origin, cardId }, { workspaceCwd: cwd || null, source: 'memory-writer' })
+    if (origin && cardId && deps.db) {
+      try {
+        upsertMemoryWriteLog(deps.db, { origin, cardId })
+      } catch (error) {
+        console.warn('memory_write_log_failed', origin, cardId, error)
+      }
+    }
     if (origin && !duplicate) {
       await indexPassage(deps, { cwd, id: origin, text: indexText || label })
     }

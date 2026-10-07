@@ -60,6 +60,7 @@ import {
   listOperations,
   listPendingEvents,
   listWorkspaces,
+  memoryWriteOriginByCardIds,
   openDatabase,
 } from './db.mjs'
 import { inspectAdapters } from './adapters.mjs'
@@ -1938,6 +1939,12 @@ const server = createServer(async (request, response) => {
           details: { dshWorkspaceId: workspaceId, cwd },
         })
       } catch { /* 审计失败不能把已创建的会话打成失败 */ }
+      if (session?.sessionId) {
+        emit('ai.session.changed', { sessionId: session.sessionId, kind: 'created' }, {
+          workspaceCwd: cwd || null,
+          sessionId: session.sessionId,
+        })
+      }
       sendJson(response, 201, { data: session, correlationId: currentCorrelationId })
       return
     }
@@ -2006,12 +2013,17 @@ const server = createServer(async (request, response) => {
         return
       }
       for (const row of restored) {
-        if (!row.title || row.title === row.sessionId) continue
-        try {
-          await aiRuntime.call('session/rename', { request: { sessionId: row.sessionId, title: row.title } })
-        } catch (error) {
-          warnings.push(`会话 ${row.sessionId} 标题没改成功：${error instanceof Error ? error.message : String(error)}`)
+        if (row.title && row.title !== row.sessionId) {
+          try {
+            await aiRuntime.call('session/rename', { request: { sessionId: row.sessionId, title: row.title } })
+          } catch (error) {
+            warnings.push(`会话 ${row.sessionId} 标题没改成功：${error instanceof Error ? error.message : String(error)}`)
+          }
         }
+        emit('ai.session.changed', { sessionId: row.sessionId, title: row.title, kind: 'restored' }, {
+          workspaceCwd: cwd || null,
+          sessionId: row.sessionId,
+        })
       }
       sendJson(response, 200, { data: { sessions: restored, ...(warnings.length ? { warnings } : {}) }, correlationId: currentCorrelationId })
       return
@@ -2032,9 +2044,11 @@ const server = createServer(async (request, response) => {
 
     const aiArchiveMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/archive$/)
     if (request.method === 'POST' && aiArchiveMatch) {
+      const archivedId = decodeURIComponent(aiArchiveMatch[1])
       const archived = await aiRuntime.call('workspace/archiveSession', {
-        request: { sessionId: decodeURIComponent(aiArchiveMatch[1]) },
+        request: { sessionId: archivedId },
       })
+      emit('ai.session.changed', { sessionId: archivedId, kind: 'deleted' }, { sessionId: archivedId })
       sendJson(response, 200, { data: archived, correlationId: currentCorrelationId })
       return
     }
@@ -2058,9 +2072,11 @@ const server = createServer(async (request, response) => {
         sendError(response, 400, 'validation_error', '会话名称不能为空', currentCorrelationId)
         return
       }
+      const renamedId = decodeURIComponent(aiRenameMatch[1])
       const renamed = await aiRuntime.call('session/rename', {
-        request: { sessionId: aiRenameMatch[1], title: body.title.trim() },
+        request: { sessionId: renamedId, title: body.title.trim() },
       })
+      emit('ai.session.changed', { sessionId: renamedId, title: body.title.trim(), kind: 'renamed' }, { sessionId: renamedId })
       sendJson(response, 200, { data: renamed, correlationId: currentCorrelationId })
       return
     }
@@ -2311,8 +2327,10 @@ const server = createServer(async (request, response) => {
         args: { include_filed: includeFiled, limit: 80 },
         ...(cwd ? { cwd } : {}),
       })
+      const listed = Array.isArray(result?.cards) ? result.cards : []
+      const originMap = memoryWriteOriginByCardIds(db, listed.map((card) => card && card.id))
       const cards = collapseCueCards(
-        (Array.isArray(result?.cards) ? result.cards : []).map((card) => attachCardOrigin(card)),
+        listed.map((card) => attachCardOrigin(card, originMap)),
       )
       sendJson(response, 200, { data: { ...result, cards }, correlationId: currentCorrelationId })
       return

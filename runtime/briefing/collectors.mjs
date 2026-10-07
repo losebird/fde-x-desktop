@@ -1,6 +1,7 @@
 import { computeStat } from '../apps/records.mjs'
 import { findActiveAppBySlug } from '../apps/repository.mjs'
 import { memoryLandHref } from '../memory/identity.mjs'
+import { imHrefFromRequest } from '../memory/origin-href.mjs'
 import { incomingUnread, letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
 import { workspaceRowIdForCwd } from './workspace.mjs'
 import { invokeBizSlot } from '../biz/invoke.mjs'
@@ -120,10 +121,11 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
       const here = normalizeCwd(workspaceCwd)
       const locals = localCwdSet(await dshWorkspaceCwds(aiRuntime, workspaceCwd))
       const unread = requests.filter((row) => incomingUnread(row) && letterHome(row, requests, locals) === here)
+      const selfId = String(state?.self?.id || '')
       const items = unread.slice(0, Number(params.limit) || 8).map((row) => ({
         text: String(row.body || row.excerpt || row.last || '').slice(0, 120),
         sub: String(row.fromName || row.from || ''),
-        href: { panel: 'im', requestId: String(row.id || '') },
+        href: imHrefFromRequest(row, selfId) || { panel: 'im', requestId: String(row.id || '') },
         ref: `im:${row.id}`,
       }))
       return baseSection(def, { items, stat: { value: unread.length, label: '未读' } })

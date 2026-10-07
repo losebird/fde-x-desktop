@@ -1,9 +1,9 @@
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { buildContextPack, renderContextForPrompt, type ContextScope } from '@/lib/context-pack'
+import { buildContextPack, renderContextForPrompt, type ContextPack, type ContextScope } from '@/lib/context-pack'
+import { submitCurrentTurn } from '@/lib/current-turn'
 import { waitForFdeEvent } from '@/lib/events'
 import { validateJsonSchemaLite, type JsonSchemaLite } from '@/lib/json-schema-lite'
 import { runtimeApi } from '@/lib/runtime-api'
-import { useApp } from '@/store/app'
 
 export type { ContextScope }
 
@@ -13,13 +13,16 @@ export type AskAiOptions = {
   schema?: JsonSchemaLite
   preset?: string
   context?: ContextScope[]
+  omit?: Set<string>
+  pack?: ContextPack
+  warnings?: string[]
   timeoutMs?: number
   title?: string
 }
 
 export type AskAiResult<T> =
-  | { ok: true; data: T; sessionId: string; summary?: string }
-  | { ok: false; error: string; sessionId?: string; raw?: unknown }
+  | { ok: true; data: T; sessionId: string; summary?: string; pack?: ContextPack; warnings?: string[] }
+  | { ok: false; error: string; sessionId?: string; raw?: unknown; pack?: ContextPack; warnings?: string[] }
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 
@@ -136,13 +139,19 @@ export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult
     ? '\n完成后用 fde_submit_result 提交符合给定 JSON Schema 的 JSON（kind=json）。'
     : ''
   let contextBlock = ''
+  let pack: ContextPack | undefined = opts.pack
+  let warnings: string[] = opts.warnings || []
   try {
-    const packed = await buildContextPack({
-      scopes,
-      query: opts.prompt,
-      intentKind: 'lookup',
-    })
-    contextBlock = renderContextForPrompt(packed.pack)
+    if (!pack) {
+      const packed = await buildContextPack({
+        scopes,
+        query: opts.prompt,
+        intentKind: 'lookup',
+      })
+      pack = packed.pack
+      warnings = packed.warnings || []
+    }
+    contextBlock = renderContextForPrompt(pack, opts.omit)
   } catch (cause) {
     console.warn('ask_ai_context_pack_failed', cause)
   }
@@ -154,11 +163,9 @@ export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult
     `完成后调用 fde_submit_result(requestId="${requestId}", kind="json", data=…)。${schemaHint}`,
   ].filter(Boolean).join('\n')
 
-  try {
-    await runtimeApi.promptAi(target.sessionId, { text: prompt })
-    useApp.getState().setActiveAiSessionId(target.sessionId)
-  } catch (cause) {
-    return { ok: false, error: cause instanceof Error ? cause.message : '发送 prompt 失败', sessionId: target.sessionId }
+  const sent = await submitCurrentTurn({ text: prompt, sessionId: target.sessionId })
+  if (!sent.ok) {
+    return { ok: false, error: sent.error, sessionId: target.sessionId, pack, warnings }
   }
 
   const ready = await waitForAiResultReady(requestId, timeoutMs)
@@ -168,18 +175,18 @@ export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult
       text: 'AI 没有提交结构化结果，可在 AI 页查看它说了什么',
       sessionId: target.sessionId,
     })
-    return { ok: false, error: 'timeout', sessionId: target.sessionId }
+    return { ok: false, error: 'timeout', sessionId: target.sessionId, pack, warnings }
   }
 
   const row = await runtimeApi.getAiResult(requestId)
   if (row.status !== 'ready' || row.data === undefined) {
-    return { ok: false, error: row.status === 'expired' ? 'expired' : 'no_result', sessionId: target.sessionId }
+    return { ok: false, error: row.status === 'expired' ? 'expired' : 'no_result', sessionId: target.sessionId, pack, warnings }
   }
 
   if (opts.schema) {
     const check = validateJsonSchemaLite(row.data, opts.schema)
     if (!check.ok) {
-      return { ok: false, error: 'schema_mismatch', sessionId: target.sessionId, raw: row.data }
+      return { ok: false, error: 'schema_mismatch', sessionId: target.sessionId, raw: row.data, pack, warnings }
     }
   }
 
@@ -188,5 +195,7 @@ export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult
     data: row.data as T,
     sessionId: target.sessionId,
     summary: row.summary,
+    pack,
+    warnings,
   }
 }

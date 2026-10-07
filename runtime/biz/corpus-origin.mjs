@@ -1,4 +1,5 @@
 import { getBizWriteAuditByTraceId } from '../db.mjs'
+import { originHref } from '../memory/origin-href.mjs'
 import { parseLookupBind } from './audit-lookup.mjs'
 import { looksLikeJsonDump, readSessionUserOrigin } from './session-origin-text.mjs'
 
@@ -58,11 +59,14 @@ function unreadableReason(audit, sessionId) {
  */
 export async function resolveBizCorpusOrigin(spec) {
   const traceId = String(spec?.traceId || '').trim()
-  const href = { panel: 'data', tab: 'operations', traceId }
   if (!traceId) {
-    return { ok: false, message: '缺少操作记录 id，读不出当时原文。', href }
+    return { ok: false, message: '缺少操作记录 id，读不出当时原文。', href: { panel: 'data', tab: 'records' } }
   }
   const audit = getBizWriteAuditByTraceId(spec.db, traceId)
+  const href = originHref(`biz:${traceId.startsWith('trace_') ? traceId : `trace_${traceId}`}`, {
+    db: spec.db,
+    audit,
+  }) || { panel: 'data', tab: 'records', traceId }
   const workspace = workspaceOf(spec.url, audit)
   const traceRow = await loadTraceRow(spec.aiRuntime, workspace, traceId)
   const sessionId = sessionIdOf(audit, traceRow)

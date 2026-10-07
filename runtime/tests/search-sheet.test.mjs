@@ -70,7 +70,7 @@ test('query classifies session titles and session: find rows as session, not mem
   assert.equal(memory[0].href.pane, 'explore')
 })
 
-test('memory hits land on archive; same-origin FAISS prefers the card', () => {
+test('origin find hits land on the source module', () => {
   const sheet = searchSheet({
     cwd: '/ws/a',
     query: '过账',
@@ -83,10 +83,13 @@ test('memory hits land on archive; same-origin FAISS prefers the card', () => {
     cards: [{ id: 'memory:ab12cd34', properties: { origin: 'biz:trace_1' } }],
   })
   const memory = sheet.hits.filter((hit) => hit.kind === 'memory')
-  assert.equal(memory.length, 1)
-  assert.equal(memory[0].id, 'memory:ab12cd34')
-  assert.equal(memory[0].href.pane, 'cards')
-  assert.equal(memory[0].href.cardId, 'memory:ab12cd34')
+  const origin = memory.find((hit) => hit.id === 'biz:trace_1')
+  const card = memory.find((hit) => hit.id === 'memory:ab12cd34')
+  assert.equal(origin.href.panel, 'data')
+  assert.equal(origin.href.tab, 'records')
+  assert.equal(origin.href.traceId, 'trace_1')
+  assert.equal(card.href.pane, 'cards')
+  assert.equal(card.href.cardId, 'memory:ab12cd34')
 })
 
 test('letter hits current home and unassigned; skips other cwd', () => {

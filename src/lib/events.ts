@@ -29,6 +29,7 @@ export const FDE_EVENT_TYPES_V1 = [
   'memory.card.drafted',
   'memory.engine.changed',
   'ai.result.ready',
+  'operation.executed',
 ] as const
 
 const SESSION_SINCE_KEY = 'fde-x-events-since'

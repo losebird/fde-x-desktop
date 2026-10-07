@@ -1759,8 +1759,9 @@ export class RuntimeApi {
     return result.data
   }
 
-  async runBriefing(mode: 'full' | 'internal-only' = 'full', opts?: { sessionId?: string; workspaceCwd?: string; signal?: AbortSignal }): Promise<{ briefingId: string; briefing: BriefingSnapshot }> {
+  async runBriefing(mode: 'full' | 'internal-only' = 'full', opts?: { sessionId?: string; workspaceCwd?: string; omit?: string[]; signal?: AbortSignal }): Promise<{ briefingId: string; briefing: BriefingSnapshot }> {
     const workspaceCwd = opts?.workspaceCwd && opts.workspaceCwd.startsWith('/') ? opts.workspaceCwd : currentWorkspaceCwd()
+    const omit = Array.isArray(opts?.omit) ? opts.omit.filter((key) => typeof key === 'string' && key) : []
     const result = await this.request<{ ok: true; data: { briefingId: string; briefing: BriefingSnapshot } }>('/api/v1/briefing/run', {
       method: 'POST',
       signal: opts?.signal,
@@ -1769,6 +1770,7 @@ export class RuntimeApi {
         mode,
         workspaceCwd,
         ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
+        ...(omit.length ? { omit } : {}),
       }),
     })
     return result.data
@@ -1839,13 +1841,32 @@ export class RuntimeApi {
     intentKind?: 'decision' | 'draft' | 'lookup'
     sessionId?: string
   }, signal?: AbortSignal): Promise<{ pack: Record<string, unknown>; warnings: string[] }> {
-    const result = await this.request<{ data: Record<string, unknown>; warnings?: string[] }>('/api/v1/context/pack', {
-      method: 'POST',
-      signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
-    })
-    return { pack: result.data, warnings: result.warnings ?? [] }
+    let response: Response
+    try {
+      response = await fetch(this.uiFetchUrl('/api/v1/context/pack'), {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      })
+    } catch (error) {
+      throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
+    }
+    const payload = await response.json().catch(() => ({})) as {
+      ok?: boolean
+      data?: Record<string, unknown>
+      warnings?: string[]
+      error?: string
+      message?: string
+    }
+    if (!response.ok || payload.ok === false) {
+      throw new RuntimeApiError(
+        response.status,
+        String(payload.error || 'runtime_error'),
+        String(payload.message || `请求失败 (${response.status})`),
+      )
+    }
+    return { pack: payload.data || {}, warnings: payload.warnings ?? [] }
   }
 
   async fetchCorpus(id: string, signal?: AbortSignal): Promise<{ ok: boolean; id: string; title?: string; text?: string; message?: string; href?: Record<string, unknown>; status?: string; origin?: string }> {

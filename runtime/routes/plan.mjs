@@ -137,8 +137,8 @@ function workspaceCwdForEmit(db, workspaceId) {
   }
 }
 
-function emitTaskChanged(db, { id, op, workspaceId }) {
-  emit('task.changed', { id, op }, { workspaceCwd: workspaceCwdForEmit(db, workspaceId) })
+function emitTaskChanged(db, { id, op, workspaceId, status, title }) {
+  emit('task.changed', { id, op, status, title }, { workspaceCwd: workspaceCwdForEmit(db, workspaceId) })
 }
 
 function workspaceExists(db, workspaceId) {
@@ -258,7 +258,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       VALUES (?, ?, ?, '', ?, ?, ?, ?, '{}', ?, ?, ?, ?)
     `).run(id, workspaceId, title, status, priority, dueAt, completedAt, sourceRef, JSON.stringify(tags), now, now)
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
-    emitTaskChanged(db, { id, op: 'insert', workspaceId })
+    emitTaskChanged(db, { id, op: 'insert', workspaceId, status: row.status, title: row.title })
     planOk(response, 201, mapTask(row), correlationId)
     return true
   }
@@ -315,7 +315,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const sets = keys.map((k) => `${k} = ?`).join(', ')
     db.prepare(`UPDATE tasks SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k]), now, id)
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
-    emitTaskChanged(db, { id, op: 'update', workspaceId: row.workspace_id })
+    emitTaskChanged(db, { id, op: 'update', workspaceId: row.workspace_id, status: row.status, title: row.title })
     planOk(response, 200, mapTask(row), correlationId)
     return true
   }
@@ -340,7 +340,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       return true
     }
     db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
-    emitTaskChanged(db, { id, op: 'delete', workspaceId: existing.workspace_id })
+    emitTaskChanged(db, { id, op: 'delete', workspaceId: existing.workspace_id, status: existing.status, title: existing.title })
     planOk(response, 200, { id }, correlationId)
     return true
   }

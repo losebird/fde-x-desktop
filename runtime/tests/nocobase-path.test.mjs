@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { captureWriteIdentity, identityFilterKeys, nocobasePath } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { captureWriteIdentity, createLookup, identityFilterKeys, nocobasePath } from '../vendor-overlays/dsh-lan-assist/lookup.js'
 
 const spec = {
   resource: 'biz_rows',
@@ -58,4 +58,64 @@ test('a long number does not invent a column the schema does not have', () => {
     { name: 'ticketNo', title: '单号', interface: 'input' },
   ], '371713140981787')
   assert.deepEqual(keys, ['ticketNo'])
+})
+
+test('a ticket look keeps 单号 columns and leaves schema identifiers off the filter', () => {
+  const keys = identityFilterKeys({ resource: 'biz_rows' }, [
+    { name: 'id', interface: 'snowflakeId' },
+    { name: 'requestNo', title: '申请编号', interface: 'input' },
+    { name: 'no', title: '单号', interface: 'input' },
+  ], 'AB-2026-017')
+  assert.deepEqual(keys, ['requestNo', 'no'])
+  const path = nocobasePath({ resource: 'biz_rows' }, 'AB-2026-017', '样例', [
+    { name: 'id', interface: 'snowflakeId' },
+    { name: 'requestNo', title: '申请编号', interface: 'input' },
+    { name: 'no', title: '单号', interface: 'input' },
+  ])
+  const filter = JSON.parse(decodeURIComponent(path.split('filter=')[1]))
+  const flat = JSON.stringify(filter)
+  assert.match(flat, /requestNo/)
+  assert.doesNotMatch(flat, /"id"/)
+})
+
+test('ticket filter LOOKUP rereads the same 单号 on the list mouth', async () => {
+  const urls = []
+  const lookup = createLookup({
+    fetchImpl: async (url) => {
+      const href = String(url)
+      urls.push(href)
+      if (href.includes('filter=')) {
+        return { ok: false, status: 400, json: async () => ({ error: 'bad filter' }) }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [
+            { id: '371', requestNo: 'AB-2026-017', no: 'AB-2026-017', status: 'open' },
+            { id: '372', requestNo: 'AB-2026-001', no: 'AB-2026-001', status: 'draft' },
+          ],
+        }),
+      }
+    },
+    resolve: async () => ({
+      baseUrl: 'http://example.test',
+      token: 't',
+      vocab: [{ kind: '样例', resource: 'biz_rows', fields: ['requestNo', 'no'] }],
+      collections: [{
+        name: 'biz_rows',
+        fields: [
+          { name: 'id', interface: 'snowflakeId' },
+          { name: 'requestNo', title: '申请编号', interface: 'input' },
+          { name: 'no', title: '单号', interface: 'input' },
+          { name: 'status', title: '状态', interface: 'select' },
+        ],
+      }],
+    }),
+  })
+  const found = await lookup.lookupTodo({ kind: '样例', no: 'AB-2026-017' })
+  assert.equal(found.ok, true)
+  assert.equal(found.no, 'AB-2026-017')
+  assert.ok(urls.some((url) => url.includes('filter=')))
+  assert.ok(urls.some((url) => url.includes(':list') && !url.includes('filter=')))
 })

@@ -1,7 +1,7 @@
 // 工作台主壳：AI 永久作为主工作区，IM 与业务能力统一从右侧功能面板打开。
 import { useEffect } from 'react'
 import { useEvents } from '@/lib/events'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { onBizSheetPending } from '@/lib/biz-records-auto-open'
 import { runtimeApi } from '@/lib/runtime-api'
@@ -127,6 +127,7 @@ export function IMScreen() {
       <ThumbnailStack />
       <CommandPalette />
       <FloatingPanel />
+      <Outlet />
     </div>
   )
 }

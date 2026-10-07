@@ -1,4 +1,5 @@
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
+import { emit } from '../events.mjs'
 import { applyMaterialize } from './materialize.mjs'
 import { withProductLayout } from './layout.mjs'
 import { detectBreakingSpecChange, quoteTable, tableNameForEntity, validateAppSpec } from './spec.mjs'
@@ -136,6 +137,7 @@ export function createAppDraft(db, input) {
     db.exec('ROLLBACK;')
     throw error
   }
+  emit('app.spec.submitted', { appId: id, revision: 1 }, { workspaceCwd: input.workspaceCwd || null })
   return { ok: true, data: { appId: id, revision: 1 } }
 }
 
@@ -186,13 +188,14 @@ export function putAppSpec(db, appId, input) {
     db.exec('ROLLBACK;')
     throw error
   }
+  emit('app.spec.submitted', { appId, revision: nextRevision }, { workspaceCwd: spec._workspaceCwd || null })
   return { kind: 'ok', data: { revision: nextRevision } }
 }
 
 /**
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {string} appId
- * @param {{ emit?: Function, correlationId?: string, actorId?: string }} hooks
+ * @param {{ correlationId?: string, actorId?: string }} [hooks]
  */
 export function activateApp(db, appId, hooks = {}) {
   const app = getAppById(db, appId)
@@ -251,11 +254,9 @@ export function activateApp(db, appId, hooks = {}) {
     throw error
   }
 
-  if (hooks.emit) {
-    hooks.emit('app.activated', { appId, slug: app.spec.slug }, {
-      workspaceCwd: app.spec._workspaceCwd,
-    })
-  }
+  emit('app.activated', { appId, slug: app.spec.slug }, {
+    workspaceCwd: app.spec._workspaceCwd || null,
+  })
   return { kind: 'ok', data: { status: 'active', applied } }
 }
 

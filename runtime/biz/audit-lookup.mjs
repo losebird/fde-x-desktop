@@ -72,8 +72,24 @@ export function parseLookupBind(audit) {
 export function auditRecordNo(sheet, body, written) {
   const fromSheet = String(sheet?.no || sheet?.clue || '').trim()
   const fromBody = String(body?.no || '').trim()
-  const fromWritten = String(written?.no || '').trim()
+  const fromWritten = String(written?.no || written?.recordNo || '').trim()
   return fromSheet || fromBody || fromWritten
+}
+
+/**
+ * One write identity for audit insert and biz.write.done.
+ * Rollback keeps the original vocab kind and 单号; action is 回退.
+ */
+export function writeAuditFields(sheet, body, written, original, rollback) {
+  const src = sheet && typeof sheet === 'object' ? sheet : {}
+  const payload = written && typeof written === 'object' ? written : {}
+  const prior = original && typeof original === 'object' ? original : {}
+  const kind = effectiveBizKind(src.kind, body?.kind, prior.kind)
+  const action = rollback
+    ? '回退'
+    : String(src.action || body?.action || payload.action || '')
+  const recordNo = auditRecordNo(src, body, payload) || String(prior.recordNo || '').trim()
+  return { kind, action, recordNo }
 }
 
 /** Row primary key stored on the write audit. Not the business code, not speech. */

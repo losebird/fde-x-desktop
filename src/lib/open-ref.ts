@@ -1,6 +1,9 @@
 import { openFilesAtPath } from '@/lib/app-platform'
 import { applyDataLand } from '@/lib/data-browse'
+import { revealAi } from '@/lib/reveal-ai'
 import { useApp } from '@/store/app'
+
+export { revealAi }
 
 export type OpenRefHref = {
   panel?: string
@@ -27,17 +30,6 @@ export type OpenRefHref = {
 }
 
 const PLAN_TABS = new Set(['todo', 'schedule', 'workflow'])
-
-export function revealAi(sessionId?: string, accessory?: string) {
-  const app = useApp.getState()
-  const memory = app.panels.find((panel) => panel.id === 'memory' || panel.view === 'memory')
-  if (memory && (memory.state === 'full' || memory.state === 'half')) {
-    app.togglePanel('memory', 'tab')
-  }
-  window.dispatchEvent(new CustomEvent('fde-x-ai-open', {
-    detail: { sessionId: String(sessionId || ''), accessory: String(accessory || '') },
-  }))
-}
 
 export function landRef(kind: string, extra: OpenRefHref = {}) {
   const key = String(kind || extra.kind || '').trim()
@@ -91,15 +83,20 @@ export function openRef(href: OpenRefHref) {
     return
   }
   if (panel === 'im') {
-    const threadId = href.peerId || href.groupId || href.requestId
-    app.openIMPanel(threadId)
-    if (href.groupId && href.requestId) {
-      app.setImBrowse({
-        threadId: href.groupId,
-        topicId: href.requestId,
-        lane: app.imBrowse.lane || 'workspace',
-      })
+    const threadId = href.peerId || href.groupId
+    const requestId = String(href.requestId || '').trim()
+    if (threadId) {
+      app.openIMPanel(threadId)
+      if (requestId) {
+        app.setImBrowse({
+          threadId,
+          topicId: requestId,
+          lane: app.imBrowse.lane || 'workspace',
+        })
+      }
+      return
     }
+    app.togglePanel('im', 'full')
     return
   }
   if (panel === 'plan') {

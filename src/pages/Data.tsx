@@ -17,7 +17,7 @@ import {
   type RuntimeHealth,
   type RuntimeOperation,
 } from '@/lib/runtime-api'
-import { currentAiTarget } from '@/lib/ai-target'
+import { askWithEntity } from '@/lib/ask-origin'
 import type { BusinessTable } from '@/lib/types'
 import type { JsonValue, RiskLevel } from '@/lib/contracts'
 import { countHomeOperationExceptions } from '@/lib/home-operation-exception'
@@ -376,15 +376,29 @@ function AppDraftEditor({
           type="button"
           className="btn h-8"
           onClick={() => {
-            void currentAiTarget().then((target) => {
-              if (!target.ok) {
-                setNote(target.error)
-                return
-              }
-              return runtimeApi.promptAi(target.sessionId, {
-                text: `【业务应用草稿】名称：${app.name}\n目标：${goal}\n数据源：${sources.join(', ') || '无'}\n请给出 screens / permissions 草案。不要过账。`,
-              })
-            }).then(() => setNote('已发给当前 AI 会话')).catch((cause) => setNote(cause instanceof Error ? cause.message : '没问出去'))
+            void askWithEntity({
+              title: app.name,
+              text: goal,
+              fields: {
+                名称: app.name,
+                目标: goal,
+                数据源: sources.join(', ') || '无',
+              },
+              entity: {
+                kind: 'app',
+                ref: app.name,
+                fields: {
+                  名称: app.name,
+                  目标: goal,
+                  数据源: sources.join(', ') || '无',
+                },
+              },
+              tail: '请给出 screens / permissions 草案。不要过账。',
+              scopes: ['workspace', 'apps'],
+              revealAi: true,
+            }).then((result) => {
+              setNote(result.ok ? '已发给当前 AI 会话' : result.error)
+            }).catch((cause) => setNote(cause instanceof Error ? cause.message : '没问出去'))
           }}
         >
           问当前 AI

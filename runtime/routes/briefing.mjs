@@ -44,6 +44,12 @@ function queryWorkspace(url) {
   return url.searchParams.get('cwd') || url.searchParams.get('workspace')
 }
 
+function omitFromBody(body) {
+  if (!Array.isArray(body?.omit)) return undefined
+  const keys = body.omit.map((key) => String(key || '').trim()).filter(Boolean)
+  return keys.length ? keys : undefined
+}
+
 function requireWorkspaceQuery(db, url, response, correlationId, fallbackCwd, cors) {
   const cwd = resolveWorkspaceCwd(db, queryWorkspace(url), fallbackCwd)
   if (!cwd.startsWith('/')) {
@@ -152,6 +158,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
         mode,
         sessionId: typeof body.sessionId === 'string' ? body.sessionId.trim() : '',
         definitionId: typeof body.definitionId === 'string' ? body.definitionId : undefined,
+        omit: omitFromBody(body),
       })
       briefingOk(response, 200, { briefingId: result.briefingId, briefing: result.briefing }, correlationId, cors)
     } catch (error) {

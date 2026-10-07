@@ -39,9 +39,9 @@ async function withWriter(run) {
   }
 }
 
-test('write events do not mint cards', async () => {
+test('write events draft cards and do not archive', async () => {
   await withWriter(async ({ calls }) => {
-    emit('biz.write.done', { kind: 'order', action: 'post', traceId: 'trace_1' }, { workspaceCwd: '/tmp/ws' })
+    emit('biz.write.done', { kind: 'order', action: 'post', traceId: 'trace_1', recordNo: 'WO-9' }, { workspaceCwd: '/tmp/ws' })
     emit('app.record.changed', {
       slug: 'item-log',
       entity: 'item',
@@ -51,12 +51,35 @@ test('write events do not mint cards', async () => {
       title: '一条足够长的标题',
       summary: '正文足够长',
     }, { workspaceCwd: '/tmp/ws' })
-    emit('task.changed', { id: 'task_1', op: 'update' }, { workspaceCwd: '/tmp/ws' })
+    emit('task.changed', { id: 'task_1', op: 'update', status: 'done', title: '完成这项任务' }, { workspaceCwd: '/tmp/ws' })
     emit('briefing.ready', { briefingId: 'b1', status: 'ready' }, { workspaceCwd: '/tmp/ws' })
     emit('im.message.sent', { requestId: 'r1' }, { source: 'bff' })
     await new Promise((r) => setTimeout(r, 80))
-    assert.equal(calls.some((c) => c.op === 'add_node'), false)
+    const drafts = calls.filter((c) => c.op === 'add_node')
+    assert.equal(drafts.length, 4)
+    assert.ok(drafts.every((c) => c.args.metadata.status === '起草'))
     assert.equal(calls.some((c) => c.op === 'draft_memory_card'), false)
+    assert.equal(calls.some((c) => c.op === 'nod_memory_card'), false)
+  })
+})
+
+test('drafted instance origin is stored for list attach', async () => {
+  await withWriter(async ({ db }) => {
+    emit('biz.write.done', { kind: 'order', action: 'post', traceId: 'trace_1', recordNo: 'WO-9' }, { workspaceCwd: '/tmp/ws' })
+    await new Promise((r) => setTimeout(r, 80))
+    const row = db.prepare('SELECT ref, card_id FROM memory_write_log WHERE ref = ?').get('biz:trace_1')
+    assert.equal(row.ref, 'biz:trace_1')
+    assert.match(String(row.card_id), /^memory:[a-f0-9]{16}$/u)
+  })
+})
+
+test('im sent and incomplete tasks do not draft', async () => {
+  await withWriter(async ({ calls }) => {
+    emit('im.message.sent', { requestId: 'r1' }, { source: 'bff' })
+    emit('task.changed', { id: 'task_1', op: 'update', status: 'todo', title: '还没做完' }, { workspaceCwd: '/tmp/ws' })
+    emit('app.record.changed', { slug: 'item-log', entity: 'item', rid: 'r1', op: 'insert' }, { workspaceCwd: '/tmp/ws' })
+    await new Promise((r) => setTimeout(r, 80))
+    assert.equal(calls.some((c) => c.op === 'add_node'), false)
   })
 })
 

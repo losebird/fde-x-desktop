@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { constants as zlibConstants, zstdCompress, zstdDecompress } from 'node:zlib'
 import {
   increasingEventFrames,
+  isSessionLogName,
   readLogHeader,
   readSessionTree,
   scanZstdFrames,
@@ -44,13 +45,22 @@ async function decodeLog(buf) {
   return { frames: frames.length, header, events }
 }
 
-async function putLog(dir, header, batches) {
+async function putLog(dir, header, batches, logName = 'session.v3.jsonl.zstd') {
   await mkdir(dir, { recursive: true })
   await writeFile(join(dir, 'session.lock'), '')
-  await writeFile(join(dir, 'session.v3.jsonl.zstd'), await sessionLog(header, batches))
+  await writeFile(join(dir, logName), await sessionLog(header, batches))
 }
 
 describe('session tree pack and restore', () => {
+  test('session log names follow the generation filename, not a v3 literal', () => {
+    assert.equal(isSessionLogName('session.v3.jsonl.zstd'), true)
+    assert.equal(isSessionLogName('session.v4.jsonl.zstd'), true)
+    assert.equal(isSessionLogName('session.v4.json.zstd'), true)
+    assert.equal(isSessionLogName('session.jsonl'), true)
+    assert.equal(isSessionLogName('session.lock'), false)
+    assert.equal(isSessionLogName('notes.md'), false)
+  })
+
   test('increasing event frames keep original batches when seq is dense', async () => {
     const buf = await sessionLog(
       { type: 'session', version: 3, id: 'session-root', cwd: '/tmp/a' },
@@ -130,7 +140,7 @@ describe('session tree pack and restore', () => {
     }
   })
 
-  test('writeSessionTree keeps created header, original event frames, and remaps member parentSession', async () => {
+  test('writeSessionTree keeps created header, remaps identity in events, and remaps member parentSession', async () => {
     const root = await mkdtemp(join(tmpdir(), 'fde-session-write-'))
     const srcProject = join(root, 'src')
     const destProject = join(root, 'dest')
@@ -142,7 +152,12 @@ describe('session tree pack and restore', () => {
       await putLog(join(srcProject, parentId), { type: 'session', version: 3, id: parentId, cwd: '/tmp/from' }, [
         [{ seq: 0, type: 'permission/preset' }],
         [{ seq: 1, type: 'turn/start' }],
-        [{ seq: 2, type: 'turn/end' }],
+        [{
+          seq: 2,
+          type: 'session-log-deepseek/delivery-accepted',
+          data: { sessionId: parentId, throughSeq: 1, sessionFormatVersion: 1 },
+        }],
+        [{ seq: 3, type: 'turn/end' }],
       ])
       await putLog(join(srcProject, childId), {
         type: 'session',
@@ -188,14 +203,11 @@ describe('session tree pack and restore', () => {
       assert.equal(parent.header.id, createdId)
       assert.equal(parent.header.cwd, '/tmp/to')
       assert.equal(parent.header.createdAt, 9)
-      assert.equal(parent.frames, 4)
-      assert.deepEqual(parent.events.map((event) => event.seq), [0, 1, 2])
-      const srcEventFrames = await increasingEventFrames(await readFile(join(srcProject, parentId, 'session.v3.jsonl.zstd')))
-      const destFrames = scanZstdFrames(destBuf)
-      assert.equal(destFrames.length - 1, srcEventFrames.length)
-      srcEventFrames.forEach((frame, index) => {
-        assert.equal(destBuf.subarray(destFrames[index + 1].start, destFrames[index + 1].end).equals(frame), true)
-      })
+      assert.equal(parent.frames, 5)
+      assert.deepEqual(parent.events.map((event) => event.seq), [0, 1, 2, 3])
+      const delivery = parent.events.find((event) => event.type === 'session-log-deepseek/delivery-accepted')
+      assert.equal(delivery.data.sessionId, createdId)
+      assert.equal(delivery.data.throughSeq, 1)
       const child = await decodeLog(await readFile(join(destProject, childId, 'session.v3.jsonl.zstd')))
       assert.equal(child.header.id, childId)
       assert.equal(child.header.cwd, '/tmp/to')
@@ -210,6 +222,49 @@ describe('session tree pack and restore', () => {
       assert.equal(grand.frames, 2)
     } finally {
       await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('writeSessionTree remaps delivery identity for current-generation log names', async () => {
+    const names = ['session.v4.jsonl.zstd', 'session.v4.json.zstd']
+    for (const logName of names) {
+      const root = await mkdtemp(join(tmpdir(), 'fde-session-v4-'))
+      try {
+        const createdId = 'session-new'
+        const createdDir = join(root, createdId)
+        await mkdir(createdDir, { recursive: true })
+        await writeFile(
+          join(createdDir, logName),
+          await sessionLog({ type: 'session', version: 3, id: createdId, cwd: '/tmp/to', createdAt: 4 }, []),
+        )
+        const incoming = await sessionLog(
+          { type: 'session', version: 3, id: 'session-old', cwd: '/tmp/from' },
+          [[
+            { seq: 0, type: 'turn/start' },
+            {
+              seq: 1,
+              type: 'session-log-deepseek/delivery-accepted',
+              data: { sessionId: 'session-old', throughSeq: 0, sessionFormatVersion: 1 },
+            },
+          ]],
+        )
+        await writeSessionTree({
+          parentDir: createdDir,
+          files: [{ name: logName, data: incoming.toString('base64') }],
+          cwd: '/tmp/to',
+          createdId,
+          sourceId: 'session-old',
+        })
+        const parent = await decodeLog(await readFile(join(createdDir, logName)))
+        assert.equal(parent.header.id, createdId)
+        assert.equal(parent.header.cwd, '/tmp/to')
+        assert.equal(parent.header.createdAt, 4)
+        const delivery = parent.events.find((event) => event.type === 'session-log-deepseek/delivery-accepted')
+        assert.equal(delivery.data.sessionId, createdId)
+        assert.equal(parent.events.some((event) => JSON.stringify(event).includes('session-old')), false)
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
     }
   })
 

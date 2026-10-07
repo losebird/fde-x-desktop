@@ -2,15 +2,18 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
-  Clock, MapPin, Calendar as CalIcon, Repeat, Zap, Play, Power, Sparkles,
+  Clock, MapPin, Calendar as CalIcon, Repeat, Zap, Play, Power, Sparkles, Bot,
 } from 'lucide-react'
 import { askAiForResult } from '@/lib/ask-ai'
+import { askOrigin } from '@/lib/ask-origin'
 import type { JsonSchemaLite } from '@/lib/json-schema-lite'
 import clsx from 'clsx'
 import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
 import type { Task, ScheduleEvent, Workflow, WorkflowStep } from '@/lib/types'
 import { Card, Tag, Empty, PageTitle } from '@/components/ui'
 import { useEvents } from '@/lib/events'
+import { ContextChips } from '@/components/ai/ContextChips'
+import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -189,6 +192,36 @@ function TodoTab() {
   const [draft, setDraft] = useState<Pick<Task, 'title'|'priority'|'due'|'tags'>>({
     title: '', priority: 'med', due: '', tags: [],
   })
+  const [ctxPack, setCtxPack] = useState<ContextPack | null>(null)
+  const [ctxWarnings, setCtxWarnings] = useState<string[]>([])
+  const [ctxOmit, setCtxOmit] = useState<Set<string>>(() => new Set())
+  const [askError, setAskError] = useState('')
+  const [askLoading, setAskLoading] = useState(false)
+  const selectedTask = tasks.find((row) => row.id === selectedTaskId) || null
+  const taskPackKey = tasks.map((row) => `${row.id}:${row.status}`).join('|')
+
+  useEffect(() => {
+    let cancelled = false
+    const query = selectedTask ? selectedTask.title : '整理待办'
+    const scopes = selectedTask
+      ? (['workspace', 'tasks', 'memory'] as const)
+      : (['tasks'] as const)
+    setCtxOmit(new Set())
+    void buildContextPack({
+      scopes: [...scopes],
+      query,
+      intentKind: 'lookup',
+    }).then((packed) => {
+      if (cancelled) return
+      setCtxPack(packed.pack)
+      setCtxWarnings(packed.warnings || [])
+    }).catch(() => {
+      if (cancelled) return
+      setCtxPack(null)
+      setCtxWarnings([])
+    })
+    return () => { cancelled = true }
+  }, [taskPackKey, selectedTaskId, selectedTask?.title])
 
   const allTags = useMemo(() => {
     const set = new Set<string>()
@@ -240,6 +273,9 @@ function TodoTab() {
       prompt: '根据以下待办给出去重/合并/优先级建议，用 fde_submit_result 提交',
       schema: TaskAdviceSchema,
       context: ['tasks'],
+      omit: ctxOmit,
+      pack: selectedTaskId ? undefined : (ctxPack || undefined),
+      warnings: selectedTaskId ? undefined : ctxWarnings,
     })
     setOrganizeLoading(false)
     if (!result.ok) {
@@ -254,6 +290,32 @@ function TodoTab() {
       return
     }
     setOrganizeAdvice(result.data)
+  }
+
+  async function runAskSelected() {
+    if (!selectedTask) return
+    setAskLoading(true)
+    setAskError('')
+    const fields: Record<string, unknown> = {
+      status: selectedTask.status,
+      priority: selectedTask.priority,
+    }
+    if (selectedTask.notes) fields.notes = selectedTask.notes
+    if (selectedTask.due) fields.due = selectedTask.due
+    if (selectedTask.tags.length) fields.tags = selectedTask.tags.join(', ')
+    const result = await askOrigin(`task:${selectedTask.id}`, {
+      title: selectedTask.title,
+      text: selectedTask.notes || selectedTask.title,
+      status: selectedTask.status,
+      fields,
+      tail: '请结合上述来源实体推进这项待办。禁止过账。',
+      omit: ctxOmit,
+      pack: ctxPack || undefined,
+      warnings: ctxWarnings,
+      revealAi: true,
+    })
+    setAskLoading(false)
+    if (!result.ok) setAskError(result.error)
   }
 
   async function applySuggestion(suggestion: TaskAdviceSuggestion, key: string) {
@@ -320,9 +382,30 @@ function TodoTab() {
             >
               <Sparkles size={14} /> {organizeLoading ? '整理中…' : '整理待办'}
             </button>
+            <button
+              type="button"
+              className="btn h-8"
+              disabled={!selectedTask || askLoading}
+              title="交给当前 AI"
+              onClick={() => void runAskSelected()}
+            >
+              <Bot size={14} /> {askLoading ? '交给中…' : '交给当前 AI'}
+            </button>
+            <ContextChips
+              pack={ctxPack}
+              warnings={ctxWarnings}
+              omit={ctxOmit}
+              onToggleOmit={(key) => setCtxOmit((prev) => {
+                const next = new Set(prev)
+                if (next.has(key)) next.delete(key)
+                else next.add(key)
+                return next
+              })}
+            />
           </div>
         </div>
       </Card>
+      {askError && <div className="text-xs text-accent-red mb-3">{askError}</div>}
 
       {filtered.length === 0 ? (
         <Empty title="这个筛选下没有任务" hint="可以新建一个,或切换其它 Tab" action={

@@ -267,7 +267,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
   const activateMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/activate$/)
   if (request.method === 'POST' && activateMatch) {
     const appId = decodeURIComponent(activateMatch[1])
-    const result = activateApp(db, appId, { emit, correlationId })
+    const result = activateApp(db, appId, { correlationId })
     if (result.kind === 'not_found') {
       sendError(response, 404, 'not_found', '应用不存在', correlationId)
       return true

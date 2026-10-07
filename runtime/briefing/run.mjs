@@ -44,7 +44,7 @@ function computeRunStatus(sections) {
 
 /**
  * @param {object} deps
- * @param {{ workspaceCwd: string, mode: 'full'|'internal-only', definitionId?: string }} input
+ * @param {{ workspaceCwd: string, mode: 'full'|'internal-only', definitionId?: string, sessionId?: string, omit?: string[] }} input
  */
 export async function runBriefing(deps, input) {
   const { db, aiRuntime } = deps
@@ -99,6 +99,7 @@ export async function runBriefing(deps, input) {
         sessionId,
         sections: enabled,
         internalSections: sections.filter((s) => s.type !== 'mcp' && s.type !== 'ai'),
+        omit: input.omit,
       },
     )
     sessionId = agent.sessionId || sessionId

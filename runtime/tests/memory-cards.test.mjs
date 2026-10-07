@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { asDraftCard, collapseCueCards, cueIdOf, draftMemoryCardInsert } from '../memory/cards.mjs'
+import { attachCardOrigin } from '../memory/draft.mjs'
 import { instanceOriginOf } from '../memory/identity.mjs'
 
 test('insert op is add_node with 起草 metadata', () => {
@@ -22,11 +23,21 @@ test('same cue reuses id', () => {
   assert.equal(a.args.id, b.args.id)
 })
 
+test('list attach takes origin from the write log map', () => {
+  const map = new Map([['memory:x', 'biz:trace_1']])
+  const attached = attachCardOrigin({ id: 'memory:x', label: '过账 receipt' }, map)
+  assert.equal(attached.origin, 'biz:trace_1')
+  const listed = attachCardOrigin({ id: 'memory:y', label: '过账 receipt' })
+  assert.equal(listed.origin, undefined)
+})
+
 test('instance origin goes to metadata; receipts and specs do not', () => {
   const biz = draftMemoryCardInsert('12345678 过账摘要正文', 'choice', { origin: 'biz:trace_1', auto: true })
-  assert.equal(biz.args.metadata.origin, undefined)
+  assert.equal(biz.args.metadata.origin, 'biz:trace_1')
   assert.equal(biz.args.metadata.source, undefined)
   assert.equal(biz.args.metadata.auto, true)
+  const receipt = draftMemoryCardInsert('12345678 过账回执正文', 'choice', { origin: 'biz:dup', auto: true })
+  assert.equal(receipt.args.metadata.origin, undefined)
   const spec = draftMemoryCardInsert('12345678 应用说明正文', 'choice', { origin: 'app:board' })
   assert.equal(spec.args.metadata.origin, undefined)
   const row = draftMemoryCardInsert('12345678 一条记录正文', 'choice', { origin: 'app:board:doc:r1' })
@@ -54,7 +65,8 @@ test('instance origin arity is structural', () => {
   assert.equal(instanceOriginOf('briefing:b1'), 'briefing:b1')
   assert.equal(instanceOriginOf('app:board:doc:r1'), 'app:board:doc:r1')
   assert.equal(instanceOriginOf('app:board'), '')
-  assert.equal(instanceOriginOf('biz:trace_1'), '')
+  assert.equal(instanceOriginOf('biz:trace_1'), 'biz:trace_1')
+  assert.equal(instanceOriginOf('biz:dup'), '')
   assert.equal(instanceOriginOf('memory:ab'), '')
 })
 

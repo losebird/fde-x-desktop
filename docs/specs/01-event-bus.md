@@ -46,15 +46,20 @@
 | `ai.tool.finished` | `{ tool, ok, runId }` | `tool/result` |
 | `ai.session.changed` | `{ sessionId, title?, kind:'created|renamed|restored|deleted' }` | 会话 create/rename/restore/delete 路由 |
 | `biz.sheet.pending` | `{ kind, action, previewId?, rows, columns, canWrite }` | 轮询 lan-assist `/state`，`pendingSheet` 指纹变化时 |
-| `biz.write.done` | `{ kind, action, traceId, receiptId }` | `POST /api/v1/biz/write` 成功 |
+| `biz.write.done` | `{ kind, action, traceId, receiptId, recordNo? }` | `POST /api/v1/biz/write` 成功 |
 | `im.message.received` | `{ peerId, requestId, hasHandoff }` | lan-assist state 中新 incoming |
+| `im.message.sent` | `{ requestId }` | IM 发送成功 |
 | `im.unread.changed` | `{ total, byPeer }` | 同上 |
+| `im.peer.changed` | roster 投影 | lan-assist peers/groups |
 | `app.spec.submitted` | `{ appId, revision }` | 规格 04 |
 | `app.activated` | `{ appId, slug }` | 规格 04 |
 | `app.record.changed` | `{ slug, entity, id, op:'insert|update|delete' }` | 规格 04 |
-| `task.changed` | `{ id, op }` | 规格 03 |
+| `task.changed` | `{ id, op, status?, title? }` | 规格 03 |
 | `briefing.ready` | `{ briefingId, definitionId }` | 规格 06 |
 | `memory.card.drafted` | `{ cardId, sourceRef }` | 规格 07 |
+| `memory.engine.changed` | semantic `/ready` 结果 | semantic-ready-watch |
+| `ai.result.ready` | `{ requestId }` | bridge `fde_submit_result` |
+| `operation.executed` | `{ operationId, receipt? }` | operations 批准执行成功 |
 
 ### 4.3 持久化
 

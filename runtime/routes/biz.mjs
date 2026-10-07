@@ -56,12 +56,12 @@ import {
 } from '../biz/connected-kind.mjs'
 import { reconcileLanAssistConnectionLamp, refreshLanAssistConnectionLamp } from '../biz/connection-lamp.mjs'
 import {
-  auditRecordNo,
   captureLookupBind,
   effectiveBizKind,
   isSpokenMetaKind,
   parseLookupBind,
   rollbackPreviewRequest,
+  writeAuditFields,
 } from '../biz/audit-lookup.mjs'
 
 function bizWriteFailureMessage(error, fallback = '过账失败，请重新预览后再试') {
@@ -1299,13 +1299,15 @@ export async function handleBizRoutes(request, response, url, deps) {
         const written = mapped.receipt
         const traceId = String(body.trace_id || createId('trace'))
         const sheet = boundHeld.sheet && typeof boundHeld.sheet === 'object' ? boundHeld.sheet : {}
+        const original = rollbackOfTraceId ? getBizWriteAuditByTraceId(db, rollbackOfTraceId) : null
+        const audit = writeAuditFields(sheet, body, written, original, Boolean(rollbackOfTraceId))
         try {
           insertBizWriteAudit(db, {
             workspaceCwd: boundHeld.cwd || bizWorkspace,
             traceId,
-            kind: effectiveBizKind(sheet.kind, body.kind),
-            action: String(sheet.action || body.action || written.action || ''),
-            recordNo: String(written.recordNo || body.no || ''),
+            kind: audit.kind,
+            action: audit.action,
+            recordNo: audit.recordNo,
             receiptId: String(written.receiptId || ''),
             sessionId: String(body.sessionId || ''),
             source: writeSource,
@@ -1315,10 +1317,11 @@ export async function handleBizRoutes(request, response, url, deps) {
           })
         } catch { /* audit must not block write */ }
         emit('biz.write.done', {
-          kind: String(written.kind || sheet.kind || ''),
-          action: String(written.action || sheet.action || ''),
+          kind: audit.kind,
+          action: audit.action,
           traceId,
           receiptId: String(written.receiptId || ''),
+          recordNo: audit.recordNo,
         }, { workspaceCwd: boundHeld.cwd || bizWorkspace, source: 'bff' })
         sendJson(response, 200, { data: { ...written, trace_id: traceId, traceId }, correlationId })
         return true
@@ -1368,10 +1371,10 @@ export async function handleBizRoutes(request, response, url, deps) {
       : (Array.isArray(sheet?.changes) ? sheet.changes : [])
     const traceId = String(body.trace_id || written?.trace_id || written?.traceId || createId('trace'))
     const isRollbackWrite = Boolean(rollbackOfTraceId)
+    const original = isRollbackWrite ? getBizWriteAuditByTraceId(db, rollbackOfTraceId) : null
     const lookupBind = captureLookupBind(sheet, body)
     if (written && written.verified === false) lookupBind.verified = false
     if (isRollbackWrite) {
-      const original = getBizWriteAuditByTraceId(db, rollbackOfTraceId)
       const originalBind = parseLookupBind(original)
       const rollbackMarker = String(lookupBind.speech || '').trim()
       const originalSpeech = String(originalBind.speech || '').trim()
@@ -1381,15 +1384,14 @@ export async function handleBizRoutes(request, response, url, deps) {
       if (!lookupBind.sessionId && originalBind.sessionId) lookupBind.sessionId = originalBind.sessionId
       if (!lookupBind.sessionId && original?.sessionId) lookupBind.sessionId = original.sessionId
     }
+    const audit = writeAuditFields(sheet, body, written, original, isRollbackWrite)
     try {
       insertBizWriteAudit(db, {
         workspaceCwd: bizCwd,
         traceId,
-        kind: effectiveBizKind(sheet?.kind, body.kind),
-        action: isRollbackWrite
-          ? '回退'
-          : String(sheet?.action || body.action || written?.action || ''),
-        recordNo: auditRecordNo(sheet, body, written),
+        kind: audit.kind,
+        action: audit.action,
+        recordNo: audit.recordNo,
         receiptId: String(written?.receipt_id || written?.receiptId || ''),
         sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || lookupBind.sessionId || ''),
         source: writeSource,
@@ -1407,10 +1409,11 @@ export async function handleBizRoutes(request, response, url, deps) {
       emitBizSheetPending(listed, { sessionId: listedSid, source: 'round-end', workspaceCwd: bizCwd })
     }
     emit('biz.write.done', {
-      kind: String(written?.kind || ''),
-      action: String(written?.action || ''),
+      kind: audit.kind,
+      action: audit.action,
       traceId,
       receiptId: String(written?.receipt_id || written?.receiptId || ''),
+      recordNo: audit.recordNo,
       operationId: typeof body.operationId === 'string' ? body.operationId : undefined,
     }, { workspaceCwd: bizCwd, source: 'bff' })
     try {

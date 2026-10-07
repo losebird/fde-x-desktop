@@ -30,7 +30,11 @@ export function hostSourceOf(origin) {
 export function instanceOriginOf(origin) {
   const raw = String(origin || '').trim()
   if (!raw) return ''
-  if (raw.startsWith('memory:') || raw.startsWith('biz:')) return ''
+  if (raw.startsWith('memory:')) return ''
+  if (raw.startsWith('biz:')) {
+    const rest = raw.slice(4)
+    return rest.startsWith('trace_') ? raw : ''
+  }
   if (raw.startsWith('session:')) return sessionIdOf(raw) ? raw : ''
   if (raw.startsWith('file:')) return filePathOf(raw) ? raw : ''
   if (raw.startsWith('im:')) return raw.slice(3) ? raw : ''

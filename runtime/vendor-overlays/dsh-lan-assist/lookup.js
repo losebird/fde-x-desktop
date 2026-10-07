@@ -1092,7 +1092,21 @@ export function createLookup(opts = {}) {
     const exactNo = looksLikeRef(ticket) ? ticket : ''
     const path = conn.dialect === 'rest' ? restPath(conn, exactNo, kind) : withRelationAppends(nocobasePath(spec, exactNo, kind, schemaFields), extra.collections, spec && spec.resource)
     if (!path) return { ok: false, error: 'UNKNOWN_KIND' }
-    const found = await get(path, conn)
+    let found = await get(path, conn)
+    if (!found.ok && found.error === 'LOOKUP' && exactNo && conn.dialect !== 'rest' && spec && spec.resource) {
+      const listPath = withRelationAppends(`/api/${spec.resource}:list?pageSize=${PAGE_SIZE}&sort=-updatedAt`, extra.collections, spec.resource)
+      const listed = await listAll(listPath, conn, {
+        limit: whereLimit,
+        keep: (row) => {
+          const no = pickNo(row, ids, extra)
+          return String(no || '') === String(ticket) || rowMatches(row, ticket, ids)
+        },
+      })
+      if (listed.ok) {
+        if (!listed.rows.length) return { ok: false, error: 'NOT_FOUND', status: '没有', matches: [] }
+        found = { ok: true, body: { data: listed.rows } }
+      }
+    }
     if (!found.ok) return found
     if (!exactNo) {
       const listed = await listAll(path, conn, { limit: whereLimit })
@@ -1978,11 +1992,15 @@ function isIdentityColumn(row) {
 export function identityFilterKeys(spec, schemaFields, look) {
   const fields = Array.isArray(schemaFields) ? schemaFields : []
   const keys = []
-  if (/^\d{6,}$/.test(String(look || ''))) keys.push(...identifierFieldNames(fields))
+  const identifiers = identifierFieldNames(fields)
+  const digitLook = /^\d{6,}$/.test(String(look || ''))
+  if (digitLook) keys.push(...identifiers)
+  const identifierSet = new Set(identifiers)
   for (const row of fields) {
     if (!isIdentityColumn(row)) continue
     const name = String(row.name || '').trim()
-    if (name) keys.push(name)
+    if (!name || identifierSet.has(name) || /^id$/i.test(name)) continue
+    keys.push(name)
   }
   if (!keys.length) {
     const ticketField = String((spec && spec.ticketField) || '').trim()

@@ -7,6 +7,7 @@ import { PageTitle, Empty } from '@/components/ui'
 import { runtimeApi } from '@/lib/runtime-api'
 import { installSemanticOsHttp } from '@/lib/semantic-http'
 import { useApp, useCurrentWorkspace, useWorkspaces } from '@/store/app'
+import { useEvents } from '@/lib/events'
 
 const CANVASES = [
   { id: 'explore', no: '01', kicker: '图谱工作室', title: '探索', desc: '浏览图谱并切换视图。' },
@@ -523,6 +524,10 @@ function CardsArchive({ cwd, onBack }: { cwd: string; onBack: () => void }) {
       setNote(cause instanceof Error ? cause.message : '读不到档案')
     })
   }, [cwd, tab, cardId, originId, tick])
+
+  useEvents(['memory.card.drafted'], () => {
+    setTick((n) => n + 1)
+  }, cwd ? { workspace: cwd } : undefined)
 
   useEffect(() => {
     if (!cardId) return

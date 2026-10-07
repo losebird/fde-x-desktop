@@ -11,6 +11,7 @@ import { landRef } from '@/lib/open-ref'
 import { currentAiTarget, isPrimarySession, resolvePrimarySessionId } from '@/lib/ai-target'
 import { useApp } from '@/store/app'
 import { clearAskAiNotice, getAskAiNotice, subscribeAskAiNotice } from '@/lib/ask-ai'
+import { assistantMatchesFill, registerCurrentTurnSink, selectCurrentTurn } from '@/lib/current-turn'
 import { extractComposerBody } from '@/lib/im-ai'
 import { proposeTerminalGrid } from '@/lib/terminal-fit'
 import { terminalCloseAction } from '@/lib/terminal-occupancy'
@@ -345,11 +346,12 @@ export default function AI() {
       void (async () => {
         const deadline = Date.now() + 10_000
         let found: AiSessionSummary | undefined
+        let listed: AiSessionSummary[] = []
         while (Date.now() < deadline) {
-          const rows = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true }).catch(() => [])
-          found = rows.find((row) => row.sessionId === sid)
+          listed = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true }).catch(() => [])
+          found = listed.find((row) => row.sessionId === sid)
           if (found) {
-            setRemoteSessions(rows.map((row) => (titles.get(row.sessionId) ? { ...row, title: titles.get(row.sessionId)! } : row)))
+            setRemoteSessions(listed.map((row) => (titles.get(row.sessionId) ? { ...row, title: titles.get(row.sessionId)! } : row)))
             break
           }
           await new Promise((wait) => { window.setTimeout(wait, 500) })
@@ -358,7 +360,7 @@ export default function AI() {
           setSessionNotice('复原已写盘，但列表尚未刷新')
           return
         }
-        const openId = resolvePrimarySessionId(sid, rows) || (isPrimarySession(found) ? sid : '')
+        const openId = resolvePrimarySessionId(sid, listed) || (isPrimarySession(found) ? sid : '')
         if (!openId) {
           setSessionNotice('复原的是子会话，父会话不在列表里')
           return
@@ -367,57 +369,21 @@ export default function AI() {
         nav(`/ai/${openId}`)
         const origin = bffOriginRef.current || defaultBffOrigin()
         setDshFrameSrc(`${dshAppSrc(origin)}?restore=${Date.now()}#fde-session=${encodeURIComponent(openId)}`)
-        const select = () => tellDsh('select', {
+        selectCurrentTurn({
           sessionId: openId,
           ...(title ? { title } : {}),
           ...(workspaceCwdRef.current ? { cwd: workspaceCwdRef.current } : {}),
         })
-        if (title) tellDsh('rename', { sessionId: sid, title })
-        select()
-        for (const ms of [1500, 4000, 8000, 16000]) {
-          window.setTimeout(() => {
-            select()
-            if (title) tellDsh('rename', { sessionId: sid, title })
-          }, ms)
-        }
         setSessionNotice('已复原交接会话')
-      })()
+      })().catch((error) => {
+        setSessionNotice(error instanceof Error ? error.message : '没打开复原会话')
+      })
     }
     function onTranscript(event: Event) {
       const detail = (event as CustomEvent<{ sessionIds?: string[] }>).detail
       const sessionIds = Array.isArray(detail?.sessionIds) ? detail.sessionIds.filter(Boolean) : []
       if (!sessionIds.length) return
       tellDsh('transcript', { sessionIds })
-    }
-    function onPrompt(event: Event) {
-      const detail = (event as CustomEvent<{ text?: string; fillThreadId?: string; readOnly?: boolean }>).detail
-      const text = String(detail?.text || '').trim()
-      const fillThreadId = String(detail?.fillThreadId || '').trim()
-      if (fillThreadId) {
-        const sid = String(detail?.sessionId || useApp.getState().activeAiSessionId || '').trim()
-        if (sid) useApp.getState().setIMFillBind({ sessionId: sid, threadId: fillThreadId })
-      }
-      void currentAiTarget().then((target) => {
-        if (!target.ok) {
-          setSessionNotice(target.error)
-          return
-        }
-        const sid = target.sessionId
-        nav(`/ai/${sid}`)
-        tellDsh('select', {
-          sessionId: sid,
-          ...(target.workspaceId && !target.workspaceId.startsWith('ws_') ? { workspaceId: target.workspaceId } : {}),
-          ...(target.cwd ? { cwd: target.cwd } : {}),
-        })
-        if (detail?.readOnly) {
-          tellDsh('readAssistant', { sessionId: sid })
-          return
-        }
-        if (!text) return
-        tellDsh('prompt', { sessionId: sid, text })
-      }).catch((error) => {
-        setSessionNotice(error instanceof Error ? error.message : '没问出去')
-      })
     }
     function onAttach(event: Event) {
       const detail = (event as CustomEvent<{ path?: string; name?: string; sessionId?: string }>).detail
@@ -430,7 +396,6 @@ export default function AI() {
     window.addEventListener('drop', onDrop)
     window.addEventListener('dragend', onDragEnd)
     window.addEventListener('fde-x-attach-file', onAttach as EventListener)
-    window.addEventListener('fde-x-ai-prompt', onPrompt as EventListener)
     window.addEventListener('fde-x-ai-transcript', onTranscript as EventListener)
     window.addEventListener('fde-x-ai-restore', onRestore as EventListener)
     function onOpen(event: Event) {
@@ -456,12 +421,24 @@ export default function AI() {
       }).catch(() => undefined)
     }
     window.addEventListener('fde-x-ai-open', onOpen as EventListener)
+    const unregisterSink = registerCurrentTurnSink({
+      select: (opts) => {
+        nav(`/ai/${opts.sessionId}`)
+        tellDsh('select', {
+          sessionId: opts.sessionId,
+          ...(opts.requestId ? { requestId: opts.requestId } : {}),
+          ...(opts.title ? { title: opts.title } : {}),
+          ...(opts.workspaceId && !opts.workspaceId.startsWith('ws_') ? { workspaceId: opts.workspaceId } : {}),
+          ...(opts.cwd ? { cwd: opts.cwd } : {}),
+        })
+      },
+    })
     return () => {
+      unregisterSink()
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
       window.removeEventListener('dragend', onDragEnd)
       window.removeEventListener('fde-x-attach-file', onAttach as EventListener)
-      window.removeEventListener('fde-x-ai-prompt', onPrompt as EventListener)
       window.removeEventListener('fde-x-ai-transcript', onTranscript as EventListener)
       window.removeEventListener('fde-x-ai-restore', onRestore as EventListener)
       window.removeEventListener('fde-x-ai-open', onOpen as EventListener)
@@ -670,8 +647,7 @@ export default function AI() {
       }
       if (data?.type === 'fde-x-dsh-ready' && data.op === 'assistant' && typeof data.text === 'string') {
         const bind = useApp.getState().imFillBind
-        const sid = String(data.sessionId || '')
-        if (bind && sid && bind.sessionId === sid) {
+        if (bind && assistantMatchesFill(bind, { sessionId: data.sessionId, requestId: data.requestId })) {
           const body = extractComposerBody(data.text)
           useApp.getState().setIMFillBind(null)
           useApp.getState().setIMComposerDraft(bind.threadId, body)

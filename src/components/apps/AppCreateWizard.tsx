@@ -8,6 +8,8 @@ import { appBuilderPrompt } from '@/lib/app-builder-prompt'
 import { currentAiTarget } from '@/lib/ai-target'
 import { runtimeApi, type SkillBagItem } from '@/lib/runtime-api'
 import { SkillBagPicker } from '@/components/biz/SkillBagPicker'
+import { ContextChips } from '@/components/ai/ContextChips'
+import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 
 type Props = {
   workspaceId: string
@@ -36,6 +38,9 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
   const [pickedSkills, setPickedSkills] = useState<FdeAppSkillBind[]>([])
   const [bizSystems, setBizSystems] = useState<Array<Record<string, unknown>>>([])
   const [bizTarget, setBizTarget] = useState('lookup')
+  const [ctxPack, setCtxPack] = useState<ContextPack | null>(null)
+  const [ctxWarnings, setCtxWarnings] = useState<string[]>([])
+  const [ctxOmit, setCtxOmit] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     void runtimeApi.health().then((h) => setAiReady(h.state === 'healthy')).catch(() => setAiReady(false))
@@ -49,6 +54,34 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
       setBizSystems(systems.systems)
     })()
   }, [])
+
+  const toggleOmit = (key: string) => {
+    setCtxOmit((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  useEffect(() => {
+    if (step !== 'describe' && step !== 'generating') return
+    let cancelled = false
+    void buildContextPack({
+      scopes: ['workspace', 'apps'],
+      query: '创建业务应用',
+      intentKind: 'lookup',
+    }).then((packed) => {
+      if (cancelled) return
+      setCtxPack(packed.pack)
+      setCtxWarnings(packed.warnings || [])
+    }).catch(() => {
+      if (cancelled) return
+      setCtxPack(null)
+      setCtxWarnings([])
+    })
+    return () => { cancelled = true }
+  }, [step])
 
   const loadApp = async (appId: string) => {
     const data = await runtimeApi.getDeclarativeApp(appId)
@@ -114,6 +147,9 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
         preset,
         title: `应用构建 · ${description.slice(0, 20)}`,
         context: ['workspace', 'apps'],
+        omit: ctxOmit,
+        pack: ctxPack || undefined,
+        warnings: ctxWarnings,
         prompt: appBuilderPrompt({
           mode: 'create',
           description,
@@ -240,16 +276,28 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
             <input className="input mt-1 w-full" value={preset} onChange={(e) => setPreset(e.target.value)} />
           </label>
           {error && <div className="text-xs text-accent-red">{error}</div>}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
             <button type="button" className="btn-brand h-8" disabled={!aiReady || !description.trim()} onClick={() => void generate()}>
               {!aiReady ? '请先连接 AI 核心' : '生成'}
             </button>
+            <ContextChips
+              pack={ctxPack}
+              warnings={ctxWarnings}
+              omit={ctxOmit}
+              onToggleOmit={toggleOmit}
+            />
           </div>
         </>
       )}
       {step === 'generating' && (
-        <div className="flex items-center gap-2 text-sm text-ink-muted">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
           <Loader2 size={14} className="animate-spin" /> 正在生成 spec。预览会留在这一页，不必去左栏聊天里完成。
+          <ContextChips
+            pack={ctxPack}
+            warnings={ctxWarnings}
+            omit={ctxOmit}
+            onToggleOmit={toggleOmit}
+          />
         </div>
       )}
       {step === 'preview' && appDetail && (

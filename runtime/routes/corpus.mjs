@@ -7,6 +7,7 @@ import { findActiveAppBySlug } from '../apps/repository.mjs'
 import { getRecord } from '../apps/records.mjs'
 import { listWorkspaces } from '../db.mjs'
 import { filePathOf, originOfCard, sessionIdOf } from '../memory/identity.mjs'
+import { bizTraceIdOf, originHref } from '../memory/origin-href.mjs'
 
 function fallbackSendJson(response, status, body) {
   const raw = JSON.stringify(body)
@@ -25,10 +26,13 @@ async function resolveImMessage(aiRuntime, requestId) {
   const messages = Array.isArray(thread?.messages) ? thread.messages : []
   const row = messages.find((m) => String(m?.requestId || m?.id || '') === requestId) || messages[0]
   if (!row) return null
+  const selfId = String(thread?.selfId || thread?.self?.id || '')
   return {
     title: String(row.fromName || row.peerName || 'IM 消息'),
     text: String(row.text || row.body || row.excerpt || '').slice(0, 8000),
-    href: { panel: 'im', requestId },
+    href: originHref(`im:${requestId}`, {
+      mailbox: { self: { id: selfId }, requests: [row] },
+    }) || { panel: 'im', requestId },
   }
 }
 
@@ -38,7 +42,7 @@ function resolveTask(db, taskId) {
   return {
     title: row.title,
     text: String(row.notes || row.title || '').slice(0, 8000),
-    href: { panel: 'plan', tab: 'todo', taskId: row.id },
+    href: originHref(`task:${row.id}`) || { panel: 'plan', tab: 'todo', taskId: row.id },
   }
 }
 
@@ -53,7 +57,7 @@ function resolveBriefing(db, briefingId) {
   }
   const ai = String(content.ai || content.aiBlock || content.summary || '').slice(0, 8000)
   const sessionId = String(content.sessionId || '').trim()
-  const href = { panel: 'briefing', briefingId: row.id, ...(sessionId ? { sessionId } : {}) }
+  const href = originHref(`briefing:${row.id}`, { sessionId }) || { panel: 'briefing', briefingId: row.id, ...(sessionId ? { sessionId } : {}) }
   if (!ai) {
     return {
       title: '早报',
@@ -80,7 +84,7 @@ function workspaceRowForCwd(db, workspaceCwd) {
 }
 
 function resolveAppSpec(db, slug, workspaceCwd) {
-  const href = { panel: 'data', slug }
+  const href = originHref(`app:${slug}`) || { panel: 'data', slug }
   const ws = workspaceRowForCwd(db, workspaceCwd)
   const app = findActiveAppBySlug(db, ws?.id || '', slug, workspaceCwd)
   if (!app) return null
@@ -95,7 +99,7 @@ function resolveAppSpec(db, slug, workspaceCwd) {
 }
 
 function resolveAppRecord(db, slug, entity, rid, workspaceCwd) {
-  const href = { panel: 'data', tab: 'records', slug, entity, rowId: rid }
+  const href = originHref(`app:${slug}:${entity}:${rid}`) || { panel: 'data', tab: 'records', slug, entity, rowId: rid }
   const ws = workspaceRowForCwd(db, workspaceCwd)
   const app = findActiveAppBySlug(db, ws?.id || '', slug, workspaceCwd)
   if (!app) return null
@@ -124,13 +128,13 @@ async function resolveSession(sessionKey) {
       title: '会话',
       text: '',
       unreadable: '暂时读不出这场会话的原文。',
-      href: { panel: 'ai', sessionId },
+      href: originHref(`session:${sessionId}`) || { panel: 'ai', sessionId },
     }
   }
   return {
     title: '会话',
     text: text.slice(0, 8000),
-    href: { panel: 'ai', sessionId },
+    href: originHref(`session:${sessionId}`) || { panel: 'ai', sessionId },
   }
 }
 
@@ -166,7 +170,7 @@ async function resolveMemoryCard(aiRuntime, cwd, cardId) {
   return {
     title: String(row.label || cardId),
     text,
-    href: { panel: 'memory', pane: 'cards', cardId },
+    href: originHref(cardId) || { panel: 'memory', pane: 'cards', cardId },
     status: String(row.status || meta.status || ''),
     origin: originOfCard(row),
   }
@@ -185,10 +189,12 @@ export async function loadOrigin(deps, id) {
   const { db, aiRuntime, url } = deps
   const cwd = cwdOf(url) || String(deps.cwd || '')
   if (id.startsWith('biz:')) {
+    const traceId = bizTraceIdOf(id)
+    if (!traceId) return { ok: false, missing: true, message: '不支持的 corpus id' }
     const resolved = await resolveBizCorpusOrigin({
       db,
       aiRuntime,
-      traceId: id.slice(4),
+      traceId,
       url,
     })
     if (resolved.ok) return { ok: true, title: resolved.title, text: resolved.text, href: resolved.href }

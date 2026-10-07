@@ -3,7 +3,7 @@ import type { BizSurfaceRecord } from '@/lib/runtime-api'
 const STORAGE_KEY = 'fde:biz:surface-sheet-cache'
 const MAX_ENTRIES = 40
 
-type SurfaceSheetEntry = {
+export type SurfaceSheetEntry = {
   workspaceCwd: string
   surfaceId: string
   sheet: Record<string, unknown>
@@ -46,6 +46,11 @@ export function rememberBizSurfaceSheet(
     at: Date.now(),
   })
   writeAll(entries)
+}
+
+export function listRememberedSurfaceSheets(workspaceCwd: string): SurfaceSheetEntry[] {
+  if (!workspaceCwd) return []
+  return readAll().filter((row) => row.workspaceCwd === workspaceCwd)
 }
 
 export function peekBizSurfaceSheet(
