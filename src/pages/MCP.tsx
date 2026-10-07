@@ -353,7 +353,7 @@ export default function MCP() {
         <div>
           <div className="text-xs uppercase tracking-wider text-ink-subtle mb-2">业务连接器</div>
           {connectors.length === 0 && (
-            <Empty title="暂无业务连接器" hint="在设置中登记 lookup 后此处显示状态" />
+            <Empty title="暂无业务连接器" hint="在设置业务连接器里绑定 lookup 或袋里的 MCP/Skills" />
           )}
           <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
             {connectors.map((c) => (

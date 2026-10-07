@@ -57,37 +57,34 @@ test('vocabHasKinds and vocabCatalogVersion read the sheet', () => {
   assert.equal(vocabCatalogVersion({ kinds: [{ kind: 'KindA', catalogVersion: 'schema:1' }] }), 'schema:1')
 })
 
-test('loadBizVocab maps /catalog when memory graph fails', async () => {
+test('loadBizVocab is empty when memory graph has no kinds', async () => {
   const vocab = await loadBizVocab({
-    lanAssist: async (path, opts) => {
-      assert.equal(path, '/catalog')
-      assert.equal(opts.search.workspace, '/tmp/ws')
-      return {
-        kinds: [{ kind: 'KindA', fields: ['no'], resource: 'kind_a' }],
-        relations: [],
-        catalogVersion: 'schema:1',
-      }
+    lanAssist: async () => {
+      throw new Error('should not catalog')
     },
-    semanticOs: async () => {
-      throw new Error('offline')
-    },
+    semanticOs: async () => ({ nodes: [] }),
   }, '/tmp/ws')
-  assert.equal(vocab.kinds[0].kind, 'KindA')
-  assert.equal(vocab.catalogVersion, 'schema:1')
-  assert.deepEqual(vocab.aliases, {})
+  assert.equal(vocab.kinds.length, 0)
 })
 
-test('loadBizVocab throws when /catalog reports not ready', async () => {
-  await assert.rejects(
-    () => loadBizVocab({
-      lanAssist: async () => ({ ok: false, error: 'NO_CATALOG', hint: '目录没读成' }),
-    }, '/tmp/ws'),
-    (error) => {
-      assert.equal(error.code, 'NO_CATALOG')
-      assert.match(error.message, /目录没读成/)
-      return true
-    },
-  )
+test('loadBizVocab keeps memory kinds when /catalog is not ready', async () => {
+  const vocab = await loadBizVocab({
+    lanAssist: async () => ({ ok: false, error: 'NO_CATALOG', hint: '目录没读成' }),
+    semanticOs: async () => ({
+      nodes: [{
+        type: 'skos:Concept',
+        properties: {
+          prefLabel: 'KindA',
+          resource: 'kind_a',
+          fields: ['no'],
+          can: ['现查'],
+          catalogVersion: 'schema:1',
+          connection: 'lookup',
+        },
+      }],
+    }),
+  }, '/tmp/ws')
+  assert.equal(vocab.kinds[0]?.kind, 'KindA')
 })
 
 test('GET kinds and connections read loadBizVocab; GET catalog is gone', () => {
@@ -99,9 +96,11 @@ test('GET kinds and connections read loadBizVocab; GET catalog is gone', () => {
   const lamp = readFileSync(join(repoRoot, 'runtime/biz/connection-lamp.mjs'), 'utf8')
   assert.match(sheet, /lanAssist\('\/catalog',\s*\{\s*search:\s*\{\s*workspace/)
   assert.match(biz, /loadBizVocab\(/)
+  assert.match(biz, /\/api\/v1\/biz\/systems/)
   assert.match(biz, /vocabCatalogVersion\(/)
   assert.match(biz, /method === 'POST' && url.pathname === '\/api\/v1\/biz\/catalog'/)
   assert.doesNotMatch(biz, /method === 'GET' && url.pathname === '\/api\/v1\/biz\/catalog'/)
+  assert.doesNotMatch(biz, /\/api\/v1\/biz\/source/)
   assert.doesNotMatch(biz, /lanAssist\('\/catalog',\s*\{\s*search:\s*\{\s*workspace/)
   assert.match(dataPage, /listBizKinds/)
   assert.doesNotMatch(dataPage, /imState\(/)

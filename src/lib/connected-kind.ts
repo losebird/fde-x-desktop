@@ -8,6 +8,7 @@ export type ConnectedKindRow = {
   fields?: unknown[]
   can?: unknown[]
   aliases?: string[]
+  connection?: string
   clues?: Array<{ role?: string; say?: unknown; says?: unknown }>
 }
 
@@ -24,6 +25,7 @@ export function kindRowsFromVocab(vocab: {
     resource?: string
     catalogVersion?: string
     aliases?: string[]
+    connection?: string
   }>
   aliases?: Record<string, string>
 } | null | undefined): ConnectedKindRow[] {
@@ -37,6 +39,7 @@ export function kindRowsFromVocab(vocab: {
       can: Array.isArray(row.can) ? row.can.map(String) : [],
       resource: typeof row.resource === 'string' ? row.resource : undefined,
       catalogVersion: typeof row.catalogVersion === 'string' ? row.catalogVersion : undefined,
+      connection: typeof row.connection === 'string' ? row.connection : undefined,
       aliases: [...new Set([
         ...(Array.isArray(row.aliases) ? row.aliases.map(String) : []),
         ...Object.entries(aliasBag)

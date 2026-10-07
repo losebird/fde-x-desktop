@@ -69,7 +69,8 @@ export async function generateWorkspaceVocabFromConnector(spec) {
 
   const version = String(spec.catalogVersion || catalogVersionFrom(collections)).trim()
   const built = buildVocabFromNocoCollections(collections, { catalogVersion: version })
-  const concepts = built.concepts
+  const connection = String(spec.connection || 'lookup').trim() || 'lookup'
+  const concepts = built.concepts.map((row) => (row && typeof row === 'object' ? { ...row, connection } : row))
   const schemeName = `业务型 · ${version}`
 
   const persist = await persistConcepts(spec.persistBatch, schemeName, concepts)
@@ -84,6 +85,55 @@ export async function generateWorkspaceVocabFromConnector(spec) {
     relations: built.relations,
     relationCount: built.relations.length,
     catalogVersion: version,
+    batches: persist.batches,
+    emptySchema: false,
+    ...(persist.skipped.length ? { skipped: persist.skipped } : {}),
+  }
+}
+
+export async function generateWorkspaceVocabFromKinds(spec) {
+  const workspace = String(spec.workspace || '').trim()
+  if (!workspace.startsWith('/')) {
+    return { ok: false, error: 'NO_CWD', hint: '工作区路径无效。' }
+  }
+  if (typeof spec.persistBatch !== 'function') {
+    return { ok: false, error: 'NO_PERSIST', hint: '缺少词表写入回调。' }
+  }
+  const connection = String(spec.connection || '').trim()
+  if (!connection) return { ok: false, error: 'NO_CONNECTION', hint: '词表需要 connection' }
+  const kinds = Array.isArray(spec.kinds) ? spec.kinds : []
+  const concepts = kinds.map((row, index) => {
+    if (typeof row === 'string') {
+      const kind = row.trim()
+      return kind ? { id: kind, kind, resource: kind, fields: [], can: ['现查'], connection } : null
+    }
+    if (!row || typeof row !== 'object') return null
+    const kind = String(row.kind || row.name || '').trim()
+    if (!kind) return null
+    const resource = String(row.resource || kind).trim() || kind
+    return {
+      id: String(row.id || resource || `kind-${index}`),
+      kind,
+      resource,
+      fields: Array.isArray(row.fields) ? row.fields : [],
+      can: Array.isArray(row.can) ? row.can : ['现查'],
+      connection,
+      ...(row.ticketField ? { ticketField: row.ticketField } : {}),
+      ...(row.fieldLabels ? { fieldLabels: row.fieldLabels } : {}),
+      ...(row.relations ? { relations: row.relations } : {}),
+    }
+  }).filter(Boolean)
+  if (!concepts.length) {
+    return { ok: true, workspace, concepts: 0, batches: 0, emptySchema: true }
+  }
+  const persist = await persistConcepts(spec.persistBatch, `业务型 · ${connection}`, concepts)
+  if (persist.ok === false) {
+    return { ok: false, error: persist.error || 'VOCAB_WRITE_FAILED', batches: persist.batches }
+  }
+  return {
+    ok: true,
+    workspace,
+    concepts: concepts.length,
     batches: persist.batches,
     emptySchema: false,
     ...(persist.skipped.length ? { skipped: persist.skipped } : {}),

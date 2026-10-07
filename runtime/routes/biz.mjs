@@ -1,7 +1,22 @@
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { loadMemoryWorkspaceVocab } from '../biz/memory-vocab.mjs'
 import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
-import { generateWorkspaceVocabFromConnector } from '../biz/vocab-from-connector.mjs'
+import { invokeBizSlot } from '../biz/invoke.mjs'
+import { kindsFromDescribePayload, sheetFromListPayload, receiptFromWritePayload } from '../biz/bound-shape.mjs'
+import { rememberBoundPreview, takeBoundPreview } from '../biz/bound-preview.mjs'
+import { generateWorkspaceVocabFromConnector, generateWorkspaceVocabFromKinds } from '../biz/vocab-from-connector.mjs'
+import { kindConnectionOf, mcpSourceFromSystem } from '../biz/systems.mjs'
+import {
+  deleteBizSystem,
+  findBizSystem,
+  migrateBoundWorkspaceSources,
+  readBizSystems,
+  upsertBizSystem,
+  writeBizSystems,
+  writeLookupOperate,
+} from '../biz/systems-store.mjs'
+
+
 import { isGateActionCode } from '../biz/gate-action-codes.mjs'
 import { normalizePreviewWhere } from '../biz/where.mjs'
 import {
@@ -138,7 +153,7 @@ async function loadWorkspaceKinds(aiRuntime, workspace) {
   }
 }
 
-async function resolveAuditBizKind(aiRuntime, workspace, audit, traceRow) {
+async function resolveAuditBizKind(aiRuntime, workspace, audit, traceRow, db) {
   const bind = parseLookupBind(audit)
   let kind = effectiveBizKind(bind.bizKind, audit?.kind)
   if (kind && !isSpokenMetaKind(kind)) return kind
@@ -511,6 +526,41 @@ async function enrichTraceRowsAsync(db, aiRuntime, workspace, traceRows, limit) 
   })
 }
 
+function invokeStatus(error) {
+  const code = String(error?.code || '')
+  if (code === 'no_session' || code === 'not_projected' || code === 'timeout') return 503
+  if (code === 'no_write' || code === 'no_handle' || code === 'validation_error') return 400
+  return 400
+}
+
+async function mcpRouteForKind(aiRuntime, cwd, kind) {
+  const name = String(kind || '').trim()
+  if (!name) return null
+  const vocab = await loadBizVocab(aiRuntime, cwd)
+  const resolved = resolveConnectedKind(name, vocab.kinds) || name
+  const row = (vocab.kinds || []).find((item) => String(item.kind || '').trim() === resolved)
+  if (!row) return null
+  const conn = kindConnectionOf(row)
+  if (conn.type !== 'mcp') return null
+  const found = await findBizSystem(aiRuntime, conn.systemId)
+  if (!found.system) return { error: '词表连接已不存在', code: 'no_system' }
+  return { type: 'mcp', system: found.system, kind: resolved, vocab, row }
+}
+
+function boundSlotArgs(body, cwd) {
+  const args = {
+    kind: String(body.kind || '').trim(),
+    action: String(body.action || '').trim(),
+    cwd,
+  }
+  if (body.where != null) args.where = body.where
+  if (body.filter != null) args.filter = body.filter
+  if (typeof body.no === 'string' && body.no.trim()) args.no = body.no.trim()
+  if (body.patch && typeof body.patch === 'object') args.patch = body.patch
+  if (body.input && typeof body.input === 'object') args.input = body.input
+  return args
+}
+
 /**
  * @param {import('node:http').IncomingMessage} request
  * @param {import('node:http').ServerResponse} response
@@ -532,9 +582,105 @@ export async function handleBizRoutes(request, response, url, deps) {
 
   if (!url.pathname.startsWith('/api/v1/biz')) return false
 
+  if (url.pathname === '/api/v1/biz/systems') {
+    await migrateBoundWorkspaceSources(db, aiRuntime).catch(() => ({ migrated: 0 }))
+    if (request.method === 'GET') {
+      let lookup = null
+      try {
+        const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+        const current = state?.lookup && typeof state.lookup === 'object' ? state.lookup : null
+        if (current) {
+          lookup = {
+            system: String(current.system || ''),
+            env: String(current.env || ''),
+            baseUrl: String(current.baseUrl || ''),
+            configured: Boolean(current.configured || current.hasToken || current.baseUrl),
+          }
+        }
+      } catch { /* lookup fields optional */ }
+      const listed = await readBizSystems(aiRuntime)
+      sendJson(response, 200, {
+        data: {
+          lookup: {
+            ...(lookup || {}),
+            operate: listed.lookup?.operate || { skills: [] },
+          },
+          systems: listed.systems || [],
+        },
+        correlationId,
+      })
+      return true
+    }
+    if (request.method === 'PUT') {
+      const body = await readJson(request)
+      let saved
+      if (body.lookup && typeof body.lookup === 'object' && !body.serverName && !Array.isArray(body.systems)) {
+        saved = await writeLookupOperate(aiRuntime, body.lookup.operate?.skills || body.lookup.skills || [])
+      } else if (Array.isArray(body.systems)) {
+        saved = await writeBizSystems(aiRuntime, body.systems)
+      } else {
+        saved = await upsertBizSystem(aiRuntime, body)
+      }
+      if (saved.error) {
+        sendError(response, 400, saved.code || 'validation_error', saved.error, correlationId)
+        return true
+      }
+      sendJson(response, 200, { data: { lookup: saved.lookup, systems: saved.systems }, correlationId })
+      return true
+    }
+  }
+
+  const systemDelete = url.pathname.match(/^\/api\/v1\/biz\/systems\/([^/]+)$/)
+  if (systemDelete && request.method === 'DELETE') {
+    const saved = await deleteBizSystem(aiRuntime, decodeURIComponent(systemDelete[1]))
+    if (saved.error) {
+      sendError(response, 400, saved.code || 'validation_error', saved.error, correlationId)
+      return true
+    }
+    sendJson(response, 200, { data: { systems: saved.systems }, correlationId })
+    return true
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/v1/biz/vocab/generate') {
     const body = await readJson(request)
     const workspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const systemId = String(body.systemId || '').trim()
+    if (systemId) {
+      const found = await findBizSystem(aiRuntime, systemId)
+      if (!found.system) {
+        sendError(response, 400, 'no_system', '找不到该业务系统', correlationId)
+        return true
+      }
+      try {
+        const source = mcpSourceFromSystem(found.system)
+        const raw = await invokeBizSlot({ aiRuntime, db }, {
+          source,
+          slot: 'describe',
+          args: { cwd: workspace },
+          cwd: workspace,
+          sessionId: typeof body.sessionId === 'string' ? body.sessionId.trim() : '',
+        })
+        const mapped = kindsFromDescribePayload(raw)
+        if (mapped.error) {
+          sendError(response, 400, 'DESCRIBE_SHAPE', mapped.error, correlationId)
+          return true
+        }
+        const result = await generateWorkspaceVocabFromKinds({
+          workspace,
+          connection: found.system.id,
+          kinds: mapped.kinds,
+          persistBatch: (batch) => aiRuntime.patchWorkspaceVocab(workspace, batch),
+        })
+        if (result && result.ok === false) {
+          sendError(response, 400, String(result.error || 'vocab_generate_failed'), String(result.hint || result.error || '词表生成失败'), correlationId)
+          return true
+        }
+        sendJson(response, 200, { data: stripSecrets(result), correlationId })
+      } catch (error) {
+        sendError(response, invokeStatus(error), error?.code || 'vocab_generate_failed', error instanceof Error ? error.message : '词表生成失败', correlationId)
+      }
+      return true
+    }
     const baseUrl = normalizeBaseUrl(body.baseUrl)
     let token = typeof body.token === 'string' ? body.token.trim() : ''
     const account = typeof body.account === 'string' ? body.account.trim() : ''
@@ -596,7 +742,7 @@ export async function handleBizRoutes(request, response, url, deps) {
     if (traceId) {
       const audit = getBizWriteAuditByTraceId(db, traceId)
       if (audit) {
-        const resolvedKind = await resolveAuditBizKind(aiRuntime, workspace, audit, null)
+        const resolvedKind = await resolveAuditBizKind(aiRuntime, workspace, audit, null, db)
         const action = enrichAuditAction(audit.action)
         sendJson(response, 200, {
           data: {
@@ -680,7 +826,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       const traces = await aiRuntime.lanAssist('/traces', { search: { workspace, id: traceId } })
       traceRow = traces?.row || (Array.isArray(traces?.rows) ? traces.rows[0] : null)
     } catch { /* trace optional */ }
-    const rollbackKind = await resolveAuditBizKind(aiRuntime, workspace, audit, traceRow)
+    const rollbackKind = await resolveAuditBizKind(aiRuntime, workspace, audit, traceRow, db)
     if (!rollbackKind || isSpokenMetaKind(rollbackKind)) {
       markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400)
       sendError(response, 400, 'rollback_unsupported', '回退需要词表里的业务型；请确认该型已在词表与连接器登记', correlationId)
@@ -834,8 +980,25 @@ export async function handleBizRoutes(request, response, url, deps) {
     }
     reconcileLanAssistConnectionLamp(db, state, { vocab })
     const items = listBusinessConnections(db, { workspaceId })
+    const mcpListed = await readBizSystems(aiRuntime)
+    const mcpItems = (mcpListed.systems || []).map((row) => ({
+      id: row.id,
+      workspaceId: '',
+      name: row.name,
+      provider: 'mcp',
+      connectionKind: 'mcp',
+      status: 'connected',
+      capabilities: ['describe', 'list', ...(row.tools?.write ? ['write'] : [])],
+      lastHealth: null,
+      updatedAt: '',
+      lanAssistOnline: online,
+      catalogVersion,
+    }))
     sendJson(response, 200, {
-      items: items.map((row) => ({ ...row, lanAssistOnline: online, catalogVersion })),
+      items: [
+        ...items.map((row) => ({ ...row, lanAssistOnline: online, catalogVersion })),
+        ...mcpItems,
+      ],
       correlationId,
     })
     return true
@@ -843,12 +1006,93 @@ export async function handleBizRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && url.pathname === '/api/v1/biz/preview') {
     const body = await readJson(request)
+    const bizWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const kind = String(body.kind || '').trim()
+    const routed = kind ? await mcpRouteForKind(aiRuntime, bizWorkspace, kind) : null
+    if (routed?.error) {
+      sendError(response, 400, routed.code || 'no_system', routed.error, correlationId)
+      return true
+    }
+    if (routed?.type === 'mcp') {
+      const action = resolveGateAction(typeof body.action === 'string' ? body.action : '') || String(body.action || '').trim()
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
+      const args = boundSlotArgs({ ...body, kind, action }, bizWorkspace)
+      const source = mcpSourceFromSystem(routed.system)
+      try {
+        if (action === '现查') {
+          const raw = await invokeBizSlot({ aiRuntime, db }, {
+            source,
+            slot: 'list',
+            args,
+            cwd: bizWorkspace,
+            sessionId,
+          })
+          const previewId = createId('pv')
+          const mapped = sheetFromListPayload(raw, {
+            kind,
+            action,
+            canWrite: Boolean(source.write),
+            previewId,
+            workspace: bizWorkspace,
+          })
+          if (mapped.error) {
+            sendError(response, 400, 'LIST_SHAPE', mapped.error, correlationId)
+            return true
+          }
+          rememberBoundPreview(previewId, {
+            cwd: bizWorkspace,
+            source,
+            args,
+            sheet: mapped.sheet,
+          })
+          if (body.replay !== true) recordSurfaceFromPreview(db, bizWorkspace, body, mapped.sheet)
+          sendJson(response, 200, {
+            data: { ...mapped.sheet, published: false, source: 'ui' },
+            correlationId,
+          })
+          return true
+        }
+        if (!source.write) {
+          sendError(response, 400, 'no_write', '未绑 write', correlationId)
+          return true
+        }
+        const previewId = createId('pv')
+        const sheet = {
+          ok: true,
+          kind,
+          action,
+          columns: [],
+          rows: [],
+          canWrite: true,
+          preview_id: previewId,
+          previewId,
+          workspace: bizWorkspace,
+          ...(args.patch ? { patch: args.patch } : {}),
+        }
+        rememberBoundPreview(previewId, {
+          cwd: bizWorkspace,
+          source,
+          args,
+          sheet,
+        })
+        sendJson(response, 200, { data: { ...sheet, published: false, source: 'ui' }, correlationId })
+        return true
+      } catch (error) {
+        sendError(
+          response,
+          invokeStatus(error),
+          error?.code || 'invoke_failed',
+          error instanceof Error ? error.message : '调用失败',
+          correlationId,
+        )
+        return true
+      }
+    }
     const described = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
     if (described && described.ok === false) {
       sendError(response, 400, described.error || 'NO_CATALOG', described.hint || '目录没读成', correlationId)
       return true
     }
-    const bizWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
     let previewVocabExtra = {}
     try {
       const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, bizWorkspace)
@@ -1032,6 +1276,62 @@ export async function handleBizRoutes(request, response, url, deps) {
     if (writeSource !== 'workstation') {
       sendError(response, 403, 'biz_write_forbidden', '请在右侧确认过账', correlationId)
       return true
+    }
+    const boundHeld = takeBoundPreview(body.preview_id)
+    if (boundHeld) {
+      if (!boundCanWrite(boundHeld.source)) {
+        sendError(response, 400, 'no_write', '未绑 write', correlationId)
+        return true
+      }
+      try {
+        const raw = await invokeBizSlot({ aiRuntime, db }, {
+          source: boundHeld.source,
+          slot: 'write',
+          args: boundHeld.args,
+          cwd: boundHeld.cwd || bizWorkspace,
+          sessionId: typeof body.sessionId === 'string' ? body.sessionId.trim() : '',
+        })
+        const mapped = receiptFromWritePayload(raw)
+        if (mapped.error) {
+          sendError(response, 400, mapped.code || 'WRITE_SHAPE', mapped.error, correlationId)
+          return true
+        }
+        const written = mapped.receipt
+        const traceId = String(body.trace_id || createId('trace'))
+        const sheet = boundHeld.sheet && typeof boundHeld.sheet === 'object' ? boundHeld.sheet : {}
+        try {
+          insertBizWriteAudit(db, {
+            workspaceCwd: boundHeld.cwd || bizWorkspace,
+            traceId,
+            kind: effectiveBizKind(sheet.kind, body.kind),
+            action: String(sheet.action || body.action || written.action || ''),
+            recordNo: String(written.recordNo || body.no || ''),
+            receiptId: String(written.receiptId || ''),
+            sessionId: String(body.sessionId || ''),
+            source: writeSource,
+            changes: Array.isArray(body.changes) ? body.changes : [],
+            columns: Array.isArray(sheet.columns) ? sheet.columns : [],
+            lookupBind: captureLookupBind(sheet, body),
+          })
+        } catch { /* audit must not block write */ }
+        emit('biz.write.done', {
+          kind: String(written.kind || sheet.kind || ''),
+          action: String(written.action || sheet.action || ''),
+          traceId,
+          receiptId: String(written.receiptId || ''),
+        }, { workspaceCwd: boundHeld.cwd || bizWorkspace, source: 'bff' })
+        sendJson(response, 200, { data: { ...written, trace_id: traceId, traceId }, correlationId })
+        return true
+      } catch (error) {
+        sendError(
+          response,
+          invokeStatus(error),
+          error?.code || 'invoke_failed',
+          error instanceof Error ? error.message : '调用失败',
+          correlationId,
+        )
+        return true
+      }
     }
     const pendingSheet = await capturePendingSheet(aiRuntime, body.preview_id)
     let written

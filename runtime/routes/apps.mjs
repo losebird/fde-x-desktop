@@ -18,6 +18,13 @@ import {
   patchRecord,
 } from '../apps/records.mjs'
 import {
+  computeBoundStat,
+  listBoundRecords,
+  specRecordsViaMcp,
+  writeBoundRecord,
+} from '../apps/bound-records.mjs'
+import { resolveOperateSkills } from '../biz/systems-store.mjs'
+import {
   activateApp,
   createAppDraft,
   findActiveAppBySlug,
@@ -51,6 +58,12 @@ function resolveWorkspaceCwd(queryWorkspace, spec) {
 function cwdHint(queryWorkspace) {
   const raw = String(queryWorkspace || '').trim()
   return raw.startsWith('/') ? raw : ''
+}
+
+function sendInvokeError(sendError, response, error, correlationId) {
+  const code = String(error?.code || 'invoke_failed')
+  const status = code === 'no_session' || code === 'not_projected' || code === 'timeout' ? 503 : 400
+  sendError(response, status, code, error instanceof Error ? error.message : '调用失败', correlationId)
 }
 
 /**
@@ -134,6 +147,7 @@ function recordAppOperation(db, {
  * @param {URL} url
  * @param {{
  *   db: import('node:sqlite').DatabaseSync,
+ *   aiRuntime?: object,
  *   allowedOrigins: Set<string>,
  *   correlationId: string,
  *   sendError: Function,
@@ -142,7 +156,7 @@ function recordAppOperation(db, {
  * }} deps
  */
 export async function handleAppsRoutes(request, response, url, deps) {
-  const { db, allowedOrigins, correlationId, sendError, sendJson, readJson } = deps
+  const { db, aiRuntime, allowedOrigins, correlationId, sendError, sendJson, readJson } = deps
   const pathname = url.pathname
   if (!pathname.startsWith('/api/v1/apps') && !pathname.startsWith('/api/v1/bridge/app-')) {
     return false
@@ -338,6 +352,15 @@ export async function handleAppsRoutes(request, response, url, deps) {
       return true
     }
     const workspaceCwd = resolveWorkspaceCwd(url.searchParams.get('workspace'), app.spec)
+    if (specRecordsViaMcp(db, app.spec, workspaceCwd)) {
+      try {
+        const value = await computeBoundStat({ db, aiRuntime }, app.spec, view, workspaceCwd)
+        sendJson(response, 200, { ok: true, data: value || { value: 0, label: view.label || '统计' }, correlationId })
+      } catch (error) {
+        sendInvokeError(sendError, response, error, correlationId)
+      }
+      return true
+    }
     const value = computeStat(db, app.spec, view, workspaceCwd)
     sendJson(response, 200, { ok: true, data: value, correlationId })
     return true
@@ -363,6 +386,10 @@ export async function handleAppsRoutes(request, response, url, deps) {
     const rids = Array.isArray(body.rids) ? body.rids.map(String) : []
     const workspaceCwd = resolveWorkspaceCwd(body.workspaceCwd ?? body.workspace, app.spec)
     if (action.kind === 'set') {
+      if (specRecordsViaMcp(db, app.spec, workspaceCwd)) {
+        sendError(response, 400, 'no_set', 'set 只在本地台账可用', correlationId)
+        return true
+      }
       if (action.approval === 'required') {
         const planned = planSetActionWithApproval(db, {
           workspaceId,
@@ -403,7 +430,12 @@ export async function handleAppsRoutes(request, response, url, deps) {
     }
     if (action.kind === 'agent') {
       const rows = rids.map((rid) => getRecord(db, app.spec, String(action.entity), workspaceCwd, rid)).filter(Boolean)
-      const jobs = buildAgentActionJobs(action, rows)
+      const resolved = await resolveOperateSkills(aiRuntime, app.spec, workspaceCwd)
+      if (resolved.error) {
+        sendError(response, resolved.code === 'no_session' ? 503 : 400, resolved.code || 'skill_missing', resolved.error, correlationId)
+        return true
+      }
+      const jobs = buildAgentActionJobs(action, rows, { ...app.spec, skills: resolved.skills })
       sendJson(response, 200, {
         ok: true,
         data: { step: 'agent', jobs },
@@ -428,6 +460,18 @@ export async function handleAppsRoutes(request, response, url, deps) {
       return true
     }
     const workspaceCwd = resolveWorkspaceCwd(body.workspaceCwd ?? body.workspace, app.spec)
+    if (specRecordsViaMcp(db, app.spec, workspaceCwd)) {
+      try {
+        const written = await writeBoundRecord({ db, aiRuntime }, app.spec, entity, workspaceCwd, {
+          op: 'insert',
+          row: body,
+        })
+        sendJson(response, 201, { ok: true, data: written, correlationId })
+      } catch (error) {
+        sendInvokeError(sendError, response, error, correlationId)
+      }
+      return true
+    }
     try {
       const row = insertRecord(db, app.spec, entity, workspaceCwd, body)
       recordAppOperation(db, {
@@ -467,6 +511,27 @@ export async function handleAppsRoutes(request, response, url, deps) {
       return true
     }
     const workspaceCwd = resolveWorkspaceCwd(url.searchParams.get('workspace'), app.spec)
+    if (specRecordsViaMcp(db, app.spec, workspaceCwd)) {
+      let filter = {}
+      try {
+        const raw = url.searchParams.get('filter')
+        if (raw) filter = JSON.parse(raw)
+      } catch {
+        sendError(response, 400, 'validation_error', 'filter 不是有效 JSON', correlationId)
+        return true
+      }
+      try {
+        const data = await listBoundRecords({ db, aiRuntime }, app.spec, entity, workspaceCwd, {
+          filter,
+          page: Number(url.searchParams.get('page') ?? 1),
+          size: Number(url.searchParams.get('size') ?? 20),
+        })
+        sendJson(response, 200, { ok: true, data, correlationId })
+      } catch (error) {
+        sendInvokeError(sendError, response, error, correlationId)
+      }
+      return true
+    }
     let filter = {}
     try {
       const raw = url.searchParams.get('filter')
@@ -500,8 +565,23 @@ export async function handleAppsRoutes(request, response, url, deps) {
       return true
     }
     const workspaceCwd = resolveWorkspaceCwd(url.searchParams.get('workspace'), app.spec)
+    const bound = specRecordsViaMcp(db, app.spec, workspaceCwd)
 
     if (request.method === 'GET') {
+      if (bound) {
+        try {
+          const listed = await listBoundRecords({ db, aiRuntime }, app.spec, entity, workspaceCwd, { size: 100 })
+          const row = (listed?.rows || []).find((item) => String(item.id || item.no || '') === rid)
+          if (!row) {
+            sendError(response, 404, 'not_found', '记录不存在', correlationId)
+            return true
+          }
+          sendJson(response, 200, { ok: true, data: row, correlationId })
+        } catch (error) {
+          sendInvokeError(sendError, response, error, correlationId)
+        }
+        return true
+      }
       const row = getRecord(db, app.spec, entity, workspaceCwd, rid)
       if (!row) {
         sendError(response, 404, 'not_found', '记录不存在', correlationId)
@@ -513,6 +593,19 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
     if (request.method === 'PATCH') {
       const body = await readJson(request)
+      if (bound) {
+        try {
+          const written = await writeBoundRecord({ db, aiRuntime }, app.spec, entity, workspaceCwd, {
+            op: 'patch',
+            rid,
+            row: body,
+          })
+          sendJson(response, 200, { ok: true, data: written, correlationId })
+        } catch (error) {
+          sendInvokeError(sendError, response, error, correlationId)
+        }
+        return true
+      }
       try {
         const row = patchRecord(db, app.spec, entity, workspaceCwd, rid, body)
         if (!row) {
@@ -546,6 +639,18 @@ export async function handleAppsRoutes(request, response, url, deps) {
     }
 
     if (request.method === 'DELETE') {
+      if (bound) {
+        try {
+          await writeBoundRecord({ db, aiRuntime }, app.spec, entity, workspaceCwd, {
+            op: 'delete',
+            rid,
+          })
+          sendJson(response, 200, { ok: true, correlationId })
+        } catch (error) {
+          sendInvokeError(sendError, response, error, correlationId)
+        }
+        return true
+      }
       const ok = deleteRecord(db, app.spec, entity, workspaceCwd, rid)
       if (!ok) {
         sendError(response, 404, 'not_found', '记录不存在', correlationId)
@@ -580,7 +685,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {string} workspaceCwd
  */
-export function handleAppsBridge(sub, body, db, workspaceCwd) {
+export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
   const workspaceId = workspaceCwd ? workspaceIdForCwd(db, workspaceCwd) : 'ws_personal'
   if (sub === 'app-spec-submit') {
     const spec = body.spec
@@ -623,8 +728,21 @@ export function handleAppsBridge(sub, body, db, workspaceCwd) {
     const app = findActiveAppBySlug(db, workspaceId, slug, workspaceCwd)
     if (!app) return { ok: false, error: 'app_not_active', message: '应用未激活' }
     const limit = Math.min(200, Number(body.limit ?? 50))
+    const filter = body.filter && typeof body.filter === 'object' ? body.filter : {}
+    if (specRecordsViaMcp(db, app.spec, workspaceCwd)) {
+      try {
+        const data = await listBoundRecords({ db, aiRuntime }, app.spec, entity, workspaceCwd, {
+          filter,
+          size: limit,
+          page: 1,
+        })
+        return { ok: true, rows: data?.rows || [], total: data?.total || 0 }
+      } catch (error) {
+        return { ok: false, error: error?.code || 'invoke_failed', message: error instanceof Error ? error.message : '调用失败' }
+      }
+    }
     const data = listRecords(db, app.spec, entity, workspaceCwd, {
-      filter: body.filter && typeof body.filter === 'object' ? body.filter : {},
+      filter,
       size: limit,
       page: 1,
     })

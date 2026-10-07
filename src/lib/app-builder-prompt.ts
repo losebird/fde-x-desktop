@@ -14,6 +14,8 @@ const PAGES_RULES = `每个对象单独一栏 pages；有链接/视频字段 →
 
 const USES_RULES = `uses 只声明真正要用的平台能力：问数/起草写 ai，并排用写 float，稿和附件走文件模块写 files，动作只起草记忆卡片写 memory，拟回进 IM 输入框写 im，早报/MCP 源写 briefing，引用业务对象并预览确认写 biz，摘成待办写 plan（须能写入 plan 任务）。没接到的不要写，前端不会画假按钮。`
 
+const SOURCE_RULES = `source 可选：local 本地 SQLite；lookup 现账闸；system 加 systemId 指向 profile 里已登记的 mcp 业务系统。skills 从袋里绑 {name,path}。不要编不在袋里的 id 或 skill。`
+
 const TITLE_RULES = `titleField 必须是人能读的业务名（名称/标题），禁止用单号或自动编号填标题。`
 
 const COMMON_TAIL = `若返回 errors，修正后重新提交。不要写外部业务系统除非用户已接业务。禁止套固定品类模板。`
@@ -42,6 +44,7 @@ export function appBuilderPrompt(input: {
       PAGES_RULES,
       TITLE_RULES,
       USES_RULES,
+      SOURCE_RULES,
       COMMON_TAIL,
     ].join('\n')
   }
@@ -58,6 +61,7 @@ export function appBuilderPrompt(input: {
     PAGES_RULES,
     TITLE_RULES,
     USES_RULES,
+    SOURCE_RULES,
     id
       ? `调用 fde_app_spec_submit({ requestId, spec, appId: "${id}" }) 提交修订。`
       : '调用 fde_app_spec_submit({ requestId, spec, appId }) 提交修订（appId 见上）。',

@@ -167,7 +167,7 @@ export async function handleBridgeRoutes(request, response, url, deps) {
   }
 
   if (sub === 'app-spec-submit' || sub === 'app-records-query' || sub === 'app-records-propose') {
-    const bridgeResult = handleAppsBridge(sub, body, db, workspaceCwd)
+    const bridgeResult = await handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime)
     if (bridgeResult) {
       if (sub === 'app-spec-submit' && bridgeResult.ok && workspaceCwd) {
         const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : ''

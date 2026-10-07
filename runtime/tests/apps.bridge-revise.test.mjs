@@ -19,11 +19,11 @@ function uniqueSpec() {
 }
 
 describe('bridge app-spec-submit revise', () => {
-  test('submit without appId still creates a draft', () => {
+  test('submit without appId still creates a draft', async () => {
     const db = openDatabase(`/tmp/fde-bridge-rev-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const spec = uniqueSpec()
     const before = listBusinessApps(db, { workspaceId: 'ws_personal', workspaceCwd: CWD }).length
-    const result = handleAppsBridge('app-spec-submit', { spec }, db, CWD)
+    const result = await handleAppsBridge('app-spec-submit', { spec }, db, CWD)
     assert.equal(result.ok, true)
     assert.ok(result.appId)
     assert.equal(result.revision, 1)
@@ -32,10 +32,10 @@ describe('bridge app-spec-submit revise', () => {
     db.close()
   })
 
-  test('create+activate then submit with appId → revision 2, same appId', () => {
+  test('create+activate then submit with appId → revision 2, same appId', async () => {
     const db = openDatabase(`/tmp/fde-bridge-rev2-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const spec = uniqueSpec()
-    const created = handleAppsBridge('app-spec-submit', { spec }, db, CWD)
+    const created = await handleAppsBridge('app-spec-submit', { spec }, db, CWD)
     assert.equal(created.ok, true)
     const appId = created.appId
     const activated = activateApp(db, appId)
@@ -45,7 +45,7 @@ describe('bridge app-spec-submit revise', () => {
       ...spec,
       name: `${spec.name}（改）`,
     }
-    const revised = handleAppsBridge('app-spec-submit', { spec: nextSpec, appId }, db, CWD)
+    const revised = await handleAppsBridge('app-spec-submit', { spec: nextSpec, appId }, db, CWD)
     assert.equal(revised.ok, true)
     assert.equal(revised.appId, appId)
     assert.equal(revised.revision, 2)
@@ -57,10 +57,10 @@ describe('bridge app-spec-submit revise', () => {
     db.close()
   })
 
-  test('submit with unknown appId → ok false', () => {
+  test('submit with unknown appId → ok false', async () => {
     const db = openDatabase(`/tmp/fde-bridge-rev3-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const spec = uniqueSpec()
-    const result = handleAppsBridge('app-spec-submit', { spec, appId: 'app_nonexistent' }, db, CWD)
+    const result = await handleAppsBridge('app-spec-submit', { spec, appId: 'app_nonexistent' }, db, CWD)
     assert.equal(result.ok, false)
     assert.ok(result.errors?.some((e) => e.path === 'appId'))
     db.close()

@@ -4,9 +4,27 @@ import { User, Palette, Bell, Keyboard, Database, Trash2, RefreshCw, Activity, B
 import clsx from 'clsx'
 import { useApp } from '@/store/app'
 import { PageTitle, Card, Tag } from '@/components/ui'
-import { RuntimeApiError, runtimeApi, type RuntimeHealth } from '@/lib/runtime-api'
+import { RuntimeApiError, runtimeApi, type McpServerV2, type RuntimeHealth, type SkillBagItem } from '@/lib/runtime-api'
 import { CoreSettings } from '@/components/settings/CoreSettings'
 import { SemanticSettings } from '@/components/settings/SemanticSettings'
+import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { BizHandleSlots } from '@/components/biz/BizHandleSlots'
+import { SkillBagPicker } from '@/components/biz/SkillBagPicker'
+import type { FdeAppSkillBind } from '@/lib/app-spec'
+
+function skillsFromOperate(raw: unknown): FdeAppSkillBind[] {
+  const operate = raw && typeof raw === 'object' ? (raw as { operate?: { skills?: FdeAppSkillBind[] } }).operate : null
+  return Array.isArray(operate?.skills) ? operate.skills : []
+}
+
+function toolsFromRow(row: Record<string, unknown>) {
+  const tools = row.tools && typeof row.tools === 'object' ? row.tools as { describe?: string; list?: string; write?: string } : {}
+  return {
+    describe: String(tools.describe || ''),
+    list: String(tools.list || ''),
+    write: String(tools.write || ''),
+  }
+}
 
 const SECTIONS = [
   { id: 'account',   label: '账户',       icon: User },
@@ -30,6 +48,16 @@ export default function Settings() {
   const [runtimeLoading, setRuntimeLoading] = useState(false)
   const [lookupNote, setLookupNote] = useState('')
   const [lookup, setLookup] = useState({ system: '', env: '测试', baseUrl: '', token: '', account: '', password: '' })
+  const [mcpBag, setMcpBag] = useState<McpServerV2[]>([])
+  const [skillBag, setSkillBag] = useState<SkillBagItem[]>([])
+  const [bizSystems, setBizSystems] = useState<Array<Record<string, unknown>>>([])
+  const [draftSystem, setDraftSystem] = useState({ name: '', serverName: '', describe: '', list: '', write: '' })
+  const [draftSkills, setDraftSkills] = useState<FdeAppSkillBind[]>([])
+  const [lookupSkills, setLookupSkills] = useState<FdeAppSkillBind[]>([])
+  const [editingId, setEditingId] = useState('')
+  const [editRow, setEditRow] = useState({ name: '', serverName: '', describe: '', list: '', write: '' })
+  const [editSkills, setEditSkills] = useState<FdeAppSkillBind[]>([])
+  const [sourceSaving, setSourceSaving] = useState(false)
 
   const diagnoseRuntime = useCallback(async () => {
     setRuntimeLoading(true)
@@ -66,6 +94,42 @@ export default function Settings() {
           baseUrl: String(current.baseUrl || prev.baseUrl),
         }))
       }).catch(() => undefined)
+      void runtimeApi.getBizSystems().then((data) => {
+        setBizSystems(data.systems)
+        const lookupFields = data.lookup && typeof data.lookup === 'object' ? data.lookup : null
+        if (lookupFields) {
+          setLookup((prev) => ({
+            ...prev,
+            system: String(lookupFields.system || prev.system),
+            env: String(lookupFields.env || prev.env),
+            baseUrl: String(lookupFields.baseUrl || prev.baseUrl),
+          }))
+          setLookupSkills(skillsFromOperate(lookupFields))
+        }
+      }).catch(() => undefined)
+      void (async () => {
+        const cwd = loadCurrentWorkspaceCwd()
+        const target = await currentAiTarget().catch(() => ({ ok: false as const, error: '' }))
+        const [servers, projected, skills] = await Promise.all([
+          runtimeApi.listMcpServers().catch(() => ({ mcp: [] as McpServerV2[] })),
+          cwd.ok
+            ? runtimeApi.listMcpProjection({ cwd: cwd.cwd, sessionId: target.ok ? target.sessionId : undefined }).catch(() => ({ mcp: [] as McpServerV2[] }))
+            : Promise.resolve({ mcp: [] as McpServerV2[] }),
+          runtimeApi.listAiSkills(target.ok ? target.sessionId : undefined).catch(() => ({ items: [] as SkillBagItem[] })),
+        ])
+        const byName = new Map<string, McpServerV2>()
+        for (const row of [...servers.mcp, ...projected.mcp]) {
+          const prev = byName.get(row.serverName)
+          if (!prev) {
+            byName.set(row.serverName, row)
+            continue
+          }
+          const tools = [...new Set([...(prev.tools || []), ...(row.tools || [])])]
+          byName.set(row.serverName, { ...prev, ...row, tools })
+        }
+        setMcpBag([...byName.values()])
+        setSkillBag(skills.items)
+      })()
     }
   }, [diagnoseRuntime, section])
 
@@ -278,8 +342,9 @@ export default function Settings() {
             <>
               <Card>
                 <div className="text-base font-medium mb-1">业务连接器</div>
-                <div className="text-xs text-ink-muted mb-3">lan-assist 只存 API Key（Bearer）。账号密码只用来向业务系统换 token，不落库、不回读。</div>
+                <div className="text-xs text-ink-muted mb-3">lookup 与 MCP 业务系统登记在本机 profile。现查/过账还要本工作区记忆词表里有型。</div>
                 {lookupNote && <div className="mb-2 text-xs text-ink-muted">{lookupNote}</div>}
+                <div className="text-xs text-ink-muted mb-2">lan-assist 只存 API Key（Bearer）。账号密码只用来向业务系统换 token，不落库、不回读。</div>
                 <div className="grid grid-cols-1 @md:grid-cols-2 gap-2">
                   <label className="text-xs text-ink-muted">系统<input className="input mt-1" value={lookup.system} onChange={(event) => setLookup((current) => ({ ...current, system: event.target.value }))} /></label>
                   <label className="text-xs text-ink-muted">环境<input className="input mt-1" value={lookup.env} onChange={(event) => setLookup((current) => ({ ...current, env: event.target.value }))} /></label>
@@ -290,7 +355,9 @@ export default function Settings() {
                 </div>
                 <button
                   className="btn mt-3"
+                  disabled={sourceSaving}
                   onClick={() => {
+                    setSourceSaving(true)
                     void runtimeApi.bizLookup({
                       system: lookup.system,
                       env: lookup.env,
@@ -303,9 +370,202 @@ export default function Settings() {
                       setLookup((current) => ({ ...current, token: '', password: '' }))
                       setLookupNote(data.ok === false ? String(data.hint ?? data.error ?? '保存失败') : '已提交到本机运行时')
                     }).catch((cause) => setLookupNote(cause instanceof Error ? cause.message : '保存失败'))
+                      .finally(() => setSourceSaving(false))
                   }}
                 >
                   保存连接
+                </button>
+                <div className="mt-3">
+                  <SkillBagPicker skills={skillBag} value={lookupSkills} onChange={setLookupSkills} />
+                  <button
+                    type="button"
+                    className="btn h-7 px-2 mt-2 text-xs"
+                    disabled={sourceSaving}
+                    onClick={() => {
+                      setSourceSaving(true)
+                      void runtimeApi.putBizSystems({ lookup: { operate: { skills: lookupSkills } } })
+                        .then(() => setLookupNote('已保存 lookup Skills'))
+                        .catch((cause) => setLookupNote(cause instanceof Error ? cause.message : '保存失败'))
+                        .finally(() => setSourceSaving(false))
+                    }}
+                  >
+                    保存 lookup Skills
+                  </button>
+                </div>
+                <div className="mt-6 text-sm font-medium">MCP 业务系统</div>
+                <div className="text-xs text-ink-muted mb-2">从已装 MCP 选一个 server，再点该 server 的三个工具。</div>
+                {bizSystems.map((row) => {
+                  const id = String(row.id)
+                  const tools = toolsFromRow(row)
+                  const expanded = editingId === id
+                  return (
+                    <div key={id} className="border border-line rounded-lg px-3 py-2 mb-2 text-xs space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="font-medium text-ink">{String(row.name)}</div>
+                          <div className="text-ink-muted mt-0.5">{String(row.serverName)} · {tools.describe} / {tools.list}</div>
+                        </div>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            className="btn h-7 px-2"
+                            onClick={() => {
+                              if (expanded) {
+                                setEditingId('')
+                                return
+                              }
+                              setEditingId(id)
+                              setEditRow({ name: String(row.name), serverName: String(row.serverName), ...tools })
+                              setEditSkills(skillsFromOperate(row))
+                            }}
+                          >
+                            {expanded ? '收起' : '改'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn h-7 px-2"
+                            disabled={sourceSaving}
+                            onClick={() => {
+                              const cwd = loadCurrentWorkspaceCwd()
+                              if (!cwd.ok) {
+                                setLookupNote('没有当前工作区')
+                                return
+                              }
+                              setSourceSaving(true)
+                              void runtimeApi.generateBizVocab({ systemId: id, cwd: cwd.cwd })
+                                .then(() => setLookupNote('已写入本工作区词表'))
+                                .catch((cause) => setLookupNote(cause instanceof Error ? cause.message : '写入词表失败'))
+                                .finally(() => setSourceSaving(false))
+                            }}
+                          >
+                            写入本工作区词表
+                          </button>
+                          <button
+                            type="button"
+                            className="btn h-7 px-2"
+                            onClick={() => {
+                              void runtimeApi.deleteBizSystem(id).then((data) => setBizSystems(data.systems))
+                                .catch((cause) => setLookupNote(cause instanceof Error ? cause.message : '删除失败'))
+                            }}
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                      {expanded && (
+                        <>
+                          <div className="grid grid-cols-1 @md:grid-cols-2 gap-2">
+                            <label className="text-xs text-ink-muted">名称<input className="input mt-1" value={editRow.name} onChange={(event) => setEditRow((current) => ({ ...current, name: event.target.value }))} /></label>
+                            <label className="text-xs text-ink-muted">
+                              MCP
+                              <select className="input mt-1" value={editRow.serverName} onChange={(event) => setEditRow((current) => ({ ...current, serverName: event.target.value, describe: '', list: '', write: '' }))}>
+                                <option value="">选择 server</option>
+                                {mcpBag.map((server) => (
+                                  <option key={server.serverName} value={server.serverName}>{server.serverName}</option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                          {editRow.serverName && (
+                            <BizHandleSlots
+                              serverName={editRow.serverName}
+                              tools={mcpBag.find((item) => item.serverName === editRow.serverName)?.tools || []}
+                              describe={editRow.describe}
+                              list={editRow.list}
+                              write={editRow.write}
+                              onChange={(slot, tool) => setEditRow((current) => ({ ...current, [slot]: tool }))}
+                            />
+                          )}
+                          <SkillBagPicker skills={skillBag} value={editSkills} onChange={setEditSkills} />
+                          <button
+                            type="button"
+                            className="btn h-7 px-2"
+                            disabled={sourceSaving}
+                            onClick={() => {
+                              if (!editRow.name || !editRow.serverName || !editRow.describe || !editRow.list) {
+                                setLookupNote('名称、server、describe、list 必填')
+                                return
+                              }
+                              setSourceSaving(true)
+                              void runtimeApi.putBizSystems({
+                                id,
+                                name: editRow.name,
+                                serverName: editRow.serverName,
+                                tools: {
+                                  describe: editRow.describe,
+                                  list: editRow.list,
+                                  ...(editRow.write ? { write: editRow.write } : {}),
+                                },
+                                operate: { skills: editSkills },
+                              }).then((data) => {
+                                setBizSystems(data.systems)
+                                setLookupNote('已保存')
+                              }).catch((cause) => setLookupNote(cause instanceof Error ? cause.message : '保存失败'))
+                                .finally(() => setSourceSaving(false))
+                            }}
+                          >
+                            保存
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+                <div className="grid grid-cols-1 @md:grid-cols-2 gap-2 mt-2">
+                  <label className="text-xs text-ink-muted">名称<input className="input mt-1" value={draftSystem.name} onChange={(event) => setDraftSystem((current) => ({ ...current, name: event.target.value }))} /></label>
+                  <label className="text-xs text-ink-muted">
+                    MCP
+                    <select className="input mt-1" value={draftSystem.serverName} onChange={(event) => setDraftSystem((current) => ({ ...current, serverName: event.target.value, describe: '', list: '', write: '' }))}>
+                      <option value="">选择 server</option>
+                      {mcpBag.map((server) => (
+                        <option key={server.serverName} value={server.serverName}>{server.serverName}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {draftSystem.serverName && (
+                  <div className="mt-2">
+                    <BizHandleSlots
+                      serverName={draftSystem.serverName}
+                      tools={mcpBag.find((row) => row.serverName === draftSystem.serverName)?.tools || []}
+                      describe={draftSystem.describe}
+                      list={draftSystem.list}
+                      write={draftSystem.write}
+                      onChange={(slot, tool) => setDraftSystem((current) => ({ ...current, [slot]: tool }))}
+                    />
+                  </div>
+                )}
+                <div className="mt-2">
+                  <SkillBagPicker skills={skillBag} value={draftSkills} onChange={setDraftSkills} />
+                </div>
+                <button
+                  className="btn mt-3"
+                  disabled={sourceSaving}
+                  onClick={() => {
+                    if (!draftSystem.name || !draftSystem.serverName || !draftSystem.describe || !draftSystem.list) {
+                      setLookupNote('名称、server、describe、list 必填')
+                      return
+                    }
+                    setSourceSaving(true)
+                    void runtimeApi.putBizSystems({
+                      name: draftSystem.name,
+                      serverName: draftSystem.serverName,
+                      tools: {
+                        describe: draftSystem.describe,
+                        list: draftSystem.list,
+                        ...(draftSystem.write ? { write: draftSystem.write } : {}),
+                      },
+                      ...(draftSkills.length ? { operate: { skills: draftSkills } } : {}),
+                    }).then((data) => {
+                      setBizSystems(data.systems)
+                      setDraftSystem({ name: '', serverName: '', describe: '', list: '', write: '' })
+                      setDraftSkills([])
+                      setLookupNote('已保存 MCP 业务系统')
+                    }).catch((cause) => setLookupNote(cause instanceof Error ? cause.message : '保存失败'))
+                      .finally(() => setSourceSaving(false))
+                  }}
+                >
+                  添加 MCP 系统
                 </button>
               </Card>
               <Card>

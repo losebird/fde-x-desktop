@@ -24,7 +24,7 @@ import {
 } from '@/lib/biz-sheet-display'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { type ContextPack } from '@/lib/context-pack'
-import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { askWithEntity } from '@/lib/ask-origin'
 import { dataLandView } from '@/lib/data-browse'
 import { useApp } from '@/store/app'
@@ -460,7 +460,15 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
   const [contextPack, setContextPack] = useState<ContextPack | null>(null)
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [omit, setOmit] = useState<Set<string>>(new Set())
-  const kindCatalog = useMemo(() => kindRowsFromVocab(vocab), [vocab])
+  const kindCatalog = useMemo(() => {
+    const rows = kindRowsFromVocab(vocab)
+    const conn = connections.find((item) => item.id === connectionId)
+    if (!conn || connections.length <= 1) return rows
+    if (conn.provider === 'mcp' || conn.connectionKind === 'mcp') {
+      return rows.filter((row) => row.connection === conn.id)
+    }
+    return rows.filter((row) => !row.connection || row.connection === 'lookup')
+  }, [vocab, connections, connectionId])
   const sheetSnapshots = useRef<Map<string, SheetSnapshot>>(new Map())
   const listRestoreRef = useRef<ListRestoreSnapshot | null>(null)
   const displayBeforeWriteRef = useRef<ListRestoreSnapshot | null>(null)
@@ -1942,6 +1950,38 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
   const askAiForRow = async () => {
     if (!selectedRow) return
     const title = String(selectedRow.标题 || selectedRow.title || selectedRow.name || kind || '')
+    let skillLine = ''
+    try {
+      const listed = await runtimeApi.getBizSystems()
+      const kindRow = kindCatalog.find((item) => item.kind === kind)
+      const connId = String(kindRow?.connection || 'lookup')
+      const connection = !connId || connId === 'lookup'
+        ? listed.lookup
+        : listed.systems.find((item) => String(item.id) === connId)
+      const operate = connection && typeof connection === 'object'
+        ? (connection as { operate?: { skills?: Array<{ name: string; path: string }> } }).operate
+        : null
+      const skills = Array.isArray(operate?.skills) ? operate.skills : []
+      if (skills.length) {
+        const target = await currentAiTarget()
+        const bag = await runtimeApi.listAiSkills(target.ok ? target.sessionId : undefined)
+        for (const skill of skills) {
+          const item = bag.items.find((row) => row.path === skill.path || row.name === skill.name)
+          if (!item) {
+            setError(`袋里没有 ${skill.name}`)
+            return
+          }
+          if (item.modelInvocable === false) {
+            setError('未启用')
+            return
+          }
+        }
+        skillLine = `\n使用这些 skill：${skills.map((row) => `${row.name}（${row.path}）`).join('、')}`
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '技能不可用')
+      return
+    }
     const result = await askWithEntity({
       title,
       text: title,
@@ -1951,7 +1991,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         ref: title || kind,
         fields: selectedRow,
       },
-      tail: `请结合上述来源实体协助我（型：${kind}）。`,
+      tail: `请结合上述来源实体协助我（型：${kind}）。${skillLine}`,
       scopes: ['workspace', 'biz', 'memory'],
       revealAi: false,
     })

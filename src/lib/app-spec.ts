@@ -151,6 +151,16 @@ export interface FdeAppAction {
   approval?: 'none' | 'required'
 }
 
+export type FdeAppSource =
+  | { type: 'local' }
+  | { type: 'lookup' }
+  | { type: 'system'; systemId: string }
+
+export interface FdeAppSkillBind {
+  name: string
+  path: string
+}
+
 export interface FdeAppSpec {
   spec: 'fde-app/v1'
   slug: string
@@ -162,6 +172,8 @@ export interface FdeAppSpec {
   uses?: FdePlatformUse[]
   pages?: FdeAppPage[]
   surface?: FdeAppSurface
+  source?: FdeAppSource
+  skills?: FdeAppSkillBind[]
   _workspaceCwd?: string
 }
 

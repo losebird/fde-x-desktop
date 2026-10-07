@@ -52,10 +52,10 @@ describe('apps workspace identity', () => {
     db.close()
   })
 
-  test('bridge submit returns appId and stores cwd on spec', () => {
+  test('bridge submit returns appId and stores cwd on spec', async () => {
     const db = openDatabase(`/tmp/fde-apps-ws3-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const spec = uniqueSpec()
-    const result = handleAppsBridge('app-spec-submit', { spec }, db, CWD)
+    const result = await handleAppsBridge('app-spec-submit', { spec }, db, CWD)
     assert.equal(result.ok, true)
     assert.ok(result.appId)
     const listed = listBusinessApps(db, { workspaceId: 'ws_personal', workspaceCwd: CWD })

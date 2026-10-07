@@ -220,13 +220,13 @@ function headerMap(headers) {
   return out
 }
 
-function jsonRpcResultFromBody(text) {
+function jsonRpcParse(text) {
   const raw = String(text || '').trim()
   if (!raw) return null
   const tryParse = (chunk) => {
     try {
       const parsed = JSON.parse(chunk)
-      if (parsed && typeof parsed === 'object' && parsed.jsonrpc === '2.0' && parsed.result !== undefined) return parsed.result
+      if (parsed && typeof parsed === 'object' && parsed.jsonrpc === '2.0') return parsed
     } catch {
       return null
     }
@@ -243,39 +243,111 @@ function jsonRpcResultFromBody(text) {
   return null
 }
 
-async function probeMcpInitialize(entry, timeoutMs = 2000) {
+function jsonRpcResultFromBody(text) {
+  const parsed = jsonRpcParse(text)
+  return parsed && parsed.result !== undefined ? parsed.result : null
+}
+
+function jsonRpcErrorMessage(text) {
+  const parsed = jsonRpcParse(text)
+  const err = parsed && parsed.error && typeof parsed.error === 'object' ? parsed.error : null
+  if (!err) return ''
+  return String(err.message || err.code || 'MCP error')
+}
+
+async function mcpHttpPost(entry, payload, { timeoutMs = 8000, sessionId } = {}) {
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), timeoutMs)
   try {
+    const headers = {
+      ...headerMap(entry.headers),
+      Accept: 'application/json, text/event-stream',
+      'Content-Type': 'application/json',
+    }
+    if (sessionId) headers['Mcp-Session-Id'] = sessionId
     const res = await fetch(entry.url, {
       method: 'POST',
       redirect: 'manual',
       signal: ac.signal,
-      headers: {
-        ...headerMap(entry.headers),
-        Accept: 'application/json, text/event-stream',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: '2025-03-26',
-          capabilities: {},
-          clientInfo: { name: 'dsh-mcp-client', version: '0.2.0-rc.2' },
-        },
-      }),
+      headers,
+      body: JSON.stringify(payload),
     })
-    if (res.status < 200 || res.status >= 400) return { ok: false, message: `HTTP ${res.status}` }
     const text = await res.text()
-    if (!jsonRpcResultFromBody(text)) return { ok: false, message: 'MCP initialize 无 result' }
+    const nextSession = res.headers.get('mcp-session-id') || sessionId || ''
+    return { status: res.status, text, sessionId: nextSession }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function probeMcpInitialize(entry, timeoutMs = 2000) {
+  try {
+    const posted = await mcpHttpPost(entry, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-03-26',
+        capabilities: {},
+        clientInfo: { name: 'dsh-mcp-client', version: '0.2.0-rc.2' },
+      },
+    }, { timeoutMs })
+    if (posted.status < 200 || posted.status >= 400) return { ok: false, message: `HTTP ${posted.status}` }
+    if (!jsonRpcResultFromBody(posted.text)) return { ok: false, message: 'MCP initialize 无 result' }
     return { ok: true, message: 'MCP 可达' }
   } catch (error) {
     if (error && error.name === 'AbortError') return { ok: false, message: 'timeout' }
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  } finally {
-    clearTimeout(timer)
+  }
+}
+
+export async function callMcpHttpTool(entry, toolName, args = {}, timeoutMs = 60_000) {
+  const name = String(toolName || '').trim()
+  if (!entry?.url) return { ok: false, error: '缺少 url' }
+  if (!name) return { ok: false, error: '缺少 tool' }
+  try {
+    const initialized = await mcpHttpPost(entry, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-03-26',
+        capabilities: {},
+        clientInfo: { name: 'dsh-mcp-client', version: '0.2.0-rc.2' },
+      },
+    }, { timeoutMs: Math.min(8000, timeoutMs) })
+    if (initialized.status < 200 || initialized.status >= 400) {
+      return { ok: false, error: `HTTP ${initialized.status}` }
+    }
+    if (!jsonRpcResultFromBody(initialized.text)) {
+      return { ok: false, error: jsonRpcErrorMessage(initialized.text) || 'MCP initialize 无 result' }
+    }
+    const sessionId = initialized.sessionId
+    await mcpHttpPost(entry, {
+      jsonrpc: '2.0',
+      method: 'notifications/initialized',
+      params: {},
+    }, { timeoutMs: 4000, sessionId }).catch(() => ({ status: 0, text: '', sessionId }))
+    const called = await mcpHttpPost(entry, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: {
+        name,
+        arguments: args && typeof args === 'object' && !Array.isArray(args) ? args : {},
+      },
+    }, { timeoutMs, sessionId })
+    if (called.status < 200 || called.status >= 400) {
+      return { ok: false, error: jsonRpcErrorMessage(called.text) || `HTTP ${called.status}` }
+    }
+    const result = jsonRpcResultFromBody(called.text)
+    if (result === null) {
+      return { ok: false, error: jsonRpcErrorMessage(called.text) || 'tools/call 无 result' }
+    }
+    return { ok: true, result }
+  } catch (error) {
+    if (error && error.name === 'AbortError') return { ok: false, error: 'timeout' }
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 

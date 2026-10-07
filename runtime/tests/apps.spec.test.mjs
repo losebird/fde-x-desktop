@@ -64,6 +64,28 @@ describe('apps spec validator', () => {
     assert.equal(r.ok, false)
   })
 
+  test('accepts source local lookup and system', () => {
+    const local = validateAppSpec({ ...SUPPLIER_VISITS_SPEC, source: { type: 'local' } })
+    assert.equal(local.ok, true)
+    const lookup = validateAppSpec({ ...SUPPLIER_VISITS_SPEC, source: { type: 'lookup' } })
+    assert.equal(lookup.ok, true)
+    const system = validateAppSpec({
+      ...SUPPLIER_VISITS_SPEC,
+      source: { type: 'system', systemId: 'sys_a' },
+      skills: [{ name: 'pack', path: '/tmp/pack' }],
+    })
+    assert.equal(system.ok, true)
+    assert.equal(system.spec.source.systemId, 'sys_a')
+  })
+
+  test('rejects system without systemId', () => {
+    const r = validateAppSpec({
+      ...SUPPLIER_VISITS_SPEC,
+      source: { type: 'system' },
+    })
+    assert.equal(r.ok, false)
+  })
+
   test('rejects invalid action kind', () => {
     const spec = JSON.parse(JSON.stringify(SUPPLIER_VISITS_SPEC))
     spec.actions[0].kind = 'run'

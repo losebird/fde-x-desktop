@@ -155,15 +155,19 @@ export function renderRowTemplate(template, row) {
  * @param {Record<string, unknown>} action
  * @param {Record<string, unknown>[]} rows
  */
-export function buildAgentActionJobs(action, rows) {
+export function buildAgentActionJobs(action, rows, spec) {
   const agent = action.agent && typeof action.agent === 'object' ? action.agent : {}
   const preset = String(agent.preset ?? '')
   const promptTemplate = String(agent.prompt ?? '')
   const writeBack = typeof agent.writeBack === 'string' && agent.writeBack ? agent.writeBack : undefined
+  const skills = Array.isArray(spec?.skills) ? spec.skills : []
+  const skillLine = skills.length
+    ? `\n使用这些 skill：${skills.map((row) => `${row.name}（${row.path}）`).join('、')}`
+    : ''
   return rows.map((row) => ({
     rid: String(row.id),
     preset,
-    prompt: renderRowTemplate(promptTemplate, row),
+    prompt: `${renderRowTemplate(promptTemplate, row)}${skillLine}`,
     writeBack,
   }))
 }

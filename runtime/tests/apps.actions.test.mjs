@@ -80,6 +80,20 @@ describe('apps actions', () => {
     assert.equal(jobs[0].writeBack, 'summary')
   })
 
+  test('agent jobs include spec.skills', () => {
+    const action = {
+      name: 'ai',
+      kind: 'agent',
+      entity: 'visit',
+      agent: { preset: 'fde-app-builder', prompt: '总结' },
+    }
+    const jobs = buildAgentActionJobs(action, [{ id: 'r1' }], {
+      skills: [{ name: 'pack', path: '/tmp/pack' }],
+    })
+    assert.match(jobs[0].prompt, /pack/)
+    assert.match(jobs[0].prompt, /\/tmp\/pack/)
+  })
+
   test('biz builds preview intents', () => {
     const action = {
       name: 'biz',

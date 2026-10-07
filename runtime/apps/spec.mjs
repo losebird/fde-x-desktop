@@ -1,3 +1,5 @@
+import { parseAppSkills, parseAppSource } from '../biz/source.mjs'
+
 const FIELD_TYPES = new Set(['text', 'longtext', 'number', 'bool', 'date', 'datetime', 'enum', 'ref', 'json'])
 const VIEW_TYPES = new Set(['table', 'form', 'detail', 'kanban', 'stat', 'cards', 'chart', 'compose', 'feed'])
 const ACTION_KINDS = new Set(['set', 'biz', 'agent'])
@@ -130,7 +132,7 @@ export function validateAppSpec(spec, ctx = {}) {
   if (!root) return { ok: false, errors }
 
   rejectExtraKeys(root, [
-    'spec', 'slug', 'name', 'description', 'entities', 'views', 'actions', 'permissions', 'memory', 'uses', 'pages', 'surface', '_workspaceCwd',
+    'spec', 'slug', 'name', 'description', 'entities', 'views', 'actions', 'permissions', 'memory', 'uses', 'pages', 'surface', 'source', 'skills', '_workspaceCwd',
   ], '', errors)
 
   if (root.spec !== 'fde-app/v1') {
@@ -178,6 +180,16 @@ export function validateAppSpec(spec, ctx = {}) {
   }
   if (root.surface !== undefined) {
     validateSurface(root.surface, 'surface', errors, root.pages)
+  }
+  if (root.source !== undefined) {
+    const parsedSource = parseAppSource(root.source)
+    if (parsedSource.error) errors.push({ path: 'source', message: parsedSource.error })
+    else root.source = parsedSource.source
+  }
+  if (root.skills !== undefined) {
+    const parsedSkills = parseAppSkills(root.skills)
+    if (parsedSkills.error) errors.push({ path: 'skills', message: parsedSkills.error })
+    else root.skills = parsedSkills.skills
   }
 
   /** @type {Map<string, { fields: Map<string, Record<string, unknown>> }>} */

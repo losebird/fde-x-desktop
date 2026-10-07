@@ -19,6 +19,7 @@ export function mapKindsFromCatalog(catalogPayload) {
       ? row.catalogVersion.trim()
       : undefined
     const aliases = Array.isArray(row.aliases) ? row.aliases.map(String).filter(Boolean) : undefined
+    const connection = typeof row.connection === 'string' && row.connection.trim() ? row.connection.trim() : undefined
     return {
       kind,
       label,
@@ -30,6 +31,7 @@ export function mapKindsFromCatalog(catalogPayload) {
       ...(resource ? { resource } : {}),
       ...(catalogVersion ? { catalogVersion } : {}),
       ...(aliases && aliases.length ? { aliases } : {}),
+      ...(connection ? { connection } : {}),
     }
   })
   return {
@@ -115,27 +117,58 @@ function asVocabSheet(data) {
   }
 }
 
+export function mergeMemoryOperateCatalog(memoryData, catalogData) {
+  const memoryKinds = Array.isArray(memoryData?.kinds) ? memoryData.kinds : []
+  const catalogKinds = Array.isArray(catalogData?.kinds) ? catalogData.kinds : []
+  const catalogByName = new Map()
+  for (const row of catalogKinds) {
+    const kind = String(row?.kind || '').trim()
+    if (kind) catalogByName.set(kind, row)
+  }
+  const kinds = memoryKinds.map((row) => {
+    const kind = String(row?.kind || '').trim()
+    const catalog = catalogByName.get(kind) || {}
+    return {
+      ...catalog,
+      ...row,
+      kind,
+      connection: row.connection || catalog.connection || 'lookup',
+      resource: row.resource || catalog.resource || kind,
+      catalogVersion: row.catalogVersion || catalog.catalogVersion,
+      fields: Array.isArray(row.fields) && row.fields.length ? row.fields : (Array.isArray(catalog.fields) ? catalog.fields : []),
+      aliases: [...new Set([
+        ...(Array.isArray(catalog.aliases) ? catalog.aliases : []),
+        ...(Array.isArray(row.aliases) ? row.aliases : []),
+      ])],
+    }
+  })
+  const collapsed = collapseKindsToConnectedTables(kinds)
+  return {
+    kinds: collapsed.kinds,
+    aliases: collapsed.aliases,
+    relations: Array.isArray(memoryData?.relations) && memoryData.relations.length
+      ? memoryData.relations
+      : (Array.isArray(catalogData?.relations) ? catalogData.relations : []),
+    catalogVersion: catalogData?.catalogVersion ?? memoryData?.catalogVersion ?? null,
+  }
+}
+
 /**
- * Workspace 词表: `{ kinds, relations, catalogVersion, aliases }` keyed by `{ cwd }`.
- * Internally `/catalog` + memory graph merge.
+ * Workspace 词表: 记忆 kinds 为操作闸；/catalog 只给这些型补列。
  */
 export async function loadBizVocab(aiRuntime, cwd) {
   const workspace = String(cwd || '').trim()
-  const catalog = await aiRuntime.lanAssist('/catalog', { search: { workspace } })
-  if (catalog && catalog.ok === false) {
-    const error = new Error(String(catalog.hint || '事务底座未就绪'))
-    error.code = String(catalog.error || 'NO_CATALOG')
-    throw error
+  let fromMemory
+  try {
+    fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
+  } catch {
+    return asVocabSheet(emptyBizVocab())
   }
-  let data = mapKindsFromCatalog(catalog)
-  if (workspace.startsWith('/')) {
-    try {
-      const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
-      data = mergeConnectedKindCatalog(data, fromMemory)
-    } catch { /* catalog kinds still returned */ }
-  } else if (!data.kinds.length) {
-    const fromMemory = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
-    if (fromMemory.kinds.length) data = fromMemory
-  }
-  return asVocabSheet(data)
+  if (!fromMemory.kinds.length) return asVocabSheet(emptyBizVocab())
+  let catalogData = { kinds: [], relations: [], catalogVersion: null }
+  try {
+    const catalog = await aiRuntime.lanAssist('/catalog', { search: { workspace } })
+    if (catalog && catalog.ok !== false) catalogData = mapKindsFromCatalog(catalog)
+  } catch { /* memory kinds still returned */ }
+  return asVocabSheet(mergeMemoryOperateCatalog(fromMemory, catalogData))
 }

@@ -946,6 +946,8 @@ export function kindsFromGraphNodes(nodes) {
     if (clues != null) packed.clues = clues
     const catalogVersion = String(pickProp(node, props, ['catalogVersion', 'catalog_version']) || '').trim()
     if (catalogVersion) packed.catalogVersion = catalogVersion
+    const connection = String(pickProp(node, props, ['connection']) || '').trim()
+    if (connection) packed.connection = connection
     const relations = pickProp(node, props, ['relations'])
     if (Array.isArray(relations) && relations.length) packed.relations = relations
     if (kind === '口语' || packed.id === 'spoken') packed.spoken = true

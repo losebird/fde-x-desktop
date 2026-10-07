@@ -77,6 +77,7 @@ import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
 import { configureEventBus, emit } from './events.mjs'
 import { startLanAssistStateWatch, subscribeLanAssistMailbox } from './lan-assist-state-watch.mjs'
+import { migrateBoundWorkspaceSources, readBizSystems } from './biz/systems-store.mjs'
 import { startSemanticReadyWatch } from './semantic-ready-watch.mjs'
 import { refreshLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
@@ -1048,6 +1049,7 @@ const server = createServer(async (request, response) => {
 
     if (await handleAppsRoutes(request, response, url, {
       db,
+      aiRuntime,
       allowedOrigins,
       correlationId: currentCorrelationId,
       sendError,
@@ -2825,7 +2827,23 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && url.pathname === '/api/v1/business/connections') {
       const workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
       await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options))
-      sendJson(response, 200, { items: listBusinessConnections(db, { workspaceId }), correlationId: currentCorrelationId })
+      await migrateBoundWorkspaceSources(db, aiRuntime).catch(() => ({ migrated: 0 }))
+      const listed = await readBizSystems(aiRuntime)
+      const mcpItems = (listed.systems || []).map((row) => ({
+        id: row.id,
+        workspaceId: '',
+        name: row.name,
+        provider: 'mcp',
+        connectionKind: 'mcp',
+        status: 'connected',
+        capabilities: ['describe', 'list', ...(row.tools?.write ? ['write'] : [])],
+        lastHealth: null,
+        updatedAt: '',
+      }))
+      sendJson(response, 200, {
+        items: [...listBusinessConnections(db, { workspaceId }), ...mcpItems],
+        correlationId: currentCorrelationId,
+      })
       return
     }
 

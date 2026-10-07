@@ -2,6 +2,7 @@ import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { applyMaterialize } from './materialize.mjs'
 import { withProductLayout } from './layout.mjs'
 import { detectBreakingSpecChange, quoteTable, tableNameForEntity, validateAppSpec } from './spec.mjs'
+import { recordsViaMcp } from '../biz/source.mjs'
 
 const APP_TABLE_RE = /^app_[a-z][a-z0-9-]{1,30}__[a-z][a-z0-9_]{0,30}$/
 const LIVE_APP = `(deleted_at IS NULL OR deleted_at = '')`
@@ -210,9 +211,12 @@ export function activateApp(db, appId, hooks = {}) {
 
   const now = isoNow()
   let applied = []
+  const skipMaterialize = recordsViaMcp(app.spec)
   try {
-    const result = applyMaterialize(db, app.spec, previousSpec)
-    applied = result.applied
+    if (!skipMaterialize) {
+      const result = applyMaterialize(db, app.spec, previousSpec)
+      applied = result.applied
+    }
   } catch (error) {
     if (error?.code === 'breaking_change') {
       return { kind: 'breaking', errors: error.details || [] }

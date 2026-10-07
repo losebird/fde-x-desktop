@@ -42,6 +42,14 @@ export async function loadMemoryWorkspaceVocab(aiRuntime, workspaceCwd) {
       relations.push(field ? { from, to, field } : { from, to })
     }
   }
+  const connectionByKind = new Map()
+  for (const node of nodes) {
+    if (!node || String(node.type || '') !== 'skos:Concept') continue
+    const props = node.properties && typeof node.properties === 'object' ? node.properties : {}
+    const kind = String(props.prefLabel || props.label || props.content || '').trim()
+    const connection = String(props.connection || '').trim()
+    if (kind && connection) connectionByKind.set(kind, connection)
+  }
   const mapped = kinds.map((row) => ({
     kind: row.kind,
     label: row.kind,
@@ -55,6 +63,9 @@ export async function loadMemoryWorkspaceVocab(aiRuntime, workspaceCwd) {
       : {}),
     ...(row.can ? { can: row.can } : {}),
     ...(Array.isArray(row.relations) && row.relations.length ? { relations: row.relations } : {}),
+    ...(row.connection || connectionByKind.get(row.kind)
+      ? { connection: row.connection || connectionByKind.get(row.kind) }
+      : {}),
   }))
   const collapsed = collapseKindsToConnectedTables(mapped)
   return {

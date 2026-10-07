@@ -3,6 +3,12 @@ import { findActiveAppBySlug } from '../apps/repository.mjs'
 import { memoryLandHref } from '../memory/identity.mjs'
 import { incomingUnread, letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
 import { workspaceRowIdForCwd } from './workspace.mjs'
+import { invokeBizSlot } from '../biz/invoke.mjs'
+import { sheetFromListPayload } from '../biz/bound-shape.mjs'
+import { loadBizVocab } from '../biz/vocab-sheet.mjs'
+import { kindConnectionOf, mcpSourceFromSystem } from '../biz/systems.mjs'
+import { findBizSystem } from '../biz/systems-store.mjs'
+import { resolveConnectedKind } from '../biz/connected-kind.mjs'
 
 async function dshWorkspaceCwds(aiRuntime, workspaceCwd) {
   const paths = [workspaceCwd]
@@ -132,6 +138,36 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
       }
       if (!aiRuntime?.status?.().connected) {
         return baseSection(def, { error: '核心未连接，无法查询业务待审' })
+      }
+      const vocab = await loadBizVocab(aiRuntime, workspaceCwd).catch(() => ({ kinds: [] }))
+      const resolved = resolveConnectedKind(kind, vocab.kinds) || kind
+      const row = (vocab.kinds || []).find((item) => String(item.kind || '').trim() === resolved)
+      const conn = kindConnectionOf(row)
+      if (conn.type === 'mcp') {
+        const found = await findBizSystem(aiRuntime, conn.systemId)
+        if (!found.system) return baseSection(def, { error: '词表连接已不存在' })
+        try {
+          const raw = await invokeBizSlot({ aiRuntime, db }, {
+            source: mcpSourceFromSystem(found.system),
+            slot: 'list',
+            args: { kind: resolved, action, filter, cwd: workspaceCwd },
+            cwd: workspaceCwd,
+          })
+          const mapped = sheetFromListPayload(raw, { kind, action, workspace: workspaceCwd })
+          if (mapped.error) return baseSection(def, { error: mapped.error })
+          const rows = Array.isArray(mapped.sheet.rows) ? mapped.sheet.rows : []
+          const items = rows.slice(0, 8).map((row, index) => {
+            const no = row?.no || row?.编号 || row?.id || String(index + 1)
+            return {
+              text: String(row?.标题 || row?.title || row?.name || `记录 ${no}`),
+              href: { panel: 'data', tab: 'records', kind, rowId: String(no) },
+              ref: `biz:${kind}:${no}`,
+            }
+          })
+          return baseSection(def, { items })
+        } catch (error) {
+          return baseSection(def, { error: error instanceof Error ? error.message : '业务待审调用失败' })
+        }
       }
       const where = Object.entries(filter).map(([field, value]) => ({ keys: [field], values: [value] }))
       const preview = await aiRuntime.lanAssist('/preview', {

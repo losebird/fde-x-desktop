@@ -2405,6 +2405,40 @@ export class RuntimeApi {
     return result.data
   }
 
+  async getBizSystems(signal?: AbortSignal): Promise<{ lookup?: Record<string, unknown> | null; systems: Array<Record<string, unknown>> }> {
+    const result = await this.request<{ data: { lookup?: Record<string, unknown> | null; systems?: Array<Record<string, unknown>> } }>('/api/v1/biz/systems', { signal })
+    return { lookup: result.data?.lookup ?? null, systems: Array.isArray(result.data?.systems) ? result.data.systems : [] }
+  }
+
+  async putBizSystems(body: Record<string, unknown>, signal?: AbortSignal): Promise<{ lookup?: Record<string, unknown>; systems: Array<Record<string, unknown>> }> {
+    const result = await this.request<{ data: { lookup?: Record<string, unknown>; systems?: Array<Record<string, unknown>> } }>('/api/v1/biz/systems', {
+      method: 'PUT',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return { lookup: result.data?.lookup, systems: Array.isArray(result.data?.systems) ? result.data.systems : [] }
+  }
+
+  async generateBizVocab(body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd('/api/v1/biz/vocab/generate'), {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(workspaceCwdBody(body)),
+    })
+    return result.data
+  }
+
+  async deleteBizSystem(systemId: string, signal?: AbortSignal): Promise<{ systems: Array<Record<string, unknown>> }> {
+    const id = encodeURIComponent(String(systemId || '').trim())
+    const result = await this.request<{ data: { systems?: Array<Record<string, unknown>> } }>(`/api/v1/biz/systems/${id}`, {
+      method: 'DELETE',
+      signal,
+    })
+    return { systems: Array.isArray(result.data?.systems) ? result.data.systems : [] }
+  }
+
   async bizLookup(body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/biz/lookup', {
       method: 'POST',

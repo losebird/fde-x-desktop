@@ -3,9 +3,11 @@ import { Loader2 } from 'lucide-react'
 import { AppRuntime } from '@/components/apps/AppRuntime'
 import { askAiForResult } from '@/lib/ask-ai'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
+import { isFdeAppSpec, type FdeAppDetail, type FdeAppSkillBind } from '@/lib/app-spec'
 import { appBuilderPrompt } from '@/lib/app-builder-prompt'
-import { runtimeApi } from '@/lib/runtime-api'
+import { currentAiTarget } from '@/lib/ai-target'
+import { runtimeApi, type SkillBagItem } from '@/lib/runtime-api'
+import { SkillBagPicker } from '@/components/biz/SkillBagPicker'
 
 type Props = {
   workspaceId: string
@@ -30,9 +32,22 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
   const [error, setError] = useState('')
   const [appDetail, setAppDetail] = useState<FdeAppDetail | null>(null)
   const [workspaceCwd, setWorkspaceCwd] = useState('')
+  const [skillBag, setSkillBag] = useState<SkillBagItem[]>([])
+  const [pickedSkills, setPickedSkills] = useState<FdeAppSkillBind[]>([])
+  const [bizSystems, setBizSystems] = useState<Array<Record<string, unknown>>>([])
+  const [bizTarget, setBizTarget] = useState('lookup')
 
   useEffect(() => {
     void runtimeApi.health().then((h) => setAiReady(h.state === 'healthy')).catch(() => setAiReady(false))
+    void (async () => {
+      const target = await currentAiTarget().catch(() => ({ ok: false as const, error: '' }))
+      const [listed, systems] = await Promise.all([
+        runtimeApi.listAiSkills(target.ok ? target.sessionId : undefined).catch(() => ({ items: [] as SkillBagItem[] })),
+        runtimeApi.getBizSystems().catch(() => ({ systems: [] as Array<Record<string, unknown>> })),
+      ])
+      setSkillBag(listed.items.filter((row) => row.path && row.path.startsWith('/')))
+      setBizSystems(systems.systems)
+    })()
   }, [])
 
   const loadApp = async (appId: string) => {
@@ -54,12 +69,15 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
 
   const buildDataPlacementHint = () => {
     if (dataConnect === 'local') {
-      return '数据放哪：本地 SQLite 台账。不要默认铺满 uses，没点名的能力不要写进 uses。'
+      return '数据放哪：本地 SQLite 台账。source.type=local。不要默认铺满 uses，没点名的能力不要写进 uses。'
     }
     const parts: string[] = ['数据放哪：接平台模块（非纯本地）。']
     if (connectBriefing) parts.push('接邮箱 → uses 须含 briefing，禁止假 Gmail/假收件箱。')
-    if (connectBiz) parts.push('接业务系统 → uses 须含 biz，禁止假外部接口。')
+    if (connectBiz) parts.push(`接业务系统 → uses 须含 biz，source=${bizTarget === 'lookup' ? '{type:lookup}' : `{type:system,systemId:${bizTarget}}`}，禁止假外部接口。`)
     if (connectFiles) parts.push('接文件 → uses 须含 files，走文件模块。')
+    if (pickedSkills.length) {
+      parts.push(`skills 只允许这些包：${pickedSkills.map((row) => `${row.name}@${row.path}`).join('、')}`)
+    }
     parts.push('仅当需求点名时才写 ai/float/memory/im/plan；摘成待办必须 uses 含 plan。')
     return parts.join(' ')
   }
@@ -122,6 +140,22 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
       return
     }
     const data = await loadApp(appId)
+    if (data && isFdeAppSpec(data.spec)) {
+      const source = dataConnect === 'local' || !connectBiz
+        ? { type: 'local' as const }
+        : bizTarget === 'lookup'
+          ? { type: 'lookup' as const }
+          : { type: 'system' as const, systemId: bizTarget }
+      const next = {
+        ...data.spec,
+        source,
+        ...(pickedSkills.length ? { skills: pickedSkills } : {}),
+      }
+      await runtimeApi.putDeclarativeAppSpec(data.id, { spec: next, changeNote: '绑定业务源与 skills' }).catch(() => undefined)
+      const fresh = await loadApp(appId)
+      onDraftReady?.(fresh.id)
+      return
+    }
     onDraftReady?.(data.id)
   }
 
@@ -183,6 +217,14 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
                   <input type="checkbox" checked={connectBiz} onChange={(e) => setConnectBiz(e.target.checked)} />
                   业务系统（走过账闸，不编假接口）
                 </label>
+                {connectBiz && (
+                  <select className="input h-7 text-xs" value={bizTarget} onChange={(event) => setBizTarget(event.target.value)}>
+                    <option value="lookup">lookup 现账</option>
+                    {bizSystems.map((row) => (
+                      <option key={String(row.id)} value={String(row.id)}>{String(row.name)}</option>
+                    ))}
+                  </select>
+                )}
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={connectFiles} onChange={(e) => setConnectFiles(e.target.checked)} />
                   文件（走文件模块）
@@ -190,6 +232,9 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
               </div>
             )}
           </fieldset>
+          {skillBag.length > 0 && (
+            <SkillBagPicker skills={skillBag} value={pickedSkills} onChange={setPickedSkills} label="本应用 Skills" />
+          )}
           <label className="block text-xs text-ink-muted">
             Preset
             <input className="input mt-1 w-full" value={preset} onChange={(e) => setPreset(e.target.value)} />
