@@ -70,6 +70,22 @@ test('query classifies session titles and session: find rows as session, not mem
   assert.equal(memory[0].href.pane, 'explore')
 })
 
+test('query matches memory card labels on the same search sheet', () => {
+  const sheet = searchSheet({
+    cwd: '/ws/a',
+    query: '过账',
+    cards: [
+      { id: 'memory:aa11bb22cc33dd44', label: '过账 客户 回退', then: 'CUST2197', status: '起草' },
+      { id: 'memory:ff00', label: '别的卡', then: '无关' },
+    ],
+  })
+  const memory = sheet.hits.filter((hit) => hit.kind === 'memory')
+  assert.equal(memory.length, 1)
+  assert.equal(memory[0].id, 'memory:aa11bb22cc33dd44')
+  assert.equal(memory[0].href.panel, 'memory')
+  assert.match(memory[0].title, /过账/)
+})
+
 test('origin find hits land on the source module', () => {
   const sheet = searchSheet({
     cwd: '/ws/a',

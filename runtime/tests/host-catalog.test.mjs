@@ -1,5 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   KIND_ORDER,
   ORIGIN_DSH_GOAL,
@@ -40,6 +42,17 @@ test('known kinds land on existing FDE-X pages; unknown kind overflows to settin
   assert.equal(overflow.href.section, 'core')
   assert.ok(PAGE_CATALOG.every((page) => page.href && page.href.panel))
   assert.ok(KIND_ORDER.includes('file'))
+})
+
+test('Plan page disables Host job enable and keeps local writes', () => {
+  const source = readFileSync(join(import.meta.dirname, '../../src/pages/Plan.tsx'), 'utf8')
+  assert.match(source, /from '@\/lib\/plan-origin'/)
+  assert.match(source, /isHostJobId\(w\.id\) && w\.status !== 'active'/)
+  assert.match(source, /hostGoalStatusOnly/)
+  const origin = readFileSync(join(import.meta.dirname, '../../src/lib/plan-origin.ts'), 'utf8')
+  assert.match(origin, /dsh-goal:/)
+  assert.match(origin, /dsh-schedule:/)
+  assert.match(origin, /dsh-job:/)
 })
 
 test('goal view maps to a plan row with dsh-goal origin', () => {

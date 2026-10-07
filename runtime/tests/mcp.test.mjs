@@ -111,7 +111,7 @@ test('buildMcpServersV2 projects live tools from session follow', async () => {
   }
   const mcp = await buildMcpServersV2(aiRuntime, SAMPLE_PATCH, ['mcp__alpha__ping'])
   assert.deepEqual(mcp[0].tools, ['mcp__alpha__ping'])
-  assert.equal(mcp[0].status, 'loaded')
+  assert.equal(mcp[0].status, 'needs-reload')
   assert.deepEqual(mcp[1].tools, [])
   assert.equal(mcp[1].status, 'needs-reload')
 })

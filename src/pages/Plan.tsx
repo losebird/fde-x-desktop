@@ -14,6 +14,7 @@ import { Card, Tag, Empty, PageTitle } from '@/components/ui'
 import { useEvents } from '@/lib/events'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
+import { hostGoalStatusOnly, isHostGoalId, isHostJobId, isHostScheduleId } from '@/lib/plan-origin'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -327,10 +328,17 @@ function TodoTab() {
       setOrganizeError('任务已不存在，请刷新列表后重试')
       return
     }
+    const nextPatch = isHostGoalId(suggestion.taskId)
+      ? hostGoalStatusOnly(patch as Record<string, unknown>)
+      : patch
+    if (!Object.keys(nextPatch).length) {
+      setOrganizeError('Host goal 只能改状态')
+      return
+    }
     setApplyingKey(key)
     setOrganizeError('')
     try {
-      await updateTask(suggestion.taskId, patch)
+      await updateTask(suggestion.taskId, nextPatch as TaskAdvicePatch)
       setAppliedKeys((prev) => new Set(prev).add(key))
     } catch (cause) {
       setOrganizeError(cause instanceof Error ? cause.message : '应用建议失败')
@@ -432,7 +440,7 @@ function TodoTab() {
               'min-w-[280px] grid grid-cols-[28px_minmax(0,1fr)_28px] @md:grid-cols-[28px_minmax(0,1fr)_80px_60px_28px] @xl:grid-cols-[28px_minmax(0,1fr)_96px_64px_minmax(0,1.2fr)_28px] items-center px-3 py-2.5 border-b border-line last:border-b-0 hover:bg-surface-2/40 group',
               selectedTaskId === t.id && 'bg-brand-soft/40 ring-1 ring-brand/30',
             )}>
-              <button onClick={() => void cycleStatus(t.id)} className="text-ink-muted hover:text-brand flex items-center justify-center" title="切换状态">
+              <button onClick={() => void cycleStatus(t.id)} className="text-ink-muted hover:text-brand flex items-center justify-center" title={isHostGoalId(t.id) ? '切换 Host goal 状态' : '切换状态'}>
                 {t.status === 'done' && <CheckCircle2 size={16} className="text-brand" />}
                 {t.status === 'doing' && <CircleDot size={16} className="text-accent-amber" />}
                 {t.status === 'todo'  && <Circle size={16} />}
@@ -445,7 +453,7 @@ function TodoTab() {
               <div className="hidden @md:block text-xs text-ink-muted truncate">{t.due ?? '—'}</div>
               <div className="hidden @md:block"><Tag kind={PRIORITY_TAG[t.priority].kind}>{PRIORITY_TAG[t.priority].label}</Tag></div>
               <div className="hidden @xl:flex gap-1 flex-wrap min-w-0 overflow-hidden"><div className="flex gap-1 flex-wrap">{t.tags.slice(0, 2).map((g) => <Tag key={g}>#{g}</Tag>)}{t.tags.length > 2 && <Tag>+{t.tags.length - 2}</Tag>}</div></div>
-              <button onClick={() => void removeTask(t.id)} className="btn-ghost p-1 text-ink-subtle hover:text-accent-red flex items-center justify-center" title="删除">
+              <button onClick={() => void removeTask(t.id)} className="btn-ghost p-1 text-ink-subtle hover:text-accent-red flex items-center justify-center" title={isHostGoalId(t.id) ? '归档 Host goal' : '删除'}>
                 <Trash2 size={14} />
               </button>
             </div>
@@ -671,7 +679,11 @@ function ScheduleTab() {
                         {e.location && <><MapPin size={10} /> {e.location}</>}
                       </div>
                     </div>
-                    <button className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100" onClick={() => void removeEvent(e.id)}>
+                    <button
+                      className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100"
+                      onClick={() => void removeEvent(e.id)}
+                      title={isHostScheduleId(e.id) ? '清除 Host 日程' : '删除'}
+                    >
                       <Trash2 size={14} />
                     </button>
                   </li>
@@ -920,11 +932,14 @@ function WorkflowTab() {
                     type="button"
                     onClick={() => void toggleWorkflow(w.id)}
                     className="btn"
-                    title={w.status === 'active' ? '暂停' : '启用'}
+                    disabled={isHostJobId(w.id) && w.status !== 'active'}
+                    title={isHostJobId(w.id)
+                      ? (w.status === 'active' ? '暂停 Host job' : 'Host 没有启用这个动作')
+                      : (w.status === 'active' ? '暂停' : '启用')}
                   >
                     <Power size={12} /> {w.status === 'active' ? '暂停' : '启用'}
                   </button>
-                  <button onClick={() => void removeWorkflow(w.id)} className="btn-ghost p-1 text-ink-subtle hover:text-accent-red" title="删除">
+                  <button onClick={() => void removeWorkflow(w.id)} className="btn-ghost p-1 text-ink-subtle hover:text-accent-red" title={isHostJobId(w.id) ? '停止 Host job' : '删除'}>
                     <Trash2 size={14} />
                   </button>
                 </div>

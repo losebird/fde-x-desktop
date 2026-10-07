@@ -401,6 +401,23 @@ export function searchSheet(bags = {}) {
       })
     }
     const originToCard = cardOriginIndex(bags.cards)
+    for (const card of Array.isArray(bags.cards) ? bags.cards : []) {
+      const id = String(card?.id || '')
+      if (!id) continue
+      const label = String(card.label || card.title || card.cue || '')
+      const text = String(card.then || card.text || card.excerpt || '')
+      const origin = originOfCard(card)
+      if (!matches(label, q) && !matches(text, q) && !matches(origin, q) && !matches(id, q)) continue
+      const classified = classifyHitId(id)
+      put(bag, {
+        kind: 'memory',
+        id: classified.cardId || classified.originId || classified.id || id,
+        title: label.slice(0, 40) || id,
+        hint: text.slice(0, 80) || String(card.status || ''),
+        href: { ...classified.href },
+        score: scoreText(`${label}\n${text}\n${origin}`, q, 12),
+      })
+    }
     for (const row of findRows(bags.find)) {
       if (sessionIdFromFind(row)) continue
       const id = hitId(row)

@@ -12,6 +12,7 @@ import { seedUser } from '@/data/seed'
 import { runtimeApi } from '@/lib/runtime-api'
 import { emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
 import { imBrowseOccupancy } from '@/lib/im-letter-home'
+import { hostGoalStatusOnly, isHostGoalId } from '@/lib/plan-origin'
 
 const PLAN_UNAVAILABLE = '计划服务未就绪'
 
@@ -709,13 +710,15 @@ export const useApp = create<AppState>()(
       },
       updateTask: async (id, patch) => {
         try {
+          const next = isHostGoalId(id) ? hostGoalStatusOnly(patch as Record<string, unknown>) : patch
+          if (isHostGoalId(id) && !Object.keys(next).length) return
           const updated = await runtimeApi.updateTask(id, {
-            title: patch.title,
-            notes: patch.notes,
-            status: patch.status,
-            priority: patch.priority,
-            dueAt: patch.due === undefined ? undefined : patch.due || null,
-            tags: patch.tags,
+            title: isHostGoalId(id) ? undefined : patch.title,
+            notes: isHostGoalId(id) ? undefined : patch.notes,
+            status: (next as { status?: Task['status'] }).status ?? patch.status,
+            priority: isHostGoalId(id) ? undefined : patch.priority,
+            dueAt: isHostGoalId(id) ? undefined : (patch.due === undefined ? undefined : patch.due || null),
+            tags: isHostGoalId(id) ? undefined : patch.tags,
             workspaceId: get().activeWorkspaceId || undefined,
           })
           set((s) => ({ tasks: s.tasks.map((x) => (x.id === id ? updated : x)), planServiceError: null }))

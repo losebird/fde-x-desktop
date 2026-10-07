@@ -342,9 +342,9 @@ export function mcpArchiveSnapshot(entries) {
 }
 
 export function mcpFingerprintMatches(entry, snapshot) {
-  if (!snapshot || typeof snapshot !== 'object') return true
+  if (!snapshot || typeof snapshot !== 'object') return false
   const name = String((entry && entry.serverName) || '')
-  if (!name) return true
+  if (!name) return false
   if (!Object.prototype.hasOwnProperty.call(snapshot, name)) return false
   return snapshot[name] === mcpEntryFingerprint(entry)
 }

@@ -135,7 +135,7 @@ export function CommandPalette() {
               else if (e.key === 'Enter') { e.preventDefault(); runByIdx(idx) }
               else if (e.key === 'Escape') close()
             }}
-            placeholder="搜文件、联系人、会话、聊天记录、Agent、任务、Workflow、页面..."
+            placeholder="搜文件、联系人、会话、聊天记录、记忆、Agent、任务、Workflow、页面..."
             className="flex-1 bg-transparent focus:outline-none text-base placeholder:text-ink-subtle"
           />
           <kbd className="kbd">⌘K</kbd>
@@ -172,7 +172,7 @@ export function CommandPalette() {
           <span><kbd className="kbd !py-0">↵</kbd> 打开</span>
           <span><kbd className="kbd !py-0">Esc</kbd> 关闭</span>
           <div className="flex-1" />
-          <span>scene#39 · 命令面板</span>
+          <span>命令面板</span>
         </div>
       </div>
     </div>

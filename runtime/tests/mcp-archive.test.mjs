@@ -209,6 +209,8 @@ test('archive fingerprint ignores disabled and catches command edits', () => {
   assert.equal(mcpFingerprintMatches({ ...alpha, disabled: true }, snapshot), true)
   assert.equal(mcpFingerprintMatches({ ...alpha, command: 'node' }, snapshot), false)
   assert.equal(mcpFingerprintMatches({ serverName: 'beta', transport: 'stdio', command: 'npx' }, snapshot), false)
+  assert.equal(mcpFingerprintMatches(alpha, null), false)
+  assert.equal(mcpFingerprintMatches(alpha, undefined), false)
   assert.equal(mcpEntryFingerprint(alpha), mcpEntryFingerprint({ ...alpha, disabled: true }))
 })
 
