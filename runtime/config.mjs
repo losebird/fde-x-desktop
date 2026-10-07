@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { generationDshBin } from './generation.mjs'
 
 const runtimeDirectory = dirname(fileURLToPath(import.meta.url))
 
@@ -57,6 +58,9 @@ export const FDE_SEMANTIC_RUNTIME_MODE = process.env.FDE_SEMANTIC_RUNTIME_MODE =
 const MAC_DSH_FALLBACKS = ['/opt/homebrew/bin/dsh', '/usr/local/bin/dsh']
 
 export function resolveDshBin(explicit) {
+  const generation = generationDshBin()
+  if (generation) return generation
+
   const forced = explicit || process.env.FDE_DSH_BIN
   if (forced) {
     return existsSync(forced) ? forced : ''

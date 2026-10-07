@@ -1,5 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
-import { useApp } from '@/store/app'
+import { activeWorkspaceCwdFromState, useApp } from '@/store/app'
 
 export type FdeEvent<T = unknown> = {
   id: string
@@ -20,12 +20,14 @@ export const FDE_EVENT_TYPES_V1 = [
   'im.message.received',
   'im.message.sent',
   'im.unread.changed',
+  'im.peer.changed',
   'app.spec.submitted',
   'app.activated',
   'app.record.changed',
   'task.changed',
   'briefing.ready',
   'memory.card.drafted',
+  'memory.engine.changed',
   'ai.result.ready',
 ] as const
 
@@ -61,10 +63,7 @@ function setStreamStatus(next: StreamStatus) {
 }
 
 function currentWorkspaceFromStore(): string {
-  const state = useApp.getState()
-  const row = state.workspaces.find((item) => item.id === state.activeWorkspaceId) ?? state.workspaces[0]
-  const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
-  return cwd.startsWith('/') ? cwd : ''
+  return activeWorkspaceCwdFromState(useApp.getState())
 }
 
 function dispatchEvent(event: FdeEvent) {

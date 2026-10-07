@@ -2,7 +2,7 @@
 import type {
   Workspace, User, Task, ScheduleEvent, FileNode,
   ChatThread, Agent, IMContact, IMMessage, BusinessTable,
-  MCPServer, Skill, Notification, NewsItem, MetricCard,
+  Notification, NewsItem, MetricCard,
   Workflow, IMTopic,
 } from '@/lib/types'
 
@@ -265,26 +265,6 @@ export const seedBusinessTables: BusinessTable[] = [
       { id: 'p5', sku: 'WB-EDU',  name: '教育行业模板',         price: 0,     stock: 9999, status: '限免' },
     ],
   },
-]
-
-export const seedMCP: MCPServer[] = [
-  { id: 'mcp_at',   name: 'GitHub',          desc: '代码托管 / PR / Issue',  status: 'connected', tools: ['pr.list', 'issue.create', 'file.read'], category: '开发' },
-  { id: 'mcp_fs',   name: '飞书',            desc: '消息 / 日历 / 文档',       status: 'connected', tools: ['im.send', 'calendar.create'],         category: '协作' },
-  { id: 'mcp_fs2',  name: 'Agent Mail',      desc: '智能体邮箱',                status: 'connected', tools: ['mail.send', 'mail.read'],               category: '通讯' },
-  { id: 'mcp_wp',   name: 'WeCom',           desc: '企业微信工作台',            status: 'disconnected', tools: ['wecom.send', 'wecom.contact'],     category: '协作' },
-  { id: 'mcp_es',   name: 'eSign · 腾讯电子签', desc: '合同签 / 模板',          status: 'disconnected', tools: ['sign.template', 'sign.send'],        category: '法务' },
-  { id: 'mcp_db',   name: 'DataBuddy',       desc: '查询指标 / 拉数',           status: 'pending', tools: ['metric.read', 'sql.run'],               category: '数据' },
-  { id: 'mcp_map',  name: '腾讯地图',         desc: '地理 / 路线 / POI',         status: 'disconnected', tools: ['geo.route', 'poi.search'],        category: '工具' },
-]
-
-export const seedSkills: Skill[] = [
-  { id: 's_mb',   name: '电商爆款文案',       emoji: '🛒', desc: '为淘宝/抖音生成高转化商品文案',         enabled: true,  triggers: ['电商文案','产品描述'], source: 'user' },
-  { id: 's_fa',   name: '合同审查',          emoji: '📜', desc: '识别合同条款风险,生成审查意见',         enabled: true,  triggers: ['合同','审查','法务'], source: 'user' },
-  { id: 's_da',   name: '数据早报',          emoji: '📈', desc: '拉昨日核心指标,生成自然语言摘要',       enabled: true,  triggers: ['数据','日报','指标'], source: 'builtin' },
-  { id: 's_pp',   name: 'PPT 大纲',          emoji: '📑', desc: '由主题/受众/场景生成结构化大纲',        enabled: false, triggers: ['PPT','汇报','大纲'], source: 'builtin' },
-  { id: 's_ax',   name: '风险预警',          emoji: '⚠️', desc: '扫描持仓 / 财报 / 公告,出预警清单',      enabled: true,  triggers: ['风险','预警','合规'], source: 'marketplace' },
-  { id: 's_rc',   name: '招聘 JD 改写',      emoji: '🧑‍💼', desc: '把岗位描述整理为结构化、可读版',           enabled: false, triggers: ['招聘','HR','JD'], source: 'builtin' },
-  { id: 's_im',   name: 'IM 语气优化',        emoji: '💬', desc: '把过激或冷漠的文字改成建设性表达',         enabled: true,  triggers: ['沟通','IM','反馈'], source: 'user' },
 ]
 
 export const seedNotifications: Notification[] = [

@@ -45,6 +45,15 @@ export default function Settings() {
   }, [])
 
   useEffect(() => {
+    const onOpen = (event: Event) => {
+      const sectionId = String((event as CustomEvent<{ section?: string }>).detail?.section || '')
+      if (SECTIONS.some((item) => item.id === sectionId)) setSection(sectionId as typeof SECTIONS[number]['id'])
+    }
+    window.addEventListener('fde-x-settings-open', onOpen)
+    return () => window.removeEventListener('fde-x-settings-open', onOpen)
+  }, [])
+
+  useEffect(() => {
     if (section === 'runtime' || section === 'data') void diagnoseRuntime()
     if (section === 'data') {
       void runtimeApi.imState().then((state) => {

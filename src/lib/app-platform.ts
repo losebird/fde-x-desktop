@@ -138,12 +138,16 @@ async function draftImReply(spec: FdeAppSpec): Promise<string> {
   ].filter(Boolean).join('\n')
   const mailbox = await runtimeApi.imState().catch(() => ({} as Record<string, unknown>))
   const state = useApp.getState()
-  const peerId = firstPeerId(mailbox) || String(state.activeThreadId || 'im1')
+  const peerId = firstPeerId(mailbox) || String(state.imBrowse.threadId || '')
+  if (!peerId) {
+    state.openIMPanel()
+    return '已打开 IM，还没有可放入的会话'
+  }
   state.openIMPanel(peerId)
   state.setIMComposerDraft(peerId, text)
   await new Promise((resolve) => window.setTimeout(resolve, 50))
   const live = useApp.getState()
-  const threadId = String(live.activeThreadId || peerId)
+  const threadId = String(live.imBrowse.threadId || peerId)
   live.setIMComposerDraft(threadId, text)
   window.dispatchEvent(new CustomEvent('fde-x-im-fill', { detail: { threadId, text } }))
   await runtimeApi.imCompose({ text, peerId: threadId }).catch(() => undefined)

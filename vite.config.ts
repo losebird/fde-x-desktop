@@ -15,6 +15,9 @@ import {
 const runtimeUrl = process.env.FDE_RUNTIME_URL ?? process.env.VITE_FDE_RUNTIME_URL ?? defaultRuntimeUrl()
 const runtimePort = Number(new URL(runtimeUrl).port || FDE_RUNTIME_PORT)
 const devAllowedOrigins = FDE_ALLOWED_ORIGINS
+const srcDir = fileURLToPath(new URL('./src', import.meta.url))
+const reactDir = fileURLToPath(new URL('./node_modules/react', import.meta.url))
+const reactDomDir = fileURLToPath(new URL('./node_modules/react-dom', import.meta.url))
 
 function waitForPort(port: number, host: string, timeoutMs = 4000) {
   return new Promise<boolean>((resolve) => {
@@ -104,6 +107,10 @@ const runtimeProxy = {
     target: runtimeUrl,
     changeOrigin: true,
   },
+  '/live': {
+    target: runtimeUrl,
+    changeOrigin: true,
+  },
   '/dsh-app': {
     target: runtimeUrl,
     changeOrigin: true,
@@ -127,6 +134,12 @@ const runtimeProxy = {
     changeOrigin: true,
     ws: true,
   },
+  '/ws/graph-updates': {
+    target: runtimeUrl,
+    changeOrigin: true,
+    ws: true,
+    rewrite: () => '/semantic-os/ws/graph-updates',
+  },
   '/api': {
     target: runtimeUrl,
     changeOrigin: true,
@@ -142,9 +155,15 @@ export default defineConfig({
     'import.meta.env.VITE_FDE_RUNTIME_RELOAD_WAIT_MS': JSON.stringify(String(FDE_RUNTIME_RELOAD_WAIT_MS)),
   },
   resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
+    alias: [
+      { find: '@', replacement: srcDir },
+      { find: /^react$/, replacement: reactDir },
+      { find: /^react-dom$/, replacement: reactDomDir },
+    ],
+    dedupe: ['react', 'react-dom'],
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
   },
   server: {
     host: '127.0.0.1',

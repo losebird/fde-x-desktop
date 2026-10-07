@@ -63,13 +63,21 @@ import {
   openDatabase,
 } from './db.mjs'
 import { inspectAdapters } from './adapters.mjs'
+import { LIVE_PATH, liveProbeBody, withProbeTimeout } from './live-probe.mjs'
+import { ENGINE_PROBE_MS, engineProbeKind } from './engine-probe.mjs'
+import { enrichReadyWithLlm, readDshDefaultLlm } from './dsh-default-llm.mjs'
 import { handlePlanRequest } from './routes/plan.mjs'
+import { handleCatalogRequest } from './routes/catalog.mjs'
+import { collectBag } from './catalog-collect.mjs'
+import { ensureTypertVerbs } from './catalog-typert.mjs'
 import { ensurePresets, handlePresetRoutes } from './routes/presets.mjs'
 import { handleMcpRoutes } from './routes/mcp.mjs'
+import { handleSkillRoutes } from './routes/skills.mjs'
 import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
 import { configureEventBus, emit } from './events.mjs'
 import { startLanAssistStateWatch, subscribeLanAssistMailbox } from './lan-assist-state-watch.mjs'
+import { startSemanticReadyWatch } from './semantic-ready-watch.mjs'
 import { refreshLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
 import { handleAppsRoutes } from './routes/apps.mjs'
@@ -80,6 +88,7 @@ import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { findSessionDir, readSessionTree, writeSessionTree } from './session-tree.mjs'
+import { decodeWorkspaceFileText, readWorkspaceFileBytes } from './files-bytes.mjs'
 import {
   SESSION_BIND_BOTH,
   SESSION_BIND_MISSING,
@@ -93,6 +102,7 @@ import { tryServeStatic } from './routes/static.mjs'
 import { reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import {
   alignModelRowsWithDiscover,
+  modelCapacityFromDiscoverRow,
   discoverProviderModels,
   fetchModelsSettingsSnapshot,
   formatReasoningEffortsYaml,
@@ -582,6 +592,17 @@ function toAiSessionSummary(item) {
   }
 }
 
+const FDE_DSH_OCCUPANCY_PATCH = (() => {
+  const file = join(FDE_RUNTIME_DIR, 'canvas-occupancy.mjs')
+  if (!existsSync(file)) return ''
+  const source = readFileSync(file, 'utf8')
+    .replace(/export function /g, 'function ')
+    .replace(/export const /g, 'const ')
+    .replace(/export \{[^}]*\}/g, '')
+    .replace(/<\/script/gi, '<\\/script')
+  return `<script data-fde-occupancy>\n${source}\ndocument.documentElement.setAttribute("data-fde-session-canvas","")\nwindow.__fdeOccupancyAction = occupancyAction\nwindow.__fdeLandKindFromTab = landKindFromTab\n</script>`
+})()
+
 const FDE_DSH_CLIPBOARD_PATCH = (() => {
   const file = join(FDE_RUNTIME_DIR, 'fde-x-dsh-bridge/lib/clipboard-patch.js')
   if (!existsSync(file)) return ''
@@ -599,28 +620,58 @@ const FDE_DSH_HEAD_HOOK = `<script data-fde-dsh-hook>
       if (ui && typeof ui.openSession === "function") window.__fdeXUiWorkspace = ui
     } catch (e) {}
   }
+  function wrapSlotsOnCtx(ctx) {
+    try {
+      var slots = ctx && ((ctx.get && ctx.get("slots")) || ctx.slots)
+      if (!slots) return
+      var proto = Object.getPrototypeOf(slots)
+      var holder = proto && (typeof proto.register === "function" || typeof proto._register === "function") ? proto : slots
+      function gate(options, component, orig) {
+        var action = typeof window.__fdeOccupancyAction === "function" ? window.__fdeOccupancyAction(options || {}) : "allow"
+        if (action === "deny") return function () {}
+        if (action === "empty") return orig.call(this, options, function FdeEmptyOccupant() { return null })
+        return orig.call(this, options, component)
+      }
+      if (typeof holder.register === "function" && !holder.register.__fdeOcc) {
+        var origReg = holder.register
+        holder.register = function (options, component) { return gate.call(this, options, component, origReg) }
+        holder.register.__fdeOcc = true
+      }
+      if (typeof holder._register === "function" && !holder._register.__fdeOcc) {
+        var origCore = holder._register
+        holder._register = function (options, component) { return gate.call(this, options, component, origCore) }
+        holder._register.__fdeOcc = true
+      }
+    } catch (e) {}
+  }
   function wrapFactory(reg) {
     if (!reg || typeof reg.factory !== "function") return
     var id = String(reg.id || "")
     var patchClipboard =
       id.indexOf("dsh-client-ui-primitives") !== -1 || id.indexOf("dsh-web-frontend") !== -1
     var patchSession = id.indexOf("session-controller") !== -1 || id.indexOf("ui-workspace") !== -1
-    if (!patchClipboard && !patchSession) return
+    var patchSlots = id.indexOf("ui-renderer") !== -1
+    if (!patchClipboard && !patchSession && !patchSlots) return
     var inner = reg.factory
+    if (typeof inner !== "function") return
     reg.factory = function (require) {
       var exp = inner(require)
       if (patchClipboard && typeof window.__fdePatchClipboardExport === "function") {
         try { window.__fdePatchClipboardExport(exp) } catch (e) {}
       }
-      if (patchSession && exp && typeof exp.apply === "function") {
+      if (exp && typeof exp.apply === "function" && !exp.apply.__fdeWrappedApply) {
         var prev = exp.apply
         exp.apply = function (ctx) {
           var out = prev.apply(this, arguments)
-          hookCtx(ctx)
-          setTimeout(function () { hookCtx(ctx) }, 0)
-          setTimeout(function () { hookCtx(ctx) }, 400)
+          if (patchSlots) wrapSlotsOnCtx(ctx)
+          if (patchSession) {
+            hookCtx(ctx)
+            setTimeout(function () { hookCtx(ctx) }, 0)
+            setTimeout(function () { hookCtx(ctx) }, 400)
+          }
           return out
         }
+        exp.apply.__fdeWrappedApply = true
       }
       return exp
     }
@@ -648,30 +699,17 @@ const FDE_DSH_HEAD_HOOK = `<script data-fde-dsh-hook>
 </script>`
 
 const FDE_DSH_STRIP_STYLE = `<style data-fde-dsh-strip>
-.pI_x6G_frame{grid-template-columns:minmax(0,1fr)!important}
-.pI_x6G_sidebarCol,.pI_x6G_rightbarCol,.pI_x6G_handle{display:none!important}
-.eGxaPq_frame{right:8px!important}
-[data-sidebar-right-expand],[data-sidebar-right-toggle]{display:none!important}
-.pXSMma_workspaceRow,.pXSMma_workspace,.pXSMma_headline,.pXSMma_previewBadge,.pXSMma_fishHitbox,.pXSMma_titleGroup{display:none!important}
-.uV2eYG_card,.uV2eYG_overlayAnchor,.uV2eYG_root{overflow:visible!important}
-.uV2eYG_overlayAnchor{z-index:80!important}
 .dla-ask-wrap,.dla-ask-btn,.dla-overlay,.dla-badge,.dla-chat-pop,.dla-chat-scrim,.dla-chat-pair-ask,.dla-sec-backdrop,.dla-sec-panel{display:none!important}
-.wSkVaW_tabs [role=tab]:nth-child(n+3){display:none!important}
 .dsos-root,.dsos-bar{display:none!important}
+html[data-fde-session-canvas] [data-sidebar-collapsed],
+html[data-fde-session-canvas] [data-rightbar-collapsed]{grid-template-columns:0 minmax(0,1fr) 0!important}
+html[data-fde-session-canvas] [data-sidebar-right-session]{display:none!important}
+html[data-fde-session-canvas] [data-phase="hero"] [data-composer-seat] :has(> [data-slot="conversation.composer.bar"]) > :not([data-slot="conversation.composer.bar"]):not([data-slot="conversation.input.dock"]):not(:has([data-slot="conversation.hero.agentPreset"])){display:none!important}
+html[data-fde-session-canvas] [data-phase="hero"] [data-composer-seat] :has(> [data-slot="conversation.hero.agentPreset"]) > :not([data-slot="conversation.hero.agentPreset"]){display:none!important}
 </style>`
-const FDE_DSH_STRIP_SCRIPT = `<script data-fde-dsh-strip>
-(function () {
-  function preferChatTab() {
-    var tabs = document.querySelectorAll('.wSkVaW_tabs [role=tab]')
-    if (tabs.length < 3) return
-    if (tabs[2].getAttribute('aria-selected') === 'true' && tabs[0]) tabs[0].click()
-  }
-  setTimeout(preferChatTab, 400)
-  setTimeout(preferChatTab, 1600)
-})()
-</script>`
 
 function dshProxyPath(url) {
+  if (url.pathname === '/ws/graph-updates') return `/semantic-os/ws/graph-updates${url.search}`
   if (url.pathname === '/dsh-app' || url.pathname === '/dsh-app/') return `/${url.search}`
   if (url.pathname.startsWith('/dsh-app/')) return `${url.pathname.slice('/dsh-app'.length)}${url.search}`
   return `${url.pathname}${url.search}`
@@ -720,7 +758,7 @@ function shouldProxyDsh(url) {
   if (!aiRuntime.origin) return false
   if (url.pathname.startsWith('/api/v1')) return false
   if (isSemanticOsPath(url.pathname)) return false
-  if (url.pathname === '/health') return false
+  if (url.pathname === '/health' || url.pathname === LIVE_PATH) return false
   if (url.pathname === '/' || url.pathname === '/favicon.ico') return false
   return true
 }
@@ -886,10 +924,10 @@ function proxyDsh(request, response, url) {
           html = html.replace('<head>', '<head><base href="/dsh-app/">')
         }
         if (!html.includes('data-fde-dsh-hook')) {
-          html = html.replace('<head>', `<head>${FDE_DSH_CLIPBOARD_PATCH}${FDE_DSH_HEAD_HOOK}`)
+          html = html.replace('<head>', `<head>${FDE_DSH_OCCUPANCY_PATCH}${FDE_DSH_CLIPBOARD_PATCH}${FDE_DSH_HEAD_HOOK}`)
         }
         if (!html.includes('data-fde-dsh-strip')) {
-          html = html.replace('</head>', `${FDE_DSH_STRIP_STYLE}${FDE_DSH_STRIP_SCRIPT}</head>`)
+          html = html.replace('</head>', `${FDE_DSH_STRIP_STYLE}</head>`)
         }
         const out = Buffer.from(html)
         delete headersOut['content-encoding']
@@ -1050,6 +1088,11 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'GET' && url.pathname === LIVE_PATH) {
+      sendJson(response, 200, liveProbeBody())
+      return
+    }
+
     if (request.method === 'GET' && url.pathname === '/health') {
       const [adapters, persistence] = await Promise.all([
         inspectAdapters({ aiRuntime }),
@@ -1115,8 +1158,29 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/ready') {
-      const result = await aiRuntime.semanticOs('/ready', { method: 'GET' })
-      if (typeof aiRuntime.kickSemanticIfExited === 'function') aiRuntime.kickSemanticIfExited(result)
+      let result = null
+      let failed = false
+      try {
+        const got = await withProbeTimeout(aiRuntime.semanticOs('/ready', { method: 'GET' }), ENGINE_PROBE_MS)
+        if (got && typeof got === 'object') result = got
+        else failed = true
+      } catch {
+        failed = true
+      }
+      const kind = engineProbeKind(result, failed)
+      if (kind === 'probe-failed') {
+        sendJson(response, 200, { data: { probe: 'failed' }, correlationId: currentCorrelationId })
+        return
+      }
+      if (kind === 'unready' && typeof aiRuntime.kickSemanticIfExited === 'function') {
+        aiRuntime.kickSemanticIfExited(result)
+      }
+      try {
+        const host = await readDshDefaultLlm(aiRuntime)
+        result = enrichReadyWithLlm(result, host)
+      } catch {
+        /* sidecar snapshot stands */
+      }
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
       return
     }
@@ -1468,6 +1532,7 @@ const server = createServer(async (request, response) => {
         models = rows.map((row) => ({
           id: String(row.id || row.name || ''),
           name: String(row.id || row.name || ''),
+          ...modelCapacityFromDiscoverRow(row),
         })).filter((row) => row.id)
         if (!probe || !probe.ok) {
           sendError(response, probe?.status || 502, 'discover_failed', '没能从该地址拉到模型列表，请检查地址、协议和密钥', currentCorrelationId)
@@ -1805,6 +1870,7 @@ const server = createServer(async (request, response) => {
       const cursor = url.searchParams.get('cursor') ?? undefined
       const includeBlank = url.searchParams.get('includeBlank') === 'true'
       const includeSubagents = url.searchParams.get('includeSubagents') === 'true'
+      const includeArchived = url.searchParams.get('includeArchived') === 'true'
       const [sessions, baseline] = await Promise.all([
         aiRuntime.call('session/list', { _request: cursor ? { cursor } : {} }),
         readWorkspaceBaseline(),
@@ -1812,8 +1878,11 @@ const server = createServer(async (request, response) => {
       const archived = new Set(baseline.archivedSessionIds)
       const items = Array.isArray(sessions?.items)
         ? sessions.items
-          .map(toAiSessionSummary)
-          .filter((item) => !archived.has(item.sessionId) && (includeBlank || !item.blank) && (includeSubagents || !isSubagentSession(item)))
+          .map((row) => ({
+            ...toAiSessionSummary(row),
+            ...(archived.has(row.sessionId) ? { archived: true } : {}),
+          }))
+          .filter((item) => (includeArchived ? item.archived : !archived.has(item.sessionId)) && (includeBlank || !item.blank) && (includeSubagents || !isSubagentSession(item)))
         : []
       sendJson(response, 200, { data: { items }, correlationId: currentCorrelationId })
       return
@@ -2100,12 +2169,16 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/v1/ai/skills') {
+      const bag = await collectBag(aiRuntime, 'skill', {})
+      sendJson(response, 200, { data: bag.raw || { items: bag.items }, correlationId: currentCorrelationId })
+      return
+    }
+
     const aiSkillsMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/skills$/)
     if (request.method === 'GET' && aiSkillsMatch) {
-      const skills = await aiRuntime.call('skills/list', {
-        request: { sessionId: decodeURIComponent(aiSkillsMatch[1]) },
-      })
-      sendJson(response, 200, { data: skills, correlationId: currentCorrelationId })
+      const bag = await collectBag(aiRuntime, 'skill', { sessionId: decodeURIComponent(aiSkillsMatch[1]) })
+      sendJson(response, 200, { data: bag.raw || { items: bag.items }, correlationId: currentCorrelationId })
       return
     }
 
@@ -2284,6 +2357,7 @@ const server = createServer(async (request, response) => {
         cause: body.cause === 'choice' ? 'choice' : 'correction',
         label,
         auto: false,
+        ...(typeof body.sessionId === 'string' && body.sessionId.trim() ? { sessionId: body.sessionId.trim() } : {}),
       })
       if (drafted.skipped) {
         sendError(response, 503, 'memory_error', drafted.reason === 'semantic_down' ? '记忆引擎未就绪' : '起草被跳过', currentCorrelationId)
@@ -2545,7 +2619,8 @@ const server = createServer(async (request, response) => {
       }
       if (sessionId) {
         try {
-          const listing = await aiRuntime.call('workspaceFiles/list', { workspaceFileScopeId: sessionId, path: rel })
+          const bag = await collectBag(aiRuntime, 'file', { sessionId, path: rel })
+          const listing = bag.raw || { path: rel, entries: bag.items.map((row) => ({ name: row.title, type: row.fields?.type || 'file' })) }
           sendJson(response, 200, { data: listing, correlationId: currentCorrelationId })
           return
         } catch (error) {
@@ -2601,8 +2676,8 @@ const server = createServer(async (request, response) => {
       }
       try {
         if (sessionId) {
-          const file = await aiRuntime.call('workspaceFiles/readAll', { workspaceFileScopeId: sessionId, path })
-          sendJson(response, 200, { data: { path, name: String(file?.name || path.split('/').pop() || 'file'), size: Number(file?.bytes || file?.size || 0), data: String(file?.data || ''), mime: String(file?.mime || '') }, correlationId: currentCorrelationId })
+          const file = await readWorkspaceFileBytes(aiRuntime, { sessionId, path })
+          sendJson(response, 200, { data: { path, name: String(file?.name || path.split('/').pop() || 'file'), size: Number(file?.size || 0), data: String(file?.data || ''), mime: String(file?.mime || '') }, correlationId: currentCorrelationId })
           return
         }
         const root = await resolveFileRoot(null)
@@ -2628,8 +2703,8 @@ const server = createServer(async (request, response) => {
       }
       if (sessionId) {
         try {
-          const file = await aiRuntime.call('workspaceFiles/read', { workspaceFileScopeId: sessionId, path, range: {} })
-          sendJson(response, 200, { data: file, correlationId: currentCorrelationId })
+          const file = await readWorkspaceFileBytes(aiRuntime, { sessionId, path })
+          sendJson(response, 200, { data: decodeWorkspaceFileText(file), correlationId: currentCorrelationId })
           return
         } catch (error) {
           sendError(response, 502, 'files_read_failed', error instanceof Error ? error.message : '读取失败', currentCorrelationId)
@@ -2703,6 +2778,10 @@ const server = createServer(async (request, response) => {
     }
 
     if (await handleMcpRoutes(request, response, url, {
+      aiRuntime, db, currentCorrelationId, sendJson, sendError, readJson,
+    })) return
+
+    if (await handleSkillRoutes(request, response, url, {
       aiRuntime, db, currentCorrelationId, sendJson, sendError, readJson,
     })) return
 
@@ -3034,7 +3113,10 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson }, currentCorrelationId)) {
+    if (await handleCatalogRequest(request, response, url, { aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, currentCorrelationId)) {
+      return
+    }
+    if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime }, currentCorrelationId)) {
       return
     }
 
@@ -3078,6 +3160,10 @@ const server = createServer(async (request, response) => {
 
 server.on('upgrade', (request, socket, head) => {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? `${host}:${port}`}`)
+  if (url.pathname === '/ws/graph-updates') {
+    url.pathname = '/semantic-os/ws/graph-updates'
+    request.url = `${url.pathname}${url.search}`
+  }
   if (!aiRuntime.origin || url.pathname.startsWith('/api/v1')) {
     socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n')
     socket.destroy()
@@ -3118,6 +3204,8 @@ server.on('upgrade', (request, socket, head) => {
   up.end()
 })
 
+void ensureTypertVerbs().catch(() => undefined)
+
 server.listen(port, host, () => {
   const bound = server.address()
   const actualPort = typeof bound === 'object' && bound ? bound.port : port
@@ -3136,6 +3224,14 @@ server.listen(port, host, () => {
   })
   void ensurePresets(aiRuntime.dshHome || FDE_DSH_HOME).catch((error) => {
     console.warn('ensurePresets_failed', error)
+  })
+  startSemanticReadyWatch({
+    semanticOs: (path, options) => aiRuntime.semanticOs(path, options),
+    kick: (result) => {
+      if (typeof aiRuntime.kickSemanticIfExited === 'function') aiRuntime.kickSemanticIfExited(result)
+    },
+    readHostLlm: () => readDshDefaultLlm(aiRuntime),
+    dshHome: aiRuntime.dshHome || FDE_DSH_HOME,
   })
   startLanAssistStateWatch({
     db,

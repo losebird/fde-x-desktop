@@ -26,6 +26,13 @@ test('plugin secretary follow-up is not human speech', () => {
   }), '')
   assert.equal(extractUserSpeech({
     type: 'user/message',
+    data: {
+      source: { kind: 'dsh-lan-assist' },
+      content: [{ type: 'text', text: '库里已改上。回信要用现在的值，不要沿用预览前的旧号。' }],
+    },
+  }), '')
+  assert.equal(extractUserSpeech({
+    type: 'user/message',
     source: { kind: 'plugin', plugin: 'dsh-lan-assist' },
     data: {
       content: [{ type: 'text', text: '库里已改上。回信要用现在的值。' }],

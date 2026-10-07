@@ -62,7 +62,13 @@ function latestBriefingToday(db, workspaceCwd) {
 }
 
 export function shouldRunOnOpen(db, workspaceCwd) {
-  const definition = getOrCreateDefinition(db, workspaceCwd)
+  let definition
+  try {
+    definition = getOrCreateDefinition(db, workspaceCwd)
+  } catch (error) {
+    if (error && error.code === 'missing_workspace') return false
+    throw error
+  }
   if (!definition.schedule?.onOpen) return false
   return !latestBriefingToday(db, workspaceCwd)
 }

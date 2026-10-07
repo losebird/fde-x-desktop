@@ -6,7 +6,7 @@
 import { enumMap } from './resolve.js'
 import { enumValueMatches } from './enum-clues.js'
 import { ensureSpoken, vocabWithSpoken } from './vocab/spoken.js'
-import { resolveShapeKey, vocabRow } from './where-pass.js'
+import { isDateField, isSkippedShapeField, resolveShapeKey, vocabRow } from './where-pass.js'
 
 export function relationSchemaField(schemaFields, key) {
   const want = String(key || '').trim()
@@ -405,6 +405,18 @@ export function enumHits(row, spoken, vocab) {
   return hits
 }
 
+function dateColumnSpeak(schemaFields) {
+  const out = []
+  for (const row of Array.isArray(schemaFields) ? schemaFields : []) {
+    if (!row || !isDateField(row)) continue
+    const name = String(row.name || '').trim()
+    if (!name || isSkippedShapeField(name)) continue
+    const title = cellTitle(row)
+    out.push(title && title !== name ? `${title}(${name})` : (title || name))
+  }
+  return out
+}
+
 export function unboundWhereSpeak(kind, where, schemaFields, vocab) {
   const who = String(kind || '').trim() || '这张单'
   const fields = Array.isArray(schemaFields) ? schemaFields : []
@@ -413,6 +425,13 @@ export function unboundWhereSpeak(kind, where, schemaFields, vocab) {
   for (const term of Array.isArray(where) ? where : []) {
     if (!term || typeof term !== 'object') continue
     const keys = list(term.keys)
+    const hasDateSlot = list(term.dateAfter).length || list(term.dateBefore).length
+    if (hasDateSlot) {
+      const dates = dateColumnSpeak(fields)
+      const opt = dates.length ? `，日期列有 ${dates.join('、')}` : ''
+      parts.push(`${who}的日期条件没对上列名${opt}`)
+      continue
+    }
     const field = keys.map((key) => fieldNamed(fields, key)).find(Boolean)
       || keys.map((key) => fieldNamed(fields, resolveShapeKey(key, fields, null))).find(Boolean)
       || null

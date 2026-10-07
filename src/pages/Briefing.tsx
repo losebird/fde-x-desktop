@@ -3,7 +3,6 @@ import {
   Circle, Clock, Sparkles, ArrowUpRight, MessageSquare, Calendar, ListTodo, FileText, Settings2, Loader2,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import {
   runtimeApi,
@@ -13,6 +12,8 @@ import {
 } from '@/lib/runtime-api'
 import { useEvents } from '@/lib/events'
 import { openRef, type OpenRefHref } from '@/lib/open-ref'
+import { openAppHref } from '@/lib/app-platform'
+import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { BriefingSettingsDrawer } from '@/components/briefing/BriefingSettingsDrawer'
 import { PageTitle, SectionTitle, Card, Stat, Tag } from '@/components/ui'
 import clsx from 'clsx'
@@ -72,7 +73,6 @@ export default function Briefing() {
   const [definition, setDefinition] = useState<BriefingDefinition | null>(null)
   const [briefing, setBriefing] = useState<BriefingSnapshot | null>(null)
   const [running, setRunning] = useState(false)
-  const [imPeerId, setImPeerId] = useState('')
   const wsRef = useRef(ws?.id)
   useEffect(() => {
     if (wsRef.current === ws?.id) return
@@ -81,6 +81,12 @@ export default function Briefing() {
   }, [ws?.id, setBriefingBrowse])
 
   const refresh = useCallback((onOpen = true) => {
+    const folder = loadCurrentWorkspaceCwd()
+    if (!folder.ok) {
+      setDefinition(null)
+      setBriefing(null)
+      return
+    }
     void runtimeApi.getLatestBriefing(onOpen).then((data) => {
       setDefinition(data.definition)
       setBriefing(data.briefing)
@@ -91,12 +97,7 @@ export default function Briefing() {
 
   useEffect(() => {
     refresh(true)
-    void runtimeApi.imState().then((data) => {
-      const peers = Array.isArray(data.peers) ? data.peers as Array<Record<string, unknown>> : []
-      const first = peers.find((peer) => !peer.unpaired)
-      setImPeerId(first ? String(first.id || '') : '')
-    }).catch(() => setImPeerId(''))
-  }, [refresh])
+  }, [refresh, ws?.id])
 
   useEvents(['briefing.ready'], () => {
     refresh(false)
@@ -128,7 +129,10 @@ export default function Briefing() {
   const runFull = () => {
     setRunning(true)
     setAiNote('')
-    void runtimeApi.runBriefing('full').then((data) => {
+    void currentAiTarget().then((target) => {
+      if (!target.ok) throw new Error(target.error)
+      return runtimeApi.runBriefing('full', { sessionId: target.sessionId, workspaceCwd: target.cwd })
+    }).then((data) => {
       setBriefing(data.briefing)
       refresh(false)
     }).catch((cause) => {
@@ -136,8 +140,14 @@ export default function Briefing() {
     }).finally(() => setRunning(false))
   }
 
-  const openItem = (href?: OpenRefHref | Record<string, unknown>) => {
+  const openItem = (href?: OpenRefHref | Record<string, unknown> | string) => {
+    if (typeof href === 'string') {
+      const url = href.trim()
+      if (/^https?:\/\//i.test(url)) openAppHref(url)
+      return
+    }
     if (!href || typeof href !== 'object') return
+    if (!href.panel) return
     openRef(href as OpenRefHref)
   }
 
@@ -191,7 +201,7 @@ export default function Briefing() {
             if (section.render === 'timeline' || section.type === 'events') {
               return (
                 <div key={section.id}>
-                  <SectionTitle title={section.title} right={<Link to="/schedule" className="btn-ghost">完整日程 <ArrowUpRight size={12} /></Link>} />
+                  <SectionTitle title={section.title} right={<button type="button" className="btn-ghost" onClick={() => openRef({ panel: 'plan', tab: 'schedule' })}>完整日程 <ArrowUpRight size={12} /></button>} />
                   <Card>
                     {section.error && (
                       <div className="text-sm text-accent-red mb-2 flex items-center justify-between">
@@ -221,7 +231,7 @@ export default function Briefing() {
                 <div key={section.id}>
                   <SectionTitle
                     title={section.title}
-                    right={<Link to="/tasks" className="btn-ghost">查看全部 <ArrowUpRight size={12} /></Link>}
+                    right={<button type="button" className="btn-ghost" onClick={() => openRef({ panel: 'plan', tab: 'todo' })}>查看全部 <ArrowUpRight size={12} /></button>}
                   />
                   <Card>
                     {section.error && (
@@ -261,7 +271,10 @@ export default function Briefing() {
                     </div>
                   )}
                   <ul className="space-y-3">
-                    {(section.items || []).length === 0 && !section.error && (
+                    {section.pendingAgent && !section.error && (
+                      <li className="text-sm text-ink-muted">采集中</li>
+                    )}
+                    {(section.items || []).length === 0 && !section.error && !section.pendingAgent && (
                       <li className="text-sm text-ink-muted">暂无内容</li>
                     )}
                     {(section.items || []).map((item) => (
@@ -308,15 +321,20 @@ export default function Briefing() {
                       setAiNote('还没有可发送的早报内容')
                       return
                     }
-                    if (!imPeerId) {
-                      setAiNote('还没有配对的联系人，可先打开 IM 配对')
+                    const peerId = String(definition?.delivery?.peerId || '').trim()
+                    if (!peerId) {
+                      setAiNote('还没有配对的联系人，可先在自定义里选择对端')
                       return
                     }
                     setAiNote('')
-                    void runtimeApi.imCompose({ text, peerId: imPeerId }).then(() => {
-                      useApp.getState().setActiveThread(imPeerId)
-                      useApp.getState().togglePanel('im', 'full')
-                    }).catch((cause) => setAiNote(cause instanceof Error ? cause.message : '写入输入框失败'))
+                    void runtimeApi.imCompose({ text, peerId }).then((composed) => {
+                      const requestId = String(composed.requestId || composed.id || '')
+                      if (composed.ok === false || !requestId) throw new Error(String(composed.hint || composed.error || '没写成'))
+                      return runtimeApi.imSend({ requestId }).then((sent) => {
+                        if (sent && sent.ok === false) throw new Error(String(sent.hint || sent.error || '没发出去'))
+                        useApp.getState().openIMPanel(peerId)
+                      })
+                    }).catch((cause) => setAiNote(cause instanceof Error ? cause.message : '没发出去'))
                   }}
                 >
                   发往 IM
@@ -332,7 +350,8 @@ export default function Briefing() {
                       return
                     }
                     const origin = briefing?.id ? `briefing:${briefing.id}` : ''
-                    void runtimeApi.draftMemoryCard(`${title}\n${body}`, 'correction', origin || undefined)
+                    const sessionId = String(briefing?.sessionId || '')
+                    void runtimeApi.draftMemoryCard(`${title}\n${body}`, 'correction', origin || undefined, sessionId || undefined)
                       .then(() => openRef({ panel: 'memory', pane: 'cards', ...(origin ? { originId: origin } : {}) }))
                       .catch((cause) => setAiNote(cause instanceof Error ? cause.message : '保存到记忆失败'))
                   }}
@@ -346,26 +365,26 @@ export default function Briefing() {
           <div>
             <SectionTitle title="快捷" />
             <div className="grid grid-cols-2 gap-2">
-              <Link to="/tasks" className="card p-3 hover:bg-surface-2 transition-colors">
+              <button type="button" className="card p-3 hover:bg-surface-2 transition-colors text-left" onClick={() => openRef({ panel: 'plan', tab: 'todo' })}>
                 <ListTodo size={14} className="mb-1 text-accent-blue" />
                 <div className="text-sm font-medium">添加任务</div>
                 <div className="text-xs text-ink-muted mt-0.5">⌘ + T</div>
-              </Link>
-              <Link to="/schedule" className="card p-3 hover:bg-surface-2 transition-colors">
+              </button>
+              <button type="button" className="card p-3 hover:bg-surface-2 transition-colors text-left" onClick={() => openRef({ panel: 'plan', tab: 'schedule' })}>
                 <Calendar size={14} className="mb-1 text-accent-amber" />
                 <div className="text-sm font-medium">排个会议</div>
                 <div className="text-xs text-ink-muted mt-0.5">⌘ + E</div>
-              </Link>
-              <Link to="/ai" className="card p-3 hover:bg-surface-2 transition-colors">
+              </button>
+              <button type="button" className="card p-3 hover:bg-surface-2 transition-colors text-left" onClick={() => openRef({ panel: 'ai' })}>
                 <Sparkles size={14} className="mb-1 text-brand" />
                 <div className="text-sm font-medium">问 AI</div>
                 <div className="text-xs text-ink-muted mt-0.5">⌘ + K</div>
-              </Link>
-              <Link to="/memory" className="card p-3 hover:bg-surface-2 transition-colors">
+              </button>
+              <button type="button" className="card p-3 hover:bg-surface-2 transition-colors text-left" onClick={() => openRef({ panel: 'memory', pane: 'cards' })}>
                 <FileText size={14} className="mb-1 text-accent-purple" />
                 <div className="text-sm font-medium">记一笔</div>
                 <div className="text-xs text-ink-muted mt-0.5">⌘ + ;</div>
-              </Link>
+              </button>
             </div>
           </div>
         </div>

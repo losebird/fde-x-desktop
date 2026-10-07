@@ -79,6 +79,7 @@ export function draftMemoryCardInsert(label, cause, extra = {}) {
         auto: extra.auto === true,
         ...(origin ? { origin } : {}),
         ...(source ? { source } : {}),
+        ...(extra.sessionId ? { sessionId: String(extra.sessionId) } : {}),
       },
     },
   }

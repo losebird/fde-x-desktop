@@ -38,7 +38,7 @@ import {
   sheetCarriesWrittenIdentity,
 } from './session-round.js'
 import { projectOfficialKind } from './operation-kind-sheet.mjs'
-import { describeKindCatalog } from './catalog.js'
+import { occupancyLiftSource, occupancyWriteSource } from './session-source.js'
 
 const schemaMod = await importPeer('@deepseek-ai/schemastery')
 const { defineTool } = await importPeer('@deepseek-ai/dsh-tools')
@@ -179,6 +179,7 @@ export async function apply(ctx, config) {
     record: (sessionId, payload) => semantic.record(sessionId, payload),
     lookupTodo: (spec) => lookup.lookupTodo(spec),
     loadVocab: async (workspace) => loadWorkspaceVocab(semantic, workspace),
+    collectionsOf: () => lookup.collectionsFor(),
     traces,
     saveVocab: async (workspace, concept) => semantic.upsertVocab(workspace, concept),
     gate,
@@ -223,33 +224,6 @@ export async function apply(ctx, config) {
     const sid = String(sessionId || (view.pendingSheet && view.pendingSheet.sessionId) || '').trim()
     const writePreview = typeof gate.previewTokenIndex === 'function' ? gate.previewTokenIndex() : {}
     return { ...view, officialRoundSheet: sessionRounds.servedSheet(sid), writePreview }
-  }
-  if (typeof secretary.describeBiz === 'function') {
-    secretary.describeBiz = async (spec = {}) => {
-      const cwd = String((spec && spec.workspace) || '').trim()
-      if (!cwd) return { ok: false, error: 'NO_CWD', hint: '这封没绑工作区，不能打开目录。' }
-      let vocab = []
-      try {
-        const loaded = await loadWorkspaceVocab(semantic, cwd)
-        vocab = Array.isArray(loaded) ? loaded : []
-      } catch {
-        vocab = []
-      }
-      let collections = []
-      try {
-        collections = await lookup.collectionsFor()
-      } catch {
-        collections = []
-      }
-      const catalog = describeKindCatalog(vocab, { collections })
-      const want = String((spec && spec.kind) || '').trim()
-      if (!want) return catalog
-      return {
-        ...catalog,
-        kinds: catalog.kinds.filter((row) => row.kind === want),
-        relations: catalog.relations.filter((row) => row.from === want || row.to === want),
-      }
-    }
   }
   const origPreviewBiz = secretary.previewBiz.bind(secretary)
   secretary.previewBiz = async (spec = {}) => {
@@ -594,10 +568,12 @@ function copySessionTurns(session) {
       }
     }
     if (!content.length) continue
+    const lifted = occupancyLiftSource(source, PLUGIN)
+    if (!lifted) continue
     out.push({
       type,
       data: {
-        source: { kind: source.kind || '', plugin: source.plugin || '' },
+        source: lifted,
         content,
       },
     })
@@ -717,7 +693,7 @@ async function tryFollowup(ctx, followup) {
     const llm = await importPeer('@deepseek-ai/dsh-llm')
     const message = llm.createUserMessage({
       content: [{ type: 'text', text: followup.text }],
-      source: { kind: 'plugin', plugin: PLUGIN },
+      source: occupancyWriteSource(PLUGIN),
     })
     agent.followup(message)
     return { ok: true }

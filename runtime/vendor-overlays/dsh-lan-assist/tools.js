@@ -141,7 +141,7 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
 
   ctx.tools.register(defineTool({
     name: 'biz_describe',
-    description: '读本工作区已登记业务目录：型、能做的动作、字段、企业别名、可执行关系、目录版本。能过审的型带状态列枚举（code=标签）。不是现查，不发令牌，不写库。填槽前先看这个。',
+    description: '读本工作区已登记业务目录：型、能做的动作、字段与列（name/title/slot，日期列 slot=date）、企业别名、可执行关系、目录版本。能过审的型带状态列枚举（code=标签）。不是现查，不发令牌，不写库。填槽前先看这个。',
     parameters: {
       kind: { type: 'string', description: '可选。只看这一型。' },
     },
@@ -202,7 +202,7 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
       line: { type: 'string', description: '明细行号' },
       action: { type: 'string', required: true, description: '现查、过审、改行、删除 或 新建。拿不准用现查。现查不发写令牌。' },
       speech: { type: 'string', description: '用户整句原话，只作展示和回合键。hop 以 from/steps 为准。空则用会话上一句。' },
-      where: { type: 'json', description: '当前型自己的列条件，每项 keys/values/not/dateBefore/dateAfter。关联型不要写在这里。' },
+      where: { type: 'json', description: '当前型自己的列条件，每项 keys/values/not/dateBefore/dateAfter。dateAfter/dateBefore 填该型日期列的名或标题（见 biz_describe 的 columns），边界放 values。关联型不要写在这里。' },
       from: { type: 'json', description: '关联起点：{kind, where, no, relation, from}。from 可再嵌套下一跳。把话里提到的相关型一次走完。' },
       steps: { type: 'json', description: '多跳计划，沿图把提到的相关型按顺序走完。有则优先生效。不限两跳。' },
       patch: { type: 'json', description: '改行、新建或过审时的字段对象。键必须是表上能改的列，值要对上枚举。过审有 patch 就用 patch。' },

@@ -1,8 +1,7 @@
-import { readFile } from 'node:fs/promises'
-import { parseMcpPatchEntries, buildMcpServersV2 } from './mcp.mjs'
+import { collectBag } from '../catalog-collect.mjs'
 import { resolveAllowedRequestOrigin } from '../config.mjs'
 import { getOrCreateDefinition, getBriefing, getLatestBriefing, saveDefinition } from '../briefing/store.mjs'
-import { validateSchedule, validateSections, validateSources } from '../briefing/validate.mjs'
+import { validateSchedule, validateSections, validateSources, validateDelivery } from '../briefing/validate.mjs'
 import { runBriefing } from '../briefing/run.mjs'
 import { rescheduleBriefingForWorkspace, shouldRunOnOpen } from '../briefing/scheduler.mjs'
 import { resolveWorkspaceCwd } from '../briefing/workspace.mjs'
@@ -87,8 +86,16 @@ export async function handleBriefingRoutes(request, response, url, deps) {
   if (request.method === 'GET' && pathname === '/api/v1/briefing/definition') {
     const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd, cors)
     if (!cwd) return true
-    const def = getOrCreateDefinition(db, cwd)
-    briefingOk(response, 200, def, correlationId, cors)
+    try {
+      const def = getOrCreateDefinition(db, cwd)
+      briefingOk(response, 200, def, correlationId, cors)
+    } catch (error) {
+      if (error && error.code === 'missing_workspace') {
+        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        return true
+      }
+      throw error
+    }
     return true
   }
 
@@ -105,18 +112,27 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       ...validateSections(body.sections),
       ...validateSchedule(body.schedule),
       ...validateSources(body.sources),
+      ...validateDelivery(body.delivery),
     ]
     if (errors.length) {
       briefingError(response, 422, 'validation_error', errors.join('；'), correlationId, cors)
       return true
     }
-    const saved = saveDefinition(db, cwd, {
-      sections: body.sections,
-      schedule: body.schedule,
-      sources: body.sources,
-    })
-    rescheduleBriefingForWorkspace(db, cwd)
-    briefingOk(response, 200, saved, correlationId, cors)
+    try {
+      const saved = saveDefinition(db, cwd, {
+        sections: body.sections,
+        schedule: body.schedule,
+        delivery: body.delivery,
+      })
+      rescheduleBriefingForWorkspace(db, cwd)
+      briefingOk(response, 200, saved, correlationId, cors)
+    } catch (error) {
+      if (error && error.code === 'missing_workspace') {
+        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        return true
+      }
+      throw error
+    }
     return true
   }
 
@@ -134,10 +150,15 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       const result = await runBriefing(runBriefingDeps || { db, aiRuntime }, {
         workspaceCwd: cwd,
         mode,
+        sessionId: typeof body.sessionId === 'string' ? body.sessionId.trim() : '',
         definitionId: typeof body.definitionId === 'string' ? body.definitionId : undefined,
       })
       briefingOk(response, 200, { briefingId: result.briefingId, briefing: result.briefing }, correlationId, cors)
     } catch (error) {
+      if (error && error.code === 'missing_workspace') {
+        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        return true
+      }
       briefingError(response, 500, 'briefing_run_failed', error instanceof Error ? error.message : '生成失败', correlationId, cors)
     }
     return true
@@ -159,7 +180,16 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       }).catch((error) => console.warn('briefing_on_open_failed', error))
     }
     const latest = getLatestBriefing(db, cwd)
-    const def = getOrCreateDefinition(db, cwd)
+    let def
+    try {
+      def = getOrCreateDefinition(db, cwd)
+    } catch (error) {
+      if (error && error.code === 'missing_workspace') {
+        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        return true
+      }
+      throw error
+    }
     briefingOk(response, 200, {
       definition: def,
       briefing: latest,
@@ -182,14 +212,9 @@ export async function handleBriefingRoutes(request, response, url, deps) {
   if (request.method === 'GET' && pathname === '/api/v1/briefing/sources/mcp') {
     const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd, cors)
     if (!cwd) return true
-    let text = ''
-    try {
-      text = await readFile(aiRuntime.patchFile, 'utf8')
-    } catch {
-      text = ''
-    }
-    const servers = await buildMcpServersV2(aiRuntime, text)
-    const configured = parseMcpPatchEntries(text).map((row) => row.serverName)
+    const bag = await collectBag(aiRuntime, 'mcp', { project: true, cwd })
+    const servers = Array.isArray(bag.raw?.mcp) ? bag.raw.mcp : []
+    const configured = servers.map((row) => row.serverName).filter(Boolean)
     briefingOk(response, 200, { servers, configured }, correlationId, cors)
     return true
   }

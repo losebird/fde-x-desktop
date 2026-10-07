@@ -4,7 +4,8 @@
  * @module dsh-lan-assist/catalog
  */
 
-import { collapseKindsToConnectedTables, collectionFields, kindPreviewableInCatalog } from './lookup.js'
+import { collapseKindsToConnectedTables, collectionFields, kindPreviewableInCatalog, mapKind } from './lookup.js'
+import { isDateField, isSkippedShapeField } from './where-pass.js'
 
 const POISON = /先调\s*MCP|调(?:用)?\s*MCP\s*过账|先过账|立刻过账|直接过账|先去过账|请.{0,12}先去过账|执行工具|call\s+mcp|biz[._]?write|忽略本机审批|不要查图|先写库|Host\s*直接写/i
 
@@ -93,6 +94,71 @@ function kindStatusDomain(row, extra) {
   return { field: String(statusRow.name), enums }
 }
 
+function fieldSlot(row, ticketField) {
+  const iface = String((row && (row.interface || row.type)) || '').trim()
+  const name = String((row && row.name) || '').trim()
+  const title = String((row && (row.title || (row.uiSchema && row.uiSchema.title))) || '').trim()
+  if (/^(m2o|o2o|o2m|m2m|belongsTo|hasMany|hasOne|belongsToMany)$/i.test(iface) || (row && row.target)) {
+    return 'relation'
+  }
+  if (isDateField(row)) return 'date'
+  if ((row && row.enums && typeof row.enums === 'object' && !Array.isArray(row.enums) && Object.keys(row.enums).length)
+    || /^(select|multipleSelect|radio)$/i.test(iface)) {
+    return 'enum'
+  }
+  if (ticketField && name === ticketField) return 'identity'
+  if (/^(id|code|no)$/i.test(name) || /(No|Code|Number)$/.test(name) || /单号|编号/.test(title)) return 'identity'
+  if (/^(number|integer|float|double|percent|currency|bigInt)$/i.test(iface)) return 'number'
+  return 'text'
+}
+
+function describeKindColumns(row, extra = {}) {
+  const kind = String((row && (row.kind || row.label)) || '').trim()
+  const mapped = mapKind(kind, {
+    vocab: extra.vocab,
+    collections: extra.collections,
+    kinds: extra.kinds,
+  })
+  const resource = String((row && row.resource) || (mapped && mapped.resource) || '').trim()
+  const schema = collectionFields(resource, extra.collections)
+  const ticket = String((row && row.ticketField) || (mapped && mapped.ticketField) || '').trim()
+  const out = []
+  for (const field of schema) {
+    const name = String((field && field.name) || '').trim()
+    if (!name || isSkippedShapeField(name)) continue
+    const title = String((field && field.title) || '').trim()
+    const packed = {
+      name,
+      title: title || name,
+      slot: fieldSlot(field, ticket),
+    }
+    if (field.enums && typeof field.enums === 'object' && !Array.isArray(field.enums) && Object.keys(field.enums).length) {
+      packed.enums = field.enums
+    }
+    const target = String((field && field.target) || '').trim()
+    if (target) packed.target = target
+    out.push(packed)
+  }
+  return out
+}
+
+function describeKindFieldNames(row, columns) {
+  const seen = new Set()
+  const out = []
+  const add = (value) => {
+    const text = String(value || '').trim()
+    if (!text || seen.has(text)) return
+    seen.add(text)
+    out.push(text)
+  }
+  for (const item of Array.isArray(row && row.fields) ? row.fields : []) add(item)
+  for (const col of Array.isArray(columns) ? columns : []) {
+    add(col && col.name)
+    add(col && col.title)
+  }
+  return out
+}
+
 export function describeKindCatalog(vocab, extra = {}) {
   const rows = catalogRowsForDescribe(vocab, extra)
   const kinds = []
@@ -101,13 +167,15 @@ export function describeKindCatalog(vocab, extra = {}) {
     if (!kind || kind === '单据' || kind === '口语') continue
     const aliases = listKindAliases([row])
     const status = kindStatusDomain(row, extra)
+    const columns = describeKindColumns(row, { ...extra, vocab })
     kinds.push({
       kind,
       can: (Array.isArray(row.can) ? row.can : []).map((item) => String(item || '').trim()).filter(Boolean),
-      fields: (Array.isArray(row.fields) ? row.fields : []).map((item) => String(item || '').trim()).filter(Boolean),
+      fields: describeKindFieldNames(row, columns),
       catalogVersion: String((row && row.catalogVersion) || '').trim() || undefined,
       aliases: (aliases[0] && aliases[0].aliases) || [],
       relations: listExecutableRelations([row]),
+      ...(columns.length ? { columns } : {}),
       ...(status ? { status } : {}),
     })
   }

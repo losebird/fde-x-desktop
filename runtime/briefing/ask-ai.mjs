@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import { buildContextPack } from '../context-pack.mjs'
-import { getBriefing } from './store.mjs'
+import { listSessionProjectedToolNames } from '../routes/mcp.mjs'
+import { harvestTurnToolResults } from './tool-official.mjs'
+
 
 function briefingRequestId() {
   return `brq_${randomBytes(12).toString('hex')}`
@@ -16,34 +18,55 @@ function waitMs(ms) {
 export async function runBriefingAgent(deps, {
   briefingId,
   workspaceCwd,
+  sessionId: givenSessionId,
   sections,
   internalSections,
   timeoutMs = 180_000,
+  projectWaitMs = 8000,
 }) {
   const { db, aiRuntime } = deps
   if (!aiRuntime?.status?.().connected) {
-    return { ok: false, error: '核心未连接，仅内部信息', sessionId: '' }
+    return { ok: false, error: '核心未连接，仅内部信息', sessionId: '', blocked: [] }
+  }
+
+  const sessionId = String(givenSessionId || '').trim()
+  if (!sessionId) {
+    return { ok: false, error: '当前工作区还没有可用的 AI 会话', sessionId: '', blocked: [] }
   }
 
   const agentRequestId = briefingRequestId()
   db.prepare('UPDATE briefings SET agent_request_id = ? WHERE id = ?').run(agentRequestId, briefingId)
 
-  let sessionId = ''
-  try {
-    const created = await aiRuntime.call('session/create', {
-      request: { cwd: workspaceCwd, agentPreset: 'fde-briefing' },
-    })
-    sessionId = String(created?.sessionId || '')
-    if (!sessionId) throw new Error('新建早报会话失败')
-    const dateLabel = new Date().toLocaleDateString('zh-CN')
-    await aiRuntime.call('session/rename', {
-      request: { sessionId, title: `早报 · ${dateLabel}` },
-    }).catch((error) => console.warn('briefing_session_rename_failed', error))
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : '新建会话失败', sessionId: '' }
+  const mcpNeeded = sections.filter((s) => s.enabled && s.type === 'mcp')
+  const neededTools = mcpNeeded
+    .map((s) => String(s.params?.tool || '').trim())
+    .filter(Boolean)
+  let projected = []
+  if (neededTools.length) {
+    const deadline = Date.now() + Number(projectWaitMs)
+    while (true) {
+      projected = await listSessionProjectedToolNames(aiRuntime, sessionId)
+      if (neededTools.every((name) => projected.includes(name))) break
+      if (Date.now() >= deadline) break
+      await waitMs(400)
+    }
+  }
+  const blocked = []
+  const mcpBlocks = []
+  for (const block of sections.filter((s) => s.enabled && (s.type === 'mcp' || s.type === 'ai'))) {
+    if (block.type === 'mcp') {
+      const tool = String(block.params?.tool || '').trim()
+      if (!tool || !projected.includes(tool)) {
+        blocked.push({ id: block.id, error: tool ? `会话未投影 ${tool}` : '缺少 tool' })
+        continue
+      }
+    }
+    mcpBlocks.push(block)
   }
 
-  const mcpBlocks = sections.filter((s) => s.enabled && (s.type === 'mcp' || s.type === 'ai'))
+  if (!mcpBlocks.length) {
+    return { ok: true, sessionId, agentRequestId, blocked, toolResults: {} }
+  }
   let contextText = ''
   try {
     const packed = await buildContextPack({ db, aiRuntime }, {
@@ -66,9 +89,9 @@ export async function runBriefingAgent(deps, {
 
   const prompt = [
     `[fde-briefing:${agentRequestId}]`,
-    '生成早报：对每个已启用的 mcp 区块调用指定 MCP 工具采集；对 ai 区块写一段中文总览。',
-    '不得编造条目；每块最多 5 条；邮件/文章需带可跳转链接。',
-    `完成后调用 fde_briefing_submit(requestId="${agentRequestId}", sections=[...])，sections 仅包含 mcp 与 ai 类型区块。`,
+    '生成早报：每个 mcp 区块必须在本轮调用对应 tool（可带 params.args）；禁止沿用上一场早报条目。',
+    '对 ai 区块写一段中文总览。不得编造 mcp 条目。',
+    `完成后调用 fde_briefing_submit(requestId="${agentRequestId}", sections=[...])，sections 仅包含 ai 类型区块。`,
     '',
     '内部源摘要（只读参考）：',
     JSON.stringify(internalSummary, null, 2),
@@ -85,23 +108,24 @@ export async function runBriefingAgent(deps, {
 
   try {
     await aiRuntime.call('session/prompt', {
-      agentId: sessionId,
-      request: { text: prompt, mode: 'queue' },
+      request: {
+        requestId: agentRequestId,
+        sessionId,
+        mode: 'queue',
+        content: [{ type: 'text', text: prompt }],
+      },
     })
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : '发送早报 prompt 失败', sessionId }
+    return { ok: false, error: error instanceof Error ? error.message : '发送早报 prompt 失败', sessionId, blocked, toolResults: {} }
   }
 
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const row = getBriefing(db, briefingId)
-    if (row?.sections?.length) {
-      const agentSections = row.sections.filter((s) => s.type === 'mcp' || s.type === 'ai')
-      const hasAgent = agentSections.some((s) => (s.items && s.items.length) || s.error)
-      if (hasAgent) return { ok: true, sessionId, agentRequestId }
-    }
-    await waitMs(1500)
+  const harvest = await harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs })
+  return {
+    ok: harvest.ended,
+    error: harvest.ended ? '' : 'timeout',
+    sessionId,
+    agentRequestId,
+    blocked,
+    toolResults: harvest.byTool,
   }
-
-  return { ok: false, error: 'timeout', sessionId, agentRequestId }
 }

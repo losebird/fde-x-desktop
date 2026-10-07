@@ -1,6 +1,8 @@
 import { emit } from '../events.mjs'
+import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
 import { collectInternalSection } from './collectors.mjs'
 import { runBriefingAgent } from './ask-ai.mjs'
+import { itemsFromToolResult } from './tool-official.mjs'
 import {
   createBriefingRun,
   findBriefingByAgentRequest,
@@ -9,14 +11,15 @@ import {
   updateBriefingContent,
 } from './store.mjs'
 
-function mergeAgentSections(existing, submitted) {
+function mergeAgentSections(existing, submitted, pendingError = '超时') {
   const byId = new Map((submitted || []).map((s) => [s.id, s]))
   return existing.map((section) => {
-    if (section.type !== 'mcp' && section.type !== 'ai') return section
+    if (section.type === 'mcp') return section
+    if (section.type !== 'ai') return section
     const patch = byId.get(section.id)
     if (!patch) {
       if (section.pendingAgent) {
-        return { ...section, error: '超时', pendingAgent: false }
+        return { ...section, error: pendingError, pendingAgent: false }
       }
       return section
     }
@@ -84,19 +87,52 @@ export async function runBriefing(deps, input) {
       })
     }
     updateBriefingContent(db, briefingId, { status: 'running', sections })
+    sessionId = await resolvePrimarySessionForRuntime(aiRuntime, {
+      cwd: workspaceCwd,
+      sessionId: String(input.sessionId || '').trim(),
+    })
     const agent = await runBriefingAgent(
       { db, aiRuntime },
       {
         briefingId,
         workspaceCwd,
+        sessionId,
         sections: enabled,
         internalSections: sections.filter((s) => s.type !== 'mcp' && s.type !== 'ai'),
       },
     )
-    sessionId = agent.sessionId || ''
+    sessionId = agent.sessionId || sessionId
     if (!agent.ok) agentError = agent.error || 'timeout'
+    for (const row of agent.blocked || []) {
+      const idx = sections.findIndex((section) => section.id === row.id)
+      if (idx < 0) continue
+      sections[idx] = { ...sections[idx], error: row.error, pendingAgent: false, items: [] }
+    }
+    const toolResults = agent.toolResults && typeof agent.toolResults === 'object' ? agent.toolResults : {}
+    for (const section of sections) {
+      if (section.type !== 'mcp' || !section.pendingAgent) continue
+      const def = enabled.find((row) => row.id === section.id)
+      const tool = String(def?.params?.tool || '').trim()
+      const hit = tool ? toolResults[tool] : null
+      if (!hit) {
+        section.error = tool ? `本轮未调用 ${tool}` : '缺少 tool'
+        section.pendingAgent = false
+        section.items = []
+        continue
+      }
+      if (hit.error) {
+        section.error = '工具执行失败'
+        section.pendingAgent = false
+        section.items = []
+        continue
+      }
+      section.items = itemsFromToolResult(hit.text)
+      section.pendingAgent = false
+      section.fetchedAt = new Date().toISOString()
+    }
     const latest = getBriefing(db, briefingId) || findBriefingByAgentRequest(db, agent.agentRequestId || '') || { sections: [] }
-    const merged = mergeAgentSections(sections, latest.sections)
+    const pendingError = agentError === 'timeout' ? '超时' : (agentError || '超时')
+    const merged = mergeAgentSections(sections, latest.sections, pendingError)
     sections.length = 0
     sections.push(...merged)
   } else if (enabled.some((s) => (s.type === 'mcp' || s.type === 'ai') && s.enabled)) {
@@ -107,7 +143,7 @@ export async function runBriefing(deps, input) {
         render: def.render,
         type: def.type,
         items: [],
-        error: aiRuntime?.status?.().connected ? undefined : '核心未连接，仅内部信息',
+        error: aiRuntime?.status?.().connected ? '当前工作区还没有可用的 AI 会话' : '核心未连接，仅内部信息',
       })
     }
   }
@@ -132,7 +168,11 @@ export function mergeBriefingSubmit(db, requestId, submittedSections) {
   const briefing = findBriefingByAgentRequest(db, requestId)
   if (!briefing) return { ok: false, error: 'briefing_not_found' }
   const contentSections = briefing.sections || []
-  const merged = mergeAgentSections(contentSections, submittedSections)
+  const aiIds = new Set(contentSections.filter((section) => section.type === 'ai').map((section) => section.id))
+  const submitted = (submittedSections || []).filter((section) => (
+    section && (section.type === 'ai' || aiIds.has(section.id))
+  ))
+  const merged = mergeAgentSections(contentSections, submitted)
   const status = computeRunStatus(merged)
   const aiSection = merged.find((s) => s.type === 'ai')
   const summary = aiSection?.items?.[0]?.text || aiSection?.body || briefing.summary

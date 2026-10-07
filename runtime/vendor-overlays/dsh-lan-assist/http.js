@@ -443,8 +443,10 @@ export async function dispatch(secretary, path, body, followup, extra) {
       return focusOperationKind(String(b.sessionId || ''), String(b.kind || ''))
     case '/listen':
       return secretary.grantListen(b.on)
-    case '/sleep':
-      return secretary.setAsleep(b.on)
+    case '/sleep': {
+      await secretary.setAsleep(b.on)
+      return { ok: true, asleep: Boolean(b.on) }
+    }
     case '/export':
       return secretary.exportLedger()
     default:

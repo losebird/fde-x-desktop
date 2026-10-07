@@ -10,9 +10,9 @@ import clsx from 'clsx'
 import { useParams } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { runtimeApi } from '@/lib/runtime-api'
-import { openRef } from '@/lib/open-ref'
+import { openRef, revealAi } from '@/lib/open-ref'
 import { isPrimarySession, loadCurrentAiTarget, loadCurrentWorkspaceCwd, sessionMatchesCwd } from '@/lib/ai-target'
-import { dmTalkId, imPaneOpen, incomingUnread, letterHome, localCwdSet, mailOnLane, normalizeCwd, topicTalkId, unreadOfRoster, unreadOfTalk } from '@/lib/im-letter-home'
+import { dmTalkId, imBrowseForVisibleTalk, imPaneOpen, incomingUnread, letterHome, localCwdSet, mailOnLane, normalizeCwd, topicTalkId, unreadOfRoster, unreadOfTalk } from '@/lib/im-letter-home'
 import { pullImMailbox, stampImMailboxRead, startImMailbox, useImMailbox } from '@/lib/im-mailbox'
 import { IM_AVATARS, imAvatar } from '@/lib/im-avatar'
 import { buildImAiPrompt, extractComposerBody, isUnsafeToSend, lastIncomingText, threadExcerpt } from '@/lib/im-ai'
@@ -488,6 +488,23 @@ function WorkspaceFileTree({
   )
 }
 
+function RecallCountdown({ ts, onRecall }: { ts: string; onRecall: () => void }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const tick = () => setNow(Date.now())
+    tick()
+    const timer = window.setInterval(tick, 1000)
+    return () => window.clearInterval(timer)
+  }, [ts])
+  const remain = Math.max(0, Math.ceil((120000 - Math.max(0, now - new Date(ts).getTime())) / 1000))
+  if (remain <= 0) return null
+  return (
+    <button type="button" className="text-brand hover:underline" onClick={(event) => { event.stopPropagation(); onRecall() }}>
+      撤回 {remain}s
+    </button>
+  )
+}
+
 export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const params = useParams<{ threadId?: string }>()
   const [liveContacts, setLiveContacts] = useState<IMContact[] | null>(() => imMailboxSnap?.contacts ?? null)
@@ -521,24 +538,24 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const composerDrafts = useApp((s) => s.imComposerDrafts)
   const markIMRead = useApp((s) => s.markIMRead)
 
-  const setActiveThread = useApp((s) => s.setActiveThread)
-  const activeThreadId = useApp((s) => s.activeThreadId)
   const imBrowse = useApp((s) => s.imBrowse)
   const setImBrowse = useApp((s) => s.setImBrowse)
+  const imPanelState = useApp((s) => s.panels.find((panel) => panel.id === 'im')?.state)
+  const imFloating = useApp((s) => Boolean(s.floating.im))
+  const imVisible = imPaneOpen(imPanelState, imFloating)
   const mailbox = useImMailbox()
   const [wsFiles, setWsFiles] = useState<FileNode[]>([])
   const [filesNote, setFilesNote] = useState('')
 
   useEffect(() => {
     if (!params.threadId) return
-    if (params.threadId !== activeThreadId) setActiveThread(params.threadId)
     if (params.threadId !== imBrowse.threadId) {
       setImBrowse({
         threadId: params.threadId,
         topicId: imBrowse.threadId === params.threadId ? imBrowse.topicId : null,
       })
     }
-  }, [params.threadId, activeThreadId, imBrowse.threadId, imBrowse.topicId, setActiveThread, setImBrowse])
+  }, [params.threadId, imBrowse.threadId, imBrowse.topicId, setImBrowse])
 
   useEffect(() => {
     const needsSessions = (row: IMMessage) => {
@@ -792,9 +809,14 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   }, [])
   useEffect(() => {
     applyMailbox(mailbox.hall)
+  }, [mailbox.hallSeq])
+  useEffect(() => {
     const contact = openContactRef.current
-    if (contact) void pullThread(contact).catch(() => undefined)
-  }, [mailbox.revision])
+    if (!contact) return
+    const key = mailbox.letterKey
+    if (!key) return
+    if (key === '*' || key === contact.id) void pullThread(contact).catch(() => undefined)
+  }, [mailbox.letterSeq, mailbox.letterKey])
 
   const [q, setQ] = useState('')
   const [input, setInput] = useState(() => {
@@ -830,7 +852,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; message: IMMessage } | null>(null)
   const [forwardMessage, setForwardMessage] = useState<IMMessage | null>(null)
   const [composerHeight, setComposerHeight] = useState(168)
-  const [clock, setClock] = useState(Date.now())
   const endRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const listContentRef = useRef<HTMLDivElement>(null)
@@ -871,15 +892,21 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     setImBrowse({ threadId: activeContact?.id ?? rememberedThreadId, topicId: id })
   }
   useEffect(() => {
-    if (!activeContact) return
-    if (activeThreadId !== activeContact.id) setActiveThread(activeContact.id)
-    if (imBrowse.threadId !== activeContact.id) {
-      setImBrowse({ threadId: activeContact.id, topicId: null, lane })
-    }
-  }, [activeContact?.id, activeThreadId, imBrowse.threadId, lane, setActiveThread, setImBrowse])
-  useEffect(() => {
     setImBrowse({ lane: 'workspace' })
   }, [activeWorkspaceId, setImBrowse])
+  useEffect(() => {
+    if (!imVisible) return
+    if (liveContacts === null) return
+    const present = (id: string, forLane: 'workspace' | 'unassigned') => {
+      const contact = contacts.find((row) => row.id === id)
+      if (!contact) return false
+      if (onLane(contact, forLane)) return true
+      return !homesOf(id).map((home) => normalizeCwd(home)).some(Boolean)
+    }
+    const next = imBrowseForVisibleTalk(imBrowse, present)
+    if (next.threadId === imBrowse.threadId && next.topicId === imBrowse.topicId && next.lane === imBrowse.lane) return
+    setImBrowse(next)
+  }, [imVisible, liveContacts, contacts, messages, currentHome, imBrowse, setImBrowse])
   openContactRef.current = activeContact
   useEffect(() => {
     void pullThread(activeContact)
@@ -941,6 +968,11 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     endRef.current?.scrollIntoView({ block: 'end', inline: 'nearest' })
   }
   useLayoutEffect(() => {
+    stickToBottomRef.current = true
+    jumpToLatest()
+  }, [activeContact?.id, selectedTopicId])
+  useLayoutEffect(() => {
+    if (!stickToBottomRef.current) return
     jumpToLatest()
     const a = window.requestAnimationFrame(() => jumpToLatest())
     const b = window.setTimeout(jumpToLatest, 80)
@@ -950,7 +982,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       window.clearTimeout(b)
       window.clearTimeout(c)
     }
-  }, [latestKey, composerHeight, activeContact?.id, selectedTopicId])
+  }, [latestKey])
   useEffect(() => {
     const el = listRef.current
     const inner = listContentRef.current
@@ -966,10 +998,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     const close = () => setContextMenu(null)
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
-  }, [])
-  useEffect(() => {
-    const timer = window.setInterval(() => setClock(Date.now()), 1000)
-    return () => window.clearInterval(timer)
   }, [])
   useEffect(() => {
     const onFill = (event: Event) => {
@@ -1286,6 +1314,40 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           return
         }
       }
+      if (action === 'adopt') {
+        useApp.getState().setAiInboxDraft(incoming)
+        revealAi(target.sessionId)
+        setAiHint('已放入当前会话输入框')
+        return
+      }
+      useApp.getState().setIMFillBind({ sessionId: target.sessionId, threadId: activeContact.id })
+      if (action === 'draft') {
+        const letter = [...allThreadMsgs].reverse().find((row) => {
+          if (row.recalledAt) return false
+          if (row.authorId === selfId || row.authorId === 'u_self' || row.authorId === 'u_assistant') return false
+          return Boolean(String(row.text || '').trim())
+        })
+        if (!letter?.id) {
+          setAiHint('对面还没有来信，拟回要用对方发来的那条')
+          return
+        }
+        const drafted = await runtimeApi.imDraft({
+          requestId: letter.id,
+          sessionId: target.sessionId,
+          workspace: target.cwd,
+        })
+        if (drafted && drafted.ok === false) {
+          setAiHint(String(drafted.hint || drafted.error || '拟回走会话失败，改由当前会话输入'))
+        } else if (drafted.followed || drafted.via === 'session') {
+          window.dispatchEvent(new CustomEvent('fde-x-ai-prompt', { detail: { text: '', sessionId: target.sessionId, fillThreadId: activeContact.id } }))
+          setAiHint('拟回已交给当前会话，写好后会放进输入框')
+          return
+        } else {
+          const rawDraft = typeof drafted.draft === 'string' ? drafted.draft : ''
+          const body = extractComposerBody(rawDraft) || rawDraft.trim()
+          if (body) setComposer(body)
+        }
+      }
       const built = buildImAiPrompt(action, {
         who: activeContact.name,
         quote: action === 'precedent' || action === 'local' || action === 'summary' ? quote : incoming,
@@ -1325,7 +1387,8 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       window.dispatchEvent(new CustomEvent('fde-x-ai-prompt', {
         detail: {
           text: promptText,
-          fillThreadId: built.fill ? activeContact.id : '',
+          fillThreadId: activeContact.id,
+          sessionId: target.sessionId,
         },
       }))
       setAiHint(built.hint)
@@ -1333,7 +1396,6 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   }
 
   const selectContact = (id: string, nextLane: 'workspace' | 'unassigned' = 'workspace') => {
-    setActiveThread(id)
     setImBrowse({ threadId: id, topicId: null, lane: nextLane })
   }
 
@@ -1773,7 +1835,15 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                     </div>
                   )}
 
-                  <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+                  <div
+                    ref={listRef}
+                    className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+                    onScroll={() => {
+                      const el = listRef.current
+                      if (!el) return
+                      stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 320
+                    }}
+                  >
                     <div ref={listContentRef} className="space-y-3 pb-8">
                     {activeMsgs.length === 0 && <div className="text-center text-sm text-ink-subtle mt-12">{lane === 'unassigned' ? '没有未分到工作区的往来' : activeContact.kind === 'topic-group' ? (selectedTopicId ? '还没有跟帖' : '发一条，成为群里的话题') : `与 ${activeContact.name} 开始对话`}<div className="text-xs mt-2">{lane === 'unassigned' ? '从左边未分工作区点开一串，再归到当前工作区' : '拟回与先例会由 AI 生成后自动回填输入框'}</div></div>}
                     {activeMsgs.map((m) => {
@@ -1818,12 +1888,10 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                             {(m.translation || translations[m.id]) && <div className={clsx('mt-2 pt-2 border-t text-xs leading-5', isMe ? 'border-white/20 text-white/85' : 'border-line text-ink-muted')}><span className="text-[9px] uppercase tracking-wide opacity-70">English</span><div>{m.translation || translations[m.id]}</div></div>}
                             {m.recalledAt && <div className={clsx('italic text-xs', isMe ? 'text-white/70' : 'text-ink-subtle')}>{isMe ? '你撤回了一条消息' : '对方撤回了一条消息'}</div>}
                           </div>
-                          <div className={clsx('text-[10px] mt-0.5 flex items-center gap-2', isMe ? 'justify-end text-ink-subtle' : 'text-ink-subtle')}><span>{new Date(m.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>{m.pending && isMe && <button type="button" className="text-accent-red hover:underline" onClick={() => { void runtimeApi.imSleep(false).catch(() => undefined).then(() => runtimeApi.imSend({ requestId: m.id })).then(() => pullImMailbox()).catch((cause) => setAiHint(cause instanceof Error ? cause.message : '没发出去')) }}>未发出 · 再送{(m.pendingPeerIds || []).length ? ` · ${(m.pendingPeerIds || []).map((id) => contacts.find((c) => c.id === id)?.name || id.slice(-4)).join('、')}` : ''}</button>}{isMe && !m.recalledAt && !m.pending && clock - new Date(m.ts).getTime() <= 120000 && (
-                              <button
-                                type="button"
-                                className="text-brand hover:underline"
-                                onClick={(event) => {
-                                  event.stopPropagation()
+                          <div className={clsx('text-[10px] mt-0.5 flex items-center gap-2', isMe ? 'justify-end text-ink-subtle' : 'text-ink-subtle')}><span>{new Date(m.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>{m.pending && isMe && <button type="button" className="text-accent-red hover:underline" onClick={() => { void runtimeApi.imSleep(false).catch(() => undefined).then(() => runtimeApi.imSend({ requestId: m.id })).then(() => pullImMailbox()).catch((cause) => setAiHint(cause instanceof Error ? cause.message : '没发出去')) }}>未发出 · 再送{(m.pendingPeerIds || []).length ? ` · ${(m.pendingPeerIds || []).map((id) => contacts.find((c) => c.id === id)?.name || id.slice(-4)).join('、')}` : ''}</button>}{isMe && !m.recalledAt && !m.pending && (
+                              <RecallCountdown
+                                ts={m.ts}
+                                onRecall={() => {
                                   if (!activeContact) return
                                   const peers = activeContact.kind === 'topic-group' ? (activeContact.memberIds || []) : [activeContact.id]
                                   void Promise.all(peers.map((peerId) => runtimeApi.imWithdraw({ requestId: m.id, peerId }))).then((results) => {
@@ -1832,9 +1900,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                                     return pullImMailbox()
                                   }).catch((cause) => setAiHint(cause instanceof Error ? cause.message : '撤回失败'))
                                 }}
-                              >
-                                撤回 {Math.max(0, Math.ceil((120000 - Math.max(0, clock - new Date(m.ts).getTime())) / 1000))}s
-                              </button>
+                              />
                             )}</div>
                         </div>
                       </div>
@@ -1884,6 +1950,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                                   detail: {
                                     text: promptText,
                                     fillThreadId: activeContact?.id || '',
+                                    sessionId: useApp.getState().activeAiSessionId || '',
                                   },
                                 }))
                               }

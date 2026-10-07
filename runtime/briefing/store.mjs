@@ -1,6 +1,6 @@
 import { createId } from '../db.mjs'
-import { defaultSchedule, defaultSections, defaultSources } from './defaults.mjs'
-import { workspaceIdForCwd } from './workspace.mjs'
+import { defaultSchedule, defaultSections, prepareDefinitionSections, sourcesFromMcpSections } from './defaults.mjs'
+import { workspaceRowIdForCwd } from './workspace.mjs'
 
 const isoNow = () => new Date().toISOString()
 
@@ -21,8 +21,15 @@ export function definitionIdForWorkspace(workspaceId) {
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {string} workspaceCwd
  */
+export function defaultDelivery() {
+  return { peerId: '' }
+}
+
 export function getOrCreateDefinition(db, workspaceCwd) {
-  const workspaceId = workspaceIdForCwd(db, workspaceCwd)
+  const workspaceId = workspaceRowIdForCwd(db, workspaceCwd)
+  if (!workspaceId) {
+    throw Object.assign(new Error('需要已登记的工作区'), { code: 'missing_workspace' })
+  }
   const id = definitionIdForWorkspace(workspaceId)
   const existing = db.prepare('SELECT * FROM briefing_definitions WHERE id = ?').get(id)
   if (existing) {
@@ -37,7 +44,7 @@ export function getOrCreateDefinition(db, workspaceCwd) {
     id,
     workspaceId,
     '默认早报',
-    JSON.stringify(defaultSources()),
+    JSON.stringify(sourcesFromMcpSections(defaultSections())),
     JSON.stringify(defaultSections()),
     JSON.stringify(defaultSchedule()),
     now,
@@ -48,32 +55,48 @@ export function getOrCreateDefinition(db, workspaceCwd) {
 }
 
 function mapDefinitionRow(row, workspaceCwd) {
+  const sections = prepareDefinitionSections(parseJson(row.sections_json, []))
   return {
     id: row.id,
     workspaceId: row.workspace_id,
     workspaceCwd,
     name: row.name,
     status: row.status,
-    sections: parseJson(row.sections_json, []),
+    sections,
     schedule: parseJson(row.schedule_json, defaultSchedule()),
-    sources: parseJson(row.sources_json, []),
+    sources: sourcesFromMcpSections(sections),
+    delivery: parseJson(row.delivery_json, defaultDelivery()),
     updatedAt: row.updated_at,
   }
 }
 
-export function saveDefinition(db, workspaceCwd, { sections, schedule, sources }) {
-  const workspaceId = workspaceIdForCwd(db, workspaceCwd)
+export function saveDefinition(db, workspaceCwd, { sections, schedule, delivery }) {
+  const workspaceId = workspaceRowIdForCwd(db, workspaceCwd)
+  if (!workspaceId) {
+    throw Object.assign(new Error('需要已登记的工作区'), { code: 'missing_workspace' })
+  }
   const id = definitionIdForWorkspace(workspaceId)
   const now = isoNow()
   const existing = db.prepare('SELECT id FROM briefing_definitions WHERE id = ?').get(id)
   if (!existing) {
     getOrCreateDefinition(db, workspaceCwd)
   }
+  const nextSections = prepareDefinitionSections(sections)
+  const nextDelivery = delivery && typeof delivery === 'object' && !Array.isArray(delivery)
+    ? { peerId: String(delivery.peerId || '').trim() }
+    : defaultDelivery()
   db.prepare(`
     UPDATE briefing_definitions
-    SET sections_json = ?, schedule_json = ?, sources_json = ?, updated_at = ?
+    SET sections_json = ?, schedule_json = ?, sources_json = ?, delivery_json = ?, updated_at = ?
     WHERE id = ?
-  `).run(JSON.stringify(sections), JSON.stringify(schedule), JSON.stringify(sources ?? defaultSources()), now, id)
+  `).run(
+    JSON.stringify(nextSections),
+    JSON.stringify(schedule),
+    JSON.stringify(sourcesFromMcpSections(nextSections)),
+    JSON.stringify(nextDelivery),
+    now,
+    id,
+  )
   return getOrCreateDefinition(db, workspaceCwd)
 }
 

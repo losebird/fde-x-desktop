@@ -284,25 +284,6 @@ export interface BusinessTable {
   rows: BusinessRow[]
 }
 
-export interface MCPServer {
-  id: ID
-  name: string
-  desc: string
-  status: 'connected' | 'disconnected' | 'pending'
-  tools: string[]
-  category: string
-}
-
-export interface Skill {
-  id: ID
-  name: string
-  desc: string
-  emoji: string
-  enabled: boolean
-  triggers: string[]
-  source: 'builtin' | 'user' | 'marketplace'
-}
-
 export interface Notification {
   id: ID
   kind: 'info' | 'success' | 'warning' | 'error'

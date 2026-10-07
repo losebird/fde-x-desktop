@@ -1,4 +1,4 @@
-import { loadCurrentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { buildContextPack, renderContextForPrompt, type ContextScope } from '@/lib/context-pack'
 import { waitForFdeEvent } from '@/lib/events'
 import { validateJsonSchemaLite, type JsonSchemaLite } from '@/lib/json-schema-lite'
@@ -117,7 +117,7 @@ async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId:
       return { ok: false, error: cause instanceof Error ? cause.message : '新建会话失败' }
     }
   }
-  const target = await loadCurrentAiTarget()
+  const target = await currentAiTarget()
   if (!target.ok) return target
   return { ok: true, sessionId: target.sessionId, cwd: target.cwd }
 }

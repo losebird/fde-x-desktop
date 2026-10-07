@@ -19,22 +19,65 @@ export type OpenRefHref = {
   kind?: string
   briefingId?: string
   path?: string
+  section?: string
   cardId?: string
   originId?: string
   workspaceAppId?: string | null
+  accessory?: string
 }
 
 const PLAN_TABS = new Set(['todo', 'schedule', 'workflow'])
 
-export function revealAi(sessionId?: string) {
+export function revealAi(sessionId?: string, accessory?: string) {
   const app = useApp.getState()
   const memory = app.panels.find((panel) => panel.id === 'memory' || panel.view === 'memory')
   if (memory && (memory.state === 'full' || memory.state === 'half')) {
     app.togglePanel('memory', 'tab')
   }
   window.dispatchEvent(new CustomEvent('fde-x-ai-open', {
-    detail: { sessionId: String(sessionId || '') },
+    detail: { sessionId: String(sessionId || ''), accessory: String(accessory || '') },
   }))
+}
+
+export function landRef(kind: string, extra: OpenRefHref = {}) {
+  const key = String(kind || extra.kind || '').trim()
+  if (key === 'file') {
+    openRef({ ...extra, panel: 'files', path: extra.path })
+    return
+  }
+  if (key === 'goal' || key === 'todo') {
+    openRef({ ...extra, panel: 'plan', tab: extra.tab || 'todo', taskId: extra.taskId })
+    return
+  }
+  if (key === 'workflow') {
+    openRef({ ...extra, panel: 'plan', tab: extra.tab || 'workflow' })
+    return
+  }
+  if (key === 'schedule' || key === 'job') {
+    openRef({ ...extra, panel: 'plan', tab: extra.tab || 'schedule' })
+    return
+  }
+  if (key === 'memory') {
+    openRef({ ...extra, panel: 'memory' })
+    return
+  }
+  if (key === 'session') {
+    revealAi(extra.sessionId)
+    return
+  }
+  if (key === 'terminal') {
+    revealAi(extra.sessionId, 'terminal')
+    return
+  }
+  if (key === 'plugin') {
+    openRef({ ...extra, panel: 'settings', section: extra.section || 'core' })
+    return
+  }
+  if (extra.panel) {
+    openRef(extra)
+    return
+  }
+  openRef({ ...extra, panel: 'settings', section: extra.section || 'core' })
 }
 
 export function openRef(href: OpenRefHref) {
@@ -44,7 +87,7 @@ export function openRef(href: OpenRefHref) {
 
   const panel = String(href.panel || '')
   if (panel === 'ai') {
-    revealAi(href.sessionId)
+    revealAi(href.sessionId, href.accessory)
     return
   }
   if (panel === 'im') {
@@ -77,6 +120,13 @@ export function openRef(href: OpenRefHref) {
   if (panel === 'files') {
     if (href.path) openFilesAtPath(href.path)
     else app.togglePanel('files', 'full')
+    return
+  }
+  if (panel === 'settings') {
+    if (href.section) {
+      window.dispatchEvent(new CustomEvent('fde-x-settings-open', { detail: { section: href.section } }))
+    }
+    app.togglePanel('settings', 'full')
     return
   }
   if (panel === 'memory') {

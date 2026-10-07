@@ -7,7 +7,7 @@
 **落地仓库：** `/Users/zxz/WorkBuddy/2026-09-08-20-34-42/scene-39-personal-workstation/`  
 执行时把本文件复制为该仓库根目录 `PRODUCTION-SPEC.md`，并写 `AGENTS.md` 指向它。
 
-完成标准：浏览器里仍是 FDE-X 的壳和交互；AI 的会话/模型/权限/工具/命令/轨迹来自本机 DSH Host；IM 与业务过账来自 lan-assist Host；记忆来自 semantic-os Host；早报/计划/应用生产仍是现有页面，只换数据源。官方前端包不得进浏览器。
+完成标准：浏览器里仍是 FDE-X 的壳和交互；能力按三缝落面（§0.2）。IM 与业务过账来自 lan-assist Host；记忆来自 semantic-os Host。顶栏模块集合不动。官方设置/插件/工作区壳不得进浏览器。会话画布是现有 AI iframe 里的 DSH 会话运行时。
 
 ---
 
@@ -25,16 +25,36 @@
 
 ### 0.2 引擎边界
 
+一个 Host 世代。一种能力身份。一面。身份只有三格，禁止第四面。
+
+| 身份键 | 是什么 | 唯一的面 |
+|---|---|---|
+| `sessionId` | 这场会话正在发生的事 | AI 页里的 **会话画布**（现有 `/dsh-app/` iframe） |
+| `cwd` / profile | 工作区或配置上的目录 | **已有 FDE-X 页**（文件 / MCP / Skills / 设置 / 计划 / AI 左栏） |
+| window / OS | 窗口、托盘、关窗后进程 | **Desktop 包装**（`apps/desktop`） |
+
+kind 不认识 → 设置里的插件目录（目录缝的溢出口），不是新顶栏。
+
 | 用户看见的 | Host 权威 | 浏览器禁止 |
 |---|---|---|
-| AI 页（对话/轨迹/发送/preset/模型/权限/工具/命令） | DSH `0.1.5-rc.1` 进程内 Session / tools / presets | `@deepseek-ai/dsh-web-frontend`、`SessionIsland`、iframe |
+| 会话画布（对话、作曲栏、轮次/过程组、审批、识图/语音、终端、当轮 diff、计划审阅、Subagent/Team） | 当前 DSH 世代的 Session 运行时 | 加载官方设置/插件/工作区整页；hash class 剥皮 |
+| AI 左栏会话名册 | DSH session 列表投影 | 用 DSH 左栏会话列表替换 FDE-X 左栏 |
 | IM | lan-assist 邮箱与拟回 | `dsh-lan-assist/client.js` |
 | 业务应用（现「数据」页） | lan-assist `biz_preview` / `biz_write` / `biz_traces` | 用 SQLite 假过账冒充外部系统 |
 | 记忆 | semantic-os 卡与 `search_text` | 把图迁进 SQLite；加载 semantic-os `client.js` |
-| 文件 / MCP / Skills | **当前 AI 会话** 的 cwd / tools / skills 投影 | `~/.workbuddy/mcp.json` 空按钮、seed 列表冒充已连接 |
-| 早报 / 计划待办日程 / 应用生产 | FDE-X SQLite + 调用上面三台 | 把 DSH goal/plan-mode 当成个人待办 |
+| 文件 / MCP / Skills / 模型 / 插件 / 快捷键 | Host **目录**（kind → 现有页） | 为每个 GitHub 条目手包 Remote；设置页直接写 `settings.yaml` |
+| 计划待办 / 日程 / 工作流 | Host 目录 `goal` / `schedule` / `job`；本地行带 `fde-task:` origin | 两套现况；把 DSH 会话画布里的 plan-mode 再克隆一页 |
+| 关窗保任务、菜单栏 dsh 命令 | Desktop 包装 | 接到 5174 工作台页 |
+
+**缝 1 会话画布。** 占用过滤打在 `slots` 服务上（`ui-renderer` provide 之后立刻包 `register`），表在 `runtime/canvas-occupancy.mjs`。iframe 只留 `chat` / `trajectory` 与作曲栏。`ui-sidebar` / `ui-sidebar-right` / 文件树 / 文档预览整包停用；文件 `openResource` 由桥提供 land-only `sidebarRight`。空白相用公布属性 `data-phase="hero"` 只留作曲栏。点文件/计划/记忆走 `land` → `openRef`。终端走 AI 页附件。
+
+**缝 2 目录投影。** FDE-X 页是 Host 目录的过滤器。kind → 面写在 `runtime/host-catalog.mjs`，⌘K 与各页共用。设置表单走 `settings/describe` / `settings/mutate`。文件字节走 `workspaceFiles/readBytes` 一条管。Remote 名从本机 DSH 包 `typert.host.js` 读出。
+
+**缝 3 窗口。** Headless CLI 无窗口，不是一页。
 
 DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host 工具与 HTTP）。浏览器 **不准** 加载它们的 Client 槽。
+
+**Host 切代**（pin、会话日志版本、文件字节口、设置存储、Remote 传输）一次切。当前世代 pin 是 `0.2.0-rc.2`（`runtime/generation.mjs`）。回滚单位是 `FDE_DSH_HOME.generation-<previous>` 整棵快照。禁止壳与画布各钉一个 DSH 版本。
 
 ### 0.3 安全 / 稳定 / 性能（全程）
 
@@ -58,6 +78,8 @@ DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host
 ### 0.5 对抗审查补丁（冲突时只认这一节）
 
 来源：`ADVERSARIAL-REVIEW.md` 六路 + 用户确认。产品目标不变：FDE-X 壳；AI=DSH；IM/业务=lan-assist；记忆=semantic-os。
+
+**三缝覆盖前文「禁止 iframe / 禁止 ModuleLoader / goal 不进计划 / 终端本版不做」。** 会话画布就是现有 AI iframe 的 DSH 会话运行时（`__ModuleLoader__` 只在该 iframe 内加载会话插件）。目录能力进已有 FDE-X 页。未知 kind 进设置插件目录。不新开顶栏。不按发版清单接线。
 
 **去岛顺序（阶段 A 强制）：** 先改 `smoke.mjs` 不再测岛 → 再删 §2 岛代码 → **再** 去掉 patch 里 `dsh-semantic-os: disabled`。禁止先启 semantic-os 再留岛。
 
@@ -119,7 +141,8 @@ DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host
                                       ▼
                          dsh web --host 127.0.0.1 --port 0 --patch runtime/dsh-core.patch.yml
                          插件：dsh-lan-assist、dsh-semantic-os 启用
-                         禁用：ui-brand-official、ui-settings-* 页面、ui-open-in-app
+                         禁用：ui-brand-official、ui-settings-* 页面（目录在 FDE-X 设置页）
+                         会话画布：现有 `/dsh-app/` iframe；占用过滤（只 chat/trajectory）；终端在 AI 页附件区
 ```
 
 Vite 只反代 `/api` → 4318。删除 `/plugins`、`/native-session` 反代。
@@ -168,6 +191,7 @@ Vite 只反代 `/api` → 4318。删除 `/plugins`、`/native-session` 反代。
 | 底栏 | 「本地核心已连接」/「本地原型」 | 连上用前者；未连接用后者+Empty | 无 |
 | 轨迹 `ExecutionTrace` | 时间轴卡片 | 保留该组件；`items` 必须覆盖 `tool/call`、`tool/result`、`approval/asked`、`approval/decided`、`command/run`、`turn/start` | 无新布局 |
 | 第 N 轮 | 无 | 对话 Tab：「第 N 轮」分组 + 右侧细轨道跳转（`turnOutline`）。`session/page` 只翻更早历史 | 轨道宽度/样式仿 DSH 细条，放在对话列右缘，不改左右栏 |
+| 会话附件 | 无 | 现有 AI 页中间列、iframe 下方一块。kind=`terminal` 时打开，绑当前 `sessionId`。无 Host 投影则空文案。关闭用已有 `btn-ghost h-7 px-2 text-[11px]` | 不新开顶栏、不新路由、不嵌第二份 `/dsh-app/` |
 
 除此之外禁止新 modal、新路由、新顶栏入口、新颜色。
 
@@ -274,7 +298,7 @@ Vite 只反代 `/api` → 4318。删除 `/plugins`、`/native-session` 反代。
 
 ---
 
-## 5. 已知 Remote（本机 0.1.5-rc.1，包一层前再核对 typert）
+## 5. 已知 Remote（本机世代见 `runtime/generation.mjs`，包一层前再核对 typert）
 
 `session`：`list` `search` `create` `selectModel` `modelCatalog` `rename` `fork` `prompt` `attachment` `updateQueue` `cancel` `page` `follow` `control`
 
@@ -286,7 +310,7 @@ skills catalog：session-controller 内 `@Remote async list`
 
 `workspace`：`create` `rename` `delete` `follow`
 
-`workspaceFiles`：`list` `stat` `read` `readBytes` `changes`
+`workspaceFiles`：目录投影只走 `readBytes`（一条字节管）+ `list` `stat` `changes`。方法名仍以本机 `typert.host.js` 为准。
 
 权限与 lan-assist / semantic-os：以本机插件 `typert.host.js` / `http.js` / `tools.js` 为准。
 
@@ -320,11 +344,14 @@ node runtime/smoke.mjs
 
 - 不把 FDE-X 打成 dsh profile 换皮插件
 - 不改 DSH 官方压缩内核
-- 不在浏览器跑 `__ModuleLoader__`
+- 不在 FDE-X 壳（5174）跑 `__ModuleLoader__`；只在会话画布 iframe 内加载 DSH 会话插件
+- 不加载官方设置页、插件整页、工作区壳、lan-assist Client、semantic-os Client
 - 不在 DSH 进程里禁用 semantic-os
-- 不把 lan-assist Client 槽挂进 FDE-X
+- 不按 CSS module hash 剥皮；不按发版清单往已有页堆按钮
+- 不为终端/插件/Team 新开顶栏模块
 - 不改品牌绿、不改「FDE-X Desktop」字样
 - 不实现互联网中继、手机推送、秘书代签
+- 不切 Host 世代，除非单独点头（pin、V4 日志、settings 存储一起切）
 
 ---
 
@@ -406,30 +433,24 @@ node runtime/smoke.mjs
 
 ---
 
-## 12. DSH 能力对照（避免和计划模块抢词）
+## 12. 能力身份（三缝；kind 写在 `runtime/host-catalog.mjs`）
 
-| DSH 能力 | FDE-X 落点 | 本版 |
+| kind | 身份 | 面 |
 |---|---|---|
-| Session 列表/新建/重命名/发/停/跟流 | AI 左栏+输入条 | 做 |
-| modelCatalog + selectModel + reasoning | 输入条模型菜单 | 做 |
-| agentPresets list/select | 新建弹层 + 右侧栏 | 做 |
-| 轨迹事件 | AI「轨迹」Tab `ExecutionTrace` | 做 |
-| 权限 preset | 输入条「权限」 | 做 |
-| tools 列表 | 输入条「工具」 | 做（可只读） |
-| commands list | 输入条「命令」 | 做 |
-| session/attachment | 回形针 | 做 |
-| session/page 轮数 | Tab 行 select，无 API 则不加 | 条件 |
-| workspaceFiles | 文件页 | 做 |
-| MCP 配置 | 设置存储分区 + MCP 页 | 做 |
-| skills catalog | Skills 页 + 右侧栏 | 做 |
-| approval/asked | 对话流确认条 | 做 |
-| ask_user_question | 同确认条或现有 Empty | 有 Remote 才做 |
-| plan-mode | 不进「计划」模块 | 本版不做独立按钮，除非输入条命令里出现 `/plan` |
-| goal / jobs / 会话 schedule | 不进待办/日程 | 本版不做 |
-| workflowEngine | 计划「工作流」Tab | 有 list 才列出，禁止 mock run |
-| fork / 删除会话 | 现有菜单项 | 有 Remote 才启用；无则按钮 disabled 保持原位 |
-| compaction / 终端 / 子 Agent 树 / Cordis 动态插件 | — | 本版不做 |
-| todo_write | 计划待办 | 本版不做自动写入，除非用户在摘要弹层确认 |
+| 对话 / 过程组 / 审批 / 识图 / 语音 / 终端 / 当轮 diff / 计划审阅 / Subagent / Team / 异步问答 | `sessionId` | 会话画布 |
+| `session` 名册（新建/归档/筛选/恢复） | `cwd` + session 列表 | AI 左栏 |
+| `file` | `cwd` | 文件页 |
+| `mcp`（含 resources、Browser/Computer Use 实例） | profile | MCP 页 |
+| `skill` | 当前会话 catalog | Skills 页 |
+| `model` / `provider` / `settings` / `plugin` / `shortcut` | profile | 设置（插件为溢出口） |
+| `goal` / `todo` | `cwd` + origin | 计划 → 待办 |
+| `schedule` / `job` | `cwd` + origin | 计划 → 日程 |
+| `workflow` | `cwd` + origin | 计划 → 工作流 |
+| `workspace`（含 SSH cwd） | 工作区书 | 顶栏工作区 |
+| 关窗保任务、菜单栏 dsh | window | Desktop |
+| 其它未知 kind | profile 溢出口 | 设置插件目录 |
+
+同一 `sessionId` / 同一文件路径 / 同一 plugin id，两页看到同一个对象。计划本地行 origin=`fde-task:`，Host goal origin=`dsh-goal:`，一张表。
 
 ---
 
@@ -445,12 +466,12 @@ node runtime/smoke.mjs
 6. **⌘K** 仍搜 seed 联系人/Agent/任务。阶段 D/B/G 必须改数据源，布局不动。
 7. **死页** `Agents.tsx`、`AppShell.tsx`、`Sidebar.tsx`、独立 `Tasks.tsx`/`Schedule.tsx`/`IM.tsx`：阶段 H 删除未再被 `IMScreen` 引用的文件。路由可留 redirect，禁止修复这些旧壳。
 8. **文件页** 仍有收藏/版本回滚 UI：读真实文件后，无 DSH 版本 API 则回滚 disabled，不删按钮。
-9. **计划** 仍是待办/日程/工作流 三 Tab，不是 DSH plan-mode。
+9. **计划** 仍是待办/日程/工作流 三 Tab。Tab 吃 Host 目录（goal / schedule|job / workflow）；会话画布里的 plan-mode 留在画布。
 10. **记忆** 仍是三层卡片；语义-os 卡映射进现卡片，不换成图谱页。
 11. **WorkspaceSwitcher** 必须带动 DSH `cwd`（阶段 A），否则文件/bash 打空目录。
 12. **通知铃** 仍打开早报。未读数改接 IM 真未读，禁止一直用 seed。
 
-未列入上表的 DSH 能力 = 本版不做，不要在执行时「顺手做上」。
+未列入 §12 的 kind：先判三缝；判不到进设置插件目录。禁止第四面。
 
 ---
 
@@ -518,7 +539,7 @@ node runtime/smoke.mjs
 
 | 缺口 | 接法 |
 |---|---|
-| 计划无 AI；`memory.add` 是种子 | 要么现有按钮调 `draftMemoryCard` / `promptAi(current)`，要么禁用并写明未接。禁止假跑 |
+| 计划三 Tab | 吃 Host 目录 `goal` / `schedule`/`job` / `workflow`；本地行 `fde-task:` origin。无 Host 集合时本地行仍在 |
 | MCP 与当前会话工具列表无关 | 保存后提示「重载核心」；列表可标「需重载」。不假装已热加载 |
 | Skills 取 sessions[0]；启停 disabled | 列表改 `currentAiTarget`；无 Remote 则启停保持 disabled，不要假开关 |
 

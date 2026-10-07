@@ -7,7 +7,8 @@
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { dshHome } from './home.js'
+import { dshHome, PLUGIN } from './home.js'
+import { occupancyLiftSource } from './session-source.js'
 import { kindsFromGraphNodes } from './write.js'
 
 export function looksLikeChoice(text) {
@@ -28,8 +29,9 @@ export function extractUserSpeech(event) {
   if (!event || event.type !== 'user/message') return ''
   const data = event.data || {}
   const source = data.source || event.source || {}
+  const lifted = occupancyLiftSource(source, PLUGIN)
+  if (lifted && lifted.kind !== 'user') return ''
   if (source.kind && source.kind !== 'user') return ''
-  if (source.plugin === 'dsh-lan-assist') return ''
   const blocks = Array.isArray(data.content) ? data.content : []
   const parts = []
   for (const block of blocks) {

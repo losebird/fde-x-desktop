@@ -501,7 +501,16 @@ export function createSecretary(opts) {
         vocab = []
       }
     }
-    const catalog = describeKindCatalog(vocab)
+    let collections = []
+    if (typeof opts.collectionsOf === 'function') {
+      try {
+        const loaded = await opts.collectionsOf(cwd)
+        if (Array.isArray(loaded)) collections = loaded
+      } catch {
+        collections = []
+      }
+    }
+    const catalog = describeKindCatalog(vocab, { collections })
     const want = String((spec && spec.kind) || '').trim()
     if (!want) return catalog
     return {

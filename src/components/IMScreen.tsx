@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { onBizSheetPending } from '@/lib/biz-records-auto-open'
 import { runtimeApi } from '@/lib/runtime-api'
-import { imBrowseWhenHidden, imPaneOpen, imUnreadMouth } from '@/lib/im-letter-home'
+import { imPaneOpen, imUnreadMouth } from '@/lib/im-letter-home'
 import { useImMailbox } from '@/lib/im-mailbox'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import AI from '@/pages/AI'
@@ -75,13 +75,6 @@ export function IMScreen() {
   const imFloating = useApp((state) => Boolean(state.floating.im))
   const imVisible = imPaneOpen(imPanelState, imFloating)
   const mailbox = useImMailbox()
-
-  useEffect(() => {
-    const next = imBrowseWhenHidden(useApp.getState().imBrowse, imVisible)
-    const cur = useApp.getState().imBrowse
-    if (cur.threadId === next.threadId && cur.topicId === next.topicId && cur.lane === next.lane) return
-    useApp.getState().setImBrowse(next)
-  }, [imVisible])
 
   useEffect(() => {
     const here = loadCurrentWorkspaceCwd()

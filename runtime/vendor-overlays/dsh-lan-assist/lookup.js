@@ -13,6 +13,7 @@ import {
   bindWhereKeys,
   fieldLabelsFromRawCollection,
   identityNameRestFilter,
+  isDateField,
   listLimitForWhere,
   resolveShapeKey,
   schemaIdentityNameKeys,
@@ -970,12 +971,8 @@ export function createLookup(opts = {}) {
       if (!resource) return { ok: false, error: 'UNKNOWN_KIND' }
       const listPath = withRelationAppends(`/api/${resource}:list?pageSize=${PAGE_SIZE}&sort=-updatedAt`, extra.collections, resource)
       const filteredPath = withRelationAppends(nameCluePath(resource, ticket, nameKeys, clues, schemaFields), extra.collections, resource)
-      const dateClue = (clues.terms || []).some((term) => (
-        (Array.isArray(term.dateBefore) && term.dateBefore.length)
-        || (Array.isArray(term.dateAfter) && term.dateAfter.length)
-      ))
       const textTerms = (clues.terms || []).some((term) => termWantsContainsKeep(term, schemaFields))
-      const firstPath = dateClue ? listPath : filteredPath
+      const firstPath = filteredPath
       const matchRow = (row, textPass) => {
         if (looksLikeRef(ticket)) {
           const no = pickNo(row, ids, extra)
@@ -1328,9 +1325,27 @@ export function bindClueEnums(terms, schemaFields, vocab) {
 export function termFitsCollection(term, schemaFields, vocabHit, extraLabels) {
   const keys = Array.isArray(term && term.keys) ? term.keys : []
   const fields = Array.isArray(schemaFields) ? schemaFields : []
-  const hasDate = (Array.isArray(term.dateBefore) && term.dateBefore.length)
-    || (Array.isArray(term.dateAfter) && term.dateAfter.length)
-  if (hasDate) return true
+  const after = (Array.isArray(term && term.dateAfter) ? term.dateAfter : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+  const before = (Array.isArray(term && term.dateBefore) ? term.dateBefore : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+  if (after.length || before.length) {
+    const names = [...after, ...before].map((key) => resolveShapeKey(key, fields, vocabHit, extraLabels))
+    const allDate = names.every((name) => {
+      const hit = fields.find((row) => row && String(row.name || '') === name)
+      return Boolean(hit && isDateField(hit))
+    })
+    if (!allDate) return false
+    if (after.length) {
+      const vals = (Array.isArray(term && term.values) ? term.values : [])
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+      if (!vals.length) return false
+    }
+    return true
+  }
   if (!keys.length) return true
   const hit = fields.find((row) => row && keys.some((key) => {
     const resolved = resolveShapeKey(key, fields, vocabHit, extraLabels)

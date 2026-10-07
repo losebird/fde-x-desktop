@@ -260,10 +260,10 @@ export default function Memory() {
     })
     return () => {
       cancelled = true
-      stopHttp()
       if (unmount) {
         try { unmount() } catch { /* 官方画布卸载失败不能挡住切页 */ }
       }
+      stopHttp()
     }
   }, [pane, cwd, reload, hostActions])
 

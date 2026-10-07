@@ -20,6 +20,7 @@ import {
   vendorSemanticRuntimeDist,
 } from './config.mjs'
 import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
+import { mergeProfileManifest } from './profile-manifest.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -138,6 +139,66 @@ export class AiRemoteError extends Error {
   }
 }
 
+function isRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+export async function parseHostRpcValue(response, rpcId, endpoint) {
+  const ctype = String(response.headers.get('content-type') || '')
+  let envelope
+  if (/multipart\/form-data/i.test(ctype) && typeof response.formData === 'function') {
+    const body = await response.formData()
+    const metadata = body.get('metadata')
+    if (typeof metadata !== 'string') {
+      throw new AiRemoteError('ai/invalid-response', 'AI 远程字节响应缺少 metadata', { endpoint })
+    }
+    envelope = JSON.parse(metadata)
+    if (!envelope || envelope.type !== 'server-response' || envelope.rpcId !== rpcId || !envelope.result) {
+      throw new AiRemoteError('ai/invalid-response', 'AI 远程响应格式无效', { endpoint })
+    }
+    if (envelope.result.ok !== true) {
+      const remote = envelope.result.error ?? {}
+      throw new AiRemoteError(remote.code ?? 'ai/remote-error', remote.message ?? 'AI 远程调用失败', remote.details ?? {})
+    }
+    const root = { value: envelope.result.value }
+    const attachments = Array.isArray(envelope.attachments) ? envelope.attachments : []
+    for (const attachment of attachments) {
+      if (!isRecord(attachment) || attachment.codec !== 'bytes' || typeof attachment.part !== 'string' || !Array.isArray(attachment.path)) {
+        throw new AiRemoteError('ai/invalid-response', 'AI 远程字节附件无效', { endpoint })
+      }
+      const part = body.get(attachment.part)
+      if (part == null) throw new AiRemoteError('ai/invalid-response', 'AI 远程字节附件缺失', { endpoint })
+      const bytes = new Uint8Array(await (typeof part.arrayBuffer === 'function' ? part.arrayBuffer() : Buffer.from(String(part))))
+      let parent = root
+      let key = 'value'
+      for (const segment of attachment.path) {
+        const value = parent[key]
+        if (typeof value !== 'object' || value === null) {
+          throw new AiRemoteError('ai/invalid-response', 'AI 远程字节路径无效', { endpoint })
+        }
+        parent = value
+        key = segment
+      }
+      parent[key] = bytes
+    }
+    return root.value
+  }
+  const rawText = await response.text()
+  try {
+    envelope = JSON.parse(rawText)
+  } catch (error) {
+    throw new AiRemoteError('ai/invalid-response', 'AI 远程响应格式无效', { endpoint, detail: error instanceof Error ? error.message : String(error) })
+  }
+  if (!envelope || envelope.type !== 'server-response' || envelope.rpcId !== rpcId || !envelope.result) {
+    throw new AiRemoteError('ai/invalid-response', 'AI 远程响应格式无效', { endpoint })
+  }
+  if (envelope.result.ok !== true) {
+    const remote = envelope.result.error ?? {}
+    throw new AiRemoteError(remote.code ?? 'ai/remote-error', remote.message ?? 'AI 远程调用失败', remote.details ?? {})
+  }
+  return envelope.result.value
+}
+
 export class DshCoreConnector {
   constructor(options = {}) {
     this.bin = resolveDshBin(options.bin)
@@ -247,6 +308,23 @@ export class DshCoreConnector {
     await access(this.patchFile, constants.R_OK)
     await this.prepareCredentialsCopy()
     await this.ensureIsolatedProfile()
+    try {
+      const { ensureLocalMcpInProfile, ensureSkillProvidersInProfile } = await import('./mcp-archive.mjs')
+      const { ensureSubagentAllowedModelsInProfile } = await import('./subagent-models.mjs')
+      await ensureSkillProvidersInProfile(this)
+      await ensureLocalMcpInProfile(this)
+      await ensureSubagentAllowedModelsInProfile(this)
+    } catch (error) {
+      console.warn('ensure_profile_archive_failed', error)
+    }
+    let extraPresetPatch = ''
+    try {
+      const { ensurePresets, generatedAgentPresetPatchPath } = await import('./routes/presets.mjs')
+      await ensurePresets(this.dshHome)
+      extraPresetPatch = generatedAgentPresetPatchPath()
+    } catch (error) {
+      console.warn('ensurePresets_failed', error)
+    }
     await this.reclaimStrayProcesses()
     const semanticaPython = await this.ensureSharedSemanticRuntime()
 
@@ -255,6 +333,7 @@ export class DshCoreConnector {
       this.bin,
       '--profile', this.profileName,
       '--patch', this.patchFile,
+      ...(extraPresetPatch && existsSync(extraPresetPatch) ? ['--patch', extraPresetPatch] : []),
       '--host', '127.0.0.1',
       '--port', '0',
       '--no-open',
@@ -316,9 +395,29 @@ export class DshCoreConnector {
 
       this.origin = origin
       this.cookie = cookie
+      try {
+        const { waitMcpOccupancy } = await import('./tool-occupancy.mjs')
+        const { parseMcpPatchEntries, readMcpArchiveText, mcpArchiveSnapshot } = await import('./mcp-archive.mjs')
+        const patchText = await readMcpArchiveText(this)
+        this.mcpLoadedSnapshot = mcpArchiveSnapshot(parseMcpPatchEntries(patchText))
+        await waitMcpOccupancy({
+          timeoutMs: 8000,
+          pollMs: 200,
+          configured: parseMcpPatchEntries(patchText),
+          listPlugins: async () => this.rpc('pluginManager/listPlugins', {}),
+        })
+      } catch (error) {
+        console.warn('wait_mcp_occupancy_failed', error)
+      }
       this.state = 'connected'
       this.startedAt = new Date().toISOString()
+      void import('./catalog-typert.mjs').then(({ ensureTypertVerbs }) => ensureTypertVerbs()).catch((error) => {
+        console.warn('ensure_typert_verbs_failed', error)
+      })
       void this.pumpRemoteEvents()
+      void import('./subagent-models.mjs').then(({ ensureSubagentAllowedModels }) => ensureSubagentAllowedModels(this)).catch((error) => {
+        console.warn('ensure_subagent_models_failed', error)
+      })
       return this.status()
     } catch (error) {
       this.state = 'error'
@@ -385,21 +484,37 @@ export class DshCoreConnector {
     for (const name of ['dsh-lan-assist', 'dsh-semantic-os']) {
       if (await this.linkReadablePlugin(name, modules)) extras.push(name)
     }
-    const manifest = {
-      name: `dsh-profile-${this.profileName}`,
-      private: true,
-      dsh: {
-        profile: {
-          bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...extras],
-        },
-      },
-    }
-    await writeFile(join(dir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
-    await writeFile(join(dir, 'cordis.yml'), '[]\n')
+    const packagePath = join(dir, 'package.json')
+    let existing = null
     try {
-      await access(join(dir, 'cordis.patch.yml'))
+      existing = JSON.parse(await readFile(packagePath, 'utf8'))
     } catch {
-      await writeFile(join(dir, 'cordis.patch.yml'), '[]\n')
+      existing = null
+    }
+    const manifest = mergeProfileManifest(existing, {
+      profileName: this.profileName,
+      requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...extras],
+    })
+    await writeFile(packagePath, `${JSON.stringify(manifest, null, 2)}\n`)
+    const cordisYml = join(dir, 'cordis.yml')
+    try {
+      await access(cordisYml)
+    } catch {
+      await writeFile(cordisYml, '[]\n')
+    }
+    const patchPath = join(dir, 'cordis.patch.yml')
+    try {
+      await access(patchPath)
+    } catch {
+      await writeFile(patchPath, '')
+    }
+    try {
+      const { normalizeCordisPatchText } = await import('./mcp-archive.mjs')
+      const raw = await readFile(patchPath, 'utf8')
+      const next = normalizeCordisPatchText(raw)
+      if (next !== raw) await writeFile(patchPath, next)
+    } catch {
+      /* overlay occupancy stays on disk if normalize cannot run */
     }
     const bridgeSource = resolve(this.runtimeDirectory, 'fde-x-dsh-bridge')
     const bridgeLink = join(modules, 'fde-x-dsh-bridge')
@@ -827,7 +942,12 @@ export class DshCoreConnector {
   }
 
   async rpc(endpoint, args = {}, signal) {
-    this.assertConnected()
+    if (!this.origin || !this.cookie || !this.child) {
+      throw new AiRemoteError('ai/not-connected', '核心 AI 运行时尚未连接')
+    }
+    if (this.state !== 'connected' && this.state !== 'starting') {
+      throw new AiRemoteError('ai/not-connected', '核心 AI 运行时尚未连接')
+    }
     if (!this.validEndpoint(endpoint)) {
       throw new AiRemoteError('ai/invalid-endpoint', 'AI 远程方法名称无效')
     }
@@ -849,16 +969,11 @@ export class DshCoreConnector {
       signal,
     })
     if (!response.ok) throw new AiRemoteError('ai/transport', `AI 远程调用失败：HTTP ${response.status}`, { endpoint })
+    return parseHostRpcValue(response, rpcId, endpoint)
+  }
 
-    const envelope = await response.json()
-    if (!envelope || envelope.type !== 'server-response' || envelope.rpcId !== rpcId || !envelope.result) {
-      throw new AiRemoteError('ai/invalid-response', 'AI 远程响应格式无效', { endpoint })
-    }
-    if (envelope.result.ok !== true) {
-      const remote = envelope.result.error ?? {}
-      throw new AiRemoteError(remote.code ?? 'ai/remote-error', remote.message ?? 'AI 远程调用失败', remote.details ?? {})
-    }
-    return envelope.result.value
+  async callBytes(endpoint, args = {}, signal) {
+    return this.rpc(endpoint, args, signal)
   }
 
   async webSocketClass() {

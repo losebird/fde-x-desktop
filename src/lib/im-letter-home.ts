@@ -213,15 +213,22 @@ export function imUnreadMouth(
   return (imOpen ? 0 : currentN) + unassigned
 }
 
-/** Leaving IM closes the open talk. Coming back lands on the list. */
-export function imBrowseWhenHidden(browse: ImBrowse | null | undefined, imVisible: boolean): ImBrowse {
+export function imBrowseOccupancy(browse: ImBrowse | null | undefined): ImBrowse {
   const lane = browse && browse.lane === 'unassigned' ? 'unassigned' : 'workspace'
-  if (imVisible) {
-    return {
-      threadId: browse && browse.threadId ? String(browse.threadId) : null,
-      topicId: browse && browse.topicId ? String(browse.topicId) : null,
-      lane,
-    }
+  const threadId = browse && browse.threadId ? String(browse.threadId) : null
+  const topicId = threadId && browse && browse.topicId ? String(browse.topicId) : null
+  return { threadId, topicId, lane }
+}
+
+/** Occupancy of a visible IM pane. Missing talk on this lane becomes an empty list. Hidden panes keep occupancy. */
+export function imBrowseForVisibleTalk(
+  browse: ImBrowse | null | undefined,
+  present: ((threadId: string, lane: ImBrowse['lane']) => boolean) | null | undefined,
+): ImBrowse {
+  const next = imBrowseOccupancy(browse)
+  if (!next.threadId) return { threadId: null, topicId: null, lane: next.lane }
+  if (typeof present === 'function' && !present(next.threadId, next.lane)) {
+    return { threadId: null, topicId: null, lane: next.lane }
   }
-  return { threadId: null, topicId: null, lane }
+  return next
 }

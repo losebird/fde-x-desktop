@@ -31,6 +31,15 @@
 - id: ui-open-in-app
   disabled: true
 
+- id: ui-sidebar
+  disabled: true
+
+- id: ui-sidebar-files
+  disabled: true
+
+- id: ui-sidebar-documentpreview
+  disabled: true
+
 - insert:
     - id: fde-x-dsh-bridge
       name: fde-x-dsh-bridge

@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setTimeout as delay } from 'node:timers/promises'
 import { validateSections, validateSchedule } from '../briefing/validate.mjs'
-import { defaultSections } from '../briefing/defaults.mjs'
+import { defaultSections, prepareDefinitionSections, sourcesFromMcpSections } from '../briefing/defaults.mjs'
 import { setBriefingClock, startBriefingScheduler } from '../briefing/scheduler.mjs'
 import { mergeBriefingSubmit } from '../briefing/run.mjs'
 import { openDatabase } from '../db.mjs'
@@ -54,6 +54,32 @@ async function stopServer() {
 test('validate sections closed set and default definition', () => {
   const defaults = defaultSections()
   assert.equal(validateSections(defaults).length, 0)
+  assert.ok(defaults.some((s) => s.id === 'events-today' && s.enabled))
+  assert.ok(!defaults.some((s) => s.params && (s.params.server === 'imap' || s.params.server === 'rss')))
+  assert.deepEqual(sourcesFromMcpSections(defaults), [])
+  const biz = defaults.find((s) => s.type === 'biz')
+  assert.equal(biz?.enabled, false)
+  assert.ok(!(biz?.params && biz.params.filter && biz.params.filter.状态))
+  const gated = prepareDefinitionSections([{
+    id: 'biz-pending',
+    type: 'biz',
+    title: '待审批',
+    enabled: true,
+    render: 'list',
+    params: { action: '现查', filter: { 状态: '待审' } },
+  }])
+  assert.equal(gated[0].enabled, false)
+  assert.equal(gated[0].title, '待审批')
+  assert.equal(gated[0].params.filter.状态, '待审')
+  const mcpGated = prepareDefinitionSections([{
+    id: 'mail',
+    type: 'mcp',
+    title: '邮件',
+    enabled: true,
+    render: 'digest',
+    params: { server: 'mail' },
+  }])
+  assert.equal(mcpGated[0].enabled, false)
   const bad = validateSections([{ id: 'x', type: 'nope', title: 't', render: 'list' }])
   assert.ok(bad.some((e) => e.includes('type')))
   assert.equal(validateSchedule({ at: '08:30', days: [1], onOpen: true }).length, 0)
@@ -81,6 +107,8 @@ test('internal-only run isolates section failures', async (t) => {
   assert.equal(defBody.ok, true)
   assert.ok(Array.isArray(defBody.data.sections))
   assert.ok(defBody.data.sections.some((s) => s.id === 'tasks-today'))
+  assert.ok(defBody.data.sections.some((s) => s.id === 'events-today'))
+  assert.ok(!defBody.data.sections.some((s) => s.id === 'mail' || s.id === 'news'))
 
   const runRes = await fetch(`${base}/api/v1/briefing/run`, {
     method: 'POST',
@@ -116,18 +144,22 @@ test('briefing-submit merge', async () => {
       VALUES ('brf_1', 'bdef_ws_b', 'generating', ?, ?, ?, ?, ?)
   `).run(JSON.stringify({
     status: 'running',
-    sections: [{ id: 'news', type: 'mcp', title: '资讯', render: 'digest', items: [], pendingAgent: true }],
+    sections: [
+      { id: 'news', type: 'mcp', title: '资讯', render: 'digest', items: [{ text: '工具条目' }], pendingAgent: false },
+      { id: 'ai-digest', type: 'ai', title: '摘要', render: 'digest', items: [], pendingAgent: true },
+    ],
   }), now, now, wsCwd, 'brq_test')
-  const result = mergeBriefingSubmit(db, 'brq_test', [{
-    id: 'news',
-    title: '资讯',
-    render: 'digest',
-    items: [{ text: '示例', href: 'https://example.com' }],
-  }])
+  const result = mergeBriefingSubmit(db, 'brq_test', [
+    { id: 'news', type: 'mcp', title: '资讯', items: [{ text: '模型编的' }] },
+    { id: 'ai-digest', type: 'ai', title: '摘要', items: [{ text: '总览' }] },
+  ])
   assert.equal(result.ok, true)
   const row = db.prepare('SELECT content_json FROM briefings WHERE id = ?').get('brf_1')
   const content = JSON.parse(row.content_json)
-  assert.equal(content.sections[0].items.length, 1)
+  const news = content.sections.find((s) => s.id === 'news')
+  const ai = content.sections.find((s) => s.id === 'ai-digest')
+  assert.equal(news.items[0].text, '工具条目')
+  assert.equal(ai.items[0].text, '总览')
   db.close()
 })
 

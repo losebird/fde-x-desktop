@@ -379,3 +379,49 @@ test('describeKindCatalog attaches status enums for 过审 kinds', () => {
   assert.deepEqual(leave.status, { field: 'status', enums: { pending: '待审', approved: '已通过' } })
   assert.equal(staff.status, undefined)
 })
+
+test('describeKindCatalog merges live columns including date slots', () => {
+  const out = describeKindCatalog(
+    [
+      {
+        kind: '工单',
+        resource: 'biz_tickets',
+        ticketField: 'ticketNo',
+        fields: ['ticketNo', '单号', '状态'],
+        can: ['现查'],
+        catalogVersion: 'schema:1',
+      },
+    ],
+    {
+      collections: [
+        {
+          name: 'biz_tickets',
+          title: '工单',
+          fields: [
+            { name: 'id', title: 'ID', interface: 'snowflakeId' },
+            { name: 'createdAt', title: '创建时间', interface: 'datetime' },
+            { name: 'ticketNo', title: '单号', interface: 'input' },
+            { name: 'status', title: '状态', interface: 'select', enums: { open: '打开' } },
+            { name: 'openedAt', title: '发生日期', interface: 'date' },
+            { name: 'dueAt', title: '截止日', interface: 'date' },
+            { name: 'customerId', title: '客户', interface: 'bigInt' },
+          ],
+        },
+      ],
+    },
+  )
+  const kind = out.kinds.find((row) => row.kind === '工单')
+  assert.ok(kind.columns)
+  const byName = Object.fromEntries(kind.columns.map((col) => [col.name, col]))
+  assert.equal(byName.openedAt.slot, 'date')
+  assert.equal(byName.openedAt.title, '发生日期')
+  assert.equal(byName.dueAt.slot, 'date')
+  assert.equal(byName.ticketNo.slot, 'identity')
+  assert.equal(byName.status.slot, 'enum')
+  assert.equal(byName.id, undefined)
+  assert.equal(byName.createdAt, undefined)
+  assert.equal(byName.customerId, undefined)
+  assert.ok(kind.fields.includes('openedAt'))
+  assert.ok(kind.fields.includes('发生日期'))
+  assert.ok(kind.fields.includes('ticketNo'))
+})

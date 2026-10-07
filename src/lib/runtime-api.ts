@@ -1,12 +1,17 @@
 import type { JsonValue, OperationIntent, OperationRecord } from './contracts'
 import type { Task, PlanEvent, Workflow, ScheduleEvent } from './types'
-import { useApp } from '@/store/app'
+import { activeWorkspaceCwdFromState, useApp } from '@/store/app'
 import {
   sessionCreateBody,
   sessionRestoreBody,
   type SessionCreateInput,
   type SessionRestoreInput,
 } from '@/lib/session-bind'
+// live-probe.mjs is the shared BFF/browser helper; Vite bundles it, tsc does not resolve its types from src/.
+// @ts-expect-error runtime ESM helper
+import { LIVE_PATH, LIVE_PROBE_MS, combineAbortSignal, probeRuntimeLive } from '../../runtime/live-probe.mjs'
+
+const CONNECT_ATTEMPT_MS = 5_000
 
 export type SearchHit = {
   kind: string
@@ -30,10 +35,7 @@ export type SearchHit = {
 }
 
 function currentWorkspaceCwd(): string {
-  const state = useApp.getState()
-  const row = state.workspaces.find((item) => item.id === state.activeWorkspaceId) ?? state.workspaces[0]
-  const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
-  return cwd.startsWith('/') ? cwd : ''
+  return activeWorkspaceCwdFromState(useApp.getState())
 }
 
 function withWorkspaceCwd(path: string): string {
@@ -167,9 +169,14 @@ export interface McpServerV2 {
   serverName: string
   transport: 'stdio' | 'streamable-http'
   command?: string
+  args?: string[]
+  env?: Record<string, string>
   url?: string
   headers?: Record<string, string>
-  status: 'configured' | 'live' | 'needs-reload'
+  disabled?: boolean
+  pluginId?: string
+  fiberPhase?: string
+  status: 'configured' | 'loaded' | 'needs-reload' | 'failed' | 'disabled'
   tools: string[]
 }
 
@@ -180,6 +187,49 @@ export interface McpConnectorCard {
   online: boolean
   catalogVersion: string
   lookupRegistered: boolean
+}
+
+export type SkillBagOrigin = 'catalog' | 'face'
+
+export type SkillBagItem = {
+  id: string
+  name: string
+  origin: SkillBagOrigin
+  description?: string
+  path?: string
+  bundleRoot?: string
+  modelInvocable?: boolean
+  methods?: string[]
+  enabled?: boolean
+  triggers?: string[]
+}
+
+export function skillItemsFromBag(data: unknown): SkillBagItem[] {
+  const rows = Array.isArray(data)
+    ? data
+    : (data && typeof data === 'object' && Array.isArray((data as { items?: unknown[] }).items)
+      ? (data as { items: Array<Record<string, unknown>> }).items
+      : [])
+  const out: SkillBagItem[] = []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const id = String(row.id ?? row.name ?? '')
+    if (!id) continue
+    const item: SkillBagItem = {
+      id,
+      name: String(row.name ?? id),
+      origin: row.origin === 'face' ? 'face' : 'catalog',
+    }
+    if (typeof row.description === 'string') item.description = row.description
+    if (typeof row.path === 'string') item.path = row.path
+    if (typeof row.bundleRoot === 'string') item.bundleRoot = row.bundleRoot
+    if (typeof row.modelInvocable === 'boolean') item.modelInvocable = row.modelInvocable
+    if (Array.isArray(row.methods)) item.methods = row.methods.map(String)
+    if (typeof row.enabled === 'boolean') item.enabled = row.enabled
+    if (Array.isArray(row.triggers) && row.triggers.length) item.triggers = row.triggers.map(String)
+    out.push(item)
+  }
+  return out
 }
 
 export interface RuntimeHealth {
@@ -257,6 +307,7 @@ export interface AiSessionSummary {
   updatedAt: number
   running: boolean
   blank: boolean
+  archived?: boolean
   parentSessionId?: string
   origin?: 'subagent'
   cwd?: string
@@ -430,6 +481,10 @@ export type BriefingSchedule = {
   tz?: string
 }
 
+export type BriefingDelivery = {
+  peerId?: string
+}
+
 export type BriefingItem = {
   text: string
   sub?: string
@@ -458,6 +513,7 @@ export type BriefingDefinition = {
   sections: BriefingSectionDef[]
   schedule: BriefingSchedule
   sources: Array<Record<string, unknown>>
+  delivery?: BriefingDelivery
   updatedAt?: string
 }
 
@@ -560,12 +616,18 @@ export class RuntimeApi {
     return result.data
   }
 
-  async ensureWorkspace(input: { id: string; name: string; description?: string }, signal?: AbortSignal): Promise<void> {
+  async ensureWorkspace(input: { id: string; name: string; description?: string; cwd?: string }, signal?: AbortSignal): Promise<void> {
+    const cwd = typeof input.cwd === 'string' && input.cwd.startsWith('/') ? input.cwd : ''
     await this.request('/api/v1/workspaces', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify({
+        id: input.id,
+        name: input.name,
+        description: input.description,
+        ...(cwd ? { metadata: { cwd } } : {}),
+      }),
     })
   }
 
@@ -695,8 +757,9 @@ export class RuntimeApi {
     return this.mapPlanTask(row)
   }
 
-  async deleteTask(id: string, signal?: AbortSignal): Promise<void> {
-    await this.planRequest(`/api/v1/plan/tasks/${encodeURIComponent(id)}`, { method: 'DELETE', signal })
+  async deleteTask(id: string, opts?: { workspaceId?: string; signal?: AbortSignal }): Promise<void> {
+    const params = opts?.workspaceId ? `?workspaceId=${encodeURIComponent(opts.workspaceId)}` : ''
+    await this.planRequest(`/api/v1/plan/tasks/${encodeURIComponent(id)}${params}`, { method: 'DELETE', signal: opts?.signal })
   }
 
   async listEvents(workspaceId: string, fromMs: number, toMs: number, signal?: AbortSignal): Promise<ScheduleEvent[]> {
@@ -734,6 +797,7 @@ export class RuntimeApi {
     kind: ScheduleEvent['kind']
     location: string | null
     allDay: boolean
+    workspaceId: string
   }>, signal?: AbortSignal): Promise<ScheduleEvent> {
     const row = await this.planRequest<PlanEvent>(`/api/v1/plan/events/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -744,8 +808,9 @@ export class RuntimeApi {
     return this.mapPlanEvent(row)
   }
 
-  async deleteEvent(id: string, signal?: AbortSignal): Promise<void> {
-    await this.planRequest(`/api/v1/plan/events/${encodeURIComponent(id)}`, { method: 'DELETE', signal })
+  async deleteEvent(id: string, opts?: { workspaceId?: string; signal?: AbortSignal }): Promise<void> {
+    const params = opts?.workspaceId ? `?workspaceId=${encodeURIComponent(opts.workspaceId)}` : ''
+    await this.planRequest(`/api/v1/plan/events/${encodeURIComponent(id)}${params}`, { method: 'DELETE', signal: opts?.signal })
   }
 
   async listWorkflows(workspaceId: string, signal?: AbortSignal): Promise<Workflow[]> {
@@ -781,6 +846,7 @@ export class RuntimeApi {
     steps: Workflow['steps']
     category: Workflow['category']
     emoji: string
+    workspaceId: string
   }>, signal?: AbortSignal): Promise<Workflow> {
     const row = await this.planRequest<Record<string, unknown>>(`/api/v1/plan/workflows/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -791,8 +857,9 @@ export class RuntimeApi {
     return this.mapPlanWorkflow(row)
   }
 
-  async deleteWorkflow(id: string, signal?: AbortSignal): Promise<void> {
-    await this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}`, { method: 'DELETE', signal })
+  async deleteWorkflow(id: string, opts?: { workspaceId?: string; signal?: AbortSignal }): Promise<void> {
+    const params = opts?.workspaceId ? `?workspaceId=${encodeURIComponent(opts.workspaceId)}` : ''
+    await this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}${params}`, { method: 'DELETE', signal: opts?.signal })
   }
 
   async aiStatus(signal?: AbortSignal): Promise<AiRuntimeStatus> {
@@ -838,17 +905,13 @@ export class RuntimeApi {
       /* BFF 正在退出或已死，监督会拉起；连不上也算已经开始重载 */
     }
     const deadline = Date.now() + waitMs
+    const liveUrl = this.baseUrl ? `${this.baseUrl}${LIVE_PATH}` : this.uiFetchUrl(LIVE_PATH)
     let bffUp = false
     while (Date.now() < deadline) {
       if (signal?.aborted) throw new RuntimeApiError(0, 'aborted', '重载已取消')
-      try {
-        const health = await fetch(this.uiFetchUrl('/health'), { signal })
-        if (health.ok) {
-          bffUp = true
-          break
-        }
-      } catch {
-        /* 还没起来 */
+      if (await probeRuntimeLive(liveUrl, signal, LIVE_PROBE_MS)) {
+        bffUp = true
+        break
       }
       await new Promise((resolve) => setTimeout(resolve, 300))
     }
@@ -859,16 +922,17 @@ export class RuntimeApi {
     while (Date.now() < deadline) {
       if (signal?.aborted) throw new RuntimeApiError(0, 'aborted', '重载已取消')
       try {
-        const status = await this.connectAi(signal)
-        if (status.connected) return status
-      } catch {
-        /* DSH 还在冷启动 */
-      }
-      try {
-        const snap = await this.aiStatus(signal)
+        const snap = await this.aiStatus(combineAbortSignal(signal, LIVE_PROBE_MS))
         if (snap.connected) return snap
       } catch {
         /* BFF 刚起来，status 可能还不稳 */
+      }
+      try {
+        const remain = Math.max(LIVE_PROBE_MS, Math.min(CONNECT_ATTEMPT_MS, deadline - Date.now()))
+        const status = await this.connectAi(combineAbortSignal(signal, remain))
+        if (status.connected) return status
+      } catch {
+        /* DSH 还在冷启动 */
       }
       await new Promise((resolve) => setTimeout(resolve, 500))
     }
@@ -1052,8 +1116,8 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listAiPresets(signal?: AbortSignal): Promise<{ presets: AiPresetRecord[]; authorable?: boolean }> {
-    const result = await this.request<{ data: { presets: AiPresetRecord[]; authorable?: boolean } }>('/api/v1/ai/presets', { signal })
+  async listAiPresets(signal?: AbortSignal): Promise<{ presets: AiPresetRecord[]; authorable?: boolean; actions?: string[] }> {
+    const result = await this.request<{ data: { presets: AiPresetRecord[]; authorable?: boolean; actions?: string[] } }>('/api/v1/ai/presets', { signal })
     return result.data
   }
 
@@ -1211,9 +1275,80 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listAiSkills(sessionId: string, signal?: AbortSignal): Promise<unknown> {
-    const result = await this.request<{ data: unknown }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/skills`, { signal })
+  async listSkillRoots(cwd?: string, signal?: AbortSignal): Promise<{ roots: Array<{ path: string; source: string }> }> {
+    const params = new URLSearchParams()
+    if (cwd) params.set('cwd', cwd)
+    const query = params.toString()
+    const result = await this.request<{ data: { roots: Array<{ path: string; source: string }> } }>(`/api/v1/skills/roots${query ? `?${query}` : ''}`, { signal })
     return result.data
+  }
+
+  async listSkillBundleFiles(path: string, cwd?: string, sessionId?: string, signal?: AbortSignal): Promise<{ bundleRoot: string; files: Array<{ rel: string; type: string }> }> {
+    const params = new URLSearchParams({ path })
+    if (cwd) params.set('cwd', cwd)
+    if (sessionId) params.set('sessionId', sessionId)
+    const result = await this.request<{ data: { bundleRoot: string; files: Array<{ rel: string; type: string }> } }>(`/api/v1/skills/bundle/files?${params}`, { signal })
+    return result.data
+  }
+
+  async readSkillBundleFile(path: string, rel: string, cwd?: string, sessionId?: string, signal?: AbortSignal): Promise<{ rel: string; text: string }> {
+    const params = new URLSearchParams({ path, rel })
+    if (cwd) params.set('cwd', cwd)
+    if (sessionId) params.set('sessionId', sessionId)
+    const result = await this.request<{ data: { rel: string; text: string } }>(`/api/v1/skills/bundle/file?${params}`, { signal })
+    return result.data
+  }
+
+  async writeSkillBundleFile(input: { path: string; rel: string; text: string; cwd?: string; sessionId?: string }, signal?: AbortSignal): Promise<{ rel: string }> {
+    const result = await this.request<{ data: { rel: string } }>('/api/v1/skills/bundle/file', {
+      method: 'PUT',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return result.data
+  }
+
+  async removeSkillBundleFile(path: string, rel: string, cwd?: string, sessionId?: string, signal?: AbortSignal): Promise<void> {
+    const params = new URLSearchParams({ path, rel })
+    if (cwd) params.set('cwd', cwd)
+    if (sessionId) params.set('sessionId', sessionId)
+    await this.request(`/api/v1/skills/bundle/file?${params}`, { method: 'DELETE', signal })
+  }
+
+  async setSkillModelInvocable(input: { path: string; modelInvocable: boolean; cwd?: string; sessionId?: string }, signal?: AbortSignal): Promise<{ modelInvocable: boolean }> {
+    const result = await this.request<{ data: { modelInvocable: boolean } }>('/api/v1/skills/model-invocable', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return result.data
+  }
+
+  async installSkillBundle(input: { source: string; root: string; cwd?: string }, signal?: AbortSignal): Promise<{ name: string; dest: string; path: string }> {
+    const result = await this.request<{ data: { name: string; dest: string; path: string } }>('/api/v1/skills/install', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return result.data
+  }
+
+  async uninstallSkillBundle(path: string, cwd?: string, sessionId?: string, signal?: AbortSignal): Promise<void> {
+    const params = new URLSearchParams({ path })
+    if (cwd) params.set('cwd', cwd)
+    if (sessionId) params.set('sessionId', sessionId)
+    await this.request(`/api/v1/skills/bundle?${params}`, { method: 'DELETE', signal })
+  }
+
+  async listAiSkills(sessionId?: string, signal?: AbortSignal): Promise<{ items: SkillBagItem[] }> {
+    const path = sessionId
+      ? `/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/skills`
+      : '/api/v1/ai/skills'
+    const result = await this.request<{ data: unknown }>(path, { signal })
+    return { items: skillItemsFromBag(result.data) }
   }
 
   async listAiWorkspaces(signal?: AbortSignal): Promise<Array<{ workspaceId: string; path: string; title: string }>> {
@@ -1240,9 +1375,11 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listAiSessions(options: { includeBlank?: boolean; cursor?: string } = {}, signal?: AbortSignal): Promise<AiSessionSummary[]> {
+  async listAiSessions(options: { includeBlank?: boolean; includeSubagents?: boolean; includeArchived?: boolean; cursor?: string } = {}, signal?: AbortSignal): Promise<AiSessionSummary[]> {
     const query = new URLSearchParams()
     if (options.includeBlank) query.set('includeBlank', 'true')
+    if (options.includeSubagents) query.set('includeSubagents', 'true')
+    if (options.includeArchived) query.set('includeArchived', 'true')
     if (options.cursor) query.set('cursor', options.cursor)
     const suffix = query.size > 0 ? `?${query.toString()}` : ''
     const result = await this.request<{ data: { items: AiSessionSummary[] } }>(`/api/v1/ai/sessions${suffix}`, { signal })
@@ -1433,6 +1570,71 @@ export class RuntimeApi {
     return result.data
   }
 
+  async catalogBag(kind: string, opts?: { sessionId?: string; cwd?: string; path?: string; workspaceId?: string }, signal?: AbortSignal): Promise<{
+    kind: string
+    href?: { panel?: string; tab?: string; section?: string }
+    projections: string[]
+    actions: string[]
+    items: Array<{ kind: string; id: string; title: string; href?: unknown; fields?: unknown }>
+    error?: string
+  }> {
+    const query = new URLSearchParams({ kind })
+    if (opts?.sessionId) query.set('sessionId', opts.sessionId)
+    if (opts?.cwd) query.set('cwd', opts.cwd)
+    if (opts?.path) query.set('path', opts.path)
+    if (opts?.workspaceId) query.set('workspaceId', opts.workspaceId)
+    const result = await this.request<{ data: { kind: string; href?: { panel?: string; tab?: string; section?: string }; projections: string[]; actions: string[]; items: Array<{ kind: string; id: string; title: string; href?: unknown; fields?: unknown }>; error?: string } }>(`/api/v1/catalog?${query.toString()}`, { signal })
+    return result.data
+  }
+
+  async catalogAction(body: { kind: string; action: string; sessionId?: string; cwd?: string; path?: string; id?: string; status?: string; params?: Record<string, unknown> }, signal?: AbortSignal): Promise<unknown> {
+    const result = await this.request<{ data: unknown }>('/api/v1/catalog', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return result.data
+  }
+
+  async catalogStream(opts: { kind: string; action: string; sessionId?: string; id?: string; path?: string; attachmentId?: string }, onFrame: (frame: unknown) => void, signal?: AbortSignal): Promise<void> {
+    const query = new URLSearchParams({ kind: opts.kind, action: opts.action })
+    if (opts.sessionId) query.set('sessionId', opts.sessionId)
+    if (opts.id) query.set('id', opts.id)
+    if (opts.path) query.set('path', opts.path)
+    if (opts.attachmentId) query.set('attachmentId', opts.attachmentId)
+    const response = await fetch(this.uiFetchUrl(`/api/v1/catalog/stream?${query.toString()}`), { signal })
+    if (!response.ok || !response.body) {
+      throw new RuntimeApiError(response.status, 'catalog_stream_failed', `跟不了这个流 (${response.status})`)
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let eventName = 'message'
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+      const chunks = buffer.split('\n\n')
+      buffer = chunks.pop() || ''
+      for (const chunk of chunks) {
+        let data = ''
+        for (const line of chunk.split('\n')) {
+          if (line.startsWith('event:')) eventName = line.slice(6).trim()
+          else if (line.startsWith('data:')) data += line.slice(5).trim()
+        }
+        if (eventName === 'frame' && data) {
+          try { onFrame(JSON.parse(data)) } catch { /* skip one malformed frame */ }
+        }
+        if (eventName === 'error' && data) {
+          const payload = JSON.parse(data) as { message?: string }
+          throw new RuntimeApiError(502, 'catalog_stream_failed', payload.message || '跟不了这个流')
+        }
+        eventName = 'message'
+      }
+    }
+  }
+
   async deleteWorkspaceFile(name: string, sessionId?: string, signal?: AbortSignal): Promise<{ path: string }> {
     const query = new URLSearchParams({ name })
     if (sessionId) query.set('sessionId', sessionId)
@@ -1541,22 +1743,33 @@ export class RuntimeApi {
     sections: BriefingSectionDef[]
     schedule: BriefingSchedule
     sources?: Array<Record<string, unknown>>
+    delivery?: BriefingDelivery
   }, signal?: AbortSignal): Promise<BriefingDefinition> {
     const result = await this.request<{ ok: true; data: BriefingDefinition }>('/api/v1/briefing/definition', {
       method: 'PUT',
       signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, workspaceCwd: currentWorkspaceCwd() }),
+      body: JSON.stringify({
+        ...body,
+        workspaceCwd: typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
+          ? body.workspaceCwd
+          : currentWorkspaceCwd(),
+      }),
     })
     return result.data
   }
 
-  async runBriefing(mode: 'full' | 'internal-only' = 'full', signal?: AbortSignal): Promise<{ briefingId: string; briefing: BriefingSnapshot }> {
+  async runBriefing(mode: 'full' | 'internal-only' = 'full', opts?: { sessionId?: string; workspaceCwd?: string; signal?: AbortSignal }): Promise<{ briefingId: string; briefing: BriefingSnapshot }> {
+    const workspaceCwd = opts?.workspaceCwd && opts.workspaceCwd.startsWith('/') ? opts.workspaceCwd : currentWorkspaceCwd()
     const result = await this.request<{ ok: true; data: { briefingId: string; briefing: BriefingSnapshot } }>('/api/v1/briefing/run', {
       method: 'POST',
-      signal,
+      signal: opts?.signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode, workspaceCwd: currentWorkspaceCwd() }),
+      body: JSON.stringify({
+        mode,
+        workspaceCwd,
+        ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
+      }),
     })
     return result.data
   }
@@ -1572,12 +1785,17 @@ export class RuntimeApi {
     return result.data
   }
 
-  async draftMemoryCard(label: string, cause: 'correction' | 'choice' = 'correction', origin?: string, signal?: AbortSignal): Promise<MemoryDraftCard> {
+  async draftMemoryCard(label: string, cause: 'correction' | 'choice' = 'correction', origin?: string, sessionId?: string, signal?: AbortSignal): Promise<MemoryDraftCard> {
     const result = await this.request<{ data: MemoryDraftCard }>(withWorkspaceCwd('/api/v1/memory/cards'), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(workspaceCwdBody({ label, cause, ...(origin ? { origin } : {}) })),
+      body: JSON.stringify(workspaceCwdBody({
+        label,
+        cause,
+        ...(origin ? { origin } : {}),
+        ...(sessionId ? { sessionId } : {}),
+      })),
     })
     return result.data
   }
@@ -1598,11 +1816,16 @@ export class RuntimeApi {
   }
 
   async search(query = '', signal?: AbortSignal): Promise<{ cwd: string; query: string; hits: SearchHit[] }> {
+    const { currentAiTarget } = await import('@/lib/ai-target')
+    const target = await currentAiTarget(signal).catch(() => ({ ok: false as const, error: '' }))
     const params = new URLSearchParams()
     if (query) params.set('q', query)
+    const cwd = target.ok ? target.cwd : currentWorkspaceCwd()
+    if (cwd) params.set('cwd', cwd)
+    if (target.ok) params.set('sessionId', target.sessionId)
     const suffix = params.size ? `?${params.toString()}` : ''
     const result = await this.request<{ data: { cwd: string; query: string; hits: SearchHit[] } }>(
-      withWorkspaceCwd(`/api/v1/search${suffix}`),
+      `/api/v1/search${suffix}`,
       { signal },
     )
     return result.data
@@ -1869,13 +2092,32 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listMcpServers(signal?: AbortSignal): Promise<{ mcp: McpServerV2[]; connectors: McpConnectorCard[] }> {
-    const result = await this.request<{ data: { mcp: McpServerV2[]; connectors: McpConnectorCard[] } }>('/api/v1/mcp/servers', { signal })
-    return result.data
+  async listMcpServers(signal?: AbortSignal): Promise<{ mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }> {
+    const result = await this.request<{ data: { mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools?: string[] } }>('/api/v1/mcp/servers', { signal })
+    const data = result.data
+    return { mcp: data.mcp || [], connectors: data.connectors || [], resourceTools: Array.isArray(data.resourceTools) ? data.resourceTools : [] }
+  }
+
+  async listMcpProjection(input?: { sessionId?: string; cwd?: string }, signal?: AbortSignal): Promise<{ mcp: McpServerV2[]; resourceTools: string[] }> {
+    const params = new URLSearchParams()
+    if (input?.sessionId) params.set('sessionId', input.sessionId)
+    if (input?.cwd) params.set('cwd', input.cwd)
+    const query = params.toString()
+    const result = await this.request<{ data: { mcp: McpServerV2[]; resourceTools?: string[] } }>(`/api/v1/mcp/projection${query ? `?${query}` : ''}`, { signal })
+    const data = result.data
+    return { mcp: data.mcp || [], resourceTools: Array.isArray(data.resourceTools) ? data.resourceTools : [] }
   }
 
   async addMcpServer(
-    input: { serverName: string; command?: string; transport?: 'stdio' | 'streamable-http'; url?: string; headers?: Record<string, string> },
+    input: {
+      serverName: string
+      command?: string
+      args?: string[]
+      env?: Record<string, string>
+      transport?: 'stdio' | 'streamable-http'
+      url?: string
+      headers?: Record<string, string>
+    },
     signal?: AbortSignal,
   ): Promise<{ serverName: string; needsRestart: boolean; note?: string }> {
     const result = await this.request<{ data: { serverName: string; needsRestart: boolean }; note?: string }>('/api/v1/mcp/servers', {
@@ -1890,6 +2132,27 @@ export class RuntimeApi {
   async checkMcpHealth(serverName: string, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
     const result = await this.request<{ data: { ok: boolean; message: string } }>(`/api/v1/mcp/health?serverName=${encodeURIComponent(serverName)}`, { signal })
     return result.data
+  }
+
+  async setMcpServerEnabled(serverName: string, enabled: boolean, signal?: AbortSignal): Promise<{ serverName: string; enabled: boolean; needsRestart: boolean; note?: string }> {
+    const result = await this.request<{ data: { serverName: string; enabled: boolean; needsRestart: boolean }; note?: string }>(
+      `/api/v1/mcp/servers/${encodeURIComponent(serverName)}/enabled`,
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      },
+    )
+    return { ...result.data, note: result.note }
+  }
+
+  async removeMcpServer(serverName: string, signal?: AbortSignal): Promise<{ serverName: string; needsRestart: boolean; note?: string }> {
+    const result = await this.request<{ data: { serverName: string; needsRestart: boolean }; note?: string }>(
+      `/api/v1/mcp/servers/${encodeURIComponent(serverName)}`,
+      { method: 'DELETE', signal },
+    )
+    return { ...result.data, note: result.note }
   }
 
   async listBusinessConnections(workspaceId?: string, signal?: AbortSignal): Promise<BusinessConnectionRecord[]> {
@@ -1926,6 +2189,14 @@ export class RuntimeApi {
       body: JSON.stringify(input),
     })
     return result.data
+  }
+
+  async listFdeApps(signal?: AbortSignal): Promise<Array<{ id: string; name: string; slug: string }>> {
+    const result = await this.request<{ data: Array<{ id: string; name: string; slug: string }> }>(
+      withWorkspaceCwd('/api/v1/apps'),
+      { signal },
+    )
+    return Array.isArray(result.data) ? result.data : []
   }
 
   async getDeclarativeApp(appId: string, signal?: AbortSignal) {

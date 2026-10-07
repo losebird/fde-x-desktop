@@ -5,6 +5,7 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       const sessions = ctx.sessions;
       window.__fdeXSessions = sessions;
+      document.documentElement.setAttribute("data-fde-session-canvas", "")
       var FILE_ADDRESS_PREFIX = "dsh-resource://file/";
       function isDriveSegment(segment) {
         return segment !== void 0 && /^[A-Za-z]:$/.test(segment);
@@ -72,21 +73,28 @@ window.__ModuleLoader__.load({
         var listed = sessions.list && sessions.list.getSnapshot && sessions.list.getSnapshot();
         return listed && listed.byId && listed.byId[sessionId] ? listed.byId[sessionId].cwd : "";
       }
+      function land(kind, extra) {
+        if (!kind) return false
+        if (window.parent === window) return false
+        var payload = extra && typeof extra === "object" ? extra : {}
+        window.parent.postMessage({
+          type: "fde-x-dsh-ready",
+          op: "land",
+          kind: String(kind),
+          sessionId: payload.sessionId || (sessions.list && sessions.list.getSnapshot && sessions.list.getSnapshot().current) || "",
+          path: payload.path || "",
+          cwd: payload.cwd || "",
+          tab: payload.tab || "",
+          taskId: payload.taskId || ""
+        }, "*")
+        return true
+      }
       function landSessionPath(sessionId, path) {
         if (!path) return false;
         var cwd = sessionCwd(sessionId);
         var relative = workspaceRelativePath(path, cwd);
         if (relative === null) return false;
-        if (window.parent !== window) {
-          window.parent.postMessage({
-            type: "fde-x-dsh-ready",
-            op: "openFile",
-            sessionId: sessionId || "",
-            path: relative,
-            cwd: cwd || ""
-          }, "*");
-        }
-        return true;
+        return land("file", { sessionId: sessionId || "", path: relative, cwd: cwd || "" })
       }
       function presentedPath(sessionId, seq, index) {
         var binding = sessions.binding && sessions.binding(sessionId);
@@ -109,32 +117,41 @@ window.__ModuleLoader__.load({
         }
         return "";
       }
-      function wrapOpenResource() {
-        var sidebar = ctx.sidebarRight;
-        if (!sidebar || typeof sidebar.openResource !== "function" || sidebar.openResource.__fdeOpenFile) return;
-        var origOpenResource = sidebar.openResource.bind(sidebar);
-        var origOpenResourceIn = typeof sidebar.openResourceIn === "function" ? sidebar.openResourceIn.bind(sidebar) : null;
-        function landFile(address, sessionIdHint) {
-          var parsed = parseFileAddress(address);
-          if (!parsed) return false;
-          return landSessionPath(parsed.sessionId || sessionIdHint || "", parsed.path);
+      function landFile(address, sessionIdHint) {
+        var parsed = parseFileAddress(address);
+        if (!parsed) return false;
+        return landSessionPath(parsed.sessionId || sessionIdHint || "", parsed.path);
+      }
+      function wrapOfficialSidebar() {
+        var sidebar = ctx.sidebarRight
+        if (!sidebar || typeof sidebar.openResource !== "function" || sidebar.openResource.__fdeOpenFile) return
+        var origOpenResource = sidebar.openResource.bind(sidebar)
+        var origOpenResourceIn = typeof sidebar.openResourceIn === "function" ? sidebar.openResourceIn.bind(sidebar) : null
+        var origOpenTab = typeof sidebar.openTab === "function" ? sidebar.openTab.bind(sidebar) : null
+        var tabKind = typeof window.__fdeLandKindFromTab === "function" ? window.__fdeLandKindFromTab : function (kind) { return kind }
+        sidebar.openResource = function (address, options) {
+          if (landFile(address, "")) return
+          return origOpenResource(address, options)
         }
-        var wrappedOpen = function (address, options) {
-          if (landFile(address, "")) return;
-          return origOpenResource(address, options);
-        };
-        wrappedOpen.__fdeOpenFile = true;
-        sidebar.openResource = wrappedOpen;
+        sidebar.openResource.__fdeOpenFile = true
         if (origOpenResourceIn) {
-          var wrappedOpenIn = function (sessionId, address, options) {
-            if (landFile(address, sessionId)) return;
-            return origOpenResourceIn(sessionId, address, options);
-          };
-          wrappedOpenIn.__fdeOpenFile = true;
-          sidebar.openResourceIn = wrappedOpenIn;
+          sidebar.openResourceIn = function (sessionId, address, options) {
+            if (landFile(address, sessionId)) return
+            return origOpenResourceIn(sessionId, address, options)
+          }
+        }
+        if (origOpenTab) {
+          sidebar.openTab = function (kind, options) {
+            var landed = tabKind(kind)
+            if (landed) {
+              land(landed, { sessionId: (sessions.list && sessions.list.getSnapshot && sessions.list.getSnapshot().current) || "" })
+              return
+            }
+            return origOpenTab(kind, options)
+          }
         }
       }
-      wrapOpenResource();
+      wrapOfficialSidebar()
       function wrapPresentOpen() {
         if (typeof window.fetch !== "function" || window.fetch.__fdePresentOpen) return;
         var origFetch = window.fetch.bind(window);
@@ -154,6 +171,26 @@ window.__ModuleLoader__.load({
           }
         }
         var wrapped = function (input, init) {
+          var method = "GET";
+          if (init && init.method) method = String(init.method);
+          else if (input && typeof input === "object" && input.method) method = String(input.method);
+          method = String(method).toUpperCase();
+          var raw = typeof input === "string" ? input : (input && input.url) || "";
+          try {
+            var lan = new URL(raw, location.href);
+            if (lan.pathname === "/lan-assist/state" && method === "GET") {
+              return Promise.resolve(new Response(JSON.stringify({ ok: true }), {
+                status: 200,
+                headers: { "content-type": "application/json", "cache-control": "no-store" }
+              }));
+            }
+            if (lan.pathname === "/lan-assist/sleep" && method === "POST") {
+              return Promise.resolve(new Response(JSON.stringify({ ok: true, asleep: false }), {
+                status: 200,
+                headers: { "content-type": "application/json", "cache-control": "no-store" }
+              }));
+            }
+          } catch (e) {}
           var parsed = presentOpenUrl(input, init);
           if (!parsed) return origFetch(input, init);
           var sessionId = parsed.searchParams.get("sessionId") || "";
@@ -244,26 +281,7 @@ window.__ModuleLoader__.load({
         if (wrapTries++ > 40) clearInterval(wrapTimer)
       }, 50)
       ctx.effect(function () { return function () { clearInterval(wrapTimer) } }, "fde-x-dsh-wrap-connect")
-
-      function keepAwake() {
-        try {
-          fetch("/lan-assist/sleep", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ on: false }),
-            credentials: "same-origin",
-          }).catch(function () {})
-        } catch (e) {}
-      }
-      keepAwake()
-      var awakeTimer = setInterval(keepAwake, 4000)
-      document.addEventListener("visibilitychange", keepAwake)
-      ctx.effect(function () {
-        return function () {
-          clearInterval(awakeTimer)
-          document.removeEventListener("visibilitychange", keepAwake)
-        }
-      }, "fde-x-dsh-keep-awake")
+      ctx.effect(function () { return function () { stopTurnWatch() } }, "fde-x-dsh-turn-watch")
 
       function visibleAssistantText(message) {
         var blocks = message && message.content
@@ -320,27 +338,40 @@ window.__ModuleLoader__.load({
         }
         return String(best || "").trim()
       }
-      function watchAssistant(sid, before) {
-        var binding = sessions.binding && sessions.binding(sid)
+      var turnWatch = { sid: "", timer: 0, lastText: "", sawRun: false }
+      function stopTurnWatch() {
+        if (turnWatch.timer) clearTimeout(turnWatch.timer)
+        turnWatch.timer = 0
+        turnWatch.sid = ""
+        turnWatch.sawRun = false
+        turnWatch.lastText = ""
+      }
+      function startTurnWatch(sid) {
+        var id = String(sid || "")
+        if (!id) return
+        if (turnWatch.sid === id && turnWatch.timer) return
+        stopTurnWatch()
+        var binding = sessions.binding && sessions.binding(id)
         var session = binding && binding.session
-        var tries = 0
-        var sawRun = false
+        turnWatch.sid = id
+        turnWatch.lastText = lastAssistantText(session)
+        turnWatch.sawRun = false
         var poll = function () {
-          var nowText = lastAssistantText(session)
-          var snap = session && session.getSnapshot ? session.getSnapshot() : null
+          if (turnWatch.sid !== id) return
+          var bound = sessions.binding && sessions.binding(id)
+          var sess = bound && bound.session
+          var nowText = lastAssistantText(sess)
+          var snap = sess && sess.getSnapshot ? sess.getSnapshot() : null
           var running = !!(snap && snap.running)
-          if (running) sawRun = true
-          if (sawRun && !running && nowText && nowText !== before) {
-            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: sid, op: "assistant", text: nowText }, "*")
-            return
+          if (running) turnWatch.sawRun = true
+          if (turnWatch.sawRun && !running && nowText && nowText !== turnWatch.lastText) {
+            turnWatch.lastText = nowText
+            turnWatch.sawRun = false
+            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: id, op: "assistant", text: nowText }, "*")
           }
-          if (tries++ > 180) {
-            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: sid, op: "assistant", text: "" }, "*")
-            return
-          }
-          setTimeout(poll, 500)
+          turnWatch.timer = setTimeout(poll, 500)
         }
-        setTimeout(poll, 600)
+        turnWatch.timer = setTimeout(poll, 400)
       }
 
       function run(data) {
@@ -367,6 +398,7 @@ window.__ModuleLoader__.load({
                 else sessions.open(data.sessionId)
               }
               bindWorkspace(data.sessionId, data.workspaceId)
+              startTurnWatch(data.sessionId)
             } catch (e) {}
           }
           open()
@@ -470,7 +502,7 @@ window.__ModuleLoader__.load({
                 var binding = sessions.binding && sessions.binding(sid)
                 var before = lastAssistantText(binding && binding.session)
                 btn.click()
-                watchAssistant(sid, before)
+                startTurnWatch(sid)
                 if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: sid, op: "prompted" }, "*")
                 return
               }
@@ -478,7 +510,7 @@ window.__ModuleLoader__.load({
                 var binding2 = sessions.binding && sessions.binding(sid)
                 var before2 = lastAssistantText(binding2 && binding2.session)
                 if (have === want && typeof shell.submit === "function") shell.submit("queue")
-                watchAssistant(sid, before2)
+                startTurnWatch(sid)
                 if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: sid, op: "prompted" }, "*")
                 return
               }

@@ -9,7 +9,8 @@ export async function handleSearchRoute(request, response, url, ctx) {
     return true
   }
   const query = String(url.searchParams.get('q') || '')
-  const sheet = await loadSearchSheet({ aiRuntime, db }, { cwd, query })
+  const sessionId = String(url.searchParams.get('sessionId') || '').trim()
+  const sheet = await loadSearchSheet({ aiRuntime, db }, { cwd, query, sessionId })
   sendJson(response, 200, { data: sheet, correlationId })
   return true
 }

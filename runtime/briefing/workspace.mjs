@@ -11,9 +11,13 @@ export function workspaceRowForCwd(db, workspaceCwd) {
   return null
 }
 
-export function workspaceIdForCwd(db, workspaceCwd) {
+export function workspaceRowIdForCwd(db, workspaceCwd) {
   const row = workspaceRowForCwd(db, workspaceCwd)
-  return row?.id || 'ws_personal'
+  return row?.id || ''
+}
+
+export function workspaceIdForCwd(db, workspaceCwd) {
+  return workspaceRowIdForCwd(db, workspaceCwd) || 'ws_personal'
 }
 
 export function resolveWorkspaceCwd(db, queryWorkspace, fallbackCwd) {

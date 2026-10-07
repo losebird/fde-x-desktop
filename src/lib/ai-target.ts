@@ -1,5 +1,14 @@
 import { runtimeApi, type AiSessionSummary } from '@/lib/runtime-api'
-import { useApp } from '@/store/app'
+import { activeWorkspaceCwdFromState, activeWorkspaceFromState, useApp } from '@/store/app'
+import { isPrimarySession as isPrimarySessionRow, resolvePrimarySessionId as resolvePrimarySessionIdRow } from '../../runtime/session-primary.mjs'
+
+export function isPrimarySession(session: AiSessionSummary) {
+  return isPrimarySessionRow(session)
+}
+
+export function resolvePrimarySessionId(sessionId: string, sessions: AiSessionSummary[]) {
+  return resolvePrimarySessionIdRow(sessionId, sessions)
+}
 
 export type AiTarget = {
   ok: true
@@ -14,10 +23,6 @@ export type AiTargetMiss = {
 }
 
 export type AiTargetResult = AiTarget | AiTargetMiss
-
-export function isPrimarySession(session: AiSessionSummary) {
-  return session.origin !== 'subagent' && !session.parentSessionId
-}
 
 export function sameWorkspaceCwd(left: string, right: string) {
   const here = String(left || '').replace(/\/+$/u, '')
@@ -50,8 +55,8 @@ export type WorkspaceCwdResult =
 
 export function loadCurrentWorkspaceCwd(): WorkspaceCwdResult {
   const state = useApp.getState()
-  const workspace = state.workspaces.find((row) => row.id === state.activeWorkspaceId)
-  const cwd = workspace?.cwd && workspace.cwd.startsWith('/') ? workspace.cwd : ''
+  const workspace = activeWorkspaceFromState(state)
+  const cwd = activeWorkspaceCwdFromState(state)
   const workspaceId = workspace?.id || ''
   if (!cwd || !workspaceId) {
     return { ok: false, error: '当前顶栏工作区没有本机目录' }
@@ -59,7 +64,7 @@ export function loadCurrentWorkspaceCwd(): WorkspaceCwdResult {
   return { ok: true, cwd, workspaceId }
 }
 
-export async function loadCurrentAiTarget(signal?: AbortSignal): Promise<AiTargetResult> {
+export async function currentAiTarget(signal?: AbortSignal): Promise<AiTargetResult> {
   const workspace = loadCurrentWorkspaceCwd()
   if (!workspace.ok) return workspace
   const { cwd, workspaceId } = workspace
@@ -78,3 +83,5 @@ export async function loadCurrentAiTarget(signal?: AbortSignal): Promise<AiTarge
   if (state.activeAiSessionId !== row.sessionId) state.setActiveAiSessionId(row.sessionId)
   return { ok: true, sessionId: row.sessionId, cwd, workspaceId }
 }
+
+export const loadCurrentAiTarget = currentAiTarget

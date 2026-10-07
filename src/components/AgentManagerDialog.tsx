@@ -3,6 +3,8 @@ import { Bot, Check, ChevronDown, Pencil, Plus, Power, Search, Sparkles, Trash2,
 import clsx from 'clsx'
 import { useApp, useCurrentAgents } from '@/store/app'
 import type { Agent } from '@/lib/types'
+import { currentAiTarget } from '@/lib/ai-target'
+import { runtimeApi, type SkillBagItem } from '@/lib/runtime-api'
 import { Tag } from './ui'
 
 type Props = {
@@ -54,8 +56,7 @@ export function AgentManagerDialog({ open, onClose, initialAgentId, startCreatin
   const updateAgent = useApp((s) => s.updateAgent)
   const removeAgent = useApp((s) => s.removeAgent)
   const toggleAgent = useApp((s) => s.toggleAgent)
-  const mcp = useApp((s) => s.mcp)
-  const skills = useApp((s) => s.skills)
+  const [catalog, setCatalog] = useState<SkillBagItem[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [mode, setMode] = useState<'view' | 'edit' | 'new'>('view')
   const [draft, setDraft] = useState<AgentDraft>(emptyDraft())
@@ -82,17 +83,32 @@ export function AgentManagerDialog({ open, onClose, initialAgentId, startCreatin
   }, [open, startCreating, initialAgentId])
 
   useEffect(() => {
+    if (!open) return
+    let alive = true
+    void (async () => {
+      try {
+        const target = await currentAiTarget()
+        const listed = await runtimeApi.listAiSkills(target.ok ? target.sessionId : undefined)
+        if (!alive) return
+        setCatalog(listed.items)
+      } catch {
+        if (alive) setCatalog([])
+      }
+    })()
+    return () => { alive = false }
+  }, [open])
+
+  useEffect(() => {
     if (mode === 'view' && selected) setDraft(fromAgent(selected))
   }, [selected?.id, mode])
 
   const availableTools = useMemo(() => {
     const source = new Map<string, string>()
-    mcp.forEach((server) => server.tools.forEach((tool) => source.set(tool, server.name)))
     agents.forEach((agent) => agent.tools.forEach((tool) => {
       if (!source.has(tool)) source.set(tool, '已有 Agent')
     }))
     return Array.from(source, ([id, provider]) => ({ id, provider })).sort((a, b) => a.id.localeCompare(b.id))
-  }, [mcp, agents])
+  }, [agents])
 
   if (!open) return null
 
@@ -214,8 +230,8 @@ export function AgentManagerDialog({ open, onClose, initialAgentId, startCreatin
                   <div className="text-xs text-ink-muted mb-2">绑定 Skills</div>
                   <div className="flex flex-wrap gap-1.5">
                     {(selected.skillIds ?? []).map((sid) => {
-                      const skill = skills.find((s) => s.id === sid)
-                      return skill ? <Tag key={sid}><Sparkles size={10} /> {skill.emoji} {skill.name}</Tag> : null
+                      const skill = catalog.find((s) => s.id === sid)
+                      return skill ? <Tag key={sid}><Sparkles size={10} /> {skill.name}</Tag> : null
                     })}
                     {!(selected.skillIds ?? []).length && <span className="text-sm text-ink-subtle">未绑定 Skill</span>}
                   </div>
@@ -227,7 +243,7 @@ export function AgentManagerDialog({ open, onClose, initialAgentId, startCreatin
                 </div>
               </div>
             ) : (
-              <AgentForm draft={draft} setDraft={setDraft} availableTools={availableTools} skills={skills} mode={mode === 'new' ? 'new' : 'edit'} onCancel={() => setMode('view')} onSave={save} />
+              <AgentForm draft={draft} setDraft={setDraft} availableTools={availableTools} skills={catalog} mode={mode === 'new' ? 'new' : 'edit'} onCancel={() => setMode('view')} onSave={save} />
             )}
           </main>
         </div>
@@ -236,13 +252,13 @@ export function AgentManagerDialog({ open, onClose, initialAgentId, startCreatin
   )
 }
 
-function AgentForm({ draft, setDraft, availableTools, skills, mode, onCancel, onSave }: { draft: AgentDraft; setDraft: (d: AgentDraft) => void; availableTools: { id: string; provider: string }[]; skills: { id: string; name: string; emoji: string; desc: string; enabled: boolean; source: string }[]; mode: 'edit' | 'new'; onCancel: () => void; onSave: () => void }) {
+function AgentForm({ draft, setDraft, availableTools, skills, mode, onCancel, onSave }: { draft: AgentDraft; setDraft: (d: AgentDraft) => void; availableTools: { id: string; provider: string }[]; skills: SkillBagItem[]; mode: 'edit' | 'new'; onCancel: () => void; onSave: () => void }) {
   const [toolPickerOpen, setToolPickerOpen] = useState(false)
   const [skillPickerOpen, setSkillPickerOpen] = useState(false)
   const [toolQuery, setToolQuery] = useState('')
   const [skillQuery, setSkillQuery] = useState('')
   const filteredTools = availableTools.filter((tool) => `${tool.id} ${tool.provider}`.toLowerCase().includes(toolQuery.toLowerCase()))
-  const filteredSkills = skills.filter((skill) => `${skill.name} ${skill.desc} ${skill.source}`.toLowerCase().includes(skillQuery.toLowerCase()))
+  const filteredSkills = skills.filter((skill) => `${skill.name} ${skill.description || ''}`.toLowerCase().includes(skillQuery.toLowerCase()))
   const toggleTool = (tool: string) => setDraft({
     ...draft,
     tools: draft.tools.includes(tool) ? draft.tools.filter((item) => item !== tool) : [...draft.tools, tool],
@@ -313,7 +329,7 @@ function AgentForm({ draft, setDraft, availableTools, skills, mode, onCancel, on
                 const skill = skills.find((s) => s.id === sid)
                 return skill ? (
                   <span key={sid} className="tag bg-brand-soft text-brand border border-brand/20" onClick={(e) => { e.stopPropagation(); toggleSkill(sid) }}>
-                    <Sparkles size={10} /> {skill.emoji} {skill.name} <X size={10} />
+                    <Sparkles size={10} /> {skill.name} <X size={10} />
                   </span>
                 ) : null
               }) : <span className="text-ink-subtle">点击选择这个 Agent 可以使用的 Skills</span>}
@@ -323,20 +339,20 @@ function AgentForm({ draft, setDraft, availableTools, skills, mode, onCancel, on
               <div className="absolute z-20 left-0 right-0 mt-1 bg-surface border border-line rounded-lg shadow-pop overflow-hidden">
                 <div className="p-2 border-b border-line relative">
                   <Search size={13} className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-subtle" />
-                  <input className="input w-full pl-8" value={skillQuery} onChange={(e) => setSkillQuery(e.target.value)} placeholder="搜索 Skill 名称或来源" autoFocus />
+                  <input className="input w-full pl-8" value={skillQuery} onChange={(e) => setSkillQuery(e.target.value)} placeholder="搜索 Skill 名称" autoFocus />
                 </div>
                 <div className="max-h-52 overflow-y-auto p-1.5">
                   {filteredSkills.map((skill) => {
                     const checked = draft.skillIds.includes(skill.id)
                     return (
-                      <button key={skill.id} className={clsx('w-full px-2.5 py-2 rounded-md flex items-center gap-2 text-left', checked ? 'bg-brand-soft' : 'hover:bg-surface-2', !skill.enabled && 'opacity-60')} onClick={() => toggleSkill(skill.id)}>
+                      <button key={skill.id} className={clsx('w-full px-2.5 py-2 rounded-md flex items-center gap-2 text-left', checked ? 'bg-brand-soft' : 'hover:bg-surface-2', skill.enabled === false && 'opacity-60')} onClick={() => toggleSkill(skill.id)}>
                         <span className={clsx('w-4 h-4 rounded border flex items-center justify-center shrink-0', checked ? 'bg-brand border-brand text-white' : 'border-line')}><Check size={11} className={checked ? '' : 'opacity-0'} /></span>
-                        <span className="text-base shrink-0">{skill.emoji}</span>
+                        <Sparkles size={13} className="text-ink-muted shrink-0" />
                         <span className="text-sm flex-1 min-w-0">
                           <span className="block truncate">{skill.name}</span>
-                          <span className="block text-[11px] text-ink-subtle truncate">{skill.desc}</span>
+                          {skill.description && <span className="block text-[11px] text-ink-subtle truncate">{skill.description}</span>}
                         </span>
-                        <span className="text-[10px] text-ink-subtle shrink-0">{skill.source}{skill.enabled ? '' : ' · 未启用'}</span>
+                        {skill.enabled === false && <span className="text-[10px] text-ink-subtle shrink-0">未启用</span>}
                       </button>
                     )
                   })}

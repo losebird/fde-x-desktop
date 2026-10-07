@@ -17,10 +17,29 @@ function schemaTitle(row) {
   return String(row.title || (row.uiSchema && row.uiSchema.title) || '').trim()
 }
 
-function isDateField(row) {
+const SKIP_SHAPE_FIELD = /^(id|createdAt|updatedAt|createdBy|updatedBy|createdById|updatedById)$/i
+
+export function isDateField(row) {
   if (!row || typeof row !== 'object') return false
-  const t = String(row.type || '').toLowerCase()
-  return t.includes('date') || t.includes('time')
+  const t = `${row.interface || ''} ${row.type || ''}`.toLowerCase()
+  return t.includes('date') || t.includes('time') || t.includes('unixtimestamp')
+}
+
+export function isSkippedShapeField(name) {
+  const n = String(name || '').trim()
+  if (!n) return true
+  return SKIP_SHAPE_FIELD.test(n) || /Id$|_id$/i.test(n)
+}
+
+export function schemaFieldByName(schemaFields, key) {
+  const want = String(key || '').trim()
+  if (!want) return null
+  return (Array.isArray(schemaFields) ? schemaFields : []).find((row) => row && String(row.name || '') === want) || null
+}
+
+function dateColumnName(name, schemaFields) {
+  const hit = schemaFieldByName(schemaFields, name)
+  return hit && isDateField(hit) ? String(hit.name) : ''
 }
 
 function statusShapeLabel(label) {
@@ -93,8 +112,6 @@ function ticketFieldOf(vocabHit) {
   return ''
 }
 
-const SKIP_SHAPE_FIELD = /^(id|createdAt|updatedAt|createdBy|updatedBy|createdById|updatedById)$/i
-
 function shapedEntries(vocabHit, schemaFields) {
   const ticket = ticketFieldOf(vocabHit)
   const entries = []
@@ -108,7 +125,7 @@ function shapedEntries(vocabHit, schemaFields) {
   }
   for (const row of Array.isArray(schemaFields) ? schemaFields : []) {
     const name = String((row && row.name) || '').trim()
-    if (!name || seen.has(name) || SKIP_SHAPE_FIELD.test(name) || /Id$|_id$/i.test(name)) continue
+    if (!name || seen.has(name) || isSkippedShapeField(name)) continue
     entries.push({ label: schemaTitle(row) || name, key: name })
     seen.add(name)
   }
@@ -125,7 +142,7 @@ function inferLabelsFromVocabAndSchema(vocabHit, schemaFields) {
   const pool = []
   for (const row of Array.isArray(schemaFields) ? schemaFields : []) {
     const name = String((row && row.name) || '').trim()
-    if (!name || SKIP_SHAPE_FIELD.test(name) || /Id$|_id$/i.test(name) || ascii.includes(name)) continue
+    if (!name || isSkippedShapeField(name) || ascii.includes(name)) continue
     pool.push(name)
   }
   let poolAt = 0
@@ -313,16 +330,13 @@ function yearBounds(value) {
   return { start: `${y}-01-01`, end: `${Number(y) + 1}-01-01` }
 }
 
-function expandYearOnKeys(term, schemaFields, vocabHit) {
-  const keys = list(term.keys).map((key) => resolveShapeKey(key, schemaFields, vocabHit))
+function expandYearOnKeys(term, schemaFields) {
+  const keys = list(term.keys)
   const values = list(term.values)
   if (!keys.length || values.length !== 1) return [term]
   const bounds = yearBounds(values[0])
   if (!bounds) return [term]
-  const dateKey = keys.find((key) => {
-    const row = (schemaFields || []).find((item) => item && item.name === key)
-    return row && isDateField(row)
-  }) || dateFieldNames(schemaFields, vocabHit)[0]
+  const dateKey = keys.map((key) => dateColumnName(key, schemaFields)).find(Boolean)
   if (!dateKey) return [term]
   return [
     { dateAfter: [dateKey], values: [bounds.start] },
@@ -330,18 +344,15 @@ function expandYearOnKeys(term, schemaFields, vocabHit) {
   ]
 }
 
-function expandYearOnDateSlot(term, slot, schemaFields, vocabHit) {
-  const keys = list(term[slot])
+function expandYearOnDateSlot(term, slot, schemaFields, vocabHit, extraLabels) {
+  const resolved = list(term[slot]).map((key) => resolveShapeKey(key, schemaFields, vocabHit, extraLabels))
   const values = list(term.values)
-  if (!keys.length || values.length !== 1) return [term]
+  const packed = { ...term, [slot]: resolved }
+  if (!resolved.length) return [packed]
+  const dateKey = resolved.map((key) => dateColumnName(key, schemaFields)).find(Boolean)
+  if (values.length !== 1 || !dateKey) return [packed]
   const bounds = yearBounds(values[0])
-  if (!bounds) return [term]
-  const resolved = keys.map((key) => resolveShapeKey(key, schemaFields, vocabHit))
-  const dateKey = resolved.find((key) => {
-    const row = (schemaFields || []).find((item) => item && item.name === key)
-    return row && isDateField(row)
-  }) || resolved[0]
-  if (!dateKey) return [term]
+  if (!bounds) return [packed]
   if (slot === 'dateAfter') {
     return [
       { dateAfter: [dateKey], values: [bounds.start] },
@@ -349,7 +360,7 @@ function expandYearOnDateSlot(term, slot, schemaFields, vocabHit) {
     ]
   }
   if (slot === 'dateBefore') return [{ dateBefore: [dateKey], values: [bounds.end] }]
-  return [term]
+  return [packed]
 }
 
 function normalizeBound(value) {
@@ -402,17 +413,17 @@ export function bindWhereKeys(terms, kind, vocab, schemaFields, extraLabels) {
   for (const term of Array.isArray(terms) ? terms : []) {
     if (!term || typeof term !== 'object') continue
     if (Array.isArray(term.dateAfter) && term.dateAfter.length) {
-      out.push(...expandYearOnDateSlot(term, 'dateAfter', fields, vocabHit))
+      out.push(...expandYearOnDateSlot(term, 'dateAfter', fields, vocabHit, extraLabels))
       continue
     }
     if (Array.isArray(term.dateBefore) && term.dateBefore.length) {
-      out.push(...expandYearOnDateSlot(term, 'dateBefore', fields, vocabHit))
+      out.push(...expandYearOnDateSlot(term, 'dateBefore', fields, vocabHit, extraLabels))
       continue
     }
     const keys = list(term.keys).map((key) => resolveShapeKey(key, fields, vocabHit, extraLabels))
     const packed = { ...term, keys }
     if (keys.length && list(term.values).length === 1 && yearBounds(term.values[0])) {
-      out.push(...expandYearOnKeys(packed, fields, vocabHit))
+      out.push(...expandYearOnKeys(packed, fields))
       continue
     }
     out.push(packed)
@@ -449,12 +460,6 @@ function textFilterPart(key, vals, term) {
 function fieldTitleOf(row) {
   if (!row || typeof row !== 'object') return ''
   return String(row.title || (row.uiSchema && row.uiSchema.title) || '').trim()
-}
-
-function schemaFieldByName(schemaFields, key) {
-  const want = String(key || '').trim()
-  if (!want) return null
-  return (Array.isArray(schemaFields) ? schemaFields : []).find((row) => row && String(row.name || '') === want) || null
 }
 
 function isAsciiFieldName(key) {
@@ -713,10 +718,39 @@ function valueMatchesTerm(raw, vals, enums, contains) {
   return false
 }
 
+function parseDateValue(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return NaN
+  return Date.parse(text)
+}
+
+function rowDateHits(row, keys, compare) {
+  return (Array.isArray(keys) ? keys : []).some((key) => {
+    const t = parseDateValue(rowFieldRaw(row, key))
+    return Number.isFinite(t) && compare(t)
+  })
+}
+
 function rowMatchesTerm(row, term, schemaFields) {
   if (!term || typeof term !== 'object') return true
   const keys = list(term.keys)
   const vals = list(term.values)
+  const after = list(term.dateAfter)
+  const before = list(term.dateBefore)
+  if (after.length) {
+    const floor = parseDateValue(vals[0])
+    if (!Number.isFinite(floor)) return false
+    return rowDateHits(row, after, (t) => t >= floor)
+  }
+  if (before.length) {
+    if (vals[0]) {
+      const ceiling = parseDateValue(vals[0])
+      if (!Number.isFinite(ceiling)) return false
+      return rowDateHits(row, before, (t) => t < ceiling)
+    }
+    const now = Date.now()
+    return rowDateHits(row, before, (t) => t < now)
+  }
   if (!keys.length || !vals.length) return true
   const asciiKeys = keys.filter((item) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(item))
   const contains = term.textPass === 'contains'

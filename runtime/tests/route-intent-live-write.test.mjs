@@ -130,8 +130,9 @@ test('prompt and tool schema tell the model to follow biz_preview', () => {
   const index = readFileSync(join(overlayRoot, 'dsh-semantic-os', 'index.js'), 'utf8')
   const tools = readFileSync(join(overlayRoot, 'dsh-semantic-os', 'tools.js'), 'utf8')
   assert.match(index, /现况 → biz_preview/)
-  assert.match(index, /Do not call search_text first when route_intent named biz_preview/)
+  assert.doesNotMatch(index, /call route_intent first/)
   assert.match(tools, /现况 → biz_preview/)
+  assert.match(tools, /name: 'route_intent'/)
 })
 
 test('python write says come from spoken.json, not a local list', () => {

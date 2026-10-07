@@ -80,7 +80,11 @@ export async function draftCard(deps, input = {}) {
   if (auto && looksLikeJsonDump(label)) return { skipped: true, reason: 'origin_unreadable' }
 
   try {
-    const insert = draftMemoryCardInsert(label, cause, { origin, auto })
+    const insert = draftMemoryCardInsert(label, cause, {
+      origin,
+      auto,
+      ...(input.sessionId ? { sessionId: String(input.sessionId) } : {}),
+    })
     const drafted = await semanticPython(deps.aiRuntime, insert.op, insert.args, cwd)
     if (drafted && typeof drafted === 'object' && drafted.error) {
       return { ok: false, error: drafted }

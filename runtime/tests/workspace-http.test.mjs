@@ -114,3 +114,63 @@ test('latin1 and semantic seams keep session create one-handed', async () => {
   assert.equal(capturedUrl(captured[0]), '/semantic-os/nodes?cwd=%2Ftmp%2Fws-a')
   stopA()
 })
+
+test('semantic fetch wrap survives explore restoring a dead wrapper', async () => {
+  const captured = []
+  const nativeFetch = async (input, init) => {
+    captured.push({ input, init })
+    return new Response('{}', { status: 200 })
+  }
+  globalThis.window = globalThis
+  globalThis.location = { origin: 'http://127.0.0.1:5174' }
+  window.location = globalThis.location
+  window.fetch = nativeFetch
+
+  const srcRoot = resolve(process.cwd(), 'src/lib')
+  const { installSemanticOsHttp } = await import(pathToFileURL(resolve(srcRoot, 'semantic-http.ts')).href)
+  const stop = installSemanticOsHttp(hostEl('/tmp/ws-a'), '/tmp/ws-a')
+  const semanticWrap = window.fetch
+  window.fetch = (input, init) => semanticWrap(input, init)
+  stop()
+  window.fetch = semanticWrap
+  captured.length = 0
+  const res = await window.fetch('/semantic-os/ingest/progress?cwd=%2Ftmp%2Fws-a')
+  assert.equal(res.status, 200)
+  assert.equal(captured.length, 1)
+})
+
+test('graph-updates websocket is rewritten onto the Host semantic-os path', async () => {
+  const opened = []
+  function FakeWS(url) {
+    opened.push(String(url))
+  }
+  FakeWS.CONNECTING = 0
+  FakeWS.OPEN = 1
+  FakeWS.CLOSING = 2
+  FakeWS.CLOSED = 3
+  FakeWS.prototype = {}
+
+  globalThis.window = globalThis
+  globalThis.location = { origin: 'http://127.0.0.1:5174' }
+  window.location = globalThis.location
+  window.fetch = async () => new Response('{}')
+  window.WebSocket = FakeWS
+
+  const srcRoot = resolve(process.cwd(), 'src/lib')
+  const { installSemanticOsHttp, rewriteGraphUpdatesUrl } = await import(pathToFileURL(resolve(srcRoot, 'semantic-http.ts')).href)
+  assert.equal(
+    rewriteGraphUpdatesUrl('ws://127.0.0.1:5174/ws/graph-updates'),
+    'ws://127.0.0.1:5174/semantic-os/ws/graph-updates',
+  )
+  assert.equal(
+    rewriteGraphUpdatesUrl('ws://127.0.0.1:5174/ws/graph-updates', '/tmp/ws-a'),
+    'ws://127.0.0.1:5174/semantic-os/ws/graph-updates?cwd=%2Ftmp%2Fws-a',
+  )
+  const stop = installSemanticOsHttp(hostEl('/tmp/ws-a'), '/tmp/ws-a')
+  new window.WebSocket('ws://127.0.0.1:5174/ws/graph-updates')
+  new window.WebSocket('ws://127.0.0.1:5174/@vite/client')
+  assert.equal(opened[0], 'ws://127.0.0.1:5174/semantic-os/ws/graph-updates?cwd=%2Ftmp%2Fws-a')
+  assert.equal(opened[1], 'ws://127.0.0.1:5174/@vite/client')
+  stop()
+  assert.equal(window.WebSocket, FakeWS)
+})

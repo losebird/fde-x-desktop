@@ -4,29 +4,118 @@ import { Link } from 'react-router-dom'
 import { Plug, Plus, Wrench, Search, Activity } from 'lucide-react'
 import clsx from 'clsx'
 import { PageTitle, Card, Tag, Empty } from '@/components/ui'
+import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { runtimeApi, type McpConnectorCard, type McpServerV2 } from '@/lib/runtime-api'
+import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
+
+type McpBag = { mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }
 
 const MCP_STATUS: Record<McpServerV2['status'], { label: string; kind: 'green' | 'amber' | 'default' }> = {
-  live: { label: '在线', kind: 'green' },
+  loaded: { label: '已加载', kind: 'green' },
   'needs-reload': { label: '需重载', kind: 'amber' },
   configured: { label: '已配置', kind: 'default' },
+  failed: { label: '失败', kind: 'amber' },
+  disabled: { label: '已停用', kind: 'default' },
+}
+
+const emptyDraft = () => ({
+  name: '',
+  transport: 'stdio' as 'stdio' | 'streamable-http',
+  command: '',
+  args: '',
+  env: '',
+  url: '',
+  headers: '',
+})
+
+function mcpCommandLabel(row: McpServerV2) {
+  if (row.transport === 'streamable-http') return row.url || ''
+  return [row.command, ...(Array.isArray(row.args) ? row.args : [])].filter(Boolean).join(' ')
+}
+
+function parseLines(text: string) {
+  return text.split('\n').map((line) => line.trim()).filter(Boolean)
+}
+
+function parseEnv(text: string) {
+  const env: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const idx = line.indexOf('=')
+    if (idx <= 0) continue
+    env[line.slice(0, idx).trim()] = line.slice(idx + 1)
+  }
+  return Object.keys(env).length ? env : undefined
+}
+
+function parseHeaders(text: string) {
+  const headers: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const idx = line.indexOf(':')
+    if (idx <= 0) continue
+    headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
+  }
+  return Object.keys(headers).length ? headers : undefined
+}
+
+function envText(env?: Record<string, string>) {
+  if (!env) return ''
+  return Object.entries(env).map(([key, value]) => `${key}=${value}`).join('\n')
+}
+
+function headersText(headers?: Record<string, string>) {
+  if (!headers) return ''
+  return Object.entries(headers).map(([key, value]) => `${key}: ${value}`).join('\n')
 }
 
 export default function MCP() {
   const [mcp, setMcp] = useState<McpServerV2[]>([])
   const [connectors, setConnectors] = useState<McpConnectorCard[]>([])
+  const [resourceTools, setResourceTools] = useState<string[]>([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [reloading, setReloading] = useState(false)
   const [healthNotes, setHealthNotes] = useState<Record<string, string>>({})
+  const [editing, setEditing] = useState('')
 
   const load = useCallback(() => {
-    void runtimeApi.listMcpServers().then((data) => {
-      setMcp(data.mcp || [])
-      setConnectors(data.connectors || [])
+    const cached = lastModuleBag<McpBag>('mcp')
+    if (cached) {
+      setMcp(cached.mcp || [])
+      setConnectors(cached.connectors || [])
+      setResourceTools(cached.resourceTools || [])
+    }
+    void runtimeApi.listMcpServers().then(async (data) => {
+      const first = {
+        mcp: data.mcp || [],
+        connectors: data.connectors || [],
+        resourceTools: Array.isArray(data.resourceTools) ? data.resourceTools : [],
+      }
+      rememberModuleBag('mcp', first)
+      setMcp(first.mcp)
+      setConnectors(first.connectors)
+      setResourceTools(first.resourceTools)
+      const folder = loadCurrentWorkspaceCwd()
+      const target = await currentAiTarget()
+      return runtimeApi.listMcpProjection({
+        sessionId: target.ok ? target.sessionId : '',
+        cwd: target.ok ? target.cwd : (folder.ok ? folder.cwd : ''),
+      })
+    }).then((proj) => {
+      if (!proj) return
+      const next = {
+        mcp: proj.mcp || [],
+        connectors: lastModuleBag<McpBag>('mcp')?.connectors || [],
+        resourceTools: Array.isArray(proj.resourceTools) ? proj.resourceTools : [],
+      }
+      rememberModuleBag('mcp', next)
+      setMcp(next.mcp)
+      setResourceTools(next.resourceTools)
     }).catch((cause) => {
+      if (lastModuleBag<McpBag>('mcp')) return
       setError(cause instanceof Error ? cause.message : '加载 MCP 列表失败')
       setMcp([])
       setConnectors([])
+      setResourceTools([])
     })
   }, [])
 
@@ -34,16 +123,35 @@ export default function MCP() {
 
   const [q, setQ] = useState('')
   const [showAdd, setShowAdd] = useState(false)
-  const [draft, setDraft] = useState({
-    name: '',
-    transport: 'stdio' as 'stdio' | 'streamable-http',
-    command: '',
-    url: '',
-    headers: '',
-  })
+  const [draft, setDraft] = useState(emptyDraft)
 
-  const filteredMcp = mcp.filter((m) => m.serverName.includes(q) || (m.command || '').includes(q) || (m.url || '').includes(q) || m.tools.some((t) => t.includes(q)))
-  const liveCount = mcp.filter((m) => m.status === 'live').length
+  const filteredMcp = mcp.filter((m) => (
+    m.serverName.includes(q)
+    || (m.command || '').includes(q)
+    || (m.url || '').includes(q)
+    || m.tools.some((t) => t.includes(q))
+  ))
+  const loadedCount = mcp.filter((m) => m.status === 'loaded').length
+
+  const openEditor = (row?: McpServerV2) => {
+    if (!row) {
+      setEditing('')
+      setDraft(emptyDraft())
+      setShowAdd(true)
+      return
+    }
+    setEditing(row.serverName)
+    setDraft({
+      name: row.serverName,
+      transport: row.transport,
+      command: row.command || '',
+      args: Array.isArray(row.args) ? row.args.join('\n') : '',
+      env: envText(row.env),
+      url: row.url || '',
+      headers: headersText(row.headers),
+    })
+    setShowAdd(true)
+  }
 
   const runHealth = (serverName: string) => {
     void runtimeApi.checkMcpHealth(serverName).then((result) => {
@@ -53,20 +161,88 @@ export default function MCP() {
     })
   }
 
+  const runReload = () => {
+    setReloading(true)
+    setError('正在重载核心…')
+    void runtimeApi.reloadAi().then(() => {
+      setError('')
+      load()
+    }).catch((cause) => {
+      setError(cause instanceof Error ? cause.message : '重载失败')
+    }).finally(() => setReloading(false))
+  }
+
+  const runEnabled = (serverName: string, enabled: boolean) => {
+    setSaving(true)
+    void runtimeApi.setMcpServerEnabled(serverName, enabled).then((result) => {
+      setError(result.note || '')
+      load()
+    }).catch((cause) => {
+      setError(cause instanceof Error ? cause.message : '改不了启用状态')
+    }).finally(() => setSaving(false))
+  }
+
+  const runDelete = (serverName: string) => {
+    setSaving(true)
+    void runtimeApi.removeMcpServer(serverName).then((result) => {
+      setError(result.note || '')
+      load()
+    }).catch((cause) => {
+      setError(cause instanceof Error ? cause.message : '删除失败')
+    }).finally(() => setSaving(false))
+  }
+
+  const saveDraft = () => {
+    const serverName = (editing || draft.name.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32))
+    if (!serverName) {
+      setError('serverName 不合法')
+      return
+    }
+    setSaving(true)
+    setError('')
+    const body = draft.transport === 'stdio'
+      ? {
+          serverName,
+          transport: 'stdio' as const,
+          command: draft.command.trim(),
+          args: parseLines(draft.args),
+          env: parseEnv(draft.env),
+        }
+      : {
+          serverName,
+          transport: 'streamable-http' as const,
+          url: draft.url.trim(),
+          headers: parseHeaders(draft.headers),
+        }
+    void runtimeApi.addMcpServer(body)
+      .then((result) => {
+        setShowAdd(false)
+        setEditing('')
+        setDraft(emptyDraft())
+        setError(result.note || '已写入配置，需重载核心生效')
+        load()
+      })
+      .catch((cause) => setError(cause instanceof Error ? cause.message : '保存失败'))
+      .finally(() => setSaving(false))
+  }
+
   return (
     <div>
       <PageTitle
         title="MCP 管理"
-        subtitle={`模型上下文协议服务器 · ${liveCount} / ${mcp.length} 在线`}
+        subtitle={`模型上下文协议服务器 · ${loadedCount} / ${mcp.length} 已加载`}
         actions={
-          <button type="button" className="btn-primary" onClick={() => setShowAdd(true)}><Plus size={14} /> 添加服务器</button>
+          <>
+            <button type="button" className="btn" disabled={reloading || saving} onClick={runReload}>重载核心</button>
+            <button type="button" className="btn-primary" onClick={() => openEditor()}><Plus size={14} /> 添加服务器</button>
+          </>
         }
       />
 
       <div className="grid grid-cols-1 @md:grid-cols-3 gap-3 mb-6">
         <Card>
           <div className="text-xs text-ink-muted">在线</div>
-          <div className="mt-1 text-2xl font-semibold tabular-nums">{liveCount}</div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums">{loadedCount}</div>
         </Card>
         <Card>
           <div className="text-xs text-ink-muted">总工具数</div>
@@ -110,11 +286,12 @@ export default function MCP() {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium break-words">{m.serverName}</div>
                       <div className="text-xs text-ink-muted mt-0.5 break-words leading-relaxed font-mono">
-                        {m.transport === 'streamable-http' ? m.url : m.command}
+                        {mcpCommandLabel(m)}
                       </div>
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         <Tag kind="default">{m.transport}</Tag>
                         <Tag kind={meta.kind}>{meta.label}</Tag>
+                        <Tag kind="default">投影 {m.tools.length}</Tag>
                       </div>
                     </div>
                   </div>
@@ -128,9 +305,20 @@ export default function MCP() {
                     {m.tools.length === 0 && <span className="text-xs text-ink-subtle">暂无工具投影</span>}
                   </div>
                   <div className="mt-3 pt-3 border-t border-line flex items-center justify-between gap-2">
-                    <button type="button" className="btn h-7 px-2 text-xs" onClick={() => runHealth(m.serverName)}>
-                      <Activity size={12} /> 健康检查
-                    </button>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button type="button" className="btn h-7 px-2 text-xs" disabled={saving || reloading} onClick={() => runEnabled(m.serverName, Boolean(m.disabled))}>
+                        {m.disabled ? '启用' : '停用'}
+                      </button>
+                      <button type="button" className="btn h-7 px-2 text-xs" disabled={saving || reloading} onClick={() => openEditor(m)}>
+                        编辑
+                      </button>
+                      <button type="button" className="btn h-7 px-2 text-xs" disabled={saving || reloading} onClick={() => runDelete(m.serverName)}>
+                        删除
+                      </button>
+                      <button type="button" className="btn h-7 px-2 text-xs" onClick={() => runHealth(m.serverName)}>
+                        <Activity size={12} /> 健康检查
+                      </button>
+                    </div>
                     {healthNotes[m.serverName] && (
                       <span className="text-[11px] text-ink-muted truncate">{healthNotes[m.serverName]}</span>
                     )}
@@ -138,6 +326,27 @@ export default function MCP() {
                 </div>
               )
             })}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs uppercase tracking-wider text-ink-subtle mb-2">资源工具</div>
+          {resourceTools.length === 0 && (
+            <Empty title="没有 MCP 资源" hint="先添加服务器并重载核心。会话投影到 list_mcp_resources 后，这里列出资源工具。" />
+          )}
+          <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
+            {resourceTools.map((name) => (
+              <div key={name} className="card p-4 flex flex-col">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-9 h-9 rounded bg-surface-2 flex items-center justify-center shrink-0">
+                    <Wrench size={16} className="text-ink-muted" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium break-words font-mono">{name}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -166,16 +375,17 @@ export default function MCP() {
       </div>
 
       {showAdd && (
-        <div className="fixed inset-0 z-40 bg-ink/20 flex items-start justify-end" onClick={() => setShowAdd(false)}>
+        <div className="fixed inset-0 z-40 bg-ink/20 flex items-start justify-end" onClick={() => { setShowAdd(false); setEditing('') }}>
           <div className="bg-surface w-[480px] h-full border-l border-line p-5 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-medium">添加 MCP 服务器</h3>
-              <button type="button" className="btn-ghost p-1" onClick={() => setShowAdd(false)}>×</button>
+              <h3 className="text-base font-medium">{editing ? '编辑 MCP 服务器' : '添加 MCP 服务器'}</h3>
+              <button type="button" className="btn-ghost p-1" onClick={() => { setShowAdd(false); setEditing('') }}>×</button>
             </div>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-ink-muted">serverName</label>
                 <input className="input mt-1 font-mono" value={draft.name}
+                  disabled={Boolean(editing)}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="如 rss-reader" />
               </div>
               <div>
@@ -186,11 +396,23 @@ export default function MCP() {
                 </div>
               </div>
               {draft.transport === 'stdio' ? (
-                <div>
-                  <label className="text-xs text-ink-muted">启动命令</label>
-                  <input className="input mt-1 font-mono" value={draft.command}
-                    onChange={(e) => setDraft({ ...draft, command: e.target.value })} placeholder="npx -y …" />
-                </div>
+                <>
+                  <div>
+                    <label className="text-xs text-ink-muted">启动命令</label>
+                    <input className="input mt-1 font-mono" value={draft.command}
+                      onChange={(e) => setDraft({ ...draft, command: e.target.value })} placeholder="npx" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-ink-muted">参数（一行一个）</label>
+                    <textarea className="input mt-1 font-mono text-xs" rows={3} value={draft.args}
+                      onChange={(e) => setDraft({ ...draft, args: e.target.value })} placeholder="-y" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-ink-muted">环境变量（KEY=VALUE）</label>
+                    <textarea className="input mt-1 font-mono text-xs" rows={4} value={draft.env}
+                      onChange={(e) => setDraft({ ...draft, env: e.target.value })} placeholder="TOKEN=…" />
+                  </div>
+                </>
               ) : (
                 <>
                   <div>
@@ -213,39 +435,12 @@ export default function MCP() {
                 点击「重载核心」。
               </div>
               <div className="flex justify-end gap-2 pt-1">
-                <button type="button" className="btn" onClick={() => setShowAdd(false)}>取消</button>
+                <button type="button" className="btn" onClick={() => { setShowAdd(false); setEditing('') }}>取消</button>
                 <button
                   type="button"
                   className="btn-primary"
-                  disabled={saving || !draft.name.trim() || (draft.transport === 'stdio' ? !draft.command.trim() : !draft.url.trim())}
-                  onClick={() => {
-                    const serverName = draft.name.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32)
-                    if (!serverName) {
-                      setError('serverName 不合法')
-                      return
-                    }
-                    const headers: Record<string, string> = {}
-                    for (const line of draft.headers.split('\n')) {
-                      const idx = line.indexOf(':')
-                      if (idx <= 0) continue
-                      headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
-                    }
-                    setSaving(true)
-                    setError('')
-                    void runtimeApi.addMcpServer(
-                      draft.transport === 'stdio'
-                        ? { serverName, transport: 'stdio', command: draft.command.trim() }
-                        : { serverName, transport: 'streamable-http', url: draft.url.trim(), headers: Object.keys(headers).length ? headers : undefined },
-                    )
-                      .then((result) => {
-                        setShowAdd(false)
-                        setDraft({ name: '', transport: 'stdio', command: '', url: '', headers: '' })
-                        setError(result.note || '已写入配置，需重载核心生效')
-                        load()
-                      })
-                      .catch((cause) => setError(cause instanceof Error ? cause.message : '保存失败'))
-                      .finally(() => setSaving(false))
-                  }}
+                  disabled={saving || !(editing || draft.name.trim()) || (draft.transport === 'stdio' ? !draft.command.trim() : !draft.url.trim())}
+                  onClick={saveDraft}
                 >
                   {saving ? '保存中' : '保存'}
                 </button>

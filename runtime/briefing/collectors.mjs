@@ -2,7 +2,7 @@ import { computeStat } from '../apps/records.mjs'
 import { findActiveAppBySlug } from '../apps/repository.mjs'
 import { memoryLandHref } from '../memory/identity.mjs'
 import { incomingUnread, letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
-import { workspaceIdForCwd } from './workspace.mjs'
+import { workspaceRowIdForCwd } from './workspace.mjs'
 
 async function dshWorkspaceCwds(aiRuntime, workspaceCwd) {
   const paths = [workspaceCwd]
@@ -44,9 +44,12 @@ function baseSection(def, extra = {}) {
 
 export async function collectInternalSection(deps, def, workspaceCwd) {
   const { db, aiRuntime } = deps
-  const workspaceId = workspaceIdForCwd(db, workspaceCwd)
+  const workspaceId = workspaceRowIdForCwd(db, workspaceCwd)
   const params = def.params && typeof def.params === 'object' ? def.params : {}
   try {
+    if ((def.type === 'tasks' || def.type === 'events') && !workspaceId) {
+      return baseSection(def, { error: '没有对应工作区' })
+    }
     if (def.type === 'tasks') {
       const limit = Number(params.limit) || 3
       const statuses = Array.isArray(params.status) ? params.status : ['todo', 'doing']
@@ -88,8 +91,8 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
       const rows = db.prepare(`
         SELECT id, title, start_at, end_at, location, event_kind FROM calendar_events
         WHERE workspace_id = ? AND start_at >= ? AND start_at <= ?
-        ORDER BY start_at ASC LIMIT 20
-      `).all(workspaceId, start, end)
+        ORDER BY start_at ASC LIMIT ?
+      `).all(workspaceId, start, end, Number(params.limit) || 20)
       return baseSection(def, {
         render: def.render === 'timeline' ? 'timeline' : def.render,
         items: rows.map((e) => ({
@@ -111,7 +114,7 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
       const here = normalizeCwd(workspaceCwd)
       const locals = localCwdSet(await dshWorkspaceCwds(aiRuntime, workspaceCwd))
       const unread = requests.filter((row) => incomingUnread(row) && letterHome(row, requests, locals) === here)
-      const items = unread.slice(0, 8).map((row) => ({
+      const items = unread.slice(0, Number(params.limit) || 8).map((row) => ({
         text: String(row.body || row.excerpt || row.last || '').slice(0, 120),
         sub: String(row.fromName || row.from || ''),
         href: { panel: 'im', requestId: String(row.id || '') },
@@ -123,7 +126,7 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
     if (def.type === 'biz') {
       const kind = typeof params.kind === 'string' ? params.kind.trim() : ''
       const action = typeof params.action === 'string' ? params.action : '现查'
-      const filter = params.filter && typeof params.filter === 'object' ? params.filter : { 状态: '待审' }
+      const filter = params.filter && typeof params.filter === 'object' && !Array.isArray(params.filter) ? params.filter : {}
       if (!kind) {
         return baseSection(def, { error: '请在自定义里选择业务型（kind）' })
       }

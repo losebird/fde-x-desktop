@@ -3,6 +3,7 @@ import { constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { imBusinessAdapterHealthFromState } from './biz/connection-lamp.mjs'
+import { withProbeTimeout } from './live-probe.mjs'
 
 const checkedAt = () => new Date().toISOString()
 
@@ -74,7 +75,7 @@ export async function inspectAdapters({ aiRuntime } = {}) {
     }
     if (definition.capability === 'semantic-memory' && aiRuntime && typeof aiRuntime.semanticOs === 'function' && aiRuntime.status?.().connected) {
       try {
-        const ready = await aiRuntime.semanticOs('/ready', { method: 'GET' })
+        const ready = await withProbeTimeout(aiRuntime.semanticOs('/ready', { method: 'GET' }))
         if (ready && ready.ready) {
           return {
             capability: definition.capability,
@@ -110,7 +111,7 @@ export async function inspectAdapters({ aiRuntime } = {}) {
       let lanAssistState = null
       if (aiRuntime && typeof aiRuntime.lanAssist === 'function') {
         try {
-          lanAssistState = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+          lanAssistState = await withProbeTimeout(aiRuntime.lanAssist('/state', { search: { sessionId: '' } }))
         } catch {
           lanAssistState = null
         }

@@ -1,33 +1,110 @@
-import { cp, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { existsSync, readdirSync } from 'node:fs'
 import { basename, join, relative, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { FDE_APP_ROOT } from '../config.mjs'
+import { FDE_APP_ROOT, FDE_RUNTIME_DIR } from '../config.mjs'
 import { createId } from '../db.mjs'
+import { collectBag, mutateBag, describeKindVerbs } from '../catalog-collect.mjs'
+import { withPresetDisplay } from '../preset-display.mjs'
+
+async function loadPresetRoster(aiRuntime) {
+  const bag = await collectBag(aiRuntime, 'agent')
+  if (bag.raw && typeof bag.raw === 'object') return bag.raw
+  return { presets: bag.items.map((row) => row.fields) }
+}
 
 const execFileAsync = promisify(execFile)
 
 export const PRESET_ID_RE = /^[a-z0-9][a-z0-9-_]{0,40}$/u
-const FDE_PRESET_IDS = new Set(['fde-app-builder', 'fde-briefing'])
-const FDE_SHIPPED_PRESET_IDS = ['fde-app-builder', 'fde-briefing']
+
+function fdePresetRoot() {
+  return join(FDE_APP_ROOT, 'runtime', 'presets')
+}
+
+export function fdePresetIdsFromDisk(root = fdePresetRoot()) {
+  const ids = new Set()
+  if (!existsSync(root)) return ids
+  let entries = []
+  try {
+    entries = readdirSync(root, { withFileTypes: true })
+  } catch {
+    return ids
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !PRESET_ID_RE.test(entry.name)) continue
+    if (!existsSync(join(root, entry.name, 'agent.cordis.yml'))) continue
+    ids.add(entry.name)
+  }
+  return ids
+}
+
+function yamlScalar(value) {
+  const text = String(value ?? '')
+  if (!text) return '""'
+  if (/[:#{}[\],&*?|<>=!%@`'"\n]/.test(text)) return JSON.stringify(text)
+  return text
+}
+
+function indentBlock(text, spaces) {
+  const pad = ' '.repeat(spaces)
+  return String(text || '').split('\n').map((line) => (line.length ? pad + line : line)).join('\n')
+}
+
+export function generatedAgentPresetPatchPath() {
+  return join(FDE_RUNTIME_DIR, 'presets', '.generated-agent-presets.patch.yml')
+}
+
+export async function writeGeneratedAgentPresetPatch(root = fdePresetRoot()) {
+  const dest = generatedAgentPresetPatchPath()
+  const ids = [...fdePresetIdsFromDisk(root)].sort()
+  const inserts = []
+  for (const id of ids) {
+    const dir = join(root, id)
+    let meta = { name: id, description: '', order: 100 }
+    try {
+      meta = { ...meta, ...parsePresetMeta(await readFile(join(dir, 'preset.yml'), 'utf8')) }
+    } catch {
+      /* id-only */
+    }
+    let plugins = ''
+    try {
+      plugins = await readFile(join(dir, 'agent.cordis.yml'), 'utf8')
+    } catch {
+      continue
+    }
+    const order = Number.parseInt(String(meta.order || ''), 10)
+    inserts.push([
+      `    - id: preset-${id}`,
+      `      name: '@deepseek-ai/dsh-agent-preset'`,
+      `      config:`,
+      `        id: ${yamlScalar(id)}`,
+      `        name: ${yamlScalar(meta.name || id)}`,
+      `        description: ${yamlScalar(meta.description || '')}`,
+      `        order: ${Number.isFinite(order) ? order : 100}`,
+      `        plugins:`,
+      indentBlock(plugins.trim(), 10),
+    ].join('\n'))
+  }
+  const body = inserts.length
+    ? `# generated from runtime/presets; do not edit\n- insert:\n${inserts.join('\n')}\n`
+    : '# generated from runtime/presets; do not edit\n[]\n'
+  await mkdir(join(FDE_RUNTIME_DIR, 'presets'), { recursive: true })
+  await writeFile(dest, body)
+  return dest
+}
 
 export async function ensurePresets(dshHome) {
-  const userRoot = join(dshHome, '.agent-presets')
-  await mkdir(userRoot, { recursive: true })
-  const shippedRoot = join(FDE_APP_ROOT, 'runtime', 'presets')
-  for (const id of FDE_SHIPPED_PRESET_IDS) {
-    const src = join(shippedRoot, id)
-    const dest = join(userRoot, id)
-    if (!existsSync(src)) continue
-    await cp(src, dest, { recursive: true, force: true })
-  }
+  await mkdir(join(dshHome, '.agent-presets'), { recursive: true })
+  await writeGeneratedAgentPresetPatch()
 }
 
 export function parsePresetMeta(text) {
   const name = text.match(/^name:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '') || ''
   const description = text.match(/^description:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '') || ''
-  return { name, description }
+  const orderRaw = text.match(/^order:\s*(.+)$/m)?.[1]?.trim()
+  const order = orderRaw ? Number.parseInt(orderRaw, 10) : undefined
+  return { name, description, ...(Number.isFinite(order) ? { order } : {}) }
 }
 
 async function listFilesRecursive(dir, base = dir) {
@@ -109,27 +186,27 @@ export async function buildPresetPathIndex(aiRuntime) {
 }
 
 export function classifyPresetSource(id, indexEntry, trust) {
-  if (FDE_PRESET_IDS.has(id)) return 'fde'
+  if (fdePresetIdsFromDisk().has(id) || indexEntry?.kind === 'fde') return 'fde'
   if (indexEntry?.kind === 'user') return 'user'
   if (indexEntry?.kind === 'root') return 'root'
-  if (indexEntry?.kind === 'fde') return 'fde'
-  if (indexEntry?.kind === 'shipped') return 'shipped'
-  if (trust === 'system') return 'shipped'
-  return 'user'
+  if (indexEntry?.kind === 'shipped' || trust === 'system') return 'shipped'
+  return 'shipped'
 }
 
 export async function enrichPresetList(aiRuntime, roster) {
   const index = await buildPresetPathIndex(aiRuntime)
-  const presets = (roster?.presets || []).map((preset) => {
+  const presets = await Promise.all((roster?.presets || []).map(async (preset) => {
     const entry = index.get(preset.id)
     const source = classifyPresetSource(preset.id, entry, preset.trust)
+    const labeled = await withPresetDisplay(preset)
     return {
-      ...preset,
+      ...labeled,
       source,
+      trust: source === 'user' ? 'personal' : 'system',
       path: entry?.path || '',
       hasLocalCode: false,
     }
-  })
+  }))
   await Promise.all(presets.map(async (preset) => {
     if (!preset.path) return
     let cordis = ''
@@ -186,10 +263,12 @@ export async function validatePresetDirectory(dirPath, { shippedIds = new Set() 
 }
 
 async function shippedPresetIds(aiRuntime) {
+  const bag = await collectBag(aiRuntime, 'agent').catch(() => ({ items: [] }))
   const index = await buildPresetPathIndex(aiRuntime)
-  const ids = new Set(['standard', 'ptc', 'minimal', 'cordis'])
+  const ids = new Set(bag.items.map((row) => row.id).filter(Boolean))
+  for (const id of fdePresetIdsFromDisk()) ids.add(id)
   for (const [id, entry] of index) {
-    if (entry.kind === 'shipped') ids.add(id)
+    if (entry.kind === 'shipped' || entry.kind === 'fde') ids.add(id)
   }
   return ids
 }
@@ -205,9 +284,10 @@ export async function handlePresetRoutes(request, response, url, ctx) {
   const { aiRuntime, currentCorrelationId, sendJson, sendError, readJson } = ctx
 
   if (request.method === 'GET' && url.pathname === '/api/v1/ai/presets') {
-    const roster = await aiRuntime.call('agentPresets/list')
+    const roster = await loadPresetRoster(aiRuntime)
     const enriched = await enrichPresetList(aiRuntime, roster)
-    sendJson(response, 200, { data: enriched, correlationId: currentCorrelationId })
+    const verbs = describeKindVerbs('agent')
+    sendJson(response, 200, { data: { ...enriched, actions: verbs.actions }, correlationId: currentCorrelationId })
     return true
   }
 
@@ -353,7 +433,7 @@ export async function handlePresetRoutes(request, response, url, ctx) {
   const deleteMatch = url.pathname.match(/^\/api\/v1\/ai\/presets\/([^/]+)$/)
   if (request.method === 'DELETE' && deleteMatch) {
     const id = decodeURIComponent(deleteMatch[1])
-    const roster = await aiRuntime.call('agentPresets/list')
+    const roster = await loadPresetRoster(aiRuntime)
     const enriched = await enrichPresetList(aiRuntime, roster)
     const preset = enriched.presets.find((row) => row.id === id)
     if (!preset) {
@@ -370,12 +450,15 @@ export async function handlePresetRoutes(request, response, url, ctx) {
     } catch (error) {
       console.warn('preset delete rm failed', error)
     }
-    try {
-      await aiRuntime.call('agentPresets/deletePreset', { id })
-    } catch (error) {
-      console.warn('preset deletePreset rpc failed', error)
+    const verbs = describeKindVerbs('agent')
+    if (verbs.actions.includes('deletePreset')) {
+      try {
+        await mutateBag(aiRuntime, { kind: 'agent', action: 'deletePreset', id })
+      } catch (error) {
+        console.warn('preset deletePreset rpc failed', error)
+      }
     }
-    const next = await enrichPresetList(aiRuntime, await aiRuntime.call('agentPresets/list'))
+    const next = await enrichPresetList(aiRuntime, await loadPresetRoster(aiRuntime))
     sendJson(response, 200, { data: next, correlationId: currentCorrelationId })
     return true
   }
@@ -389,8 +472,13 @@ export async function handlePresetRoutes(request, response, url, ctx) {
       sendError(response, 400, 'validation_error', 'from 和 id 不能为空', currentCorrelationId)
       return true
     }
-    await aiRuntime.call('agentPresets/copy', { from, id, name: name || undefined })
-    const roster = await enrichPresetList(aiRuntime, await aiRuntime.call('agentPresets/list'))
+    const verbs = describeKindVerbs('agent')
+    if (!verbs.actions.includes('copy')) {
+      sendError(response, 409, 'host_action_missing', '当前 Host 世代没有复制 preset 的动作', currentCorrelationId)
+      return true
+    }
+    await mutateBag(aiRuntime, { kind: 'agent', action: 'copy', from, id, name: name || undefined })
+    const roster = await enrichPresetList(aiRuntime, await loadPresetRoster(aiRuntime))
     sendJson(response, 200, { data: roster, correlationId: currentCorrelationId })
     return true
   }
@@ -402,15 +490,18 @@ export async function handlePresetRoutes(request, response, url, ctx) {
       sendError(response, 400, 'validation_error', 'id 不能为空', currentCorrelationId)
       return true
     }
-    const roster = await aiRuntime.call('agentPresets/list')
+    const roster = await loadPresetRoster(aiRuntime)
     const enriched = await enrichPresetList(aiRuntime, roster)
     const preset = enriched.presets.find((row) => row.id === id)
     if (preset && preset.source !== 'user') {
       sendError(response, 403, 'forbidden', '只能删除用户导入的 preset', currentCorrelationId)
       return true
     }
-    await aiRuntime.call('agentPresets/deletePreset', { id })
-    const next = await enrichPresetList(aiRuntime, await aiRuntime.call('agentPresets/list'))
+    const verbs = describeKindVerbs('agent')
+    if (verbs.actions.includes('deletePreset')) {
+      await mutateBag(aiRuntime, { kind: 'agent', action: 'deletePreset', id })
+    }
+    const next = await enrichPresetList(aiRuntime, await loadPresetRoster(aiRuntime))
     sendJson(response, 200, { data: next, correlationId: currentCorrelationId })
     return true
   }

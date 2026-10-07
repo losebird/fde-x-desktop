@@ -166,4 +166,37 @@ test('GET /api/v1/search is the only palette mouth; compositor mouths are gone',
   assert.doesNotMatch(palette, /useCurrentTasks/)
   assert.doesNotMatch(palette, /useCurrentWorkflows/)
   assert.doesNotMatch(palette, /loadCurrentAiTarget/)
+  assert.doesNotMatch(palette, /currentAiTarget/)
+})
+
+test('search sheet skills and files use the pointed session', async () => {
+  const called = []
+  const sheet = await loadSearchSheet({
+    aiRuntime: {
+      status: () => ({ connected: true }),
+      call: async (endpoint) => {
+        if (endpoint === 'session/list') {
+          return {
+            items: [
+              { id: 'old', cwd: '/ws/a', origin: 'user', updatedAt: 1 },
+              { id: 'cur', cwd: '/ws/a', origin: 'user', updatedAt: 9 },
+            ],
+          }
+        }
+        return {}
+      },
+      lanAssist: async () => ({}),
+      semanticOs: async () => null,
+      stream: async function* () {
+        yield { type: 'baseline', value: { archivedSessionIds: [] } }
+      },
+    },
+    db: null,
+    collectFileHits: async (_cwd, _q, opts) => {
+      called.push(opts)
+      return [{ kind: 'file', id: 'a.md', title: 'a.md', href: { panel: 'files', path: 'a.md', sessionId: opts.sessionId }, score: 1 }]
+    },
+  }, { cwd: '/ws/a', query: 'a', sessionId: 'old' })
+  assert.equal(called[0].sessionId, 'old')
+  assert.equal(sheet.hits.find((hit) => hit.kind === 'file')?.href.sessionId, 'old')
 })

@@ -20,7 +20,8 @@ import {
   dmTalkId,
   imPaneOpen,
   imUnreadMouth,
-  imBrowseWhenHidden,
+  imBrowseOccupancy,
+  imBrowseForVisibleTalk,
 } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
 
 const a = '/Users/zxz/ws-a'
@@ -314,14 +315,20 @@ describe('im letter home', () => {
     assert.equal(imUnreadMouth(split, false, ''), 1)
   })
 
-  test('leaving IM closes the talk; coming back does not restore it', () => {
+  test('occupancy keeps the talk; missing talk on this lane becomes an empty list', () => {
     const open = { threadId: 'g_1', topicId: 'req_root', lane: 'workspace' }
-    assert.deepEqual(imBrowseWhenHidden(open, true), open)
-    assert.deepEqual(imBrowseWhenHidden(open, false), { threadId: null, topicId: null, lane: 'workspace' })
-    assert.deepEqual(imBrowseWhenHidden({ threadId: 'p1', topicId: null, lane: 'unassigned' }, false), {
+    assert.deepEqual(imBrowseOccupancy(open), open)
+    assert.deepEqual(imBrowseForVisibleTalk(open, () => true), open)
+    assert.deepEqual(imBrowseForVisibleTalk(open, () => false), { threadId: null, topicId: null, lane: 'workspace' })
+    assert.deepEqual(imBrowseForVisibleTalk({ threadId: 'p1', topicId: 'gone', lane: 'unassigned' }, () => true), {
+      threadId: 'p1',
+      topicId: 'gone',
+      lane: 'unassigned',
+    })
+    assert.deepEqual(imBrowseForVisibleTalk({ threadId: null, topicId: 'x', lane: 'workspace' }, () => true), {
       threadId: null,
       topicId: null,
-      lane: 'unassigned',
+      lane: 'workspace',
     })
   })
 })

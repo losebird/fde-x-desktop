@@ -287,18 +287,19 @@ export function imUnreadMouth(split, imOpen, currentHome) {
   return (imOpen ? 0 : currentN) + unassigned
 }
 
-/**
- * Leaving IM closes the open talk. Coming back lands on the list.
- * Mail that arrived while the pane was hidden stays unread until the human opens it.
- */
-export function imBrowseWhenHidden(browse, imVisible) {
+export function imBrowseOccupancy(browse) {
   const lane = browse && browse.lane === 'unassigned' ? 'unassigned' : 'workspace'
-  if (imVisible) {
-    return {
-      threadId: browse && browse.threadId ? String(browse.threadId) : null,
-      topicId: browse && browse.topicId ? String(browse.topicId) : null,
-      lane,
-    }
+  const threadId = browse && browse.threadId ? String(browse.threadId) : null
+  const topicId = threadId && browse && browse.topicId ? String(browse.topicId) : null
+  return { threadId, topicId, lane }
+}
+
+/** Occupancy of a visible IM pane. Missing talk on this lane becomes an empty list. Hidden panes keep occupancy. */
+export function imBrowseForVisibleTalk(browse, present) {
+  const next = imBrowseOccupancy(browse)
+  if (!next.threadId) return { threadId: null, topicId: null, lane: next.lane }
+  if (typeof present === 'function' && !present(next.threadId, next.lane)) {
+    return { threadId: null, topicId: null, lane: next.lane }
   }
-  return { threadId: null, topicId: null, lane }
+  return next
 }

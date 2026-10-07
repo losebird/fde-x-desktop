@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -7,15 +7,24 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { openFilesAtPath } from '@/lib/app-platform'
+import { landRef } from '@/lib/open-ref'
+import { currentAiTarget, isPrimarySession, resolvePrimarySessionId } from '@/lib/ai-target'
 import { useApp } from '@/store/app'
 import { clearAskAiNotice, getAskAiNotice, subscribeAskAiNotice } from '@/lib/ask-ai'
 import { extractComposerBody } from '@/lib/im-ai'
+import { proposeTerminalGrid } from '@/lib/terminal-fit'
+import { terminalCloseAction } from '@/lib/terminal-occupancy'
+import { useEvents } from '@/lib/events'
+// @ts-expect-error runtime ESM helper
+import { combineAbortSignal } from '../../runtime/live-probe.mjs'
 import {
   runtimeApi,
   RuntimeApiError,
   type AiRuntimeStatus,
   type AiSessionSummary,
 } from '@/lib/runtime-api'
+
+const AiTerminal = lazy(() => import('@/components/AiTerminal').then((mod) => ({ default: mod.AiTerminal })))
 
 const MIN_LEFT_OPEN = 720
 
@@ -45,6 +54,17 @@ function dshAppSrc(bffOrigin?: string | null) {
   return `${runtimeOrigin(bffOrigin)}/dsh-app/`
 }
 
+function pinnedIdsFromBag(bag: unknown) {
+  if (!bag || typeof bag !== 'object') return []
+  const row = bag as { items?: Array<{ id: string; fields?: unknown }>; mutation?: { pinnedSessionIds?: string[] } }
+  const pins = row.mutation?.pinnedSessionIds
+  if (Array.isArray(pins)) return pins.map(String)
+  return (row.items || []).filter((item) => {
+    const fields = item.fields && typeof item.fields === 'object' ? item.fields as { pinned?: boolean } : {}
+    return fields.pinned === true
+  }).map((item) => item.id)
+}
+
 export default function AI() {
   const { chatId } = useParams()
   const nav = useNavigate()
@@ -61,7 +81,6 @@ export default function AI() {
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [sessionNotice, setSessionNotice] = useState('')
   const [remoteSessions, setRemoteSessions] = useState<AiSessionSummary[]>([])
-  const [hiddenSessionIds, setHiddenSessionIds] = useState<string[]>([])
   const [presetRoster, setPresetRoster] = useState<Array<{ id: string; name?: string; description?: string }>>([])
   const [loadingRuntime, setLoadingRuntime] = useState(true)
   const [creatingSession, setCreatingSession] = useState(false)
@@ -76,6 +95,9 @@ export default function AI() {
   const [dropActive, setDropActive] = useState(false)
   const [memoryReady, setMemoryReady] = useState<Record<string, unknown> | null>(null)
   const [askAiNotice, setAskAiNotice] = useState(() => getAskAiNotice())
+  const [workspaceActions, setWorkspaceActions] = useState<string[]>([])
+  const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>([])
+  const [sessionLane, setSessionLane] = useState<'live' | 'archived'>('live')
 
   const rootRef = useRef<HTMLDivElement>(null)
   const dshFrameRef = useRef<HTMLIFrameElement>(null)
@@ -83,39 +105,145 @@ export default function AI() {
   const bffOriginRef = useRef('')
   const forkWaitRef = useRef<number | null>(null)
   const forkPendingRef = useRef(false)
-  const fillThreadRef = useRef('')
+
+  const inboxInflightRef = useRef(false)
+  const flushInboxDraftRef = useRef<() => void>(() => {})
   const ensureWorkspaceSessionRef = useRef('')
   const restoreHoldUntilRef = useRef(0)
   const connectedAtRef = useRef(0)
   const workspaceCwdRef = useRef(workspaceCwd)
   const [dshFrameSrc, setDshFrameSrc] = useState('')
+  const [sessionAccessory, setSessionAccessory] = useState('')
+  const [terminalBag, setTerminalBag] = useState<{ items: Array<{ id: string; title: string }>; actions: string[] }>({ items: [], actions: [] })
+  const [terminalId, setTerminalId] = useState('')
+  const [terminalNote, setTerminalNote] = useState('')
+  const terminalAttachMap = useRef<Record<string, string>>({})
+  const terminalBandRef = useRef<HTMLDivElement>(null)
+  const terminalBagRef = useRef(terminalBag)
+  terminalBagRef.current = terminalBag
 
   const runtimeConnected = runtimeStatus?.connected === true
   const visibleSessions = useMemo(
-    () => remoteSessions.filter((session) => {
-      if (session.origin === 'subagent') return false
-      if (hiddenSessionIds.includes(session.sessionId)) return false
-      if (workspaceCwd && session.cwd && session.cwd !== workspaceCwd) return false
-      return true
-    }),
-    [remoteSessions, workspaceCwd, hiddenSessionIds],
+    () => {
+      const rows = remoteSessions.filter((session) => {
+        if (!isPrimarySession(session)) return false
+        if (workspaceCwd && session.cwd && session.cwd !== workspaceCwd) return false
+        return true
+      })
+      if (!pinnedSessionIds.length) return rows
+      const rank = new Map(pinnedSessionIds.map((id, index) => [id, index]))
+      return [...rows].sort((a, b) => {
+        const pa = rank.has(a.sessionId) ? rank.get(a.sessionId)! : Number.MAX_SAFE_INTEGER
+        const pb = rank.has(b.sessionId) ? rank.get(b.sessionId)! : Number.MAX_SAFE_INTEGER
+        return pa - pb
+      })
+    },
+    [remoteSessions, workspaceCwd, pinnedSessionIds],
   )
-  const activeId = runtimeConnected
+  const wantedSessionId = runtimeConnected
     ? (chatId
-      || (storedActiveAiSessionId && visibleSessions.some((session) => session.sessionId === storedActiveAiSessionId)
+      || (storedActiveAiSessionId && remoteSessions.some((session) => session.sessionId === storedActiveAiSessionId)
         ? storedActiveAiSessionId
-        : undefined))
+        : ''))
+    : ''
+  const activeId = wantedSessionId
+    ? (resolvePrimarySessionId(wantedSessionId, remoteSessions) || undefined)
     : undefined
+
+  useEffect(() => {
+    if (!chatId || !remoteSessions.length) return
+    const primary = resolvePrimarySessionId(chatId, remoteSessions)
+    if (primary && primary !== chatId) nav(`/ai/${primary}`, { replace: true })
+  }, [chatId, remoteSessions, nav])
 
   const leftOpen = leftForced ?? width >= MIN_LEFT_OPEN
   const activeWorkspace = liveWorkspaces.find((item) => item.id === activeWorkspaceId)
   const activeSession = visibleSessions.find((session) => session.sessionId === activeId)
 
+  useEffect(() => {
+    if (!activeId) {
+      setTerminalBag({ items: [], actions: [] })
+      setTerminalId('')
+      setTerminalNote('')
+      return
+    }
+    let alive = true
+    void runtimeApi.catalogBag('terminal', { sessionId: activeId }).then((bag) => {
+      if (!alive) return
+      const items = Array.isArray(bag.items) ? bag.items.map((row) => ({ id: row.id, title: row.title })) : []
+      setTerminalBag({ items, actions: Array.isArray(bag.actions) ? bag.actions : [] })
+      setTerminalId((current) => current || items[0]?.id || '')
+    }).catch(() => {
+      if (alive) setTerminalBag({ items: [], actions: [] })
+    })
+    return () => { alive = false }
+  }, [activeId])
+
+  function attachmentFor(termId: string) {
+    if (!terminalAttachMap.current[termId]) {
+      terminalAttachMap.current[termId] = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `att-${Date.now()}`
+    }
+    return terminalAttachMap.current[termId]
+  }
+
+  const dropStoppedTerminal = useCallback((id: string) => {
+    const sid = String(activeId || '')
+    const bag = terminalBagRef.current
+    const close = terminalCloseAction(bag.actions)
+    const finish = (items: Array<{ id: string; title: string }>, actions: string[]) => {
+      const next = items.filter((row) => row.id !== id)
+      delete terminalAttachMap.current[id]
+      setTerminalNote('')
+      setTerminalBag({ items: next, actions })
+      if (!next.length) {
+        setTerminalId('')
+        setSessionAccessory('')
+        return
+      }
+      setTerminalId((current) => (current === id ? next[0].id : current))
+    }
+    const afterList = () => {
+      if (!sid) {
+        finish(bag.items, bag.actions)
+        return
+      }
+      void runtimeApi.catalogBag('terminal', { sessionId: sid }).then((fresh) => {
+        const items = Array.isArray(fresh.items) ? fresh.items.map((row) => ({ id: row.id, title: row.title })) : []
+        finish(items, Array.isArray(fresh.actions) ? fresh.actions : bag.actions)
+      }).catch(() => finish(bag.items, bag.actions))
+    }
+    if (close && sid) {
+      void runtimeApi.catalogAction({
+        kind: 'terminal',
+        action: close,
+        sessionId: sid,
+        id,
+      }).then(() => afterList()).catch(() => afterList())
+      return
+    }
+    afterList()
+  }, [activeId])
+
+  const suspectStoppedTerminal = useCallback((id: string) => {
+    const sid = String(activeId || '')
+    if (!sid) return
+    void runtimeApi.catalogBag('terminal', { sessionId: sid }).then((fresh) => {
+      const items = Array.isArray(fresh.items) ? fresh.items : []
+      if (items.some((row) => row.id === id)) return
+      dropStoppedTerminal(id)
+    }).catch(() => undefined)
+  }, [activeId, dropStoppedTerminal])
+
   async function reloadRemoteSessions(signal?: AbortSignal) {
-    const sessions = await runtimeApi.listAiSessions({ includeBlank: true }, signal)
+    const sessions = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true, includeArchived: sessionLane === 'archived' }, signal)
     setRemoteSessions(sessions)
     return sessions
   }
+
+  useEffect(() => {
+    if (!runtimeConnected) return
+    void reloadRemoteSessions().catch(() => undefined)
+  }, [sessionLane])
 
   function tellDsh(op: string, extra: Record<string, unknown> = {}) {
     const origin = runtimeOrigin(bffOriginRef.current || runtimeStatus?.bffOrigin)
@@ -218,7 +346,7 @@ export default function AI() {
         const deadline = Date.now() + 10_000
         let found: AiSessionSummary | undefined
         while (Date.now() < deadline) {
-          const rows = await runtimeApi.listAiSessions({ includeBlank: true }).catch(() => [])
+          const rows = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true }).catch(() => [])
           found = rows.find((row) => row.sessionId === sid)
           if (found) {
             setRemoteSessions(rows.map((row) => (titles.get(row.sessionId) ? { ...row, title: titles.get(row.sessionId)! } : row)))
@@ -230,12 +358,17 @@ export default function AI() {
           setSessionNotice('复原已写盘，但列表尚未刷新')
           return
         }
-        const title = titles.get(sid) || found.title || ''
-        nav(`/ai/${sid}`)
+        const openId = resolvePrimarySessionId(sid, rows) || (isPrimarySession(found) ? sid : '')
+        if (!openId) {
+          setSessionNotice('复原的是子会话，父会话不在列表里')
+          return
+        }
+        const title = titles.get(openId) || titles.get(sid) || found.title || ''
+        nav(`/ai/${openId}`)
         const origin = bffOriginRef.current || defaultBffOrigin()
-        setDshFrameSrc(`${dshAppSrc(origin)}?restore=${Date.now()}#fde-session=${encodeURIComponent(sid)}`)
+        setDshFrameSrc(`${dshAppSrc(origin)}?restore=${Date.now()}#fde-session=${encodeURIComponent(openId)}`)
         const select = () => tellDsh('select', {
-          sessionId: sid,
+          sessionId: openId,
           ...(title ? { title } : {}),
           ...(workspaceCwdRef.current ? { cwd: workspaceCwdRef.current } : {}),
         })
@@ -258,19 +391,33 @@ export default function AI() {
     }
     function onPrompt(event: Event) {
       const detail = (event as CustomEvent<{ text?: string; fillThreadId?: string; readOnly?: boolean }>).detail
-      const sid = activeIdRef.current || ''
-      if (!sid) {
-        setSessionNotice('当前工作区还没有打开的会话')
-        return
-      }
-      fillThreadRef.current = String(detail?.fillThreadId || '')
-      if (detail?.readOnly) {
-        tellDsh('readAssistant', { sessionId: sid })
-        return
-      }
       const text = String(detail?.text || '').trim()
-      if (!text) return
-      tellDsh('prompt', { sessionId: sid, text })
+      const fillThreadId = String(detail?.fillThreadId || '').trim()
+      if (fillThreadId) {
+        const sid = String(detail?.sessionId || useApp.getState().activeAiSessionId || '').trim()
+        if (sid) useApp.getState().setIMFillBind({ sessionId: sid, threadId: fillThreadId })
+      }
+      void currentAiTarget().then((target) => {
+        if (!target.ok) {
+          setSessionNotice(target.error)
+          return
+        }
+        const sid = target.sessionId
+        nav(`/ai/${sid}`)
+        tellDsh('select', {
+          sessionId: sid,
+          ...(target.workspaceId && !target.workspaceId.startsWith('ws_') ? { workspaceId: target.workspaceId } : {}),
+          ...(target.cwd ? { cwd: target.cwd } : {}),
+        })
+        if (detail?.readOnly) {
+          tellDsh('readAssistant', { sessionId: sid })
+          return
+        }
+        if (!text) return
+        tellDsh('prompt', { sessionId: sid, text })
+      }).catch((error) => {
+        setSessionNotice(error instanceof Error ? error.message : '没问出去')
+      })
     }
     function onAttach(event: Event) {
       const detail = (event as CustomEvent<{ path?: string; name?: string; sessionId?: string }>).detail
@@ -287,11 +434,13 @@ export default function AI() {
     window.addEventListener('fde-x-ai-transcript', onTranscript as EventListener)
     window.addEventListener('fde-x-ai-restore', onRestore as EventListener)
     function onOpen(event: Event) {
-      const detail = (event as CustomEvent<{ sessionId?: string; title?: string }>).detail
+      const detail = (event as CustomEvent<{ sessionId?: string; title?: string; accessory?: string }>).detail
       const sid = String(detail?.sessionId || '').trim()
       const title = String(detail?.title || '').trim()
+      const accessory = String(detail?.accessory || '').trim()
+      if (accessory) setSessionAccessory(accessory)
       if (!sid) {
-        nav('/ai')
+        if (!accessory) nav('/ai')
         return
       }
       void reloadRemoteSessions().then((rows) => {
@@ -340,23 +489,31 @@ export default function AI() {
         if (!status.connected) status = await runtimeApi.connectAi(abort.signal)
         if (!active) return
         setRuntimeStatus(status)
-        const [sessions, roster, dshWorkspaces] = await Promise.all([
-          runtimeApi.listAiSessions({ includeBlank: true }, abort.signal),
+        const [sessions, roster, dshWorkspaces, workspaceBag] = await Promise.all([
+          runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true }, abort.signal),
           runtimeApi.listAiPresets(abort.signal).catch(() => ({ presets: [] as Array<{ id: string }> })),
           runtimeApi.listAiWorkspaces(abort.signal).catch(() => []),
+          runtimeApi.catalogBag('workspace', {}, abort.signal).catch(() => ({ actions: [] as string[] })),
         ])
         if (!active) return
         setRemoteSessions(sessions)
         setPresetRoster(Array.isArray(roster.presets) ? roster.presets : [])
+        setWorkspaceActions(Array.isArray(workspaceBag.actions) ? workspaceBag.actions : [])
+        setPinnedSessionIds(pinnedIdsFromBag(workspaceBag))
         if (dshWorkspaces.length) {
-          replaceWorkspaces(dshWorkspaces.map((item) => ({
+          const mapped = dshWorkspaces.map((item) => ({
             id: item.workspaceId,
             name: item.title || item.path.split('/').filter(Boolean).at(-1) || item.path,
             emoji: '📁',
             desc: item.path,
             cwd: item.path,
             createdAt: new Date().toISOString(),
-          })))
+          }))
+          replaceWorkspaces(mapped)
+          const current = mapped.find((item) => item.id === activeWorkspaceId) || mapped[0]
+          if (current?.cwd) {
+            void runtimeApi.ensureWorkspace({ id: current.id, name: current.name, description: current.desc, cwd: current.cwd }).catch(() => undefined)
+          }
         }
       } catch (error) {
         if (!active || abort.signal.aborted) return
@@ -388,18 +545,24 @@ export default function AI() {
       return
     }
     let alive = true
-    const tick = () => {
-      void runtimeApi.memoryReady().then((row) => {
-        if (alive) setMemoryReady(row)
-      }).catch(() => undefined)
-    }
-    tick()
-    const timer = window.setInterval(tick, 8000)
+    const ac = new AbortController()
+    void runtimeApi.memoryReady(combineAbortSignal(ac.signal, 5000)).then((row) => {
+      if (!alive) return
+      if (!row || row.probe === 'failed' || typeof row.ready !== 'boolean') return
+      setMemoryReady(row)
+    }).catch(() => undefined)
     return () => {
       alive = false
-      window.clearInterval(timer)
+      ac.abort()
     }
   }, [runtimeConnected])
+  useEvents(['memory.engine.changed'], (event) => {
+    const payload = event.payload
+    if (!payload || typeof payload !== 'object') return
+    const row = payload as Record<string, unknown>
+    if (row.probe === 'failed' || typeof row.ready !== 'boolean') return
+    setMemoryReady(row)
+  })
 
   useEffect(() => {
     if (runtimeConnected) connectedAtRef.current = Date.now()
@@ -437,11 +600,38 @@ export default function AI() {
     })
   }, [runtimeConnected, loadingRuntime, runtimeStatus?.bffOrigin, chatId, activeId])
 
+  const flushInboxDraft = () => {
+    const text = useApp.getState().aiInboxDraft.trim()
+    if (!text) {
+      inboxInflightRef.current = false
+      return
+    }
+    if (!runtimeConnected) return
+    if (inboxInflightRef.current) return
+    inboxInflightRef.current = true
+    void currentAiTarget().then((target) => {
+      if (!target.ok) {
+        inboxInflightRef.current = false
+        setSessionNotice(target.error)
+        return
+      }
+      nav(`/ai/${target.sessionId}`)
+      tellDsh('select', {
+        sessionId: target.sessionId,
+        ...(target.workspaceId && !target.workspaceId.startsWith('ws_') ? { workspaceId: target.workspaceId } : {}),
+        ...(target.cwd ? { cwd: target.cwd } : {}),
+      })
+      tellDsh('compose', { sessionId: target.sessionId, text })
+    }).catch((error) => {
+      inboxInflightRef.current = false
+      setSessionNotice(error instanceof Error ? error.message : '没放进输入框')
+    })
+  }
+  flushInboxDraftRef.current = flushInboxDraft
+
   useEffect(() => {
-    const text = aiInboxDraft.trim()
-    if (!text || !runtimeConnected || !activeId) return
-    tellDsh('compose', { sessionId: activeId, text })
-  }, [aiInboxDraft, runtimeConnected, activeId])
+    flushInboxDraft()
+  }, [aiInboxDraft, runtimeConnected, dshFrameSrc])
 
   useEffect(() => {
     if (!runtimeConnected || !activeId) return
@@ -462,12 +652,14 @@ export default function AI() {
       if (data?.type === 'fde-x-dsh-error' && typeof data.message === 'string') {
         if (forkWaitRef.current) window.clearTimeout(forkWaitRef.current)
         forkPendingRef.current = false
+        inboxInflightRef.current = false
         setCreatingSession(false)
         setSessionNotice(data.message)
         setRuntimeError(data.message)
         return
       }
       if (data?.type === 'fde-x-dsh-ready' && data.op === 'composed') {
+        inboxInflightRef.current = false
         setAiInboxDraft('')
         setSessionNotice('已放入当前会话输入框')
         return
@@ -477,33 +669,51 @@ export default function AI() {
         return
       }
       if (data?.type === 'fde-x-dsh-ready' && data.op === 'assistant' && typeof data.text === 'string') {
-        const threadId = fillThreadRef.current
-        const body = extractComposerBody(data.text)
-        fillThreadRef.current = ''
-        if (threadId) {
-          useApp.getState().setIMComposerDraft(threadId, body)
-          window.dispatchEvent(new CustomEvent('fde-x-im-fill', { detail: { threadId, text: body } }))
+        const bind = useApp.getState().imFillBind
+        const sid = String(data.sessionId || '')
+        if (bind && sid && bind.sessionId === sid) {
+          const body = extractComposerBody(data.text)
+          useApp.getState().setIMFillBind(null)
+          useApp.getState().setIMComposerDraft(bind.threadId, body)
+          window.dispatchEvent(new CustomEvent('fde-x-im-fill', { detail: { threadId: bind.threadId, text: body } }))
           setSessionNotice(body ? '已放进 IM 输入框' : '左边写完了，但没有可放进输入框的正文')
         }
         return
       }
-      if (data?.type === 'fde-x-dsh-ready' && data.op === 'openFile') {
+      if (data?.type === 'fde-x-dsh-ready' && (data.op === 'openFile' || data.op === 'land')) {
+        const kind = data.op === 'openFile' ? 'file' : String(data.kind || 'file')
         const path = typeof data.path === 'string' ? data.path : ''
         const cwd = typeof data.cwd === 'string' ? data.cwd : ''
-        if (!openFilesAtPath(path, { cwd })) {
-          setSessionNotice('无法在当前工作区打开这个文件')
+        if (kind === 'file') {
+          if (path && !openFilesAtPath(path, { cwd })) {
+            setSessionNotice('无法在当前工作区打开这个文件')
+          } else if (!path) {
+            landRef('file', { path })
+          }
+          return
         }
+        landRef(kind, {
+          sessionId: typeof data.sessionId === 'string' ? data.sessionId : '',
+          path,
+          tab: typeof data.tab === 'string' ? data.tab : '',
+          taskId: typeof data.taskId === 'string' ? data.taskId : '',
+        })
         return
       }
       if (!data || data.type !== 'fde-x-dsh-ready' || typeof data.sessionId !== 'string') return
       if (forkWaitRef.current) window.clearTimeout(forkWaitRef.current)
       forkPendingRef.current = false
       setCreatingSession(false)
-      setSessionNotice('')
+      if (!data.op && useApp.getState().aiInboxDraft.trim()) {
+        inboxInflightRef.current = false
+        flushInboxDraftRef.current()
+      }
+      if (!useApp.getState().aiInboxDraft.trim()) setSessionNotice('')
       setRuntimeError(null)
-      void reloadRemoteSessions().then(() => {
+      void reloadRemoteSessions().then((sessions) => {
         if (data.op === 'archived') return
-        nav(`/ai/${data.sessionId}`)
+        const openId = resolvePrimarySessionId(data.sessionId, sessions) || data.sessionId
+        nav(`/ai/${openId}`)
       })
     }
     window.addEventListener('message', onMsg)
@@ -603,11 +813,12 @@ export default function AI() {
     setChatMenu(null)
     const next = visibleSessions.find((session) => session.sessionId !== sessionId)
     if (next) nav(`/ai/${next.sessionId}`)
-    void runtimeApi.archiveAiSession(sessionId).then(() => {
-      setHiddenSessionIds((current) => current.includes(sessionId) ? current : [...current, sessionId])
+    const finish = () => {
       setDeleteConfirmId(null)
       if (!next) nav('/ai')
-    }).catch((error) => {
+      return reloadRemoteSessions().then(setRemoteSessions)
+    }
+    void runtimeApi.catalogAction({ kind: 'workspace', action: 'archiveSession', sessionId, id: sessionId }).then(finish).catch((error) => {
       setRuntimeError(displayError(error))
       setSessionNotice(displayError(error))
       setDeleteConfirmId(null)
@@ -625,15 +836,18 @@ export default function AI() {
             spinning: false,
           }
         : {
-          tone: (sessionNotice || runtimeError || memoryReady?.ready === false) ? 'warn' as const : 'ok' as const,
-          icon: (sessionNotice || runtimeError || memoryReady?.ready === false) ? CircleAlert : Wifi,
+          tone: (sessionNotice || runtimeError) ? 'warn' as const : 'ok' as const,
+          icon: (sessionNotice || runtimeError) ? CircleAlert : Wifi,
           text: sessionNotice || runtimeError || (activeSession && !activeSession.cwd
             ? '当前会话没有绑定工作区目录，输入框会锁住。请新建会话或换一条有目录的会话。'
-            : memoryReady?.ready === false
-              ? (String(memoryReady.reason || '').includes('exited') || String(memoryReady.detail || '').includes('exited')
-                ? '已连接本地核心。语义引擎刚退出，正在重新拉起，稍后记忆工具可用。'
-                : `已连接本地核心，但语义引擎未就绪（${String(memoryReady.detail || memoryReady.reason || 'NOT_READY')}）。记忆工具会失败，去设置 → 语义记忆看原因。`)
-              : '已连接本地核心，对话由 DSH 会话页运行。'),
+            : [
+                '已连接本地核心，对话由 DSH 会话页运行。',
+                memoryReady?.ready === false
+                  ? (String(memoryReady.reason || '').includes('exited') || String(memoryReady.detail || '').includes('exited')
+                    ? '语义引擎正在拉起。'
+                    : '语义引擎未就绪。')
+                  : '',
+              ].filter(Boolean).join(' ')),
           spinning: false,
         }
       : {
@@ -654,6 +868,15 @@ export default function AI() {
           return <StatusIcon size={12} className={statusBanner.spinning ? 'animate-spin' : ''} />
         })()}
         <span className="truncate">{statusBanner.text}</span>
+        {activeId && terminalBag.actions.length > 0 && (
+          <button
+            type="button"
+            className="btn-ghost h-6 px-2 text-[11px] ml-auto"
+            onClick={() => setSessionAccessory((current) => current === 'terminal' ? '' : 'terminal')}
+          >
+            终端
+          </button>
+        )}
         {askAiNotice?.sessionId ? (
           <button
             type="button"
@@ -682,6 +905,12 @@ export default function AI() {
                 </button>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto">
+                {leftOpen && workspaceActions.includes('unarchiveSession') && (
+                  <div className="flex gap-1 px-2 pt-2">
+                    <button type="button" className={clsx('btn-ghost h-7 px-2 text-[11px]', sessionLane === 'live' && 'text-brand')} onClick={() => setSessionLane('live')}>进行中</button>
+                    <button type="button" className={clsx('btn-ghost h-7 px-2 text-[11px]', sessionLane === 'archived' && 'text-brand')} onClick={() => setSessionLane('archived')}>归档</button>
+                  </div>
+                )}
                 {leftOpen ? (
                   <ul className="p-2 space-y-1">
                     {visibleSessions.map((session) => {
@@ -712,6 +941,7 @@ export default function AI() {
                                   <div className={clsx('text-sm truncate', active && 'font-medium')}>{session.title}</div>
                                 )}
                                 <div className="text-[11px] text-ink-muted truncate mt-0.5">
+                                  {pinnedSessionIds.includes(session.sessionId) ? '置顶 · ' : ''}
                                   {new Date(session.updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                                 </div>
                               </div>
@@ -737,9 +967,47 @@ export default function AI() {
                                   <button className="w-full px-2.5 py-1.5 rounded text-xs flex items-center gap-2 hover:bg-surface-2" onClick={() => forkManagedChat(session.sessionId)}>
                                     <GitBranch size={12} /> 分叉会话
                                   </button>
-                                  <button className="w-full px-2.5 py-1.5 rounded text-xs flex items-center gap-2 text-accent-red hover:bg-red-50" onClick={() => deleteManagedChat(session.sessionId)}>
-                                    <Trash2 size={12} /> {deleteConfirmId === session.sessionId ? '再次点击删除' : '删除'}
-                                  </button>
+                                  {workspaceActions.includes('pinSession') && !session.archived && !pinnedSessionIds.includes(session.sessionId) && (
+                                    <button className="w-full px-2.5 py-1.5 rounded text-xs flex items-center gap-2 hover:bg-surface-2" onClick={() => {
+                                      setChatMenu(null)
+                                      void runtimeApi.catalogAction({ kind: 'workspace', action: 'pinSession', sessionId: session.sessionId, id: session.sessionId }).then((bag) => {
+                                        setPinnedSessionIds(pinnedIdsFromBag(bag))
+                                      }).catch((error) => {
+                                        setRuntimeError(displayError(error))
+                                        setSessionNotice(displayError(error))
+                                      })
+                                    }}>
+                                      置顶
+                                    </button>
+                                  )}
+                                  {workspaceActions.includes('unpinSession') && pinnedSessionIds.includes(session.sessionId) && (
+                                    <button className="w-full px-2.5 py-1.5 rounded text-xs flex items-center gap-2 hover:bg-surface-2" onClick={() => {
+                                      setChatMenu(null)
+                                      void runtimeApi.catalogAction({ kind: 'workspace', action: 'unpinSession', sessionId: session.sessionId, id: session.sessionId }).then((bag) => {
+                                        setPinnedSessionIds(pinnedIdsFromBag(bag))
+                                      }).catch((error) => {
+                                        setRuntimeError(displayError(error))
+                                        setSessionNotice(displayError(error))
+                                      })
+                                    }}>
+                                      取消置顶
+                                    </button>
+                                  )}
+                                  {session.archived && workspaceActions.includes('unarchiveSession') ? (
+                                    <button className="w-full px-2.5 py-1.5 rounded text-xs flex items-center gap-2 hover:bg-surface-2" onClick={() => {
+                                      setChatMenu(null)
+                                      void runtimeApi.catalogAction({ kind: 'workspace', action: 'unarchiveSession', sessionId: session.sessionId, id: session.sessionId }).then(() => reloadRemoteSessions().then(setRemoteSessions)).catch((error) => {
+                                        setRuntimeError(displayError(error))
+                                        setSessionNotice(displayError(error))
+                                      })
+                                    }}>
+                                      恢复
+                                    </button>
+                                  ) : workspaceActions.includes('archiveSession') ? (
+                                    <button className="w-full px-2.5 py-1.5 rounded text-xs flex items-center gap-2 text-accent-red hover:bg-red-50" onClick={() => deleteManagedChat(session.sessionId)}>
+                                      <Trash2 size={12} /> {deleteConfirmId === session.sessionId ? '再次点击归档' : '归档'}
+                                    </button>
+                                  ) : null}
                                 </div>
                               )}
                             </div>
@@ -771,32 +1039,109 @@ export default function AI() {
                 </button>
               </div>
             </aside>
-            <div className="flex-1 min-h-0 min-w-0 relative">
-              {!activeId ? (
-                <div className="absolute inset-0 flex items-center justify-center text-sm text-ink-muted px-6 text-center">
-                  当前工作区还没有会话
-                </div>
-              ) : dshFrameSrc ? (
-                <iframe
-                  ref={dshFrameRef}
-                  title="DSH 会话"
-                  src={dshFrameSrc}
-                  allow="clipboard-read; clipboard-write"
-                  className="absolute inset-0 w-full h-full border-0 bg-white"
-                  onLoad={() => {
-                    const sid = activeIdRef.current
-                    if (!sid) return
-                    tellDsh('select', {
-                      sessionId: sid,
-                      ...(activeWorkspaceId && !activeWorkspaceId.startsWith('ws_') ? { workspaceId: activeWorkspaceId } : {}),
-                      ...(workspaceCwdRef.current ? { cwd: workspaceCwdRef.current } : {}),
-                    })
-                  }}
-                />
-              ) : null}
-              {dropActive && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-brand/15 border-2 border-dashed border-brand text-sm font-medium text-brand pointer-events-auto">
-                  放到这里，发给当前会话
+            <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+              <div className="flex-1 min-h-0 min-w-0 relative">
+                {!activeId ? (
+                  <div className="absolute inset-0 flex items-center justify-center text-sm text-ink-muted px-6 text-center">
+                    当前工作区还没有会话
+                  </div>
+                ) : dshFrameSrc ? (
+                  <iframe
+                    ref={dshFrameRef}
+                    title="DSH 会话"
+                    src={dshFrameSrc}
+                    allow="clipboard-read; clipboard-write"
+                    className="absolute inset-0 w-full h-full border-0 bg-white"
+                    onLoad={() => {
+                      const sid = activeIdRef.current
+                      if (!sid) return
+                      tellDsh('select', {
+                        sessionId: sid,
+                        ...(activeWorkspaceId && !activeWorkspaceId.startsWith('ws_') ? { workspaceId: activeWorkspaceId } : {}),
+                        ...(workspaceCwdRef.current ? { cwd: workspaceCwdRef.current } : {}),
+                      })
+                    }}
+                  />
+                ) : null}
+                {dropActive && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-brand/15 border-2 border-dashed border-brand text-sm font-medium text-brand pointer-events-auto">
+                    放到这里，发给当前会话
+                  </div>
+                )}
+              </div>
+              {sessionAccessory === 'terminal' && activeId && (
+                <div className="shrink-0 border-t border-line px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[11px] text-ink-muted">终端 · 当前会话</div>
+                    <div className="flex items-center gap-1">
+                      {terminalBag.actions.includes('create') && (
+                        <button
+                          type="button"
+                          className="btn-ghost h-7 px-2 text-[11px]"
+                          onClick={() => {
+                            const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `term-${Date.now()}`
+                            setTerminalNote('')
+                            const band = terminalBandRef.current
+                            const grid = proposeTerminalGrid(band?.clientWidth || 0, band?.clientHeight || 0)
+                            void runtimeApi.catalogAction({
+                              kind: 'terminal',
+                              action: 'create',
+                              sessionId: activeId,
+                              id,
+                              params: { id, cols: grid.cols, rows: grid.rows },
+                            }).then((bag) => {
+                              const next = bag && typeof bag === 'object' ? bag as { items?: Array<{ id: string; title: string }>; actions?: string[]; mutation?: { id?: string } } : {}
+                              const items = Array.isArray(next.items) ? next.items.map((row) => ({ id: row.id, title: row.title })) : []
+                              setTerminalBag({ items, actions: Array.isArray(next.actions) ? next.actions : terminalBag.actions })
+                              setTerminalId(String(next.mutation?.id || id))
+                            }).catch((error) => setTerminalNote(displayError(error)))
+                          }}
+                        >
+                          打开
+                        </button>
+                      )}
+                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => setSessionAccessory('')}>
+                        关闭
+                      </button>
+                    </div>
+                  </div>
+                  {terminalBag.items.length > 1 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {terminalBag.items.map((row) => (
+                        <button
+                          key={row.id}
+                          type="button"
+                          className={clsx('btn-ghost h-7 px-2 text-[11px]', terminalId === row.id && 'text-brand')}
+                          onClick={() => setTerminalId(row.id)}
+                        >
+                          {row.title || row.id}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div ref={terminalBandRef} className="mt-1.5 h-48 w-full overflow-hidden bg-ink">
+                    {terminalId && terminalBag.actions.includes('follow') ? (
+                      <Suspense fallback={<div className="text-xs text-ink-muted p-2">终端加载中…</div>}>
+                        <AiTerminal
+                          sessionId={activeId}
+                          terminalId={terminalId}
+                          attachmentId={attachmentFor(terminalId)}
+                          canWrite={terminalBag.actions.includes('write')}
+                          canResize={terminalBag.actions.includes('resize')}
+                          onError={setTerminalNote}
+                          onStopped={dropStoppedTerminal}
+                          onSuspectStopped={suspectStoppedTerminal}
+                        />
+                      </Suspense>
+                    ) : (
+                      <div className="text-xs text-ink-muted p-2">
+                        {terminalBag.items.length
+                          ? terminalBag.items.map((row) => row.title || row.id).join(' · ')
+                          : (terminalBag.actions.length ? '当前会话还没有终端。' : '当前核心没有把终端投影到这一块。')}
+                      </div>
+                    )}
+                  </div>
+                  {terminalNote && <div className="text-[11px] text-accent-red mt-1">{terminalNote}</div>}
                 </div>
               )}
             </div>

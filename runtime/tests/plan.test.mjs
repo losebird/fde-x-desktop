@@ -119,4 +119,56 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
   const after = await fetch(`${base}/api/v1/plan/tasks?workspaceId=${wsA}`)
   const afterBody = await after.json()
   assert.equal(afterBody.data.length, 0)
+
+  const createEvent = await fetch(`${base}/api/v1/plan/events`, {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      workspaceId: wsA,
+      title: '本地会',
+      startAt: '2026-10-02T01:00:00.000Z',
+      endAt: '2026-10-02T02:00:00.000Z',
+    }),
+  })
+  assert.equal(createEvent.status, 201)
+  const eventA = (await createEvent.json()).data
+  const from = Date.parse('2026-01-01T00:00:00.000Z')
+  const to = Date.parse('2027-01-01T00:00:00.000Z')
+  const listEvents = await fetch(`${base}/api/v1/plan/events?workspaceId=${wsA}&from=${from}&to=${to}`)
+  const listEventsBody = await listEvents.json()
+  assert.equal(listEventsBody.data.length, 1)
+  assert.equal(listEventsBody.data[0].title, '本地会')
+  const delEvent = await fetch(`${base}/api/v1/plan/events/${eventA.id}?workspaceId=${wsA}`, {
+    method: 'DELETE',
+    headers: { Origin: origin },
+  })
+  assert.equal(delEvent.status, 200)
+
+  const hostDel = await fetch(`${base}/api/v1/plan/events/${encodeURIComponent('dsh-schedule:sch1')}?workspaceId=${wsA}`, {
+    method: 'DELETE',
+    headers: { Origin: origin },
+  })
+  assert.equal(hostDel.status, 502)
+  const hostDelBody = await hostDel.json()
+  assert.equal(hostDelBody.error, 'host_schedule_failed')
+
+  const createWf = await fetch(`${base}/api/v1/plan/workflows`, {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspaceId: wsA, name: '本地流' }),
+  })
+  assert.equal(createWf.status, 201)
+  const listWf = await fetch(`${base}/api/v1/plan/workflows?workspaceId=${wsA}`)
+  const listWfBody = await listWf.json()
+  assert.equal(listWfBody.data.length, 1)
+  assert.equal(listWfBody.data[0].name, '本地流')
+
+  const hostKill = await fetch(`${base}/api/v1/plan/workflows/${encodeURIComponent('dsh-job:j1')}`, {
+    method: 'PATCH',
+    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'active', workspaceId: wsA }),
+  })
+  assert.equal(hostKill.status, 502)
+  const hostKillBody = await hostKill.json()
+  assert.equal(hostKillBody.error, 'host_job_failed')
 })

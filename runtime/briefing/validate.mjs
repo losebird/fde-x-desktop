@@ -68,6 +68,19 @@ export function validateSchedule(schedule) {
  * @param {unknown} sources
  * @returns {string[]}
  */
+export function validateDelivery(delivery) {
+  const errors = []
+  if (delivery === null || delivery === undefined) return errors
+  if (typeof delivery !== 'object' || Array.isArray(delivery)) {
+    errors.push('delivery 必须是对象')
+    return errors
+  }
+  if (delivery.peerId !== undefined && typeof delivery.peerId !== 'string') {
+    errors.push('delivery.peerId 必须是字符串')
+  }
+  return errors
+}
+
 export function validateSources(sources) {
   const errors = []
   if (sources === undefined) return errors

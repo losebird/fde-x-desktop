@@ -1,4 +1,4 @@
-import { loadCurrentAiTarget } from '@/lib/ai-target'
+import { currentAiTarget } from '@/lib/ai-target'
 import { buildContextPack, renderContextForPrompt, type ContextPack, type ContextScope } from '@/lib/context-pack'
 import { classifyHitId, originOfCard } from '@/lib/memory-identity'
 import { revealAi } from '@/lib/open-ref'
@@ -16,7 +16,7 @@ export async function askWithEntity(opts: OriginEntityInput & {
   scopes?: ContextScope[]
   revealAi?: boolean
 }): Promise<AskWithEntityResult> {
-  const target = await loadCurrentAiTarget()
+  const target = await currentAiTarget()
   if (!target.ok) return { ok: false, error: target.error }
   const originBlock = renderOriginEntity(opts)
   let pack: ContextPack | undefined

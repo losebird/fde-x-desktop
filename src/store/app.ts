@@ -4,13 +4,14 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/react/shallow'
 import type {
   Task, ScheduleEvent, FileNode, ChatThread, Agent, IMContact, IMMessage,
-  BusinessTable, MCPServer, Skill, Notification, NewsItem,
+  BusinessTable, Notification, NewsItem,
   MetricCard, Workspace, User, ID, Workflow, FileVersion, ChatArtifact,
   IMAttachment, IMTopic, IMHandoffPackage,
 } from '@/lib/types'
 import { seedUser } from '@/data/seed'
 import { runtimeApi } from '@/lib/runtime-api'
 import { emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
+import { imBrowseOccupancy } from '@/lib/im-letter-home'
 
 const PLAN_UNAVAILABLE = '计划服务未就绪'
 
@@ -138,10 +139,11 @@ interface UIState {
 
   // 当前激活(IM 联系人)
   activeThreadId: ID | null
-  setActiveThread: (id: ID | null) => void
   openIMPanel: (threadId?: ID) => void
   imComposerDrafts: Record<ID, string>
   setIMComposerDraft: (threadId: ID, text: string) => void
+  imFillBind: { sessionId: string; threadId: ID } | null
+  setIMFillBind: (bind: { sessionId: string; threadId: ID } | null) => void
 
   // AI 抽屉当前 Agent(null = 当前工作区还没有 Agent)
   activeAgentId: ID | null
@@ -183,8 +185,6 @@ interface State {
   imMessages: IMMessage[]
   imTopics: IMTopic[]
   businessTables: BusinessTable[]
-  mcp: MCPServer[]
-  skills: Skill[]
   notifications: Notification[]
   news: NewsItem[]
   metrics: MetricCard[]
@@ -240,9 +240,6 @@ interface State {
   addRow: (tableId: ID, row: Record<string, string | number>) => void
   updateRow: (tableId: ID, rowId: ID, patch: Record<string, string | number>) => void
   removeRow: (tableId: ID, rowId: ID) => void
-  // MCP / skills
-  toggleMCP: (id: ID) => void
-  toggleSkill: (id: ID) => void
   // notifications
   markNotifRead: (id: ID) => void
   markAllNotifRead: () => void
@@ -299,8 +296,6 @@ const buildInitial = () => ({
   imMessages: [],
   imTopics: [],
   businessTables: [],
-  mcp: [],
-  skills: [],
   notifications: [],
   news: [],
   metrics: [],
@@ -581,26 +576,31 @@ export const useApp = create<AppState>()(
         set((s) => ({ briefingBrowse: { ...s.briefingBrowse, ...patch } })),
       imBrowse: { threadId: null, topicId: null, lane: 'workspace' },
       setImBrowse: (patch) =>
-        set((s) => ({ imBrowse: { ...s.imBrowse, ...patch } })),
+        set((s) => {
+          const imBrowse = imBrowseOccupancy({ ...s.imBrowse, ...patch })
+          return { imBrowse, activeThreadId: imBrowse.threadId }
+        }),
 
-      activeThreadId: 'im1',
-      setActiveThread: (id) => set({ activeThreadId: id }),
+      activeThreadId: null,
       openIMPanel: (threadId) => {
         if (threadId) {
-          set((s) => ({
-            activeThreadId: threadId,
-            imBrowse: {
-              threadId,
-              topicId: s.imBrowse.threadId === threadId ? s.imBrowse.topicId : null,
+          const id = String(threadId)
+          set((s) => {
+            const imBrowse = imBrowseOccupancy({
+              threadId: id,
+              topicId: s.imBrowse.threadId === id ? s.imBrowse.topicId : null,
               lane: s.imBrowse.lane || 'workspace',
-            },
-          }))
+            })
+            return { imBrowse, activeThreadId: imBrowse.threadId }
+          })
         }
         get().togglePanel('im', 'full')
       },
       imComposerDrafts: {},
       setIMComposerDraft: (threadId, text) =>
         set((s) => ({ imComposerDrafts: { ...s.imComposerDrafts, [threadId]: text } })),
+      imFillBind: null,
+      setIMFillBind: (bind) => set({ imFillBind: bind }),
 
       activeAgentId: 'a_main',
       setActiveAgent: (id) => set({ activeAgentId: id }),
@@ -672,7 +672,7 @@ export const useApp = create<AppState>()(
         const ws = get().workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
         try {
-          await runtimeApi.ensureWorkspace({ id: workspaceId, name: ws.name, description: ws.desc })
+          await runtimeApi.ensureWorkspace({ id: workspaceId, name: ws.name, description: ws.desc, cwd: ws.cwd })
           const from = Date.now() - 366 * 24 * 60 * 60 * 1000
           const to = Date.now() + 366 * 24 * 60 * 60 * 1000
           const [tasks, events, workflows] = await Promise.all([
@@ -716,6 +716,7 @@ export const useApp = create<AppState>()(
             priority: patch.priority,
             dueAt: patch.due === undefined ? undefined : patch.due || null,
             tags: patch.tags,
+            workspaceId: get().activeWorkspaceId || undefined,
           })
           set((s) => ({ tasks: s.tasks.map((x) => (x.id === id ? updated : x)), planServiceError: null }))
         } catch {
@@ -725,7 +726,7 @@ export const useApp = create<AppState>()(
       },
       removeTask: async (id) => {
         try {
-          await runtimeApi.deleteTask(id)
+          await runtimeApi.deleteTask(id, { workspaceId: get().activeWorkspaceId || undefined })
           set((s) => ({ tasks: s.tasks.filter((x) => x.id !== id), planServiceError: null }))
         } catch {
           set({ planServiceError: PLAN_UNAVAILABLE })
@@ -766,6 +767,7 @@ export const useApp = create<AppState>()(
             endAt: patch.end,
             kind: patch.kind,
             location: patch.location === undefined ? undefined : patch.location || null,
+            workspaceId: get().activeWorkspaceId || undefined,
           })
           set((s) => ({ events: s.events.map((x) => (x.id === id ? updated : x)), planServiceError: null }))
         } catch {
@@ -775,7 +777,7 @@ export const useApp = create<AppState>()(
       },
       removeEvent: async (id) => {
         try {
-          await runtimeApi.deleteEvent(id)
+          await runtimeApi.deleteEvent(id, { workspaceId: get().activeWorkspaceId || undefined })
           set((s) => ({ events: s.events.filter((x) => x.id !== id), planServiceError: null }))
         } catch {
           set({ planServiceError: PLAN_UNAVAILABLE })
@@ -944,7 +946,10 @@ export const useApp = create<AppState>()(
         if (!wf) return
         const status = wf.status === 'active' ? 'paused' : 'active'
         try {
-          const updated = await runtimeApi.updateWorkflow(id, { status })
+          const updated = await runtimeApi.updateWorkflow(id, {
+            status,
+            workspaceId: get().activeWorkspaceId || undefined,
+          })
           set((s) => ({
             workflows: s.workflows.map((w) => (w.id === id ? updated : w)),
             planServiceError: null,
@@ -976,7 +981,7 @@ export const useApp = create<AppState>()(
       },
       removeWorkflow: async (id) => {
         try {
-          await runtimeApi.deleteWorkflow(id)
+          await runtimeApi.deleteWorkflow(id, { workspaceId: get().activeWorkspaceId || undefined })
           set((s) => ({ workflows: s.workflows.filter((w) => w.id !== id), planServiceError: null }))
         } catch {
           set({ planServiceError: PLAN_UNAVAILABLE })
@@ -1003,12 +1008,17 @@ export const useApp = create<AppState>()(
         return id
       },
       removeIMContact: (id) =>
-        set((s) => ({
-          imContacts: s.imContacts.filter((c) => c.id !== id),
-          imMessages: s.imMessages.filter((m) => m.threadId !== id),
-          imTopics: s.imTopics.filter((t) => t.groupId !== id),
-          activeThreadId: s.activeThreadId === id ? s.imContacts.find((c) => c.id !== id)?.id ?? null : s.activeThreadId,
-        })),
+        set((s) => {
+          const drop = s.imBrowse.threadId === id
+          const imBrowse = drop ? imBrowseOccupancy({ ...s.imBrowse, threadId: null, topicId: null }) : s.imBrowse
+          return {
+            imContacts: s.imContacts.filter((c) => c.id !== id),
+            imMessages: s.imMessages.filter((m) => m.threadId !== id),
+            imTopics: s.imTopics.filter((t) => t.groupId !== id),
+            imBrowse,
+            activeThreadId: imBrowse.threadId,
+          }
+        }),
       addIMTopic: (topic) => {
         const id = uid('topic')
         set((s) => ({ imTopics: [...s.imTopics, { ...topic, id, createdAt: now() }] }))
@@ -1068,17 +1078,6 @@ export const useApp = create<AppState>()(
             t.id === tableId ? { ...t, rows: t.rows.filter((r) => r.id !== rowId) } : t,
           ),
         })),
-
-      toggleMCP: (id) =>
-        set((s) => ({
-          mcp: s.mcp.map((m) =>
-            m.id === id
-              ? { ...m, status: m.status === 'connected' ? 'disconnected' : 'connected' }
-              : m,
-          ),
-        })),
-      toggleSkill: (id) =>
-        set((s) => ({ skills: s.skills.map((k) => (k.id === id ? { ...k, enabled: !k.enabled } : k)) })),
 
       markNotifRead: (id) =>
         set((s) => ({ notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)) })),
@@ -1187,8 +1186,18 @@ export const useApp = create<AppState>()(
 //  自动按 activeWorkspaceId 过滤。用 useShallow 包装避免新数组引用触发无限循环。
 // =======================================================
 
+export function activeWorkspaceFromState(state: { workspaces: Workspace[]; activeWorkspaceId: ID }): Workspace | undefined {
+  return state.workspaces.find((row) => row.id === state.activeWorkspaceId)
+}
+
+export function activeWorkspaceCwdFromState(state: { workspaces: Workspace[]; activeWorkspaceId: ID }): string {
+  const row = activeWorkspaceFromState(state)
+  const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
+  return cwd.startsWith('/') ? cwd : ''
+}
+
 export function useCurrentWorkspace() {
-  return useApp((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId) ?? s.workspaces[0])
+  return useApp((s) => activeWorkspaceFromState(s))
 }
 export function useWorkspaces() {
   return useApp((s) => s.workspaces)

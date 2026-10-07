@@ -5,29 +5,12 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
-import { parseMcpPatchEntries } from '../routes/mcp.mjs'
 import { listWorkspaces } from '../db.mjs'
+import { collectBag } from '../catalog-collect.mjs'
 import { classifyHitId, hitId, originOfCard, sessionIdOf } from '../memory/identity.mjs'
+import { KIND_CAP, KIND_ORDER, PAGE_CATALOG } from '../host-catalog.mjs'
 
-export const KIND_CAP = 8
-export const KIND_ORDER = [
-  'session', 'file', 'contact', 'letter', 'group', 'agent',
-  'task', 'workflow', 'memory', 'skill', 'mcp', 'page',
-]
-
-/** Closed FDE-X module set. Same destinations the palette already jumped to. */
-export const PAGE_CATALOG = [
-  { id: 'p_ai', title: 'AI 主工作区', href: { panel: 'ai' } },
-  { id: 'p_im', title: 'IM 消息面板', href: { panel: 'im' } },
-  { id: 'p_brief', title: '早报', href: { panel: 'briefing' } },
-  { id: 'p_plan', title: '计划 / 任务 / 日程', href: { panel: 'plan', tab: 'todo' } },
-  { id: 'p_files', title: '文件', href: { panel: 'files' } },
-  { id: 'p_data', title: '业务应用 / 数据操作', href: { panel: 'data' } },
-  { id: 'p_mcp', title: 'MCP 管理', href: { panel: 'mcp' } },
-  { id: 'p_skills', title: 'Skills 管理', href: { panel: 'skills' } },
-  { id: 'p_mem', title: '记忆系统', href: { panel: 'memory' } },
-  { id: 'p_set', title: '设置', href: { panel: 'settings' } },
-]
+export { KIND_CAP, KIND_ORDER, PAGE_CATALOG }
 
 const SKIP_DIR_NAMES = new Set(['.git', 'node_modules'])
 const FILE_WALK_MS = 1500
@@ -214,7 +197,7 @@ export async function collectFileHits(cwd, query, opts = {}) {
       id: path,
       title: base,
       hint: path === base ? 'file' : path,
-      href: { panel: 'files', path },
+      href: { panel: 'files', path, ...(opts.sessionId ? { sessionId: opts.sessionId } : {}) },
       score: Math.max(scoreText(base, q, 20), scoreText(path, q)),
     })
   }
@@ -245,7 +228,7 @@ export async function collectFileHits(cwd, query, opts = {}) {
       id: path,
       title: base,
       hint: path,
-      href: { panel: 'files', path },
+      href: { panel: 'files', path, ...(opts.sessionId ? { sessionId: opts.sessionId } : {}) },
       score: 40,
     })
   }
@@ -469,13 +452,14 @@ export function searchSheet(bags = {}) {
     for (const server of Array.isArray(bags.mcp) ? bags.mcp : []) {
       const id = String(server.serverName || server.id || server.name || '')
       if (!id) continue
-      if (!matches(id, q) && !matches(server.command, q)) continue
+      const tools = Array.isArray(server.tools) ? server.tools.join('\n') : ''
+      if (!matches(id, q) && !matches(server.command, q) && !matches(server.url, q) && !matches(tools, q)) continue
       put(bag, {
         kind: 'mcp',
         id,
         title: id,
         href: { panel: 'mcp' },
-        score: scoreText(id, q),
+        score: scoreText(`${id}\n${server.command || ''}\n${tools}`, q),
       })
     }
   }
@@ -563,11 +547,7 @@ export async function loadSearchSheet(deps, input) {
     : Promise.resolve({})
 
   const presetsP = connected
-    ? swallow(aiRuntime.call('agentPresets/list').then((roster) => {
-      if (Array.isArray(roster?.presets)) return roster.presets
-      if (Array.isArray(roster)) return roster
-      return []
-    }))
+    ? swallow(collectBag(aiRuntime, 'agent').then((bag) => bag.items.map((row) => row.fields)))
     : Promise.resolve([])
 
   const findP = connected && query.trim()
@@ -582,9 +562,10 @@ export async function loadSearchSheet(deps, input) {
     }).then((payload) => (Array.isArray(payload?.cards) ? payload.cards : [])))
     : Promise.resolve([])
 
+  const preferredSessionId = String((input && input.sessionId) || '').trim()
   const filesP = typeof deps.collectFileHits === 'function'
-    ? deps.collectFileHits(cwd, query)
-    : collectFileHits(cwd, query)
+    ? deps.collectFileHits(cwd, query, { sessionId: preferredSessionId })
+    : collectFileHits(cwd, query, { sessionId: preferredSessionId })
 
   const typed = Boolean(query.trim())
   let tasks = []
@@ -609,20 +590,21 @@ export async function loadSearchSheet(deps, input) {
   ])
 
   let skills = []
-  if (typed && connected) {
-    const sid = (Array.isArray(sessions) ? sessions : [])
-      .filter((row) => isPrimarySession(row) && sameCwd(row.cwd, cwd))
-      .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))[0]?.sessionId
-    if (sid) {
-      const catalog = await swallow(aiRuntime.call('skills/list', { request: { sessionId: sid } }))
-      skills = skillItems(catalog)
-    }
-  }
-
   let mcp = []
-  if (typed && aiRuntime && aiRuntime.patchFile) {
-    const text = await readFile(aiRuntime.patchFile, 'utf8').catch(() => '')
-    mcp = parseMcpPatchEntries(text)
+  if (typed && connected) {
+    const mine = (Array.isArray(sessions) ? sessions : [])
+      .filter((row) => isPrimarySession(row) && sameCwd(row.cwd, cwd))
+    const preferred = mine.find((row) => row.sessionId === preferredSessionId)
+    const sid = preferred?.sessionId
+      || [...mine].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))[0]?.sessionId
+    if (sid) {
+      const bag = await swallow(collectBag(aiRuntime, 'skill', { sessionId: sid }))
+      skills = skillItems(bag?.raw || { items: bag?.items || [] })
+    }
+    const mcpBag = await swallow(collectBag(aiRuntime, 'mcp', sid
+      ? { project: true, sessionId: sid, cwd }
+      : { cwd }))
+    mcp = Array.isArray(mcpBag?.raw?.mcp) ? mcpBag.raw.mcp : []
   }
 
   return searchSheet({

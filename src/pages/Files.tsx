@@ -1,5 +1,5 @@
 // 文件模块:树形侧栏 + 列表 + 多种类型预览(image/md/code/json/csv/pdf)
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Folder, FolderOpen, FileText, Image as ImageIcon, FileCode, FileJson,
@@ -13,8 +13,9 @@ import { useApp } from '@/store/app'
 import type { FileNode, FileVersion } from '@/lib/types'
 import { PageTitle, Card, Tag, Empty } from '@/components/ui'
 import { runtimeApi } from '@/lib/runtime-api'
-import { loadCurrentAiTarget } from '@/lib/ai-target'
+import { currentAiTarget } from '@/lib/ai-target'
 import { consumeFilePick } from '@/lib/app-platform'
+import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
 
 function kindFromName(name: string): FileNode['kind'] {
   const lower = name.toLowerCase()
@@ -88,7 +89,45 @@ function ancestorDirs(parentId: string) {
   return dirs
 }
 
-function renderPreview(file: FileNode, sessionId?: string | null) {
+function HostOfficePreview({ sessionId, path, fallback }: { sessionId: string; path: string; fallback: ReactNode }) {
+  const [src, setSrc] = useState('')
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    let alive = true
+    let objectUrl = ''
+    void runtimeApi.catalogAction({
+      kind: 'skill',
+      action: 'render',
+      sessionId,
+      path,
+      params: { priority: 'foreground' },
+    }).then((bag) => {
+      const mutation = bag && typeof bag === 'object' ? (bag as { mutation?: { data?: unknown } }).mutation : undefined
+      const data = mutation?.data
+      if (!alive) return
+      if (typeof data === 'string' && data) {
+        const binary = atob(data)
+        const bytes = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+        objectUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+        setSrc(objectUrl)
+        return
+      }
+      setErr('Host 没有返回 PDF')
+    }).catch((error) => {
+      if (alive) setErr(error instanceof Error ? error.message : '转换失败')
+    })
+    return () => {
+      alive = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [sessionId, path])
+  if (src) return <iframe title={path} src={src} className="w-full min-h-[560px] rounded border border-line bg-white" />
+  if (err) return <>{fallback}</>
+  return <Empty title="正在转换成 PDF…" />
+}
+
+function renderPreview(file: FileNode, sessionId?: string | null, canRender?: boolean) {
   const raw = rawFileUrl(file.id, sessionId)
   if (file.kind === 'image') {
     return (
@@ -117,19 +156,25 @@ function renderPreview(file: FileNode, sessionId?: string | null) {
     )
   }
   if (file.kind === 'doc' && /\.docx?$/i.test(file.name)) {
-    return <OfficeDocPreview url={raw} />
+    const fallback = <OfficeDocPreview url={raw} />
+    if (sessionId) return <HostOfficePreview sessionId={sessionId} path={file.id} fallback={fallback} />
+    return fallback
   }
   if (file.kind === 'sheet' && !file.name.toLowerCase().endsWith('.csv')) {
-    return <OfficeSheetPreview url={raw} />
+    const fallback = <OfficeSheetPreview url={raw} />
+    if (sessionId) return <HostOfficePreview sessionId={sessionId} path={file.id} fallback={fallback} />
+    return fallback
   }
   if (file.kind === 'ppt') {
-    return (
+    const fallback = (
       <div className="bg-surface border border-line rounded p-10 text-center">
         <div className="text-sm">{file.name}</div>
         <div className="text-xs text-ink-muted mt-2">PPT 请下载后用本地软件打开</div>
         <a className="btn mt-4 inline-flex" href={raw} download={file.name}><Download size={14} /> 下载</a>
       </div>
     )
+    if (sessionId) return <HostOfficePreview sessionId={sessionId} path={file.id} fallback={fallback} />
+    return fallback
   }
   if (file.kind === 'markdown') {
     return <MarkdownPreview content={file.content || ''} />
@@ -378,6 +423,7 @@ export default function Files() {
   const [q, setQ] = useState('')
   const [sortKey, setSortKey] = useState<'name' | 'updatedAt' | 'size'>('updatedAt')
   const [showStarred, setShowStarred] = useState(false)
+  const [fileActions, setFileActions] = useState<string[]>([])
   const uploadRef = useRef<HTMLInputElement>(null)
   const listingRef = useRef<{ sessionId?: string; cwd?: string }>({})
   const loadedDirs = useRef(new Set<string>())
@@ -425,25 +471,54 @@ export default function Files() {
   }
 
   useEffect(() => {
+    if (!sessionId || !filesReady) return
+    const abort = new AbortController()
+    const dir = parentId || '.'
+    void runtimeApi.catalogStream(
+      { kind: 'file', action: 'changes', sessionId, path: dir },
+      () => {
+        void fetchListing(dir).then((listing) => mergeChildren(dir, listing)).catch((error) => {
+          setFileNotice(error instanceof Error ? error.message : '列目录失败')
+        })
+      },
+      abort.signal,
+    ).catch((error) => {
+      setFileNotice(error instanceof Error ? error.message : '跟不了文件变更')
+    })
+    return () => abort.abort()
+  }, [sessionId, filesReady, parentId])
+
+  useEffect(() => {
     let alive = true
+    const cached = lastModuleBag<{ workspaceId: string; files: FileNode[] }>('files')
+    if (cached?.workspaceId === activeWsId && cached.files?.length) {
+      setFiles(cached.files)
+      setFilesReady(true)
+    }
     void (async () => {
       try {
         setFilesError('')
-        let status = await runtimeApi.aiStatus()
-        if (!status.connected) status = await runtimeApi.connectAi()
+        const status = await runtimeApi.aiStatus()
         if (!status.connected) {
-          if (alive) {
-            setFiles([])
-            setFilesError('核心未接通，无法列出工作区文件')
-            setFilesReady(true)
+          const next = await runtimeApi.connectAi()
+          if (!next.connected) {
+            if (alive) {
+              setFiles([])
+              setFilesError('核心未接通，无法列出工作区文件')
+              setFilesReady(true)
+            }
+            return
           }
-          return
         }
         const dshWorkspaces = await runtimeApi.listAiWorkspaces().catch(() => [])
         const currentWs = dshWorkspaces.find((item) => item.workspaceId === activeWsId)
           || dshWorkspaces.find((item) => item.path === workspaceCwd)
           || dshWorkspaces[0]
         const cwd = currentWs?.path || workspaceCwd
+        const wsRow = workspaces.find((item) => item.id === activeWsId)
+        if (cwd && wsRow) {
+          void runtimeApi.ensureWorkspace({ id: activeWsId, name: wsRow.name, description: wsRow.desc, cwd }).catch(() => undefined)
+        }
         if (!cwd) {
           if (alive) {
             setFiles([])
@@ -452,38 +527,69 @@ export default function Files() {
           }
           return
         }
-        const target = await loadCurrentAiTarget()
-        const sessionId = target.ok && target.cwd === cwd ? target.sessionId : ''
-        listingRef.current = {
-          ...(sessionId ? { sessionId } : {}),
-          cwd,
-        }
+        listingRef.current = { cwd }
         loadedDirs.current = new Set()
-        const listing = await fetchListing('.')
+        let listing: { path?: string; entries?: Array<{ name: string; type: string; size?: number }> }
+        try {
+          listing = await fetchListing('.')
+        } catch {
+          listing = { path: '.', entries: [] }
+        }
         if (!alive) return
         const now = new Date().toISOString()
         const rootPath = '.'
-        setSessionId(sessionId || null)
         const browse = useApp.getState().filesBrowse
         const sameWs = browse.workspaceId === activeWsId
         setEditMode(false)
-        setFiles([{
+        const root: FileNode = {
           id: rootPath,
           name: cwd.split('/').filter(Boolean).at(-1) || '工作区',
           kind: 'folder',
           size: 0,
           parentId: null,
           updatedAt: now,
-        }])
+        }
+        setFiles([root])
         mergeChildren(rootPath, listing)
+        setFilesReady(true)
         if (!sameWs) {
           setFilesBrowse({ workspaceId: activeWsId, parentId: rootPath, selectedId: null })
         } else if (!browse.parentId) {
           setFilesBrowse({ workspaceId: activeWsId, parentId: rootPath })
         }
+        rememberModuleBag('files', { workspaceId: activeWsId, files: filesRef.current })
+        const target = await currentAiTarget()
+        if (!alive) return
+        const sessionId = target.ok ? target.sessionId : ''
+        listingRef.current = {
+          ...(sessionId ? { sessionId } : {}),
+          cwd,
+        }
+        setSessionId(sessionId || null)
+        if (sessionId) {
+          try {
+            const viaSession = await fetchListing('.')
+            if (alive) mergeChildren(rootPath, viaSession)
+          } catch {
+            /* cwd listing already on screen */
+          }
+          void runtimeApi.catalogBag('file', { sessionId, path: '.' }).then((bag) => {
+            if (alive) setFileActions(Array.isArray(bag.actions) ? bag.actions : [])
+          }).catch(() => {
+            if (alive) setFileActions([])
+          })
+          void runtimeApi.catalogBag('skill', { sessionId }).then((bag) => {
+            if (!alive) return
+            const actions = Array.isArray(bag.actions) ? bag.actions : []
+            if (actions.includes('render')) setFileActions((current) => current.includes('render') ? current : [...current, 'render'])
+          }).catch(() => undefined)
+        } else if (alive) {
+          setFileActions([])
+        }
+        if (alive) rememberModuleBag('files', { workspaceId: activeWsId, files: filesRef.current })
       } catch (error) {
         if (alive) {
-          setFiles([])
+          if (!lastModuleBag('files')) setFiles([])
           const raw = error instanceof Error ? error.message : '列出工作区文件失败'
           setFilesError(/permission denied|EPERM|files_unreadable|path_forbidden/i.test(raw)
             ? '系统不允许当前 4318 进程读取这个工作区（在「文稿」下）。请用 macOS「终端.app」运行 ./runtime/start.sh，或在系统设置 → 隐私 → 文件与文件夹里给启动它的应用打开权限。'
@@ -713,7 +819,7 @@ export default function Files() {
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
               />
-            ) : renderPreview(current, sessionId)}
+            ) : renderPreview(current, sessionId, fileActions.includes('render'))}
             <div className="mt-4 flex gap-2 flex-wrap">
               {!isBinaryKind(current.kind) && (
               <button
@@ -898,6 +1004,60 @@ export default function Files() {
                   >
                     摄取此目录到记忆
                   </button>
+                  {fileActions.includes('openWorkspacePath') && (
+                    <button
+                      type="button"
+                      className="btn h-8"
+                      disabled={!listingRef.current.cwd || !sessionId}
+                      onClick={() => {
+                        const cwd = listingRef.current.cwd
+                        if (!cwd || !sessionId) return
+                        const selected = files.find((row) => row.id === selectedId)
+                        const rel = selected?.id && selected.id !== '.' ? selected.id : (validParentId || '.')
+                        const path = !rel || rel === '.' ? cwd : `${cwd.replace(/\/$/, '')}/${rel}`
+                        void runtimeApi.catalogAction({
+                          kind: 'file',
+                          action: 'openWorkspacePath',
+                          sessionId,
+                          path,
+                        }).catch((error) => {
+                          setFilesError(error instanceof Error ? error.message : '打不开系统应用')
+                        })
+                      }}
+                    >
+                      <FolderOpen size={14} /> 用系统应用打开
+                    </button>
+                  )}
+                  {fileActions.includes('openWorkspacePath') && (
+                    <button
+                      type="button"
+                      className="btn h-8"
+                      disabled={!listingRef.current.cwd}
+                      onClick={() => {
+                        const cwd = listingRef.current.cwd
+                        if (!cwd) {
+                          setFilesError('当前顶栏没有绑定本机目录')
+                          return
+                        }
+                        const selected = files.find((row) => row.id === selectedId)
+                        const rel = selected?.kind === 'folder'
+                          ? selected.id
+                          : (selected?.parentId || validParentId || '.')
+                        const path = !rel || rel === '.' ? cwd : `${cwd.replace(/\/$/, '')}/${rel}`
+                        void runtimeApi.catalogAction({
+                          kind: 'file',
+                          action: 'openWorkspacePath',
+                          sessionId: sessionId || undefined,
+                          path,
+                          params: { action: 'reveal' },
+                        }).catch((error) => {
+                          setFilesError(error instanceof Error ? error.message : '打不开这个位置')
+                        })
+                      }}
+                    >
+                      <FolderOpen size={14} /> 显示位置
+                    </button>
+                  )}
                 </div>
               </div>
             </Card>

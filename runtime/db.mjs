@@ -192,10 +192,20 @@ export function createWorkspace(db, input) {
   return getWorkspace(db, id)
 }
 
+export function patchWorkspaceMetadata(db, id, patch) {
+  const existing = getWorkspace(db, id)
+  if (!existing) return null
+  const metadata = { ...(existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}), ...patch }
+  db.prepare('UPDATE workspaces SET metadata_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(metadata), isoNow(), id)
+  return getWorkspace(db, id)
+}
+
 export function ensureWorkspace(db, input) {
   const existing = getWorkspace(db, input.id)
-  if (existing) return existing
-  return createWorkspace(db, input)
+  if (!existing) return createWorkspace(db, input)
+  const cwd = typeof input.metadata?.cwd === 'string' ? input.metadata.cwd.trim() : ''
+  if (cwd.startsWith('/')) return patchWorkspaceMetadata(db, input.id, { cwd })
+  return existing
 }
 
 export function getWorkspace(db, id) {

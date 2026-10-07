@@ -11,6 +11,11 @@ export function CoreSettings() {
   const [note, setNote] = useState('')
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
   const [presets, setPresets] = useState<AiPresetRecord[]>([])
+  const [presetActions, setPresetActions] = useState<string[]>([])
+  const [plugins, setPlugins] = useState<Array<{ id: string; title: string; fields?: Record<string, unknown> }>>([])
+  const [pluginActions, setPluginActions] = useState<string[]>([])
+  const [modelQuery, setModelQuery] = useState('')
+  const [hostFlags, setHostFlags] = useState<Array<{ ns: string; revision: number; flags: Array<{ key: string; value: boolean }> }>>([])
   const [copyFrom, setCopyFrom] = useState('')
   const [copyId, setCopyId] = useState('')
   const [copyName, setCopyName] = useState('')
@@ -31,8 +36,35 @@ export function CoreSettings() {
     refreshModels()
     void runtimeApi.listAiPresets().then((data) => {
       setPresets(data.presets || [])
+      setPresetActions(Array.isArray(data.actions) ? data.actions : [])
       if (data.presets?.[0]?.id) setCopyFrom((current) => current || data.presets[0].id)
     }).catch(() => setPresets([]))
+    void runtimeApi.catalogBag('plugin').then((bag) => {
+      setPluginActions(Array.isArray(bag.actions) ? bag.actions : [])
+      setPlugins(Array.isArray(bag.items) ? bag.items.map((row) => ({
+        id: row.id,
+        title: row.title,
+        fields: row.fields && typeof row.fields === 'object' ? row.fields as Record<string, unknown> : {},
+      })) : [])
+      if (bag.error) setNote(String(bag.error))
+    }).catch((cause) => {
+      setPlugins([])
+      setPluginActions([])
+      setNote(cause instanceof Error ? cause.message : '插件目录读失败')
+    })
+    void runtimeApi.catalogBag('settings').then((bag) => {
+      if (bag.error) setNote(String(bag.error))
+      const rows = Array.isArray(bag.items) ? bag.items : []
+      setHostFlags(rows.map((row) => {
+        const fields = row.fields && typeof row.fields === 'object' ? row.fields as { value?: unknown; revision?: number } : {}
+        const value = fields.value && typeof fields.value === 'object' ? fields.value as Record<string, unknown> : {}
+        const flags = Object.entries(value).filter((entry) => typeof entry[1] === 'boolean').map(([key, flag]) => ({ key, value: Boolean(flag) }))
+        return { ns: row.id, revision: Number(fields.revision || 0), flags }
+      }).filter((row) => row.flags.length && row.ns !== 'llm-pi-ai'))
+    }).catch((cause) => {
+      setHostFlags([])
+      setNote(cause instanceof Error ? cause.message : '读不了 Host 配置')
+    })
   }
 
   useEffect(() => { load() }, [])
@@ -83,13 +115,117 @@ export function CoreSettings() {
         />
 
         {models.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-4">
-            {models.map((model) => (
-              <span key={model.id} className="px-2.5 py-1 rounded-full border border-line bg-surface-2 text-xs">{model.name}</span>
-            ))}
+          <div className="mt-4 space-y-2">
+            <input
+              className="input w-full text-xs"
+              value={modelQuery}
+              onChange={(event) => setModelQuery(event.target.value)}
+              placeholder="搜索模型 id 或名称"
+            />
+            <div className="flex flex-wrap gap-1.5">
+              {models.filter((model) => {
+                const q = modelQuery.trim().toLowerCase()
+                if (!q) return true
+                return model.id.toLowerCase().includes(q) || model.name.toLowerCase().includes(q)
+              }).map((model) => (
+                <span key={model.id} className="px-2.5 py-1 rounded-full border border-line bg-surface-2 text-xs" title={model.id}>{model.name}</span>
+              ))}
+            </div>
           </div>
         )}
       </Card>
+
+      <Card>
+        <div className="text-base font-medium">插件</div>
+        <div className="text-xs text-ink-muted mt-0.5 mb-3">当前宿主加载的插件。未知能力落这里。</div>
+        {plugins.length === 0 ? (
+          <div className="text-sm text-ink-muted py-6 text-center">{note && note.includes('插件') ? note : '没有插件目录'}</div>
+        ) : (
+          <div className="space-y-2">
+            {plugins.map((plugin) => {
+              const enabled = plugin.fields?.enabled
+              const phase = plugin.fields?.fiberPhase
+              const bundle = plugin.fields?.bundle === true
+              const enableAction = bundle ? 'setBundleEnabled' : 'setPluginEnabled'
+              return (
+                <div key={plugin.id} className="flex items-start gap-3 px-3 py-2.5 rounded-lg border border-line">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">{plugin.title}</span>
+                      {enabled === true && <Tag kind="green">启用</Tag>}
+                      {enabled === false && <Tag kind="default">停用</Tag>}
+                      {bundle && <Tag kind="amber">可选包</Tag>}
+                      {typeof phase === 'string' && phase && <Tag kind="default">{phase}</Tag>}
+                    </div>
+                    <div className="text-[11px] text-ink-subtle mt-0.5 font-mono">{plugin.id}</div>
+                  </div>
+                  {pluginActions.includes(enableAction) && typeof enabled === 'boolean' && (
+                    <button
+                      type="button"
+                      className="btn-ghost h-8 px-2 text-xs shrink-0"
+                      disabled={busy}
+                      onClick={() => {
+                        setBusy(true)
+                        void runtimeApi.catalogAction({
+                          kind: 'plugin',
+                          action: enableAction,
+                          id: plugin.id,
+                          params: bundle
+                            ? { name: String(plugin.fields?.name || plugin.id), enabled: !enabled }
+                            : { enabled: !enabled },
+                        }).then(() => {
+                          if (bundle) setNote('已改可选包，用上面的「重载核心」生效')
+                          load()
+                        }).catch((cause) => setNote(cause instanceof Error ? cause.message : '改不了这条插件')).finally(() => setBusy(false))
+                      }}
+                    >
+                      {enabled ? '停用' : '启用'}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Card>
+
+      {hostFlags.length > 0 && (
+        <Card>
+          <div className="text-base font-medium">Host 配置</div>
+          <div className="text-xs text-ink-muted mt-0.5 mb-3">来自 settings/describe 的开关。没有字段就不画。</div>
+          <div className="space-y-3">
+            {hostFlags.map((entry) => (
+              <div key={entry.ns}>
+                <div className="text-[11px] text-ink-subtle font-mono mb-1">{entry.ns}</div>
+                <div className="flex flex-col gap-1.5">
+                  {entry.flags.map((flag) => (
+                    <label key={flag.key} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={flag.value}
+                        disabled={busy}
+                        onChange={() => {
+                          setBusy(true)
+                          void runtimeApi.catalogAction({
+                            kind: 'settings',
+                            action: 'mutate',
+                            params: {
+                              ns: entry.ns,
+                              expectedRevision: entry.revision,
+                              ops: [{ op: 'set', path: [flag.key], value: !flag.value }],
+                            },
+                          }).then(() => load()).catch((cause) => setNote(cause instanceof Error ? cause.message : '改不了这项配置')).finally(() => setBusy(false))
+                        }}
+                      />
+                      <span>{flag.key}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Card>
         <div className="flex items-start justify-between gap-3 mb-1">
@@ -108,11 +244,11 @@ export function CoreSettings() {
                   {preset.isDefault && <Tag kind="blue">默认</Tag>}
                   <Tag kind="default">{sourceLabel(preset.source)}</Tag>
                   {preset.hasLocalCode && <Tag kind="amber">含本地代码</Tag>}
-                  <Tag kind={preset.trust === 'system' ? 'green' : 'amber'}>{preset.trust === 'system' ? '系统' : '我的'}</Tag>
                 </div>
+                {preset.description && <div className="text-xs text-ink-muted mt-0.5">{preset.description}</div>}
                 <div className="text-[11px] text-ink-subtle mt-0.5 font-mono">{preset.id}</div>
               </div>
-              {preset.source === 'user' && (
+              {preset.source === 'user' && presetActions.includes('deletePreset') && (
                 <button
                   type="button"
                   className="btn-ghost h-8 px-2 text-accent-red"
@@ -125,39 +261,43 @@ export function CoreSettings() {
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-1 @md:grid-cols-3 gap-2">
-          <label className="block">
-            <div className="text-xs font-medium text-ink mb-1.5">从哪个复制</div>
-            <select className="input w-full text-sm" value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
-              {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name || preset.id}</option>)}
-            </select>
-          </label>
-          <label className="block">
-            <div className="text-xs font-medium text-ink mb-1.5">新 id</div>
-            <input className="input w-full font-mono text-xs" value={copyId} onChange={(e) => setCopyId(e.target.value)} placeholder="my-writer" />
-          </label>
-          <label className="block">
-            <div className="text-xs font-medium text-ink mb-1.5">显示名</div>
-            <input className="input w-full text-sm" value={copyName} onChange={(e) => setCopyName(e.target.value)} />
-          </label>
-        </div>
-        <button
-          type="button"
-          className="btn-primary mt-3"
-          disabled={busy || !copyFrom || !copyId.trim()}
-          onClick={() => {
-            setBusy(true)
-            void runtimeApi.copyAiPreset({ from: copyFrom, id: copyId.trim(), name: copyName.trim() || undefined })
-              .then((data) => {
-                setPresets(data.presets || [])
-                setCopyId('')
-                setCopyName('')
-                setNote('已复制预设')
-              })
-              .catch((cause) => setNote(cause instanceof Error ? cause.message : '复制失败'))
-              .finally(() => setBusy(false))
-          }}
-        ><Copy size={14} /> 复制为新预设</button>
+        {presetActions.includes('copy') && (
+          <>
+            <div className="grid grid-cols-1 @md:grid-cols-3 gap-2">
+              <label className="block">
+                <div className="text-xs font-medium text-ink mb-1.5">从哪个复制</div>
+                <select className="input w-full text-sm" value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
+                  {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name || preset.id}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <div className="text-xs font-medium text-ink mb-1.5">新 id</div>
+                <input className="input w-full font-mono text-xs" value={copyId} onChange={(e) => setCopyId(e.target.value)} placeholder="my-writer" />
+              </label>
+              <label className="block">
+                <div className="text-xs font-medium text-ink mb-1.5">显示名</div>
+                <input className="input w-full text-sm" value={copyName} onChange={(e) => setCopyName(e.target.value)} />
+              </label>
+            </div>
+            <button
+              type="button"
+              className="btn-primary mt-3"
+              disabled={busy || !copyFrom || !copyId.trim()}
+              onClick={() => {
+                setBusy(true)
+                void runtimeApi.copyAiPreset({ from: copyFrom, id: copyId.trim(), name: copyName.trim() || undefined })
+                  .then((data) => {
+                    setPresets(data.presets || [])
+                    setCopyId('')
+                    setCopyName('')
+                    setNote('已复制预设')
+                  })
+                  .catch((cause) => setNote(cause instanceof Error ? cause.message : '复制失败'))
+                  .finally(() => setBusy(false))
+              }}
+            ><Copy size={14} /> 复制为新预设</button>
+          </>
+        )}
       </Card>
       <PresetImportDrawer
         open={importOpen}
@@ -165,6 +305,7 @@ export function CoreSettings() {
         onImported={() => {
           void runtimeApi.listAiPresets().then((data) => {
             setPresets(data.presets || [])
+            setPresetActions(Array.isArray(data.actions) ? data.actions : [])
             setNote('已导入 preset。新会话时可见；若未出现请重载核心。')
           })
         }}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react'
 import { capacityFieldText, formatCapacity, parseCapacity } from '@/components/settings/model-capacity'
+import { mergeModelRows } from '../../../runtime/models-settings-rows.mjs'
 import clsx from 'clsx'
 import { Tag } from '@/components/ui'
 import { runtimeApi, type ModelsSettingsRow, type ModelsSettingsSnapshot } from '@/lib/runtime-api'
@@ -12,7 +13,10 @@ type EditorMode =
   | { kind: 'add-catalog'; provider: string }
   | { kind: 'add-custom' }
 
-type ModelRow = { id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoningEfforts?: unknown }
+type ModelRow = { id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoningEfforts?: unknown; input?: string[] }
+
+const MODEL_INPUT_VALUES = ['text', 'image'] as const
+const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
@@ -26,6 +30,95 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+}
+
+function ReasoningEffortsField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: unknown
+  onChange: (next: unknown) => void
+  disabled: boolean
+}) {
+  const mode = value === false
+    ? 'off'
+    : value && typeof value === 'object' && !Array.isArray(value)
+      ? 'levels'
+      : 'unset'
+  const dict = mode === 'levels' && value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, string | null>
+    : {}
+  const thinkingOn = THINKING_LEVELS.filter((level) => level !== 'off' && dict[level] !== undefined)
+  const setMode = (next: 'unset' | 'off' | 'levels') => {
+    if (next === 'unset') onChange(undefined)
+    else if (next === 'off') onChange(false)
+    else onChange({ off: null, low: 'low' })
+  }
+  const toggleLevel = (level: typeof THINKING_LEVELS[number], on: boolean) => {
+    const next = { ...dict }
+    if (!on) {
+      if (level !== 'off' && thinkingOn.length <= 1 && thinkingOn[0] === level) return
+      delete next[level]
+    } else if (level === 'off') {
+      next.off = null
+    } else {
+      next[level] = level
+    }
+    onChange(next)
+  }
+  const setWire = (level: typeof THINKING_LEVELS[number], text: string) => {
+    const next = { ...dict }
+    if (level === 'off' && text.trim() === '') next.off = null
+    else next[level] = text
+    onChange(next)
+  }
+  return (
+    <Field
+      label="推理档"
+      hint="未声明：自定义 id 按不会推理，目录里有的跟目录。不会推理写 false。声明档位至少一档不是 off。"
+    >
+      <div className="space-y-2">
+        <select
+          className="input w-full text-xs"
+          disabled={disabled}
+          value={mode}
+          onChange={(e) => setMode(e.target.value as 'unset' | 'off' | 'levels')}
+        >
+          <option value="unset">未声明</option>
+          <option value="off">不会推理</option>
+          <option value="levels">声明档位</option>
+        </select>
+        {mode === 'levels' && (
+          <div className="space-y-1.5">
+            {THINKING_LEVELS.map((level) => {
+              const on = dict[level] !== undefined
+              return (
+                <label key={level} className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    disabled={disabled}
+                    checked={on}
+                    onChange={(e) => toggleLevel(level, e.target.checked)}
+                  />
+                  <span className="font-mono w-16">{level}</span>
+                  {on && (
+                    <input
+                      className="input flex-1 font-mono text-[11px] h-7"
+                      disabled={disabled}
+                      placeholder={level === 'off' ? '空=不发' : level}
+                      value={dict[level] == null ? '' : String(dict[level])}
+                      onChange={(e) => setWire(level, e.target.value)}
+                    />
+                  )}
+                </label>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </Field>
+  )
 }
 
 function modelRowsFromProfile(profile: Record<string, unknown> | undefined): ModelRow[] {
@@ -42,6 +135,7 @@ function modelRowsFromProfile(profile: Record<string, unknown> | undefined): Mod
       name: asString(entry.name) || id,
       ...(typeof entry.contextWindow === 'number' ? { contextWindow: entry.contextWindow } : {}),
       ...(typeof entry.maxTokens === 'number' ? { maxTokens: entry.maxTokens } : {}),
+      ...(Array.isArray(entry.input) ? { input: entry.input.map(String) } : {}),
     }
   }).filter(Boolean) as ModelRow[]
 }
@@ -108,7 +202,7 @@ function PiAiModelList({
               type="button"
               className="btn-ghost h-8 w-8 p-0"
               aria-expanded={expanded.has(index)}
-              title="高级（上下文窗口、最大输出）"
+              title="高级（上下文窗口、最大输出、推理档）"
               disabled={disabled}
               onClick={() => {
                 setExpanded((current) => {
@@ -164,6 +258,35 @@ function PiAiModelList({
                   onChange={(e) => setCapacity(index, 'maxTokens', e.target.value)}
                 />
               </Field>
+              <Field label="input" hint="Host 模型输入类型。">
+                <div className="flex items-center gap-3 text-xs">
+                  {MODEL_INPUT_VALUES.map((value) => {
+                    const checked = Array.isArray(model.input) ? model.input.includes(value) : value === 'text'
+                    return (
+                      <label key={value} className="inline-flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          disabled={disabled}
+                          checked={checked}
+                          onChange={() => {
+                            const current = Array.isArray(model.input) && model.input.length ? [...model.input] : ['text']
+                            const next = checked ? current.filter((item) => item !== value) : [...current, value]
+                            updateModel(index, { input: next.length ? next : ['text'] })
+                          }}
+                        />
+                        {value}
+                      </label>
+                    )
+                  })}
+                </div>
+              </Field>
+              <div className="@md:col-span-2">
+                <ReasoningEffortsField
+                  value={model.reasoningEfforts}
+                  disabled={disabled}
+                  onChange={(next) => updateModel(index, { reasoningEfforts: next as ModelRow['reasoningEfforts'] })}
+                />
+              </div>
               {model.contextWindow !== undefined && (
                 <div className="text-[10px] text-ink-subtle @md:col-span-2">已存：{formatCapacity(model.contextWindow)} tokens</div>
               )}
@@ -184,19 +307,7 @@ function draftFromUser(row: ModelsSettingsRow): Record<string, unknown> {
 }
 
 function mergeDiscover(existing: ModelRow[], picked: ModelRow[]): ModelRow[] {
-  const byId = new Map(existing.map((m) => [m.id, m]))
-  for (const candidate of picked) {
-    if (!byId.has(candidate.id)) {
-      byId.set(candidate.id, {
-        id: candidate.id,
-        name: candidate.name || candidate.id,
-        ...(candidate.contextWindow !== undefined ? { contextWindow: candidate.contextWindow } : {}),
-        ...(candidate.maxTokens !== undefined ? { maxTokens: candidate.maxTokens } : {}),
-        ...(candidate.reasoningEfforts !== undefined ? { reasoningEfforts: candidate.reasoningEfforts } : {}),
-      })
-    }
-  }
-  return [...byId.values()]
+  return mergeModelRows(existing, picked) as ModelRow[]
 }
 
 export function ModelsProvidersSection({
@@ -525,6 +636,7 @@ function ProviderEditorCard({
             ...(m.contextWindow !== undefined ? { contextWindow: m.contextWindow } : {}),
             ...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
             ...(m.reasoningEfforts !== undefined ? { reasoningEfforts: m.reasoningEfforts } : {}),
+            ...(Array.isArray(m.input) ? { input: m.input } : {}),
           })),
         }).then(() => {
           setKeyDraft('')
@@ -903,7 +1015,14 @@ function AddCustomCard({
       baseURL: baseURL.trim(),
       api,
       apiKey: apiKey.trim() || undefined,
-      models: payloadModels.map((m) => ({ id: m.id, name: m.name || m.id })),
+      models: payloadModels.map((m) => ({
+        id: m.id,
+        name: m.name || m.id,
+        ...(m.contextWindow !== undefined ? { contextWindow: m.contextWindow } : {}),
+        ...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
+        ...(m.reasoningEfforts !== undefined ? { reasoningEfforts: m.reasoningEfforts } : {}),
+        ...(Array.isArray(m.input) ? { input: m.input } : {}),
+      })),
     }).then(onSaved).catch((cause) => setFormError(cause instanceof Error ? cause.message : '创建失败')).finally(() => setBusy(false))
   }
 

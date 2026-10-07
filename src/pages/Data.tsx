@@ -17,7 +17,7 @@ import {
   type RuntimeHealth,
   type RuntimeOperation,
 } from '@/lib/runtime-api'
-import { loadCurrentAiTarget } from '@/lib/ai-target'
+import { currentAiTarget } from '@/lib/ai-target'
 import type { BusinessTable } from '@/lib/types'
 import type { JsonValue, RiskLevel } from '@/lib/contracts'
 import { countHomeOperationExceptions } from '@/lib/home-operation-exception'
@@ -139,6 +139,7 @@ export default function Data() {
         id: activeWorkspaceId,
         name: workspace?.name ?? '当前工作区',
         description: workspace?.desc ?? '',
+        cwd: workspace?.cwd,
       })
       const cwd = workspace?.cwd && workspace.cwd.startsWith('/') ? workspace.cwd : undefined
       const [nextHealth, nextConnections, nextApps, nextOperations, vocabResult] = await Promise.all([
@@ -375,7 +376,7 @@ function AppDraftEditor({
           type="button"
           className="btn h-8"
           onClick={() => {
-            void loadCurrentAiTarget().then((target) => {
+            void currentAiTarget().then((target) => {
               if (!target.ok) {
                 setNote(target.error)
                 return

@@ -29,7 +29,7 @@ function hallLocals(state) {
   return localCwdSet(requests.map((row) => row && row.workspace).filter(Boolean))
 }
 
-function hallFp(state) {
+export function unreadProjectionFp(state) {
   const requests = Array.isArray(state?.requests) ? state.requests : []
   const unread = []
   for (const row of requests) {
@@ -37,13 +37,42 @@ function hallFp(state) {
     unread.push(`${row.id}:${row.unread ? 1 : 0}:${row.workspace || ''}:${row.status || ''}`)
   }
   unread.sort()
+  return JSON.stringify({ unread, n: requests.length })
+}
+
+export function rosterProjectionFp(state) {
   const peers = (Array.isArray(state?.peers) ? state.peers : [])
-    .map((row) => `${row.id}:${row.online ? 1 : 0}:${row.lastHeard || ''}`)
+    .map((row) => `${row.id}:${row.online ? 1 : 0}`)
     .sort()
   const groups = (Array.isArray(state?.groups) ? state.groups : [])
     .map((row) => String(row.id || ''))
     .sort()
-  return JSON.stringify({ unread, peers, groups, n: requests.length })
+  const ask = state?.pairAsk && typeof state.pairAsk === 'object' ? state.pairAsk : null
+  const wait = state?.pairWait && typeof state.pairWait === 'object' ? state.pairWait : null
+  return JSON.stringify({
+    peers,
+    groups,
+    pairFrom: ask ? String(ask.from || '') : '',
+    pairWait: wait ? String(wait.displayName || '') : '',
+    door: state?.doorPort == null ? '' : String(state.doorPort),
+  })
+}
+
+export function rosterProjection(state) {
+  const peers = (Array.isArray(state?.peers) ? state.peers : []).map((row) => ({
+    id: String(row?.id || ''),
+    online: Boolean(row?.online),
+  })).filter((row) => row.id)
+  const groups = (Array.isArray(state?.groups) ? state.groups : []).map((row) => ({
+    id: String(row?.id || ''),
+  })).filter((row) => row.id)
+  return {
+    peers,
+    groups,
+    pairAsk: state?.pairAsk && typeof state.pairAsk === 'object' ? state.pairAsk : null,
+    pairWait: state?.pairWait && typeof state.pairWait === 'object' ? state.pairWait : null,
+    doorPort: state?.doorPort == null ? null : state.doorPort,
+  }
 }
 
 function hasHandoff(row) {
@@ -66,6 +95,7 @@ function newIncomingMessages(state, knownIds) {
     if (!requestId || knownIds.has(requestId)) continue
     messages.push({
       peerId: String(row.from || ''),
+      groupId: String(row.groupId || ''),
       requestId,
       hasHandoff: hasHandoff(row),
     })
@@ -145,7 +175,8 @@ export function subscribeLanAssistMailbox({ origin, cookie, onEvent, onLive, onD
 export function startLanAssistStateWatch(deps) {
   const { lanAssist, cwd, db } = deps
   let lastSheetFp = ''
-  let lastHallFp = ''
+  let lastUnreadFp = ''
+  let lastRosterFp = ''
   let knownIncomingIds = new Set()
   let bootstrapped = false
 
@@ -168,16 +199,23 @@ export function startLanAssistStateWatch(deps) {
       const state = await lanAssist('/state', { search: { sessionId: '' } })
       if (db) reconcileLanAssistConnectionLamp(db, state && state.ok !== false ? state : null)
       if (!state || state.ok === false) return
+      await lanAssist('/sleep', { method: 'POST', body: { on: false } }).catch(() => undefined)
 
       const sheet = officialFromState(state)
       if (sheet) processOfficialSheet(sheet, { writePreview: state.writePreview })
 
-      const nextHallFp = hallFp(state)
-      if (nextHallFp !== lastHallFp) {
-        lastHallFp = nextHallFp
+      const nextUnreadFp = unreadProjectionFp(state)
+      if (nextUnreadFp !== lastUnreadFp) {
+        lastUnreadFp = nextUnreadFp
         const requests = Array.isArray(state.requests) ? state.requests : []
         const mailboxSheet = unreadSheet(requests, hallLocals(state), state.self && state.self.id)
         emit('im.unread.changed', mailboxSheet, { workspaceCwd: null, source: 'lan-assist' })
+      }
+
+      const nextRosterFp = rosterProjectionFp(state)
+      if (nextRosterFp !== lastRosterFp) {
+        lastRosterFp = nextRosterFp
+        emit('im.peer.changed', rosterProjection(state), { workspaceCwd: null, source: 'lan-assist' })
       }
 
       if (!bootstrapped) {
