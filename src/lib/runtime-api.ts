@@ -1777,7 +1777,14 @@ export class RuntimeApi {
   }
 
   async getLatestBriefing(onOpen = false, signal?: AbortSignal): Promise<{ definition: BriefingDefinition; briefing: BriefingSnapshot | null; schedule: BriefingSchedule }> {
-    const path = withWorkspaceCwd(onOpen ? '/api/v1/briefing/latest?onOpen=1' : '/api/v1/briefing/latest')
+    const params = new URLSearchParams()
+    if (onOpen) {
+      params.set('onOpen', '1')
+      const canvas = String(useApp.getState().activeAiSessionId || '').trim()
+      if (canvas) params.set('canvasSessionId', canvas)
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    const path = withWorkspaceCwd(`/api/v1/briefing/latest${suffix}`)
     const result = await this.request<{ ok: true; data: { definition: BriefingDefinition; briefing: BriefingSnapshot | null; schedule: BriefingSchedule } }>(path, { signal })
     return result.data
   }
@@ -2212,8 +2219,20 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listFdeApps(signal?: AbortSignal): Promise<Array<{ id: string; name: string; slug: string }>> {
-    const result = await this.request<{ data: Array<{ id: string; name: string; slug: string }> }>(
+  async listFdeApps(signal?: AbortSignal): Promise<Array<{
+    id: string
+    name: string
+    slug: string
+    status?: string
+    deletedAt?: string
+  }>> {
+    const result = await this.request<{ data: Array<{
+      id: string
+      name: string
+      slug: string
+      status?: string
+      deletedAt?: string
+    }> }>(
       withWorkspaceCwd('/api/v1/apps'),
       { signal },
     )

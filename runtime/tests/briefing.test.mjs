@@ -165,8 +165,9 @@ test('briefing-submit merge', async () => {
 
 test('latest path puts onOpen in the query', () => {
   const src = readFileSync(join(repoRoot, 'src/lib/runtime-api.ts'), 'utf8')
-  assert.match(src, /\/api\/v1\/briefing\/latest\?onOpen=1/)
-  assert.doesNotMatch(src, /latest\$\{onOpen \? '&onOpen=1'/)
+  assert.match(src, /params\.set\('onOpen', '1'\)/)
+  assert.match(src, /canvasSessionId/)
+  assert.match(src, /\/api\/v1\/briefing\/latest/)
 })
 
 test('latest accepts cwd and onOpen with CORS', async (t) => {

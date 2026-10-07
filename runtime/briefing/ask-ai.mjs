@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { buildContextPack, renderContextForPrompt } from '../context-pack.mjs'
 import { listSessionProjectedToolNames } from '../routes/mcp.mjs'
+import { waitUntilSessionIdle } from '../session-primary.mjs'
 import { harvestTurnToolResults } from './tool-official.mjs'
 
 
@@ -90,6 +91,11 @@ export async function runBriefingAgent(deps, {
     items: (s.items || []).slice(0, 5).map((i) => i.text),
     error: s.error,
   }))
+
+  const idle = await waitUntilSessionIdle(aiRuntime, sessionId, { timeoutMs })
+  if (!idle) {
+    return { ok: false, error: '会话仍在处理上一轮', sessionId, agentRequestId, blocked, toolResults: {} }
+  }
 
   const prompt = [
     `[fde-briefing:${agentRequestId}]`,

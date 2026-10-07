@@ -111,6 +111,7 @@ export function openRef(href: OpenRefHref) {
     return
   }
   if (panel === 'briefing') {
+    app.setBriefingBrowse({ land: Number(app.briefingBrowse?.land || 0) + 1 })
     app.togglePanel('briefing', 'full')
     return
   }

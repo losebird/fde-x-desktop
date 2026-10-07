@@ -6,10 +6,25 @@ import { itemsFromToolResult } from './tool-official.mjs'
 import {
   createBriefingRun,
   findBriefingByAgentRequest,
+  findInFlightBriefing,
   getBriefing,
+  getLatestBriefing,
   getOrCreateDefinition,
   updateBriefingContent,
 } from './store.mjs'
+
+const fullLocks = new Set()
+
+function beginFullLock(cwd) {
+  const key = String(cwd || '')
+  if (!key || fullLocks.has(key)) return false
+  fullLocks.add(key)
+  return true
+}
+
+function endFullLock(cwd) {
+  fullLocks.delete(String(cwd || ''))
+}
 
 function mergeAgentSections(existing, submitted, pendingError = '超时') {
   const byId = new Map((submitted || []).map((s) => [s.id, s]))
@@ -52,9 +67,45 @@ export async function runBriefing(deps, input) {
   if (!workspaceCwd.startsWith('/')) {
     throw Object.assign(new Error('需要工作区绝对路径 cwd'), { code: 'validation_error' })
   }
+  const mode = input.mode === 'internal-only' ? 'internal-only' : 'full'
+  if (mode === 'full') {
+    const inflight = findInFlightBriefing(db, workspaceCwd)
+    if (inflight) return { briefingId: inflight.id, briefing: inflight, joined: true }
+    if (!beginFullLock(workspaceCwd)) {
+      for (let i = 0; i < 25; i += 1) {
+        const latest = findInFlightBriefing(db, workspaceCwd) || getLatestBriefing(db, workspaceCwd)
+        if (latest) return { briefingId: latest.id, briefing: latest, joined: true }
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+      const latest = getLatestBriefing(db, workspaceCwd)
+      return { briefingId: latest?.id || '', briefing: latest, joined: true }
+    }
+  }
+  try {
+    return await runBriefingUnlocked(deps, input, workspaceCwd, mode)
+  } finally {
+    if (mode === 'full') endFullLock(workspaceCwd)
+  }
+}
+
+async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
+  const { db, aiRuntime } = deps
   const definition = getOrCreateDefinition(db, workspaceCwd)
   const defId = input.definitionId || definition.id
   const enabled = definition.sections.filter((s) => s.enabled)
+  if (mode === 'full' && input.skipIfCanvas) {
+    const canvasId = String(input.canvasSessionId || '').trim()
+    if (canvasId) {
+      const primary = await resolvePrimarySessionForRuntime(aiRuntime, {
+        cwd: workspaceCwd,
+        sessionId: String(input.sessionId || '').trim(),
+      })
+      if (primary && primary === canvasId) {
+        const latest = getLatestBriefing(db, workspaceCwd)
+        return { briefingId: latest?.id || '', briefing: latest, skippedCanvas: true }
+      }
+    }
+  }
   const { id: briefingId } = createBriefingRun(db, {
     definitionId: defId,
     workspaceCwd,
@@ -71,7 +122,7 @@ export async function runBriefing(deps, input) {
   let sessionId = ''
   let agentError = ''
 
-  const needAgent = input.mode === 'full'
+  const needAgent = mode === 'full'
     && enabled.some((s) => (s.type === 'mcp' || s.type === 'ai'))
     && aiRuntime?.status?.().connected
 

@@ -172,7 +172,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/apps') {
-    const workspaceId = resolveWorkspaceId(db, url.searchParams.get('workspace'))
+    const workspaceId = resolveWorkspaceId(db, url.searchParams.get('workspace') || url.searchParams.get('cwd'))
     const items = listApps(db, workspaceId)
     sendJson(response, 200, {
       ok: true,
@@ -192,8 +192,10 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && pathname === '/api/v1/apps') {
     const body = await readJson(request)
-    const workspaceId = body.workspaceId ?? resolveWorkspaceId(db, body.workspace)
-    const workspaceCwd = typeof body.workspaceCwd === 'string' ? body.workspaceCwd : defaultWorkspaceCwd()
+    const workspaceCwd = typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
+      ? body.workspaceCwd
+      : defaultWorkspaceCwd()
+    const workspaceId = body.workspaceId ?? resolveWorkspaceId(db, body.workspace || workspaceCwd)
     const spec = body.spec
     if (!spec || typeof spec !== 'object') {
       sendError(response, 400, 'validation_error', 'spec 不能为空', correlationId)

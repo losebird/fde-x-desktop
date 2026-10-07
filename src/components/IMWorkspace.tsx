@@ -17,6 +17,20 @@ import { listRememberedSurfaceSheets } from '@/lib/biz-surface-cache'
 import { peekBizPendingSheet } from '@/lib/biz-session-sheet'
 import { isPrimarySession, loadCurrentAiTarget, loadCurrentWorkspaceCwd, sessionMatchesCwd } from '@/lib/ai-target'
 import { dmTalkId, followLetter, imBrowseForVisibleTalk, imPaneOpen, incomingUnread, letterHome, localCwdSet, mailOnLane, normalizeCwd, topicTalkId, unreadOfRoster, unreadOfTalk } from '@/lib/im-letter-home'
+import {
+  HANDOFF_MIME,
+  HANDOFF_NAME,
+  appsFromPack,
+  briefingFromPack,
+  buildHandoffPack,
+  fileIdsFromPack,
+  handoffHasWork,
+  handoffPackLine,
+  isHandoffAttach,
+  parseHandoffPack,
+  sessionIdsFromPack,
+  sessionsFromPack,
+} from '@/lib/im-handoff'
 import { pullImMailbox, stampImMailboxRead, startImMailbox, useImMailbox } from '@/lib/im-mailbox'
 import { IM_AVATARS, imAvatar } from '@/lib/im-avatar'
 import { buildImAiPrompt, extractComposerBody, isUnsafeToSend, lastIncomingText, threadExcerpt } from '@/lib/im-ai'
@@ -175,13 +189,6 @@ let imMailboxSnap: ImMailboxSnap | null = null
 function rememberImMailbox(contacts: IMContact[], messages: IMMessage[]) {
   imMailboxSnap = { contacts, messages }
 }
-const HANDOFF_MIME = 'application/vnd.dsh.handoff+json'
-const HANDOFF_NAME = 'dsh-handoff.json'
-
-function isHandoffAttach(item: Record<string, unknown>) {
-  return String(item.mime || '') === HANDOFF_MIME || String(item.name || '') === HANDOFF_NAME
-}
-
 function utf8ToB64(text: string) {
   const bytes = new TextEncoder().encode(text)
   let binary = ''
@@ -192,19 +199,17 @@ function utf8ToB64(text: string) {
 function packHandoffAttach(pkg: IMHandoffPackage, cwd: string) {
   const workspace = cwd.split('/').filter(Boolean).at(-1) || cwd || pkg.sourceWorkspaceId
   const turns = pkg.transcript?.length ? pkg.transcript : []
-  const pack = {
-    v: 2,
-    kind: 'handoff',
+  const pack = buildHandoffPack({
     title: pkg.title,
     workspace,
-    at: Date.now(),
     sessionIds: pkg.sourceChatIds,
     sessions: pkg.sessions || [],
     fileIds: pkg.fileIds,
+    apps: pkg.apps,
+    briefing: pkg.briefing,
     turns,
     excerpt: String((turns.at(-1)?.text || pkg.summary || pkg.title)).slice(0, 240),
-    truncated: false,
-  }
+  })
   const json = JSON.stringify(pack)
   return {
     name: HANDOFF_NAME,
@@ -212,36 +217,6 @@ function packHandoffAttach(pkg: IMHandoffPackage, cwd: string) {
     size: new TextEncoder().encode(json).length,
     data: utf8ToB64(json),
   }
-}
-
-function parseHandoffPack(raw: string) {
-  let text = String(raw || '').trim()
-  if (!text) return null
-  if (text[0] !== '{') {
-    try {
-      const bin = atob(text.replace(/\s/g, ''))
-      text = new TextDecoder().decode(Uint8Array.from(bin, (ch) => ch.charCodeAt(0)))
-    } catch {
-      return null
-    }
-  }
-  try {
-    const obj = JSON.parse(text) as Record<string, unknown>
-    if (!obj || obj.kind !== 'handoff') return null
-    return obj
-  } catch {
-    return null
-  }
-}
-
-function handoffSessionsFromPack(parsed: Record<string, unknown> | null): IMHandoffPackage['sessions'] | undefined {
-  if (!parsed || !Array.isArray(parsed.sessions)) return undefined
-  return parsed.sessions as IMHandoffPackage['sessions']
-}
-
-function handoffSessionIdsFromPack(parsed: Record<string, unknown> | null): string[] {
-  if (!parsed || !Array.isArray(parsed.sessionIds)) return []
-  return parsed.sessionIds.map((item) => String(item)).filter(Boolean)
 }
 
 function isHandoffSummaryText(text: string) {
@@ -268,12 +243,16 @@ function mergeHandoffPackages(
   if (!prev) return next
   const sessions = next.sessions?.length ? next.sessions : prev.sessions
   const sourceChatIds = next.sourceChatIds?.length ? next.sourceChatIds : prev.sourceChatIds
+  const apps = next.apps?.length ? next.apps : prev.apps
+  const briefing = next.briefing || prev.briefing
   const sessionsResolved = Boolean(sessions?.length || next.sessionsResolved || prev.sessionsResolved)
   return {
     ...prev,
     ...next,
     ...(sessions ? { sessions } : {}),
     ...(sourceChatIds?.length ? { sourceChatIds } : {}),
+    ...(apps?.length ? { apps } : {}),
+    ...(briefing ? { briefing } : {}),
     sessionsResolved,
     sessionsLoading: Boolean(!sessions?.length && !sessionsResolved && (next.sessionsLoading || prev.sessionsLoading)),
   }
@@ -295,35 +274,31 @@ function buildThreadHandoff(input: {
   const parsedPack = packedAttach && typeof packedAttach.data === 'string' && packedAttach.data
     ? parseHandoffPack(String(packedAttach.data))
     : null
-  const packSessions = handoffSessionsFromPack(parsedPack)
-  const packSessionIds = handoffSessionIdsFromPack(parsedPack)
+  const packSessions = sessionsFromPack(parsedPack)
+  const packSessionIds = sessionIdsFromPack(parsedPack)
+  const packApps = appsFromPack(parsedPack)
+  const packBriefing = briefingFromPack(parsedPack)
   const packTitle = parsedPack && typeof parsedPack.title === 'string' && parsedPack.title.trim()
     ? String(parsedPack.title).trim()
     : '工作交接'
-  const needsLazySessions = !packSessions?.length && (Boolean(packedAttach) || rowHandoffFlagTrue(row.handoff) || isHandoffSummaryText(text))
+  const needsLazySessions = !packSessions.length && (Boolean(packedAttach) || rowHandoffFlagTrue(row.handoff) || isHandoffSummaryText(text))
   return {
     id: `${row.id || threadId}-handoff`,
     title: packTitle,
     summary: text,
     sourceWorkspaceId: String(row.workspace || parsedPack?.workspace || ''),
     sourceChatIds: packSessionIds,
-    fileIds: Array.isArray(parsedPack?.fileIds)
-      ? (parsedPack.fileIds as unknown[]).map((id) => String(id || '')).filter(Boolean)
+    fileIds: fileIdsFromPack(parsedPack).length
+      ? fileIdsFromPack(parsedPack)
       : files.filter((item) => item.name !== HANDOFF_NAME).map((item) => item.fileId),
-    ...(packSessions?.length ? { sessions: packSessions } : {}),
+    ...(packSessions.length ? { sessions: packSessions as IMHandoffPackage['sessions'] } : {}),
+    ...(packApps.length ? { apps: packApps } : {}),
+    ...(packBriefing ? { briefing: packBriefing } : {}),
     ...(handoffAttachIndex >= 0 ? { attachIndex: handoffAttachIndex } : {}),
     ...(needsLazySessions ? { sessionsLoading: false } : {}),
     createdAt: created ? new Date(created).toISOString() : new Date().toISOString(),
     status: 'sent',
   }
-}
-
-function handoffPackSessionLine(pkg: IMHandoffPackage) {
-  if (pkg.sessionsLoading && !pkg.sessions?.length) return '正在读取会话文件…'
-  const files = handoffSessionFiles(pkg)
-  if (!files.length) return '0 个会话文件'
-  const kb = files.reduce((sum, file) => sum + Number(file.size || 0), 0)
-  return `${files.length} 个会话文件 · ${Math.max(1, Math.round(kb / 1024))} KB`
 }
 
 function handoffAttachIndices(message: IMMessage): number[] {
@@ -648,8 +623,10 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
             if (!raw) continue
             const parsed = parseHandoffPack(raw)
             if (!parsed) continue
-            const rows = handoffSessionsFromPack(parsed)
-            const sessionIds = handoffSessionIdsFromPack(parsed)
+            const rows = sessionsFromPack(parsed)
+            const sessionIds = sessionIdsFromPack(parsed)
+            const packedApps = appsFromPack(parsed)
+            const packedBriefing = briefingFromPack(parsed)
             resolved = true
             setLiveMessages((prev) => (prev ?? []).map((row) => {
               if (row.id !== message.id) return row
@@ -666,7 +643,9 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                 ...row,
                 handoff: {
                   ...base,
-                  ...(rows?.length ? { sessions: rows } : {}),
+                  ...(rows?.length ? { sessions: rows as IMHandoffPackage['sessions'] } : {}),
+                  ...(packedApps.length ? { apps: packedApps } : {}),
+                  ...(packedBriefing ? { briefing: packedBriefing } : {}),
                   sessionsLoading: false,
                   sessionsResolved: true,
                   ...(sessionIds.length && !base.sourceChatIds.length ? { sourceChatIds: sessionIds } : {}),
@@ -1254,9 +1233,11 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     const files = pkg.fileIds.length ? pkg.fileIds.join('\n') : '未选文件'
     const sessionLines = (pkg.sessions || []).map((row) => `${row.title}（${row.files.length} 个会话文件）`).join('\n')
       || (pkg.sourceChatIds.length ? pkg.sourceChatIds.join('\n') : '未选会话')
+    const appLines = (pkg.apps || []).map((row) => `${row.name}（${row.slug}）`).join('\n') || '未选应用'
+    const briefingLine = pkg.briefing ? '已带早报定义' : '未选早报'
     setPreview({
       title: pkg.title,
-      body: `${pkg.summary}\n\n会话文件\n${sessionLines}\n\n工作区文件\n${files}`,
+      body: `${pkg.summary}\n\n会话文件\n${sessionLines}\n\n工作区文件\n${files}\n\n应用\n${appLines}\n\n早报\n${briefingLine}`,
     })
   }
 
@@ -1603,22 +1584,29 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const continueHandoff = (message: IMMessage) => {
     if (!message.handoff) return
     if (imBanner?.kind === 'working') return
-    setImBanner({ kind: 'working', text: '正在复原交接会话，请稍候…' })
-    setAiHint('正在复原交接会话…')
+    setImBanner({ kind: 'working', text: '正在复原交接包，请稍候…' })
+    setAiHint('正在复原交接包…')
     void (async () => {
       let sessions = message.handoff?.sessions || []
       let dests: string[] = []
+      let packedApps = message.handoff?.apps || []
+      let packedBriefing = message.handoff?.briefing || null
+      let parsed: Record<string, unknown> | null = null
       for (const index of handoffAttachIndices(message)) {
         const raw = attachBytes(await runtimeApi.imAttach(message.id, index).catch(() => null))
         if (!raw) continue
-        const parsed = parseHandoffPack(raw)
+        parsed = parseHandoffPack(raw)
         if (!parsed) continue
-        if (!sessions.length) sessions = handoffSessionsFromPack(parsed) || []
-        dests = Array.isArray(parsed.fileIds) ? parsed.fileIds.map((id) => String(id || '')).filter(Boolean) : []
+        if (!sessions.length) sessions = sessionsFromPack(parsed) as IMHandoffPackage['sessions'] || []
+        dests = fileIdsFromPack(parsed)
+        if (!packedApps.length) packedApps = appsFromPack(parsed)
+        if (!packedBriefing) packedBriefing = briefingFromPack(parsed)
         break
       }
       if (!dests.length) dests = (message.handoff?.fileIds || []).map((id) => String(id || '')).filter(Boolean)
-      if (!sessions.length) throw new Error('交接包里没有 AI 会话文件')
+      if (!handoffHasWork(parsed) && !sessions.length && !dests.length && !packedApps.length && !packedBriefing) {
+        throw new Error('交接包里没有可复原的内容')
+      }
       const workspace = loadCurrentWorkspaceCwd()
       if (!workspace.ok) throw new Error(workspace.error)
       let copyCount = 0
@@ -1636,29 +1624,101 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           if (Array.isArray(copied.warnings)) copyWarnings.push(...copied.warnings.map((item) => String(item)))
         }
       }
-      const workspaceId = workspace.workspaceId.startsWith('ws_') ? '' : workspace.workspaceId
-      const sessionsPayload = sessions.map((row) => ({
-        sessionId: row.sessionId,
-        title: row.title,
-        files: row.files,
-        ...(row.members?.length ? { members: row.members } : {}),
-      }))
-      const restored = await runtimeApi.restoreAiSessions(
-        workspaceId
-          ? { workspaceId, writeCwd: workspace.cwd, sessions: sessionsPayload }
-          : { cwd: workspace.cwd, sessions: sessionsPayload },
-      )
-      const ids = (restored.sessions || []).map((row) => row.sessionId).filter(Boolean)
-      if (!ids.length) throw new Error('会话没有复原出来')
-      window.dispatchEvent(new CustomEvent('fde-x-ai-restore', {
-        detail: {
-          sessionIds: ids,
-          sessions: restored.sessions || [],
-        },
-      }))
-      const bits = [`已复原 ${ids.length} 个 AI 会话，请看左边会话列表`]
+      const warnings: string[] = [...copyWarnings]
+      let ids: string[] = []
+      let restoredRows: Array<Record<string, unknown>> = []
+      if (sessions.length) {
+        const workspaceId = workspace.workspaceId.startsWith('ws_') ? '' : workspace.workspaceId
+        const sessionsPayload = sessions.map((row) => ({
+          sessionId: row.sessionId,
+          title: row.title,
+          files: row.files,
+          ...(row.members?.length ? { members: row.members } : {}),
+        }))
+        const restored = await runtimeApi.restoreAiSessions(
+          workspaceId
+            ? { workspaceId, writeCwd: workspace.cwd, sessions: sessionsPayload }
+            : { cwd: workspace.cwd, sessions: sessionsPayload },
+        )
+        ids = (restored.sessions || []).map((row) => row.sessionId).filter(Boolean)
+        restoredRows = (restored.sessions || []) as Array<Record<string, unknown>>
+        if (!ids.length) throw new Error('会话没有复原出来')
+        if (Array.isArray(restored.warnings)) warnings.push(...restored.warnings.map((item) => String(item)))
+      }
+      const adoptedSlugs: string[] = []
+      const listed = packedApps.length ? await runtimeApi.listFdeApps().catch(() => []) : []
+      for (const row of packedApps) {
+        const spec = { ...row.spec, _workspaceCwd: workspace.cwd }
+        const slug = String(row.slug || spec.slug || '').trim()
+        if (!slug) {
+          warnings.push('有应用缺 slug，跳过')
+          continue
+        }
+        const hit = listed.find((item) => item.slug === slug && !item.deletedAt)
+        let appId = hit?.id || ''
+        if (appId) {
+          const put = await runtimeApi.putDeclarativeAppSpec(appId, { spec, changeNote: '交接导入' })
+          if (put.ok === false) {
+            warnings.push(`${slug}：${String(put.error || (put.errors || []).map((err) => err.message).join('；') || 'spec 没写上')}`)
+            continue
+          }
+        } else {
+          try {
+            const created = await runtimeApi.createDeclarativeApp({
+              workspaceCwd: workspace.cwd,
+              workspaceId: workspace.workspaceId,
+              spec,
+            })
+            if (!created.ok || !created.data?.appId) {
+              warnings.push(`${slug}：${(created.errors || []).map((err) => err.message).join('；') || '没建成草稿'}`)
+              continue
+            }
+            appId = created.data.appId
+          } catch (cause) {
+            warnings.push(`${slug}：${cause instanceof Error ? cause.message : '没建成草稿'}`)
+            continue
+          }
+        }
+        if (row.status === 'active' && appId) {
+          const activated = await runtimeApi.activateDeclarativeApp(appId).catch((cause) => ({
+            ok: false as const,
+            errors: [{ path: '', message: cause instanceof Error ? cause.message : '没激活' }],
+          }))
+          if (activated && activated.ok === false) {
+            warnings.push(`${slug} 停在草稿：${(activated.errors || []).map((err) => err.message).join('；') || '激活校验未过'}`)
+          }
+        }
+        adoptedSlugs.push(slug)
+      }
+      if (packedBriefing) {
+        try {
+          await runtimeApi.putBriefingDefinition({
+            workspaceCwd: workspace.cwd,
+            sections: packedBriefing.sections as Parameters<typeof runtimeApi.putBriefingDefinition>[0]['sections'],
+            schedule: packedBriefing.schedule as Parameters<typeof runtimeApi.putBriefingDefinition>[0]['schedule'],
+            delivery: { peerId: '' },
+          })
+        } catch (cause) {
+          warnings.push(cause instanceof Error ? cause.message : '早报定义没落下')
+          packedBriefing = null
+        }
+      }
+      if (adoptedSlugs.length) openRef({ panel: 'data', slug: adoptedSlugs[0] })
+      if (packedBriefing) openRef({ panel: 'briefing' })
+      if (ids.length) {
+        window.dispatchEvent(new CustomEvent('fde-x-ai-restore', {
+          detail: {
+            sessionIds: ids,
+            sessions: restoredRows,
+          },
+        }))
+      }
+      const bits: string[] = []
+      if (ids.length) bits.push(`已复原 ${ids.length} 个 AI 会话，请看左边会话列表`)
       if (copyCount) bits.push(`落下 ${copyCount} 个工作区文件`)
-      const warnings = [...(restored.warnings || []), ...copyWarnings]
+      if (adoptedSlugs.length) bits.push(`落下 ${adoptedSlugs.length} 个应用`)
+      if (packedBriefing) bits.push('落下早报定义')
+      if (!bits.length) throw new Error('交接包里没有可复原的内容')
       const ok = warnings.length ? `${bits.join('，')}。${warnings.join('；')}` : bits.join('，')
       setAiHint(ok)
       setImBanner({ kind: 'ok', text: ok })
@@ -2033,7 +2093,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                           <div className={clsx('px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words', isMe ? 'bg-brand text-white' : isAssistant ? 'bg-amber-50 border border-amber-200 text-amber-900' : 'bg-surface-2 text-ink')}>
                             {!m.recalledAt && m.text && !(m.attachments?.length && (/^附件\s+/u.test(m.text) || m.text === '（附件）' || m.attachments.every((att) => m.text.includes(att.name)))) && <div><MentionBody text={m.text} evidence={mentionEvidence} mine={isMe} /></div>}
                             {m.attachments?.length ? <div className={clsx('mt-2 grid gap-1.5', m.text && !(/^附件\s+/u.test(m.text) || m.text === '（附件）' || m.attachments.every((att) => m.text.includes(att.name))) && 'pt-2 border-t')}>{m.attachments.map((att, index) => <button key={att.id} type="button" onClick={() => previewLetterAttach(m, att)} className={clsx('rounded text-left overflow-hidden', att.kind === 'image' ? '' : (isMe ? 'px-2 py-1.5 bg-white/12 hover:bg-white/20 flex items-center gap-2' : 'px-2 py-1.5 bg-white border border-line hover:border-brand flex items-center gap-2'))}>{att.kind === 'image' ? <LetterThumb requestId={m.id} index={letterIndexOf(att, index)} name={att.name} /> : <><span>{fileIcon(att.kind)}</span><span className="min-w-0 flex-1"><span className="block text-xs truncate">{att.name}</span><span className={clsx('block text-[9px]', isMe ? 'text-white/65' : 'text-ink-subtle')}>{att.size ? `${Math.max(1, Math.round(att.size / 1024))} KB` : '附件'}</span></span></>}</button>)}</div> : null}
-                            {m.handoff && <div className={clsx('mt-2 rounded-lg overflow-hidden text-left', isMe ? 'bg-white text-ink' : 'bg-white border border-line')}><div className="px-3 py-2 bg-ink text-white flex items-center gap-2"><MessageSquareText size={14} /><div className="flex-1"><div className="text-xs font-semibold">{m.handoff.title}</div><div className="text-[9px] text-white/65">交接包 · {handoffSessionCount(m.handoff)} 个 Agent 会话 · {handoffPackSessionLine(m.handoff)}{m.handoff.fileIds.length ? ` · ${m.handoff.fileIds.length} 个工作区文件` : ''}</div></div></div><div className="p-3 text-xs whitespace-pre-wrap leading-5">{m.handoff.summary}</div><div className="px-3 pb-3 flex gap-2"><button onClick={() => previewHandoff(m.handoff!)} className="flex-1 px-2 py-1.5 rounded border border-line hover:bg-surface-2">打开详情</button><button onClick={() => continueHandoff(m)} className="flex-1 px-2 py-1.5 rounded bg-brand text-white flex items-center justify-center gap-1"><Play size={11} /> 接着做</button></div></div>}
+                            {m.handoff && <div className={clsx('mt-2 rounded-lg overflow-hidden text-left', isMe ? 'bg-white text-ink' : 'bg-white border border-line')}><div className="px-3 py-2 bg-ink text-white flex items-center gap-2"><MessageSquareText size={14} /><div className="flex-1"><div className="text-xs font-semibold">{m.handoff.title}</div><div className="text-[9px] text-white/65">交接包 · {handoffSessionCount(m.handoff) ? `${handoffSessionCount(m.handoff)} 个 Agent 会话` : '无会话'}{handoffPackLine(m.handoff) ? ` · ${handoffPackLine(m.handoff)}` : ''}</div></div></div><div className="p-3 text-xs whitespace-pre-wrap leading-5">{m.handoff.summary}</div><div className="px-3 pb-3 flex gap-2"><button onClick={() => previewHandoff(m.handoff!)} className="flex-1 px-2 py-1.5 rounded border border-line hover:bg-surface-2">打开详情</button><button onClick={() => continueHandoff(m)} className="flex-1 px-2 py-1.5 rounded bg-brand text-white flex items-center justify-center gap-1"><Play size={11} /> 接着做</button></div></div>}
                             {(m.translation || translations[m.id]) && <div className={clsx('mt-2 pt-2 border-t text-xs leading-5', isMe ? 'border-white/20 text-white/85' : 'border-line text-ink-muted')}><span className="text-[9px] uppercase tracking-wide opacity-70">English</span><div>{m.translation || translations[m.id]}</div></div>}
                             {m.recalledAt && <div className={clsx('italic text-xs', isMe ? 'text-white/70' : 'text-ink-subtle')}>{isMe ? '你撤回了一条消息' : '对方撤回了一条消息'}</div>}
                           </div>
@@ -2122,7 +2182,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                           {pendingHandoff && (
                             <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-brand/30 bg-brand-soft text-brand text-[11px]">
                               <button type="button" className="inline-flex items-center gap-1.5" title="预览交接" onClick={() => previewHandoff(pendingHandoff)}>
-                                <MessageSquareText size={11} /> 交接包 · {handoffSessionCount(pendingHandoff)} 会话 · {handoffSessionFiles(pendingHandoff).length} 个会话文件 · {pendingHandoff.fileIds.length} 个工作区文件
+                                <MessageSquareText size={11} /> 交接包 · {handoffPackLine(pendingHandoff) || `${handoffSessionCount(pendingHandoff)} 会话`}
                               </button>
                               <button type="button" onClick={() => setPendingHandoff(null)}><X size={10} /></button>
                             </span>
@@ -2571,6 +2631,12 @@ function HandoffDialog({
   const [sessionNote, setSessionNote] = useState('读取会话…')
   const [chatIds, setChatIds] = useState<string[]>([])
   const [fileIds, setFileIds] = useState<string[]>([])
+  const [apps, setApps] = useState<Array<{ id: string; name: string; slug: string; status?: string }>>([])
+  const [appSlugs, setAppSlugs] = useState<string[]>([])
+  const [appNote, setAppNote] = useState('读取应用…')
+  const [briefing, setBriefing] = useState<{ sections: unknown[]; schedule: Record<string, unknown> } | null>(null)
+  const [includeBriefing, setIncludeBriefing] = useState(false)
+  const [briefingNote, setBriefingNote] = useState('读取早报…')
   const [packing, setPacking] = useState(false)
   const [sessionPreview, setSessionPreview] = useState('')
   const [packHint, setPackHint] = useState('')
@@ -2600,44 +2666,86 @@ function HandoffDialog({
       setSessions([])
       setSessionNote(cause instanceof Error ? cause.message : '列不出会话')
     })
+    void runtimeApi.listFdeApps().then((rows) => {
+      if (!alive) return
+      const live = rows.filter((row) => row.slug && !row.deletedAt)
+      setApps(live)
+      setAppNote(live.length ? '' : '当前工作区还没有应用')
+    }).catch((cause) => {
+      if (!alive) return
+      setApps([])
+      setAppNote(cause instanceof Error ? cause.message : '列不出应用')
+    })
+    void runtimeApi.getBriefingDefinition().then((def) => {
+      if (!alive) return
+      if (def && Array.isArray(def.sections) && def.schedule) {
+        setBriefing({ sections: def.sections, schedule: def.schedule as unknown as Record<string, unknown> })
+        setBriefingNote('')
+      } else {
+        setBriefing(null)
+        setBriefingNote('当前工作区还没有早报定义')
+      }
+    }).catch((cause) => {
+      if (!alive) return
+      setBriefing(null)
+      setBriefingNote(cause instanceof Error ? cause.message : '读不出早报定义')
+    })
     return () => { alive = false }
   }, [])
 
   const selected = sessions.filter((row) => chatIds.includes(row.sessionId))
   const names = selected.map((row) => row.title).join('、')
   const sessionFileLine = selected.map((row) => row.title).join('、') || '未选会话'
-  const summary = `交接概述\n\n工作区：${workspacePath}\nAgent 会话：${sessionFileLine}\n会话文件：放入输入区后会带上每个会话的原始 session 文件\n工作区文件：${fileIds.join('、') || '无'}\n待继续：接收方点「接着做」会新建 AI 会话并复原这些 session 文件。未经确认不要执行、不要发 IM。`
+  const selectedApps = apps.filter((row) => appSlugs.includes(row.slug))
+  const appLine = selectedApps.map((row) => row.name).join('、') || '无'
+  const briefingLine = includeBriefing && briefing ? '已选早报定义' : '无'
+  const summary = `交接概述\n\n工作区：${workspacePath}\nAgent 会话：${sessionFileLine}\n会话文件：放入输入区后会带上每个会话的原始 session 文件\n工作区文件：${fileIds.join('、') || '无'}\n应用：${appLine}\n早报：${briefingLine}\n待继续：接收方点「接着做」会在当前工作区复原勾选的会话、文件、应用和早报定义。未经确认不要执行、不要发 IM。`
+  const hasBag = Boolean(chatIds.length || fileIds.length || appSlugs.length || (includeBriefing && briefing))
   const toggle = (list: string[], id: string, setList: (v: string[]) => void) => setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
   const confirm = () => {
     const chosen = files.filter((f) => fileIds.includes(f.id)).map((f) => ({ id: `att_${f.id}`, fileId: f.id, name: f.name, kind: f.kind, size: f.size }))
-    if (!chatIds.length && !fileIds.length) return
+    if (!hasBag) return
     setPacking(true)
     setPackHint('')
-    void Promise.all(chatIds.map(async (id) => {
-      const bundle = await runtimeApi.exportAiSession(id)
-      const title = sessions.find((row) => row.sessionId === id)?.title || id
-      if (!bundle.files?.length) throw new Error(`「${title}」没有可交接的会话文件`)
-      return {
-        sessionId: bundle.sessionId || id,
-        title,
-        files: bundle.files,
-        ...(bundle.members?.length ? { members: bundle.members } : {}),
-      }
-    })).then((exported) => {
+    void Promise.all([
+      Promise.all(chatIds.map(async (id) => {
+        const bundle = await runtimeApi.exportAiSession(id)
+        const title = sessions.find((row) => row.sessionId === id)?.title || id
+        if (!bundle.files?.length) throw new Error(`「${title}」没有可交接的会话文件`)
+        return {
+          sessionId: bundle.sessionId || id,
+          title,
+          files: bundle.files,
+          ...(bundle.members?.length ? { members: bundle.members } : {}),
+        }
+      })),
+      Promise.all(selectedApps.map(async (row) => {
+        const detail = await runtimeApi.getDeclarativeApp(row.id)
+        return {
+          slug: row.slug,
+          name: row.name,
+          spec: detail.spec as Record<string, unknown>,
+          status: String(row.status || detail.status || 'draft'),
+        }
+      })),
+    ]).then(([exported, packedApps]) => {
       const sessionLines = exported.map((row) => {
         const files = (row.files || []).map((file) => `${file.name}（${Math.max(1, Math.round(Number(file.size || 0) / 1024))} KB）`).join('、')
         const memberCount = (row.members || []).length
         const memberLine = memberCount ? `；连同 ${memberCount} 个会话目录` : ''
         return `${row.title}：${files || '没有会话文件'}${memberLine}`
       }).join('\n')
+      const packedBriefing = includeBriefing && briefing ? briefing : undefined
       const pkg: IMHandoffPackage = {
         id: `handoff_${Math.random().toString(36).slice(2, 9)}`,
         title: `${activeContact.name} · 工作交接`,
-        summary: `交接概述\n\n工作区：${workspacePath}\nAgent 会话：${names || '未选会话'}\n会话文件：\n${sessionLines || '无'}\n工作区文件：${fileIds.join('、') || '无'}\n待继续：接收方点「接着做」会新建 AI 会话并复原这些 session 文件。未经确认不要执行、不要发 IM。`,
+        summary: `交接概述\n\n工作区：${workspacePath}\nAgent 会话：${names || '未选会话'}\n会话文件：\n${sessionLines || '无'}\n工作区文件：${fileIds.join('、') || '无'}\n应用：${appLine}\n早报：${briefingLine}\n待继续：接收方点「接着做」会在当前工作区复原勾选的会话、文件、应用和早报定义。未经确认不要执行、不要发 IM。`,
         sourceWorkspaceId: workspacePath || workspaceId,
         sourceChatIds: chatIds,
         fileIds,
         sessions: exported,
+        ...(packedApps.length ? { apps: packedApps } : {}),
+        ...(packedBriefing ? { briefing: packedBriefing } : {}),
         createdAt: new Date().toISOString(),
         status: 'sent',
       }
@@ -2702,15 +2810,45 @@ function HandoffDialog({
           />
         </div>
       </div>
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <div className="text-xs font-medium mb-2">3. 选择当前工作区应用</div>
+          <div className="space-y-1 max-h-40 overflow-y-auto border border-line rounded p-2">
+            {apps.map((row) => (
+              <label key={row.id} className="flex items-start gap-2 p-2 rounded hover:bg-surface-2 text-xs">
+                <input type="checkbox" className="mt-0.5" checked={appSlugs.includes(row.slug)} onChange={() => toggle(appSlugs, row.slug, setAppSlugs)} />
+                <span className="min-w-0">
+                  <span className="block truncate">{row.name}</span>
+                  <span className="text-[10px] text-ink-subtle">{row.slug}{row.status ? ` · ${row.status}` : ''}</span>
+                </span>
+              </label>
+            ))}
+            {!apps.length && <div className="p-4 text-center text-xs text-ink-subtle">{appNote}</div>}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-medium mb-2">4. 早报定义</div>
+          <div className="border border-line rounded p-2 text-xs">
+            {briefing ? (
+              <label className="flex items-start gap-2 p-2 rounded hover:bg-surface-2">
+                <input type="checkbox" className="mt-0.5" checked={includeBriefing} onChange={(event) => setIncludeBriefing(event.target.checked)} />
+                <span>带上当前工作区早报定义（区块与时刻表）</span>
+              </label>
+            ) : (
+              <div className="p-4 text-center text-ink-subtle">{briefingNote}</div>
+            )}
+          </div>
+        </div>
+      </div>
       <div className="mt-4">
-        <div className="text-xs font-medium mb-2">3. 概述</div>
+        <div className="text-xs font-medium mb-2">5. 概述</div>
         <div className="p-3 rounded-lg bg-surface-2 text-xs leading-5 whitespace-pre-wrap">{summary}</div>
       </div>
-      <div className="mt-4 p-3 rounded-lg border border-brand/30 bg-brand-soft text-xs text-brand">确认后先放入 IM 输入区。对方点「接着做」会在 AI 里新建会话，并把这些会话文件复原进去。</div>
+      <div className="mt-4 p-3 rounded-lg border border-brand/30 bg-brand-soft text-xs text-brand">确认后先放入 IM 输入区。对方点「接着做」会在当前工作区复原勾选的会话、文件、应用和早报定义。</div>
       {packHint && <div className="mt-3 text-xs text-accent-red leading-5">{packHint}</div>}
       <div className="mt-4 flex justify-end gap-2">
         <button type="button" onClick={onClose} className="btn-ghost px-3 py-2 text-sm">取消</button>
-        <button type="button" onClick={confirm} disabled={packing || (chatIds.length === 0 && fileIds.length === 0)} className="btn-primary px-4 py-2 text-sm disabled:opacity-40">{packing ? '读取会话…' : '放入输入区'}</button>
+        <button type="button" onClick={confirm} disabled={packing || !hasBag} className="btn-primary px-4 py-2 text-sm disabled:opacity-40">{packing ? '读取交接内容…' : '放入输入区'}</button>
       </div>
     </Modal>
   )

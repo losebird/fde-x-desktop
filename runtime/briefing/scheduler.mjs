@@ -1,4 +1,4 @@
-import { getOrCreateDefinition, listScheduledDefinitions } from './store.mjs'
+import { findInFlightBriefing, getOrCreateDefinition, listScheduledDefinitions } from './store.mjs'
 import { runBriefing } from './run.mjs'
 import { listWorkspaces } from '../db.mjs'
 
@@ -93,6 +93,7 @@ export function startBriefingScheduler(deps) {
       const workspaceCwd = workspaceCwdForDefinition(deps.db, row.workspace_id) || deps.defaultCwd
       if (!workspaceCwd.startsWith('/')) continue
       try {
+        if (findInFlightBriefing(deps.db, workspaceCwd)) continue
         const connected = deps.aiRuntime?.status?.().connected
         await runBriefing(deps, {
           workspaceCwd,

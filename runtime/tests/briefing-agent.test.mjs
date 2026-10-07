@@ -15,6 +15,7 @@ test('runBriefingAgent prompts the pointed session and does not create another',
       status: () => ({ connected: true }),
       call: async (endpoint, args) => {
         calls.push({ endpoint, args })
+        if (endpoint === 'session/list') return { items: [{ sessionId: 'sess-current', running: false }] }
         if (endpoint === 'session/prompt') return {}
         throw new Error(`unexpected ${endpoint}`)
       },
@@ -30,11 +31,39 @@ test('runBriefingAgent prompts the pointed session and does not create another',
   })
   assert.equal(result.sessionId, 'sess-current')
   assert.equal(calls.some((row) => row.endpoint === 'session/create'), false)
-  assert.equal(calls[0].endpoint, 'session/prompt')
-  assert.equal(calls[0].args.request.sessionId, 'sess-current')
-  assert.equal(calls[0].args.request.mode, 'queue')
-  assert.equal(calls[0].args.request.content[0].type, 'text')
-  assert.equal(calls[0].args.agentId, undefined)
+  const prompt = calls.find((row) => row.endpoint === 'session/prompt')
+  assert.ok(prompt)
+  assert.equal(prompt.args.request.sessionId, 'sess-current')
+  assert.equal(prompt.args.request.mode, 'queue')
+  assert.equal(prompt.args.request.content[0].type, 'text')
+  assert.equal(prompt.args.agentId, undefined)
+})
+
+test('runBriefingAgent waits for an idle session and does not queue a second prompt', async () => {
+  const calls = []
+  const result = await runBriefingAgent({
+    db: { prepare() { return { run() {} } } },
+    aiRuntime: {
+      status: () => ({ connected: true }),
+      call: async (endpoint, args) => {
+        calls.push(endpoint)
+        if (endpoint === 'session/list') return { items: [{ sessionId: 'sess-current', running: true }] }
+        if (endpoint === 'session/prompt') return {}
+        throw new Error(`unexpected ${endpoint}`)
+      },
+    },
+  }, {
+    briefingId: 'brf',
+    workspaceCwd: '/ws/a',
+    sessionId: 'sess-current',
+    sections: [{ id: 'ai', type: 'ai', enabled: true, title: '摘要', render: 'digest', params: {} }],
+    internalSections: [],
+    timeoutMs: 50,
+    projectWaitMs: 0,
+  })
+  assert.equal(result.ok, false)
+  assert.match(result.error, /上一轮/)
+  assert.equal(calls.includes('session/prompt'), false)
 })
 
 test('runBriefingAgent refuses to invent a session', async () => {

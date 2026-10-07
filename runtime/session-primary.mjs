@@ -47,6 +47,34 @@ export function pickPrimarySessionId(sessions, input = {}) {
   return ranked[0] ? ranked[0].sessionId : ''
 }
 
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export function sessionIsRunning(row) {
+  if (!row || typeof row !== 'object') return false
+  if (row.running === true) return true
+  return row.status === 'running' || row.status === 'stopping'
+}
+
+export async function waitUntilSessionIdle(aiRuntime, sessionId, { timeoutMs = 180_000, pollMs = 400 } = {}) {
+  const id = String(sessionId || '').trim()
+  if (!id || !aiRuntime || typeof aiRuntime.call !== 'function') return true
+  const deadline = Date.now() + Number(timeoutMs)
+  while (Date.now() <= deadline) {
+    let listed
+    try {
+      listed = await aiRuntime.call('session/list', { _request: { includeBlank: true } })
+    } catch {
+      return true
+    }
+    const row = listedSessions(listed).find((item) => String(item?.sessionId || item?.id || '') === id)
+    if (!sessionIsRunning(row)) return true
+    await waitMs(Number(pollMs) || 400)
+  }
+  return false
+}
+
 export async function resolvePrimarySessionForRuntime(aiRuntime, input = {}) {
   if (!aiRuntime || typeof aiRuntime.status !== 'function' || !aiRuntime.status().connected) return ''
   if (typeof aiRuntime.call !== 'function') return ''

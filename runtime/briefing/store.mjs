@@ -132,6 +132,17 @@ export function getLatestBriefing(db, workspaceCwd) {
   return row ? mapBriefingRow(row) : null
 }
 
+export function briefingInFlight(row) {
+  if (!row || typeof row !== 'object') return false
+  if (row.status === 'running') return true
+  return (Array.isArray(row.sections) ? row.sections : []).some((section) => section && section.pendingAgent)
+}
+
+export function findInFlightBriefing(db, workspaceCwd) {
+  const latest = getLatestBriefing(db, workspaceCwd)
+  return briefingInFlight(latest) ? latest : null
+}
+
 export function createBriefingRun(db, { definitionId, workspaceCwd, agentRequestId }) {
   const id = createId('brf')
   const now = isoNow()

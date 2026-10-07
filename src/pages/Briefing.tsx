@@ -69,6 +69,7 @@ function buildImComposeBody(briefing: BriefingSnapshot | null, sections: Briefin
 export default function Briefing() {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
   const settingsOpen = useApp((s) => s.briefingBrowse.settingsOpen)
+  const briefingLand = useApp((s) => s.briefingBrowse.land)
   const setBriefingBrowse = useApp((s) => s.setBriefingBrowse)
   const setSettingsOpen = (open: boolean) => setBriefingBrowse({ settingsOpen: open })
   const [aiNote, setAiNote] = useState('')
@@ -79,6 +80,7 @@ export default function Briefing() {
   const [ctxWarnings, setCtxWarnings] = useState<string[]>([])
   const [ctxOmit, setCtxOmit] = useState<Set<string>>(() => new Set())
   const wsRef = useRef(ws?.id)
+  const landRef = useRef(0)
   useEffect(() => {
     if (wsRef.current === ws?.id) return
     wsRef.current = ws?.id
@@ -101,8 +103,14 @@ export default function Briefing() {
   }, [])
 
   useEffect(() => {
+    const land = Number(briefingLand || 0)
+    if (land && land !== landRef.current) {
+      landRef.current = land
+      refresh(false)
+      return
+    }
     refresh(true)
-  }, [refresh, ws?.id])
+  }, [refresh, ws?.id, briefingLand])
 
   useEffect(() => {
     let cancelled = false

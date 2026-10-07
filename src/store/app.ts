@@ -132,7 +132,7 @@ interface UIState {
   setDataBrowse: (patch: Partial<DataBrowse>) => void
   memoryBrowse: { pane: string; drawer: string; cardId?: string; originId?: string }
   setMemoryBrowse: (patch: Partial<AppState['memoryBrowse']>) => void
-  briefingBrowse: { settingsOpen: boolean }
+  briefingBrowse: { settingsOpen: boolean; land: number }
   setBriefingBrowse: (patch: Partial<AppState['briefingBrowse']>) => void
   imBrowse: { threadId: string | null; topicId: string | null; lane: 'workspace' | 'unassigned' }
   setImBrowse: (patch: Partial<AppState['imBrowse']>) => void
@@ -571,7 +571,7 @@ export const useApp = create<AppState>()(
       memoryBrowse: { pane: 'home', drawer: '', cardId: '', originId: '' },
       setMemoryBrowse: (patch) =>
         set((s) => ({ memoryBrowse: { ...s.memoryBrowse, ...patch } })),
-      briefingBrowse: { settingsOpen: false },
+      briefingBrowse: { settingsOpen: false, land: 0 },
       setBriefingBrowse: (patch) =>
         set((s) => ({ briefingBrowse: { ...s.briefingBrowse, ...patch } })),
       imBrowse: { threadId: null, topicId: null, lane: 'workspace' },

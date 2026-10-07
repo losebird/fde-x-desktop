@@ -177,12 +177,18 @@ export async function handleBriefingRoutes(request, response, url, deps) {
     const onOpen = url.searchParams.get('onOpen') === '1'
     if (onOpen && shouldRunOnOpen(db, cwd)) {
       const connected = aiRuntime?.status?.().connected
+      const canvasSessionId = String(url.searchParams.get('canvasSessionId') || '').trim()
       void runBriefing(runBriefingDeps || { db, aiRuntime }, {
         workspaceCwd: cwd,
         mode: 'internal-only',
       }).then(() => {
         if (connected) {
-          void runBriefing(runBriefingDeps || { db, aiRuntime }, { workspaceCwd: cwd, mode: 'full' })
+          void runBriefing(runBriefingDeps || { db, aiRuntime }, {
+            workspaceCwd: cwd,
+            mode: 'full',
+            skipIfCanvas: true,
+            canvasSessionId,
+          })
         }
       }).catch((error) => console.warn('briefing_on_open_failed', error))
     }

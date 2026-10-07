@@ -178,6 +178,16 @@ export interface IMHandoffPackage {
       files: Array<{ name: string; size?: number; data: string }>
     }>
   }>
+  apps?: Array<{
+    slug: string
+    name: string
+    spec: Record<string, unknown>
+    status: string
+  }>
+  briefing?: {
+    sections: unknown[]
+    schedule: Record<string, unknown>
+  }
   /** 交接包 sessions 正在从 imAttach 懒加载 */
   sessionsLoading?: boolean
   /** 已读过 dsh-handoff.json（即使 sessions 为空也不再扫附件） */
