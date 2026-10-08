@@ -11,6 +11,7 @@ extraResources:
     to: resources
     filter:
       - "**/*"
+      - "!**/.pack-work/**"
 mac:
   target:
     - dmg

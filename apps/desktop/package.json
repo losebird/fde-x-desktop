@@ -10,11 +10,9 @@
     "start:dev": "FDE_DESKTOP_DEV=1 pnpm run start",
     "test": "pnpm run build && node --test test/*.test.mjs"
   },
-  "dependencies": {
-    "electron": "44.7.0"
-  },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "electron": "44.7.0",
     "electron-builder": "^25.1.8",
     "typescript": "^5.7.2"
   }
