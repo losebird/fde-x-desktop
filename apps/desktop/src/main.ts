@@ -51,13 +51,10 @@ async function startBff() {
     roots: pack.roots,
     desktopDev: desktopDev(),
   })
-  const bffNode = desktopDev()
-    ? (process.env.FDE_BFF_NODE || process.env.npm_node_execpath || 'node')
-    : process.execPath
   const spawned = await spawnBff(
     serverEntryForApp(pack.appRoot),
     env,
-    bffNode,
+    process.execPath,
     { cwd: pack.appRoot },
   )
   bffChild = spawned.child

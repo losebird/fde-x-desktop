@@ -11,7 +11,7 @@
     "test": "pnpm run build && node --test test/*.test.mjs"
   },
   "dependencies": {
-    "electron": "^33.2.1"
+    "electron": "44.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
