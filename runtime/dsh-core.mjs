@@ -1140,6 +1140,7 @@ export class DshCoreConnector {
       lanPort: process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT,
       runtimePort: Number(process.env.FDE_RUNTIME_PORT || FDE_RUNTIME_PORT),
       recordedPids: recorded,
+      dshHome: this.dshHome,
       onWarn: (line) => this.logs.push(line),
     })
     if (stray.length === 0) return

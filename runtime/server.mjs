@@ -3288,6 +3288,7 @@ server.listen(port, host, () => {
     runtimePort: actualPort,
     lanPort: 0,
     profileName: '',
+    dshHome: aiRuntime.dshHome || FDE_DSH_HOME,
   }).catch((error) => {
     console.warn('reclaim_stray_failed', error)
   })

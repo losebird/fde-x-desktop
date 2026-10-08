@@ -134,19 +134,28 @@ export async function processCommand(pid) {
   }
 }
 
+async function processEnvCommand(pid) {
+  if (process.platform === 'win32') return processCommand(pid)
+  try {
+    const { stdout } = await execFileAsync('ps', ['eww', '-p', String(pid), '-o', 'command='], { timeout: 2000 })
+    return String(stdout || '')
+  } catch {
+    return processCommand(pid)
+  }
+}
+
 export async function processHasRuntimePort(pid, runtimePort) {
   const n = Number(runtimePort)
   if (!Number.isInteger(n) || n < 1 || !isPidAlive(pid)) return false
-  if (process.platform === 'win32') {
-    const command = await processCommand(pid)
-    return new RegExp(`(?:^|\\s)FDE_RUNTIME_PORT=${n}(?:\\s|$)`, 'u').test(command)
-  }
-  try {
-    const { stdout } = await execFileAsync('ps', ['eww', '-p', String(pid), '-o', 'command='], { timeout: 2000 })
-    return new RegExp(`(?:^|\\s)FDE_RUNTIME_PORT=${n}(?:\\s|$)`, 'u').test(String(stdout || ''))
-  } catch {
-    return false
-  }
+  const blob = await processEnvCommand(pid)
+  return new RegExp(`(?:^|\\s)FDE_RUNTIME_PORT=${n}(?:\\s|$)`, 'u').test(blob)
+}
+
+export async function processHasDshHome(pid, dshHome) {
+  const home = String(dshHome || '').replace(/\/+$/u, '')
+  if (!home || !isPidAlive(pid)) return false
+  const blob = await processEnvCommand(pid)
+  return blob.includes(`DSH_HOME=${home}`) || blob.includes(`FDE_DSH_HOME=${home}`)
 }
 
 export async function pidsChildrenOf(pid) {
@@ -189,18 +198,31 @@ export async function pidsMatchingRuntimeServer({ runtimePort = FDE_RUNTIME_PORT
   return [...out]
 }
 
+async function pidsOnThisHome(pids, dshHome) {
+  const home = String(dshHome || '').replace(/\/+$/u, '')
+  if (!home) return []
+  const out = []
+  for (const pid of pids) {
+    if (await processHasDshHome(pid, home)) out.push(pid)
+  }
+  return out
+}
+
 export async function collectStrayPids({
   keep = [],
   profileName,
   lanPort,
   runtimePort = FDE_RUNTIME_PORT,
   recordedPids = [],
+  dshHome = '',
   onWarn,
 } = {}) {
   const keepSet = new Set([...keep, process.pid].filter((pid) => Number.isInteger(pid) && pid > 1))
   const recorded = [...new Set(recordedPids)].filter((pid) => !keepSet.has(pid) && isPidAlive(pid))
-  const profile = profileName ? await pidsMatchingProfile(profileName, onWarn) : []
-  const lan = await pidsListeningOnPort(lanPort, onWarn)
+  const profileRaw = profileName ? await pidsMatchingProfile(profileName, onWarn) : []
+  const lanRaw = await pidsListeningOnPort(lanPort, onWarn)
+  const profile = await pidsOnThisHome(profileRaw, dshHome)
+  const lan = await pidsOnThisHome(lanRaw, dshHome)
   const bff = await pidsMatchingRuntimeServer({ runtimePort, keep: [...keepSet], onWarn })
   const bffKids = []
   for (const pid of bff) bffKids.push(...await pidsChildrenOf(pid))
@@ -210,7 +232,10 @@ export async function collectStrayPids({
     const ppid = await parentPid(pid)
     if (!ppid || keepSet.has(ppid) || !isPidAlive(ppid)) continue
     const command = await processCommand(ppid)
-    if (isRuntimeServerCommand(command)) parents.push(ppid)
+    if (!isRuntimeServerCommand(command)) continue
+    const samePort = Number(runtimePort) > 1 && await processHasRuntimePort(ppid, runtimePort)
+    const sameHome = dshHome && await processHasDshHome(ppid, dshHome)
+    if (samePort || sameHome) parents.push(ppid)
   }
   return [...new Set([...core, ...bff, ...bffKids, ...parents])].filter((pid) => !keepSet.has(pid) && isPidAlive(pid))
 }

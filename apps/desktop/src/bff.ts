@@ -8,9 +8,11 @@ export async function spawnBff(
   serverEntry: string,
   env: BffEnv,
   electronNode: string,
+  options: { cwd?: string } = {},
 ): Promise<{ child: ChildProcess; port: number }> {
   const child = spawn(electronNode, [serverEntry], {
     env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' },
+    cwd: options.cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })

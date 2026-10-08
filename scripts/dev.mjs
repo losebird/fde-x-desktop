@@ -115,6 +115,7 @@ function superviseRuntime(extraEnv = {}, { adoptExisting = false } = {}) {
         profileName: process.env.FDE_DSH_PROFILE || 'fde-x',
         lanPort: process.env.DSH_LAN_ASSIST_PORT || DSH_LAN_ASSIST_PORT,
         runtimePort,
+        dshHome: fdeHome,
       })
       if (shuttingDown) return
       if (await portOpen(runtimePort, 300)) return

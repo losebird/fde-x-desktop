@@ -22,7 +22,14 @@ export function resolveAppRoot(resources: string): string {
   return staged
 }
 
-export function userDataRoots() {
+export type UserDataRoots = {
+  base: string
+  dshHome: string
+  databasePath: string
+  installState: string
+}
+
+export function userDataRoots(): UserDataRoots {
   const base = process.platform === 'darwin'
     ? join(homedir(), 'Library', 'Application Support', 'FDE-X')
     : process.platform === 'win32'

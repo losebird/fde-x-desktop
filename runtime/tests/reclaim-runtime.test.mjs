@@ -128,4 +128,29 @@ describe('reclaim-runtime', () => {
       }
     }
   })
+
+  test('collectStrayPids does not take another stack on the same lan port', async () => {
+    const port = 45000 + Math.floor(Math.random() * 1000)
+    const other = spawn(process.execPath, ['-e', `require('net').createServer().listen(${port}, '127.0.0.1', () => {}); setInterval(() => {}, 1000)`], {
+      env: { ...process.env, DSH_HOME: '/tmp/fde-other-home', FDE_DSH_HOME: '/tmp/fde-other-home' },
+      stdio: 'ignore',
+    })
+    assert.ok(other.pid)
+    await new Promise((r) => setTimeout(r, 120))
+    try {
+      const stray = await collectStrayPids({
+        keep: [process.pid],
+        profileName: 'fde-x',
+        lanPort: port,
+        runtimePort: 64999,
+        dshHome: '/tmp/fde-mine-home',
+        recordedPids: [],
+      })
+      assert.equal(stray.includes(other.pid), false)
+    } finally {
+      if (isPidAlive(other.pid)) {
+        try { other.kill('SIGKILL') } catch { /* gone */ }
+      }
+    }
+  })
 })

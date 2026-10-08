@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import {
   DSH_LAN_ASSIST_PORT,
   FDE_APP_ROOT,
+  FDE_DSH_HOME,
   FDE_RUNTIME_HOST,
   FDE_RUNTIME_PORT,
 } from '../runtime/config.mjs'
@@ -26,6 +27,7 @@ await reclaimStrayRuntime({
   lanPort: process.env.DSH_LAN_ASSIST_PORT || DSH_LAN_ASSIST_PORT,
   runtimePort,
   recordedPids: [],
+  dshHome: process.env.FDE_DSH_HOME || FDE_DSH_HOME,
 })
 
 const child = spawn(process.execPath, ['runtime/server.mjs'], {
