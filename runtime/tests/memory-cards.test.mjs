@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { asDraftCard, attachCuesOnGroups, cardCue, cardFromOpenedNode, collapseCueCards, cueFromOriginDoc, cueIdOf, draftMemoryCardInsert, loadNamedCards, namedCardIds } from '../memory/cards.mjs'
+import { asDraftCard, attachCuesOnGroups, cardCue, cardFromOpenedNode, collapseCueCards, cueFromOriginDoc, cueIdOf, draftMemoryCardInsert, loadNamedCards, namedCardIds, nodeMayCite } from '../memory/cards.mjs'
 import { attachCardOrigin } from '../memory/draft.mjs'
 import { instanceOriginOf } from '../memory/identity.mjs'
 
@@ -106,8 +106,19 @@ test('loadNamedCards pages the list then opens remaining ids', async () => {
   assert.equal(byId.get('memory:a').label, '列表里的卡')
   assert.equal(cardFromOpenedNode('memory:b', { then: '打开单卡这一句足够长' }).label, '打开单卡这一句足够长')
   assert.equal(cardFromOpenedNode('memory:c', { then: { text: '对象正文这一句足够长' } }).label, '对象正文这一句足够长')
+  assert.equal(cardFromOpenedNode('memory:d', { then: { status: '已停用', label: '当时 · 已停用' } }).status, '已停用')
   assert.equal(byId.get('memory:b').label, '打开单卡这一句足够长')
   assert.deepEqual(calls.map((row) => row.op), ['list_memory_cards', 'list_memory_cards', 'open_node'])
+})
+
+test('nodeMayCite matches host cite rules', () => {
+  assert.equal(nodeMayCite({ id: 'session:s1:3', type: 'Document', content: '当轮' }), true)
+  assert.equal(nodeMayCite({ id: 'file:docs/a.md', content: '文件' }), true)
+  assert.equal(nodeMayCite({ id: 'memory:a', type: '记忆卡片', status: '起草', content: '起草' }), false)
+  assert.equal(nodeMayCite({ id: 'memory:b', type: '记忆卡片', status: '已入档', content: '入档' }), true)
+  assert.equal(nodeMayCite({ id: 'd1', type: 'decision', status: '起草' }), false)
+  assert.equal(nodeMayCite({ id: 'd2', type: 'decision', status: '已生效' }), true)
+  assert.equal(nodeMayCite({ id: 'v1', type: 'skos:Concept' }), false)
 })
 
 test('named card ids include other and ids', () => {
@@ -130,6 +141,7 @@ test('health group cue uses named cards not raw ids', async () => {
   assert.equal(groups[0].items[0].cue, '把客户张三改成成交这一句足够长 · 停用客户还有哪些没关的工单？')
   assert.equal(groups[0].items[0].id, 'memory:a')
   assert.equal(groups[0].items[0].other, 'memory:b')
+  assert.deepEqual(groups[0].items[0].named.map((row) => row.id), ['memory:a', 'memory:b'])
 })
 
 test('health group cue uses listed card origin when write log misses', async () => {

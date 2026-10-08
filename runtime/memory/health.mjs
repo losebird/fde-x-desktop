@@ -1,6 +1,6 @@
 /** Memory health sheet. Host scan + archive origin attach. 闸 does not invent kinds or ops. */
 
-import { collapseCueCards, namedCardIds } from './cards.mjs'
+import { cardIsRetired, collapseCueCards, namedCardIds } from './cards.mjs'
 import { attachCardOrigin } from './draft.mjs'
 import { hostSourceOf, originOfCard } from './identity.mjs'
 import { originKindOf } from './origin-entity.mjs'
@@ -127,15 +127,43 @@ export function reshapeUnsoursedGroup(group, originMap, offset, dupOffset, page)
   }
 }
 
-export function dupPairOp(left, right) {
+export function dupPairOps(left, right) {
   const lid = String((left && left.id) || '')
   const rid = String((right && right.id) || '')
-  if (!lid || !rid) return ''
-  if (originKindOf(lid) === 'memory' && originKindOf(rid) === 'memory') return 'link'
+  if (!lid || !rid) return { unary: [], binary: [] }
   const ltype = String((left && left.type) || '')
   const rtype = String((right && right.type) || '')
-  if (ltype && rtype && ltype !== rtype) return ''
-  return 'merge'
+  if (ltype && rtype && ltype !== rtype) return { unary: [], binary: [] }
+  const unary = [
+    { op: 'open', id: lid },
+    { op: 'retire', id: lid },
+    { op: 'open', id: rid },
+    { op: 'retire', id: rid },
+  ]
+  const binary = []
+  if (originKindOf(lid) === 'memory' && originKindOf(rid) === 'memory') {
+    binary.push({ op: 'link', other: rid, type: LINK_EDGE })
+  }
+  if (ltype && rtype && ltype === rtype) {
+    binary.push({ op: 'merge', other: rid })
+  }
+  return { unary, binary }
+}
+
+export function liveDuplicateBag(dups, cardById) {
+  const rows = Array.isArray(dups) ? dups : Array.isArray(dups?.duplicates) ? dups.duplicates : []
+  const cards = cardById instanceof Map ? cardById : new Map()
+  const live = rows.filter((row) => {
+    const left = row && typeof row.entity_a === 'object' ? row.entity_a : {}
+    const right = row && typeof row.entity_b === 'object' ? row.entity_b : {}
+    const lid = String(left.id || '')
+    const rid = String(right.id || '')
+    if (cardIsRetired(left) || cardIsRetired(right)) return false
+    if (lid && cardIsRetired(cards.get(lid))) return false
+    if (rid && cardIsRetired(cards.get(rid))) return false
+    return true
+  })
+  return { duplicates: live }
 }
 
 export function dupIssuesFromEnrich(dups, kind = HOST_DUP_KIND) {
@@ -146,18 +174,15 @@ export function dupIssuesFromEnrich(dups, kind = HOST_DUP_KIND) {
     const right = row && typeof row.entity_b === 'object' ? row.entity_b : {}
     const lid = String(left.id || '')
     const rid = String(right.id || '')
-    const op = dupPairOp(left, right)
-    if (!op) continue
-    const extra = op === 'link' ? { other: rid, type: LINK_EDGE } : { other: rid }
+    const { unary, binary } = dupPairOps(left, right)
+    if (!unary.length && !binary.length) continue
+    const hasLink = binary.some((action) => action.op === 'link')
     issues.push({
       id: lid,
       kind,
       other: rid,
-      ...(op === 'link' ? { type: LINK_EDGE } : {}),
-      actions: [
-        { op: 'open', ...extra },
-        { op, ...extra },
-      ],
+      ...(hasLink ? { type: LINK_EDGE } : {}),
+      actions: [...unary, ...binary],
     })
   }
   return issues
@@ -173,7 +198,7 @@ export function reshapeDupGroup(dups, offset, dupOffset, page, kind = HOST_DUP_K
     items,
     has_more: hasMore,
     empty: issues.length === 0,
-    actions: groupActionsOf(items),
+    actions: [],
     next: hasMore ? { offset, dup_offset: dupOffset + page } : null,
   }
 }
@@ -289,7 +314,13 @@ export function healthWritePlan(body) {
   if (op === 'merge') {
     const other = String(row.other || '').trim()
     if (!id || !other) return { error: 'NO_PATH' }
-    return { path: '/api/enrich/merge', body: { primary_id: id, duplicate_ids: [other] } }
+    if (originKindOf(id) === 'memory' && originKindOf(other) === 'memory') {
+      return { python: 'retire_memory_card', args: { id: other, nodded: true } }
+    }
+    return {
+      path: '/api/enrich/merge',
+      body: { primary_id: id, duplicate_ids: [other], confirm: true, nodded: true },
+    }
   }
   return { error: 'unknown_op' }
 }

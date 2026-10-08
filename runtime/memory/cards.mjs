@@ -88,15 +88,99 @@ export function cardFromOpenedNode(id, opened) {
   const node = row.node && typeof row.node === 'object' ? row.node : row
   const body = readableText(node.then || node.body || node.label || node.content || node.text)
   const label = readableText(node.label) || body
+  const meta = node.metadata && typeof node.metadata === 'object' ? node.metadata : {}
+  const props = node.properties && typeof node.properties === 'object' ? node.properties : {}
+  const then = node.then && typeof node.then === 'object' ? node.then : {}
   return {
     id: String(node.id || id || '').trim() || String(id || ''),
     label,
     origin: node.origin,
     content: body,
     body,
+    type: node.type || props.type || meta.type || row.type,
+    status: node.status || then.status || meta.status || props.status,
+    valid_until: node.valid_until || then.valid_until || meta.valid_until || props.valid_until,
     metadata: node.metadata,
     properties: node.properties,
+    then: node.then,
   }
+}
+
+export function cardStatusOf(card) {
+  const row = card && typeof card === 'object' ? card : {}
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  const props = row.properties && typeof row.properties === 'object' ? row.properties : {}
+  const then = row.then && typeof row.then === 'object' ? row.then : {}
+  return String(row.status || then.status || meta.status || props.status || '').trim()
+}
+
+export function cardIsRetired(card) {
+  return cardStatusOf(card) === '已停用'
+}
+
+const VOCAB_TYPES = new Set([
+  'skos:concept',
+  'owl:class',
+  'owl:ontology',
+  'owl:objectproperty',
+  'owl:datatypeproperty',
+  'skos:conceptscheme',
+])
+
+function memoryStillCounts(card) {
+  const row = card && typeof card === 'object' ? card : {}
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  const props = row.properties && typeof row.properties === 'object' ? row.properties : {}
+  const then = row.then && typeof row.then === 'object' ? row.then : {}
+  const until = String(row.valid_until || then.valid_until || meta.valid_until || props.valid_until || '').trim()
+  if (!until) return row.current !== false
+  const when = Date.parse(until)
+  if (Number.isNaN(when)) return row.current !== false
+  return when >= Date.now()
+}
+
+function isMemoryCardNode(card) {
+  const row = card && typeof card === 'object' ? card : {}
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  const props = row.properties && typeof row.properties === 'object' ? row.properties : {}
+  const type = String(row.type || props.type || meta.type || '').trim()
+  const kind = String(row.kind || props.kind || meta.kind || '').trim()
+  const id = String(row.id || '').trim()
+  return type === '记忆卡片' || kind === '记忆卡片' || id.startsWith('memory:')
+}
+
+export function nodeMayCite(card) {
+  const row = card && typeof card === 'object' ? card : {}
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  const props = row.properties && typeof row.properties === 'object' ? row.properties : {}
+  const id = String(row.id || '').trim()
+  const type = String(row.type || props.type || meta.type || '').trim().toLowerCase()
+  if (!id) return false
+  if (type === 'decision') return cardStatusOf(row) === '已生效'
+  if (isMemoryCardNode(row)) {
+    const status = cardStatusOf(row)
+    if (!status || status === '起草' || status === '已停用') return false
+    return memoryStillCounts(row)
+  }
+  if (id.startsWith('session:') || id.startsWith('file:')) return true
+  if (VOCAB_TYPES.has(type)) return false
+  if (type === 'document') return true
+  return false
+}
+
+export function nodeWasOpened(card) {
+  const row = card && typeof card === 'object' ? card : {}
+  return Boolean(
+    row.type
+    || row.content
+    || row.body
+    || row.status
+    || row.label
+    || row.then
+    || row.properties
+    || row.metadata
+    || row.valid_until,
+  )
 }
 
 export async function loadNamedCards(aiRuntime, cwd, ids) {
@@ -167,7 +251,16 @@ export async function attachCuesOnGroups(groups, loadOriginDoc, originMap, cardB
         if (ids.some((id) => cue.includes(id))) continue
         if (!cues.includes(cue)) cues.push(cue)
       }
-      return { ...item, cue: cues.join(' · ') }
+      return {
+        ...item,
+        cue: cues.join(' · '),
+        named: faced.map((card) => ({
+          id: card.id,
+          cue: cardCue(card) && !ids.includes(cardCue(card)) && !ids.some((id) => cardCue(card).includes(id))
+            ? cardCue(card)
+            : '',
+        })),
+      }
     }))
     return { ...group, items }
   }))

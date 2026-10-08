@@ -1,5 +1,6 @@
-import { getOperation } from '../db.mjs'
+import { getOperation, memoryWriteCardByOrigins } from '../db.mjs'
 import { subscribe } from '../events.mjs'
+import { cardFromOpenedNode, nodeMayCite, nodeWasOpened } from './cards.mjs'
 import { draftCard, memoryWriterSkipCount } from './draft.mjs'
 import { instanceOriginOf } from './identity.mjs'
 
@@ -10,23 +11,108 @@ function clip(text, max = 500) {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s
 }
 
+function uniqueIds(list) {
+  const out = []
+  for (const item of Array.isArray(list) ? list : []) {
+    const id = String(item || '').trim()
+    if (id && !out.includes(id)) out.push(id)
+  }
+  return out
+}
+
 async function semanticPython(aiRuntime, op, args, cwd) {
   return aiRuntime.semanticOs('/python', { op, args, ...(cwd ? { cwd } : {}) })
 }
 
-async function recordDecision(deps, { workspaceCwd, category, scenario, reasoning, outcome, refs }) {
-  if (!deps.aiRuntime?.status?.().connected) return
+function bizOriginFromTrace(traceId) {
+  const id = String(traceId || '').trim()
+  if (!id) return ''
+  if (id.startsWith('biz:')) return instanceOriginOf(id)
+  if (id.startsWith('trace_')) return `biz:${id}`
+  return `biz:trace_${id}`
+}
+
+export function choiceOriginRefs(envelope, op) {
+  const payload = envelope && envelope.payload && typeof envelope.payload === 'object' ? envelope.payload : {}
+  const receipt = payload.receipt && typeof payload.receipt === 'object' ? payload.receipt : {}
+  const refs = []
+  const sessionId = String((envelope && envelope.sessionId) || '').trim()
+  if (sessionId) refs.push(`session:${sessionId}`)
+  for (const trace of [payload.traceId, receipt.traceId, receipt.trace_id]) {
+    const origin = bizOriginFromTrace(trace)
+    if (origin) refs.push(origin)
+  }
+  const origin = instanceOriginOf(payload.origin || '')
+  if (origin) refs.push(origin)
+  const target = instanceOriginOf((op && op.targetRef) || '')
+  if (target) refs.push(target)
+  return uniqueIds(refs)
+}
+
+async function openCitable(aiRuntime, cwd, id) {
+  const nid = String(id || '').trim()
+  if (!nid || !aiRuntime) return null
   try {
-    await semanticPython(deps.aiRuntime, 'record_decision', {
-      category,
-      scenario,
-      reasoning: clip(reasoning, 500),
-      outcome: clip(outcome, 500),
-      confidence: 1,
-      because: Array.isArray(refs) ? refs : [],
-    }, workspaceCwd)
+    const opened = await semanticPython(aiRuntime, 'open_node', { id: nid }, cwd)
+    if (!opened || opened.error) return null
+    const card = cardFromOpenedNode(nid, opened)
+    if (!nodeWasOpened(card) || !nodeMayCite(card)) return null
+    return card
+  } catch {
+    return null
+  }
+}
+
+export async function resolveCitableBecause(deps, cwd, refs) {
+  const raw = uniqueIds(refs)
+  const candidates = [...raw]
+  if (deps.db) {
+    for (const cardId of memoryWriteCardByOrigins(deps.db, raw).values()) {
+      if (!candidates.includes(cardId)) candidates.push(cardId)
+    }
+  }
+  const because = []
+  for (const id of candidates) {
+    const card = await openCitable(deps.aiRuntime, cwd, id)
+    if (!card) continue
+    const nid = String(card.id || id).trim()
+    if (nid && !because.includes(nid)) because.push(nid)
+  }
+  return because
+}
+
+export async function recordDecisionFromChoice(deps, input = {}) {
+  if (!deps.aiRuntime?.status?.().connected) return { skipped: true, reason: 'semantic_down' }
+  const cwd = String(input.workspaceCwd || input.cwd || '').trim()
+  const scenario = String(input.scenario || '').trim()
+  const reasoning = clip(input.reasoning, 500)
+  const outcome = clip(input.outcome, 500)
+  const category = String(input.category || '').trim()
+  if (!cwd || !scenario || !reasoning || !outcome || !category) {
+    return { skipped: true, reason: 'incomplete' }
+  }
+  const because = await resolveCitableBecause(deps, cwd, input.refs)
+  if (!because.length) return { skipped: true, reason: 'NO_BECAUSE' }
+  const leadsTo = uniqueIds(input.leadsTo)
+  const leads = leadsTo.length ? await resolveCitableBecause(deps, cwd, leadsTo) : []
+  const confidence = Number(input.confidence)
+  const args = {
+    category,
+    scenario,
+    reasoning,
+    outcome,
+    confidence: Number.isFinite(confidence) ? confidence : 1,
+    because,
+  }
+  const decisionMaker = String(input.decisionMaker || '').trim()
+  if (decisionMaker) args.decision_maker = decisionMaker
+  if (leads.length) args.leads_to = leads
+  try {
+    await semanticPython(deps.aiRuntime, 'record_decision', args, cwd)
+    return { ok: true, because, leads_to: leads }
   } catch (error) {
     console.warn('memory_writer_record_decision_failed', error)
+    return { ok: false, error }
   }
 }
 
@@ -119,13 +205,15 @@ async function onOperationExecuted(deps, envelope) {
   if (!cwd || !operationId) return
   const op = getOperation(deps.db, operationId)
   if (!op) return
-  await recordDecision(deps, {
+  await recordDecisionFromChoice(deps, {
     workspaceCwd: cwd,
-    category: 'biz',
+    category: String(op.action || op.operationKind || '').trim(),
     scenario: `${op.action || op.targetRef}`,
     reasoning: clip(JSON.stringify(op.plan || {})),
     outcome: clip(JSON.stringify(envelope.payload?.receipt || envelope.payload?.result || {})),
-    refs: [`operation:${operationId}`],
+    confidence: 1,
+    decisionMaker: op.requestedBy,
+    refs: choiceOriginRefs(envelope, op),
   })
 }
 

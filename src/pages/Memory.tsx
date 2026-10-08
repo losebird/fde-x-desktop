@@ -5,6 +5,7 @@ import { askOriginFromCard, askOriginFromHit } from '@/lib/ask-origin'
 import { openRef, type OpenRefHref } from '@/lib/open-ref'
 import { PageTitle, Empty } from '@/components/ui'
 import { runtimeApi } from '@/lib/runtime-api'
+import { citableBecause, packDecisionBrief, type PackedDecisionBrief } from '@/lib/decision-brief'
 import { installSemanticOsHttp } from '@/lib/semantic-http'
 import { useApp, useCurrentWorkspace, useWorkspaces } from '@/store/app'
 import { useEvents } from '@/lib/events'
@@ -640,17 +641,35 @@ function EntityForm({ cwd, onDone }: { cwd: string; onDone: () => void }) {
 }
 
 function DecisionForm({ cwd, onDone }: { cwd: string; onDone: () => void }) {
-  const [form, setForm] = useState({ category: '', scenario: '', reasoning: '', outcome: '', confidence: '0.8', title: '', because: '', leads_to: '' })
+  const [form, setForm] = useState({ category: '', scenario: '', reasoning: '', outcome: '', confidence: '0.8', title: '' })
+  const [brief, setBrief] = useState<PackedDecisionBrief>({ faces: [], options: [], because: [] })
+  const [picked, setPicked] = useState<string[]>([])
   const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) => setForm({ ...form, [key]: event.target.value })
+  const loadBrief = () => {
+    const scenario = form.scenario.trim()
+    if (!scenario || busy) return
+    setErr('')
+    setBusy(true)
+    void runtimeApi.semanticPython('brief_for_decision', {
+      scenario,
+      ...(form.category.trim() ? { category: form.category.trim() } : {}),
+    }, cwd).then((data) => {
+      const packed = packDecisionBrief(data)
+      setBrief(packed)
+      setPicked(packed.because)
+    }).catch((cause) => setErr(cause instanceof Error ? cause.message : '依据没装上')).finally(() => setBusy(false))
+  }
+  const because = citableBecause(brief.faces, picked)
   const submit = (event: FormEvent) => {
     event.preventDefault()
     setErr('')
-    const because = form.because.split(/[\s,]+/).map((row) => row.trim()).filter(Boolean)
     if (!because.length) {
-      setErr('依据不能空')
+      setErr('图里没有可引用的依据')
       return
     }
+    setBusy(true)
     void runtimeApi.semanticPython('record_decision', {
       category: form.category,
       scenario: form.scenario,
@@ -659,21 +678,46 @@ function DecisionForm({ cwd, onDone }: { cwd: string; onDone: () => void }) {
       confidence: Number(form.confidence),
       title: form.title,
       because,
-      leads_to: form.leads_to.split(/[\s,]+/).map((row) => row.trim()).filter(Boolean),
-    }, cwd).then(onDone).catch((cause) => setErr(cause instanceof Error ? cause.message : '没记下'))
+    }, cwd).then(onDone).catch((cause) => setErr(cause instanceof Error ? cause.message : '没记下')).finally(() => setBusy(false))
   }
   return (
     <form onSubmit={submit}>
       <Field label="类别"><input className="input w-full" value={form.category} onChange={set('category')} required /></Field>
-      <Field label="情境"><textarea className="input w-full min-h-20" value={form.scenario} onChange={set('scenario')} required /></Field>
+      <Field label="情境"><textarea className="input w-full min-h-20" value={form.scenario} onChange={set('scenario')} onBlur={loadBrief} required /></Field>
       <Field label="理由"><textarea className="input w-full min-h-20" value={form.reasoning} onChange={set('reasoning')} required /></Field>
       <Field label="结果"><input className="input w-full" value={form.outcome} onChange={set('outcome')} required /></Field>
       <Field label="把握"><input className="input w-full" value={form.confidence} onChange={set('confidence')} /></Field>
       <Field label="标题"><input className="input w-full" value={form.title} onChange={set('title')} /></Field>
-      <Field label="依据 id"><input className="input w-full" value={form.because} onChange={set('because')} required /></Field>
-      <Field label="后果 id"><input className="input w-full" value={form.leads_to} onChange={set('leads_to')} /></Field>
+      <div className="mb-3">
+        <div className="text-xs font-medium mb-1">依据</div>
+        <button type="button" className="btn h-7 px-2 mb-2" disabled={busy || !form.scenario.trim()} onClick={loadBrief}>看依据</button>
+        {brief.options.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            className="btn h-7 px-2 mb-1 mr-1"
+            onClick={() => setForm({ ...form, outcome: option.label })}
+          >{option.label}</button>
+        ))}
+        {brief.faces.length === 0 && <div className="text-xs text-ink-muted">图里没有可引用的依据</div>}
+        {brief.faces.map((face) => (
+          <label key={face.id} className="block text-xs text-ink-muted py-1">
+            {face.citable ? (
+              <input
+                type="checkbox"
+                className="mr-1"
+                checked={picked.includes(face.id)}
+                onChange={(event) => {
+                  setPicked(event.target.checked ? [...picked, face.id] : picked.filter((id) => id !== face.id))
+                }}
+              />
+            ) : null}
+            {face.cue || (face.citable ? '可引用依据' : face.kind === 'draft' ? '起草，不能作依据' : '不能作依据')}
+          </label>
+        ))}
+      </div>
       {err && <div className="text-xs text-accent-red mb-2">{err}</div>}
-      <button type="submit" className="btn-primary">记下</button>
+      <button type="submit" className="btn-primary" disabled={busy || !because.length}>记下</button>
     </form>
   )
 }
@@ -769,11 +813,43 @@ function HealthPanel({ cwd, ready, onRetry }: { cwd: string; ready: Record<strin
       setErr(cause instanceof Error ? cause.message : '梳理写入失败')
     }).finally(() => setBusy(false))
   }
-  const openRow = (row: Record<string, unknown>) => {
-    const id = String(row.id || '')
-    if (!id) return
-    openRef(classifyHitId(id).href)
+  const openRow = (id: string) => {
+    const cardId = String(id || '')
+    if (!cardId) return
+    openRef(classifyHitId(cardId).href)
   }
+
+  const actionButtons = (row: Record<string, unknown>, actions: Array<Record<string, unknown>>, kind: string) => (
+    <div className="mt-1 flex flex-wrap gap-2">
+      {actions.map((action, actionIndex) => {
+        const op = String(action.op || '')
+        const label = healthOpLabel(op)
+        if (!label) return null
+        const target = String(action.id || row.id || '')
+        if (op === 'open') {
+          return (
+            <button key={`${op}${actionIndex}${target}`} type="button" className="btn h-7 px-2" onClick={() => openRow(target)}>{label}</button>
+          )
+        }
+        return (
+          <button
+            key={`${op}${actionIndex}${target}`}
+            type="button"
+            className="btn h-7 px-2"
+            disabled={busy}
+            onClick={() => act({
+              op,
+              id: target,
+              other: action.other || row.other,
+              type: action.type || row.type,
+              source: action.source || row.origin || row.source,
+              kind: row.kind || kind,
+            }, op === 'merge' ? label : undefined)}
+          >{label}</button>
+        )
+      })}
+    </div>
+  )
   return (
     <div className="space-y-3 text-sm min-w-0">
       <div>引擎 {ready?.ready ? '就绪' : '未就绪'}{cwd ? ` · ${cwd.split('/').filter(Boolean).at(-1)}` : ''}</div>
@@ -813,39 +889,38 @@ function HealthPanel({ cwd, ready, onRetry }: { cwd: string; ready: Record<strin
                 >{label}</button>
               )
             })}
-            {items.map((row, index) => (
-              <div key={healthItemKey(row) || String(index)} className="text-xs text-ink-muted break-words py-1 border-t border-line first:border-0">
-                <div>{String(row.cue || row.label || '')}</div>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  {asRows(row.actions).map((action, actionIndex) => {
-                    const op = String(action.op || '')
-                    const label = healthOpLabel(op)
-                    if (!label) return null
-                    if (op === 'open') {
-                      return (
-                        <button key={`${op}${actionIndex}`} type="button" className="btn h-7 px-2" onClick={() => openRow(row)}>{label}</button>
-                      )
-                    }
-                    return (
-                      <button
-                        key={`${op}${actionIndex}`}
-                        type="button"
-                        className="btn h-7 px-2"
-                        disabled={busy}
-                        onClick={() => act({
-                          op,
-                          id: row.id,
-                          other: action.other || row.other,
-                          type: action.type || row.type,
-                          source: action.source || row.origin || row.source,
-                          kind: row.kind || kind,
-                        }, op === 'merge' ? label : undefined)}
-                      >{label}</button>
-                    )
-                  })}
+            {items.map((row, index) => {
+              const named = asRows(row.named)
+              const actions = asRows(row.actions)
+              const unary = (id: string) => actions.filter((action) => {
+                const op = String(action.op || '')
+                return (op === 'open' || op === 'retire') && String(action.id || row.id || '') === id
+              })
+              const binary = actions.filter((action) => {
+                const op = String(action.op || '')
+                return op === 'link' || op === 'merge'
+              })
+              return (
+                <div key={healthItemKey(row) || String(index)} className="text-xs text-ink-muted break-words py-1 border-t border-line first:border-0">
+                  {named.length > 1 ? (
+                    <>
+                      {named.map((face) => (
+                        <div key={String(face.id || '')} className="py-1">
+                          <div>{String(face.cue || '')}</div>
+                          {actionButtons(row, unary(String(face.id || '')), kind)}
+                        </div>
+                      ))}
+                      {binary.length > 0 && actionButtons(row, binary, kind)}
+                    </>
+                  ) : (
+                    <>
+                      <div>{String(row.cue || row.label || '')}</div>
+                      {actionButtons(row, actions, kind)}
+                    </>
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {group.has_more && next && (
               <button
                 type="button"

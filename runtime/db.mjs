@@ -812,6 +812,20 @@ export function memoryWriteOriginByCardIds(db, ids) {
   return map
 }
 
+export function memoryWriteCardByOrigins(db, origins) {
+  const map = new Map()
+  const list = [...new Set((Array.isArray(origins) ? origins : []).map((id) => String(id || '').trim()).filter(Boolean))]
+  if (!list.length) return map
+  const placeholders = list.map(() => '?').join(',')
+  const rows = db.prepare(`SELECT ref, card_id FROM memory_write_log WHERE ref IN (${placeholders})`).all(...list)
+  for (const row of rows) {
+    const origin = String(row.ref || '').trim()
+    const cardId = String(row.card_id || '').trim()
+    if (origin && cardId) map.set(origin, cardId)
+  }
+  return map
+}
+
 export function getBizWriteAuditByTraceId(db, traceId) {
   const row = db.prepare(`
     SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, lookup_bind_json, written_at, rollback_state

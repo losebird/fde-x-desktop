@@ -90,6 +90,7 @@ import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { findSessionDir, readSessionTree, writeSessionTree } from './session-tree.mjs'
+import { resolvePrimarySessionForRuntime } from './session-primary.mjs'
 import { decodeWorkspaceFileText, readWorkspaceFileBytes } from './files-bytes.mjs'
 import {
   SESSION_BIND_BOTH,
@@ -119,7 +120,7 @@ import { startMemoryWriter } from './memory/writer.mjs'
 import { asDraftCard, attachCuesOnCards, attachCuesOnGroups, collapseCueCards, loadNamedCards, validateMemoryCardLabel } from './memory/cards.mjs'
 import { attachCardOrigin, draftCard } from './memory/draft.mjs'
 import { instanceOriginOf } from './memory/identity.mjs'
-import { HEALTH_PAGE, buildHealthSheet, collectHealthCardIds, dupIssuesFromEnrich, healthWritePlan } from './memory/health.mjs'
+import { HEALTH_PAGE, buildHealthSheet, collectHealthCardIds, dupIssuesFromEnrich, healthWritePlan, liveDuplicateBag } from './memory/health.mjs'
 import {
   FDE_AI_WORKSPACE,
   FDE_ALLOWED_ORIGINS,
@@ -161,6 +162,33 @@ function requestMemoryCwd(url, body) {
   const fromQuery = String(url.searchParams.get('cwd') || '').trim()
   const cwd = fromBody || fromQuery
   return cwd.startsWith('/') ? cwd : ''
+}
+
+function workspaceCwdOf(operation) {
+  let workspaceCwd = FDE_AI_WORKSPACE
+  try {
+    const wsRow = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(operation.workspaceId)
+    const meta = JSON.parse(wsRow?.metadata_json || '{}')
+    const raw = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
+    if (raw.startsWith('/')) workspaceCwd = raw
+  } catch { /* default cwd */ }
+  return workspaceCwd
+}
+
+async function emitOperationExecuted(operation, receipt) {
+  const workspaceCwd = workspaceCwdOf(operation)
+  let sessionId = ''
+  try {
+    sessionId = await resolvePrimarySessionForRuntime(aiRuntime, { cwd: workspaceCwd })
+  } catch { /* skip */ }
+  emit('operation.executed', {
+    operationId: operation.id,
+    receipt,
+  }, {
+    workspaceCwd,
+    ...(sessionId ? { sessionId } : {}),
+    source: 'bff',
+  })
 }
 
 async function exchangeNocoBaseToken(baseUrl, account, password) {
@@ -2254,7 +2282,7 @@ const server = createServer(async (request, response) => {
       const cardById = new Map([...loaded].map(([id, row]) => [id, attachCardOrigin(row, originMap)]))
       const sheet = buildHealthSheet({
         health,
-        dups,
+        dups: liveDuplicateBag(dups, cardById),
         originMap,
         offset,
         dupOffset,
@@ -3010,6 +3038,9 @@ const server = createServer(async (request, response) => {
           sendError(response, 501, 'live_adapter_not_ready', '真实写入适配器尚未启用', currentCorrelationId)
           return
         }
+        if (operationBefore?.state === 'approved') {
+          await emitOperationExecuted(operationBefore, result.receipt)
+        }
         sendJson(response, 200, { data: result.operation, receipt: result.receipt, correlationId: currentCorrelationId })
         return
       }
@@ -3034,17 +3065,7 @@ const server = createServer(async (request, response) => {
         return
       }
       if (operationBefore?.state === 'approved' && result.kind === 'ok') {
-        const wsRow = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(operationBefore.workspaceId)
-        let workspaceCwd = FDE_AI_WORKSPACE
-        try {
-          const meta = JSON.parse(wsRow?.metadata_json || '{}')
-          const raw = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-          if (raw.startsWith('/')) workspaceCwd = raw
-        } catch { /* default cwd */ }
-        emit('operation.executed', {
-          operationId: operationBefore.id,
-          receipt: result.receipt,
-        }, { workspaceCwd, source: 'bff' })
+        await emitOperationExecuted(operationBefore, result.receipt)
       }
       sendJson(response, 200, { data: result.operation, receipt: result.receipt, correlationId: currentCorrelationId })
       return

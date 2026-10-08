@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 import { rm } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { insertBizWriteAudit, openDatabase } from '../db.mjs'
+import { insertBizWriteAudit, openDatabase, upsertMemoryWriteLog } from '../db.mjs'
 import { configureEventBus, emit } from '../events.mjs'
 import { draftCard } from '../memory/draft.mjs'
-import { draftMemoryFromBridge, startMemoryWriter } from '../memory/writer.mjs'
+import { choiceOriginRefs, draftMemoryFromBridge, recordDecisionFromChoice, resolveCitableBecause, startMemoryWriter } from '../memory/writer.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const dbPath = '/tmp/fde-x-memory-writer-test.sqlite'
@@ -166,7 +166,7 @@ test('semantic failure does not throw', async () => {
   await rm(dbPath, { force: true }).catch(() => undefined)
 })
 
-test('operation.executed records a decision and does not mint a card', async () => {
+test('operation.executed with ghost refs does not record a decision', async () => {
   await withWriter(async ({ db, calls }) => {
     const now = new Date().toISOString()
     db.prepare(`
@@ -181,8 +181,80 @@ test('operation.executed records a decision and does not mint a card', async () 
     await new Promise((r) => setTimeout(r, 80))
     assert.equal(calls.some((c) => c.op === 'add_node'), false)
     assert.equal(calls.some((c) => c.op === 'draft_memory_card'), false)
+    assert.equal(calls.some((c) => c.op === 'record_decision'), false)
+  })
+})
+
+test('operation.executed records from write-log filed card on receipt trace', async () => {
+  await withWriter(async ({ db, calls, aiRuntime }) => {
+    const now = new Date().toISOString()
+    db.prepare(`
+      INSERT INTO operations
+        (id, workspace_id, connection_id, app_id, requested_by, target_ref, action, operation_kind,
+         risk_level, execution_mode, state, idempotency_key, expected_version, input_json, plan_json,
+         correlation_id, causation_id, created_at, updated_at)
+      VALUES ('op_mem_2', 'ws_personal', NULL, NULL, 'actor_local_user', 'fde://external/x/table/y', 'record.update', 'write',
+        'high', 'live', 'approved', 'idem_mem_2', NULL, '{}', '{}', 'corr', NULL, ?, ?)
+    `).run(now, now)
+    upsertMemoryWriteLog(db, { origin: 'biz:trace_live', cardId: 'memory:filed' })
+    aiRuntime.semanticOs = async (path, options) => {
+      calls.push({ path, ...options })
+      if (options.op === 'list_graph_nodes') throw new Error('list_graph_nodes is not the cite mouth')
+      if (options.op === 'open_node' && options.args.id === 'memory:filed') {
+        return { id: 'memory:filed', type: '记忆卡片', status: '已入档', content: '已入档这一句足够长' }
+      }
+      if (options.op === 'open_node') return { error: 'NOT_FOUND' }
+      if (options.op === 'record_decision') return { ok: true, decision_id: 'd1' }
+      return { ok: true }
+    }
+    emit('operation.executed', {
+      operationId: 'op_mem_2',
+      receipt: { traceId: 'trace_live' },
+    }, { workspaceCwd: '/tmp/ws', sessionId: 's1' })
+    await new Promise((r) => setTimeout(r, 80))
+    assert.equal(calls.some((c) => c.op === 'list_graph_nodes'), false)
     const recorded = calls.find((c) => c.op === 'record_decision')
     assert.ok(recorded)
-    assert.deepEqual(recorded.args.because, ['operation:op_mem_1'])
+    assert.deepEqual(recorded.args.because, ['memory:filed'])
+    assert.equal(recorded.args.decision_maker, 'actor_local_user')
   })
+})
+
+test('choiceOriginRefs takes session, receipt trace, and instance target', () => {
+  assert.deepEqual(choiceOriginRefs(
+    { sessionId: 's1', payload: { receipt: { traceId: 'trace_live' } } },
+    { targetRef: 'task:t1' },
+  ), ['session:s1', 'biz:trace_live', 'task:t1'])
+  assert.deepEqual(choiceOriginRefs({ payload: {} }, { targetRef: 'fde://external/x' }), [])
+})
+
+test('resolveCitableBecause skips drafts and ghost ids', async () => {
+  const calls = []
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    semanticOs: async (_path, options) => {
+      calls.push(options)
+      if (options.op === 'list_graph_nodes') throw new Error('list_graph_nodes is not the cite mouth')
+      if (options.op === 'open_node' && options.args.id === 'memory:filed') {
+        return { id: 'memory:filed', type: '记忆卡片', status: '已入档', content: '已入档这一句足够长' }
+      }
+      if (options.op === 'open_node' && options.args.id === 'memory:draft') {
+        return { id: 'memory:draft', type: '记忆卡片', status: '起草', content: '起草不能当依据' }
+      }
+      return { error: 'missing' }
+    },
+  }
+  const because = await resolveCitableBecause({ aiRuntime }, '/tmp/ws', ['operation:op_mem_1', 'memory:draft', 'memory:filed'])
+  assert.deepEqual(because, ['memory:filed'])
+  const skipped = await recordDecisionFromChoice({ aiRuntime }, {
+    cwd: '/tmp/ws',
+    category: 'record.update',
+    scenario: 'record.update',
+    reasoning: '{}',
+    outcome: '{}',
+    refs: ['operation:ghost'],
+  })
+  assert.equal(skipped.skipped, true)
+  assert.equal(skipped.reason, 'NO_BECAUSE')
+  assert.equal(calls.some((c) => c.op === 'record_decision'), false)
 })

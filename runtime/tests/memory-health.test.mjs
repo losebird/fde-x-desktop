@@ -7,12 +7,13 @@ import {
   buildHealthSheet,
   collectHealthCardIds,
   dupIssuesFromEnrich,
+  dupPairOps,
   healthNamedIds,
-  dupPairOp,
   filterSourceActions,
   groupActionsOf,
   healthItemKey,
   healthWritePlan,
+  liveDuplicateBag,
   itemHasOrigin,
   mergeHealthGroups,
   reshapeUnsoursedGroup,
@@ -77,9 +78,14 @@ test('biz origin strips source action', () => {
 })
 
 test('duplicate memory cards link; mixed types skip; same type merge', () => {
-  assert.equal(dupPairOp({ id: 'memory:a' }, { id: 'memory:b' }), 'link')
-  assert.equal(dupPairOp({ id: 'org:1', type: 'Org' }, { id: 'org:2', type: 'Person' }), '')
-  assert.equal(dupPairOp({ id: 'org:1', type: 'Org' }, { id: 'org:2', type: 'Org' }), 'merge')
+  const memory = dupPairOps({ id: 'memory:a' }, { id: 'memory:b' })
+  assert.deepEqual(memory.unary.map((row) => `${row.op}:${row.id}`), ['open:memory:a', 'retire:memory:a', 'open:memory:b', 'retire:memory:b'])
+  assert.deepEqual(memory.binary.map((row) => row.op), ['link'])
+  assert.deepEqual(dupPairOps({ id: 'org:1', type: 'Org' }, { id: 'org:2', type: 'Person' }), { unary: [], binary: [] })
+  const orgs = dupPairOps({ id: 'org:1', type: 'Org' }, { id: 'org:2', type: 'Org' })
+  assert.deepEqual(orgs.binary.map((row) => row.op), ['merge'])
+  const typedCards = dupPairOps({ id: 'memory:a', type: '记忆卡片' }, { id: 'memory:b', type: '记忆卡片' })
+  assert.deepEqual(typedCards.binary.map((row) => row.op), ['link', 'merge'])
 })
 
 test('enrich pairs page past eight and keep distinct left-id rows', () => {
@@ -106,6 +112,17 @@ test('enrich pairs page past eight and keep distinct left-id rows', () => {
   assert.equal(dup.has_more, false)
 })
 
+test('retired named cards drop out of the duplicate bag', () => {
+  const bag = liveDuplicateBag({
+    duplicates: [
+      { entity_a: { id: 'memory:a' }, entity_b: { id: 'memory:b' } },
+      { entity_a: { id: 'memory:a' }, entity_b: { id: 'memory:c' } },
+    ],
+  }, new Map([['memory:b', { id: 'memory:b', then: { status: '已停用' } }]]))
+  assert.equal(bag.duplicates.length, 1)
+  assert.equal(bag.duplicates[0].entity_b.id, 'memory:c')
+})
+
 test('merge keeps duplicate pairs that share a left id', () => {
   const first = [{ id: 'memory:left', kind: HOST_DUP_KIND, other: 'memory:a', label: 'a' }]
   const second = [
@@ -130,6 +147,12 @@ test('write plan requires nod and rejects biz source', () => {
   assert.equal(source.args.source, 'session:s1')
   const link = healthWritePlan({ op: 'link', id: 'memory:a', other: 'memory:b', type: 'confirms', nodded: true })
   assert.equal(link.python, 'nod_memory_edge')
+  const mergeCards = healthWritePlan({ op: 'merge', id: 'memory:a', other: 'memory:b', nodded: true })
+  assert.equal(mergeCards.python, 'retire_memory_card')
+  assert.equal(mergeCards.args.id, 'memory:b')
+  const mergeOrgs = healthWritePlan({ op: 'merge', id: 'org:1', other: 'org:2', nodded: true })
+  assert.equal(mergeOrgs.path, '/api/enrich/merge')
+  assert.equal(mergeOrgs.body.confirm, true)
   const group = healthWritePlan({ op: 'retire_group', ids: ['memory:c'], nodded: true })
   assert.deepEqual(group.ids, ['memory:c'])
   assert.equal(group.python, 'retire_memory_card')
