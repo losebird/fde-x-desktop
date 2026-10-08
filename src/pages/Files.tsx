@@ -527,14 +527,13 @@ export default function Files() {
           }
           return
         }
-        listingRef.current = { cwd }
+        const target = await currentAiTarget()
+        if (!alive) return
+        const sessionId = target.ok ? target.sessionId : ''
+        listingRef.current = sessionId ? { sessionId } : { cwd }
+        setSessionId(sessionId || null)
         loadedDirs.current = new Set()
-        let listing: { path?: string; entries?: Array<{ name: string; type: string; size?: number }> }
-        try {
-          listing = await fetchListing('.')
-        } catch {
-          listing = { path: '.', entries: [] }
-        }
+        const listing = await fetchListing('.')
         if (!alive) return
         const now = new Date().toISOString()
         const rootPath = '.'
@@ -558,21 +557,7 @@ export default function Files() {
           setFilesBrowse({ workspaceId: activeWsId, parentId: rootPath })
         }
         rememberModuleBag('files', { workspaceId: activeWsId, files: filesRef.current })
-        const target = await currentAiTarget()
-        if (!alive) return
-        const sessionId = target.ok ? target.sessionId : ''
-        listingRef.current = {
-          ...(sessionId ? { sessionId } : {}),
-          cwd,
-        }
-        setSessionId(sessionId || null)
         if (sessionId) {
-          try {
-            const viaSession = await fetchListing('.')
-            if (alive) mergeChildren(rootPath, viaSession)
-          } catch {
-            /* cwd listing already on screen */
-          }
           void runtimeApi.catalogBag('file', { sessionId, path: '.' }).then((bag) => {
             if (alive) setFileActions(Array.isArray(bag.actions) ? bag.actions : [])
           }).catch(() => {

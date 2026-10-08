@@ -1563,7 +1563,7 @@ export class RuntimeApi {
       query.set('path', path)
     } else {
       if (sessionIdOrOpts.sessionId) query.set('sessionId', sessionIdOrOpts.sessionId)
-      if (sessionIdOrOpts.cwd) query.set('cwd', sessionIdOrOpts.cwd)
+      else if (sessionIdOrOpts.cwd) query.set('cwd', sessionIdOrOpts.cwd)
       query.set('path', sessionIdOrOpts.path || '.')
     }
     const result = await this.request<{ data: { path: string; entries: Array<{ name: string; type: 'file' | 'directory' | 'other'; size?: number }>; truncated?: boolean } }>(`/api/v1/files?${query.toString()}`, { signal })
