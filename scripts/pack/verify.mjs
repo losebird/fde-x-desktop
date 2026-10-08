@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { nodeDistPresent } from './node-dist.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const resources = process.env.FDE_PACK_OUT
@@ -52,9 +53,19 @@ async function main() {
     process.exit(1)
   }
 
+  const nodeRoot = join(resources, 'node')
+  const nodeReal = nodeDistPresent(nodeRoot) && versions.node?.staged === true
+  if (!nodeReal) {
+    console.error('verify failed — need resources/node/bin/node and versions.node.staged === true')
+    console.log(`node.staged: ${versions.node?.staged === true}`)
+    process.exit(1)
+  }
+
   console.log(`dsh.staged: true (version ${versions.dsh?.version})`)
+  console.log(`node.staged: true (version ${versions.node?.version})`)
   console.log('verify ok', versions.platformKey, {
     dsh: versions.dsh,
+    node: versions.node,
     semanticComplete: versions.semanticRuntime?.complete,
   })
 }

@@ -2,6 +2,7 @@
 /**
  * Assemble resources/ for Electron packaging (spec 09 §6).
  * DSH: npm pack + npm i --omit=dev into resources/dsh (or FDE_DSH_NPM_TREE copy).
+ * Node: official Node 24 dist into resources/node (or FDE_NODE_DIST_TREE copy).
  * Semantic: optional GitHub release tar.gz + sha256 when FDE_DOWNLOAD_SEMANTIC_RUNTIME=1 or CI.
  */
 import { createHash } from 'node:crypto'
@@ -13,6 +14,7 @@ import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { DSH_NPM_VERSION, SEMANTIC_RUNTIME } from './pins.mjs'
+import { NODE_DIST_VERSION, nodeDistArchiveName, nodeDistPresent, nodeDistUrls } from './node-dist.mjs'
 
 const execFile = promisify(execFileCb)
 
@@ -177,6 +179,86 @@ async function stageDsh(dest) {
   )
   console.warn('[stage] dsh stub — set FDE_DSH_NPM_TREE or allow npm staging')
   return false
+}
+
+async function extractNodeArchive(archivePath, dest) {
+  const staging = join(resourcesRoot, '.pack-work', 'node-extract')
+  await rm(staging, { recursive: true, force: true })
+  await mkdir(staging, { recursive: true })
+  if (archivePath.endsWith('.zip')) {
+    await execFile('unzip', ['-o', '-q', archivePath, '-d', staging], { maxBuffer: 64 * 1024 * 1024 })
+  } else {
+    await execFile('tar', ['-xzf', archivePath, '-C', staging], { maxBuffer: 64 * 1024 * 1024 })
+  }
+  const { readdir } = await import('node:fs/promises')
+  const entries = await readdir(staging)
+  const inner = entries.length === 1 ? join(staging, entries[0]) : staging
+  await rm(dest, { recursive: true, force: true })
+  await mkdir(dirname(dest), { recursive: true })
+  await cp(inner, dest, { recursive: true, dereference: true })
+  await rm(staging, { recursive: true, force: true })
+}
+
+async function downloadNodeDist(dest) {
+  const archive = nodeDistArchiveName(NODE_DIST_VERSION)
+  const urls = nodeDistUrls(NODE_DIST_VERSION, archive)
+  let body
+  let used = urls[0]
+  for (const url of urls) {
+    try {
+      console.log(`[stage] download node ${url}`)
+      body = await fetchBuffer(url)
+      used = url
+      break
+    } catch (error) {
+      console.warn(`[stage] node download failed ${url}`, error)
+    }
+  }
+  if (!body) throw new Error(`node dist download failed for ${archive}`)
+  const cacheDir = join(resourcesRoot, '.pack-work', 'node')
+  await mkdir(cacheDir, { recursive: true })
+  const archivePath = join(cacheDir, archive)
+  await writeFile(archivePath, body)
+  await extractNodeArchive(archivePath, dest)
+  if (!nodeDistPresent(dest)) {
+    throw new Error(`node dist missing bin/node after extract from ${used}`)
+  }
+  console.log(`[stage] node ${NODE_DIST_VERSION} → ${dest}`)
+  return true
+}
+
+async function writeStubNode(dest) {
+  await mkdir(dest, { recursive: true })
+  await writeFile(
+    join(dest, 'README-STUB.txt'),
+    '未 stage 独立 Node。CI 应下载 nodejs.org dist；或设置 FDE_NODE_DIST_TREE。Host 不能用 Electron 运行时。\n',
+  )
+  console.warn(`[stage] node stub at ${dest}`)
+}
+
+async function stageNode(dest) {
+  const override = process.env.FDE_NODE_DIST_TREE
+  if (override && existsSync(override) && nodeDistPresent(override)) {
+    await rm(dest, { recursive: true, force: true })
+    await cp(override, dest, { recursive: true, dereference: true })
+    console.log(`[stage] node from FDE_NODE_DIST_TREE ${override}`)
+    return true
+  }
+
+  if (process.env.FDE_STAGE_NODE === '0') {
+    await writeStubNode(dest)
+    return false
+  }
+
+  try {
+    await downloadNodeDist(dest)
+    return true
+  } catch (error) {
+    console.warn('[stage] node staging failed', error)
+    if (process.env.CI === 'true') throw error
+    await writeStubNode(dest)
+    return false
+  }
 }
 
 async function fetchText(url) {
@@ -374,12 +456,16 @@ async function main() {
   const dshDest = join(resourcesRoot, 'dsh')
   const dshStaged = await stageDsh(dshDest)
 
+  const nodeDest = join(resourcesRoot, 'node')
+  const nodeStaged = await stageNode(nodeDest)
+
   const semantic = await stageSemantic()
 
   const versions = {
     stagedAt: new Date().toISOString(),
     platformKey: runtimeKey,
     dsh: { version: DSH_NPM_VERSION, staged: dshStaged },
+    node: { version: NODE_DIST_VERSION, staged: nodeStaged },
     plugins: {
       'dsh-lan-assist': existsSync(join(pluginsRoot, 'dsh-lan-assist')),
       'dsh-semantic-os': existsSync(join(pluginsRoot, 'dsh-semantic-os')),
@@ -399,6 +485,7 @@ async function main() {
   )
   console.log(`[stage] wrote ${join(resourcesRoot, 'versions.json')}`)
   console.log(`[stage] dsh.staged: ${dshStaged}`)
+  console.log(`[stage] node.staged: ${nodeStaged}`)
 }
 
 main().catch((error) => {

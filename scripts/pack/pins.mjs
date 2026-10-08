@@ -9,3 +9,5 @@ export const SEMANTIC_RUNTIME = {
   releaseBaseUrl:
     'https://github.com/losebird/dsh-semantic-os/releases/download/v0.1.1',
 }
+
+export { NODE_DIST_VERSION } from './node-dist.mjs'

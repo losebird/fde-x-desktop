@@ -4,12 +4,26 @@
   "title": "FDE-X bundled resources versions",
   "description": "Written by scripts/pack/stage.mjs; consumed by scripts/pack/verify.mjs and apps/desktop.",
   "type": "object",
-  "required": ["stagedAt", "platformKey", "dsh", "plugins", "semanticRuntime"],
+  "required": ["stagedAt", "platformKey", "dsh", "node", "plugins", "semanticRuntime"],
   "properties": {
     "stagedAt": { "type": "string", "format": "date-time" },
     "platformKey": {
       "type": "string",
       "description": "process.platform-process.arch, e.g. darwin-arm64"
+    },
+    "node": {
+      "type": "object",
+      "required": ["version", "staged"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "Pinned standalone Node version (see scripts/pack/node-dist.mjs)"
+        },
+        "staged": {
+          "type": "boolean",
+          "description": "true when resources/node/bin/node (or node.exe) is present"
+        }
+      }
     },
     "dsh": {
       "type": "object",
