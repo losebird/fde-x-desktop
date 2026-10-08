@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { asDraftCard, collapseCueCards, cueIdOf, draftMemoryCardInsert } from '../memory/cards.mjs'
+import { asDraftCard, attachCuesOnGroups, cardCue, cardFromOpenedNode, collapseCueCards, cueFromOriginDoc, cueIdOf, draftMemoryCardInsert, loadNamedCards, namedCardIds } from '../memory/cards.mjs'
 import { attachCardOrigin } from '../memory/draft.mjs'
 import { instanceOriginOf } from '../memory/identity.mjs'
 
@@ -80,6 +80,77 @@ test('list collapse keeps 已入档 and folds the same cue', () => {
   const filed = rows.find((row) => String(row.status) === '已入档')
   assert.equal(filed.id, 'memory:b')
   assert.deepEqual(filed.ids, ['memory:a', 'memory:b'])
+})
+
+test('loadNamedCards pages the list then opens remaining ids', async () => {
+  const calls = []
+  const aiRuntime = {
+    semanticOs: async (_path, options) => {
+      calls.push(options)
+      if (options.op === 'list_memory_cards') {
+        if (Number(options.args.offset || 0) === 0) {
+          return {
+            cards: [{ id: 'memory:a', origin: 'biz:trace_1', label: '列表里的卡' }],
+            has_more: true,
+          }
+        }
+        return { cards: [], has_more: false }
+      }
+      if (options.op === 'open_node' && options.args.id === 'memory:b') {
+        return { id: 'memory:b', then: '打开单卡这一句足够长', origin: 'biz:trace_2' }
+      }
+      throw new Error(`unexpected ${options.op}`)
+    },
+  }
+  const byId = await loadNamedCards(aiRuntime, '/tmp/ws', ['memory:a', 'memory:b'])
+  assert.equal(byId.get('memory:a').label, '列表里的卡')
+  assert.equal(cardFromOpenedNode('memory:b', { then: '打开单卡这一句足够长' }).label, '打开单卡这一句足够长')
+  assert.equal(cardFromOpenedNode('memory:c', { then: { text: '对象正文这一句足够长' } }).label, '对象正文这一句足够长')
+  assert.equal(byId.get('memory:b').label, '打开单卡这一句足够长')
+  assert.deepEqual(calls.map((row) => row.op), ['list_memory_cards', 'list_memory_cards', 'open_node'])
+})
+
+test('named card ids include other and ids', () => {
+  assert.deepEqual(namedCardIds({ id: 'memory:a', other: 'memory:b', ids: ['memory:a', 'memory:c'] }), ['memory:a', 'memory:b', 'memory:c'])
+})
+
+test('health group cue uses named cards not raw ids', async () => {
+  const groups = await attachCuesOnGroups(
+    [{
+      kind: '重复',
+      items: [{ id: 'memory:a', other: 'memory:b', label: 'memory:a ~ memory:b' }],
+    }],
+    async (origin) => {
+      if (origin === 'biz:trace_1') return { ok: true, text: '把客户张三改成成交这一句足够长' }
+      if (origin === 'biz:trace_2') return { ok: true, text: '停用客户还有哪些没关的工单？' }
+      return { ok: false }
+    },
+    new Map([['memory:a', 'biz:trace_1'], ['memory:b', 'biz:trace_2']]),
+  )
+  assert.equal(groups[0].items[0].cue, '把客户张三改成成交这一句足够长 · 停用客户还有哪些没关的工单？')
+  assert.equal(groups[0].items[0].id, 'memory:a')
+  assert.equal(groups[0].items[0].other, 'memory:b')
+})
+
+test('health group cue uses listed card origin when write log misses', async () => {
+  const groups = await attachCuesOnGroups(
+    [{ kind: '重复', items: [{ id: 'memory:a', other: 'memory:b' }] }],
+    async (origin) => {
+      if (origin === 'biz:trace_listed') return { ok: true, text: '东莞联创到期合同下还有哪些待审回款？把备注改成催收。' }
+      return { ok: false }
+    },
+    new Map(),
+    new Map([['memory:a', { id: 'memory:a', origin: 'biz:trace_listed', label: '过账 receipt' }]]),
+  )
+  assert.equal(groups[0].items[0].cue, '东莞联创到期合同下还有哪些待审回款？把备注改成催收。')
+})
+
+test('origin cue prefers readable text over identity title', () => {
+  assert.equal(cueFromOriginDoc({ title: '当时原文', text: '把客户张三改成成交这一句足够长' }), '把客户张三改成成交这一句足够长')
+  assert.equal(cueFromOriginDoc({ title: '任务完成了这一句足够长', text: '{"ok":true}' }), '任务完成了这一句足够长')
+  assert.equal(cueFromOriginDoc({ title: '当时原文', text: '{"ok":true}' }), '当时原文')
+  assert.equal(cardCue({ label: '过账 receipt receipt 1', cue: '把客户张三改成成交这一句足够长' }), '把客户张三改成成交这一句足够长')
+  assert.equal(cardCue({ label: '过账 receipt receipt 1' }), '过账 receipt receipt 1')
 })
 
 test('choice and correction of the same text stay two cues', () => {

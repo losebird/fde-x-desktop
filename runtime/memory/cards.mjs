@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { looksLikeJsonDump } from '../biz/session-origin-text.mjs'
 import { hostSourceOf, instanceOriginOf, originOfCard } from './identity.mjs'
 
 export function compactText(label) {
@@ -9,11 +10,167 @@ export function validateMemoryCardLabel(label) {
   return compactText(label).length >= 8
 }
 
-function displayLabel(label) {
+export function displayLabel(label) {
   const text = String(label || '').trim()
   const firstLine = text.split(/\n/u)[0]?.trim() || ''
   const candidate = firstLine.length >= 8 ? firstLine : compactText(text)
   return candidate.slice(0, 160)
+}
+
+export function cueFromOriginDoc(doc) {
+  const text = String(doc && doc.text || '').trim()
+  if (text && !looksLikeJsonDump(text)) return displayLabel(text)
+  const title = String(doc && doc.title || '').trim()
+  if (title && !looksLikeJsonDump(title)) return displayLabel(title)
+  return ''
+}
+
+export function cardCue(card) {
+  const row = card && typeof card === 'object' ? card : {}
+  const cue = String(row.cue || '').trim()
+  if (cue) return cue
+  return displayLabel(row.label || row.content || row.body || row.title)
+}
+
+export function namedCardIds(row) {
+  const ids = []
+  const push = (value) => {
+    const id = String(value || '').trim()
+    if (id && !ids.includes(id)) ids.push(id)
+  }
+  const item = row && typeof row === 'object' ? row : {}
+  push(item.id)
+  push(item.other)
+  for (const extra of Array.isArray(item.ids) ? item.ids : []) push(extra)
+  return ids
+}
+
+function originForCue(card) {
+  const row = card && typeof card === 'object' ? card : {}
+  return instanceOriginOf(originOfCard(row) || row.origin || row.id)
+}
+
+export async function attachCuesOnCards(cards, loadOriginDoc) {
+  const list = Array.isArray(cards) ? cards.filter((row) => row && typeof row === 'object') : []
+  const load = typeof loadOriginDoc === 'function' ? loadOriginDoc : null
+  return Promise.all(list.map(async (card) => {
+    const origin = originForCue(card)
+    if (origin && load) {
+      try {
+        const doc = await load(origin)
+        const fromOrigin = cueFromOriginDoc(doc)
+        if (fromOrigin) return { ...card, cue: fromOrigin }
+      } catch {
+        /* keep stored label */
+      }
+    }
+    const cue = cardCue(card)
+    return { ...card, cue }
+  }))
+}
+
+function originFromMap(originMap, id) {
+  if (!(originMap instanceof Map)) return ''
+  return String(originMap.get(id) || '')
+}
+
+function readableText(value, depth = 0) {
+  if (value == null) return ''
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (depth > 2 || typeof value !== 'object') return ''
+  if (Array.isArray(value)) return value.map((item) => readableText(item, depth + 1)).filter(Boolean).join('\n')
+  return readableText(value.then || value.body || value.label || value.content || value.text, depth + 1)
+}
+
+export function cardFromOpenedNode(id, opened) {
+  const row = opened && typeof opened === 'object' && !opened.error ? opened : {}
+  const node = row.node && typeof row.node === 'object' ? row.node : row
+  const body = readableText(node.then || node.body || node.label || node.content || node.text)
+  const label = readableText(node.label) || body
+  return {
+    id: String(node.id || id || '').trim() || String(id || ''),
+    label,
+    origin: node.origin,
+    content: body,
+    body,
+    metadata: node.metadata,
+    properties: node.properties,
+  }
+}
+
+export async function loadNamedCards(aiRuntime, cwd, ids) {
+  const want = [...new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean))]
+  const byId = new Map()
+  if (!want.length || !aiRuntime || typeof aiRuntime.semanticOs !== 'function') return byId
+  const remaining = new Set(want)
+  const page = 80
+  let offset = 0
+  while (remaining.size) {
+    const listed = await aiRuntime.semanticOs('/python', {
+      op: 'list_memory_cards',
+      args: { include_filed: true, limit: page, offset },
+      ...(cwd ? { cwd } : {}),
+    }).catch(() => ({ cards: [] }))
+    const cards = Array.isArray(listed?.cards) ? listed.cards : []
+    for (const row of cards) {
+      const id = String(row && row.id || '').trim()
+      if (!id) continue
+      byId.set(id, row)
+      remaining.delete(id)
+    }
+    if (!listed?.has_more || !cards.length) break
+    offset += cards.length
+  }
+  await Promise.all([...remaining].map(async (id) => {
+    try {
+      const opened = await aiRuntime.semanticOs('/python', {
+        op: 'open_node',
+        args: { id },
+        ...(cwd ? { cwd } : {}),
+      })
+      byId.set(id, cardFromOpenedNode(id, opened))
+    } catch {
+      byId.set(id, { id })
+    }
+  }))
+  return byId
+}
+
+export async function attachCuesOnGroups(groups, loadOriginDoc, originMap, cardById) {
+  const list = Array.isArray(groups) ? groups : []
+  const cards = cardById instanceof Map ? cardById : new Map()
+  return Promise.all(list.map(async (group) => {
+    const rows = Array.isArray(group && group.items) ? group.items.filter((row) => row && typeof row === 'object') : []
+    const items = await Promise.all(rows.map(async (item) => {
+      const ids = namedCardIds(item)
+      const stubs = ids.map((id) => {
+        const listed = cards.get(id)
+        if (listed && typeof listed === 'object') {
+          return {
+            ...listed,
+            origin: originOfCard(listed) || originFromMap(originMap, id) || listed.origin,
+          }
+        }
+        return {
+          id,
+          origin: originFromMap(originMap, id) || (id === item.id ? originOfCard(item) : ''),
+          label: id === item.id ? item.label : '',
+        }
+      })
+      const faced = await attachCuesOnCards(stubs, loadOriginDoc)
+      const cues = []
+      for (const card of faced) {
+        const cue = cardCue(card)
+        if (!cue) continue
+        if (ids.includes(cue)) continue
+        if (ids.some((id) => cue.includes(id))) continue
+        if (!cues.includes(cue)) cues.push(cue)
+      }
+      return { ...item, cue: cues.join(' · ') }
+    }))
+    return { ...group, items }
+  }))
 }
 
 export function cueCauseOf(cause) {

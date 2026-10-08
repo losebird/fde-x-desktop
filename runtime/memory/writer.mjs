@@ -33,28 +33,25 @@ async function recordDecision(deps, { workspaceCwd, category, scenario, reasonin
 export async function draftMemoryFromBridge(deps, input) {
   const refs = Array.isArray(input.refs) ? input.refs.map(String).filter(Boolean) : []
   const origin = String(input.origin || refs[0] || '').trim()
+  const given = String(input.label || [input.title, input.body].filter(Boolean).join('\n')).trim()
   return draftCard(deps, {
     cwd: input.workspaceCwd || input.cwd,
     origin,
     cause: input.cause === 'choice' ? 'choice' : 'correction',
-    label: input.label || [input.title, input.body].filter(Boolean).join('\n'),
+    ...(given ? { label: given } : {}),
     auto: input.auto !== false,
   })
 }
 
-function enoughLabel(parts) {
-  const text = parts.filter(Boolean).join('\n').trim()
-  return text.length >= 8 ? text : `${text} 记录`.trim()
-}
-
-async function draftFromEvent(deps, { cwd, origin, label, sessionId }) {
+async function draftFromEvent(deps, { cwd, origin, sessionId, label }) {
   if (!cwd) return
   if (!instanceOriginOf(origin)) return
+  const given = String(label || '').trim()
   await draftCard(deps, {
     cwd,
     origin,
-    label: enoughLabel([label]),
-    auto: false,
+    ...(given ? { label: given } : {}),
+    auto: true,
     sessionId,
   })
 }
@@ -63,14 +60,10 @@ async function onBizWriteDone(deps, envelope) {
   const cwd = envelope.workspaceCwd
   const payload = envelope.payload && typeof envelope.payload === 'object' ? envelope.payload : {}
   const traceId = String(payload.traceId || '').trim()
-  const kind = String(payload.kind || '').trim()
-  const action = String(payload.action || '').trim()
   const origin = traceId.startsWith('trace_') ? `biz:${traceId}` : (traceId ? `biz:trace_${traceId}` : '')
-  const recordNo = String(payload.recordNo || payload.no || '').trim()
   await draftFromEvent(deps, {
     cwd,
     origin,
-    label: enoughLabel([`过账 ${kind} ${action}`, recordNo, traceId]),
     sessionId: envelope.sessionId,
   })
 }
@@ -85,10 +78,11 @@ async function onAppRecordChanged(deps, envelope) {
   const entity = String(payload.entity || '').trim()
   const rid = String(payload.rid || payload.id || '').trim()
   const origin = slug && entity && rid ? `app:${slug}:${entity}:${rid}` : ''
+  const given = origin ? '' : [payload.title, payload.summary, slug && entity ? `${slug} ${entity}` : ''].filter(Boolean).join('\n')
   await draftFromEvent(deps, {
     cwd,
     origin,
-    label: enoughLabel([payload.title, payload.summary, `${slug} ${entity}`]),
+    label: given,
     sessionId: envelope.sessionId,
   })
 }
@@ -99,10 +93,11 @@ async function onTaskChanged(deps, envelope) {
   if (String(payload.op || '') === 'delete') return
   if (String(payload.status || '') !== 'done') return
   const id = String(payload.id || '').trim()
+  const origin = id ? `task:${id}` : ''
   await draftFromEvent(deps, {
     cwd,
-    origin: id ? `task:${id}` : '',
-    label: enoughLabel([payload.title, '任务完成']),
+    origin,
+    label: origin ? '' : payload.title,
   })
 }
 
@@ -110,10 +105,11 @@ async function onBriefingReady(deps, envelope) {
   const cwd = envelope.workspaceCwd
   const payload = envelope.payload && typeof envelope.payload === 'object' ? envelope.payload : {}
   const briefingId = String(payload.briefingId || '').trim()
+  const origin = briefingId ? `briefing:${briefingId}` : ''
   await draftFromEvent(deps, {
     cwd,
-    origin: briefingId ? `briefing:${briefingId}` : '',
-    label: enoughLabel(['早报', payload.status, briefingId]),
+    origin,
+    label: origin ? '' : payload.status,
   })
 }
 

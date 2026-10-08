@@ -24,17 +24,6 @@ const COVER_LABEL: Record<string, string> = {
   people: '人员',
   decision: '决策',
 }
-const CAPS = [
-  { pane: 'explore', label: '上下文图' },
-  { pane: 'decisions', label: '决策智能' },
-  { pane: 'ontology', label: '词表与 SHACL' },
-  { pane: 'admin', label: 'PROV-O 血缘' },
-  { pane: 'analyze', label: '往前推' },
-  { pane: 'admin', label: '知识管道' },
-  { pane: 'analyze', label: '图分析' },
-  { pane: 'admin', label: '存图后端' },
-  { pane: 'admin', label: '数仓入口' },
-] as const
 const OWN_CHROME = new Set(['io', 'admin'])
 const DRAWERS = ['entity', 'decision', 'health', 'lineage', 'find', 'import', 'export', 'registry', 'bridge'] as const
 
@@ -368,18 +357,6 @@ export default function Memory() {
           </button>
         ))}
       </div>
-      <div className="flex flex-wrap gap-2">
-        {CAPS.map((row) => (
-          <button
-            key={row.label}
-            type="button"
-            className="tag hover:bg-surface-2"
-            onClick={() => { if (isCanvasId(row.pane)) setPane(row.pane) }}
-          >
-            {row.label}
-          </button>
-        ))}
-      </div>
     </>
   ) : null
 
@@ -598,7 +575,7 @@ function CardsArchive({ cwd, onBack }: { cwd: string; onBack: () => void }) {
         return (
           <div key={id} className={`text-xs border rounded p-2 mb-2 break-words min-w-0 ${id === cardId ? 'border-brand' : 'border-line'}`}>
             <div className="text-ink-subtle mb-1">{status}{origin ? ` · ${origin}` : ''}</div>
-            <div>{String(row.label || row.content || id)}</div>
+            <div>{String(row.cue || row.label || row.content || id)}</div>
             <div className="mt-2 flex flex-wrap gap-2">
               {status === '起草' && (
                 <button type="button" className="btn h-7 px-2" onClick={() => {
@@ -838,7 +815,7 @@ function HealthPanel({ cwd, ready, onRetry }: { cwd: string; ready: Record<strin
             })}
             {items.map((row, index) => (
               <div key={healthItemKey(row) || String(index)} className="text-xs text-ink-muted break-words py-1 border-t border-line first:border-0">
-                <div>{String(row.label || row.id || '')}</div>
+                <div>{String(row.cue || row.label || '')}</div>
                 <div className="mt-1 flex flex-wrap gap-2">
                   {asRows(row.actions).map((action, actionIndex) => {
                     const op = String(action.op || '')

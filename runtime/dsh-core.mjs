@@ -771,6 +771,7 @@ export class DshCoreConnector {
       const allowedOps = new Set([
         'add_node',
         'list_memory_cards',
+        'open_node',
         'draft_memory_card',
         'nod_memory_card',
         'record_decision',

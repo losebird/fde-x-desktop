@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { rm } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { openDatabase } from '../db.mjs'
+import { insertBizWriteAudit, openDatabase } from '../db.mjs'
 import { configureEventBus, emit } from '../events.mjs'
 import { draftCard } from '../memory/draft.mjs'
 import { draftMemoryFromBridge, startMemoryWriter } from '../memory/writer.mjs'
@@ -40,7 +40,15 @@ async function withWriter(run) {
 }
 
 test('write events draft cards and do not archive', async () => {
-  await withWriter(async ({ calls }) => {
+  await withWriter(async ({ db, calls }) => {
+    insertBizWriteAudit(db, {
+      workspaceCwd: '/tmp/ws',
+      traceId: 'trace_1',
+      kind: 'order',
+      action: 'post',
+      recordNo: 'WO-9',
+      lookupBind: { speech: '把客户张三改成成交这一句足够长' },
+    })
     emit('biz.write.done', { kind: 'order', action: 'post', traceId: 'trace_1', recordNo: 'WO-9' }, { workspaceCwd: '/tmp/ws' })
     emit('app.record.changed', {
       slug: 'item-log',
@@ -56,15 +64,31 @@ test('write events draft cards and do not archive', async () => {
     emit('im.message.sent', { requestId: 'r1' }, { source: 'bff' })
     await new Promise((r) => setTimeout(r, 80))
     const drafts = calls.filter((c) => c.op === 'add_node')
-    assert.equal(drafts.length, 4)
+    assert.equal(drafts.length, 1)
+    assert.equal(drafts[0].args.label, '把客户张三改成成交这一句足够长')
+    assert.equal(drafts[0].args.metadata.origin, 'biz:trace_1')
     assert.ok(drafts.every((c) => c.args.metadata.status === '起草'))
     assert.equal(calls.some((c) => c.op === 'draft_memory_card'), false)
     assert.equal(calls.some((c) => c.op === 'nod_memory_card'), false)
   })
 })
 
+test('unreadable biz origin does not draft identity dump', async () => {
+  await withWriter(async ({ calls }) => {
+    emit('biz.write.done', { kind: 'receipt', action: 'receipt', traceId: 'trace_dump', recordNo: '3717' }, { workspaceCwd: '/tmp/ws' })
+    await new Promise((r) => setTimeout(r, 80))
+    assert.equal(calls.some((c) => c.op === 'add_node'), false)
+  })
+})
+
 test('drafted instance origin is stored for list attach', async () => {
   await withWriter(async ({ db }) => {
+    insertBizWriteAudit(db, {
+      workspaceCwd: '/tmp/ws',
+      traceId: 'trace_1',
+      kind: 'order',
+      lookupBind: { speech: '把客户张三改成成交这一句足够长' },
+    })
     emit('biz.write.done', { kind: 'order', action: 'post', traceId: 'trace_1', recordNo: 'WO-9' }, { workspaceCwd: '/tmp/ws' })
     await new Promise((r) => setTimeout(r, 80))
     const row = db.prepare('SELECT ref, card_id FROM memory_write_log WHERE ref = ?').get('biz:trace_1')

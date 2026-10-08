@@ -2,7 +2,7 @@ import { emit } from '../events.mjs'
 import { upsertMemoryWriteLog } from '../db.mjs'
 import { looksLikeJsonDump } from '../biz/session-origin-text.mjs'
 import { loadOrigin } from '../routes/corpus.mjs'
-import { asDraftCard, draftMemoryCardInsert } from './cards.mjs'
+import { asDraftCard, cueFromOriginDoc, draftMemoryCardInsert } from './cards.mjs'
 import { hostSourceOf, instanceOriginOf, originOfCard } from './identity.mjs'
 
 let skipCount = 0
@@ -63,10 +63,10 @@ export async function draftCard(deps, input = {}) {
       const text = String(loaded.text || '').trim()
       const dump = looksLikeJsonDump(text)
       if (text && !dump) indexText = text
-      if (!label) {
-        if (!loaded.ok || !text || dump) return { skipped: true, reason: 'origin_unreadable' }
-        const title = String(loaded.title || '').trim()
-        label = title && !text.startsWith(title) ? `${title}\n${text}` : text
+      if (!given) {
+        const cue = cueFromOriginDoc(loaded)
+        if (!loaded.ok || !cue) return { skipped: true, reason: 'origin_unreadable' }
+        label = cue
       } else if (auto && dump) {
         return { skipped: true, reason: 'origin_unreadable' }
       }

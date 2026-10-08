@@ -1,6 +1,10 @@
 import { computeStat } from '../apps/records.mjs'
 import { findActiveAppBySlug } from '../apps/repository.mjs'
+import { memoryWriteOriginByCardIds } from '../db.mjs'
+import { attachCuesOnCards, cardCue } from '../memory/cards.mjs'
+import { attachCardOrigin } from '../memory/draft.mjs'
 import { memoryLandHref } from '../memory/identity.mjs'
+import { loadOrigin } from '../routes/corpus.mjs'
 import { imHrefFromRequest } from '../memory/origin-href.mjs'
 import { incomingUnread, letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
 import { workspaceRowIdForCwd } from './workspace.mjs'
@@ -214,13 +218,18 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
       } catch (error) {
         return baseSection(def, { error: error instanceof Error ? error.message : '记忆列表失败' })
       }
-      const items = cards
+      const originMap = memoryWriteOriginByCardIds(db, cards.map((card) => card && card.id))
+      const faced = await attachCuesOnCards(
+        cards.map((card) => attachCardOrigin(card, originMap)),
+        (origin) => loadOrigin({ db, aiRuntime, cwd: workspaceCwd }, origin),
+      )
+      const items = faced
         .filter((card) => String(card.status || '') === '已入档')
         .slice(0, limit)
         .map((card) => {
           const id = String(card.id || card.card_id || '')
           return {
-            text: String(card.title || card.label || '记忆卡片'),
+            text: cardCue(card) || '记忆卡片',
             sub: String(card.excerpt || card.body || '').slice(0, 120),
             href: memoryLandHref(id),
             ref: id,

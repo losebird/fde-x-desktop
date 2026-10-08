@@ -86,7 +86,7 @@ async function loadOriginDoc(id: string) {
 }
 
 function cueText(row: Record<string, unknown>) {
-  return String(row.label || row.content || row.body || row.snippet || row.excerpt || row.text || row.title || '').trim()
+  return String(row.cue || row.label || row.content || row.body || row.snippet || row.excerpt || row.text || row.title || '').trim()
 }
 
 export async function askOrigin(origin: string, extra: OriginEntityInput & {

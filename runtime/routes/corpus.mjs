@@ -165,10 +165,10 @@ async function resolveMemoryCard(aiRuntime, cwd, cardId) {
   const cards = Array.isArray(payload?.cards) ? payload.cards : []
   const row = cards.find((item) => String(item?.id || item?.card_id || '') === cardId)
   if (!row) return null
-  const text = String(row.label || row.content || row.body || '').slice(0, 8000)
+  const text = String(row.cue || row.label || row.content || row.body || '').slice(0, 8000)
   const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
   return {
-    title: String(row.label || cardId),
+    title: String(row.cue || row.label || cardId),
     text,
     href: originHref(cardId) || { panel: 'memory', pane: 'cards', cardId },
     status: String(row.status || meta.status || ''),

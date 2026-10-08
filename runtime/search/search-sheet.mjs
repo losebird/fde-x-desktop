@@ -5,9 +5,12 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
-import { listWorkspaces } from '../db.mjs'
+import { listWorkspaces, memoryWriteOriginByCardIds } from '../db.mjs'
+import { attachCuesOnCards, cardCue } from '../memory/cards.mjs'
+import { attachCardOrigin } from '../memory/draft.mjs'
 import { collectBag } from '../catalog-collect.mjs'
 import { classifyHitId, hitId, instanceOriginOf, originOfCard, sessionIdOf } from '../memory/identity.mjs'
+import { loadOrigin } from '../routes/corpus.mjs'
 import { imHrefFromRequest, originHref } from '../memory/origin-href.mjs'
 import { KIND_CAP, KIND_ORDER, PAGE_CATALOG } from '../host-catalog.mjs'
 
@@ -404,7 +407,7 @@ export function searchSheet(bags = {}) {
     for (const card of Array.isArray(bags.cards) ? bags.cards : []) {
       const id = String(card?.id || '')
       if (!id) continue
-      const label = String(card.label || card.title || card.cue || '')
+      const label = cardCue(card)
       const text = String(card.then || card.text || card.excerpt || '')
       const origin = originOfCard(card)
       if (!matches(label, q) && !matches(text, q) && !matches(origin, q) && !matches(id, q)) continue
@@ -622,6 +625,15 @@ export async function loadSearchSheet(deps, input) {
     mcp = Array.isArray(mcpBag?.raw?.mcp) ? mcpBag.raw.mcp : []
   }
 
+  let cardRows = Array.isArray(cards) ? cards : []
+  if (cardRows.length && db) {
+    const originMap = memoryWriteOriginByCardIds(db, cardRows.map((row) => row && row.id))
+    cardRows = await attachCuesOnCards(
+      cardRows.map((card) => attachCardOrigin(card, originMap)),
+      (origin) => loadOrigin({ db, aiRuntime, cwd }, origin),
+    )
+  }
+
   return searchSheet({
     cwd,
     query,
@@ -629,7 +641,7 @@ export async function loadSearchSheet(deps, input) {
     mailbox: mailbox && typeof mailbox === 'object' ? mailbox : {},
     presets: Array.isArray(presets) ? presets : [],
     find,
-    cards: Array.isArray(cards) ? cards : [],
+    cards: cardRows,
     files: Array.isArray(files) ? files : [],
     tasks,
     workflows,

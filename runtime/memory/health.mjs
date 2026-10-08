@@ -1,6 +1,6 @@
 /** Memory health sheet. Host scan + archive origin attach. 闸 does not invent kinds or ops. */
 
-import { collapseCueCards } from './cards.mjs'
+import { collapseCueCards, namedCardIds } from './cards.mjs'
 import { attachCardOrigin } from './draft.mjs'
 import { hostSourceOf, originOfCard } from './identity.mjs'
 import { originKindOf } from './origin-entity.mjs'
@@ -65,6 +65,24 @@ export function filterSourceActions(row) {
     return Boolean(allowed || hostSourceOf(action.source))
   })
   return item
+}
+
+export function healthNamedIds(item) {
+  return namedCardIds(item)
+}
+
+export function collectHealthCardIds(health, extraItems) {
+  const ids = []
+  const pushItem = (item) => {
+    for (const id of healthNamedIds(item)) {
+      if (!ids.includes(id)) ids.push(id)
+    }
+  }
+  for (const group of asItems(health && health.groups)) {
+    for (const item of asItems(group.items)) pushItem(item)
+  }
+  for (const item of asItems(extraItems)) pushItem(item)
+  return ids
 }
 
 export function groupActionsOf(items) {
@@ -134,7 +152,6 @@ export function dupIssuesFromEnrich(dups, kind = HOST_DUP_KIND) {
     issues.push({
       id: lid,
       kind,
-      label: `${lid} ~ ${rid}`,
       other: rid,
       ...(op === 'link' ? { type: LINK_EDGE } : {}),
       actions: [

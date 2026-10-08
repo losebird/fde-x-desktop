@@ -87,7 +87,7 @@ import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleSearchRoute } from './routes/search.mjs'
-import { handleCorpusRoute } from './routes/corpus.mjs'
+import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { findSessionDir, readSessionTree, writeSessionTree } from './session-tree.mjs'
 import { decodeWorkspaceFileText, readWorkspaceFileBytes } from './files-bytes.mjs'
@@ -116,10 +116,10 @@ import {
 } from './models-settings.mjs'
 import { startBriefingScheduler } from './briefing/scheduler.mjs'
 import { startMemoryWriter } from './memory/writer.mjs'
-import { asDraftCard, collapseCueCards, validateMemoryCardLabel } from './memory/cards.mjs'
+import { asDraftCard, attachCuesOnCards, attachCuesOnGroups, collapseCueCards, loadNamedCards, validateMemoryCardLabel } from './memory/cards.mjs'
 import { attachCardOrigin, draftCard } from './memory/draft.mjs'
 import { instanceOriginOf } from './memory/identity.mjs'
-import { HEALTH_PAGE, buildHealthSheet, healthWritePlan } from './memory/health.mjs'
+import { HEALTH_PAGE, buildHealthSheet, collectHealthCardIds, dupIssuesFromEnrich, healthWritePlan } from './memory/health.mjs'
 import {
   FDE_AI_WORKSPACE,
   FDE_ALLOWED_ORIGINS,
@@ -2248,14 +2248,25 @@ const server = createServer(async (request, response) => {
         args: { threshold: 0.95 },
         ...(cwd ? { cwd } : {}),
       }).catch(() => ({ duplicates: [] }))
+      const namedIds = collectHealthCardIds(health, dupIssuesFromEnrich(dups))
+      const loaded = await loadNamedCards(aiRuntime, cwd, namedIds)
+      const originMap = memoryWriteOriginByCardIds(db, namedIds.concat([...loaded.keys()]))
+      const cardById = new Map([...loaded].map(([id, row]) => [id, attachCardOrigin(row, originMap)]))
       const sheet = buildHealthSheet({
         health,
         dups,
+        originMap,
         offset,
         dupOffset,
         page: HEALTH_PAGE,
       })
-      sendJson(response, 200, { data: sheet, correlationId: currentCorrelationId })
+      const groups = await attachCuesOnGroups(
+        sheet.groups,
+        (origin) => loadOrigin({ db, aiRuntime, cwd }, origin),
+        originMap,
+        cardById,
+      )
+      sendJson(response, 200, { data: { ...sheet, groups }, correlationId: currentCorrelationId })
       return
     }
 
@@ -2329,8 +2340,9 @@ const server = createServer(async (request, response) => {
       })
       const listed = Array.isArray(result?.cards) ? result.cards : []
       const originMap = memoryWriteOriginByCardIds(db, listed.map((card) => card && card.id))
-      const cards = collapseCueCards(
-        listed.map((card) => attachCardOrigin(card, originMap)),
+      const cards = await attachCuesOnCards(
+        collapseCueCards(listed.map((card) => attachCardOrigin(card, originMap))),
+        (origin) => loadOrigin({ db, aiRuntime, cwd }, origin),
       )
       sendJson(response, 200, { data: { ...result, cards }, correlationId: currentCorrelationId })
       return

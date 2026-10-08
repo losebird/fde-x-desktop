@@ -5,7 +5,9 @@ import {
   HOST_UNSOURCED_KIND,
   attachHealthItem,
   buildHealthSheet,
+  collectHealthCardIds,
   dupIssuesFromEnrich,
+  healthNamedIds,
   dupPairOp,
   filterSourceActions,
   groupActionsOf,
@@ -87,6 +89,9 @@ test('enrich pairs page past eight and keep distinct left-id rows', () => {
   }))
   const issues = dupIssuesFromEnrich({ duplicates }, HOST_DUP_KIND)
   assert.equal(issues.length, 10)
+  assert.equal(issues[0].label, undefined)
+  assert.deepEqual(healthNamedIds(issues[0]), ['memory:left', 'memory:r0'])
+  assert.deepEqual(collectHealthCardIds({ groups: [] }, issues).slice(0, 3), ['memory:left', 'memory:r0', 'memory:r1'])
   const sheet = buildHealthSheet({
     health: { groups: [{ kind: HOST_DUP_KIND, items: [], count: 8 }], muted: [] },
     dups: { duplicates },
