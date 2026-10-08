@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   DSH_LAN_ASSIST_PORT,
@@ -13,6 +13,7 @@ import {
   FDE_WEB_PORT,
   resolveDshBin,
 } from '../runtime/config.mjs'
+import { seedDshCredentialsSync } from '../runtime/dsh-credentials.mjs'
 import { isPidAlive, reclaimStrayRuntime } from '../runtime/reclaim-runtime.mjs'
 import { runtimePortOpen } from './runtime-port.mjs'
 
@@ -38,9 +39,7 @@ function linkVendorTarget(target, linkPath) {
 
 function prepareFdeHome() {
   mkdirSync(fdeHome, { recursive: true })
-  const cred = join(officialHome, '.credentials.yaml')
-  const dest = join(fdeHome, '.credentials.yaml')
-  if (existsSync(cred) && !existsSync(dest)) copyFileSync(cred, dest)
+  seedDshCredentialsSync(fdeHome, { officialHome, fdeHome })
   const vendor = join(fdeHome, 'vendor')
   const shared = existsSync(FDE_VENDOR_DIR) ? FDE_VENDOR_DIR : join(officialHome, 'vendor')
   if (existsSync(shared) && !existsSync(vendor)) linkVendorTarget(shared, vendor)

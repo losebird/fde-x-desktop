@@ -19,6 +19,7 @@ import {
   resolveDshBin,
   vendorSemanticRuntimeDist,
 } from './config.mjs'
+import { hostChildEnv, resolveHostSpawn } from './host-spawn.mjs'
 import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import { mergeProfileManifest } from './profile-manifest.mjs'
 
@@ -328,9 +329,9 @@ export class DshCoreConnector {
     await this.reclaimStrayProcesses()
     const semanticaPython = await this.ensureSharedSemanticRuntime()
 
-    const child = spawn(process.execPath, [
-      '--max-http-header-size=131072',
-      this.bin,
+    const host = resolveHostSpawn(this.bin)
+    const child = spawn(host.command, [
+      ...host.args,
       '--profile', this.profileName,
       '--patch', this.patchFile,
       ...(extraPresetPatch && existsSync(extraPresetPatch) ? ['--patch', extraPresetPatch] : []),
@@ -339,8 +340,7 @@ export class DshCoreConnector {
       '--no-open',
     ], {
       cwd: this.cwd,
-      env: {
-        ...process.env,
+      env: hostChildEnv({
         DSH_HOME: this.dshHome,
         DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE || 'danger-full-access',
         DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT,
@@ -349,7 +349,7 @@ export class DshCoreConnector {
         ...(process.env.DSH_SEMANTICA_PYTHON || semanticaPython ? { DSH_SEMANTICA_PYTHON: process.env.DSH_SEMANTICA_PYTHON || semanticaPython } : {}),
         ...(process.env.FDE_DSH_SESSION_ROOT ? { FDE_DSH_SESSION_ROOT: process.env.FDE_DSH_SESSION_ROOT } : {}),
         ...(process.env.FDE_DSH_STORAGE_ROOT ? { FDE_DSH_STORAGE_ROOT: process.env.FDE_DSH_STORAGE_ROOT } : {}),
-      },
+      }),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     })
@@ -642,6 +642,8 @@ export class DshCoreConnector {
 
   async prepareCredentialsCopy() {
     await this.cleanupCredentialsCopy()
+    const { seedDshCredentials } = await import('./dsh-credentials.mjs')
+    await seedDshCredentials(this.dshHome)
     const source = resolve(this.dshHome, '.credentials.yaml')
     await access(source, constants.R_OK)
     const directory = await mkdtemp(join(tmpdir(), 'fde-x-dsh-credentials-'))

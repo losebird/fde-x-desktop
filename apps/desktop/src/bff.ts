@@ -4,6 +4,14 @@ import { createInterface } from 'node:readline'
 
 export type BffEnv = Record<string, string | undefined>
 
+const SOCKS_PROXY_KEYS = ['ALL_PROXY', 'all_proxy', 'SOCKS_PROXY', 'socks_proxy']
+
+export function desktopChildEnv(env: BffEnv) {
+  const merged: BffEnv = { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' }
+  for (const key of SOCKS_PROXY_KEYS) delete merged[key]
+  return merged
+}
+
 export async function spawnBff(
   serverEntry: string,
   env: BffEnv,
@@ -11,7 +19,7 @@ export async function spawnBff(
   options: { cwd?: string } = {},
 ): Promise<{ child: ChildProcess; port: number }> {
   const child = spawn(electronNode, [serverEntry], {
-    env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' },
+    env: desktopChildEnv(env),
     cwd: options.cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,

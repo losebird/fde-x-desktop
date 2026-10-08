@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { platformRuntimeKey, type UserDataRoots } from './paths.js'
@@ -42,10 +43,16 @@ export function buildBffEnv(input: BuildBffEnvInput) {
   const staticDir = input.desktopDev
     ? join(input.appRoot, 'dist')
     : join(input.resources, 'app', 'dist')
+  const hostNode = [
+    join(input.resources, 'node', 'bin', 'node'),
+    join(input.resources, 'node', 'node'),
+    join(input.resources, 'node', 'node.exe'),
+  ].find((path) => existsSync(path))
   return {
     FDE_APP_ROOT: input.appRoot,
     FDE_RESOURCES: input.resources,
     FDE_DSH_BIN: join(input.resources, 'dsh', 'bin', process.platform === 'win32' ? 'dsh.cmd' : 'dsh'),
+    ...(hostNode ? { FDE_HOST_NODE: hostNode } : {}),
     FDE_VENDOR_DIR: join(input.resources, 'plugins'),
     FDE_SEMANTIC_RUNTIME_SRC: join(input.resources, 'semantic-runtime', platformRuntimeKey()),
     FDE_DSH_HOME: input.roots.dshHome,

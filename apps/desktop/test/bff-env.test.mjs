@@ -25,6 +25,7 @@ test('buildBffEnv binds page origin, user cwd, and supervised reload', () => {
   assert.equal(env.FDE_RUNTIME_SUPERVISED, '1')
   assert.equal(env.FDE_STATIC_DIR, join('/pack/resources', 'app', 'dist'))
   assert.equal(pageOrigin(43210), 'http://127.0.0.1:43210')
+  assert.equal(env.FDE_HOST_NODE, undefined)
 })
 
 test('desktopDev static dir is appRoot/dist', () => {
