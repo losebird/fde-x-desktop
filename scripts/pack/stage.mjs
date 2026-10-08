@@ -15,6 +15,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { DSH_NPM_VERSION, SEMANTIC_RUNTIME } from './pins.mjs'
 import { NODE_DIST_VERSION, nodeDistArchiveName, nodeDistPresent, nodeDistUrls } from './node-dist.mjs'
+import { stagePluginTree } from './plugin-stage.mjs'
 
 const execFile = promisify(execFileCb)
 
@@ -450,7 +451,14 @@ async function main() {
 
   const pluginsRoot = join(resourcesRoot, 'plugins')
   for (const name of ['dsh-lan-assist', 'dsh-semantic-os']) {
-    await copyIfExists(join(vendorDir, name), join(pluginsRoot, name), name)
+    const from = join(vendorDir, name)
+    const to = join(pluginsRoot, name)
+    if (!existsSync(from)) {
+      console.warn(`[stage] skip ${name}: missing ${from}`)
+      continue
+    }
+    await stagePluginTree(from, to)
+    console.log(`[stage] plugin ${name} → ${to}`)
   }
 
   const dshDest = join(resourcesRoot, 'dsh')
