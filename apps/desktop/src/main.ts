@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { spawnBff, serverEntryForApp } from './bff.js'
 import { buildBffEnv, pageOrigin, reserveLoopbackPort } from './bff-env.js'
 import { ensureFirstRun } from './first-run.js'
+import { initWindowDataUrl } from './init-window.js'
 import {
   platformRuntimeKey,
   resolveAppRoot,
@@ -145,7 +146,7 @@ async function createWindow() {
     title: 'FDE-X 初始化',
     webPreferences: { nodeIntegration: false, contextIsolation: true },
   })
-  initWindow.loadURL(`data:text/html,<html><body style="font-family:system-ui;padding:24px"><h2>正在初始化…</h2><p id="s">准备中…</p></body></html>`)
+  initWindow.loadURL(initWindowDataUrl())
 
   const setStep = (text: string) => {
     initWindow.webContents.executeJavaScript(`document.getElementById('s').textContent=${JSON.stringify(text)}`).catch(() => undefined)

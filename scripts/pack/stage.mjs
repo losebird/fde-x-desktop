@@ -10,7 +10,7 @@ import { execFile as execFileCb } from 'node:child_process'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { DSH_NPM_VERSION, SEMANTIC_RUNTIME } from './pins.mjs'
@@ -346,7 +346,7 @@ async function downloadSemanticRuntime(dest) {
     manifestDigest: expectedSha,
     installedAt: new Date().toISOString(),
   }
-  await writeFile(join(dest, 'current.json'), `${JSON.stringify(current, null, 2)}\n`)
+  await writeFile(join(resourcesRoot, 'semantic-runtime', 'current.json'), `${JSON.stringify(current, null, 2)}\n`)
   console.log(`[stage] semantic-runtime downloaded → ${dest}`)
   return true
 }
@@ -402,8 +402,12 @@ async function stageSemantic() {
       if (existsSync(join(tree, 'runtime-manifest.json'))) {
         await rm(semanticDest, { recursive: true, force: true })
         await mkdir(semanticDest, { recursive: true })
-        await cp(tree, semanticDest, { recursive: true, dereference: true })
-        await writeFile(join(semanticDest, 'current.json'), `${JSON.stringify(current, null, 2)}\n`)
+        await cp(tree, semanticDest, {
+          recursive: true,
+          dereference: false,
+          filter: (src) => basename(src) !== 'current.json',
+        })
+        await writeFile(join(resourcesRoot, 'semantic-runtime', 'current.json'), `${JSON.stringify(current, null, 2)}\n`)
         console.log(`[stage] semantic-runtime from ${tree}`)
         const digest = await readSemanticDigest(semanticDest)
         return { complete: true, digest }
@@ -416,7 +420,11 @@ async function stageSemantic() {
   const vendorDist = join(vendorDir, 'dsh-semantic-os', 'runtime-dist', runtimeKey)
   if (existsSync(join(vendorDist, 'runtime-manifest.json'))) {
     await rm(semanticDest, { recursive: true, force: true })
-    await cp(vendorDist, semanticDest, { recursive: true })
+    await cp(vendorDist, semanticDest, {
+      recursive: true,
+      dereference: false,
+      filter: (src) => basename(src) !== 'current.json',
+    })
     console.log(`[stage] semantic-runtime from vendor dist ${vendorDist}`)
     const digest = await readSemanticDigest(semanticDest)
     return { complete: true, digest }
