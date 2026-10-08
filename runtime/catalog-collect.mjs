@@ -1,7 +1,7 @@
 /**
  * One Host catalog bag per kind. Pages filter this bag.
  */
-import { surfaceOfKind, SEAM_CATALOG, collectGoals, mutateHostGoal, ORIGIN_DSH_SCHEDULE, ORIGIN_DSH_JOB } from './host-catalog.mjs'
+import { surfaceOfKind, SEAM_CATALOG, collectGoals, mutateHostGoal, ORIGIN_DSH_GOAL, ORIGIN_DSH_SCHEDULE, ORIGIN_DSH_JOB, ORIGIN_FDE_TASK } from './host-catalog.mjs'
 import { listTypertVerbs, verbsForKind, listMcpResourceToolNames, ensureTypertVerbs } from './catalog-typert.mjs'
 
 function unique(values) {
@@ -190,10 +190,12 @@ function fileItems(raw, path) {
   })
 }
 
-function hostBareId(id) {
+export function hostBareId(id) {
   const text = String(id || '')
-  const cut = text.indexOf(':')
-  if (cut > 0 && /^[a-z][a-z0-9-]+$/i.test(text.slice(0, cut))) return text.slice(cut + 1)
+  const prefixes = [ORIGIN_DSH_GOAL, ORIGIN_DSH_SCHEDULE, ORIGIN_DSH_JOB, ORIGIN_FDE_TASK]
+  for (const prefix of prefixes) {
+    if (text.startsWith(prefix)) return text.slice(prefix.length)
+  }
   return text
 }
 
@@ -492,7 +494,7 @@ export async function collectBag(aiRuntime, kind, input = {}, verbs) {
         bag.raw = await aiRuntime.call(list.endpoint, argsFromFace(list, input))
         bag.items = pluginRows(bag.raw).map((row) => {
           const id = String(row?.entryId || row?.id || row?.name || row?.moduleName || '')
-          if (!id || id === 'include' || id.startsWith('include:')) return null
+          if (!id || id === 'include') return null
           const title = localizedText(row?.meta?.title) || String(row?.moduleName || row?.name || id)
           return {
             kind: 'plugin',

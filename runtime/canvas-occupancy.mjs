@@ -14,6 +14,7 @@ export function occupancyAction(options = {}) {
   }
   if (name === 'conversation.hero.agentPreset') return 'allow'
   if (name === 'conversation.hero' || name.startsWith('conversation.hero.')) return 'empty'
+  if (name === 'conversation.session.header.actions') return 'allow'
   if (name === 'conversation.session.header.corner') return 'deny'
   if (name === 'rightbar' || name === 'rightbar.session' || name.startsWith('sidebar.right')) return 'deny'
   if (name === 'sidebar' || name.startsWith('sidebar.')) return 'deny'
@@ -29,6 +30,6 @@ export function landKindFromTab(kind) {
   if (key === 'workflow' || key.includes('workflow')) return 'workflow'
   if (key === 'terminal' || key.includes('terminal')) return 'terminal'
   if (key === 'memory' || key.includes('semantic') || key.includes('memory')) return 'memory'
-  if (key === 'session' || key.includes('subagent')) return 'session'
+  if (key === 'session' || key.includes('subagent') || key.includes('agent-team')) return 'session'
   return key
 }

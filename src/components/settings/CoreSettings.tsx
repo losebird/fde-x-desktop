@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Bot, Copy, Trash2, Upload } from 'lucide-react'
+import { Bot, ChevronDown, ChevronRight, Copy, Trash2, Upload } from 'lucide-react'
 import { Card, Tag } from '@/components/ui'
 import { runtimeApi, type AiPresetRecord } from '@/lib/runtime-api'
 import { PresetImportDrawer, sourceLabel } from '@/components/settings/PresetImportDrawer'
 import { ModelsProvidersSection } from '@/components/settings/ModelsProvidersSection'
+import { HostNsPanel } from '@/components/settings/HostNsPanel'
+import { hostText } from '@/lib/host-text'
 
 export function CoreSettings() {
   const [connected, setConnected] = useState(false)
@@ -15,7 +17,8 @@ export function CoreSettings() {
   const [plugins, setPlugins] = useState<Array<{ id: string; title: string; fields?: Record<string, unknown> }>>([])
   const [pluginActions, setPluginActions] = useState<string[]>([])
   const [modelQuery, setModelQuery] = useState('')
-  const [hostFlags, setHostFlags] = useState<Array<{ ns: string; revision: number; flags: Array<{ key: string; value: boolean }> }>>([])
+  const [openBundle, setOpenBundle] = useState('')
+  const [includeEnabled, setIncludeEnabled] = useState<Record<string, boolean>>({})
   const [copyFrom, setCopyFrom] = useState('')
   const [copyId, setCopyId] = useState('')
   const [copyName, setCopyName] = useState('')
@@ -51,19 +54,6 @@ export function CoreSettings() {
       setPlugins([])
       setPluginActions([])
       setNote(cause instanceof Error ? cause.message : '插件目录读失败')
-    })
-    void runtimeApi.catalogBag('settings').then((bag) => {
-      if (bag.error) setNote(String(bag.error))
-      const rows = Array.isArray(bag.items) ? bag.items : []
-      setHostFlags(rows.map((row) => {
-        const fields = row.fields && typeof row.fields === 'object' ? row.fields as { value?: unknown; revision?: number } : {}
-        const value = fields.value && typeof fields.value === 'object' ? fields.value as Record<string, unknown> : {}
-        const flags = Object.entries(value).filter((entry) => typeof entry[1] === 'boolean').map(([key, flag]) => ({ key, value: Boolean(flag) }))
-        return { ns: row.id, revision: Number(fields.revision || 0), flags }
-      }).filter((row) => row.flags.length && row.ns !== 'llm-pi-ai'))
-    }).catch((cause) => {
-      setHostFlags([])
-      setNote(cause instanceof Error ? cause.message : '读不了 Host 配置')
     })
   }
 
@@ -142,46 +132,117 @@ export function CoreSettings() {
           <div className="text-sm text-ink-muted py-6 text-center">{note && note.includes('插件') ? note : '没有插件目录'}</div>
         ) : (
           <div className="space-y-2">
-            {plugins.map((plugin) => {
+            {plugins.filter((plugin) => !String(plugin.id).startsWith('include:')).map((plugin) => {
               const enabled = plugin.fields?.enabled
               const phase = plugin.fields?.fiberPhase
               const bundle = plugin.fields?.bundle === true
               const enableAction = bundle ? 'setBundleEnabled' : 'setPluginEnabled'
+              const childRows = Array.isArray(plugin.fields?.rows) ? plugin.fields.rows as Array<Record<string, unknown>> : []
+              const open = openBundle === plugin.id
+              const meta = plugin.fields?.meta && typeof plugin.fields.meta === 'object' ? plugin.fields.meta as Record<string, unknown> : {}
+              const title = hostText(meta.title) || plugin.title
+              const hint = hostText(meta.description)
               return (
-                <div key={plugin.id} className="flex items-start gap-3 px-3 py-2.5 rounded-lg border border-line">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium">{plugin.title}</span>
-                      {enabled === true && <Tag kind="green">启用</Tag>}
-                      {enabled === false && <Tag kind="default">停用</Tag>}
-                      {bundle && <Tag kind="amber">可选包</Tag>}
-                      {typeof phase === 'string' && phase && <Tag kind="default">{phase}</Tag>}
-                    </div>
-                    <div className="text-[11px] text-ink-subtle mt-0.5 font-mono">{plugin.id}</div>
-                  </div>
-                  {pluginActions.includes(enableAction) && typeof enabled === 'boolean' && (
+                <div key={plugin.id} className="rounded-lg border border-line">
+                  <div className="flex items-start gap-2 px-3 py-2.5">
+                    {childRows.length > 0 ? (
+                      <button
+                        type="button"
+                        className="mt-0.5 text-ink-subtle shrink-0"
+                        onClick={() => setOpenBundle(open ? '' : plugin.id)}
+                        aria-expanded={open}
+                      >
+                        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </button>
+                    ) : <span className="w-3.5 shrink-0" />}
                     <button
                       type="button"
-                      className="btn-ghost h-8 px-2 text-xs shrink-0"
-                      disabled={busy}
-                      onClick={() => {
-                        setBusy(true)
-                        void runtimeApi.catalogAction({
-                          kind: 'plugin',
-                          action: enableAction,
-                          id: plugin.id,
-                          params: bundle
-                            ? { name: String(plugin.fields?.name || plugin.id), enabled: !enabled }
-                            : { enabled: !enabled },
-                        }).then(() => {
-                          if (bundle) setNote('已改可选包，用上面的「重载核心」生效')
-                          load()
-                        }).catch((cause) => setNote(cause instanceof Error ? cause.message : '改不了这条插件')).finally(() => setBusy(false))
-                      }}
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => childRows.length && setOpenBundle(open ? '' : plugin.id)}
                     >
-                      {enabled ? '停用' : '启用'}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{title}</span>
+                        {enabled === true && <Tag kind="green">启用</Tag>}
+                        {enabled === false && <Tag kind="default">停用</Tag>}
+                        {bundle && <Tag kind="amber">可选包</Tag>}
+                        {typeof phase === 'string' && phase && <Tag kind="default">{phase}</Tag>}
+                      </div>
+                      {hint && <div className="text-xs text-ink-muted mt-0.5 leading-5">{hint}</div>}
+                      <div className="text-[11px] text-ink-subtle mt-0.5 font-mono truncate">{plugin.id}</div>
                     </button>
-                  )}
+                    {pluginActions.includes(enableAction) && typeof enabled === 'boolean' && (
+                      <button
+                        type="button"
+                        className="btn-ghost h-8 px-2 text-xs shrink-0"
+                        disabled={busy}
+                        onClick={() => {
+                          setBusy(true)
+                          void runtimeApi.catalogAction({
+                            kind: 'plugin',
+                            action: enableAction,
+                            id: plugin.id,
+                            params: bundle
+                              ? { name: String(plugin.fields?.name || plugin.id), enabled: !enabled }
+                              : { enabled: !enabled },
+                          }).then(() => {
+                            if (bundle) setNote('已改可选包，用上面的「重载核心」生效')
+                            load()
+                          }).catch((cause) => setNote(cause instanceof Error ? cause.message : '改不了这条插件')).finally(() => setBusy(false))
+                        }}
+                      >
+                        {enabled ? '停用' : '启用'}
+                      </button>
+                    )}
+                  </div>
+                  {open && childRows.map((row, index) => {
+                    const entryId = String(row.entryId || row.id || '')
+                    const moduleName = String(row.moduleName || row.name || entryId)
+                    const childMeta = row.meta && typeof row.meta === 'object' ? row.meta as Record<string, unknown> : {}
+                    const child = plugins.find((item) => item.id === entryId || item.fields?.entryId === entryId || item.fields?.moduleName === moduleName)
+                    const childEnabled = includeEnabled[entryId] ?? (typeof child?.fields?.enabled === 'boolean'
+                      ? child.fields.enabled
+                      : enabled === true)
+                    const childTitle = hostText(childMeta.title) || moduleName
+                    const childHint = hostText(childMeta.description)
+                    return (
+                      <div key={entryId || String(index)} className="flex items-start gap-3 px-3 py-2.5 border-t border-line">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm">{childTitle}</span>
+                            {childEnabled ? <Tag kind="green">运行中</Tag> : <Tag kind="default">已停</Tag>}
+                          </div>
+                          {childHint && <div className="text-xs text-ink-muted mt-0.5 leading-5">{childHint}</div>}
+                          <div className="text-[11px] text-ink-subtle mt-0.5 font-mono truncate">{moduleName}</div>
+                        </div>
+                        {pluginActions.includes('setPluginEnabled') && entryId && (
+                          <button
+                            type="button"
+                            className="btn-ghost h-8 px-2 text-xs shrink-0"
+                            disabled={busy}
+                            onClick={() => {
+                              setBusy(true)
+                              void runtimeApi.catalogAction({
+                                kind: 'plugin',
+                                action: 'setPluginEnabled',
+                                id: entryId,
+                                params: { id: entryId, enabled: !childEnabled },
+                              }).then((result) => {
+                                const mutation = result && typeof result === 'object' ? (result as { mutation?: { target?: string; enabled?: boolean; changed?: boolean } }).mutation : null
+                                const target = String(mutation?.target || entryId)
+                                if (mutation && typeof mutation.enabled === 'boolean') {
+                                  setIncludeEnabled((current) => ({ ...current, [target]: mutation.enabled === true }))
+                                }
+                                setNote(mutation?.changed === false ? 'Host 没有改这条子组件' : '已改子组件，用上面的「重载核心」生效')
+                                load()
+                              }).catch((cause) => setNote(cause instanceof Error ? cause.message : '改不了这条插件')).finally(() => setBusy(false))
+                            }}
+                          >
+                            {childEnabled ? '停用' : '启用'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )
             })}
@@ -189,43 +250,11 @@ export function CoreSettings() {
         )}
       </Card>
 
-      {hostFlags.length > 0 && (
-        <Card>
-          <div className="text-base font-medium">Host 配置</div>
-          <div className="text-xs text-ink-muted mt-0.5 mb-3">来自 settings/describe 的开关。没有字段就不画。</div>
-          <div className="space-y-3">
-            {hostFlags.map((entry) => (
-              <div key={entry.ns}>
-                <div className="text-[11px] text-ink-subtle font-mono mb-1">{entry.ns}</div>
-                <div className="flex flex-col gap-1.5">
-                  {entry.flags.map((flag) => (
-                    <label key={flag.key} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={flag.value}
-                        disabled={busy}
-                        onChange={() => {
-                          setBusy(true)
-                          void runtimeApi.catalogAction({
-                            kind: 'settings',
-                            action: 'mutate',
-                            params: {
-                              ns: entry.ns,
-                              expectedRevision: entry.revision,
-                              ops: [{ op: 'set', path: [flag.key], value: !flag.value }],
-                            },
-                          }).then(() => load()).catch((cause) => setNote(cause instanceof Error ? cause.message : '改不了这项配置')).finally(() => setBusy(false))
-                        }}
-                      />
-                      <span>{flag.key}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
+      <HostNsPanel
+        home="core"
+        title="Host 配置"
+        hint="这一节只放别处没有活口的 Host 项。模型与提供方、外观、账户、画布壳不在这里。"
+      />
 
       <Card>
         <div className="flex items-start justify-between gap-3 mb-1">

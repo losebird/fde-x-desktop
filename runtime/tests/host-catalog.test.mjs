@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { argsFromFace, hostBareId } from '../catalog-collect.mjs'
 import {
   KIND_ORDER,
   ORIGIN_DSH_GOAL,
@@ -42,6 +43,15 @@ test('known kinds land on existing FDE-X pages; unknown kind overflows to settin
   assert.equal(overflow.href.section, 'core')
   assert.ok(PAGE_CATALOG.every((page) => page.href && page.href.panel))
   assert.ok(KIND_ORDER.includes('file'))
+})
+
+test('plugin include ids keep the include prefix; plan origins strip', () => {
+  assert.equal(hostBareId('include:time-context'), 'include:time-context')
+  assert.equal(hostBareId('dsh-goal:g1'), 'g1')
+  const verb = { parameters: [{ wire: 'id', source: 'json' }, { wire: 'enabled', source: 'json' }] }
+  const args = argsFromFace(verb, { id: 'include:schedule', params: { enabled: false } })
+  assert.equal(args.id, 'include:schedule')
+  assert.equal(args.enabled, false)
 })
 
 test('Plan page disables Host job enable and keeps local writes', () => {

@@ -16,6 +16,7 @@ test('catalog chrome is denied or emptied so DSH fallback does not paint', () =>
   assert.equal(occupancyAction({ name: 'rightbar' }), 'deny')
   assert.equal(occupancyAction({ name: 'rightbar.session' }), 'deny')
   assert.equal(occupancyAction({ name: 'sidebar.right.pane.tab', key: '@deepseek-ai/dsh-client-ui-sidebar-files' }), 'deny')
+  assert.equal(occupancyAction({ name: 'conversation.session.header.actions' }), 'allow')
   assert.equal(occupancyAction({ name: 'conversation.session.header.corner' }), 'deny')
   assert.equal(occupancyAction({ name: 'conversation.hero.workspace' }), 'empty')
   assert.equal(occupancyAction({ name: 'conversation.hero.brand.mark' }), 'empty')
@@ -25,12 +26,14 @@ test('catalog chrome is denied or emptied so DSH fallback does not paint', () =>
 test('composer and session conversation slots stay allowed', () => {
   assert.equal(occupancyAction({ name: 'conversation.input.dock' }), 'allow')
   assert.equal(occupancyAction({ name: 'conversation.session' }), 'allow')
+  assert.equal(occupancyAction({ name: 'conversation.session.header.actions' }), 'allow')
   assert.equal(occupancyAction({ name: 'conversation.hero.agentPreset' }), 'allow')
 })
 
 test('tab kinds land on host-catalog surfaces, terminal stays on the AI page', () => {
   assert.equal(landKindFromTab('@deepseek-ai/dsh-client-ui-sidebar-files'), 'file')
   assert.equal(landKindFromTab('officeToPdf'), 'skill')
+  assert.equal(landKindFromTab('ui-agent-team'), 'session')
   assert.equal(surfaceOfKind('file').href.panel, 'files')
   assert.equal(surfaceOfKind('officeToPdf').href.panel, 'skills')
   assert.equal(surfaceOfKind('goal').href.panel, 'plan')

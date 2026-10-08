@@ -6,6 +6,7 @@ import { useApp } from '@/store/app'
 import { PageTitle, Card, Tag } from '@/components/ui'
 import { RuntimeApiError, runtimeApi, type McpServerV2, type RuntimeHealth, type SkillBagItem } from '@/lib/runtime-api'
 import { CoreSettings } from '@/components/settings/CoreSettings'
+import { HostNsPanel } from '@/components/settings/HostNsPanel'
 import { SemanticSettings } from '@/components/settings/SemanticSettings'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { BizHandleSlots } from '@/components/biz/BizHandleSlots'
@@ -159,96 +160,48 @@ export default function Settings() {
 
         <div className="space-y-4">
           {section === 'account' && (
-            <Card>
-              <div className="text-base font-medium mb-3">账户</div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-full bg-brand text-white flex items-center justify-center">我</div>
-                <div>
-                  <div className="text-sm font-medium">我</div>
-                  <div className="text-xs text-ink-muted">@zxz · zxz@example.com</div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="card-2 p-3">
-                  <div className="text-xs text-ink-muted">工作区</div>
-                  <div className="mt-1">{ws.length} 个</div>
-                </div>
-                <div className="card-2 p-3">
-                  <div className="text-xs text-ink-muted">计划</div>
-                  <div className="mt-1">Pro <Tag kind="amber">个人版</Tag></div>
-                </div>
-              </div>
-              <div className="flex gap-2 mt-4">
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => {
-                    const raw = window.localStorage.getItem('scene-39-workstation') || '{}'
-                    const blob = new Blob([raw], { type: 'application/json' })
-                    const link = document.createElement('a')
-                    link.href = URL.createObjectURL(blob)
-                    link.download = 'fde-x-shell.json'
-                    link.click()
-                    URL.revokeObjectURL(link.href)
-                  }}
-                >导出账户数据</button>
-                <button
-                  type="button"
-                  className="btn text-accent-red"
-                  onClick={() => {
-                    void runtimeApi.disconnectAi().catch(() => undefined)
-                    resetDemo()
-                  }}
-                >注销账户</button>
-              </div>
-            </Card>
-          )}
-
-          {section === 'appearance' && (
             <>
+              <HostNsPanel
+                home="account"
+                title="账户"
+                hint="Host 账本。工作区数量是本机壳。"
+              />
               <Card>
-                <div className="text-base font-medium mb-3">主题模式</div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="card-2 p-4 cursor-pointer ring-2 ring-brand">
-                    <div className="w-full h-12 rounded bg-white border border-line mb-2" />
-                    <div className="text-sm font-medium flex items-center gap-1.5">浅色 <Tag kind="green">当前</Tag></div>
-                    <div className="text-xs text-ink-muted mt-0.5">Notion 风格 — 适合白天</div>
-                  </div>
-                  <div className="card-2 p-4 cursor-pointer opacity-60">
-                    <div className="w-full h-12 rounded bg-ink mb-2" />
-                    <div className="text-sm font-medium">深色</div>
-                    <div className="text-xs text-ink-muted mt-0.5">Linear 风格 — 适合晚间</div>
-                  </div>
-                  <div className="card-2 p-4 cursor-pointer opacity-60">
-                    <div className="w-full h-12 rounded bg-gradient-to-br from-canvas to-surface-2 mb-2" />
-                    <div className="text-sm font-medium">跟随系统</div>
-                    <div className="text-xs text-ink-muted mt-0.5">随 macOS 自动切换</div>
-                  </div>
-                </div>
-              </Card>
-              <Card>
-                <div className="text-base font-medium mb-3">字体与密度</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-ink-muted">字体</label>
-                    <select className="input mt-1">
-                      <option>系统默认</option>
-                      <option>Inter</option>
-                      <option>SF Pro</option>
-                      <option>阿里巴巴普惠体</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-ink-muted">行高</label>
-                    <select className="input mt-1">
-                      <option>紧</option>
-                      <option>默认</option>
-                      <option>松</option>
-                    </select>
-                  </div>
+                <div className="text-xs text-ink-muted">工作区</div>
+                <div className="mt-1 text-sm">{ws.length} 个</div>
+                <div className="flex gap-2 mt-4">
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      const raw = window.localStorage.getItem('scene-39-workstation') || '{}'
+                      const blob = new Blob([raw], { type: 'application/json' })
+                      const link = document.createElement('a')
+                      link.href = URL.createObjectURL(blob)
+                      link.download = 'fde-x-shell.json'
+                      link.click()
+                      URL.revokeObjectURL(link.href)
+                    }}
+                  >导出账户数据</button>
+                  <button
+                    type="button"
+                    className="btn text-accent-red"
+                    onClick={() => {
+                      void runtimeApi.disconnectAi().catch(() => undefined)
+                      resetDemo()
+                    }}
+                  >注销账户</button>
                 </div>
               </Card>
             </>
+          )}
+
+          {section === 'appearance' && (
+            <HostNsPanel
+              home="appearance"
+              title="外观"
+              hint="Host 主题与语言。改完对 DSH 会话壳生效。"
+            />
           )}
 
           {section === 'notifs' && (
