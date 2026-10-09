@@ -2,7 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildMcpPatchBlock,
+  decorateDiscoveredMcpRows,
   discoverLocalMcpServersFromFiles,
+  ensureLocalMcpInProfile,
   normalizeCordisPatchText,
   parseMcpPatchEntries,
   removeMcpPatchEntry,
@@ -16,6 +18,47 @@ import {
   mcpEntryFingerprint,
   mcpFingerprintMatches,
 } from '../mcp-archive.mjs'
+
+test('decorateDiscoveredMcpRows marks rows already in the archive', () => {
+  const rows = decorateDiscoveredMcpRows(
+    [{ serverName: 'alpha', transport: 'stdio', command: 'npx', args: ['-y', 'pkg'] }],
+    ['alpha'],
+  )
+  assert.equal(rows[0].present, true)
+  const fresh = decorateDiscoveredMcpRows(
+    [{ serverName: 'beta', transport: 'streamable-http', url: 'http://127.0.0.1/mcp' }],
+    ['alpha'],
+  )
+  assert.equal(fresh[0].present, false)
+})
+
+test('ensureLocalMcpInProfile rewrites YAML and does not insert discovered servers', async () => {
+  const { mkdtemp, mkdir, readFile, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'fde-mcp-ensure-'))
+  const file = join(home, 'profiles', 'fde-x', 'cordis.patch.yml')
+  await mkdir(join(home, 'profiles', 'fde-x'), { recursive: true })
+  const bare = [
+    '- id: llm-pi-ai',
+    '  name: x',
+    '- id: mcp-alpha',
+    "  name: '@deepseek-ai/dsh-mcp-client'",
+    '  config:',
+    '    transport: stdio',
+    '    serverName: alpha',
+    '    command: "npx"',
+    '    args: ["-y","pkg"]',
+    '',
+  ].join('\n')
+  await writeFile(file, bare)
+  await ensureLocalMcpInProfile({ dshHome: home, profileName: 'fde-x' })
+  const text = await readFile(file, 'utf8')
+  const rows = parseMcpPatchEntries(text)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].serverName, 'alpha')
+  assert.match(text, /^- insert:/m)
+})
 
 test('discoverLocalMcpServersFromFiles reads mcpServers without hardcoding names', () => {
   const rows = discoverLocalMcpServersFromFiles([JSON.stringify({

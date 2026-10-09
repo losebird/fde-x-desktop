@@ -9,6 +9,8 @@ import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
 import { collectBag } from '../catalog-collect.mjs'
 import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
 import {
+  decorateDiscoveredMcpRows,
+  discoverLocalMcpServers,
   parseMcpPatchEntries,
   profileCordisPatchPath,
   readMcpArchiveText,
@@ -101,7 +103,7 @@ export async function listSessionProjectedToolNames(aiRuntime, sessionId) {
   return []
 }
 
-export function mapServerStatus({ connected, disabled, fiberPhase, fiberEnabled, fingerprintMatch }) {
+export function mapServerStatus({ connected, disabled, fiberPhase, fiberEnabled, fingerprintMatch, toolCount }) {
   if (disabled) {
     if (!connected) return 'disabled'
     if (fiberEnabled === false || !fiberPhase) return 'disabled'
@@ -111,7 +113,7 @@ export function mapServerStatus({ connected, disabled, fiberPhase, fiberEnabled,
   if (fingerprintMatch === false) return 'needs-reload'
   if (fiberEnabled === false) return 'needs-reload'
   if (fiberPhase === 'failed') return 'failed'
-  if (fiberPhase === 'active') return 'loaded'
+  if (fiberPhase === 'active') return Number(toolCount) > 0 ? 'loaded' : 'failed'
   return 'needs-reload'
 }
 
@@ -156,6 +158,7 @@ export async function buildMcpServersV2(aiRuntime, patchText, projectedToolNames
         fiberPhase: fiber && fiber.fiberPhase,
         fiberEnabled: fiber ? fiber.enabled !== false : undefined,
         fingerprintMatch: mcpFingerprintMatches(row, snapshot),
+        toolCount: tools.length,
       }),
       tools,
     }
@@ -416,6 +419,16 @@ export async function handleMcpRoutes(request, response, url, ctx) {
   if (request.method === 'GET' && url.pathname === '/api/v1/mcp/recipes') {
     const { listMcpRecipes } = await import('../mcp-recipes.mjs')
     sendJson(response, 200, { data: { recipes: listMcpRecipes() }, correlationId: currentCorrelationId })
+    return true
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/v1/mcp/discover') {
+    const discovered = await discoverLocalMcpServers()
+    const archiveNames = parseMcpPatchEntries(await readMcpArchiveText(aiRuntime)).map((row) => row.serverName)
+    sendJson(response, 200, {
+      data: { items: decorateDiscoveredMcpRows(discovered, archiveNames) },
+      correlationId: currentCorrelationId,
+    })
     return true
   }
 

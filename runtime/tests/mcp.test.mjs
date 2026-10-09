@@ -135,13 +135,26 @@ test('buildMcpServersV2 reuses a projected tool snapshot when given one', async 
   assert.equal(mcp[0].status, 'needs-reload')
 })
 
+test('MCP discover is a list mouth not a connect insert', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const archive = readFileSync(fileURLToPath(new URL('../mcp-archive.mjs', import.meta.url)), 'utf8')
+  const routes = readFileSync(fileURLToPath(new URL('../routes/mcp.mjs', import.meta.url)), 'utf8')
+  const core = readFileSync(fileURLToPath(new URL('../dsh-core.mjs', import.meta.url)), 'utf8')
+  const ensure = archive.slice(archive.indexOf('export async function ensureLocalMcpInProfile'), archive.indexOf('export async function ensureLocalMcpInProfile') + 800)
+  assert.equal(ensure.includes('discoverLocalMcpServers()'), false)
+  assert.match(routes, /\/api\/v1\/mcp\/discover/)
+  assert.match(core, /ensureLocalMcpInProfile\(this\)/)
+})
+
 test('mapServerStatus uses Host fiber before leftover reload tag', () => {
-  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'active' }), 'loaded')
+  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'active', toolCount: 2 }), 'loaded')
+  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'active', toolCount: 0 }), 'failed')
   assert.equal(mapServerStatus({ connected: true, disabled: true }), 'disabled')
   assert.equal(mapServerStatus({ connected: true, disabled: true, fiberPhase: 'active' }), 'needs-reload')
   assert.equal(mapServerStatus({ connected: true, fiberPhase: 'failed' }), 'failed')
   assert.equal(mapServerStatus({ connected: true }), 'needs-reload')
-  assert.equal(mapServerStatus({ connected: true, fingerprintMatch: false, fiberPhase: 'active' }), 'needs-reload')
+  assert.equal(mapServerStatus({ connected: true, fingerprintMatch: false, fiberPhase: 'active', toolCount: 2 }), 'needs-reload')
 })
 
 test('mcpFiberFromPlugins matches patch id and include: prefix', () => {

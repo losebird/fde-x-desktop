@@ -224,6 +224,17 @@ export type McpRecipe = {
   fields: McpRecipeField[]
 }
 
+export type McpDiscoverRow = {
+  serverName: string
+  transport: 'stdio' | 'streamable-http'
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  present: boolean
+}
+
 export type SkillBagOrigin = 'catalog' | 'face'
 
 export type SkillBagItem = {
@@ -2181,6 +2192,11 @@ export class RuntimeApi {
   async listMcpRecipes(signal?: AbortSignal): Promise<McpRecipe[]> {
     const result = await this.request<{ data: { recipes: McpRecipe[] } }>('/api/v1/mcp/recipes', { signal })
     return Array.isArray(result.data?.recipes) ? result.data.recipes : []
+  }
+
+  async listMcpDiscover(signal?: AbortSignal): Promise<McpDiscoverRow[]> {
+    const result = await this.request<{ data: { items: McpDiscoverRow[] } }>('/api/v1/mcp/discover', { signal })
+    return Array.isArray(result.data?.items) ? result.data.items : []
   }
 
   async listMcpServers(signal?: AbortSignal): Promise<{ mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }> {

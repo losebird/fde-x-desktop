@@ -5,7 +5,7 @@ import { Plug, Plus, Wrench, Search, Activity } from 'lucide-react'
 import clsx from 'clsx'
 import { PageTitle, Card, Tag, Empty } from '@/components/ui'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { runtimeApi, type McpConnectorCard, type McpRecipe, type McpServerV2 } from '@/lib/runtime-api'
+import { runtimeApi, type McpConnectorCard, type McpDiscoverRow, type McpRecipe, type McpServerV2 } from '@/lib/runtime-api'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
 
 type McpBag = { mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }
@@ -30,7 +30,7 @@ const emptyDraft = () => ({
   fieldValues: {} as Record<string, string>,
 })
 
-function mcpCommandLabel(row: McpServerV2) {
+function mcpCommandLabel(row: { transport: string; url?: string; command?: string; args?: string[] }) {
   if (row.transport === 'streamable-http') return row.url || ''
   return [row.command, ...(Array.isArray(row.args) ? row.args : [])].filter(Boolean).join(' ')
 }
@@ -127,6 +127,7 @@ export default function MCP() {
   const [showAdd, setShowAdd] = useState(false)
   const [draft, setDraft] = useState(emptyDraft)
   const [recipes, setRecipes] = useState<McpRecipe[]>([])
+  const [discovered, setDiscovered] = useState<McpDiscoverRow[]>([])
 
   const filteredMcp = mcp.filter((m) => (
     m.serverName.includes(q)
@@ -152,9 +153,24 @@ export default function MCP() {
     })
   }
 
+  const applyDiscover = (row: McpDiscoverRow) => {
+    if (row.present) return
+    setDraft({
+      ...emptyDraft(),
+      name: row.serverName,
+      transport: row.transport,
+      command: row.command || '',
+      args: Array.isArray(row.args) ? row.args.join('\n') : '',
+      env: envText(row.env),
+      url: row.url || '',
+      headers: headersText(row.headers),
+    })
+  }
+
   const openEditor = (row?: McpServerV2) => {
     void runtimeApi.listMcpRecipes().then(setRecipes).catch(() => setRecipes([]))
     if (!row) {
+      void runtimeApi.listMcpDiscover().then(setDiscovered).catch(() => setDiscovered([]))
       setEditing('')
       setDraft(emptyDraft())
       setShowAdd(true)
@@ -427,6 +443,25 @@ export default function MCP() {
                   {draft.recipeId && recipes.find((row) => row.id === draft.recipeId)?.hint && (
                     <div className="text-[11px] text-ink-muted mt-1">{recipes.find((row) => row.id === draft.recipeId)?.hint}</div>
                   )}
+                </div>
+              )}
+              {!editing && discovered.length > 0 && (
+                <div>
+                  <div className="text-xs text-ink-muted mb-1">本机发现</div>
+                  <div className="flex flex-wrap gap-2">
+                    {discovered.map((row) => (
+                      <button
+                        key={row.serverName}
+                        type="button"
+                        className={clsx('btn h-8 px-3 text-xs', !draft.recipeId && draft.name === row.serverName && 'btn-primary')}
+                        disabled={row.present}
+                        title={row.present ? '已在档案里' : mcpCommandLabel(row)}
+                        onClick={() => applyDiscover(row)}
+                      >
+                        {row.serverName}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
               <div>

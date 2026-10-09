@@ -101,6 +101,20 @@ export async function discoverLocalMcpServers() {
   return discoverLocalMcpServersFromFiles(texts)
 }
 
+export function decorateDiscoveredMcpRows(discovered, archiveNames) {
+  const existing = archiveNames instanceof Set ? archiveNames : new Set(archiveNames || [])
+  return (Array.isArray(discovered) ? discovered : []).map((row) => ({
+    serverName: row.serverName,
+    transport: row.transport,
+    command: row.command,
+    args: Array.isArray(row.args) ? row.args : [],
+    env: row.env,
+    url: row.url,
+    headers: row.headers,
+    present: existing.has(row.serverName),
+  }))
+}
+
 function yamlScalar(value) {
   return JSON.stringify(String(value))
 }
@@ -437,7 +451,7 @@ export async function ensureSkillProvidersInProfile(aiRuntime) {
 
 export async function ensureLocalMcpInProfile(aiRuntime) {
   const file = profileCordisPatchPath(aiRuntime)
-  if (!file) return []
+  if (!file) return
   let text = ''
   try {
     text = await readFile(file, 'utf8')
@@ -445,16 +459,5 @@ export async function ensureLocalMcpInProfile(aiRuntime) {
     text = ''
   }
   const rewritten = rewriteMcpArchiveInserts(text)
-  let next = rewritten.text.trimEnd()
-  const existing = new Set(parseMcpPatchEntries(next).map((row) => row.serverName))
-  const discovered = await discoverLocalMcpServers()
-  const added = []
-  for (const row of discovered) {
-    if (existing.has(row.serverName)) continue
-    next = `${next}${next ? '\n' : ''}${buildMcpPatchBlock(row)}`
-    existing.add(row.serverName)
-    added.push(row.serverName)
-  }
-  if (added.length || rewritten.changed) await writeNormalizedPatch(file, next)
-  return added
+  if (rewritten.changed) await writeNormalizedPatch(file, rewritten.text)
 }
