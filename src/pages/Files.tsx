@@ -10,25 +10,34 @@ import clsx from 'clsx'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useApp } from '@/store/app'
-import type { FileNode, FileVersion } from '@/lib/types'
+import type { FileNode } from '@/lib/types'
 import { PageTitle, Card, Tag, Empty } from '@/components/ui'
-import { runtimeApi } from '@/lib/runtime-api'
+import { runtimeApi, type WorkspaceFileVersion } from '@/lib/runtime-api'
+import { DocxPackage, type DocxBlockView, type DocxRunView } from '@/lib/office-docx'
 import { currentAiTarget } from '@/lib/ai-target'
+import { attachToCurrentAi } from '@/lib/current-turn'
 import { consumeFilePick } from '@/lib/app-platform'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
 
 function kindFromName(name: string): FileNode['kind'] {
   const lower = name.toLowerCase()
-  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'markdown'
-  if (lower.endsWith('.json')) return 'json'
-  if (lower.endsWith('.csv') || lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'sheet'
-  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif') || lower.endsWith('.svg')) return 'image'
-  if (lower.endsWith('.pdf')) return 'pdf'
-  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'web'
-  if (lower.endsWith('.pptx') || lower.endsWith('.ppt')) return 'ppt'
-  if (lower.endsWith('.docx') || lower.endsWith('.doc')) return 'doc'
-  if (lower.endsWith('.mp3') || lower.endsWith('.wav') || lower.endsWith('.m4a')) return 'audio'
-  if (lower.endsWith('.ts') || lower.endsWith('.tsx') || lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.py') || lower.endsWith('.css')) return 'code'
+  const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : ''
+  if (ext === 'md' || ext === 'markdown') return 'markdown'
+  if (ext === 'json') return 'json'
+  if (ext === 'csv' || ext === 'xlsx' || ext === 'xls') return 'sheet'
+  if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'webp' || ext === 'gif' || ext === 'svg') return 'image'
+  if (ext === 'pdf') return 'pdf'
+  if (ext === 'html' || ext === 'htm') return 'web'
+  if (ext === 'pptx' || ext === 'ppt') return 'ppt'
+  if (ext === 'docx' || ext === 'doc') return 'doc'
+  if (ext === 'mp3' || ext === 'wav' || ext === 'm4a') return 'audio'
+  if (
+    ext === 'txt' || ext === 'text' || ext === 'log' || ext === 'yml' || ext === 'yaml' || ext === 'toml'
+    || ext === 'ini' || ext === 'cfg' || ext === 'conf' || ext === 'sh' || ext === 'bash' || ext === 'zsh'
+    || ext === 'xml' || ext === 'sql' || ext === 'ts' || ext === 'tsx' || ext === 'js' || ext === 'mjs'
+    || ext === 'cjs' || ext === 'py' || ext === 'css' || ext === 'go' || ext === 'rs' || ext === 'java'
+    || ext === 'rb' || ext === 'php'
+  ) return 'code'
   return 'doc'
 }
 
@@ -36,9 +45,106 @@ function isBinaryKind(kind: FileNode['kind']) {
   return kind === 'image' || kind === 'pdf' || kind === 'web' || kind === 'ppt' || kind === 'audio' || kind === 'doc' || kind === 'sheet'
 }
 
-function rawFileUrl(path: string, sessionId?: string | null) {
+function canEditInPlace(file?: FileNode | null) {
+  if (!file || file.kind === 'folder') return false
+  if (file.kind === 'markdown' || file.kind === 'code' || file.kind === 'json') return true
+  if (file.kind === 'sheet') return true
+  return file.kind === 'doc' && /\.docx$/i.test(file.name)
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = ''
+  const step = 0x8000
+  for (let i = 0; i < bytes.length; i += step) binary += String.fromCharCode(...bytes.subarray(i, i + step))
+  return btoa(binary)
+}
+
+function DocxRunSpan({ run, editing, onText }: { run: DocxRunView; editing?: boolean; onText: (key: string, text: string) => void }) {
+  return (
+    <span
+      contentEditable={Boolean(editing)}
+      suppressContentEditableWarning
+      style={run.style}
+      ref={(el) => {
+        if (el && el.dataset.ready !== '1') {
+          el.textContent = run.text || (editing ? '\u00a0' : '')
+          el.dataset.ready = '1'
+        }
+      }}
+      onInput={(event) => onText(run.key, event.currentTarget.textContent || '')}
+    />
+  )
+}
+
+function DocxPackageEditor({
+  url,
+  editing,
+  onPack,
+  onDirty,
+}: {
+  url: string
+  editing?: boolean
+  onPack?: (pack: DocxPackage) => void
+  onDirty?: () => void
+}) {
+  const [blocks, setBlocks] = useState<DocxBlockView[]>([])
+  const [error, setError] = useState('')
+  const packRef = useRef<DocxPackage | null>(null)
+  useEffect(() => {
+    let alive = true
+    void fetch(url).then((res) => res.arrayBuffer()).then((buf) => DocxPackage.fromArrayBuffer(buf)).then((pack) => {
+      if (!alive) return
+      packRef.current = pack
+      onPack?.(pack)
+      setBlocks(pack.blocks())
+    }).catch((err) => {
+      if (alive) setError(err instanceof Error ? err.message : '打不开这份 Word')
+    })
+    return () => { alive = false }
+  }, [url])
+  function onText(key: string, text: string) {
+    packRef.current?.setRunText(key, text)
+    if (editing) onDirty?.()
+  }
+  if (error) return <Empty title={error} />
+  if (!blocks.length) return <Empty title="正在打开 Word…" />
+  return (
+    <div className="rounded border border-line bg-[#f3f3f3] p-6 overflow-auto max-h-[640px]">
+      <div className="fde-word-page" style={{ width: 'min(816px,100%)', margin: '0 auto', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,.12)', padding: '96px', color: '#1a1a1a' }}>
+        {blocks.map((block) => {
+          if (block.kind === 'tbl') {
+            return (
+              <table key={block.key} className="border-collapse w-full my-2">
+                <tbody>
+                  {(block.rows || []).map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className="border border-[#bfbfbf] px-2 py-1 align-top">
+                          {cell.map((run) => <DocxRunSpan key={run.key} run={run} editing={editing} onText={onText} />)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          }
+          const align = block.align === 'center' ? 'center' : block.align === 'right' ? 'right' : block.align === 'both' ? 'justify' : 'left'
+          return (
+            <p key={block.key} style={{ margin: '0 0 8pt', textAlign: align }}>
+              {block.runs.length ? block.runs.map((run) => <DocxRunSpan key={run.key} run={run} editing={editing} onText={onText} />) : (editing ? '\u00a0' : '')}
+            </p>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function rawFileUrl(path: string, sessionId?: string | null, epoch?: number) {
   const query = new URLSearchParams({ path })
   if (sessionId) query.set('sessionId', sessionId)
+  if (epoch) query.set('v', String(epoch))
   return `/api/v1/files/raw?${query.toString()}`
 }
 
@@ -55,6 +161,13 @@ const ICON_BY_KIND: Record<FileNode['kind'], typeof FileText> = {
   audio: FileAudio,
   web: FileCode,
   ppt: FileText,
+}
+
+function formatVersionCaption(version: WorkspaceFileVersion) {
+  const time = new Date(version.ts).toLocaleString('zh-CN')
+  if (version.note === '回滚前') return `${time} · 被替换的版本`
+  if (version.note === '保存前') return `${time} · 保存前`
+  return version.note ? `${time} · ${version.note}` : time
 }
 
 function formatBytes(n: number) {
@@ -89,12 +202,14 @@ function ancestorDirs(parentId: string) {
   return dirs
 }
 
-function HostOfficePreview({ sessionId, path, fallback }: { sessionId: string; path: string; fallback: ReactNode }) {
+function HostOfficePreview({ sessionId, path, fallback, epoch }: { sessionId: string; path: string; fallback: ReactNode; epoch?: number }) {
   const [src, setSrc] = useState('')
   const [err, setErr] = useState('')
   useEffect(() => {
     let alive = true
     let objectUrl = ''
+    setSrc('')
+    setErr('')
     void runtimeApi.catalogAction({
       kind: 'skill',
       action: 'render',
@@ -121,14 +236,22 @@ function HostOfficePreview({ sessionId, path, fallback }: { sessionId: string; p
       alive = false
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [sessionId, path])
+  }, [sessionId, path, epoch])
   if (src) return <iframe title={path} src={src} className="w-full min-h-[560px] rounded border border-line bg-white" />
   if (err) return <>{fallback}</>
   return <Empty title="正在转换成 PDF…" />
 }
 
-function renderPreview(file: FileNode, sessionId?: string | null, canRender?: boolean) {
-  const raw = rawFileUrl(file.id, sessionId)
+function renderPreview(
+  file: FileNode,
+  sessionId: string | null | undefined,
+  editing: boolean,
+  onSheetPack?: (pack: { toUint8Array: () => Promise<Uint8Array> }) => void,
+  onDocxPack?: (pack: DocxPackage) => void,
+  onDirty?: () => void,
+  epoch?: number,
+) {
+  const raw = rawFileUrl(file.id, sessionId, epoch)
   if (file.kind === 'image') {
     return (
       <div className="flex items-center justify-center bg-surface-2 rounded p-6 min-h-[280px]">
@@ -155,15 +278,16 @@ function renderPreview(file: FileNode, sessionId?: string | null, canRender?: bo
       </div>
     )
   }
+  if (file.kind === 'doc' && /\.docx$/i.test(file.name)) {
+    return <DocxPackageEditor key={epoch} url={raw} editing={editing} onPack={onDocxPack} onDirty={onDirty} />
+  }
   if (file.kind === 'doc' && /\.docx?$/i.test(file.name)) {
     const fallback = <OfficeDocPreview url={raw} />
-    if (sessionId) return <HostOfficePreview sessionId={sessionId} path={file.id} fallback={fallback} />
+    if (sessionId) return <HostOfficePreview key={epoch} sessionId={sessionId} path={file.id} epoch={epoch} fallback={fallback} />
     return fallback
   }
-  if (file.kind === 'sheet' && !file.name.toLowerCase().endsWith('.csv')) {
-    const fallback = <OfficeSheetPreview url={raw} />
-    if (sessionId) return <HostOfficePreview sessionId={sessionId} path={file.id} fallback={fallback} />
-    return fallback
+  if (file.kind === 'sheet') {
+    return <OfficeSheetPreview key={epoch} name={file.name} url={raw} editing={editing} onPack={onSheetPack} />
   }
   if (file.kind === 'ppt') {
     const fallback = (
@@ -173,7 +297,7 @@ function renderPreview(file: FileNode, sessionId?: string | null, canRender?: bo
         <a className="btn mt-4 inline-flex" href={raw} download={file.name}><Download size={14} /> 下载</a>
       </div>
     )
-    if (sessionId) return <HostOfficePreview sessionId={sessionId} path={file.id} fallback={fallback} />
+    if (sessionId) return <HostOfficePreview key={epoch} sessionId={sessionId} path={file.id} epoch={epoch} fallback={fallback} />
     return fallback
   }
   if (file.kind === 'markdown') {
@@ -271,7 +395,7 @@ function colLetter(index: number) {
   return label
 }
 
-function OfficeDocPreview({ url }: { url: string }) {
+function OfficeDocPreview({ url, editing, onHtml }: { url: string; editing?: boolean; onHtml?: (html: string) => void }) {
   const [html, setHtml] = useState('正在预览 Word…')
   useEffect(() => {
     let alive = true
@@ -285,7 +409,11 @@ function OfficeDocPreview({ url }: { url: string }) {
           }))),
         },
       )
-      if (alive) setHtml(result.value || '<p>（空文档）</p>')
+      const next = result.value || '<p>（空文档）</p>'
+      if (alive) {
+        setHtml(next)
+        onHtml?.(next)
+      }
     }).catch(() => {
       if (alive) setHtml('<p>无法预览该 Word 文件，请下载后打开。</p>')
     })
@@ -305,22 +433,56 @@ function OfficeDocPreview({ url }: { url: string }) {
         .fde-word-page img{max-width:100%;height:auto}
         .fde-word-page a{color:#0563c1}
       `}</style>
-      <div className="fde-word-page" dangerouslySetInnerHTML={{ __html: html }} />
+      <div
+        className="fde-word-page"
+        contentEditable={Boolean(editing)}
+        suppressContentEditableWarning
+        onInput={(event) => onHtml?.(event.currentTarget.innerHTML)}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
     </div>
   )
 }
 
-function OfficeSheetPreview({ url }: { url: string }) {
+function sheetKeepsBook(name: string) {
+  const lower = name.toLowerCase()
+  return lower.endsWith('.xlsx') || lower.endsWith('.xlsm')
+}
+
+function OfficeSheetPreview({
+  name,
+  url,
+  editing,
+  onPack,
+}: {
+  name: string
+  url: string
+  editing?: boolean
+  onPack?: (pack: { toUint8Array: () => Promise<Uint8Array> }) => void
+}) {
   const [sheets, setSheets] = useState<Array<{ name: string; rows: string[][] }>>([])
   const [active, setActive] = useState(0)
   const [error, setError] = useState('')
+  const xlsxRef = useRef<{ setCell: (sheetIndex: number, row0: number, col0: number, text: string) => void } | null>(null)
+  const aoaRef = useRef<Array<{ name: string; rows: string[][] }>>([])
   useEffect(() => {
     let alive = true
     void fetch(url).then((res) => res.arrayBuffer()).then(async (buffer) => {
+      if (sheetKeepsBook(name)) {
+        const { XlsxPackage } = await import('@/lib/office-xlsx')
+        const pack = await XlsxPackage.fromArrayBuffer(buffer)
+        if (!alive) return
+        xlsxRef.current = pack
+        const parsed = pack.sheets()
+        setSheets(parsed)
+        setActive(0)
+        onPack?.(pack)
+        return
+      }
       const XLSX = await import('xlsx')
       const workbook = XLSX.read(buffer, { type: 'array', cellDates: true, cellText: false })
-      const parsed = workbook.SheetNames.map((name) => {
-        const sheet = workbook.Sheets[name]
+      const parsed = workbook.SheetNames.map((sheetName) => {
+        const sheet = workbook.Sheets[sheetName]
         const data = XLSX.utils.sheet_to_json<(string | number | Date | null)[]>(sheet, {
           header: 1,
           raw: false,
@@ -338,17 +500,33 @@ function OfficeSheetPreview({ url }: { url: string }) {
           return next
         })
         while (padded.length < 12) padded.push(Array.from({ length: width }, () => ''))
-        return { name, rows: padded }
+        return { name: sheetName, rows: padded }
       })
-      if (alive) {
-        setSheets(parsed)
-        setActive(0)
-      }
+      if (!alive) return
+      aoaRef.current = parsed
+      xlsxRef.current = null
+      setSheets(parsed)
+      setActive(0)
+      const bookType = name.toLowerCase().endsWith('.csv') ? 'csv' : 'xls'
+      onPack?.({
+        async toUint8Array() {
+          const lib = await import('xlsx')
+          const book = lib.utils.book_new()
+          for (const sheet of aoaRef.current) {
+            lib.utils.book_append_sheet(book, lib.utils.aoa_to_sheet(sheet.rows), sheet.name.slice(0, 31) || 'Sheet1')
+          }
+          const b64 = lib.write(book, { type: 'base64', bookType })
+          const bin = atob(b64)
+          const bytes = new Uint8Array(bin.length)
+          for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
+          return bytes
+        },
+      })
     }).catch(() => {
       if (alive) setError('无法预览该表格，请下载后打开。')
     })
     return () => { alive = false }
-  }, [url])
+  }, [url, name])
   if (error) return <Empty title={error} />
   const current = sheets[active]
   if (!current) return <Empty title="空表格" />
@@ -375,7 +553,28 @@ function OfficeSheetPreview({ url }: { url: string }) {
                 </th>
                 {row.map((cell, c) => (
                   <td key={c} className="border border-[#d0d0d0] px-2 py-[3px] whitespace-nowrap bg-white align-middle">
-                    {cell}
+                    {editing ? (
+                      <input
+                        className="w-full bg-transparent outline-none"
+                        value={cell}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          xlsxRef.current?.setCell(active, r, c, value)
+                          setSheets((prev) => {
+                            const next = prev.map((sheet, i) => {
+                              if (i !== active) return sheet
+                              const rows = sheet.rows.map((line, ri) => {
+                                if (ri !== r) return line
+                                return line.map((item, ci) => (ci === c ? value : item))
+                              })
+                              return { ...sheet, rows }
+                            })
+                            aoaRef.current = next
+                            return next
+                          })
+                        }}
+                      />
+                    ) : cell}
                   </td>
                 ))}
               </tr>
@@ -403,7 +602,6 @@ function OfficeSheetPreview({ url }: { url: string }) {
 }
 
 export default function Files() {
-  const addFile = useApp((s) => s.addFile)
   const activeWsId = useApp((s) => s.activeWorkspaceId)
   const workspaces = useApp((s) => s.workspaces)
   const workspaceCwd = workspaces.find((item) => item.id === activeWsId)?.cwd
@@ -420,6 +618,11 @@ export default function Files() {
   const [saving, setSaving] = useState(false)
   const [folderLoading, setFolderLoading] = useState(false)
   const [fileNotice, setFileNotice] = useState('')
+  const [versions, setVersions] = useState<WorkspaceFileVersion[]>([])
+  const [dirty, setDirty] = useState(false)
+  const [previewEpoch, setPreviewEpoch] = useState(0)
+  const sheetPackRef = useRef<{ toUint8Array: () => Promise<Uint8Array> } | null>(null)
+  const docxPackRef = useRef<DocxPackage | null>(null)
   const [q, setQ] = useState('')
   const [sortKey, setSortKey] = useState<'name' | 'updatedAt' | 'size'>('updatedAt')
   const [showStarred, setShowStarred] = useState(false)
@@ -483,6 +686,7 @@ export default function Files() {
       },
       abort.signal,
     ).catch((error) => {
+      if (abort.signal.aborted) return
       setFileNotice(error instanceof Error ? error.message : '跟不了文件变更')
     })
     return () => abort.abort()
@@ -530,7 +734,7 @@ export default function Files() {
         const target = await currentAiTarget()
         if (!alive) return
         const sessionId = target.ok ? target.sessionId : ''
-        listingRef.current = sessionId ? { sessionId } : { cwd }
+        listingRef.current = { sessionId: sessionId || undefined, cwd }
         setSessionId(sessionId || null)
         loadedDirs.current = new Set()
         const listing = await fetchListing('.')
@@ -590,6 +794,7 @@ export default function Files() {
   const navigate = useNavigate()
   useEffect(() => {
     setEditMode(false)
+    setDirty(false)
   }, [selectedId])
 
   // 工作区根目录(父 id = null 的那个 folder)
@@ -616,6 +821,63 @@ export default function Files() {
   const selectedNode = files.find((f) => f.id === selectedId)
   const current = selectedNode && selectedNode.kind !== 'folder' ? selectedNode : undefined
   const folder = files.find((f) => f.id === validParentId && f.kind === 'folder')
+
+  function sendToCurrentAi(file: FileNode) {
+    void attachToCurrentAi({ path: file.id, name: file.name }).then((result) => {
+      if (!result.ok) {
+        setFilesError(result.error)
+        setFileNotice(result.error)
+        return
+      }
+      setFilesError('')
+    }).catch((cause) => {
+      const message = cause instanceof Error ? cause.message : '附加文件失败'
+      setFilesError(message)
+      setFileNotice(message)
+    })
+  }
+
+  function absWorkspacePath(rel?: string | null) {
+    const cwd = listingRef.current.cwd
+    if (!cwd) return ''
+    const trimmed = String(rel || '').replace(/\/+$/u, '')
+    if (!trimmed || trimmed === '.') return cwd
+    return `${cwd.replace(/\/+$/u, '')}/${trimmed}`
+  }
+
+  function openNative(rel: string | null | undefined, reveal = false) {
+    const sid = sessionId || listingRef.current.sessionId
+    const cwd = listingRef.current.cwd
+    if (!cwd || !sid) return
+    const path = absWorkspacePath(rel)
+    void runtimeApi.catalogAction({
+      kind: 'file',
+      action: 'openWorkspacePath',
+      sessionId: sid,
+      path,
+      ...(reveal ? { params: { action: 'reveal' } } : {}),
+    }).catch((error) => {
+      setFilesError(error instanceof Error ? error.message : (reveal ? '打不开这个位置' : '打不开系统应用'))
+    })
+  }
+
+  function NativeOpenButtons({ openRel, revealRel }: { openRel: string; revealRel: string }) {
+    if (!fileActions.includes('openWorkspacePath')) return null
+    const ready = Boolean(listingRef.current.cwd && (sessionId || listingRef.current.sessionId))
+    const title = !listingRef.current.cwd
+      ? '当前顶栏没有绑定本机目录'
+      : (!sessionId && !listingRef.current.sessionId ? '请先连接核心并开会话' : undefined)
+    return (
+      <>
+        <button type="button" className="btn h-8" disabled={!ready} title={title} onClick={() => openNative(openRel)}>
+          <FolderOpen size={14} /> 用系统应用打开
+        </button>
+        <button type="button" className="btn h-8" disabled={!ready} title={title} onClick={() => openNative(revealRel, true)}>
+          <FolderOpen size={14} /> 显示位置
+        </button>
+      </>
+    )
+  }
 
   useEffect(() => {
     if (selectedNode?.kind !== 'folder') return
@@ -668,6 +930,14 @@ export default function Files() {
     }).catch(() => undefined)
   }, [sessionId, current?.id, current?.kind, current?.content])
 
+  useEffect(() => {
+    if (!current || current.kind === 'folder') {
+      setVersions([])
+      return
+    }
+    void runtimeApi.listWorkspaceFileVersions(current.id, sessionId ?? undefined).then(setVersions).catch(() => setVersions([]))
+  }, [sessionId, current?.id])
+
   const inParent = useMemo(() => {
     let result = files.filter((f) => f.parentId === validParentId)
     if (showStarred) result = result.filter((f) => f.starred)
@@ -695,12 +965,6 @@ export default function Files() {
     return out
   }, [folder, files])
 
-  function createFolder() {
-    const name = prompt('新建文件夹名?')
-    if (!name) return
-    addFile({ name, kind: 'folder', size: 0, parentId: validParentId ?? root?.id ?? null })
-  }
-
   return (
     <div>
       <PageTitle
@@ -708,7 +972,12 @@ export default function Files() {
         subtitle={current ? `预览 · ${formatBytes(current.size)} · 更新于 ${new Date(current.updatedAt).toLocaleString('zh-CN')}` : '工作区文件库,支持多类型预览与编辑。'}
         actions={
           current ? (
-            <button className="btn" onClick={() => { setSelectedId(null); setEditMode(false) }}><ArrowLeft size={14} /> 返回列表</button>
+            <button className="btn" onClick={() => {
+              if ((dirty || (editMode && draft !== (current.content ?? ''))) && !window.confirm('有未保存的修改，离开将丢失。继续？')) return
+              setSelectedId(null)
+              setEditMode(false)
+              setDirty(false)
+            }}><ArrowLeft size={14} /> 返回列表</button>
           ) : (
             <>
               <input
@@ -726,10 +995,10 @@ export default function Files() {
                     const result = typeof reader.result === 'string' ? reader.result : ''
                     const comma = result.indexOf(',')
                     const data = comma >= 0 ? result.slice(comma + 1) : result
-                    void runtimeApi.uploadWorkspaceFile({ name: rel, data, sessionId }).then(() => {
+                    void runtimeApi.uploadWorkspaceFile({ name: rel, data, sessionId }).then((written) => {
                       const now = new Date().toISOString()
                       loadedDirs.current.delete(folder || '.')
-                      setFiles((nodes) => [...nodes, {
+                      setFiles((nodes) => [...nodes.filter((node) => node.id !== rel), {
                         id: rel,
                         name: file.name,
                         kind: kindFromName(file.name),
@@ -737,7 +1006,10 @@ export default function Files() {
                         parentId: folder || '.',
                         updatedAt: now,
                       }])
-                    }).catch(() => undefined)
+                      if (written.versions) setVersions(written.versions)
+                    }).catch((error) => {
+                      setFilesError(error instanceof Error ? error.message : '上传失败')
+                    })
                   }
                   reader.readAsDataURL(file)
                 }}
@@ -798,20 +1070,28 @@ export default function Files() {
       {current && (
         <div className="grid grid-cols-1 @3xl:grid-cols-[1fr_280px] gap-6">
           <div>
-            {editMode ? (
+            {editMode && (current.kind === 'markdown' || current.kind === 'code' || current.kind === 'json') ? (
               <textarea
                 className="input w-full min-h-[360px] font-mono text-[13px] leading-6"
                 value={draft}
-                onChange={(event) => setDraft(event.target.value)}
+                onChange={(event) => { setDraft(event.target.value); setDirty(true) }}
               />
-            ) : renderPreview(current, sessionId, fileActions.includes('render'))}
+            ) : renderPreview(
+              current,
+              sessionId,
+              editMode,
+              (pack) => { sheetPackRef.current = pack; if (editMode) setDirty(true) },
+              (pack) => { docxPackRef.current = pack },
+              () => setDirty(true),
+              previewEpoch,
+            )}
             <div className="mt-4 flex gap-2 flex-wrap">
-              {!isBinaryKind(current.kind) && (
+              {canEditInPlace(current) && (
               <button
                 type="button"
                 className="btn"
                 onClick={() => {
-                  if (editMode) { setEditMode(false); return }
+                  if (editMode) { setEditMode(false); setDirty(false); return }
                   setDraft(current.content ?? '')
                   setEditMode(true)
                 }}
@@ -823,34 +1103,69 @@ export default function Files() {
                 disabled={!editMode || saving}
                 onClick={() => {
                   setSaving(true)
-                  const previous = current.content ?? ''
-                  void runtimeApi.writeWorkspaceFile({ path: current.id, text: draft, sessionId: sessionId ?? undefined }).then(() => {
-                    const ver: FileVersion = { id: `fv-${Date.now()}`, ts: current.updatedAt, content: previous, size: current.size, note: '保存前' }
+                  const sid = sessionId ?? undefined
+                  const finish = (versionsNext?: WorkspaceFileVersion[]) => {
+                    if (versionsNext) setVersions(versionsNext)
+                    else void runtimeApi.listWorkspaceFileVersions(current.id, sid).then(setVersions).catch(() => undefined)
+                    setEditMode(false)
+                    setDirty(false)
+                    setPreviewEpoch((n) => n + 1)
+                    sheetPackRef.current = null
+                    docxPackRef.current = null
                     setFiles((nodes) => nodes.map((node) => node.id === current.id ? {
                       ...node,
-                      content: draft,
-                      size: draft.length,
+                      content: current.kind === 'markdown' || current.kind === 'code' || current.kind === 'json' ? draft : node.content,
                       updatedAt: new Date().toISOString(),
-                      versionHistory: [ver, ...(node.versionHistory ?? [])].slice(0, 20),
                     } : node))
-                    setEditMode(false)
-                  }).catch((error) => {
+                  }
+                  const fail = (error: unknown) => {
                     setFilesError(error instanceof Error ? error.message : '保存失败')
-                  }).finally(() => setSaving(false))
+                  }
+                  const run = async () => {
+                    if (current.kind === 'sheet') {
+                      const pack = sheetPackRef.current
+                      if (!pack) throw new Error('表格还没加载完')
+                      const bytes = await pack.toUint8Array()
+                      const written = await runtimeApi.writeWorkspaceFile({ path: current.id, data: bytesToBase64(bytes), sessionId: sid })
+                      finish(written.versions)
+                      return
+                    }
+                    if (current.kind === 'doc' && /\.docx$/i.test(current.name)) {
+                      const pack = docxPackRef.current
+                      if (!pack) throw new Error('文档还没加载完')
+                      const bytes = await pack.toUint8Array()
+                      const written = await runtimeApi.writeWorkspaceFile({ path: current.id, data: bytesToBase64(bytes), sessionId: sid })
+                      finish(written.versions)
+                      return
+                    }
+                    const written = await runtimeApi.writeWorkspaceFile({ path: current.id, text: draft, sessionId: sid })
+                    finish(written.versions)
+                  }
+                  void run().catch(fail).finally(() => setSaving(false))
                 }}
               >{saving ? '保存中…' : '保存到工作区'}</button>
               <button
                 type="button"
                 className="btn"
                 onClick={() => {
-                  const blob = new Blob([current.content || ''], { type: 'text/plain;charset=utf-8' })
                   const link = document.createElement('a')
-                  link.href = URL.createObjectURL(blob)
+                  link.href = rawFileUrl(current.id, sessionId, previewEpoch)
                   link.download = current.name
                   link.click()
-                  URL.revokeObjectURL(link.href)
                 }}
               ><Download size={14} /> 下载</button>
+              <button
+                type="button"
+                className="btn-ghost p-1 text-ink-subtle hover:text-brand"
+                title="发给当前 AI 会话"
+                onClick={() => sendToCurrentAi(current)}
+              >
+                <Send size={14} />
+              </button>
+              <NativeOpenButtons
+                openRel={current.id}
+                revealRel={current.parentId && current.parentId !== '.' ? current.parentId : '.'}
+              />
               <button
                 className={clsx('btn', current.starred && 'bg-brand-soft border-brand/30')}
                 onClick={() => setFiles((nodes) => nodes.map((node) => node.id === current.id ? { ...node, starred: !node.starred } : node))}
@@ -869,35 +1184,44 @@ export default function Files() {
               <div className="flex justify-between gap-2"><dt className="text-ink-muted shrink-0">路径</dt><dd className="truncate max-w-[160px]">{current.id}</dd></div>
             </dl>
             <div className="text-sm font-medium mb-2">版本历史</div>
-            {(current.versionHistory ?? []).length === 0 ? (
+            {versions.length === 0 ? (
               <div className="text-xs text-ink-muted">保存后会出现可回滚的版本</div>
             ) : (
               <ul className="space-y-2">
-                {(current.versionHistory ?? []).map((version) => (
+                {versions.map((version) => (
                   <li key={version.id} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate">{new Date(version.ts).toLocaleString('zh-CN')}{version.note ? ` · ${version.note}` : ''}</span>
+                    <span className="truncate">{formatVersionCaption(version)}</span>
                     <button
                       type="button"
                       className="btn h-7 px-2"
                       onClick={() => {
-                        if (!window.confirm(`确定把「${current.name}」回滚到 ${new Date(version.ts).toLocaleString('zh-CN')} 吗？当前内容会先存一版。`)) return
-                        void runtimeApi.writeWorkspaceFile({ path: current.id, text: version.content, sessionId: sessionId ?? undefined }).then(() => {
-                          const nowVer: FileVersion = { id: `fv-${Date.now()}`, ts: current.updatedAt, content: current.content ?? '', size: current.size, note: '回滚前' }
+                        const undo = version.note === '回滚前'
+                        const when = new Date(version.ts).toLocaleString('zh-CN')
+                        const ok = window.confirm(
+                          undo
+                            ? `确定撤销这次回滚，恢复到 ${when} 被替换掉的内容吗？`
+                            : `确定把「${current.name}」回滚到 ${when} 吗？当前内容会先存一版。`,
+                        )
+                        if (!ok) return
+                        void runtimeApi.rollbackWorkspaceFile({ path: current.id, versionId: version.id, sessionId: sessionId ?? undefined }).then((written) => {
+                          setVersions(written.versions || [])
                           setFiles((nodes) => nodes.map((node) => node.id === current.id ? {
                             ...node,
-                            content: version.content,
-                            size: version.content.length,
+                            content: undefined,
                             updatedAt: new Date().toISOString(),
-                            versionHistory: [nowVer, ...(node.versionHistory ?? []).filter((item) => item.id !== version.id)].slice(0, 20),
                           } : node))
-                          setDraft(version.content)
+                          setDraft('')
                           setEditMode(false)
+                          setDirty(false)
+                          setPreviewEpoch((n) => n + 1)
+                          sheetPackRef.current = null
+                          docxPackRef.current = null
                           setFileNotice(`已回滚 ${current.name}`)
                         }).catch((error) => {
                           setFilesError(error instanceof Error ? error.message : '回滚失败')
                         })
                       }}
-                    >回滚</button>
+                    >{version.note === '回滚前' ? '撤销回滚' : '回滚'}</button>
                   </li>
                 ))}
               </ul>
@@ -989,60 +1313,7 @@ export default function Files() {
                   >
                     摄取此目录到记忆
                   </button>
-                  {fileActions.includes('openWorkspacePath') && (
-                    <button
-                      type="button"
-                      className="btn h-8"
-                      disabled={!listingRef.current.cwd || !sessionId}
-                      onClick={() => {
-                        const cwd = listingRef.current.cwd
-                        if (!cwd || !sessionId) return
-                        const selected = files.find((row) => row.id === selectedId)
-                        const rel = selected?.id && selected.id !== '.' ? selected.id : (validParentId || '.')
-                        const path = !rel || rel === '.' ? cwd : `${cwd.replace(/\/$/, '')}/${rel}`
-                        void runtimeApi.catalogAction({
-                          kind: 'file',
-                          action: 'openWorkspacePath',
-                          sessionId,
-                          path,
-                        }).catch((error) => {
-                          setFilesError(error instanceof Error ? error.message : '打不开系统应用')
-                        })
-                      }}
-                    >
-                      <FolderOpen size={14} /> 用系统应用打开
-                    </button>
-                  )}
-                  {fileActions.includes('openWorkspacePath') && (
-                    <button
-                      type="button"
-                      className="btn h-8"
-                      disabled={!listingRef.current.cwd}
-                      onClick={() => {
-                        const cwd = listingRef.current.cwd
-                        if (!cwd) {
-                          setFilesError('当前顶栏没有绑定本机目录')
-                          return
-                        }
-                        const selected = files.find((row) => row.id === selectedId)
-                        const rel = selected?.kind === 'folder'
-                          ? selected.id
-                          : (selected?.parentId || validParentId || '.')
-                        const path = !rel || rel === '.' ? cwd : `${cwd.replace(/\/$/, '')}/${rel}`
-                        void runtimeApi.catalogAction({
-                          kind: 'file',
-                          action: 'openWorkspacePath',
-                          sessionId: sessionId || undefined,
-                          path,
-                          params: { action: 'reveal' },
-                        }).catch((error) => {
-                          setFilesError(error instanceof Error ? error.message : '打不开这个位置')
-                        })
-                      }}
-                    >
-                      <FolderOpen size={14} /> 显示位置
-                    </button>
-                  )}
+                  <NativeOpenButtons openRel={validParentId || '.'} revealRel={validParentId || '.'} />
                 </div>
               </div>
             </Card>
@@ -1071,7 +1342,6 @@ export default function Files() {
                         const payload = JSON.stringify({
                           path: f.id,
                           name: f.name,
-                          sessionId: sessionId ?? '',
                         })
                         event.dataTransfer.setData('application/x-fde-file', payload)
                         event.dataTransfer.setData('text/plain', `fde-file:${payload}`)
@@ -1109,11 +1379,7 @@ export default function Files() {
                             type="button"
                             className="btn-ghost p-1 text-ink-subtle hover:text-brand opacity-0 group-hover:opacity-100"
                             title="发给当前 AI 会话"
-                            onClick={() => {
-                              window.dispatchEvent(new CustomEvent('fde-x-attach-file', {
-                                detail: { path: f.id, name: f.name, sessionId: sessionId ?? '' },
-                              }))
-                            }}
+                            onClick={() => sendToCurrentAi(f)}
                           >
                             <Send size={14} />
                           </button>

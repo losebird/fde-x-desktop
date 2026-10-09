@@ -1,4 +1,6 @@
+const { mkdirSync, writeFileSync } = require('node:fs')
 const { mkdir, readdir, readFile, writeFile } = require('node:fs/promises')
+const { createRequire } = require('node:module')
 const { homedir } = require('node:os')
 const { join } = require('node:path')
 
@@ -130,6 +132,31 @@ async function handler(req, res) {
   }
 }
 
+function dshHome() {
+  return process.env.FDE_DSH_HOME || process.env.DSH_HOME || join(homedir(), '.dsh-fde-x')
+}
+
+function writeBridgeToolsStatus(payload) {
+  const dir = join(dshHome(), 'run')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'bridge-tools.json'), `${JSON.stringify(payload)}\n`)
+}
+
+function loadDshTools() {
+  const seeds = []
+  if (require.main && require.main.filename) seeds.push(require.main.filename)
+  if (process.argv[1]) seeds.push(process.argv[1])
+  let last
+  for (const seed of seeds) {
+    try {
+      return createRequire(seed)('@deepseek-ai/dsh-tools')
+    } catch (error) {
+      last = error
+    }
+  }
+  throw last || new Error('cannot resolve @deepseek-ai/dsh-tools')
+}
+
 function apply(ctx) {
   if (ctx.webServer && typeof ctx.webServer.register === 'function') {
     ctx.effect(() => ctx.webServer.register({
@@ -138,20 +165,20 @@ function apply(ctx) {
       handler,
     }))
   }
-  void (async () => {
-    try {
-      const { defineTool } = await import('@deepseek-ai/dsh-tools')
-      const { registerTools } = require('./tools.js')
-      registerTools(ctx, { defineTool })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (ctx.logger && typeof ctx.logger.warn === 'function') {
-        ctx.logger.warn(`[fde-x-dsh-bridge] tools: ${message}`)
-      } else {
-        console.warn(`[fde-x-dsh-bridge] tools: ${message}`)
-      }
+  try {
+    const { defineTool } = loadDshTools()
+    const { registerTools, FDE_TOOL_NAMES } = require('./tools.js')
+    registerTools(ctx, { defineTool })
+    writeBridgeToolsStatus({ ok: true, tools: FDE_TOOL_NAMES })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    writeBridgeToolsStatus({ ok: false, error: message })
+    if (ctx.logger && typeof ctx.logger.error === 'function') {
+      ctx.logger.error(`[fde-x-dsh-bridge] tools: ${message}`)
+    } else {
+      console.error(`[fde-x-dsh-bridge] tools: ${message}`)
     }
-  })()
+  }
 }
 
 module.exports = { apply, inject: ['webServer', 'tools'] }

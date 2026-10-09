@@ -10,6 +10,18 @@ import { installSemanticOsHttp } from '@/lib/semantic-http'
 import { useApp, useCurrentWorkspace, useWorkspaces } from '@/store/app'
 import { useEvents } from '@/lib/events'
 
+function openOriginLand(id: string, onMiss: (msg: string) => void) {
+  const land = classifyHitId(id)
+  if (land.class === 'session' || land.class === 'graph') {
+    openRef(land.href)
+    return
+  }
+  void runtimeApi.fetchCorpus(id).then((doc) => {
+    if (doc.href) openRef(doc.href as OpenRefHref)
+    else openRef(land.href)
+  }).catch((cause) => onMiss(cause instanceof Error ? cause.message : '读不出来源'))
+}
+
 const CANVASES = [
   { id: 'explore', no: '01', kicker: '图谱工作室', title: '探索', desc: '浏览图谱并切换视图。' },
   { id: 'analyze', no: '02', kicker: '推理引擎', title: '分析', desc: '查询当前图并测试推理规则。' },
@@ -535,10 +547,7 @@ function CardsArchive({ cwd, onBack }: { cwd: string; onBack: () => void }) {
   }
 
   const openOrigin = (id: string) => {
-    void runtimeApi.fetchCorpus(id).then((doc) => {
-      if (doc.href) openRef(doc.href as OpenRefHref)
-      else setNote('找不到来源跳转')
-    }).catch((cause) => setNote(cause instanceof Error ? cause.message : '读不出来源'))
+    openOriginLand(id, setNote)
   }
 
   return (
@@ -989,7 +998,6 @@ function FindPanel() {
       {note && !hits.length && <div className="text-xs text-ink-muted">{note}</div>}
       {hits.map((row, index) => {
         const hitId = String(row.id || '')
-        const land = classifyHitId(hitId)
         return (
         <div key={String(row.id || index)} className="text-xs border border-line rounded p-2 mb-2 break-words min-w-0">
           <div className="text-ink-subtle mb-1">{hitWhen(row) || String(row.title || row.id || '')}</div>
@@ -1001,16 +1009,7 @@ function FindPanel() {
               }).catch((cause) => setNote(cause instanceof Error ? cause.message : '没问出去'))
             }}>问 AI</button>
             {hitId && (
-              <button type="button" className="btn h-7 px-2" onClick={() => {
-                if (land.class === 'graph' || land.class === 'session') {
-                  openRef(land.href)
-                  return
-                }
-                void runtimeApi.fetchCorpus(hitId).then((doc) => {
-                  if (doc.href) openRef(doc.href as OpenRefHref)
-                  else openRef(land.href)
-                }).catch((cause) => setNote(cause instanceof Error ? cause.message : '读不出来源'))
-              }}>打开来源</button>
+              <button type="button" className="btn h-7 px-2" onClick={() => openOriginLand(hitId, setNote)}>打开来源</button>
             )}
           </div>
         </div>

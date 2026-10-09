@@ -6,25 +6,50 @@ import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { isFdeAppSpec, type FdeAppDetail, type FdeAppSkillBind } from '@/lib/app-spec'
 import { appBuilderPrompt } from '@/lib/app-builder-prompt'
 import { currentAiTarget } from '@/lib/ai-target'
-import { runtimeApi, type SkillBagItem } from '@/lib/runtime-api'
+import type { JsonSchemaLite } from '@/lib/json-schema-lite'
+import { runtimeApi, type BusinessConnectionRecord, type SkillBagItem } from '@/lib/runtime-api'
 import { SkillBagPicker } from '@/components/biz/SkillBagPicker'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 
+type DraftDefinitionPreview = {
+  screens: string[]
+  dataSources: string[]
+  permissions: string[]
+}
+
 type Props = {
   workspaceId: string
-  onDraftReady?: (appId: string) => void
+  connections?: BusinessConnectionRecord[]
+  onDraftReady?: (appId: string, hint?: string) => void
+  onDefinitionPreview?: (appId: string, definition: DraftDefinitionPreview) => void
   onActivated: (appId: string) => void
   onClose: () => void
+}
+
+const DRAFT_DEFINITION_SCHEMA: JsonSchemaLite = {
+  type: 'object',
+  required: ['screens'],
+  properties: {
+    screens: { type: 'array', items: { type: 'string' } },
+    dataSources: { type: 'array', items: { type: 'string' } },
+    permissions: { type: 'array', items: { type: 'string' } },
+  },
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((row) => String(row || '').trim()).filter(Boolean)
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClose }: Props) {
+export function AppCreateWizard({ workspaceId, connections = [], onDraftReady, onDefinitionPreview, onActivated, onClose }: Props) {
   const [step, setStep] = useState<'describe' | 'generating' | 'preview'>('describe')
   const [aiReady, setAiReady] = useState(false)
+  const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [dataConnect, setDataConnect] = useState<'local' | 'modules'>('local')
   const [connectBriefing, setConnectBriefing] = useState(false)
@@ -113,6 +138,64 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
     }
     parts.push('仅当需求点名时才写 ai/float/memory/im/plan；摘成待办必须 uses 含 plan。')
     return parts.join(' ')
+  }
+
+  const createEmptyDraft = async () => {
+    const title = name.trim()
+    const goal = description.trim()
+    if (!title) return
+    setError('')
+    try {
+      const created = await runtimeApi.createBusinessApp({
+        workspaceId,
+        name: title,
+        definition: {
+          kind: 'ai-generated-draft',
+          goal,
+          screens: [],
+          dataSources: [],
+          permissions: [],
+        },
+        changeNote: '创建草稿',
+      })
+      const target = await currentAiTarget()
+      if (!target.ok) {
+        onDraftReady?.(created.id, `${target.error}。已建空草稿，去 AI 确认后再填屏幕。`)
+        return
+      }
+      const connectorLines = connections.length
+        ? connections.map((row) => `${row.id} ${row.name}`.trim()).join('\n')
+        : '无'
+      const result = await askAiForResult<DraftDefinitionPreview>({
+        intent: '填写应用草稿 definition',
+        prompt: [
+          `工作区：${target.cwd}`,
+          `目标：${goal || title}`,
+          '已有连接器：',
+          connectorLines,
+          '请给出 screens（屏幕名列表）、dataSources（连接器 id）、permissions（权限说明）。禁止过账。',
+        ].join('\n'),
+        schema: DRAFT_DEFINITION_SCHEMA,
+        context: ['workspace', 'apps'],
+      })
+      if (result.ok) {
+        onDefinitionPreview?.(created.id, {
+          screens: stringList(result.data.screens),
+          dataSources: stringList(result.data.dataSources),
+          permissions: stringList(result.data.permissions),
+        })
+      }
+      onDraftReady?.(
+        created.id,
+        result.ok
+          ? ''
+          : (result.error === 'timeout'
+            ? '当前会话还没确认 definition。空草稿已在列表，可点开预览。'
+            : result.error),
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '没建成草稿')
+    }
   }
 
   const generate = async () => {
@@ -214,7 +297,16 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
       {step === 'describe' && (
         <>
           <label className="block text-xs text-ink-muted">
-            描述需求
+            名称
+            <input
+              className="input mt-1 w-full"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="应用名称"
+            />
+          </label>
+          <label className="block text-xs text-ink-muted">
+            目标
             <textarea
               className="input mt-1 w-full"
               rows={3}
@@ -277,6 +369,9 @@ export function AppCreateWizard({ workspaceId, onDraftReady, onActivated, onClos
           </label>
           {error && <div className="text-xs text-accent-red">{error}</div>}
           <div className="flex flex-wrap gap-2 items-center">
+            <button type="button" className="btn h-8" disabled={!name.trim()} onClick={() => void createEmptyDraft()}>
+              创建草稿
+            </button>
             <button type="button" className="btn-brand h-8" disabled={!aiReady || !description.trim()} onClick={() => void generate()}>
               {!aiReady ? '请先连接 AI 核心' : '生成'}
             </button>

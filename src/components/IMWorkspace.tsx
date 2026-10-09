@@ -1752,7 +1752,9 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
     }
     setImBanner({ kind: 'working', text: '正在写成记忆卡片…' })
     const origin = `im:${message.id}`
-    void runtimeApi.draftMemoryCard(`IM · ${activeContact?.name || ''}\n${text}`, 'correction', origin).then(() => {
+    const peerId = String(activeContact?.id || '')
+    const label = [`IM · ${activeContact?.name || ''}`, peerId ? `peerId ${peerId}` : '', `messageId ${message.id}`, text].filter(Boolean).join('\n')
+    void runtimeApi.draftMemoryCard(label, 'correction', origin).then(() => {
       setImBanner({ kind: 'ok', text: '已写成记忆卡片，打开记忆页可点头入档' })
       openRef({ panel: 'memory', pane: 'cards', originId: origin })
     }).catch((cause) => setImBanner({ kind: 'err', text: cause instanceof Error ? cause.message : '没写成卡片' }))

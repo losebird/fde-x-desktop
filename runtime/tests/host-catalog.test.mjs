@@ -63,6 +63,12 @@ test('Plan page disables Host job enable and keeps local writes', () => {
   assert.match(origin, /dsh-goal:/)
   assert.match(origin, /dsh-schedule:/)
   assert.match(origin, /dsh-job:/)
+  assert.match(origin, /export function mergePlanRows/)
+  const store = readFileSync(join(import.meta.dirname, '../../src/store/app.ts'), 'utf8')
+  assert.match(store, /catalogBag\('goal'/)
+  assert.match(store, /catalogBag\('schedule'/)
+  assert.match(store, /catalogBag\('job'/)
+  assert.match(store, /mergePlanRows/)
 })
 
 test('goal view maps to a plan row with dsh-goal origin', () => {

@@ -5,19 +5,23 @@ import { useShallow } from 'zustand/react/shallow'
 import type {
   Task, ScheduleEvent, FileNode, ChatThread, Agent, IMContact, IMMessage,
   BusinessTable, Notification, NewsItem,
-  MetricCard, Workspace, User, ID, Workflow, FileVersion, ChatArtifact,
+  MetricCard, Workspace, User, ID, Workflow, ChatArtifact,
   IMAttachment, IMTopic, IMHandoffPackage,
 } from '@/lib/types'
 import { seedUser } from '@/data/seed'
 import { runtimeApi } from '@/lib/runtime-api'
 import { emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
 import { imBrowseOccupancy } from '@/lib/im-letter-home'
-import { hostGoalStatusOnly, isHostGoalId } from '@/lib/plan-origin'
+import {
+  eventFromHostBagItem,
+  hostGoalStatusOnly,
+  isHostGoalId,
+  mergePlanRows,
+  taskFromHostBagItem,
+  workflowFromHostBagItem,
+} from '@/lib/plan-origin'
 
 const PLAN_UNAVAILABLE = '计划服务未就绪'
-
-// 文件历史保留上限。超出后丢弃最旧的(FIFO)。
-export const MAX_FILE_VERSIONS = 20
 
 // =======================================================
 //                  Stage Manager 侧栏系统
@@ -207,10 +211,6 @@ interface State {
   addFile: (f: Omit<FileNode, 'id' | 'updatedAt'>) => void
   removeFile: (id: ID) => void
   toggleStar: (id: ID) => void
-  // 保存文件:原地覆盖 content + 把旧版本压入 versionHistory(最多 20 条)
-  saveFileContent: (id: ID, content: string, note?: string) => void
-  // files
-  rollbackToVersion: (fileId: ID, versionId: ID) => void
   // chats / agents
   sendMessage: (chatId: ID, msg: { role: 'user' | 'assistant' | 'system'; content: string; agentId?: ID }) => void
   newChat: (title: string, agentId: ID, opts?: { sourceThreadId?: ID }) => ID
@@ -676,12 +676,32 @@ export const useApp = create<AppState>()(
           await runtimeApi.ensureWorkspace({ id: workspaceId, name: ws.name, description: ws.desc, cwd: ws.cwd })
           const from = Date.now() - 366 * 24 * 60 * 60 * 1000
           const to = Date.now() + 366 * 24 * 60 * 60 * 1000
-          const [tasks, events, workflows] = await Promise.all([
+          const cwd = typeof ws.cwd === 'string' && ws.cwd.startsWith('/') ? ws.cwd : ''
+          const bagInput = cwd ? { workspaceId, cwd } : null
+          const emptyBag = { items: [] as Array<{ kind: string; id: string; title: string; href?: unknown; fields?: unknown }> }
+          const [tasks, events, workflows, goalBag, scheduleBag, jobBag] = await Promise.all([
             runtimeApi.listTasks(workspaceId),
             runtimeApi.listEvents(workspaceId, from, to),
             runtimeApi.listWorkflows(workspaceId),
+            bagInput ? runtimeApi.catalogBag('goal', bagInput).catch(() => emptyBag) : Promise.resolve(emptyBag),
+            bagInput ? runtimeApi.catalogBag('schedule', bagInput).catch(() => emptyBag) : Promise.resolve(emptyBag),
+            bagInput ? runtimeApi.catalogBag('job', bagInput).catch(() => emptyBag) : Promise.resolve(emptyBag),
           ])
-          set({ tasks, events, workflows, planServiceError: null })
+          const hostTasks = (goalBag.items || [])
+            .map((item) => taskFromHostBagItem(item as Record<string, unknown>, workspaceId))
+            .filter((row): row is NonNullable<typeof row> => Boolean(row))
+          const hostEvents = (scheduleBag.items || [])
+            .map((item) => eventFromHostBagItem(item as Record<string, unknown>))
+            .filter((row): row is NonNullable<typeof row> => Boolean(row))
+          const hostWorkflows = (jobBag.items || [])
+            .map((item) => workflowFromHostBagItem(item as Record<string, unknown>, workspaceId))
+            .filter((row): row is NonNullable<typeof row> => Boolean(row))
+          set({
+            tasks: mergePlanRows(tasks, hostTasks),
+            events: mergePlanRows(events, hostEvents),
+            workflows: mergePlanRows(workflows, hostWorkflows),
+            planServiceError: null,
+          })
         } catch {
           set({ planServiceError: PLAN_UNAVAILABLE })
         }
@@ -794,55 +814,6 @@ export const useApp = create<AppState>()(
       })),
       toggleStar: (id) =>
         set((s) => ({ files: s.files.map((x) => (x.id === id ? { ...x, starred: !x.starred } : x)) })),
-
-      // 保存:原地覆盖 + 版本历史。版本保留上限 MAX_FILE_VERSIONS,FIFO。
-      saveFileContent: (id, content, note) =>
-        set((s) => {
-          const target = s.files.find((f) => f.id === id)
-          if (!target) return {}
-          const ts = now()
-          const history = target.versionHistory ?? []
-          const ver: FileVersion = {
-            id: uid('fv'),
-            ts: target.updatedAt,
-            content: target.content ?? '',
-            size: target.size,
-            note,
-          }
-          const newHistory = [ver, ...history].slice(0, MAX_FILE_VERSIONS)
-          return {
-            files: s.files.map((f) =>
-              f.id === id
-                ? { ...f, content, updatedAt: ts, size: content.length, versionHistory: newHistory, dirty: true }
-                : f,
-            ),
-          }
-        }),
-      // 回滚:把指定版本设为当前,并把当前版本作为新历史项追加
-      rollbackToVersion: (fileId, versionId) =>
-        set((s) => {
-          const target = s.files.find((f) => f.id === fileId)
-          if (!target) return {}
-          const ver = (target.versionHistory ?? []).find((v) => v.id === versionId)
-          if (!ver) return {}
-          const ts = now()
-          const nowVer: FileVersion = {
-            id: uid('fv'),
-            ts: target.updatedAt,
-            content: target.content ?? '',
-            size: target.size,
-            note: `已回滚到 ${ver.ts}`,
-          }
-          const newHistory = [nowVer, ...(target.versionHistory ?? []).filter((v) => v.id !== versionId)]
-            .slice(0, MAX_FILE_VERSIONS)
-          return {
-            files: s.files.map((f) =>
-              f.id === fileId
-                ? { ...f, content: ver.content, updatedAt: ts, size: ver.content.length, versionHistory: newHistory }
-                : f,
-            ),
-          }
-        }),
 
       sendMessage: (chatId, msg) => {
         const userMsg: ChatThread['messages'][number] = {

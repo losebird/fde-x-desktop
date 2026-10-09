@@ -25,7 +25,7 @@ import { AppCreateWizard } from '@/components/apps/AppCreateWizard'
 import { AppRuntime } from '@/components/apps/AppRuntime'
 import { appIsTrashed, isFdeAppSpec, specHasUse, type FdeAppDetail } from '@/lib/app-spec'
 import { runDeclaredPlatformUse } from '@/lib/app-platform'
-import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { RecordsPanel } from '@/components/biz/RecordsPanel'
 import { OperationControlPanel } from '@/components/biz/OperationControlPanel'
 import { dataLandView } from '@/lib/data-browse'
@@ -291,10 +291,12 @@ function asAppDef(value: JsonValue): Record<string, unknown> {
 }
 
 function AppDraftEditor({
-  app, connections, onSaved, onOpenRecords,
+  app, connections, preview, hint, onSaved, onOpenRecords,
 }: {
   app: BusinessAppRecord
   connections: BusinessConnectionRecord[]
+  preview?: { screens?: string[]; dataSources?: string[]; permissions?: string[] } | null
+  hint?: string
   onSaved: () => Promise<void>
   onOpenRecords: () => void
 }) {
@@ -312,8 +314,16 @@ function AppDraftEditor({
     setScreens(Array.isArray(next.screens) ? next.screens.map(String).join('\n') : '')
     setPermissions(Array.isArray(next.permissions) ? next.permissions.map(String).join('\n') : String(next.permissions || ''))
     setSources(Array.isArray(next.dataSources) ? next.dataSources.map(String) : [])
-    setNote('')
-  }, [app.id, app.currentRevision])
+    setNote(hint || '')
+  }, [app.id, app.currentRevision, hint])
+
+  useEffect(() => {
+    if (!preview) return
+    if (preview.screens) setScreens(preview.screens.map(String).join('\n'))
+    if (preview.permissions) setPermissions(preview.permissions.map(String).join('\n'))
+    if (preview.dataSources) setSources(preview.dataSources.map(String))
+    setNote('预览自当前会话，保存后写入 definition')
+  }, [preview])
 
   const save = async () => {
     setSaving(true)
@@ -468,6 +478,9 @@ function Overview({
   onOpenOperations: () => void
 }) {
   const [showCreate, setShowCreate] = useState(false)
+  const [hasAiSession, setHasAiSession] = useState(false)
+  const [draftPreview, setDraftPreview] = useState<{ appId: string; screens: string[]; dataSources: string[]; permissions: string[] } | null>(null)
+  const [draftHint, setDraftHint] = useState('')
   const [draftsOpen, setDraftsOpen] = useState(false)
   const [dialogAppId, setDialogAppId] = useState('')
   const workspaceAppId = useApp((state) => state.dataBrowse.workspaceAppId) || ''
@@ -500,6 +513,7 @@ function Overview({
   useEffect(() => {
     const cwd = loadCurrentWorkspaceCwd()
     if (cwd.ok) setWorkspaceCwd(cwd.cwd)
+    void currentAiTarget().then((target) => setHasAiSession(target.ok)).catch(() => setHasAiSession(false))
   }, [])
 
   useEffect(() => {
@@ -647,7 +661,7 @@ function Overview({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 @3xl:grid-cols-4 gap-3">
-        <Metric icon={AppWindow} label="业务应用" value={liveApps.length} hint={`${liveApps.filter((item) => item.appKind === 'generated').length} 个由 AI 创建`} />
+        <Metric icon={AppWindow} label="业务应用" value={liveApps.length} hint={`${draftApps.length} 个草稿`} />
         <Metric icon={Database} label="系统连接" value={connections.length} hint={`${connections.filter((item) => item.status === 'connected').length} 个已接通`} />
         <Metric icon={FileClock} label="待审批" value={pendingApproval} hint="写入不会绕过确认" tone={pendingApproval ? 'amber' : 'default'} />
         <Metric icon={Activity} label="异常待处理" value={unresolved} hint={`${operations.length} 次操作留有记录`} tone={unresolved ? 'red' : 'default'} />
@@ -661,12 +675,23 @@ function Overview({
               <div className="text-sm font-medium">我的业务应用</div>
               <div className="text-xs text-ink-muted mt-0.5">列表是目录，没有官方台账。主入口是创建应用：描述需求，生成你自己的应用。</div>
             </div>
-            <button type="button" className="btn-primary !py-1" data-app-create-entry="true" onClick={() => setShowCreate((value) => !value)}><Plus size={12} /> 创建应用</button>
+            <button type="button" className="btn-primary !py-1" data-app-create-entry="true" onClick={() => setShowCreate((value) => !value)}><Plus size={12} /> {hasAiSession ? '创建应用' : '创建草稿'}</button>
           </div>
           {showCreate && (
             <AppCreateWizard
               workspaceId={workspaceId}
-              onDraftReady={() => { void onCreated() }}
+              connections={connections}
+              onDraftReady={(appId, hint) => {
+                void onCreated()
+                setShowCreate(false)
+                setWorkspaceAppId('')
+                setDialogAppId(appId)
+                setDraftHint(hint || '')
+              }}
+              onDefinitionPreview={(appId, definition) => {
+                setDraftPreview({ appId, ...definition })
+                setDialogAppId(appId)
+              }}
               onActivated={(appId) => {
                 void onCreated()
                 setShowCreate(false)
@@ -825,6 +850,8 @@ function Overview({
                 <AppDraftEditor
                   app={selected}
                   connections={connections}
+                  preview={draftPreview && draftPreview.appId === selected.id ? draftPreview : null}
+                  hint={draftHint}
                   onSaved={onCreated}
                   onOpenRecords={onOpenRecords}
                 />

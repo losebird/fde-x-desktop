@@ -4,7 +4,7 @@ import { capacityFieldText, formatCapacity, parseCapacity } from '@/components/s
 import { mergeModelRows } from '../../../runtime/models-settings-rows.mjs'
 import clsx from 'clsx'
 import { Tag } from '@/components/ui'
-import { runtimeApi, type ModelsSettingsRow, type ModelsSettingsSnapshot } from '@/lib/runtime-api'
+import { legacyModelsSnapshotFromProviders, runtimeApi, type ModelsSettingsRow, type ModelsSettingsSnapshot } from '@/lib/runtime-api'
 
 const LIST_COLLAPSE_AT = 4
 
@@ -338,29 +338,7 @@ export function ModelsProvidersSection({
     }).catch((cause) => {
       setLoadError(cause instanceof Error ? cause.message : '加载失败')
       void runtimeApi.listAiProviders().then((legacy) => {
-        setSnapshot({
-          writable: true,
-          protocolChoices: [],
-          namespaces: {},
-          legacy: true,
-          rows: legacy.providers.map((row) => ({
-            provider: row.provider,
-            displayName: row.displayName,
-            settingsNs: row.kind === 'custom' ? 'llm-pi-ai' : '',
-            settingsPath: row.kind === 'custom' ? ['providers', row.provider] : [],
-            active: row.active,
-            kind: row.kind || 'catalog',
-            configured: row.configured,
-            removable: row.kind === 'custom',
-            keyRef: row.keyRef,
-            credentialConfigured: row.configured,
-            credentialWritable: true,
-            declared: row.kind === 'custom',
-            modelsOverridden: false,
-            profile: row.profile,
-            userProfile: row.profile,
-          })),
-        })
+        setSnapshot(legacyModelsSnapshotFromProviders(legacy))
         setLoadError('')
         setNote('主接口失败，已退回旧列表。请重载核心。')
       }).catch(() => setSnapshot(null))
@@ -997,6 +975,7 @@ function AddCustomCard({
   const [displayName, setDisplayName] = useState('')
   const [baseURL, setBaseURL] = useState('')
   const [api, setApi] = useState(protocolChoices[0] || 'openai-completions')
+  const protocolOptions = protocolChoices.length > 0 ? protocolChoices : (api ? [api] : [])
   const [apiKey, setApiKey] = useState('')
   const [models, setModels] = useState<ModelRow[]>([])
   const [discoverRows, setDiscoverRows] = useState<ModelRow[] | null>(null)
@@ -1040,9 +1019,14 @@ function AddCustomCard({
         <Field label="API 地址">
           <input className="input w-full font-mono text-xs" value={baseURL} onChange={(e) => setBaseURL(e.target.value)} />
         </Field>
-        <Field label="API 协议">
-          <select className="input w-full text-sm" value={api} onChange={(e) => setApi(e.target.value)}>
-            {protocolChoices.map((choice) => (
+        <Field label="API 协议" hint={protocolChoices.length === 0 ? '协议列表来自 settings schema；若为空请重载核心。' : undefined}>
+          <select
+            className="input w-full text-sm"
+            value={api}
+            onChange={(e) => setApi(e.target.value)}
+            disabled={busy || protocolOptions.length === 0}
+          >
+            {protocolOptions.map((choice) => (
               <option key={choice} value={choice}>{choice}</option>
             ))}
           </select>

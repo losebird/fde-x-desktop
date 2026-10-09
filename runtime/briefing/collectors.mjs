@@ -53,6 +53,13 @@ function baseSection(def, extra = {}) {
   }
 }
 
+function noConnectorSection(def) {
+  return baseSection(def, {
+    items: [],
+    stat: { value: '—', label: def.title || '—' },
+  })
+}
+
 export async function collectInternalSection(deps, def, workspaceCwd) {
   const { db, aiRuntime } = deps
   const workspaceId = workspaceRowIdForCwd(db, workspaceCwd)
@@ -151,7 +158,7 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
       const conn = kindConnectionOf(row)
       if (conn.type === 'mcp') {
         const found = await findBizSystem(aiRuntime, conn.systemId)
-        if (!found.system) return baseSection(def, { error: '词表连接已不存在' })
+        if (!found.system) return noConnectorSection(def)
         try {
           const raw = await invokeBizSlot({ aiRuntime, db }, {
             source: mcpSourceFromSystem(found.system),

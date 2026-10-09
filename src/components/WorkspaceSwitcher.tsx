@@ -49,7 +49,7 @@ export function WorkspaceSwitcher() {
   const ref = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const [menuPos, setMenuPos] = useState({ left: 0, top: 0 })
+  const [menuPos, setMenuPos] = useState({ left: 0, top: 0, maxHeight: 0 })
   const mailbox = useImMailbox()
 
   useEffect(() => {
@@ -58,9 +58,12 @@ export function WorkspaceSwitcher() {
       const rect = buttonRef.current?.getBoundingClientRect()
       if (!rect) return
       const menuWidth = 288
+      const top = rect.bottom + 6
+      const pad = 8
       setMenuPos({
         left: Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8)),
-        top: rect.bottom + 6,
+        top,
+        maxHeight: Math.max(240, window.innerHeight - top - pad),
       })
     }
     const onDown = (e: MouseEvent) => {
@@ -115,12 +118,10 @@ export function WorkspaceSwitcher() {
     return () => { cancelled = true }
   }, [dialog, current?.id])
 
-  if (!current) return null
-
   const unreadOf = (cwd?: string) => mailbox.sheet.byCwd[normalizeCwd(cwd)] || 0
   const imUnassignedUnread = mailbox.sheet.unassigned
   const otherUnread = workspaces.reduce((sum, row) => (
-    row.id === current.id ? sum : sum + unreadOf(row.cwd)
+    current && row.id === current.id ? sum : sum + unreadOf(row.cwd)
   ), 0) + imUnassignedUnread
 
   const openDialog = (kind: 'manage' | 'new') => {
@@ -155,7 +156,7 @@ export function WorkspaceSwitcher() {
   }
 
   const saveCurrent = async () => {
-    if (!draft.name.trim()) return
+    if (!current || !draft.name.trim()) return
     updateWorkspace(current.id, {
       name: draft.name.trim(), emoji: draft.emoji.trim() || '🧭',
       desc: draft.desc.trim() || '暂无工作区说明', color: draft.color,
@@ -199,7 +200,7 @@ export function WorkspaceSwitcher() {
       setConfirmDelete(true)
       return
     }
-    if (removeWorkspace(current.id)) {
+    if (current && removeWorkspace(current.id)) {
       await removeWorkspaceDirectory(current.id).catch(() => {})
       setDialog(null)
     }
@@ -214,13 +215,13 @@ export function WorkspaceSwitcher() {
           'flex items-center gap-1.5 h-8 pl-2 pr-1.5 rounded-full text-sm transition-colors border border-line',
           open ? 'bg-surface-2 ring-1 ring-line border-transparent' : 'hover:bg-surface-2 bg-surface',
         )}
-        title={`当前工作区: ${current.name}`}
+        title={current ? `当前工作区: ${current.name}` : '选择工作区'}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', COLOR_DOT[current.color ?? 'slate'] ?? 'bg-slate-500')} />
-        <span className="text-base leading-none">{current.emoji}</span>
-        <span className="font-medium max-w-[120px] truncate">{current.name}</span>
+        <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', COLOR_DOT[current?.color ?? 'slate'] ?? 'bg-slate-500')} />
+        <span className="text-base leading-none">{current?.emoji || '📁'}</span>
+        <span className="font-medium max-w-[120px] truncate">{current?.name || '选择工作区'}</span>
         {otherUnread > 0 && (
           <span className="min-w-3.5 h-3.5 px-1 rounded-full bg-accent-red text-white text-[9px] flex items-center justify-center">
             {otherUnread > 99 ? '99+' : otherUnread}
@@ -233,12 +234,13 @@ export function WorkspaceSwitcher() {
         <div
           ref={menuRef}
           role="menu"
-          className="fixed w-72 bg-surface border border-line rounded-lg shadow-pop py-1.5"
-          style={{ left: menuPos.left, top: menuPos.top, zIndex: 10000 }}
+          className="fixed w-72 bg-surface border border-line rounded-lg shadow-pop py-1.5 flex flex-col overflow-hidden max-h-[70vh]"
+          style={{ left: menuPos.left, top: menuPos.top, zIndex: 10000, maxHeight: menuPos.maxHeight || undefined }}
         >
-          <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-ink-subtle">切换工作区</div>
+          <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-ink-subtle shrink-0">切换工作区</div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
           {workspaces.map((w) => {
-            const active = w.id === current.id
+            const active = Boolean(current && w.id === current.id)
             const unread = unreadOf(w.cwd)
             return (
               <button
@@ -264,6 +266,8 @@ export function WorkspaceSwitcher() {
               </button>
             )
           })}
+          </div>
+          <div className="shrink-0">
           <div className="my-1 border-t border-line" />
           <button
             onClick={() => {
@@ -286,14 +290,17 @@ export function WorkspaceSwitcher() {
             )}
           </button>
           <div className="my-1 border-t border-line" />
-          <button onClick={() => openDialog('manage')} className="w-full px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-ink-muted" role="menuitem">
-            <Settings size={14} /> 管理当前工作区…
-          </button>
+          {current ? (
+            <button onClick={() => openDialog('manage')} className="w-full px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-ink-muted" role="menuitem">
+              <Settings size={14} /> 管理当前工作区…
+            </button>
+          ) : null}
           <button onClick={() => openDialog('new')} className="w-full px-3 py-1.5 text-sm hover:bg-surface-2 flex items-center gap-2 text-ink-muted" role="menuitem">
             <Plus size={14} /> 新建工作区…
           </button>
           <div className="px-3 py-1.5 text-[10px] text-ink-subtle border-t border-line mt-1">
             工作区隔离:Agent / AI 会话 / 记忆 / 文件 / 工作流
+          </div>
           </div>
         </div>,
         document.body,

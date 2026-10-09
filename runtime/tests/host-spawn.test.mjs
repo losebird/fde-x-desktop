@@ -32,6 +32,7 @@ test('electron spawn uses FDE_HOST_NODE and strips ELECTRON_RUN_AS_NODE', () => 
   assert.equal(childEnv.ELECTRON_RUN_AS_NODE, undefined)
   assert.equal(childEnv.ALL_PROXY, undefined)
   assert.equal(childEnv.DSH_HOME, '/tmp/x')
+  assert.equal(typeof childEnv.PATH, 'string')
 })
 
 test('electron without host node throws', () => {

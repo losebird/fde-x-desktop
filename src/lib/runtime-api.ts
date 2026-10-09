@@ -10,6 +10,8 @@ import {
 // live-probe.mjs is the shared BFF/browser helper; Vite bundles it, tsc does not resolve its types from src/.
 // @ts-expect-error runtime ESM helper
 import { LIVE_PATH, LIVE_PROBE_MS, combineAbortSignal, probeRuntimeLive } from '../../runtime/live-probe.mjs'
+// @ts-expect-error runtime ESM helper
+import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
 
 const CONNECT_ATTEMPT_MS = 5_000
 
@@ -49,7 +51,18 @@ function workspaceCwdBody(body: Record<string, unknown> = {}): Record<string, un
   return cwd ? { ...body, cwd } : body
 }
 
-const DEFAULT_BASE_URL = ''
+function defaultRuntimeBaseUrl() {
+  const loc = typeof window === 'undefined' ? undefined : window.location
+  return resolveBffOrigin(import.meta.env.VITE_FDE_RUNTIME_URL, loc)
+}
+
+function isAbortError(error: unknown, signal?: AbortSignal) {
+  if (signal?.aborted) return true
+  if (!error || typeof error !== 'object') return false
+  const name = 'name' in error ? String(error.name) : ''
+  const message = 'message' in error ? String(error.message) : ''
+  return name === 'AbortError' || /BodyStreamBuffer was aborted|The operation was aborted/i.test(message)
+}
 
 export interface RuntimeAdapterStatus {
   capability: string
@@ -180,6 +193,14 @@ export interface McpServerV2 {
   tools: string[]
 }
 
+export type WorkspaceFileVersion = {
+  id: string
+  versionNo: number
+  ts: string
+  size: number
+  note?: string
+}
+
 export interface McpConnectorCard {
   id: string
   name: string
@@ -187,6 +208,20 @@ export interface McpConnectorCard {
   online: boolean
   catalogVersion: string
   lookupRegistered: boolean
+}
+
+export type McpRecipeField = { key: string; label: string; secret?: boolean }
+
+export type McpRecipe = {
+  id: string
+  title: string
+  hint?: string
+  available: boolean
+  transport: 'stdio' | 'streamable-http'
+  serverName: string
+  command: string
+  args: string[]
+  fields: McpRecipeField[]
 }
 
 export type SkillBagOrigin = 'catalog' | 'face'
@@ -273,6 +308,7 @@ export interface AiRuntimeStatus {
   credentialsMode: 'ephemeral-copy'
   startedAt: string | null
   lastError: string | null
+  bridgeTools?: { ok: boolean; error?: string; tools?: string[] }
   recentLogs: string[]
 }
 
@@ -552,8 +588,8 @@ export class RuntimeApiError extends Error {
 export class RuntimeApi {
   readonly baseUrl: string
 
-  constructor(baseUrl = import.meta.env.VITE_FDE_RUNTIME_URL ?? DEFAULT_BASE_URL) {
-    this.baseUrl = baseUrl.replace(/\/$/, '')
+  constructor(baseUrl = defaultRuntimeBaseUrl()) {
+    this.baseUrl = String(baseUrl || '').replace(/\/$/, '')
   }
 
   async health(signal?: AbortSignal): Promise<RuntimeHealth> {
@@ -1603,35 +1639,40 @@ export class RuntimeApi {
     if (opts.id) query.set('id', opts.id)
     if (opts.path) query.set('path', opts.path)
     if (opts.attachmentId) query.set('attachmentId', opts.attachmentId)
-    const response = await fetch(this.uiFetchUrl(`/api/v1/catalog/stream?${query.toString()}`), { signal })
-    if (!response.ok || !response.body) {
-      throw new RuntimeApiError(response.status, 'catalog_stream_failed', `跟不了这个流 (${response.status})`)
-    }
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let eventName = 'message'
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() || ''
-      for (const chunk of chunks) {
-        let data = ''
-        for (const line of chunk.split('\n')) {
-          if (line.startsWith('event:')) eventName = line.slice(6).trim()
-          else if (line.startsWith('data:')) data += line.slice(5).trim()
-        }
-        if (eventName === 'frame' && data) {
-          try { onFrame(JSON.parse(data)) } catch { /* skip one malformed frame */ }
-        }
-        if (eventName === 'error' && data) {
-          const payload = JSON.parse(data) as { message?: string }
-          throw new RuntimeApiError(502, 'catalog_stream_failed', payload.message || '跟不了这个流')
-        }
-        eventName = 'message'
+    try {
+      const response = await fetch(this.uiFetchUrl(`/api/v1/catalog/stream?${query.toString()}`), { signal })
+      if (!response.ok || !response.body) {
+        throw new RuntimeApiError(response.status, 'catalog_stream_failed', `跟不了这个流 (${response.status})`)
       }
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let eventName = 'message'
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+        const chunks = buffer.split('\n\n')
+        buffer = chunks.pop() || ''
+        for (const chunk of chunks) {
+          let data = ''
+          for (const line of chunk.split('\n')) {
+            if (line.startsWith('event:')) eventName = line.slice(6).trim()
+            else if (line.startsWith('data:')) data += line.slice(5).trim()
+          }
+          if (eventName === 'frame' && data) {
+            try { onFrame(JSON.parse(data)) } catch { /* skip one malformed frame */ }
+          }
+          if (eventName === 'error' && data) {
+            const payload = JSON.parse(data) as { message?: string }
+            throw new RuntimeApiError(502, 'catalog_stream_failed', payload.message || '跟不了这个流')
+          }
+          eventName = 'message'
+        }
+      }
+    } catch (error) {
+      if (isAbortError(error, signal)) return
+      throw error
     }
   }
 
@@ -1655,8 +1696,25 @@ export class RuntimeApi {
     return result.data
   }
 
-  async uploadWorkspaceFile(input: { name: string; data: string; sessionId?: string }, signal?: AbortSignal): Promise<{ path: string }> {
-    const result = await this.request<{ data: { path: string } }>('/api/v1/files', {
+  async uploadWorkspaceFile(input: { name: string; data: string; sessionId?: string }, signal?: AbortSignal): Promise<{ path: string; versions?: WorkspaceFileVersion[] }> {
+    const result = await this.request<{ data: { path: string; versions?: WorkspaceFileVersion[] } }>('/api/v1/files', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return result.data
+  }
+
+  async listWorkspaceFileVersions(path: string, sessionId?: string, signal?: AbortSignal): Promise<WorkspaceFileVersion[]> {
+    const query = new URLSearchParams({ path })
+    if (sessionId) query.set('sessionId', sessionId)
+    const result = await this.request<{ data: { items?: WorkspaceFileVersion[] } }>(`/api/v1/files/versions?${query.toString()}`, { signal })
+    return Array.isArray(result.data?.items) ? result.data.items : []
+  }
+
+  async rollbackWorkspaceFile(input: { path: string; versionId: string; sessionId?: string }, signal?: AbortSignal): Promise<{ path: string; versions?: WorkspaceFileVersion[] }> {
+    const result = await this.request<{ data: { path: string; versions?: WorkspaceFileVersion[] } }>('/api/v1/files/rollback', {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1698,8 +1756,8 @@ export class RuntimeApi {
     return result.data
   }
 
-  async writeWorkspaceFile(input: { path: string; text: string; sessionId?: string }, signal?: AbortSignal): Promise<{ path: string }> {
-    const result = await this.request<{ data: { path: string } }>('/api/v1/files/content', {
+  async writeWorkspaceFile(input: { path: string; text?: string; data?: string; html?: string; sessionId?: string; note?: string }, signal?: AbortSignal): Promise<{ path: string; versions?: WorkspaceFileVersion[] }> {
+    const result = await this.request<{ data: { path: string; versions?: WorkspaceFileVersion[] } }>('/api/v1/files/content', {
       method: 'PUT',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -2118,6 +2176,11 @@ export class RuntimeApi {
       body: JSON.stringify(body),
     })
     return result.data
+  }
+
+  async listMcpRecipes(signal?: AbortSignal): Promise<McpRecipe[]> {
+    const result = await this.request<{ data: { recipes: McpRecipe[] } }>('/api/v1/mcp/recipes', { signal })
+    return Array.isArray(result.data?.recipes) ? result.data.recipes : []
   }
 
   async listMcpServers(signal?: AbortSignal): Promise<{ mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }> {

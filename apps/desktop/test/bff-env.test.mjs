@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { buildBffEnv, pageOrigin, reserveLoopbackPort } from '../dist/bff-env.js'
+import { bindPreferredLoopbackPort, buildBffEnv, pageOrigin, reserveLoopbackPort } from '../dist/bff-env.js'
 
 const roots = {
   base: '/tmp/fde-x-user',
@@ -44,4 +44,10 @@ test('reserveLoopbackPort returns a listen-able port', async () => {
   const port = await reserveLoopbackPort()
   assert.equal(Number.isInteger(port), true)
   assert.equal(port > 0, true)
+})
+
+test('bindPreferredLoopbackPort reuses a free preferred port', async () => {
+  const first = await reserveLoopbackPort()
+  const again = await bindPreferredLoopbackPort(first)
+  assert.equal(again, first)
 })

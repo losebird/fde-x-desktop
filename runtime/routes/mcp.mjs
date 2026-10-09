@@ -3,7 +3,8 @@ import { access } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { listBusinessConnections } from '../db.mjs'
-import { FDE_AI_WORKSPACE } from '../config.mjs'
+import { FDE_AI_WORKSPACE, FDE_RESOURCES } from '../config.mjs'
+import { desktopProcessPath } from '../desktop-process-path.mjs'
 import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
 import { collectBag } from '../catalog-collect.mjs'
 import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
@@ -362,7 +363,11 @@ export async function resolveExecutable(command) {
       return ''
     }
   }
-  for (const dir of String(process.env.PATH || '').split(delimiter)) {
+  const pathEnv = desktopProcessPath({
+    resources: process.env.FDE_RESOURCES || FDE_RESOURCES,
+    inheritedPath: process.env.PATH || '',
+  })
+  for (const dir of pathEnv.split(delimiter)) {
     if (!dir) continue
     const candidate = join(dir, raw)
     try {
@@ -407,6 +412,12 @@ export async function checkMcpHealth(entry) {
 
 export async function handleMcpRoutes(request, response, url, ctx) {
   const { aiRuntime, db, currentCorrelationId, sendJson, sendError, readJson } = ctx
+
+  if (request.method === 'GET' && url.pathname === '/api/v1/mcp/recipes') {
+    const { listMcpRecipes } = await import('../mcp-recipes.mjs')
+    sendJson(response, 200, { data: { recipes: listMcpRecipes() }, correlationId: currentCorrelationId })
+    return true
+  }
 
   if (request.method === 'GET' && url.pathname === '/api/v1/mcp/servers') {
     const bag = await collectBag(aiRuntime, 'mcp')

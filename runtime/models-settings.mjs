@@ -1,5 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import {
+  dictInnerUid,
+  objectFieldEntries,
+  rootObjectUid,
+  schemaNode,
+  unionConstOptions,
+} from './settings-schema.mjs'
 
 const PROBE_ROUTE = '\0probe'
 
@@ -77,9 +84,24 @@ function nodeAtPath(schema, path) {
   return node
 }
 
+function protocolChoicesFromSchemaGraph(schema) {
+  const rootUid = rootObjectUid(schema)
+  if (rootUid == null) return []
+  const providers = objectFieldEntries(schema, rootUid).find((field) => field.name === 'providers')
+  if (!providers) return []
+  const innerUid = dictInnerUid(schemaNode(schema, providers.uid))
+  if (innerUid == null) return []
+  const api = objectFieldEntries(schema, innerUid).find((field) => field.name === 'api')
+  if (!api) return []
+  return unionConstOptions(schema, api.uid).filter((value) => typeof value === 'string')
+}
+
 export function protocolChoicesFromNamespace(namespaceView) {
   if (!namespaceView?.schema) return []
-  const list = nodeAtPath(namespaceView.schema, ['providers', PROBE_ROUTE, 'api'])
+  const schema = namespaceView.schema
+  const fromGraph = protocolChoicesFromSchemaGraph(schema)
+  if (fromGraph.length) return fromGraph
+  const list = nodeAtPath(schema, ['providers', PROBE_ROUTE, 'api'])
   if (!list || list.type !== 'union' || !Array.isArray(list.list)) return []
   return list.list.map((entry) => entry?.value).filter((value) => typeof value === 'string')
 }

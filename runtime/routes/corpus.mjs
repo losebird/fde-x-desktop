@@ -167,12 +167,14 @@ async function resolveMemoryCard(aiRuntime, cwd, cardId) {
   if (!row) return null
   const text = String(row.cue || row.label || row.content || row.body || '').slice(0, 8000)
   const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  const origin = originOfCard(row)
+  const originLand = origin ? originHref(origin) : null
   return {
     title: String(row.cue || row.label || cardId),
     text,
-    href: originHref(cardId) || { panel: 'memory', pane: 'cards', cardId },
+    href: originLand || originHref(cardId) || { panel: 'memory', pane: 'cards', cardId },
     status: String(row.status || meta.status || ''),
-    origin: originOfCard(row),
+    origin,
   }
 }
 

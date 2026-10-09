@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DSH_NPM_VERSION, SEMANTIC_RUNTIME } from './pins.mjs'
 import { NODE_DIST_VERSION, nodeDistArchiveName, nodeDistPresent, nodeDistUrls } from './node-dist.mjs'
 import { stagePluginTree } from './plugin-stage.mjs'
@@ -123,6 +123,10 @@ async function stageDshFromNpm(dest, version) {
 }
 
 async function stageDsh(dest) {
+  if (process.env.FDE_RESTAGE_DSH !== '1' && dshBinPresent(dest) && dshModuleEntry(dest)) {
+    console.log(`[stage] dsh already present ${dest}`)
+    return true
+  }
   const override = process.env.FDE_DSH_NPM_TREE
   if (override && existsSync(override)) {
     await rm(dest, { recursive: true, force: true })
@@ -238,6 +242,10 @@ async function writeStubNode(dest) {
 }
 
 async function stageNode(dest) {
+  if (process.env.FDE_RESTAGE_NODE !== '1' && nodeDistPresent(dest)) {
+    console.log(`[stage] node already present ${dest}`)
+    return true
+  }
   const override = process.env.FDE_NODE_DIST_TREE
   if (override && existsSync(override) && nodeDistPresent(override)) {
     await rm(dest, { recursive: true, force: true })
@@ -367,6 +375,21 @@ async function writeStubSemantic() {
   console.warn(`[stage] semantic-runtime stub at ${dest}`)
 }
 
+async function sealSemanticManifest(dest) {
+  const bundle = join(vendorDir, 'dsh-semantic-os', 'runtime-bundle.js')
+  if (!existsSync(bundle) || !existsSync(join(dest, 'runtime-manifest.json'))) return
+  const mod = await import(pathToFileURL(bundle).href)
+  if (typeof mod.computeRuntimeTreeSync !== 'function') return
+  const actual = mod.computeRuntimeTreeSync(dest)
+  const manifestPath = join(dest, 'runtime-manifest.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  if (actual.treeHash === manifest.treeHash && actual.fileCount === manifest.fileCount) return
+  manifest.fileCount = actual.fileCount
+  manifest.treeHash = actual.treeHash
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+  console.log(`[stage] sealed semantic treeHash ${actual.treeHash} files ${actual.fileCount}`)
+}
+
 async function readSemanticDigest(dest) {
   try {
     const manifest = JSON.parse(await readFile(join(dest, 'runtime-manifest.json'), 'utf8'))
@@ -409,6 +432,7 @@ async function stageSemantic() {
         })
         await writeFile(join(resourcesRoot, 'semantic-runtime', 'current.json'), `${JSON.stringify(current, null, 2)}\n`)
         console.log(`[stage] semantic-runtime from ${tree}`)
+        await sealSemanticManifest(semanticDest)
         const digest = await readSemanticDigest(semanticDest)
         return { complete: true, digest }
       }
@@ -426,6 +450,7 @@ async function stageSemantic() {
       filter: (src) => basename(src) !== 'current.json',
     })
     console.log(`[stage] semantic-runtime from vendor dist ${vendorDist}`)
+    await sealSemanticManifest(semanticDest)
     const digest = await readSemanticDigest(semanticDest)
     return { complete: true, digest }
   }
@@ -442,20 +467,72 @@ async function stageSemantic() {
   return { complete: false, digest: 'stub' }
 }
 
+export function includeRuntimePath(src, runtimeRoot) {
+  const root = String(runtimeRoot || '').replace(/\/+$/u, '')
+  const full = String(src || '')
+  if (!root || full === root) return true
+  const rel = full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full
+  const parts = rel.split(/[/\\]/u)
+  if (parts.includes('__pycache__')) return false
+  if (parts[0] === 'native-workspaces') return false
+  if (parts[0] === 'data') {
+    const name = parts[parts.length - 1] || ''
+    if (/\.(sqlite|sqlite-wal|sqlite-shm|db)$/iu.test(name)) return false
+    if (parts[1] === 'semantic-os') return false
+  }
+  return true
+}
+
+async function stageBffPackages(dest) {
+  const rootPkg = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8'))
+  const htmlToDocx = rootPkg.dependencies?.['html-to-docx']
+  if (!htmlToDocx) {
+    console.warn('[stage] skip BFF packages: html-to-docx not in package.json')
+    return
+  }
+  await writeFile(
+    join(dest, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'fde-x-app',
+        private: true,
+        type: 'module',
+        dependencies: { 'html-to-docx': htmlToDocx },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  console.log(`[stage] npm i html-to-docx@${htmlToDocx} in ${dest}`)
+  await execFile(
+    'npm',
+    ['i', '--omit=dev', '--no-audit', '--no-fund'],
+    { cwd: dest, maxBuffer: 64 * 1024 * 1024 },
+  )
+}
+
 async function main() {
   console.log(`[stage] resources root: ${resourcesRoot}`)
   await mkdir(appRoot, { recursive: true })
 
+  const runtimeSrc = join(repoRoot, 'runtime')
   const runtimeDest = join(appRoot, 'runtime')
-  await cp(join(repoRoot, 'runtime'), runtimeDest, { recursive: true })
+  await rm(runtimeDest, { recursive: true, force: true })
+  await cp(runtimeSrc, runtimeDest, {
+    recursive: true,
+    filter: (src) => includeRuntimePath(src, runtimeSrc),
+  })
   console.log(`[stage] runtime → ${runtimeDest}`)
 
   if (existsSync(join(repoRoot, 'dist'))) {
+    await rm(join(appRoot, 'dist'), { recursive: true, force: true })
     await cp(join(repoRoot, 'dist'), join(appRoot, 'dist'), { recursive: true })
     console.log(`[stage] dist → ${join(appRoot, 'dist')}`)
   } else {
     console.warn('[stage] dist/ missing — run pnpm build first for a full UI bundle')
   }
+
+  await stageBffPackages(appRoot)
 
   const pluginsRoot = join(resourcesRoot, 'plugins')
   for (const name of ['dsh-lan-assist', 'dsh-semantic-os']) {
@@ -504,7 +581,9 @@ async function main() {
   console.log(`[stage] node.staged: ${nodeStaged}`)
 }
 
-main().catch((error) => {
-  console.error(error)
-  process.exit(1)
-})
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  main().catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })
+}

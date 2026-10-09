@@ -22,6 +22,8 @@ import {
 import { hostChildEnv, resolveHostSpawn } from './host-spawn.mjs'
 import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import { mergeProfileManifest } from './profile-manifest.mjs'
+import { availableProductBundles } from './product-bundles.mjs'
+import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -244,6 +246,9 @@ export class DshCoreConnector {
   }
 
   status() {
+    const bridgeTools = readBridgeToolsStatus(this.dshHome)
+    const lastError = this.lastError
+      || (this.state === 'connected' && !bridgeTools.ok ? (bridgeTools.error || '工作台工具未进会话') : this.lastError)
     return {
       state: this.state,
       connected: this.state === 'connected' && Boolean(this.origin && this.cookie && this.child),
@@ -259,7 +264,8 @@ export class DshCoreConnector {
       semanticMemoryMode: 'external-adapter',
       credentialsMode: 'ephemeral-copy',
       startedAt: this.startedAt,
-      lastError: this.lastError,
+      lastError,
+      bridgeTools,
       recentLogs: this.logs.slice(-MAX_LOG_LINES),
     }
   }
@@ -484,6 +490,7 @@ export class DshCoreConnector {
     for (const name of ['dsh-lan-assist', 'dsh-semantic-os']) {
       if (await this.linkReadablePlugin(name, modules)) extras.push(name)
     }
+    extras.push(...availableProductBundles())
     const packagePath = join(dir, 'package.json')
     let existing = null
     try {
@@ -643,7 +650,9 @@ export class DshCoreConnector {
   async prepareCredentialsCopy() {
     await this.cleanupCredentialsCopy()
     const { seedDshCredentials } = await import('./dsh-credentials.mjs')
+    const { seedDshWorkspaceStore } = await import('./dsh-workspace-seed.mjs')
     await seedDshCredentials(this.dshHome)
+    await seedDshWorkspaceStore(this.dshHome)
     const source = resolve(this.dshHome, '.credentials.yaml')
     await access(source, constants.R_OK)
     const directory = await mkdtemp(join(tmpdir(), 'fde-x-dsh-credentials-'))

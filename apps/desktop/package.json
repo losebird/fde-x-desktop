@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.preload.json",
+    "pack:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --publish never && rm -rf dist-pack/mac-arm64",
     "start": "pnpm run build && electron .",
     "start:dev": "FDE_DESKTOP_DEV=1 pnpm run start",
     "test": "pnpm run build && node --test test/*.test.mjs"

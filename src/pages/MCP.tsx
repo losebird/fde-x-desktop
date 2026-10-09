@@ -5,7 +5,7 @@ import { Plug, Plus, Wrench, Search, Activity } from 'lucide-react'
 import clsx from 'clsx'
 import { PageTitle, Card, Tag, Empty } from '@/components/ui'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { runtimeApi, type McpConnectorCard, type McpServerV2 } from '@/lib/runtime-api'
+import { runtimeApi, type McpConnectorCard, type McpRecipe, type McpServerV2 } from '@/lib/runtime-api'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
 
 type McpBag = { mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }
@@ -26,6 +26,8 @@ const emptyDraft = () => ({
   env: '',
   url: '',
   headers: '',
+  recipeId: '',
+  fieldValues: {} as Record<string, string>,
 })
 
 function mcpCommandLabel(row: McpServerV2) {
@@ -124,6 +126,7 @@ export default function MCP() {
   const [q, setQ] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [draft, setDraft] = useState(emptyDraft)
+  const [recipes, setRecipes] = useState<McpRecipe[]>([])
 
   const filteredMcp = mcp.filter((m) => (
     m.serverName.includes(q)
@@ -133,7 +136,24 @@ export default function MCP() {
   ))
   const loadedCount = mcp.filter((m) => m.status === 'loaded').length
 
+  const applyRecipe = (recipe: McpRecipe) => {
+    if (!recipe.available) {
+      setError(recipe.hint || '该配方在此安装里不可用')
+      return
+    }
+    setDraft({
+      ...emptyDraft(),
+      name: recipe.serverName,
+      transport: recipe.transport,
+      command: recipe.command || '',
+      args: Array.isArray(recipe.args) ? recipe.args.join('\n') : '',
+      recipeId: recipe.id,
+      fieldValues: Object.fromEntries((recipe.fields || []).map((field) => [field.key, ''])),
+    })
+  }
+
   const openEditor = (row?: McpServerV2) => {
+    void runtimeApi.listMcpRecipes().then(setRecipes).catch(() => setRecipes([]))
     if (!row) {
       setEditing('')
       setDraft(emptyDraft())
@@ -200,18 +220,23 @@ export default function MCP() {
     }
     setSaving(true)
     setError('')
+    const fieldEnv = Object.fromEntries(
+      Object.entries(draft.fieldValues).filter(([key, value]) => key !== 'url' && String(value || '').trim()),
+    )
+    const mergedEnv = { ...(parseEnv(draft.env) || {}), ...fieldEnv }
+    const urlFromFields = String(draft.fieldValues.url || '').trim()
     const body = draft.transport === 'stdio'
       ? {
           serverName,
           transport: 'stdio' as const,
           command: draft.command.trim(),
           args: parseLines(draft.args),
-          env: parseEnv(draft.env),
+          env: Object.keys(mergedEnv).length ? mergedEnv : undefined,
         }
       : {
           serverName,
           transport: 'streamable-http' as const,
-          url: draft.url.trim(),
+          url: urlFromFields || draft.url.trim(),
           headers: parseHeaders(draft.headers),
         }
     void runtimeApi.addMcpServer(body)
@@ -382,6 +407,28 @@ export default function MCP() {
               <button type="button" className="btn-ghost p-1" onClick={() => { setShowAdd(false); setEditing('') }}>×</button>
             </div>
             <div className="space-y-3">
+              {!editing && recipes.length > 0 && (
+                <div>
+                  <div className="text-xs text-ink-muted mb-1">配方</div>
+                  <div className="flex flex-wrap gap-2">
+                    {recipes.map((recipe) => (
+                      <button
+                        key={recipe.id}
+                        type="button"
+                        className={clsx('btn h-8 px-3 text-xs', draft.recipeId === recipe.id && 'btn-primary')}
+                        disabled={!recipe.available}
+                        title={recipe.hint}
+                        onClick={() => applyRecipe(recipe)}
+                      >
+                        {recipe.title}
+                      </button>
+                    ))}
+                  </div>
+                  {draft.recipeId && recipes.find((row) => row.id === draft.recipeId)?.hint && (
+                    <div className="text-[11px] text-ink-muted mt-1">{recipes.find((row) => row.id === draft.recipeId)?.hint}</div>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="text-xs text-ink-muted">serverName</label>
                 <input className="input mt-1 font-mono" value={draft.name}
@@ -397,6 +444,17 @@ export default function MCP() {
               </div>
               {draft.transport === 'stdio' ? (
                 <>
+                  {(recipes.find((row) => row.id === draft.recipeId)?.fields || []).filter((field) => field.key !== 'url').map((field) => (
+                    <div key={field.key}>
+                      <label className="text-xs text-ink-muted">{field.label}</label>
+                      <input
+                        className="input mt-1"
+                        type={field.secret ? 'password' : 'text'}
+                        value={draft.fieldValues[field.key] || ''}
+                        onChange={(e) => setDraft({ ...draft, fieldValues: { ...draft.fieldValues, [field.key]: e.target.value } })}
+                      />
+                    </div>
+                  ))}
                   <div>
                     <label className="text-xs text-ink-muted">启动命令</label>
                     <input className="input mt-1 font-mono" value={draft.command}
@@ -415,11 +473,28 @@ export default function MCP() {
                 </>
               ) : (
                 <>
+                  {(recipes.find((row) => row.id === draft.recipeId)?.fields || []).filter((field) => field.key === 'url').map((field) => (
+                    <div key={field.key}>
+                      <label className="text-xs text-ink-muted">{field.label}</label>
+                      <input
+                        className="input mt-1 font-mono"
+                        value={draft.fieldValues.url || draft.url}
+                        onChange={(e) => setDraft({
+                          ...draft,
+                          url: e.target.value,
+                          fieldValues: { ...draft.fieldValues, url: e.target.value },
+                        })}
+                        placeholder="https://…"
+                      />
+                    </div>
+                  ))}
+                  {!(recipes.find((row) => row.id === draft.recipeId)?.fields || []).some((field) => field.key === 'url') && (
                   <div>
                     <label className="text-xs text-ink-muted">URL</label>
                     <input className="input mt-1 font-mono" value={draft.url}
                       onChange={(e) => setDraft({ ...draft, url: e.target.value })} placeholder="https://…" />
                   </div>
+                  )}
                   <div>
                     <label className="text-xs text-ink-muted">Headers（每行 Key: Value）</label>
                     <textarea className="input mt-1 font-mono text-xs" rows={3} value={draft.headers}

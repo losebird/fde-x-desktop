@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { cuaDriverDirs, desktopProcessPath } from './desktop-process-path.mjs'
 
 export function isElectronRuntime(env = process.env, versions = process.versions) {
   return Boolean(versions?.electron || env.ELECTRON_RUN_AS_NODE)
@@ -35,5 +36,11 @@ export function hostChildEnv(extra = {}, env = process.env) {
   delete merged.all_proxy
   delete merged.SOCKS_PROXY
   delete merged.socks_proxy
+  const resources = String(merged.FDE_RESOURCES || env.FDE_RESOURCES || '')
+  merged.PATH = desktopProcessPath({
+    resources,
+    inheritedPath: merged.PATH || env.PATH || '',
+    extraDirs: cuaDriverDirs(resources),
+  })
   return merged
 }

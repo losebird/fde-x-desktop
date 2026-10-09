@@ -11,26 +11,42 @@ export type BuildBffEnvInput = {
   desktopDev?: boolean
 }
 
-export async function reserveLoopbackPort(): Promise<number> {
+function listenLoopback(port: number): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer()
     server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(port, '127.0.0.1', () => {
       const addr = server.address()
-      const port = typeof addr === 'object' && addr ? addr.port : 0
+      const bound = typeof addr === 'object' && addr ? addr.port : 0
       server.close((error) => {
         if (error) {
           reject(error)
           return
         }
-        if (!port) {
+        if (!bound) {
           reject(new Error('loopback port was 0'))
           return
         }
-        resolve(port)
+        resolve(bound)
       })
     })
   })
+}
+
+export async function reserveLoopbackPort(): Promise<number> {
+  return listenLoopback(0)
+}
+
+export async function bindPreferredLoopbackPort(preferred?: number): Promise<number> {
+  const n = Number(preferred)
+  if (Number.isInteger(n) && n > 0) {
+    try {
+      return await listenLoopback(n)
+    } catch {
+      /* in use */
+    }
+  }
+  return reserveLoopbackPort()
 }
 
 export function pageOrigin(port: number) {

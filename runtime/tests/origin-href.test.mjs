@@ -19,6 +19,14 @@ test('originHref lands biz traces on records with kind and no', () => {
   assert.equal(bizTraceIdOf('biz:trace_1'), 'trace_1')
 })
 
+test('originHref session lands on the AI session', () => {
+  const href = originHref('session:session-abc:3')
+  assert.ok(href)
+  assert.equal(href.panel, 'ai')
+  assert.equal(href.sessionId, 'session-abc')
+  assert.equal(originHref('session:'), null)
+})
+
 test('originHref IM uses peer not requestId as thread', () => {
   const href = originHref('im:r1', {
     mailbox: { self: { id: 'me' }, requests: [{ id: 'r1', from: 'p1', to: ['me'] }] },

@@ -102,6 +102,12 @@ import {
 } from './session-bind.mjs'
 import { mergePageCors } from './proxy-cors.mjs'
 import { tryServeStatic } from './routes/static.mjs'
+import { shouldProxyDshPath } from './dsh-proxy-gate.mjs'
+import {
+  listWorkspaceDocumentVersions,
+  rollbackWorkspaceDocument,
+  writeWorkspaceDocument,
+} from './workspace-file-document.mjs'
 import { reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import {
   alignModelRowsWithDiscover,
@@ -784,13 +790,11 @@ function safeSemanticOsUpstreamPath(request) {
 }
 
 function shouldProxyDsh(url) {
-  if (url.pathname === '/dsh-app' || url.pathname.startsWith('/dsh-app/')) return true
-  if (!aiRuntime.origin) return false
-  if (url.pathname.startsWith('/api/v1')) return false
-  if (isSemanticOsPath(url.pathname)) return false
-  if (url.pathname === '/health' || url.pathname === LIVE_PATH) return false
-  if (url.pathname === '/' || url.pathname === '/favicon.ico') return false
-  return true
+  return shouldProxyDshPath(url.pathname, {
+    hostOrigin: aiRuntime.origin,
+    staticDir: FDE_STATIC_DIR,
+    livePath: LIVE_PATH,
+  })
 }
 
 function outboundProxyHeaders(incoming) {
@@ -2659,14 +2663,19 @@ const server = createServer(async (request, response) => {
         return
       }
       const root = await resolveFileRoot(body.sessionId)
-      const target = resolve(join(root, name))
-      if (target !== root && !target.startsWith(root + sep)) {
-        sendError(response, 400, 'validation_error', '路径越出工作区', currentCorrelationId)
-        return
+      try {
+        const written = await writeWorkspaceDocument({
+          db,
+          dshHome: aiRuntime.dshHome,
+          root,
+          relPath: name,
+          bytes: Buffer.from(data, 'base64'),
+          note: '保存前',
+        })
+        sendJson(response, 201, { data: written, correlationId: currentCorrelationId })
+      } catch (error) {
+        sendError(response, 400, 'validation_error', error instanceof Error ? error.message : '写入失败', currentCorrelationId)
       }
-      await mkdir(dirname(target), { recursive: true })
-      await writeFile(target, Buffer.from(data, 'base64'))
-      sendJson(response, 201, { data: { path: name }, correlationId: currentCorrelationId })
       return
     }
 
@@ -2782,23 +2791,82 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    if (request.method === 'PUT' && url.pathname === '/api/v1/files/content') {
+    if (request.method === 'GET' && url.pathname === '/api/v1/files/versions') {
+      const rel = safeWorkspaceRel(url.searchParams.get('path'))
+      if (!rel) {
+        sendError(response, 400, 'validation_error', '路径不合法', currentCorrelationId)
+        return
+      }
+      const root = await resolveFileRoot(url.searchParams.get('sessionId'))
+      sendJson(response, 200, {
+        data: { path: rel, items: listWorkspaceDocumentVersions(db, { cwd: root, relPath: rel }) },
+        correlationId: currentCorrelationId,
+      })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/files/rollback') {
       const body = await readJson(request)
-      const rel = typeof body.path === 'string' ? body.path.trim() : ''
-      const text = typeof body.text === 'string' ? body.text : null
-      if (!rel || text === null || rel.includes('\0') || rel.split(/[\\/]/u).includes('..')) {
-        sendError(response, 400, 'validation_error', '路径或内容不合法', currentCorrelationId)
+      const rel = safeWorkspaceRel(body.path)
+      const versionId = typeof body.versionId === 'string' ? body.versionId.trim() : ''
+      if (!rel || !versionId) {
+        sendError(response, 400, 'validation_error', '路径或版本不合法', currentCorrelationId)
         return
       }
       const root = await resolveFileRoot(typeof body.sessionId === 'string' ? body.sessionId : null)
-      const target = resolve(join(root, rel))
-      if (target !== root && !target.startsWith(root + sep)) {
-        sendError(response, 400, 'validation_error', '路径越出工作区', currentCorrelationId)
+      try {
+        const written = await rollbackWorkspaceDocument({
+          db,
+          dshHome: aiRuntime.dshHome,
+          root,
+          relPath: rel,
+          versionId,
+        })
+        sendJson(response, 200, { data: written, correlationId: currentCorrelationId })
+      } catch (error) {
+        sendError(response, 400, 'validation_error', error instanceof Error ? error.message : '回滚失败', currentCorrelationId)
+      }
+      return
+    }
+
+    if (request.method === 'PUT' && url.pathname === '/api/v1/files/content') {
+      const body = await readJson(request)
+      const rel = safeWorkspaceRel(body.path)
+      const hasText = typeof body.text === 'string'
+      const hasData = typeof body.data === 'string'
+      const hasHtml = typeof body.html === 'string'
+      const kinds = [hasText, hasData, hasHtml].filter(Boolean).length
+      if (!rel || kinds !== 1) {
+        sendError(response, 400, 'validation_error', '路径或内容不合法', currentCorrelationId)
         return
       }
-      await mkdir(dirname(target), { recursive: true })
-      await writeFile(target, text, 'utf8')
-      sendJson(response, 200, { data: { path: rel }, correlationId: currentCorrelationId })
+      let bytes
+      if (hasHtml) {
+        if (!rel.toLowerCase().endsWith('.docx')) {
+          sendError(response, 400, 'validation_error', 'HTML 只能写回 docx', currentCorrelationId)
+          return
+        }
+        const loaded = await import('html-to-docx')
+        const HTMLtoDOCX = loaded.default || loaded
+        const out = await HTMLtoDOCX(`<!doctype html><html><body>${body.html}</body></html>`)
+        bytes = Buffer.isBuffer(out) ? out : Buffer.from(out)
+      } else {
+        bytes = hasText ? Buffer.from(body.text, 'utf8') : Buffer.from(body.data, 'base64')
+      }
+      const root = await resolveFileRoot(typeof body.sessionId === 'string' ? body.sessionId : null)
+      try {
+        const written = await writeWorkspaceDocument({
+          db,
+          dshHome: aiRuntime.dshHome,
+          root,
+          relPath: rel,
+          bytes,
+          note: typeof body.note === 'string' ? body.note : '保存前',
+        })
+        sendJson(response, 200, { data: written, correlationId: currentCorrelationId })
+      } catch (error) {
+        sendError(response, 400, 'validation_error', error instanceof Error ? error.message : '写入失败', currentCorrelationId)
+      }
       return
     }
 

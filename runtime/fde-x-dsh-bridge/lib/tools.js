@@ -82,6 +82,16 @@ async function callBridge(route, body, exec) {
   }
 }
 
+const FDE_TOOL_NAMES = [
+  'fde_submit_result',
+  'fde_context_get',
+  'fde_app_spec_submit',
+  'fde_app_records_query',
+  'fde_app_records_propose',
+  'fde_briefing_submit',
+  'fde_memory_draft',
+]
+
 function registerTools(ctx, { defineTool }) {
   ctx.tools.register(defineTool({
     name: 'fde_submit_result',
@@ -89,7 +99,7 @@ function registerTools(ctx, { defineTool }) {
     parameters: {
       requestId: { type: 'string', required: true },
       kind: { type: 'string', required: true, description: 'json or text' },
-      data: { type: 'object', required: true },
+      data: { type: 'object', required: true, additionalProperties: true },
       summary: { type: 'string' },
     },
     output: {
@@ -114,7 +124,7 @@ function registerTools(ctx, { defineTool }) {
     name: 'fde_context_get',
     description: 'Pull FDE-X workspace context (workspace, tasks, etc.).',
     parameters: {
-      scope: { type: 'array', required: true, description: 'workspace | tasks | im | biz | apps' },
+      scope: { type: 'array', required: true, items: { type: 'string' }, description: 'workspace | tasks | im | biz | apps' },
     },
     output: {
       schema: { type: 'string' },
@@ -136,7 +146,7 @@ function registerTools(ctx, { defineTool }) {
     description: 'Submit or revise declarative app spec. Pass appId to save a new revision of an existing app; omit to create a draft.',
     parameters: {
       requestId: { type: 'string', required: true },
-      spec: { type: 'object', required: true },
+      spec: { type: 'object', required: true, additionalProperties: true },
       appId: { type: 'string' },
     },
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
@@ -155,7 +165,7 @@ function registerTools(ctx, { defineTool }) {
     parameters: {
       slug: { type: 'string', required: true },
       entity: { type: 'string', required: true },
-      filter: { type: 'object' },
+      filter: { type: 'object', additionalProperties: true },
       limit: { type: 'number' },
     },
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
@@ -176,7 +186,7 @@ function registerTools(ctx, { defineTool }) {
       slug: { type: 'string', required: true },
       entity: { type: 'string', required: true },
       op: { type: 'string', required: true },
-      rows: { type: 'array', required: true },
+      rows: { type: 'array', required: true, items: { type: 'object', additionalProperties: true } },
     },
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
     async execute(args, exec) {
@@ -194,7 +204,7 @@ function registerTools(ctx, { defineTool }) {
     description: 'Submit briefing sections to FDE-X.',
     parameters: {
       requestId: { type: 'string', required: true },
-      sections: { type: 'array', required: true },
+      sections: { type: 'array', required: true, items: { type: 'object', additionalProperties: true } },
     },
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
     async execute(args, exec) {
@@ -213,7 +223,7 @@ function registerTools(ctx, { defineTool }) {
     parameters: {
       title: { type: 'string', required: true },
       body: { type: 'string', required: true },
-      refs: { type: 'array', required: true },
+      refs: { type: 'array', required: true, items: { type: 'string' } },
       layer: { type: 'string', required: true },
     },
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
@@ -229,6 +239,7 @@ function registerTools(ctx, { defineTool }) {
 
 module.exports = {
   registerTools,
+  FDE_TOOL_NAMES,
   toolSessionId,
   toolWorkspace,
 }

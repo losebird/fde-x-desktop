@@ -11,13 +11,15 @@ import { landRef } from '@/lib/open-ref'
 import { currentAiTarget, isPrimarySession, resolvePrimarySessionId } from '@/lib/ai-target'
 import { useApp } from '@/store/app'
 import { clearAskAiNotice, getAskAiNotice, subscribeAskAiNotice } from '@/lib/ask-ai'
-import { assistantMatchesFill, registerCurrentTurnSink, selectCurrentTurn } from '@/lib/current-turn'
+import { attachToCurrentAi, assistantMatchesFill, registerCurrentTurnSink, selectCurrentTurn } from '@/lib/current-turn'
 import { extractComposerBody } from '@/lib/im-ai'
 import { proposeTerminalGrid } from '@/lib/terminal-fit'
 import { terminalCloseAction } from '@/lib/terminal-occupancy'
 import { useEvents } from '@/lib/events'
 // @ts-expect-error runtime ESM helper
 import { combineAbortSignal } from '../../runtime/live-probe.mjs'
+// @ts-expect-error runtime ESM helper
+import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
 import {
   runtimeApi,
   RuntimeApiError,
@@ -35,16 +37,7 @@ function displayError(error: unknown) {
 }
 
 function defaultBffOrigin() {
-  const fromEnv = import.meta.env.VITE_FDE_RUNTIME_URL
-  if (typeof fromEnv === 'string' && fromEnv.trim()) {
-    return fromEnv.replace(/\/$/, '')
-  }
-  const loc = window.location
-  const host = loc.hostname || '127.0.0.1'
-  const pagePort = Number(loc.port || (loc.protocol === 'https:' ? 443 : 80))
-  const webToRuntimePort: Record<number, number> = { 5174: 4318, 5175: 4319 }
-  const runtimePort = webToRuntimePort[pagePort] ?? 4318
-  return `${loc.protocol}//${host}:${runtimePort}`
+  return resolveBffOrigin(import.meta.env.VITE_FDE_RUNTIME_URL, window.location)
 }
 
 function runtimeOrigin(bffOrigin?: string | null) {
@@ -252,47 +245,11 @@ export default function AI() {
     dshFrameRef.current?.contentWindow?.postMessage({ type: 'fde-x-dsh', op, ...extra }, origin)
   }
 
-  function mimeFromName(name: string) {
-    const lower = name.toLowerCase()
-    if (lower.endsWith('.png')) return 'image/png'
-    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
-    if (lower.endsWith('.gif')) return 'image/gif'
-    if (lower.endsWith('.webp')) return 'image/webp'
-    if (lower.endsWith('.svg')) return 'image/svg+xml'
-    if (lower.endsWith('.pdf')) return 'application/pdf'
-    if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html'
-    if (lower.endsWith('.json')) return 'application/json'
-    if (lower.endsWith('.md')) return 'text/markdown'
-    return 'application/octet-stream'
-  }
-
-  async function bytesToBase64(buffer: ArrayBuffer) {
-    const blob = new Blob([buffer])
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result || ''))
-      reader.onerror = () => reject(new Error('读取文件失败'))
-      reader.readAsDataURL(blob)
-    })
-    const comma = dataUrl.indexOf(',')
-    return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
-  }
-
   async function attachDroppedFile(raw: string) {
     const json = raw.startsWith('fde-file:') ? raw.slice('fde-file:'.length) : raw
-    const payload = JSON.parse(json) as { path?: string; name?: string; sessionId?: string }
-    if (!payload.path || !payload.name) return
-    const query = new URLSearchParams({ path: payload.path })
-    if (payload.sessionId) query.set('sessionId', payload.sessionId)
-    const response = await fetch(`/api/v1/files/raw?${query.toString()}`)
-    if (!response.ok) throw new Error('无法读取该文件')
-    const buffer = await response.arrayBuffer()
-    const type = (response.headers.get('content-type') || mimeFromName(payload.name)).split(';')[0]
-    tellDsh('attachFiles', {
-      sessionId: activeIdRef.current || '',
-      files: [{ name: payload.name, type, base64: await bytesToBase64(buffer) }],
-    })
-    setSessionNotice(`已把 ${payload.name} 放到输入框`)
+    const payload = JSON.parse(json) as { path?: string; name?: string }
+    const result = await attachToCurrentAi({ path: String(payload.path || ''), name: String(payload.name || '') })
+    if (!result.ok) throw new Error(result.error)
   }
 
   useEffect(() => {
@@ -385,17 +342,9 @@ export default function AI() {
       if (!sessionIds.length) return
       tellDsh('transcript', { sessionIds })
     }
-    function onAttach(event: Event) {
-      const detail = (event as CustomEvent<{ path?: string; name?: string; sessionId?: string }>).detail
-      if (!detail?.path || !detail.name) return
-      void attachDroppedFile(JSON.stringify(detail)).catch((error) => {
-        setSessionNotice(error instanceof Error ? error.message : '附加文件失败')
-      })
-    }
     window.addEventListener('dragover', onDragOver)
     window.addEventListener('drop', onDrop)
     window.addEventListener('dragend', onDragEnd)
-    window.addEventListener('fde-x-attach-file', onAttach as EventListener)
     window.addEventListener('fde-x-ai-transcript', onTranscript as EventListener)
     window.addEventListener('fde-x-ai-restore', onRestore as EventListener)
     function onOpen(event: Event) {
@@ -432,13 +381,20 @@ export default function AI() {
           ...(opts.cwd ? { cwd: opts.cwd } : {}),
         })
       },
+      attach: (opts) => {
+        tellDsh('attachFiles', {
+          sessionId: opts.sessionId,
+          files: opts.files,
+        })
+        const name = opts.files[0]?.name
+        if (name) setSessionNotice(`已把 ${name} 放到输入框`)
+      },
     })
     return () => {
       unregisterSink()
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
       window.removeEventListener('dragend', onDragEnd)
-      window.removeEventListener('fde-x-attach-file', onAttach as EventListener)
       window.removeEventListener('fde-x-ai-transcript', onTranscript as EventListener)
       window.removeEventListener('fde-x-ai-restore', onRestore as EventListener)
       window.removeEventListener('fde-x-ai-open', onOpen as EventListener)
@@ -812,9 +768,11 @@ export default function AI() {
             spinning: false,
           }
         : {
-          tone: (sessionNotice || runtimeError) ? 'warn' as const : 'ok' as const,
-          icon: (sessionNotice || runtimeError) ? CircleAlert : Wifi,
-          text: sessionNotice || runtimeError || (activeSession && !activeSession.cwd
+          tone: (sessionNotice || runtimeError || runtimeStatus?.bridgeTools?.ok === false) ? 'warn' as const : 'ok' as const,
+          icon: (sessionNotice || runtimeError || runtimeStatus?.bridgeTools?.ok === false) ? CircleAlert : Wifi,
+          text: sessionNotice || runtimeError || (runtimeStatus?.bridgeTools && runtimeStatus.bridgeTools.ok === false
+            ? `工作台工具未进会话：${runtimeStatus.bridgeTools.error || runtimeStatus.lastError || 'fde_* 未注册'}`
+            : (activeSession && !activeSession.cwd
             ? '当前会话没有绑定工作区目录，输入框会锁住。请新建会话或换一条有目录的会话。'
             : [
                 '已连接本地核心，对话由 DSH 会话页运行。',
@@ -823,7 +781,7 @@ export default function AI() {
                     ? '语义引擎正在拉起。'
                     : '语义引擎未就绪。')
                   : '',
-              ].filter(Boolean).join(' ')),
+              ].filter(Boolean).join(' '))),
           spinning: false,
         }
       : {
@@ -869,7 +827,9 @@ export default function AI() {
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {!runtimeConnected ? (
           <div className="flex-1 flex items-center justify-center text-sm text-ink-muted px-6 text-center">
-            本地核心还没接通。请重新执行 `pnpm dev`；本机第二套请用 `pnpm run dev:peer`。
+            {typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
+              ? '本地核心还没接通。请稍候或重启应用。'
+              : '本地核心还没接通。请重新执行 `pnpm dev`；本机第二套请用 `pnpm run dev:peer`。'}
           </div>
         ) : (
           <>

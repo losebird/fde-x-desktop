@@ -147,11 +147,15 @@ const runtimeProxy = {
   },
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react(), fdeRuntimePlugin()],
   envPrefix: ['VITE_', 'FDE_'],
   define: {
-    'import.meta.env.VITE_FDE_RUNTIME_URL': JSON.stringify(runtimeUrl),
+    'import.meta.env.VITE_FDE_RUNTIME_URL': JSON.stringify(
+      command === 'build'
+        ? (process.env.VITE_FDE_RUNTIME_URL ?? process.env.FDE_RUNTIME_URL ?? '')
+        : runtimeUrl,
+    ),
     'import.meta.env.VITE_FDE_RUNTIME_RELOAD_WAIT_MS': JSON.stringify(String(FDE_RUNTIME_RELOAD_WAIT_MS)),
   },
   resolve: {
@@ -180,4 +184,4 @@ export default defineConfig({
     sourcemap: false,
     chunkSizeWarningLimit: 1500,
   },
-})
+}))

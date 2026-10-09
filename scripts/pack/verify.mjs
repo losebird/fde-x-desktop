@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,10 @@ const resources = process.env.FDE_PACK_OUT
 const required = [
   join(resources, 'versions.json'),
   join(resources, 'app', 'runtime', 'server.mjs'),
+  join(resources, 'app', 'runtime', 'workspace-file-document.mjs'),
+  join(resources, 'app', 'runtime', 'desktop-process-path.mjs'),
+  join(resources, 'app', 'runtime', 'migrations', '016_workspace_file_revisions.sql'),
+  join(resources, 'app', 'dist', 'index.html'),
   join(resources, 'NOTICE.md'),
 ]
 
@@ -58,6 +62,35 @@ async function main() {
   if (!nodeReal) {
     console.error('verify failed — need resources/node/bin/node and versions.node.staged === true')
     console.log(`node.staged: ${versions.node?.staged === true}`)
+    process.exit(1)
+  }
+
+  const dataDir = join(resources, 'app', 'runtime', 'data')
+  if (existsSync(dataDir)) {
+    const names = await readdir(dataDir)
+    const sqlite = names.filter((name) => /\.sqlite/u.test(name) || name === 'semantic-os')
+    if (sqlite.length) {
+      console.error('verify failed — user data staged under runtime/data:', sqlite.join(', '))
+      process.exit(1)
+    }
+  }
+
+  const distDir = join(resources, 'app', 'dist', 'assets')
+  const assets = existsSync(distDir) ? await readdir(distDir) : []
+  let distText = ''
+  for (const name of assets) {
+    if (!name.endsWith('.js')) continue
+    distText += await readFile(join(distDir, name), 'utf8')
+  }
+  for (const needle of ['创建草稿', '发给当前 AI 会话']) {
+    if (!distText.includes(needle)) {
+      console.error(`verify failed — dist missing ${needle}`)
+      process.exit(1)
+    }
+  }
+
+  if (!existsSync(join(resources, 'app', 'node_modules', 'html-to-docx'))) {
+    console.error('verify failed — BFF html-to-docx missing under resources/app/node_modules')
     process.exit(1)
   }
 
