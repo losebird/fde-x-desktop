@@ -187,6 +187,32 @@ process.stdin.on('data', (chunk) => {
   assert.match(health.message, /MCP 可达/)
 })
 
+test('checkMcpHealth stdio keeps stdin open until initialize result', async () => {
+  const { chmod, mkdtemp, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-stdio-keep-'))
+  const bin = join(dir, 'fake-mcp')
+  await writeFile(bin, `#!/usr/bin/env node
+let buf = ''
+process.stdin.on('end', () => process.exit(0))
+process.stdin.on('data', (chunk) => {
+  buf += chunk
+  if (!buf.includes('initialize')) return
+  const result = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'x', version: '0' } },
+  })
+  process.stdout.write('Content-Length: ' + Buffer.byteLength(result) + '\\r\\n\\r\\n' + result)
+})
+`)
+  await chmod(bin, 0o755)
+  const health = await checkMcpHealth({ transport: 'stdio', command: bin, args: [] })
+  assert.equal(health.ok, true)
+  assert.match(health.message, /MCP 可达/)
+})
+
 test('checkMcpHealth stdio surfaces spawn stderr', async () => {
   const { chmod, mkdtemp, writeFile } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')

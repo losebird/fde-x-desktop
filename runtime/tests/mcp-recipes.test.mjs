@@ -49,6 +49,8 @@ test('playwright recipe is available when npx prints a version', () => {
     })
     const playwright = recipes.find((row) => row.id === 'playwright')
     assert.equal(playwright.available, true)
+    assert.deepEqual(playwright.args, ['-y', '@playwright/mcp', '--headless'])
+    assert.match(playwright.hint, /无窗口/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

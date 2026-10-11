@@ -426,7 +426,7 @@ function initializeBody() {
   }
 }
 
-async function probeMcpStdioInitialize(entry, timeoutMs = 2000) {
+async function probeMcpStdioInitialize(entry, timeoutMs = 8000) {
   const command = String(entry.command || '').trim()
   const absolute = command.startsWith('/') || /^[A-Za-z]:[\\/]/.test(command)
   const resolved = await resolveExecutable(command)
@@ -493,7 +493,6 @@ async function probeMcpStdioInitialize(entry, timeoutMs = 2000) {
     })
     try {
       child.stdin.write(mcpStdioFrame(initializeBody()))
-      child.stdin.end()
     } catch (error) {
       finish({ ok: false, message: error instanceof Error ? error.message : String(error) })
     }

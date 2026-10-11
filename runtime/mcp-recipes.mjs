@@ -100,12 +100,12 @@ export function listMcpRecipes({
     {
       id: 'playwright',
       title: 'Playwright',
-      hint: npxOk ? '用安装包自带的 npx 启动' : 'npx 启动器无法加载',
+      hint: npxOk ? '用安装包自带的 npx，无窗口握手' : 'npx 启动器无法加载',
       available: npxOk,
       transport: 'stdio',
       serverName: 'playwright',
       command: npxName,
-      args: ['-y', '@playwright/mcp'],
+      args: ['-y', '@playwright/mcp', '--headless'],
       fields: [],
     },
     {
