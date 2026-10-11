@@ -186,6 +186,12 @@ async function stageDsh(dest) {
   return false
 }
 
+async function copyNodeDistTree(from, to) {
+  await rm(to, { recursive: true, force: true })
+  await mkdir(dirname(to), { recursive: true })
+  await execFile('cp', ['-a', from, to])
+}
+
 async function extractNodeArchive(archivePath, dest) {
   const staging = join(resourcesRoot, '.pack-work', 'node-extract')
   await rm(staging, { recursive: true, force: true })
@@ -198,9 +204,7 @@ async function extractNodeArchive(archivePath, dest) {
   const { readdir } = await import('node:fs/promises')
   const entries = await readdir(staging)
   const inner = entries.length === 1 ? join(staging, entries[0]) : staging
-  await rm(dest, { recursive: true, force: true })
-  await mkdir(dirname(dest), { recursive: true })
-  await cp(inner, dest, { recursive: true, dereference: false })
+  await copyNodeDistTree(inner, dest)
   await rm(staging, { recursive: true, force: true })
 }
 
@@ -248,8 +252,7 @@ async function stageNode(dest) {
   }
   const override = process.env.FDE_NODE_DIST_TREE
   if (override && existsSync(override) && nodeDistPresent(override)) {
-    await rm(dest, { recursive: true, force: true })
-    await cp(override, dest, { recursive: true, dereference: false })
+    await copyNodeDistTree(override, dest)
     console.log(`[stage] node from FDE_NODE_DIST_TREE ${override}`)
     return true
   }
