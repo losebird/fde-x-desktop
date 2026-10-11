@@ -60,7 +60,7 @@ async function main() {
   const nodeRoot = join(resources, 'node')
   const nodeReal = nodeDistPresent(nodeRoot) && versions.node?.staged === true
   if (!nodeReal) {
-    console.error('verify failed — need resources/node/bin/node and versions.node.staged === true')
+    console.error('verify failed — need a Node dist whose npm and npx launchers print --version')
     console.log(`node.staged: ${versions.node?.staged === true}`)
     process.exit(1)
   }

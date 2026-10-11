@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -13,6 +13,45 @@ test('mail recipe points at the bundled launcher', () => {
   assert.equal(mail.transport, 'stdio')
   assert.equal(mail.args[0].endsWith('mail-mcp-launch.mjs'), true)
   assert.equal(mail.fields.some((field) => field.key === 'IMAP_HOST'), true)
+})
+
+test('playwright recipe follows npx launcher load', () => {
+  const root = join(tmpdir(), `fde-recipe-npx-${process.pid}`)
+  const binDir = join(root, 'node', 'bin')
+  mkdirSync(binDir, { recursive: true })
+  writeFileSync(join(binDir, 'npx'), '#!/usr/bin/env node\nrequire("../lib/cli.js")\n')
+  chmodSync(join(binDir, 'npx'), 0o755)
+  try {
+    const recipes = listMcpRecipes({
+      runtimeDir: FDE_RUNTIME_DIR,
+      resources: root,
+      env: { PATH: binDir },
+    })
+    const playwright = recipes.find((row) => row.id === 'playwright')
+    assert.equal(playwright.available, false)
+    assert.match(playwright.hint, /无法加载/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('playwright recipe is available when npx prints a version', () => {
+  const root = join(tmpdir(), `fde-recipe-npx-ok-${process.pid}`)
+  const binDir = join(root, 'node', 'bin')
+  mkdirSync(binDir, { recursive: true })
+  writeFileSync(join(binDir, 'npx'), '#!/bin/sh\necho 11.0.0\n')
+  chmodSync(join(binDir, 'npx'), 0o755)
+  try {
+    const recipes = listMcpRecipes({
+      runtimeDir: FDE_RUNTIME_DIR,
+      resources: root,
+      env: { PATH: binDir },
+    })
+    const playwright = recipes.find((row) => row.id === 'playwright')
+    assert.equal(playwright.available, true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('cua recipe stays unavailable without envelope binary', () => {

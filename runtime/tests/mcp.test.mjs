@@ -162,10 +162,44 @@ test('mcpFiberFromPlugins matches patch id and include: prefix', () => {
   assert.equal(mcpFiberFromPlugins([row], 'alpha'), row)
 })
 
-test('checkMcpHealth resolves PATH commands', async () => {
-  const health = await checkMcpHealth({ transport: 'stdio', command: 'npx', args: ['-y', 'pkg'] })
+test('checkMcpHealth stdio initialize is reachable', async () => {
+  const { chmod, mkdtemp, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-stdio-ok-'))
+  const bin = join(dir, 'fake-mcp')
+  await writeFile(bin, `#!/usr/bin/env node
+let buf = ''
+process.stdin.on('data', (chunk) => {
+  buf += chunk
+  if (!buf.includes('initialize')) return
+  const result = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'x', version: '0' } },
+  })
+  process.stdout.write('Content-Length: ' + Buffer.byteLength(result) + '\\r\\n\\r\\n' + result)
+})
+`)
+  await chmod(bin, 0o755)
+  const health = await checkMcpHealth({ transport: 'stdio', command: bin, args: [] })
   assert.equal(health.ok, true)
-  assert.match(health.message, /npx/)
+  assert.match(health.message, /MCP 可达/)
+})
+
+test('checkMcpHealth stdio surfaces spawn stderr', async () => {
+  const { chmod, mkdtemp, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-stdio-bad-'))
+  const bin = join(dir, 'broken-npx')
+  await writeFile(bin, `#!/usr/bin/env node
+require('../lib/cli.js')
+`)
+  await chmod(bin, 0o755)
+  const health = await checkMcpHealth({ transport: 'stdio', command: bin, args: ['-y', 'pkg'] })
+  assert.equal(health.ok, false)
+  assert.match(health.message, /Cannot find module|cli\.js/)
 })
 
 test('resolvePrimarySessionForRuntime stays on the cwd primary session', async () => {

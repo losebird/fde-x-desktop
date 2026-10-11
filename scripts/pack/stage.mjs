@@ -200,7 +200,7 @@ async function extractNodeArchive(archivePath, dest) {
   const inner = entries.length === 1 ? join(staging, entries[0]) : staging
   await rm(dest, { recursive: true, force: true })
   await mkdir(dirname(dest), { recursive: true })
-  await cp(inner, dest, { recursive: true, dereference: true })
+  await cp(inner, dest, { recursive: true, dereference: false })
   await rm(staging, { recursive: true, force: true })
 }
 
@@ -249,7 +249,7 @@ async function stageNode(dest) {
   const override = process.env.FDE_NODE_DIST_TREE
   if (override && existsSync(override) && nodeDistPresent(override)) {
     await rm(dest, { recursive: true, force: true })
-    await cp(override, dest, { recursive: true, dereference: true })
+    await cp(override, dest, { recursive: true, dereference: false })
     console.log(`[stage] node from FDE_NODE_DIST_TREE ${override}`)
     return true
   }

@@ -1,7 +1,8 @@
+import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { FDE_RUNTIME_DIR } from './config.mjs'
-import { cuaDriverDirs } from './desktop-process-path.mjs'
+import { delimiter, dirname, join } from 'node:path'
+import { FDE_RUNTIME_DIR, FDE_RESOURCES } from './config.mjs'
+import { cuaDriverDirs, desktopProcessPath } from './desktop-process-path.mjs'
 
 const MAIL_FIELDS = [
   { key: 'IMAP_HOST', label: 'IMAP 主机', secret: false },
@@ -38,6 +39,39 @@ function findCuaBin(resources, platform = process.platform, arch = process.arch)
   return ''
 }
 
+function resolveRecipeCommand(command, { resources, platform, env }) {
+  const raw = String(command || '').trim()
+  if (!raw) return ''
+  if (raw.startsWith('/') || /^[A-Za-z]:[\\/]/.test(raw)) return existsSync(raw) ? raw : ''
+  const pathEnv = desktopProcessPath({
+    resources,
+    platform,
+    inheritedPath: env.PATH || process.env.PATH || '',
+  })
+  const sep = platform === 'win32' ? ';' : delimiter
+  for (const dir of pathEnv.split(sep)) {
+    if (!dir) continue
+    const candidate = join(dir, raw)
+    if (existsSync(candidate)) return candidate
+  }
+  return ''
+}
+
+function launcherLoads(bin, timeoutMs = 4000) {
+  const file = String(bin || '')
+  if (!file || !existsSync(file)) return false
+  const result = spawnSync(file, ['--version'], {
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    env: {
+      ...process.env,
+      PATH: `${dirname(file)}${delimiter}${process.env.PATH || ''}`,
+    },
+  })
+  if (result.error || result.status !== 0) return false
+  return String(result.stdout || '').trim().length > 0
+}
+
 export function listMcpRecipes({
   runtimeDir = FDE_RUNTIME_DIR,
   resources = process.env.FDE_RESOURCES || '',
@@ -48,6 +82,9 @@ export function listMcpRecipes({
   const node = hostNode(env)
   const mailLauncher = join(runtimeDir, 'mail-mcp-launch.mjs')
   const cuaBin = findCuaBin(resources, platform, arch)
+  const npxName = platform === 'win32' ? 'npx.cmd' : 'npx'
+  const npxBin = resolveRecipeCommand(npxName, { resources: resources || FDE_RESOURCES, platform, env })
+  const npxOk = launcherLoads(npxBin)
   return [
     {
       id: 'mail',
@@ -63,11 +100,11 @@ export function listMcpRecipes({
     {
       id: 'playwright',
       title: 'Playwright',
-      hint: '用安装包自带的 npx 启动',
-      available: true,
+      hint: npxOk ? '用安装包自带的 npx 启动' : 'npx 启动器无法加载',
+      available: npxOk,
       transport: 'stdio',
       serverName: 'playwright',
-      command: platform === 'win32' ? 'npx.cmd' : 'npx',
+      command: npxName,
       args: ['-y', '@playwright/mcp'],
       fields: [],
     },

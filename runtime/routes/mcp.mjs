@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { access } from 'node:fs/promises'
 import { constants } from 'node:fs'
@@ -355,6 +356,150 @@ export async function callMcpHttpTool(entry, toolName, args = {}, timeoutMs = 60
   }
 }
 
+function mcpStdioFrame(payload) {
+  const body = JSON.stringify(payload)
+  return `Content-Length: ${Buffer.byteLength(body, 'utf8')}\r\n\r\n${body}`
+}
+
+function jsonRpcMessagesFromStdio(text) {
+  const messages = []
+  let rest = String(text || '')
+  while (rest.length) {
+    const header = rest.match(/^Content-Length:\s*(\d+)\r\n\r\n/iu)
+    if (header) {
+      const length = Number(header[1])
+      const start = header[0].length
+      if (rest.length < start + length) break
+      const chunk = rest.slice(start, start + length)
+      rest = rest.slice(start + length)
+      try {
+        messages.push(JSON.parse(chunk))
+      } catch {
+        /* skip malformed frame */
+      }
+      continue
+    }
+    const nl = rest.indexOf('\n')
+    if (nl < 0) {
+      const trimmed = rest.trim()
+      if (trimmed) {
+        try {
+          messages.push(JSON.parse(trimmed))
+        } catch {
+          /* incomplete */
+        }
+      }
+      break
+    }
+    const line = rest.slice(0, nl).trim()
+    rest = rest.slice(nl + 1)
+    if (!line) continue
+    try {
+      messages.push(JSON.parse(line))
+    } catch {
+      /* skip non-json */
+    }
+  }
+  return messages
+}
+
+function firstStderrLine(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 6)
+    .join('\n')
+    .slice(0, 500)
+}
+
+function initializeBody() {
+  return {
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-03-26',
+      capabilities: {},
+      clientInfo: { name: 'dsh-mcp-client', version: '0.2.0-rc.2' },
+    },
+  }
+}
+
+async function probeMcpStdioInitialize(entry, timeoutMs = 2000) {
+  const command = String(entry.command || '').trim()
+  const absolute = command.startsWith('/') || /^[A-Za-z]:[\\/]/.test(command)
+  const resolved = await resolveExecutable(command)
+  if (!resolved) {
+    if (absolute) {
+      try {
+        await access(command, constants.F_OK)
+        return { ok: false, message: `不可执行 ${command}` }
+      } catch {
+        return { ok: false, message: `找不到文件 ${command}` }
+      }
+    }
+    return { ok: false, message: `PATH 里找不到 ${command}` }
+  }
+  const args = Array.isArray(entry.args) ? entry.args.map(String) : []
+  const pathEnv = desktopProcessPath({
+    resources: process.env.FDE_RESOURCES || FDE_RESOURCES,
+    inheritedPath: process.env.PATH || '',
+  })
+  return await new Promise((resolve) => {
+    const child = spawn(resolved, args, {
+      env: { ...process.env, PATH: pathEnv },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let out = ''
+    let err = ''
+    let settled = false
+    const finish = (result) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      try {
+        child.kill('SIGTERM')
+      } catch {
+        /* already gone */
+      }
+      resolve(result)
+    }
+    const timer = setTimeout(() => finish({ ok: false, message: 'timeout' }), timeoutMs)
+    const consider = () => {
+      for (const message of jsonRpcMessagesFromStdio(out)) {
+        if (message && message.id === 1 && message.result !== undefined) {
+          finish({ ok: true, message: 'MCP 可达' })
+          return
+        }
+        if (message && message.id === 1 && message.error) {
+          finish({ ok: false, message: String(message.error.message || message.error.code || 'MCP error') })
+        }
+      }
+    }
+    child.stdout.on('data', (chunk) => {
+      out += chunk
+      consider()
+    })
+    child.stderr.on('data', (chunk) => {
+      err += chunk
+    })
+    child.on('error', (error) => finish({ ok: false, message: error.message }))
+    child.on('exit', () => {
+      if (settled) return
+      consider()
+      if (settled) return
+      finish({ ok: false, message: firstStderrLine(err) || 'stdio 退出且无 initialize result' })
+    })
+    try {
+      child.stdin.write(mcpStdioFrame(initializeBody()))
+      child.stdin.end()
+    } catch (error) {
+      finish({ ok: false, message: error instanceof Error ? error.message : String(error) })
+    }
+  })
+}
+
 export async function resolveExecutable(command) {
   const raw = String(command || '').trim()
   if (!raw) return ''
@@ -383,10 +528,6 @@ export async function resolveExecutable(command) {
   return ''
 }
 
-function commandArgsSuffix(entry) {
-  return Array.isArray(entry.args) && entry.args.length ? ` ${entry.args.join(' ')}` : ''
-}
-
 export async function checkMcpHealth(entry) {
   if (entry.transport === 'streamable-http') {
     if (!entry.url) return { ok: false, message: '缺少 url' }
@@ -394,23 +535,7 @@ export async function checkMcpHealth(entry) {
   }
   const command = String(entry.command || '').trim()
   if (!command) return { ok: false, message: '缺少 command' }
-  const absolute = command.startsWith('/') || /^[A-Za-z]:[\\/]/.test(command)
-  if (absolute) {
-    try {
-      await access(command, constants.X_OK)
-      return { ok: true, message: `可执行 ${command}${commandArgsSuffix(entry)}` }
-    } catch {
-      try {
-        await access(command, constants.F_OK)
-        return { ok: false, message: `不可执行 ${command}` }
-      } catch {
-        return { ok: false, message: `找不到文件 ${command}` }
-      }
-    }
-  }
-  const resolved = await resolveExecutable(command)
-  if (!resolved) return { ok: false, message: `PATH 里找不到 ${command}` }
-  return { ok: true, message: `可执行 ${resolved}${commandArgsSuffix(entry)}` }
+  return probeMcpStdioInitialize(entry)
 }
 
 export async function handleMcpRoutes(request, response, url, ctx) {
