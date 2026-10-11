@@ -85,6 +85,7 @@ export function listMcpRecipes({
   const npxName = platform === 'win32' ? 'npx.cmd' : 'npx'
   const npxBin = resolveRecipeCommand(npxName, { resources: resources || FDE_RESOURCES, platform, env })
   const npxOk = launcherLoads(npxBin)
+  const stdioBridge = join(runtimeDir, 'mcp-stdio-bridge.mjs')
   return [
     {
       id: 'mail',
@@ -100,12 +101,12 @@ export function listMcpRecipes({
     {
       id: 'playwright',
       title: 'Playwright',
-      hint: npxOk ? '用安装包自带的 npx，无窗口握手' : 'npx 启动器无法加载',
-      available: npxOk,
+      hint: npxOk ? '经 FDE stdio 桥接，无窗口握手' : 'npx 启动器无法加载',
+      available: npxOk && existsSync(stdioBridge),
       transport: 'stdio',
       serverName: 'playwright',
-      command: npxName,
-      args: ['-y', '@playwright/mcp', '--headless'],
+      command: node,
+      args: [stdioBridge, '--', npxName, '-y', '@playwright/mcp', '--headless'],
       fields: [],
     },
     {

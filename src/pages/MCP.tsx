@@ -236,35 +236,47 @@ export default function MCP() {
     }
     setSaving(true)
     setError('')
-    const fieldEnv = Object.fromEntries(
-      Object.entries(draft.fieldValues).filter(([key, value]) => key !== 'url' && String(value || '').trim()),
-    )
-    const mergedEnv = { ...(parseEnv(draft.env) || {}), ...fieldEnv }
-    const urlFromFields = String(draft.fieldValues.url || '').trim()
-    const body = draft.transport === 'stdio'
-      ? {
-          serverName,
-          transport: 'stdio' as const,
-          command: draft.command.trim(),
-          args: parseLines(draft.args),
-          env: Object.keys(mergedEnv).length ? mergedEnv : undefined,
-        }
-      : {
-          serverName,
-          transport: 'streamable-http' as const,
-          url: urlFromFields || draft.url.trim(),
-          headers: parseHeaders(draft.headers),
-        }
-    void runtimeApi.addMcpServer(body)
-      .then((result) => {
-        setShowAdd(false)
-        setEditing('')
-        setDraft(emptyDraft())
-        setError(result.note || '已写入配置，需重载核心生效')
-        load()
-      })
-      .catch((cause) => setError(cause instanceof Error ? cause.message : '保存失败'))
-      .finally(() => setSaving(false))
+    try {
+      const fieldEnv = Object.fromEntries(
+        Object.entries(draft.fieldValues).filter(([key, value]) => key !== 'url' && String(value || '').trim()),
+      )
+      const mergedEnv = { ...(parseEnv(draft.env) || {}), ...fieldEnv }
+      const urlFromFields = String(draft.fieldValues.url || '').trim()
+      const body = draft.transport === 'stdio'
+        ? {
+            serverName,
+            transport: 'stdio' as const,
+            command: draft.command.trim(),
+            args: parseLines(draft.args),
+            env: Object.keys(mergedEnv).length ? mergedEnv : undefined,
+          }
+        : {
+            serverName,
+            transport: 'streamable-http' as const,
+            url: urlFromFields || draft.url.trim(),
+            headers: parseHeaders(draft.headers),
+          }
+      const abort = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+        ? AbortSignal.timeout(15_000)
+        : undefined
+      void runtimeApi.addMcpServer(body, abort)
+        .then((result) => {
+          setShowAdd(false)
+          setEditing('')
+          setDraft(emptyDraft())
+          setError(result.note || '已写入配置，需重载核心生效')
+          load()
+        })
+        .catch((cause) => {
+          const aborted = cause instanceof DOMException && cause.name === 'TimeoutError'
+            || (cause instanceof Error && /timed out|aborted/i.test(cause.message))
+          setError(aborted ? '保存超时' : (cause instanceof Error ? cause.message : '保存失败'))
+        })
+        .finally(() => setSaving(false))
+    } catch (cause) {
+      setSaving(false)
+      setError(cause instanceof Error ? cause.message : '保存失败')
+    }
   }
 
   return (
