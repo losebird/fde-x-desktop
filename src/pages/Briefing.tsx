@@ -19,6 +19,7 @@ import { PageTitle, SectionTitle, Card, Stat, Tag } from '@/components/ui'
 import clsx from 'clsx'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
+import { digestBeats, digestItems, presentBriefingItem } from '../../runtime/briefing/item.mjs'
 
 function fmtTime(iso: string) {
   const d = new Date(iso)
@@ -45,11 +46,18 @@ function sectionById(sections: BriefingSectionResult[], id: string) {
   return sections.find((s) => s.id === id)
 }
 
+function sectionMarkClass(type?: string) {
+  if (type === 'im') return 'text-accent-blue'
+  if (type === 'memory' || type === 'ai') return 'text-brand'
+  if (type === 'mcp') return 'text-accent-amber'
+  return 'text-ink-muted'
+}
+
 function buildImComposeBody(briefing: BriefingSnapshot | null, sections: BriefingSectionResult[]) {
   const lines: string[] = []
   const ai = sections.find((s) => s.type === 'ai')
-  const aiText = ai?.items?.[0]?.text || ai?.body || briefing?.summary
-  if (aiText) lines.push(String(aiText))
+  const beats = digestBeats(ai || { body: briefing?.summary })
+  if (beats.length) lines.push(...beats)
   for (const section of sections) {
     if (section.type === 'ai') continue
     const items = section.items || []
@@ -322,23 +330,27 @@ export default function Briefing() {
                       <button type="button" className="btn-ghost text-xs" onClick={runFull}>重试</button>
                     </div>
                   )}
-                  <ul className="space-y-3">
+                  <ul className="divide-y divide-line">
                     {section.pendingAgent && !section.error && (
-                      <li className="text-sm text-ink-muted">采集中</li>
+                      <li className="text-sm text-ink-muted py-2.5 first:pt-0 last:pb-0">采集中</li>
                     )}
                     {(section.items || []).length === 0 && !section.error && !section.pendingAgent && (
-                      <li className="text-sm text-ink-muted">暂无内容</li>
+                      <li className="text-sm text-ink-muted py-2.5 first:pt-0 last:pb-0">暂无内容</li>
                     )}
-                    {(section.items || []).map((item) => (
-                      <li key={item.ref || item.text} className="flex items-start gap-2">
-                        {section.type === 'im' ? <MessageSquare size={14} className="text-accent-blue mt-0.5" /> : <FileText size={14} className="text-ink-muted mt-0.5" />}
-                        <button type="button" className="text-sm flex-1 text-left" onClick={() => openItem(item.href)}>
-                          {item.sub && <span className="font-medium">{item.sub} </span>}
-                          {item.text}
+                    {(section.items || []).map((raw) => {
+                      const item = presentBriefingItem(raw)
+                      if (!item) return null
+                      return (
+                      <li key={item.ref || item.text} className="py-2.5 first:pt-0 last:pb-0 flex items-start gap-3">
+                        {section.type === 'im' ? <MessageSquare size={14} className={clsx('mt-0.5 shrink-0', sectionMarkClass(section.type))} /> : <FileText size={14} className={clsx('mt-0.5 shrink-0', sectionMarkClass(section.type))} />}
+                        <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openItem(item.href)}>
+                          <div className="truncate text-sm">{item.text}</div>
+                          {item.sub ? <div className="text-xs text-ink-muted mt-0.5 truncate">{item.sub}</div> : null}
                         </button>
-                        <Clock size={12} className="text-ink-subtle mt-1" />
+                        <Clock size={12} className="text-ink-subtle mt-1 shrink-0" />
                       </li>
-                    ))}
+                      )
+                    })}
                   </ul>
                 </Card>
               </div>
@@ -357,11 +369,24 @@ export default function Briefing() {
                 <Sparkles size={16} className="text-brand" />
                 <div className="text-sm font-medium">AI 早报 · 主助手</div>
               </div>
-              <div className="text-sm leading-6 text-ink space-y-2">
+              <div className="text-sm leading-6 text-ink">
                 {aiSection?.error && (
-                  <p className="text-accent-red">{aiSection.error}</p>
+                  <p className="text-accent-red mb-2">{aiSection.error}</p>
                 )}
-                <p>{aiSection?.items?.[0]?.text || aiSection?.body || briefing?.summary || '点右上角「生成新早报」获取 AI 摘要。'}</p>
+                <ul className="divide-y divide-line">
+                  {(digestItems(aiSection || { body: briefing?.summary }).length
+                    ? digestItems(aiSection || { body: briefing?.summary })
+                    : [{ text: '点右上角「生成新早报」获取 AI 摘要。' }]
+                  ).map((item, index) => (
+                    <li key={`${index}:${item.text}`} className="py-2.5 first:pt-0 last:pb-0 flex items-start gap-3">
+                      <Sparkles size={14} className={clsx('mt-0.5 shrink-0', sectionMarkClass('ai'))} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm">{item.text}</div>
+                        {item.sub ? <div className="text-xs text-ink-muted mt-0.5">{item.sub}</div> : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
               <div className="mt-3 flex gap-2">
                 <button

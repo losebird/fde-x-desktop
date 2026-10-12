@@ -3,6 +3,7 @@ import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
 import { collectInternalSection } from './collectors.mjs'
 import { runBriefingAgent } from './ask-ai.mjs'
 import { itemsFromToolResult } from './tool-official.mjs'
+import { digestBeats } from './item.mjs'
 import {
   createBriefingRun,
   findBriefingByAgentRequest,
@@ -178,7 +179,7 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
         section.items = []
         continue
       }
-      section.items = itemsFromToolResult(hit.text)
+      section.items = itemsFromToolResult(hit.text, { limit: Number(def?.params?.limit) || 8 })
       section.pendingAgent = false
       section.fetchedAt = new Date().toISOString()
     }
@@ -202,7 +203,7 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
 
   const status = agentError === 'timeout' ? 'partial' : computeRunStatus(sections)
   const aiSection = sections.find((s) => s.type === 'ai')
-  const summary = aiSection?.items?.[0]?.text || aiSection?.body || ''
+  const summary = digestBeats(aiSection).join('；')
 
   const final = updateBriefingContent(db, briefingId, {
     status,
@@ -227,7 +228,7 @@ export function mergeBriefingSubmit(db, requestId, submittedSections) {
   const merged = mergeAgentSections(contentSections, submitted)
   const status = computeRunStatus(merged)
   const aiSection = merged.find((s) => s.type === 'ai')
-  const summary = aiSection?.items?.[0]?.text || aiSection?.body || briefing.summary
+  const summary = digestBeats(aiSection).join('；') || briefing.summary
   updateBriefingContent(db, briefing.id, {
     status,
     sections: merged,

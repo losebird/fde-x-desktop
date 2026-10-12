@@ -1,3 +1,5 @@
+import { presentBriefingItem } from './item.mjs'
+
 function isRecord(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -49,37 +51,97 @@ function collectionRows(parsed) {
   return null
 }
 
-function rowToItem(row) {
-  if (typeof row === 'string') {
-    const text = row.trim()
-    return text ? { text } : null
-  }
-  if (!isRecord(row)) return null
-  const text = String(row.text || row.title || row.subject || row.summary || row.headline || '').trim()
-  const sub = String(row.sub || row.from || row.source || '').trim()
-  const href = row.href || row.url || row.link
-  if (text) {
-    return {
-      text,
-      ...(sub ? { sub } : {}),
-      ...(typeof href === 'string' && href ? { href } : {}),
-    }
-  }
-  const serialized = JSON.stringify(row)
-  return serialized && serialized !== '{}' ? { text: serialized } : null
+function hrefOf(value) {
+  if (typeof value === 'string' && /^https?:\/\//i.test(value.trim())) return value.trim()
+  if (isRecord(value) && value.panel) return value
+  return ''
 }
 
-export function itemsFromToolResult(raw) {
+function firstUrl(text) {
+  const match = String(text || '').match(/https?:\/\/[^\s)>\]]+/i)
+  return match ? match[0] : ''
+}
+
+function dropFiller(block) {
+  const lines = String(block || '').split('\n').map((line) => line.trim()).filter(Boolean)
+  if (!lines.length) return true
+  if (lines.every((line) => /^[-*_=]{3,}$/.test(line))) return true
+  if (lines.length === 1 && /^https?:\/\/\S+$/i.test(lines[0])) return true
+  return false
+}
+
+function itemFromBlock(block) {
+  if (dropFiller(block)) return null
+  const lines = String(block || '').split('\n').map((line) => line.trim()).filter(Boolean)
+  const head = lines[0].replace(/^(?:#{1,6}|[-*+]|\d+[.)])\s+/, '').trim()
+  if (!head) return null
+  const rest = lines.slice(1).join(' ').trim()
+  const href = firstUrl(block)
+  const sub = rest.replace(href, '').replace(/\s+/g, ' ').trim()
+  return presentBriefingItem({
+    text: head,
+    ...(sub ? { sub } : {}),
+    ...(href ? { href } : {}),
+  })
+}
+
+function markdownListBlocks(text) {
+  const lines = String(text || '').split('\n')
+  const blocks = []
+  let current = null
+  for (const line of lines) {
+    const marked = line.match(/^(?:#{1,3}\s+|[-*+]\s+|\d+[.)]\s+)(.*)$/)
+    if (marked) {
+      if (current) blocks.push(current.join('\n'))
+      current = [line]
+      continue
+    }
+    if (current) current.push(line)
+  }
+  if (current) blocks.push(current.join('\n'))
+  return blocks
+}
+
+function foldBlob(text) {
+  const md = markdownListBlocks(text)
+  if (md.length >= 2) return md.map(itemFromBlock).filter(Boolean)
+  return String(text || '').split(/\n\s*\n/).map(itemFromBlock).filter(Boolean)
+}
+
+function rowToItem(row) {
+  if (typeof row === 'string') return itemFromBlock(row)
+  if (!isRecord(row)) return null
+  const text = String(row.text || row.title || row.subject || row.summary || row.headline || row.body || row.cue || row.name || '').trim()
+  const sub = String(row.sub || row.from || row.source || row.author || '').trim()
+  const href = hrefOf(row.href) || hrefOf(row.url) || hrefOf(row.link) || firstUrl(text)
+  if (!text) return null
+  return presentBriefingItem({
+    text,
+    ...(sub ? { sub } : {}),
+    ...(href ? { href } : {}),
+  })
+}
+
+export function itemsFromToolResult(raw, opts = {}) {
+  const limit = Number(opts.limit)
+  const cap = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 8
   const text = String(raw || '').trim()
   if (!text) return []
   const parsed = tryJson(text)
+  let items = []
   const rows = collectionRows(parsed)
-  if (rows) return rows.map(rowToItem).filter(Boolean)
-  if (parsed && Array.isArray(parsed.content)) {
+  if (rows) items = rows.map(rowToItem).filter(Boolean)
+  else if (parsed && Array.isArray(parsed.content)) {
     const nested = textFromBlocks(parsed.content)
-    if (nested && nested !== text) return itemsFromToolResult(nested)
+    if (nested && nested !== text) return itemsFromToolResult(nested, opts)
+    items = foldBlob(text)
+  } else if (isRecord(parsed)) {
+    const one = rowToItem(parsed)
+    items = one ? [one] : foldBlob(text)
+  } else {
+    items = foldBlob(text)
   }
-  return text.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => ({ text: line }))
+  return items.slice(0, cap)
 }
 
 function toolResultPayload(event) {

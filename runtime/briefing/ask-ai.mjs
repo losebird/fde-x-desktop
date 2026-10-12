@@ -100,7 +100,7 @@ export async function runBriefingAgent(deps, {
   const prompt = [
     `[fde-briefing:${agentRequestId}]`,
     '生成早报：每个 mcp 区块必须在本轮调用对应 tool（可带 params.args）；禁止沿用上一场早报条目。',
-    '对 ai 区块写一段中文总览。不得编造 mcp 条目。',
+    '对 ai 区块提交 items，每条一两句中文，不要一整段。不得编造 mcp 条目。',
     `完成后调用 fde_briefing_submit(requestId="${agentRequestId}", sections=[...])，sections 仅包含 ai 类型区块。`,
     '',
     '内部源摘要（只读参考）：',

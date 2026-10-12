@@ -1,9 +1,9 @@
 import { computeStat } from '../apps/records.mjs'
 import { findActiveAppBySlug } from '../apps/repository.mjs'
 import { memoryWriteOriginByCardIds } from '../db.mjs'
-import { attachCuesOnCards, cardCue } from '../memory/cards.mjs'
+import { attachCuesOnCards, cardCue, displayLabel } from '../memory/cards.mjs'
 import { attachCardOrigin } from '../memory/draft.mjs'
-import { memoryLandHref } from '../memory/identity.mjs'
+import { memoryLandHref, originOfCard } from '../memory/identity.mjs'
 import { loadOrigin } from '../routes/corpus.mjs'
 import { imHrefFromRequest } from '../memory/origin-href.mjs'
 import { incomingUnread, letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
@@ -235,9 +235,11 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
         .slice(0, limit)
         .map((card) => {
           const id = String(card.id || card.card_id || '')
+          const cue = displayLabel(cardCue(card)) || '记忆卡片'
+          const sub = originOfCard(card) || String(card.status || '').trim()
           return {
-            text: cardCue(card) || '记忆卡片',
-            sub: String(card.excerpt || card.body || '').slice(0, 120),
+            text: cue,
+            ...(sub ? { sub } : {}),
             href: memoryLandHref(id),
             ref: id,
           }
