@@ -261,6 +261,7 @@ export default function MCP() {
       )
       const mergedEnv = { ...(parseEnv(draft.env) || {}), ...fieldEnv }
       const urlFromFields = String(draft.fieldValues.url || '').trim()
+      const folder = loadCurrentWorkspaceCwd()
       const body = draft.transport === 'stdio'
         ? {
             serverName,
@@ -268,6 +269,7 @@ export default function MCP() {
             command: draft.command.trim(),
             args: parseLines(draft.args),
             env: Object.keys(mergedEnv).length ? mergedEnv : undefined,
+            ...(folder.ok ? { cwd: folder.cwd } : {}),
           }
         : {
             serverName,
@@ -317,7 +319,7 @@ export default function MCP() {
           <div className="mt-1 text-2xl font-semibold tabular-nums">{loadedCount}</div>
         </Card>
         <Card>
-          <div className="text-xs text-ink-muted">总工具数</div>
+          <div className="text-xs text-ink-muted">本会话投影</div>
           <div className="mt-1 text-2xl font-semibold tabular-nums">{mcp.reduce((s, x) => s + x.tools.length, 0)}</div>
         </Card>
         <Card>

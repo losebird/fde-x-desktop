@@ -540,7 +540,7 @@ node runtime/smoke.mjs
 | 缺口 | 接法 |
 |---|---|
 | 计划三 Tab | 吃 Host 目录 `goal` / `schedule`/`job` / `workflow`；本地行 `fde-task:` origin。无 Host 集合时本地行仍在 |
-| MCP 与当前会话工具列表无关 | 已连接：写档案后走官方 HMR（home/profile 配置监视 + pluginManager），禁止杀 Host。列表态只认 `listPlugins` 纤维（加载中/已加载/失败/已停用）；会话 `mcp__*` 只填投影，不准回流 status。未连接：已配置，保存后提示重载核心 |
+| MCP 与当前会话工具列表无关 | 已连接：写档案后走官方 HMR（home/profile 配置监视 + pluginManager），禁止杀 Host。列表态只认 `listPlugins` 纤维（加载中/已加载/失败/已停用）；会话 `mcp__*` 只填投影，不准回流 status。stdio `cwd` 跟当前工作区 bind，保存时写入，启动不改写。未连接：已配置，保存后提示重载核心 |
 | Skills 取 sessions[0]；启停 disabled | 列表改 `currentAiTarget`；无 Remote 则启停保持 disabled，不要假开关 |
 
 ### 15.7 业务应用 · 创建应用（用户点名补入）

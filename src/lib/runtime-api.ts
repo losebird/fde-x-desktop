@@ -2232,6 +2232,7 @@ export class RuntimeApi {
       transport?: 'stdio' | 'streamable-http'
       url?: string
       headers?: Record<string, string>
+      cwd?: string
     },
     signal?: AbortSignal,
   ): Promise<{ serverName: string; needsRestart: boolean; note?: string }> {
