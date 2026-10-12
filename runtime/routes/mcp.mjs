@@ -357,8 +357,7 @@ export async function callMcpHttpTool(entry, toolName, args = {}, timeoutMs = 60
 }
 
 function mcpStdioFrame(payload) {
-  const body = JSON.stringify(payload)
-  return `Content-Length: ${Buffer.byteLength(body, 'utf8')}\r\n\r\n${body}`
+  return `${JSON.stringify(payload)}\n`
 }
 
 function jsonRpcMessagesFromStdio(text) {

@@ -337,6 +337,17 @@ export function buildMcpPatchBlock(entry) {
   ].join('\n')
 }
 
+export function unwrapStdioBridgeEntry(entry) {
+  if (!entry || entry.transport === 'streamable-http') return null
+  const args = Array.isArray(entry.args) ? entry.args.map(String) : []
+  const hasBridge = args.some((item) => /(^|[\\/])mcp-stdio-bridge\.mjs$/u.test(item))
+  if (!hasBridge) return null
+  const dash = args.indexOf('--')
+  const inner = dash >= 0 ? args.slice(dash + 1) : []
+  if (!inner[0]) return null
+  return { ...entry, command: inner[0], args: inner.slice(1) }
+}
+
 export function rewriteMcpArchiveInserts(text) {
   let changed = false
   const next = splitPatchBlocks(normalizeCordisPatchText(text)).map((block) => {
@@ -407,8 +418,9 @@ export function upsertMcpPatchEntry(text, entry) {
   const cwd = entry && Object.prototype.hasOwnProperty.call(entry, 'cwd')
     ? entry.cwd
     : current && current.cwd
+  const unwrapped = unwrapStdioBridgeEntry({ ...entry, serverName, cwd }) || { ...entry, serverName, cwd }
   const without = removeMcpPatchEntry(text, serverName)
-  let block = buildMcpPatchBlock({ ...entry, serverName, cwd })
+  let block = buildMcpPatchBlock(unwrapped)
   if (disabled) block = upsertMcpDisabled(block, serverName, true)
   const prefix = without.replace(/\s+$/u, '')
   return normalizeCordisPatchText(prefix ? `${prefix}\n${block}` : block)
@@ -495,8 +507,12 @@ export async function ensureLocalMcpInProfile(aiRuntime) {
   } catch {
     text = ''
   }
-  const rewritten = rewriteMcpArchiveInserts(text)
-  if (rewritten.changed) await writeNormalizedPatch(file, rewritten.text)
+  let next = rewriteMcpArchiveInserts(text).text
+  for (const row of parseMcpPatchEntries(next)) {
+    const unwrapped = unwrapStdioBridgeEntry(row)
+    if (unwrapped) next = upsertMcpPatchEntry(next, unwrapped)
+  }
+  if (next !== normalizeCordisPatchText(text)) await writeNormalizedPatch(file, next)
 }
 
 export function mcpPluginId(entry) {

@@ -220,7 +220,7 @@ process.stdin.on('data', (chunk) => {
     id: 1,
     result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'x', version: '0' } },
   })
-  process.stdout.write('Content-Length: ' + Buffer.byteLength(result) + '\\r\\n\\r\\n' + result)
+  process.stdout.write(result + '\\n')
 })
 `)
   await chmod(bin, 0o755)
@@ -245,7 +245,7 @@ process.stdin.on('data', (chunk) => {
     id: 1,
     result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'x', version: '0' } },
   })
-  process.stdout.write('Content-Length: ' + Buffer.byteLength(result) + '\\r\\n\\r\\n' + result)
+  process.stdout.write(result + '\\n')
 })
 `)
   await chmod(bin, 0o755)
@@ -271,7 +271,7 @@ process.stdin.on('data', (chunk) => {
     id: 1,
     result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'x', version: '0' } },
   })
-  process.stdout.write('Content-Length: ' + Buffer.byteLength(result) + '\\r\\n\\r\\n' + result)
+  process.stdout.write(result + '\\n')
 })
 `)
   await chmod(bin, 0o755)

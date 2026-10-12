@@ -49,11 +49,9 @@ test('playwright recipe is available when npx prints a version', () => {
     })
     const playwright = recipes.find((row) => row.id === 'playwright')
     assert.equal(playwright.available, true)
-    assert.equal(playwright.command, process.execPath)
-    assert.equal(playwright.args[0].endsWith('mcp-stdio-bridge.mjs'), true)
-    assert.equal(playwright.args[1], '--')
-    assert.deepEqual(playwright.args.slice(2), ['npx', '-y', '@playwright/mcp', '--headless'])
-    assert.match(playwright.hint, /桥接/)
+    assert.equal(playwright.command, join(binDir, 'npx'))
+    assert.deepEqual(playwright.args, ['-y', '@playwright/mcp', '--headless'])
+    assert.match(playwright.hint, /@playwright\/mcp/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

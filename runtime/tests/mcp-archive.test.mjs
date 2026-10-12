@@ -9,6 +9,7 @@ import {
   parseMcpPatchEntries,
   removeMcpPatchEntry,
   rewriteMcpArchiveInserts,
+  unwrapStdioBridgeEntry,
   sanitizeMcpServerName,
   upsertMcpDisabled,
   upsertMcpPatchEntry,
@@ -118,6 +119,33 @@ test('rewriteMcpArchiveInserts wraps bare mcp-client rows for Host loader', () =
   assert.equal(rows[0].serverName, 'alpha')
   const again = rewriteMcpArchiveInserts(rewritten.text)
   assert.equal(again.changed, false)
+})
+
+test('unwrapStdioBridgeEntry drops the Content-Length translator', () => {
+  const wrapped = {
+    serverName: 'playwright',
+    transport: 'stdio',
+    command: '/usr/bin/node',
+    args: ['/app/runtime/mcp-stdio-bridge.mjs', '--', 'npx', '-y', '@playwright/mcp', '--headless'],
+    cwd: '/tmp/ws',
+  }
+  const unwrapped = unwrapStdioBridgeEntry(wrapped)
+  assert.equal(unwrapped.command, 'npx')
+  assert.deepEqual(unwrapped.args, ['-y', '@playwright/mcp', '--headless'])
+  assert.equal(unwrapped.cwd, '/tmp/ws')
+  assert.equal(unwrapStdioBridgeEntry({ command: 'npx', args: ['-y', 'pkg'] }), null)
+})
+
+test('upsertMcpPatchEntry unwraps a leftover stdio bridge spawn', () => {
+  const archived = upsertMcpPatchEntry('', {
+    serverName: 'playwright',
+    transport: 'stdio',
+    command: '/usr/bin/node',
+    args: ['/tmp/mcp-stdio-bridge.mjs', '--', 'npx', '-y', '@playwright/mcp', '--headless'],
+  })
+  const row = parseMcpPatchEntries(archived)[0]
+  assert.equal(row.command, 'npx')
+  assert.deepEqual(row.args, ['-y', '@playwright/mcp', '--headless'])
 })
 
 test('remove and disable mcp archive rows keep sibling plugins', () => {
