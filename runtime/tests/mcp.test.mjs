@@ -159,7 +159,7 @@ test('connected MCP writes do not force a Host restart', async () => {
   assert.match(routes, /resolveStdioCwd/)
 })
 
-test('cold start holds MCP then enables after connected', async () => {
+test('cold start holds MCP then lets Host HMR apply after connected', async () => {
   const { readFileSync } = await import('node:fs')
   const { fileURLToPath } = await import('node:url')
   const core = readFileSync(fileURLToPath(new URL('../dsh-core.mjs', import.meta.url)), 'utf8')
@@ -174,7 +174,7 @@ test('cold start holds MCP then enables after connected', async () => {
   assert.ok(connectedAt > spawnAt)
   assert.ok(activateAt > connectedAt)
   assert.ok(waitAt > activateAt)
-  assert.match(start, /setPluginEnabled/)
+  assert.equal(start.includes('setPluginEnabled'), false)
   assert.match(start, /releaseMcpBootHoldSafe/)
   assert.equal(start.includes('--patch') && /mcp-boot-hold/.test(start), false)
 })

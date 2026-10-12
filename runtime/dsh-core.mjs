@@ -439,24 +439,9 @@ export class DshCoreConnector {
   async activateArchivedMcp() {
     try {
       await this.releaseMcpBootHoldSafe()
-      const { waitMcpOccupancy, mcpFiberFromPlugins } = await import('./tool-occupancy.mjs')
+      const { waitMcpOccupancy } = await import('./tool-occupancy.mjs')
       const { parseMcpPatchEntries, readMcpArchiveText } = await import('./mcp-archive.mjs')
       const entries = parseMcpPatchEntries(await readMcpArchiveText(this))
-      let plugins = []
-      try {
-        plugins = await this.rpc('pluginManager/listPlugins', {})
-      } catch (error) {
-        console.warn('mcp_list_after_connect_failed', error)
-      }
-      const listed = Array.isArray(plugins) ? plugins : (Array.isArray(plugins?.plugins) ? plugins.plugins : [])
-      for (const row of entries) {
-        if (!row || row.disabled || !row.serverName) continue
-        const fiber = mcpFiberFromPlugins(listed, row.serverName)
-        const id = fiber?.entryId || fiber?.id || row.pluginId || `mcp-${row.serverName}`
-        void this.rpc('pluginManager/setPluginEnabled', { id, enabled: true }).catch((error) => {
-          console.warn('mcp_enable_after_connect_failed', id, error)
-        })
-      }
       void waitMcpOccupancy({
         timeoutMs: 8000,
         pollMs: 200,
