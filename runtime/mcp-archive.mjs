@@ -3,9 +3,32 @@
  * User MCP/skills live in $DSH_HOME/profiles/<profile>/cordis.patch.yml.
  * Boot hold lives in $DSH_HOME/cordis.patch.yml (home layer, HMR re-reads it).
  */
+import { createRequire } from 'node:module'
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { access, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { FDE_RESOURCES } from './config.mjs'
+import { generationInstallRoot } from './generation.mjs'
+
+const require = createRequire(import.meta.url)
+const yaml = loadYamlLib()
+const { parseDocument, isMap, isSeq, YAMLMap, YAMLSeq, Document } = yaml
+
+const YAML_PARSE = {
+  customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value) => value }],
+}
+
+function loadYamlLib() {
+  const dirs = [
+    join(generationInstallRoot(), 'node_modules', 'yaml'),
+    join(FDE_RESOURCES, 'dsh', 'node_modules', 'yaml'),
+  ]
+  for (const dir of dirs) {
+    if (existsSync(join(dir, 'package.json'))) return require(dir)
+  }
+  throw new Error('Host yaml library is missing')
+}
 
 const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/u
 const SKILL_PROVIDER_ROWS = [
@@ -143,10 +166,6 @@ export function decorateDiscoveredMcpRows(discovered, archiveNames) {
   }))
 }
 
-function yamlScalar(value) {
-  return JSON.stringify(String(value))
-}
-
 function isPatchBoundary(line) {
   return line.startsWith('- id:') || line === '- insert:' || line.startsWith('- insert:')
 }
@@ -182,159 +201,201 @@ export async function writeNormalizedPatch(file, text) {
   await writeFile(file, normalizeCordisPatchText(text))
 }
 
-function nestedPluginItems(block) {
-  const lines = String(block || '').split('\n')
-  const first = (lines[0] || '').trim()
-  if (first !== '- insert:' && !first.startsWith('- insert:')) return [block]
-  const items = []
-  let current = []
-  for (const line of lines.slice(1)) {
-    if (/^    - id:/.test(line) && current.length) {
-      items.push(current.join('\n'))
-      current = [line]
-    } else {
-      current.push(line)
-    }
-  }
-  if (current.length) items.push(current.join('\n'))
-  return items
+function emptySeqDocument() {
+  const document = new Document()
+  document.contents = new YAMLSeq()
+  return document
 }
 
-function parseYamlArgs(raw) {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw.trim().replace(/'/g, '"'))
-    return Array.isArray(parsed) ? parsed.map(String) : []
-  } catch {
-    return []
+function loadPatchDocument(text) {
+  const trimmed = String(text || '').trim()
+  if (!trimmed || trimmed === '[]') return emptySeqDocument()
+  const document = parseDocument(String(text), YAML_PARSE)
+  if (!isSeq(document.contents)) {
+    if (document.errors[0]) throw document.errors[0]
+    document.contents = new YAMLSeq()
+  }
+  return document
+}
+
+function serializePatch(document) {
+  if (!isSeq(document.contents) || document.contents.items.length === 0) return ''
+  const text = String(document)
+  return text.endsWith('\n') ? text : `${text}\n`
+}
+
+function stringMap(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const out = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (item == null) continue
+    out[String(key)] = String(item)
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+function mcpRowFromMap(map) {
+  if (!isMap(map)) return null
+  const json = map.toJSON()
+  if (!json || typeof json !== 'object') return null
+  const config = json.config
+  if (!config || typeof config !== 'object') return null
+  const serverName = sanitizeMcpServerName(config.serverName)
+  if (!SERVER_NAME_RE.test(serverName)) return null
+  const pluginId = String(json.id || `mcp-${serverName}`)
+  const name = String(json.name || '')
+  if (name && name !== '@deepseek-ai/dsh-mcp-client' && !pluginId.startsWith('mcp-')) return null
+  if (!name && !pluginId.startsWith('mcp-')) return null
+  const transport = String(config.transport || '') === 'streamable-http' ? 'streamable-http' : 'stdio'
+  const args = Array.isArray(config.args) ? config.args.map(String) : []
+  const env = stringMap(config.env)
+  const headers = stringMap(config.headers)
+  const cwd = typeof config.cwd === 'string' ? config.cwd : ''
+  return {
+    pluginId,
+    serverName,
+    transport,
+    command: config.command == null ? '' : String(config.command),
+    args,
+    url: config.url == null ? '' : String(config.url),
+    headers,
+    env,
+    cwd,
+    disabled: json.disabled === true,
   }
 }
 
-function unquoteYamlScalar(raw) {
-  const text = String(raw || '').trim()
-  if (!text) return ''
-  if (text.startsWith('"')) {
-    try { return JSON.parse(text) } catch { /* fall through */ }
-  }
-  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
-    return text.slice(1, -1)
-  }
-  return text
-}
-
-function parseIndentedMap(item, field) {
-  const lines = String(item || '').split('\n')
-  const start = lines.findIndex((line) => new RegExp(`^\\s+${field}:\\s*$`, 'u').test(line))
-  if (start < 0) return undefined
-  const base = (lines[start].match(/^(\s*)/) || ['', ''])[1].length
-  const map = {}
-  let key = ''
-  let raw = ''
-  const flush = () => {
-    if (!key) return
-    map[key] = unquoteYamlScalar(String(raw).replace(/\\\n\s*/g, ''))
-    key = ''
-    raw = ''
-  }
-  for (let i = start + 1; i < lines.length; i += 1) {
-    const line = lines[i]
-    if (!line.trim()) continue
-    const indent = (line.match(/^(\s*)/) || ['', ''])[1].length
-    if (indent <= base) break
-    const pair = line.match(/^(\s+)([A-Za-z0-9_.-]+):\s*(.*)$/u)
-    if (pair && pair[1].length === base + 2) {
-      flush()
-      key = pair[2]
-      raw = pair[3]
-      continue
-    }
-    if (key) raw = `${raw}\n${line.trim()}`
-  }
-  flush()
-  return Object.keys(map).length ? map : undefined
-}
-
-function parseMcpClientItem(item) {
-  if (!item.includes('serverName:')) return null
-  if (!(/dsh-mcp-client/.test(item) || /id:\s*mcp-/.test(item))) return null
-  const serverName = item.match(/serverName:\s*([A-Za-z0-9_-]+)/u)?.[1]
-  if (!serverName) return null
-  const pluginId = item.match(/- id:\s*(\S+)/u)?.[1] || `mcp-${serverName}`
-  const transportRaw = item.match(/transport:\s*(\S+)/u)?.[1] || 'stdio'
-  const transport = transportRaw === 'streamable-http' ? 'streamable-http' : 'stdio'
-  const commandMatch = item.match(/command:\s*(.+)$/mu)?.[1]
-  const urlMatch = item.match(/url:\s*(.+)$/mu)?.[1]
-  let command = ''
-  if (commandMatch) {
-    try { command = JSON.parse(commandMatch.trim()) } catch { command = commandMatch.trim().replace(/^['"]|['"]$/g, '') }
-  }
-  const url = urlMatch ? unquoteYamlScalar(urlMatch) : ''
-  const args = parseYamlArgs(item.match(/args:\s*(\[[^\]]*\])/u)?.[1])
-  const disabled = /^\s+disabled:\s*true\b/mu.test(item)
-  const headers = parseIndentedMap(item, 'headers')
-  const env = parseIndentedMap(item, 'env')
-  const cwdMatch = item.match(/^\s+cwd:\s*(.+)$/mu)?.[1]
-  const cwd = cwdMatch ? unquoteYamlScalar(cwdMatch) : ''
-  return { pluginId, serverName, transport, command, args, url, headers, env, cwd, disabled }
+function eachTopMaps(document) {
+  if (!isSeq(document.contents)) return []
+  return document.contents.items.filter((item) => isMap(item))
 }
 
 export function parseMcpPatchEntries(text) {
-  const entries = []
-  const seen = new Set()
-  for (const block of splitPatchBlocks(text)) {
-    for (const item of nestedPluginItems(block)) {
-      const row = parseMcpClientItem(item)
-      if (!row || seen.has(row.serverName)) continue
-      seen.add(row.serverName)
-      entries.push(row)
-    }
+  let document
+  try {
+    document = loadPatchDocument(text)
+  } catch {
+    return []
   }
-  return entries
+  const byName = new Map()
+  const order = []
+  const remember = (row) => {
+    if (!row || byName.has(row.serverName)) return
+    byName.set(row.serverName, row)
+    order.push(row.serverName)
+  }
+  for (const item of eachTopMaps(document)) {
+    if (item.has('insert')) {
+      const insert = item.get('insert', true)
+      if (!isSeq(insert)) continue
+      for (const child of insert.items) remember(mcpRowFromMap(child))
+      continue
+    }
+    if (item.has('config')) {
+      remember(mcpRowFromMap(item))
+      continue
+    }
+    const id = String(item.get('id') || '')
+    if (!id.startsWith('mcp-') || !item.has('disabled')) continue
+    const serverName = sanitizeMcpServerName(id.slice(4))
+    const row = byName.get(serverName)
+    if (row) row.disabled = item.get('disabled') === true
+  }
+  return order.map((name) => byName.get(name))
+}
+
+function preparedMcpEntry(entry) {
+  const serverName = sanitizeMcpServerName(entry && entry.serverName)
+  const transport = entry && entry.transport === 'streamable-http' ? 'streamable-http' : 'stdio'
+  const cwd = transport === 'stdio' ? resolveStdioCwd(entry && entry.cwd) : ''
+  const unwrapped = unwrapStdioBridgeEntry({ ...entry, serverName, transport, cwd }) || { ...entry, serverName, transport, cwd }
+  return {
+    pluginId: unwrapped.pluginId || `mcp-${serverName}`,
+    serverName,
+    transport,
+    command: String(unwrapped.command || ''),
+    args: Array.isArray(unwrapped.args) ? unwrapped.args.map(String) : [],
+    url: String(unwrapped.url || ''),
+    headers: stringMap(unwrapped.headers),
+    env: stringMap(unwrapped.env),
+    cwd,
+    disabled: Boolean(unwrapped.disabled),
+  }
+}
+
+function writeConfigMap(config, entry) {
+  config.set('transport', entry.transport)
+  config.set('serverName', entry.serverName)
+  if (entry.transport === 'streamable-http') {
+    config.set('url', entry.url)
+    config.delete('command')
+    config.delete('args')
+    config.delete('cwd')
+    config.delete('env')
+    if (entry.headers) config.set('headers', entry.headers)
+    else config.delete('headers')
+    return
+  }
+  config.set('command', entry.command)
+  config.set('args', entry.args)
+  config.delete('url')
+  config.delete('headers')
+  if (entry.cwd) config.set('cwd', entry.cwd)
+  else config.delete('cwd')
+  if (entry.env) config.set('env', entry.env)
+  else config.delete('env')
+}
+
+function findMcpClientMap(document, serverName) {
+  const pluginId = `mcp-${serverName}`
+  for (const item of eachTopMaps(document)) {
+    if (item.has('insert')) {
+      const insert = item.get('insert', true)
+      if (!isSeq(insert)) continue
+      for (const child of insert.items) {
+        if (!isMap(child)) continue
+        const row = mcpRowFromMap(child)
+        if (row && row.serverName === serverName) return child
+        if (String(child.get('id') || '') === pluginId && isMap(child.get('config', true))) return child
+      }
+      continue
+    }
+    const row = mcpRowFromMap(item)
+    if (row && row.serverName === serverName) return item
+  }
+  return null
+}
+
+function applyMcpEntry(document, entry) {
+  if (!isSeq(document.contents)) document.contents = new YAMLSeq()
+  let map = findMcpClientMap(document, entry.serverName)
+  if (!map) {
+    map = new YAMLMap()
+    map.set('id', entry.pluginId)
+    map.set('name', '@deepseek-ai/dsh-mcp-client')
+    map.set('config', new YAMLMap())
+    const wrapper = new YAMLMap()
+    const insertSeq = new YAMLSeq()
+    insertSeq.add(map)
+    wrapper.set('insert', insertSeq)
+    document.contents.add(wrapper)
+  }
+  map.set('id', entry.pluginId)
+  map.set('name', '@deepseek-ai/dsh-mcp-client')
+  if (entry.disabled) map.set('disabled', true)
+  else map.delete('disabled')
+  let config = map.get('config', true)
+  if (!isMap(config)) {
+    config = new YAMLMap()
+    map.set('config', config)
+  }
+  writeConfigMap(config, entry)
 }
 
 export function buildMcpPatchBlock(entry) {
-  const serverName = sanitizeMcpServerName(entry.serverName)
-  const head = [
-    '- insert:',
-    `    - id: mcp-${serverName}`,
-    `      name: '@deepseek-ai/dsh-mcp-client'`,
-    '      config:',
-  ]
-  if (entry.transport === 'streamable-http') {
-    const headerLines = entry.headers && Object.keys(entry.headers).length ? ['        headers:'] : []
-    if (entry.headers) {
-      for (const [key, value] of Object.entries(entry.headers)) {
-        headerLines.push(`          ${key}: ${yamlScalar(value)}`)
-      }
-    }
-    return [
-      ...head,
-      '        transport: streamable-http',
-      `        serverName: ${serverName}`,
-      `        url: ${yamlScalar(entry.url)}`,
-      ...headerLines,
-      '',
-    ].join('\n')
-  }
-  const args = Array.isArray(entry.args) ? entry.args : []
-  const envLines = entry.env && Object.keys(entry.env).length ? ['        env:'] : []
-  if (entry.env) {
-    for (const [key, value] of Object.entries(entry.env)) {
-      envLines.push(`          ${key}: ${yamlScalar(value)}`)
-    }
-  }
-  const cwd = resolveStdioCwd(entry.cwd)
-  const cwdLine = cwd ? [`        cwd: ${yamlScalar(cwd)}`] : []
-  return [
-    ...head,
-    '        transport: stdio',
-    `        serverName: ${serverName}`,
-    `        command: ${yamlScalar(entry.command)}`,
-    `        args: ${JSON.stringify(args)}`,
-    ...cwdLine,
-    ...envLines,
-    '',
-  ].join('\n')
+  const document = loadPatchDocument('')
+  applyMcpEntry(document, preparedMcpEntry(entry))
+  return serializePatch(document)
 }
 
 export function unwrapStdioBridgeEntry(entry) {
@@ -348,19 +409,54 @@ export function unwrapStdioBridgeEntry(entry) {
   return { ...entry, command: inner[0], args: inner.slice(1) }
 }
 
-export function rewriteMcpArchiveInserts(text) {
+function wrapBareMcpInserts(document) {
+  if (!isSeq(document.contents)) return false
   let changed = false
-  const next = splitPatchBlocks(normalizeCordisPatchText(text)).map((block) => {
-    const first = (block.split('\n')[0] || '').trim()
-    if (first === '- insert:' || first.startsWith('- insert:')) return block
-    if (!first.startsWith('- id: mcp-') || !(/dsh-mcp-client/.test(block) || first.startsWith('- id: mcp-'))) return block
-    if (!block.includes('serverName:')) return block
+  const items = document.contents.items
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i]
+    if (!isMap(item) || item.has('insert')) continue
+    if (!mcpRowFromMap(item)) continue
+    const wrapper = new YAMLMap()
+    const insertSeq = new YAMLSeq()
+    insertSeq.add(item)
+    wrapper.set('insert', insertSeq)
+    items[i] = wrapper
     changed = true
-    const indented = block.split('\n').map((line) => (line.length ? `    ${line}` : line)).join('\n')
-    return `- insert:\n${indented}`
-  })
-  const textOut = normalizeCordisPatchText(next.join('\n'))
-  return { text: textOut, changed: changed || textOut !== normalizeCordisPatchText(text) }
+  }
+  return changed
+}
+
+function unwrapBridgeInDocument(document) {
+  let changed = false
+  const visit = (map) => {
+    if (!isMap(map)) return
+    const row = mcpRowFromMap(map)
+    const unwrapped = unwrapStdioBridgeEntry(row)
+    if (!unwrapped) return
+    let config = map.get('config', true)
+    if (!isMap(config)) return
+    config.set('command', unwrapped.command)
+    config.set('args', unwrapped.args)
+    changed = true
+  }
+  for (const item of eachTopMaps(document)) {
+    if (item.has('insert')) {
+      const insert = item.get('insert', true)
+      if (!isSeq(insert)) continue
+      for (const child of insert.items) visit(child)
+      continue
+    }
+    visit(item)
+  }
+  return changed
+}
+
+export function rewriteMcpArchiveInserts(text) {
+  const document = loadPatchDocument(text)
+  const changed = wrapBareMcpInserts(document)
+  if (!changed) return { text: normalizeCordisPatchText(text), changed: false }
+  return { text: serializePatch(document), changed: true }
 }
 
 function stableMap(value) {
@@ -418,56 +514,78 @@ export function upsertMcpPatchEntry(text, entry) {
   const cwd = entry && Object.prototype.hasOwnProperty.call(entry, 'cwd')
     ? entry.cwd
     : current && current.cwd
-  const unwrapped = unwrapStdioBridgeEntry({ ...entry, serverName, cwd }) || { ...entry, serverName, cwd }
-  const without = removeMcpPatchEntry(text, serverName)
-  let block = buildMcpPatchBlock(unwrapped)
-  if (disabled) block = upsertMcpDisabled(block, serverName, true)
-  const prefix = without.replace(/\s+$/u, '')
-  return normalizeCordisPatchText(prefix ? `${prefix}\n${block}` : block)
+  const document = loadPatchDocument(text)
+  applyMcpEntry(document, preparedMcpEntry({ ...entry, serverName, disabled, cwd }))
+  return serializePatch(document)
 }
 
 export function removeMcpPatchEntry(text, serverName) {
   const pluginId = `mcp-${sanitizeMcpServerName(serverName)}`
-  const next = splitPatchBlocks(normalizeCordisPatchText(text)).filter((block) => {
-    const ids = [...block.matchAll(/id:\s*(mcp-[A-Za-z0-9_-]+)/gu)].map((row) => row[1])
-    return !ids.includes(pluginId) || !(/dsh-mcp-client/.test(block) || block.includes('serverName:'))
-  })
-  return normalizeCordisPatchText(next.join('\n'))
+  const document = loadPatchDocument(text)
+  if (!isSeq(document.contents)) return ''
+  const items = document.contents.items
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i]
+    if (!isMap(item)) continue
+    if (item.has('insert')) {
+      const insert = item.get('insert', true)
+      if (!isSeq(insert)) continue
+      for (let j = insert.items.length - 1; j >= 0; j -= 1) {
+        const child = insert.items[j]
+        const row = mcpRowFromMap(child)
+        const id = String(isMap(child) ? child.get('id') : '')
+        if ((row && row.serverName === sanitizeMcpServerName(serverName)) || id === pluginId) {
+          insert.items.splice(j, 1)
+        }
+      }
+      if (!insert.items.length) items.splice(i, 1)
+      continue
+    }
+    const row = mcpRowFromMap(item)
+    if (row && row.serverName === sanitizeMcpServerName(serverName)) {
+      items.splice(i, 1)
+      continue
+    }
+    if (String(item.get('id') || '') === pluginId && !item.has('config')) items.splice(i, 1)
+  }
+  return serializePatch(document)
 }
 
 export function upsertMcpDisabled(text, serverName, disabled) {
   const pluginId = `mcp-${sanitizeMcpServerName(serverName)}`
-  const line = `      disabled: ${disabled ? 'true' : 'false'}`
-  let found = false
-  const next = splitPatchBlocks(normalizeCordisPatchText(text)).map((block) => {
-    if (!block.includes(`id: ${pluginId}`)) return block
-    if (!(/dsh-mcp-client/.test(block) || block.includes('serverName:'))) return block
-    found = true
-    const kept = block.split('\n').filter((row) => !/^\s+disabled:\s*/.test(row))
-    const idIndex = kept.findIndex((row) => row.includes(`id: ${pluginId}`))
-    if (idIndex < 0) return `${kept.join('\n')}\n${line}`
-    kept.splice(idIndex + 1, 0, line)
-    return kept.join('\n')
-  })
-  return found ? normalizeCordisPatchText(next.join('\n')) : normalizeCordisPatchText(text)
+  const document = loadPatchDocument(text)
+  const map = findMcpClientMap(document, sanitizeMcpServerName(serverName))
+  if (!map) return normalizeCordisPatchText(text)
+  if (disabled) map.set('disabled', true)
+  else map.delete('disabled')
+  let overlay = null
+  for (const item of eachTopMaps(document)) {
+    if (item.has('insert') || item.has('config')) continue
+    if (String(item.get('id') || '') === pluginId) overlay = item
+  }
+  if (overlay) {
+    overlay.set('disabled', Boolean(disabled))
+  }
+  return serializePatch(document)
 }
 
 export function upsertPatchDisabled(text, id, disabled, name) {
-  const prefix = `- id: ${id}`
-  const line = `  disabled: ${disabled ? 'true' : 'false'}`
-  let found = false
-  const next = splitPatchBlocks(normalizeCordisPatchText(text)).map((block) => {
-    const first = block.split('\n')[0].trim()
-    if (first !== prefix && !first.startsWith(`${prefix} `)) return block
-    found = true
-    const kept = block.split('\n').filter((row) => !/^\s+disabled:\s*/.test(row))
-    return `${kept.join('\n').replace(/\s+$/, '')}\n${line}`
-  })
-  if (!found) {
-    const named = name ? `\n  name: ${JSON.stringify(name)}` : ''
-    next.push(`${prefix}${named}\n${line}`)
+  const document = loadPatchDocument(text)
+  if (!isSeq(document.contents)) document.contents = new YAMLSeq()
+  let target = null
+  for (const item of eachTopMaps(document)) {
+    if (item.has('insert')) continue
+    if (String(item.get('id') || '') !== id) continue
+    target = item
   }
-  return normalizeCordisPatchText(next.join('\n'))
+  if (!target) {
+    target = new YAMLMap()
+    target.set('id', id)
+    if (name) target.set('name', name)
+    document.contents.add(target)
+  }
+  target.set('disabled', Boolean(disabled))
+  return serializePatch(document)
 }
 
 export async function ensureSkillProvidersInProfile(aiRuntime) {
@@ -507,12 +625,10 @@ export async function ensureLocalMcpInProfile(aiRuntime) {
   } catch {
     text = ''
   }
-  let next = rewriteMcpArchiveInserts(text).text
-  for (const row of parseMcpPatchEntries(next)) {
-    const unwrapped = unwrapStdioBridgeEntry(row)
-    if (unwrapped) next = upsertMcpPatchEntry(next, unwrapped)
-  }
-  if (next !== normalizeCordisPatchText(text)) await writeNormalizedPatch(file, next)
+  const document = loadPatchDocument(text)
+  const wrapped = wrapBareMcpInserts(document)
+  const unwrapped = unwrapBridgeInDocument(document)
+  if (wrapped || unwrapped) await writeFile(file, serializePatch(document))
 }
 
 export function mcpPluginId(entry) {

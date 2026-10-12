@@ -88,7 +88,6 @@ test('buildMcpPatchBlock is parsed back as a Host mcp-client row', () => {
     cwd: '/tmp/ws',
   })
   assert.match(block, /^- insert:/m)
-  assert.match(block, /cwd: "\/tmp\/ws"/)
   const rows = parseMcpPatchEntries(block)
   assert.equal(rows.length, 1)
   assert.equal(rows[0].serverName, 'alpha')
@@ -134,6 +133,93 @@ test('unwrapStdioBridgeEntry drops the Content-Length translator', () => {
   assert.deepEqual(unwrapped.args, ['-y', '@playwright/mcp', '--headless'])
   assert.equal(unwrapped.cwd, '/tmp/ws')
   assert.equal(unwrapStdioBridgeEntry({ command: 'npx', args: ['-y', 'pkg'] }), null)
+})
+
+test('parseMcpPatchEntries reads Host-folded stdio command and args', () => {
+  const folded = [
+    '- id: llm-pi-ai',
+    '  name: x',
+    '- id: mcp-playwright',
+    '  disabled: false',
+    '- insert:',
+    '    - id: mcp-playwright',
+    "      name: '@deepseek-ai/dsh-mcp-client'",
+    '      config:',
+    '        transport: stdio',
+    '        serverName: playwright',
+    '        command: "/opt/FDE-X.app/Contents/Resources/resources/node/b\\',
+    '          in/node"',
+    '        args:',
+    '          [',
+    '            "/opt/FDE-X.app/Contents/Resources/resources/a\\',
+    '              pp/runtime/mcp-stdio-bridge.mjs",',
+    '            "--",',
+    '            "npx",',
+    '            "-y",',
+    '            "@playwright/mcp",',
+    '            "--headless"',
+    '          ]',
+    '        cwd: "/tmp/ws"',
+    '',
+  ].join('\n')
+  const rows = parseMcpPatchEntries(folded)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].command, '/opt/FDE-X.app/Contents/Resources/resources/node/bin/node')
+  assert.deepEqual(rows[0].args, [
+    '/opt/FDE-X.app/Contents/Resources/resources/app/runtime/mcp-stdio-bridge.mjs',
+    '--',
+    'npx',
+    '-y',
+    '@playwright/mcp',
+    '--headless',
+  ])
+  const unwrapped = unwrapStdioBridgeEntry(rows[0])
+  assert.equal(unwrapped.command, 'npx')
+  assert.deepEqual(unwrapped.args, ['-y', '@playwright/mcp', '--headless'])
+})
+
+test('ensureLocalMcpInProfile unwraps Host-folded bridge spawn and keeps sibling plugins', async () => {
+  const { mkdtemp, mkdir, readFile, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'fde-mcp-fold-'))
+  const file = join(home, 'profiles', 'fde-x', 'cordis.patch.yml')
+  await mkdir(join(home, 'profiles', 'fde-x'), { recursive: true })
+  const folded = [
+    '- id: llm-pi-ai',
+    '  name: x',
+    '  config:',
+    '    providers:',
+    '      grok2api:',
+    '        api: openai-completions',
+    '- insert:',
+    '    - id: mcp-playwright',
+    "      name: '@deepseek-ai/dsh-mcp-client'",
+    '      config:',
+    '        transport: stdio',
+    '        serverName: playwright',
+    '        command: "/opt/FDE-X.app/Contents/Resources/resources/node/b\\',
+    '          in/node"',
+    '        args:',
+    '          [',
+    '            "/opt/FDE-X.app/Contents/Resources/resources/a\\',
+    '              pp/runtime/mcp-stdio-bridge.mjs",',
+    '            "--",',
+    '            "npx",',
+    '            "-y",',
+    '            "@playwright/mcp"',
+    '          ]',
+    '',
+  ].join('\n')
+  await writeFile(file, folded)
+  await ensureLocalMcpInProfile({ dshHome: home, profileName: 'fde-x' })
+  const text = await readFile(file, 'utf8')
+  const rows = parseMcpPatchEntries(text)
+  assert.equal(rows[0].command, 'npx')
+  assert.deepEqual(rows[0].args, ['-y', '@playwright/mcp'])
+  assert.match(text, /id: llm-pi-ai/)
+  assert.match(text, /openai-completions/)
+  assert.equal(text.includes('mcp-stdio-bridge'), false)
 })
 
 test('upsertMcpPatchEntry unwraps a leftover stdio bridge spawn', () => {
