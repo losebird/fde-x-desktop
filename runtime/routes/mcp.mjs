@@ -19,8 +19,6 @@ import {
   resolveStdioCwd,
   upsertMcpDisabled,
   upsertMcpPatchEntry,
-  mcpArchiveSnapshot,
-  mcpFingerprintMatches,
   writeNormalizedPatch,
 } from '../mcp-archive.mjs'
 
@@ -106,18 +104,20 @@ export async function listSessionProjectedToolNames(aiRuntime, sessionId) {
   return []
 }
 
-export function mapServerStatus({ connected, disabled, fiberPhase, fiberEnabled, fingerprintMatch, toolCount }) {
+const RUNNING_PHASES = new Set(['pending', 'loading', 'active', 'unloading'])
+
+export function mapServerStatus({ connected, disabled, fiberPhase, fiberEnabled }) {
+  const phase = String(fiberPhase || '').trim()
   if (disabled) {
     if (!connected) return 'disabled'
-    if (fiberEnabled === false || !fiberPhase) return 'disabled'
-    return 'needs-reload'
+    if (fiberEnabled === true && RUNNING_PHASES.has(phase)) return 'unloading'
+    return 'disabled'
   }
   if (!connected) return 'configured'
-  if (fingerprintMatch === false) return 'needs-reload'
-  if (fiberEnabled === false) return 'needs-reload'
-  if (fiberPhase === 'failed') return 'failed'
-  if (fiberPhase === 'active') return Number(toolCount) > 0 ? 'loaded' : 'failed'
-  return 'needs-reload'
+  if (phase === 'failed') return 'failed'
+  if (phase === 'unloading') return 'unloading'
+  if (phase === 'active' && fiberEnabled !== false) return 'loaded'
+  return 'loading'
 }
 
 import { mcpFiberFromPlugins } from '../tool-occupancy.mjs'
@@ -143,7 +143,6 @@ export async function buildMcpServersV2(aiRuntime, patchText, projectedToolNames
   const projected = Array.isArray(projectedToolNames) ? projectedToolNames : []
   const toolsByServer = groupMcpToolsByServer(projected, serverNames)
   const plugins = connected ? await listHostPlugins(aiRuntime) : []
-  const snapshot = aiRuntime && aiRuntime.mcpLoadedSnapshot
   const mcp = []
   for (const row of configured) {
     const tools = toolsByServer.get(row.serverName) || []
@@ -160,8 +159,6 @@ export async function buildMcpServersV2(aiRuntime, patchText, projectedToolNames
         disabled: Boolean(row.disabled),
         fiberPhase: fiber && fiber.fiberPhase,
         fiberEnabled: fiber ? fiber.enabled !== false : undefined,
-        fingerprintMatch: mcpFingerprintMatches(row, snapshot),
-        toolCount: tools.length,
       }),
       tools,
     }
@@ -546,11 +543,6 @@ export function mcpArchiveWriteNote(connected) {
   return connected ? '已写入配置，核心将热更新' : '已写入配置，需重载核心生效'
 }
 
-function rememberMcpSnapshot(aiRuntime, text) {
-  if (!aiRuntime) return
-  aiRuntime.mcpLoadedSnapshot = mcpArchiveSnapshot(parseMcpPatchEntries(text))
-}
-
 function hostConnected(aiRuntime) {
   return Boolean(aiRuntime && typeof aiRuntime.status === 'function' && aiRuntime.status().connected)
 }
@@ -651,7 +643,6 @@ export async function handleMcpRoutes(request, response, url, ctx) {
     }
     const next = upsertMcpPatchEntry(text, entry)
     await writeNormalizedPatch(archivePath, next)
-    rememberMcpSnapshot(aiRuntime, next)
     const connected = hostConnected(aiRuntime)
     sendJson(response, existed ? 200 : 201, {
       data: { serverName, needsRestart: !connected },
@@ -680,7 +671,6 @@ export async function handleMcpRoutes(request, response, url, ctx) {
     }
     const next = upsertMcpDisabled(text, serverName, !enabled)
     await writeNormalizedPatch(archivePath, next)
-    rememberMcpSnapshot(aiRuntime, next)
     if (hostConnected(aiRuntime) && typeof aiRuntime.call === 'function') {
       const plugins = await listHostPlugins(aiRuntime)
       const fiber = mcpFiberFromPlugins(plugins, serverName)
@@ -733,7 +723,6 @@ export async function handleMcpRoutes(request, response, url, ctx) {
     }
     const next = removeMcpPatchEntry(text, serverName)
     await writeNormalizedPatch(archivePath, next)
-    rememberMcpSnapshot(aiRuntime, next)
     const connected = hostConnected(aiRuntime)
     sendJson(response, 200, {
       data: { serverName, needsRestart: !connected },

@@ -189,8 +189,16 @@ export interface McpServerV2 {
   disabled?: boolean
   pluginId?: string
   fiberPhase?: string
-  status: 'configured' | 'loaded' | 'needs-reload' | 'failed' | 'disabled'
+  status: 'configured' | 'loaded' | 'loading' | 'unloading' | 'needs-reload' | 'failed' | 'disabled'
   tools: string[]
+}
+
+export function mergeMcpProjection(servers: McpServerV2[], projected: McpServerV2[]): McpServerV2[] {
+  const toolsByName = new Map((Array.isArray(projected) ? projected : []).map((row) => [row.serverName, Array.isArray(row.tools) ? row.tools : []]))
+  return (Array.isArray(servers) ? servers : []).map((row) => ({
+    ...row,
+    tools: toolsByName.get(row.serverName) || row.tools || [],
+  }))
 }
 
 export type WorkspaceFileVersion = {

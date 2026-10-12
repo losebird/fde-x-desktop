@@ -4,7 +4,7 @@ import { User, Palette, Bell, Keyboard, Database, Trash2, RefreshCw, Activity, B
 import clsx from 'clsx'
 import { useApp } from '@/store/app'
 import { PageTitle, Card, Tag } from '@/components/ui'
-import { RuntimeApiError, runtimeApi, type McpServerV2, type RuntimeHealth, type SkillBagItem } from '@/lib/runtime-api'
+import { RuntimeApiError, runtimeApi, mergeMcpProjection, type McpServerV2, type RuntimeHealth, type SkillBagItem } from '@/lib/runtime-api'
 import { CoreSettings } from '@/components/settings/CoreSettings'
 import { HostNsPanel } from '@/components/settings/HostNsPanel'
 import { SemanticSettings } from '@/components/settings/SemanticSettings'
@@ -118,17 +118,7 @@ export default function Settings() {
             : Promise.resolve({ mcp: [] as McpServerV2[] }),
           runtimeApi.listAiSkills(target.ok ? target.sessionId : undefined).catch(() => ({ items: [] as SkillBagItem[] })),
         ])
-        const byName = new Map<string, McpServerV2>()
-        for (const row of [...servers.mcp, ...projected.mcp]) {
-          const prev = byName.get(row.serverName)
-          if (!prev) {
-            byName.set(row.serverName, row)
-            continue
-          }
-          const tools = [...new Set([...(prev.tools || []), ...(row.tools || [])])]
-          byName.set(row.serverName, { ...prev, ...row, tools })
-        }
-        setMcpBag([...byName.values()])
+        setMcpBag(mergeMcpProjection(servers.mcp, projected.mcp))
         setSkillBag(skills.items)
       })()
     }

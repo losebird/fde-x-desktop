@@ -407,12 +407,6 @@ export class DshCoreConnector {
 
       this.origin = origin
       this.cookie = cookie
-      try {
-        const { parseMcpPatchEntries, readMcpArchiveText, mcpArchiveSnapshot } = await import('./mcp-archive.mjs')
-        this.mcpLoadedSnapshot = mcpArchiveSnapshot(parseMcpPatchEntries(await readMcpArchiveText(this)))
-      } catch (error) {
-        console.warn('mcp_archive_snapshot_failed', error)
-      }
       this.state = 'connected'
       this.startedAt = new Date().toISOString()
       void this.activateArchivedMcp()

@@ -100,7 +100,7 @@ test('buildMcpServersV2 projects live tools from session follow', async () => {
       if (endpoint === 'pluginManager/listPlugins') {
         return [
           { entryId: 'mcp-alpha', fiberPhase: 'active', enabled: true },
-          { entryId: 'mcp-beta', fiberPhase: 'starting', enabled: true },
+          { entryId: 'mcp-beta', fiberPhase: 'loading', enabled: true },
         ]
       }
       throw new Error(endpoint)
@@ -112,9 +112,9 @@ test('buildMcpServersV2 projects live tools from session follow', async () => {
   }
   const mcp = await buildMcpServersV2(aiRuntime, SAMPLE_PATCH, ['mcp__alpha__ping'])
   assert.deepEqual(mcp[0].tools, ['mcp__alpha__ping'])
-  assert.equal(mcp[0].status, 'needs-reload')
+  assert.equal(mcp[0].status, 'loaded')
   assert.deepEqual(mcp[1].tools, [])
-  assert.equal(mcp[1].status, 'needs-reload')
+  assert.equal(mcp[1].status, 'loading')
 })
 
 test('buildMcpServersV2 reuses a projected tool snapshot when given one', async () => {
@@ -133,7 +133,7 @@ test('buildMcpServersV2 reuses a projected tool snapshot when given one', async 
   const mcp = await buildMcpServersV2(aiRuntime, SAMPLE_PATCH, ['mcp__alpha__search'])
   assert.equal(followed, 0)
   assert.deepEqual(mcp[0].tools, ['mcp__alpha__search'])
-  assert.equal(mcp[0].status, 'needs-reload')
+  assert.equal(mcp[0].status, 'loading')
 })
 
 test('MCP discover is a list mouth not a connect insert', async () => {
@@ -179,14 +179,19 @@ test('cold start holds MCP then enables after connected', async () => {
   assert.equal(start.includes('--patch') && /mcp-boot-hold/.test(start), false)
 })
 
-test('mapServerStatus uses Host fiber before leftover reload tag', () => {
-  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'active', toolCount: 2 }), 'loaded')
-  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'active', toolCount: 0 }), 'failed')
-  assert.equal(mapServerStatus({ connected: true, disabled: true }), 'disabled')
-  assert.equal(mapServerStatus({ connected: true, disabled: true, fiberPhase: 'active' }), 'needs-reload')
+test('mapServerStatus follows Host fiber and ignores session tool count', () => {
+  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'active', fiberEnabled: true }), 'loaded')
+  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'active' }), 'loaded')
+  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'loading' }), 'loading')
+  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'pending' }), 'loading')
+  assert.equal(mapServerStatus({ connected: true }), 'loading')
   assert.equal(mapServerStatus({ connected: true, fiberPhase: 'failed' }), 'failed')
-  assert.equal(mapServerStatus({ connected: true }), 'needs-reload')
-  assert.equal(mapServerStatus({ connected: true, fingerprintMatch: false, fiberPhase: 'active', toolCount: 2 }), 'needs-reload')
+  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'unloading' }), 'unloading')
+  assert.equal(mapServerStatus({ connected: false }), 'configured')
+  assert.equal(mapServerStatus({ connected: true, disabled: true }), 'disabled')
+  assert.equal(mapServerStatus({ connected: true, disabled: true, fiberPhase: 'active', fiberEnabled: true }), 'unloading')
+  assert.equal(mapServerStatus({ connected: true, fiberPhase: 'active', fiberEnabled: false }), 'loading')
+  assert.equal(mapServerStatus({ connected: false, disabled: true }), 'disabled')
 })
 
 test('mcpFiberFromPlugins matches patch id and include: prefix', () => {

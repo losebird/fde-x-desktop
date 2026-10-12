@@ -5,17 +5,23 @@ import { Plug, Plus, Wrench, Search, Activity } from 'lucide-react'
 import clsx from 'clsx'
 import { PageTitle, Card, Tag, Empty } from '@/components/ui'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { runtimeApi, type McpConnectorCard, type McpDiscoverRow, type McpRecipe, type McpServerV2 } from '@/lib/runtime-api'
+import { runtimeApi, mergeMcpProjection, type McpConnectorCard, type McpDiscoverRow, type McpRecipe, type McpServerV2 } from '@/lib/runtime-api'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
 
 type McpBag = { mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }
 
 const MCP_STATUS: Record<McpServerV2['status'], { label: string; kind: 'green' | 'amber' | 'default' }> = {
   loaded: { label: '已加载', kind: 'green' },
+  loading: { label: '加载中', kind: 'amber' },
+  unloading: { label: '卸载中', kind: 'amber' },
   'needs-reload': { label: '需重载', kind: 'amber' },
   configured: { label: '已配置', kind: 'default' },
   failed: { label: '失败', kind: 'amber' },
   disabled: { label: '已停用', kind: 'default' },
+}
+
+function mcpFiberUnsettled(rows: McpServerV2[]) {
+  return rows.some((row) => row.status === 'loading' || row.status === 'unloading')
 }
 
 const emptyDraft = () => ({
@@ -78,6 +84,7 @@ export default function MCP() {
   const [reloading, setReloading] = useState(false)
   const [healthNotes, setHealthNotes] = useState<Record<string, string>>({})
   const [editing, setEditing] = useState('')
+  const [hostConnected, setHostConnected] = useState(false)
 
   const load = useCallback(() => {
     const cached = lastModuleBag<McpBag>('mcp')
@@ -86,6 +93,9 @@ export default function MCP() {
       setConnectors(cached.connectors || [])
       setResourceTools(cached.resourceTools || [])
     }
+    void runtimeApi.aiStatus().then((status) => {
+      setHostConnected(Boolean(status.connected))
+    }).catch(() => setHostConnected(false))
     void runtimeApi.listMcpServers().then(async (data) => {
       const first = {
         mcp: data.mcp || [],
@@ -104,13 +114,15 @@ export default function MCP() {
       })
     }).then((proj) => {
       if (!proj) return
+      const servers = lastModuleBag<McpBag>('mcp')
+      const merged = mergeMcpProjection(servers?.mcp || [], proj.mcp || [])
       const next = {
-        mcp: proj.mcp || [],
-        connectors: lastModuleBag<McpBag>('mcp')?.connectors || [],
+        mcp: merged,
+        connectors: servers?.connectors || [],
         resourceTools: Array.isArray(proj.resourceTools) ? proj.resourceTools : [],
       }
       rememberModuleBag('mcp', next)
-      setMcp(next.mcp)
+      setMcp(merged)
       setResourceTools(next.resourceTools)
     }).catch((cause) => {
       if (lastModuleBag<McpBag>('mcp')) return
@@ -122,6 +134,13 @@ export default function MCP() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const unsettled = mcpFiberUnsettled(mcp)
+  useEffect(() => {
+    if (!unsettled) return
+    const timer = setInterval(() => { load() }, 500)
+    return () => clearInterval(timer)
+  }, [unsettled, load])
 
   const [q, setQ] = useState('')
   const [showAdd, setShowAdd] = useState(false)
@@ -325,7 +344,7 @@ export default function MCP() {
         <div>
           <div className="text-xs uppercase tracking-wider text-ink-subtle mb-2">MCP 服务器</div>
           {filteredMcp.length === 0 && (
-            <Empty title="没有 MCP 服务器" hint="添加后会写入 DSH 配置，需重载核心生效" />
+            <Empty title="没有 MCP 服务器" hint={hostConnected ? '添加后写入档案，已接通的核心会热更新' : '添加后写入档案；核心未接通时需重载核心生效'} />
           )}
           <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
             {filteredMcp.map((m) => {
@@ -550,11 +569,17 @@ export default function MCP() {
                 </>
               )}
               <div className="text-xs text-ink-muted p-3 rounded bg-surface-2 border border-line">
-                已写入配置，需重载核心生效。请到
-                {' '}
-                <Link to="/settings" className="text-brand hover:underline">设置 → AI 核心</Link>
-                {' '}
-                点击「重载核心」。
+                {hostConnected
+                  ? '保存后已接通的核心会热更新。'
+                  : (
+                    <>
+                      已写入配置，需重载核心生效。请到
+                      {' '}
+                      <Link to="/settings" className="text-brand hover:underline">设置 → AI 核心</Link>
+                      {' '}
+                      点击「重载核心」。
+                    </>
+                  )}
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <button type="button" className="btn" onClick={() => { setShowAdd(false); setEditing('') }}>取消</button>
