@@ -1,10 +1,11 @@
 /**
  * FDE Host profile archive for MCP client rows and skill filesystem providers.
- * User MCP/skills live in ~/.dsh-fde-x/profiles/<profile>/cordis.patch.yml.
+ * User MCP/skills live in $DSH_HOME/profiles/<profile>/cordis.patch.yml.
+ * Boot hold lives in $DSH_HOME/cordis.patch.yml (home layer, HMR re-reads it).
  */
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { access, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { access, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 
 const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/u
 const SKILL_PROVIDER_ROWS = [
@@ -17,6 +18,31 @@ export function profileCordisPatchPath(aiRuntime) {
   const profile = aiRuntime?.profileName || process.env.FDE_DSH_PROFILE || 'fde-x'
   if (!home) return ''
   return join(home, 'profiles', profile, 'cordis.patch.yml')
+}
+
+export function homeCordisPatchPath(aiRuntime) {
+  const home = aiRuntime?.dshHome || process.env.FDE_DSH_HOME
+  return home ? join(home, 'cordis.patch.yml') : ''
+}
+
+export function mcpBootHoldSidecarPath(aiRuntime) {
+  if (aiRuntime?.runDirectory) return join(aiRuntime.runDirectory, 'mcp-boot-hold.json')
+  const home = aiRuntime?.dshHome || process.env.FDE_DSH_HOME
+  return home ? join(home, 'run', 'mcp-boot-hold.json') : ''
+}
+
+function isAbsolutePath(value) {
+  const text = String(value || '').trim()
+  return text.startsWith('/') || /^[A-Za-z]:[\\/]/.test(text)
+}
+
+export function resolveStdioCwd(cwd, aiRuntime) {
+  if (isAbsolutePath(cwd)) return String(cwd).trim()
+  if (isAbsolutePath(aiRuntime?.cwd)) return String(aiRuntime.cwd).trim()
+  if (isAbsolutePath(process.env.FDE_AI_WORKSPACE)) return String(process.env.FDE_AI_WORKSPACE).trim()
+  if (isAbsolutePath(aiRuntime?.dshHome)) return String(aiRuntime.dshHome).trim()
+  if (isAbsolutePath(process.env.FDE_DSH_HOME)) return String(process.env.FDE_DSH_HOME).trim()
+  return ''
 }
 
 export function mcpArchivePaths(aiRuntime) {
@@ -61,7 +87,8 @@ export function mcpServersFromRecord(mcpServers) {
       continue
     }
     if (command) {
-      rows.push({ serverName, transport: 'stdio', command, args, env })
+      const cwd = typeof cfg.cwd === 'string' ? cfg.cwd.trim() : ''
+      rows.push({ serverName, transport: 'stdio', command, args, env, ...(cwd ? { cwd } : {}) })
     }
   }
   return rows
@@ -111,6 +138,7 @@ export function decorateDiscoveredMcpRows(discovered, archiveNames) {
     env: row.env,
     url: row.url,
     headers: row.headers,
+    cwd: row.cwd,
     present: existing.has(row.serverName),
   }))
 }
@@ -245,7 +273,9 @@ function parseMcpClientItem(item) {
   const disabled = /^\s+disabled:\s*true\b/mu.test(item)
   const headers = parseIndentedMap(item, 'headers')
   const env = parseIndentedMap(item, 'env')
-  return { pluginId, serverName, transport, command, args, url, headers, env, disabled }
+  const cwdMatch = item.match(/^\s+cwd:\s*(.+)$/mu)?.[1]
+  const cwd = cwdMatch ? unquoteYamlScalar(cwdMatch) : ''
+  return { pluginId, serverName, transport, command, args, url, headers, env, cwd, disabled }
 }
 
 export function parseMcpPatchEntries(text) {
@@ -293,12 +323,15 @@ export function buildMcpPatchBlock(entry) {
       envLines.push(`          ${key}: ${yamlScalar(value)}`)
     }
   }
+  const cwd = resolveStdioCwd(entry.cwd)
+  const cwdLine = cwd ? [`        cwd: ${yamlScalar(cwd)}`] : []
   return [
     ...head,
     '        transport: stdio',
     `        serverName: ${serverName}`,
     `        command: ${yamlScalar(entry.command)}`,
     `        args: ${JSON.stringify(args)}`,
+    ...cwdLine,
     ...envLines,
     '',
   ].join('\n')
@@ -342,6 +375,7 @@ export function mcpEntryFingerprint(entry) {
     command: String((entry && entry.command) || ''),
     args: (Array.isArray(entry && entry.args) ? entry.args : []).map(String),
     env: stableMap(entry && entry.env),
+    cwd: String((entry && entry.cwd) || ''),
   })
 }
 
@@ -370,8 +404,11 @@ export function upsertMcpPatchEntry(text, entry) {
   const disabled = entry && Object.prototype.hasOwnProperty.call(entry, 'disabled')
     ? Boolean(entry.disabled)
     : Boolean(current && current.disabled)
+  const cwd = entry && Object.prototype.hasOwnProperty.call(entry, 'cwd')
+    ? entry.cwd
+    : current && current.cwd
   const without = removeMcpPatchEntry(text, serverName)
-  let block = buildMcpPatchBlock({ ...entry, serverName })
+  let block = buildMcpPatchBlock({ ...entry, serverName, cwd })
   if (disabled) block = upsertMcpDisabled(block, serverName, true)
   const prefix = without.replace(/\s+$/u, '')
   return normalizeCordisPatchText(prefix ? `${prefix}\n${block}` : block)
@@ -460,4 +497,74 @@ export async function ensureLocalMcpInProfile(aiRuntime) {
   }
   const rewritten = rewriteMcpArchiveInserts(text)
   if (rewritten.changed) await writeNormalizedPatch(file, rewritten.text)
+}
+
+export function mcpPluginId(entry) {
+  if (entry && entry.pluginId) return String(entry.pluginId)
+  const serverName = sanitizeMcpServerName(entry && entry.serverName)
+  return serverName ? `mcp-${serverName}` : ''
+}
+
+export function buildMcpBootHoldPatch(entries) {
+  const ids = []
+  const seen = new Set()
+  for (const row of Array.isArray(entries) ? entries : []) {
+    const id = mcpPluginId(row)
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  if (!ids.length) return ''
+  return `${ids.map((id) => `- id: ${id}\n  disabled: true`).join('\n')}\n`
+}
+
+async function readHoldSidecar(file) {
+  const raw = await readFile(file, 'utf8')
+  const parsed = JSON.parse(raw)
+  if (!parsed || typeof parsed !== 'object') throw new Error('invalid mcp boot hold sidecar')
+  return parsed
+}
+
+export async function applyMcpBootHold(aiRuntime) {
+  const homeFile = homeCordisPatchPath(aiRuntime)
+  const sidecar = mcpBootHoldSidecarPath(aiRuntime)
+  if (!homeFile || !sidecar) return { applied: false }
+  const archive = parseMcpPatchEntries(await readMcpArchiveText(aiRuntime))
+  const hold = buildMcpBootHoldPatch(archive)
+  if (!hold) return { applied: false }
+  let snapshot
+  try {
+    snapshot = await readHoldSidecar(sidecar)
+  } catch {
+    let text = null
+    try {
+      text = await readFile(homeFile, 'utf8')
+    } catch {
+      text = null
+    }
+    snapshot = text == null ? { missing: true } : { text }
+    await mkdir(dirname(sidecar), { recursive: true })
+    await writeFile(sidecar, `${JSON.stringify(snapshot)}\n`)
+  }
+  const original = snapshot.missing ? '' : String(snapshot.text || '')
+  const merged = original ? normalizeCordisPatchText(`${original}\n${hold}`) : hold
+  await mkdir(dirname(homeFile), { recursive: true })
+  await writeNormalizedPatch(homeFile, merged)
+  return { applied: true }
+}
+
+export async function releaseMcpBootHold(aiRuntime) {
+  const homeFile = homeCordisPatchPath(aiRuntime)
+  const sidecar = mcpBootHoldSidecarPath(aiRuntime)
+  if (!homeFile || !sidecar) return { released: false }
+  let snapshot
+  try {
+    snapshot = await readHoldSidecar(sidecar)
+  } catch {
+    return { released: false }
+  }
+  if (snapshot.missing) await rm(homeFile, { force: true })
+  else await writeNormalizedPatch(homeFile, String(snapshot.text || ''))
+  await rm(sidecar, { force: true })
+  return { released: true }
 }

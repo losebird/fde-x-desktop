@@ -8,6 +8,7 @@ import {
   toolNamesFromFollowSnapshot,
   mapServerStatus,
   checkMcpHealth,
+  mcpArchiveWriteNote,
   mcpFiberFromPlugins,
   resolveMcpProjectionSession,
 } from '../routes/mcp.mjs'
@@ -147,6 +148,37 @@ test('MCP discover is a list mouth not a connect insert', async () => {
   assert.match(core, /ensureLocalMcpInProfile\(this\)/)
 })
 
+test('connected MCP writes do not force a Host restart', async () => {
+  assert.equal(mcpArchiveWriteNote(true), '已写入配置，核心将热更新')
+  assert.equal(mcpArchiveWriteNote(false), '已写入配置，需重载核心生效')
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const routes = readFileSync(fileURLToPath(new URL('../routes/mcp.mjs', import.meta.url)), 'utf8')
+  assert.match(routes, /needsRestart: !connected/)
+  assert.match(routes, /mcpArchiveWriteNote\(connected\)/)
+  assert.match(routes, /resolveStdioCwd/)
+})
+
+test('cold start holds MCP then enables after connected', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const core = readFileSync(fileURLToPath(new URL('../dsh-core.mjs', import.meta.url)), 'utf8')
+  const start = core.slice(core.indexOf('async startInternal()'), core.indexOf('pluginSourceCandidates('))
+  assert.match(start, /applyMcpBootHold\(this\)/)
+  const spawnAt = start.indexOf('const child = spawn(')
+  const holdAt = start.indexOf('applyMcpBootHold(this)')
+  const connectedAt = start.indexOf("this.state = 'connected'")
+  const activateAt = start.indexOf('activateArchivedMcp()')
+  const waitAt = start.indexOf('waitMcpOccupancy')
+  assert.ok(holdAt > 0 && holdAt < spawnAt)
+  assert.ok(connectedAt > spawnAt)
+  assert.ok(activateAt > connectedAt)
+  assert.ok(waitAt > activateAt)
+  assert.match(start, /setPluginEnabled/)
+  assert.match(start, /releaseMcpBootHoldSafe/)
+  assert.equal(start.includes('--patch') && /mcp-boot-hold/.test(start), false)
+})
+
 test('mapServerStatus uses Host fiber before leftover reload tag', () => {
   assert.equal(mapServerStatus({ connected: true, fiberPhase: 'active', toolCount: 2 }), 'loaded')
   assert.equal(mapServerStatus({ connected: true, fiberPhase: 'active', toolCount: 0 }), 'failed')
@@ -160,6 +192,36 @@ test('mapServerStatus uses Host fiber before leftover reload tag', () => {
 test('mcpFiberFromPlugins matches patch id and include: prefix', () => {
   const row = { entryId: 'include:mcp-alpha', patchId: 'mcp-alpha', fiberPhase: 'active', enabled: true }
   assert.equal(mcpFiberFromPlugins([row], 'alpha'), row)
+})
+
+test('checkMcpHealth stdio uses the archived cwd', async () => {
+  const { chmod, mkdir, mkdtemp, realpath, writeFile, readFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-stdio-cwd-'))
+  const cwd = join(dir, 'ws')
+  await mkdir(cwd)
+  const bin = join(dir, 'fake-mcp')
+  const seen = join(dir, 'seen-cwd')
+  await writeFile(bin, `#!/usr/bin/env node
+const { writeFileSync } = require('node:fs')
+writeFileSync(${JSON.stringify(seen)}, process.cwd())
+let buf = ''
+process.stdin.on('data', (chunk) => {
+  buf += chunk
+  if (!buf.includes('initialize')) return
+  const result = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'x', version: '0' } },
+  })
+  process.stdout.write('Content-Length: ' + Buffer.byteLength(result) + '\\r\\n\\r\\n' + result)
+})
+`)
+  await chmod(bin, 0o755)
+  const health = await checkMcpHealth({ transport: 'stdio', command: bin, args: [], cwd })
+  assert.equal(health.ok, true)
+  assert.equal(await readFile(seen, 'utf8'), await realpath(cwd))
 })
 
 test('checkMcpHealth stdio initialize is reachable', async () => {

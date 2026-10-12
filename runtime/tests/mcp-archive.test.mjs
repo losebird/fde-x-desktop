@@ -17,6 +17,11 @@ import {
   mcpArchiveSnapshot,
   mcpEntryFingerprint,
   mcpFingerprintMatches,
+  applyMcpBootHold,
+  buildMcpBootHoldPatch,
+  homeCordisPatchPath,
+  releaseMcpBootHold,
+  resolveStdioCwd,
 } from '../mcp-archive.mjs'
 
 test('decorateDiscoveredMcpRows marks rows already in the archive', () => {
@@ -79,13 +84,16 @@ test('buildMcpPatchBlock is parsed back as a Host mcp-client row', () => {
     transport: 'stdio',
     command: 'npx',
     args: ['-y', 'pkg'],
+    cwd: '/tmp/ws',
   })
   assert.match(block, /^- insert:/m)
+  assert.match(block, /cwd: "\/tmp\/ws"/)
   const rows = parseMcpPatchEntries(block)
   assert.equal(rows.length, 1)
   assert.equal(rows[0].serverName, 'alpha')
   assert.equal(rows[0].command, 'npx')
   assert.deepEqual(rows[0].args, ['-y', 'pkg'])
+  assert.equal(rows[0].cwd, '/tmp/ws')
 })
 
 test('rewriteMcpArchiveInserts wraps bare mcp-client rows for Host loader', () => {
@@ -251,10 +259,84 @@ test('archive fingerprint ignores disabled and catches command edits', () => {
   const snapshot = mcpArchiveSnapshot([alpha])
   assert.equal(mcpFingerprintMatches({ ...alpha, disabled: true }, snapshot), true)
   assert.equal(mcpFingerprintMatches({ ...alpha, command: 'node' }, snapshot), false)
+  assert.equal(mcpFingerprintMatches({ ...alpha, cwd: '/tmp/ws' }, snapshot), false)
   assert.equal(mcpFingerprintMatches({ serverName: 'beta', transport: 'stdio', command: 'npx' }, snapshot), false)
   assert.equal(mcpFingerprintMatches(alpha, null), false)
   assert.equal(mcpFingerprintMatches(alpha, undefined), false)
   assert.equal(mcpEntryFingerprint(alpha), mcpEntryFingerprint({ ...alpha, disabled: true }))
+})
+
+test('resolveStdioCwd prefers an absolute occupancy cwd', () => {
+  assert.equal(resolveStdioCwd('/tmp/from-entry', { cwd: '/tmp/ws', dshHome: '/tmp/home' }), '/tmp/from-entry')
+  assert.equal(resolveStdioCwd('', { cwd: '/tmp/ws', dshHome: '/tmp/home' }), '/tmp/ws')
+  assert.equal(resolveStdioCwd('relative', { cwd: '/tmp/ws', dshHome: '/tmp/home' }), '/tmp/ws')
+  assert.equal(resolveStdioCwd('', { dshHome: '/tmp/home' }), '/tmp/home')
+})
+
+test('upsertMcpPatchEntry keeps cwd unless the entry sets it', () => {
+  const archived = upsertMcpPatchEntry('', {
+    serverName: 'alpha',
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y'],
+    cwd: '/tmp/ws',
+  })
+  const edited = upsertMcpPatchEntry(archived, {
+    serverName: 'alpha',
+    transport: 'stdio',
+    command: '/usr/bin/true',
+    args: [],
+  })
+  assert.equal(parseMcpPatchEntries(edited)[0].cwd, '/tmp/ws')
+  const moved = upsertMcpPatchEntry(edited, {
+    serverName: 'alpha',
+    transport: 'stdio',
+    command: '/usr/bin/true',
+    cwd: '/tmp/other',
+  })
+  assert.equal(parseMcpPatchEntries(moved)[0].cwd, '/tmp/other')
+})
+
+test('MCP boot hold uses the home layer and restores it', async () => {
+  const { mkdir, readFile, writeFile, access } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { mkdtemp } = await import('node:fs/promises')
+  const home = await mkdtemp(join(tmpdir(), 'fde-mcp-hold-'))
+  const profile = join(home, 'profiles', 'fde-x')
+  await mkdir(profile, { recursive: true })
+  await writeFile(join(profile, 'cordis.patch.yml'), buildMcpPatchBlock({
+    serverName: 'alpha',
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', 'pkg'],
+    cwd: '/tmp/ws',
+  }))
+  const homePatch = join(home, 'cordis.patch.yml')
+  await writeFile(homePatch, '- id: keep-me\n  name: x\n')
+  const runtime = { dshHome: home, profileName: 'fde-x', runDirectory: join(home, 'run') }
+  assert.equal(homeCordisPatchPath(runtime), homePatch)
+  const hold = buildMcpBootHoldPatch(parseMcpPatchEntries(await readFile(join(profile, 'cordis.patch.yml'), 'utf8')))
+  assert.match(hold, /id: mcp-alpha/)
+  assert.match(hold, /disabled: true/)
+  const applied = await applyMcpBootHold(runtime)
+  assert.equal(applied.applied, true)
+  const held = await readFile(homePatch, 'utf8')
+  assert.match(held, /id: keep-me/)
+  assert.match(held, /id: mcp-alpha/)
+  assert.match(held, /disabled: true/)
+  const profileText = await readFile(join(profile, 'cordis.patch.yml'), 'utf8')
+  assert.equal(parseMcpPatchEntries(profileText)[0].disabled, false)
+  const again = await applyMcpBootHold(runtime)
+  assert.equal(again.applied, true)
+  const released = await releaseMcpBootHold(runtime)
+  assert.equal(released.released, true)
+  const restored = await readFile(homePatch, 'utf8')
+  assert.match(restored, /id: keep-me/)
+  assert.equal(restored.includes('mcp-alpha'), false)
+  const noop = await releaseMcpBootHold(runtime)
+  assert.equal(noop.released, false)
+  await access(join(profile, 'cordis.patch.yml'))
 })
 
 test('mcpArchivePaths uses the profile archive when present', () => {

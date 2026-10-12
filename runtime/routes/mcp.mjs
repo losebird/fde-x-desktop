@@ -16,8 +16,10 @@ import {
   profileCordisPatchPath,
   readMcpArchiveText,
   removeMcpPatchEntry,
+  resolveStdioCwd,
   upsertMcpDisabled,
   upsertMcpPatchEntry,
+  mcpArchiveSnapshot,
   mcpFingerprintMatches,
   writeNormalizedPatch,
 } from '../mcp-archive.mjs'
@@ -170,6 +172,7 @@ export async function buildMcpServersV2(aiRuntime, patchText, projectedToolNames
       item.command = row.command
       item.args = args
       if (row.env && typeof row.env === 'object') item.env = row.env
+      if (row.cwd) item.cwd = row.cwd
     }
     mcp.push(item)
   }
@@ -447,8 +450,10 @@ async function probeMcpStdioInitialize(entry, timeoutMs = 8000) {
     inheritedPath: process.env.PATH || '',
   })
   return await new Promise((resolve) => {
+    const spawnCwd = String(entry.cwd || '').trim()
     const child = spawn(resolved, args, {
       env: { ...process.env, PATH: pathEnv },
+      cwd: spawnCwd || undefined,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let out = ''
@@ -537,6 +542,19 @@ export async function checkMcpHealth(entry) {
   return probeMcpStdioInitialize(entry)
 }
 
+export function mcpArchiveWriteNote(connected) {
+  return connected ? '已写入配置，核心将热更新' : '已写入配置，需重载核心生效'
+}
+
+function rememberMcpSnapshot(aiRuntime, text) {
+  if (!aiRuntime) return
+  aiRuntime.mcpLoadedSnapshot = mcpArchiveSnapshot(parseMcpPatchEntries(text))
+}
+
+function hostConnected(aiRuntime) {
+  return Boolean(aiRuntime && typeof aiRuntime.status === 'function' && aiRuntime.status().connected)
+}
+
 export async function handleMcpRoutes(request, response, url, ctx) {
   const { aiRuntime, db, currentCorrelationId, sendJson, sendError, readJson } = ctx
 
@@ -609,6 +627,7 @@ export async function handleMcpRoutes(request, response, url, ctx) {
       return true
     }
     const existed = existing.has(serverName)
+    const current = parseMcpPatchEntries(text).find((row) => row.serverName === serverName)
     let entry
     if (transport === 'streamable-http') {
       const urlValue = typeof body.url === 'string' ? body.url.trim() : ''
@@ -626,12 +645,17 @@ export async function handleMcpRoutes(request, response, url, ctx) {
       }
       const args = Array.isArray(body.args) ? body.args.map((item) => String(item)) : []
       const env = body.env && typeof body.env === 'object' && !Array.isArray(body.env) ? body.env : undefined
-      entry = { serverName, transport, command, args, env }
+      const cwdSource = Object.prototype.hasOwnProperty.call(body, 'cwd') ? body.cwd : current?.cwd
+      const cwd = resolveStdioCwd(cwdSource, aiRuntime)
+      entry = { serverName, transport, command, args, env, ...(cwd ? { cwd } : {}) }
     }
-    await writeNormalizedPatch(archivePath, upsertMcpPatchEntry(text, entry))
+    const next = upsertMcpPatchEntry(text, entry)
+    await writeNormalizedPatch(archivePath, next)
+    rememberMcpSnapshot(aiRuntime, next)
+    const connected = hostConnected(aiRuntime)
     sendJson(response, existed ? 200 : 201, {
-      data: { serverName, needsRestart: true },
-      note: '已写入配置，需重载核心生效',
+      data: { serverName, needsRestart: !connected },
+      note: mcpArchiveWriteNote(connected),
       correlationId: currentCorrelationId,
     })
     return true
@@ -654,8 +678,10 @@ export async function handleMcpRoutes(request, response, url, ctx) {
       sendError(response, 404, 'not_found', '未找到该 MCP 服务器', currentCorrelationId)
       return true
     }
-    await writeNormalizedPatch(archivePath, upsertMcpDisabled(text, serverName, !enabled))
-    if (aiRuntime.status().connected && typeof aiRuntime.call === 'function') {
+    const next = upsertMcpDisabled(text, serverName, !enabled)
+    await writeNormalizedPatch(archivePath, next)
+    rememberMcpSnapshot(aiRuntime, next)
+    if (hostConnected(aiRuntime) && typeof aiRuntime.call === 'function') {
       const plugins = await listHostPlugins(aiRuntime)
       const fiber = mcpFiberFromPlugins(plugins, serverName)
       const pluginId = fiber?.entryId || fiber?.id || `mcp-${serverName}`
@@ -670,9 +696,10 @@ export async function handleMcpRoutes(request, response, url, ctx) {
     const confirmed = enabled
       ? Boolean(row && row.status === 'loaded')
       : Boolean(row && row.status === 'disabled')
+    const connected = hostConnected(aiRuntime)
     sendJson(response, 200, {
-      data: { serverName, enabled, needsRestart: !confirmed },
-      note: confirmed ? (enabled ? '已启用' : '已停用') : '已写入档案，需重载核心生效',
+      data: { serverName, enabled, needsRestart: !connected && !confirmed },
+      note: confirmed ? (enabled ? '已启用' : '已停用') : (connected ? '已写入档案，核心将热更新' : '已写入档案，需重载核心生效'),
       correlationId: currentCorrelationId,
     })
     return true
@@ -693,7 +720,7 @@ export async function handleMcpRoutes(request, response, url, ctx) {
       sendError(response, 404, 'not_found', '未找到该 MCP 服务器', currentCorrelationId)
       return true
     }
-    if (aiRuntime.status().connected && typeof aiRuntime.call === 'function') {
+    if (hostConnected(aiRuntime) && typeof aiRuntime.call === 'function') {
       const plugins = await listHostPlugins(aiRuntime)
       const fiber = mcpFiberFromPlugins(plugins, serverName)
       if (fiber) {
@@ -704,10 +731,13 @@ export async function handleMcpRoutes(request, response, url, ctx) {
         }
       }
     }
-    await writeNormalizedPatch(archivePath, removeMcpPatchEntry(text, serverName))
+    const next = removeMcpPatchEntry(text, serverName)
+    await writeNormalizedPatch(archivePath, next)
+    rememberMcpSnapshot(aiRuntime, next)
+    const connected = hostConnected(aiRuntime)
     sendJson(response, 200, {
-      data: { serverName, needsRestart: true },
-      note: '已从档案删除，需重载核心生效',
+      data: { serverName, needsRestart: !connected },
+      note: connected ? '已从档案删除' : '已从档案删除，需重载核心生效',
       correlationId: currentCorrelationId,
     })
     return true

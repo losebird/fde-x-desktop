@@ -264,7 +264,7 @@ export default function MCP() {
           setShowAdd(false)
           setEditing('')
           setDraft(emptyDraft())
-          setError(result.note || '已写入配置，需重载核心生效')
+          setError(result.note || '')
           load()
         })
         .catch((cause) => {

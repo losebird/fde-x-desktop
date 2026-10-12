@@ -334,6 +334,12 @@ export class DshCoreConnector {
     }
     await this.reclaimStrayProcesses()
     const semanticaPython = await this.ensureSharedSemanticRuntime()
+    try {
+      const { applyMcpBootHold } = await import('./mcp-archive.mjs')
+      await applyMcpBootHold(this)
+    } catch (error) {
+      console.warn('apply_mcp_boot_hold_failed', error)
+    }
 
     const host = resolveHostSpawn(this.bin)
     const child = spawn(host.command, [
@@ -402,21 +408,14 @@ export class DshCoreConnector {
       this.origin = origin
       this.cookie = cookie
       try {
-        const { waitMcpOccupancy } = await import('./tool-occupancy.mjs')
         const { parseMcpPatchEntries, readMcpArchiveText, mcpArchiveSnapshot } = await import('./mcp-archive.mjs')
-        const patchText = await readMcpArchiveText(this)
-        this.mcpLoadedSnapshot = mcpArchiveSnapshot(parseMcpPatchEntries(patchText))
-        await waitMcpOccupancy({
-          timeoutMs: 8000,
-          pollMs: 200,
-          configured: parseMcpPatchEntries(patchText),
-          listPlugins: async () => this.rpc('pluginManager/listPlugins', {}),
-        })
+        this.mcpLoadedSnapshot = mcpArchiveSnapshot(parseMcpPatchEntries(await readMcpArchiveText(this)))
       } catch (error) {
-        console.warn('wait_mcp_occupancy_failed', error)
+        console.warn('mcp_archive_snapshot_failed', error)
       }
       this.state = 'connected'
       this.startedAt = new Date().toISOString()
+      void this.activateArchivedMcp()
       void import('./catalog-typert.mjs').then(({ ensureTypertVerbs }) => ensureTypertVerbs()).catch((error) => {
         console.warn('ensure_typert_verbs_failed', error)
       })
@@ -428,8 +427,52 @@ export class DshCoreConnector {
     } catch (error) {
       this.state = 'error'
       this.lastError = errorMessage(error)
+      await this.releaseMcpBootHoldSafe()
       await this.stopChild()
       throw error
+    }
+  }
+
+  async releaseMcpBootHoldSafe() {
+    try {
+      const { releaseMcpBootHold } = await import('./mcp-archive.mjs')
+      await releaseMcpBootHold(this)
+    } catch (error) {
+      console.warn('release_mcp_boot_hold_failed', error)
+    }
+  }
+
+  async activateArchivedMcp() {
+    try {
+      await this.releaseMcpBootHoldSafe()
+      const { waitMcpOccupancy, mcpFiberFromPlugins } = await import('./tool-occupancy.mjs')
+      const { parseMcpPatchEntries, readMcpArchiveText } = await import('./mcp-archive.mjs')
+      const entries = parseMcpPatchEntries(await readMcpArchiveText(this))
+      let plugins = []
+      try {
+        plugins = await this.rpc('pluginManager/listPlugins', {})
+      } catch (error) {
+        console.warn('mcp_list_after_connect_failed', error)
+      }
+      const listed = Array.isArray(plugins) ? plugins : (Array.isArray(plugins?.plugins) ? plugins.plugins : [])
+      for (const row of entries) {
+        if (!row || row.disabled || !row.serverName) continue
+        const fiber = mcpFiberFromPlugins(listed, row.serverName)
+        const id = fiber?.entryId || fiber?.id || row.pluginId || `mcp-${row.serverName}`
+        void this.rpc('pluginManager/setPluginEnabled', { id, enabled: true }).catch((error) => {
+          console.warn('mcp_enable_after_connect_failed', id, error)
+        })
+      }
+      void waitMcpOccupancy({
+        timeoutMs: 8000,
+        pollMs: 200,
+        configured: entries,
+        listPlugins: async () => this.rpc('pluginManager/listPlugins', {}),
+      }).catch((error) => {
+        console.warn('wait_mcp_occupancy_failed', error)
+      })
+    } catch (error) {
+      console.warn('activate_archived_mcp_failed', error)
     }
   }
 
@@ -1162,6 +1205,7 @@ export class DshCoreConnector {
 
   async stop() {
     this.closeStreams()
+    await this.releaseMcpBootHoldSafe()
     if (!this.child) {
       this.state = 'stopped'
       this.cookie = null

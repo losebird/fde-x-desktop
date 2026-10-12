@@ -540,7 +540,7 @@ node runtime/smoke.mjs
 | 缺口 | 接法 |
 |---|---|
 | 计划三 Tab | 吃 Host 目录 `goal` / `schedule`/`job` / `workflow`；本地行 `fde-task:` origin。无 Host 集合时本地行仍在 |
-| MCP 与当前会话工具列表无关 | 保存后提示「重载核心」；列表可标「需重载」。不假装已热加载 |
+| MCP 与当前会话工具列表无关 | 已连接：写档案后走官方 HMR（home/profile 配置监视 + pluginManager），禁止杀 Host。未连接：列表可标「需重载」，保存后提示重载核心 |
 | Skills 取 sessions[0]；启停 disabled | 列表改 `currentAiTarget`；无 Remote 则启停保持 disabled，不要假开关 |
 
 ### 15.7 业务应用 · 创建应用（用户点名补入）
@@ -566,9 +566,9 @@ node runtime/smoke.mjs
 3. 早报 IM 真信箱；记忆问这条 / 跳 session。  
 4. 文件「发给 AI」。  
 5. 业务应用：空草稿可编辑 + 可选 `promptAi` 填 definition。  
-6. 计划步骤要么真接要么禁用；MCP 重载提示；⌘K 搜记忆。
+6. 计划步骤要么真接要么禁用；MCP 已连接走官方热更新；⌘K 搜记忆。
 
-不要做：双机 IM 联调、MCP 热加载、官方 Client 进浏览器、再抄一份会话 JSON、改顶栏模块顺序。
+不要做：双机 IM 联调、杀 Host 冒充 MCP 加载、官方 Client 进浏览器、再抄一份会话 JSON、改顶栏模块顺序。
 
 ### 15.10 验收（每步活测）
 
