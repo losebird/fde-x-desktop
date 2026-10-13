@@ -340,6 +340,12 @@ export class DshCoreConnector {
     } catch (error) {
       console.warn('apply_mcp_boot_hold_failed', error)
     }
+    try {
+      const { ensureSealedCustomReasoning } = await import('./models-settings.mjs')
+      ensureSealedCustomReasoning(this.dshHome)
+    } catch (error) {
+      console.warn('ensure_custom_reasoning_seal_failed', error)
+    }
 
     const host = resolveHostSpawn(this.bin)
     const child = spawn(host.command, [

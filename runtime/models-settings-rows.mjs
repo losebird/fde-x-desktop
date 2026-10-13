@@ -16,6 +16,16 @@ export function modelCapacityFromDiscoverRow(row) {
   return out
 }
 
+/** Custom provider (baseURL) rows with no efforts: Host must not inherit catalog high. */
+export function sealCustomProviderModels(models) {
+  return (Array.isArray(models) ? models : []).map((row) => {
+    const packed = pickModelRowFields(row)
+    if (!packed) return row
+    if (packed.reasoningEfforts === undefined) packed.reasoningEfforts = false
+    return packed
+  })
+}
+
 export function pickModelRowFields(row) {
   const id = String(row?.id || '').trim()
   if (!id) return null

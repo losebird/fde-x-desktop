@@ -1,5 +1,8 @@
-import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { generationInstallRoot } from './generation.mjs'
+import { FDE_RESOURCES } from './config.mjs'
 import {
   dictInnerUid,
   objectFieldEntries,
@@ -134,6 +137,7 @@ export {
   mergeModelRows,
   modelCapacityFromDiscoverRow,
   pickModelRowFields,
+  sealCustomProviderModels,
 } from './models-settings-rows.mjs'
 
 export async function discoverProviderModels(aiRuntime, profile, providerRoute) {
@@ -317,6 +321,48 @@ export function readDescribeFallback(dshHome) {
     }],
     _offlineYaml: text,
   }
+}
+
+function loadHostYaml() {
+  const require = createRequire(import.meta.url)
+  const dirs = [
+    join(generationInstallRoot(), 'node_modules', 'yaml'),
+    join(FDE_RESOURCES, 'dsh', 'node_modules', 'yaml'),
+  ]
+  for (const dir of dirs) {
+    if (existsSync(join(dir, 'package.json'))) return require(dir)
+  }
+  throw new Error('Host yaml library is missing')
+}
+
+export function ensureSealedCustomReasoning(dshHome) {
+  const live = join(dshHome, 'settings.yaml')
+  const imported = join(dshHome, 'settings.yaml.imported')
+  const source = existsSync(live) ? live : (existsSync(imported) ? imported : '')
+  if (!source) return { changed: false }
+  const yaml = loadHostYaml()
+  const { parseDocument, isMap, isSeq } = yaml
+  const document = parseDocument(readFileSync(source, 'utf8'))
+  if (!isMap(document.contents)) return { changed: false }
+  const providers = document.getIn(['llm-pi-ai', 'providers'], true)
+  if (!isMap(providers)) return { changed: false }
+  let changed = false
+  for (const pair of providers.items) {
+    const node = pair.value
+    if (!isMap(node) || !node.get('baseURL')) continue
+    const models = node.get('models', true)
+    if (!isSeq(models)) continue
+    for (const item of models.items) {
+      if (!isMap(item)) continue
+      if (item.get('reasoningEfforts') !== undefined) continue
+      item.set('reasoningEfforts', false)
+      changed = true
+    }
+  }
+  if (!changed) return { changed: false }
+  const text = String(document)
+  writeFileSync(live, text.endsWith('\n') ? text : `${text}\n`)
+  return { changed: true, path: live }
 }
 
 export function validateApiKeyInput(value) {

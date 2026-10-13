@@ -117,6 +117,7 @@ import {
   formatReasoningEffortsYaml,
   pathOps,
   pickModelRowFields,
+  sealCustomProviderModels,
   protocolChoicesFromNamespace,
   providerKeyRef as modelsProviderKeyRef,
   validateApiKeyInput,
@@ -304,7 +305,7 @@ function formatSettingsProviderBlock(route, profile) {
     `      api: ${yamlScalar(profile.api)}`,
     `      baseURL: ${yamlScalar(profile.baseURL)}`,
     '      models:',
-    ...models.map((row) => {
+    ...sealCustomProviderModels(models).map((row) => {
       const efforts = row.reasoningEfforts
       const hasCapacity = row.contextWindow !== undefined || row.maxTokens !== undefined
       const hasEfforts = efforts !== undefined && efforts !== null
