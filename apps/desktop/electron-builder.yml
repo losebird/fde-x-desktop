@@ -13,6 +13,7 @@ extraResources:
       - "**/*"
       - "!**/.pack-work/**"
 mac:
+  icon: build/icon.png
   target:
     - dmg
     - zip

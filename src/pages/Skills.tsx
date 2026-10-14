@@ -215,10 +215,10 @@ export default function Skills() {
   return (
     <div>
       <PageTitle
-        title="Skills"
+        title="技能"
         subtitle={subtitle}
         actions={
-          <button type="button" className="btn-primary" disabled={busy} onClick={openInstall}><Sparkles size={14} /> 安装新 Skill</button>
+          <button type="button" className="btn-primary" disabled={busy} onClick={openInstall}><Sparkles size={14} /> 安装新技能</button>
         }
       />
 

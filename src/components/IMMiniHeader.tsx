@@ -26,10 +26,7 @@ export function IMMiniHeader() {
         onClick={() => nav('/')}
         title="回工作台主页"
       >
-        <div className="w-5 h-5 rounded bg-gradient-to-br from-brand to-brand/70 text-white text-[10px] font-bold flex items-center justify-center">F</div>
-        <div className="min-w-0 hidden sm:block">
-          <div className="text-xs font-medium truncate">FDE-X Desktop</div>
-        </div>
+        <img src="/brand/logo.svg" alt="FDE-X" className="h-5 w-auto max-w-[140px] object-contain object-left" />
       </div>
 
       <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar px-2">

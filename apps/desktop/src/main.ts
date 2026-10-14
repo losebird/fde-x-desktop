@@ -150,6 +150,7 @@ function openMainWindow() {
     height: 860,
     show: true,
     title: 'FDE-X',
+    icon: join(import.meta.dirname, '../build/icon.png'),
     webPreferences: {
       preload: join(import.meta.dirname, 'preload.js'),
       contextIsolation: true,

@@ -27,8 +27,8 @@ const GROUP_LABEL: Record<string, string> = {
   task: '任务',
   workflow: '工作流',
   memory: '记忆',
-  skill: 'Skills',
-  mcp: 'MCP',
+  skill: '技能',
+  mcp: '连接器',
   page: '功能',
 }
 

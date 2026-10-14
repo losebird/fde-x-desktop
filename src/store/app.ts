@@ -270,8 +270,8 @@ const defaultPanels = (): SidePanelItem[] => [
   { id: 'plan',     label: '计划',   icon: 'ClipboardList', emoji: '📋', accent: 'bg-blue-500',   state: 'closed', width: 600, view: 'plan' },
   { id: 'files',    label: '文件',   icon: 'Folder',        emoji: '📁', accent: 'bg-emerald-500', state: 'closed', width: 580, view: 'files' },
   { id: 'data',     label: '业务应用', icon: 'Database',      emoji: '🗃️', accent: 'bg-cyan-500',   state: 'closed', width: 760, view: 'data' },
-  { id: 'mcp',      label: 'MCP',    icon: 'Plug',          emoji: '🔌', accent: 'bg-rose-500',   state: 'closed', width: 520, view: 'mcp' },
-  { id: 'skills',   label: 'Skills', icon: 'Wand2',         emoji: '🪄', accent: 'bg-indigo-500', state: 'closed', width: 520, view: 'skills' },
+  { id: 'mcp',      label: '连接器',    icon: 'Plug',          emoji: '🔌', accent: 'bg-rose-500',   state: 'closed', width: 520, view: 'mcp' },
+  { id: 'skills',   label: '技能', icon: 'Wand2',         emoji: '🪄', accent: 'bg-indigo-500', state: 'closed', width: 520, view: 'skills' },
   { id: 'memory',   label: '记忆',   icon: 'Brain',         emoji: '🧠', accent: 'bg-fuchsia-500', state: 'closed', width: 800, view: 'memory' },
   { id: 'settings', label: '设置',   icon: 'Settings',      emoji: '⚙️', accent: 'bg-slate-500',  state: 'closed', width: 520, view: 'settings' },
 ]

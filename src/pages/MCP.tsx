@@ -303,7 +303,7 @@ export default function MCP() {
   return (
     <div>
       <PageTitle
-        title="MCP 管理"
+        title="连接器"
         subtitle={`模型上下文协议服务器 · ${loadedCount} / ${mcp.length} 已加载`}
         actions={
           <>

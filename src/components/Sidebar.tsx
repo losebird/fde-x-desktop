@@ -15,8 +15,8 @@ const NAV = [
   { to: '/agents',       label: 'Agent',     icon: Bot,             group: '协作' },
   { to: '/im',           label: 'IM',        icon: MessageCircle,   group: '协作' },
   { to: '/data',         label: '业务应用',   icon: BarChart3,       group: '运营' },
-  { to: '/mcp',          label: 'MCP 管理',  icon: Plug,            group: '扩展' },
-  { to: '/skills',       label: 'Skills',    icon: Sparkles,        group: '扩展' },
+  { to: '/mcp',          label: '连接器',  icon: Plug,            group: '扩展' },
+  { to: '/skills',       label: '技能',    icon: Sparkles,        group: '扩展' },
   { to: '/memory',       label: '记忆',      icon: Brain,           group: '设置' },
   { to: '/settings',     label: '设置',      icon: Settings,        group: '设置' },
 ] as const
