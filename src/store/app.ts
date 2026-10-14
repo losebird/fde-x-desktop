@@ -276,6 +276,15 @@ const defaultPanels = (): SidePanelItem[] => [
   { id: 'settings', label: '设置',   icon: 'Settings',      emoji: '⚙️', accent: 'bg-slate-500',  state: 'closed', width: 520, view: 'settings' },
 ]
 
+function overlayPanelCatalog(panels: SidePanelItem[]): SidePanelItem[] {
+  const catalog = new Map(defaultPanels().map((row) => [row.id, row]))
+  return (Array.isArray(panels) ? panels : defaultPanels()).map((panel) => {
+    const next = catalog.get(panel.id)
+    if (!next) return panel
+    return { ...panel, label: next.label, icon: next.icon, emoji: next.emoji, accent: next.accent, view: next.view }
+  })
+}
+
 // 兼容老 drawers 接口(转换到 panels)
 const defaultDrawers = (): Record<string, { visible: boolean; width: number }> => ({
   ai: { visible: false, width: 420 },
@@ -1064,7 +1073,7 @@ export const useApp = create<AppState>()(
     {
       name: 'scene-39-workstation',
       storage: createJSONStorage(() => localStorage),
-      version: 17,
+      version: 18,
       partialize: (state) => ({
         panels: state.panels,
         drawers: state.drawers,
@@ -1148,6 +1157,7 @@ export const useApp = create<AppState>()(
           ))
         }
         if (from < 16) persisted.activeAiSessionId = persisted.activeAiSessionId || null
+        persisted.panels = overlayPanelCatalog(persisted.panels ?? defaultPanels())
         return persisted
       },
     },
