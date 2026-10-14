@@ -4,7 +4,10 @@ const MUTED = '#6B7280'
 const LINE = '#ECECE9'
 const BRAND = '#2F6B3A'
 
-export function initWindowHtml() {
+export function initWindowHtml(logoSvg = '') {
+  const mark = logoSvg
+    ? logoSvg.replace(/<\?xml[^>]*>/, '').trim()
+    : '<div class="mark-fallback">FDE-X</div>'
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -22,12 +25,9 @@ export function initWindowHtml() {
     -webkit-font-smoothing: antialiased;
   }
   .panel { width: 300px; }
-  .mark {
-    width: 32px; height: 32px; border-radius: 8px;
-    background: ${BRAND}; color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px; font-weight: 600;
-  }
+  .mark { height: 28px; }
+  .mark svg { display: block; height: 28px; width: auto; max-width: 220px; }
+  .mark-fallback { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
   h1 { margin: 14px 0 6px; font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
   #s { margin: 0 0 16px; font-size: 13px; color: ${MUTED}; min-height: 1.4em; }
   .bar { height: 3px; background: ${LINE}; border-radius: 99px; overflow: hidden; }
@@ -44,7 +44,7 @@ export function initWindowHtml() {
 </head>
 <body>
   <div class="panel">
-    <div class="mark">F</div>
+    <div class="mark">${mark}</div>
     <h1>正在初始化</h1>
     <p id="s">准备中…</p>
     <div class="bar" aria-hidden="true"><i></i></div>
@@ -53,8 +53,8 @@ export function initWindowHtml() {
 </html>`
 }
 
-export function initWindowDataUrl() {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(initWindowHtml())}`
+export function initWindowDataUrl(logoSvg = '') {
+  return `data:text/html;charset=utf-8,${encodeURIComponent(initWindowHtml(logoSvg))}`
 }
 
 export function initWindowSetStepSource(text: string) {

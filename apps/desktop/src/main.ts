@@ -1,8 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import type { ChildProcess } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnBff, serverEntryForApp } from './bff.js'
 import { bindPreferredLoopbackPort, buildBffEnv, pageOrigin } from './bff-env.js'
 import { ensureFirstRun } from './first-run.js'
@@ -139,6 +140,23 @@ function loadMain(port: number) {
   void mainWindow.loadURL(pageUrl(port))
 }
 
+function readBrandLogoSvg(resources: string) {
+  const candidates = [
+    join(resources, 'app/dist/brand/logo.svg'),
+    join(import.meta.dirname, '../build/logo.svg'),
+    join(fileURLToPath(new URL('../../../public/brand/logo.svg', import.meta.url))),
+  ]
+  for (const path of candidates) {
+    if (!path || !existsSync(path)) continue
+    try {
+      return readFileSync(path, 'utf8')
+    } catch {
+      continue
+    }
+  }
+  return ''
+}
+
 function openMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     loadMain(bffPort)
@@ -184,7 +202,7 @@ async function createWindow() {
     backgroundColor: '#FAFAFA',
     webPreferences: { nodeIntegration: false, contextIsolation: true },
   })
-  await initWindow.loadURL(initWindowDataUrl())
+  await initWindow.loadURL(initWindowDataUrl(readBrandLogoSvg(resources)))
   if (!initWindow.isDestroyed()) initWindow.show()
 
   const setStep = (text: string) => {
