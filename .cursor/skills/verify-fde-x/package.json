@@ -1,0 +1,9 @@
+{
+  "name": "verify-fde-x-helpers",
+  "private": true,
+  "type": "module",
+  "description": "Playwright helper for the project-local verify-fde-x skill. Not a product dependency.",
+  "dependencies": {
+    "playwright": "^1.56.1"
+  }
+}
