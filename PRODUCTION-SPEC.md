@@ -136,9 +136,11 @@ DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host
 
 | 允许 | 路径 |
 |---|---|
-| 连接器 | `src/pages/MCP.tsx` |
-| 技能 | `src/pages/Skills.tsx`（本面板渲染的技能 UI） |
+| 连接器 | `src/pages/MCP.tsx`、`src/components/connectors/**` |
+| 技能 | `src/pages/Skills.tsx`、`src/components/skills/**` |
 | 设置 | `src/pages/Settings.tsx`、`src/components/settings/**`、基础组件 `src/components/surface/**` |
+
+设置分类以现网 8 个为基线，不再加第九个：账户、外观、通知、快捷键、AI 核心、语义记忆、运行环境、存储与数据。§10 里「六分区」以这 8 个为准。
 
 仍然禁止：
 
@@ -150,7 +152,7 @@ DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host
 - 引入整套带样式的重型 UI 库。基础组件可以用 Radix 或 shadcn 的无样式原语，样式走本节的 kit token。
 - 改已有全局类 `.btn`、`.card`、`.input` 和已有 `brand` / `rounded` / `shadow-card` 的取值。新样式只用 `kit-*` token，避免带偏其它页。
 
-Token 在 `:root` 的 `--kit-*` 与 `tailwind.config.js` 的 `kit` 键。色板沿用浅色与主色 `#2F6B3A`。`pnpm lint` 检查 `src/components/surface` 与视觉测试脚手架。`pnpm check:surface` 检查面向用户的报错改写。`pnpm visual` 对三块右侧面板做 Playwright 截图。
+Token 在 `:root` 的 `--kit-*` 与 `tailwind.config.js` 的 `kit` 键。色板沿用浅色与主色 `#2F6B3A`。`pnpm lint` 检查 `src/components/surface`、`src/components/settings`、`src/components/connectors`、`src/components/skills`、以及 `MCP.tsx` / `Skills.tsx` / `Settings.tsx`。`pnpm check:surface` 检查报错改写：先按 `RuntimeApiError` 的 `status` / `code` 映射，正则只兜底；`Failed to fetch` 与 `runtime_unreachable` 归到核心未接通（`unreachable`），不当成一条技术报错。`pnpm visual` 用标题文字和 ARIA 角色定位三块右侧面板，不靠外壳 className。
 
 ---
 

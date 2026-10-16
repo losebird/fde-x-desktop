@@ -6,9 +6,9 @@ When changing runtime, AI, IM, memory, business apps, MCP, Skills, files, or del
 
 On 2026-10-16 the operator authorized style and interaction work on three existing right-hand panels only. The grant is `PRODUCTION-SPEC.md` §0.6.
 
-- 连接器: `src/pages/MCP.tsx`
-- 技能: `src/pages/Skills.tsx` and skill UI that panel renders
-- 设置: `src/pages/Settings.tsx`, `src/components/settings/**`, and the kit in `src/components/surface/**`
+- 连接器: `src/pages/MCP.tsx` and `src/components/connectors/**`
+- 技能: `src/pages/Skills.tsx` and `src/components/skills/**`
+- 设置: `src/pages/Settings.tsx`, `src/components/settings/**`, and the kit in `src/components/surface/**`. The eight sections are 账户, 外观, 通知, 快捷键, AI 核心, 语义记忆, 运行环境, 存储与数据. Do not add a ninth.
 
 Shared tokens live in `:root` kit variables and the `kit` keys in `tailwind.config.js`. They must not change the existing `btn`, `card`, `brand`, `rounded`, or `shadow-card` classes other pages already use.
 
