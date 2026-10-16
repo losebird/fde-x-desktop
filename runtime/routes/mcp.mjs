@@ -4,7 +4,7 @@ import { access } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { listBusinessConnections } from '../db.mjs'
-import { FDE_AI_WORKSPACE, FDE_RESOURCES } from '../config.mjs'
+import { FDE_AI_WORKSPACE, FDE_RESOURCES, resolveAllowedRequestOrigin } from '../config.mjs'
 import { desktopProcessPath } from '../desktop-process-path.mjs'
 import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
 import { collectBag } from '../catalog-collect.mjs'
@@ -223,6 +223,81 @@ function headerMap(headers) {
     out[name] = String(value ?? '')
   }
   return out
+}
+
+const PROBE_TIMEOUT_MS = 10_000
+const PROBE_HEADER_DROP = new Set(['cookie', 'set-cookie', 'host', 'connection', 'content-length', 'transfer-encoding'])
+
+function stringEnv(env) {
+  if (!env || typeof env !== 'object' || Array.isArray(env)) return {}
+  const out = {}
+  for (const [key, value] of Object.entries(env)) {
+    const name = String(key || '').trim()
+    if (!name || name === 'PATH' || name === 'Path' || name.includes('=') || name.includes('\0')) continue
+    if (value == null) continue
+    out[name] = String(value)
+  }
+  return out
+}
+
+function probeHeaderMap(headers) {
+  const out = {}
+  for (const [key, value] of Object.entries(headerMap(headers))) {
+    if (PROBE_HEADER_DROP.has(key.toLowerCase())) continue
+    out[key] = value
+  }
+  return out
+}
+
+export function entryFromProbeDraft(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: '请求体必须是对象' }
+  const transport = body.transport
+  if (transport !== 'stdio' && transport !== 'streamable-http') {
+    return { error: 'transport 必须是 stdio 或 streamable-http' }
+  }
+  if (transport === 'streamable-http') {
+    const urlValue = typeof body.url === 'string' ? body.url.trim() : ''
+    if (!urlValue) return { error: 'streamable-http 需要 url' }
+    let parsed
+    try {
+      parsed = new URL(urlValue)
+    } catch {
+      return { error: 'url 不合法' }
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return { error: 'url 只接受 http 或 https' }
+    return { entry: { transport, url: urlValue, headers: probeHeaderMap(body.headers) } }
+  }
+  const command = typeof body.command === 'string' ? body.command.trim() : ''
+  if (!command) return { error: 'stdio 需要 command' }
+  if (Array.isArray(body.args) && body.args.length > 64) return { error: 'args 不能超过 64 项' }
+  const args = Array.isArray(body.args) ? body.args.map((item) => String(item)) : []
+  const cwd = typeof body.cwd === 'string' ? body.cwd.trim() : ''
+  const env = stringEnv(body.env)
+  return {
+    entry: {
+      transport,
+      command,
+      args,
+      ...(cwd ? { cwd } : {}),
+      ...(Object.keys(env).length ? { env } : {}),
+    },
+  }
+}
+
+function withProbeTimeout(promise, ms = PROBE_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ ok: false, message: 'timeout' }), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value && typeof value === 'object' ? value : { ok: false, message: 'timeout' })
+      },
+      () => {
+        clearTimeout(timer)
+        resolve({ ok: false, message: 'timeout' })
+      },
+    )
+  })
 }
 
 function jsonRpcParse(text) {
@@ -448,7 +523,7 @@ async function probeMcpStdioInitialize(entry, timeoutMs = 8000) {
   return await new Promise((resolve) => {
     const spawnCwd = String(entry.cwd || '').trim()
     const child = spawn(resolved, args, {
-      env: { ...process.env, PATH: pathEnv },
+      env: { ...process.env, ...stringEnv(entry.env), PATH: pathEnv },
       cwd: spawnCwd || undefined,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -583,6 +658,30 @@ export async function handleMcpRoutes(request, response, url, ctx) {
     const mcp = Array.isArray(bag.raw?.mcp) ? bag.raw.mcp : bag.items.map((row) => row.fields)
     const resourceTools = Array.isArray(bag.raw?.resourceTools) ? bag.raw.resourceTools : []
     sendJson(response, 200, { data: { mcp, resourceTools, actions: bag.actions }, correlationId: currentCorrelationId })
+    return true
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v1/mcp/probe') {
+    const origin = resolveAllowedRequestOrigin(request, ctx.allowedOrigins || [])
+    if (!origin) {
+      sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', currentCorrelationId)
+      return true
+    }
+    let body
+    try {
+      body = await readJson(request)
+    } catch (error) {
+      const tooLarge = error instanceof Error && error.message === 'request_too_large'
+      sendError(response, 400, 'validation_error', tooLarge ? '请求体过大' : '请求体不是合法的 JSON', currentCorrelationId)
+      return true
+    }
+    const built = entryFromProbeDraft(body)
+    if (built.error) {
+      sendError(response, 400, 'validation_error', built.error, currentCorrelationId)
+      return true
+    }
+    const health = await withProbeTimeout(checkMcpHealth(built.entry))
+    sendJson(response, 200, { data: health, correlationId: currentCorrelationId })
     return true
   }
 
