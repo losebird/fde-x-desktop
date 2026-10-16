@@ -9,18 +9,20 @@ export function SurfaceDialog({
   title,
   description,
   children,
+  wide = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
   description?: string
   children: ReactNode
+  wide?: boolean
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/30 animate-kit-overlay" />
-        <Dialog.Content className="fixed left-1/2 top-[18%] z-[81] w-[min(440px,calc(100vw-32px))] -translate-x-1/2 rounded-kit-lg border border-kit-line bg-kit-card p-4 shadow-kit-pop animate-kit-in">
+        <Dialog.Content className={`fixed left-1/2 top-[12%] z-[81] ${wide ? 'w-[min(560px,calc(100vw-32px))]' : 'w-[min(440px,calc(100vw-32px))]'} max-h-[min(720px,calc(100vh-48px))] -translate-x-1/2 overflow-y-auto rounded-kit-lg border border-kit-line bg-kit-card p-4 shadow-kit-pop animate-kit-in`}>
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <Dialog.Title className="text-kit-title font-semibold text-kit-ink">{title}</Dialog.Title>

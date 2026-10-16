@@ -6,14 +6,16 @@ export function SurfaceSegmented<T extends string>({
   onChange,
   options,
   disabled,
+  label,
 }: {
   value: T
   onChange: (value: T) => void
   options: Array<{ id: T; label: string }>
   disabled?: boolean
+  label?: string
 }) {
   return (
-    <div className="inline-flex max-w-full flex-wrap gap-0.5 rounded-kit bg-kit-sunken p-0.5" role="tablist">
+    <div className="inline-flex max-w-full flex-wrap gap-0.5 rounded-kit bg-kit-sunken p-0.5" role="tablist" aria-label={label}>
       {options.map((option) => {
         const selected = option.id === value
         return (
