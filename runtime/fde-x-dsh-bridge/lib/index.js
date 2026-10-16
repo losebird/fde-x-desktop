@@ -157,7 +157,32 @@ function loadDshTools() {
   throw last || new Error('cannot resolve @deepseek-ai/dsh-tools')
 }
 
+function installIuiModeGate(ctx) {
+  const {
+    presetFromAgent,
+    gatePromptAssembly,
+    gatePreStepDecision,
+    gateToolDecision,
+  } = require('../../mode-policy.cjs')
+  if (!ctx || typeof ctx.on !== 'function') {
+    throw new Error('IUI mode gate requires ctx.on')
+  }
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const assembled = await next()
+    return gatePromptAssembly(assembled, presetFromAgent(context && context.agent))
+  }, true)
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next()
+    return gatePreStepDecision(decision, presetFromAgent(payload && payload.agent))
+  }, true)
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    const decision = await next()
+    return gateToolDecision(decision, presetFromAgent(exec && exec.agent))
+  }, true)
+}
+
 function apply(ctx) {
+  installIuiModeGate(ctx)
   if (ctx.webServer && typeof ctx.webServer.register === 'function') {
     ctx.effect(() => ctx.webServer.register({
       kind: 'prefix',
