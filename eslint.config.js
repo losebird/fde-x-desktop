@@ -4,6 +4,12 @@ import tseslint from 'typescript-eslint'
 
 const files = [
   'src/components/surface/**/*.{ts,tsx}',
+  'src/components/settings/**/*.{ts,tsx}',
+  'src/components/connectors/**/*.{ts,tsx}',
+  'src/components/skills/**/*.{ts,tsx}',
+  'src/pages/MCP.tsx',
+  'src/pages/Skills.tsx',
+  'src/pages/Settings.tsx',
   'tests/visual/**/*.ts',
   'playwright.config.ts',
 ]

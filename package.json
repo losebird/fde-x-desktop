@@ -12,7 +12,7 @@
     "runtime": "node runtime/server.mjs",
     "runtime:check": "node runtime/check.mjs",
     "runtime:smoke": "node runtime/smoke.mjs",
-    "lint": "eslint src/components/surface tests/visual playwright.config.ts",
+    "lint": "eslint --no-error-on-unmatched-pattern src/components/surface src/components/settings src/components/connectors src/components/skills src/pages/MCP.tsx src/pages/Skills.tsx src/pages/Settings.tsx tests/visual playwright.config.ts",
     "check:surface": "node --experimental-strip-types scripts/surface-humanize.check.ts",
     "visual": "playwright test -c playwright.config.ts",
     "visual:update": "playwright test -c playwright.config.ts --update-snapshots"
