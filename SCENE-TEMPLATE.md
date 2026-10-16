@@ -1,5 +1,7 @@
 # scene 模板 — scene#39「个人工作台」(v3 macOS Stage Manager 版)
 
+**考古。** 「IM 是家、13 模块独立路由」不是现网。现网是 `IMScreen` + 顶栏面板。合同见 `PRODUCTION-SPEC.md`。
+
 > scene#39 已经收敛成"IM 是家,所有工作台模块都是窗口"的形态。
 > Fork 时 **80% 不动、20% 改数据** 就能产生 scene#40~N。
 

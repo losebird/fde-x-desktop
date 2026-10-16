@@ -1,5 +1,7 @@
 # FDE-X 工作台 · AI Native 平台方案（2026-09-16）
 
+**勘误：** 「先只做 L1、L2 后置」已由决策 3 修订：台账 `fde-app/v1` + 托管 Web `fde-web/v1`；仍禁止为每个应用改 FDE `src/`。早报、应用运行时、Electron 打包均已超过本文接点表。合同以 `PRODUCTION-SPEC.md` 为准。
+
 回应 Ace 的四条产品方向 + 「模块互通、记忆语义复用」。前置阅读：[项目评估报告](project-assessment.md)、[AI Native 改善建议](ai-native-recommendations.md)。
 本篇基于五份只读事实摸底（业务应用运行时、业务记录/早报接入、semantic-os 能力、DSH preset、MCP），所有「现状」都有源码依据；「方案」部分是设计判断，需要你拍板的地方单列在 §8。
 

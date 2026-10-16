@@ -1,3 +1,5 @@
+**归档。** 本目录是 Cursor AgentStore 拷贝，不是现网合同。执行以仓库根 `PRODUCTION-SPEC.md` 为准。
+
 来源：`/Users/zxz/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/files/`（云路径 `/cursor/stores/bc-aea46619-2327-43a7-a094-57e6e76a7d7e/`）
 
 排除：图片 679 个，全是 png。jpg、jpeg、gif、webp、svg、ico、bmp、mp4、mov 为 0。测试代码 0 个：只排除文件名 `*.test.*`、`*.spec.*`，或目录 `tests/`、`__tests__/`。`.git`、`node_modules` 0 个。

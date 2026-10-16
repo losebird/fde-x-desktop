@@ -6,4 +6,6 @@ Session canvas is the existing AI iframe (`/dsh-app/`): only conversation occupa
 
 Catalog kinds `land` through `openRef` onto existing FDE-X pages. Session kinds with no catalog page (terminal) are an accessory block on the existing AI page. Unknown kind → Settings plugin overflow. Window-scoped capabilities stay in Desktop packaging.
 
-Do not restyle FDE-X. Do not invent pages, routes, or copy.
+Shared live apps use `/a/:shareId` (ledger `PublicApp` or hosted web bundle). That is the app document mouth, not a new top-bar module.
+
+Do not restyle FDE-X. Do not invent FDE chrome pages. Hosted apps live as cwd bundles + iframe, not new files under `src/pages/` per app.

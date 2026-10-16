@@ -1,5 +1,7 @@
 # FDE-X 工作台 · 整仓交接
 
+**考古（2026-09-16）。** 现网执行件是仓库根 `PRODUCTION-SPEC.md` §0.5 与代码。路径、Homebrew DSH、创建应用空草稿、4318 只绑 loopback 等句不要当合同。
+
 给下一个 coding agent。覆盖整个 FDE-X Desktop，不只 IM。日期：2026-09-16。
 
 IM 会话磁盘复原的深坑另见同目录 `HANDOFF-IM-SESSION-RESTORE.md`。冲突时：**本文 + `PRODUCTION-SPEC.md` §0.5** 为准；§0.5 覆盖规格里所有更早条款。

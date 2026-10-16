@@ -1,5 +1,7 @@
 # 接线现状（不是完成证明）
 
+考古表。现网合同以 `PRODUCTION-SPEC.md` §0.5 为准。下面「未完成」里 MCP 需杀进程重连、创建应用空草稿，**已过时**。
+
 ## 已活测
 
 - `POST /api/v1/ai/connect` 成功
@@ -14,7 +16,7 @@
 
 ## 未完成（Host / 发布）
 
-1. MCP 新增仍写 patch，需重连（DSH 无 MCP Remote）。
+1. MCP：已连接时保存走 Host HMR。冷启动 hold 见 `mcp-archive`。会话 `mcp__*` 只是投影。
 2. 双机配对需对端门牌；本机自握 `NO_RELAY_PAIR`。
 3. 当前 FDE-X 目录 `scene-39` 未登记采购单；过账活测用的是有词表的业务工作区。
 4. `/health` 的 semantic-memory 适配器要等 4318 重启后才会按 `/ready` 报健康。
@@ -26,7 +28,7 @@
 2. **aiInboxDraft**：IM 采纳 → iframe `compose`/`setDraft`，成功后清空。
 3. **早报 IM**：未读与发往走 `imState` / `imCompose`+`imSend`。记忆搜索「问这条 / 打开会话」。
 4. **文件发给 AI**：列表发送钮 → `fde-x-attach-file`（与拖放同一路径）。
-5. **业务应用**：`PUT /api/v1/business/apps/:id`（无 Origin 403，修订号 +1）。点应用打开草稿编辑（目标 / 连接器数据源 / 屏幕 / 权限），保存不写外部系统。可把目标再发给当前 AI。
+5. **业务应用**：创建走 `fde-app-builder`。台账 `fde-app/v1` 或托管 Web `fde-web/v1`。分享 `/a/:shareId` 同一份 sqlite。过账仍走闸。
 6. **计划**：新建步骤不再冒充 AI；暂停态不能「启用」。MCP 保存后提示重载核心。⌘K 可搜记忆摘录。
 
 指针乱：早报 / IM / Skills / ⌘K 取「第一条非子代理会话」，文件页才按 cwd。  
@@ -35,4 +37,4 @@
 记忆不能问摘录、不能跳回 session；⌘K 不搜记忆。  
 计划 `memory.add` 是种子。MCP/Skills 不投影当前会话。  
 
-**业务应用「AI 创建应用」：** 只插入 SQLite 空草稿（`screens: []`），不调模型、点卡片只切业务记录 Tab。名不副实。
+**业务应用「创建应用」：** 已接 builder。空 `screens:[]` 草稿那条旧路径不是现网主口。

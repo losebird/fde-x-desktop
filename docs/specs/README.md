@@ -54,7 +54,8 @@
 
 ## 尚未写规格（后续）
 
-- L2 代码级应用（Cordis 动态插件）— Ace 决定暂不做。
+- Cordis 动态插件仍不做。托管 Web 包（`fde-web/v1`）已是现网运行时，不是 Cordis L2。
+- 本目录规格正文大量仍停在 2026-09-17 接点；冲突以 `PRODUCTION-SPEC.md` §0.5 与仓库代码为准。
 - 主动建议（proactive suggestions）— 依赖 01 + 07 落地后再写。
 - 统一撤销（compensations 执行）— 依赖 05 落地后再写。
 - MCP 原地重连（DSH 动态配置 API）— 越界项待拍板。

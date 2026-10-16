@@ -1,5 +1,7 @@
 # FDE-X 交接：IM 真信使 + AI 会话磁盘复原
 
+**考古。** IM 会话树复原已进现网。新工作以 `PRODUCTION-SPEC.md` 为准。
+
 整仓交接请先读：`HANDOFF-FDEX-WORKSTATION.md`。本文只展开 IM 会话磁盘复原的深坑。
 
 给下一个 coding agent。本文是 2026-09-16 工作台会话里已落地的代码与未收口问题，不是产品愿景。

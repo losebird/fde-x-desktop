@@ -4,13 +4,14 @@
 
 ## 1. 目标
 
-用户在业务应用模块描述需求 → AI（`fde-app-builder` preset）生成 `fde-app/v1` spec → 校验 → 预览 → 人「采纳并激活」→ SQLite 建表 → 通用渲染器提供表格/表单/详情/看板 → 能增删改查、能跑声明的动作。应用自有数据在 SQLite；引用外部业务数据只存 id + 快照；写外部系统走闸。
+用户在业务应用模块描述需求 → AI（`fde-app-builder` preset）生成 **`fde-app/v1` 台账 spec 或 `fde-web/v1` 托管包** → 校验 → 预览 → 人「采纳并激活」。台账：SQLite 建表 + 通用渲染器。Web：工作区包 + live iframe + 文档库。应用自有数据在 SQLite；引用外部业务数据只存 id + 快照；写外部系统走闸。现网接点以仓库代码为准（`runtime/apps/*`、`AppRuntime` / `AppWebRuntime`），下文 2026-09 行号仅考古。
 
 ## 2. 范围与禁区
 
-- 做：Spec JSON Schema、校验器、物化器（受控 DDL）、通用 CRUD API、动作执行器（`set` / `biz` / `agent`）、前端渲染器五件（table / form / detail / kanban / stat）、创建向导（描述 → preset → 生成 → 预览 → 采纳）、spec 编辑抽屉、版本回滚。
-- 不做（本版）：代码级应用（L2）、calendar 视图、文件类型字段上传、跨应用关联查询、多用户权限、实时协作。
-- 禁区：不改业务应用三 Tab 结构与顶栏；不动 lan-assist 闸语义；`server.mjs` 只挂路由。
+- 做：`fde-app/v1` 校验/物化/CRUD/动作/`AppRuntime`（table/form/detail/kanban/stat/cards/chart/compose/feed）；`fde-web/v1` 包根约束、live 静态、`app_documents`、公开 `/a/:shareId` 出包；创建向导；修订；软删；分享同一实例。
+- 不做：往 FDE `src/` 为每个应用写页面；Cordis 动态插件；把画布需求交成假台账；多用户 ACL；FDE 关掉后的云端资料库。
+- 台账视图闭集不含 calendar 类型；课表/周历若用户要的是页面，走 `fde-web/v1`，不要假装有 `views.type=calendar`。
+- 禁区：不改业务应用三 Tab 结构与顶栏；不动 lan-assist 闸语义。
 
 ## 3. 现有代码接点
 
@@ -72,7 +73,7 @@
         "type": "object", "required": ["type", "entity"], "additionalProperties": false,
         "properties": {
           "id": { "type": "string" },
-          "type": { "enum": ["table", "form", "detail", "kanban", "stat"] },
+          "type": { "enum": ["table", "form", "detail", "kanban", "stat", "cards", "chart", "compose", "feed"] },
           "entity": { "type": "string" },
           "label": { "type": "string" },
           "columns": { "type": "array", "items": { "type": "string" } },

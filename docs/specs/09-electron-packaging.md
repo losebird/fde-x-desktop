@@ -1,4 +1,6 @@
-# 09 · Electron 单包分发（mac → Windows → Linux）
+# 09 · Electron 单包分发
+
+**勘误（现网）：** BFF 已有 `FDE_STATIC_DIR` 静态服务。打包用独立 Node 跑 Host/BFF，**不要** `ELECTRON_RUN_AS_NODE`（DSH 指纹会拒）。BFF 监听见 `FDE_LISTEN_HOST`；iframe `bffOrigin` 用 `FDE_RUNTIME_HOST`。下文「server.mjs 无静态目录」过时。（mac → Windows → Linux）
 
 依赖：`runtime/config.mjs`（已落地）；功能规格 01–08 完成后再出正式包，但 P1 POC 可先行。协议：`00-agent-protocol.md`。背景：`../packaging-design.md`。
 

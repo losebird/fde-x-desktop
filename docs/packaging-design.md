@@ -1,5 +1,7 @@
 # FDE-X 工作台 · 单一安装包与跨平台方案（2026-09-16）
 
+**勘误：** 现网用独立 Node 跑 Host/BFF，不要 `ELECTRON_RUN_AS_NODE`。静态目录、`FDE_LISTEN_HOST` 见 `PRODUCTION-SPEC` 与 `docs/RUNTIME-CONFIG.md`。
+
 需求（Ace）：最终交付**一个安装包**，用户只装它；DSH、semantic-os runtime、lan-assist 全部内置；macOS / Linux / Windows 通用。
 本篇基于对源码、官方 DSH 包、semantic-os runtime 的只读调研（`internal/research-packaging.md`），给出诚实的可行性判断和路线。
 

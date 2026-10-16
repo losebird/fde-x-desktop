@@ -2,7 +2,7 @@
 
 执行本文件前先读完 **§0–§3 与 §0.5**。§0.5 覆盖前文所有冲突条款。旧日记、会话岛、`dsh-integration-contract.md` 的 plugin 路线作废。
 
-**壳层补缺（IM / 记忆 / AI 互相关联、业务应用创建）见 §15。** 已落盘、**未开工**。执行 §15 前须用户再点头；不得借「顺手」改壳。
+**壳层补缺见 §15。** 创建应用、早报、IM 采纳、文件发给 AI、应用工作面 **已开工并进 main**。§15 里过时的「空草稿 / 未开工」以本节与 §0.5 现网占用为准。不得借「顺手」改壳或 restyle。
 
 **落地仓库：** `/Users/zxz/WorkBuddy/2026-09-08-20-34-42/scene-39-personal-workstation/`  
 执行时把本文件复制为该仓库根目录 `PRODUCTION-SPEC.md`，并写 `AGENTS.md` 指向它。
@@ -21,7 +21,7 @@
 
 - 组件树顺序、路由表、className、颜色、圆角、间距、文案（状态数字和列表内容除外）
 - `ThumbnailStack` / `IMMiniHeader` / `IMTopNav` / `StagePanel` / `FloatingPanel` / `CommandPalette` 的布局与手势
-- 顶栏模块集合与顺序（IM、早报、计划、文件、业务应用、MCP、Skills、记忆、设置）
+- 顶栏模块集合与顺序（IM、早报、计划、文件、业务应用、连接器、技能、记忆、设置）。store 里历史 key 仍是 `mcp`/`skills`，**显示文案**是连接器/技能（persist overlay）。禁止改回「数据」或改回顶栏英文 MCP/Skills 标签。
 
 ### 0.2 引擎边界
 
@@ -30,7 +30,7 @@
 | 身份键 | 是什么 | 唯一的面 |
 |---|---|---|
 | `sessionId` | 这场会话正在发生的事 | AI 页里的 **会话画布**（现有 `/dsh-app/` iframe） |
-| `cwd` / profile | 工作区或配置上的目录 | **已有 FDE-X 页**（文件 / MCP / Skills / 设置 / 计划 / AI 左栏） |
+| `cwd` / profile | 工作区或配置上的目录 | **已有 FDE-X 页**（文件 / 连接器 / 技能 / 设置 / 计划 / AI 左栏） |
 | window / OS | 窗口、托盘、关窗后进程 | **Desktop 包装**（`apps/desktop`） |
 
 kind 不认识 → 设置里的插件目录（目录缝的溢出口），不是新顶栏。
@@ -42,7 +42,7 @@ kind 不认识 → 设置里的插件目录（目录缝的溢出口），不是�
 | IM | lan-assist 邮箱与拟回 | `dsh-lan-assist/client.js` |
 | 业务应用（现「数据」页） | lan-assist `biz_preview` / `biz_write` / `biz_traces` | 用 SQLite 假过账冒充外部系统 |
 | 记忆 | semantic-os 卡与 `search_text` | 把图迁进 SQLite；加载 semantic-os `client.js` |
-| 文件 / MCP / Skills / 模型 / 插件 / 快捷键 | Host **目录**（kind → 现有页） | 为每个 GitHub 条目手包 Remote；设置页直接写 `settings.yaml` |
+| 文件 / 连接器 / 技能 / 模型 / 插件 / 快捷键 | Host **目录**（kind → 现有页） | 为每个 GitHub 条目手包 Remote；设置页直接写 `settings.yaml` |
 | 计划待办 / 日程 / 工作流 | Host 目录 `goal` / `schedule` / `job`；本地行带 `fde-task:` origin | 两套现况；把 DSH 会话画布里的 plan-mode 再克隆一页 |
 | 关窗保任务、菜单栏 dsh 命令 | Desktop 包装 | 接到 5174 工作台页 |
 
@@ -58,7 +58,7 @@ DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host
 
 ### 0.3 安全 / 稳定 / 性能（全程）
 
-- 4318 与 DSH 只绑 `127.0.0.1`。Origin 白名单来自环境变量 `FDE_ALLOWED_ORIGINS`，缺省保持现列表。非白名单 403。
+- DSH Host 只绑 `127.0.0.1`。BFF 客户端地址是 `FDE_RUNTIME_HOST`（默认 `127.0.0.1`），`bffOrigin` / AI iframe 必须用它，禁止写成 `0.0.0.0`。BFF **监听**地址是 `FDE_LISTEN_HOST`（默认 `0.0.0.0`）：局域网只开放已分享应用 `/a/:shareId`、`/api/v1/app-share/` 与该页静态资源，其余路径对非 loopback 拒绝。Origin 白名单来自 `FDE_ALLOWED_ORIGINS`。公开应用写操作以 shareId 为能力，不把 LAN Origin 加进工作台白名单。
 - 浏览器永不持有 DSH HttpOnly cookie、lan-assist 配对钥匙、业务口令。凭据只在 4318 进程内存。
 - 4318 转发目标只允许 loopback。禁止把用户输入拼进上游 URL。
 - 不向浏览器转发 `Set-Cookie`。错误体脱敏（token、cookie、authorization）。
@@ -66,7 +66,7 @@ DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host
 - 远程方法名必须从本机 DSH 包的 `typert.host.js` `@Remote` **读出来再包**，禁止臆造 endpoint。
 - 禁止硬编码：端口、cookie、preset id、模型名、工具名、工作区路径、员工号。全部来自 env、DSH 目录或用户配置。
 - 未连接时：用现有 `Empty` / 错误条，**禁止**再用 seed 会话冒充「已连接」。
-- 生产路径默认 host 一律 `127.0.0.1`。
+- 工作台与 DSH 的客户端 host 默认 `127.0.0.1`。分享面的绑定见上条 `FDE_LISTEN_HOST`。
 
 ### 0.4 执行纪律
 
@@ -78,6 +78,12 @@ DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host
 ### 0.5 对抗审查补丁（冲突时只认这一节）
 
 来源：`ADVERSARIAL-REVIEW.md` 六路 + 用户确认。产品目标不变：FDE-X 壳；AI=DSH；IM/业务=lan-assist；记忆=semantic-os。
+
+**现网占用（覆盖前文「未开工 / 空草稿 / 禁止一切新路由 / 应用只有 L1 表」）：**
+- 工作台壳路由仍在 `IMScreen` 下。**已分享应用**的文档口是 `/a/:shareId`（`PublicApp` 或托管包自己的 `index.html`），不是新顶栏、不是会话岛。
+- 「我的业务应用」两种运行时：`fde-app/v1` 台账（SQLite 表 + `AppRuntime`）；`fde-web/v1` 托管 Web 包（工作区 `apps/<slug>/`，iframe `/api/v1/apps/:id/live/`，公开 URL 就是这个网站）。禁止为每个应用往 `src/` 加页面。禁止把画布/HTML 需求折成假台账。
+- 过账仍走 lan-assist 闸。SQLite 是应用自有数据，不冒充外部系统。
+- 顶栏显示「连接器 / 技能」。MCP 已连接保存走 Host HMR，禁止杀进程冒充加载。
 
 **三缝覆盖前文「禁止 iframe / 禁止 ModuleLoader / goal 不进计划 / 终端本版不做」。** 会话画布就是现有 AI iframe 的 DSH 会话运行时（`__ModuleLoader__` 只在该 iframe 内加载会话插件）。目录能力进已有 FDE-X 页。未知 kind 进设置插件目录。不新开顶栏。不按发版清单接线。
 
@@ -332,7 +338,7 @@ node runtime/smoke.mjs
 3. 能选 preset、选模型、发消息、停、看轨迹；对话里有「第 N 轮」和右轨跳转。
 4. 权限/工具/命令在上下文之后、flex-1 之前；权限显示中文三档。
 5. IM 发送不自动叫醒对端模型。
-6. 业务确认前不写库；操作控制字段不改。
+6. 业务确认前不写库；操作记录字段不改。
 7. 记忆搜索不把图当现况。
 8. MCP 添加失败会报错，成功后列表出现真 server；文件上传写入当前 cwd。
 
@@ -365,7 +371,7 @@ node runtime/smoke.mjs
 
 视觉与文案锁在现源码 + 用户 2026-09-14 截图。禁止改回「导出 CSV / 新建行」那张单表页。
 
-三 Tab 固定：`应用` | `业务记录` | `操作控制`（`view: overview | records | operations`）。顶栏 `PageTitle` 标题「业务应用」。
+三 Tab 固定：`应用` | `业务记录` | `操作记录`（`view: overview | records | operations`）。顶栏 `PageTitle` 标题「业务应用」。显示文案是「操作记录」（决策 16），内部 view 名不必改。
 
 **应用 Tab**
 
@@ -373,17 +379,17 @@ node runtime/smoke.mjs
 - 四卡：业务应用数、系统连接数、待审批、异常待处理。hint 文案保留。
 - 「我的业务应用」+「+ AI 创建应用」展开现有名称/目标输入 +「创建草稿」。
 - 「业务系统与数据源」列表现有连接行（名、provider、状态胶囊）。
-- 底栏「浏览记录」「操作控制」只切 Tab，不新开路由。
+- 底栏「浏览记录」「操作记录」只切 Tab，不新开路由。
 
 **业务记录 Tab**
 
 - 型切换芯片（现为 seed 订单/客户/产品，接通后改为 `biz_describe` 的型，芯片样式不变）。
-- 搜索框、「规划数据操作」切到操作控制。
-- 蓝提示条文案保留：原型数据不冒充现况；真连接后必须标来源；改删从操作控制发起。
+- 搜索框、「规划数据操作」切到操作记录。
+- 蓝提示条文案保留：原型数据不冒充现况；真连接后必须标来源；改删从操作记录发起。
 - 表：现有列 +「来源」列。seed 行标「原型」。`biz_preview` 现查行标系统名+环境，禁止再标「原型」。
 - 禁止在本 Tab 直接改单元格写库。
 
-**操作控制 Tab**
+**操作记录 Tab**
 
 - 表单字段锁死：目标对象、操作、类型、风险、执行方式、输入 JSON、「生成可审计计划」。
 - 黄条：未启用适配器时拒绝、不伪造成功。
@@ -481,7 +487,7 @@ node runtime/smoke.mjs
 - 阶段 B：§12 中标记「做」的 AI 行 + §11 的采纳（写入 AI 框）。
 - 阶段 D：§11 全表。
 - 阶段 E：记忆页 + 语义 Tab。
-- 阶段 F：§9 三 Tab，闸在操作控制。
+- 阶段 F：§9 三 Tab，闸在操作记录。
 - 阶段 G：早报去写死日期；⌘K 任务组；工作流空态。
 - 阶段 H：死页；设置重置语义。
 - **阶段 A 与 D 之间必须能在 IM「添加同事」完成 lan-assist 配对/连接**（配对 API 经 4318 → lan-assist；§10 运行环境只做诊断与权威说明），否则 D–F 无法验收。
@@ -543,17 +549,16 @@ node runtime/smoke.mjs
 | MCP 与当前会话工具列表无关 | 已连接：写档案后走官方 HMR（home/profile 配置监视 + pluginManager），禁止杀 Host。列表态只认 `listPlugins` 纤维（加载中/已加载/失败/已停用）；会话 `mcp__*` 只填投影，不准回流 status。stdio `cwd` 跟当前工作区 bind，保存时写入，启动不改写。未连接：已配置，保存后提示重载核心 |
 | Skills 取 sessions[0]；启停 disabled | 列表改 `currentAiTarget`；无 Remote 则启停保持 disabled，不要假开关 |
 
-### 15.7 业务应用 · 创建应用（用户点名补入）
+### 15.7 业务应用 · 创建应用（已落地，以代码为准）
 
-现状：`Data.tsx`「AI 创建应用」只 `POST /api/v1/business/apps`，`definition = { kind: 'ai-generated-draft', goal, screens: [], dataSources: [], permissions: [] }`。SQLite 多一行草稿。点卡片只切到「业务记录」Tab，**不调模型、不生成屏幕、不绑连接器、不能编辑 definition**。指标文案「由 AI 创建」名不副实。
+创建口：业务应用 → 应用 Tab → 创建应用 → `fde-app-builder` → `fde_app_spec_submit`。
 
-应做成：
+两种运行时，同一目录：
 
-1. 创建仍用现有名称+目标表单（不改 className）。  
-2. 有 `currentAiTarget` 时：`promptAi` 当前会话，正文为工作区、目标、已有连接器列表；人在 AI 里确认后，把返回的 screens/dataSources/permissions **预览** 再写入该 app 的 definition（须新 API 或现有 PATCH；没有 PATCH 就先加 `PUT /api/v1/business/apps/:id`，Origin 闸与其它写操作相同）。无会话则只建空草稿并提示去 AI。  
-3. 点应用：进入该草稿的定义（沿用三 Tab，不新造第四栏）：数据源 = 已有连接器多选；权限明文；屏幕列表可空。  
-4. 运行中的过账仍走 §9 操作控制 + lan-assist `biz_*`，禁止 SQLite 假过账。  
-5. 未接 AI 时按钮文案保持「创建草稿」，不要写「AI 已生成」。
+1. **`fde-app/v1` 台账**：对象/字段/记下/看板/统计等 → SQLite `app_<slug>__<entity>` → `AppRuntime`。  
+2. **`fde-web/v1` 托管 Web**：任意可运行 HTML/JS 包写在工作区 `apps/<slug>/`（`files[{path,content}]`）→ iframe `/api/v1/apps/:id/live/`；`localStorage` / `window.fdeApp` 进 `app_documents`。公开 `/a/:shareId` **就是这个网站**。
+
+禁止把画布/HTML/工作台交互折成假表充数。认不出表面就失败说明。过账仍走 lan-assist `biz_*`，禁止 SQLite 冒充外部系统。分享是同一份 sqlite 实例；局域网只开放该文档口。Web 包默认调不了 DSH，要 `uses` 再接。
 
 ### 15.8 早报去假数据
 
@@ -565,7 +570,7 @@ node runtime/smoke.mjs
 2. `aiInboxDraft` 接到 iframe。  
 3. 早报 IM 真信箱；记忆问这条 / 跳 session。  
 4. 文件「发给 AI」。  
-5. 业务应用：空草稿可编辑 + 可选 `promptAi` 填 definition。  
+5. 业务应用：台账或托管 Web 都能打开、激活、软删、分享；过账仍要闸。  
 6. 计划步骤要么真接要么禁用；MCP 已连接走官方热更新；⌘K 搜记忆。
 
 不要做：双机 IM 联调、杀 Host 冒充 MCP 加载、官方 Client 进浏览器、再抄一份会话 JSON、改顶栏模块顺序。
@@ -576,4 +581,4 @@ node runtime/smoke.mjs
 - IM 采纳后，当前 iframe 输入框出现原文。  
 - 早报未读与 IM 面板未读一致；发往 IM 对端（或本机第二 peer）能收到。  
 - 记忆摘录「问这条」出现在同一 sessionId。  
-- 创建应用：无 AI 时库里有空 definition；有 AI 且人确认后 screens 非空；点应用能看到目标与数据源，过账仍要操作控制确认。
+- 创建应用：描述或丢入 HTML 能生成可运行应用（台账或 Web 包）；点开是工作面不是空草稿；过账仍要闸确认。分享 `/a/:shareId` 是同一份库。

@@ -1,5 +1,7 @@
 # 08 · Agent preset 导入与管理（设置 → Agent 预设）+ MCP 页连接器视图
 
+**勘误（现网）：** MCP 页显示名是「连接器」。已连接时保存走 Host HMR（home/profile 监视 + pluginManager），禁止杀 Host。列表态认 `listPlugins` 纤维，不是 regex 刮 patch、不是占位 `mcp__*` 回流 status。下文 2026-09 接点表过时。
+
 依赖：02（preset 骨架、`ensurePresets`）。协议：`00-agent-protocol.md`。
 
 ## 1. 目标
