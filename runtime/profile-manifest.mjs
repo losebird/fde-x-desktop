@@ -1,3 +1,6 @@
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
+
 /** Merge Host-persisted profile bundle selection with FDE isolation scaffolding. */
 
 export function mergeProfileManifest(existing, { profileName, requiredBundles }) {
@@ -23,4 +26,38 @@ export function mergeProfileManifest(existing, { profileName, requiredBundles })
       },
     },
   }
+}
+
+export async function readProfileManifestFile(packagePath) {
+  let raw
+  try {
+    raw = await readFile(packagePath, 'utf8')
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return null
+    throw error
+  }
+  try {
+    return JSON.parse(raw)
+  } catch (error) {
+    const invalid = new Error(`profile package.json 无法解析，未覆盖：${packagePath}`)
+    invalid.code = 'FDE_PROFILE_MANIFEST_INVALID'
+    invalid.cause = error
+    throw invalid
+  }
+}
+
+export async function writeMergedProfileManifest(packagePath, options) {
+  const existing = await readProfileManifestFile(packagePath)
+  const manifest = mergeProfileManifest(existing, options)
+  const body = `${JSON.stringify(manifest, null, 2)}\n`
+  await mkdir(dirname(packagePath), { recursive: true })
+  const temporary = `${packagePath}.${process.pid}.tmp`
+  try {
+    await writeFile(temporary, body)
+    await rename(temporary, packagePath)
+  } catch (error) {
+    await rm(temporary, { force: true })
+    throw error
+  }
+  return manifest
 }
