@@ -1,5 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   parseMcpPatchEntries,
   validateServerName,
@@ -8,6 +11,7 @@ import {
   toolNamesFromFollowSnapshot,
   mapServerStatus,
   checkMcpHealth,
+  entryFromProbeDraft,
   mcpArchiveWriteNote,
   mcpFiberFromPlugins,
   resolveMcpProjectionSession,
@@ -378,5 +382,60 @@ test('checkMcpHealth streamable-http reports HTTP status when initialize is refu
     assert.equal(health.message, 'HTTP 405')
   } finally {
     globalThis.fetch = original
+  }
+})
+
+test('entryFromProbeDraft drops cookies and does not name a saved server', () => {
+  const http = entryFromProbeDraft({
+    transport: 'streamable-http',
+    url: 'http://127.0.0.1:9/mcp',
+    serverName: 'should-not-matter',
+    headers: { Cookie: 'session=secret', Authorization: 'Bearer t' },
+  })
+  assert.equal(http.error, undefined)
+  assert.equal(http.entry.transport, 'streamable-http')
+  assert.equal(http.entry.url, 'http://127.0.0.1:9/mcp')
+  assert.equal(http.entry.serverName, undefined)
+  assert.equal(http.entry.headers.Authorization, 'Bearer t')
+  assert.equal(http.entry.headers.Cookie, undefined)
+  assert.match(entryFromProbeDraft({ transport: 'stdio' }).error, /command/)
+  assert.match(entryFromProbeDraft({ transport: 'streamable-http', url: 'file:///etc/passwd' }).error, /http/)
+  assert.match(entryFromProbeDraft({ transport: 'nope' }).error, /transport/)
+  assert.match(entryFromProbeDraft({ transport: 'stdio', command: 'npx', args: Array(65).fill('a') }).error, /64/)
+  const stdio = entryFromProbeDraft({
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', 'pkg'],
+    cwd: '/tmp/ws',
+    env: { IMAP_PASS: 'secret', PATH: '/tmp/evil' },
+  })
+  assert.deepEqual(stdio.entry.args, ['-y', 'pkg'])
+  assert.equal(stdio.entry.cwd, '/tmp/ws')
+  assert.equal(stdio.entry.env.IMAP_PASS, 'secret')
+  assert.equal(stdio.entry.env.PATH, undefined)
+})
+
+test('checkMcpHealth stdio applies draft env without replacing PATH', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-probe-env-'))
+  const marker = join(dir, 'seen.json')
+  const script = join(dir, 'echo-env.mjs')
+  await writeFile(script, `import { writeFileSync } from 'node:fs'
+writeFileSync(process.argv[2], JSON.stringify({ mark: process.env.MCP_PROBE_MARK || '', path: process.env.PATH || '' }))
+process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { ok: true } }) + '\\n')
+`)
+  try {
+    const health = await checkMcpHealth({
+      transport: 'stdio',
+      command: process.execPath,
+      args: [script, marker],
+      env: { MCP_PROBE_MARK: 'from-draft', PATH: '/tmp/not-a-real-path' },
+    })
+    assert.equal(health.ok, true)
+    const seen = JSON.parse(await readFile(marker, 'utf8'))
+    assert.equal(seen.mark, 'from-draft')
+    assert.notEqual(seen.path, '/tmp/not-a-real-path')
+    assert.match(seen.path, /\S/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
   }
 })

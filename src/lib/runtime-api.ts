@@ -2319,6 +2319,27 @@ export class RuntimeApi {
     return result.data
   }
 
+  async probeMcpDraft(
+    input: {
+      transport: 'stdio' | 'streamable-http'
+      command?: string
+      args?: string[]
+      env?: Record<string, string>
+      url?: string
+      headers?: Record<string, string>
+      cwd?: string
+    },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; message: string }> {
+    const result = await this.request<{ data: { ok: boolean; message: string } }>('/api/v1/mcp/probe', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return result.data
+  }
+
   async setMcpServerEnabled(serverName: string, enabled: boolean, signal?: AbortSignal): Promise<{ serverName: string; enabled: boolean; needsRestart: boolean; note?: string }> {
     const result = await this.request<{ data: { serverName: string; enabled: boolean; needsRestart: boolean }; note?: string }>(
       `/api/v1/mcp/servers/${encodeURIComponent(serverName)}/enabled`,
