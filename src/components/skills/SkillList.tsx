@@ -5,13 +5,11 @@ import type { SkillBagItem } from '@/lib/runtime-api'
 export function SkillList({
   rows,
   selected,
-  busy,
   onOpen,
   onToggle,
 }: {
   rows: SkillBagItem[]
   selected: string
-  busy: boolean
   onOpen: (id: string) => void
   onToggle: (row: SkillBagItem, enabled: boolean) => void
 }) {
@@ -40,7 +38,6 @@ export function SkillList({
               <SurfaceSwitch
                 bare
                 checked={on}
-                disabled={busy}
                 label={on ? `停用 ${row.name}` : `启用 ${row.name}`}
                 onCheckedChange={(next) => onToggle(row, next)}
               />

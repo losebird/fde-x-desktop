@@ -39,6 +39,22 @@ function pause(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+type SkillIntent = { generation: number; enabled: boolean }
+type SkillWrite = { ticket: number; enabled: boolean }
+
+function overlayIntents(rows: SkillBagItem[], intents: Map<string, SkillIntent>, settle: boolean) {
+  return rows.map((row) => {
+    if (!row.path) return row
+    const intent = intents.get(row.path)
+    if (!intent) return row
+    if (settle && row.modelInvocable === intent.enabled) {
+      intents.delete(row.path)
+      return row
+    }
+    return { ...row, modelInvocable: intent.enabled }
+  })
+}
+
 export default function Skills() {
   const frame = useRef<HTMLDivElement>(null)
   const workspaceId = useApp((s) => s.activeWorkspaceId)
@@ -60,16 +76,30 @@ export default function Skills() {
   const [root, setRoot] = useState('')
   const [installError, setInstallError] = useState('')
   const [sessionId, setSessionId] = useState('')
+  const intents = useRef(new Map<string, SkillIntent>())
+  const writes = useRef(new Map<string, SkillWrite>())
+  const draining = useRef(new Set<string>())
+  const ticketRef = useRef(0)
+  const listEpoch = useRef(0)
+
+  const applyListed = useCallback((rows: SkillBagItem[]) => {
+    rememberModuleBag('skills', rows)
+    const next = overlayIntents(rows, intents.current, true)
+    setSkills(next)
+    return next
+  }, [])
 
   const load = useCallback(() => {
+    const epoch = listEpoch.current
     const cached = lastModuleBag<SkillBagItem[]>('skills')
     if (cached?.length) {
-      setSkills(cached)
+      setSkills(overlayIntents(cached, intents.current, false))
       setPhase('ready')
     }
     void (async () => {
       try {
         const status = await runtimeApi.aiStatus()
+        if (epoch !== listEpoch.current) return
         if (!status.connected) {
           if (!cached?.length) {
             setPhase('coreDown')
@@ -81,16 +111,20 @@ export default function Skills() {
           return
         }
         const target = await currentAiTarget()
+        if (epoch !== listEpoch.current) return
         const sid = target.ok ? target.sessionId : ''
         setSessionId(sid)
         const mapped = (await runtimeApi.listAiSkills(sid || undefined)).items
-        setSkills(mapped)
+        if (epoch !== listEpoch.current) return
         rememberModuleBag('skills', mapped)
-        setPicked((current) => (current && mapped.some((row) => row.id === current) ? current : null))
+        const next = overlayIntents(mapped, intents.current, true)
+        setSkills(next)
+        setPicked((current) => (current && next.some((row) => row.id === current) ? current : null))
         setNote('')
         setFailure('')
-        setPhase(mapped.length ? 'ready' : 'empty')
+        setPhase(next.length ? 'ready' : 'empty')
       } catch (cause) {
+        if (epoch !== listEpoch.current) return
         const failed = classifySurfaceFailure(cause, '技能列表没有读出来。')
         if (lastModuleBag<SkillBagItem[]>('skills')?.length) {
           setNote(failed.message)
@@ -167,24 +201,78 @@ export default function Skills() {
   }, [readSkills])
 
   const publish = (rows: SkillBagItem[], message: string) => {
-    setSkills(rows)
-    rememberModuleBag('skills', rows)
-    setPicked((current) => (current && rows.some((row) => row.id === current) ? current : null))
+    const next = applyListed(rows)
+    setPicked((current) => (current && next.some((row) => row.id === current) ? current : null))
     setNote(message)
     setFailure('')
-    setPhase(rows.length ? 'ready' : 'empty')
+    setPhase(next.length ? 'ready' : 'empty')
+  }
+
+  const flushToggle = (path: string) => {
+    if (draining.current.has(path)) return
+    draining.current.add(path)
+    void (async () => {
+      try {
+        while (writes.current.has(path)) {
+          const job = writes.current.get(path)
+          if (!job) break
+          writes.current.delete(path)
+          try {
+            const target = await currentAiTarget()
+            const sid = target.ok ? target.sessionId : ''
+            if (sid) setSessionId(sid)
+            const saved = await runtimeApi.setSkillModelInvocable({
+              path,
+              modelInvocable: job.enabled,
+              cwd: workspaceCwd(),
+              sessionId: sid,
+            })
+            if (intents.current.get(path)?.generation !== job.ticket) continue
+            intents.current.set(path, { generation: job.ticket, enabled: saved.modelInvocable })
+            const epoch = listEpoch.current
+            const listed = await runtimeApi.listAiSkills(sid || undefined).then((data) => data.items, () => null)
+            if (intents.current.get(path)?.generation !== job.ticket || epoch !== listEpoch.current) continue
+            if (listed) applyListed(listed)
+            else {
+              setSkills((current) => current.map((item) => (
+                item.path === path ? { ...item, modelInvocable: saved.modelInvocable } : item
+              )))
+            }
+            const after = intents.current.get(path)
+            if (after && after.generation !== job.ticket) continue
+            setNote(saved.modelInvocable ? '已启用。' : '已停用。')
+            setFailure('')
+          } catch (cause) {
+            if (intents.current.get(path)?.generation !== job.ticket || writes.current.has(path)) continue
+            intents.current.delete(path)
+            setNote(classifySurfaceFailure(cause, '没能改启用状态。').message)
+            const target = await currentAiTarget().catch(() => null)
+            const sid = target && target.ok ? target.sessionId : ''
+            const listed = await runtimeApi.listAiSkills(sid || undefined).then((data) => data.items, () => null)
+            if (!listed || intents.current.has(path) || writes.current.has(path)) continue
+            applyListed(listed)
+          }
+        }
+      } finally {
+        draining.current.delete(path)
+        if (writes.current.has(path)) flushToggle(path)
+        else if (writes.current.size === 0) setBusy(false)
+      }
+    })()
   }
 
   const runToggle = (row: SkillBagItem, enabled: boolean) => {
     if (!row.path) return
     const path = row.path
+    const ticket = ++ticketRef.current
+    listEpoch.current = ticket
+    intents.current.set(path, { generation: ticket, enabled })
+    writes.current.set(path, { ticket, enabled })
+    setSkills((current) => current.map((item) => (
+      item.path === path ? { ...item, modelInvocable: enabled } : item
+    )))
     setBusy(true)
-    void runtimeApi.setSkillModelInvocable({ path, modelInvocable: enabled, cwd: workspaceCwd(), sessionId }).then(async () => {
-      const rows = await readUntil((items) => items.some((item) => item.path === path && item.modelInvocable === enabled))
-      publish(rows, enabled ? '已启用。' : '已停用。')
-    }).catch((cause) => {
-      setNote(classifySurfaceFailure(cause, '没能改启用状态。').message)
-    }).finally(() => setBusy(false))
+    flushToggle(path)
   }
 
   const openInstall = () => {
@@ -352,7 +440,7 @@ export default function Skills() {
               <div className="min-w-0 space-y-2">
                 <SurfaceSearch aria-label="搜索技能" placeholder="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)} />
                 {filtered.length ? (
-                  <SkillList rows={filtered} selected={shown?.id || ''} busy={busy} onOpen={setPicked} onToggle={runToggle} />
+                  <SkillList rows={filtered} selected={shown?.id || ''} onOpen={setPicked} onToggle={runToggle} />
                 ) : (
                   <SurfaceEmpty icon={Sparkles} title="没有匹配的技能" body="换个词，或改一下筛选。" />
                 )}
