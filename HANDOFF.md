@@ -17,7 +17,7 @@
 
 产品：本机个人工作台。壳是 FDE-X（React + BFF 4318）。AI = DSH iframe /dsh-app/。IM 和过账 = lan-assist。记忆 = semantic-os。应用自有数据 = 本机 SQLite。不要把官方 DSH/lan-assist/semantic-os 的 client.js 当产品页。
 
-纪律：不要硬编码；不要偷懒；不要打补丁；不要讨好；不要擅自做主；闸只听话不做主。占用方案先用中文复述，等用户点头再改代码。不要 restyle FDE-X。不要给每个应用往 src/pages 加页面。不要发明顶栏模块。不要杀正在跑的 pnpm dev。改 BFF 让用户重载核心。不要 npm i -g 覆盖 Homebrew 的 DSH。pin 是 0.2.0-rc.2。不要 bump ASSET_V。不要 overlay vendor bootstrap.py。打包/安装/公证等用户点头。
+纪律：不要硬编码；不要偷懒；不要以打补丁的方式修复bug。不要给每个应用往 src/pages 加页面。不要发明顶栏模块。不要杀正在跑的 pnpm dev。改 BFF 让用户重载核心。不要 npm i -g 覆盖 Homebrew 的 DSH。pin 是 0.2.0-rc.2。不要 bump ASSET_V。不要 overlay vendor bootstrap.py。打包/安装/公证等用户点头。
 
 会话画布只占 AI iframe 的 chat/trajectory+composer。目录能力 land 到已有页。公开应用 /a/:shareId 是已分享实例的文档口，不是新顶栏。
 
