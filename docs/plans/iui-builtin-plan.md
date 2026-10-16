@@ -1,6 +1,8 @@
-# IUI 内置插件方案（待批准，未写业务代码）
+# IUI 内置插件方案
 
 日期：2026-10-16。分支：`cursor/iui-builtin-6fc8`（从 `main` `ada45f1a` 切出）。本分支只含这份文档。
+
+2026-10-16 已批准这份方案（`af23b687`）。四项决定已经锁定。产物走方案 A，`pins` 里留 `artifact.url`，等上游发 release 再切方案 B。早报改用 `fde-briefing` 专用会话。IUI 状态先并进 AI 核心那一行，不改 `Settings.tsx`。profile `package.json` 解析失败时报错且不覆盖，放进 PR1，并加回归测试。
 
 目标：把 `losebird/IUI`（npm 名 `@losebird/iui`）像 `dsh-lan-assist` / `dsh-semantic-os` 一样内置进 FDE-X Desktop，且只在「标准对话模式」生效。不做「存为业务应用」。
 
@@ -38,6 +40,28 @@
 - `linkReadablePlugin` 只在 vendor 目录不存在时才拷贝。钉版本升级后，用户机上的旧 vendor 拷贝不会被替换。
 
 ---
+
+## 实验 0 结果（2026-10-16，已跑）
+
+Node 用的是 `v22.23.3`（环境默认是 `v22.14.0`，低于 IUI 要求的 22.19）。pnpm 用 `11.7.0`，`COREPACK_HOME=/tmp/corepack-home`。Host 世代 `npm i @deepseek-ai/dsh@0.2.0-rc.2` 已装进 `runtime/.host-generation`，入口是 `node_modules/@deepseek-ai/dsh/lib/bin.js`。
+
+**构建。** 在 `c5b5a4b` 上直接 `pnpm install --frozen-lockfile && pnpm run build` 失败。`tsconfig.json` 把 `@deepseek-ai/dsh-client-ui-primitives` 指到作者机器的绝对路径（`/opt/homebrew/...` 和 `/home/box/.local/...`）。这两处不存在时，tsc 落到 lockfile 里的 `0.1.2-rc.1`，而那个版本没有 `SettingsForm`。把这两条 path 改指到 `0.2.0-rc.2` 的类型后，构建成功，得到 `lib/index.js`（330K）和 `lib/client.js`（978K）。`0.2.0-rc.2` 的 primitives 确实导出 `SettingsForm`。打包脚本要做同样的路径改写，不能假设作者的本机路径存在。
+
+**实验 1，symlink 能否加载。** 三次 import `@losebird/iui`，都从 `node_modules/@losebird/iui` 的 symlink 进来。
+
+| 目标 | 结果 |
+|---|---|
+| symlink 到带 pnpm `node_modules` 的源码树 | 成功，`apply` 是函数，`name` 是 `@losebird/iui` |
+| 按 `files` 拷贝、不带 `node_modules` | 失败。`ERR_MODULE_NOT_FOUND`，缺的是 `@deepseek-ai/schemastery`，报错路径是 symlink 的 realpath |
+| 同一份拷贝，用 `npm install --install-strategy=nested` 装上生产依赖后再 symlink | 成功。整棵树 19MB |
+
+结论：文件系统 symlink 可以用，前提是目标目录自己带着生产依赖。只剥掉 `node_modules` 的 stage 产物加载不了。Host 插件 `lib/index.js` 的外部依赖只有 `@deepseek-ai/schemastery`（它再依赖 `@deepseek-ai/cosmokit`）。`client.js` 是浏览器包，在 Node 里会因为没有 `window` 而失败，这是预期。PR3 的产物是「上游 `package.json`（保留 `dsh.bundle` 和 `dsh.client`）+ `lib/` + 嵌套的生产 `node_modules`」，约 19MB。`plugin-stage.mjs` 对 IUI 不能剥 `node_modules`。
+
+**实验 2，waterfall 能否读到 preset。** 读的是已安装的 `0.2.0-rc.2` 包，不是猜的。`dsh-agent-loop` 在每一步调用 `systemPrompt.assemble(assembleContextFor(this, signal))`。`assembleContextFor` 把 `agent` 设成这个活的 agent。`Agent.session.header.agentPreset` 是持久化字段，注释写明它决定这轮会话的工具和提示词。门控读 `context.agent.session.header.agentPreset`。这一步没有跑真实模型回合，PR2 用会话日志再确认一次。
+
+**实验 3，技能目录走哪条路。** 不走 `systemPrompt` 的 section，也不走 context。`@deepseek-ai/dsh-tool-skill` 在 `agent/pre-step` 里追加一条 user 消息，正文是 `<available_skills>`。IUI 在全局注册技能提供者 `iui`，所以这条消息默认每个会话都有。门控要在 `agent/pre-step` 里把非标准模式的 `iui` 条目去掉，只删 system section 不够。
+
+这三条改了 §2.1 和 §2.2 的落地细节，不改推荐方案本身：产物仍是方案 A，门控仍在桥里，白名单仍是 `standard`。
 
 ## 1. 要改的文件和模块
 
