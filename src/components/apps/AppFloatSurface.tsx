@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AppRuntime } from '@/components/apps/AppRuntime'
-import { isFdeAppSpec, type FdeAppDetail } from '@/lib/app-spec'
+import { isHostedAppSpec, type FdeAppDetail } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
 import { useApp } from '@/store/app'
 
@@ -40,8 +40,8 @@ export function AppFloatSurface({ appId }: { appId: string }) {
   if (!app || !cwd) {
     return <div className="px-4 py-8 text-sm text-ink-muted">正在打开工作面…</div>
   }
-  if (!isFdeAppSpec(app.spec)) {
-    return <div className="px-4 py-8 text-sm text-ink-muted">不是声明式应用</div>
+  if (!isHostedAppSpec(app.spec)) {
+    return <div className="px-4 py-8 text-sm text-ink-muted">不是可托管的应用</div>
   }
   return (
     <div data-app-float-surface="true" data-app-float-id={appId}>

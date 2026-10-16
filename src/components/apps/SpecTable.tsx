@@ -5,6 +5,7 @@ import { type FdeAppAction, type FdeAppSpec, type FdeAppView, visibleTableColumn
 import { type AgentWriteBackPrompt, isAgentActionStep, runAppAgentJobs } from '@/lib/app-agent-action'
 import { isBizPreviewStep, startBizPreviews } from '@/lib/app-platform'
 import { runtimeApi } from '@/lib/runtime-api'
+import { useAppPublicSurface } from '@/lib/app-public-surface'
 
 type Props = {
   app: { id: string; spec: FdeAppSpec; status: string }
@@ -29,7 +30,9 @@ export function SpecTable({ app, view, workspaceCwd, previewRows, onSelectRid, o
   const [creating, setCreating] = useState(false)
   const writeBackResolveRef = useRef<((accepted: boolean) => void) | null>(null)
   const columns = visibleTableColumns(app.spec, view)
+  const publicSurface = useAppPublicSurface()
   const entityActions = (app.spec.actions ?? []).filter((a) => a.entity === view.entity)
+    .filter((a) => !publicSurface || a.kind === 'set')
 
   const load = useCallback(async () => {
     if (previewRows) {

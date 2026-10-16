@@ -40,7 +40,8 @@ export function appBuilderPrompt(input: {
       `需求：${description.trim()}`,
       dataBlock,
       SURFACE_DEFAULT,
-      `请生成 fde-app/v1 spec（含 surface、pages、uses 与被引用的 views），并调用 fde_app_spec_submit({ requestId, spec })，不要传 appId。`,
+      `先判断运行时：需求是对象/字段/记下/看板/统计 → 生成 fde-app/v1 spec（含 surface、pages、uses 与被引用的 views）。需求是任意 Web 页面、工作台、画布、拖拽、漫游、或用户给出了 HTML/JS → 生成 fde-web/v1 spec（slug、name、bundleRoot=apps/<slug>、entry=index.html）并在同一次 fde_app_spec_submit 里传 files[{path,content}] 写完整可运行包（至少 index.html）。禁止把画布/HTML 折成表或看板。认不出表面就不要提交假台账。`,
+      `调用 fde_app_spec_submit({ requestId, spec, files? })，不要传 appId。`,
       PAGES_RULES,
       TITLE_RULES,
       USES_RULES,
@@ -57,14 +58,14 @@ export function appBuilderPrompt(input: {
     specJson ? `当前 spec JSON：\n${specJson}` : '',
     dataBlock,
     SURFACE_DEFAULT,
-    `输出完整下一版 spec（fde-app/v1）：保持 slug 不变；不要删字段、不要改已有字段类型；按新需求更新 surface、pages、views、labels、uses。`,
+    `输出完整下一版 spec：保持 slug 与 spec 种类（fde-app/v1 或 fde-web/v1）不变。台账应用不要删字段、不要改已有字段类型；Web 应用按新需求更新 files 包（fde_app_spec_submit 的 files）。禁止把 Web 应用改成交一张表。`,
     PAGES_RULES,
     TITLE_RULES,
     USES_RULES,
     SOURCE_RULES,
     id
-      ? `调用 fde_app_spec_submit({ requestId, spec, appId: "${id}" }) 提交修订。`
-      : '调用 fde_app_spec_submit({ requestId, spec, appId }) 提交修订（appId 见上）。',
+      ? `调用 fde_app_spec_submit({ requestId, spec, files?, appId: "${id}" }) 提交修订。`
+      : '调用 fde_app_spec_submit({ requestId, spec, files?, appId }) 提交修订（appId 见上）。',
     COMMON_TAIL,
   ].filter(Boolean).join('\n')
 }

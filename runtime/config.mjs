@@ -33,6 +33,20 @@ export const FDE_RUNTIME_PORT = Number(process.env.FDE_RUNTIME_PORT ?? 4318)
 
 export const FDE_RUNTIME_HOST = process.env.FDE_RUNTIME_HOST ?? '127.0.0.1'
 
+/** Bind address. Public `/a` + app-share face needs LAN; loopback clients still use FDE_RUNTIME_HOST. */
+export const FDE_LISTEN_HOST = process.env.FDE_LISTEN_HOST ?? '0.0.0.0'
+
+/** Page/iframe origin host. Unspecified bind addresses are not a document origin. */
+export function advertisedRuntimeHost(listenHost = FDE_RUNTIME_HOST) {
+  const raw = String(listenHost || '')
+  if (!raw || raw === '0.0.0.0' || raw === '::' || raw === '*') return '127.0.0.1'
+  return raw
+}
+
+export function advertisedRuntimeOrigin(listenPort = FDE_RUNTIME_PORT, listenHost = FDE_RUNTIME_HOST) {
+  return `http://${advertisedRuntimeHost(listenHost)}:${Number(listenPort)}`
+}
+
 export const FDE_WEB_PORT = Number(process.env.FDE_WEB_PORT ?? 5174)
 
 /** Browser reload wait: BFF respawn + DSH cold start (ms). */

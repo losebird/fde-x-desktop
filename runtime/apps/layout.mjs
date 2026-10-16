@@ -291,6 +291,12 @@ function buildEntityPage(spec, entity) {
  */
 export function withProductLayout(spec, { fillPages = true } = {}) {
   if (!spec || typeof spec !== 'object') return spec
+  if (spec.spec === 'fde-web/v1') {
+    const next = clone(spec)
+    if (!next.bundleRoot) next.bundleRoot = `apps/${next.slug}`
+    if (!next.entry) next.entry = 'index.html'
+    return next
+  }
   const next = clone(spec)
   fillSurfaceOnSpec(next)
   const usesAlreadySet = Array.isArray(next.uses) && next.uses.length > 0

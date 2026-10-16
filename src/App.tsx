@@ -1,10 +1,12 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { IMScreen } from '@/components/IMScreen'
+import PublicApp from '@/pages/PublicApp'
 
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/ai" replace />} />
+      <Route path="/a/:shareId" element={<PublicApp />} />
       <Route element={<IMScreen />}>
         <Route path="/im" element={null} />
         <Route path="/im/:threadId" element={null} />

@@ -9,6 +9,7 @@ import { SpecKanban } from '@/components/apps/SpecKanban'
 import { SpecStat } from '@/components/apps/SpecStat'
 import { SpecTable } from '@/components/apps/SpecTable'
 import { runDeclaredPlatformUse } from '@/lib/app-platform'
+import { useAppPublicSurface } from '@/lib/app-public-surface'
 import {
   declaredPlatformUses,
   mockRowsForEntity,
@@ -180,6 +181,7 @@ function ProductBlock({
   kind: FdeAppPage['blocks'][number]['kind']
   capabilityUses: FdePlatformUse[]
 }) {
+  const publicSurface = useAppPublicSurface()
   if (kind === 'stats') {
     return (
       <div className="grid grid-cols-2 @2xl:grid-cols-4 gap-2" data-app-overview="true">
@@ -204,7 +206,7 @@ function ProductBlock({
       <div className="border border-line rounded-xl bg-surface p-3 space-y-2 min-w-0 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-medium">{view.label || '记下'}</div>
-          {specHasUse(app.spec, 'briefing') && (
+          {!publicSurface && specHasUse(app.spec, 'briefing') && (
             <button
               type="button"
               className="text-xs text-ink-muted hover:text-ink"

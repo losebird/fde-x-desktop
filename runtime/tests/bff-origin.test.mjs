@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { resolveBffOrigin } from '../bff-origin.mjs'
+import { advertisedRuntimeHost, advertisedRuntimeOrigin } from '../config.mjs'
 
 test('vite pages map to fixed BFF ports', () => {
   assert.equal(resolveBffOrigin('', { protocol: 'http:', hostname: '127.0.0.1', port: '5174' }), 'http://127.0.0.1:4318')
@@ -19,4 +20,11 @@ test('packaged page uses its own origin', () => {
 test('empty env does not invent 4318', () => {
   assert.equal(resolveBffOrigin('', { protocol: 'http:', hostname: '127.0.0.1', port: '' }), 'http://127.0.0.1')
   assert.equal(resolveBffOrigin(undefined), 'http://127.0.0.1')
+})
+
+test('advertised origin never uses unspecified bind host', () => {
+  assert.equal(advertisedRuntimeHost('0.0.0.0'), '127.0.0.1')
+  assert.equal(advertisedRuntimeHost('::'), '127.0.0.1')
+  assert.equal(advertisedRuntimeHost('127.0.0.1'), '127.0.0.1')
+  assert.equal(advertisedRuntimeOrigin(4318, '0.0.0.0'), 'http://127.0.0.1:4318')
 })

@@ -8,28 +8,32 @@ import { SpecStat } from '@/components/apps/SpecStat'
 import { SpecTable } from '@/components/apps/SpecTable'
 import { SpecForm } from '@/components/apps/SpecForm'
 import { SpecEditor } from '@/components/apps/SpecEditor'
-import { appIsTrashed, hasProductPages, isCurrentRevisionPending, isFdeAppSpec, mockRowsForEntity, type FdeAppDetail } from '@/lib/app-spec'
+import { AppWebRuntime } from '@/components/apps/AppWebRuntime'
+import { appIsTrashed, hasProductPages, isCurrentRevisionPending, isFdeAppSpec, isFdeWebSpec, mockRowsForEntity, type FdeAppDetail } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
+import { AppPublicSurface } from '@/lib/app-public-surface'
 
 type Props = {
   app: FdeAppDetail
   workspaceCwd: string
   previewMode?: boolean
   variant?: 'dialog' | 'workspace'
+  publicSurface?: boolean
   onChanged: () => void
   onRequestDelete?: () => void
 }
 
 function mockRows(spec: FdeAppDetail['spec']): Record<string, unknown>[] {
+  if (!isFdeAppSpec(spec)) return []
   const table = spec.views.find((v) => v.type === 'table' || v.type === 'feed' || v.type === 'cards')
   const entity = table?.entity || spec.entities[0]?.name
   if (!entity) return []
   return mockRowsForEntity(spec, entity)
 }
 
-export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, variant, onChanged, onRequestDelete }: Props) {
+export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, variant, publicSurface = false, onChanged, onRequestDelete }: Props) {
   const spec = app.spec
-  const views = spec.views
+  const views = ('views' in spec && Array.isArray(spec.views)) ? spec.views : []
   const [viewId, setViewId] = useState(views[0]?.id || views[0]?.type || '0')
   const [showBuilder, setShowBuilder] = useState(false)
   const [detailRid, setDetailRid] = useState('')
@@ -136,8 +140,23 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
     }
   }
 
+  if (isFdeWebSpec(spec)) {
+    return (
+      <AppPublicSurface.Provider value={publicSurface}>
+        <AppWebRuntime
+          app={app}
+          publicSurface={publicSurface}
+          variant={variant}
+          pendingMaterialize={pendingMaterialize}
+          onRequestDelete={onRequestDelete}
+          onActivate={() => { void activate() }}
+        />
+      </AppPublicSurface.Provider>
+    )
+  }
+
   if (!isFdeAppSpec(spec)) {
-    return <div className="px-4 py-3 text-xs text-ink-muted">不是 fde-app/v1 声明式应用</div>
+    return <div className="px-4 py-3 text-xs text-ink-muted">不是可托管的应用</div>
   }
 
   const builderControls = (
@@ -173,8 +192,32 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
   )
 
   return (
+    <AppPublicSurface.Provider value={publicSurface}>
     <div className={variant === 'dialog' || variant === 'workspace' ? '' : 'border-t border-line'}>
-      {daily ? (
+      {publicSurface ? (
+        product ? null : (
+          <div className="px-4 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2">
+            <div className="flex items-center rounded border border-line bg-surface p-0.5">
+              {views.map((view) => {
+                const key = view.id || `${view.type}-${view.entity}`
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => { setViewId(view.id || view.type); setDetailRid('') }}
+                    className={clsx(
+                      'h-7 px-2.5 rounded text-xs transition-colors',
+                      (view.id || view.type) === viewId ? 'bg-ink text-white' : 'text-ink-muted hover:bg-surface-2',
+                    )}
+                  >
+                    {view.label || view.type}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      ) : daily ? (
         <div className="px-4 pt-2 flex justify-end">
           <button
             type="button"
@@ -216,7 +259,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
         </div>
       )}
       {note && <div className="px-4 py-2 text-xs text-accent-red">{note}</div>}
-      {showBuilder && daily && (
+      {!publicSurface && showBuilder && daily && (
         <div className="fixed inset-0 z-[85] flex justify-end" data-app-builder-drawer="true">
           <button type="button" className="flex-1 bg-ink/20" aria-label="关闭建造" onClick={() => setShowBuilder(false)} />
           <div className="w-full max-w-md h-full bg-surface border-l border-line overflow-y-auto shadow-pop">
@@ -257,7 +300,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
           </div>
         </div>
       )}
-      {showBuilder && !daily && <SpecEditor app={app} onSaved={onChanged} />}
+      {!publicSurface && showBuilder && !daily && <SpecEditor app={app} onSaved={onChanged} />}
       {product ? (
         <div className="px-4 py-3">
           <AppProductPage
@@ -303,5 +346,6 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
       </div>
       )}
     </div>
+    </AppPublicSurface.Provider>
   )
 }

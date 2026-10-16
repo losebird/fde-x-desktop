@@ -509,6 +509,7 @@ export interface BusinessAppRecord {
   createdAt: string
   updatedAt: string
   deletedAt?: string
+  shareId?: string
 }
 
 export interface OperationTrace {
@@ -606,9 +607,28 @@ export class RuntimeApiError extends Error {
 
 export class RuntimeApi {
   readonly baseUrl: string
+  shareId = ''
 
   constructor(baseUrl = defaultRuntimeBaseUrl()) {
     this.baseUrl = String(baseUrl || '').replace(/\/$/, '')
+  }
+
+  bindShare(shareId: string) {
+    this.shareId = String(shareId || '').trim()
+  }
+
+  unbindShare() {
+    this.shareId = ''
+  }
+
+  private appRecordsBase(slug: string) {
+    if (this.shareId) return `/api/v1/app-share/${encodeURIComponent(this.shareId)}`
+    return `/api/v1/apps/${encodeURIComponent(slug)}`
+  }
+
+  private appWorkspaceQuery(workspaceCwd: string) {
+    if (this.shareId) return ''
+    return `workspace=${encodeURIComponent(workspaceCwd)}`
   }
 
   async health(signal?: AbortSignal): Promise<RuntimeHealth> {
@@ -2425,6 +2445,37 @@ export class RuntimeApi {
     )
   }
 
+  async getAppShare(appId: string, signal?: AbortSignal) {
+    const result = await this.request<{ ok: boolean; data: { shareId: string; url: string; urls?: { kind: string; url: string }[]; createdAt?: string } | null }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}/share`,
+      { signal },
+    )
+    return result.data
+  }
+
+  async mintAppShare(appId: string, signal?: AbortSignal) {
+    const result = await this.request<{ ok: boolean; data: { shareId: string; url: string; urls?: { kind: string; url: string }[]; createdAt?: string } }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}/share`,
+      { method: 'POST', signal },
+    )
+    return result.data
+  }
+
+  async revokeAppShare(appId: string, signal?: AbortSignal) {
+    return this.request<{ ok: boolean; data: { revoked: number } }>(
+      `/api/v1/apps/${encodeURIComponent(appId)}/share`,
+      { method: 'DELETE', signal },
+    )
+  }
+
+  async getSharedApp(shareId: string, signal?: AbortSignal) {
+    const result = await this.request<{ ok: boolean; data: import('@/lib/app-spec').FdeAppDetail }>(
+      `/api/v1/app-share/${encodeURIComponent(shareId)}`,
+      { signal, cache: 'no-store' },
+    )
+    return result.data
+  }
+
   async listAppRecords(
     slug: string,
     entity: string,
@@ -2432,36 +2483,51 @@ export class RuntimeApi {
     query?: { filter?: Record<string, unknown>; page?: number; size?: number; sort?: string; dir?: string },
     signal?: AbortSignal,
   ) {
-    const params = new URLSearchParams({ workspace: workspaceCwd })
+    const params = new URLSearchParams()
+    const workspace = this.appWorkspaceQuery(workspaceCwd)
+    if (workspace) params.set('workspace', workspaceCwd)
     if (query?.filter) params.set('filter', JSON.stringify(query.filter))
     if (query?.page) params.set('page', String(query.page))
     if (query?.size) params.set('size', String(query.size))
     if (query?.sort) params.set('sort', query.sort)
     if (query?.dir) params.set('dir', query.dir)
+    const q = params.toString()
     const result = await this.request<{ ok: boolean; data: import('@/lib/app-spec').AppRecordList }>(
-      `/api/v1/apps/${encodeURIComponent(slug)}/${encodeURIComponent(entity)}?${params}`,
+      `${this.appRecordsBase(slug)}/${encodeURIComponent(entity)}${q ? `?${q}` : ''}`,
+      { signal },
+    )
+    return result.data
+  }
+
+  async getAppRecord(slug: string, entity: string, rid: string, workspaceCwd: string, signal?: AbortSignal) {
+    const workspace = this.appWorkspaceQuery(workspaceCwd)
+    const q = workspace ? `?${workspace}` : ''
+    const result = await this.request<{ ok: boolean; data: Record<string, unknown> }>(
+      `${this.appRecordsBase(slug)}/${encodeURIComponent(entity)}/${encodeURIComponent(rid)}${q}`,
       { signal },
     )
     return result.data
   }
 
   async createAppRecord(slug: string, entity: string, workspaceCwd: string, body: Record<string, unknown>, signal?: AbortSignal) {
+    const payload = this.shareId ? body : { ...body, workspace: workspaceCwd, workspaceCwd }
     const result = await this.request<{ ok: boolean; data: Record<string, unknown>; errors?: { path: string; message: string }[] }>(
-      `/api/v1/apps/${encodeURIComponent(slug)}/${encodeURIComponent(entity)}`,
+      `${this.appRecordsBase(slug)}/${encodeURIComponent(entity)}`,
       {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, workspace: workspaceCwd, workspaceCwd }),
+        body: JSON.stringify(payload),
       },
     )
     return result
   }
 
   async patchAppRecord(slug: string, entity: string, rid: string, workspaceCwd: string, body: Record<string, unknown>, signal?: AbortSignal) {
-    const params = new URLSearchParams({ workspace: workspaceCwd })
+    const workspace = this.appWorkspaceQuery(workspaceCwd)
+    const q = workspace ? `?${workspace}` : ''
     return this.request<{ ok: boolean; data: Record<string, unknown>; errors?: { path: string; message: string }[] }>(
-      `/api/v1/apps/${encodeURIComponent(slug)}/${encodeURIComponent(entity)}/${encodeURIComponent(rid)}?${params}`,
+      `${this.appRecordsBase(slug)}/${encodeURIComponent(entity)}/${encodeURIComponent(rid)}${q}`,
       {
         method: 'PATCH',
         signal,
@@ -2471,22 +2537,35 @@ export class RuntimeApi {
     )
   }
 
+  async deleteAppRecord(slug: string, entity: string, rid: string, workspaceCwd: string, signal?: AbortSignal) {
+    const workspace = this.appWorkspaceQuery(workspaceCwd)
+    const q = workspace ? `?${workspace}` : ''
+    return this.request<{ ok: boolean }>(
+      `${this.appRecordsBase(slug)}/${encodeURIComponent(entity)}/${encodeURIComponent(rid)}${q}`,
+      { method: 'DELETE', signal },
+    )
+  }
+
   async runAppAction(slug: string, actionName: string, workspaceCwd: string, rids: string[], signal?: AbortSignal) {
+    const payload = this.shareId
+      ? { rids }
+      : { rids, workspaceCwd, workspace: workspaceCwd }
     return this.request<{ ok: boolean; data: unknown }>(
-      `/api/v1/apps/${encodeURIComponent(slug)}/actions/${encodeURIComponent(actionName)}`,
+      `${this.appRecordsBase(slug)}/actions/${encodeURIComponent(actionName)}`,
       {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rids, workspaceCwd, workspace: workspaceCwd }),
+        body: JSON.stringify(payload),
       },
     )
   }
 
   async getAppStat(slug: string, viewId: string, workspaceCwd: string, signal?: AbortSignal) {
-    const params = new URLSearchParams({ workspace: workspaceCwd })
+    const workspace = this.appWorkspaceQuery(workspaceCwd)
+    const q = workspace ? `?${workspace}` : ''
     const result = await this.request<{ ok: boolean; data: { value: number; label: string } }>(
-      `/api/v1/apps/${encodeURIComponent(slug)}/stats/${encodeURIComponent(viewId)}?${params}`,
+      `${this.appRecordsBase(slug)}/stats/${encodeURIComponent(viewId)}${q}`,
       { signal },
     )
     return result.data

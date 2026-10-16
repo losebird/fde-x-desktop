@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { AppRuntime } from '@/components/apps/AppRuntime'
 import { askAiForResult } from '@/lib/ask-ai'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { isFdeAppSpec, type FdeAppDetail, type FdeAppSkillBind } from '@/lib/app-spec'
+import { isHostedAppSpec, type FdeAppDetail, type FdeAppSkillBind } from '@/lib/app-spec'
 import { appBuilderPrompt } from '@/lib/app-builder-prompt'
 import { currentAiTarget } from '@/lib/ai-target'
 import type { JsonSchemaLite } from '@/lib/json-schema-lite'
@@ -119,7 +119,7 @@ export function AppCreateWizard({ workspaceId, connections = [], onDraftReady, o
     while (Date.now() < until) {
       await sleep(1500)
       const apps = await runtimeApi.listBusinessApps(workspaceId).catch(() => [])
-      const fresh = apps.find((app) => !knownIds.has(app.id) && app.status === 'draft' && (isFdeAppSpec(app.definition) || app.appKind === 'generated'))
+      const fresh = apps.find((app) => !knownIds.has(app.id) && app.status === 'draft' && (isHostedAppSpec(app.definition) || app.appKind === 'generated'))
       if (fresh) return fresh.id
     }
     return ''
@@ -259,7 +259,7 @@ export function AppCreateWizard({ workspaceId, connections = [], onDraftReady, o
       return
     }
     const data = await loadApp(appId)
-    if (data && isFdeAppSpec(data.spec)) {
+    if (data && isHostedAppSpec(data.spec)) {
       const source = dataConnect === 'local' || !connectBiz
         ? { type: 'local' as const }
         : bizTarget === 'lookup'

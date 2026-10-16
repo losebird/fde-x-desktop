@@ -177,6 +177,19 @@ export interface FdeAppSpec {
   _workspaceCwd?: string
 }
 
+export type FdeWebSpec = {
+  spec: 'fde-web/v1'
+  slug: string
+  name: string
+  description?: string
+  bundleRoot?: string
+  entry?: string
+  uses?: FdePlatformUse[]
+  entities?: FdeAppEntity[]
+  surface?: FdeAppSurface
+  _workspaceCwd?: string
+}
+
 export interface FdeAppDetail {
   id: string
   workspaceId: string
@@ -184,7 +197,7 @@ export interface FdeAppDetail {
   appKind: string
   status: 'draft' | 'active' | 'paused' | 'archived'
   currentRevision: number
-  spec: FdeAppSpec
+  spec: FdeAppSpec | FdeWebSpec
   revisions: { revision: number; change_note?: string; created_at: string; materialize_status?: string }[]
   createdAt: string
   updatedAt: string
@@ -208,6 +221,14 @@ export function isFdeAppSpec(def: unknown): def is FdeAppSpec {
   return Boolean(def && typeof def === 'object' && (def as FdeAppSpec).spec === 'fde-app/v1')
 }
 
+export function isFdeWebSpec(def: unknown): def is FdeWebSpec {
+  return Boolean(def && typeof def === 'object' && (def as FdeWebSpec).spec === 'fde-web/v1')
+}
+
+export function isHostedAppSpec(def: unknown): def is FdeAppSpec | FdeWebSpec {
+  return isFdeAppSpec(def) || isFdeWebSpec(def)
+}
+
 export function entityDef(spec: FdeAppSpec, entityName: string): FdeAppEntity | undefined {
   return spec.entities.find((e) => e.name === entityName)
 }
@@ -225,7 +246,7 @@ export function visibleTableColumns(spec: FdeAppSpec, view: FdeAppView): string[
   return [...listed, ...extra]
 }
 
-export function hasProductPages(spec: FdeAppSpec): boolean {
+export function hasProductPages(spec: { pages?: FdeAppPage[] }): boolean {
   return Array.isArray(spec.pages) && spec.pages.length > 0
 }
 
@@ -237,7 +258,7 @@ export function viewById(spec: FdeAppSpec, id: string | undefined, extraViews: F
 const LINK_FIELD_RE = /url|link|href|src|media|file|path|video/i
 const PLATFORM_USES: FdePlatformUse[] = ['ai', 'files', 'float', 'memory', 'im', 'briefing', 'biz', 'plan']
 
-export function declaredPlatformUses(spec: FdeAppSpec): FdePlatformUse[] {
+export function declaredPlatformUses(spec: { uses?: FdePlatformUse[] }): FdePlatformUse[] {
   const allowed = new Set(PLATFORM_USES)
   const out: FdePlatformUse[] = []
   for (const item of spec.uses ?? []) {
@@ -247,7 +268,7 @@ export function declaredPlatformUses(spec: FdeAppSpec): FdePlatformUse[] {
   return out
 }
 
-export function specHasUse(spec: FdeAppSpec, use: FdePlatformUse): boolean {
+export function specHasUse(spec: { uses?: FdePlatformUse[] }, use: FdePlatformUse): boolean {
   return declaredPlatformUses(spec).includes(use)
 }
 

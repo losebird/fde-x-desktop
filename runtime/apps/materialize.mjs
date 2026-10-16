@@ -28,7 +28,7 @@ export function planMaterializeDdl(spec, db, previousSpec = null) {
   const ddl = []
   const applied = []
 
-  for (const ent of spec.entities) {
+  for (const ent of Array.isArray(spec.entities) ? spec.entities : []) {
     const table = tableNameForEntity(slug, ent.name)
     const quoted = quoteTable(table)
     const exists = db.prepare(

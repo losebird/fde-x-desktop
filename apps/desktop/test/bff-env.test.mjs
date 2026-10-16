@@ -21,6 +21,7 @@ test('buildBffEnv binds page origin, user cwd, and supervised reload', () => {
   assert.equal(env.FDE_AI_WORKSPACE, roots.base)
   assert.notEqual(env.FDE_AI_WORKSPACE, '/pack/resources/app')
   assert.equal(env.FDE_RUNTIME_PORT, '43210')
+  assert.equal(env.FDE_LISTEN_HOST, '0.0.0.0')
   assert.equal(env.FDE_ALLOWED_ORIGINS, 'app://fde-x,http://127.0.0.1:43210')
   assert.equal(env.FDE_RUNTIME_SUPERVISED, '1')
   assert.equal(env.FDE_STATIC_DIR, join('/pack/resources', 'app', 'dist'))

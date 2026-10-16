@@ -1,12 +1,17 @@
 # fde-app-spec
 
-生成 **fde-app/v1** 声明式应用 spec，并通过 `fde_app_spec_submit` 提交到工作台。
+生成工作台应用并通过 `fde_app_spec_submit` 提交。
 
-目标：按用户需求铺**产品页**（栏目 / 卡片或流水 / 概览数字 / 记一笔 / 图），数据进 SQLite。不是同一套 table+form+kanban+stat 后台脚手架，也不是一层 HTML。
+两种运行时，按需求选一，禁止拿另一种充数：
+
+1. **`fde-app/v1` 台账**：对象、字段、记下 / 看板 / 统计 / 卡片 / 流水。数据进 SQLite 表。
+2. **`fde-web/v1` 托管 Web 应用**：任意页面、工作台、画布、拖拽、漫游、用户给出的 HTML/JS。把可运行包写进 `files[{path,content}]`（至少 `index.html`），`bundleRoot` 默认 `apps/<slug>`，`entry` 默认 `index.html`。状态通过页面里的 `window.fdeApp` 与 `localStorage` 同步进本机库。打开就是这份页面在跑。
+
+用户要平面图 / 3D / 自定义工作台 / 普通网站交互 → 必须走 `fde-web/v1` + files。禁止折成房间表或家具清单。认不出表面就不要提交。
 
 ## 输出契约
 
-- `spec` 必须为 `fde-app/v1`
+- `spec` 为 `fde-app/v1` 或 `fde-web/v1`
 - 必填：`slug`（`^[a-z][a-z0-9-]{1,30}$`）、`name`（≤40）、`entities`（1–12）、`views`（1–20）
 - 字段类型：`text|longtext|number|bool|date|datetime|enum|ref|json`
 - 视图类型：`table|form|detail|kanban|stat|cards|chart|compose|feed`
@@ -55,7 +60,7 @@
 - 条目本身像资源/跟练（标题 + 说明，或有链接/文件引用字段）→ `cards`，有 enum 就 `groupBy` 该字段；链接字段给人点「打开」，打开 URL 或交给文件模块，不要内嵌播放器
 - 多个实体 → 多个 `pages` 当栏目
 
-禁止：把固定品类名单写进 spec；禁止生成代码或改 FDE 源码；禁止套固定品类模板或 HTML 页。
+禁止：把固定品类名单写进 spec；禁止改 FDE 源码；禁止套固定品类模板。`fde-web/v1` 必须提交可运行 HTML/JS 包。禁止把画布/HTML 需求交成台账 spec。
 禁止：用单号 / `甲-xxxx` / `记-xxxx` 填 `titleField`。标题必须是人能读的业务名。
 
 ## 提交流程

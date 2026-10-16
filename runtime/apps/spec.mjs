@@ -126,17 +126,76 @@ function validateSurface(value, path, errors, pages) {
  * @param {{ slugTaken?: boolean }} [ctx]
  * @returns {{ ok: boolean, errors: SpecError[], spec?: Record<string, unknown> }}
  */
+export function isWebAppSpec(spec) {
+  return Boolean(spec && typeof spec === 'object' && spec.spec === 'fde-web/v1')
+}
+
+function validateWebAppSpec(root, ctx, errors) {
+  rejectExtraKeys(root, [
+    'spec', 'slug', 'name', 'description', 'bundleRoot', 'entry',
+    'entities', 'views', 'actions', 'permissions', 'memory', 'uses',
+    'source', 'skills', '_workspaceCwd',
+  ], '', errors)
+  if (typeof root.slug !== 'string' || !SLUG_RE.test(root.slug)) {
+    errors.push({ path: 'slug', message: 'slug 格式无效' })
+  }
+  if (typeof root.name !== 'string' || root.name.length < 1 || root.name.length > 40) {
+    errors.push({ path: 'name', message: 'name 长度须在 1–40' })
+  }
+  if (root.description !== undefined) {
+    if (typeof root.description !== 'string' || root.description.length > 400) {
+      errors.push({ path: 'description', message: 'description 最长 400' })
+    }
+  }
+  if (root.bundleRoot !== undefined) {
+    const rel = String(root.bundleRoot)
+    if (!rel || rel.startsWith('/') || rel.includes('..') || rel.includes('\\')) {
+      errors.push({ path: 'bundleRoot', message: 'bundleRoot 必须是工作区内相对路径' })
+    }
+  }
+  if (root.entry !== undefined) {
+    const entry = String(root.entry)
+    if (!entry || entry.startsWith('/') || entry.includes('..')) {
+      errors.push({ path: 'entry', message: 'entry 必须是包内相对路径' })
+    }
+  }
+  if (ctx.slugTaken) {
+    errors.push({ path: 'slug', message: 'slug 已被占用' })
+  }
+  if (root.uses !== undefined) {
+    if (!Array.isArray(root.uses) || root.uses.length > 8) {
+      errors.push({ path: 'uses', message: 'uses 最多 8 项' })
+    } else {
+      for (let ui = 0; ui < root.uses.length; ui++) {
+        if (!PLATFORM_USES.has(String(root.uses[ui]))) {
+          errors.push({ path: `uses[${ui}]`, message: 'uses 只能是 ai/files/float/memory/im/briefing/biz/plan' })
+        }
+      }
+    }
+  }
+  if (root.entities !== undefined) {
+    if (!Array.isArray(root.entities) || root.entities.length > 12) {
+      errors.push({ path: 'entities', message: 'entities 最多 12 个' })
+    }
+  }
+  return { ok: errors.length === 0, errors, spec: root }
+}
+
 export function validateAppSpec(spec, ctx = {}) {
   const errors = []
   const root = requireObject(spec, '', errors)
   if (!root) return { ok: false, errors }
+
+  if (root.spec === 'fde-web/v1') {
+    return validateWebAppSpec(root, ctx, errors)
+  }
 
   rejectExtraKeys(root, [
     'spec', 'slug', 'name', 'description', 'entities', 'views', 'actions', 'permissions', 'memory', 'uses', 'pages', 'surface', 'source', 'skills', '_workspaceCwd',
   ], '', errors)
 
   if (root.spec !== 'fde-app/v1') {
-    errors.push({ path: 'spec', message: '必须是 fde-app/v1' })
+    errors.push({ path: 'spec', message: '必须是 fde-app/v1 或 fde-web/v1' })
   }
   if (typeof root.slug !== 'string' || !SLUG_RE.test(root.slug)) {
     errors.push({ path: 'slug', message: 'slug 格式无效' })

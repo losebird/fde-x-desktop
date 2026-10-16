@@ -9,7 +9,9 @@ import { ensureBizRecordsAutoOpen } from '@/lib/biz-records-auto-open'
 
 installLatin1Http()
 installFdeAskDev()
-ensureBizRecordsAutoOpen()
+if (!window.location.pathname.startsWith('/a/')) {
+  ensureBizRecordsAutoOpen()
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

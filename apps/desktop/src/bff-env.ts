@@ -75,6 +75,7 @@ export function buildBffEnv(input: BuildBffEnvInput) {
     FDE_DATABASE_PATH: input.roots.databasePath,
     FDE_RUNTIME_PORT: String(port),
     FDE_RUNTIME_HOST: '127.0.0.1',
+    FDE_LISTEN_HOST: '0.0.0.0',
     FDE_ALLOWED_ORIGINS: `app://fde-x,${origin}`,
     FDE_STATIC_DIR: staticDir,
     FDE_AI_WORKSPACE: input.roots.base,

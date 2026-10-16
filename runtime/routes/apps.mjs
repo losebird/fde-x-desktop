@@ -1,4 +1,4 @@
-import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE } from '../config.mjs'
+import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE, FDE_RUNTIME_PORT } from '../config.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { emit } from '../events.mjs'
 import { workspaceIdForCwd } from '../briefing/workspace.mjs'
@@ -26,6 +26,7 @@ import {
 import { resolveOperateSkills } from '../biz/systems-store.mjs'
 import {
   activateApp,
+  appIsTrashed,
   createAppDraft,
   findActiveAppBySlug,
   getAppById,
@@ -36,6 +37,33 @@ import {
   rollbackApp,
   trashApp,
 } from '../apps/repository.mjs'
+import {
+  liveShareForApp,
+  mintShare,
+  publicShareUrl,
+  requestListenPort,
+  revokeLiveSharesForApp,
+} from '../apps/share.mjs'
+import { isWebAppSpec } from '../apps/spec.mjs'
+import { writeBundleFiles } from '../apps/bundle.mjs'
+import { serveWebAppAsset } from '../apps/web-host.mjs'
+import { getDocument, putDocument } from '../apps/documents.mjs'
+
+function sharePayload(request, share) {
+  if (!share) return null
+  const port = requestListenPort(request, FDE_RUNTIME_PORT)
+  const url = publicShareUrl(share.id, { port })
+  const loopback = publicShareUrl(share.id, { port, host: '127.0.0.1' })
+  return {
+    shareId: share.id,
+    url,
+    urls: [
+      { kind: 'lan', url },
+      { kind: 'loopback', url: loopback },
+    ],
+    createdAt: share.createdAt,
+  }
+}
 
 function defaultWorkspaceCwd() {
   return FDE_AI_WORKSPACE
@@ -211,8 +239,86 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendJson(response, 422, { ok: false, errors: result.errors, correlationId })
       return true
     }
+    if (Array.isArray(body.files)) {
+      const created = getAppById(db, result.data.appId)
+      if (created && isWebAppSpec(created.spec)) {
+        try {
+          writeBundleFiles(workspaceCwd, created.spec, body.files)
+        } catch (error) {
+          sendJson(response, 422, {
+            ok: false,
+            errors: [{ path: 'files', message: error instanceof Error ? error.message : '写包失败' }],
+            correlationId,
+          })
+          return true
+        }
+      }
+    }
     sendJson(response, 201, { ok: true, data: result.data, correlationId })
     return true
+  }
+
+  const liveMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/live(?:\/(.*))?$/)
+  if (liveMatch && (request.method === 'GET' || request.method === 'HEAD')) {
+    const app = getAppById(db, decodeURIComponent(liveMatch[1]))
+    if (!app || appIsTrashed(app)) {
+      sendError(response, 404, 'not_found', '应用不存在', correlationId)
+      return true
+    }
+    if (!isWebAppSpec(app.spec)) {
+      sendError(response, 404, 'not_found', '不是托管 Web 应用', correlationId)
+      return true
+    }
+    const cwd = String(app.spec._workspaceCwd || defaultWorkspaceCwd())
+    const rel = liveMatch[2] ? decodeURIComponent(liveMatch[2]) : ''
+    const served = serveWebAppAsset(request, response, {
+      spec: app.spec,
+      workspaceCwd: cwd,
+      relPath: rel,
+      livePrefix: `/api/v1/apps/${encodeURIComponent(app.id)}/live`,
+      storePrefix: `/api/v1/apps/${encodeURIComponent(app.id)}/store`,
+      db,
+      appId: app.id,
+    })
+    if (!served) sendError(response, 404, 'not_found', '文件不存在', correlationId)
+    return true
+  }
+
+  const storeMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/store\/([^/]+)$/)
+  if (storeMatch) {
+    const app = getAppById(db, decodeURIComponent(storeMatch[1]))
+    if (!app || appIsTrashed(app)) {
+      sendError(response, 404, 'not_found', '应用不存在', correlationId)
+      return true
+    }
+    if (!isWebAppSpec(app.spec)) {
+      sendError(response, 404, 'not_found', '不是托管 Web 应用', correlationId)
+      return true
+    }
+    const cwd = String(app.spec._workspaceCwd || defaultWorkspaceCwd())
+    const key = decodeURIComponent(storeMatch[2])
+    const slug = String(app.spec.slug || app.slug || '')
+    if (request.method === 'GET') {
+      const value = getDocument(db, { appId: app.id, workspaceCwd: cwd, key })
+      sendJson(response, 200, { ok: true, data: value, correlationId })
+      return true
+    }
+    if (request.method === 'PUT' || request.method === 'POST') {
+      const body = await readJson(request)
+      try {
+        const saved = putDocument(db, {
+          appId: app.id,
+          slug,
+          workspaceCwd: cwd,
+          key,
+          value: body && Object.prototype.hasOwnProperty.call(body, 'value') ? body.value : body,
+        })
+        sendJson(response, 200, { ok: true, data: saved, correlationId })
+      } catch (error) {
+        sendError(response, 400, error?.code || 'validation_error', error instanceof Error ? error.message : '写入失败', correlationId)
+      }
+      return true
+    }
   }
 
   const appIdMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)$/)
@@ -322,6 +428,40 @@ export async function handleAppsRoutes(request, response, url, deps) {
     }
     sendJson(response, 200, { ok: true, data: result.data, correlationId })
     return true
+  }
+
+  const shareMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/share$/)
+  if (shareMatch) {
+    const appId = decodeURIComponent(shareMatch[1])
+    const app = getAppById(db, appId)
+    if (!app) {
+      sendError(response, 404, 'not_found', '应用不存在', correlationId)
+      return true
+    }
+    if (request.method === 'GET') {
+      sendJson(response, 200, { ok: true, data: sharePayload(request, liveShareForApp(db, appId)), correlationId })
+      return true
+    }
+    if (request.method === 'POST') {
+      if (app.status !== 'active' || appIsTrashed(app)) {
+        sendError(response, 409, 'not_active', '只有运行中的应用可以分享', correlationId)
+        return true
+      }
+      const slug = String(app.spec?.slug || app.slug || '')
+      const workspaceCwd = resolveWorkspaceCwd(app.spec?._workspaceCwd, app.spec)
+      if (!slug || !workspaceCwd.startsWith('/')) {
+        sendError(response, 422, 'validation_error', '应用没有可分享的工作区', correlationId)
+        return true
+      }
+      const share = mintShare(db, { appId, slug, workspaceCwd })
+      sendJson(response, 200, { ok: true, data: sharePayload(request, share), correlationId })
+      return true
+    }
+    if (request.method === 'DELETE') {
+      const result = revokeLiveSharesForApp(db, appId)
+      sendJson(response, 200, { ok: true, data: result, correlationId })
+      return true
+    }
   }
 
   const rollbackMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/rollback$/)
@@ -714,6 +854,16 @@ export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
       if (result.kind === 'breaking') {
         return { ok: false, errors: result.errors, error: 'breaking_change' }
       }
+      if (Array.isArray(body.files) && workspaceCwd) {
+        const app = getAppById(db, appId)
+        if (app && isWebAppSpec(app.spec)) {
+          try {
+            writeBundleFiles(workspaceCwd, app.spec, body.files)
+          } catch (error) {
+            return { ok: false, errors: [{ path: 'files', message: error instanceof Error ? error.message : '写包失败' }] }
+          }
+        }
+      }
       return { ok: true, appId, revision: result.data.revision }
     }
     const result = createAppDraft(db, {
@@ -722,6 +872,16 @@ export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
       spec,
     })
     if (!result.ok) return { ok: false, errors: result.errors }
+    if (Array.isArray(body.files) && workspaceCwd) {
+      const app = getAppById(db, result.data.appId)
+      if (app && isWebAppSpec(app.spec)) {
+        try {
+          writeBundleFiles(workspaceCwd, app.spec, body.files)
+        } catch (error) {
+          return { ok: false, errors: [{ path: 'files', message: error instanceof Error ? error.message : '写包失败' }] }
+        }
+      }
+    }
     return { ok: true, appId: result.data.appId, revision: result.data.revision }
   }
   if (sub === 'app-records-query') {

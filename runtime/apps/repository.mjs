@@ -2,8 +2,10 @@ import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { emit } from '../events.mjs'
 import { applyMaterialize } from './materialize.mjs'
 import { withProductLayout } from './layout.mjs'
-import { detectBreakingSpecChange, quoteTable, tableNameForEntity, validateAppSpec } from './spec.mjs'
+import { detectBreakingSpecChange, quoteTable, tableNameForEntity, isWebAppSpec, validateAppSpec } from './spec.mjs'
+import { bundleEntryExists } from './bundle.mjs'
 import { recordsViaMcp } from '../biz/source.mjs'
+import { revokeLiveSharesForApp } from './share.mjs'
 
 const APP_TABLE_RE = /^app_[a-z][a-z0-9-]{1,30}__[a-z][a-z0-9_]{0,30}$/
 const LIVE_APP = `(deleted_at IS NULL OR deleted_at = '')`
@@ -205,6 +207,12 @@ export function activateApp(db, appId, hooks = {}) {
     slugTaken: isSlugTaken(db, app.workspaceId, String(app.spec.slug), appId, { activeOnly: true }),
   })
   if (!validation.ok) return { kind: 'validation', errors: validation.errors }
+  if (isWebAppSpec(app.spec)) {
+    const cwd = String(app.spec._workspaceCwd || '')
+    if (!bundleEntryExists(cwd, app.spec)) {
+      return { kind: 'validation', errors: [{ path: 'entry', message: '包入口文件不存在' }] }
+    }
+  }
 
   const prevRev = db.prepare(`
     SELECT definition_json FROM business_app_revisions
@@ -302,6 +310,7 @@ export function trashApp(db, appId, hooks = {}) {
     db.exec('ROLLBACK;')
     throw error
   }
+  revokeLiveSharesForApp(db, appId)
   return { kind: 'ok', data: { deletedAt: now } }
 }
 

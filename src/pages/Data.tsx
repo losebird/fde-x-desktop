@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import {
   Activity, AppWindow, ArrowRight, Bot, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleAlert, Database, ExternalLink, FileClock, Loader2, Play, Plus,
-  RefreshCw, Search, ShieldCheck, Table2, Trash2, Workflow, X,
+  RefreshCw, Search, Share2, ShieldCheck, Table2, Trash2, Workflow, X,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useApp } from '@/store/app'
@@ -23,7 +23,7 @@ import type { JsonValue, RiskLevel } from '@/lib/contracts'
 import { countHomeOperationExceptions } from '@/lib/home-operation-exception'
 import { AppCreateWizard } from '@/components/apps/AppCreateWizard'
 import { AppRuntime } from '@/components/apps/AppRuntime'
-import { appIsTrashed, isFdeAppSpec, specHasUse, type FdeAppDetail } from '@/lib/app-spec'
+import { appIsTrashed, isHostedAppSpec, specHasUse, type FdeAppDetail } from '@/lib/app-spec'
 import { runDeclaredPlatformUse } from '@/lib/app-platform'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { RecordsPanel } from '@/components/biz/RecordsPanel'
@@ -430,7 +430,7 @@ function AppCatalogRow({
   const running = app.status === 'active' && !trashed
   const kindLabel = trashed
     ? '已删除'
-    : isFdeAppSpec(app.definition) ? app.status : app.appKind === 'generated' ? '草稿' : '系统应用'
+    : isHostedAppSpec(app.definition) ? app.status : app.appKind === 'generated' ? '草稿' : '系统应用'
   const body = (
     <>
       <div className="w-9 h-9 border border-line bg-surface-2 flex items-center justify-center text-brand shrink-0">
@@ -443,12 +443,14 @@ function AppCatalogRow({
       <Tag kind={trashed ? 'amber' : running ? 'green' : 'amber'}>
         {trashed ? '已删除' : running ? '运行中' : '草稿'}
       </Tag>
+      {app.shareId ? <Tag kind="teal">分享中</Tag> : null}
       {onOpen ? <ChevronRight size={14} className="text-ink-subtle" /> : null}
     </>
   )
   return (
     <div
       data-app-row={app.id}
+      data-app-sharing={app.shareId ? 'true' : 'false'}
       className={clsx(
         'px-4 py-3 flex items-center gap-3 transition-colors',
         trashed ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-surface-2',
@@ -492,6 +494,7 @@ function Overview({
   const [purgeTarget, setPurgeTarget] = useState<BusinessAppRecord | null>(null)
   const [trashedOpen, setTrashedOpen] = useState(false)
   const [binNote, setBinNote] = useState('')
+  const [shareNote, setShareNote] = useState('')
   const [declarativeApp, setDeclarativeApp] = useState<FdeAppDetail | null>(() => {
     if (!workspaceAppId) return null
     return peekDataSurface(useApp.getState().activeWorkspaceId)?.details[workspaceAppId] ?? null
@@ -534,18 +537,18 @@ function Overview({
       return
     }
     if (!apps.length) return
-    const hit = liveApps.find((app) => isFdeAppSpec(app.definition) && app.definition.slug === slug)
+    const hit = liveApps.find((app) => isHostedAppSpec(app.definition) && app.definition.slug === slug)
     if (hit && hit.id !== workspaceAppId) setWorkspaceAppId(hit.id)
     lastOverviewLand = dataLand
   }, [dataLand, landSlug, apps, liveApps, workspaceAppId])
 
   useEffect(() => {
-    const id = workspaceAppId || ((selected && isFdeAppSpec(selected.definition)) ? selected.id : '')
+    const id = workspaceAppId || ((selected && isHostedAppSpec(selected.definition)) ? selected.id : '')
     if (!id) {
       setDeclarativeApp(null)
       return
     }
-    if (selected && selected.id === id && !isFdeAppSpec(selected.definition)) {
+    if (selected && selected.id === id && !isHostedAppSpec(selected.definition)) {
       setDeclarativeApp(null)
       return
     }
@@ -566,13 +569,45 @@ function Overview({
 
   const openApp = (app: BusinessAppRecord) => {
     if (appIsTrashed(app)) return
-    if (app.status === 'active' && isFdeAppSpec(app.definition)) {
+    if (app.status === 'active' && isHostedAppSpec(app.definition)) {
       setDialogAppId('')
       setWorkspaceAppId(app.id)
       return
     }
     setWorkspaceAppId('')
     setDialogAppId(app.id)
+  }
+
+  const copyShareUrl = async (app: BusinessAppRecord) => {
+    setShareNote('')
+    try {
+      const share = await runtimeApi.mintAppShare(app.id)
+      const url = String(share?.url || '')
+      if (!url) {
+        setShareNote('没有可复制的链接')
+        return
+      }
+      try {
+        await navigator.clipboard.writeText(url)
+        setShareNote(`已复制 ${url}`)
+      } catch {
+        setShareNote(url)
+      }
+      await onCreated()
+    } catch (cause) {
+      setShareNote(formatError(cause))
+    }
+  }
+
+  const stopShare = async (app: BusinessAppRecord) => {
+    setShareNote('')
+    try {
+      await runtimeApi.revokeAppShare(app.id)
+      setShareNote('已停止分享')
+      await onCreated()
+    } catch (cause) {
+      setShareNote(formatError(cause))
+    }
   }
 
   const restoreOne = async (app: BusinessAppRecord) => {
@@ -701,6 +736,9 @@ function Overview({
               onClose={() => setShowCreate(false)}
             />
           )}
+          {shareNote && (
+            <div className="px-4 py-2 text-xs text-ink-muted" data-app-share-note="true">{shareNote}</div>
+          )}
           {liveApps.length === 0 && trashedApps.length === 0 ? (
             <div className="px-4 py-10 text-center text-sm text-ink-muted">这里没有官方台账。描述你的需求，生成你自己的应用。</div>
           ) : (
@@ -715,9 +753,23 @@ function Overview({
                         app={app}
                         onOpen={() => openApp(app)}
                         actions={(
-                          <button type="button" className="btn h-7 shrink-0" onClick={() => setDeleteTarget(app)}>
-                            <Trash2 size={12} /> 删除
-                          </button>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {isHostedAppSpec(app.definition) && (
+                              <>
+                                <button type="button" className="btn h-7" data-app-share="true" onClick={() => void copyShareUrl(app)}>
+                                  <Share2 size={12} /> {app.shareId ? '复制链接' : '分享'}
+                                </button>
+                                {app.shareId ? (
+                                  <button type="button" className="btn h-7" data-app-share-stop="true" onClick={() => void stopShare(app)}>
+                                    停止分享
+                                  </button>
+                                ) : null}
+                              </>
+                            )}
+                            <button type="button" className="btn h-7" onClick={() => setDeleteTarget(app)}>
+                              <Trash2 size={12} /> 删除
+                            </button>
+                          </div>
                         )}
                       />
                     ))}
@@ -835,7 +887,7 @@ function Overview({
               <button type="button" className="btn-ghost p-1.5" onClick={() => setDialogAppId('')} aria-label="关闭预览"><X size={15} /></button>
             </div>
             <div className="overflow-y-auto">
-              {declarativeApp && workspaceCwd && isFdeAppSpec(selected.definition) && (
+              {declarativeApp && workspaceCwd && isHostedAppSpec(selected.definition) && (
                 <AppRuntime
                   key={`${declarativeApp.id}-${declarativeApp.currentRevision}-${declarativeApp.spec.surface?.density || ''}-${declarativeApp.spec.surface?.cards?.hero || ''}-${declarativeApp.spec.surface?.cards?.columns || ''}`}
                   app={declarativeApp}
@@ -846,7 +898,7 @@ function Overview({
                   onRequestDelete={() => setDeleteTarget(selected)}
                 />
               )}
-              {!isFdeAppSpec(selected.definition) && (
+              {!isHostedAppSpec(selected.definition) && (
                 <AppDraftEditor
                   app={selected}
                   connections={connections}

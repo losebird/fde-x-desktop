@@ -83,6 +83,9 @@ import { startSemanticReadyWatch } from './semantic-ready-watch.mjs'
 import { refreshLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
 import { handleAppsRoutes } from './routes/apps.mjs'
+import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.mjs'
+import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp } from './apps/share.mjs'
+import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
@@ -133,10 +136,11 @@ import {
   FDE_ALLOWED_ORIGINS,
   FDE_DATABASE_PATH,
   FDE_DSH_HOME,
+  FDE_LISTEN_HOST,
   FDE_OFFICIAL_DSH_HOME,
   FDE_RUNTIME_DIR,
-  FDE_RUNTIME_HOST,
   FDE_RUNTIME_PORT,
+  advertisedRuntimeOrigin,
   FDE_STATIC_DIR,
   FDE_WEB_PORT,
 } from './config.mjs'
@@ -145,7 +149,7 @@ const runtimeDirectory = FDE_RUNTIME_DIR
 const databasePath = FDE_DATABASE_PATH
 const migrationsDirectory = resolve(runtimeDirectory, 'migrations')
 const port = FDE_RUNTIME_PORT
-const host = FDE_RUNTIME_HOST
+const host = FDE_LISTEN_HOST
 const db = openDatabase(databasePath, migrationsDirectory)
 configureEventBus(db)
 const aiRuntime = createCoreConnector({
@@ -992,7 +996,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === 'OPTIONS') {
     const origin = request.headers.origin
-    if (typeof origin === 'string' && !allowedOrigins.has(origin)) {
+    const publicFace = isPublicAppFace(url.pathname)
+    if (!publicFace && typeof origin === 'string' && !allowedOrigins.has(origin)) {
       response.writeHead(403, { 'Cache-Control': 'no-store' })
       response.end()
       return
@@ -1003,6 +1008,11 @@ const server = createServer(async (request, response) => {
       ...(typeof origin === 'string' ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
     })
     response.end()
+    return
+  }
+
+  if (lanFaceForbidden(request, url.pathname, { staticDir: FDE_STATIC_DIR })) {
+    sendError(response, 403, 'lan_face_refused', '局域网只开放已分享的应用页', currentCorrelationId)
     return
   }
 
@@ -1030,6 +1040,14 @@ const server = createServer(async (request, response) => {
     correlationId: currentCorrelationId,
     readJson,
     aiRuntime,
+  })) return
+
+  if (await handleAppShareRoutes(request, response, url, {
+    db,
+    correlationId: currentCorrelationId,
+    sendError,
+    sendJson,
+    readJson,
   })) return
 
   const writeMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method ?? '')
@@ -1242,7 +1260,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/v1/ai/status') {
       sendJson(response, 200, {
-        data: { ...aiRuntime.status(), bffOrigin: `http://${host}:${port}` },
+        data: { ...aiRuntime.status(), bffOrigin: advertisedRuntimeOrigin(port) },
         correlationId: currentCorrelationId,
       })
       return
@@ -1251,7 +1269,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/api/v1/ai/connect') {
       let status
       try {
-        status = { ...await aiRuntime.start(), bffOrigin: `http://${host}:${port}` }
+        status = { ...await aiRuntime.start(), bffOrigin: advertisedRuntimeOrigin(port) }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         sendError(response, 502, 'ai/boot-failed', message || '核心启动失败', currentCorrelationId)
@@ -1293,7 +1311,7 @@ const server = createServer(async (request, response) => {
       const status = {
         ...aiRuntime.status(),
         restarting: true,
-        bffOrigin: `http://${host}:${port}`,
+        bffOrigin: advertisedRuntimeOrigin(port),
       }
       try {
         appendAudit(db, {
@@ -2977,7 +2995,12 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && url.pathname === '/api/v1/business/apps') {
       const workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
       const workspaceCwd = url.searchParams.get('workspaceCwd') ?? ''
-      sendJson(response, 200, { items: listBusinessApps(db, { workspaceId, workspaceCwd }), correlationId: currentCorrelationId })
+      const shares = liveShareIdsByApp(db)
+      const items = listBusinessApps(db, { workspaceId, workspaceCwd }).map((row) => ({
+        ...row,
+        shareId: shares.get(row.id) || '',
+      }))
+      sendJson(response, 200, { items, correlationId: currentCorrelationId })
       return
     }
 
@@ -3258,7 +3281,18 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (handlePublicWebBundle(request, response, url, { db })) {
+      return
+    }
+
     if (FDE_STATIC_DIR && tryServeStatic(FDE_STATIC_DIR, request, response)) {
+      return
+    }
+
+    if (handlePublicAppDocument(request, response, url, {
+      staticDir: FDE_STATIC_DIR,
+      webPort: FDE_WEB_PORT,
+    })) {
       return
     }
 

@@ -8,6 +8,7 @@ import {
 } from '@/lib/app-platform'
 import type { MemoryDraftCard } from '@/lib/runtime-api'
 import { runtimeApi } from '@/lib/runtime-api'
+import { useAppPublicSurface } from '@/lib/app-public-surface'
 
 /** Same chip as card 「打开」— record actions, not a platform toolbar. */
 export const recordActionChipClass =
@@ -29,7 +30,10 @@ type Props = {
 }
 
 export function AppCapabilityBar({ spec, appId, uses: usesProp, primary, title, rowId, entity, blurb }: Props) {
-  const uses = (usesProp ?? recordActionUses(spec)).filter((use) => use !== 'float')
+  const publicSurface = useAppPublicSurface()
+  const uses = publicSurface
+    ? []
+    : (usesProp ?? recordActionUses(spec)).filter((use) => use !== 'float')
   const [note, setNote] = useState('')
   const [draftCard, setDraftCard] = useState<MemoryDraftCard | null>(null)
   const [nodding, setNodding] = useState(false)

@@ -143,11 +143,12 @@ function registerTools(ctx, { defineTool }) {
   // Spec 04 owns full behavior; BFF stub keeps handshake real.
   ctx.tools.register(defineTool({
     name: 'fde_app_spec_submit',
-    description: 'Submit or revise declarative app spec. Pass appId to save a new revision of an existing app; omit to create a draft.',
+    description: 'Submit or revise an app. spec is fde-app/v1 (ledger) or fde-web/v1 (hosted HTML/JS bundle). For fde-web/v1 pass files[{path,content}] as the runnable package. Pass appId to save a new revision; omit to create a draft.',
     parameters: {
       requestId: { type: 'string', required: true },
       spec: { type: 'object', required: true, additionalProperties: true },
       appId: { type: 'string' },
+      files: { type: 'array', items: { type: 'object', additionalProperties: true } },
     },
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
     async execute(args, exec) {

@@ -5,6 +5,7 @@ import { type FdeAppAction, type FdeAppSpec } from '@/lib/app-spec'
 import { type AgentWriteBackPrompt, isAgentActionStep, runAppAgentJobs } from '@/lib/app-agent-action'
 import { isBizPreviewStep, startBizPreviews } from '@/lib/app-platform'
 import { runtimeApi } from '@/lib/runtime-api'
+import { useAppPublicSurface } from '@/lib/app-public-surface'
 
 type Props = {
   app: { id: string; spec: FdeAppSpec; status: string }
@@ -22,20 +23,20 @@ export function SpecDetail({ app, entity, rid, workspaceCwd, onEdit }: Props) {
   const [actionBusy, setActionBusy] = useState(false)
   const [writeBackPrompt, setWriteBackPrompt] = useState<AgentWriteBackPrompt | null>(null)
   const writeBackResolveRef = useRef<((accepted: boolean) => void) | null>(null)
+  const publicSurface = useAppPublicSurface()
   const entityActions = (app.spec.actions ?? []).filter((a) => a.entity === entity)
+    .filter((a) => !publicSurface || a.kind === 'set')
 
   const reloadRow = () => {
-    void fetch(
-      `${runtimeApi.baseUrl}/api/v1/apps/${encodeURIComponent(app.spec.slug)}/${encodeURIComponent(entity)}/${encodeURIComponent(rid)}?workspace=${encodeURIComponent(workspaceCwd)}`,
-    ).then((r) => r.json()).then((j) => setRow(j.data ?? null)).catch(() => setRow(null))
+    void runtimeApi.getAppRecord(app.spec.slug, entity, rid, workspaceCwd)
+      .then((data) => setRow(data ?? null))
+      .catch(() => setRow(null))
   }
 
   useEffect(() => {
     if (app.status !== 'active') return
     void runtimeApi.listAppRecords(app.spec.slug, entity, workspaceCwd, { size: 1 }).catch(() => null)
-    void fetch(
-      `${runtimeApi.baseUrl}/api/v1/apps/${encodeURIComponent(app.spec.slug)}/${encodeURIComponent(entity)}/${encodeURIComponent(rid)}?workspace=${encodeURIComponent(workspaceCwd)}`,
-    ).then((r) => r.json()).then((j) => setRow(j.data ?? null)).catch(() => setRow(null))
+    reloadRow()
   }, [app.spec.slug, app.status, entity, rid, workspaceCwd])
 
   const promptWriteBack = (next: AgentWriteBackPrompt) => new Promise<boolean>((resolve) => {

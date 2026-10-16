@@ -2,12 +2,13 @@
 
 ## 流程
 
-1. AI（`fde-app-builder`）生成 spec → `fde_app_spec_submit` / `POST /api/v1/apps`（带 `appId` 时为 builder 修订；`surface` 为工作面 layout 契约）
+1. AI（`fde-app-builder`）生成 **台账 `fde-app/v1` 或托管 Web `fde-web/v1`** → `fde_app_spec_submit`（Web 包用 `files[{path,content}]`）/ `POST /api/v1/apps`
 2. 校验失败 → 422 + `errors[{path,message}]`
-3. `POST /api/v1/apps/:id/activate` 物化 SQLite 表（`app_<slug>__<entity>`）
-4. 前端 `AppRuntime`：有 `pages` 时按栏目铺产品页（概览/记一笔/图/流水或卡片）；没有 `pages` 的旧应用仍是 table/form/kanban/stat 切换
-5. 新草稿在 `createAppDraft` 里用 `withProductLayout` 补 `pages` + `uses`（不覆盖已声明的）
-6. CRUD：`GET|POST /api/v1/apps/:slug/:entity`，`PATCH|DELETE …/:rid`
+3. `POST /api/v1/apps/:id/activate`：台账物化 SQLite 表；Web 应用检查包入口存在
+4. 前端 `AppRuntime`：台账铺产品页；`fde-web/v1` 用 iframe 跑包（`/api/v1/apps/:id/live/`）
+5. Web 包在工作区 `apps/<slug>/`。`localStorage` 与 `window.fdeApp` 写入 `app_documents`
+6. CRUD：`GET|POST /api/v1/apps/:slug/:entity`；Web 文档 `GET|PUT /api/v1/apps/:id/store/:key`
+7. 分享同一份实例。台账公开页仍是 FDE `PublicApp`；Web 应用的 `/a/:shareId` **就是这个网站**（包的 index.html），不再套工作台 SPA
 
 ## 关键路径
 
@@ -16,6 +17,8 @@
 | 校验 | `runtime/apps/spec.mjs` |
 | DDL | `runtime/apps/materialize.mjs` + `db.execControlledDdl` |
 | API | `runtime/routes/apps.mjs` |
+| 公开分享 | `runtime/apps/share.mjs` + `runtime/routes/app-share.mjs`；台账页 `src/pages/PublicApp.tsx`；Web 包 `handlePublicWebBundle` |
+| Web 宿主 | `runtime/apps/bundle.mjs` + `web-host.mjs` + `documents.mjs`；UI `AppWebRuntime.tsx` |
 | 桥接 | `handleAppsBridge` ← DSH `fde_app_*` 工具 |
 | UI | `src/components/apps/*` |
 
