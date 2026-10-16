@@ -99,10 +99,11 @@ export function SkillDetail({
         />
       ) : null}
       <div className="mt-3 flex gap-2 border-t border-kit-line pt-3">
-        {manageable ? (
-          <SurfaceButton size="sm" disabled={busy} onClick={() => onToggle(row, row.modelInvocable === false)}>
-            {row.modelInvocable === false ? '启用' : '停用'}
-          </SurfaceButton>
+        {manageable && row.modelInvocable === false ? (
+          <SurfaceButton size="sm" onClick={() => onToggle(row, true)}>启用</SurfaceButton>
+        ) : null}
+        {manageable && row.modelInvocable !== false ? (
+          <SurfaceButton size="sm" onClick={() => onToggle(row, false)}>停用</SurfaceButton>
         ) : null}
         {manageable ? (
           <SurfaceButton size="sm" variant="danger" disabled={busy} onClick={() => onUninstall(row)}>卸载</SurfaceButton>
