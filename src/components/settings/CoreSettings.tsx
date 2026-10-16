@@ -6,10 +6,10 @@ import { PresetImportDrawer, sourceLabel } from '@/components/settings/PresetImp
 import { ModelsProvidersSection } from '@/components/settings/ModelsProvidersSection'
 import { HostNsPanel } from '@/components/settings/HostNsPanel'
 import { hostText } from '@/lib/host-text'
+import { surfaceNote } from '@/components/settings/surface-note'
 
 export function CoreSettings() {
   const [connected, setConnected] = useState(false)
-  const [bffOrigin, setBffOrigin] = useState('')
   const [note, setNote] = useState('')
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
   const [presets, setPresets] = useState<AiPresetRecord[]>([])
@@ -34,7 +34,6 @@ export function CoreSettings() {
   const load = () => {
     void runtimeApi.aiStatus().then((status) => {
       setConnected(Boolean(status.connected))
-      if (status.bffOrigin) setBffOrigin(String(status.bffOrigin))
     }).catch(() => setConnected(false))
     refreshModels()
     void runtimeApi.listAiPresets().then((data) => {
@@ -53,7 +52,7 @@ export function CoreSettings() {
     }).catch((cause) => {
       setPlugins([])
       setPluginActions([])
-      setNote(cause instanceof Error ? cause.message : '插件目录读失败')
+      setNote(surfaceNote(cause, '插件目录读失败'))
     })
   }
 
@@ -66,7 +65,7 @@ export function CoreSettings() {
           <div className="w-9 h-9 rounded-lg bg-brand-soft text-brand flex items-center justify-center shrink-0"><Bot size={16} /></div>
           <div>
             <div className="text-base font-medium">模型与提供方</div>
-            <div className="text-xs text-ink-muted mt-0.5">与 DSH Models 页同一账本：展开一行编辑卡，改密钥、网关与模型目录。不要嵌 DSH 整页。</div>
+            <div className="text-xs text-ink-muted mt-0.5">和核心的模型页是同一本账。展开一行就能改密钥、网关和模型目录。</div>
           </div>
         </div>
         <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -79,19 +78,17 @@ export function CoreSettings() {
               setNote('正在重载核心…')
               void runtimeApi.reloadAi().then((status) => {
                 setConnected(Boolean(status.connected))
-                if (status.bffOrigin) setBffOrigin(String(status.bffOrigin))
-                const label = status.bffOrigin || bffOrigin || '本地 BFF'
-                setNote(status.connected ? `${label} 与 DSH 已重载` : '核心已停下')
+                setNote(status.connected ? '核心已重新接上。' : '核心已停下。')
                 load()
               }).catch((cause) => {
-                setNote(cause instanceof Error ? cause.message : '重载失败')
+                setNote(surfaceNote(cause, '重载失败'))
               }).finally(() => setBusy(false))
             }}
           >
             重载核心
           </button>
           <span className="text-[11px] text-ink-subtle">
-            停掉再拉起{bffOrigin ? ` ${bffOrigin} ` : ' '}本地 BFF 和 DSH。界面不用关，对话会短暂断开。
+            停掉再拉起本机核心。界面不用关，对话会短暂断开。
           </span>
         </div>
 

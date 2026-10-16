@@ -27,7 +27,7 @@ const FALLBACK_RULES: Array<{ test: RegExp; say: string }> = [
   { test: /host yaml library is missing/i, say: '本机核心缺配置库，暂时读不到这项。' },
 ]
 
-const TECHNICAL = /failed to fetch|list_mcp_|\/api\/|econn|typeerror|syntaxerror|\berror\b|yaml library|undefined is not|[a-z]+_[a-z]+/i
+const TECHNICAL = /failed to fetch|list_mcp_|\/api\/|econn|typeerror|syntaxerror|\berror\b|yaml library|undefined is not|[a-z]+_[a-z]+|\bHTTP\s*\d{3}\b/i
 
 type RuntimeShape = { status: number; code: string; message: string }
 
