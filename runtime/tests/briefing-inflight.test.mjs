@@ -33,12 +33,17 @@ test('a second full run joins the in-flight briefing and does not prompt again',
   let prompts = 0
   const aiRuntime = {
     status: () => ({ connected: true }),
-    call: async (endpoint) => {
+    call: async (endpoint, args) => {
       if (endpoint === 'session/list') {
         return { items: [{ sessionId: 'sess-a', cwd: wsCwd, origin: 'user', updatedAt: 2, running: false }] }
       }
+      if (endpoint === 'session/create') {
+        assert.equal(args.request.agentPreset, 'fde-briefing')
+        return { sessionId: 'sess-briefing' }
+      }
       if (endpoint === 'session/prompt') {
         prompts += 1
+        assert.equal(args.request.sessionId, 'sess-briefing')
         return {}
       }
       return {}
