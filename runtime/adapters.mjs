@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { imBusinessAdapterHealthFromState } from './biz/connection-lamp.mjs'
 import { withProbeTimeout } from './live-probe.mjs'
+import { describeIui } from './iui-status.mjs'
 
 const checkedAt = () => new Date().toISOString()
 
@@ -40,7 +41,8 @@ export async function inspectAdapters({ aiRuntime } = {}) {
     },
   ]
 
-  return Promise.all(definitions.map(async (definition) => {
+  const iuiPhrase = await describeIui(aiRuntime, dshHome, profileName)
+  const rows = await Promise.all(definitions.map(async (definition) => {
     const availability = await Promise.all(definition.paths.map(pathExists))
     const available = definition.paths.length > 0 && availability.every(Boolean)
     if (definition.capability === 'ai-runtime' && aiRuntime) {
@@ -135,4 +137,9 @@ export async function inspectAdapters({ aiRuntime } = {}) {
       checkedAt: checkedAt(),
     }
   }))
+  return rows.map((row) => (
+    row.capability === 'ai-runtime'
+      ? { ...row, detail: `${row.detail}；${iuiPhrase}` }
+      : row
+  ))
 }
