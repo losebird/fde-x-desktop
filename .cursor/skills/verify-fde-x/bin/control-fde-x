@@ -1,0 +1,713 @@
+#!/usr/bin/env node
+import { execFileSync, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { createConnection } from 'node:net'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { setTimeout as delay } from 'node:timers/promises'
+import { createRequire } from 'node:module'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const skillRoot = resolve(here, '..')
+const repoRoot = findRepoRoot(skillRoot)
+const pointerPath = join(skillRoot, '.run', 'current.json')
+const require = createRequire(import.meta.url)
+
+const FORBIDDEN_PORTS = new Set([4318, 4319, 5174, 5175])
+const WORKSPACE_ID = 'ws_verify'
+const APP_SLUG = 'verify-floor'
+const APP_NAME = '验证户型'
+const APP_MARK = 'FDE-X-VERIFY-FLOOR'
+const STORE_KEY = 'scene-39-workstation'
+
+function findRepoRoot(start) {
+  let dir = start
+  for (let i = 0; i < 8; i += 1) {
+    const pkg = join(dir, 'package.json')
+    if (existsSync(pkg)) {
+      try {
+        const json = JSON.parse(readFileSync(pkg, 'utf8'))
+        if (json.name === 'scene-39-personal-workstation') return dir
+      } catch {
+        // keep walking
+      }
+    }
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return resolve(skillRoot, '../../..')
+}
+
+function die(message, code = 1) {
+  console.error(message)
+  process.exit(code)
+}
+
+function parseArgs(argv) {
+  const args = []
+  const flags = {}
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i]
+    if (token.startsWith('--')) {
+      const key = token.slice(2)
+      const next = argv[i + 1]
+      if (!next || next.startsWith('--')) flags[key] = true
+      else {
+        flags[key] = next
+        i += 1
+      }
+    } else args.push(token)
+  }
+  return { args, flags }
+}
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, 'utf8'))
+}
+
+function writeJson(path, value) {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
+}
+
+function statePathFromEnv() {
+  if (process.env.FDE_VERIFY_STATE) return resolve(process.env.FDE_VERIFY_STATE)
+  if (existsSync(pointerPath)) {
+    try {
+      const pointer = readJson(pointerPath)
+      if (pointer.statePath && existsSync(pointer.statePath)) return pointer.statePath
+    } catch {
+      // fall through
+    }
+  }
+  return ''
+}
+
+function loadState() {
+  const path = statePathFromEnv()
+  if (!path || !existsSync(path)) {
+    die('没有验证实例状态。先跑：.cursor/skills/verify-fde-x/bin/control-fde-x launch')
+  }
+  return { path, state: readJson(path) }
+}
+
+function saveState(state) {
+  writeJson(state.statePath, state)
+  writeJson(pointerPath, { runId: state.runId, statePath: state.statePath })
+}
+
+function isPidAlive(pid) {
+  if (!pid) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function childPids(pid) {
+  try {
+    const text = readFileSync(`/proc/${pid}/task/${pid}/children`, 'utf8').trim()
+    return text ? text.split(/\s+/).map(Number).filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+function collectTree(pid, into = new Set()) {
+  if (!pid || into.has(pid)) return into
+  into.add(pid)
+  for (const child of childPids(pid)) collectTree(child, into)
+  return into
+}
+
+async function killTree(pid, signal = 'SIGTERM') {
+  const tree = [...collectTree(pid)]
+  for (const item of tree) {
+    try { process.kill(item, signal) } catch { /* already gone */ }
+  }
+}
+
+function portOpen(port, host = '127.0.0.1', timeoutMs = 250) {
+  return new Promise((resolveOpen) => {
+    const socket = createConnection({ port, host })
+    const timer = setTimeout(() => {
+      socket.destroy()
+      resolveOpen(false)
+    }, timeoutMs)
+    socket.once('connect', () => {
+      clearTimeout(timer)
+      socket.end()
+      resolveOpen(true)
+    })
+    socket.once('error', () => {
+      clearTimeout(timer)
+      socket.destroy()
+      resolveOpen(false)
+    })
+  })
+}
+
+async function pickPort(start) {
+  for (let port = start; port < start + 80; port += 1) {
+    if (FORBIDDEN_PORTS.has(port)) continue
+    if (!(await portOpen(port))) return port
+  }
+  throw new Error(`找不到空闲端口（从 ${start} 起）`)
+}
+
+function fingerprint(databasePath) {
+  return createHash('sha256').update(databasePath).digest('hex').slice(0, 12)
+}
+
+function nodeHasZstd(bin) {
+  try {
+    execFileSync(bin, ['-e', 'import("node:zlib").then((z) => process.exit(z.zstdDecompress ? 0 : 1))'], {
+      stdio: 'ignore',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function ensureHostYaml() {
+  const dest = join(repoRoot, 'runtime/.host-generation/node_modules/yaml/package.json')
+  if (existsSync(dest)) return
+  mkdirSync(join(repoRoot, 'runtime/.host-generation'), { recursive: true })
+  execFileSync('npm', ['install', 'yaml', '--omit=dev', '--prefix', join(repoRoot, 'runtime/.host-generation')], {
+    stdio: 'inherit',
+  })
+  if (!existsSync(dest)) die('验证脚手架未能装上 runtime/.host-generation/node_modules/yaml（BFF 启动需要 Host yaml）')
+}
+
+function resolveNodeBin() {
+  const candidates = [process.env.FDE_VERIFY_NODE, process.execPath].filter(Boolean)
+  const nvmDir = join(homedir(), '.nvm/versions/node')
+  if (existsSync(nvmDir)) {
+    for (const name of readdirSync(nvmDir)) {
+      candidates.push(join(nvmDir, name, 'bin/node'))
+    }
+  }
+  for (const bin of candidates) {
+    if (existsSync(bin) && nodeHasZstd(bin)) return bin
+  }
+  die('需要 Node ≥ 22.15（node:zlib.zstdDecompress）。当前 process.execPath 太旧。设置 FDE_VERIFY_NODE 指向可用的 node。')
+}
+
+function originOf(state) {
+  return `http://127.0.0.1:${state.webPort}`
+}
+
+function runtimeOrigin(state) {
+  return `http://127.0.0.1:${state.runtimePort}`
+}
+
+async function httpJson(state, method, path, body) {
+  const url = path.startsWith('http') ? path : `${runtimeOrigin(state)}${path}`
+  const headers = { Origin: originOf(state) }
+  let payload
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json'
+    payload = typeof body === 'string' ? body : JSON.stringify(body)
+  }
+  const response = await fetch(url, { method, headers, body: payload })
+  const text = await response.text()
+  let json = null
+  try { json = text ? JSON.parse(text) : null } catch { json = null }
+  return { status: response.status, text, json, headers: Object.fromEntries(response.headers.entries()) }
+}
+
+function storageSeed(state) {
+  return JSON.stringify({
+    state: {
+      panels: [
+        { id: 'im', label: 'IM', icon: 'MessageCircleMore', emoji: '💬', accent: 'bg-slate-700', state: 'closed', width: 560, badge: 0, view: 'im' },
+        { id: 'briefing', label: '早报', icon: 'Newspaper', emoji: '🌅', accent: 'bg-amber-500', state: 'tab', width: 560, pinned: true, view: 'briefing' },
+        { id: 'plan', label: '计划', icon: 'ClipboardList', emoji: '📋', accent: 'bg-blue-500', state: 'closed', width: 600, view: 'plan' },
+        { id: 'files', label: '文件', icon: 'Folder', emoji: '📁', accent: 'bg-emerald-500', state: 'closed', width: 580, view: 'files' },
+        { id: 'data', label: '业务应用', icon: 'Database', emoji: '🗃️', accent: 'bg-cyan-500', state: 'closed', width: 760, view: 'data' },
+        { id: 'mcp', label: '连接器', icon: 'Plug', emoji: '🔌', accent: 'bg-rose-500', state: 'closed', width: 520, view: 'mcp' },
+        { id: 'skills', label: '技能', icon: 'Wand2', emoji: '🪄', accent: 'bg-indigo-500', state: 'closed', width: 520, view: 'skills' },
+        { id: 'memory', label: '记忆', icon: 'Brain', emoji: '🧠', accent: 'bg-fuchsia-500', state: 'closed', width: 800, view: 'memory' },
+        { id: 'settings', label: '设置', icon: 'Settings', emoji: '⚙️', accent: 'bg-slate-500', state: 'closed', width: 520, view: 'settings' },
+      ],
+      drawers: {
+        ai: { visible: false, width: 420 },
+        file: { visible: false, width: 520 },
+        data: { visible: false, width: 520 },
+        search: { visible: false, width: 520 },
+      },
+      floating: {},
+      floatingZTop: 60,
+      workspaces: [{
+        id: WORKSPACE_ID,
+        name: '验证工作区',
+        emoji: '🧪',
+        desc: state.workspaceCwd,
+        color: 'teal',
+        cwd: state.workspaceCwd,
+        createdAt: new Date().toISOString(),
+      }],
+      activeWorkspaceId: WORKSPACE_ID,
+      imMuted: false,
+      imComposerDrafts: {},
+      aiComposerDrafts: {},
+      activeAiSessionId: null,
+    },
+    version: 18,
+  })
+}
+
+function spawnLogged(command, args, { cwd, env, logPath }) {
+  const child = spawn(command, args, {
+    cwd,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const stream = (chunk) => {
+    try { writeFileSync(logPath, chunk, { flag: 'a' }) } catch { /* ignore */ }
+  }
+  child.stdout.on('data', stream)
+  child.stderr.on('data', stream)
+  return child
+}
+
+async function waitFor(predicate, timeoutMs, label) {
+  const deadline = Date.now() + timeoutMs
+  let last = ''
+  while (Date.now() < deadline) {
+    try {
+      const value = await predicate()
+      if (value) return value
+      last = ''
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error)
+    }
+    await delay(250)
+  }
+  throw new Error(`${label} 在 ${timeoutMs}ms 内未就绪${last ? `：${last}` : ''}`)
+}
+
+async function ensurePlaywright() {
+  const local = join(skillRoot, 'node_modules', 'playwright')
+  if (!existsSync(local)) {
+    await new Promise((resolveInstall, reject) => {
+      const child = spawn('npm', ['install', '--omit=dev'], {
+        cwd: skillRoot,
+        stdio: 'inherit',
+      })
+      child.on('exit', (code) => {
+        if (code === 0) resolveInstall()
+        else reject(new Error(`无法在 ${skillRoot} 安装 playwright（exit ${code}）`))
+      })
+    })
+  }
+  return require(local)
+}
+
+function resolveArtifactPath(state, path) {
+  if (!path || path === true) die('需要 --path')
+  if (isAbsolute(path)) return path
+  return resolve(state.evidenceDir, path)
+}
+
+async function withBrowser(state, fn) {
+  const { chromium } = await ensurePlaywright()
+  mkdirSync(state.chromeProfile, { recursive: true })
+  const context = await chromium.launchPersistentContext(state.chromeProfile, {
+    channel: 'chrome',
+    headless: true,
+    viewport: { width: 1440, height: 900 },
+    locale: 'zh-CN',
+    args: ['--disable-dev-shm-usage', '--no-sandbox'],
+  })
+  try {
+    await context.addInitScript(({ key, value }) => {
+      if (!localStorage.getItem(key)) localStorage.setItem(key, value)
+    }, { key: STORE_KEY, value: storageSeed(state) })
+    let page = context.pages()[0] || await context.newPage()
+    const origin = originOf(state)
+    if (!page.url().startsWith(origin)) {
+      await page.goto(`${origin}/ai`, { waitUntil: 'domcontentloaded' })
+    }
+    await page.waitForSelector('body', { timeout: 20_000 })
+    return await fn(page, context)
+  } finally {
+    await context.close()
+  }
+}
+
+const TOP_NAV = new Set(['IM', '早报', '计划', '文件', '业务应用', '连接器', '技能', '记忆', '设置'])
+
+function locator(page, flags) {
+  if (flags.selector) return page.locator(String(flags.selector))
+  const role = String(flags.role || 'button')
+  const name = String(flags.name || '')
+  if (!name) die('需要 --name 或 --selector')
+  if ((flags.nav || TOP_NAV.has(name)) && role === 'button') {
+    return page.locator(`button[title="${name}"], button[title^="${name} ·"]`)
+  }
+  return page.getByRole(role, { name, exact: Boolean(flags.exact) })
+}
+
+async function cmdLaunch(flags) {
+  const runId = String(flags['run-id'] || process.env.FDE_VERIFY_RUN_ID || `r${Date.now().toString(36)}`)
+  const runDir = resolve(process.env.FDE_VERIFY_ROOT || join(homedir(), '.cache', 'fde-x-verify', runId))
+  if (existsSync(join(runDir, 'state.json'))) {
+    die(`${runDir} 已有实例。先 cleanup，或换 --run-id`)
+  }
+  mkdirSync(runDir, { recursive: true })
+  const workspaceCwd = join(runDir, 'workspace')
+  const dshHome = join(runDir, 'dsh-home')
+  const databasePath = join(runDir, 'fde-workstation.sqlite')
+  const evidenceDir = resolve(skillRoot, 'artifacts', runId)
+  mkdirSync(workspaceCwd, { recursive: true })
+  mkdirSync(dshHome, { recursive: true })
+  mkdirSync(evidenceDir, { recursive: true })
+
+  if (!existsSync(join(repoRoot, 'node_modules', 'vite'))) {
+    die(`仓库还没 npm i：${repoRoot}`)
+  }
+  ensureHostYaml()
+
+  const runtimePort = Number(flags['runtime-port'] || await pickPort(18418))
+  const webPort = Number(flags['web-port'] || await pickPort(18174))
+  const lanPort = Number(flags['lan-port'] || await pickPort(19580))
+  if (FORBIDDEN_PORTS.has(runtimePort) || FORBIDDEN_PORTS.has(webPort)) {
+    die('验证实例禁止占用 4318/4319/5174/5175。那是用户本机工作台和对端联调口。')
+  }
+
+  const state = {
+    runId,
+    runDir,
+    statePath: join(runDir, 'state.json'),
+    repoRoot,
+    workspaceCwd,
+    dshHome,
+    databasePath,
+    evidenceDir,
+    chromeProfile: join(runDir, 'chrome-profile'),
+    runtimePort,
+    webPort,
+    lanPort,
+    workspaceId: WORKSPACE_ID,
+    appSlug: APP_SLUG,
+    appName: APP_NAME,
+    appMark: APP_MARK,
+    seededAppId: '',
+    pids: {},
+    startedAt: new Date().toISOString(),
+  }
+
+  const env = {
+    ...process.env,
+    FDE_APP_ROOT: repoRoot,
+    FDE_RUNTIME_PORT: String(runtimePort),
+    FDE_WEB_PORT: String(webPort),
+    FDE_RUNTIME_HOST: '127.0.0.1',
+    FDE_LISTEN_HOST: '127.0.0.1',
+    FDE_DATABASE_PATH: databasePath,
+    FDE_DSH_HOME: dshHome,
+    FDE_AI_WORKSPACE: workspaceCwd,
+    DSH_LAN_ASSIST_PORT: String(lanPort),
+    FDE_ALLOWED_ORIGINS: `${originOf(state)},http://localhost:${webPort}`,
+    FDE_SKIP_RUNTIME_SPAWN: '1',
+  }
+
+  writeFileSync(join(runDir, 'runtime.log'), '')
+  writeFileSync(join(runDir, 'vite.log'), '')
+
+  const nodeBin = resolveNodeBin()
+  state.nodeBin = nodeBin
+  const runtime = spawnLogged(nodeBin, ['runtime/server.mjs'], {
+    cwd: repoRoot,
+    env,
+    logPath: join(runDir, 'runtime.log'),
+  })
+  state.pids.runtime = runtime.pid
+  saveState(state)
+
+  await waitFor(async () => {
+    if (!isPidAlive(runtime.pid)) throw new Error(`runtime 退出，见 ${join(runDir, 'runtime.log')}`)
+    const health = await fetch(`${runtimeOrigin(state)}/health`).then((r) => r.json()).catch(() => null)
+    return health?.service === 'fde-x-runtime' && health?.state === 'healthy' ? health : null
+  }, 20_000, 'BFF /health')
+
+  const vite = spawnLogged(nodeBin, [
+    join(repoRoot, 'node_modules/vite/bin/vite.js'),
+    '--host', '127.0.0.1',
+    '--port', String(webPort),
+    '--strictPort',
+  ], {
+    cwd: repoRoot,
+    env,
+    logPath: join(runDir, 'vite.log'),
+  })
+  state.pids.vite = vite.pid
+  saveState(state)
+
+  await waitFor(async () => {
+    if (!isPidAlive(vite.pid)) throw new Error(`vite 退出，见 ${join(runDir, 'vite.log')}`)
+    const page = await fetch(`${originOf(state)}/ai`).then(async (r) => ({ ok: r.ok, text: await r.text() })).catch(() => null)
+    return page?.ok && page.text.includes('id="root"') ? true : null
+  }, 30_000, 'Vite /ai')
+
+  const workspace = await httpJson(state, 'POST', '/api/v1/workspaces', {
+    id: WORKSPACE_ID,
+    name: '验证工作区',
+    description: workspaceCwd,
+    metadata: { cwd: workspaceCwd },
+  })
+  if (workspace.status !== 201) {
+    die(`播种工作区失败：${workspace.status} ${workspace.text}`)
+  }
+
+  const created = await httpJson(state, 'POST', '/api/v1/apps', {
+    workspaceId: WORKSPACE_ID,
+    workspaceCwd,
+    spec: {
+      spec: 'fde-web/v1',
+      slug: APP_SLUG,
+      name: APP_NAME,
+      bundleRoot: `apps/${APP_SLUG}`,
+      entry: 'index.html',
+    },
+    files: [{
+      path: 'index.html',
+      content: `<!doctype html><html><head><title>${APP_NAME}</title></head><body><main id="verify-floor-root">${APP_MARK}</main></body></html>`,
+    }],
+  })
+  const appId = created.json?.data?.appId
+  if (created.status !== 201 || !appId) {
+    die(`播种托管 Web 应用失败：${created.status} ${created.text}`)
+  }
+  const activated = await httpJson(state, 'POST', `/api/v1/apps/${encodeURIComponent(appId)}/activate`)
+  if (activated.status !== 200) {
+    die(`激活播种应用失败：${activated.status} ${activated.text}`)
+  }
+  state.seededAppId = appId
+  saveState(state)
+
+  await withBrowser(state, async (page) => {
+    await page.goto(`${originOf(state)}/ai`, { waitUntil: 'domcontentloaded' })
+    await page.getByText('验证工作区').first().waitFor({ timeout: 20_000 })
+  })
+
+  const ready = {
+    runId,
+    web: `${originOf(state)}/ai`,
+    runtime: runtimeOrigin(state),
+    databasePath,
+    workspaceCwd,
+    evidenceDir,
+    seededApp: { id: appId, name: APP_NAME, slug: APP_SLUG },
+  }
+  console.log(JSON.stringify({ ok: true, ready }, null, 2))
+  process.exit(0)
+}
+
+async function cmdDoctor() {
+  const { state } = loadState()
+  const problems = []
+  if (!isPidAlive(state.pids.runtime)) problems.push(`runtime pid ${state.pids.runtime} 不在`)
+  if (!isPidAlive(state.pids.vite)) problems.push(`vite pid ${state.pids.vite} 不在`)
+  if (FORBIDDEN_PORTS.has(state.runtimePort) || FORBIDDEN_PORTS.has(state.webPort)) {
+    problems.push('端口落在用户本机口 4318/5174 或对端口 4319/5175 上，拒绝驾驶')
+  }
+  if (!(await portOpen(state.runtimePort))) problems.push(`runtime ${state.runtimePort} 没有在听`)
+  if (!(await portOpen(state.webPort))) problems.push(`web ${state.webPort} 没有在听`)
+
+  let health = null
+  try {
+    health = await fetch(`${runtimeOrigin(state)}/health`).then((r) => r.json())
+  } catch (error) {
+    problems.push(`读 /health 失败：${error instanceof Error ? error.message : error}`)
+  }
+  if (health) {
+    if (health.service !== 'fde-x-runtime') problems.push(`health.service=${health.service}`)
+    if (health.state !== 'healthy') problems.push(`health.state=${health.state}`)
+    const fp = health.persistence?.database?.fingerprint
+    const expect = fingerprint(state.databasePath)
+    if (fp !== expect) problems.push(`sqlite fingerprint ${fp} ≠ ${expect}（${state.databasePath}）`)
+  }
+
+  let html = ''
+  try {
+    const page = await fetch(`${originOf(state)}/ai`)
+    html = await page.text()
+    if (!page.ok || !html.includes('id="root"')) problems.push('Vite /ai 不是工作台 HTML')
+  } catch (error) {
+    problems.push(`读 Vite /ai 失败：${error instanceof Error ? error.message : error}`)
+  }
+
+  const report = {
+    ok: problems.length === 0,
+    runId: state.runId,
+    web: originOf(state),
+    runtime: runtimeOrigin(state),
+    databasePath: state.databasePath,
+    pids: state.pids,
+    health: health && {
+      service: health.service,
+      state: health.state,
+      fingerprint: health.persistence?.database?.fingerprint,
+    },
+    problems,
+  }
+  console.log(JSON.stringify(report, null, 2))
+  if (!report.ok) process.exit(2)
+}
+
+async function cmdHttp(args, flags) {
+  const { state } = loadState()
+  const method = String(args[0] || flags.method || 'GET').toUpperCase()
+  const path = String(args[1] || flags.path || '')
+  if (!path) die('用法：control-fde-x http GET /health')
+  let body
+  if (flags.body && flags.body !== true) {
+    body = flags.body.startsWith('{') || flags.body.startsWith('[')
+      ? JSON.parse(flags.body)
+      : flags.body
+  }
+  const result = await httpJson(state, method, path, body)
+  console.log(JSON.stringify({ ok: result.status >= 200 && result.status < 300, ...result }, null, 2))
+  if (result.status >= 400) process.exit(1)
+}
+
+async function cmdBrowser(args, flags) {
+  const { state } = loadState()
+  const action = args[0]
+  if (!action) die('用法：control-fde-x browser goto|click|fill|press|wait|snapshot|screenshot')
+  await withBrowser(state, async (page) => {
+    if (action === 'goto') {
+      const target = String(args[1] || flags.path || '/ai')
+      const url = target.startsWith('http') ? target : `${originOf(state)}${target.startsWith('/') ? target : `/${target}`}`
+      await page.goto(url, { waitUntil: 'domcontentloaded' })
+      console.log(JSON.stringify({ ok: true, url: page.url() }))
+      return
+    }
+    if (action === 'click' || action === 'open') {
+      const name = String(flags.name || '')
+      if (action === 'open' && name) {
+        const stage = page.locator('div.h-11.px-3').getByText(name, { exact: true })
+        if (await stage.count() && await stage.first().isVisible()) {
+          console.log(JSON.stringify({ ok: true, opened: name, already: true }))
+          return
+        }
+      }
+      await locator(page, flags).first().click({ timeout: 15_000 })
+      console.log(JSON.stringify({ ok: true, clicked: flags.name || flags.selector }))
+      return
+    }
+    if (action === 'fill') {
+      if (!flags.value && flags.value !== '') die('需要 --value')
+      await locator(page, { ...flags, role: flags.role || 'textbox' }).first().fill(String(flags.value), { timeout: 15_000 })
+      console.log(JSON.stringify({ ok: true, filled: flags.name || flags.selector }))
+      return
+    }
+    if (action === 'press') {
+      const key = String(flags.key || args[1] || '')
+      if (!key) die('需要 --key')
+      await page.keyboard.press(key)
+      console.log(JSON.stringify({ ok: true, key }))
+      return
+    }
+    if (action === 'wait') {
+      const text = String(flags.text || flags.name || args[1] || '')
+      if (!text) die('需要 --text')
+      const timeout = Number(flags.timeout || 15_000)
+      if (flags.role) {
+        await locator(page, flags).first().waitFor({ timeout })
+      } else {
+        await page.getByText(text).locator('visible=true').first().waitFor({ timeout })
+      }
+      console.log(JSON.stringify({ ok: true, text }))
+      return
+    }
+    if (action === 'snapshot') {
+      const path = resolveArtifactPath(state, flags.path)
+      mkdirSync(dirname(path), { recursive: true })
+      const aria = await page.locator('body').ariaSnapshot({ timeout: 15_000 })
+      writeFileSync(path, `${aria}\n`)
+      console.log(JSON.stringify({ ok: true, path }))
+      return
+    }
+    if (action === 'screenshot') {
+      const path = resolveArtifactPath(state, flags.path)
+      mkdirSync(dirname(path), { recursive: true })
+      await page.screenshot({ path, fullPage: true })
+      console.log(JSON.stringify({ ok: true, path }))
+      return
+    }
+    if (action === 'url') {
+      console.log(JSON.stringify({ ok: true, url: page.url() }))
+      return
+    }
+    die(`不认识的 browser 动作：${action}`)
+  })
+}
+
+async function cmdCleanup() {
+  const path = statePathFromEnv()
+  if (!path || !existsSync(path)) {
+    console.log(JSON.stringify({ ok: true, skipped: 'no state' }))
+    return
+  }
+  const state = readJson(path)
+  for (const pid of [state.pids?.vite, state.pids?.runtime]) {
+    if (isPidAlive(pid)) await killTree(pid, 'SIGTERM')
+  }
+  await delay(400)
+  for (const pid of [state.pids?.vite, state.pids?.runtime]) {
+    if (isPidAlive(pid)) await killTree(pid, 'SIGKILL')
+  }
+  await delay(200)
+  if (state.runDir && existsSync(state.runDir)) {
+    rmSync(state.runDir, { recursive: true, force: true })
+  }
+  if (existsSync(pointerPath)) rmSync(pointerPath, { force: true })
+  const leftover = [state.pids?.vite, state.pids?.runtime].filter((pid) => isPidAlive(pid))
+  const report = {
+    ok: leftover.length === 0,
+    removedRunDir: state.runDir,
+    evidenceDir: state.evidenceDir,
+    evidenceKept: state.evidenceDir && existsSync(state.evidenceDir),
+    leftover,
+  }
+  console.log(JSON.stringify(report, null, 2))
+  if (!report.ok) process.exit(1)
+}
+
+function cmdState() {
+  const { state } = loadState()
+  console.log(JSON.stringify(state, null, 2))
+}
+
+const { args, flags } = parseArgs(process.argv.slice(2))
+const command = args.shift()
+if (command === 'launch') await cmdLaunch(flags)
+else if (command === 'doctor') await cmdDoctor()
+else if (command === 'http') await cmdHttp(args, flags)
+else if (command === 'browser') await cmdBrowser(args, flags)
+else if (command === 'cleanup') await cmdCleanup()
+else if (command === 'state') cmdState()
+else {
+  die(`用法：control-fde-x launch|doctor|http|browser|state|cleanup
+例子：
+  .cursor/skills/verify-fde-x/bin/control-fde-x launch
+  .cursor/skills/verify-fde-x/bin/control-fde-x doctor
+  .cursor/skills/verify-fde-x/bin/control-fde-x browser click --name 业务应用
+  .cursor/skills/verify-fde-x/bin/control-fde-x cleanup`)
+}
