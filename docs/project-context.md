@@ -1,7 +1,7 @@
 # FDE-X 工作台 · 项目上下文（稳定决策）
 
 负责人：Ace。源码根：`/Users/zxz/WorkBuddy/2026-09-08-20-34-42/scene-39-personal-workstation`（Ace 的 Mac，所有开发在此机进行）。
-方案文档：[项目评估报告](project-assessment.md) → [AI Native 改善建议](ai-native-recommendations.md) → [AI Native 平台方案](platform-design.md)。
+方案文档：[项目评估报告](archive/project-assessment.md) → [AI Native 改善建议](archive/ai-native-recommendations.md) → [AI Native 平台方案](platform-design.md)。过程稿在 [archive](archive/README.md)。
 
 ## 产品定位
 本机个人 AI Native 工作台。壳 = FDE-X（React/Vite + BFF `runtime/server.mjs`）；引擎 = DSH（AI）、lan-assist（IM / 业务过账）、semantic-os（记忆）；自有数据 = SQLite。

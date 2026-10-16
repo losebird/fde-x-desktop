@@ -34,4 +34,4 @@ macOS 也可双击项目根目录的 `start.command`（从脚本所在目录启�
 | 记忆搜索 | dsh-semantic-os |
 | 待办/布局 | 本机 SQLite + 浏览器壳状态 |
 
-不要用浏览器打开 DSH 官方网页当产品界面。接线规格见 `PRODUCTION-SPEC.md`（冲突以 §0.5 为准）。
+不要用浏览器打开 DSH 官方网页当产品界面。接线规格见 `PRODUCTION-SPEC.md`（冲突以 §0.5 为准）。应用宿主见 `docs/APPS.md`。过程稿在 `docs/archive/`。

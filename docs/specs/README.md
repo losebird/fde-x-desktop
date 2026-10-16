@@ -2,7 +2,7 @@
 
 给 coding agent 直接执行的规格。每份规格自成一体：目标 / 范围与禁区 / 现有代码接点（文件 + 行号）/ 数据模型原文 / API 契约 / 前端契约 / 错误与降级 / 验收清单（人工 + 自动化）/ 提交拆分 / 开放问题。所有规格默认包含 [00 · Agent 执行协议](00-agent-protocol.md)。
 
-背景与决策：[项目上下文](../project-context.md)、[平台方案](../platform-design.md)、[打包方案](../packaging-design.md)。
+背景与决策：[项目上下文](../project-context.md)、[平台方案](../platform-design.md)、[打包方案](../packaging-design.md)。过期过程稿：[归档](../archive/README.md)。
 
 ## 规格清单与依赖
 

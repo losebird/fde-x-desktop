@@ -77,7 +77,7 @@ DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host
 
 ### 0.5 对抗审查补丁（冲突时只认这一节）
 
-来源：`ADVERSARIAL-REVIEW.md` 六路 + 用户确认。产品目标不变：FDE-X 壳；AI=DSH；IM/业务=lan-assist；记忆=semantic-os。
+来源：`docs/archive/ADVERSARIAL-REVIEW.md` 六路 + 用户确认。产品目标不变：FDE-X 壳；AI=DSH；IM/业务=lan-assist；记忆=semantic-os。
 
 **现网占用（覆盖前文「未开工 / 空草稿 / 禁止一切新路由 / 应用只有 L1 表」）：**
 - 工作台壳路由仍在 `IMScreen` 下。**已分享应用**的文档口是 `/a/:shareId`（`PublicApp` 或托管包自己的 `index.html`），不是新顶栏、不是会话岛。
@@ -267,7 +267,7 @@ Vite 只反代 `/api` → 4318。删除 `/plugins`、`/native-session` 反代。
 
 ### 阶段 E — 记忆 = semantic-os
 
-以 `SEMANTIC-FDEX-PLAN.md` 为准，不再做「只搜摘录」薄切片。
+记忆画布占用已进现网。旧方案稿在 `docs/archive/SEMANTIC-FDEX-PLAN.md`，不再做「只搜摘录」薄切片。
 
 1. 4318 反代 `/semantic-os/*`（画布静态资源 + API），cookie 留在进程。
 2. 记忆页是当前工作区语义首页（在线、目录名、封面计数、六张卡）。

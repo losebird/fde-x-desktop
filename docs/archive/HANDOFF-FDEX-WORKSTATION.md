@@ -38,9 +38,9 @@ FDE-X 是本机个人工作台壳：浏览器里仍是 FDE-X 的顶栏、右侧�
 | SQLite | `runtime/data/fde-workstation.sqlite`（对端 `...-peer.sqlite`） |
 | 官方 dsh | `/opt/homebrew/lib/node_modules/@deepseek-ai/dsh/` |
 | 官方 lan-assist | `/Users/zxz/.dsh/vendor/dsh-lan-assist/` |
-| 执行规格 | 仓库根 `PRODUCTION-SPEC.md`、`AGENTS.md`、`PRODUCTION-STATUS.md` |
-| 语义计划 | `SEMANTIC-FDEX-PLAN.md` |
-| 对抗审查 | `ADVERSARIAL-REVIEW.md` |
+| 执行规格 | 仓库根 `PRODUCTION-SPEC.md`、`AGENTS.md`（本文与 STATUS 已归档） |
+| 语义计划 | `docs/archive/SEMANTIC-FDEX-PLAN.md` |
+| 对抗审查 | `docs/archive/ADVERSARIAL-REVIEW.md` |
 
 改代码 **只动 scene-39 仓库**。`工作台宣传图` 是一个 DSH workspace / 图记忆 cwd。
 
