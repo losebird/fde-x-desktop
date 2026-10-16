@@ -207,4 +207,6 @@ PR2 和 PR3 只共享 PR1 的表，文件不重叠，PR1 合入后可以并行�
 | 和设置模块 UI 改造冲突 | 两个 writer 改 `Settings.tsx` | 本轮不碰 `Settings.tsx`（§2.4 A） |
 | 钉版本与 Host 世代不兼容 | IUI peer 范围是 `>=0.2.0-rc.1 <0.3.0-0`，当前 `0.2.0-rc.2` 在范围内；以后切代可能出范围 | 表里记钉值；切代清单加一项「IUI peer 范围」 |
 | IUI 把提示写到 `/tmp/iui-system-section.txt` | 上游调试残留，每次启动写文件 | 无害但记为已知问题，报给上游 |
+| profile `package.json` 解析失败时整份被替换 | `ensureIsolatedProfile` 把 `JSON.parse` 失败当成空文件，只写回 required bundles，之前 Host 写入的 bundles 和 `dependencies` 全丢。这是「重启丢插件」的一条真实路径 | §4「防合并丢 IUI」的复现要覆盖它。IUI 在 required 列表里不会丢，但别的插件会丢。是否顺手改成「解析失败就报错、不覆盖」，等你定 |
+| 开发机 vendor 目录是共享 symlink | `scripts/dev.mjs` 的 `prepareFdeHome` 把 `$DSH_HOME/vendor` 链到 `~/.dsh/vendor`。按版本对账时如果整目录删掉重拷，会删到共享源本身（现有的 `FDE_REFRESH_PLUGINS=1` 已经有这个问题） | 对账先拷到 `vendor/.iui.staging-<pid>`，确认来源不是目标自身再 rename；PR1 加用例 |
 | 3 天时间盒 | 实验 0 若三项都不成立，需要重新设计门控 | 卡住超过一个 run 就停下报告 |
