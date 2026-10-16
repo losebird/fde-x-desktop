@@ -112,6 +112,30 @@ try {
   const blocked = await post('/api/v1/mcp/probe', { transport: 'streamable-http', url: 'file:///etc/passwd' }, { Origin: origin })
   if (blocked.status !== 400) fail(`file url should be 400, got ${blocked.status}`)
 
+  const metadataStarted = Date.now()
+  const metadata = await post('/api/v1/mcp/probe', {
+    transport: 'streamable-http',
+    url: 'http://169.254.169.254/latest/meta-data',
+  }, { Origin: origin })
+  const metadataElapsed = Date.now() - metadataStarted
+  if (metadata.status !== 400) fail(`metadata probe should be 400, got ${metadata.status} ${await metadata.text()}`)
+  const metadataBody = await metadata.json()
+  if (metadataBody.error?.code !== 'validation_error') fail(`metadata probe code ${metadataBody.error?.code}`)
+  if (!/不在探测允许范围内/.test(String(metadataBody.error?.message || ''))) fail(`metadata probe message ${metadataBody.error?.message}`)
+  if (metadataElapsed > 2000) fail(`metadata probe took ${metadataElapsed}ms`)
+
+  const googleStarted = Date.now()
+  const google = await post('/api/v1/mcp/probe', {
+    transport: 'streamable-http',
+    url: 'http://metadata.google.internal/computeMetadata/v1/',
+  }, { Origin: origin })
+  const googleElapsed = Date.now() - googleStarted
+  if (google.status !== 400) fail(`google metadata probe should be 400, got ${google.status} ${await google.text()}`)
+  const googleBody = await google.json()
+  if (googleBody.error?.code !== 'validation_error') fail(`google metadata probe code ${googleBody.error?.code}`)
+  if (!/不在探测允许范围内|无法解析/.test(String(googleBody.error?.message || ''))) fail(`google metadata probe message ${googleBody.error?.message}`)
+  if (googleElapsed > 2000) fail(`google metadata probe took ${googleElapsed}ms`)
+
   const missingFile = await post('/api/v1/mcp/probe', {
     transport: 'stdio',
     command: '/tmp/fde-x-no-such-mcp-probe-bin',
@@ -181,6 +205,8 @@ try {
     missingFile: missingFileBody.data,
     reached: reachedBody.data,
     timeoutMs: elapsed,
+    metadata: { status: metadata.status, message: metadataBody.error?.message, elapsed: metadataElapsed },
+    googleMetadata: { status: google.status, message: googleBody.error?.message, elapsed: googleElapsed },
     patches: beforePatches,
     serversStatus: beforeServers.status,
   }))

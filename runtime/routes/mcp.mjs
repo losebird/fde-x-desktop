@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { access } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { delimiter, join } from 'node:path'
+import { lookup as dnsLookup } from 'node:dns/promises'
+import { BlockList, isIP } from 'node:net'
 import { listBusinessConnections } from '../db.mjs'
 import { FDE_AI_WORKSPACE, FDE_RESOURCES, resolveAllowedRequestOrigin } from '../config.mjs'
 import { desktopProcessPath } from '../desktop-process-path.mjs'
@@ -282,6 +284,102 @@ export function entryFromProbeDraft(body) {
       ...(Object.keys(env).length ? { env } : {}),
     },
   }
+}
+
+// Loopback is intentionally absent. A local MCP on 127.0.0.0/8 or ::1 is a
+// legitimate probe target. Everything else here is non-global: private,
+// shared (CGNAT, including 100.100.100.200), link-local (including
+// 169.254.169.254), ULA, unspecified, multicast, or reserved.
+const probeBlock = new BlockList()
+probeBlock.addSubnet('0.0.0.0', 8, 'ipv4')
+probeBlock.addSubnet('10.0.0.0', 8, 'ipv4')
+probeBlock.addSubnet('100.64.0.0', 10, 'ipv4')
+probeBlock.addSubnet('169.254.0.0', 16, 'ipv4')
+probeBlock.addSubnet('172.16.0.0', 12, 'ipv4')
+probeBlock.addSubnet('192.0.0.0', 24, 'ipv4')
+probeBlock.addSubnet('192.168.0.0', 16, 'ipv4')
+probeBlock.addSubnet('198.18.0.0', 15, 'ipv4')
+probeBlock.addSubnet('224.0.0.0', 4, 'ipv4')
+probeBlock.addSubnet('240.0.0.0', 4, 'ipv4')
+probeBlock.addAddress('::', 'ipv6')
+probeBlock.addSubnet('fc00::', 7, 'ipv6')
+probeBlock.addSubnet('fe80::', 10, 'ipv6')
+probeBlock.addSubnet('ff00::', 8, 'ipv6')
+
+function ipv6Groups(ip) {
+  const lower = ip.toLowerCase()
+  if (lower.includes('.')) return null
+  const halves = lower.split('::')
+  if (halves.length > 2) return null
+  const parse = (part) => {
+    if (!part) return []
+    const bits = part.split(':')
+    if (bits.some((bit) => !/^[0-9a-f]{1,4}$/.test(bit))) return null
+    return bits.map((bit) => Number.parseInt(bit, 16))
+  }
+  const left = parse(halves[0])
+  if (!left) return null
+  if (halves.length === 1) return left.length === 8 ? left : null
+  const right = parse(halves[1])
+  if (!right) return null
+  const missing = 8 - left.length - right.length
+  if (missing < 1) return null
+  return [...left, ...Array(missing).fill(0), ...right]
+}
+
+function embeddedTransitionIpv4(ip) {
+  const groups = ipv6Groups(ip)
+  if (!groups || groups.length !== 8) return ''
+  const quad = (hi, lo) => `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`
+  if (groups[0] === 0x64 && groups[1] === 0xff9b && groups[2] === 0 && groups[3] === 0 && groups[4] === 0 && groups[5] === 0) {
+    return quad(groups[6], groups[7])
+  }
+  if (groups[0] === 0x2002) return quad(groups[1], groups[2])
+  return ''
+}
+
+export function probeAddressBlocked(ip) {
+  const raw = String(ip || '').trim().replace(/^\[|\]$/g, '').split('%')[0]
+  const family = isIP(raw)
+  if (family !== 4 && family !== 6) return true
+  if (probeBlock.check(raw, family === 6 ? 'ipv6' : 'ipv4')) return true
+  if (family !== 6) return false
+  const embedded = embeddedTransitionIpv4(raw)
+  return embedded !== '' && isIP(embedded) === 4 && probeBlock.check(embedded, 'ipv4')
+}
+
+export async function probeHttpTargetError(urlValue, resolveHost = dnsLookup) {
+  let parsed
+  try {
+    parsed = new URL(String(urlValue || ''))
+  } catch {
+    return 'url 不合法'
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return 'url 只接受 http 或 https'
+  let host = parsed.hostname
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
+  host = host.split('%')[0]
+  if (!host) return 'url 不合法'
+  let addresses
+  if (isIP(host)) {
+    addresses = [host]
+  } else {
+    let found
+    try {
+      found = await resolveHost(host, { all: true, verbatim: true })
+    } catch {
+      return '无法解析该地址'
+    }
+    const rows = Array.isArray(found) ? found : [found]
+    addresses = rows.map((row) => {
+      if (typeof row === 'string') return row
+      if (row && typeof row.address === 'string') return row.address
+      return ''
+    }).filter((address) => address)
+  }
+  if (!addresses.length) return '无法解析该地址'
+  if (addresses.some((address) => probeAddressBlocked(address))) return '该地址不在探测允许范围内'
+  return ''
 }
 
 function withProbeTimeout(promise, ms = PROBE_TIMEOUT_MS) {
@@ -679,6 +777,13 @@ export async function handleMcpRoutes(request, response, url, ctx) {
     if (built.error) {
       sendError(response, 400, 'validation_error', built.error, currentCorrelationId)
       return true
+    }
+    if (built.entry.transport === 'streamable-http') {
+      const targetError = await probeHttpTargetError(built.entry.url)
+      if (targetError) {
+        sendError(response, 400, 'validation_error', targetError, currentCorrelationId)
+        return true
+      }
     }
     const health = await withProbeTimeout(checkMcpHealth(built.entry))
     sendJson(response, 200, { data: health, correlationId: currentCorrelationId })

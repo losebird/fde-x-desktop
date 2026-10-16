@@ -12,6 +12,8 @@ import {
   mapServerStatus,
   checkMcpHealth,
   entryFromProbeDraft,
+  probeAddressBlocked,
+  probeHttpTargetError,
   mcpArchiveWriteNote,
   mcpFiberFromPlugins,
   resolveMcpProjectionSession,
@@ -413,6 +415,75 @@ test('entryFromProbeDraft drops cookies and does not name a saved server', () =>
   assert.equal(stdio.entry.cwd, '/tmp/ws')
   assert.equal(stdio.entry.env.IMAP_PASS, 'secret')
   assert.equal(stdio.entry.env.PATH, undefined)
+})
+
+test('probeAddressBlocked allows loopback and rejects private, link-local, and metadata addresses', () => {
+  for (const ip of ['127.0.0.1', '127.0.0.2', '::1', '::ffff:127.0.0.1', '8.8.8.8', '172.32.0.1', '100.128.0.1', '11.0.0.1', '64:ff9b::808:808', '2002:808:808::']) {
+    assert.equal(probeAddressBlocked(ip), false, ip)
+  }
+  for (const ip of [
+    '10.0.0.1',
+    '172.16.0.1',
+    '172.31.255.1',
+    '192.168.1.1',
+    '169.254.169.254',
+    '169.254.1.1',
+    '100.100.100.200',
+    '100.64.0.1',
+    '0.0.0.0',
+    '224.0.0.1',
+    '255.255.255.255',
+    '192.0.0.8',
+    '198.18.0.1',
+    '::',
+    'fc00::1',
+    'fd00:ec2::254',
+    'fe80::1',
+    'ff02::1',
+    '::ffff:169.254.169.254',
+    '::ffff:10.1.2.3',
+    '::ffff:a9fe:a9fe',
+    '64:ff9b::a9fe:a9fe',
+    '2002:a9fe:a9fe::',
+    'not-an-ip',
+    '',
+  ]) {
+    assert.equal(probeAddressBlocked(ip), true, ip)
+  }
+})
+
+test('probeHttpTargetError judges the resolved address and fails closed', async () => {
+  const lookup = async (host) => {
+    const table = {
+      'metadata.google.internal': [{ address: '169.254.169.254' }],
+      localhost: [{ address: '127.0.0.1' }, { address: '::1' }],
+      'mixed.example': [{ address: '1.1.1.1' }, { address: '10.0.0.8' }],
+      'public.example': [{ address: '8.8.8.8' }],
+    }
+    if (!table[host]) {
+      const error = new Error('ENOTFOUND')
+      error.code = 'ENOTFOUND'
+      throw error
+    }
+    return table[host]
+  }
+  assert.equal(await probeHttpTargetError('http://169.254.169.254/latest/meta-data', lookup), '该地址不在探测允许范围内')
+  assert.equal(await probeHttpTargetError('http://2852039166/latest/meta-data', lookup), '该地址不在探测允许范围内')
+  assert.equal(await probeHttpTargetError('http://metadata.google.internal/computeMetadata/v1/', lookup), '该地址不在探测允许范围内')
+  assert.equal(await probeHttpTargetError('http://[fd00:ec2::254]/', lookup), '该地址不在探测允许范围内')
+  assert.equal(await probeHttpTargetError('http://10.1.2.3/mcp', lookup), '该地址不在探测允许范围内')
+  assert.equal(await probeHttpTargetError('https://mixed.example/mcp', lookup), '该地址不在探测允许范围内')
+  assert.equal(await probeHttpTargetError('http://127.0.0.1:9/mcp', lookup), '')
+  assert.equal(await probeHttpTargetError('http://localhost:9/mcp', lookup), '')
+  assert.equal(await probeHttpTargetError('http://[::1]:9/mcp', lookup), '')
+  assert.equal(await probeHttpTargetError('https://public.example/mcp', lookup), '')
+  assert.equal(await probeHttpTargetError('http://missing.example/mcp', lookup), '无法解析该地址')
+  let lookedUp = false
+  await probeHttpTargetError('http://192.168.0.8/mcp', async () => {
+    lookedUp = true
+    return [{ address: '192.168.0.8' }]
+  })
+  assert.equal(lookedUp, false)
 })
 
 test('checkMcpHealth stdio applies draft env without replacing PATH', async () => {
