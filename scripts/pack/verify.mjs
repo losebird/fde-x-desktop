@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { nodeDistPresent } from './node-dist.mjs'
+import { IUI_PIN } from './pins.mjs'
+import { assertIuiTree } from './iui-artifact.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const resources = process.env.FDE_PACK_OUT
@@ -91,6 +93,18 @@ async function main() {
 
   if (!existsSync(join(resources, 'app', 'node_modules', 'html-to-docx'))) {
     console.error('verify failed — BFF html-to-docx missing under resources/app/node_modules')
+    process.exit(1)
+  }
+
+  const iuiVersions = versions.plugins?.iui
+  if (!iuiVersions?.staged || iuiVersions.version !== IUI_PIN.version || iuiVersions.commit !== IUI_PIN.commit) {
+    console.error('verify failed — versions.plugins.iui does not match the pin')
+    process.exit(1)
+  }
+  try {
+    await assertIuiTree(join(resources, 'plugins', 'iui'), IUI_PIN)
+  } catch (error) {
+    console.error(`verify failed — ${error.message}`)
     process.exit(1)
   }
 

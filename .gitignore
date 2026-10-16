@@ -1,4 +1,5 @@
 node_modules/
+scripts/pack/.cache/
 dist/
 runtime/.host-generation/
 runtime/data/*.sqlite*

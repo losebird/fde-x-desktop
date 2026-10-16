@@ -43,7 +43,16 @@
       "type": "object",
       "properties": {
         "dsh-lan-assist": { "type": "boolean" },
-        "dsh-semantic-os": { "type": "boolean" }
+        "dsh-semantic-os": { "type": "boolean" },
+        "iui": {
+          "type": "object",
+          "required": ["staged", "version", "commit"],
+          "properties": {
+            "staged": { "type": "boolean" },
+            "version": { "type": "string" },
+            "commit": { "type": "string" }
+          }
+        }
       }
     },
     "semanticRuntime": {
