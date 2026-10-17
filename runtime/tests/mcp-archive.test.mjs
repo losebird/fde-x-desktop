@@ -468,6 +468,10 @@ function blockForId(text, id) {
   return topLevelBlocks(text).find((part) => new RegExp(`^- id: ${id}\\b`, 'm').test(part)) || ''
 }
 
+function blockStarting(text, prefix) {
+  return topLevelBlocks(text).find((part) => part.startsWith(prefix)) || ''
+}
+
 test('ensureSkillProvidersInProfile disables host tool-skill and keeps the filesystem provider', async () => {
   const { mkdtemp, mkdir, readFile, writeFile, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
@@ -506,7 +510,8 @@ test('ensureSkillProvidersInProfile disables host tool-skill and keeps the files
     assert.match(toolSkill, /catalogDescriptionMaxLength: 500/)
     assert.match(filesystem, /disabled: false/)
     assert.match(other, /@example\/keep-me/)
-    assert.match(text, /serverName: user-notes/)
+    assert.equal(other, blockForId(prior, 'other-plugin'))
+    assert.equal(blockStarting(text, '- insert:'), blockStarting(prior, '- insert:'))
     assert.equal(topLevelBlocks(text).filter((part) => /^- id: tool-skill\b/m.test(part)).length, 1)
     await ensureSkillProvidersInProfile(runtime)
     assert.equal(await readFile(file, 'utf8'), text)
