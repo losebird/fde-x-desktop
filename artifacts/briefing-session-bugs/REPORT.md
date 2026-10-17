@@ -28,6 +28,8 @@
 
 IUI 门在 `runtime/mode-policy.cjs` 第 2 到 3 行，只拿掉 `iui:fence`、`get_trip_stop_images`、`get_place_images` 和技能 `iui`。它不碰 `mcp__` 名字。实机状态里的 `lastError` 写着 lan-assist、semantic-os、iui 挂载失败，两栏错误仍然是上面这两句。见 `artifacts/briefing-session-bugs/page-repro.json`。
 
+设置抽屉的工具名单走另一条会话。`src/components/briefing/BriefingSettingsDrawer.tsx` 第 95 行调用 `listBriefingMcpSources`，请求是 `GET /api/v1/briefing/sources/mcp`。`runtime/routes/briefing.mjs` 第 228 行带 `project: true`。`runtime/routes/mcp.mjs` 里的 `resolveMcpProjectionSession` 转到 `resolvePrimarySessionForRuntime`，读的是该 cwd 最新的 primary 会话，不是 `fde-briefing`。用户可以在主会话的投影里点到这两个工具名，运行时检查的却是早报会话的 snapshot。
+
 ### 引入的提交
 
 用户能点出来的那条空早报会话来自 `c0227143951200e1c6e346dd63cdf2b05c936ee2`，说明是 `feat(briefing): open a dedicated fde-briefing session`。作者时间 2026-10-16，提交时间 2026-10-17。它不在 `origin/main`。`origin/main` 的 `runtime/briefing/run.mjs` 第 142 行仍调用 `resolvePrimarySessionForRuntime`。
@@ -39,7 +41,7 @@ IUI 门在 `runtime/mode-policy.cjs` 第 2 到 3 行，只拿掉 `iui:fence`、`
 - `artifacts/briefing-session-bugs/desired-behavior-red.txt`。`node --test scripts/repro/briefing-session-desired.test.mjs` 退出码 1。断言期望错误是空字符串，实际是 `会话未投影 mcp__mail__imap_search`。
 - `artifacts/briefing-session-bugs/bug1-inprocess.json`。假 MCP 的 `tools/list` 返回 `imap_search` 和 `aihot_get_latest`，`tools/call` 返回 `fake-mail-item` 和 `fake-news-item`。投影名单是 `[]`。`session/prompt` 没有被调用。事件只有 `briefing.ready`。
 - `artifacts/briefing-session-bugs/page-repro.json`。真实 BFF `4318`、Vite `5174`、DSH `0.2.0-rc.2`。两栏错误和条数 0 与用户原文一致。早报会话 `session-c5ec8651-9922-484a-b43b-bb7118123e75`，preset 是 `fde-briefing`。
-- `artifacts/briefing-session-bugs/mcp-servers.json`。`mail` 和 `ai-hot` 的 `disabled` 是 false，`status` 是 `loaded`。接口里的 `tools` 数组来自同一套投影，所以是空的。
+- `artifacts/briefing-session-bugs/mcp-servers.json`。`mail` 和 `ai-hot` 的 `disabled` 是 false，`status` 是 `loaded`。这个接口的 `tools` 数组是空的，因为 `GET /api/v1/mcp/servers` 调用 `collectBag` 时没有 `project: true`，`runtime/catalog-collect.mjs` 第 546 到 550 行因此把投影名单留成空数组。它不能当成「会话 snapshot 里没有工具」的证据。空 snapshot 的证据是进程内那次 `session/follow`，以及实机早报仍报这两句。
 - `artifacts/briefing-session-bugs/cordis.patch.yml`。临时 HOME 里的 insert 配置，没有邮箱凭据。
 
 重跑进程内证据用 Node 22.23.3。
@@ -75,6 +77,8 @@ IUI 门在 `runtime/mode-policy.cjs` 第 2 到 3 行，只拿掉 `iui:fence`、`
 早报这条不发事件的创建是 `c0227143951200e1c6e346dd63cdf2b05c936ee2`。它不在 main。main 的早报不新建这条会话，所以「点生成新早报后列表缺一条」在 main 上没有同一条触发。
 
 外壳不订阅是更早的缺口。`src/pages/AI.tsx` 第 492 行从 `b0cbb6b26736cde3785fa630fb00f7c7b754d74e` 起就只订记忆事件。REST 发事件从 `bdacd5ada95ebc2849cbbe1885f4789aae1b480e`，2026-10-07，`feat(runtime): occupy current-turn, letter home, restore, and origin land`。这两笔都在 main。实机里 REST 创建已经把事件写进出站表，侧栏条数仍不变，刷新后才加一。main 上同样的外壳缺口还在。
+
+`GET /api/v1/ai/sessions` 在 `runtime/server.mjs` 第 1929 行调用 `session/list` 时没有把 `includeBlank` 放进 `_request`。实机列表仍返回了 `blank: true` 的会话，刷新后侧栏条数也增加了。这一处参数没传下去，不是这次「不刷新就看不到」的原因。
 
 ### 红的证据
 
