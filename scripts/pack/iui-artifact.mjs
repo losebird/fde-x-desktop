@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -83,9 +84,40 @@ function writeTarEntry(parts, name, mode, body, link = null) {
 
 const NPM_LOCK = './node_modules/.package-lock.json'
 
-export function canonicalNpmLockBytes(body) {
+export function configuredRegistryList() {
+  const raw = execFileSync('npm', ['config', 'list', '--json'], {
+    encoding: 'utf8',
+    env: process.env,
+  })
+  const cfg = JSON.parse(raw)
+  const list = []
+  if (typeof cfg.registry === 'string') list.push(cfg.registry)
+  for (const [key, value] of Object.entries(cfg)) {
+    if (key.startsWith('@') && key.endsWith(':registry') && typeof value === 'string') list.push(value)
+  }
+  return list
+}
+
+function registryPrefix(registry) {
+  return String(registry || '').trim().replace(/\/+$/, '')
+}
+
+export function canonicalNpmLockBytes(body, registries = configuredRegistryList()) {
+  const prefixes = []
+  for (const registry of registries) {
+    const prefix = registryPrefix(registry)
+    if (prefix && !prefixes.includes(prefix)) prefixes.push(prefix)
+  }
+  prefixes.sort((left, right) => right.length - left.length)
   const text = Buffer.from(body).toString('utf8')
-  const next = text.replace(/"resolved": "https:\/\/[^/]+\//g, '"resolved": "https://registry.npmjs.org/')
+  const next = text.replace(/"resolved": "([^"]*)"/g, (full, url) => {
+    for (const prefix of prefixes) {
+      const needle = `${prefix}/`
+      if (!url.startsWith(needle)) continue
+      return `"resolved": "https://registry.npmjs.org/${url.slice(needle.length)}"`
+    }
+    return full
+  })
   return Buffer.from(next)
 }
 
