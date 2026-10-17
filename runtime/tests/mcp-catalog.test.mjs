@@ -112,7 +112,7 @@ async function executeMounted(assembled, name, args) {
 
 test('the first request keeps a catalog and drops mcp schemas', async () => {
   const bus = createBus()
-  bridge.installIuiModeGate(bus)
+  bridge.installIuiModeGate(bus, bus.config)
   const before = schemaTokens(fixtureTools())
   const assembled = await bus.waterfall('system-prompt/assemble', null, { agent: agent('sess-catalog') })
   const names = assembled.tools.map((row) => row.name)
@@ -132,14 +132,14 @@ test('the first request keeps a catalog and drops mcp schemas', async () => {
 
 test('fde_mcp_load puts the real name on the next request and that name runs', async () => {
   const bus = createBus()
-  bridge.installIuiModeGate(bus)
+  bridge.installIuiModeGate(bus, bus.config)
   const sessionId = 'sess-load'
   await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
   const registered = []
   tools.registerTools({
-    config: bus.config,
+    get config() { throw new Error('cannot get property "config" without inject') },
     tools: { register(spec) { registered.push(spec) } },
-  }, { defineTool: (spec) => spec })
+  }, { defineTool: (spec) => spec, config: bus.config })
   const load = registered.find((spec) => spec.name === 'fde_mcp_load')
   assert.ok(load)
   const text = await load.execute({ server: 'mail' }, { agent: agent(sessionId) })
@@ -168,14 +168,14 @@ test('fde_mcp_load puts the real name on the next request and that name runs', a
 
 test('loading a second server keeps the first server on the next request', async () => {
   const bus = createBus()
-  bridge.installIuiModeGate(bus)
+  bridge.installIuiModeGate(bus, bus.config)
   const sessionId = 'sess-load-both'
   await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
   const registered = []
   tools.registerTools({
-    config: bus.config,
+    get config() { throw new Error('cannot get property "config" without inject') },
     tools: { register(spec) { registered.push(spec) } },
-  }, { defineTool: (spec) => spec })
+  }, { defineTool: (spec) => spec, config: bus.config })
   const load = registered.find((spec) => spec.name === 'fde_mcp_load')
   await load.execute({ server: 'mail' }, { agent: agent(sessionId) })
   await load.execute({ server: 'ai-hot' }, { agent: agent(sessionId) })
@@ -199,7 +199,7 @@ test('a host restart restores every loaded server from the session log', async (
       tool('mcp__news__latest', 'Fresh wire item.'),
     ]
     const bus = createBus(() => rows)
-    bridge.installIuiModeGate(bus)
+    bridge.installIuiModeGate(bus, bus.config)
     await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
     rows.push(
       tool('mcp__mail__imap_search', 'Read the inbox.', 80),
@@ -227,7 +227,7 @@ test('a catalog line keeps literal prompt braces', async () => {
   const rows = fixtureTools()
   rows.push(tool('mcp__news__latest', 'Wire {{not_a_variable}} item.'))
   const bus = createBus(() => rows)
-  bridge.installIuiModeGate(bus)
+  bridge.installIuiModeGate(bus, bus.config)
   const assembled = await bus.waterfall('system-prompt/assemble', null, { agent: agent('sess-braces') })
   const section = assembled.sections.find((row) => row && row.name === 'fde:mcp-catalog')
   const rendered = section.interpolate === false
@@ -239,7 +239,7 @@ test('a catalog line keeps literal prompt braces', async () => {
 test('a server that was not in the table appears in the catalog', async () => {
   const rows = fixtureTools()
   const bus = createBus(() => rows)
-  bridge.installIuiModeGate(bus)
+  bridge.installIuiModeGate(bus, bus.config)
   const first = await bus.waterfall('system-prompt/assemble', null, { agent: agent('sess-new') })
   const firstCatalog = first.sections.find((row) => row && row.name === 'fde:mcp-catalog')
   assert.ok(firstCatalog)

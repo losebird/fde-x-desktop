@@ -95,7 +95,7 @@ const FDE_TOOL_NAMES = [
   'fde_memory_draft',
 ]
 
-function registerTools(ctx, { defineTool }) {
+function registerTools(ctx, { defineTool, config }) {
   ctx.tools.register(defineTool({
     name: 'fde_submit_result',
     description: 'Submit structured result back to FDE-X. Use requestId from the [fde-request:<id>] marker in the prompt.',
@@ -233,7 +233,7 @@ function registerTools(ctx, { defineTool }) {
         sessionId: toolSessionId(exec),
         server,
         preset: presetFromAgent(exec.agent),
-        mount: ctx.config,
+        mount: config,
       })
       return `已加载 ${server}。下一步可用：${names.join('、')}`
     },

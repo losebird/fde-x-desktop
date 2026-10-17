@@ -24,15 +24,25 @@ function mcpServerName(toolName) {
   return body.slice(0, cut)
 }
 
+const volatileWrite = Symbol.for('cosmokit.volatile.write')
+
+function configValue(value) {
+  if (value && typeof value === 'object' && typeof value.get === 'function' && typeof value[volatileWrite] === 'function') {
+    return value.get()
+  }
+  return value
+}
+
 function mcpMountFromConfig(config) {
   const source = config && typeof config === 'object' ? config : {}
-  const listed = source.standardDenyServers
+  const listed = configValue(source.standardDenyServers)
   const standardDenyServers = Array.isArray(listed)
     ? listed.map((item) => String(item || '').trim()).filter(Boolean)
     : STANDARD_DENY_SERVERS.slice()
+  const briefingDenyUserMcp = configValue(source.briefingDenyUserMcp)
   return {
     standardDenyServers,
-    briefingDenyUserMcp: source.briefingDenyUserMcp !== false,
+    briefingDenyUserMcp: briefingDenyUserMcp !== false,
   }
 }
 

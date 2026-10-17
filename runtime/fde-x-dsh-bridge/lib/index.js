@@ -259,7 +259,7 @@ function bridgeConfigSchema() {
 
 const Config = bridgeConfigSchema()
 
-function installIuiModeGate(ctx) {
+function installIuiModeGate(ctx, config) {
   const {
     presetFromAgent,
     gatePromptAssembly,
@@ -271,7 +271,7 @@ function installIuiModeGate(ctx) {
   if (!ctx || typeof ctx.on !== 'function') {
     throw new Error('IUI mode gate requires ctx.on')
   }
-  const mountOf = () => resolveMcpMount(ctx.config)
+  const mountOf = () => resolveMcpMount(config)
   const { applyMcpCatalog } = require('./mcp-catalog.js')
   const { toolSessionId } = require('./tools.js')
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
@@ -294,13 +294,13 @@ function installIuiModeGate(ctx) {
   }, true)
 }
 
-function apply(ctx) {
+function apply(ctx, config) {
   if (Config && Config.dict) {
     for (const field of Object.values(Config.dict)) {
       if (field && field.meta) field.meta.volatile = true
     }
   }
-  installIuiModeGate(ctx)
+  installIuiModeGate(ctx, config)
   if (ctx.webServer && typeof ctx.webServer.register === 'function') {
     ctx.effect(() => ctx.webServer.register({
       kind: 'prefix',
@@ -311,7 +311,7 @@ function apply(ctx) {
   try {
     const { defineTool } = loadDshTools()
     const { registerTools, FDE_TOOL_NAMES } = require('./tools.js')
-    registerTools(ctx, { defineTool })
+    registerTools(ctx, { defineTool, config })
     writeBridgeToolsStatus({ ok: true, tools: FDE_TOOL_NAMES })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
