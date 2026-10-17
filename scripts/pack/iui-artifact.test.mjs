@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -10,6 +10,7 @@ import {
   assertIuiTree,
   bundledPluginVersions,
   retargetPrimitivePaths,
+  packDeterministicTarGz,
   sha256Hex,
   stageIuiArtifact,
 } from './iui-artifact.mjs'
@@ -107,6 +108,34 @@ test('stageIuiArtifact replaces the tree only after the hash and pin match', asy
       /sha256 mismatch/,
     )
     assert.equal(existsSync(join(dest, 'lib', 'index.js')), true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+function touchTree(dir) {
+  const future = new Date(Date.now() + 10_000)
+  utimesSync(dir, future, future)
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) touchTree(path)
+    else utimesSync(path, future, future)
+  }
+}
+
+test('two deterministic packs of one tree share a sha256', async () => {
+  const root = join(tmpdir(), `fde-iui-tar-${process.pid}`)
+  const tree = join(root, 'tree')
+  mkdirSync(join(tree, 'nested'), { recursive: true })
+  writeFileSync(join(tree, 'b.txt'), 'second\n')
+  writeFileSync(join(tree, 'nested', 'a.txt'), 'first\n')
+  const left = join(root, 'left.tar.gz')
+  const right = join(root, 'right.tar.gz')
+  try {
+    await packDeterministicTarGz(tree, left)
+    touchTree(tree)
+    await packDeterministicTarGz(tree, right)
+    assert.equal(sha256Hex(readFileSync(left)), sha256Hex(readFileSync(right)))
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
