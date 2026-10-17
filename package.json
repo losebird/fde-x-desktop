@@ -9,7 +9,7 @@
     "dev:peer": "node scripts/dev-peer.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host --port 4173",
-    "runtime": "node runtime/server.mjs",
+    "runtime": "node runtime/boot.mjs",
     "runtime:check": "node runtime/check.mjs",
     "runtime:smoke": "node runtime/smoke.mjs"
   },
