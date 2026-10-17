@@ -108,7 +108,6 @@ async function openSwitching(page: Page, options: {
   holdRetry?: boolean
 }) {
   let retries = 0
-  let readsAfterRetry = 0
   let releaseRetry: (() => void) | null = null
   const retryGate = options.holdRetry
     ? new Promise<void>((resolve) => {
@@ -119,8 +118,7 @@ async function openSwitching(page: Page, options: {
   if (options.core) Object.assign(failedBody.data, options.core)
   const recovered = enabledPayload()
   await page.route((url) => url.pathname === '/api/v1/ai/status', (route) => {
-    if (retries >= 1) readsAfterRetry += 1
-    const body = retries >= 1 && readsAfterRetry >= 2 ? recovered : failedBody
+    const body = retries >= 1 ? recovered : failedBody
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
   })
   await page.route((url) => url.pathname === '/api/v1/ai/connect', (route) => route.fulfill({

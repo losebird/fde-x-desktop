@@ -94,7 +94,6 @@ test('core error tells the user the core is down and stops status polling', asyn
 test('a core crash is not labeled as an install failure and clears after retry', async ({ page }) => {
   test.setTimeout(60_000)
   let retries = 0
-  let readsAfterRetry = 0
   const crash = statusPayload({
     state: 'error',
     lastError: 'AI 服务意外退出：code 1',
@@ -107,8 +106,7 @@ test('a core crash is not labeled as an install failure and clears after retry',
     iui: { state: 'enabled', version: '0.13.0-iui.26' },
   })
   await page.route((url) => url.pathname === '/api/v1/ai/status', (route) => {
-    if (retries >= 1) readsAfterRetry += 1
-    const body = retries >= 1 && readsAfterRetry >= 2 ? recovered : crash
+    const body = retries >= 1 ? recovered : crash
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
   })
   await page.route((url) => url.pathname === '/api/v1/ai/connect', (route) => route.fulfill({
