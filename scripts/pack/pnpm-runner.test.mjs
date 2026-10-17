@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -182,4 +182,51 @@ exit 1
       return true
     },
   )
+})
+
+test('an older corepack ahead of a new pnpm shim stops before checkout', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'corepack-ahead-'))
+  const oldBin = join(root, 'old', 'bin')
+  const newBin = join(root, 'new', 'bin')
+  const dist = join(root, 'new', 'lib', 'node_modules', 'corepack', 'dist')
+  await mkdir(oldBin, { recursive: true })
+  await mkdir(dist, { recursive: true })
+  await mkdir(newBin, { recursive: true })
+  await writeFile(join(root, 'new', 'lib', 'node_modules', 'corepack', 'package.json'), `${JSON.stringify({
+    name: 'corepack',
+    version: '0.36.0',
+  })}\n`)
+  const shim = join(dist, 'pnpm.js')
+  await writeFile(shim, `#!/bin/sh
+# require('./lib/corepack.cjs').runMain(['pnpm', ...process.argv.slice(2)]);
+printf '%s\\n' '11.7.0'
+exit 0
+`)
+  await chmod(shim, 0o755)
+  await symlink(shim, join(newBin, 'pnpm'))
+  const oldCorepack = join(oldBin, 'corepack')
+  await writeFile(oldCorepack, `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' '0.29.4'
+  exit 0
+fi
+printf '%s\\n' 'Error: Cannot find matching keyid: ...' >&2
+exit 1
+`)
+  await chmod(oldCorepack, 0o755)
+  const env = { PATH: `${oldBin}:${newBin}` }
+  for (const nodeVersion of ['22.23.3', '26.12.0']) {
+    await assert.rejects(
+      () => assertCorepackUsable(env, pinnedVersion, nodeVersion),
+      (error) => {
+        assert.match(error.message, /Cannot find matching keyid/)
+        assert.equal(error.message.includes('ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING'), false)
+        assert.match(error.message, new RegExp(oldBin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+        const moveAt = error.message.indexOf('for name in corepack pnpm pnpx yarn')
+        const installAt = error.message.indexOf('npm install -g pnpm@11.7.0')
+        assert.equal(installAt > moveAt, true)
+        return true
+      },
+    )
+  }
 })
