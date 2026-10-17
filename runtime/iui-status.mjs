@@ -46,7 +46,21 @@ export function iuiEnabledFromList(listed, moduleName) {
   return row.enabled === true
 }
 
-export function iuiStatusPhrase({ present, version, parseError, pinVersion, enabled, connected, readError }) {
+export function iuiVerifyFailedPhrase(verification) {
+  if (!verification || verification.state !== 'verify_failed') {
+    throw new Error('IUI verify_failed phrase requires state verify_failed')
+  }
+  const fields = ['artifactPath', 'expected', 'actual', 'command']
+  for (const key of fields) {
+    if (typeof verification[key] !== 'string' || verification[key].length === 0) {
+      throw new Error(`IUI verify_failed is missing ${key}`)
+    }
+  }
+  return `IUI 校验失败。归档 ${verification.artifactPath}。期望 ${verification.expected}，实际 ${verification.actual}。用 Node 26.7.0 与 pnpm 11.20.0 重新打包：${verification.command}`
+}
+
+export function iuiStatusPhrase({ present, version, parseError, pinVersion, enabled, connected, readError, verification }) {
+  if (verification && verification.state === 'verify_failed') return iuiVerifyFailedPhrase(verification)
   if (!present) return 'IUI 未安装'
   if (parseError) return 'IUI 的 package.json 无法解析'
   if (version !== pinVersion) return `IUI 版本不符（安装 ${version || '未知'}，钉 ${pinVersion}）`
@@ -63,6 +77,8 @@ function errorText(error) {
 
 export async function describeIui(aiRuntime, dshHome, profileName) {
   const plugin = iuiBuiltin()
+  const verification = aiRuntime && aiRuntime.iui
+  if (verification && verification.state === 'verify_failed') return iuiVerifyFailedPhrase(verification)
   let installed
   try {
     installed = await readInstalledIui(iuiProfileDir(dshHome, profileName))

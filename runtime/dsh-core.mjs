@@ -24,7 +24,7 @@ import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import { BUILTIN_PLUGINS, pluginEnvKey } from './builtin-plugins.mjs'
 import { readProfileManifestFile, writeMergedProfileManifest } from './profile-manifest.mjs'
 import { reconcilePinnedVendor } from './plugin-vendor.mjs'
-import { stageIuiArtifactIfAbsent } from './iui-stage.mjs'
+import { IUI_REBUILD_COMMAND, stageIuiArtifactIfAbsent } from './iui-stage.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 
@@ -234,6 +234,7 @@ export class DshCoreConnector {
     this.pendingApprovals = new Map()
     this.eventAbort = null
     this.semanticRestarting = false
+    this.iui = { state: 'absent' }
   }
 
   kickSemanticIfExited(snapshot) {
@@ -535,7 +536,7 @@ export class DshCoreConnector {
             code: 'FDE_IUI_SHA_MISMATCH',
           })
         }
-        await stageIuiArtifactIfAbsent({
+        const staged = await stageIuiArtifactIfAbsent({
           dest: vendor,
           pin: {
             version: plugin.source.version,
@@ -544,6 +545,7 @@ export class DshCoreConnector {
           },
           artifactPath: this.pinnedArtifactPath(plugin),
         })
+        this.iui = staged
         const result = await reconcilePinnedVendor({
           vendorDir: vendor,
           pin: { version: plugin.source.version, commit: plugin.source.commit },
@@ -581,6 +583,16 @@ export class DshCoreConnector {
       await linkPath(vendor, link)
       return true
     } catch (error) {
+      if (error && error.code === 'FDE_IUI_SHA_MISMATCH' && typeof error.expected === 'string' && typeof error.actual === 'string') {
+        this.iui = {
+          state: 'verify_failed',
+          artifactPath: error.artifactPath,
+          expected: error.expected,
+          actual: error.actual,
+          command: IUI_REBUILD_COMMAND,
+        }
+        return false
+      }
       if (error && error.code === 'FDE_IUI_SHA_MISMATCH') throw error
       const detail = error instanceof Error ? error.message : String(error)
       this.recordPluginFailure(plugin, detail)

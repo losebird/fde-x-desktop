@@ -8,6 +8,8 @@ import { PLUGIN_PIN_FILE } from './plugin-vendor.mjs'
 
 const execFile = promisify(execFileCb)
 
+export const IUI_REBUILD_COMMAND = 'node scripts/pack/build-iui.mjs --out ~/.dsh/vendor/iui'
+
 function sha256Hex(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
@@ -87,8 +89,8 @@ export async function stageIuiArtifact({ dest, pin, artifactPath }) {
 }
 
 export async function stageIuiArtifactIfAbsent({ dest, pin, artifactPath }) {
-  if (existsSync(join(dest, 'package.json'))) return { ok: true, action: 'profile-kept' }
-  if (!artifactPath || !existsSync(artifactPath)) return { ok: false, action: 'missing-artifact' }
+  if (existsSync(join(dest, 'package.json'))) return { ok: true, action: 'profile-kept', state: 'kept' }
+  if (!artifactPath || !existsSync(artifactPath)) return { ok: false, action: 'missing-artifact', state: 'absent' }
   await stageIuiArtifact({ dest, pin, artifactPath })
-  return { ok: true, action: 'installed' }
+  return { ok: true, action: 'installed', state: 'installed' }
 }

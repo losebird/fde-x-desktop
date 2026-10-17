@@ -9,12 +9,27 @@ import {
   iuiBuiltin,
   iuiEnabledFromList,
   iuiStatusPhrase,
+  iuiVerifyFailedPhrase,
   readInstalledIui,
 } from '../iui-status.mjs'
 
 const pin = iuiBuiltin().source.version
 
 test('iui status names the failed check', () => {
+  const verification = {
+    state: 'verify_failed',
+    artifactPath: '/tmp/iui.tar.gz',
+    expected: 'a'.repeat(64),
+    actual: 'b'.repeat(64),
+    command: 'node scripts/pack/build-iui.mjs --out ~/.dsh/vendor/iui',
+  }
+  const failed = iuiVerifyFailedPhrase(verification)
+  assert.match(failed, /IUI 校验失败/)
+  assert.match(failed, /\/tmp\/iui\.tar\.gz/)
+  assert.match(failed, new RegExp(verification.expected))
+  assert.match(failed, new RegExp(verification.actual))
+  assert.match(failed, /node scripts\/pack\/build-iui\.mjs --out ~\/\.dsh\/vendor\/iui/)
+  assert.equal(iuiStatusPhrase({ present: false, pinVersion: pin, verification }), failed)
   assert.equal(iuiStatusPhrase({ present: false, pinVersion: pin }), 'IUI 未安装')
   assert.equal(
     iuiStatusPhrase({ present: true, parseError: true, pinVersion: pin }),
