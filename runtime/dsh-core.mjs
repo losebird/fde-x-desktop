@@ -234,6 +234,7 @@ export class DshCoreConnector {
     this.pendingApprovals = new Map()
     this.eventAbort = null
     this.semanticRestarting = false
+    this.iui = { state: 'absent' }
   }
 
   kickSemanticIfExited(snapshot) {
@@ -535,7 +536,7 @@ export class DshCoreConnector {
             code: 'FDE_IUI_SHA_MISMATCH',
           })
         }
-        await stageIuiArtifactIfAbsent({
+        const staged = await stageIuiArtifactIfAbsent({
           dest: vendor,
           pin: {
             version: plugin.source.version,
@@ -544,6 +545,8 @@ export class DshCoreConnector {
           },
           artifactPath: this.pinnedArtifactPath(plugin),
         })
+        this.iui = staged
+        if (staged.state === 'verify_failed') return false
         const result = await reconcilePinnedVendor({
           vendorDir: vendor,
           pin: { version: plugin.source.version, commit: plugin.source.commit },

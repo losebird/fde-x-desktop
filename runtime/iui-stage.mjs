@@ -8,6 +8,8 @@ import { PLUGIN_PIN_FILE } from './plugin-vendor.mjs'
 
 const execFile = promisify(execFileCb)
 
+export const IUI_REBUILD_COMMAND = 'node scripts/pack/build-iui.mjs --out ~/.dsh/vendor/iui'
+
 function sha256Hex(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
@@ -52,20 +54,34 @@ export async function assertIuiTree(dir, pin) {
   if (!existsSync(join(dir, 'node_modules'))) throw new Error('IUI node_modules missing')
 }
 
-export async function stageIuiArtifact({ dest, pin, artifactPath }) {
+export async function verifyIuiArtifact(pin, artifactPath) {
   const expected = String(pin.artifact?.sha256 || '')
   if (!/^[a-f0-9]{64}$/u.test(expected)) {
     throw new Error('IUI pin artifact.sha256 is empty. Build the artifact and record the hash before staging.')
   }
   const loaded = await artifactBytes(pin, artifactPath)
   const actual = sha256Hex(loaded.bytes)
-  if (actual !== expected) throw shaMismatch(loaded.label, expected, actual)
+  if (actual !== expected) {
+    return {
+      state: 'verify_failed',
+      artifactPath: loaded.label,
+      expected,
+      actual,
+      command: IUI_REBUILD_COMMAND,
+    }
+  }
+  return { state: 'verified', bytes: loaded.bytes, artifactPath: loaded.label, expected, actual }
+}
+
+export async function stageIuiArtifact({ dest, pin, artifactPath }) {
+  const checked = await verifyIuiArtifact(pin, artifactPath)
+  if (checked.state === 'verify_failed') throw shaMismatch(checked.artifactPath, checked.expected, checked.actual)
   const staging = `${dest}.staging-${process.pid}`
   const bak = `${dest}.bak-${process.pid}`
   await rm(staging, { recursive: true, force: true })
   await mkdir(staging, { recursive: true })
   const archive = join(staging, 'artifact.tar.gz')
-  await writeFile(archive, loaded.bytes)
+  await writeFile(archive, checked.bytes)
   await execFile('tar', ['-xzf', archive, '-C', staging])
   await rm(archive)
   try {
@@ -87,8 +103,10 @@ export async function stageIuiArtifact({ dest, pin, artifactPath }) {
 }
 
 export async function stageIuiArtifactIfAbsent({ dest, pin, artifactPath }) {
-  if (existsSync(join(dest, 'package.json'))) return { ok: true, action: 'profile-kept' }
-  if (!artifactPath || !existsSync(artifactPath)) return { ok: false, action: 'missing-artifact' }
+  if (existsSync(join(dest, 'package.json'))) return { ok: true, action: 'profile-kept', state: 'kept' }
+  if (!artifactPath || !existsSync(artifactPath)) return { ok: false, action: 'missing-artifact', state: 'absent' }
+  const checked = await verifyIuiArtifact(pin, artifactPath)
+  if (checked.state === 'verify_failed') return { ok: false, action: 'verify-failed', ...checked }
   await stageIuiArtifact({ dest, pin, artifactPath })
-  return { ok: true, action: 'installed' }
+  return { ok: true, action: 'installed', state: 'installed' }
 }
