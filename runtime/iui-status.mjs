@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { BUILTIN_PLUGINS } from './builtin-plugins.mjs'
+import { withProbeTimeout } from './live-probe.mjs'
 
 export function iuiBuiltin() {
   const plugin = BUILTIN_PLUGINS.find((row) => row.module === '@losebird/iui')
@@ -56,18 +57,27 @@ export function iuiStatusPhrase({ present, version, parseError, pinVersion, enab
   return `IUI ${version} · 已启用（标准对话）`
 }
 
+function errorText(error) {
+  return error instanceof Error ? error.message : String(error)
+}
+
 export async function describeIui(aiRuntime, dshHome, profileName) {
   const plugin = iuiBuiltin()
-  const installed = await readInstalledIui(iuiProfileDir(dshHome, profileName))
+  let installed
+  try {
+    installed = await readInstalledIui(iuiProfileDir(dshHome, profileName))
+  } catch (error) {
+    return `IUI 状态读取失败：${errorText(error)}`
+  }
   const connected = Boolean(aiRuntime && typeof aiRuntime.status === 'function' && aiRuntime.status().connected)
   let enabled = null
   let readError = ''
   if (installed.present && !installed.parseError && connected && typeof aiRuntime.call === 'function') {
     try {
-      const listed = await aiRuntime.call('pluginManager/listPlugins', {})
+      const listed = await withProbeTimeout(aiRuntime.call('pluginManager/listPlugins', {}))
       enabled = iuiEnabledFromList(listed, plugin.module)
     } catch (error) {
-      readError = error instanceof Error ? error.message : String(error)
+      readError = errorText(error)
     }
   }
   return iuiStatusPhrase({
