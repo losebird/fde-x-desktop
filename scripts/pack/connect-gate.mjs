@@ -85,7 +85,7 @@ const child = spawn(launcher, [server], {
 })
 
 function stop() {
-  try { process.kill(-child.pid, 'SIGTERM') } catch { /* already gone */ }
+  try { process.kill(-child.pid, 'SIGTERM') } catch {}
 }
 
 let log = ''

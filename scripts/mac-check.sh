@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Stage this checkout and connect dsh through the bundled Node and through Electron.
-# HOME points at an empty temporary directory. The script does not read or print secrets,
-# and it does not publish, sign, or notarize.
 set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -86,6 +83,7 @@ if [ -z "$ELEC" ]; then
     cd "$LOG_DIR/electron-pkg"
     npm init -y >"$LOG_DIR/electron-install.log" 2>&1
     npm install --no-audit --no-fund "electron@$ver" >>"$LOG_DIR/electron-install.log" 2>&1
+    node node_modules/electron/install.js >>"$LOG_DIR/electron-install.log" 2>&1
   ); then
     say "electron install failed"
     STATUS=1
