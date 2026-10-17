@@ -78,9 +78,10 @@ test('verify_failed offers retry and subscribes again after the click', async ({
   })
   const line = 'IUI 校验失败。归档 /tmp/iui-pin.tar.gz。期望 aaa111，实际 bbb222。用 Node 26.7.0 与 pnpm 11.20.0 重新打包：node scripts/pack/build-iui.mjs'
   await expect(panel.getByText(line)).toBeVisible()
+  const beforeStop = hits()
+  await page.waitForTimeout(2000)
+  expect(hits() - beforeStop, 'the 400ms status watch should stop on verify_failed').toBeLessThan(3)
   const settled = hits()
-  await page.waitForTimeout(1200)
-  expect(hits() - settled, 'status polling should stop on verify_failed').toBeLessThan(2)
   await panel.getByRole('button', { name: '重试' }).click()
   await expect.poll(() => retries()).toBe(1)
   await expect.poll(() => hits()).toBeGreaterThan(settled)

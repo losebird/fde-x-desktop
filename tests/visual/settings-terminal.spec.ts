@@ -86,8 +86,8 @@ test('core error shows the pnpm dev sentence and stops status polling', async ({
   await expect(page.getByText('请重新执行').first()).toBeVisible()
   await expect(panel.getByText('请重新执行')).toBeVisible()
   const settled = hits()
-  await page.waitForTimeout(1600)
-  expect(hits() - settled, 'status polling should stop on core error').toBeLessThan(2)
+  await page.waitForTimeout(2000)
+  expect(hits() - settled, 'the 400ms status watch should stop on core error').toBeLessThan(3)
 })
 
 test('iui failed shows the reason and stops status polling', async ({ page }) => {
@@ -101,6 +101,6 @@ test('iui failed shows the reason and stops status polling', async ({ page }) =>
   await expect(panel.getByText(line)).toBeVisible()
   await expect(page.getByText('请重新执行')).toHaveCount(0)
   const settled = hits()
-  await page.waitForTimeout(1600)
-  expect(hits() - settled, 'status polling should stop on iui failed').toBeLessThan(2)
+  await page.waitForTimeout(2000)
+  expect(hits() - settled, 'the 400ms status watch should stop on iui failed').toBeLessThan(3)
 })

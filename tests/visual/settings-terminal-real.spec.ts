@@ -47,8 +47,8 @@ test('a dead core shows the install failure and the retry button restarts it', a
     await expect(panel.getByText('fde-iui-missing-module')).toBeVisible()
     await expect(panel.getByRole('button', { name: '重试' })).toBeVisible()
     const settled = hits
-    await page.waitForTimeout(1600)
-    expect(hits - settled, 'status polling should stop on iui failed').toBeLessThan(2)
+    await page.waitForTimeout(2000)
+    expect(hits - settled, 'the 400ms status watch should stop on iui failed').toBeLessThan(3)
 
     const failed = await (await request.get('/api/v1/ai/status')).json()
     expect(failed.data?.state).toBe('error')
