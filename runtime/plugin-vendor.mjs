@@ -1,4 +1,4 @@
-import { access, cp, mkdir, readFile, readdir, rename, rm } from 'node:fs/promises'
+import { access, cp, mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { constants, existsSync, realpathSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
@@ -46,29 +46,90 @@ function sameRealPath(left, right) {
   }
 }
 
-async function removePinTemps(vendorDir) {
+function tempPid(base, name, kind) {
+  const prefix = `${base}.${kind}-`
+  if (!name.startsWith(prefix)) return null
+  const rest = name.slice(prefix.length)
+  if (!/^\d+$/u.test(rest)) return null
+  return Number(rest)
+}
+
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return error.code === 'EPERM'
+  }
+}
+
+async function siblingNames(vendorDir) {
+  try {
+    return await readdir(dirname(vendorDir))
+  } catch {
+    return []
+  }
+}
+
+async function removePinTemps(vendorDir, pid) {
   const parent = dirname(vendorDir)
   const base = basename(vendorDir)
-  let names
-  try {
-    names = await readdir(parent)
-  } catch {
-    return
-  }
+  const names = await siblingNames(vendorDir)
   await Promise.all(names.map((name) => {
-    if (name.startsWith(`${base}.staging-`) || name.startsWith(`${base}.bak-`)) {
-      return rm(join(parent, name), { recursive: true, force: true })
-    }
-    return undefined
+    const stagingPid = tempPid(base, name, 'staging')
+    const bakPid = tempPid(base, name, 'bak')
+    const own = stagingPid === pid || bakPid === pid
+    const deadStaging = stagingPid !== null && stagingPid !== pid && !pidAlive(stagingPid)
+    if (!own && !deadStaging) return undefined
+    return rm(join(parent, name), { recursive: true, force: true })
   }))
 }
 
-export async function reconcilePinnedVendor({ vendorDir, pin, candidates, pid = process.pid }) {
+async function restoreDeadBak(vendorDir, renameImpl) {
+  if (existsSync(vendorDir)) return false
+  const parent = dirname(vendorDir)
+  const base = basename(vendorDir)
+  const names = await siblingNames(vendorDir)
+  const baks = names.filter((name) => {
+    const bakPid = tempPid(base, name, 'bak')
+    return bakPid !== null && !pidAlive(bakPid)
+  })
+  if (!baks.length) return false
+  let chosen = baks[0]
+  let newest = -1
+  for (const name of baks) {
+    const info = await stat(join(parent, name))
+    if (info.mtimeMs >= newest) {
+      newest = info.mtimeMs
+      chosen = name
+    }
+  }
+  await renameImpl(join(parent, chosen), vendorDir)
+  return true
+}
+
+function failure(action, error) {
+  return {
+    ok: false,
+    action,
+    error: error instanceof Error ? error.message : String(error),
+  }
+}
+
+export async function reconcilePinnedVendor({
+  vendorDir,
+  pin,
+  candidates,
+  pid = process.pid,
+  renameImpl = rename,
+}) {
+  const restored = await restoreDeadBak(vendorDir, renameImpl)
   if (existsSync(vendorDir)) {
     const installed = await readInstalledPin(vendorDir)
     if (pinMatches(installed, pin)) {
-      await removePinTemps(vendorDir)
-      return { ok: true, action: 'keep' }
+      await removePinTemps(vendorDir, pid)
+      return { ok: true, action: restored ? 'restore' : 'keep' }
     }
   }
 
@@ -82,7 +143,6 @@ export async function reconcilePinnedVendor({ vendorDir, pin, candidates, pid = 
   const backup = `${vendorDir}.bak-${pid}`
   await rm(staging, { recursive: true, force: true })
   await mkdir(dirname(vendorDir), { recursive: true })
-  let replaced = false
   try {
     await cp(source, staging, { recursive: true, dereference: true })
     const staged = await readInstalledPin(staging)
@@ -91,19 +151,30 @@ export async function reconcilePinnedVendor({ vendorDir, pin, candidates, pid = 
       return { ok: false, action: 'source-mismatch' }
     }
     const hadVendor = existsSync(vendorDir)
-    if (hadVendor) await rename(vendorDir, backup)
+    if (hadVendor) await renameImpl(vendorDir, backup)
     try {
-      await rename(staging, vendorDir)
-      replaced = true
+      await renameImpl(staging, vendorDir)
     } catch (error) {
-      if (hadVendor && !existsSync(vendorDir) && existsSync(backup)) await rename(backup, vendorDir)
-      throw error
+      if (hadVendor && !existsSync(vendorDir) && existsSync(backup)) {
+        await renameImpl(backup, vendorDir)
+      }
+      await rm(staging, { recursive: true, force: true })
+      return failure('rename-failed', error)
     }
     await rm(backup, { recursive: true, force: true })
-    await removePinTemps(vendorDir)
+    await removePinTemps(vendorDir, pid)
     return { ok: true, action: hadVendor ? 'replace' : 'install' }
   } catch (error) {
-    if (!replaced) await rm(staging, { recursive: true, force: true })
-    throw error
+    await rm(staging, { recursive: true, force: true })
+    let restoreError = ''
+    if (!existsSync(vendorDir) && existsSync(backup)) {
+      try {
+        await renameImpl(backup, vendorDir)
+      } catch (restore) {
+        restoreError = restore instanceof Error ? restore.message : String(restore)
+      }
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    return failure('copy-failed', restoreError ? `${message}；备份未能放回：${restoreError}` : message)
   }
 }

@@ -492,38 +492,57 @@ export class DshCoreConnector {
     }
   }
 
+  recordPluginFailure(plugin, detail) {
+    const text = `可选插件 ${plugin.module} 挂载失败：${detail}`
+    this.pluginLinkFailures.push(text)
+    console.warn('builtin_plugin_link_failed', text)
+  }
+
   async linkBuiltinPlugin(plugin, modulesDir) {
-    const vendor = join(this.dshHome, 'vendor', plugin.dir)
-    if (plugin.source.kind === 'pinned') {
-      const result = await reconcilePinnedVendor({
-        vendorDir: vendor,
-        pin: { version: plugin.source.version, commit: plugin.source.commit },
-        candidates: this.pluginSourceCandidates(plugin),
-      })
-      if (!result.ok) return false
-    } else {
-      if (process.env.FDE_REFRESH_PLUGINS === '1') {
-        await rm(vendor, { recursive: true, force: true })
-      }
-      if (!existsSync(vendor)) {
-        for (const source of this.pluginSourceCandidates(plugin)) {
-          try {
-            await access(source, constants.R_OK)
-            await mkdir(dirname(vendor), { recursive: true })
-            await cp(source, vendor, { recursive: true, dereference: true })
-            break
-          } catch {
-            /* try next candidate */
+    try {
+      const vendor = join(this.dshHome, 'vendor', plugin.dir)
+      if (plugin.source.kind === 'pinned') {
+        const result = await reconcilePinnedVendor({
+          vendorDir: vendor,
+          pin: { version: plugin.source.version, commit: plugin.source.commit },
+          candidates: this.pluginSourceCandidates(plugin),
+        })
+        if (!result.ok) {
+          const detail = result.error ? `${result.action}：${result.error}` : result.action
+          this.recordPluginFailure(plugin, detail)
+          return false
+        }
+      } else {
+        if (process.env.FDE_REFRESH_PLUGINS === '1') {
+          await rm(vendor, { recursive: true, force: true })
+        }
+        if (!existsSync(vendor)) {
+          for (const source of this.pluginSourceCandidates(plugin)) {
+            try {
+              await access(source, constants.R_OK)
+              await mkdir(dirname(vendor), { recursive: true })
+              await cp(source, vendor, { recursive: true, dereference: true })
+              break
+            } catch {
+              continue
+            }
           }
         }
+        if (!existsSync(vendor)) {
+          this.recordPluginFailure(plugin, 'missing-source')
+          return false
+        }
       }
-      if (!existsSync(vendor)) return false
+      await this.applyVendorOverlay(plugin.dir, vendor)
+      const link = join(modulesDir, plugin.module)
+      await mkdir(dirname(link), { recursive: true })
+      await linkPath(vendor, link)
+      return true
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      this.recordPluginFailure(plugin, detail)
+      return false
     }
-    await this.applyVendorOverlay(plugin.dir, vendor)
-    const link = join(modulesDir, plugin.module)
-    await mkdir(dirname(link), { recursive: true })
-    await linkPath(vendor, link)
-    return true
   }
 
   async ensureIsolatedProfile() {
@@ -543,10 +562,12 @@ export class DshCoreConnector {
     const packagePath = join(dir, 'package.json')
     await readProfileManifestFile(packagePath)
     await mkdir(modules, { recursive: true })
+    this.pluginLinkFailures = []
     const extras = []
     for (const plugin of BUILTIN_PLUGINS) {
       if (await this.linkBuiltinPlugin(plugin, modules)) extras.push(plugin.module)
     }
+    this.lastError = this.pluginLinkFailures.length ? this.pluginLinkFailures.join('；') : null
     extras.push(...availableProductBundles())
     await writeMergedProfileManifest(packagePath, {
       profileName: this.profileName,
