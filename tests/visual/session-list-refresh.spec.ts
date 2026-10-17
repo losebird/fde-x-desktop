@@ -39,6 +39,8 @@ async function createWorkspace(request: APIRequestContext, path: string, title: 
   }
 }
 
+// Host workspace identity is fs.realpath. macOS tmp is /var, stored as /private/var.
+
 async function createSession(request: APIRequestContext, cwd: string) {
   const response = await request.post('/api/v1/ai/sessions', { data: { cwd } })
   const body = await readJson(response)
@@ -112,10 +114,10 @@ function briefingDefinition(cwd: string) {
 test('new briefing and REST sessions show in the sidebar without a reload', async ({ page, request }) => {
   test.setTimeout(120_000)
   const root = await mkdtemp(join(tmpdir(), 'fde-session-list-'))
-  const cwd = join(root, 'a')
-  await mkdir(cwd)
+  const dir = join(root, 'a')
+  await mkdir(dir)
   const title = `list-${root.split('/').at(-1)}`
-  await createWorkspace(request, cwd, title)
+  const cwd = (await createWorkspace(request, dir, title)).path
   const sessionId = await createSession(request, cwd)
   expect(sessionId).toBeTruthy()
 
@@ -171,10 +173,10 @@ test('new briefing and REST sessions show in the sidebar without a reload', asyn
 test('the generate briefing button adds the session to the sidebar without a reload', async ({ page, request }) => {
   test.setTimeout(120_000)
   const root = await mkdtemp(join(tmpdir(), 'fde-session-list-'))
-  const cwd = join(root, 'a')
-  await mkdir(cwd)
+  const dir = join(root, 'a')
+  await mkdir(dir)
   const title = `button-${root.split('/').at(-1)}`
-  await createWorkspace(request, cwd, title)
+  const cwd = (await createWorkspace(request, dir, title)).path
   const sessionId = await createSession(request, cwd)
 
   let loads = 0
@@ -220,10 +222,10 @@ test.describe('narrow sidebar', () => {
 
   test('a new session appears in the collapsed icon bar without a reload', async ({ page, request }) => {
     const root = await mkdtemp(join(tmpdir(), 'fde-session-list-'))
-    const cwd = join(root, 'a')
-    await mkdir(cwd)
+    const dir = join(root, 'a')
+    await mkdir(dir)
     const title = `narrow-${root.split('/').at(-1)}`
-    await createWorkspace(request, cwd, title)
+    const cwd = (await createWorkspace(request, dir, title)).path
     const sessionId = await createSession(request, cwd)
 
     let loads = 0
