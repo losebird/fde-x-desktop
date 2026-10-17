@@ -116,10 +116,19 @@ function printHelp() {
     '',
     '测量 A/B 首轮。--static 用假模型，不需要 GROK2API_API_KEY。',
     'IUI 包只认环境变量 FDE_IUI_ARTIFACT，指向现成的 iui-<commit>.tar.gz。',
-    '变量缺失或文件不存在时直接退出并说明原因。本脚本不构建 IUI。',
+    '期望的 commit、version 和 sha256 只读 runtime/iui-pin.mjs。文件不在时先合 PR-9。',
+    '--iui-pin 可以指向一份同样形状的夹具。本脚本不构建 IUI，也不另写钉值。',
     '',
     '需要 Node 26 和 pnpm 11.20.0。key 只读环境变量 GROK2API_API_KEY。',
   ].join('\n'))
+}
+
+function iuiPinFile() {
+  const index = process.argv.indexOf('--iui-pin')
+  if (index < 0) return join(repoRoot, 'runtime', 'iui-pin.mjs')
+  const file = process.argv[index + 1]
+  if (!file || file.startsWith('--')) throw new Error('--iui-pin 需要钉值文件。需要先合 PR-9。')
+  return resolve(file)
 }
 
 async function ensureArtifact() {
@@ -515,6 +524,14 @@ async function main() {
   }
   if (!staticMode) assertLiveProfilePatch({ staticMode: false })
   const artifact = await ensureArtifact()
+  let pin
+  try {
+    pin = await readIuiPin(artifact, iuiPinFile())
+  } catch (error) {
+    console.error(redactText(error instanceof Error ? error.message : String(error)))
+    process.exitCode = 1
+    return
+  }
   if (!assertNode()) return
   if (!await assertPnpm()) return
   if (!staticMode && !process.env.GROK2API_API_KEY) {
@@ -523,7 +540,6 @@ async function main() {
   }
   const outDir = resolve(repoRoot, 'artifacts', 'iui-perf', staticMode ? 'grok-static' : 'grok-live')
   await mkdir(outDir, { recursive: true })
-  const pin = await readIuiPin(artifact)
   const pluginDir = await ensurePluginDir(artifact, pin.commit)
   const order = planArms({ env: process.env, staticMode })
   const finished = []
