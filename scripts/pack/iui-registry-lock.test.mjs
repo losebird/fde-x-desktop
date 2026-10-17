@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -140,6 +141,38 @@ test('a scope registry rewrites only resolved urls under that prefix', () => {
     '"resolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"',
     '"resolved": "https://nexus.example.com/repository/other/left.tgz"',
   ].join('\n'))
+})
+
+test('an npmmirror install writes the mirror host before canonicalization', () => {
+  const registry = execFileSync('npm', ['config', 'get', 'registry'], { encoding: 'utf8' }).trim()
+  if (!registry.includes('registry.npmmirror.com')) {
+    if (process.env.FDE_IUI_REQUIRE_MIRROR === '1') {
+      assert.fail(`npm registry is ${registry}`)
+    }
+    console.log(`skip disk mirror proof registry ${registry}`)
+    return
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'fde-iui-mirror-lock-'))
+  try {
+    writeFileSync(join(dir, 'package.json'), `${JSON.stringify({
+      name: 'fde-iui-mirror-probe',
+      version: '1.0.0',
+      dependencies: { which: '2.0.2' },
+    }, null, 2)}\n`)
+    execFileSync('npm', ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: process.env,
+    })
+    const raw = readFileSync(join(dir, 'package-lock.json'))
+    assert.match(raw.toString('utf8'), /registry\.npmmirror\.com/)
+    const canonical = canonicalNpmLockBytes(raw).toString('utf8')
+    assert.equal(canonical.includes('registry.npmmirror.com'), false)
+    assert.match(canonical, /registry\.npmjs\.org/)
+    console.log('ASSERT ok: lockfile on disk contains registry.npmmirror.com before canonicalization')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('a bad pack keeps the previous good archive bytes', async () => {
