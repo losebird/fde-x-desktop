@@ -7,7 +7,7 @@ const node = process.execPath
 const port = Number(process.env.FDE_SMOKE_PORT || 4398)
 const base = `http://127.0.0.1:${port}`
 const origin = 'http://127.0.0.1:5173'
-const child = spawn(node, ['runtime/server.mjs'], {
+const child = spawn(node, ['runtime/boot.mjs'], {
   cwd: new URL('..', import.meta.url),
   env: {
     ...process.env,

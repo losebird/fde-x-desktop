@@ -45,7 +45,7 @@ function fdeRuntimePlugin(): Plugin {
   function spawnSupervisedRuntime(server: Parameters<NonNullable<Plugin['configureServer']>>[0]) {
     if (shuttingDown || runtimeChild) return
     const host = FDE_RUNTIME_HOST
-    const child = spawn(process.execPath, ['runtime/server.mjs'], {
+    const child = spawn(process.execPath, ['runtime/boot.mjs'], {
       cwd: fileURLToPath(new URL('.', import.meta.url)),
       env: {
         ...process.env,

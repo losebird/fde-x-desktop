@@ -118,7 +118,7 @@ function superviseRuntime(extraEnv = {}, { adoptExisting = false } = {}) {
       })
       if (shuttingDown) return
       if (await portOpen(runtimePort, 300)) return
-      child = spawn(process.execPath, ['runtime/server.mjs'], {
+      child = spawn(process.execPath, ['runtime/boot.mjs'], {
         cwd: root,
         env,
         stdio: 'inherit',

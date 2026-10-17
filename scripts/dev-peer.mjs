@@ -99,7 +99,7 @@ function run(command, args, extraEnv = {}) {
 function runRuntime(extraEnv = {}) {
   const env = { ...process.env, ...extraEnv, FDE_RUNTIME_SUPERVISED: '1' }
   const boot = () => {
-    const child = spawn(process.execPath, ['runtime/server.mjs'], {
+    const child = spawn(process.execPath, ['runtime/boot.mjs'], {
       cwd: root,
       env,
       stdio: 'inherit',

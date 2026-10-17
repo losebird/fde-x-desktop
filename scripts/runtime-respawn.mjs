@@ -30,7 +30,7 @@ await reclaimStrayRuntime({
   dshHome: process.env.FDE_DSH_HOME || FDE_DSH_HOME,
 })
 
-const child = spawn(process.execPath, ['runtime/server.mjs'], {
+const child = spawn(process.execPath, ['runtime/boot.mjs'], {
   cwd: FDE_APP_ROOT,
   env: process.env,
   stdio: 'inherit',

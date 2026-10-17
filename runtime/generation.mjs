@@ -75,7 +75,8 @@ async function ensureDshShim(root) {
 export async function ensureGenerationHost() {
   const root = generationInstallRoot()
   const existing = join(root, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
-  if (existsSync(existing)) {
+  const yamlPkg = join(root, 'node_modules', 'yaml', 'package.json')
+  if (existsSync(existing) && existsSync(yamlPkg)) {
     try {
       const pkg = JSON.parse(await readFile(existing, 'utf8'))
       if (pkg.version === HOST_GENERATION.pin && generationDshBin()) return generationDshBin()
