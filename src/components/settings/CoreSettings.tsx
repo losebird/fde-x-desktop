@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useWhenCoreConnects } from '@/components/settings/core-connection'
 import { Bot, ChevronDown, ChevronRight, Copy, Trash2, Upload } from 'lucide-react'
 import { Card, Tag } from '@/components/ui'
 import { runtimeApi, type AiPresetRecord } from '@/lib/runtime-api'
@@ -57,6 +58,7 @@ export function CoreSettings() {
   }
 
   useEffect(() => { load() }, [])
+  useWhenCoreConnects(load, !connected)
 
   return (
     <div className="space-y-4">

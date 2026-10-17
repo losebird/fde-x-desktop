@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useWhenCoreConnects } from '@/components/settings/core-connection'
 import { Database, RefreshCw, Trash2 } from 'lucide-react'
 import { Tag } from '@/components/ui'
 import { SurfaceButton } from '@/components/surface/Button'
@@ -40,7 +41,7 @@ export function DataSection() {
   const [editSkills, setEditSkills] = useState<FdeAppSkillBind[]>([])
   const [sourceSaving, setSourceSaving] = useState(false)
 
-  useEffect(() => {
+  const load = useCallback(() => {
     void runtimeApi.imState().then((state) => {
       const current = state.lookup && typeof state.lookup === 'object' ? state.lookup as Record<string, unknown> : null
       if (!current) return
@@ -78,6 +79,9 @@ export function DataSection() {
       setSkillBag(skills.items)
     })()
   }, [])
+
+  useEffect(() => { load() }, [load])
+  useWhenCoreConnects(load, true)
 
   return (
     <div className="space-y-4">

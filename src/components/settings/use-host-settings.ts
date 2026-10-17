@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useWhenCoreConnects } from '@/components/settings/core-connection'
 import { runtimeApi, type AiModelCatalog } from '@/lib/runtime-api'
 import { hostText } from '@/lib/host-text'
 import {
@@ -107,6 +108,7 @@ export function useHostSettings() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useWhenCoreConnects(load, phase === 'coreDown')
 
   const connect = () => {
     setPhase('loading')

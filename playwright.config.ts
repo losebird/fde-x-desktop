@@ -5,6 +5,7 @@ const baseURL = process.env.FDE_VISUAL_BASE ?? 'http://127.0.0.1:5174'
 export default defineConfig({
   testDir: 'tests/visual',
   fullyParallel: false,
+  workers: 1,
   retries: 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {

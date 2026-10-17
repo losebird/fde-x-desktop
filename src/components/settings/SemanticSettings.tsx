@@ -1,4 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react'
+import { useWhenCoreConnects } from '@/components/settings/core-connection'
 import { Brain, RefreshCw } from 'lucide-react'
 import { Card, Tag } from '@/components/ui'
 import { surfaceNote } from '@/components/settings/surface-note'
@@ -103,6 +104,7 @@ export function SemanticSettings() {
   }
 
   useEffect(() => { load() }, [workspaceCwd])
+  useWhenCoreConnects(load, true)
 
   useEffect(() => {
     let alive = true
