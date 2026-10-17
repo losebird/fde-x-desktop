@@ -104,4 +104,13 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
   assert.equal(health.status, 200)
   assert.equal(followStatus, 200)
   assert.match(aiError, /briefing generation failed/)
+
+  const recent = await fetch(
+    `${base}/api/v1/events/recent?type=briefing.ready&workspace=${encodeURIComponent(cwd)}`,
+    { headers: { Origin: origin } },
+  )
+  const recentBody = await recent.json()
+  assert.equal(recent.status, 200, JSON.stringify(recentBody))
+  const ready = (recentBody.items || []).some((item) => item.type === 'briefing.ready')
+  assert.equal(ready, true)
 })
