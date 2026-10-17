@@ -167,11 +167,8 @@ export function briefingTurnFailure(event) {
 export function briefingTurnFailureText(failure) {
   if (!failure || (!failure.code && !failure.message)) return ''
   const code = failure.code || ''
-  const message = failure.message || ''
-  if (/credential|api[ _-]?key|密钥/i.test(`${code} ${message}`)) {
-    return code
-      ? `没有配置模型密钥（${code}）。请到设置里配置 key。`
-      : '没有配置模型密钥。请到设置里配置 key。'
+  if (code === 'MISSING_CREDENTIAL') {
+    return '没有配置模型密钥（MISSING_CREDENTIAL）。请到设置里配置 key。'
   }
   if (code) return `早报这一轮失败（${code}）。`
   return '早报这一轮失败。'
