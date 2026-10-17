@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { Tag } from '@/components/ui'
 import { SurfaceBanner } from '@/components/surface/Banner'
 import { SurfaceButton } from '@/components/surface/Button'
+import { useWhenCoreConnects } from '@/components/settings/core-connection'
 import { surfaceNote } from '@/components/settings/surface-note'
 import { runtimeApi, type RuntimeHealth } from '@/lib/runtime-api'
 
@@ -26,6 +27,7 @@ export function RuntimeSection() {
   }, [])
 
   useEffect(() => { void diagnoseRuntime() }, [diagnoseRuntime])
+  useWhenCoreConnects(() => { void diagnoseRuntime() }, true)
 
   return (
     <div className="space-y-4">
