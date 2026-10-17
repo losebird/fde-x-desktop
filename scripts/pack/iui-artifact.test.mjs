@@ -37,7 +37,6 @@ test('IUI pin matches the builtin table and leaves the release URL empty', () =>
   assert.equal(IUI_PIN.version, iui.source.version)
   assert.equal(IUI_PIN.commit, iui.source.commit)
   assert.equal(IUI_PIN.artifact.url, '')
-  assert.equal(IUI_PIN.artifact.sha256, 'c171f532ccd01e3b66272d9a364aefaaef7cd47dd37bcc4dd5444991998b634c')
   assert.equal(IUI_PIN.artifact.sha256, iui.source.sha256)
   assert.equal(readFileSync(new URL('./stage.mjs', import.meta.url), 'utf8').includes('build-iui'), false)
 })

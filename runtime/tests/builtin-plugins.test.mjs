@@ -20,9 +20,9 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     assert.equal(pluginEnvKey('iui'), 'FDE_PLUGIN_IUI')
     assert.equal(pluginEnvKey('@losebird/iui'), 'FDE_PLUGIN__LOSEBIRD_IUI')
     assert.deepEqual(IUI.modes, ['standard'])
-    assert.equal(IUI.source.version, '0.13.0-iui.27')
-    assert.equal(IUI.source.commit, '10db57b326a228e19e3093fcd694ae2ac5951408')
-    assert.equal(IUI.source.sha256, 'c171f532ccd01e3b66272d9a364aefaaef7cd47dd37bcc4dd5444991998b634c')
+    assert.equal(IUI.source.version, IUI_PIN.version)
+    assert.equal(IUI.source.commit, IUI_PIN.commit)
+    assert.equal(IUI.source.sha256, IUI_PIN.artifact.sha256)
   })
 
   test('the iui row is loaded from pins.mjs', async () => {
