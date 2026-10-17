@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { createServer as createNetServer } from 'node:net'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -138,9 +139,25 @@ function stopChild(child) {
   })
 }
 
-async function waitFor(predicate, timeoutMs, label) {
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = createNetServer()
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      probe.close(() => resolve(port))
+    })
+  })
+}
+
+async function waitFor(predicate, timeoutMs, label, abort) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
+    if (abort) {
+      const reason = abort()
+      if (reason) throw new Error(`${label} aborted: ${reason}`)
+    }
     const value = await predicate()
     if (value) return value
     await new Promise((resolve) => setTimeout(resolve, 250))
@@ -225,6 +242,7 @@ async function captureArm({ port, patchFile }) {
         FDE_RUNTIME_PORT: String(port),
         FDE_LISTEN_HOST: '127.0.0.1',
         FDE_VENDOR_DIR: join(home, 'missing-vendor'),
+        FDE_SEMANTIC_RUNTIME_MODE: 'readonly',
         DSH_PERMISSION_MODE: 'danger-full-access',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -232,9 +250,14 @@ async function captureArm({ port, patchFile }) {
     })
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
+    const childState = { gone: '' }
     child.stdout.on('data', (chunk) => { logs.out += redactText(chunk) })
     child.stderr.on('data', (chunk) => { logs.out += redactText(chunk) })
-    await waitFor(() => logs.out.includes('FDE_LISTENING'), 90000, 'FDE_LISTENING')
+    child.once('exit', (code, signal) => {
+      childState.gone = `code=${code ?? ''} signal=${signal ?? ''}`
+    })
+    const abortChild = () => (childState.gone ? `${childState.gone}\n${logs.out.slice(-800)}` : '')
+    await waitFor(() => logs.out.includes('FDE_LISTENING'), 90000, 'FDE_LISTENING', abortChild)
     const listened = logs.out.match(/FDE_LISTENING\s+(\d+)/)
     const origin = `http://127.0.0.1:${listened ? listened[1] : port}`
     const connected = await fetch(new URL('/api/v1/ai/connect', origin), {
@@ -263,7 +286,7 @@ async function captureArm({ port, patchFile }) {
     })
     const promptText = await prompted.text()
     assert.equal(prompted.ok, true, redactText(promptText).slice(0, 400))
-    const raw = await waitFor(() => model.bodies.find((body) => body.includes('杭州三天')) || '', 90000, 'model request')
+    const raw = await waitFor(() => model.bodies.find((body) => body.includes('杭州三天')) || '', 90000, 'model request', abortChild)
     const tools = JSON.parse(raw).tools
     const toolTokens = await countTokens(JSON.stringify(tools))
     const profile = await readFile(join(home, 'profiles', 'fde-x', 'cordis.patch.yml'), 'utf8')
@@ -300,8 +323,8 @@ test('a user MCP patch raises B tool count and tokens, and the closed switch sta
     const patchText = await readFile(patchFile, 'utf8')
     assert.equal(patchText.includes(PLANTED), true)
     assert.equal(redactText(patchText).includes(PLANTED), false)
-    const off = await captureArm({ port: 4651, patchFile: '' })
-    const on = await captureArm({ port: 4652, patchFile })
+    const off = await captureArm({ port: await freePort(), patchFile: '' })
+    const on = await captureArm({ port: await freePort(), patchFile })
     assert.equal(off.log.includes(PLANTED), false)
     assert.equal(on.log.includes(PLANTED), false)
     const detail = `off tools=${off.toolCount} tokens=${off.toolTokens} applied=${off.applied}; on tools=${on.toolCount} tokens=${on.toolTokens} applied=${on.applied} mcp=${on.mcpNote} profileSecret=${on.profileHasPlanted}`
