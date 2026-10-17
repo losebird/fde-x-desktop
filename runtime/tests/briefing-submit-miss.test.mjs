@@ -1,15 +1,31 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { rm } from 'node:fs/promises'
-import { openDatabase } from '../db.mjs'
-import { getBriefing, getOrCreateDefinition } from '../briefing/store.mjs'
-import { mergeBriefingSubmit } from '../briefing/run.mjs'
-import { handleBriefingRoutes } from '../routes/briefing.mjs'
+import { FDE_RESOURCES } from '../config.mjs'
+import { HOST_GENERATION, generationInstallRoot } from '../generation.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+const yamlDirs = [
+  join(generationInstallRoot(), 'node_modules', 'yaml'),
+  join(FDE_RESOURCES, 'dsh', 'node_modules', 'yaml'),
+]
+if (!yamlDirs.some((dir) => existsSync(join(dir, 'package.json')))) {
+  throw new Error(
+    `缺少 Host ${HOST_GENERATION.pin} 里的 yaml。`
+    + `导入早报路由时会在这些目录找 yaml/package.json：${yamlDirs.join('、')}。`
+    + '在仓库根目录执行 node --input-type=module -e "import { ensureGenerationHost } from \'./runtime/generation.mjs\'; await ensureGenerationHost()"'
+    + `。它把 @deepseek-ai/dsh@${HOST_GENERATION.pin} 装进 runtime/.host-generation，yaml 随这一代 Host 下来。`,
+  )
+}
+
+const { openDatabase } = await import('../db.mjs')
+const { getBriefing, getOrCreateDefinition } = await import('../briefing/store.mjs')
+const { mergeBriefingSubmit } = await import('../briefing/run.mjs')
+const { handleBriefingRoutes } = await import('../routes/briefing.mjs')
+
 const migrations = join(repoRoot, 'runtime', 'migrations')
 const origin = 'http://127.0.0.1:5174'
 
@@ -132,6 +148,34 @@ test('a rejected briefing prompt is the Chinese section error and does not stay 
   const briefing = first.body.data?.briefing
   const ai = aiSection(briefing)
   assert.equal(ai?.error, '会话拒绝了这次 prompt')
+  assert.equal(ai?.pendingAgent, false)
+  assert.notEqual(briefing.status, 'running')
+  assert.match(failureLine(briefing.sections), /AI 早报失败/)
+
+  const second = await postRun(db, runtime(), cwd)
+  assert.equal(second.status, 200, JSON.stringify(second.body))
+  assert.notEqual(second.body.data.briefingId, first.body.data.briefingId)
+  db.close()
+})
+
+test('an English host error is copied onto the AI section', async () => {
+  const path = '/tmp/fde-x-briefing-submit-english.sqlite'
+  await rm(path, { force: true })
+  const cwd = '/tmp/fde-x-briefing-submit-english-ws'
+  const db = makeDb(path)
+  registerWorkspace(db, cwd)
+  getOrCreateDefinition(db, cwd)
+  const hostError = 'Host rejected the briefing prompt'
+  const aiRuntime = runtime({
+    onPrompt() {
+      throw new Error(hostError)
+    },
+  })
+  const first = await postRun(db, aiRuntime, cwd)
+  assert.equal(first.status, 200, JSON.stringify(first.body))
+  const briefing = first.body.data?.briefing
+  const ai = aiSection(briefing)
+  assert.equal(ai?.error, hostError)
   assert.equal(ai?.pendingAgent, false)
   assert.notEqual(briefing.status, 'running')
   assert.match(failureLine(briefing.sections), /AI 早报失败/)
