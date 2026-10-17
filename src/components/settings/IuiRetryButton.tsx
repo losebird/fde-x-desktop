@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { SurfaceButton } from '@/components/surface/Button'
-import { resumeCoreWatch } from '@/components/settings/core-connection'
-import { runtimeApi } from '@/lib/runtime-api'
+import { runIuiRetry } from '@/components/settings/core-connection'
 
 export function IuiRetryButton() {
   const [failure, setFailure] = useState<Error | null>(null)
@@ -10,9 +9,7 @@ export function IuiRetryButton() {
     <SurfaceButton
       size="sm"
       onClick={() => {
-        void runtimeApi.retryIui().then(() => {
-          resumeCoreWatch()
-        }, (error: unknown) => {
+        void runIuiRetry().catch((error: unknown) => {
           setFailure(error instanceof Error ? error : new Error(String(error)))
         })
       }}

@@ -48,7 +48,7 @@ function coreDisconnectedCopy(kind: string, text: string) {
 
 function DisconnectedCorePlaceholder() {
   const boot = useCoreBoot(true)
-  const retry = boot.kind === 'iui-failed' || boot.kind === 'verify_failed'
+  const retry = boot.kind === 'iui-failed' || boot.kind === 'verify_failed' || boot.kind === 'failed'
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-3 text-sm text-ink-muted px-6 text-center">
       <div>{coreDisconnectedCopy(boot.kind, boot.text)}</div>
