@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { packDeterministicTarGz, sha256Hex } from './iui-artifact.mjs'
+import { canonicalNpmLockBytes, packDeterministicTarGz, sha256Hex } from './iui-artifact.mjs'
 import { finishIuiArtifact } from './build-iui.mjs'
 
 const CI_LOCK_SHA = '6cc802c37f50e4f6294653daded9d2bcf599da136b19b1592ca1bc26fabc3d2f'
@@ -66,5 +66,100 @@ test('a sha miss deletes the artifact and names the drifted file', async () => {
     assert.equal(existsSync(artifact), false)
   } finally {
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+function withRegistries(env, fn) {
+  const keys = ['npm_config_registry', 'npm_config_@corp:registry']
+  const saved = new Map(keys.map((key) => [key, process.env[key]]))
+  for (const key of keys) delete process.env[key]
+  Object.assign(process.env, env)
+  try {
+    return fn()
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+function rewrite(env, text) {
+  return withRegistries(env, () => canonicalNpmLockBytes(Buffer.from(text)).toString('utf8'))
+}
+
+test('npmmirror registry prefix rewrites the resolved tarball', () => {
+  const out = rewrite(
+    { npm_config_registry: 'https://registry.npmmirror.com/' },
+    '"resolved": "https://registry.npmmirror.com/katex/-/katex-0.16.47.tgz"',
+  )
+  assert.equal(out, '"resolved": "https://registry.npmjs.org/katex/-/katex-0.16.47.tgz"')
+})
+
+test('a Nexus registry prefix replaces the repository path, not only the host', () => {
+  const out = rewrite(
+    { npm_config_registry: 'https://nexus.example.com/repository/npm-group/' },
+    '"resolved": "https://nexus.example.com/repository/npm-group/katex/-/katex-0.16.47.tgz"',
+  )
+  assert.equal(out, '"resolved": "https://registry.npmjs.org/katex/-/katex-0.16.47.tgz"')
+})
+
+test('an http registry prefix is rewritten when it is the configured registry', () => {
+  const out = rewrite(
+    { npm_config_registry: 'http://registry.npmmirror.com' },
+    '"resolved": "http://registry.npmmirror.com/katex/-/katex-0.16.47.tgz"',
+  )
+  assert.equal(out, '"resolved": "https://registry.npmjs.org/katex/-/katex-0.16.47.tgz"')
+})
+
+test('trailing slash on the configured registry does not change the rewrite', () => {
+  const text = '"resolved": "https://nexus.example.com/repository/npm-group/katex/-/katex-0.16.47.tgz"'
+  const expected = '"resolved": "https://registry.npmjs.org/katex/-/katex-0.16.47.tgz"'
+  assert.equal(rewrite({ npm_config_registry: 'https://nexus.example.com/repository/npm-group/' }, text), expected)
+  assert.equal(rewrite({ npm_config_registry: 'https://nexus.example.com/repository/npm-group' }, text), expected)
+})
+
+test('a scope registry rewrites only resolved urls under that prefix', () => {
+  const out = rewrite(
+    {
+      npm_config_registry: 'https://registry.npmjs.org/',
+      'npm_config_@corp:registry': 'https://nexus.example.com/repository/npm-group',
+    },
+    [
+      '"resolved": "https://registry.npmjs.org/katex/-/katex-0.16.47.tgz"',
+      '"resolved": "https://nexus.example.com/repository/npm-group/lodash/-/lodash-4.17.21.tgz"',
+      '"resolved": "https://nexus.example.com/repository/other/left.tgz"',
+    ].join('\n'),
+  )
+  assert.equal(out, [
+    '"resolved": "https://registry.npmjs.org/katex/-/katex-0.16.47.tgz"',
+    '"resolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"',
+    '"resolved": "https://nexus.example.com/repository/other/left.tgz"',
+  ].join('\n'))
+})
+
+test('a bad pack keeps the previous good archive bytes', async () => {
+  const dir = join(tmpdir(), `fde-iui-keep-${process.pid}`)
+  const tree = join(dir, 'tree')
+  const artifact = join(dir, 'iui.tar.gz')
+  mkdirSync(join(tree, 'lib'), { recursive: true })
+  writeFileSync(join(tree, 'package.json'), '{"name":"@losebird/iui"}\n')
+  writeFileSync(join(tree, 'lib', 'index.js'), 'export {}\n')
+  try {
+    await packDeterministicTarGz(tree, artifact)
+    const goodSha = sha(artifact)
+    await finishIuiArtifact(tree, artifact, { artifact: { sha256: goodSha } })
+    assert.equal(sha(artifact), goodSha)
+    writeFileSync(join(tree, 'lib', 'index.js'), 'export const broken = true\n')
+    await assert.rejects(
+      () => finishIuiArtifact(tree, artifact, { artifact: { sha256: goodSha } }, { 'lib/index.js': 'deadbeef' }),
+      /IUI artifact sha256 mismatch/,
+    )
+    assert.equal(existsSync(artifact), true)
+    assert.equal(sha(artifact), goodSha)
+    const partials = readdirSync(dir).filter((name) => name.includes('.partial'))
+    assert.deepEqual(partials, [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })
