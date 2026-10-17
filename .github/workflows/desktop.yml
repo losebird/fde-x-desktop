@@ -49,6 +49,9 @@ jobs:
       - name: Install and build web app
         run: pnpm install --frozen-lockfile && pnpm build
 
+      - name: Build IUI plugin artifact
+        run: node scripts/pack/build-iui.mjs
+
       - name: Stage bundled resources (dsh npm tree + semantic runtime)
         env:
           FDE_DOWNLOAD_SEMANTIC_RUNTIME: '1'

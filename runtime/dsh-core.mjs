@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { constants, existsSync, realpathSync, symlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
@@ -24,6 +24,7 @@ import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import { BUILTIN_PLUGINS, pluginEnvKey } from './builtin-plugins.mjs'
 import { readProfileManifestFile, writeMergedProfileManifest } from './profile-manifest.mjs'
 import { reconcilePinnedVendor } from './plugin-vendor.mjs'
+import { stageIuiArtifactIfAbsent } from './iui-stage.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 
@@ -233,6 +234,7 @@ export class DshCoreConnector {
     this.pendingApprovals = new Map()
     this.eventAbort = null
     this.semanticRestarting = false
+    this.iui = { state: 'absent' }
   }
 
   kickSemanticIfExited(snapshot) {
@@ -464,6 +466,29 @@ export class DshCoreConnector {
     }
   }
 
+  pinnedArtifactPath(plugin) {
+    const override = process.env.FDE_IUI_ARTIFACT
+    if (override) return override
+    const fromEnv = process.env.FDE_VENDOR_DIR
+    const root = fromEnv
+      ? resolve(fromEnv === '~' ? homedir() : fromEnv.startsWith('~/') ? join(homedir(), fromEnv.slice(2)) : fromEnv)
+      : FDE_VENDOR_DIR
+    return join(root, plugin.dir, `iui-${plugin.source.commit}.tar.gz`)
+  }
+
+  pinnedInstallDir(plugin) {
+    const shared = join(this.dshHome, 'vendor', plugin.dir)
+    const artifactPath = this.pinnedArtifactPath(plugin)
+    if (!artifactPath || !existsSync(artifactPath) || !existsSync(shared)) return shared
+    try {
+      if (realpathSync(shared) !== realpathSync(dirname(artifactPath))) return shared
+    } catch {
+      return shared
+    }
+    if (existsSync(join(shared, 'package.json'))) return shared
+    return join(this.dshHome, 'pinned', plugin.dir)
+  }
+
   pluginSourceCandidates(plugin) {
     const fromEnv = process.env[pluginEnvKey(plugin.dir)]
     const webLink = join(this.dshHome, 'profiles', 'web', 'node_modules', plugin.module)
@@ -501,8 +526,27 @@ export class DshCoreConnector {
 
   async linkBuiltinPlugin(plugin, modulesDir) {
     try {
-      const vendor = join(this.dshHome, 'vendor', plugin.dir)
+      const vendor = plugin.source.kind === 'pinned'
+        ? this.pinnedInstallDir(plugin)
+        : join(this.dshHome, 'vendor', plugin.dir)
       if (plugin.source.kind === 'pinned') {
+        const sha256 = plugin.source.sha256
+        if (!/^[a-f0-9]{64}$/u.test(String(sha256 || ''))) {
+          throw Object.assign(new Error(`pinned plugin ${plugin.module} is missing source.sha256`), {
+            code: 'FDE_IUI_SHA_MISMATCH',
+          })
+        }
+        const staged = await stageIuiArtifactIfAbsent({
+          dest: vendor,
+          pin: {
+            version: plugin.source.version,
+            commit: plugin.source.commit,
+            artifact: { url: '', sha256 },
+          },
+          artifactPath: this.pinnedArtifactPath(plugin),
+        })
+        this.iui = staged
+        if (staged.state === 'verify_failed') return false
         const result = await reconcilePinnedVendor({
           vendorDir: vendor,
           pin: { version: plugin.source.version, commit: plugin.source.commit },
@@ -540,6 +584,7 @@ export class DshCoreConnector {
       await linkPath(vendor, link)
       return true
     } catch (error) {
+      if (error && error.code === 'FDE_IUI_SHA_MISMATCH') throw error
       const detail = error instanceof Error ? error.message : String(error)
       this.recordPluginFailure(plugin, detail)
       return false
