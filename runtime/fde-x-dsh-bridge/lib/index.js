@@ -162,7 +162,7 @@ function installIuiModeGate(ctx) {
     presetFromAgent,
     gatePromptAssembly,
     gatePreStepDecision,
-    gateToolDecision,
+    resumePastIuiHtmlDeny,
   } = require('../../mode-policy.cjs')
   if (!ctx || typeof ctx.on !== 'function') {
     throw new Error('IUI mode gate requires ctx.on')
@@ -177,7 +177,8 @@ function installIuiModeGate(ctx) {
   }, true)
   ctx.on('tools/pre-execute', async (exec, next) => {
     const decision = await next()
-    return gateToolDecision(decision, presetFromAgent(exec && exec.agent))
+    if (resumePastIuiHtmlDeny(decision, presetFromAgent(exec && exec.agent))) return next()
+    return decision
   }, true)
 }
 

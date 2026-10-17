@@ -57,11 +57,17 @@ function gatePreStepDecision(decision, preset) {
   }
 }
 
-function gateToolDecision(decision, preset) {
-  if (iuiAllowedForPreset(preset)) return decision
-  if (!decision || decision.kind !== 'deny') return decision
-  if (typeof decision.reason !== 'string' || !decision.reason.startsWith(IUI_HTML_DENY_PREFIX)) return decision
-  return { kind: 'allow' }
+function isIuiHtmlDeny(decision) {
+  return Boolean(
+    decision
+    && decision.kind === 'deny'
+    && typeof decision.reason === 'string'
+    && decision.reason.startsWith(IUI_HTML_DENY_PREFIX),
+  )
+}
+
+function resumePastIuiHtmlDeny(decision, preset) {
+  return !iuiAllowedForPreset(preset) && isIuiHtmlDeny(decision)
 }
 
 module.exports = {
@@ -69,9 +75,11 @@ module.exports = {
   IUI_SECTION_NAME,
   IUI_TOOL_NAMES,
   IUI_SKILL_NAME,
+  IUI_HTML_DENY_PREFIX,
   iuiAllowedForPreset,
   presetFromAgent,
   gatePromptAssembly,
   gatePreStepDecision,
-  gateToolDecision,
+  isIuiHtmlDeny,
+  resumePastIuiHtmlDeny,
 }

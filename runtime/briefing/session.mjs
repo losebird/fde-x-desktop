@@ -18,16 +18,15 @@ function rowCwd(row) {
 
 export async function resolveBriefingSession(aiRuntime, cwd) {
   const workspaceCwd = String(cwd || '')
-  let listed = null
-  try {
-    listed = await aiRuntime.call('session/list', { _request: { includeBlank: true } })
-  } catch {
-    listed = null
+  if (!workspaceCwd) {
+    const error = new Error('早报会话缺少工作区')
+    error.code = 'briefing_workspace_missing'
+    throw error
   }
+  const listed = await aiRuntime.call('session/list', { _request: { includeBlank: true } })
   const existing = listedSessions(listed).find((row) => {
     if (rowPreset(row) !== BRIEFING_PRESET) return false
-    const rowWorkspace = rowCwd(row)
-    return !rowWorkspace || rowWorkspace === workspaceCwd
+    return rowCwd(row) === workspaceCwd
   })
   const existingId = existing ? String(existing.sessionId || existing.id || '') : ''
   if (existingId) return existingId

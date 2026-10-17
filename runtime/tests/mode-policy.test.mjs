@@ -28,7 +28,7 @@ test('standard keeps the IUI section, tools, and skill catalog', () => {
   assert.equal(decision.messages[0].content[0].text.includes('`iui`'), true)
 })
 
-test('app-build and briefing drop the IUI section, tools, skill line, and html deny', () => {
+test('app-build and briefing drop the IUI section, tools, and skill line', () => {
   for (const preset of ['fde-app-builder', 'fde-briefing', '']) {
     const assembly = policy.gatePromptAssembly({
       sections: [{ name: 'iui:fence', text: 'fence' }, { name: 'persona', text: 'hi' }],
@@ -51,8 +51,9 @@ test('app-build and briefing drop the IUI section, tools, skill line, and html d
     assert.equal(decision.messages[0].content[0].text, '- `other`: else')
     assert.deepEqual(decision.messages[0].source.entries.map((entry) => entry.name), ['other'])
     assert.equal(decision.messages[1].content[0].text, 'keep `iui` in prose')
-    assert.deepEqual(policy.gateToolDecision({ kind: 'deny', reason: 'IUI: do NOT write HTML' }, preset), { kind: 'allow' })
-    assert.deepEqual(policy.gateToolDecision({ kind: 'deny', reason: 'permission' }, preset), { kind: 'deny', reason: 'permission' })
+    assert.equal(policy.resumePastIuiHtmlDeny({ kind: 'deny', reason: 'IUI: do NOT write HTML' }, preset), true)
+    assert.equal(policy.resumePastIuiHtmlDeny({ kind: 'deny', reason: 'permission' }, preset), false)
+    assert.equal(policy.resumePastIuiHtmlDeny({ kind: 'deny', reason: 'IUI: do NOT write HTML' }, 'standard'), false)
   }
   assert.equal(policy.presetFromAgent(agent('standard')), 'standard')
   assert.equal(policy.presetFromAgent({}), '')
