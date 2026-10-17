@@ -153,7 +153,7 @@ export default function AI() {
   const inboxInflightRef = useRef(false)
   const flushInboxDraftRef = useRef<() => void>(() => {})
   const workspaceCwdRef = useRef(workspaceCwd)
-  const [dshFrameSrc, setDshFrameSrc] = useState('')
+  const [restoreFrameSrc, setRestoreFrameSrc] = useState('')
   const [sessionAccessory, setSessionAccessory] = useState('')
   const [terminalBag, setTerminalBag] = useState<{ items: Array<{ id: string; title: string }>; actions: string[] }>({ items: [], actions: [] })
   const [terminalId, setTerminalId] = useState('')
@@ -194,6 +194,18 @@ export default function AI() {
   const activeId = wantedSessionId
     ? (resolvePrimarySessionId(wantedSessionId, remoteSessions) || undefined)
     : undefined
+  const frameBase = dshAppSrc(runtimeStatus?.bffOrigin)
+  const workspaceFrameKey = hostWorkspaceId(activeWorkspaceId) || workspaceCwd || ''
+  const computedFrameSrc = !runtimeConnected || loadingRuntime
+    ? ''
+    : activeId
+      ? `${frameBase}#fde-session=${encodeURIComponent(activeId)}`
+      : workspaceFrameKey
+        ? `${frameBase}?fde-workspace=${encodeURIComponent(workspaceFrameKey)}`
+        : ''
+  const restoreMatches = Boolean(activeId && restoreFrameSrc.includes(`fde-session=${encodeURIComponent(activeId)}`))
+  if (restoreFrameSrc && !restoreMatches) setRestoreFrameSrc('')
+  const dshFrameSrc = restoreMatches ? restoreFrameSrc : computedFrameSrc
 
   useEffect(() => {
     if (!chatId || !remoteSessions.length) return
@@ -382,7 +394,7 @@ export default function AI() {
         const title = titles.get(openId) || titles.get(sid) || found.title || ''
         nav(`/ai/${openId}`)
         const origin = bffOriginRef.current || defaultBffOrigin()
-        setDshFrameSrc(`${dshAppSrc(origin)}?restore=${Date.now()}#fde-session=${encodeURIComponent(openId)}`)
+        setRestoreFrameSrc(`${dshAppSrc(origin)}?restore=${Date.now()}#fde-session=${encodeURIComponent(openId)}`)
         selectCurrentTurn({
           sessionId: openId,
           ...(title ? { title } : {}),
@@ -564,18 +576,6 @@ export default function AI() {
     if (row.probe === 'failed' || typeof row.ready !== 'boolean') return
     setMemoryReady(row)
   })
-
-  useEffect(() => {
-    if (!runtimeConnected || loadingRuntime) {
-      setDshFrameSrc('')
-      return
-    }
-    const base = dshAppSrc(runtimeStatus?.bffOrigin)
-    const next = activeId
-      ? `${base}#fde-session=${encodeURIComponent(activeId)}`
-      : (workspaceCwd ? base : '')
-    setDshFrameSrc((prev) => (prev === next ? prev : next))
-  }, [runtimeConnected, loadingRuntime, runtimeStatus?.bffOrigin, activeId, workspaceCwd])
 
   useEffect(() => {
     const path = dshFrameSrc.split('#')[0]
