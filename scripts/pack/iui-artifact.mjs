@@ -81,6 +81,20 @@ function writeTarEntry(parts, name, mode, body, link = null) {
   if (bytes && bytes.length) pushPadded(parts, bytes)
 }
 
+const NPM_LOCK = './node_modules/.package-lock.json'
+
+export function canonicalNpmLockBytes(body) {
+  const text = Buffer.from(body).toString('utf8')
+  const next = text.replace(/"resolved": "https:\/\/[^/]+\//g, '"resolved": "https://registry.npmjs.org/')
+  return Buffer.from(next)
+}
+
+function fileBodyForPack(archiveName, diskPath) {
+  const body = readFileSync(diskPath)
+  if (archiveName === NPM_LOCK) return canonicalNpmLockBytes(body)
+  return body
+}
+
 function writeTarDirectory(parts, diskPath, archiveName) {
   const stat = lstatSync(diskPath)
   if (!stat.isDirectory()) throw new Error(`IUI pack expected a directory: ${diskPath}`)
@@ -93,7 +107,7 @@ function writeTarDirectory(parts, diskPath, archiveName) {
     const childName = `${dirName}${kid}`
     if (child.isDirectory()) writeTarDirectory(parts, childDisk, childName)
     else if (child.isSymbolicLink()) writeTarEntry(parts, childName, child.mode, null, readlinkSync(childDisk))
-    else if (child.isFile()) writeTarEntry(parts, childName, child.mode, readFileSync(childDisk))
+    else if (child.isFile()) writeTarEntry(parts, childName, child.mode, fileBodyForPack(childName, childDisk))
     else throw new Error(`unsupported file type ${childDisk}`)
   }
 }
@@ -114,6 +128,43 @@ export async function packDeterministicTarGz(tree, artifactPath) {
   const tarBytes = packGnuTar(tree)
   const gz = gzip(tarBytes, { level: 6, mtime: 0 })
   await writeFile(artifactPath, gz)
+}
+
+function packedRel(archiveName) {
+  return archiveName.replace(/^\.\//, '')
+}
+
+export function collectPackedFileShas(tree) {
+  const out = {}
+  function walk(diskPath, archiveName) {
+    const stat = lstatSync(diskPath)
+    if (stat.isDirectory()) {
+      const dirName = archiveName.endsWith('/') ? archiveName : `${archiveName}/`
+      for (const kid of readdirSync(diskPath)) {
+        walk(join(diskPath, kid), `${dirName}${kid}`)
+      }
+      return
+    }
+    if (!stat.isFile()) return
+    out[packedRel(archiveName)] = sha256Hex(fileBodyForPack(archiveName, diskPath))
+  }
+  walk(tree, '.')
+  return out
+}
+
+export function explainPinDrift(tree, manifestFiles) {
+  const actual = collectPackedFileShas(tree)
+  const lines = []
+  const keys = new Set([...Object.keys(actual), ...Object.keys(manifestFiles)])
+  for (const key of [...keys].sort()) {
+    if (!(key in manifestFiles)) lines.push(`only in build ${key} ${actual[key]}`)
+    else if (!(key in actual)) lines.push(`missing ${key}`)
+    else if (actual[key] !== manifestFiles[key]) {
+      lines.push(`differs ${key}\n  expected ${manifestFiles[key]}\n  actual   ${actual[key]}`)
+    }
+  }
+  if (!lines.length) lines.push('packed file bytes match the pin manifest; tar metadata differs')
+  return lines.join('\n')
 }
 
 export function bundledPluginVersions(plugins, pluginsRoot) {

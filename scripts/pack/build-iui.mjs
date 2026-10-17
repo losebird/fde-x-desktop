@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { IUI_PIN } from './pins.mjs'
 import { PLUGIN_PIN_FILE } from '../../runtime/plugin-vendor.mjs'
-import { defaultIuiArtifactPath, iuiArtifactName, packDeterministicTarGz, retargetPrimitivePaths, sha256Hex } from './iui-artifact.mjs'
+import { defaultIuiArtifactPath, explainPinDrift, iuiArtifactName, packDeterministicTarGz, retargetPrimitivePaths, sha256Hex } from './iui-artifact.mjs'
 import { resolvePnpmRunner } from './pnpm-runner.mjs'
 
 const execFile = promisify(execFileCb)
@@ -119,9 +119,18 @@ export async function buildIuiArtifact(options = {}) {
 
   const artifactPath = options.artifactPath || defaultIuiArtifactPath(repoRoot, pin.commit)
   await mkdir(dirname(artifactPath), { recursive: true })
+  const sha256 = await finishIuiArtifact(tree, artifactPath, pin, options.manifestFiles)
+  return { artifactPath, sha256, version: sourcePkg.version, commit: pin.commit }
+}
+
+export async function finishIuiArtifact(tree, artifactPath, pin = IUI_PIN, manifestFiles) {
   await packDeterministicTarGz(tree, artifactPath)
   const sha256 = sha256Hex(await readFile(artifactPath))
-  return { artifactPath, sha256, version: sourcePkg.version, commit: pin.commit }
+  if (sha256 === pin.artifact.sha256) return sha256
+  const files = manifestFiles || JSON.parse(await readFile(new URL('./iui-pin-manifest.json', import.meta.url), 'utf8')).files
+  const detail = explainPinDrift(tree, files)
+  await rm(artifactPath, { force: true })
+  throw new Error(`IUI artifact sha256 mismatch\nexpected ${pin.artifact.sha256}\nactual ${sha256}\n${detail}`)
 }
 
 export function iuiArtifactPathFromArgv(argv, { repoRoot: root, commit }) {

@@ -45,6 +45,10 @@ jobs:
       - name: Install desktop dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Mirror registry lockfile packs to the pinned bytes
+        shell: bash
+        run: node --test scripts/pack/iui-registry-lock.test.mjs
+
       - name: Probe system tar and gzip
         shell: bash
         run: |
