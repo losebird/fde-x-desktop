@@ -1,8 +1,10 @@
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { execFile as execFileCb } from 'node:child_process'
+import { createWriteStream, existsSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { pipeline } from 'node:stream/promises'
 import { promisify } from 'node:util'
 import { PLUGIN_PIN_FILE } from '../../runtime/plugin-vendor.mjs'
 
@@ -18,6 +20,45 @@ export function defaultIuiArtifactPath(repoRoot, commit) {
 
 export function sha256Hex(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
+}
+
+function childExit(child, label) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    if (child.stderr) child.stderr.on('data', (chunk) => chunks.push(chunk))
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(`${label} exited ${code}: ${Buffer.concat(chunks).toString()}`))
+    })
+  })
+}
+
+export async function packDeterministicTarGz(tree, artifactPath) {
+  await mkdir(dirname(artifactPath), { recursive: true })
+  const tar = spawn('tar', [
+    '--sort=name',
+    '--mtime=@0',
+    '--owner=0',
+    '--group=0',
+    '--numeric-owner',
+    '-cf', '-',
+    '-C', tree,
+    '.',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const gzip = spawn('gzip', ['-n'], { stdio: ['pipe', 'pipe', 'pipe'] })
+  tar.stdout.pipe(gzip.stdin)
+  try {
+    await Promise.all([
+      childExit(tar, 'tar'),
+      childExit(gzip, 'gzip'),
+      pipeline(gzip.stdout, createWriteStream(artifactPath)),
+    ])
+  } catch (error) {
+    tar.kill()
+    gzip.kill()
+    throw error
+  }
 }
 
 export function bundledPluginVersions(plugins, pluginsRoot) {

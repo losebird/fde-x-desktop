@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { IUI_PIN } from './pins.mjs'
 import { PLUGIN_PIN_FILE } from '../../runtime/plugin-vendor.mjs'
-import { defaultIuiArtifactPath, retargetPrimitivePaths, sha256Hex } from './iui-artifact.mjs'
+import { defaultIuiArtifactPath, packDeterministicTarGz, retargetPrimitivePaths, sha256Hex } from './iui-artifact.mjs'
 
 const execFile = promisify(execFileCb)
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -116,7 +116,7 @@ export async function buildIuiArtifact(options = {}) {
 
   const artifactPath = options.artifactPath || defaultIuiArtifactPath(repoRoot, pin.commit)
   await mkdir(dirname(artifactPath), { recursive: true })
-  await run('tar', ['-czf', artifactPath, '-C', tree, '.'], { cwd: work })
+  await packDeterministicTarGz(tree, artifactPath)
   const sha256 = sha256Hex(await readFile(artifactPath))
   return { artifactPath, sha256, version: sourcePkg.version, commit: pin.commit }
 }
