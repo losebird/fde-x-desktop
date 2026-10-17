@@ -7,9 +7,7 @@ const sampleText = serverName === 'ai-hot' ? 'fake-news-item' : 'fake-mail-item'
 let buffer = Buffer.alloc(0)
 
 function writeMessage(message) {
-  const payload = Buffer.from(JSON.stringify(message), 'utf8')
-  stdout.write(`Content-Length: ${payload.length}\r\n\r\n`)
-  stdout.write(payload)
+  stdout.write(`${JSON.stringify(message)}\n`)
 }
 
 function reply(id, result) {

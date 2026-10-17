@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,6 +40,7 @@ test('briefing page fills both mcp columns from the host', { skip: !enabled, tim
   const fake = join(repoRoot, 'scripts', 'repro', 'fake-mcp-stdio.mjs')
   const patchDir = join(home, 'profiles', 'fde-x')
   await mkdir(patchDir, { recursive: true })
+  await writeFile(join(home, '.credentials.yaml'), 'version: 1\nrefs: {}\n', { mode: 0o600 })
   let patch = upsertMcpPatchEntry('', {
     serverName: 'mail',
     transport: 'stdio',
@@ -53,6 +55,24 @@ test('briefing page fills both mcp columns from the host', { skip: !enabled, tim
   })
   await writeFile(join(patchDir, 'cordis.patch.yml'), patch)
   const logs = []
+  const presetPath = join(repoRoot, 'runtime/presets/fde-briefing/agent.cordis.yml')
+  const workerPkg = join(repoRoot, 'runtime/.host-generation/node_modules/@deepseek-ai/dsh-workflow-worker-thread/package.json')
+  let presetBackup = ''
+  if (!existsSync(workerPkg)) {
+    presetBackup = await readFile(presetPath, 'utf8')
+    const rows = [
+      ['workflow-worker-thread', '@deepseek-ai/dsh-workflow-worker-thread'],
+      ['tool-workflow', '@deepseek-ai/dsh-tool-workflow'],
+      ['tool-ralph', '@deepseek-ai/dsh-tool-ralph'],
+    ]
+    let next = presetBackup
+    for (const [id, name] of rows) {
+      const needle = `    - id: ${id}\n      name: '${name}'\n`
+      if (!next.includes(needle)) throw new Error(`missing ${id} row in fde-briefing preset`)
+      next = next.replace(needle, `${needle}      disabled: true\n`)
+    }
+    await writeFile(presetPath, next)
+  }
   const child = spawn(process.execPath, ['scripts/dev.mjs'], {
     cwd: repoRoot,
     detached: true,
@@ -78,16 +98,8 @@ test('briefing page fills both mcp columns from the host', { skip: !enabled, tim
       headers: { Origin: origin, 'content-type': 'application/json' },
       body: '{}',
     })
-    assert.equal(connect.ok, true, await connect.text())
-    const connectedAt = Date.now() + 120_000
-    let status = {}
-    while (Date.now() < connectedAt) {
-      const res = await fetch(`${bff}/api/v1/ai/status`)
-      status = await res.json()
-      if (status.connected) break
-      await delay(500)
-    }
-    assert.equal(status.connected, true, JSON.stringify(status))
+    const connectBody = await connect.json()
+    assert.equal(connect.ok && connectBody.data && connectBody.data.connected, true, JSON.stringify(connectBody))
     const headers = { Origin: origin, 'content-type': 'application/json' }
     const ws = await fetch(`${bff}/api/v1/ai/workspaces`, {
       method: 'POST',
@@ -107,6 +119,10 @@ test('briefing page fills both mcp columns from the host', { skip: !enabled, tim
       body: JSON.stringify({ cwd: workspace }),
     })
     assert.equal(session.status, 201, await session.text())
+    const listedBefore = await fetch(`${bff}/api/v1/ai/sessions?includeBlank=true`)
+    const before = await listedBefore.json()
+    const primary = (before.data?.items || []).find((row) => row.cwd === workspace && row.origin !== 'subagent')
+    assert.ok(primary, JSON.stringify(before.data?.items || []))
     const definition = await fetch(`${bff}/api/v1/briefing/definition`, {
       method: 'PUT',
       headers,
@@ -139,18 +155,30 @@ test('briefing page fills both mcp columns from the host', { skip: !enabled, tim
     while (Date.now() < toolsAt) {
       const res = await fetch(`${bff}/api/v1/mcp/servers`)
       tools = await res.text()
-      if (tools.includes('imap_search') && tools.includes('aihot_get_latest')) break
+      const rows = JSON.parse(tools).data?.mcp || []
+      if (rows.some((row) => row.serverName === 'mail' && row.status === 'loaded')
+        && rows.some((row) => row.serverName === 'ai-hot' && row.status === 'loaded')) break
       await delay(1000)
     }
-    assert.match(tools, /imap_search/)
-    assert.match(tools, /aihot_get_latest/)
+    const ready = JSON.parse(tools).data?.mcp || []
+    assert.equal(ready.find((row) => row.serverName === 'mail')?.status, 'loaded', tools)
+    assert.equal(ready.find((row) => row.serverName === 'ai-hot')?.status, 'loaded', tools)
     const { chromium } = await import('@playwright/test')
     browser = await chromium.launch({ headless: true })
     page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
-    await page.goto(`${web}/briefing`, { waitUntil: 'networkidle' })
-    await page.getByText('briefing-ws').waitFor({ timeout: 30_000 })
-    await page.getByRole('button', { name: '生成新早报' }).click()
-    await page.getByText('fake-mail-item').waitFor({ timeout: 90_000 })
+    await page.goto(`${web}/briefing`, { waitUntil: 'domcontentloaded' })
+    const generate = page.getByRole('button', { name: '生成新早报' })
+    await generate.waitFor({ timeout: 30_000 })
+    await generate.click()
+    const projected = page.getByText('会话未投影').first()
+    const mailed = page.getByText('fake-mail-item')
+    const winner = await Promise.race([
+      mailed.waitFor({ timeout: 90_000 }).then(() => 'mail'),
+      projected.waitFor({ timeout: 90_000 }).then(() => 'projected'),
+    ])
+    if (winner === 'projected') {
+      throw new Error(`page shows 会话未投影\n${await page.locator('body').innerText()}`)
+    }
     await page.getByText('fake-news-item').waitFor({ timeout: 20_000 })
     const body = await page.locator('body').innerText()
     assert.equal(body.includes('会话未投影'), false)
@@ -185,5 +213,6 @@ test('briefing page fills both mcp columns from the host', { skip: !enabled, tim
     await delay(500)
     await rm(home, { recursive: true, force: true }).catch(() => undefined)
     await rm(workspace, { recursive: true, force: true }).catch(() => undefined)
+    if (presetBackup) await writeFile(presetPath, presetBackup).catch(() => undefined)
   }
 })

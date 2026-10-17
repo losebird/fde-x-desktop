@@ -1,3 +1,4 @@
+const { randomBytes, timingSafeEqual } = require('node:crypto')
 const { mkdirSync, writeFileSync } = require('node:fs')
 const { mkdir, readdir, readFile, writeFile } = require('node:fs/promises')
 const { createRequire } = require('node:module')
@@ -101,34 +102,102 @@ async function writeBundle(dir, files) {
   }
 }
 
-async function handler(req, res) {
-  const url = new URL(req.url || '/', 'http://127.0.0.1')
-  const path = url.pathname.slice(PREFIX.length) || '/'
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204)
-    res.end()
-    return
+function bridgeTokenPath() {
+  return join(dshHome(), 'run', 'bridge.token')
+}
+
+function sameToken(left, right) {
+  const a = Buffer.from(String(left || ''))
+  const b = Buffer.from(String(right || ''))
+  if (!a.length || a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
+
+function headerToken(req) {
+  const raw = req.headers && req.headers['x-fde-bridge-token']
+  if (typeof raw === 'string') return raw.trim()
+  if (Array.isArray(raw)) return String(raw[0] || '').trim()
+  return ''
+}
+
+function textFromToolResult(result) {
+  const blocks = result && Array.isArray(result.content) ? result.content : []
+  const parts = []
+  for (const block of blocks) {
+    if (block && block.type === 'text' && typeof block.text === 'string') parts.push(block.text)
   }
-  try {
-    if (req.method === 'GET' && path === '/export') {
-      const sessionId = url.searchParams.get('sessionId') || ''
-      const bundle = await readBundle(sessionId)
-      json(res, 200, { ok: true, ...bundle })
+  if (parts.length) return parts.join('\n')
+  if (result && typeof result.value === 'string') return result.value
+  if (result && result.value != null) return JSON.stringify(result.value)
+  return ''
+}
+
+function createFdeSessionHandler(ctx) {
+  return async function handler(req, res) {
+    const url = new URL(req.url || '/', 'http://127.0.0.1')
+    const path = url.pathname.slice(PREFIX.length) || '/'
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
       return
     }
-    if (req.method === 'POST' && path === '/restore') {
-      const body = await readBody(req, 32 * 1024 * 1024)
-      const rows = Array.isArray(body.sessions) ? body.sessions : []
-      if (!rows.length) {
-        json(res, 400, { ok: false, error: '交接包里没有可复原的会话文件' })
+    try {
+      if (req.method === 'POST' && path === '/mcp/call') {
+        let expected = ''
+        try {
+          expected = String(await readFile(bridgeTokenPath(), 'utf8')).trim()
+        } catch (error) {
+          if (!error || error.code !== 'ENOENT') throw error
+        }
+        if (!sameToken(headerToken(req), expected)) {
+          json(res, 401, { ok: false, error: 'bridge_unauthorized' })
+          return
+        }
+        const body = await readBody(req, 1024 * 1024)
+        const name = String(body.name || '').trim()
+        if (!name.startsWith('mcp__')) {
+          json(res, 403, { ok: false, error: 'tool_not_allowed' })
+          return
+        }
+        const tool = ctx.tools.get(name)
+        if (!tool) {
+          json(res, 403, { ok: false, error: 'tool_not_registered' })
+          return
+        }
+        const args = body.args && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {}
+        const result = await ctx.tools.execute({
+          callId: `mcp_${randomBytes(8).toString('hex')}`,
+          name,
+          arguments: args,
+          signal: new AbortController().signal,
+        })
+        if (result.isError) {
+          json(res, 200, { ok: false, error: result.error.message })
+          return
+        }
+        json(res, 200, { ok: true, text: textFromToolResult(result) })
         return
       }
-      json(res, 400, { ok: false, error: '请用工作台复原接口；导出已可用' })
-      return
+      if (req.method === 'GET' && path === '/export') {
+        const sessionId = url.searchParams.get('sessionId') || ''
+        const bundle = await readBundle(sessionId)
+        json(res, 200, { ok: true, ...bundle })
+        return
+      }
+      if (req.method === 'POST' && path === '/restore') {
+        const body = await readBody(req, 32 * 1024 * 1024)
+        const rows = Array.isArray(body.sessions) ? body.sessions : []
+        if (!rows.length) {
+          json(res, 400, { ok: false, error: '交接包里没有可复原的会话文件' })
+          return
+        }
+        json(res, 400, { ok: false, error: '请用工作台复原接口；导出已可用' })
+        return
+      }
+      json(res, 404, { ok: false, error: 'not_found' })
+    } catch (error) {
+      json(res, 400, { ok: false, error: error instanceof Error ? error.message : '失败' })
     }
-    json(res, 404, { ok: false, error: 'not_found' })
-  } catch (error) {
-    json(res, 400, { ok: false, error: error instanceof Error ? error.message : '失败' })
   }
 }
 
@@ -188,7 +257,7 @@ function apply(ctx) {
     ctx.effect(() => ctx.webServer.register({
       kind: 'prefix',
       path: PREFIX,
-      handler,
+      handler: createFdeSessionHandler(ctx),
     }))
   }
   try {
@@ -207,7 +276,8 @@ function apply(ctx) {
   }
 }
 
-module.exports = { apply, installIuiModeGate, inject: ['webServer', 'tools'] }
+module.exports = { apply, installIuiModeGate, createFdeSessionHandler, inject: ['webServer', 'tools'] }
 exports.apply = apply
 exports.installIuiModeGate = installIuiModeGate
+exports.createFdeSessionHandler = createFdeSessionHandler
 exports.inject = ['webServer', 'tools']

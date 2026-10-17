@@ -28,7 +28,7 @@ test('runBriefingAgent prompts the pointed session and does not create another',
   const calls = []
   const db = {
     prepare() {
-      return { run() { /* agent_request_id */ } }
+      return { run() {} }
     },
   }
   const result = await runBriefingAgent({
@@ -104,39 +104,48 @@ test('runBriefingAgent refuses to invent a session', async () => {
   assert.match(result.error, /没有可用的 AI 会话/)
 })
 
-test('runBriefingAgent blocks mcp tools the session has not projected', async () => {
-  const calls = []
-  const result = await runBriefingAgent({
-    db: { prepare() { return { run() {} } } },
-    aiRuntime: {
-      status: () => ({ connected: true }),
-      call: async () => { throw new Error('unexpected call') },
-      async *stream(endpoint) {
-        calls.push(endpoint)
-        if (endpoint === 'session/follow') {
-          yield { type: 'snapshot', header: { tools: [] }, records: [] }
-        }
-      },
-    },
-  }, {
-    briefingId: 'brf',
-    workspaceCwd: '/ws/a',
-    sessionId: 'sess-current',
-    sections: [{
-      id: 'news',
-      type: 'mcp',
-      enabled: true,
-      title: '资讯',
-      params: { server: 'ai-hot', tool: 'mcp__ai-hot__aihot_get_latest' },
-    }],
-    internalSections: [],
-    timeoutMs: 0,
-    projectWaitMs: 0,
+test('runBriefingAgent fills an mcp block without a projected session header', async () => {
+  await withBridgeHome(async (home) => {
+    const calls = []
+    const original = globalThis.fetch
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, text: 'fake-news-item' }),
+    })
+    try {
+      const result = await runBriefingAgent({
+        db: briefingDb(),
+        aiRuntime: {
+          dshHome: home,
+          status: () => ({ connected: true, origin: 'http://127.0.0.1:9' }),
+          call: async (endpoint) => {
+            calls.push(endpoint)
+            throw new Error(`unexpected ${endpoint}`)
+          },
+        },
+      }, {
+        briefingId: 'brf',
+        workspaceCwd: '/ws/a',
+        sessionId: 'sess-current',
+        sections: [{
+          id: 'news',
+          type: 'mcp',
+          enabled: true,
+          title: '资讯',
+          params: { server: 'ai-hot', tool: 'mcp__ai-hot__aihot_get_latest' },
+        }],
+        internalSections: [],
+        timeoutMs: 0,
+      })
+      assert.equal(result.ok, true)
+      assert.equal(calls.includes('session/prompt'), false)
+      assert.deepEqual(result.blocked, [])
+      assert.equal(result.toolResults['mcp__ai-hot__aihot_get_latest'].text, 'fake-news-item')
+    } finally {
+      globalThis.fetch = original
+    }
   })
-  assert.equal(result.ok, true)
-  assert.equal(calls.includes('session/prompt'), false)
-  assert.equal(result.blocked[0].id, 'news')
-  assert.match(result.blocked[0].error, /会话未投影/)
 })
 
 test('runBriefingAgent calls the host with block params and puts the text in the prompt', async () => {
