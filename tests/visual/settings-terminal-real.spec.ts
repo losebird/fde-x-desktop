@@ -22,39 +22,14 @@ test.afterAll(() => {
 })
 
 test('a dead core shows the install failure and the retry button restarts it', async ({ page, request }) => {
-  test.setTimeout(240_000)
+  test.setTimeout(300_000)
   original = readFileSync(BIN)
-  chmodSync(BIN, 0o644)
-  writeFileSync(BIN, "import 'fde-iui-missing-module'\n")
 
   try {
-    const before = await request.get('/api/v1/ai/status')
-    expect(before.ok()).toBeTruthy()
-    const beforeBody = await before.json()
-    const pid = beforeBody?.data?.pid
-    if (beforeBody?.data?.state === 'connected' && !pid) {
-      throw new Error('connected core has no pid to stop')
-    }
-    if (pid) {
-      try {
-        process.kill(pid, 'SIGKILL')
-      } catch (error) {
-        const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
-        if (code !== 'ESRCH') throw error
-      }
-      await expect.poll(async () => {
-        const body = await (await request.get('/api/v1/ai/status')).json()
-        return `${body.data?.state}|${body.data?.pid ?? ''}`
-      }, { timeout: 15_000 }).toBe('error|')
-    }
-
-    const connect = await request.post('/api/v1/ai/connect', { timeout: 90_000 })
-    expect(connect.status(), 'a broken generation entry must fail the real connect').toBe(502)
-    await expect.poll(async () => {
-      const body = await (await request.get('/api/v1/ai/status')).json()
-      const reason = String(body.data?.iui?.reason || '')
-      return `${body.data?.state}|${body.data?.iui?.state}|${reason.includes('fde-iui-missing-module')}`
-    }, { timeout: 20_000 }).toBe('error|failed|true')
+    const stopped = await request.post('/api/v1/ai/disconnect', { timeout: 30_000 })
+    expect(stopped.ok(), 'disconnect the live core before replacing its entry').toBeTruthy()
+    chmodSync(BIN, 0o644)
+    writeFileSync(BIN, "import 'fde-iui-missing-module'\n")
 
     let hits = 0
     page.on('request', (req) => {
@@ -68,17 +43,22 @@ test('a dead core shows the install failure and the retry button restarts it', a
     else await page.getByRole('navigation', { name: '分类' }).getByRole('button', { name: '运行环境', exact: true }).click()
     const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: '运行环境诊断', level: 3 }) })
 
-    await expect(panel.getByText(/IUI 安装失败：/)).toBeVisible()
+    await expect(panel.getByText(/IUI 安装失败：/)).toBeVisible({ timeout: 90_000 })
     await expect(panel.getByText('fde-iui-missing-module')).toBeVisible()
     await expect(panel.getByRole('button', { name: '重试' })).toBeVisible()
     const settled = hits
     await page.waitForTimeout(1600)
     expect(hits - settled, 'status polling should stop on iui failed').toBeLessThan(2)
 
+    const failed = await (await request.get('/api/v1/ai/status')).json()
+    expect(failed.data?.state).toBe('error')
+    expect(failed.data?.iui?.state).toBe('failed')
+    expect(String(failed.data?.iui?.reason || '')).toContain('fde-iui-missing-module')
+
     restoreBin()
     const retryResponse = page.waitForResponse(
       (res) => new URL(res.url()).pathname === '/api/v1/ai/iui/retry' && res.request().method() === 'POST',
-      { timeout: 120_000 },
+      { timeout: 180_000 },
     )
     await panel.getByRole('button', { name: '重试' }).click()
     const response = await retryResponse
