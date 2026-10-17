@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -122,6 +122,56 @@ function touchTree(dir) {
     else utimesSync(path, future, future)
   }
 }
+
+test('pack stays deterministic when tar rejects GNU --sort=name', () => {
+  const root = join(tmpdir(), `fde-iui-bsdtar-${process.pid}`)
+  const bin = join(root, 'bin')
+  const tree = join(root, 'tree')
+  const left = join(root, 'left.tar.gz')
+  const right = join(root, 'right.tar.gz')
+  const runner = join(root, 'run.mjs')
+  mkdirSync(bin, { recursive: true })
+  mkdirSync(join(tree, 'nested'), { recursive: true })
+  writeFileSync(join(bin, 'tar'), '#!/bin/sh\necho "tar: Option --sort=name is not supported" >&2\nexit 1\n')
+  chmodSync(join(bin, 'tar'), 0o755)
+  writeFileSync(join(tree, 'b.txt'), 'second\n')
+  writeFileSync(join(tree, 'nested', 'a.txt'), 'first\n')
+  writeFileSync(join(tree, `${'n'.repeat(120)}.txt`), 'long\n')
+  chmodSync(join(tree, 'b.txt'), 0o755)
+  const mod = new URL('./iui-artifact.mjs', import.meta.url).href
+  writeFileSync(runner, `import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { packDeterministicTarGz, sha256Hex } from ${JSON.stringify(mod)}
+const [tree, left, right] = process.argv.slice(2)
+await packDeterministicTarGz(tree, left)
+await packDeterministicTarGz(tree, right)
+const actual = sha256Hex(readFileSync(left))
+if (actual !== sha256Hex(readFileSync(right))) throw new Error('packs differ')
+try {
+  execFileSync('/usr/bin/tar', ['--sort=name', '--version'], { stdio: 'ignore' })
+} catch {
+  console.log(actual)
+  process.exit(0)
+}
+const raw = execFileSync('/usr/bin/tar', [
+  '--sort=name', '--mtime=@0', '--owner=0', '--group=0', '--numeric-owner',
+  '-cf', '-', '-C', tree, '.',
+])
+const gnu = execFileSync('gzip', ['-n', '-c'], { input: raw })
+if (sha256Hex(gnu) !== actual) throw new Error('packer diverged from GNU tar | gzip -n')
+console.log(actual)
+`)
+  try {
+    const sha = execFileSync(process.execPath, [runner, tree, left, right], {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      encoding: 'utf8',
+    }).trim()
+    assert.match(sha, /^[a-f0-9]{64}$/u)
+    assert.equal(sha256Hex(readFileSync(left)), sha)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
 test('two deterministic packs of one tree share a sha256', async () => {
   const root = join(tmpdir(), `fde-iui-tar-${process.pid}`)
