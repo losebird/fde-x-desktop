@@ -134,6 +134,17 @@ export function emit(type, payload, { workspaceCwd = null, sessionId, source = '
 }
 
 /**
+ * @param {(type: string, payload: unknown, meta?: { workspaceCwd?: string | null, sessionId?: string }) => unknown} emitFn
+ * @param {{ sessionId: string, workspaceCwd?: string | null }} session
+ */
+export function emitSessionCreated(emitFn, { sessionId, workspaceCwd }) {
+  emitFn('ai.session.changed', { sessionId, kind: 'created' }, {
+    workspaceCwd: workspaceCwd || null,
+    sessionId,
+  })
+}
+
+/**
  * @param {(envelope: FdeEnvelope) => void} fn
  */
 export function subscribe(fn) {

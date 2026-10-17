@@ -489,6 +489,11 @@ export default function AI() {
       ac.abort()
     }
   }, [runtimeConnected])
+  useEvents(['ai.session.changed'], () => {
+    void reloadRemoteSessions().catch((error) => {
+      setRuntimeError(displayError(error))
+    })
+  })
   useEvents(['memory.engine.changed'], (event) => {
     const payload = event.payload
     if (!payload || typeof payload !== 'object') return
