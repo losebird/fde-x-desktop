@@ -203,6 +203,19 @@ test('a host restart restores every loaded server from the session log', async (
   }
 })
 
+test('a catalog line keeps literal prompt braces', async () => {
+  const rows = fixtureTools()
+  rows.push(tool('mcp__news__latest', 'Wire {{not_a_variable}} item.'))
+  const bus = createBus(() => rows)
+  bridge.installIuiModeGate(bus)
+  const assembled = await bus.waterfall('system-prompt/assemble', null, { agent: agent('sess-braces') })
+  const section = assembled.sections.find((row) => row && row.name === 'fde:mcp-catalog')
+  const rendered = section.interpolate === false
+    ? section.text
+    : (() => { throw new Error(`unknown prompt variable in section "${section.name}"`) })()
+  assert.match(rendered, /news \/ latest \/ Wire \{\{not_a_variable\}\} item\./)
+})
+
 test('a server that was not in the table appears in the catalog', async () => {
   const rows = fixtureTools()
   const bus = createBus(() => rows)

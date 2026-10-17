@@ -144,6 +144,7 @@ async function applyMcpCatalog(assembly, sessionId) {
   const sections = (Array.isArray(assembly.sections) ? assembly.sections : []).concat({
     name: 'fde:mcp-catalog',
     text: catalogText(catalog),
+    interpolate: false,
   })
   return { ...assembly, tools, sections }
 }
