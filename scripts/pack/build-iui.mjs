@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFile as execFileCb } from 'node:child_process'
-import { mkdir, readFile, rm, writeFile, cp } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile, cp } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -124,13 +125,20 @@ export async function buildIuiArtifact(options = {}) {
 }
 
 export async function finishIuiArtifact(tree, artifactPath, pin = IUI_PIN, manifestFiles) {
-  await packDeterministicTarGz(tree, artifactPath)
-  const sha256 = sha256Hex(await readFile(artifactPath))
-  if (sha256 === pin.artifact.sha256) return sha256
-  const files = manifestFiles || JSON.parse(await readFile(new URL('./iui-pin-manifest.json', import.meta.url), 'utf8')).files
-  const detail = explainPinDrift(tree, files)
-  await rm(artifactPath, { force: true })
-  throw new Error(`IUI artifact sha256 mismatch\nexpected ${pin.artifact.sha256}\nactual ${sha256}\n${detail}`)
+  const tempPath = `${artifactPath}.${process.pid}.${randomBytes(4).toString('hex')}.partial`
+  try {
+    await packDeterministicTarGz(tree, tempPath)
+    const sha256 = sha256Hex(await readFile(tempPath))
+    if (sha256 !== pin.artifact.sha256) {
+      const files = manifestFiles || JSON.parse(await readFile(new URL('./iui-pin-manifest.json', import.meta.url), 'utf8')).files
+      const detail = explainPinDrift(tree, files)
+      throw new Error(`IUI artifact sha256 mismatch\nexpected ${pin.artifact.sha256}\nactual ${sha256}\n${detail}`)
+    }
+    await rename(tempPath, artifactPath)
+    return sha256
+  } finally {
+    await rm(tempPath, { force: true })
+  }
 }
 
 export function iuiArtifactPathFromArgv(argv, { repoRoot: root, commit }) {

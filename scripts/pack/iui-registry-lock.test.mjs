@@ -35,11 +35,15 @@ test('a mirror registry lockfile packs to the same artifact as registry.npmjs.or
   const mirrorTar = join(root, 'mirror.tar.gz')
   writeTree(canon, ciLock)
   writeTree(mirror, mirrorLock)
+  const previous = process.env.npm_config_registry
+  process.env.npm_config_registry = 'https://registry.npmmirror.com/'
   try {
     await packDeterministicTarGz(canon, canonTar)
     await packDeterministicTarGz(mirror, mirrorTar)
     assert.equal(sha(mirrorTar), sha(canonTar))
   } finally {
+    if (previous === undefined) delete process.env.npm_config_registry
+    else process.env.npm_config_registry = previous
     rmSync(root, { recursive: true, force: true })
   }
 })
