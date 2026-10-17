@@ -62,7 +62,12 @@ function watchWrites(page: Page) {
 test.beforeAll(async ({ request }) => {
   test.setTimeout(120_000)
   const connected = await connectCore(request)
-  cwd = connected.workspace || ''
+  const opened = await request.post('/api/v1/ai/workspaces', {
+    data: { path: connected.workspace, title: 'visual' },
+  })
+  expect(opened.ok()).toBeTruthy()
+  const workspace = await opened.json() as { data?: { path?: string } }
+  cwd = workspace.data?.path || connected.workspace || ''
   expect(cwd).toEqual(expect.stringMatching(/^\//))
   root = await skillInstallRoot(request)
   bundleDir = join(root, skillName)
