@@ -20,7 +20,8 @@ import {
   writeEmptyCredentials,
   childEnv,
 } from './lib/drive.mjs'
-import { startMessagesServer } from './lib/messages-server.mjs'
+import { startOpenAiServer } from './lib/openai-server.mjs'
+import { writeProviderSettings, GROK_MODEL, GROK_ROUTE } from './lib/provider-home.mjs'
 import { redactText } from './lib/redact.mjs'
 import { PROMPT, systemText, toolsOf } from './lib/request-facts.mjs'
 import {
@@ -42,7 +43,15 @@ const IUI_SHA = 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a
 const ARTIFACT_NAME = `iui-${IUI_COMMIT}.tar.gz`
 
 const staticMode = process.argv.includes('--static')
-const runs = staticMode ? 1 : 3
+const matchedEffort = process.env.GROK2API_EFFORT || 'low'
+const runs = staticMode ? 1 : Number(process.env.IUI_PERF_RUNS || 3)
+const grokBase = process.env.GROK2API_BASE_URL || 'http://127.0.0.1:8000/v1'
+
+const ARMS = [
+  { id: 'A', api: 'openai-completions', effort: matchedEffort, kind: 'dsh' },
+  { id: 'B', api: 'openai-responses', effort: matchedEffort, kind: 'fde' },
+  { id: 'B-default', api: 'openai-responses', effort: null, kind: 'fde' },
+]
 
 function fail(message) {
   console.error(message)
@@ -150,16 +159,36 @@ function openLog(file) {
   return createWriteStream(file, { flags: 'a' })
 }
 
-async function captureA({ baseUrl, pluginDir, capDir, forward }) {
+function apiKeyForChild() {
+  if (staticMode) return 'static-intercept'
+  return process.env.GROK2API_API_KEY
+}
+
+async function readMetas(dir) {
+  const { readdir } = await import('node:fs/promises')
+  let names = []
+  try {
+    names = await readdir(dir)
+  } catch {
+    return []
+  }
+  const rows = []
+  for (const name of names.filter((item) => item.startsWith('meta-') && item.endsWith('.json')).sort()) {
+    rows.push(JSON.parse(await readFile(join(dir, name), 'utf8')))
+  }
+  return rows
+}
+
+async function captureA({ baseUrl, pluginDir, capDir, forward, effort }) {
   const home = await mkdtemp(join(tmpdir(), 'iui-perf-a-'))
   const workspace = await mkdtemp(join(tmpdir(), 'iui-perf-ws-'))
   await writeEmptyCredentials(home)
+  await writeProviderSettings(home, { baseUrl, api: 'openai-completions', effort })
   const bin = await ensureDshBin()
   const log = openLog(join(capDir, 'boot.log'))
-  const apiKey = staticMode ? 'static-intercept' : undefined
+  const apiKey = apiKeyForChild()
   const add = spawnDsh(bin, ['plugin', '--profile', 'web', 'add', pluginDir], {
     home,
-    baseUrl,
     cwd: workspace,
     log,
     apiKey,
@@ -171,7 +200,6 @@ async function captureA({ baseUrl, pluginDir, capDir, forward }) {
   }
   const web = spawnDsh(bin, ['web', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
     home,
-    baseUrl,
     cwd: workspace,
     log,
     apiKey,
@@ -179,6 +207,7 @@ async function captureA({ baseUrl, pluginDir, capDir, forward }) {
   try {
     const match = await waitForLine(web.logs, /dsh web:\s+(\S+)/, 180000, { raw: true })
     const launchUrl = match[1]
+    await waitForLine(web.logs, /settings: imported/, 60000).catch(() => {})
     const origin = new URL(launchUrl).origin
     const cookie = await exchangeCookie(launchUrl)
     const api = await webSession(origin, cookie)
@@ -186,6 +215,14 @@ async function captureA({ baseUrl, pluginDir, capDir, forward }) {
       request: { cwd: workspace, agentPreset: 'standard' },
     })
     const sessionId = created.sessionId || created.id
+    await api.rpc('session/selectModel', {
+      request: {
+        sessionId,
+        provider: GROK_ROUTE,
+        model: GROK_MODEL,
+        ...(effort ? { reasoningEffort: effort } : {}),
+      },
+    })
     const started = Date.now()
     await api.rpc('session/prompt', {
       request: {
@@ -198,14 +235,15 @@ async function captureA({ baseUrl, pluginDir, capDir, forward }) {
     const records = await waitQuiet(capDir, forward ? 12 * 60 * 1000 : 180000, forward ? 8000 : 4000)
     return {
       group: 'A',
+      api: 'openai-completions',
+      effort: effort || '(default)',
       home,
       origin,
       sessionId,
       e2eMs: Date.now() - started,
       records,
-      note: staticMode
-        ? '静态拦截往返，不是模型生成耗时。'
-        : '从 prompt 被接受，到请求流静默。',
+      metas: await readMetas(capDir),
+      note: staticMode ? '静态拦截往返，不是模型生成耗时。' : '从 prompt 被接受，到请求流静默。',
     }
   } finally {
     await stopChild(web.child)
@@ -213,14 +251,15 @@ async function captureA({ baseUrl, pluginDir, capDir, forward }) {
   }
 }
 
-async function captureB({ baseUrl, artifact, capDir, port, forward }) {
+async function captureFde({ baseUrl, artifact, capDir, port, forward, effort, group, api }) {
   const home = await mkdtemp(join(tmpdir(), 'iui-perf-b-'))
   const workspace = await mkdtemp(join(tmpdir(), 'iui-perf-ws-'))
   const db = join(home, 'fde.sqlite')
   await writeEmptyCredentials(home)
+  await writeProviderSettings(home, { baseUrl, api, effort })
   const log = openLog(join(capDir, 'boot.log'))
   const env = {
-    ...childEnv(home, baseUrl, staticMode ? 'static-intercept' : undefined),
+    ...childEnv(home, apiKeyForChild()),
     FDE_DATABASE_PATH: db,
     FDE_AI_WORKSPACE: workspace,
     FDE_IUI_ARTIFACT: artifact,
@@ -264,25 +303,26 @@ async function captureB({ baseUrl, artifact, capDir, port, forward }) {
       }, 300)
     })
     const origin = `http://127.0.0.1:${announced}`
-    const connectAbort = AbortSignal.timeout(240000)
     const connected = await fetch(new URL('/api/v1/ai/connect', origin), {
       method: 'POST',
       headers: { origin, 'content-type': 'application/json' },
       body: '{}',
-      signal: connectAbort,
+      signal: AbortSignal.timeout(240000),
     })
     const connectText = await connected.text()
-    if (!connected.ok) throw new Error(`ai connect HTTP ${connected.status} ${connectText.slice(0, 500)}`)
+    if (!connected.ok) throw new Error(`ai connect HTTP ${connected.status} ${redactText(connectText).slice(0, 500)}`)
+    const importDeadline = Date.now() + 60000
+    while (Date.now() < importDeadline) {
+      if (`${logs.stdout}\n${logs.stderr}`.includes('settings: imported')) break
+      await sleep(200)
+    }
     let created = null
     const deadline = Date.now() + 180000
     let lastError = ''
     while (Date.now() < deadline) {
       const response = await fetch(new URL('/api/v1/ai/sessions', origin), {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          origin,
-        },
+        headers: { 'content-type': 'application/json', origin },
         body: JSON.stringify({ cwd: workspace, agentPreset: 'standard' }),
       })
       const text = await response.text()
@@ -290,7 +330,7 @@ async function captureB({ baseUrl, artifact, capDir, port, forward }) {
         created = JSON.parse(text)
         break
       }
-      lastError = `HTTP ${response.status} ${text.slice(0, 300)}`
+      lastError = `HTTP ${response.status} ${redactText(text).slice(0, 300)}`
       await sleep(1000)
     }
     if (!created) throw new Error(`session create failed: ${lastError}`)
@@ -298,32 +338,30 @@ async function captureB({ baseUrl, artifact, capDir, port, forward }) {
     const started = Date.now()
     const prompted = await fetch(new URL(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/prompt`, origin), {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        origin,
-      },
+      headers: { 'content-type': 'application/json', origin },
       body: JSON.stringify({ text: PROMPT }),
     })
     if (!prompted.ok) {
       const detail = await prompted.text()
-      throw new Error(`prompt HTTP ${prompted.status} ${detail.slice(0, 400)}`)
+      throw new Error(`prompt HTTP ${prompted.status} ${redactText(detail).slice(0, 400)}`)
     }
     const records = await waitQuiet(capDir, forward ? 12 * 60 * 1000 : 180000, forward ? 8000 : 4000)
     const pluginFailures = `${logs.stdout}\n${logs.stderr}`
       .split('\n')
       .filter((line) => line.includes('builtin_plugin_link_failed'))
     return {
-      group: 'B',
+      group,
+      api,
+      effort: effort || '(default)',
       home,
       origin,
       port: Number(announced),
       sessionId,
       e2eMs: Date.now() - started,
       records,
+      metas: await readMetas(capDir),
       pluginFailures,
-      note: staticMode
-        ? '静态拦截往返，不是模型生成耗时。'
-        : '从 prompt 被接受，到请求流静默。',
+      note: staticMode ? '静态拦截往返，不是模型生成耗时。' : '从 prompt 被接受，到请求流静默。',
     }
   } finally {
     await stopChild(child)
@@ -362,13 +400,7 @@ async function renderFence(raw) {
     await page.setContent(doc, { waitUntil: 'load' })
     await page.waitForTimeout(500)
     const strip = await page.locator('[data-iui-author-fail]').first().innerText().catch(() => '')
-    return {
-      rendered: true,
-      bytes: raw.length,
-      strip,
-      pageErrors,
-      ok: !strip && pageErrors.length === 0,
-    }
+    return { rendered: true, bytes: raw.length, strip, pageErrors, ok: !strip && pageErrors.length === 0 }
   } finally {
     await browser.close()
   }
@@ -404,45 +436,71 @@ async function liveExtras(capDir, records) {
   }
 }
 
-function markdownTable(comparison, runsOut) {
+function speedOf(meta) {
+  if (!meta || meta.synthetic || !meta.usage || meta.usage.output == null) return null
+  const genMs = meta.totalMs != null && meta.firstByteMs != null ? meta.totalMs - meta.firstByteMs : null
+  if (!genMs || genMs <= 0) return null
+  return Math.round((meta.usage.output / genMs) * 1000)
+}
+
+function stepLines(records, metas) {
+  const byId = new Map((metas || []).map((meta) => [meta.id, meta]))
+  const lines = []
+  for (const row of requestIndex(records)) {
+    const meta = byId.get(row.id) || {}
+    const usage = meta.usage || {}
+    const speed = speedOf(meta)
+    lines.push(
+      `- ${row.id} ${row.path || ''} model=${row.model || '(absent)'} effort=${row.effort} tools=${row.tools} prompt=${row.promptTurn}`,
+    )
+    lines.push(
+      `  input=${usage.input ?? '(无供应商 usage)'} output=${usage.output ?? '(无)'} cacheRead=${usage.cacheRead ?? '(无)'} 首token=${meta.firstByteMs ?? '(无)'} ms 生成=${speed ?? '(无)'} tok/s 耗时=${meta.totalMs ?? '(无)'} ms 工具调用=${JSON.stringify(row.toolUses)}`,
+    )
+  }
+  return lines
+}
+
+function armCell(turn, field) {
+  if (!turn) return '—'
+  const value = turn[field]
+  return value === undefined || value === null || value === '' ? '—' : value
+}
+
+function markdownTable(comparison, runsOut, defaultTurn) {
   const a = comparison.A
   const b = comparison.B
   const lines = [
-    `# IUI 静态对比`,
+    `# IUI grok2api 对比`,
     ``,
-    `分词器：${TOKENIZER_NAME}。这不是 DeepSeek 账单。`,
+    `模型 ${GROK_MODEL}。A 走 openai-completions，B 走 openai-responses。对齐 effort=${matchedEffort}。B-default 不写 reasoningEffort。`,
+    `分词器：${TOKENIZER_NAME}。静态表不是供应商账单。`,
     ``,
-    `| 项 | A 裸 DSH + IUI | B fde-x 标准对话 |`,
-    `| --- | ---: | ---: |`,
-    `| system tokens | ${a ? a.systemTokens : '—'} | ${b ? b.systemTokens : '—'} |`,
-    `| system chars | ${a ? a.systemChars : '—'} | ${b ? b.systemChars : '—'} |`,
-    `| 工具个数 | ${a ? a.toolCount : '—'} | ${b ? b.toolCount : '—'} |`,
-    `| 工具 tokens | ${a ? a.toolTokens : '—'} | ${b ? b.toolTokens : '—'} |`,
-    `| effort | ${a ? a.effort : '—'} | ${b ? b.effort : '—'} |`,
-    `| thinking | ${a ? a.thinking : '—'} | ${b ? b.thinking : '—'} |`,
-    `| model | ${a ? a.model : '—'} | ${b ? b.model : '—'} |`,
-    `| 正文字节 system | ${a && a.fields ? a.fields.system : '—'} | ${b && b.fields ? b.fields.system : '—'} |`,
-    `| 正文字节 tools | ${a && a.fields ? a.fields.tools : '—'} | ${b && b.fields ? b.fields.tools : '—'} |`,
-    `| 正文字节 dsh_session_log | ${a && a.fields ? a.fields.dsh_session_log : '—'} | ${b && b.fields ? b.fields.dsh_session_log : '—'} |`,
-    `| 正文字节 dsh_plugin_packages | ${a && a.fields ? a.fields.dsh_plugin_packages : '—'} | ${b && b.fields ? b.fields.dsh_plugin_packages : '—'} |`,
+    `| 项 | A | B 对齐 effort | B 默认 effort |`,
+    `| --- | ---: | ---: | ---: |`,
+    `| system tokens | ${armCell(a, 'systemTokens')} | ${armCell(b, 'systemTokens')} | ${armCell(defaultTurn, 'systemTokens')} |`,
+    `| 工具个数 | ${armCell(a, 'toolCount')} | ${armCell(b, 'toolCount')} | ${armCell(defaultTurn, 'toolCount')} |`,
+    `| 工具字符 | ${armCell(a, 'toolChars')} | ${armCell(b, 'toolChars')} | ${armCell(defaultTurn, 'toolChars')} |`,
+    `| 工具 tokens | ${armCell(a, 'toolTokens')} | ${armCell(b, 'toolTokens')} | ${armCell(defaultTurn, 'toolTokens')} |`,
+    `| effort | ${armCell(a, 'effort')} | ${armCell(b, 'effort')} | ${armCell(defaultTurn, 'effort')} |`,
+    `| model | ${armCell(a, 'model')} | ${armCell(b, 'model')} | ${armCell(defaultTurn, 'model')} |`,
+    `| path | ${armCell(a, 'path')} | ${armCell(b, 'path')} | ${armCell(defaultTurn, 'path')} |`,
     ``,
     `B 减 A system tokens：${comparison.delta.systemTokens}`,
     `B 减 A 工具 tokens：${comparison.delta.toolTokens}`,
     `只在 B 的工具：${comparison.delta.toolsOnlyInB.join(', ') || '（无）'}`,
     `只在 A 的工具：${comparison.delta.toolsOnlyInA.join(', ') || '（无）'}`,
     ``,
-    `## 只在 B 的 system 段落`,
+    `## 按步`,
     ``,
   ]
-  for (const [name, bucket] of Object.entries(comparison.delta.bOnlyByClass)) {
-    lines.push(`- ${name}：${bucket.paragraphs} 段，${bucket.tokens} tokens，${bucket.chars} 字符`)
-  }
-  lines.push('', '## 每次拦截', '')
   for (const row of runsOut) {
-    lines.push(`- ${row.group} #${row.index} 请求 ${row.requests} 条，其中带工具的 ${row.toolRounds} 条，静默等待 ${row.e2eMs} ms。${row.note}`)
+    lines.push(`### ${row.group} #${row.index} api=${row.api} effort=${row.effort} 静默 ${row.e2eMs} ms`)
+    lines.push(row.note)
     if (row.pluginFailures && row.pluginFailures.length) {
-      lines.push(`  插件挂载失败 ${row.pluginFailures.length} 条（这台机器没有 lan-assist / semantic-os 完整包）。`)
+      lines.push(`插件挂载失败 ${row.pluginFailures.length} 条（这台机器没有 lan-assist / semantic-os 完整包）。`)
     }
+    lines.push(...stepLines(row.records || [], row.metas || []))
+    lines.push('')
   }
   return `${lines.join('\n')}\n`
 }
@@ -450,11 +508,11 @@ function markdownTable(comparison, runsOut) {
 async function main() {
   if (!assertNode()) return
   if (!await assertPnpm()) return
-  if (!staticMode && !process.env.DEEPSEEK_API_KEY) {
-    fail('实时测量需要环境变量 DEEPSEEK_API_KEY。没有 key 时运行：node scripts/iui-perf/run.mjs --static')
+  if (!staticMode && !process.env.GROK2API_API_KEY) {
+    fail('实时测量需要环境变量 GROK2API_API_KEY。没有 key 时运行：node scripts/iui-perf/run.mjs --static')
     return
   }
-  const outDir = resolve(repoRoot, 'artifacts', 'iui-perf', staticMode ? 'static' : 'live')
+  const outDir = resolve(repoRoot, 'artifacts', 'iui-perf', staticMode ? 'grok-static' : 'grok-live')
   await mkdir(outDir, { recursive: true })
   const artifact = await ensureArtifact(outDir)
   const digest = await sha256(artifact)
@@ -462,89 +520,93 @@ async function main() {
   const pluginDir = await ensurePluginDir(artifact)
   const order = []
   for (let index = 1; index <= runs; index += 1) {
-    order.push(['A', index], ['B', index])
+    for (const arm of ARMS) order.push({ ...arm, index })
   }
   const finished = []
-  for (const [group, index] of order) {
-    const capDir = join(outDir, 'captures', `${group}-${index}`)
+  let port = 4318
+  for (const arm of order) {
+    const capDir = join(outDir, 'captures', `${arm.id}-${arm.index}`)
     await mkdir(capDir, { recursive: true })
-    console.log(`capture ${group} #${index}`)
-    const server = await startMessagesServer({
+    console.log(`capture ${arm.id} #${arm.index} ${arm.api} effort=${arm.effort || '(default)'}`)
+    const server = await startOpenAiServer({
       dir: capDir,
       forward: !staticMode,
+      upstream: grokBase,
     })
+    const baseUrl = `${server.origin}/v1`
     try {
-      const captured = group === 'A'
-        ? await captureA({ baseUrl: server.origin, pluginDir, capDir, forward: !staticMode })
-        : await captureB({
-          baseUrl: server.origin,
+      const captured = arm.kind === 'dsh'
+        ? await captureA({
+          baseUrl,
+          pluginDir,
+          capDir,
+          forward: !staticMode,
+          effort: arm.effort,
+        })
+        : await captureFde({
+          baseUrl,
           artifact,
           capDir,
-          port: 4318,
+          port,
           forward: !staticMode,
+          effort: arm.effort,
+          group: arm.id,
+          api: arm.api,
         })
+      port += 1
       const turn = pickPromptTurn(captured.records)
-      if (turn) {
-        const folder = join(outDir, 'first-turn', `${group}-${index}`)
-        await mkdir(folder, { recursive: true })
-        await writeFile(join(folder, 'system.txt'), systemText(turn.body))
-        await writeFile(join(folder, 'tools.json'), `${JSON.stringify(turn.body.tools, null, 2)}\n`)
+      if (!turn) throw new Error(`${arm.id} 没有拦到带工具的杭州提示请求`)
+      if (turn.body.model !== GROK_MODEL) {
+        throw new Error(`${arm.id} 模型是 ${turn.body.model}，不是 ${GROK_MODEL}`)
       }
-      let extras = null
-      if (!staticMode) extras = await liveExtras(capDir, captured.records)
-      const row = {
-        group,
-        index,
-        requests: captured.records.length,
-        toolRounds: captured.records.filter((record) => toolsOf(record.body).length > 0).length,
-        e2eMs: captured.e2eMs,
-        note: captured.note,
-        port: captured.port,
-        pluginFailures: captured.pluginFailures || [],
-        indexRows: requestIndex(captured.records),
-        extras,
-      }
-      await writeFile(join(capDir, 'summary.json'), `${JSON.stringify(row, null, 2)}\n`)
-      finished.push({ ...captured, ...row })
-      console.log(`${group} #${index} requests=${captured.records.length} prompt=${Boolean(turn)}`)
+      const extras = staticMode ? null : await liveExtras(capDir, captured.records)
+      finished.push({ ...captured, index: arm.index, extras, records: captured.records, metas: captured.metas })
+      console.log(`${arm.id} #${arm.index} tools=${toolsOf(turn.body).length} effort path=${turn.path} model=${turn.body.model}`)
     } finally {
-      await new Promise((resolveClose) => server.server.close(resolveClose))
+      server.close()
     }
   }
-  const left = finished.find((row) => row.group === 'A')
-  const right = finished.find((row) => row.group === 'B')
-  const comparison = await compareCaptures(
-    { records: left ? left.records : [] },
-    { records: right ? right.records : [] },
-  )
-  const overlays = {
-    semanticOs: await inventoryFile(join(repoRoot, 'runtime/vendor-overlays/dsh-semantic-os/tools.js')),
-    semanticSection: await inventoryFile(join(repoRoot, 'runtime/vendor-overlays/dsh-semantic-os/index.js')),
-    lanAssist: await inventoryFile(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/tools.js')),
+  const sample = (id) => finished.find((row) => row.group === id && row.index === 1)
+  const a = sample('A')
+  const b = sample('B')
+  const fallback = sample('B-default')
+  const comparison = await compareCaptures(a, b)
+  const defaultTurn = await (async () => {
+    const { describeTurn } = await import('./lib/summarize.mjs')
+    return describeTurn(pickPromptTurn(fallback.records))
+  })()
+  const publicRuns = finished.map((row) => ({
+    group: row.group,
+    index: row.index,
+    api: row.api,
+    effort: row.effort,
+    requests: row.records.length,
+    e2eMs: row.e2eMs,
+    note: row.note,
+    pluginFailures: row.pluginFailures || [],
+    steps: requestIndex(row.records),
+    metas: row.metas,
+    extras: row.extras,
+  }))
+  await writeFile(join(outDir, 'comparison.json'), `${JSON.stringify({ comparison, defaultTurn, runs: publicRuns }, null, 2)}\n`)
+  await writeFile(join(outDir, 'comparison.md'), markdownTable(comparison, finished, defaultTurn))
+  const first = join(outDir, 'first-turn')
+  await mkdir(first, { recursive: true })
+  for (const row of [a, b, fallback]) {
+    const turn = pickPromptTurn(row.records)
+    await writeFile(join(first, `${row.group}-system.txt`), redactText(turn ? systemText(turn.body) : ''))
+    await writeFile(join(first, `${row.group}-tools.json`), `${JSON.stringify(turn ? turn.body.tools : [], null, 2)}\n`)
   }
-  const report = {
-    mode: staticMode ? 'static' : 'live',
-    prompt: PROMPT,
-    iui: { version: IUI_VERSION, commit: IUI_COMMIT, sha256: IUI_SHA },
+  const breakdown = {
     tokenizer: TOKENIZER_NAME,
-    comparison,
-    overlays,
-    runs: finished.map((row) => ({
-      group: row.group,
-      index: row.index,
-      requests: row.requests,
-      toolRounds: row.toolRounds,
-      e2eMs: row.e2eMs,
-      note: row.note,
-      port: row.port,
-      pluginFailures: row.pluginFailures,
-      indexRows: row.indexRows,
-      extras: row.extras,
-    })),
+    lanAssist: await inventoryFile(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/tools.js')),
+    runs: publicRuns.map((row) => ({ group: row.group, index: row.index, steps: row.steps, metas: row.metas })),
   }
-  await writeFile(join(outDir, 'comparison.json'), `${JSON.stringify(report, null, 2)}\n`)
-  await writeFile(join(outDir, 'comparison.md'), markdownTable(comparison, report.runs))
+  await writeFile(join(outDir, 'breakdown.json'), `${JSON.stringify(breakdown, null, 2)}\n`)
   console.log(`wrote ${join(outDir, 'comparison.md')}`)
 }
 
-await main()
+main().catch((error) => {
+  console.error(error instanceof Error ? error.stack : error)
+  process.exitCode = 1
+})

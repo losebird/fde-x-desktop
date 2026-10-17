@@ -27,14 +27,13 @@ export async function ensureDshBin() {
   return bin
 }
 
-export function childEnv(home, baseUrl, keyOverride) {
-  const key = keyOverride || process.env.DEEPSEEK_API_KEY || 'static-intercept'
+export function childEnv(home, apiKey) {
+  const key = apiKey || process.env.GROK2API_API_KEY || 'static-intercept'
   return {
     ...process.env,
     DSH_HOME: home,
     FDE_DSH_HOME: home,
-    DEEPSEEK_BASE_URL: baseUrl,
-    DEEPSEEK_API_KEY: key,
+    GROK2API_API_KEY: key,
     DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE || 'danger-full-access',
   }
 }
@@ -60,10 +59,10 @@ function collect(child) {
   }
 }
 
-export function spawnDsh(bin, args, { home, baseUrl, cwd, log, apiKey }) {
+export function spawnDsh(bin, args, { home, cwd, log, apiKey }) {
   const child = spawn(process.execPath, [bin, ...args], {
     cwd,
-    env: childEnv(home, baseUrl, apiKey),
+    env: childEnv(home, apiKey),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   const logs = collect(child)

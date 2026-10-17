@@ -10,36 +10,54 @@ const MARKERS = [
   ['workflow-word', 'workflow'],
 ]
 
+function textOfContent(content) {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content.map((block) => {
+    if (!block) return ''
+    if (typeof block === 'string') return block
+    if (typeof block.text === 'string') return block.text
+    if (typeof block.content === 'string') return block.content
+    return ''
+  }).join('')
+}
+
+function messageText(message) {
+  if (!message || typeof message === 'string') return typeof message === 'string' ? message : ''
+  if (typeof message.content === 'string' || Array.isArray(message.content)) return textOfContent(message.content)
+  if (typeof message.text === 'string') return message.text
+  return ''
+}
+
 export function systemText(body) {
   if (!body || typeof body !== 'object') return ''
-  if (typeof body.system === 'string') return body.system
-  if (Array.isArray(body.system)) {
-    return body.system.map((block) => (block && typeof block.text === 'string' ? block.text : '')).join('\n')
-  }
-  const messages = Array.isArray(body.messages) ? body.messages : []
-  return messages
-    .filter((message) => message && message.role === 'system')
-    .map((message) => {
-      if (typeof message.content === 'string') return message.content
-      if (!Array.isArray(message.content)) return ''
-      return message.content.map((block) => (block && block.type === 'text' ? block.text : '')).join('')
-    })
-    .join('\n\n')
+  const chunks = []
+  if (typeof body.instructions === 'string') chunks.push(body.instructions)
+  if (typeof body.system === 'string') chunks.push(body.system)
+  if (Array.isArray(body.system)) chunks.push(body.system.map((block) => (block && typeof block.text === 'string' ? block.text : '')).join('\n'))
+  const messages = [
+    ...(Array.isArray(body.messages) ? body.messages : []),
+    ...(Array.isArray(body.input) ? body.input : []),
+  ]
+  chunks.push(messages
+    .filter((message) => message && (message.role === 'system' || message.role === 'developer'))
+    .map((message) => messageText(message))
+    .filter(Boolean)
+    .join('\n\n'))
+  return chunks.filter(Boolean).join('\n\n')
 }
 
 export function userText(body) {
-  const messages = body && Array.isArray(body.messages) ? body.messages : []
+  if (!body || typeof body !== 'object') return ''
+  if (typeof body.input === 'string') return body.input
+  const messages = [
+    ...(Array.isArray(body.messages) ? body.messages : []),
+    ...(Array.isArray(body.input) ? body.input : []),
+  ]
   return messages.map((message) => {
-    if (!message || message.role === 'system') return ''
-    if (typeof message.content === 'string') return message.content
-    if (!Array.isArray(message.content)) return ''
-    return message.content.map((block) => {
-      if (!block) return ''
-      if (typeof block.text === 'string') return block.text
-      if (typeof block.content === 'string') return block.content
-      return ''
-    }).join('')
-  }).join('\n')
+    if (!message || message.role === 'system' || message.role === 'developer') return ''
+    return messageText(message)
+  }).filter(Boolean).join('\n')
 }
 
 export function isPromptTurn(body) {
@@ -48,19 +66,24 @@ export function isPromptTurn(body) {
 
 export function effortOf(body) {
   const thinking = body && body.thinking && typeof body.thinking === 'object' ? body.thinking.type : ''
-  const effort = body && body.output_config && typeof body.output_config.effort === 'string'
-    ? body.output_config.effort
-    : ''
+  const nested = body && body.reasoning && typeof body.reasoning === 'object' ? body.reasoning.effort : ''
+  const effort = (typeof body?.reasoning_effort === 'string' && body.reasoning_effort)
+    || (typeof nested === 'string' && nested)
+    || (body && body.output_config && typeof body.output_config.effort === 'string' ? body.output_config.effort : '')
+    || ''
   return { thinking, effort }
 }
 
 export function toolsOf(body) {
   const tools = body && Array.isArray(body.tools) ? body.tools : []
-  return tools.map((tool) => ({
-    name: String(tool && tool.name || ''),
-    description: String(tool && tool.description || ''),
-    schema: tool && tool.input_schema ? tool.input_schema : {},
-  }))
+  return tools.map((tool) => {
+    const fn = tool && tool.function && typeof tool.function === 'object' ? tool.function : tool
+    return {
+      name: String((fn && fn.name) || (tool && tool.name) || (tool && tool.type) || ''),
+      description: String((fn && fn.description) || ''),
+      schema: (fn && (fn.parameters || fn.input_schema)) || {},
+    }
+  })
 }
 
 export function markerHits(text) {

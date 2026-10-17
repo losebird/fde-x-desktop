@@ -72,7 +72,7 @@ export async function describeTurn(record) {
     systemChars: system.length,
     systemTokens: await countTokens(system),
     toolCount: tools.length,
-    toolNames: tools.map((tool) => String(tool && tool.name || '')),
+    toolNames: toolsOf(record.body).map((tool) => tool.name).filter(Boolean),
     toolChars: toolJson.length,
     toolTokens: await countTokens(toolJson),
     markers: markerHits(system),
@@ -161,13 +161,19 @@ export function parseSseUsage(text) {
     }
     const block = payload && payload.message && payload.message.usage
       ? payload.message.usage
-      : payload && payload.usage
-        ? payload.usage
-        : null
+      : payload && payload.response && payload.response.usage
+        ? payload.response.usage
+        : payload && payload.usage
+          ? payload.usage
+          : null
     if (!block) continue
     for (const key of Object.keys(usage)) {
       if (typeof block[key] === 'number') usage[key] = block[key]
     }
+    if (typeof block.prompt_tokens === 'number') usage.input_tokens = block.prompt_tokens
+    if (typeof block.completion_tokens === 'number') usage.output_tokens = block.completion_tokens
+    const details = block.prompt_tokens_details || block.input_tokens_details
+    if (details && typeof details.cached_tokens === 'number') usage.cache_read_input_tokens = details.cached_tokens
   }
   return usage
 }
@@ -184,7 +190,14 @@ export function assistantTextFromSse(text) {
       continue
     }
     const delta = payload && payload.delta
+    if (typeof delta === 'string') out += delta
     if (delta && typeof delta.text === 'string') out += delta.text
+    if (delta && typeof delta.content === 'string') out += delta.content
+    const choices = payload && Array.isArray(payload.choices) ? payload.choices : []
+    for (const choice of choices) {
+      const piece = choice && choice.delta && choice.delta.content
+      if (typeof piece === 'string') out += piece
+    }
     if (delta && delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
       /* reasoning is not the fence */
     }

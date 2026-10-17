@@ -21,4 +21,5 @@ export function redactText(value) {
     .replace(/(cookie:\s*)[^\r\n]+/giu, '$1[redacted]')
     .replace(/(x-api-key:\s*)[^\s]+/giu, '$1[redacted]')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, 'sk-[redacted]')
+    .replace(/(GROK2API_API_KEY=)[^\s]+/g, '$1[redacted]')
 }
