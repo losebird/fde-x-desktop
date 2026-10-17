@@ -1,6 +1,8 @@
 const { readFile } = require('node:fs/promises')
 const { homedir } = require('node:os')
 const { join } = require('node:path')
+const { loadMcpServer } = require('./mcp-catalog.js')
+const { presetFromAgent } = require('../../mode-policy.cjs')
 
 function dshHome() {
   return process.env.FDE_DSH_HOME || process.env.DSH_HOME || join(homedir(), '.dsh-fde-x')
@@ -90,6 +92,7 @@ const FDE_TOOL_NAMES = [
   'fde_app_records_propose',
   'fde_briefing_submit',
   'fde_memory_draft',
+  'fde_mcp_load',
 ]
 
 function registerTools(ctx, { defineTool }) {
@@ -214,6 +217,28 @@ function registerTools(ctx, { defineTool }) {
     },
     presentCall() {
       return { card: 'generic', title: 'fde_briefing_submit', kind: 'write' }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'fde_mcp_load',
+    description: 'Load one MCP server into the next request by its real tool names. Pass the server name from the MCP catalog.',
+    parameters: {
+      server: { type: 'string', required: true },
+    },
+    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
+    async execute(args, exec) {
+      const server = String(args.server).trim()
+      const names = await loadMcpServer({
+        sessionId: toolSessionId(exec),
+        server,
+        preset: presetFromAgent(exec.agent),
+        mount: ctx.config,
+      })
+      return `已加载 ${server}。下一步可用：${names.join('、')}`
+    },
+    presentCall() {
+      return { card: 'generic', title: 'fde_mcp_load', kind: 'read' }
     },
   }))
 

@@ -173,9 +173,19 @@ test('a host restart restores every loaded server from the session log', async (
   const sessionId = 'sess-restart'
   try {
     await writeLoadLog(home, sessionId, ['mail', 'ai-hot', 'playwright'])
-    const rows = fixtureTools().concat(tool('mcp__news__latest', 'Fresh wire item.'))
+    const rows = [
+      tool('fde_mcp_load', 'Load one MCP server by name.'),
+      tool('read', 'Read a file.'),
+      tool('mcp__news__latest', 'Fresh wire item.'),
+    ]
     const bus = createBus(() => rows)
     bridge.installIuiModeGate(bus)
+    await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+    rows.push(
+      tool('mcp__mail__imap_search', 'Read the inbox.', 80),
+      tool('mcp__ai-hot__aihot_get_latest', 'Latest industry notes.', 80),
+      tool('mcp__playwright__click', 'Click a browser element.', 80),
+    )
     const assembled = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
     const names = assembled.tools.map((row) => row.name)
     assert.equal(names.includes('mcp__mail__imap_search'), true)

@@ -41,13 +41,17 @@ function resolveMcpMount(mount) {
   return mcpMountFromConfig(mount)
 }
 
-function deniedMcpServer(toolName, preset, mount) {
-  const server = mcpServerName(toolName)
-  if (!server) return ''
+function deniedServer(server, preset, mount) {
+  const name = String(server || '').trim()
+  if (!name) return ''
   const table = resolveMcpMount(mount)
-  if (preset === 'fde-briefing' && table.briefingDenyUserMcp) return server
-  if (preset === 'standard' && table.standardDenyServers.includes(server)) return server
+  if (preset === 'fde-briefing' && table.briefingDenyUserMcp) return name
+  if (preset === 'standard' && table.standardDenyServers.includes(name)) return name
   return ''
+}
+
+function deniedMcpServer(toolName, preset, mount) {
+  return deniedServer(mcpServerName(toolName), preset, mount)
 }
 
 function stripDeniedMcpTools(assembly, preset, mount) {
@@ -128,6 +132,7 @@ module.exports = {
   mcpServerName,
   mcpMountFromConfig,
   resolveMcpMount,
+  deniedServer,
   deniedMcpServer,
   gatePromptAssembly,
   gatePreStepDecision,

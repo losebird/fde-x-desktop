@@ -272,10 +272,13 @@ function installIuiModeGate(ctx) {
     throw new Error('IUI mode gate requires ctx.on')
   }
   const mountOf = () => resolveMcpMount(ctx.config)
+  const { applyMcpCatalog } = require('./mcp-catalog.js')
+  const { toolSessionId } = require('./tools.js')
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembled = await next()
     const preset = presetFromAgent(context && context.agent)
-    return gatePromptAssembly(assembled, preset, mountOf())
+    const gated = gatePromptAssembly(assembled, preset, mountOf())
+    return applyMcpCatalog(gated, toolSessionId({ agent: context && context.agent }))
   }, true)
   ctx.on('agent/pre-step', async (payload, next) => {
     const decision = await next()
