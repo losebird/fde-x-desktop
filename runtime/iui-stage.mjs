@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { execFile as execFileCb } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -9,6 +9,46 @@ import { PLUGIN_PIN_FILE } from './plugin-vendor.mjs'
 const execFile = promisify(execFileCb)
 
 export const IUI_REBUILD_COMMAND = 'node scripts/pack/build-iui.mjs --out ~/.dsh/vendor/iui'
+export const IUI_PARTIAL_STALE_MS = 15 * 60 * 1000
+
+function partialWriterPid(name) {
+  const match = /\.(\d+)\.[0-9a-f]+\.partial$/u.exec(name)
+  if (!match) return null
+  const pid = Number(match[1])
+  return Number.isInteger(pid) && pid > 0 ? pid : null
+}
+
+function writerAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if (error && error.code === 'EPERM') return true
+    if (error && error.code === 'ESRCH') return false
+    throw error
+  }
+}
+
+export function sweepStaleIuiPartials(dir) {
+  if (!dir || !existsSync(dir)) return []
+  const removed = []
+  const now = Date.now()
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith('.partial')) continue
+    const path = join(dir, name)
+    const pid = partialWriterPid(name)
+    if (pid != null) {
+      if (writerAlive(pid)) continue
+      rmSync(path, { force: true })
+      removed.push(name)
+      continue
+    }
+    if (now - statSync(path).mtimeMs <= IUI_PARTIAL_STALE_MS) continue
+    rmSync(path, { force: true })
+    removed.push(name)
+  }
+  return removed
+}
 
 function sha256Hex(bytes) {
   return createHash('sha256').update(bytes).digest('hex')

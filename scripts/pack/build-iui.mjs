@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { IUI_PIN } from './pins.mjs'
 import { PLUGIN_PIN_FILE } from '../../runtime/plugin-vendor.mjs'
 import { defaultIuiArtifactPath, explainPinDrift, iuiArtifactName, packDeterministicTarGz, retargetPrimitivePaths, sha256Hex } from './iui-artifact.mjs'
+import { sweepStaleIuiPartials } from '../../runtime/iui-stage.mjs'
 import { resolvePnpmRunner } from './pnpm-runner.mjs'
 
 const execFile = promisify(execFileCb)
@@ -125,6 +126,7 @@ export async function buildIuiArtifact(options = {}) {
 }
 
 export async function finishIuiArtifact(tree, artifactPath, pin = IUI_PIN, manifestFiles) {
+  sweepStaleIuiPartials(dirname(artifactPath))
   const tempPath = `${artifactPath}.${process.pid}.${randomBytes(4).toString('hex')}.partial`
   try {
     await packDeterministicTarGz(tree, tempPath)
