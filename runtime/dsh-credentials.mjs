@@ -1,5 +1,6 @@
+import { randomBytes } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs'
-import { chmod, copyFile, mkdir, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, link, mkdir, open, unlink } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -56,17 +57,41 @@ export async function seedDshCredentials(dshHome, options = {}) {
   return { copied: false, dest, reason: 'no_source' }
 }
 
+async function syncDirectory(dir) {
+  const handle = await open(dir, 'r')
+  try {
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+}
+
 export async function ensureCredentialsDocument(dshHome) {
   const destDir = String(dshHome || '').replace(/\/+$/u, '')
   const dest = join(destDir, '.credentials.yaml')
   if (existsSync(dest)) return { created: false, dest }
   await mkdir(destDir, { recursive: true })
+  if (existsSync(dest)) return { created: false, dest }
+  const tmp = join(destDir, `.credentials.yaml.${process.pid}.${randomBytes(8).toString('hex')}.tmp`)
+  const handle = await open(tmp, 'wx', 0o600)
   try {
-    await writeFile(dest, EMPTY_CREDENTIALS_DOCUMENT, { mode: 0o600, flag: 'wx' })
+    await handle.chmod(0o600)
+    await handle.writeFile(EMPTY_CREDENTIALS_DOCUMENT)
+    await handle.sync()
   } catch (error) {
+    await handle.close().catch(() => undefined)
+    await unlink(tmp).catch(() => undefined)
+    throw error
+  }
+  await handle.close()
+  try {
+    await link(tmp, dest)
+  } catch (error) {
+    await unlink(tmp).catch(() => undefined)
     if (error && error.code === 'EEXIST') return { created: false, dest }
     throw error
   }
-  await chmod(dest, 0o600)
+  await unlink(tmp)
+  await syncDirectory(destDir)
   return { created: true, dest }
 }

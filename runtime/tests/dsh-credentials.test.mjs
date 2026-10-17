@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import {
   EMPTY_CREDENTIALS_DOCUMENT,
@@ -69,6 +71,90 @@ test('ensureCredentialsDocument writes an empty store and does not replace one',
     const again = await ensureCredentialsDocument(destHome)
     assert.equal(again.created, false)
     assert.equal(readFileSync(again.dest, 'utf8'), 'keep: yes\n')
+    assert.deepEqual(readdirSync(destHome).filter((name) => name.endsWith('.tmp')), [])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('ensureCredentialsDocument does not replace an existing file', async () => {
+  const root = join(tmpdir(), `fde-cred-keep-${process.pid}-${Date.now()}`)
+  const destHome = join(root, 'desktop-home')
+  const dest = join(destHome, '.credentials.yaml')
+  mkdirSync(destHome, { recursive: true })
+  writeFileSync(dest, '', { mode: 0o640 })
+  try {
+    const empty = await ensureCredentialsDocument(destHome)
+    assert.equal(empty.created, false)
+    assert.equal(readFileSync(dest, 'utf8'), '')
+    assert.equal(statSync(dest).mode & 0o777, 0o640)
+    writeFileSync(dest, 'keep: yes\n', { mode: 0o640 })
+    const again = await ensureCredentialsDocument(destHome)
+    assert.equal(again.created, false)
+    assert.equal(readFileSync(again.dest, 'utf8'), 'keep: yes\n')
+    assert.equal(statSync(again.dest).mode & 0o777, 0o640)
+    assert.deepEqual(readdirSync(destHome).filter((name) => name.endsWith('.tmp')), [])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+function publishInChild(destHome) {
+  const modulePath = fileURLToPath(new URL('../dsh-credentials.mjs', import.meta.url))
+  const code = `
+    import { ensureCredentialsDocument } from ${JSON.stringify(modulePath)}
+    process.umask(0o077)
+    const result = await ensureCredentialsDocument(${JSON.stringify(destHome)})
+    process.stdout.write(JSON.stringify({ created: result.created === true }))
+  `
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', code], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let out = ''
+    let err = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => { out += chunk })
+    child.stderr.on('data', (chunk) => { err += chunk })
+    child.on('close', (status) => {
+      if (status !== 0) {
+        reject(new Error(err || out || `exit ${status}`))
+        return
+      }
+      resolve(JSON.parse(out))
+    })
+  })
+}
+
+test('ensureCredentialsDocument mode stays 0600 when umask clears owner bits', async () => {
+  const root = join(tmpdir(), `fde-cred-mode-${process.pid}-${Date.now()}`)
+  const destHome = join(root, 'desktop-home')
+  mkdirSync(destHome, { recursive: true })
+  try {
+    const result = await publishInChild(destHome)
+    assert.equal(result.created, true)
+    const dest = join(destHome, '.credentials.yaml')
+    assert.equal(readFileSync(dest, 'utf8'), EMPTY_CREDENTIALS_DOCUMENT)
+    assert.equal(statSync(dest).mode & 0o777, 0o600)
+    assert.deepEqual(readdirSync(destHome).filter((name) => name.endsWith('.tmp')), [])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('two processes publishing the first credentials file leave one document', async () => {
+  const root = join(tmpdir(), `fde-cred-race-${process.pid}-${Date.now()}`)
+  const destHome = join(root, 'desktop-home')
+  mkdirSync(destHome, { recursive: true })
+  try {
+    const results = await Promise.all([publishInChild(destHome), publishInChild(destHome)])
+    const created = results.filter((result) => result.created)
+    assert.equal(created.length, 1)
+    const dest = join(destHome, '.credentials.yaml')
+    assert.equal(readFileSync(dest, 'utf8'), EMPTY_CREDENTIALS_DOCUMENT)
+    assert.equal(statSync(dest).mode & 0o777, 0o600)
+    assert.deepEqual(readdirSync(destHome), ['.credentials.yaml'])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
