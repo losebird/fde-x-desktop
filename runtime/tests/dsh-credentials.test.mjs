@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import {
+  CREDENTIALS_TMP_MAX_AGE_MS,
   EMPTY_CREDENTIALS_DOCUMENT,
   credentialSourceHomes,
   ensureCredentialsDocument,
   seedDshCredentials,
   seedDshCredentialsSync,
+  sweepStaleCredentialTemps,
 } from '../dsh-credentials.mjs'
 
 test('credentialSourceHomes skips dest and de-dupes', () => {
@@ -155,6 +157,45 @@ test('two processes publishing the first credentials file leave one document', a
     assert.equal(readFileSync(dest, 'utf8'), EMPTY_CREDENTIALS_DOCUMENT)
     assert.equal(statSync(dest).mode & 0o777, 0o600)
     assert.deepEqual(readdirSync(destHome), ['.credentials.yaml'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('startup sweep removes an old credentials temp and keeps a fresh one', async () => {
+  const root = join(tmpdir(), `fde-cred-tmp-${process.pid}-${Date.now()}`)
+  const destHome = join(root, 'desktop-home')
+  mkdirSync(destHome, { recursive: true })
+  const official = join(destHome, '.credentials.yaml')
+  const oldTemp = join(destHome, '.credentials.yaml.11.old.tmp')
+  const freshTemp = join(destHome, '.credentials.yaml.22.fresh.tmp')
+  const decoy = join(destHome, '.credentials.yaml.bak')
+  writeFileSync(official, 'keep: yes\n', { mode: 0o600 })
+  writeFileSync(oldTemp, 'stale\n', { mode: 0o600 })
+  writeFileSync(freshTemp, 'live\n', { mode: 0o600 })
+  writeFileSync(decoy, 'bak\n', { mode: 0o600 })
+  const staleAt = new Date(Date.now() - CREDENTIALS_TMP_MAX_AGE_MS - 60_000)
+  const freshAt = new Date(Date.now() - 30_000)
+  utimesSync(official, staleAt, staleAt)
+  utimesSync(oldTemp, staleAt, staleAt)
+  utimesSync(freshTemp, freshAt, freshAt)
+  utimesSync(decoy, staleAt, staleAt)
+  try {
+    const swept = sweepStaleCredentialTemps(destHome)
+    assert.deepEqual(swept.removed, ['.credentials.yaml.11.old.tmp'])
+    assert.equal(existsSync(oldTemp), false)
+    assert.equal(readFileSync(freshTemp, 'utf8'), 'live\n')
+    assert.equal(readFileSync(official, 'utf8'), 'keep: yes\n')
+    assert.equal(statSync(official).mode & 0o777, 0o600)
+    assert.equal(readFileSync(decoy, 'utf8'), 'bak\n')
+    const { createCoreConnector } = await import('../dsh-core.mjs')
+    writeFileSync(oldTemp, 'stale-again\n', { mode: 0o600 })
+    utimesSync(oldTemp, staleAt, staleAt)
+    createCoreConnector({ dshHome: destHome })
+    assert.equal(existsSync(oldTemp), false)
+    assert.equal(readFileSync(freshTemp, 'utf8'), 'live\n')
+    assert.equal(readFileSync(official, 'utf8'), 'keep: yes\n')
+    assert.equal(statSync(official).mode & 0o777, 0o600)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

@@ -24,6 +24,7 @@ import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import { mergeProfileManifest } from './profile-manifest.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
+import { sweepStaleCredentialTemps } from './dsh-credentials.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -231,6 +232,7 @@ export class DshCoreConnector {
     this.pendingApprovals = new Map()
     this.eventAbort = null
     this.semanticRestarting = false
+    sweepStaleCredentialTemps(this.dshHome)
   }
 
   kickSemanticIfExited(snapshot) {

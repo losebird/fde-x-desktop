@@ -1,11 +1,45 @@
 import { randomBytes } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, chmodSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { chmod, copyFile, link, mkdir, open, unlink } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 export const EMPTY_CREDENTIALS_DOCUMENT = 'version: 1\nrefs:\n'
+export const CREDENTIALS_TMP_MAX_AGE_MS = 10 * 60 * 1000
+
+const CREDENTIAL_TEMP_NAME = /^\.credentials\.yaml\..+\.tmp$/u
+
+export function sweepStaleCredentialTemps(dshHome, nowMs = Date.now()) {
+  const destDir = String(dshHome || '').replace(/\/+$/u, '')
+  if (!destDir || !existsSync(destDir)) return { removed: [] }
+  const removed = []
+  let names = []
+  try {
+    names = readdirSync(destDir)
+  } catch {
+    return { removed }
+  }
+  for (const name of names) {
+    if (!CREDENTIAL_TEMP_NAME.test(name)) continue
+    const path = join(destDir, name)
+    let info
+    try {
+      info = statSync(path)
+    } catch {
+      continue
+    }
+    if (!info.isFile()) continue
+    if (nowMs - info.mtimeMs <= CREDENTIALS_TMP_MAX_AGE_MS) continue
+    try {
+      unlinkSync(path)
+    } catch {
+      continue
+    }
+    removed.push(name)
+  }
+  return { removed }
+}
 
 export function defaultOfficialDshHome() {
   return join(homedir(), '.dsh')
