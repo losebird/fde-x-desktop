@@ -23,6 +23,7 @@ import {
   homeCordisPatchPath,
   releaseMcpBootHold,
   resolveStdioCwd,
+  ensureSkillProvidersInProfile,
 } from '../mcp-archive.mjs'
 
 test('decorateDiscoveredMcpRows marks rows already in the archive', () => {
@@ -457,5 +458,60 @@ test('mcpArchivePaths uses the profile archive when present', () => {
   const profile = mcpArchivePaths({ dshHome: '/tmp/dsh-home', profileName: 'fde-x', patchFile: '/tmp/occupancy.patch.yml' })
   assert.deepEqual(profile, ['/tmp/dsh-home/profiles/fde-x/cordis.patch.yml'])
   assert.deepEqual(mcpArchivePaths({ patchFile: '/tmp/occupancy.patch.yml' }), ['/tmp/occupancy.patch.yml'])
+})
+
+function topLevelBlocks(text) {
+  return String(text).split(/\n(?=- )/u).map((part) => part.trim()).filter(Boolean)
+}
+
+function blockForId(text, id) {
+  return topLevelBlocks(text).find((part) => new RegExp(`^- id: ${id}\\b`, 'm').test(part)) || ''
+}
+
+test('ensureSkillProvidersInProfile disables host tool-skill and keeps the filesystem provider', async () => {
+  const { mkdtemp, mkdir, readFile, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'fde-skill-providers-'))
+  const file = join(home, 'profiles', 'fde-x', 'cordis.patch.yml')
+  await mkdir(join(home, 'profiles', 'fde-x'), { recursive: true })
+  const prior = [
+    '- id: other-plugin',
+    '  name: "@example/keep-me"',
+    '  disabled: false',
+    '- id: tool-skill',
+    '  name: "@deepseek-ai/dsh-tool-skill"',
+    '  disabled: false',
+    '  config:',
+    '    catalogDescriptionMaxLength: 500',
+    '- insert:',
+    '    - id: mcp-user-notes',
+    "      name: '@deepseek-ai/dsh-mcp-client'",
+    '      config:',
+    '        transport: stdio',
+    '        serverName: user-notes',
+    '        command: node',
+    '        args: ["notes.mjs"]',
+    '',
+  ].join('\n')
+  await writeFile(file, prior)
+  const runtime = { dshHome: home, profileName: 'fde-x' }
+  try {
+    await ensureSkillProvidersInProfile(runtime)
+    const text = await readFile(file, 'utf8')
+    const toolSkill = blockForId(text, 'tool-skill')
+    const filesystem = blockForId(text, 'skill-filesystem')
+    const other = blockForId(text, 'other-plugin')
+    assert.match(toolSkill, /disabled: true/)
+    assert.match(toolSkill, /catalogDescriptionMaxLength: 500/)
+    assert.match(filesystem, /disabled: false/)
+    assert.match(other, /@example\/keep-me/)
+    assert.match(text, /serverName: user-notes/)
+    assert.equal(topLevelBlocks(text).filter((part) => /^- id: tool-skill\b/m.test(part)).length, 1)
+    await ensureSkillProvidersInProfile(runtime)
+    assert.equal(await readFile(file, 'utf8'), text)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
 })
 
