@@ -33,6 +33,9 @@ function outsideRuntimeImports(runtimeRoot) {
         walk(full)
         continue
       }
+      const relFile = relative(runtimeRoot, full)
+      // Test files import src/ on purpose. server.mjs does not load them.
+      if (relFile === 'tests' || relFile.startsWith('tests/') || relFile.startsWith('tests\\')) continue
       if (!/\.(mjs|cjs|js)$/u.test(name)) continue
       const text = readFileSync(full, 'utf8')
       const specs = [

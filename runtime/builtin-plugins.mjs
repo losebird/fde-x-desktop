@@ -1,4 +1,4 @@
-import { IUI_PIN } from '../scripts/pack/pins.mjs'
+import { IUI_PIN } from './iui-pin.mjs'
 
 export const BUILTIN_PLUGINS = [
   { dir: 'dsh-lan-assist', module: 'dsh-lan-assist', source: { kind: 'vendor' }, health: 'im-business-adapter' },

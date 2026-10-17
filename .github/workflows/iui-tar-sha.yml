@@ -99,7 +99,7 @@ jobs:
           ARTIFACT="$artifact" node --input-type=module << 'JS'
           import { createHash } from 'node:crypto'
           import { readFileSync } from 'node:fs'
-          import { IUI_PIN } from './scripts/pack/pins.mjs'
+          import { IUI_PIN } from './runtime/iui-pin.mjs'
           const sha = createHash('sha256').update(readFileSync(process.env.ARTIFACT)).digest('hex')
           console.log(`sha256 ${sha}`)
           console.log(`pinned ${IUI_PIN.artifact.sha256}`)

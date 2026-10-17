@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PLUGIN_PIN_FILE } from '../../runtime/plugin-vendor.mjs'
 import { collectPackedFileShas } from './iui-artifact.mjs'
-import { IUI_PIN } from './pins.mjs'
+import { IUI_PIN } from '../../runtime/iui-pin.mjs'
 
 const tree = process.argv[2]
 if (!tree) {
