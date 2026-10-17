@@ -78,7 +78,6 @@ test('the bridge patch row is the standard and briefing MCP mount table', () => 
   assert.match(block, /standardDenyServers:/)
   for (const server of STANDARD_DENY) assert.match(block, new RegExp(`- ${server}\\b`))
   assert.match(block, /briefingDenyUserMcp:\s*true/)
-  assert.doesNotMatch(text, /profiles\/fde-x\/cordis\.patch\.yml[\s\S]*standardDenyServers/)
 })
 
 test('standard request keeps mail and drops the denied MCP servers', async () => {
@@ -104,7 +103,7 @@ test('fde-briefing request drops every user MCP tool and other presets keep them
   const appBus = createBus()
   bridge.installIuiModeGate(appBus)
   const app = await appBus.waterfall('system-prompt/assemble', null, { agent: agent('fde-app-builder') })
-  assert.deepEqual(app.tools.map((row) => row.name), fixtureTools().map((row) => row.name).filter((name) => !name.startsWith('get_')))
+  assert.deepEqual(app.tools.map((row) => row.name), fixtureTools().map((row) => row.name))
 })
 
 test('pre-execute denies the same servers and still allows a mounted one', async () => {

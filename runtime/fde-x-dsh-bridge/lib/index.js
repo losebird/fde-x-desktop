@@ -1,5 +1,5 @@
 const { randomBytes, timingSafeEqual } = require('node:crypto')
-const { mkdirSync, writeFileSync } = require('node:fs')
+const { existsSync, mkdirSync, writeFileSync } = require('node:fs')
 const { mkdir, readdir, readFile, writeFile } = require('node:fs/promises')
 const { createRequire } = require('node:module')
 const { homedir } = require('node:os')
@@ -226,32 +226,77 @@ function loadDshTools() {
   throw last || new Error('cannot resolve @deepseek-ai/dsh-tools')
 }
 
+function loadSchemastery() {
+  const seeds = []
+  if (require.main && require.main.filename) seeds.push(require.main.filename)
+  const hostTools = join(__dirname, '..', '..', '.host-generation', 'node_modules', '@deepseek-ai', 'dsh-tools', 'package.json')
+  if (existsSync(hostTools)) seeds.push(hostTools)
+  for (const seed of seeds) {
+    try {
+      return createRequire(seed)('@deepseek-ai/schemastery')
+    } catch (error) {
+      if (!error || error.code !== 'MODULE_NOT_FOUND') throw error
+    }
+  }
+  return null
+}
+
+function volatileField(schema) {
+  if (schema && typeof schema.volatile === 'function' && !(schema.meta && schema.meta.volatile)) return schema.volatile()
+  if (schema && schema.meta) schema.meta.volatile = true
+  return schema
+}
+
+function bridgeConfigSchema() {
+  const z = loadSchemastery()
+  if (!z) return null
+  const { STANDARD_DENY_SERVERS } = require('../../mode-policy.cjs')
+  return z.object({
+    standardDenyServers: volatileField(z.array(z.string()).default(STANDARD_DENY_SERVERS.slice())),
+    briefingDenyUserMcp: volatileField(z.boolean().default(true)),
+  })
+}
+
+const Config = bridgeConfigSchema()
+
 function installIuiModeGate(ctx) {
   const {
     presetFromAgent,
     gatePromptAssembly,
     gatePreStepDecision,
     resumePastIuiHtmlDeny,
+    deniedMcpServer,
+    resolveMcpMount,
   } = require('../../mode-policy.cjs')
   if (!ctx || typeof ctx.on !== 'function') {
     throw new Error('IUI mode gate requires ctx.on')
   }
+  const mountOf = () => resolveMcpMount(ctx.config)
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembled = await next()
-    return gatePromptAssembly(assembled, presetFromAgent(context && context.agent))
+    const preset = presetFromAgent(context && context.agent)
+    return gatePromptAssembly(assembled, preset, mountOf())
   }, true)
   ctx.on('agent/pre-step', async (payload, next) => {
     const decision = await next()
     return gatePreStepDecision(decision, presetFromAgent(payload && payload.agent))
   }, true)
   ctx.on('tools/pre-execute', async (exec, next) => {
+    const preset = presetFromAgent(exec && exec.agent)
+    const server = deniedMcpServer(exec && exec.name, preset, mountOf())
+    if (server) return { kind: 'deny', reason: `MCP 服务 ${server} 未挂到预设 ${preset}` }
     const decision = await next()
-    if (resumePastIuiHtmlDeny(decision, presetFromAgent(exec && exec.agent))) return next()
+    if (resumePastIuiHtmlDeny(decision, preset)) return next()
     return decision
   }, true)
 }
 
 function apply(ctx) {
+  if (Config && Config.dict) {
+    for (const field of Object.values(Config.dict)) {
+      if (field && field.meta) field.meta.volatile = true
+    }
+  }
   installIuiModeGate(ctx)
   if (ctx.webServer && typeof ctx.webServer.register === 'function') {
     ctx.effect(() => ctx.webServer.register({
@@ -281,3 +326,7 @@ exports.apply = apply
 exports.installIuiModeGate = installIuiModeGate
 exports.createFdeSessionHandler = createFdeSessionHandler
 exports.inject = ['webServer', 'tools']
+if (Config) {
+  module.exports.Config = Config
+  exports.Config = Config
+}
