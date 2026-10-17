@@ -384,8 +384,27 @@ window.__ModuleLoader__.load({
       function run(data) {
         if (!data || data.type !== "fde-x-dsh") return;
         const ui = ctx.get ? ctx.get("uiWorkspace") : undefined;
+        if (data.op === "connectWorkspace" && data.workspaceId) {
+          pendingSelectId = ""
+          if (!ui || typeof ui.connectWorkspace !== "function") {
+            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: "当前页无法连接工作区" }, "*")
+            return
+          }
+          Promise.resolve(ui.connectWorkspace(data.workspaceId)).then(function (sid) {
+            var id = typeof sid === "string" ? sid : ""
+            if (!id) {
+              if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: "工作区没有打开会话" }, "*")
+              return
+            }
+            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", op: "connectWorkspace", sessionId: id }, "*")
+          }).catch(function (err) {
+            var msg = err && err.message ? String(err.message) : "连接工作区失败"
+            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: msg }, "*")
+          })
+          return
+        }
         if (data.op === "select" && data.sessionId) {
-          pendingSelectId = data.sessionId
+          pendingSelectId = ""
           var tries = 0
           var open = function () {
             try {
@@ -671,6 +690,7 @@ window.__ModuleLoader__.load({
         run(event.data);
       };
       window.addEventListener("message", onMessage);
+      if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", op: "bridge" }, "*");
       ctx.effect(() => () => window.removeEventListener("message", onMessage), "fde-x-dsh-bridge");
     }
     return { inject, apply };

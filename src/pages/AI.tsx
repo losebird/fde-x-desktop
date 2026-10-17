@@ -69,6 +69,53 @@ function dshAppSrc(bffOrigin?: string | null) {
   return `${runtimeOrigin(bffOrigin)}/dsh-app/`
 }
 
+function hostWorkspaceId(id?: string | null) {
+  if (!id || id.startsWith('ws_')) return ''
+  return id
+}
+
+function hostWorkspaceField(id?: string | null) {
+  const workspaceId = hostWorkspaceId(id)
+  return workspaceId ? { workspaceId } : {}
+}
+
+function latestSessionId(rows: Array<{ sessionId: string; updatedAt?: number }>) {
+  let latestId = ''
+  let latestTime = -Infinity
+  for (const row of rows) {
+    const time = Number(row.updatedAt) || 0
+    if (time >= latestTime) {
+      latestTime = time
+      latestId = row.sessionId
+    }
+  }
+  return latestId
+}
+
+function sessionIdForWorkspace(input: {
+  connected: boolean
+  workspaceCwd?: string
+  chatId?: string
+  addressed?: { cwd?: string }
+  storedActiveAiSessionId: string
+  remoteSessions: Array<{ sessionId: string }>
+  workspaceSessions: Array<{ sessionId: string; updatedAt?: number }>
+}) {
+  const { connected, workspaceCwd, chatId, addressed, storedActiveAiSessionId, remoteSessions, workspaceSessions } = input
+  if (!connected) return ''
+  if (!workspaceCwd) {
+    if (chatId) return chatId
+    if (storedActiveAiSessionId && remoteSessions.some((session) => session.sessionId === storedActiveAiSessionId)) {
+      return storedActiveAiSessionId
+    }
+    return ''
+  }
+  if (addressed?.cwd === workspaceCwd && chatId) return chatId
+  if (addressed?.cwd && addressed.cwd !== workspaceCwd) return latestSessionId(workspaceSessions)
+  if (chatId && !addressed) return chatId
+  return latestSessionId(workspaceSessions)
+}
+
 function pinnedIdsFromBag(bag: unknown) {
   if (!bag || typeof bag !== 'object') return []
   const row = bag as { items?: Array<{ id: string; fields?: unknown }>; mutation?: { pinnedSessionIds?: string[] } }
@@ -116,16 +163,16 @@ export default function AI() {
 
   const rootRef = useRef<HTMLDivElement>(null)
   const dshFrameRef = useRef<HTMLIFrameElement>(null)
-  const activeIdRef = useRef<string | undefined>(undefined)
   const bffOriginRef = useRef('')
+  const bridgeReadyRef = useRef(false)
+  const dshFramePathRef = useRef('')
+  const pendingDshRef = useRef<{ op: string; extra: Record<string, unknown> } | null>(null)
+  const flushDshRef = useRef<() => void>(() => {})
   const forkWaitRef = useRef<number | null>(null)
   const forkPendingRef = useRef(false)
 
   const inboxInflightRef = useRef(false)
   const flushInboxDraftRef = useRef<() => void>(() => {})
-  const ensureWorkspaceSessionRef = useRef('')
-  const restoreHoldUntilRef = useRef(0)
-  const connectedAtRef = useRef(0)
   const workspaceCwdRef = useRef(workspaceCwd)
   const [dshFrameSrc, setDshFrameSrc] = useState('')
   const [sessionAccessory, setSessionAccessory] = useState('')
@@ -138,29 +185,33 @@ export default function AI() {
   terminalBagRef.current = terminalBag
 
   const runtimeConnected = runtimeStatus?.connected === true
-  const visibleSessions = useMemo(
-    () => {
-      const rows = remoteSessions.filter((session) => {
-        if (!isPrimarySession(session)) return false
-        if (workspaceCwd && session.cwd && session.cwd !== workspaceCwd) return false
-        return true
-      })
-      if (!pinnedSessionIds.length) return rows
-      const rank = new Map(pinnedSessionIds.map((id, index) => [id, index]))
-      return [...rows].sort((a, b) => {
-        const pa = rank.has(a.sessionId) ? rank.get(a.sessionId)! : Number.MAX_SAFE_INTEGER
-        const pb = rank.has(b.sessionId) ? rank.get(b.sessionId)! : Number.MAX_SAFE_INTEGER
-        return pa - pb
-      })
-    },
-    [remoteSessions, workspaceCwd, pinnedSessionIds],
+  const workspaceSessions = useMemo(
+    () => remoteSessions.filter((session) => {
+      if (!isPrimarySession(session)) return false
+      if (workspaceCwd && session.cwd && session.cwd !== workspaceCwd) return false
+      return true
+    }),
+    [remoteSessions, workspaceCwd],
   )
-  const wantedSessionId = runtimeConnected
-    ? (chatId
-      || (storedActiveAiSessionId && remoteSessions.some((session) => session.sessionId === storedActiveAiSessionId)
-        ? storedActiveAiSessionId
-        : ''))
-    : ''
+  const visibleSessions = useMemo(() => {
+    if (!pinnedSessionIds.length) return workspaceSessions
+    const rank = new Map(pinnedSessionIds.map((id, index) => [id, index]))
+    return [...workspaceSessions].sort((a, b) => {
+      const pa = rank.has(a.sessionId) ? rank.get(a.sessionId)! : Number.MAX_SAFE_INTEGER
+      const pb = rank.has(b.sessionId) ? rank.get(b.sessionId)! : Number.MAX_SAFE_INTEGER
+      return pa - pb
+    })
+  }, [workspaceSessions, pinnedSessionIds])
+  const addressed = chatId ? remoteSessions.find((session) => session.sessionId === chatId) : undefined
+  const wantedSessionId = sessionIdForWorkspace({
+    connected: runtimeConnected,
+    workspaceCwd,
+    chatId,
+    addressed,
+    storedActiveAiSessionId: storedActiveAiSessionId || '',
+    remoteSessions,
+    workspaceSessions,
+  })
   const activeId = wantedSessionId
     ? (resolvePrimarySessionId(wantedSessionId, remoteSessions) || undefined)
     : undefined
@@ -260,10 +311,18 @@ export default function AI() {
     void reloadRemoteSessions().catch(() => undefined)
   }, [sessionLane])
 
-  function tellDsh(op: string, extra: Record<string, unknown> = {}) {
+  function postPendingDsh() {
+    const pending = pendingDshRef.current
+    if (!pending || !bridgeReadyRef.current) return
     const origin = runtimeOrigin(bffOriginRef.current || runtimeStatus?.bffOrigin)
     if (!origin) return
-    dshFrameRef.current?.contentWindow?.postMessage({ type: 'fde-x-dsh', op, ...extra }, origin)
+    dshFrameRef.current?.contentWindow?.postMessage({ type: 'fde-x-dsh', op: pending.op, ...pending.extra }, origin)
+  }
+  flushDshRef.current = postPendingDsh
+
+  function tellDsh(op: string, extra: Record<string, unknown> = {}) {
+    pendingDshRef.current = { op, extra }
+    postPendingDsh()
   }
 
   async function attachDroppedFile(raw: string) {
@@ -274,7 +333,6 @@ export default function AI() {
   }
 
   useEffect(() => {
-    activeIdRef.current = activeId
     if (activeId) setActiveAiSessionId(activeId)
   }, [activeId, setActiveAiSessionId])
   useEffect(() => {
@@ -319,7 +377,6 @@ export default function AI() {
       const sid = sessionIds[0]
       if (!sid) return
       const titles = new Map((detail?.sessions || []).map((row) => [String(row.sessionId || ''), String(row.title || '').trim()]))
-      restoreHoldUntilRef.current = Date.now() + 60_000
       setSessionNotice('正在打开复原后的会话…')
       void (async () => {
         const deadline = Date.now() + 10_000
@@ -398,7 +455,7 @@ export default function AI() {
           sessionId: opts.sessionId,
           ...(opts.requestId ? { requestId: opts.requestId } : {}),
           ...(opts.title ? { title: opts.title } : {}),
-          ...(opts.workspaceId && !opts.workspaceId.startsWith('ws_') ? { workspaceId: opts.workspaceId } : {}),
+          ...hostWorkspaceField(opts.workspaceId),
           ...(opts.cwd ? { cwd: opts.cwd } : {}),
         })
       },
@@ -489,9 +546,15 @@ export default function AI() {
   }, [replaceWorkspaces])
 
   useEffect(() => {
-    if (!runtimeConnected || !activeId) return
-    if (chatId !== activeId) nav(`/ai/${activeId}`, { replace: true })
-  }, [activeId, chatId, nav, runtimeConnected])
+    if (!runtimeConnected || loadingRuntime) return
+    if (activeId) {
+      if (chatId !== activeId) nav(`/ai/${activeId}`, { replace: true })
+      return
+    }
+    if (workspaceCwd && chatId && addressed?.cwd && addressed.cwd !== workspaceCwd) {
+      nav('/ai', { replace: true })
+    }
+  }, [runtimeConnected, loadingRuntime, activeId, chatId, nav, workspaceCwd, addressed])
 
   useEffect(() => {
     if (!runtimeConnected) {
@@ -510,6 +573,11 @@ export default function AI() {
       ac.abort()
     }
   }, [runtimeConnected])
+  useEvents(['ai.session.changed'], () => {
+    void reloadRemoteSessions().catch((error) => {
+      setRuntimeError(displayError(error))
+    })
+  })
   useEvents(['memory.engine.changed'], (event) => {
     const payload = event.payload
     if (!payload || typeof payload !== 'object') return
@@ -519,40 +587,30 @@ export default function AI() {
   })
 
   useEffect(() => {
-    if (runtimeConnected) connectedAtRef.current = Date.now()
-  }, [runtimeConnected])
-
-  useEffect(() => {
-    if (loadingRuntime || !runtimeConnected || !activeWorkspace?.id || activeWorkspace.id.startsWith('ws_')) return
-    if (Date.now() < restoreHoldUntilRef.current) return
-    if (Date.now() - connectedAtRef.current < 8000) return
-    if (visibleSessions.length > 0) {
-      ensureWorkspaceSessionRef.current = ''
-      return
-    }
-    const key = `${activeWorkspace.id}:${activeWorkspace.cwd || ''}`
-    if (ensureWorkspaceSessionRef.current === key || creatingSession) return
-    ensureWorkspaceSessionRef.current = key
-    createRemoteSession()
-  }, [loadingRuntime, runtimeConnected, activeWorkspaceId, workspaceCwd, visibleSessions.length, creatingSession])
-
-  useEffect(() => {
     if (!runtimeConnected || loadingRuntime) {
       setDshFrameSrc('')
       return
     }
-    const sid = chatId || activeId || ''
-    if (!sid) {
-      setDshFrameSrc('')
-      return
-    }
     const base = dshAppSrc(runtimeStatus?.bffOrigin)
-    setDshFrameSrc((prev) => {
-      const prevRoot = prev.split('#')[0].split('?')[0]
-      if (prev && prevRoot === base.replace(/\/$/, '')) return prev
-      return `${base}#fde-session=${encodeURIComponent(sid)}`
-    })
-  }, [runtimeConnected, loadingRuntime, runtimeStatus?.bffOrigin, chatId, activeId])
+    const next = activeId
+      ? `${base}#fde-session=${encodeURIComponent(activeId)}`
+      : (workspaceCwd ? base : '')
+    setDshFrameSrc((prev) => (prev === next ? prev : next))
+  }, [runtimeConnected, loadingRuntime, runtimeStatus?.bffOrigin, activeId, workspaceCwd])
+
+  useEffect(() => {
+    const path = dshFrameSrc.split('#')[0]
+    if (dshFramePathRef.current === path) return
+    dshFramePathRef.current = path
+    bridgeReadyRef.current = false
+  }, [dshFrameSrc])
+
+  useEffect(() => {
+    if (loadingRuntime || !runtimeConnected || activeId) return
+    const workspaceId = hostWorkspaceId(activeWorkspace?.id)
+    if (!workspaceCwd || !workspaceId) return
+    tellDsh('connectWorkspace', { workspaceId })
+  }, [loadingRuntime, runtimeConnected, activeId, activeWorkspaceId, workspaceCwd])
 
   const flushInboxDraft = () => {
     const text = useApp.getState().aiInboxDraft.trim()
@@ -572,7 +630,7 @@ export default function AI() {
       nav(`/ai/${target.sessionId}`)
       tellDsh('select', {
         sessionId: target.sessionId,
-        ...(target.workspaceId && !target.workspaceId.startsWith('ws_') ? { workspaceId: target.workspaceId } : {}),
+        ...hostWorkspaceField(target.workspaceId),
         ...(target.cwd ? { cwd: target.cwd } : {}),
       })
       tellDsh('compose', { sessionId: target.sessionId, text })
@@ -594,7 +652,7 @@ export default function AI() {
     tellDsh('select', {
       sessionId: activeId,
       ...(row.title ? { title: row.title } : {}),
-      ...(activeWorkspaceId && !activeWorkspaceId.startsWith('ws_') ? { workspaceId: activeWorkspaceId } : {}),
+      ...hostWorkspaceField(activeWorkspaceId),
       ...(activeWorkspace?.cwd ? { cwd: activeWorkspace.cwd } : {}),
     })
   }, [runtimeConnected, activeId, activeWorkspaceId])
@@ -603,6 +661,11 @@ export default function AI() {
     const onMsg = (event: MessageEvent) => {
       if (event.origin !== runtimeOrigin(bffOriginRef.current)) return
       const data = event.data
+      if (data?.type === 'fde-x-dsh-ready' && data.op === 'bridge') {
+        bridgeReadyRef.current = true
+        flushDshRef.current()
+        return
+      }
       if (data?.type === 'fde-x-dsh-error' && typeof data.message === 'string') {
         if (forkWaitRef.current) window.clearTimeout(forkWaitRef.current)
         forkPendingRef.current = false
@@ -690,14 +753,14 @@ export default function AI() {
     tellDsh('select', {
       sessionId,
       ...(row?.title ? { title: row.title } : {}),
-      ...(activeWorkspaceId && !activeWorkspaceId.startsWith('ws_') ? { workspaceId: activeWorkspaceId } : {}),
+      ...hostWorkspaceField(activeWorkspaceId),
       ...(activeWorkspace?.cwd ? { cwd: activeWorkspace.cwd } : {}),
     })
   }
 
   const createRemoteSession = (presetId?: string) => {
-    const workspaceId = activeWorkspace?.id
-    if (!workspaceId || workspaceId.startsWith('ws_')) {
+    const workspaceId = hostWorkspaceId(activeWorkspace?.id)
+    if (!workspaceId) {
       const message = '当前顶栏工作区还不是 DSH 工作区，请先在顶栏选择一个真实工作区'
       setCreateSessionError(message)
       setRuntimeError(message)
@@ -996,28 +1059,19 @@ export default function AI() {
             </aside>
             <div className="flex-1 min-h-0 min-w-0 flex flex-col">
               <div className="flex-1 min-h-0 min-w-0 relative">
-                {!activeId ? (
-                  <div className="absolute inset-0 flex items-center justify-center text-sm text-ink-muted px-6 text-center">
-                    当前工作区还没有会话
-                  </div>
-                ) : dshFrameSrc ? (
+                {dshFrameSrc ? (
                   <iframe
                     ref={dshFrameRef}
                     title="DSH 会话"
                     src={dshFrameSrc}
                     allow="clipboard-read; clipboard-write"
                     className="absolute inset-0 w-full h-full border-0 bg-white"
-                    onLoad={() => {
-                      const sid = activeIdRef.current
-                      if (!sid) return
-                      tellDsh('select', {
-                        sessionId: sid,
-                        ...(activeWorkspaceId && !activeWorkspaceId.startsWith('ws_') ? { workspaceId: activeWorkspaceId } : {}),
-                        ...(workspaceCwdRef.current ? { cwd: workspaceCwdRef.current } : {}),
-                      })
-                    }}
                   />
-                ) : null}
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center text-sm text-ink-muted px-6 text-center">
+                    当前工作区还没有会话
+                  </div>
+                )}
                 {dropActive && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-brand/15 border-2 border-dashed border-brand text-sm font-medium text-brand pointer-events-auto">
                     放到这里，发给当前会话

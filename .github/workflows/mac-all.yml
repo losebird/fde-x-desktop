@@ -256,7 +256,7 @@ jobs:
           const passed = rows.filter((row) => row.status === 'passed').length
           console.log(`visual ${passed}/${rows.length}`)
           for (const row of rows) console.log(`visual ${row.status} ${row.file} ${row.title}`)
-          if (process.env.VISUAL_CODE !== '0' || passed !== rows.length || rows.length !== 22) {
+          if (process.env.VISUAL_CODE !== '0' || passed !== rows.length || rows.length !== 27) {
             console.log('ASSERT fail: playwright tests/visual')
             process.exit(1)
           }

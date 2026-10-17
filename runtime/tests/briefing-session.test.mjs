@@ -4,6 +4,7 @@ import { resolveBriefingSession } from '../briefing/session.mjs'
 
 test('resolveBriefingSession reuses the workspace fde-briefing session', async () => {
   const calls = []
+  const emitted = []
   const sessionId = await resolveBriefingSession({
     call: async (endpoint, args) => {
       calls.push({ endpoint, args })
@@ -15,13 +16,17 @@ test('resolveBriefingSession reuses the workspace fde-briefing session', async (
         }],
       }
     },
-  }, '/ws/a')
+  }, '/ws/a', (type, payload, meta) => {
+    emitted.push({ type, payload, meta })
+  })
   assert.equal(sessionId, 'brief-1')
   assert.deepEqual(calls.map((row) => row.endpoint), ['session/list'])
+  assert.deepEqual(emitted, [])
 })
 
 test('resolveBriefingSession creates an fde-briefing session when none exists', async () => {
   const calls = []
+  const emitted = []
   const sessionId = await resolveBriefingSession({
     call: async (endpoint, args) => {
       calls.push({ endpoint, args })
@@ -31,10 +36,17 @@ test('resolveBriefingSession creates an fde-briefing session when none exists', 
       if (endpoint === 'session/create') return { sessionId: 'brief-new' }
       throw new Error(endpoint)
     },
-  }, '/ws/a')
+  }, '/ws/a', (type, payload, meta) => {
+    emitted.push({ type, payload, meta })
+  })
   assert.equal(sessionId, 'brief-new')
   assert.equal(calls[1].args.request.agentPreset, 'fde-briefing')
   assert.equal(calls[1].args.request.cwd, '/ws/a')
+  assert.deepEqual(emitted, [{
+    type: 'ai.session.changed',
+    payload: { sessionId: 'brief-new', kind: 'created' },
+    meta: { workspaceCwd: '/ws/a', sessionId: 'brief-new' },
+  }])
 })
 
 test('resolveBriefingSession does not create a session when list fails', async () => {
@@ -53,6 +65,7 @@ test('resolveBriefingSession does not create a session when list fails', async (
 
 test('resolveBriefingSession ignores a briefing row with no workspace', async () => {
   const calls = []
+  const emitted = []
   const sessionId = await resolveBriefingSession({
     call: async (endpoint) => {
       calls.push(endpoint)
@@ -67,7 +80,11 @@ test('resolveBriefingSession ignores a briefing row with no workspace', async ()
       if (endpoint === 'session/create') return { sessionId: 'brief-new' }
       throw new Error(endpoint)
     },
-  }, '/ws/a')
+  }, '/ws/a', (type, payload, meta) => {
+    emitted.push({ type, payload, meta })
+  })
   assert.equal(sessionId, 'brief-new')
   assert.deepEqual(calls, ['session/list', 'session/create'])
+  assert.equal(emitted.length, 1)
+  assert.equal(emitted[0].payload.kind, 'created')
 })
