@@ -231,32 +231,53 @@ jobs:
           console.log('ASSERT ok: no credentials tmp')
           JS
           set +e
+          FDE_VISUAL_NO_SERVER=1 PLAYWRIGHT_JSON_OUTPUT_FILE="$RUNNER_TEMP/visual-list.json" pnpm exec playwright test -c playwright.config.ts --list --reporter=json
+          list_code=$?
           FDE_VISUAL_NO_SERVER=1 PLAYWRIGHT_JSON_OUTPUT_FILE="$RUNNER_TEMP/visual.json" pnpm exec playwright test -c playwright.config.ts --reporter=json
           visual_code=$?
           set -e
-          VISUAL_JSON="$RUNNER_TEMP/visual.json" VISUAL_CODE="$visual_code" node --input-type=module << 'JS'
+          VISUAL_JSON="$RUNNER_TEMP/visual.json" VISUAL_LIST="$RUNNER_TEMP/visual-list.json" VISUAL_CODE="$visual_code" LIST_CODE="$list_code" node --input-type=module << 'JS'
           import { readFileSync } from 'node:fs'
-          const raw = readFileSync(process.env.VISUAL_JSON, 'utf8').replace(/^\uFEFF/, '')
-          if (!raw.trimStart().startsWith('{')) {
-            console.log('ASSERT fail: visual report is not json')
-            console.log(raw.slice(0, 200))
+          function load(name) {
+            const raw = readFileSync(process.env[name], 'utf8').replace(/^\uFEFF/, '')
+            if (!raw.trimStart().startsWith('{')) {
+              console.log(`ASSERT fail: ${name} is not json`)
+              console.log(raw.slice(0, 200))
+              process.exit(1)
+            }
+            return JSON.parse(raw)
+          }
+          function specs(report) {
+            const rows = []
+            function walk(suite, file) {
+              const next = suite.file || file || ''
+              for (const spec of suite.specs || []) {
+                const result = (spec.tests || []).flatMap((test) => test.results || []).at(-1)
+                rows.push({ file: next, title: spec.title, status: result ? result.status : 'missing' })
+              }
+              for (const child of suite.suites || []) walk(child, next)
+            }
+            for (const suite of report.suites || []) walk(suite, '')
+            return rows
+          }
+          const listed = specs(load('VISUAL_LIST'))
+          const rows = specs(load('VISUAL_JSON'))
+          const passed = rows.filter((row) => row.status === 'passed').length
+          const key = (row) => `${row.file}\t${row.title}`
+          const listedKeys = listed.map(key)
+          const ranKeys = rows.map(key)
+          const listedSet = new Set(listedKeys)
+          const missing = listedKeys.filter((item) => !ranKeys.includes(item))
+          const extra = ranKeys.filter((item) => !listedSet.has(item))
+          console.log(`visual ${passed}/${rows.length} listed ${listed.length}`)
+          for (const row of rows) console.log(`visual ${row.status} ${row.file} ${row.title}`)
+          if (process.env.LIST_CODE !== '0') {
+            console.log('ASSERT fail: playwright list')
             process.exit(1)
           }
-          const report = JSON.parse(raw)
-          const rows = []
-          function walk(suite, file) {
-            const next = suite.file || file || ''
-            for (const spec of suite.specs || []) {
-              const result = (spec.tests || []).flatMap((test) => test.results || []).at(-1)
-              rows.push({ file: next, title: spec.title, status: result ? result.status : 'missing' })
-            }
-            for (const child of suite.suites || []) walk(child, next)
-          }
-          for (const suite of report.suites || []) walk(suite, '')
-          const passed = rows.filter((row) => row.status === 'passed').length
-          console.log(`visual ${passed}/${rows.length}`)
-          for (const row of rows) console.log(`visual ${row.status} ${row.file} ${row.title}`)
-          if (process.env.VISUAL_CODE !== '0' || passed !== rows.length || rows.length !== 27) {
+          if (process.env.VISUAL_CODE !== '0' || listed.length === 0 || passed !== rows.length || rows.length !== listed.length || missing.length !== 0 || extra.length !== 0) {
+            if (missing.length) console.log(`ASSERT fail: missing ${missing.join(' | ')}`)
+            if (extra.length) console.log(`ASSERT fail: extra ${extra.join(' | ')}`)
             console.log('ASSERT fail: playwright tests/visual')
             process.exit(1)
           }

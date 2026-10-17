@@ -32,9 +32,11 @@ async function createWorkspace(request: APIRequestContext, path: string, title: 
   const response = await request.post('/api/v1/ai/workspaces', { data: { path, title } })
   const body = await readJson(response)
   const data = body.data || {}
+  expect(data.path, 'workspace create returned no path').toEqual(expect.any(String))
+  expect(data.path, 'workspace create returned an empty path').not.toEqual('')
   return {
     workspaceId: String(data.workspaceId || ''),
-    path: String(data.path || path),
+    path: data.path,
     title: String(data.title || title),
   }
 }
