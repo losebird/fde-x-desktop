@@ -240,6 +240,23 @@ test('a standard session sends the skill catalog on the first model request', { 
   }
 })
 
+function settingsImportSettled(modelsText) {
+  return modelsText.includes('grok-4.6') && /https?:\/\//.test(modelsText)
+}
+
+test('models-settings text is not a finished settings import', () => {
+  const partial = JSON.stringify({
+    data: {
+      namespaces: {
+        'llm-pi-ai': { revision: 1 },
+        'agent-default-model': { revision: 0 },
+      },
+      rows: [{ profile: { baseURL: 'http://127.0.0.1:9/v1', models: [{ id: 'grok-4.6' }] } }],
+    },
+  })
+  assert.equal(settingsImportSettled(partial), false)
+})
+
 async function waitForSettingsImport(origin, home, modelOrigin, abortChild) {
   const deadline = Date.now() + 20000
   let last = ''
