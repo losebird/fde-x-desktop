@@ -11,6 +11,7 @@ import { RuntimeSection } from '@/components/settings/sections/Runtime'
 import { ShortcutsSection } from '@/components/settings/sections/Shortcuts'
 import { CoreSettings } from '@/components/settings/CoreSettings'
 import { SemanticSettings } from '@/components/settings/SemanticSettings'
+import { StatusErrorBoundary } from '@/components/settings/StatusErrorBoundary'
 
 const SECTIONS: Array<{ id: string; label: string; icon: LucideIcon }> = [
   { id: 'account', label: '账户', icon: User },
@@ -73,14 +74,16 @@ export default function Settings() {
         )}
         <div className="min-w-0">
           <h2 className="mb-3 text-kit-title font-medium text-kit-ink">{current.label}</h2>
-          {section === 'account' && <AccountSection />}
-          {section === 'appearance' && <AppearanceSection />}
-          {section === 'notifs' && <NotificationsSection />}
-          {section === 'shortcuts' && <ShortcutsSection />}
-          {section === 'core' && <CoreSettings />}
-          {section === 'semantic' && <SemanticSettings />}
-          {section === 'runtime' && <RuntimeSection />}
-          {section === 'data' && <DataSection />}
+          <StatusErrorBoundary key={section}>
+            {section === 'account' && <AccountSection />}
+            {section === 'appearance' && <AppearanceSection />}
+            {section === 'notifs' && <NotificationsSection />}
+            {section === 'shortcuts' && <ShortcutsSection />}
+            {section === 'core' && <CoreSettings />}
+            {section === 'semantic' && <SemanticSettings />}
+            {section === 'runtime' && <RuntimeSection />}
+            {section === 'data' && <DataSection />}
+          </StatusErrorBoundary>
         </div>
       </div>
     </div>

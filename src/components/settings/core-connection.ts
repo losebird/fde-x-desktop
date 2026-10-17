@@ -22,41 +22,49 @@ export type CoreBootGuidance = {
   text: string
 }
 
-function requiredIuiText(value: unknown, label: string) {
-  if (typeof value !== 'string' || value.length === 0) throw new Error(label)
+export class ContractError extends Error {
+  readonly field: string
+
+  constructor(field: string) {
+    super(`运行时状态格式不对：${field}`)
+    this.name = 'ContractError'
+    this.field = field
+  }
+}
+
+function requiredIuiText(value: unknown, field: string) {
+  if (typeof value !== 'string' || value.length === 0) throw new ContractError(field)
   return value
 }
 
 /** Status line from data.iui. Missing contract fields throw; they are not filled in. */
 export function iuiStatusLine(iui: IuiStatus) {
   if (iui.state === 'installing') {
-    const label = IUI_PHASE_LABEL[iui.phase]
-    if (!label) throw new Error(`IUI installing has unknown phase ${iui.phase}`)
-    const completed = iui.progress.completed
-    const total = iui.progress.total
-    if (!Number.isInteger(completed) || !Number.isInteger(total) || total < 1) {
-      throw new Error('IUI installing is missing progress')
-    }
-    return `正在首次安装… ${label} ${completed}/${total}`
+    if (!Object.prototype.hasOwnProperty.call(IUI_PHASE_LABEL, iui.phase)) throw new ContractError('iui.phase')
+    const progress = iui.progress
+    if (progress == null || typeof progress !== 'object') throw new ContractError('iui.progress')
+    if (!Number.isInteger(progress.completed)) throw new ContractError('iui.progress.completed')
+    if (!Number.isInteger(progress.total) || progress.total < 1) throw new ContractError('iui.progress.total')
+    return `正在首次安装… ${IUI_PHASE_LABEL[iui.phase]} ${progress.completed}/${progress.total}`
   }
   if (iui.state === 'failed') {
-    return `IUI 安装失败：${requiredIuiText(iui.reason, 'IUI failed is missing reason')}。请重试。`
+    return `IUI 安装失败：${requiredIuiText(iui.reason, 'iui.reason')}。请重试。`
   }
   if (iui.state === 'verify_failed') {
-    const artifactPath = requiredIuiText(iui.artifactPath, 'IUI verify_failed is missing artifactPath')
-    const expected = requiredIuiText(iui.expected, 'IUI verify_failed is missing expected')
-    const actual = requiredIuiText(iui.actual, 'IUI verify_failed is missing actual')
-    const command = requiredIuiText(iui.command, 'IUI verify_failed is missing command')
+    const artifactPath = requiredIuiText(iui.artifactPath, 'iui.artifactPath')
+    const expected = requiredIuiText(iui.expected, 'iui.expected')
+    const actual = requiredIuiText(iui.actual, 'iui.actual')
+    const command = requiredIuiText(iui.command, 'iui.command')
     return `IUI 校验失败。归档 ${artifactPath}。期望 ${expected}，实际 ${actual}。用 Node 26.7.0 与 pnpm 11.20.0 重新打包：${command}`
   }
   if (iui.state === 'enabled') {
-    return `IUI ${requiredIuiText(iui.version, 'IUI enabled is missing version')} · 已启用（标准对话）`
+    return `IUI ${requiredIuiText(iui.version, 'iui.version')} · 已启用（标准对话）`
   }
   if (iui.state === 'installed') {
-    return `IUI ${requiredIuiText(iui.version, 'IUI installed is missing version')} 未启用`
+    return `IUI ${requiredIuiText(iui.version, 'iui.version')} 未启用`
   }
   if (iui.state === 'absent') return 'IUI 未安装'
-  throw new Error('IUI has unknown state')
+  throw new ContractError('iui.state')
 }
 
 const FAILED_COPY = '本地核心还没接通。请重新执行 `pnpm dev`；本机第二套请用 `pnpm run dev:peer`。'
@@ -70,11 +78,16 @@ function timedOut(status: AiRuntimeStatus | null | undefined) {
 }
 
 /** Starting is not a core failure. An installing IUI record replaces that sentence. */
+function isTerminalStatus(status: AiRuntimeStatus) {
+  return status.state === 'error' || status.iui?.state === 'failed' || status.iui?.state === 'verify_failed'
+}
+
 export function coreBootGuidance(status: AiRuntimeStatus | null | undefined): CoreBootGuidance {
   const iui = status?.iui
-  if (iui?.state === 'installing') return { kind: 'installing', text: iuiStatusLine(iui) }
   if (iui?.state === 'failed') return { kind: 'iui-failed', text: iuiStatusLine(iui) }
   if (iui?.state === 'verify_failed') return { kind: 'verify_failed', text: iuiStatusLine(iui) }
+  if (status?.state === 'error') return { kind: 'failed', text: FAILED_COPY }
+  if (iui?.state === 'installing') return { kind: 'installing', text: iuiStatusLine(iui) }
   if (status?.connected || status?.state === 'connected') return { kind: 'ready', text: '' }
   const state = String(status?.state || '')
   const failed = state === 'error' || state === 'failed'
@@ -108,8 +121,8 @@ function watchTick() {
     for (const listener of [...listeners]) {
       if (listeners.has(listener)) listener(status)
     }
-    if (generation !== watchGeneration || listeners.size === 0) {
-      watching = false
+    if (generation !== watchGeneration || listeners.size === 0 || isTerminalStatus(status)) {
+      stopWatch()
       return
     }
     watchTimer = window.setTimeout(watchTick, WATCH_MS)
@@ -128,7 +141,17 @@ function ensureWatch() {
   watchTick()
 }
 
-/** One status read shared by every waiting panel. Stops when nobody is waiting. */
+/** Start the shared status watch again after a terminal failure. Listeners stay put. */
+export function resumeCoreWatch() {
+  watchGeneration += 1
+  watching = false
+  window.clearTimeout(watchTimer)
+  watchTimer = 0
+  if (listeners.size === 0) return
+  ensureWatch()
+}
+
+/** One status read shared by every waiting panel. Stops when nobody is waiting, or the status is terminal. */
 export function subscribeCoreStatus(listener: CoreListener) {
   listeners.add(listener)
   ensureWatch()

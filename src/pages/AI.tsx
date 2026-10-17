@@ -21,6 +21,8 @@ import { combineAbortSignal } from '../../runtime/live-probe.mjs'
 // @ts-expect-error runtime ESM helper
 import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
 import { useCoreBoot } from '@/components/settings/core-connection'
+import { IuiRetryButton } from '@/components/settings/IuiRetryButton'
+import { StatusErrorBoundary } from '@/components/settings/StatusErrorBoundary'
 import {
   runtimeApi,
   RuntimeApiError,
@@ -42,6 +44,17 @@ function coreDisconnectedCopy(kind: string, text: string) {
   if (kind === 'starting' || kind === 'installing' || kind === 'iui-failed' || kind === 'verify_failed') return text
   if (kind === 'failed') return electron ? '本地核心还没接通。请稍候或重启应用。' : text
   return electron ? '本地核心还没接通。请稍候或重启应用。' : '本地核心还没接通。'
+}
+
+function DisconnectedCorePlaceholder() {
+  const boot = useCoreBoot(true)
+  const retry = boot.kind === 'iui-failed' || boot.kind === 'verify_failed'
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-sm text-ink-muted px-6 text-center">
+      <div>{coreDisconnectedCopy(boot.kind, boot.text)}</div>
+      {retry ? <IuiRetryButton /> : null}
+    </div>
+  )
 }
 
 function defaultBffOrigin() {
@@ -125,7 +138,6 @@ export default function AI() {
   terminalBagRef.current = terminalBag
 
   const runtimeConnected = runtimeStatus?.connected === true
-  const boot = useCoreBoot(!runtimeConnected)
   const visibleSessions = useMemo(
     () => {
       const rows = remoteSessions.filter((session) => {
@@ -835,9 +847,9 @@ export default function AI() {
       </div>
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {!runtimeConnected ? (
-          <div className="flex-1 flex items-center justify-center text-sm text-ink-muted px-6 text-center">
-            {coreDisconnectedCopy(boot.kind, boot.text)}
-          </div>
+          <StatusErrorBoundary>
+            <DisconnectedCorePlaceholder />
+          </StatusErrorBoundary>
         ) : (
           <>
             <aside className={clsx('shrink-0 border-r border-line bg-white flex flex-col', leftOpen ? 'w-56' : 'w-12')}>

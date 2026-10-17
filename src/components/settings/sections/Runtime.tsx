@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Activity, Bot, Brain, MessageCircleMore, RefreshCw, ShieldCheck } from 'lucide-react'
 import clsx from 'clsx'
 import { Tag } from '@/components/ui'
 import { SurfaceBanner } from '@/components/surface/Banner'
 import { SurfaceButton } from '@/components/surface/Button'
 import { useCoreBoot, useWhenCoreConnects } from '@/components/settings/core-connection'
+import { IuiRetryButton } from '@/components/settings/IuiRetryButton'
 import { surfaceNote } from '@/components/settings/surface-note'
 import { runtimeApi, type RuntimeHealth } from '@/lib/runtime-api'
 
@@ -58,9 +59,12 @@ export function RuntimeSection() {
                 icon={adapter.capability === 'ai-runtime' ? Bot : adapter.capability === 'im-business-adapter' ? MessageCircleMore : Brain}
                 name={adapter.capability === 'ai-runtime' ? 'AI、文件、工具与自动化' : adapter.capability === 'im-business-adapter' ? 'IM 与业务系统操作' : '语义记忆'}
                 state={adapter.state}
-                detail={adapter.capability === 'ai-runtime' && boot.text && boot.kind !== 'failed'
+                detail={adapter.capability === 'ai-runtime' && boot.text
                   ? boot.text
                   : `${adapter.version ? `${adapter.version} · ` : ''}${adapter.detail ?? ''}`}
+                action={adapter.capability === 'ai-runtime' && (boot.kind === 'iui-failed' || boot.kind === 'verify_failed')
+                  ? <IuiRetryButton />
+                  : undefined}
               />
             ))}
           </div>
@@ -83,7 +87,7 @@ export function RuntimeSection() {
   )
 }
 
-function RuntimeRow({ icon: Icon, name, state, detail }: { icon: typeof Activity; name: string; state: string; detail: string }) {
+function RuntimeRow({ icon: Icon, name, state, detail, action }: { icon: typeof Activity; name: string; state: string; detail: string; action?: ReactNode }) {
   const healthy = state === 'healthy'
   const unavailable = state === 'unavailable'
   return (
@@ -98,6 +102,7 @@ function RuntimeRow({ icon: Icon, name, state, detail }: { icon: typeof Activity
         <div className="text-kit font-medium text-kit-ink">{name}</div>
         <div className="mt-0.5 text-kit-sm leading-5 text-kit-secondary">{detail}</div>
       </div>
+      {action}
       <Tag kind={healthy ? 'green' : unavailable ? 'red' : 'amber'}>{healthy ? '正常' : unavailable ? '不可用' : '待接通'}</Tag>
     </div>
   )

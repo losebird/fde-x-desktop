@@ -5,6 +5,7 @@ import { SurfaceEmpty, SurfaceGuide } from '@/components/surface/EmptyState'
 import { SURFACE_CORE_DOWN, SURFACE_UNREACHABLE } from '@/components/surface/phase'
 import { SettingsDescribeForm } from '@/components/settings/SettingsDescribeForm'
 import { useCoreBoot } from '@/components/settings/core-connection'
+import { IuiRetryButton } from '@/components/settings/IuiRetryButton'
 import { useHostSettings, type HostNsEntry } from '@/components/settings/use-host-settings'
 import type { SettingsNsHome } from '@/lib/settings-ns-home'
 
@@ -48,10 +49,10 @@ export function HostNsPanel({
         <SurfaceGuide title="正在首次安装" body={boot.text} />
       ) : null}
       {phase === 'coreDown' && rows.length === 0 && boot.kind === 'iui-failed' ? (
-        <SurfaceGuide title="IUI 安装失败" body={boot.text} />
+        <SurfaceGuide title="IUI 安装失败" body={boot.text} action={<IuiRetryButton />} />
       ) : null}
       {phase === 'coreDown' && rows.length === 0 && boot.kind === 'verify_failed' ? (
-        <SurfaceGuide title="IUI 校验失败" body={boot.text} />
+        <SurfaceGuide title="IUI 校验失败" body={boot.text} action={<IuiRetryButton />} />
       ) : null}
       {phase === 'coreDown' && rows.length === 0 && boot.kind === 'starting' ? (
         <SurfaceGuide title="正在首次启动" body={boot.text} />
