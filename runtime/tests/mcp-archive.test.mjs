@@ -605,3 +605,57 @@ test('ensureSkillProvidersInProfile keeps a disabled comment and the blank lines
   assert.equal(again, text)
 })
 
+test('ensureSkillProvidersInProfile disables tool-skill for every YAML false spelling', async () => {
+  const spellings = [
+    ['  disabled: False # 大写', '  disabled: true # 大写'],
+    ['  disabled: "false"', '  disabled: true'],
+    ["  disabled: 'false' # 引号", "  disabled: true # 引号"],
+    ['  disabled:', '  disabled: true'],
+    ['  disabled: no', '  disabled: true'],
+    ['  disabled: off # 开关', '  disabled: true # 开关'],
+    ['  disabled: ~', '  disabled: true'],
+  ]
+  for (const [from, to] of spellings) {
+    const prior = [
+      '- id: other-plugin',
+      '  name: "@example/keep-me"',
+      '  disabled: false',
+      '',
+      '- id: tool-skill',
+      '  name: "@deepseek-ai/dsh-tool-skill"',
+      from,
+      '',
+      '- id: skill-filesystem',
+      '  name: "@deepseek-ai/dsh-skill-filesystem"',
+      '  disabled: false',
+      '',
+    ].join('\n')
+    const expected = prior.replace(from, to)
+    const { text, again } = await writtenSkillProfile(prior)
+    assert.equal(text, expected, from)
+    assert.equal((text.match(/id: tool-skill/g) || []).length, 1, text)
+    assert.equal(again, text)
+  }
+})
+
+test('ensureSkillProvidersInProfile updates a flow tool-skill row in place', async () => {
+  const prior = [
+    '- id: other-plugin',
+    '  name: "@example/keep-me"',
+    '  disabled: false',
+    '',
+    '- { id: tool-skill, name: "@deepseek-ai/dsh-tool-skill", disabled: false } # 流式',
+    '',
+    '- id: skill-filesystem',
+    '  name: "@deepseek-ai/dsh-skill-filesystem"',
+    '  disabled: false',
+    '',
+  ].join('\n')
+  const expected = prior.replace('disabled: false } # 流式', 'disabled: true } # 流式')
+  const { text, again } = await writtenSkillProfile(prior)
+  assert.equal(text, expected)
+  assert.equal((text.match(/id: tool-skill/g) || []).length, 1, text)
+  assert.equal(text.includes('- id: tool-skill'), false, text)
+  assert.equal(again, text)
+})
+
