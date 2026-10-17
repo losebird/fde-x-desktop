@@ -58,7 +58,7 @@ export function RuntimeSection() {
                 icon={adapter.capability === 'ai-runtime' ? Bot : adapter.capability === 'im-business-adapter' ? MessageCircleMore : Brain}
                 name={adapter.capability === 'ai-runtime' ? 'AI、文件、工具与自动化' : adapter.capability === 'im-business-adapter' ? 'IM 与业务系统操作' : '语义记忆'}
                 state={adapter.state}
-                detail={adapter.capability === 'ai-runtime' && boot.kind === 'starting'
+                detail={adapter.capability === 'ai-runtime' && boot.text && boot.kind !== 'failed'
                   ? boot.text
                   : `${adapter.version ? `${adapter.version} · ` : ''}${adapter.detail ?? ''}`}
               />

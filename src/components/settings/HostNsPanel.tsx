@@ -44,6 +44,15 @@ export function HostNsPanel({
           action={<SurfaceButton onClick={() => load()}>再试一次</SurfaceButton>}
         />
       ) : null}
+      {phase === 'coreDown' && rows.length === 0 && boot.kind === 'installing' ? (
+        <SurfaceGuide title="正在首次安装" body={boot.text} />
+      ) : null}
+      {phase === 'coreDown' && rows.length === 0 && boot.kind === 'iui-failed' ? (
+        <SurfaceGuide title="IUI 安装失败" body={boot.text} />
+      ) : null}
+      {phase === 'coreDown' && rows.length === 0 && boot.kind === 'verify_failed' ? (
+        <SurfaceGuide title="IUI 校验失败" body={boot.text} />
+      ) : null}
       {phase === 'coreDown' && rows.length === 0 && boot.kind === 'starting' ? (
         <SurfaceGuide title="正在首次启动" body={boot.text} />
       ) : null}
@@ -59,7 +68,7 @@ export function HostNsPanel({
           )}
         />
       ) : null}
-      {phase === 'coreDown' && rows.length === 0 && boot.kind !== 'starting' && boot.kind !== 'failed' ? (
+      {phase === 'coreDown' && rows.length === 0 && boot.kind !== 'starting' && boot.kind !== 'installing' && boot.kind !== 'failed' && boot.kind !== 'iui-failed' && boot.kind !== 'verify_failed' ? (
         <SurfaceGuide
           title="核心还没接通"
           body={`${hint} ${message || SURFACE_CORE_DOWN}`}

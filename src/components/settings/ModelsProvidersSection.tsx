@@ -363,7 +363,7 @@ export function ModelsProvidersSection({
     <>
       {!connected && (
         <div className="mb-3 text-kit-sm text-kit-secondary">
-          {boot.kind === 'starting' || boot.kind === 'failed'
+          {boot.kind === 'starting' || boot.kind === 'installing' || boot.kind === 'failed' || boot.kind === 'iui-failed' || boot.kind === 'verify_failed'
             ? boot.text
             : '核心还没接通。现在只能看快照，保存要等核心接上。'}
         </div>

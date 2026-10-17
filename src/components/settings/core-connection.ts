@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { runtimeApi, type AiRuntimeStatus } from '@/lib/runtime-api'
+import { runtimeApi, type AiRuntimeStatus, type IuiStatus } from '@/lib/runtime-api'
 
 const WATCH_MS = 400
 const STARTING_STATES = new Set(['starting', 'connecting'])
+const IUI_PHASE_LABEL: Record<string, string> = {
+  stage: '校验归档',
+  link: '写入配置',
+  boot: '等待核心',
+  enable: '确认启用',
+}
 
 type CoreListener = (status: AiRuntimeStatus) => void
 
@@ -12,8 +18,45 @@ let watchGeneration = 0
 let watching = false
 
 export type CoreBootGuidance = {
-  kind: 'starting' | 'failed' | 'down' | 'ready'
+  kind: 'starting' | 'installing' | 'failed' | 'iui-failed' | 'verify_failed' | 'down' | 'ready'
   text: string
+}
+
+function requiredIuiText(value: unknown, label: string) {
+  if (typeof value !== 'string' || value.length === 0) throw new Error(label)
+  return value
+}
+
+/** Status line from data.iui. Missing contract fields throw; they are not filled in. */
+export function iuiStatusLine(iui: IuiStatus) {
+  if (iui.state === 'installing') {
+    const label = IUI_PHASE_LABEL[iui.phase]
+    if (!label) throw new Error(`IUI installing has unknown phase ${iui.phase}`)
+    const completed = iui.progress.completed
+    const total = iui.progress.total
+    if (!Number.isInteger(completed) || !Number.isInteger(total) || total < 1) {
+      throw new Error('IUI installing is missing progress')
+    }
+    return `正在首次安装… ${label} ${completed}/${total}`
+  }
+  if (iui.state === 'failed') {
+    return `IUI 安装失败：${requiredIuiText(iui.reason, 'IUI failed is missing reason')}。请重试。`
+  }
+  if (iui.state === 'verify_failed') {
+    const artifactPath = requiredIuiText(iui.artifactPath, 'IUI verify_failed is missing artifactPath')
+    const expected = requiredIuiText(iui.expected, 'IUI verify_failed is missing expected')
+    const actual = requiredIuiText(iui.actual, 'IUI verify_failed is missing actual')
+    const command = requiredIuiText(iui.command, 'IUI verify_failed is missing command')
+    return `IUI 校验失败。归档 ${artifactPath}。期望 ${expected}，实际 ${actual}。用 Node 26.7.0 与 pnpm 11.20.0 重新打包：${command}`
+  }
+  if (iui.state === 'enabled') {
+    return `IUI ${requiredIuiText(iui.version, 'IUI enabled is missing version')} · 已启用（标准对话）`
+  }
+  if (iui.state === 'installed') {
+    return `IUI ${requiredIuiText(iui.version, 'IUI installed is missing version')} 未启用`
+  }
+  if (iui.state === 'absent') return 'IUI 未安装'
+  throw new Error('IUI has unknown state')
 }
 
 const FAILED_COPY = '本地核心还没接通。请重新执行 `pnpm dev`；本机第二套请用 `pnpm run dev:peer`。'
@@ -26,8 +69,12 @@ function timedOut(status: AiRuntimeStatus | null | undefined) {
   return /超时|未完成启动|timeout/i.test(String(status?.lastError || ''))
 }
 
-/** Starting and a future connecting value are not failures. IUI install progress waits for a status field. */
+/** Starting is not a core failure. An installing IUI record replaces that sentence. */
 export function coreBootGuidance(status: AiRuntimeStatus | null | undefined): CoreBootGuidance {
+  const iui = status?.iui
+  if (iui?.state === 'installing') return { kind: 'installing', text: iuiStatusLine(iui) }
+  if (iui?.state === 'failed') return { kind: 'iui-failed', text: iuiStatusLine(iui) }
+  if (iui?.state === 'verify_failed') return { kind: 'verify_failed', text: iuiStatusLine(iui) }
   if (status?.connected || status?.state === 'connected') return { kind: 'ready', text: '' }
   const state = String(status?.state || '')
   const failed = state === 'error' || state === 'failed'
@@ -43,6 +90,7 @@ export function coreBootGuidance(status: AiRuntimeStatus | null | undefined): Co
     const progress = bits.join(' · ')
     return { kind: 'starting', text: progress ? `正在首次启动… ${progress}` : '正在首次启动…' }
   }
+  if (iui && iui.state !== 'absent') return { kind: 'down', text: iuiStatusLine(iui) }
   return { kind: 'down', text: '' }
 }
 
@@ -124,7 +172,7 @@ export function useCoreBoot(enabled = true) {
     const unsubscribe = subscribeCoreStatus((next) => {
       if (stopped) return
       setStatus(next)
-      if (next.connected) {
+      if (next.connected && next.iui?.state !== 'installing') {
         stopped = true
         unsubscribe()
       }

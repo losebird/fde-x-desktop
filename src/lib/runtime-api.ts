@@ -310,6 +310,16 @@ export interface RuntimeOperation extends OperationRecord {
   finishedAt?: string
 }
 
+export type IuiPhase = 'stage' | 'link' | 'boot' | 'enable'
+
+export type IuiStatus =
+  | { state: 'absent' }
+  | { state: 'installing'; phase: IuiPhase; progress: { completed: number; total: number } }
+  | { state: 'installed'; version: string }
+  | { state: 'enabled'; version: string }
+  | { state: 'verify_failed'; artifactPath: string; expected: string; actual: string; command: string }
+  | { state: 'failed'; reason: string }
+
 export interface AiRuntimeStatus {
   state: 'idle' | 'starting' | 'connected' | 'stopping' | 'stopped' | 'error'
   connected: boolean
@@ -329,6 +339,7 @@ export interface AiRuntimeStatus {
   lastError: string | null
   bridgeTools?: { ok: boolean; error?: string; tools?: string[] }
   recentLogs: string[]
+  iui?: IuiStatus
 }
 
 export interface AiModelSelection {

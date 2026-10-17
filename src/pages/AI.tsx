@@ -39,7 +39,7 @@ function displayError(error: unknown) {
 
 function coreDisconnectedCopy(kind: string, text: string) {
   const electron = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
-  if (kind === 'starting') return text
+  if (kind === 'starting' || kind === 'installing' || kind === 'iui-failed' || kind === 'verify_failed') return text
   if (kind === 'failed') return electron ? '本地核心还没接通。请稍候或重启应用。' : text
   return electron ? '本地核心还没接通。请稍候或重启应用。' : '本地核心还没接通。'
 }
