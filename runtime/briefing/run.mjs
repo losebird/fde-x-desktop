@@ -36,6 +36,16 @@ function closeInterrupted(db, briefingId) {
   })
 }
 
+function arrivedAiSections(rows) {
+  return rows.filter((section) => section.type === 'ai' && section.pendingAgent !== true)
+}
+
+function explainMissingSubmit(agentError) {
+  if (agentError === 'timeout') return '超时'
+  if (agentError.trim()) return agentError.trim()
+  return '没有收到早报提交'
+}
+
 function mergeAgentSections(existing, submitted, pendingError = '超时') {
   const byId = new Map((submitted || []).map((s) => [s.id, s]))
   return existing.map((section) => {
@@ -52,6 +62,7 @@ function mergeAgentSections(existing, submitted, pendingError = '超时') {
       ...section,
       ...patch,
       type: section.type || patch.type,
+      error: patch.error || undefined,
       pendingAgent: false,
       fetchedAt: patch.fetchedAt || new Date().toISOString(),
     }
@@ -169,7 +180,7 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
         },
       )
       sessionId = agent.sessionId || sessionId
-      if (!agent.ok) agentError = agent.error || 'timeout'
+      if (!agent.ok) agentError = agent.error || '发送早报 prompt 失败'
       for (const row of agent.blocked || []) {
         const idx = sections.findIndex((section) => section.id === row.id)
         if (idx < 0) continue
@@ -198,8 +209,11 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
         section.fetchedAt = new Date().toISOString()
       }
       const latest = getBriefing(db, briefingId) || findBriefingByAgentRequest(db, agent.agentRequestId || '') || { sections: [] }
-      const pendingError = agentError === 'timeout' ? '超时' : (agentError || '超时')
-      const merged = mergeAgentSections(sections, latest.sections, pendingError)
+      const merged = mergeAgentSections(
+        sections,
+        arrivedAiSections(latest.sections),
+        explainMissingSubmit(agentError),
+      )
       sections.length = 0
       sections.push(...merged)
     } else if (enabled.some((s) => (s.type === 'mcp' || s.type === 'ai') && s.enabled)) {
