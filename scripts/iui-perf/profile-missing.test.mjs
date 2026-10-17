@@ -14,8 +14,9 @@ const root = fileURLToPath(new URL('../..', import.meta.url))
 function profileHint(text) {
   assert.match(text, /cordis\.patch\.yml/)
   assert.match(text, /fde-x/)
-  assert.match(text, /node runtime\/server\.mjs/)
-  assert.match(text, /ensureIsolatedProfile/)
+  assert.match(text, /api\/v1\/ai\/connect/)
+  assert.match(text, /version: 1/)
+  assert.equal(text.includes('启动时 ensureIsolatedProfile 会创建这个文件'), false, text)
   assert.equal(/\bENOENT\b/.test(text), false, text)
 }
 

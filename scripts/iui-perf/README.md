@@ -26,7 +26,45 @@ node scripts/iui-perf/run.mjs --static
 
 有 key 时，low 和 high 的 A/B 以及 B-default 各冷启动 3 次。脚本把 Host 的 baseURL 指到本机代理，再转发到 grok2api。Node 26。key 只留在环境变量里。
 
-实时测量还要求本机已经有 fde-x profile 补丁。默认路径是 `$HOME/.dsh-fde-x/profiles/fde-x/cordis.patch.yml`。这是 FDE 的插件清单。没有这个文件时，脚本在启动时说明缺的是哪一个文件，以及怎么生成，而不是抛出裸的 ENOENT。生成方式：不要另设 `FDE_DSH_HOME`，在默认家目录执行一次 `node runtime/server.mjs`。启动时 `ensureIsolatedProfile` 会创建该文件。
+实时测量还要求本机已经有 fde-x profile 补丁。默认路径是 `$HOME/.dsh-fde-x/profiles/fde-x/cordis.patch.yml`。这是 FDE 的插件清单。没有这个文件时，脚本在启动时说明缺的是哪一个文件，以及怎么生成，而不是抛出裸的 ENOENT。`node runtime/server.mjs` 刚起来不会写这个文件。它在 `POST /api/v1/ai/connect` 时才出现。没有 `~/.dsh-fde-x/.credentials.yaml` 时 connect 返回 502，文件也不会出现。不要复制 `~/.dsh/.credentials.yaml`。密钥只放环境变量。不要设置 `FDE_DSH_HOME`。在默认家目录写一份空凭据再 connect：
+
+```sh
+set -eu
+umask 077
+mkdir -p "$HOME/.dsh-fde-x"
+cred="$HOME/.dsh-fde-x/.credentials.yaml"
+if [ ! -f "$cred" ]; then
+  printf 'version: 1\nrefs:\n' > "$cred"
+  chmod 600 "$cred"
+fi
+port="${FDE_RUNTIME_PORT:-4318}"
+log="$HOME/.dsh-fde-x/fde-boot.log"
+FDE_DATABASE_PATH="${FDE_DATABASE_PATH:-$HOME/.dsh-fde-x/fde.sqlite}" \
+FDE_AI_WORKSPACE="${FDE_AI_WORKSPACE:-$HOME}" \
+FDE_VENDOR_DIR="${FDE_VENDOR_DIR:-$HOME/.dsh-fde-x/missing-vendor}" \
+FDE_SEMANTIC_RUNTIME_MODE="${FDE_SEMANTIC_RUNTIME_MODE:-readonly}" \
+FDE_LISTEN_HOST=127.0.0.1 \
+FDE_RUNTIME_PORT="$port" \
+node runtime/server.mjs >"$log" 2>&1 &
+echo $! > "$HOME/.dsh-fde-x/fde-server.pid"
+ready=0
+i=0
+while [ "$i" -lt 30 ]; do
+  if grep -q FDE_LISTENING "$log"; then
+    ready=1
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+test "$ready" = 1
+actual=$(sed -n 's/^FDE_LISTENING //p' "$log" | tail -n 1)
+curl -fsS -m 90 -X POST "http://127.0.0.1:${actual}/api/v1/ai/connect" \
+  -H "origin: http://127.0.0.1:${actual}" \
+  -H 'content-type: application/json' \
+  -d '{}' >/dev/null
+test -s "$HOME/.dsh-fde-x/profiles/fde-x/cordis.patch.yml"
+```
 
 ```bash
 git clone --branch cursor/iui-pack-pin-6fc8 https://github.com/losebird/fde-x-desktop.git /tmp/fde-iui-pack

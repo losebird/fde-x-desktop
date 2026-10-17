@@ -637,9 +637,10 @@ async function main() {
 
 const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 if (invokedDirectly) {
-  main().catch((error) => {
-    const text = error instanceof Error ? error.stack || error.message : error
-    console.error(redactText(text))
-    process.exitCode = 1
-  })
+main().catch((error) => {
+  const quiet = error && (error.code === 'profile-patch' || error.code === 'iui-pin')
+  const text = error instanceof Error ? (quiet ? error.message : (error.stack || error.message)) : error
+  console.error(redactText(text))
+  process.exitCode = 1
+})
 }
