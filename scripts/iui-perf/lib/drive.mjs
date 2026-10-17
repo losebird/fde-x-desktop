@@ -76,19 +76,25 @@ export function spawnDsh(bin, args, { home, cwd, log, apiKey }) {
 export function waitForLine(logs, pattern, timeoutMs, options = {}) {
   const read = () => (options.raw && logs.raw ? logs.raw() : logs.text())
   return new Promise((resolveWait, reject) => {
-    const timer = setTimeout(() => {
-      const text = logs.text()
-      reject(new Error(`timed out waiting for ${pattern}\n${text.stderr.slice(-2000)}\n${text.stdout.slice(-2000)}`))
-    }, timeoutMs)
-    const timerPoll = setInterval(() => {
+    let timer
+    let timerPoll
+    const finish = (fn) => {
+      clearTimeout(timer)
+      clearInterval(timerPoll)
+      fn()
+    }
+    timerPoll = setInterval(() => {
       const text = `${read().stdout}\n${read().stderr}`
       const match = text.match(pattern)
-      if (match) {
-        clearTimeout(timer)
-        clearInterval(timerPoll)
-        resolveWait(match)
-      }
+      if (!match) return
+      finish(() => resolveWait(match))
     }, 200)
+    timer = setTimeout(() => {
+      const text = logs.text()
+      finish(() => {
+        reject(new Error(`timed out waiting for ${pattern}\n${text.stderr.slice(-2000)}\n${text.stdout.slice(-2000)}`))
+      })
+    }, timeoutMs)
   })
 }
 

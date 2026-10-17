@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { waitForLine } from './lib/drive.mjs'
 
 test('a timed-out waitForLine lets the process exit', async () => {
   const root = fileURLToPath(new URL('../..', import.meta.url))
@@ -24,4 +25,13 @@ test('a timed-out waitForLine lets the process exit', async () => {
     assert.fail(`process still alive after waitForLine timed out\n${out}`)
   }
   assert.equal(code, 0, out)
+})
+
+test('waitForLine resolves when the line is already buffered', async () => {
+  const logs = {
+    text: () => ({ stdout: 'settings: imported into profile fde-x\n', stderr: '' }),
+    raw: () => ({ stdout: 'settings: imported into profile fde-x\n', stderr: '' }),
+  }
+  const match = await waitForLine(logs, /settings: imported/, 1000)
+  assert.match(match[0], /settings: imported/)
 })
