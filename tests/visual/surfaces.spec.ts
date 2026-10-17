@@ -1,4 +1,14 @@
 import { expect, test } from '@playwright/test'
+import { connectCore } from './host-core'
+
+test.use({
+  extraHTTPHeaders: { Origin: 'http://127.0.0.1:5174' },
+})
+
+test.beforeAll(async ({ request }) => {
+  test.setTimeout(120_000)
+  await connectCore(request)
+})
 
 const PANELS = [
   { route: '/mcp', title: '连接器' },
