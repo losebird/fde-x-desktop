@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -188,7 +188,17 @@ async function mcpStatus(origin) {
 }
 
 function settingsImportSettled(modelsText) {
-  return modelsText.includes('grok-4.6') && /https?:\/\//.test(modelsText)
+  let body
+  try {
+    body = JSON.parse(modelsText)
+  } catch {
+    return false
+  }
+  const data = body && body.data ? body.data : body
+  const revision = data && data.namespaces && data.namespaces['agent-default-model']
+    ? data.namespaces['agent-default-model'].revision
+    : undefined
+  return Number.isInteger(revision) && revision >= 1
 }
 
 test('models-settings text is not a finished settings import', () => {
@@ -204,26 +214,17 @@ test('models-settings text is not a finished settings import', () => {
   assert.equal(settingsImportSettled(partial), false)
 })
 
-async function waitForSettingsImport(origin, home, modelOrigin) {
+async function waitForSettingsImport(origin) {
   const deadline = Date.now() + 20000
   let last = ''
   while (Date.now() < deadline) {
-    let fileReady = false
-    try {
-      await access(join(home, 'settings.yaml.imported'))
-      fileReady = true
-    } catch (error) {
-      if (!(error && error.code === 'ENOENT')) throw error
-    }
-    if (fileReady) {
-      const status = await fetch(new URL('/api/v1/ai/models-settings', origin), { headers: { origin } })
-      const text = await status.text()
-      last = text.slice(0, 500)
-      if (status.ok && text.includes(modelOrigin) && text.includes('grok-4.6')) return
-    }
+    const status = await fetch(new URL('/api/v1/ai/models-settings', origin), { headers: { origin } })
+    const text = await status.text()
+    last = text.slice(0, 500)
+    if (status.ok && settingsImportSettled(text)) return
     await new Promise((resolve) => setTimeout(resolve, 200))
   }
-  throw new Error(`timed out waiting for settings.yaml.imported to land in host settings\n${last}`)
+  throw new Error(`timed out waiting for agent-default-model revision\n${last}`)
 }
 
 async function waitUntilMcpReady(origin, expectPatch) {
@@ -307,8 +308,9 @@ async function captureArm({ port, patchFile }) {
     })
     const connectText = await connected.text()
     assert.equal(connected.ok, true, redactText(connectText).slice(0, 400))
-    await waitForSettingsImport(origin, home, model.origin)
+    // The agent-default-model row is committed in the reconcile that finishes MCP startup.
     const mcpNote = await waitUntilMcpReady(origin, applied)
+    await waitForSettingsImport(origin)
     const createdResponse = await fetch(new URL('/api/v1/ai/sessions', origin), {
       method: 'POST',
       headers: { origin, 'content-type': 'application/json' },
