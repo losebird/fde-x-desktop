@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { emit } from '../events.mjs'
 import { buildContextPack } from '../context-pack.mjs'
@@ -18,10 +18,13 @@ export async function ensureBridgeToken(dshHome = FDE_DSH_HOME) {
   await mkdir(dir, { recursive: true })
   const tokenPath = join(dir, 'bridge.token')
   if (existsSync(tokenPath)) {
-    return String(await readFile(tokenPath, 'utf8')).trim()
+    const token = String(await readFile(tokenPath, 'utf8')).trim()
+    await chmod(tokenPath, 0o600)
+    return token
   }
   const token = randomBytes(32).toString('hex')
-  await writeFile(tokenPath, `${token}\n`, 'utf8')
+  await writeFile(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600 })
+  await chmod(tokenPath, 0o600)
   return token
 }
 
