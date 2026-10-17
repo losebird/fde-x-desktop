@@ -229,12 +229,18 @@ jobs:
           JS
           pnpm exec playwright install --with-deps chromium
           set +e
-          pnpm exec playwright test -c playwright.config.ts --reporter=json > "$RUNNER_TEMP/visual.json"
+          PLAYWRIGHT_JSON_OUTPUT_FILE="$RUNNER_TEMP/visual.json" pnpm exec playwright test -c playwright.config.ts --reporter=json
           visual_code=$?
           set -e
           VISUAL_JSON="$RUNNER_TEMP/visual.json" VISUAL_CODE="$visual_code" node --input-type=module << 'JS'
           import { readFileSync } from 'node:fs'
-          const report = JSON.parse(readFileSync(process.env.VISUAL_JSON, 'utf8'))
+          const raw = readFileSync(process.env.VISUAL_JSON, 'utf8').replace(/^\uFEFF/, '')
+          if (!raw.trimStart().startsWith('{')) {
+            console.log('ASSERT fail: visual report is not json')
+            console.log(raw.slice(0, 200))
+            process.exit(1)
+          }
+          const report = JSON.parse(raw)
           const rows = []
           function walk(suite, file) {
             const next = suite.file || file || ''
