@@ -118,23 +118,23 @@ async function sha256(file) {
   return stdout.split(/\s+/)[0]
 }
 
-async function ensureArtifact(outDir) {
+function printHelp() {
+  console.log([
+    '用法：node scripts/iui-perf/run.mjs [--static] [--help]',
+    '',
+    '测量 A/B 首轮。--static 用假模型，不需要 GROK2API_API_KEY。',
+    `IUI 包只认环境变量 FDE_IUI_ARTIFACT，指向现成的 ${ARTIFACT_NAME}。`,
+    '变量缺失或文件不存在时直接退出并说明原因。本脚本不构建 IUI。',
+    '',
+    '需要 Node 26 和 pnpm 11.20.0。key 只读环境变量 GROK2API_API_KEY。',
+  ].join('\n'))
+}
+
+async function ensureArtifact() {
   const fromEnv = process.env.FDE_IUI_ARTIFACT
   if (fromEnv && existsSync(fromEnv)) return fromEnv
-  const cached = '/tmp/iui-out/' + ARTIFACT_NAME
-  if (existsSync(cached)) return cached
-  const destDir = join(outDir, 'iui-artifact')
-  await mkdir(destDir, { recursive: true })
-  const dest = join(destDir, ARTIFACT_NAME)
-  if (existsSync(dest)) return dest
-  console.log('building pinned IUI artifact')
-  await execFileAsync(process.execPath, ['scripts/pack/build-iui.mjs', '--out', destDir], {
-    cwd: repoRoot,
-    timeout: 15 * 60 * 1000,
-    maxBuffer: 16 * 1024 * 1024,
-  })
-  if (!existsSync(dest)) throw new Error(`IUI artifact missing after build: ${dest}`)
-  return dest
+  if (fromEnv) throw new Error(`FDE_IUI_ARTIFACT 指向的文件不存在：${fromEnv}`)
+  throw new Error(`缺少环境变量 FDE_IUI_ARTIFACT。把现成的 ${ARTIFACT_NAME} 路径放进去。本脚本不构建 IUI。`)
 }
 
 async function ensurePluginDir(artifact) {
@@ -515,6 +515,10 @@ function markdownTable(comparison, runsOut, defaultTurn, report) {
 }
 
 async function main() {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    printHelp()
+    return
+  }
   if (!assertNode()) return
   if (!await assertPnpm()) return
   if (!staticMode && !process.env.GROK2API_API_KEY) {
@@ -523,7 +527,7 @@ async function main() {
   }
   const outDir = resolve(repoRoot, 'artifacts', 'iui-perf', staticMode ? 'grok-static' : 'grok-live')
   await mkdir(outDir, { recursive: true })
-  const artifact = await ensureArtifact(outDir)
+  const artifact = await ensureArtifact()
   const digest = await sha256(artifact)
   if (digest !== IUI_SHA) throw new Error(`IUI sha256 ${digest} != pin ${IUI_SHA}`)
   const pluginDir = await ensurePluginDir(artifact)
