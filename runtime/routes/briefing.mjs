@@ -246,9 +246,12 @@ export async function handleBriefingRoutes(request, response, url, deps) {
           })
         }
       })
-      void opened.catch((error) => {
+      const recorded = opened.catch((error) => {
         console.warn('briefing_on_open_failed', error)
         recordBriefingOpenFailure(db, cwd, error)
+      })
+      void recorded.catch((error) => {
+        console.warn('briefing_on_open_record_failed', error)
       })
     }
     const latest = getLatestBriefing(db, cwd)
