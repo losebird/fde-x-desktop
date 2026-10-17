@@ -139,9 +139,10 @@ export async function inspectAdapters({ aiRuntime } = {}) {
     }
   })),
   ])
+  const iui = (aiRuntime && aiRuntime.iui) || { state: 'absent' }
   return rows.map((row) => (
     row.capability === 'ai-runtime'
-      ? { ...row, detail: `${row.detail}；${iuiPhrase}` }
+      ? { ...row, detail: `${row.detail}；${iuiPhrase}`, iui }
       : row
   ))
 }

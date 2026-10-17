@@ -46,6 +46,36 @@ export function iuiEnabledFromList(listed, moduleName) {
   return row.enabled === true
 }
 
+const IUI_PHASE_LABEL = {
+  stage: '校验归档',
+  link: '写入配置',
+  boot: '等待核心',
+  enable: '确认启用',
+}
+
+export function iuiInstallingPhrase(verification) {
+  if (!verification || verification.state !== 'installing') {
+    throw new Error('IUI installing phrase requires state installing')
+  }
+  const label = IUI_PHASE_LABEL[verification.phase]
+  if (!label) throw new Error(`IUI installing has unknown phase ${verification.phase}`)
+  const progress = verification.progress
+  if (!progress || !Number.isInteger(progress.completed) || !Number.isInteger(progress.total) || progress.total < 1) {
+    throw new Error('IUI installing is missing progress')
+  }
+  return `正在首次安装… ${label} ${progress.completed}/${progress.total}`
+}
+
+export function iuiFailedPhrase(verification) {
+  if (!verification || verification.state !== 'failed') {
+    throw new Error('IUI failed phrase requires state failed')
+  }
+  if (typeof verification.reason !== 'string' || verification.reason.length === 0) {
+    throw new Error('IUI failed is missing reason')
+  }
+  return `IUI 安装失败：${verification.reason}。请重试。`
+}
+
 export function iuiVerifyFailedPhrase(verification) {
   if (!verification || verification.state !== 'verify_failed') {
     throw new Error('IUI verify_failed phrase requires state verify_failed')
@@ -61,6 +91,8 @@ export function iuiVerifyFailedPhrase(verification) {
 
 export function iuiStatusPhrase({ present, version, parseError, pinVersion, enabled, connected, readError, verification }) {
   if (verification && verification.state === 'verify_failed') return iuiVerifyFailedPhrase(verification)
+  if (verification && verification.state === 'failed') return iuiFailedPhrase(verification)
+  if (verification && verification.state === 'installing') return iuiInstallingPhrase(verification)
   if (!present) return 'IUI 未安装'
   if (parseError) return 'IUI 的 package.json 无法解析'
   if (version !== pinVersion) return `IUI 版本不符（安装 ${version || '未知'}，钉 ${pinVersion}）`
@@ -75,10 +107,58 @@ function errorText(error) {
   return error instanceof Error ? error.message : String(error)
 }
 
+export async function promoteInstalledIui(aiRuntime, dshHome, profileName) {
+  const current = aiRuntime && aiRuntime.iui
+  if (!current || current.state !== 'installing') {
+    return { record: current || { state: 'absent' }, readError: '' }
+  }
+  const plugin = iuiBuiltin()
+  const installed = await readInstalledIui(iuiProfileDir(dshHome, profileName))
+  const connected = Boolean(aiRuntime.status && aiRuntime.status().connected)
+  if (!installed.present || installed.parseError || installed.version !== plugin.source.version || !connected || typeof aiRuntime.call !== 'function') {
+    return { record: current, readError: '' }
+  }
+  let listed
+  try {
+    listed = await withProbeTimeout(aiRuntime.call('pluginManager/listPlugins', {}))
+  } catch (error) {
+    return { record: current, readError: errorText(error) }
+  }
+  const enabled = iuiEnabledFromList(listed, plugin.module)
+  if (enabled === true) {
+    aiRuntime.iui = { state: 'enabled', version: installed.version }
+    return { record: aiRuntime.iui, readError: '' }
+  }
+  if (enabled === false) {
+    aiRuntime.iui = { state: 'installed', version: installed.version }
+    return { record: aiRuntime.iui, readError: '' }
+  }
+  return { record: current, readError: '' }
+}
+
 export async function describeIui(aiRuntime, dshHome, profileName) {
   const plugin = iuiBuiltin()
   const verification = aiRuntime && aiRuntime.iui
   if (verification && verification.state === 'verify_failed') return iuiVerifyFailedPhrase(verification)
+  if (verification && verification.state === 'failed') return iuiFailedPhrase(verification)
+  if (verification && verification.state === 'installing') {
+    await promoteInstalledIui(aiRuntime, dshHome, profileName)
+  }
+  const now = aiRuntime && aiRuntime.iui
+  if (now && now.state === 'installing') return iuiInstallingPhrase(now)
+  if (now && now.state === 'failed') return iuiFailedPhrase(now)
+  if (now && now.state === 'verify_failed') return iuiVerifyFailedPhrase(now)
+  if (now && now.state === 'enabled') {
+    return iuiStatusPhrase({
+      present: true,
+      version: now.version,
+      parseError: false,
+      pinVersion: plugin.source.version,
+      enabled: true,
+      connected: true,
+      readError: '',
+    })
+  }
   let installed
   try {
     installed = await readInstalledIui(iuiProfileDir(dshHome, profileName))

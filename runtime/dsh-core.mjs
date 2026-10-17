@@ -25,6 +25,7 @@ import { BUILTIN_PLUGINS, pluginEnvKey } from './builtin-plugins.mjs'
 import { readProfileManifestFile, writeMergedProfileManifest } from './profile-manifest.mjs'
 import { reconcilePinnedVendor } from './plugin-vendor.mjs'
 import { stageIuiArtifactIfAbsent } from './iui-stage.mjs'
+import { iuiProfileDir, promoteInstalledIui } from './iui-status.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 
@@ -271,12 +272,59 @@ export class DshCoreConnector {
       lastError,
       bridgeTools,
       recentLogs: this.logs.slice(-MAX_LOG_LINES),
+      iui: this.iui,
+    }
+  }
+
+  iuiPackagePresent() {
+    return existsSync(join(iuiProfileDir(this.dshHome, this.profileName), 'package.json'))
+  }
+
+  beginIuiInstall() {
+    if (this.iui && this.iui.state === 'installing') return
+    if (this.iuiPackagePresent()) return
+    this.iui = { state: 'installing', phase: 'stage', progress: { completed: 0, total: 4 } }
+  }
+
+  noteIuiPhase(phase, completed) {
+    if (!this.iui || this.iui.state !== 'installing') return
+    this.iui = { state: 'installing', phase, progress: { completed, total: 4 } }
+  }
+
+  bootMark(phase) {
+    if (!this.bootMarks) this.bootMarks = []
+    this.bootMarks.push({ phase, at: Date.now() })
+  }
+
+  bootSummary() {
+    const marks = this.bootMarks || []
+    if (marks.length < 2) return ''
+    const parts = []
+    for (let index = 1; index < marks.length; index += 1) {
+      parts.push(`${marks[index].phase}:${marks[index].at - marks[index - 1].at}`)
+    }
+    return `iui-boot ${parts.join(' ')} total:${marks[marks.length - 1].at - marks[0].at}`
+  }
+
+  async settleIuiEnabled() {
+    let readError = ''
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      if (!this.iui || this.iui.state !== 'installing') return
+      if (this.state !== 'connected') return
+      const result = await promoteInstalledIui(this, this.dshHome, this.profileName)
+      readError = result.readError
+      if (!this.iui || this.iui.state !== 'installing') return
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    if (this.iui && this.iui.state === 'installing' && readError) {
+      console.warn('iui_enable_pending', readError)
     }
   }
 
   async start() {
     if (this.state === 'connected') return this.status()
     if (this.startPromise) return this.startPromise
+    this.beginIuiInstall()
     this.startPromise = this.startInternal().finally(() => {
       this.startPromise = null
     })
@@ -298,6 +346,8 @@ export class DshCoreConnector {
   }
 
   async startInternal() {
+    this.bootMarks = []
+    this.bootMark('start')
     this.state = 'starting'
     this.lastError = null
     this.logs = []
@@ -318,7 +368,9 @@ export class DshCoreConnector {
     await access(this.cwd, constants.R_OK)
     await access(this.patchFile, constants.R_OK)
     await this.prepareCredentialsCopy()
+    this.bootMark('credentials')
     await this.ensureIsolatedProfile()
+    this.bootMark('profile')
     try {
       const { ensureLocalMcpInProfile, ensureSkillProvidersInProfile } = await import('./mcp-archive.mjs')
       const { ensureSubagentAllowedModelsInProfile } = await import('./subagent-models.mjs')
@@ -328,6 +380,7 @@ export class DshCoreConnector {
     } catch (error) {
       console.warn('ensure_profile_archive_failed', error)
     }
+    this.bootMark('archives')
     let extraPresetPatch = ''
     try {
       const { ensurePresets, generatedAgentPresetPatchPath } = await import('./routes/presets.mjs')
@@ -336,8 +389,12 @@ export class DshCoreConnector {
     } catch (error) {
       console.warn('ensurePresets_failed', error)
     }
+    this.bootMark('presets')
     await this.reclaimStrayProcesses()
+    this.bootMark('reclaim')
     const semanticaPython = await this.ensureSharedSemanticRuntime()
+    this.bootMark('semantic')
+    this.noteIuiPhase('boot', 3)
     try {
       const { applyMcpBootHold } = await import('./mcp-archive.mjs')
       await applyMcpBootHold(this)
@@ -420,6 +477,11 @@ export class DshCoreConnector {
       this.cookie = cookie
       this.state = 'connected'
       this.startedAt = new Date().toISOString()
+      this.noteIuiPhase('enable', 3)
+      this.bootMark('connected')
+      const summary = this.bootSummary()
+      if (summary) console.info(summary)
+      void this.settleIuiEnabled()
       void this.activateArchivedMcp()
       void import('./catalog-typert.mjs').then(({ ensureTypertVerbs }) => ensureTypertVerbs()).catch((error) => {
         console.warn('ensure_typert_verbs_failed', error)
@@ -536,6 +598,7 @@ export class DshCoreConnector {
             code: 'FDE_IUI_SHA_MISMATCH',
           })
         }
+        this.noteIuiPhase('stage', 1)
         const staged = await stageIuiArtifactIfAbsent({
           dest: vendor,
           pin: {
@@ -545,8 +608,11 @@ export class DshCoreConnector {
           },
           artifactPath: this.pinnedArtifactPath(plugin),
         })
-        this.iui = staged
-        if (staged.state === 'verify_failed') return false
+        if (staged.state === 'verify_failed') {
+          this.iui = staged
+          return false
+        }
+        if (staged.state === 'installed') this.noteIuiPhase('link', 2)
         const result = await reconcilePinnedVendor({
           vendorDir: vendor,
           pin: { version: plugin.source.version, commit: plugin.source.commit },
@@ -554,6 +620,7 @@ export class DshCoreConnector {
         })
         if (!result.ok) {
           const detail = result.error ? `${result.action}：${result.error}` : result.action
+          this.iui = { state: 'failed', reason: detail }
           this.recordPluginFailure(plugin, detail)
           return false
         }
@@ -586,6 +653,7 @@ export class DshCoreConnector {
     } catch (error) {
       if (error && error.code === 'FDE_IUI_SHA_MISMATCH') throw error
       const detail = error instanceof Error ? error.message : String(error)
+      if (plugin.source.kind === 'pinned') this.iui = { state: 'failed', reason: detail }
       this.recordPluginFailure(plugin, detail)
       return false
     }
