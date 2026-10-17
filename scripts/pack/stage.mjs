@@ -7,7 +7,7 @@
  */
 import { createHash } from 'node:crypto'
 import { execFile as execFileCb } from 'node:child_process'
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -73,7 +73,7 @@ async function ensureDshBinShim(treeRoot) {
     ? '../lib/bin.js'
     : '../node_modules/@deepseek-ai/dsh/lib/bin.js'
   const shim = join(binDir, 'dsh')
-  await writeFile(shim, `#!/usr/bin/env node\nrequire('${rel}');\n`, { mode: 0o755 })
+  await symlink(rel, shim)
   return true
 }
 
