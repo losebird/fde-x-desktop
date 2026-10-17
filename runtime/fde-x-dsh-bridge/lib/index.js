@@ -259,7 +259,7 @@ function bridgeConfigSchema() {
 
 const Config = bridgeConfigSchema()
 
-function installIuiModeGate(ctx) {
+function installIuiModeGate(ctx, config) {
   const {
     presetFromAgent,
     gatePromptAssembly,
@@ -271,7 +271,7 @@ function installIuiModeGate(ctx) {
   if (!ctx || typeof ctx.on !== 'function') {
     throw new Error('IUI mode gate requires ctx.on')
   }
-  const mountOf = () => resolveMcpMount(ctx.config)
+  const mountOf = () => resolveMcpMount(config)
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembled = await next()
     const preset = presetFromAgent(context && context.agent)
@@ -291,13 +291,13 @@ function installIuiModeGate(ctx) {
   }, true)
 }
 
-function apply(ctx) {
+function apply(ctx, config) {
   if (Config && Config.dict) {
     for (const field of Object.values(Config.dict)) {
       if (field && field.meta) field.meta.volatile = true
     }
   }
-  installIuiModeGate(ctx)
+  installIuiModeGate(ctx, config)
   if (ctx.webServer && typeof ctx.webServer.register === 'function') {
     ctx.effect(() => ctx.webServer.register({
       kind: 'prefix',

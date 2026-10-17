@@ -92,13 +92,24 @@ function startSink(bodies) {
   })
 }
 
-async function waitBody(bodies, index, timeoutMs) {
+function messageText(body) {
+  const messages = Array.isArray(body?.messages) ? body.messages : []
+  return messages.map((message) => {
+    if (typeof message?.content === 'string') return message.content
+    if (!Array.isArray(message?.content)) return ''
+    return message.content.map((part) => (part && typeof part.text === 'string' ? part.text : '')).join('\n')
+  }).join('\n')
+}
+
+async function waitPrompt(bodies, text, timeoutMs) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (bodies.length > index) return bodies[index]
+    const found = bodies.find((body) => toolNames(body).length > 0 && messageText(body).includes(text))
+    if (found) return found
     await delay(200)
   }
-  throw new Error(`timed out waiting for model request ${index}, have ${bodies.length}`)
+  const seen = bodies.map((body) => `${toolNames(body).length}:${messageText(body).slice(0, 80)}`)
+  throw new Error(`timed out waiting for model request ${text}, have ${seen.join(' | ')}`)
 }
 
 test('standard trim, settings save, and briefing omit user MCP on the live model request', { skip: !enabled, timeout: 300_000 }, async () => {
@@ -233,10 +244,10 @@ test('standard trim, settings save, and briefing omit user MCP on the live model
     const firstPrompt = await fetch(`${bff}/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/prompt`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ text: 'say ok' }),
+      body: JSON.stringify({ text: 'mount-check-standard' }),
     })
     assert.equal(firstPrompt.ok, true, await firstPrompt.text())
-    const first = await waitBody(bodies, 0, 25_000)
+    const first = await waitPrompt(bodies, 'mount-check-standard', 25_000)
     const firstNames = toolNames(first)
     await writeFile(join(evidence, 'first-standard.json'), JSON.stringify(excerpt(first), null, 2))
     assert.equal(hasServer(firstNames, 'mail'), true, firstNames.join('\n'))
@@ -250,41 +261,34 @@ test('standard trim, settings save, and briefing omit user MCP on the live model
     await page.goto(`${web}/settings`, { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'AI 核心' }).click()
     await page.getByText('Host 配置').waitFor({ timeout: 30_000 })
-    const toggles = page.locator('button.w-full')
-    const count = await toggles.count()
-    const labels = []
-    let opened = false
-    for (let i = 0; i < count; i += 1) {
-      const label = (await toggles.nth(i).innerText()).replace(/\s+/g, ' ')
-      labels.push(label)
-      if (/fde-x-dsh-bridge|dsh-bridge/i.test(label)) {
-        await toggles.nth(i).click()
-        opened = true
-        break
-      }
-    }
-    await writeFile(join(evidence, 'settings-labels.txt'), labels.join('\n'))
-    assert.equal(opened, true, labels.join('\n'))
+    const header = page.getByRole('button', { name: /fde-x-dsh-bridge/ })
+    await header.waitFor({ timeout: 30_000 })
+    await header.click()
     const form = page.locator('div.rounded-lg.border').filter({ hasText: 'standardDenyServers' })
     await form.waitFor({ timeout: 15_000 })
     await form.screenshot({ path: join(evidence, 'settings-before.png') })
-    const chip = form.locator('span').filter({ hasText: 'cua-driver' }).filter({ has: page.getByRole('button', { name: '删除' }) }).first()
+    const requests = []
+    page.on('request', (request) => {
+      requests.push(`${request.method()} ${request.url()}`)
+    })
+    const chip = form.locator('span', { hasText: 'cua-driver' }).first()
     await chip.getByRole('button', { name: '删除' }).click()
     const saveWait = page.waitForResponse((res) => (
       res.url().includes('/api/v1/catalog') && res.request().method() === 'POST'
-    ))
-    await form.getByRole('button', { name: '保存' }).click()
+    ), { timeout: 15_000 })
+    await form.getByRole('button', { name: '保存', exact: true }).click({ timeout: 8_000 })
     const saved = await saveWait
+    await writeFile(join(evidence, 'settings-requests.txt'), requests.join('\n'))
     assert.equal(saved.ok(), true, await saved.text())
     await form.screenshot({ path: join(evidence, 'settings-after.png') })
 
     const secondPrompt = await fetch(`${bff}/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/prompt`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ text: 'say ok again' }),
+      body: JSON.stringify({ text: 'mount-check-after-save' }),
     })
     assert.equal(secondPrompt.ok, true, await secondPrompt.text())
-    const second = await waitBody(bodies, 1, 60_000)
+    const second = await waitPrompt(bodies, 'mount-check-after-save', 60_000)
     const secondNames = toolNames(second)
     await writeFile(join(evidence, 'after-save.json'), JSON.stringify(excerpt(second), null, 2))
     assert.equal(hasServer(secondNames, 'cua-driver'), true, secondNames.join('\n'))
@@ -303,14 +307,16 @@ test('standard trim, settings save, and briefing omit user MCP on the live model
     const briefingPrompt = await fetch(`${bff}/api/v1/ai/sessions/${encodeURIComponent(briefingId)}/prompt`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ text: 'say ok' }),
+      body: JSON.stringify({ text: 'mount-check-briefing' }),
     })
     assert.equal(briefingPrompt.ok, true, await briefingPrompt.text())
-    const third = await waitBody(bodies, 2, 60_000)
+    const third = await waitPrompt(bodies, 'mount-check-briefing', 60_000)
     const thirdNames = toolNames(third)
     await writeFile(join(evidence, 'briefing.json'), JSON.stringify(excerpt(third), null, 2))
     assert.equal(thirdNames.some((name) => name.startsWith('mcp__')), false, thirdNames.join('\n'))
+    await writeFile(join(evidence, 'bodies.json'), JSON.stringify(bodies.map(excerpt), null, 2))
   } catch (error) {
+    await writeFile(join(evidence, 'error.txt'), error instanceof Error ? error.stack || error.message : String(error))
     await writeFile(join(evidence, 'dev.log'), Buffer.concat(logs))
     await writeFile(join(evidence, 'bodies.json'), JSON.stringify(bodies.map(excerpt), null, 2))
     const status = await fetch(`${bff}/api/v1/ai/status`).then((res) => res.json()).catch((cause) => String(cause))
