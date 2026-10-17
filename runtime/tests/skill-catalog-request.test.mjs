@@ -1,11 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { createServer as createNetServer } from 'node:net'
 import { spawn } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ensureGenerationHost } from '../generation.mjs'
+
+await ensureGenerationHost()
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
 const FIXTURE_TOKEN = 'catalog-fixture-token-k7m2'
@@ -78,12 +82,32 @@ function startFakeModel() {
   })
 }
 
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = createNetServer()
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      probe.close(() => resolve(port))
+    })
+  })
+}
+
 function stopChild(child) {
-  if (!child || child.exitCode != null || child.signalCode != null) return Promise.resolve()
-  child.kill('SIGTERM')
+  if (!child || child.exitCode != null || child.signalCode != null || child.pid == null) return Promise.resolve()
+  try {
+    process.kill(-child.pid, 'SIGTERM')
+  } catch {
+    child.kill('SIGTERM')
+  }
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      child.kill('SIGKILL')
+      try {
+        process.kill(-child.pid, 'SIGKILL')
+      } catch {
+        child.kill('SIGKILL')
+      }
       resolve()
     }, 4000)
     child.once('exit', () => {
@@ -93,10 +117,14 @@ function stopChild(child) {
   })
 }
 
-async function waitFor(predicate, timeoutMs, label) {
+async function waitFor(predicate, timeoutMs, label, abort) {
   const start = Date.now()
   let last = ''
   while (Date.now() - start < timeoutMs) {
+    if (abort) {
+      const reason = abort()
+      if (reason) throw new Error(`${label} aborted: ${reason}`)
+    }
     const value = await predicate()
     if (value) return value
     last = typeof value === 'string' ? value : last
@@ -140,9 +168,11 @@ test('a standard session sends the skill catalog on the first model request', { 
       '  model: grok-4.6',
       '',
     ].join('\n'), { mode: 0o600 })
-    const port = 4591
+    const port = await freePort()
+    const childState = { gone: '' }
     child = spawn(process.execPath, ['runtime/server.mjs'], {
       cwd: repoRoot,
+      detached: true,
       env: {
         ...process.env,
         DSH_HOME: home,
@@ -153,6 +183,7 @@ test('a standard session sends the skill catalog on the first model request', { 
         FDE_RUNTIME_PORT: String(port),
         FDE_LISTEN_HOST: '127.0.0.1',
         FDE_VENDOR_DIR: join(home, 'missing-vendor'),
+        FDE_SEMANTIC_RUNTIME_MODE: 'readonly',
         DSH_PERMISSION_MODE: 'danger-full-access',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -161,8 +192,12 @@ test('a standard session sends the skill catalog on the first model request', { 
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk) => { logs.stdout += chunk })
     child.stderr.on('data', (chunk) => { logs.stderr += chunk })
+    child.once('exit', (code, signal) => {
+      childState.gone = `code=${code ?? ''} signal=${signal ?? ''}`
+    })
+    const abortChild = () => (childState.gone ? `${childState.gone}\n${logs.stderr.slice(-800)}` : '')
     const origin = `http://127.0.0.1:${port}`
-    await waitFor(() => logs.stdout.includes('FDE_LISTENING') || logs.stderr.includes('FDE_LISTENING'), 60000, 'FDE_LISTENING')
+    await waitFor(() => logs.stdout.includes('FDE_LISTENING') || logs.stderr.includes('FDE_LISTENING'), 60000, 'FDE_LISTENING', abortChild)
     const connected = await fetch(new URL('/api/v1/ai/connect', origin), {
       method: 'POST',
       headers: { origin, 'content-type': 'application/json' },
@@ -190,7 +225,7 @@ test('a standard session sends the skill catalog on the first model request', { 
     })
     const promptText = await prompted.text()
     assert.equal(prompted.ok, true, promptText.slice(0, 500))
-    const recorded = await waitFor(() => bodiesWithText(model.bodies), 90000, 'model request')
+    const recorded = await waitFor(() => bodiesWithText(model.bodies), 90000, 'model request', abortChild)
     const raw = recorded.raw
     const profile = await readFile(join(home, 'profiles', 'fde-x', 'cordis.patch.yml'), 'utf8')
     assert.equal(raw.includes('<available_skills>'), true, catalogFailure(raw, profile, logs))
