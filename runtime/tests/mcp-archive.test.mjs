@@ -584,3 +584,24 @@ test('ensureSkillProvidersInProfile does not append a second row when name is wr
   assert.equal(again, text)
 })
 
+test('ensureSkillProvidersInProfile keeps a disabled comment and the blank lines', async () => {
+  const prior = [
+    '- id: other-plugin',
+    '  name: "@example/keep-me"',
+    '  disabled: false',
+    '',
+    '- id: tool-skill',
+    '  name: "@deepseek-ai/dsh-tool-skill"',
+    '  disabled: false # 说明',
+    '',
+    '- id: skill-filesystem',
+    '  name: "@deepseek-ai/dsh-skill-filesystem"',
+    '  disabled: false',
+    '',
+  ].join('\n')
+  const expected = prior.replace('  disabled: false # 说明', '  disabled: true # 说明')
+  const { text, again } = await writtenSkillProfile(prior)
+  assert.equal(text, expected)
+  assert.equal(again, text)
+})
+
