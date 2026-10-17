@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { IUI_PIN } from './pins.mjs'
 import { PLUGIN_PIN_FILE } from '../../runtime/plugin-vendor.mjs'
 import { defaultIuiArtifactPath, packDeterministicTarGz, retargetPrimitivePaths, sha256Hex } from './iui-artifact.mjs'
+import { resolvePnpmRunner } from './pnpm-runner.mjs'
 
 const execFile = promisify(execFileCb)
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -29,6 +30,12 @@ export async function buildIuiArtifact(options = {}) {
   if (!nodeSatisfiesIui(process.versions.node)) {
     throw new Error(`IUI build needs Node >= 22.19, got ${process.versions.node}`)
   }
+  const env = {
+    ...process.env,
+    COREPACK_HOME: process.env.COREPACK_HOME || '/tmp/corepack-home',
+  }
+  const runner = await resolvePnpmRunner(env, PNPM)
+  const pnpmLabel = [runner.command, ...runner.argsPrefix].join(' ')
   const pin = options.pin || IUI_PIN
   const work = options.workDir || join('/tmp', `fde-iui-build-${pin.commit.slice(0, 12)}`)
   const checkout = join(work, 'src')
@@ -67,14 +74,10 @@ export async function buildIuiArtifact(options = {}) {
   const retargeted = retargetPrimitivePaths(await readFile(tsconfigPath, 'utf8'), typesDir)
   await writeFile(tsconfigPath, retargeted)
 
-  const env = {
-    ...process.env,
-    COREPACK_HOME: process.env.COREPACK_HOME || '/tmp/corepack-home',
-  }
-  console.log('[build-iui] pnpm install --frozen-lockfile')
-  await run('corepack', [`pnpm@${PNPM}`, 'install', '--frozen-lockfile'], { cwd: checkout, env })
-  console.log('[build-iui] pnpm run build')
-  await run('corepack', [`pnpm@${PNPM}`, 'run', 'build'], { cwd: checkout, env })
+  console.log(`[build-iui] ${pnpmLabel} install --frozen-lockfile`)
+  await run(runner.command, [...runner.argsPrefix, 'install', '--frozen-lockfile'], { cwd: checkout, env })
+  console.log(`[build-iui] ${pnpmLabel} run build`)
+  await run(runner.command, [...runner.argsPrefix, 'run', 'build'], { cwd: checkout, env })
   if (!existsSync(join(checkout, 'lib', 'index.js')) || !existsSync(join(checkout, 'lib', 'client.js'))) {
     throw new Error('IUI build did not emit lib/index.js and lib/client.js')
   }
