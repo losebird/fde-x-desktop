@@ -85,6 +85,37 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     }
   })
 
+  test('a missing optional plugin is logged and the profile still installs', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-home-'))
+    const saved = {
+      FDE_PLUGIN_IUI: process.env.FDE_PLUGIN_IUI,
+      FDE_PLUGIN_DSH_LAN_ASSIST: process.env.FDE_PLUGIN_DSH_LAN_ASSIST,
+      FDE_PLUGIN_DSH_SEMANTIC_OS: process.env.FDE_PLUGIN_DSH_SEMANTIC_OS,
+    }
+    const warnings = []
+    const originalWarn = console.warn
+    console.warn = (...args) => {
+      warnings.push(args.map((part) => String(part)).join(' '))
+    }
+    process.env.FDE_PLUGIN_DSH_LAN_ASSIST = await tinyPlugin(home, 'lan')
+    process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = await tinyPlugin(home, 'sem')
+    delete process.env.FDE_PLUGIN_IUI
+    try {
+      const connector = new DshCoreConnector({ dshHome: home, cwd: home })
+      await connector.ensureIsolatedProfile()
+      assert.equal(connector.state, 'idle')
+      assert.match(connector.lastError, /可选插件 @losebird\/iui 挂载失败：missing-source/)
+      assert.match(warnings.join('\n'), /builtin_plugin_link_failed/)
+      const manifest = JSON.parse(await readFile(join(home, 'profiles', 'fde-x', 'package.json'), 'utf8'))
+      assert.equal(manifest.dsh.profile.bundles.includes('@losebird/iui'), false)
+      assert.equal(manifest.dsh.profile.bundles.includes('dsh-lan-assist'), true)
+    } finally {
+      console.warn = originalWarn
+      restoreEnv(saved)
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   test('refresh replaces an unpinned home copy and leaves the source', async () => {
     const home = await mkdtemp(join(tmpdir(), 'fde-home-'))
     const source = await mkdtemp(join(tmpdir(), 'fde-lan-'))

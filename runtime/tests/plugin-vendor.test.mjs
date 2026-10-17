@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { lstat, mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -114,4 +115,101 @@ test('reconcilePinnedVendor refuses a version match that has no commit file', as
   assert.equal(result.action, 'source-mismatch')
   assert.equal(await readFile(join(vendor, 'marker.txt'), 'utf8'), 'stay')
   await rm(root, { recursive: true, force: true })
+})
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return error.code === 'EPERM'
+  }
+}
+
+test('a crash bak from a dead pid is restored when the vendor is gone', async () => {
+  const deadPid = 2147483646
+  assert.equal(pidAlive(deadPid), false)
+  const root = await mkdtemp(join(tmpdir(), 'fde-vendor-'))
+  const vendor = join(root, 'vendor', 'iui')
+  await writeTree(`${vendor}.bak-${deadPid}`, { ...PIN, marker: 'from-bak' })
+  try {
+    const result = await reconcilePinnedVendor({
+      vendorDir: vendor,
+      pin: PIN,
+      candidates: [],
+      pid: 21,
+    })
+    assert.equal(result.ok, true)
+    assert.equal(result.action, 'restore')
+    assert.equal(await readFile(join(vendor, 'marker.txt'), 'utf8'), 'from-bak')
+    assert.equal(existsSync(`${vendor}.bak-${deadPid}`), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('pin cleanup keeps another live pid staging and a dead bak', async () => {
+  const deadPid = 2147483646
+  assert.equal(pidAlive(deadPid), false)
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+  await new Promise((resolve, reject) => {
+    child.once('spawn', resolve)
+    child.once('error', reject)
+  })
+  const root = await mkdtemp(join(tmpdir(), 'fde-vendor-'))
+  const vendor = join(root, 'vendor', 'iui')
+  const liveStaging = `${vendor}.staging-${child.pid}`
+  const deadStaging = `${vendor}.staging-${deadPid}`
+  const deadBak = `${vendor}.bak-${deadPid}`
+  try {
+    await writeTree(vendor, { ...PIN, marker: 'stay' })
+    await writeTree(liveStaging, { ...PIN, marker: 'live' })
+    await writeTree(deadStaging, { ...PIN, marker: 'dead-staging' })
+    await writeTree(deadBak, { ...PIN, marker: 'dead-bak' })
+    const result = await reconcilePinnedVendor({
+      vendorDir: vendor,
+      pin: PIN,
+      candidates: [],
+      pid: 22,
+    })
+    assert.equal(result.action, 'keep')
+    assert.equal(existsSync(liveStaging), true)
+    assert.equal(await readFile(join(liveStaging, 'marker.txt'), 'utf8'), 'live')
+    assert.equal(existsSync(deadStaging), false)
+    assert.equal(existsSync(deadBak), true)
+    assert.equal(await readFile(join(vendor, 'marker.txt'), 'utf8'), 'stay')
+  } finally {
+    child.kill()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a failed staging rename restores the vendor and returns', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-vendor-'))
+  const vendor = join(root, 'vendor', 'iui')
+  const source = join(root, 'source')
+  await writeTree(vendor, { version: 'old', commit: 'old', marker: 'old-marker' })
+  await writeTree(source, { ...PIN, marker: 'new-marker' })
+  try {
+    const result = await reconcilePinnedVendor({
+      vendorDir: vendor,
+      pin: PIN,
+      candidates: [source],
+      pid: 16,
+      async renameImpl(from, to) {
+        if (String(from).includes('.staging-') && to === vendor) {
+          throw Object.assign(new Error('EROFS'), { code: 'EROFS' })
+        }
+        return rename(from, to)
+      },
+    })
+    assert.equal(result.ok, false)
+    assert.equal(result.action, 'rename-failed')
+    assert.match(result.error, /EROFS/)
+    assert.equal(await readFile(join(vendor, 'marker.txt'), 'utf8'), 'old-marker')
+    assert.equal(existsSync(`${vendor}.staging-16`), false)
+    assert.equal(existsSync(`${vendor}.bak-16`), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
