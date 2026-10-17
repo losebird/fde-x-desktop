@@ -58,6 +58,9 @@ jobs:
       - name: Verify resources layout
         run: node scripts/pack/verify.mjs
 
+      - name: Boot staged server and connect dsh
+        run: node scripts/pack/connect-gate.mjs
+
       - name: Build desktop TypeScript
         working-directory: apps/desktop
         run: npm install && npm run build
