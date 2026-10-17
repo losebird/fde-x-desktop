@@ -6,6 +6,7 @@ import { cp, lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'nod
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { IUI_PIN } from '../../scripts/pack/pins.mjs'
 import { BUILTIN_PLUGINS, builtinBundleNames, builtinStageDirs, pluginEnvKey } from '../builtin-plugins.mjs'
 import { PLUGIN_PIN_FILE } from '../plugin-vendor.mjs'
 import { DshCoreConnector } from '../dsh-core.mjs'
@@ -22,6 +23,16 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     assert.equal(IUI.source.version, '0.13.0-iui.27')
     assert.equal(IUI.source.commit, '10db57b326a228e19e3093fcd694ae2ac5951408')
     assert.equal(IUI.source.sha256, 'c171f532ccd01e3b66272d9a364aefaaef7cd47dd37bcc4dd5444991998b634c')
+  })
+
+  test('the iui row is loaded from pins.mjs', async () => {
+    const source = await readFile(new URL('../builtin-plugins.mjs', import.meta.url), 'utf8')
+    assert.equal(source.includes(IUI_PIN.commit), false)
+    assert.equal(source.includes(IUI_PIN.artifact.sha256), false)
+    assert.match(source, /from '\.\.\/scripts\/pack\/pins\.mjs'/)
+    assert.equal(IUI.source.version, IUI_PIN.version)
+    assert.equal(IUI.source.commit, IUI_PIN.commit)
+    assert.equal(IUI.source.sha256, IUI_PIN.artifact.sha256)
   })
 
   test('a clean profile links pinned IUI and keeps it across a second start', async () => {
