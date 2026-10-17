@@ -6,9 +6,9 @@ export const BUILTIN_PLUGINS = [
     module: '@losebird/iui',
     source: {
       kind: 'pinned',
-      version: '0.13.0-iui.26',
-      commit: 'c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37',
-      sha256: 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a5',
+      version: '0.13.0-iui.27',
+      commit: 'dc47501012b6463d69398e3bdac70b001d8751fd',
+      sha256: '9a3b30e004c63137c4ce1ffc2388545630b46ad36e76654d1f363797272f23f3',
     },
     health: 'ui-sandbox',
     modes: ['standard'],

@@ -128,7 +128,7 @@ DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host
 
 **记忆：** UI 三层保留。project=当前 cwd 卡；daily=当天过滤；user=标签，不另造全局图。`draft_memory_card`；列表默认起草。
 
-**IUI 内置插件例外（2026-10-17 解禁）：** `@losebird/iui`（钉 `0.13.0-iui.26` @ `c5b5a4b`）与 lan-assist / semantic-os 同为内置 Host 插件，profile 启动时自动挂上，打包进 `resources/plugins/iui`，用户机不构建。它的 client 只在现有 `/dsh-app/` 会话 iframe 内渲染 `iui-html` 围栏，这是「浏览器不加载插件 client」的唯一例外，不进 FDE 页面、不新开顶栏、不新开路由。IUI 只在 `standard` preset 生效：提示段、工具、技能目录由 `fde-x-dsh-bridge` 按会话 preset 门控，应用构建与早报不带。
+**IUI 内置插件例外（2026-10-17 解禁）：** `@losebird/iui`（钉 `0.13.0-iui.27` @ `dc475010`）与 lan-assist / semantic-os 同为内置 Host 插件，profile 启动时自动挂上，打包进 `resources/plugins/iui`，用户机不构建。它的 client 只在现有 `/dsh-app/` 会话 iframe 内渲染 `iui-html` 围栏，这是「浏览器不加载插件 client」的唯一例外，不进 FDE 页面、不新开顶栏、不新开路由。IUI 只在 `standard` preset 生效：提示段、工具、技能目录由 `fde-x-dsh-bridge` 按会话 preset 门控，应用构建与早报不带。
 
 **死页：** 阶段 H 只删文件，不准改 `App.tsx` / `IMScreen` / `Briefing` 路由。`/tasks` `/schedule` 仍开计划面板。
 

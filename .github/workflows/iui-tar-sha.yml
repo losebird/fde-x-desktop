@@ -8,6 +8,7 @@ on:
     branches:
       - cursor/iui-pack-pin-6fc8
       - cursor/iui-runtime-status-6fc8
+      - cursor/iui-pin-dc475010-789b
 
 permissions:
   contents: read
