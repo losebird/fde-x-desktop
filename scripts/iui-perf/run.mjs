@@ -39,12 +39,9 @@ import {
   toolUses,
 } from './lib/summarize.mjs'
 import { TOKENIZER_NAME } from './lib/tokens.mjs'
+import { artifactAcquireHint, readIuiPin } from './lib/iui-pin.mjs'
 
 const execFileAsync = promisify(execFile)
-const IUI_COMMIT = 'c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37'
-const IUI_VERSION = '0.13.0-iui.26'
-const IUI_SHA = 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a5'
-const ARTIFACT_NAME = `iui-${IUI_COMMIT}.tar.gz`
 
 const staticMode = process.argv.includes('--static')
 const grokBase = process.env.GROK2API_BASE_URL || 'http://127.0.0.1:8000/v1'
@@ -113,29 +110,16 @@ async function waitQuiet(dir, timeoutMs, quietMs) {
   return readJsonDir(dir)
 }
 
-async function sha256(file) {
-  const { stdout } = await execFileAsync('sha256sum', [file], { timeout: 30000 })
-  return stdout.split(/\s+/)[0]
-}
-
 function printHelp() {
   console.log([
     '用法：node scripts/iui-perf/run.mjs [--static] [--help]',
     '',
     '测量 A/B 首轮。--static 用假模型，不需要 GROK2API_API_KEY。',
-    `IUI 包只认环境变量 FDE_IUI_ARTIFACT，指向现成的 ${ARTIFACT_NAME}。`,
+    'IUI 包只认环境变量 FDE_IUI_ARTIFACT，指向现成的 iui-<commit>.tar.gz。',
     '变量缺失或文件不存在时直接退出并说明原因。本脚本不构建 IUI。',
     '',
     '需要 Node 26 和 pnpm 11.20.0。key 只读环境变量 GROK2API_API_KEY。',
   ].join('\n'))
-}
-
-function artifactAcquireHint() {
-  return [
-    '在分支 cursor/iui-pack-pin-6fc8 上执行 pnpm install --frozen-lockfile，然后 node scripts/pack/build-iui.mjs。',
-    `产物是 scripts/pack/.cache/${ARTIFACT_NAME}。文件名形状是 iui-<commit>.tar.gz。`,
-    '仓库没有发布这个包。.github/workflows/iui-tar-sha.yml 只在该分支构建并核对 sha256，不上传产物。pins.mjs 的 artifact.url 是空的。',
-  ].join('')
 }
 
 async function ensureArtifact() {
@@ -146,17 +130,18 @@ async function ensureArtifact() {
   throw new Error(`缺少环境变量 FDE_IUI_ARTIFACT。${hint}`)
 }
 
-async function ensurePluginDir(artifact) {
+async function ensurePluginDir(artifact, commit) {
   const fromEnv = process.env.IUI_PLUGIN_DIR
   if (fromEnv && existsSync(join(fromEnv, 'lib', 'index.js'))) return fromEnv
-  const dir = join(tmpdir(), `iui-plugin-${IUI_COMMIT.slice(0, 12)}`)
+  const dir = join(tmpdir(), `iui-plugin-${commit.slice(0, 12)}`)
   if (!existsSync(join(dir, 'lib', 'index.js'))) {
     await rm(dir, { recursive: true, force: true })
     await mkdir(dir, { recursive: true })
     await execFileAsync('tar', ['-xzf', artifact, '-C', dir], { timeout: 120000 })
   }
-  const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'))
-  if (pkg.version !== IUI_VERSION) throw new Error(`IUI version ${pkg.version} != ${IUI_VERSION}`)
+  if (!existsSync(join(dir, 'lib', 'index.js'))) {
+    throw new Error(`产物里没有 lib/index.js。${artifactAcquireHint()}`)
+  }
   return dir
 }
 
@@ -528,6 +513,7 @@ async function main() {
     printHelp()
     return
   }
+  const artifact = await ensureArtifact()
   if (!assertNode()) return
   if (!await assertPnpm()) return
   if (!staticMode && !process.env.GROK2API_API_KEY) {
@@ -536,10 +522,8 @@ async function main() {
   }
   const outDir = resolve(repoRoot, 'artifacts', 'iui-perf', staticMode ? 'grok-static' : 'grok-live')
   await mkdir(outDir, { recursive: true })
-  const artifact = await ensureArtifact()
-  const digest = await sha256(artifact)
-  if (digest !== IUI_SHA) throw new Error(`IUI sha256 ${digest} != pin ${IUI_SHA}`)
-  const pluginDir = await ensurePluginDir(artifact)
+  const pin = await readIuiPin(artifact)
+  const pluginDir = await ensurePluginDir(artifact, pin.commit)
   const order = planArms({ env: process.env, staticMode })
   const finished = []
   let port = 4318

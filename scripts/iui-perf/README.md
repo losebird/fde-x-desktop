@@ -1,6 +1,6 @@
 # IUI grok2api 首轮测量
 
-同一句杭州三天提示。A 是裸 `@deepseek-ai/dsh` 0.2.0-rc.2 加 IUI `0.13.0-iui.26`（commit `c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37`），协议 `openai-completions`。B 是 fde-x 标准对话，协议 `openai-responses`。两边模型都是 `grok-4.6`。每次都是新的 HOME、新会话。
+同一句杭州三天提示。A 是裸 `@deepseek-ai/dsh` 0.2.0-rc.2 加 `FDE_IUI_ARTIFACT` 里的 IUI，协议 `openai-completions`。commit 以包内 `fde-plugin-pin.json` 为准。B 是 fde-x 标准对话，协议 `openai-responses`。两边模型都是 `grok-4.6`。每次都是新的 HOME、新会话。
 
 endpoint 读 `GROK2API_BASE_URL`，默认 `http://127.0.0.1:8000/v1`。key 只读 `GROK2API_API_KEY`，写进子进程环境，不写进 settings、凭证文件或请求日志。settings 里只记环境变量名 `apiKeyEnv`。
 
@@ -10,7 +10,7 @@ endpoint 读 `GROK2API_BASE_URL`，默认 `http://127.0.0.1:8000/v1`。key 只�
 
 `IUI_PERF_PROFILE_PATCH` 指向一份 `cordis.patch.yml` 时，脚本把它复制进临时 HOME 的 `fde-x` 和 `web` profile，跑完删除临时 HOME。日志走 `lib/redact.mjs`。
 
-需要 Node 26 和 pnpm 11.20.0。实时跑还要本机 grok2api 在 `127.0.0.1:8000`。key 只放在环境变量 `GROK2API_API_KEY` 里，不要写进命令替换或文件。IUI 包只认环境变量 `FDE_IUI_ARTIFACT`。本分支没有 `scripts/pack/build-iui.mjs`。打包在分支 `cursor/iui-pack-pin-6fc8` 上，先 `pnpm install --frozen-lockfile`，再 `node scripts/pack/build-iui.mjs`。产物是 `scripts/pack/.cache/iui-c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37.tar.gz`。仓库没有发布这个包。
+需要 Node 26 和 pnpm 11.20.0。实时跑还要本机 grok2api 在 `127.0.0.1:8000`。key 只放在环境变量 `GROK2API_API_KEY` 里，不要写进命令替换或文件。IUI 包只认环境变量 `FDE_IUI_ARTIFACT`。本分支没有 `scripts/pack/build-iui.mjs`。打包在分支 `cursor/iui-pack-pin-6fc8` 上，先 `pnpm install --frozen-lockfile`，再 `node scripts/pack/build-iui.mjs`。产物文件名形状是 `scripts/pack/.cache/iui-<commit>.tar.gz`。仓库没有发布这个包。commit 写在包内 `fde-plugin-pin.json`，测量脚本不另存一份。
 
 没有 key 时，本机假 OpenAI 服务只拦请求。先拿到产物，再跑：
 
@@ -19,7 +19,7 @@ git clone --branch cursor/iui-pack-pin-6fc8 https://github.com/losebird/fde-x-de
 cd /tmp/fde-iui-pack
 pnpm install --frozen-lockfile
 node scripts/pack/build-iui.mjs
-export FDE_IUI_ARTIFACT=/tmp/fde-iui-pack/scripts/pack/.cache/iui-c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37.tar.gz
+export FDE_IUI_ARTIFACT=/tmp/fde-iui-pack/scripts/pack/.cache/iui-<commit>.tar.gz
 # 回到本测量分支的检出目录
 node scripts/iui-perf/run.mjs --static
 ```
@@ -31,7 +31,7 @@ git clone --branch cursor/iui-pack-pin-6fc8 https://github.com/losebird/fde-x-de
 cd /tmp/fde-iui-pack
 pnpm install --frozen-lockfile
 node scripts/pack/build-iui.mjs
-export FDE_IUI_ARTIFACT=/tmp/fde-iui-pack/scripts/pack/.cache/iui-c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37.tar.gz
+export FDE_IUI_ARTIFACT=/tmp/fde-iui-pack/scripts/pack/.cache/iui-<commit>.tar.gz
 # 回到本测量分支的检出目录
 export GROK2API_API_KEY
 IUI_PERF_PROFILE_PATCH="$HOME/.dsh-fde-x/profiles/fde-x/cordis.patch.yml" node scripts/iui-perf/run.mjs
