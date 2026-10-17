@@ -624,8 +624,11 @@ function editDisabledBlock(block, disabled, name) {
   const hasName = lines.some((line) => line.startsWith('- name:') || line.startsWith('  name:'))
   if (name && !hasName) lines.splice(Math.max(idIndex, 0) + 1, 0, `  name: ${JSON.stringify(name)}`)
   const disabledIndex = lines.findIndex((line) => /^  disabled:/.test(line))
-  if (disabledIndex >= 0) lines[disabledIndex] = `  disabled: ${value}`
-  else lines.splice(Math.max(idIndex, 0) + 1, 0, `  disabled: ${value}`)
+  if (disabledIndex >= 0) {
+    lines[disabledIndex] = lines[disabledIndex].replace(/^(\s*disabled:\s*)(?:true|false)\b/, `$1${value}`)
+  } else {
+    lines.splice(Math.max(idIndex, 0) + 1, 0, `  disabled: ${value}`)
+  }
   return lines.join('\n')
 }
 
@@ -660,7 +663,7 @@ export async function ensureSkillProvidersInProfile(aiRuntime) {
   }
   let next = text
   for (const row of SKILL_PROVIDER_ROWS) next = upsertPatchDisabled(next, row.id, row.disabled, row.name)
-  if (next !== text) await writeNormalizedPatch(file, next)
+  if (next !== text) await writeFile(file, next)
   const home = aiRuntime?.dshHome || process.env.FDE_DSH_HOME
   if (!home) return
   const dest = join(home, 'skills')
