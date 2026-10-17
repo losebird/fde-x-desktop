@@ -188,6 +188,13 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
     const merged = mergeAgentSections(sections, latest.sections, pendingError)
     sections.length = 0
     sections.push(...merged)
+    if (agent.turnError) {
+      for (const section of sections) {
+        if (section.type !== 'ai' || (section.items || []).length) continue
+        section.error = agent.turnError
+        section.pendingAgent = false
+      }
+    }
   } else if (enabled.some((s) => (s.type === 'mcp' || s.type === 'ai') && s.enabled)) {
     for (const def of enabled.filter((s) => s.type === 'mcp' || s.type === 'ai')) {
       sections.push({
