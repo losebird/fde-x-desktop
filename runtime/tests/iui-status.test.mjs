@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -59,43 +59,107 @@ test('listPlugins row enables IUI only when that module is enabled', () => {
 
 test('a corrupt installed package.json is not treated as missing', async () => {
   const root = await mkdtemp(join(tmpdir(), 'fde-iui-status-'))
-  await mkdir(root, { recursive: true })
-  await writeFile(join(root, 'package.json'), '{')
-  const installed = await readInstalledIui(root)
-  assert.equal(installed.present, true)
-  assert.equal(installed.parseError, true)
+  try {
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, 'package.json'), '{')
+    const installed = await readInstalledIui(root)
+    assert.equal(installed.present, true)
+    assert.equal(installed.parseError, true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('the AI core row carries an enabled IUI phrase', async () => {
   const home = await mkdtemp(join(tmpdir(), 'fde-iui-adapt-'))
   const profile = process.env.FDE_DSH_PROFILE || 'fde-x'
   const dir = join(home, 'profiles', profile, 'node_modules', '@losebird', 'iui')
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, 'package.json'), JSON.stringify({ name: '@losebird/iui', version: pin }))
-  const rows = await inspectAdapters({
-    aiRuntime: {
-      dshHome: home,
-      status: () => ({ connected: true, state: 'connected', version: '0.2.0-rc.2', pid: 9 }),
-      call: async (endpoint) => {
-        assert.equal(endpoint, 'pluginManager/listPlugins')
-        return [{ entryId: 'include:iui', moduleName: '@losebird/iui', enabled: true, patchId: 'iui' }]
+  try {
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: '@losebird/iui', version: pin }))
+    const rows = await inspectAdapters({
+      aiRuntime: {
+        dshHome: home,
+        status: () => ({ connected: true, state: 'connected', version: '0.2.0-rc.2', pid: 9 }),
+        call: async (endpoint) => {
+          assert.equal(endpoint, 'pluginManager/listPlugins')
+          return [{ entryId: 'include:iui', moduleName: '@losebird/iui', enabled: true, patchId: 'iui' }]
+        },
       },
-    },
-  })
-  const ai = rows.find((row) => row.capability === 'ai-runtime')
-  assert.match(ai.detail, /核心 AI 运行时已接通/)
-  assert.match(ai.detail, new RegExp(`IUI ${pin.replaceAll('.', '\\.')} · 已启用（标准对话）`))
-  const others = rows.filter((row) => row.capability !== 'ai-runtime')
-  assert.equal(others.some((row) => String(row.detail).includes('IUI')), false)
+    })
+    const ai = rows.find((row) => row.capability === 'ai-runtime')
+    assert.match(ai.detail, /核心 AI 运行时已接通/)
+    assert.match(ai.detail, new RegExp(`IUI ${pin.replaceAll('.', '\\.')} · 已启用（标准对话）`))
+    const others = rows.filter((row) => row.capability !== 'ai-runtime')
+    assert.equal(others.some((row) => String(row.detail).includes('IUI')), false)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
 })
 
 test('describeIui reports a missing profile link', async () => {
   const home = await mkdtemp(join(tmpdir(), 'fde-iui-missing-'))
-  const phrase = await describeIui({
-    status: () => ({ connected: true }),
+  try {
+    const phrase = await describeIui({
+      status: () => ({ connected: true }),
+      call: async () => {
+        throw new Error('should not list')
+      },
+    }, home, 'fde-x')
+    assert.equal(phrase, 'IUI 未安装')
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('a non-ENOENT package read does not take down adapter health', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'fde-iui-eacces-'))
+  const profile = process.env.FDE_DSH_PROFILE || 'fde-x'
+  const dir = join(home, 'profiles', profile, 'node_modules', '@losebird', 'iui')
+  await mkdir(join(dir, 'package.json'), { recursive: true })
+  const runtime = {
+    dshHome: home,
+    status: () => ({ connected: true, state: 'connected', version: '0.2.0-rc.2', pid: 9 }),
     call: async () => {
       throw new Error('should not list')
     },
-  }, home, 'fde-x')
-  assert.equal(phrase, 'IUI 未安装')
+  }
+  try {
+    const phrase = await describeIui(runtime, home, profile)
+    assert.match(phrase, /IUI 状态读取失败/)
+    const rows = await inspectAdapters({ aiRuntime: runtime })
+    assert.equal(rows.length, 3)
+    assert.match(rows.find((row) => row.capability === 'ai-runtime').detail, /IUI 状态读取失败/)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('a stuck plugin list does not hold adapter health', { timeout: 8000 }, async () => {
+  const home = await mkdtemp(join(tmpdir(), 'fde-iui-hang-'))
+  const profile = process.env.FDE_DSH_PROFILE || 'fde-x'
+  const dir = join(home, 'profiles', profile, 'node_modules', '@losebird', 'iui')
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'package.json'), JSON.stringify({ name: '@losebird/iui', version: pin }))
+  const started = Date.now()
+  let timer
+  try {
+    const rows = await inspectAdapters({
+      aiRuntime: {
+        dshHome: home,
+        status: () => ({ connected: true, state: 'connected', version: '0.2.0-rc.2', pid: 9 }),
+        call: () => new Promise((resolve) => {
+          timer = setTimeout(() => resolve([
+            { moduleName: '@losebird/iui', enabled: true },
+          ]), 5000)
+        }),
+      },
+    })
+    assert.ok(Date.now() - started < 3000)
+    assert.equal(rows.length, 3)
+    assert.match(rows.find((row) => row.capability === 'ai-runtime').detail, /live-probe-timeout/)
+  } finally {
+    clearTimeout(timer)
+    await rm(home, { recursive: true, force: true })
+  }
 })
