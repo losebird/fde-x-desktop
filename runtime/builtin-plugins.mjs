@@ -1,3 +1,5 @@
+import { IUI_PIN } from './iui-pin.mjs'
+
 export const BUILTIN_PLUGINS = [
   { dir: 'dsh-lan-assist', module: 'dsh-lan-assist', source: { kind: 'vendor' }, health: 'im-business-adapter' },
   { dir: 'dsh-semantic-os', module: 'dsh-semantic-os', source: { kind: 'vendor' }, health: 'semantic-memory' },
@@ -6,9 +8,9 @@ export const BUILTIN_PLUGINS = [
     module: '@losebird/iui',
     source: {
       kind: 'pinned',
-      version: '0.13.0-iui.26',
-      commit: 'c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37',
-      sha256: 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a5',
+      version: IUI_PIN.version,
+      commit: IUI_PIN.commit,
+      sha256: IUI_PIN.artifact.sha256,
     },
     health: 'ui-sandbox',
     modes: ['standard'],

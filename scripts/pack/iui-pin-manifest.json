@@ -1,16 +1,16 @@
 {
-  "artifactSha256": "f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a5",
+  "artifactSha256": "9fffca3342019fea28ddc1e4328ea06afa045571998e5635ce470c5f239f0d64",
   "files": {
-    "SKILL.md": "83b2691b74ea6cf876341f42a055a7da44b4b1463cc1d0c5175daed7ecc5eb76",
+    "SKILL.md": "3b3ca4f06290df33977dd02cdfa8c41fda9fb333fc7001e5f12add26be6ee61b",
     "cordis.patch.yml": "424ae1aea27cd37833687476e265a1f7b8ab943ffb3ad36ac3b65d80f65be031",
-    "fde-plugin-pin.json": "1bba904657744e8c351fef8b53201bbd9ad910c6872d56e8b64f8ab45f733d51",
+    "fde-plugin-pin.json": "c660627363607b0e983a001c148603d663f793946241ea6354fbea28ddff5581",
     "lib/assets/echarts-core.js": "5eed01ed23a0246559d14f59c2ff5fc1b4fcca13558c2ed763a73724cd2b01e0",
     "lib/assets/echarts-full.js": "53914c2d4957bf29614738f34ce14698ae6d677e5d595a88b79fadef2881c644",
     "lib/assets/mermaid.js": "a141e5eab7076f5986eb7c238aa529f30a31291ad2752ac7b2285f52007a6719",
     "lib/assets/standalone-runtime.js": "23e3778531b271f31d2541b1900e7a1958c3cadcdda367354a76bedf3e6033df",
     "lib/assets/three.js": "3b61ad28030d938519dd52db05152690ef01c58f17bfdb5cd8c4579b25e1c7a9",
-    "lib/client.js": "295c99024d8a483df9e706a6bec4f9845d48f50a886e5cf2586796688bbc9ba8",
-    "lib/index.js": "90b670d1dccd9fdf3a549ee45f03ce85f228a41fbb8b55167077c9fe94c6f1be",
+    "lib/client.js": "14e9276a2c4a1ad122095ab7cbd2198c7cb4bbe103600b4563ed30b5dadb86f2",
+    "lib/index.js": "a9b4a27309c7e52bd1b8153d6a6195d7f94a92cd663d14ad09e07016e44182b3",
     "lib/types/client/EChartNode.d.ts": "b46547d3f8788fc5d2d88fd97f41185bbf113bfd4a53c437451d866bc5e418b3",
     "lib/types/client/ErrorBoundary.d.ts": "87b7d7ed530b0258bb096edddbf9ae614894a56a22896aa2047ab2d1efa7377c",
     "lib/types/client/GenuiBlock.d.ts": "c17d3c6df2a30328e7296479a58bd0580cb2980c3b5d545be864e431ba7651bd",
@@ -116,7 +116,7 @@
     "lib/types/config/index.d.ts": "415167d6bef1e3db4dfc858ef10bc31fad74f657baba2fdba71e8fe1a9a7d715",
     "lib/types/config/referee-rules.d.ts": "8cccf0991e44bafdd91164b7a2ab9d5236ba343068a6e78254a656e565db7206",
     "lib/types/config/resolve.d.ts": "273f059b2806ce3458d4b275c9bb750d383803b55815a90f24143803c872807a",
-    "lib/types/config/stream-heuristics.d.ts": "119081c2ebb92452a7da74e143a954b607444dc578d840816fd08050c81b2102",
+    "lib/types/config/stream-heuristics.d.ts": "7e00e19c261655f911821261a2b4e5a70517a21327f90310e2e4a5511a53e3e0",
     "lib/types/config/types.d.ts": "595bcd236abe5efa2e0cddb406b81d09722835c0fe57250a24ba915a4bc2a6ee",
     "lib/types/index.d.ts": "54031bebb1aa1027e1cc4c6b09f594348145b3756e43d785f67c4bc17cca1971",
     "lib/types/plugin/binding-bridge.d.ts": "7ef0b441836622ffbcc2f8de84b34bbea742cff56cbba933aad69721254fe063",
@@ -148,7 +148,7 @@
     "lib/types/themes/color-utils.d.ts": "a0ea47698835f3e30c862012af485b4ac7f85ae84548b7614b0abfea8a201e2e",
     "lib/types/themes/index.d.ts": "ad4ab44e14e54ce569b62f471df99e7ca3da3a2fc444d116ad5a53683ae08799",
     "lib/types/themes/iui-default.d.ts": "e4d7c8172016d8230fa2a5dca2847684fff6069b95b6de4a5bc5347410cfc206",
-    "lib/types/themes/oiu-design-system.d.ts": "9394adc84df4390fb6bd651aef23afe4bdbabbc523e682c815a01f9980e5f9cc",
+    "lib/types/themes/oiu-design-system.d.ts": "d7ce5faa35d68bce808f5d83261772817182917cc8207c79fb10ae9be3cdfdea",
     "lib/types/themes/sandbox-brand.d.ts": "2899e91f4d82b0f008dc63c3e423cfaa47fb9fc6d5a3159708283fd45fc8253f",
     "lib/types/themes/tokens.d.ts": "bf03c4060f08a3493f5e1cd2737b33df71aab9d5bfb199818f43492161ecef72",
     "node_modules/.bin/katex": "4d9abfb295dc64b4bbaeef51d91dbb00bde1c13646819e144c9ef9dbe9e33d20",
@@ -951,6 +951,6 @@
     "node_modules/react/umd/react.development.js": "28348fef6cb0ed8b2ceeb22deaf824428fd13875d84c73d38f77dd216fc24e7f",
     "node_modules/react/umd/react.production.min.js": "d949f1c3687aedadcedac85261865f29b17cd273997e7f6b2bfc53b2f9d4c4dd",
     "node_modules/react/umd/react.profiling.min.js": "68f54d810fd6c1acebfa38f7bed791bf1834f0fed4b2a5afe1cba5755dacd81a",
-    "package.json": "d13a476fd6c65f56103f00843a1bdb161a0474af2292d77feea3cf5e06cba612"
+    "package.json": "a9c0fc5e1600446e4794b3e935c4b7a6d5a9d31715f83f00dcd1a9a562b054e3"
   }
 }
