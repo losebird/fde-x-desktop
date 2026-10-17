@@ -34,11 +34,13 @@ function runStatic(envPatch) {
 }
 
 test('a missing IUI artifact names the branch and command that pack it', async () => {
-  const hint = /cursor\/iui-pack-pin-6fc8[\s\S]*node scripts\/pack\/build-iui\.mjs[\s\S]*scripts\/pack\/\.cache\/iui-c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37\.tar\.gz/
+  const hint = /cursor\/iui-pack-pin-6fc8[\s\S]*node scripts\/pack\/build-iui\.mjs[\s\S]*iui-<commit>\.tar\.gz/
   const missing = await runStatic({})
   const absent = await runStatic({ FDE_IUI_ARTIFACT: '/tmp/fde-iui-artifact-missing.tar.gz' })
   assert.equal(missing.code === 0, false, missing.out)
   assert.equal(absent.code === 0, false, absent.out)
   assert.match(missing.out, hint, missing.out)
   assert.match(absent.out, hint, absent.out)
+  assert.equal(/[0-9a-f]{40}/.test(missing.out), false, missing.out)
+  assert.equal(/[0-9a-f]{40}/.test(absent.out), false, absent.out)
 })
