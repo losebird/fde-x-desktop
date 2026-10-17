@@ -1,0 +1,20 @@
+- insert:
+    - id: mcp-mail
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        transport: stdio
+        serverName: mail
+        command: /home/ubuntu/.nvm/versions/node/v22.23.3/bin/node
+        args:
+          - /workspace/scripts/repro/fake-mcp-stdio.mjs
+          - mail
+- insert:
+    - id: mcp-ai-hot
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        transport: stdio
+        serverName: ai-hot
+        command: /home/ubuntu/.nvm/versions/node/v22.23.3/bin/node
+        args:
+          - /workspace/scripts/repro/fake-mcp-stdio.mjs
+          - ai-hot

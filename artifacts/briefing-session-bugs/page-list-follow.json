@@ -1,0 +1,19 @@
+{
+  "sessionA": "session-6c6238ec-1826-4518-a570-9668c4b9d64d",
+  "sessionB": "session-21db6502-89c1-41e9-916f-d2d8917f5c49",
+  "extraId": "session-e16feddf-52be-41c4-b851-770dfd3ed36f",
+  "apiHasExtra": true,
+  "countOnA": 6,
+  "countAfterCreate": 6,
+  "countAfterReload": 7,
+  "countOnB": 2,
+  "urlAfterSwitch": "http://127.0.0.1:5174/ai/session-6c6238ec-1826-4518-a570-9668c4b9d64d",
+  "iframeSrc": "http://127.0.0.1:4318/dsh-app/#fde-session=session-6c6238ec-1826-4518-a570-9668c4b9d64d",
+  "buttonTitle": "当前工作区: repro-b",
+  "listIgnoredCreate": true,
+  "reloadShowsCreate": true,
+  "urlStayedOnA": true,
+  "iframeStayedOnA": true,
+  "iframeDidNotOpenB": true,
+  "switcherShowsB": true
+}

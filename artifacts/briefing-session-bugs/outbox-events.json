@@ -1,0 +1,52 @@
+[
+  {
+    "event_type": "ai.session.changed",
+    "payload_json": "{\"sessionId\":\"session-6f823ab3-66f4-46b8-9a74-66a4ecf0a062\",\"kind\":\"created\"}",
+    "session_id": "session-6f823ab3-66f4-46b8-9a74-66a4ecf0a062"
+  },
+  {
+    "event_type": "ai.session.changed",
+    "payload_json": "{\"sessionId\":\"session-cd140cca-e1cb-49e0-bc05-1985708fbc5f\",\"kind\":\"created\"}",
+    "session_id": "session-cd140cca-e1cb-49e0-bc05-1985708fbc5f"
+  },
+  {
+    "event_type": "briefing.ready",
+    "payload_json": "{\"briefingId\":\"brf_0a7822f0bcdd457580012197df1f9967\",\"workspaceCwd\":\"/tmp/fde-ws-a\",\"status\":\"partial\"}",
+    "session_id": null
+  },
+  {
+    "event_type": "ai.session.changed",
+    "payload_json": "{\"sessionId\":\"session-b7267d56-1057-4971-9849-83c1fcc4cd90\",\"kind\":\"created\"}",
+    "session_id": "session-b7267d56-1057-4971-9849-83c1fcc4cd90"
+  },
+  {
+    "event_type": "ai.session.changed",
+    "payload_json": "{\"sessionId\":\"session-145918ba-86c5-476d-8160-8a6f6b62d72c\",\"kind\":\"created\"}",
+    "session_id": "session-145918ba-86c5-476d-8160-8a6f6b62d72c"
+  },
+  {
+    "event_type": "ai.session.changed",
+    "payload_json": "{\"sessionId\":\"session-b9c9eea8-0aa6-4e1a-9da3-f050256398d8\",\"kind\":\"created\"}",
+    "session_id": "session-b9c9eea8-0aa6-4e1a-9da3-f050256398d8"
+  },
+  {
+    "event_type": "ai.session.changed",
+    "payload_json": "{\"sessionId\":\"session-21db6502-89c1-41e9-916f-d2d8917f5c49\",\"kind\":\"created\"}",
+    "session_id": "session-21db6502-89c1-41e9-916f-d2d8917f5c49"
+  },
+  {
+    "event_type": "briefing.ready",
+    "payload_json": "{\"briefingId\":\"brf_19cfbb5a63e14c97bbb2103cdc8afcae\",\"workspaceCwd\":\"/tmp/fde-ws-a\",\"status\":\"partial\"}",
+    "session_id": null
+  },
+  {
+    "event_type": "ai.session.changed",
+    "payload_json": "{\"sessionId\":\"session-6c6238ec-1826-4518-a570-9668c4b9d64d\",\"kind\":\"created\"}",
+    "session_id": "session-6c6238ec-1826-4518-a570-9668c4b9d64d"
+  },
+  {
+    "event_type": "ai.session.changed",
+    "payload_json": "{\"sessionId\":\"session-e16feddf-52be-41c4-b851-770dfd3ed36f\",\"kind\":\"created\"}",
+    "session_id": "session-e16feddf-52be-41c4-b851-770dfd3ed36f"
+  }
+]

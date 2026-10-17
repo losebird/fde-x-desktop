@@ -1,0 +1,65 @@
+{
+  "connected": true,
+  "liveBriefing": {
+    "status": "partial",
+    "sessionId": "session-c5ec8651-9922-484a-b43b-bb7118123e75",
+    "sections": [
+      {
+        "title": "重要邮件",
+        "error": "会话未投影 mcp__mail__imap_search",
+        "items": 0
+      },
+      {
+        "title": "行业资讯",
+        "error": "会话未投影 mcp__ai-hot__aihot_get_latest",
+        "items": 0
+      }
+    ],
+    "newBriefingSession": {
+      "sessionId": "session-c5ec8651-9922-484a-b43b-bb7118123e75",
+      "agentPreset": "fde-briefing",
+      "cwd": "/tmp/fde-ws-a"
+    },
+    "sseTypes": [
+      "briefing.ready"
+    ],
+    "emittedSessionChanged": false
+  },
+  "list": {
+    "sessionA": "session-b9c9eea8-0aa6-4e1a-9da3-f050256398d8",
+    "extraId": "session-6c6238ec-1826-4518-a570-9668c4b9d64d",
+    "apiHasExtra": true,
+    "countBefore": 5,
+    "countAfter": 5,
+    "countReloaded": 6,
+    "sseSawCreate": true,
+    "sseCreateCount": 1,
+    "listStayedUntilReload": true
+  },
+  "workspace": {
+    "sessionA": "session-b9c9eea8-0aa6-4e1a-9da3-f050256398d8",
+    "sessionB": "session-21db6502-89c1-41e9-916f-d2d8917f5c49",
+    "workspaceA": "81b3de12-5f0b-4fee-a40b-e3c1afa26981",
+    "workspaceB": "18e0de60-7903-4a06-90f4-e2167480b2ad",
+    "urlAfterSwitch": "http://127.0.0.1:5174/ai/session-b9c9eea8-0aa6-4e1a-9da3-f050256398d8",
+    "iframeSrc": "http://127.0.0.1:4318/dsh-app/#fde-session=session-b9c9eea8-0aa6-4e1a-9da3-f050256398d8",
+    "buttonTitle": "当前工作区: repro-b",
+    "urlStayedOnA": true,
+    "iframeStayedOnA": true,
+    "iframeDidNotOpenB": true,
+    "switcherShowsB": true
+  },
+  "error": "",
+  "status": {
+    "connected": true,
+    "version": "0.2.0-rc.2",
+    "lastError": "可选插件 dsh-lan-assist 挂载失败：missing-source；可选插件 dsh-semantic-os 挂载失败：missing-source；可选插件 @losebird/iui 挂载失败：missing-source"
+  },
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+    "Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+    "Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+    "Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+    "Failed to load resource: the server responded with a status of 502 (Bad Gateway)"
+  ]
+}

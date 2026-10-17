@@ -1,0 +1,59 @@
+{
+  "reproduced": true,
+  "head": "e3776ba3706e98587f144f475ba8f66dfd2b7d9d",
+  "mail": {
+    "error": "会话未投影 mcp__mail__imap_search",
+    "items": 0
+  },
+  "news": {
+    "error": "会话未投影 mcp__ai-hot__aihot_get_latest",
+    "items": 0
+  },
+  "promptCalled": false,
+  "events": [
+    "briefing.ready"
+  ],
+  "sessionCreate": {
+    "cwd": "/tmp/fde-briefing-repro-qgA40U/ws",
+    "agentPreset": "fde-briefing",
+    "sessionId": "brief-new"
+  },
+  "projectedBeforePrompt": [],
+  "spoken": [
+    {
+      "serverName": "mail",
+      "toolNames": [
+        "imap_search"
+      ],
+      "callText": "fake-mail-item"
+    },
+    {
+      "serverName": "ai-hot",
+      "toolNames": [
+        "aihot_get_latest"
+      ],
+      "callText": "fake-news-item"
+    }
+  ],
+  "patchEntries": [
+    {
+      "serverName": "mail",
+      "command": "/home/ubuntu/.nvm/versions/node/v22.23.3/bin/node",
+      "args": [
+        "/workspace/scripts/repro/fake-mcp-stdio.mjs",
+        "mail"
+      ],
+      "disabled": false
+    },
+    {
+      "serverName": "ai-hot",
+      "command": "/home/ubuntu/.nvm/versions/node/v22.23.3/bin/node",
+      "args": [
+        "/workspace/scripts/repro/fake-mcp-stdio.mjs",
+        "ai-hot"
+      ],
+      "disabled": false
+    }
+  ],
+  "status": "partial"
+}

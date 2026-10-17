@@ -1,0 +1,73 @@
+{
+  "head": "e3776ba3706e98587f144f475ba8f66dfd2b7d9d",
+  "rows": [
+    {
+      "rev": "c0227143951200e1c6e346dd63cdf2b05c936ee2",
+      "resolved": "c0227143951200e1c6e346dd63cdf2b05c936ee2",
+      "onMain": false,
+      "subject": "c0227143951200e1c6e346dd63cdf2b05c936ee2\n2026-10-17 03:53:16 +0000\nfeat(briefing): open a dedicated fde-briefing session"
+    },
+    {
+      "rev": "b0cbb6b26",
+      "resolved": "b0cbb6b26736cde3785fa630fb00f7c7b754d74e",
+      "onMain": true,
+      "subject": "b0cbb6b26736cde3785fa630fb00f7c7b754d74e\n2026-10-07 16:54:36 +0800\nfeat(runtime): occupancy for MCP, skills, briefing, and workspace cwd"
+    },
+    {
+      "rev": "bdacd5ada",
+      "resolved": "bdacd5ada95ebc2849cbbe1885f4789aae1b480e",
+      "onMain": true,
+      "subject": "bdacd5ada95ebc2849cbbe1885f4789aae1b480e\n2026-10-07 23:41:40 +0800\nfeat(runtime): occupy current-turn, letter home, restore, and origin land"
+    },
+    {
+      "rev": "a8449148",
+      "resolved": "a8449148526f393219d9d66bdfd24e16f86a3416",
+      "onMain": true,
+      "subject": "a8449148526f393219d9d66bdfd24e16f86a3416\n2026-09-17 01:40:49 +0800\nbaseline: FDE-X workstation as of 2026-09-16"
+    },
+    {
+      "rev": "3efbf12be",
+      "resolved": "3efbf12be2494f7234ac4387dd5b9b3da0a5859d",
+      "onMain": true,
+      "subject": "3efbf12be2494f7234ac4387dd5b9b3da0a5859d\n2026-09-17 09:43:54 +0800\nfix(ai): restore selects the new session deterministically"
+    }
+  ],
+  "showMain": "origin/main:runtime/briefing/run.mjs:2:import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'\norigin/main:runtime/briefing/run.mjs:100:      const primary = await resolvePrimarySessionForRuntime(aiRuntime, {\norigin/main:runtime/briefing/run.mjs:142:    sessionId = await resolvePrimarySessionForRuntime(aiRuntime, {\n",
+  "blame": [
+    {
+      "file": "runtime/briefing/ask-ai.mjs",
+      "lines": "61,63",
+      "text": "b0cbb6b26 (losebird 2026-10-07 16:54:36 +0800 61)       if (!tool || !projected.includes(tool)) {\nb0cbb6b26 (losebird 2026-10-07 16:54:36 +0800 62)         blocked.push({ id: block.id, error: tool ? `会话未投影 ${tool}` : '缺少 tool' })\nb0cbb6b26 (losebird 2026-10-07 16:54:36 +0800 63)         continue\n"
+    },
+    {
+      "file": "runtime/briefing/session.mjs",
+      "lines": "33,35",
+      "text": "c02271439 (Cursor Agent 2026-10-16 18:42:15 +0000 33)   const created = await aiRuntime.call('session/create', {\nc02271439 (Cursor Agent 2026-10-16 18:42:15 +0000 34)     request: { cwd: workspaceCwd, agentPreset: BRIEFING_PRESET },\nc02271439 (Cursor Agent 2026-10-16 18:42:15 +0000 35)   })\n"
+    },
+    {
+      "file": "runtime/briefing/run.mjs",
+      "lines": "143,144",
+      "text": "c02271439 (Cursor Agent 2026-10-16 18:42:15 +0000 143)     sessionId = await resolveBriefingSession(aiRuntime, workspaceCwd)\n23c490833 (losebird     2026-09-17 15:33:19 +0800 144)     const agent = await runBriefingAgent(\n"
+    },
+    {
+      "file": "src/pages/AI.tsx",
+      "lines": "137,145",
+      "text": "b0cbb6b26 (losebird 2026-10-07 16:54:36 +0800 137)   const wantedSessionId = runtimeConnected\n3efbf12be (losebird 2026-09-17 09:43:54 +0800 138)     ? (chatId\nb0cbb6b26 (losebird 2026-10-07 16:54:36 +0800 139)       || (storedActiveAiSessionId && remoteSessions.some((session) => session.sessionId === storedActiveAiSessionId)\n3efbf12be (losebird 2026-09-17 09:43:54 +0800 140)         ? storedActiveAiSessionId\nb0cbb6b26 (losebird 2026-10-07 16:54:36 +0800 141)         : ''))\nb0cbb6b26 (losebird 2026-10-07 16:54:36 +0800 142)     : ''\nb0cbb6b26 (losebird 2026-10-07 16:54:36 +0800 143)   const activeId = wantedSessionId\nb0cbb6b26 (losebird 2026-10-07 16:54:36 +0800 144)     ? (resolvePrimarySessionId(wantedSessionId, remoteSessions) || undefined)\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 145)     : undefined\n"
+    },
+    {
+      "file": "src/pages/AI.tsx",
+      "lines": "569,579",
+      "text": "^a8449148 (losebird 2026-09-17 01:40:29 +0800 569)   useEffect(() => {\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 570)     if (!runtimeConnected || !activeId) return\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 571)     const row = visibleSessions.find((session) => session.sessionId === activeId)\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 572)     if (!row) return\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 573)     tellDsh('select', {\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 574)       sessionId: activeId,\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 575)       ...(row.title ? { title: row.title } : {}),\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 576)       ...(activeWorkspaceId && !activeWorkspaceId.startsWith('ws_') ? { workspaceId: activeWorkspaceId } : {}),\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 577)       ...(activeWorkspace?.cwd ? { cwd: activeWorkspace.cwd } : {}),\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 578)     })\n^a8449148 (losebird 2026-09-17 01:40:29 +0800 579)   }, [runtimeConnected, activeId, activeWorkspaceId])\n"
+    },
+    {
+      "file": "src/pages/AI.tsx",
+      "lines": "492,492",
+      "text": "b0cbb6b26 (losebird 2026-10-07 16:54:36 +0800 492)   useEvents(['memory.engine.changed'], (event) => {\n"
+    },
+    {
+      "file": "runtime/server.mjs",
+      "lines": "1993,1998",
+      "text": "bdacd5ada (losebird 2026-10-07 23:41:40 +0800 1993)       if (session?.sessionId) {\nbdacd5ada (losebird 2026-10-07 23:41:40 +0800 1994)         emit('ai.session.changed', { sessionId: session.sessionId, kind: 'created' }, {\nbdacd5ada (losebird 2026-10-07 23:41:40 +0800 1995)           workspaceCwd: cwd || null,\nbdacd5ada (losebird 2026-10-07 23:41:40 +0800 1996)           sessionId: session.sessionId,\nbdacd5ada (losebird 2026-10-07 23:41:40 +0800 1997)         })\nbdacd5ada (losebird 2026-10-07 23:41:40 +0800 1998)       }\n"
+    }
+  ]
+}
