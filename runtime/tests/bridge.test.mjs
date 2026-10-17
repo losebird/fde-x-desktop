@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
@@ -34,6 +34,25 @@ describe('bridge', () => {
     assert.ok(verifyBridgeToken(fakeReq, a))
     assert.ok(!verifyBridgeToken(fakeReq, 'forged'))
     assert.ok(!verifyBridgeToken({ headers: {} }, a))
+  })
+
+  test('ensureBridgeToken keeps mode 0600, including a file that was 0644', async () => {
+    const home = `/tmp/fde-bridge-mode-${Date.now()}`
+    const tokenPath = join(home, 'run', 'bridge.token')
+    await mkdir(join(home, 'run'), { recursive: true })
+    await writeFile(tokenPath, 'existing-token\n', 'utf8')
+    await chmod(tokenPath, 0o644)
+    const token = await ensureBridgeToken(home)
+    assert.equal(token, 'existing-token')
+    assert.equal((await stat(tokenPath)).mode & 0o777, 0o600)
+    const text = await readFile(tokenPath, 'utf8')
+    assert.equal(text, 'existing-token\n')
+
+    const freshHome = `/tmp/fde-bridge-mode-new-${Date.now()}`
+    const created = await ensureBridgeToken(freshHome)
+    const createdPath = join(freshHome, 'run', 'bridge.token')
+    assert.equal((await stat(createdPath)).mode & 0o777, 0o600)
+    assert.equal((await readFile(createdPath, 'utf8')).trim(), created)
   })
 
   test('submit-result persists, GET returns ready, forged token 401', async () => {

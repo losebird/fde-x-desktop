@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -29,6 +30,35 @@ async function waitFor(url, timeoutMs) {
     await delay(300)
   }
   throw new Error(`timed out waiting for ${url}: ${last}`)
+}
+
+function plantStuckRunning(dbPath, workspaceCwd) {
+  const db = new DatabaseSync(dbPath)
+  db.exec('PRAGMA busy_timeout = 5000')
+  const workspaces = db.prepare('SELECT id, metadata_json FROM workspaces').all()
+  const workspace = workspaces.find((row) => {
+    const meta = JSON.parse(row.metadata_json || '{}')
+    const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
+    return path === workspaceCwd
+  })
+  if (!workspace) throw new Error(`workspace missing for ${workspaceCwd}`)
+  const definition = db.prepare('SELECT id FROM briefing_definitions WHERE workspace_id = ?').get(workspace.id)
+  if (!definition) throw new Error(`definition missing for ${workspace.id}`)
+  const id = `brf_stuck_${Date.now()}`
+  const now = new Date().toISOString()
+  const content = JSON.stringify({
+    status: 'running',
+    sections: [],
+    workspaceCwd,
+    agentRequestId: '',
+  })
+  db.prepare(`
+    INSERT INTO briefings
+      (id, definition_id, state, content_json, artifact_ref, generated_at, created_at, workspace_cwd, agent_request_id)
+    VALUES (?, ?, 'generating', ?, NULL, ?, ?, ?, NULL)
+  `).run(id, definition.id, content, now, now, workspaceCwd)
+  db.close()
+  return id
 }
 
 test('briefing page fills both mcp columns from the host', { skip: !enabled, timeout: 300_000 }, async () => {
@@ -144,7 +174,7 @@ test('briefing page fills both mcp columns from the host', { skip: !enabled, tim
             title: '行业资讯',
             enabled: true,
             render: 'list',
-            params: { server: 'ai-hot', tool: 'mcp__ai-hot__aihot_get_latest', args: {} },
+            params: { server: 'ai-hot', tool: 'mcp__ai-hot__missing', args: {} },
           },
         ],
       }),
@@ -163,29 +193,35 @@ test('briefing page fills both mcp columns from the host', { skip: !enabled, tim
     const ready = JSON.parse(tools).data?.mcp || []
     assert.equal(ready.find((row) => row.serverName === 'mail')?.status, 'loaded', tools)
     assert.equal(ready.find((row) => row.serverName === 'ai-hot')?.status, 'loaded', tools)
+    const stuckId = plantStuckRunning(dbPath, workspace)
     const { chromium } = await import('@playwright/test')
     browser = await chromium.launch({ headless: true })
     page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
     await page.goto(`${web}/briefing`, { waitUntil: 'domcontentloaded' })
     const generate = page.getByRole('button', { name: '生成新早报' })
     await generate.waitFor({ timeout: 30_000 })
+    const runWait = page.waitForResponse((res) => (
+      res.url().includes('/api/v1/briefing/run') && res.request().method() === 'POST'
+    ))
     await generate.click()
-    const projected = page.getByText('会话未投影').first()
-    const mailed = page.getByText('fake-mail-item')
-    const winner = await Promise.race([
-      mailed.waitFor({ timeout: 90_000 }).then(() => 'mail'),
-      projected.waitFor({ timeout: 90_000 }).then(() => 'projected'),
-    ])
-    if (winner === 'projected') {
-      throw new Error(`page shows 会话未投影\n${await page.locator('body').innerText()}`)
-    }
-    await page.getByText('fake-news-item').waitFor({ timeout: 20_000 })
+    const runRes = await runWait
+    const runJson = await runRes.json()
+    await writeFile(join(evidence, 'run.json'), JSON.stringify(runJson, null, 2))
+    const sections = runJson.data?.briefing?.sections || []
+    const mail = sections.find((section) => section.id === 'mail')
+    const news = sections.find((section) => section.id === 'news')
+    assert.notEqual(runJson.data?.briefingId, stuckId)
+    assert.match(JSON.stringify(mail?.items || []), /fake-mail-item/)
+    assert.match(String(news?.error || ''), /tool_not_registered/)
+    await page.getByText('fake-mail-item').waitFor({ timeout: 30_000 })
+    await page.getByText('tool_not_registered').waitFor({ timeout: 20_000 })
     const body = await page.locator('body').innerText()
     assert.equal(body.includes('会话未投影'), false)
+    assert.match(body, /重要邮件/)
+    assert.match(body, /行业资讯/)
+    assert.match(body, /失败：/)
     const mailCount = await page.locator('h2', { hasText: '重要邮件' }).locator('xpath=following-sibling::span').innerText()
-    const newsCount = await page.locator('h2', { hasText: '行业资讯' }).locator('xpath=following-sibling::span').innerText()
     assert.ok(Number(mailCount) > 0, mailCount)
-    assert.ok(Number(newsCount) > 0, newsCount)
     const listed = await fetch(`${bff}/api/v1/ai/sessions?includeBlank=true`)
     const sessions = await listed.json()
     const briefing = (sessions.data?.items || []).find((row) => row.agentPreset === 'fde-briefing')
