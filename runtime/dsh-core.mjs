@@ -27,6 +27,7 @@ import { reconcilePinnedVendor } from './plugin-vendor.mjs'
 import { stageIuiArtifactIfAbsent } from './iui-stage.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
+import { sweepStaleCredentialTemps } from './dsh-credentials.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -234,6 +235,7 @@ export class DshCoreConnector {
     this.pendingApprovals = new Map()
     this.eventAbort = null
     this.semanticRestarting = false
+    sweepStaleCredentialTemps(this.dshHome)
   }
 
   kickSemanticIfExited(snapshot) {
@@ -762,10 +764,11 @@ export class DshCoreConnector {
 
   async prepareCredentialsCopy() {
     await this.cleanupCredentialsCopy()
-    const { seedDshCredentials } = await import('./dsh-credentials.mjs')
+    const { seedDshCredentials, ensureCredentialsDocument } = await import('./dsh-credentials.mjs')
     const { seedDshWorkspaceStore } = await import('./dsh-workspace-seed.mjs')
     await seedDshCredentials(this.dshHome)
     await seedDshWorkspaceStore(this.dshHome)
+    await ensureCredentialsDocument(this.dshHome)
     const source = resolve(this.dshHome, '.credentials.yaml')
     await access(source, constants.R_OK)
     const directory = await mkdtemp(join(tmpdir(), 'fde-x-dsh-credentials-'))

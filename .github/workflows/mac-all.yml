@@ -1,0 +1,262 @@
+name: Mac all
+
+# Local integration check only. No staging, packaging, or release.
+on:
+  push:
+    branches:
+      - test/mac-all-next
+
+permissions:
+  contents: read
+
+jobs:
+  user-mac:
+    name: user steps (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Clean checkout
+        uses: actions/checkout@v4
+
+      - name: Node 26.7.0 without corepack
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26.7.0'
+
+      - name: Install pnpm 11.20.0 and hide corepack
+        shell: bash
+        run: |
+          set -euo pipefail
+          drop_corepack() {
+            hash -r
+            local n=0
+            while [ "$n" -lt 30 ]; do
+              n=$((n + 1))
+              local found
+              found="$(command -v corepack || true)"
+              if [ -z "$found" ]; then
+                return 0
+              fi
+              echo "removing corepack at $found"
+              if [ -e "$found" ] || [ -L "$found" ]; then
+                rm -f "$found" 2>/dev/null || sudo -n rm -f "$found"
+              fi
+              hash -r
+              local still
+              still="$(command -v corepack || true)"
+              if [ -z "$still" ]; then
+                return 0
+              fi
+              if [ "$still" != "$found" ]; then
+                continue
+              fi
+              local dir="$still"
+              dir="$(dirname "$dir")"
+              echo "hiding $dir"
+              local saved_ifs="$IFS"
+              local new_path="" d
+              IFS=:
+              for d in $PATH; do
+                if [ "$d" = "$dir" ]; then
+                  continue
+                fi
+                if [ -z "$new_path" ]; then
+                  new_path="$d"
+                else
+                  new_path="${new_path}:$d"
+                fi
+              done
+              IFS="$saved_ifs"
+              PATH="$new_path"
+              export PATH
+              hash -r
+            done
+            return 1
+          }
+          path_before="$PATH"
+          drop_corepack
+          npm install -g pnpm@11.20.0
+          hash -r
+          drop_corepack
+          if [ "$PATH" != "$path_before" ] && [ -n "${GITHUB_ENV:-}" ]; then
+            echo "PATH=$PATH" >> "$GITHUB_ENV"
+          fi
+          echo "node $(node -v)"
+          echo "pnpm $(pnpm -v)"
+          echo "command -v corepack => $(command -v corepack || true)"
+          if command -v corepack >/dev/null 2>&1; then
+            echo "ASSERT fail: corepack present at $(command -v corepack)"
+            exit 1
+          fi
+          echo "ASSERT ok: corepack absent (command -v corepack => empty)"
+          test "$(node -v)" = "v26.7.0"
+          echo "ASSERT ok: node $(node -v)"
+          test "$(pnpm -v)" = "11.20.0"
+          echo "ASSERT ok: pnpm $(pnpm -v)"
+
+      - name: pnpm install with the default release-age policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${npm_config_minimum_release_age:-}" ] || [ -n "${pnpm_config_minimum_release_age:-}" ]; then
+            echo "ASSERT fail: minimumReleaseAge override is set"
+            exit 1
+          fi
+          pnpm install
+          echo "ASSERT ok: pnpm install"
+
+      - name: build-iui into the vendor directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$HOME/.dsh/vendor/iui"
+          node scripts/pack/build-iui.mjs --out "$out"
+          artifact="$(find "$out" -name 'iui-*.tar.gz' -print -quit)"
+          test -n "$artifact"
+          ARTIFACT="$artifact" node --input-type=module << 'JS'
+          import { createHash } from 'node:crypto'
+          import { readFileSync } from 'node:fs'
+          const expected = 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a5'
+          const sha = createHash('sha256').update(readFileSync(process.env.ARTIFACT)).digest('hex')
+          console.log(`sha256 ${sha}`)
+          if (sha !== expected) {
+            console.log(`ASSERT fail: sha ${sha}`)
+            process.exit(1)
+          }
+          console.log(`ASSERT ok: sha ${sha}`)
+          JS
+
+      - name: pnpm dev, /health, and tests/visual
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            if [ -n "${dev_pid:-}" ]; then
+              kill "$dev_pid" >/dev/null 2>&1 || true
+              pkill -P "$dev_pid" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+          if [ -e runtime/.host-generation/node_modules ]; then
+            echo "ASSERT fail: .host-generation/node_modules already present"
+            exit 1
+          fi
+          echo "ASSERT ok: .host-generation empty"
+          pnpm dev > "$RUNNER_TEMP/pnpm-dev.log" 2>&1 &
+          dev_pid=$!
+          echo "ASSERT ok: pnpm dev started"
+          ok=0
+          body=""
+          for _ in $(seq 1 90); do
+            if body="$(curl -sf "http://127.0.0.1:4318/health")"; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != 1 ]; then
+            echo "ASSERT fail: /health"
+            tail -n 160 "$RUNNER_TEMP/pnpm-dev.log" || true
+            exit 1
+          fi
+          printf '%s\n' "$body" > "$RUNNER_TEMP/health.json"
+          node --input-type=module << 'JS'
+          import { readFileSync } from 'node:fs'
+          const body = JSON.parse(readFileSync(process.env.RUNNER_TEMP + '/health.json', 'utf8'))
+          const state = body && body.state
+          console.log(`health state ${state}`)
+          if (state !== 'healthy') {
+            console.log('ASSERT fail: /health state ' + state)
+            process.exit(1)
+          }
+          console.log('ASSERT ok: /health state healthy')
+          const connect = await fetch('http://127.0.0.1:4318/api/v1/ai/connect', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              origin: 'http://127.0.0.1:5174',
+            },
+            body: '{}',
+          })
+          const connectText = await connect.text()
+          console.log(`ai connect ${connect.status} ${connectText.slice(0, 800)}`)
+          if (!connect.ok) {
+            console.log('ASSERT fail: ai connect')
+            process.exit(1)
+          }
+          let detail = ''
+          for (let attempt = 0; attempt < 45; attempt += 1) {
+            const live = attempt === 0
+              ? body
+              : await fetch('http://127.0.0.1:4318/health').then((response) => response.json())
+            const adapters = Array.isArray(live.adapters) ? live.adapters : []
+            const iui = adapters.find((row) => JSON.stringify(row).includes('IUI'))
+            detail = iui && typeof iui.detail === 'string' ? iui.detail : ''
+            console.log(`iui adapter ${detail}`)
+            if (detail.includes('已启用（标准对话）')) {
+              console.log('ASSERT ok: IUI 已启用（标准对话）')
+              process.exit(0)
+            }
+            await new Promise((resolve) => setTimeout(resolve, 2000))
+          }
+          console.log('ASSERT fail: IUI enabled')
+          process.exit(1)
+          JS
+          node --input-type=module << 'JS'
+          import { readdirSync, statSync } from 'node:fs'
+          import { homedir } from 'node:os'
+          import { join } from 'node:path'
+          const dir = join(homedir(), '.dsh-fde-x')
+          const dest = join(dir, '.credentials.yaml')
+          const info = statSync(dest)
+          const mode = (info.mode & 0o777).toString(8)
+          console.log(`credentials mode ${mode}`)
+          if (mode !== '600') {
+            console.log('ASSERT fail: credentials mode ' + mode)
+            process.exit(1)
+          }
+          console.log('ASSERT ok: credentials mode 0600')
+          const leftover = readdirSync(dir).filter((name) => name.startsWith('.credentials.yaml.') && name.endsWith('.tmp'))
+          if (leftover.length) {
+            console.log('ASSERT fail: credentials tmp ' + leftover.join(','))
+            process.exit(1)
+          }
+          console.log('ASSERT ok: no credentials tmp')
+          JS
+          pnpm exec playwright install --with-deps chromium
+          set +e
+          pnpm exec playwright test -c playwright.config.ts --reporter=json > "$RUNNER_TEMP/visual.json"
+          visual_code=$?
+          set -e
+          VISUAL_JSON="$RUNNER_TEMP/visual.json" VISUAL_CODE="$visual_code" node --input-type=module << 'JS'
+          import { readFileSync } from 'node:fs'
+          const report = JSON.parse(readFileSync(process.env.VISUAL_JSON, 'utf8'))
+          const rows = []
+          function walk(suite, file) {
+            const next = suite.file || file || ''
+            for (const spec of suite.specs || []) {
+              const result = (spec.tests || []).flatMap((test) => test.results || []).at(-1)
+              rows.push({ file: next, title: spec.title, status: result ? result.status : 'missing' })
+            }
+            for (const child of suite.suites || []) walk(child, next)
+          }
+          for (const suite of report.suites || []) walk(suite, '')
+          const passed = rows.filter((row) => row.status === 'passed').length
+          console.log(`visual ${passed}/${rows.length}`)
+          for (const row of rows) console.log(`visual ${row.status} ${row.file} ${row.title}`)
+          if (process.env.VISUAL_CODE !== '0' || passed !== rows.length || rows.length !== 9) {
+            console.log('ASSERT fail: playwright tests/visual')
+            process.exit(1)
+          }
+          console.log('ASSERT ok: playwright tests/visual')
+          const runtime = rows.find((row) => row.file.endsWith('settings-runtime.spec.ts'))
+          if (!runtime || runtime.status !== 'passed') {
+            console.log('ASSERT fail: runtime panel auto-refresh')
+            process.exit(1)
+          }
+          console.log('ASSERT ok: runtime panel auto-refresh')
+          JS
