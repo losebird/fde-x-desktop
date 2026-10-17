@@ -1,5 +1,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { lstat, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -19,6 +21,7 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     assert.deepEqual(IUI.modes, ['standard'])
     assert.equal(IUI.source.version, '0.13.0-iui.26')
     assert.equal(IUI.source.commit, 'c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37')
+    assert.equal(IUI.source.sha256, 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a5')
   })
 
   test('a clean profile links pinned IUI and keeps it across a second start', async () => {
@@ -82,6 +85,87 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     } finally {
       await rm(home, { recursive: true, force: true })
       await rm(credentials, { recursive: true, force: true })
+    }
+  })
+
+  test('a fresh profile stages the vendor tar and a bad sha is not swallowed', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-home-'))
+    const { archive, sha } = await fixtureArchive(home, IUI.source.version, IUI.source.commit)
+    const savedSha = IUI.source.sha256
+    const saved = {
+      FDE_PLUGIN_IUI: process.env.FDE_PLUGIN_IUI,
+      FDE_PLUGIN_DSH_LAN_ASSIST: process.env.FDE_PLUGIN_DSH_LAN_ASSIST,
+      FDE_PLUGIN_DSH_SEMANTIC_OS: process.env.FDE_PLUGIN_DSH_SEMANTIC_OS,
+      FDE_IUI_ARTIFACT: process.env.FDE_IUI_ARTIFACT,
+    }
+    delete process.env.FDE_PLUGIN_IUI
+    process.env.FDE_PLUGIN_DSH_LAN_ASSIST = await tinyPlugin(home, 'lan')
+    process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = await tinyPlugin(home, 'sem')
+    process.env.FDE_IUI_ARTIFACT = archive
+    IUI.source.sha256 = sha
+    try {
+      const connector = new DshCoreConnector({ dshHome: home, cwd: home })
+      await connector.ensureIsolatedProfile()
+      const linked = join(home, 'profiles', 'fde-x', 'node_modules', '@losebird', 'iui', 'package.json')
+      assert.equal(JSON.parse(await readFile(linked, 'utf8')).version, IUI.source.version)
+      assert.equal(connector.lastError, null)
+      const bad = join(home, 'bad.tar.gz')
+      const bytes = Buffer.from(await readFile(archive))
+      bytes[bytes.length - 1] ^= 0xff
+      await writeFile(bad, bytes)
+      const empty = await mkdtemp(join(tmpdir(), 'fde-home-'))
+      process.env.FDE_IUI_ARTIFACT = bad
+      IUI.source.sha256 = savedSha
+      const again = new DshCoreConnector({ dshHome: empty, cwd: empty })
+      await assert.rejects(
+        () => again.ensureIsolatedProfile(),
+        (error) => {
+          assert.equal(error.code, 'FDE_IUI_SHA_MISMATCH')
+          assert.match(error.message, new RegExp(bad.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+          assert.match(error.message, new RegExp(`expected ${savedSha}`))
+          assert.match(error.message, /got [a-f0-9]{64}/)
+          return true
+        },
+      )
+      assert.equal(existsSync(join(empty, 'vendor', 'iui', 'package.json')), false)
+      await rm(empty, { recursive: true, force: true })
+    } finally {
+      IUI.source.sha256 = savedSha
+      restoreEnv(saved)
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  test('an existing profile tree is not replaced by the vendor tar', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-home-'))
+    const { archive } = await fixtureArchive(home, IUI.source.version, IUI.source.commit)
+    const vendor = join(home, 'vendor', 'iui')
+    await mkdir(vendor, { recursive: true })
+    await writeFile(join(vendor, 'package.json'), `${JSON.stringify({ name: '@losebird/iui', version: 'user-copy' })}\n`)
+    await writeFile(join(vendor, 'marker.txt'), 'user-bytes')
+    const saved = {
+      FDE_PLUGIN_IUI: process.env.FDE_PLUGIN_IUI,
+      FDE_PLUGIN_DSH_LAN_ASSIST: process.env.FDE_PLUGIN_DSH_LAN_ASSIST,
+      FDE_PLUGIN_DSH_SEMANTIC_OS: process.env.FDE_PLUGIN_DSH_SEMANTIC_OS,
+      FDE_IUI_ARTIFACT: process.env.FDE_IUI_ARTIFACT,
+    }
+    delete process.env.FDE_PLUGIN_IUI
+    process.env.FDE_PLUGIN_DSH_LAN_ASSIST = await tinyPlugin(home, 'lan')
+    process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = await tinyPlugin(home, 'sem')
+    const bytes = Buffer.from(await readFile(archive))
+    bytes[bytes.length - 1] ^= 0xff
+    const bad = join(home, 'bad.tar.gz')
+    await writeFile(bad, bytes)
+    process.env.FDE_IUI_ARTIFACT = bad
+    try {
+      const connector = new DshCoreConnector({ dshHome: home, cwd: home })
+      await connector.ensureIsolatedProfile()
+      assert.equal(await readFile(join(vendor, 'marker.txt'), 'utf8'), 'user-bytes')
+      assert.equal(JSON.parse(await readFile(join(vendor, 'package.json'), 'utf8')).version, 'user-copy')
+      assert.match(connector.lastError, /missing-source/)
+    } finally {
+      restoreEnv(saved)
+      await rm(home, { recursive: true, force: true })
     }
   })
 
@@ -151,6 +235,24 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     }
   })
 })
+
+async function fixtureArchive(home, version, commit) {
+  const tree = join(home, 'fixture-tree')
+  await mkdir(join(tree, 'lib'), { recursive: true })
+  await mkdir(join(tree, 'node_modules', 'left-pad'), { recursive: true })
+  await writeFile(join(tree, 'package.json'), JSON.stringify({
+    name: '@losebird/iui',
+    version,
+    dsh: { bundle: { patch: './cordis.patch.yml' }, client: { inject: [] } },
+  }))
+  await writeFile(join(tree, 'lib', 'index.js'), 'export {}\n')
+  await writeFile(join(tree, 'node_modules', 'left-pad', 'index.js'), 'module.exports = 1\n')
+  await writeFile(join(tree, PLUGIN_PIN_FILE), JSON.stringify({ commit }))
+  const archive = join(home, 'iui.tar.gz')
+  execFileSync('tar', ['-czf', archive, '-C', tree, '.'])
+  const sha = createHash('sha256').update(await readFile(archive)).digest('hex')
+  return { archive, sha }
+}
 
 async function writePlugin(dir, { version, commit }) {
   await writeFile(join(dir, 'package.json'), `${JSON.stringify({ name: '@losebird/iui', version })}\n`)

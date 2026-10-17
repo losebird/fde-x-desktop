@@ -13,6 +13,7 @@ import {
   packDeterministicTarGz,
   sha256Hex,
   stageIuiArtifact,
+  stageIuiArtifactIfAbsent,
 } from './iui-artifact.mjs'
 
 const sampleTsconfig = `{
@@ -37,6 +38,7 @@ test('IUI pin matches the builtin table and leaves the release URL empty', () =>
   assert.equal(IUI_PIN.commit, iui.source.commit)
   assert.equal(IUI_PIN.artifact.url, '')
   assert.equal(IUI_PIN.artifact.sha256, 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a5')
+  assert.equal(IUI_PIN.artifact.sha256, iui.source.sha256)
   assert.equal(readFileSync(new URL('./stage.mjs', import.meta.url), 'utf8').includes('build-iui'), false)
 })
 
@@ -105,7 +107,14 @@ test('stageIuiArtifact replaces the tree only after the hash and pin match', asy
     const bad = { ...pin, artifact: { url: '', sha256: 'a'.repeat(64) } }
     await assert.rejects(
       () => stageIuiArtifact({ dest, pin: bad, artifactPath: archive }),
-      /sha256 mismatch/,
+      (error) => {
+        assert.equal(error.code, 'FDE_IUI_SHA_MISMATCH')
+        assert.match(error.message, /sha256 mismatch/)
+        assert.match(error.message, new RegExp(archive.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+        assert.match(error.message, new RegExp(`expected ${bad.artifact.sha256}`))
+        assert.match(error.message, /got [a-f0-9]{64}/)
+        return true
+      },
     )
     assert.equal(existsSync(join(dest, 'lib', 'index.js')), true)
   } finally {
@@ -122,6 +131,44 @@ function touchTree(dir) {
     else utimesSync(path, future, future)
   }
 }
+
+test('stageIuiArtifactIfAbsent installs once and leaves an existing profile tree', async () => {
+  const root = join(tmpdir(), `fde-iui-absent-${process.pid}`)
+  const tree = join(root, 'tree')
+  const archive = join(root, 'iui.tar.gz')
+  const dest = join(root, 'vendor', 'iui')
+  const pin = {
+    version: '0.13.0-iui.26',
+    commit: 'abc123',
+    artifact: { url: '', sha256: '' },
+  }
+  mkdirSync(tree, { recursive: true })
+  writeFixtureTree(tree, pin)
+  execFileSync('tar', ['-czf', archive, '-C', tree, '.'])
+  pin.artifact.sha256 = sha256Hex(readFileSync(archive))
+  const bad = join(root, 'bad.tar.gz')
+  const bytes = Buffer.from(readFileSync(archive))
+  bytes[bytes.length - 1] ^= 0xff
+  writeFileSync(bad, bytes)
+  try {
+    const installed = await stageIuiArtifactIfAbsent({ dest, pin, artifactPath: archive })
+    assert.equal(installed.action, 'installed')
+    writeFileSync(join(dest, 'marker.txt'), 'user-bytes')
+    const kept = await stageIuiArtifactIfAbsent({ dest, pin, artifactPath: bad })
+    assert.equal(kept.action, 'profile-kept')
+    assert.equal(readFileSync(join(dest, 'marker.txt'), 'utf8'), 'user-bytes')
+    await assert.rejects(
+      () => stageIuiArtifactIfAbsent({ dest: join(root, 'empty'), pin, artifactPath: bad }),
+      (error) => error.code === 'FDE_IUI_SHA_MISMATCH'
+        && error.message.includes(bad)
+        && error.message.includes(`expected ${pin.artifact.sha256}`)
+        && error.message.includes(`got ${sha256Hex(readFileSync(bad))}`),
+    )
+    assert.equal(existsSync(join(root, 'empty', 'package.json')), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
 test('pack stays deterministic when tar rejects GNU --sort=name', () => {
   const root = join(tmpdir(), `fde-iui-bsdtar-${process.pid}`)
