@@ -21,7 +21,7 @@ test.afterAll(() => {
   restoreBin()
 })
 
-test('a dead core shows the install failure and the retry button restarts it', async ({ page, request }) => {
+test('a dead core shows the core failure and the retry button restarts it', async ({ page, request }) => {
   test.setTimeout(300_000)
   original = readFileSync(BIN)
 
@@ -43,8 +43,10 @@ test('a dead core shows the install failure and the retry button restarts it', a
     else await page.getByRole('navigation', { name: '分类' }).getByRole('button', { name: '运行环境', exact: true }).click()
     const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: '运行环境诊断', level: 3 }) })
 
-    await expect(panel.getByText(/IUI 安装失败：/)).toBeVisible({ timeout: 90_000 })
+    await expect(panel.getByText('本地核心还没接通')).toBeVisible({ timeout: 90_000 })
     await expect(panel.getByText('fde-iui-missing-module')).toBeVisible()
+    await expect(panel.getByText(/IUI 安装失败/)).toHaveCount(0)
+    await expect(panel.getByText(/pnpm/)).toHaveCount(0)
     await expect(panel.getByRole('button', { name: '重试' })).toBeVisible()
     const settled = hits
     await page.waitForTimeout(2000)
@@ -67,7 +69,8 @@ test('a dead core shows the install failure and the retry button restarts it', a
       const body = await (await request.get('/api/v1/ai/status')).json()
       return `${body.data?.state}|${body.data?.iui?.state}`
     }, { timeout: 90_000 }).toBe('connected|enabled')
-    await expect(panel.getByText(/IUI 安装失败：/)).toHaveCount(0)
+    await expect(panel.getByText('fde-iui-missing-module')).toHaveCount(0)
+    await expect(panel.getByText(/IUI 安装失败/)).toHaveCount(0)
   } finally {
     restoreBin()
   }

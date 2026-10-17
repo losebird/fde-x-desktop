@@ -152,12 +152,22 @@ test('an npmmirror install writes the mirror host before canonicalization', () =
     console.log(`skip disk mirror proof registry ${registry}`)
     return
   }
+  const fixtureLock = JSON.parse(readFileSync(fixture, 'utf8'))
+  const dependencies = {}
+  for (const [path, meta] of Object.entries(fixtureLock.packages || {})) {
+    if (!path.startsWith('node_modules/')) continue
+    const name = path.slice('node_modules/'.length)
+    if (name.includes('/node_modules/') || !meta || typeof meta.version !== 'string') continue
+    dependencies[name] = meta.version
+  }
+  const wanted = ['katex', '@deepseek-ai/schemastery']
+  for (const name of wanted) assert.equal(typeof dependencies[name], 'string', `fixture direct dep ${name}`)
   const dir = mkdtempSync(join(tmpdir(), 'fde-iui-mirror-lock-'))
   try {
     writeFileSync(join(dir, 'package.json'), `${JSON.stringify({
-      name: 'fde-iui-mirror-probe',
-      version: '1.0.0',
-      dependencies: { which: '2.0.2' },
+      name: 'iui-prod-deps',
+      private: true,
+      dependencies,
     }, null, 2)}\n`)
     execFileSync('npm', ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], {
       cwd: dir,
@@ -165,11 +175,19 @@ test('an npmmirror install writes the mirror host before canonicalization', () =
       env: process.env,
     })
     const raw = readFileSync(join(dir, 'package-lock.json'))
-    assert.match(raw.toString('utf8'), /registry\.npmmirror\.com/)
-    const canonical = canonicalNpmLockBytes(raw).toString('utf8')
-    assert.equal(canonical.includes('registry.npmmirror.com'), false)
-    assert.match(canonical, /registry\.npmjs\.org/)
-    console.log('ASSERT ok: lockfile on disk contains registry.npmmirror.com before canonicalization')
+    const rawLock = JSON.parse(raw.toString('utf8'))
+    const canonicalLock = JSON.parse(canonicalNpmLockBytes(raw).toString('utf8'))
+    for (const name of wanted) {
+      const key = `node_modules/${name}`
+      const resolved = rawLock.packages?.[key]?.resolved
+      assert.equal(typeof resolved, 'string', `${key} missing from the lock npm wrote for the iui fixture`)
+      assert.match(resolved, /^https:\/\/registry\.npmmirror\.com\//)
+      assert.equal(canonicalLock.packages[key].resolved, fixtureLock.packages[key].resolved)
+      assert.equal(canonicalLock.packages[key].integrity, fixtureLock.packages[key].integrity)
+    }
+    assert.equal(String(raw).includes('registry.npmmirror.com'), true)
+    assert.equal(JSON.stringify(canonicalLock).includes('registry.npmmirror.com'), false)
+    console.log('ASSERT ok: iui fixture packages were resolved from registry.npmmirror.com')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
