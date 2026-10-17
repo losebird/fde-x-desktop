@@ -7,6 +7,7 @@ import {
   FDE_RUNTIME_PORT,
 } from '../runtime/config.mjs'
 import { isPidAlive, reclaimStrayRuntime } from '../runtime/reclaim-runtime.mjs'
+import { ensureGenerationHost } from '../runtime/generation.mjs'
 import { runtimePortOpen } from './runtime-port.mjs'
 
 const replacePid = Number(process.env.FDE_RUNTIME_REPLACE_PID)
@@ -30,6 +31,7 @@ await reclaimStrayRuntime({
   dshHome: process.env.FDE_DSH_HOME || FDE_DSH_HOME,
 })
 
+await ensureGenerationHost()
 const child = spawn(process.execPath, ['runtime/boot.mjs'], {
   cwd: FDE_APP_ROOT,
   env: process.env,

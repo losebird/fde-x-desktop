@@ -2,11 +2,13 @@ import { spawn } from 'node:child_process'
 import { request as httpRequest } from 'node:http'
 import { mkdir } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
+import { ensureGenerationHost } from './generation.mjs'
 
 const node = process.execPath
 const port = Number(process.env.FDE_SMOKE_PORT || 4398)
 const base = `http://127.0.0.1:${port}`
 const origin = 'http://127.0.0.1:5173'
+await ensureGenerationHost()
 const child = spawn(node, ['runtime/boot.mjs'], {
   cwd: new URL('..', import.meta.url),
   env: {

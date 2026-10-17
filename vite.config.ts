@@ -11,6 +11,7 @@ import {
   FDE_RUNTIME_RELOAD_WAIT_MS,
   defaultRuntimeUrl,
 } from './runtime/config.mjs'
+import { ensureGenerationHost } from './runtime/generation.mjs'
 
 const runtimeUrl = process.env.FDE_RUNTIME_URL ?? process.env.VITE_FDE_RUNTIME_URL ?? defaultRuntimeUrl()
 const runtimePort = Number(new URL(runtimeUrl).port || FDE_RUNTIME_PORT)
@@ -42,7 +43,9 @@ function fdeRuntimePlugin(): Plugin {
   let runtimeChild: ReturnType<typeof spawn> | null = null
   let shuttingDown = false
 
-  function spawnSupervisedRuntime(server: Parameters<NonNullable<Plugin['configureServer']>>[0]) {
+  async function spawnSupervisedRuntime(server: Parameters<NonNullable<Plugin['configureServer']>>[0]) {
+    if (shuttingDown || runtimeChild) return
+    await ensureGenerationHost()
     if (shuttingDown || runtimeChild) return
     const host = FDE_RUNTIME_HOST
     const child = spawn(process.execPath, ['runtime/boot.mjs'], {
@@ -64,7 +67,7 @@ function fdeRuntimePlugin(): Plugin {
       runtimeChild = null
       if (shuttingDown) return
       server.config.logger.warn(`[fde-x] 本地核心退出 (${signal || code || 0})，400ms 后重新拉起`)
-      setTimeout(() => spawnSupervisedRuntime(server), 400)
+      setTimeout(() => { void spawnSupervisedRuntime(server) }, 400)
     })
   }
 
@@ -85,7 +88,7 @@ function fdeRuntimePlugin(): Plugin {
       }
       if (process.env.FDE_SKIP_RUNTIME_SPAWN === '1') return
       if (await waitForPort(runtimePort, host, 400)) return
-      spawnSupervisedRuntime(server)
+      await spawnSupervisedRuntime(server)
       server.httpServer?.once('close', () => {
         shuttingDown = true
         if (runtimeChild && !runtimeChild.killed) runtimeChild.kill('SIGTERM')
