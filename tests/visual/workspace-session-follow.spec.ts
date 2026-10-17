@@ -39,6 +39,8 @@ async function createWorkspace(request: APIRequestContext, path: string, title: 
   }
 }
 
+// Host workspace identity is fs.realpath. macOS tmp is /var, stored as /private/var.
+
 async function createSession(request: APIRequestContext, cwd: string) {
   const response = await request.post('/api/v1/ai/sessions', { data: { cwd }, headers: shellOrigin })
   const body = await readJson(response)
@@ -90,14 +92,14 @@ function isSessionCreate(request: Request) {
 test('switching workspace follows that workspace latest session without a reload', async ({ page, request }) => {
   test.setTimeout(120_000)
   const root = await mkdtemp(join(tmpdir(), 'fde-ws-follow-'))
-  const cwdA = join(root, 'a')
-  const cwdB = join(root, 'b')
-  await mkdir(cwdA)
-  await mkdir(cwdB)
+  const dirA = join(root, 'a')
+  const dirB = join(root, 'b')
+  await mkdir(dirA)
+  await mkdir(dirB)
   const titleA = `follow-a-${root.split('/').at(-1)}`
   const titleB = `follow-b-${root.split('/').at(-1)}`
-  await createWorkspace(request, cwdA, titleA)
-  await createWorkspace(request, cwdB, titleB)
+  const cwdA = (await createWorkspace(request, dirA, titleA)).path
+  const cwdB = (await createWorkspace(request, dirB, titleB)).path
   const sessionA = await createSession(request, cwdA)
   const older = await createSession(request, cwdB)
   const newer = await createSession(request, cwdB)
@@ -131,14 +133,14 @@ test('switching workspace follows that workspace latest session without a reload
 test('an empty workspace is handed to connectWorkspace', async ({ page, request }) => {
   test.setTimeout(120_000)
   const root = await mkdtemp(join(tmpdir(), 'fde-ws-empty-'))
-  const cwdA = join(root, 'a')
-  const cwdEmpty = join(root, 'empty')
-  await mkdir(cwdA)
-  await mkdir(cwdEmpty)
+  const dirA = join(root, 'a')
+  const dirEmpty = join(root, 'empty')
+  await mkdir(dirA)
+  await mkdir(dirEmpty)
   const titleA = `empty-a-${root.split('/').at(-1)}`
   const titleEmpty = `empty-b-${root.split('/').at(-1)}`
-  await createWorkspace(request, cwdA, titleA)
-  await createWorkspace(request, cwdEmpty, titleEmpty)
+  const cwdA = (await createWorkspace(request, dirA, titleA)).path
+  const cwdEmpty = (await createWorkspace(request, dirEmpty, titleEmpty)).path
   const sessionA = await createSession(request, cwdA)
 
   const creates: string[] = []
