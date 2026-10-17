@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page, type Request } from '@playwright/test'
 import { connectCore } from './host-core'
 
 test.use({
@@ -54,13 +54,59 @@ async function listSessions(request: APIRequestContext) {
 }
 
 async function asideCount(page: Page) {
-  return page.locator('aside ul li').count()
+  const aside = page.locator('aside').filter({ has: page.getByTitle(/会话栏/) })
+  const listed = await aside.locator('ul li').count()
+  if (listed > 0) return listed
+  return aside.locator('button[title]').evaluateAll((nodes) => nodes.filter((node) => {
+    const title = node.getAttribute('title') || ''
+    return title !== '收起会话栏' && title !== '展开会话栏' && title !== '新建会话' && title !== '管理会话'
+  }).length)
 }
 
 async function chooseWorkspace(page: Page, name: string) {
   await page.getByTitle(/当前工作区:/).click()
   await page.getByRole('menuitem').filter({ hasText: name }).click()
   await page.getByTitle(new RegExp(`当前工作区: ${name}`)).waitFor()
+}
+
+function watchEventWorkspaces(page: Page) {
+  const opened: string[] = []
+  page.on('request', (req: Request) => {
+    let url: URL
+    try {
+      url = new URL(req.url())
+    } catch {
+      return
+    }
+    if (url.pathname !== '/api/v1/events') return
+    opened.push(url.searchParams.get('workspace') || '')
+  })
+  return opened
+}
+
+async function openBriefing(page: Page) {
+  const generate = page.getByRole('button', { name: '生成新早报' })
+  if (await generate.isVisible()) return
+  await page.getByRole('button', { name: '早报', exact: true }).first().click()
+  await generate.waitFor()
+}
+
+function briefingDefinition(cwd: string) {
+  return {
+    workspaceCwd: cwd,
+    sections: [
+      {
+        id: 'mail',
+        type: 'mcp',
+        title: '重要邮件',
+        enabled: true,
+        render: 'list',
+        params: { server: 'mail', tool: 'mcp__mail__imap_search', limit: 8 },
+      },
+    ],
+    schedule: { at: '08:30', days: [1, 2, 3, 4, 5], onOpen: false, tz: 'Asia/Shanghai' },
+    delivery: { peerId: '' },
+  }
 }
 
 test('new briefing and REST sessions show in the sidebar without a reload', async ({ page, request }) => {
@@ -77,32 +123,20 @@ test('new briefing and REST sessions show in the sidebar without a reload', asyn
   page.on('load', () => {
     loads += 1
   })
+  const eventWorkspaces = watchEventWorkspaces(page)
   await page.goto(`/ai/${sessionId}`, { waitUntil: 'domcontentloaded' })
   await page.locator('aside').getByText('会话', { exact: true }).waitFor()
-  const streamReady = page.waitForRequest((req) => req.url().includes('/api/v1/events'))
   await chooseWorkspace(page, title)
-  await streamReady
+  await expect.poll(() => eventWorkspaces.includes(cwd), {
+    message: 'workspace event stream was not open',
+  }).toBe(true)
   await expect.poll(() => asideCount(page)).toBeGreaterThan(0)
   const countBefore = await asideCount(page)
   const idsBefore = new Set((await listSessions(request)).map((row) => row.sessionId))
   const loadsAtRest = loads
 
   const definition = await readJson(await request.put('/api/v1/briefing/definition', {
-    data: {
-      workspaceCwd: cwd,
-      sections: [
-        {
-          id: 'mail',
-          type: 'mcp',
-          title: '重要邮件',
-          enabled: true,
-          render: 'list',
-          params: { server: 'mail', tool: 'mcp__mail__imap_search', limit: 8 },
-        },
-      ],
-      schedule: { at: '08:30', days: [1, 2, 3, 4, 5], onOpen: false, tz: 'Asia/Shanghai' },
-      delivery: { peerId: '' },
-    },
+    data: briefingDefinition(cwd),
   }))
   const definitionId = String(definition.data?.id || '')
   const briefingRun = request.post('/api/v1/briefing/run', {
@@ -132,4 +166,49 @@ test('new briefing and REST sessions show in the sidebar without a reload', asyn
 
   const briefingResult = await briefingRun
   expect(briefingResult.status()).toBeLessThan(500)
+})
+
+test('the generate briefing button adds the session to the sidebar without a reload', async ({ page, request }) => {
+  test.setTimeout(120_000)
+  const root = await mkdtemp(join(tmpdir(), 'fde-session-list-'))
+  const cwd = join(root, 'a')
+  await mkdir(cwd)
+  const title = `button-${root.split('/').at(-1)}`
+  await createWorkspace(request, cwd, title)
+  const sessionId = await createSession(request, cwd)
+
+  let loads = 0
+  page.on('load', () => {
+    loads += 1
+  })
+  const eventWorkspaces = watchEventWorkspaces(page)
+  await page.goto(`/ai/${sessionId}`, { waitUntil: 'domcontentloaded' })
+  await page.locator('aside').getByText('会话', { exact: true }).waitFor()
+  await chooseWorkspace(page, title)
+  await expect.poll(() => eventWorkspaces.includes(cwd), {
+    message: 'workspace event stream was not open',
+  }).toBe(true)
+  await readJson(await request.put('/api/v1/briefing/definition', {
+    data: briefingDefinition(cwd),
+  }))
+  await openBriefing(page)
+  const countBefore = await asideCount(page)
+  const idsBefore = new Set((await listSessions(request)).map((row) => row.sessionId))
+  const loadsAtRest = loads
+  const runFromPage = page.waitForRequest((req) => {
+    return req.method() === 'POST' && new URL(req.url()).pathname === '/api/v1/briefing/run'
+  })
+
+  await page.getByRole('button', { name: '生成新早报' }).click()
+  await runFromPage
+
+  await expect.poll(async () => {
+    const rows = await listSessions(request)
+    return rows.some((row) => !idsBefore.has(row.sessionId) && row.cwd === cwd && row.agentPreset === 'fde-briefing')
+  }, { timeout: 30_000, message: 'generate button did not create an fde-briefing session' }).toBe(true)
+  await expect.poll(() => asideCount(page), {
+    timeout: 10_000,
+    message: 'sidebar did not show the briefing session from the generate button',
+  }).toBe(countBefore + 1)
+  expect(loads).toBe(loadsAtRest)
 })
