@@ -569,23 +569,71 @@ export function upsertMcpDisabled(text, serverName, disabled) {
   return serializePatch(document)
 }
 
+function readTopLevelId(block) {
+  const line = String(block || '').split('\n')[0]
+  if (!line.startsWith('- id:')) return ''
+  let value = line.slice('- id:'.length).trim()
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    value = value.slice(1, -1)
+  }
+  return value
+}
+
+function topLevelSpans(raw) {
+  const starts = []
+  let index = 0
+  while (index <= raw.length) {
+    const end = raw.indexOf('\n', index)
+    const lineEnd = end === -1 ? raw.length : end
+    const line = raw.slice(index, lineEnd)
+    if (isPatchBoundary(line)) starts.push(index)
+    if (end === -1) break
+    index = end + 1
+  }
+  return starts.map((start, position) => {
+    const end = position + 1 < starts.length ? starts[position + 1] : raw.length
+    return { start, end, text: raw.slice(start, end) }
+  })
+}
+
+function newPatchRow(id, disabled, name) {
+  const lines = [`- id: ${id}`]
+  if (name) lines.push(`  name: ${JSON.stringify(name)}`)
+  lines.push(`  disabled: ${disabled ? 'true' : 'false'}`)
+  return `${lines.join('\n')}\n`
+}
+
+function editDisabledBlock(block, disabled, name) {
+  const value = disabled ? 'true' : 'false'
+  const lines = block.split('\n')
+  const idIndex = lines.findIndex((line) => line.startsWith('- id:'))
+  if (name && !lines.some((line) => /^  name:/.test(line))) {
+    lines.splice(idIndex + 1, 0, `  name: ${JSON.stringify(name)}`)
+  }
+  const disabledIndex = lines.findIndex((line) => /^  disabled:/.test(line))
+  if (disabledIndex >= 0) lines[disabledIndex] = `  disabled: ${value}`
+  else lines.splice(Math.max(idIndex, 0) + 1, 0, `  disabled: ${value}`)
+  return lines.join('\n')
+}
+
 export function upsertPatchDisabled(text, id, disabled, name) {
-  const document = loadPatchDocument(text)
-  if (!isSeq(document.contents)) document.contents = new YAMLSeq()
+  const raw = String(text ?? '')
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed === '[]') return newPatchRow(id, Boolean(disabled), name)
+  const spans = topLevelSpans(raw)
   let target = null
-  for (const item of eachTopMaps(document)) {
-    if (item.has('insert')) continue
-    if (String(item.get('id') || '') !== id) continue
-    target = item
+  for (const span of spans) {
+    if (readTopLevelId(span.text) !== id) continue
+    target = span
   }
   if (!target) {
-    target = new YAMLMap()
-    target.set('id', id)
-    if (name) target.set('name', name)
-    document.contents.add(target)
+    const row = newPatchRow(id, Boolean(disabled), name).replace(/\n$/, '')
+    const base = raw.endsWith('\n') || raw.length === 0 ? raw : `${raw}\n`
+    return `${base}${row}\n`
   }
-  target.set('disabled', Boolean(disabled))
-  return serializePatch(document)
+  const edited = editDisabledBlock(target.text, Boolean(disabled), name)
+  if (edited === target.text) return raw
+  return `${raw.slice(0, target.start)}${edited}${raw.slice(target.end)}`
 }
 
 export async function ensureSkillProvidersInProfile(aiRuntime) {
