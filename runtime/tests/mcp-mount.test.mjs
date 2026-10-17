@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 const require = createRequire(import.meta.url)
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const bridge = require(join(root, 'runtime', 'fde-x-dsh-bridge', 'lib', 'index.js'))
+const tools = require(join(root, 'runtime', 'fde-x-dsh-bridge', 'lib', 'tools.js'))
 
 const STANDARD_DENY = ['cua-driver', 'chrome-devtools', 'playwright']
 
@@ -69,8 +70,13 @@ function createBus() {
   }
 }
 
-function agent(preset) {
-  return { session: { header: { agentPreset: preset } } }
+function agent(preset, sessionId = '') {
+  return { session: { id: sessionId, header: { agentPreset: preset } } }
+}
+
+function catalogText(assembled) {
+  const section = assembled.sections.find((row) => row && row.name === 'fde:mcp-catalog')
+  return section ? section.text : ''
 }
 
 test('the bridge bundle patch is the standard and briefing MCP mount table', () => {
@@ -113,40 +119,67 @@ test('a later read sees a volatile deny list change', async () => {
     briefingDenyUserMcp: ref(() => briefing.current),
   }
   bridge.installIuiModeGate(bus, bus.config)
-  const first = await bus.waterfall('system-prompt/assemble', null, { agent: agent('standard') })
-  assert.deepEqual(first.tools.map((row) => row.name), ['mcp__mail__imap_search', 'read'])
+  const sessionId = 'volatile-deny'
+  const first = await bus.waterfall('system-prompt/assemble', null, { agent: agent('standard', sessionId) })
+  assert.deepEqual(first.tools.map((row) => row.name), ['read'])
+  assert.match(catalogText(first), /mail \//)
+  assert.equal(catalogText(first).includes('cua-driver'), false)
   deny.current = ['chrome-devtools', 'playwright']
-  const second = await bus.waterfall('system-prompt/assemble', null, { agent: agent('standard') })
-  assert.deepEqual(second.tools.map((row) => row.name), ['mcp__cua-driver__click', 'mcp__mail__imap_search', 'read'])
+  const second = await bus.waterfall('system-prompt/assemble', null, { agent: agent('standard', sessionId) })
+  assert.match(catalogText(second), /cua-driver \//)
+  assert.equal(catalogText(second).includes('chrome-devtools'), false)
+  assert.equal(second.tools.some((row) => row.name.startsWith('mcp__')), false)
+  const registered = []
+  tools.registerTools({
+    get config() { throw new Error('cannot get property "config" without inject') },
+    tools: { register(spec) { registered.push(spec) } },
+  }, { defineTool: (spec) => spec, config: bus.config })
+  const load = registered.find((spec) => spec.name === 'fde_mcp_load')
+  const loaded = await load.execute({ server: 'cua-driver' }, { agent: agent('standard', sessionId) })
+  assert.match(loaded, /mcp__cua-driver__click/)
+  const third = await bus.waterfall('system-prompt/assemble', null, { agent: agent('standard', sessionId) })
+  assert.equal(third.tools.some((row) => row.name === 'mcp__cua-driver__click'), true)
+  assert.equal(third.tools.some((row) => row.name.startsWith('mcp__chrome-devtools')), false)
   briefing.current = false
-  const kept = await bus.waterfall('system-prompt/assemble', null, { agent: agent('fde-briefing') })
-  assert.equal(kept.tools.some((row) => row.name.startsWith('mcp__')), true)
+  const kept = await bus.waterfall('system-prompt/assemble', null, { agent: agent('fde-briefing', 'volatile-briefing') })
+  assert.match(catalogText(kept), /mail \//)
+  assert.equal(kept.tools.some((row) => row.name.startsWith('mcp__')), false)
 })
 
-test('standard request keeps mail and drops the denied MCP servers', async () => {
+test('standard request catalogs mail and drops the denied MCP servers', async () => {
   const bus = createBus()
   bridge.installIuiModeGate(bus, bus.config)
   const before = schemaTokens(fixtureTools())
   const assembled = await bus.waterfall('system-prompt/assemble', null, { agent: agent('standard') })
   const names = assembled.tools.map((row) => row.name)
-  assert.deepEqual(names, ['mcp__mail__imap_search', 'read'])
+  assert.deepEqual(names, ['read'])
+  const text = catalogText(assembled)
+  assert.match(text, /mail \/ imap_search \//)
+  assert.equal(text.includes('cua-driver'), false)
+  assert.equal(text.includes('chrome-devtools'), false)
+  assert.equal(text.includes('playwright'), false)
   const after = schemaTokens(assembled.tools)
   const kept = schemaTokens(fixtureTools().filter((row) => names.includes(row.name)))
   assert.equal(after, kept)
   assert.ok(before - after > 1000, `${before} -> ${after}`)
 })
 
-test('fde-briefing request drops every user MCP tool and other presets keep them', async () => {
+test('fde-briefing request drops every user MCP tool and other presets catalog them', async () => {
   const briefingBus = createBus()
   bridge.installIuiModeGate(briefingBus, briefingBus.config)
   const briefing = await briefingBus.waterfall('system-prompt/assemble', null, { agent: agent('fde-briefing') })
   assert.deepEqual(briefing.tools.map((row) => row.name), ['read'])
+  assert.equal(catalogText(briefing), '')
   assert.equal(schemaTokens(briefing.tools), schemaTokens([fixtureTools()[4]]))
 
   const appBus = createBus()
   bridge.installIuiModeGate(appBus, appBus.config)
   const app = await appBus.waterfall('system-prompt/assemble', null, { agent: agent('fde-app-builder') })
-  assert.deepEqual(app.tools.map((row) => row.name), fixtureTools().map((row) => row.name))
+  assert.deepEqual(app.tools.map((row) => row.name), ['read'])
+  const text = catalogText(app)
+  for (const server of ['cua-driver', 'chrome-devtools', 'playwright', 'mail']) {
+    assert.match(text, new RegExp(`${server} /`))
+  }
 })
 
 test('pre-execute denies the same servers and still allows a mounted one', async () => {
@@ -189,12 +222,28 @@ test('pre-execute denies the same servers and still allows a mounted one', async
   assert.deepEqual(direct, { kind: 'allow' })
 })
 
-test('an empty standard deny list mounts those servers again', async () => {
+test('an empty standard deny list puts those servers back in the catalog', async () => {
   const bus = createBus()
   bus.config = { standardDenyServers: [], briefingDenyUserMcp: false }
   bridge.installIuiModeGate(bus, bus.config)
-  const assembled = await bus.waterfall('system-prompt/assemble', null, { agent: agent('standard') })
-  assert.deepEqual(assembled.tools.map((row) => row.name), fixtureTools().map((row) => row.name))
-  const briefing = await bus.waterfall('system-prompt/assemble', null, { agent: agent('fde-briefing') })
-  assert.equal(briefing.tools.some((row) => row.name.startsWith('mcp__')), true)
+  const sessionId = 'mount-empty-deny'
+  const assembled = await bus.waterfall('system-prompt/assemble', null, { agent: agent('standard', sessionId) })
+  assert.deepEqual(assembled.tools.map((row) => row.name), ['read'])
+  const text = catalogText(assembled)
+  for (const server of ['cua-driver', 'chrome-devtools', 'playwright', 'mail']) {
+    assert.match(text, new RegExp(`${server} /`))
+  }
+  const registered = []
+  tools.registerTools({
+    get config() { throw new Error('cannot get property "config" without inject') },
+    tools: { register(spec) { registered.push(spec) } },
+  }, { defineTool: (spec) => spec, config: bus.config })
+  const load = registered.find((spec) => spec.name === 'fde_mcp_load')
+  const loaded = await load.execute({ server: 'playwright' }, { agent: agent('standard', sessionId) })
+  assert.match(loaded, /mcp__playwright__click/)
+  const next = await bus.waterfall('system-prompt/assemble', null, { agent: agent('standard', sessionId) })
+  assert.equal(next.tools.some((row) => row.name === 'mcp__playwright__click'), true)
+  const briefing = await bus.waterfall('system-prompt/assemble', null, { agent: agent('fde-briefing', 'mount-empty-briefing') })
+  assert.equal(briefing.tools.some((row) => row.name.startsWith('mcp__')), false)
+  assert.match(catalogText(briefing), /mail \//)
 })
