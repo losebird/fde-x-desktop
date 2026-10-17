@@ -36,7 +36,7 @@ test('IUI pin matches the builtin table and leaves the release URL empty', () =>
   assert.equal(IUI_PIN.version, iui.source.version)
   assert.equal(IUI_PIN.commit, iui.source.commit)
   assert.equal(IUI_PIN.artifact.url, '')
-  assert.match(IUI_PIN.artifact.sha256, /^[a-f0-9]{64}$/u)
+  assert.equal(IUI_PIN.artifact.sha256, 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a5')
   assert.equal(readFileSync(new URL('./stage.mjs', import.meta.url), 'utf8').includes('build-iui'), false)
 })
 
@@ -133,7 +133,9 @@ test('pack stays deterministic when tar rejects GNU --sort=name', () => {
   mkdirSync(bin, { recursive: true })
   mkdirSync(join(tree, 'nested'), { recursive: true })
   writeFileSync(join(bin, 'tar'), '#!/bin/sh\necho "tar: Option --sort=name is not supported" >&2\nexit 1\n')
+  writeFileSync(join(bin, 'gzip'), '#!/bin/sh\necho "gzip should not be called" >&2\nexit 1\n')
   chmodSync(join(bin, 'tar'), 0o755)
+  chmodSync(join(bin, 'gzip'), 0o755)
   writeFileSync(join(tree, 'b.txt'), 'second\n')
   writeFileSync(join(tree, 'nested', 'a.txt'), 'first\n')
   writeFileSync(join(tree, `${'n'.repeat(120)}.txt`), 'long\n')
@@ -147,18 +149,6 @@ await packDeterministicTarGz(tree, left)
 await packDeterministicTarGz(tree, right)
 const actual = sha256Hex(readFileSync(left))
 if (actual !== sha256Hex(readFileSync(right))) throw new Error('packs differ')
-try {
-  execFileSync('/usr/bin/tar', ['--sort=name', '--version'], { stdio: 'ignore' })
-} catch {
-  console.log(actual)
-  process.exit(0)
-}
-const raw = execFileSync('/usr/bin/tar', [
-  '--sort=name', '--mtime=@0', '--owner=0', '--group=0', '--numeric-owner',
-  '-cf', '-', '-C', tree, '.',
-])
-const gnu = execFileSync('gzip', ['-n', '-c'], { input: raw })
-if (sha256Hex(gnu) !== actual) throw new Error('packer diverged from GNU tar | gzip -n')
 console.log(actual)
 `)
   try {
@@ -168,6 +158,37 @@ console.log(actual)
     }).trim()
     assert.match(sha, /^[a-f0-9]{64}$/u)
     assert.equal(sha256Hex(readFileSync(left)), sha)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('stageIuiArtifact accepts a pako archive and rejects a tampered one', async () => {
+  const root = join(tmpdir(), `fde-iui-pako-${process.pid}`)
+  const tree = join(root, 'tree')
+  const archive = join(root, 'iui.tar.gz')
+  const bad = join(root, 'bad.tar.gz')
+  const dest = join(root, 'plugins', 'iui')
+  const pin = {
+    version: '0.13.0-iui.26',
+    commit: 'abc123',
+    artifact: { url: '', sha256: '' },
+  }
+  mkdirSync(tree, { recursive: true })
+  writeFixtureTree(tree, pin)
+  try {
+    await packDeterministicTarGz(tree, archive)
+    pin.artifact.sha256 = sha256Hex(readFileSync(archive))
+    await stageIuiArtifact({ dest, pin, artifactPath: archive })
+    assert.equal(existsSync(join(dest, 'lib', 'index.js')), true)
+    const bytes = Buffer.from(readFileSync(archive))
+    bytes[bytes.length - 1] ^= 0xff
+    writeFileSync(bad, bytes)
+    await assert.rejects(
+      () => stageIuiArtifact({ dest, pin, artifactPath: bad }),
+      /sha256 mismatch/,
+    )
+    assert.equal(existsSync(join(dest, 'lib', 'index.js')), true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

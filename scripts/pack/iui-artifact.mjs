@@ -1,11 +1,10 @@
-import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { execFile as execFileCb } from 'node:child_process'
-import { createWriteStream, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { pipeline } from 'node:stream/promises'
 import { promisify } from 'node:util'
+import { gzip } from 'pako'
 import { PLUGIN_PIN_FILE } from '../../runtime/plugin-vendor.mjs'
 
 const execFile = promisify(execFileCb)
@@ -20,18 +19,6 @@ export function defaultIuiArtifactPath(repoRoot, commit) {
 
 export function sha256Hex(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
-}
-
-function childExit(child, label) {
-  return new Promise((resolve, reject) => {
-    const chunks = []
-    if (child.stderr) child.stderr.on('data', (chunk) => chunks.push(chunk))
-    child.on('error', reject)
-    child.on('close', (code) => {
-      if (code === 0) resolve()
-      else reject(new Error(`${label} exited ${code}: ${Buffer.concat(chunks).toString()}`))
-    })
-  })
 }
 
 const TAR_BLOCK = 512
@@ -129,20 +116,8 @@ function packGnuTar(tree) {
 export async function packDeterministicTarGz(tree, artifactPath) {
   await mkdir(dirname(artifactPath), { recursive: true })
   const tarBytes = packGnuTar(tree)
-  const env = { ...process.env }
-  delete env.GZIP
-  const gzip = spawn('gzip', ['-n'], { stdio: ['pipe', 'pipe', 'pipe'], env })
-  const packed = Promise.all([
-    childExit(gzip, 'gzip'),
-    pipeline(gzip.stdout, createWriteStream(artifactPath)),
-  ])
-  gzip.stdin.end(tarBytes)
-  try {
-    await packed
-  } catch (error) {
-    gzip.kill()
-    throw error
-  }
+  const gz = gzip(tarBytes, { level: 6, mtime: 0 })
+  await writeFile(artifactPath, gz)
 }
 
 export function bundledPluginVersions(plugins, pluginsRoot) {

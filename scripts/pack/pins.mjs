@@ -16,7 +16,7 @@ export const IUI_PIN = {
   version: '0.13.0-iui.26',
   artifact: {
     url: '',
-    sha256: '4530e8a9c5f4f29c0bcdd6daa09ef5ee7a615755033991643820d8c1cc294ea5',
+    sha256: 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a5',
   },
 }
 

@@ -1,11 +1,13 @@
 name: IUI tar sha
 
-# Verification only. Prints the IUI artifact sha256. Does not stage, package, or release.
+# Verification only. Prints the IUI artifact sha256 and fails if it misses the pin.
+# Does not stage, package, or release.
 on:
   workflow_dispatch:
   push:
     branches:
       - cursor/iui-pack-pin-6fc8
+      - cursor/iui-runtime-status-6fc8
 
 permissions:
   contents: read
@@ -22,9 +24,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: pnpm
+
+      - name: Install desktop dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Probe system tar and gzip
         shell: bash
@@ -32,30 +42,50 @@ jobs:
           set +e
           echo "uname $(uname -srm)"
           echo "node $(node -v)"
+          echo "pnpm $(pnpm --version)"
           tar --version 2>&1 | head -n 2
           gzip --version 2>&1 | head -n 2
-          mkdir -p "$RUNNER_TEMP/tiny"
-          echo hi > "$RUNNER_TEMP/tiny/a.txt"
-          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf "$RUNNER_TEMP/tiny.tar" -C "$RUNNER_TEMP/tiny" .
-          echo "gnu_tar_exit $?"
-          node --input-type=module << 'JS'
-          import { gzipSync } from 'node:zlib'
-          import { createHash } from 'node:crypto'
-          import { execFileSync } from 'node:child_process'
-          const body = Buffer.alloc(4096)
-          for (let i = 0; i < body.length; i += 1) body[i] = (i * 17 + 3) & 0xff
-          const sys = execFileSync('gzip', ['-n', '-c'], { input: body })
-          const node = gzipSync(body, { level: 6, mtime: 0 })
-          const sha = (buf) => createHash('sha256').update(buf).digest('hex')
-          console.log(`system_gzip_header ${sys.subarray(0, 10).toString('hex')}`)
-          console.log(`system_gzip_sha ${sha(sys)}`)
-          console.log(`node_zlib_sha ${sha(node)}`)
-          console.log(`system_gzip_eq_node_zlib ${sys.equals(node)}`)
-          JS
+          node -e "const p=require('./node_modules/pako/package.json'); console.log('pako', p.version)"
 
-      - name: Build IUI artifact and print sha256
+      - name: Build IUI artifact and require the pinned sha256
         shell: bash
         run: |
-          corepack enable
           node scripts/pack/build-iui.mjs --out "$RUNNER_TEMP/iui-out"
-          echo "pinned 4530e8a9c5f4f29c0bcdd6daa09ef5ee7a615755033991643820d8c1cc294ea5"
+          artifact=$(find "$RUNNER_TEMP/iui-out" -name 'iui-*.tar.gz' -print -quit)
+          test -n "$artifact"
+          ARTIFACT="$artifact" node --input-type=module << 'JS'
+          import { createHash } from 'node:crypto'
+          import { readFileSync } from 'node:fs'
+          import { IUI_PIN } from './scripts/pack/pins.mjs'
+          const sha = createHash('sha256').update(readFileSync(process.env.ARTIFACT)).digest('hex')
+          console.log(`sha256 ${sha}`)
+          console.log(`pinned ${IUI_PIN.artifact.sha256}`)
+          if (sha !== IUI_PIN.artifact.sha256) {
+            console.error('IUI artifact sha256 does not match pins.mjs')
+            process.exit(1)
+          }
+          JS
+
+      - name: Boot the local runtime and read /health
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          pnpm dev > "$RUNNER_TEMP/pnpm-dev.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/pnpm-dev.pid"
+          ok=0
+          for _ in $(seq 1 90); do
+            if curl -sf "http://127.0.0.1:4318/health"; then
+              echo
+              echo health_ok
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          kill "$(cat "$RUNNER_TEMP/pnpm-dev.pid")" >/dev/null 2>&1 || true
+          pkill -P "$(cat "$RUNNER_TEMP/pnpm-dev.pid")" >/dev/null 2>&1 || true
+          if [ "$ok" != 1 ]; then
+            echo 'pnpm dev did not serve /health'
+            tail -n 120 "$RUNNER_TEMP/pnpm-dev.log"
+            exit 1
+          fi
