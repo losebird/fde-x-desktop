@@ -20,6 +20,9 @@ import { useEvents } from '@/lib/events'
 import { combineAbortSignal } from '../../runtime/live-probe.mjs'
 // @ts-expect-error runtime ESM helper
 import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
+import { useCoreBoot } from '@/components/settings/core-connection'
+import { IuiRetryButton } from '@/components/settings/IuiRetryButton'
+import { StatusErrorBoundary } from '@/components/settings/StatusErrorBoundary'
 import {
   runtimeApi,
   RuntimeApiError,
@@ -34,6 +37,24 @@ const MIN_LEFT_OPEN = 720
 function displayError(error: unknown) {
   if (error instanceof RuntimeApiError) return error.message
   return error instanceof Error ? error.message : 'AI 运行时发生未知错误'
+}
+
+function coreDisconnectedCopy(kind: string, text: string) {
+  const electron = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
+  if (kind === 'starting' || kind === 'installing' || kind === 'iui-failed' || kind === 'verify_failed') return text
+  if (kind === 'failed') return electron ? '本地核心还没接通。请稍候或重启应用。' : text
+  return electron ? '本地核心还没接通。请稍候或重启应用。' : '本地核心还没接通。'
+}
+
+function DisconnectedCorePlaceholder() {
+  const boot = useCoreBoot(true)
+  const retry = boot.kind === 'iui-failed' || boot.kind === 'verify_failed'
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-sm text-ink-muted px-6 text-center">
+      <div>{coreDisconnectedCopy(boot.kind, boot.text)}</div>
+      {retry ? <IuiRetryButton /> : null}
+    </div>
+  )
 }
 
 function defaultBffOrigin() {
@@ -826,11 +847,9 @@ export default function AI() {
       </div>
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {!runtimeConnected ? (
-          <div className="flex-1 flex items-center justify-center text-sm text-ink-muted px-6 text-center">
-            {typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
-              ? '本地核心还没接通。请稍候或重启应用。'
-              : '本地核心还没接通。请重新执行 `pnpm dev`；本机第二套请用 `pnpm run dev:peer`。'}
-          </div>
+          <StatusErrorBoundary>
+            <DisconnectedCorePlaceholder />
+          </StatusErrorBoundary>
         ) : (
           <>
             <aside className={clsx('shrink-0 border-r border-line bg-white flex flex-col', leftOpen ? 'w-56' : 'w-12')}>

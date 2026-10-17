@@ -54,5 +54,6 @@ assert.equal(
 assert.equal(humanizeSurfaceMessage('核心未接通', fallback), '核心未接通')
 assert.equal(humanizeSurfaceMessage('   ', fallback), fallback)
 assert.equal(humanizeSurfaceMessage('GET /api/v1/mcp 500', fallback), fallback)
+assert.equal(humanizeSurfaceMessage('语义设置失败：HTTP 404', fallback), fallback)
 
 console.log('surface-humanize ok')
