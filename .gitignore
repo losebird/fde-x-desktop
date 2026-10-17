@@ -13,3 +13,6 @@ coverage/
 *.local
 .playwright-cli/
 outputs/
+test-results/
+playwright-report/
+blob-report/

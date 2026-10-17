@@ -4,6 +4,33 @@
 
 :root {
   color-scheme: light;
+  --kit-canvas: #fafafa;
+  --kit-card: #ffffff;
+  --kit-muted: #f6f6f4;
+  --kit-sunken: #f3f3f1;
+  --kit-ink: #1a1a1a;
+  --kit-secondary: #6b7280;
+  --kit-tertiary: #9ca3af;
+  --kit-line: #ecece9;
+  --kit-line-strong: #e2e2de;
+  --kit-brand: #2f6b3a;
+  --kit-brand-ink: #1f4a28;
+  --kit-brand-soft: #e7f0e9;
+  --kit-danger: #c8553d;
+  --kit-danger-soft: #f8ebe7;
+  --kit-warn: #8a6114;
+  --kit-warn-soft: #fbf6ea;
+  --kit-info: #3d6fc8;
+  --kit-info-soft: #eaf0fa;
+  --kit-radius: 8px;
+  --kit-radius-lg: 12px;
+  --kit-shadow: 0 1px 0 rgba(26, 26, 26, 0.04), 0 1px 2px rgba(26, 26, 26, 0.03);
+  --kit-shadow-pop: 0 16px 40px rgba(26, 26, 26, 0.12), 0 2px 6px rgba(26, 26, 26, 0.05);
+  --kit-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --kit-duration: 160ms;
+  --kit-font: 13px;
+  --kit-font-sm: 12px;
+  --kit-font-meta: 11px;
 }
 
 html,
