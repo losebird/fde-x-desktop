@@ -2938,7 +2938,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (await handleMcpRoutes(request, response, url, {
-      aiRuntime, db, currentCorrelationId, sendJson, sendError, readJson,
+      aiRuntime, db, currentCorrelationId, sendJson, sendError, readJson, allowedOrigins,
     })) return
 
     if (await handleSkillRoutes(request, response, url, {

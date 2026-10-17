@@ -1,166 +1,204 @@
-// MCP 管理:服务器列表 + 状态切换 + 添加
-import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Plug, Plus, Wrench, Search, Activity } from 'lucide-react'
-import clsx from 'clsx'
-import { PageTitle, Card, Tag, Empty } from '@/components/ui'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Plug, Plus } from 'lucide-react'
+import { PageTitle } from '@/components/ui'
+import { BusinessList } from '@/components/connectors/BusinessList'
+import {
+  draftInput,
+  emptyDraft,
+  envText,
+  headersText,
+  probeCopy,
+  validateDraft,
+  type DraftErrors,
+  type McpDraft,
+} from '@/components/connectors/draft'
+import { ServerDetail } from '@/components/connectors/ServerDetail'
+import { ServerEditor } from '@/components/connectors/ServerEditor'
+import { ServerList } from '@/components/connectors/ServerList'
+import {
+  SurfaceBanner,
+  SurfaceButton,
+  SurfaceEmpty,
+  SurfaceGuide,
+  SurfaceSearch,
+  SurfaceSegmented,
+  SurfaceStats,
+  classifySurfaceFailure,
+  humanizeSurfaceMessage,
+} from '@/components/surface'
+import type { SurfacePhase } from '@/components/surface'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { runtimeApi, mergeMcpProjection, type McpConnectorCard, type McpDiscoverRow, type McpRecipe, type McpServerV2 } from '@/lib/runtime-api'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
+import {
+  runtimeApi,
+  mergeMcpProjection,
+  type McpConnectorCard,
+  type McpDiscoverRow,
+  type McpRecipe,
+  type McpServerV2,
+} from '@/lib/runtime-api'
 
 type McpBag = { mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }
+type Segment = 'servers' | 'business'
 
-const MCP_STATUS: Record<McpServerV2['status'], { label: string; kind: 'green' | 'amber' | 'default' }> = {
-  loaded: { label: '已加载', kind: 'green' },
-  loading: { label: '加载中', kind: 'amber' },
-  unloading: { label: '卸载中', kind: 'amber' },
-  'needs-reload': { label: '需重载', kind: 'amber' },
-  configured: { label: '已配置', kind: 'default' },
-  failed: { label: '失败', kind: 'amber' },
-  disabled: { label: '已停用', kind: 'default' },
-}
-
-function mcpFiberUnsettled(rows: McpServerV2[]) {
-  return rows.some((row) => row.status === 'loading' || row.status === 'unloading')
-}
-
-const emptyDraft = () => ({
-  name: '',
-  transport: 'stdio' as 'stdio' | 'streamable-http',
-  command: '',
-  args: '',
-  env: '',
-  url: '',
-  headers: '',
-  recipeId: '',
-  fieldValues: {} as Record<string, string>,
-})
-
-function mcpCommandLabel(row: { transport: string; url?: string; command?: string; args?: string[] }) {
-  if (row.transport === 'streamable-http') return row.url || ''
-  return [row.command, ...(Array.isArray(row.args) ? row.args : [])].filter(Boolean).join(' ')
-}
-
-function parseLines(text: string) {
-  return text.split('\n').map((line) => line.trim()).filter(Boolean)
-}
-
-function parseEnv(text: string) {
-  const env: Record<string, string> = {}
-  for (const line of text.split('\n')) {
-    const idx = line.indexOf('=')
-    if (idx <= 0) continue
-    env[line.slice(0, idx).trim()] = line.slice(idx + 1)
-  }
-  return Object.keys(env).length ? env : undefined
-}
-
-function parseHeaders(text: string) {
-  const headers: Record<string, string> = {}
-  for (const line of text.split('\n')) {
-    const idx = line.indexOf(':')
-    if (idx <= 0) continue
-    headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
-  }
-  return Object.keys(headers).length ? headers : undefined
-}
-
-function envText(env?: Record<string, string>) {
-  if (!env) return ''
-  return Object.entries(env).map(([key, value]) => `${key}=${value}`).join('\n')
-}
-
-function headersText(headers?: Record<string, string>) {
-  if (!headers) return ''
-  return Object.entries(headers).map(([key, value]) => `${key}: ${value}`).join('\n')
+function applyBag(bag: McpBag, setMcp: (rows: McpServerV2[]) => void, setConnectors: (rows: McpConnectorCard[]) => void, setResourceTools: (rows: string[]) => void) {
+  setMcp(bag.mcp || [])
+  setConnectors(bag.connectors || [])
+  setResourceTools(bag.resourceTools || [])
 }
 
 export default function MCP() {
+  const frame = useRef<HTMLDivElement>(null)
+  const [shellWidth, setShellWidth] = useState(0)
+  const [phase, setPhase] = useState<SurfacePhase>('loading')
+  const [failure, setFailure] = useState('')
+  const [note, setNote] = useState('')
   const [mcp, setMcp] = useState<McpServerV2[]>([])
   const [connectors, setConnectors] = useState<McpConnectorCard[]>([])
   const [resourceTools, setResourceTools] = useState<string[]>([])
-  const [error, setError] = useState('')
+  const [connected, setConnected] = useState(false)
+  const [segment, setSegment] = useState<Segment>('servers')
+  const [query, setQuery] = useState('')
+  const [picked, setPicked] = useState<string | null>(null)
+  const [healthNotes, setHealthNotes] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [reloading, setReloading] = useState(false)
-  const [healthNotes, setHealthNotes] = useState<Record<string, string>>({})
+  const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState('')
-  const [hostConnected, setHostConnected] = useState(false)
+  const [draft, setDraft] = useState<McpDraft>(emptyDraft)
+  const [errors, setErrors] = useState<DraftErrors>({})
+  const [recipes, setRecipes] = useState<McpRecipe[]>([])
+  const [discovered, setDiscovered] = useState<McpDiscoverRow[]>([])
+  const [probeNote, setProbeNote] = useState('')
+  const [probeOk, setProbeOk] = useState<boolean | null>(null)
+  const [saveNote, setSaveNote] = useState('')
+
+  const showBag = useCallback((bag: McpBag) => {
+    applyBag(bag, setMcp, setConnectors, setResourceTools)
+  }, [])
 
   const load = useCallback(() => {
     const cached = lastModuleBag<McpBag>('mcp')
     if (cached) {
-      setMcp(cached.mcp || [])
-      setConnectors(cached.connectors || [])
-      setResourceTools(cached.resourceTools || [])
+      showBag(cached)
+      setPhase('ready')
     }
-    void runtimeApi.aiStatus().then((status) => {
-      setHostConnected(Boolean(status.connected))
-    }).catch(() => setHostConnected(false))
-    void runtimeApi.listMcpServers().then(async (data) => {
-      const first = {
-        mcp: data.mcp || [],
-        connectors: data.connectors || [],
-        resourceTools: Array.isArray(data.resourceTools) ? data.resourceTools : [],
+    void (async () => {
+      try {
+        const status = await runtimeApi.aiStatus()
+        const data = await runtimeApi.listMcpServers()
+        const first: McpBag = {
+          mcp: data.mcp || [],
+          connectors: data.connectors || [],
+          resourceTools: Array.isArray(data.resourceTools) ? data.resourceTools : [],
+        }
+        rememberModuleBag('mcp', first)
+        showBag(first)
+        setConnected(Boolean(status.connected))
+        setPhase('ready')
+        setFailure('')
+        const folder = loadCurrentWorkspaceCwd()
+        const target = await currentAiTarget()
+        const proj = await runtimeApi.listMcpProjection({
+          sessionId: target.ok ? target.sessionId : '',
+          cwd: target.ok ? target.cwd : (folder.ok ? folder.cwd : ''),
+        })
+        const servers = lastModuleBag<McpBag>('mcp')
+        const merged = mergeMcpProjection(servers?.mcp || first.mcp, proj.mcp || [])
+        const next: McpBag = {
+          mcp: merged,
+          connectors: servers?.connectors || first.connectors,
+          resourceTools: Array.isArray(proj.resourceTools) ? proj.resourceTools : [],
+        }
+        rememberModuleBag('mcp', next)
+        showBag(next)
+      } catch (cause) {
+        const failed = classifySurfaceFailure(cause, '连接器列表没有读出来。')
+        if (lastModuleBag<McpBag>('mcp')) {
+          setNote(failed.message)
+          setPhase('ready')
+          return
+        }
+        setPhase(failed.phase)
+        setFailure(failed.message)
       }
-      rememberModuleBag('mcp', first)
-      setMcp(first.mcp)
-      setConnectors(first.connectors)
-      setResourceTools(first.resourceTools)
-      const folder = loadCurrentWorkspaceCwd()
-      const target = await currentAiTarget()
-      return runtimeApi.listMcpProjection({
-        sessionId: target.ok ? target.sessionId : '',
-        cwd: target.ok ? target.cwd : (folder.ok ? folder.cwd : ''),
-      })
-    }).then((proj) => {
-      if (!proj) return
-      const servers = lastModuleBag<McpBag>('mcp')
-      const merged = mergeMcpProjection(servers?.mcp || [], proj.mcp || [])
-      const next = {
-        mcp: merged,
-        connectors: servers?.connectors || [],
-        resourceTools: Array.isArray(proj.resourceTools) ? proj.resourceTools : [],
-      }
-      rememberModuleBag('mcp', next)
-      setMcp(merged)
-      setResourceTools(next.resourceTools)
-    }).catch((cause) => {
-      if (lastModuleBag<McpBag>('mcp')) return
-      setError(cause instanceof Error ? cause.message : '加载 MCP 列表失败')
-      setMcp([])
-      setConnectors([])
-      setResourceTools([])
-    })
-  }, [])
+    })()
+  }, [showBag])
 
   useEffect(() => { load() }, [load])
 
-  const unsettled = mcpFiberUnsettled(mcp)
+  useEffect(() => {
+    const node = frame.current?.closest('.stage-content') ?? frame.current
+    if (!node) return
+    const measure = () => setShellWidth(node.getBoundingClientRect().width)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [phase])
+
+  const unsettled = mcp.some((row) => row.status === 'loading' || row.status === 'unloading')
   useEffect(() => {
     if (!unsettled) return
     const timer = setInterval(() => { load() }, 500)
     return () => clearInterval(timer)
   }, [unsettled, load])
 
-  const [q, setQ] = useState('')
-  const [showAdd, setShowAdd] = useState(false)
-  const [draft, setDraft] = useState(emptyDraft)
-  const [recipes, setRecipes] = useState<McpRecipe[]>([])
-  const [discovered, setDiscovered] = useState<McpDiscoverRow[]>([])
-
-  const filteredMcp = mcp.filter((m) => (
-    m.serverName.includes(q)
-    || (m.command || '').includes(q)
-    || (m.url || '').includes(q)
-    || m.tools.some((t) => t.includes(q))
+  const wide = shellWidth >= 860
+  const filtered = mcp.filter((row) => (
+    row.serverName.includes(query)
+    || (row.command || '').includes(query)
+    || (row.url || '').includes(query)
+    || row.tools.some((tool) => tool.includes(query))
   ))
-  const loadedCount = mcp.filter((m) => m.status === 'loaded').length
+  const shownName = wide ? (picked && filtered.some((row) => row.serverName === picked) ? picked : filtered[0]?.serverName ?? null) : picked
+  const shown = mcp.find((row) => row.serverName === shownName) || null
+  const loadedCount = mcp.filter((row) => row.status === 'loaded').length
+  const toolCount = mcp.reduce((sum, row) => sum + row.tools.length, 0)
+  const busy = saving || reloading
+
+  const changeDraft = (patch: Partial<McpDraft>) => {
+    setErrors({})
+    setProbeNote('')
+    setProbeOk(null)
+    setSaveNote('')
+    setDraft((current) => ({ ...current, ...patch }))
+  }
+
+  const openEditor = (row?: McpServerV2) => {
+    setErrors({})
+    setProbeNote('')
+    setProbeOk(null)
+    setSaveNote('')
+    void runtimeApi.listMcpRecipes().then(setRecipes).catch(() => setRecipes([]))
+    if (!row) {
+      void runtimeApi.listMcpDiscover().then(setDiscovered).catch(() => setDiscovered([]))
+      setEditing('')
+      setDraft(emptyDraft())
+      setEditorOpen(true)
+      return
+    }
+    setEditing(row.serverName)
+    setDraft({
+      ...emptyDraft(),
+      name: row.serverName,
+      transport: row.transport,
+      command: row.command || '',
+      args: Array.isArray(row.args) ? row.args.join('\n') : '',
+      env: envText(row.env),
+      url: row.url || '',
+      headers: headersText(row.headers),
+    })
+    setEditorOpen(true)
+  }
 
   const applyRecipe = (recipe: McpRecipe) => {
     if (!recipe.available) {
-      setError(recipe.hint || '该配方在此安装里不可用')
+      setSaveNote(recipe.hint || '这个模板在这台机器上还不能用。')
       return
     }
+    setErrors({})
+    setSaveNote('')
     setDraft({
       ...emptyDraft(),
       name: recipe.serverName,
@@ -174,6 +212,7 @@ export default function MCP() {
 
   const applyDiscover = (row: McpDiscoverRow) => {
     if (row.present) return
+    setErrors({})
     setDraft({
       ...emptyDraft(),
       name: row.serverName,
@@ -186,418 +225,230 @@ export default function MCP() {
     })
   }
 
-  const openEditor = (row?: McpServerV2) => {
-    void runtimeApi.listMcpRecipes().then(setRecipes).catch(() => setRecipes([]))
-    if (!row) {
-      void runtimeApi.listMcpDiscover().then(setDiscovered).catch(() => setDiscovered([]))
-      setEditing('')
-      setDraft(emptyDraft())
-      setShowAdd(true)
-      return
-    }
-    setEditing(row.serverName)
-    setDraft({
-      name: row.serverName,
-      transport: row.transport,
-      command: row.command || '',
-      args: Array.isArray(row.args) ? row.args.join('\n') : '',
-      env: envText(row.env),
-      url: row.url || '',
-      headers: headersText(row.headers),
-    })
-    setShowAdd(true)
-  }
-
-  const runHealth = (serverName: string) => {
-    void runtimeApi.checkMcpHealth(serverName).then((result) => {
-      setHealthNotes((current) => ({ ...current, [serverName]: result.ok ? result.message : `未通过：${result.message}` }))
-    }).catch((cause) => {
-      setHealthNotes((current) => ({ ...current, [serverName]: cause instanceof Error ? cause.message : '健康检查失败' }))
-    })
-  }
-
-  const runReload = () => {
-    setReloading(true)
-    setError('正在重载核心…')
-    void runtimeApi.reloadAi().then(() => {
-      setError('')
-      load()
-    }).catch((cause) => {
-      setError(cause instanceof Error ? cause.message : '重载失败')
-    }).finally(() => setReloading(false))
-  }
-
   const runEnabled = (serverName: string, enabled: boolean) => {
     setSaving(true)
     void runtimeApi.setMcpServerEnabled(serverName, enabled).then((result) => {
-      setError(result.note || '')
+      setNote(humanizeSurfaceMessage(result.note || '', enabled ? '已启用。' : '已停用。'))
       load()
     }).catch((cause) => {
-      setError(cause instanceof Error ? cause.message : '改不了启用状态')
+      setNote(classifySurfaceFailure(cause, '没能改启用状态。').message)
     }).finally(() => setSaving(false))
   }
 
   const runDelete = (serverName: string) => {
     setSaving(true)
     void runtimeApi.removeMcpServer(serverName).then((result) => {
-      setError(result.note || '')
+      setPicked((current) => (current === serverName ? null : current))
+      setNote(humanizeSurfaceMessage(result.note || '', '已删除。'))
       load()
     }).catch((cause) => {
-      setError(cause instanceof Error ? cause.message : '删除失败')
+      setNote(classifySurfaceFailure(cause, '没能删除。').message)
     }).finally(() => setSaving(false))
   }
 
-  const saveDraft = () => {
-    const serverName = (editing || draft.name.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32))
-    if (!serverName) {
-      setError('serverName 不合法')
-      return
-    }
-    setSaving(true)
-    setError('')
-    try {
-      const fieldEnv = Object.fromEntries(
-        Object.entries(draft.fieldValues).filter(([key, value]) => key !== 'url' && String(value || '').trim()),
-      )
-      const mergedEnv = { ...(parseEnv(draft.env) || {}), ...fieldEnv }
-      const urlFromFields = String(draft.fieldValues.url || '').trim()
-      const folder = loadCurrentWorkspaceCwd()
-      const body = draft.transport === 'stdio'
-        ? {
-            serverName,
-            transport: 'stdio' as const,
-            command: draft.command.trim(),
-            args: parseLines(draft.args),
-            env: Object.keys(mergedEnv).length ? mergedEnv : undefined,
-            ...(folder.ok ? { cwd: folder.cwd } : {}),
-          }
-        : {
-            serverName,
-            transport: 'streamable-http' as const,
-            url: urlFromFields || draft.url.trim(),
-            headers: parseHeaders(draft.headers),
-          }
-      const abort = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
-        ? AbortSignal.timeout(15_000)
-        : undefined
-      void runtimeApi.addMcpServer(body, abort)
-        .then((result) => {
-          setShowAdd(false)
-          setEditing('')
-          setDraft(emptyDraft())
-          setError(result.note || '')
-          load()
-        })
-        .catch((cause) => {
-          const aborted = cause instanceof DOMException && cause.name === 'TimeoutError'
-            || (cause instanceof Error && /timed out|aborted/i.test(cause.message))
-          setError(aborted ? '保存超时' : (cause instanceof Error ? cause.message : '保存失败'))
-        })
-        .finally(() => setSaving(false))
-    } catch (cause) {
-      setSaving(false)
-      setError(cause instanceof Error ? cause.message : '保存失败')
-    }
+  const runHealth = (serverName: string) => {
+    void runtimeApi.checkMcpHealth(serverName).then((result) => {
+      setHealthNotes((current) => ({ ...current, [serverName]: probeCopy(result) }))
+    }).catch((cause) => {
+      setHealthNotes((current) => ({ ...current, [serverName]: classifySurfaceFailure(cause, '没有连上。').message }))
+    })
   }
 
+  const runReload = () => {
+    setReloading(true)
+    setNote('正在重载核心…')
+    void runtimeApi.reloadAi().then(() => {
+      setNote('核心已重新接上。')
+      load()
+    }).catch((cause) => {
+      setNote(classifySurfaceFailure(cause, '重载没有完成。').message)
+    }).finally(() => setReloading(false))
+  }
+
+  const connect = () => {
+    setNote('正在连接核心…')
+    void runtimeApi.connectAi().then(() => {
+      setNote('')
+      load()
+    }).catch((cause) => {
+      setNote(classifySurfaceFailure(cause, '没有连上核心。').message)
+    })
+  }
+
+  const workspaceCwd = () => {
+    const folder = loadCurrentWorkspaceCwd()
+    return folder.ok ? folder.cwd : ''
+  }
+
+  const runProbe = () => {
+    const nextErrors = validateDraft(draft, [], editing)
+    const probeErrors = { ...nextErrors }
+    delete probeErrors.name
+    setErrors(probeErrors)
+    if (Object.keys(probeErrors).length) return
+    const body = draftInput(draft, editing || draft.name.trim() || 'draft', workspaceCwd())
+    setProbeNote('正在测试…')
+    setProbeOk(null)
+    void runtimeApi.probeMcpDraft(body).then((result) => {
+      setProbeOk(result.ok)
+      setProbeNote(probeCopy(result))
+    }).catch((cause) => {
+      setProbeOk(false)
+      setProbeNote(classifySurfaceFailure(cause, '没有连上。').message)
+    })
+  }
+
+  const saveDraft = () => {
+    const nextErrors = validateDraft(draft, mcp.map((row) => row.serverName), editing)
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length) return
+    const body = draftInput(draft, editing, workspaceCwd())
+    setSaving(true)
+    setSaveNote('')
+    const abort = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(15_000)
+      : undefined
+    void runtimeApi.addMcpServer(body, abort).then((result) => {
+      setEditorOpen(false)
+      setEditing('')
+      setDraft(emptyDraft())
+      setPicked(null)
+      setNote(humanizeSurfaceMessage(result.note || '', '已保存。'))
+      load()
+    }).catch((cause) => {
+      const aborted = cause instanceof DOMException && cause.name === 'TimeoutError'
+        || (cause instanceof Error && /timed out|aborted/i.test(cause.message))
+      setSaveNote(aborted ? '保存超时。' : classifySurfaceFailure(cause, '没有保存。').message)
+    }).finally(() => setSaving(false))
+  }
+
+  const guideAction = phase === 'coreDown'
+    ? <SurfaceButton variant="primary" onClick={connect}>连接核心</SurfaceButton>
+    : <SurfaceButton onClick={load}>再试一次</SurfaceButton>
+
   return (
-    <div>
-      <PageTitle
-        title="连接器"
-        subtitle={`模型上下文协议服务器 · ${loadedCount} / ${mcp.length} 已加载`}
-        actions={
-          <>
-            <button type="button" className="btn" disabled={reloading || saving} onClick={runReload}>重载核心</button>
-            <button type="button" className="btn-primary" onClick={() => openEditor()}><Plus size={14} /> 添加服务器</button>
-          </>
-        }
-      />
-
-      <div className="grid grid-cols-1 @md:grid-cols-3 gap-3 mb-6">
-        <Card>
-          <div className="text-xs text-ink-muted">在线</div>
-          <div className="mt-1 text-2xl font-semibold tabular-nums">{loadedCount}</div>
-        </Card>
-        <Card>
-          <div className="text-xs text-ink-muted">本会话投影</div>
-          <div className="mt-1 text-2xl font-semibold tabular-nums">{mcp.reduce((s, x) => s + x.tools.length, 0)}</div>
-        </Card>
-        <Card>
-          <div className="text-xs text-ink-muted">业务连接器</div>
-          <div className="mt-1 text-2xl font-semibold tabular-nums">{connectors.length}</div>
-        </Card>
-      </div>
-
-      <Card className="mb-3">
-        <div className="relative">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
-          <input
-            className="input pl-8 h-8 w-64"
-            placeholder="搜索 MCP（名称 / 命令 / URL）"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
+    <div ref={frame}>
+      <PageTitle title="连接器" />
+      {phase === 'loading' ? (
+        <div aria-busy="true" className="space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="h-16 rounded-kit-lg bg-kit-muted" />
+            <div className="h-16 rounded-kit-lg bg-kit-muted" />
+            <div className="h-16 rounded-kit-lg bg-kit-muted" />
+          </div>
+          <div className="h-24 rounded-kit-lg bg-kit-muted" />
+        </div>
+      ) : null}
+      {phase === 'unreachable' || phase === 'error' || phase === 'coreDown' ? (
+        <SurfaceGuide
+          title={phase === 'unreachable' ? '连不上本机核心' : phase === 'coreDown' ? '核心还没接通' : '这一步没有完成'}
+          body={failure}
+          action={guideAction}
+        />
+      ) : null}
+      {phase === 'ready' ? (
+        <div className="space-y-3">
+          <SurfaceStats
+            items={[
+              { label: '在线', value: `${loadedCount} / ${mcp.length}` },
+              { label: '可用工具', value: toolCount },
+              { label: '业务连接器', value: connectors.length },
+            ]}
           />
-        </div>
-      </Card>
-
-      {error && <div className="mb-3 text-xs text-accent-red">{error}</div>}
-
-      <div className="space-y-6">
-        <div>
-          <div className="text-xs uppercase tracking-wider text-ink-subtle mb-2">MCP 服务器</div>
-          {filteredMcp.length === 0 && (
-            <Empty title="没有 MCP 服务器" hint={hostConnected ? '添加后写入档案，已接通的核心会热更新' : '添加后写入档案；核心未接通时需重载核心生效'} />
-          )}
-          <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
-            {filteredMcp.map((m) => {
-              const meta = MCP_STATUS[m.status]
-              return (
-                <div key={m.serverName} className="card p-4 hover:shadow-pop transition-shadow flex flex-col">
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-9 h-9 rounded bg-surface-2 flex items-center justify-center shrink-0">
-                      <Plug size={16} className="text-ink-muted" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium break-words">{m.serverName}</div>
-                      <div className="text-xs text-ink-muted mt-0.5 break-words leading-relaxed font-mono">
-                        {mcpCommandLabel(m)}
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        <Tag kind="default">{m.transport}</Tag>
-                        <Tag kind={meta.kind}>{meta.label}</Tag>
-                        <Tag kind="default">投影 {m.tools.length}</Tag>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {m.tools.slice(0, 8).map((t) => (
-                      <Tag key={t}>
-                        <Wrench size={10} /> {t}
-                      </Tag>
-                    ))}
-                    {m.tools.length > 8 && <Tag>+{m.tools.length - 8}</Tag>}
-                    {m.tools.length === 0 && <span className="text-xs text-ink-subtle">暂无工具投影</span>}
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-line flex items-center justify-between gap-2">
-                    <div className="flex flex-wrap gap-1.5">
-                      <button type="button" className="btn h-7 px-2 text-xs" disabled={saving || reloading} onClick={() => runEnabled(m.serverName, Boolean(m.disabled))}>
-                        {m.disabled ? '启用' : '停用'}
-                      </button>
-                      <button type="button" className="btn h-7 px-2 text-xs" disabled={saving || reloading} onClick={() => openEditor(m)}>
-                        编辑
-                      </button>
-                      <button type="button" className="btn h-7 px-2 text-xs" disabled={saving || reloading} onClick={() => runDelete(m.serverName)}>
-                        删除
-                      </button>
-                      <button type="button" className="btn h-7 px-2 text-xs" onClick={() => runHealth(m.serverName)}>
-                        <Activity size={12} /> 健康检查
-                      </button>
-                    </div>
-                    {healthNotes[m.serverName] && (
-                      <span className="text-[11px] text-ink-muted truncate">{healthNotes[m.serverName]}</span>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <div>
-          <div className="text-xs uppercase tracking-wider text-ink-subtle mb-2">资源工具</div>
-          {resourceTools.length === 0 && (
-            <Empty title="没有 MCP 资源" hint="先添加服务器并重载核心。会话投影到 list_mcp_resources 后，这里列出资源工具。" />
-          )}
-          <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
-            {resourceTools.map((name) => (
-              <div key={name} className="card p-4 flex flex-col">
-                <div className="flex items-start gap-2.5">
-                  <div className="w-9 h-9 rounded bg-surface-2 flex items-center justify-center shrink-0">
-                    <Wrench size={16} className="text-ink-muted" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium break-words font-mono">{name}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="text-xs uppercase tracking-wider text-ink-subtle mb-2">业务连接器</div>
-          {connectors.length === 0 && (
-            <Empty title="暂无业务连接器" hint="在设置业务连接器里绑定 lookup 或袋里的 MCP/Skills" />
-          )}
-          <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
-            {connectors.map((c) => (
-              <div key={c.id} className="card p-4 flex flex-col">
-                <div className="text-sm font-medium">{c.name}</div>
-                <div className="text-xs text-ink-muted mt-0.5">{c.provider}</div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <Tag kind={c.online ? 'green' : 'amber'}>{c.online ? '在线' : '未就绪'}</Tag>
-                  {c.catalogVersion ? <Tag kind="default">目录 {c.catalogVersion}</Tag> : null}
-                  <Tag kind={c.lookupRegistered ? 'green' : 'default'}>{c.lookupRegistered ? '已登记 lookup' : '未登记 lookup'}</Tag>
-                </div>
-                <div className="mt-3 pt-3 border-t border-line">
-                  <Link to="/settings" className="text-xs text-brand hover:underline">去设置登记</Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {showAdd && (
-        <div className="fixed inset-0 z-40 bg-ink/20 flex items-start justify-end" onClick={() => { setShowAdd(false); setEditing('') }}>
-          <div className="bg-surface w-[480px] h-full border-l border-line p-5 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-medium">{editing ? '编辑 MCP 服务器' : '添加 MCP 服务器'}</h3>
-              <button type="button" className="btn-ghost p-1" onClick={() => { setShowAdd(false); setEditing('') }}>×</button>
-            </div>
-            <div className="space-y-3">
-              {!editing && recipes.length > 0 && (
-                <div>
-                  <div className="text-xs text-ink-muted mb-1">配方</div>
-                  <div className="flex flex-wrap gap-2">
-                    {recipes.map((recipe) => (
-                      <button
-                        key={recipe.id}
-                        type="button"
-                        className={clsx('btn h-8 px-3 text-xs', draft.recipeId === recipe.id && 'btn-primary')}
-                        disabled={!recipe.available}
-                        title={recipe.hint}
-                        onClick={() => applyRecipe(recipe)}
-                      >
-                        {recipe.title}
-                      </button>
-                    ))}
-                  </div>
-                  {draft.recipeId && recipes.find((row) => row.id === draft.recipeId)?.hint && (
-                    <div className="text-[11px] text-ink-muted mt-1">{recipes.find((row) => row.id === draft.recipeId)?.hint}</div>
-                  )}
-                </div>
-              )}
-              {!editing && discovered.length > 0 && (
-                <div>
-                  <div className="text-xs text-ink-muted mb-1">本机发现</div>
-                  <div className="flex flex-wrap gap-2">
-                    {discovered.map((row) => (
-                      <button
-                        key={row.serverName}
-                        type="button"
-                        className={clsx('btn h-8 px-3 text-xs', !draft.recipeId && draft.name === row.serverName && 'btn-primary')}
-                        disabled={row.present}
-                        title={row.present ? '已在档案里' : mcpCommandLabel(row)}
-                        onClick={() => applyDiscover(row)}
-                      >
-                        {row.serverName}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div>
-                <label className="text-xs text-ink-muted">serverName</label>
-                <input className="input mt-1 font-mono" value={draft.name}
-                  disabled={Boolean(editing)}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="如 rss-reader" />
-              </div>
-              <div>
-                <div className="text-xs text-ink-muted mb-1">传输</div>
-                <div className="flex gap-2">
-                  <button type="button" className={clsx('btn h-8 px-3 text-xs', draft.transport === 'stdio' && 'btn-primary')} onClick={() => setDraft({ ...draft, transport: 'stdio' })}>stdio</button>
-                  <button type="button" className={clsx('btn h-8 px-3 text-xs', draft.transport === 'streamable-http' && 'btn-primary')} onClick={() => setDraft({ ...draft, transport: 'streamable-http' })}>streamable-http</button>
-                </div>
-              </div>
-              {draft.transport === 'stdio' ? (
-                <>
-                  {(recipes.find((row) => row.id === draft.recipeId)?.fields || []).filter((field) => field.key !== 'url').map((field) => (
-                    <div key={field.key}>
-                      <label className="text-xs text-ink-muted">{field.label}</label>
-                      <input
-                        className="input mt-1"
-                        type={field.secret ? 'password' : 'text'}
-                        value={draft.fieldValues[field.key] || ''}
-                        onChange={(e) => setDraft({ ...draft, fieldValues: { ...draft.fieldValues, [field.key]: e.target.value } })}
-                      />
-                    </div>
-                  ))}
-                  <div>
-                    <label className="text-xs text-ink-muted">启动命令</label>
-                    <input className="input mt-1 font-mono" value={draft.command}
-                      onChange={(e) => setDraft({ ...draft, command: e.target.value })} placeholder="npx" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-ink-muted">参数（一行一个）</label>
-                    <textarea className="input mt-1 font-mono text-xs" rows={3} value={draft.args}
-                      onChange={(e) => setDraft({ ...draft, args: e.target.value })} placeholder="-y" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-ink-muted">环境变量（KEY=VALUE）</label>
-                    <textarea className="input mt-1 font-mono text-xs" rows={4} value={draft.env}
-                      onChange={(e) => setDraft({ ...draft, env: e.target.value })} placeholder="TOKEN=…" />
-                  </div>
-                </>
-              ) : (
-                <>
-                  {(recipes.find((row) => row.id === draft.recipeId)?.fields || []).filter((field) => field.key === 'url').map((field) => (
-                    <div key={field.key}>
-                      <label className="text-xs text-ink-muted">{field.label}</label>
-                      <input
-                        className="input mt-1 font-mono"
-                        value={draft.fieldValues.url || draft.url}
-                        onChange={(e) => setDraft({
-                          ...draft,
-                          url: e.target.value,
-                          fieldValues: { ...draft.fieldValues, url: e.target.value },
-                        })}
-                        placeholder="https://…"
-                      />
-                    </div>
-                  ))}
-                  {!(recipes.find((row) => row.id === draft.recipeId)?.fields || []).some((field) => field.key === 'url') && (
-                  <div>
-                    <label className="text-xs text-ink-muted">URL</label>
-                    <input className="input mt-1 font-mono" value={draft.url}
-                      onChange={(e) => setDraft({ ...draft, url: e.target.value })} placeholder="https://…" />
-                  </div>
-                  )}
-                  <div>
-                    <label className="text-xs text-ink-muted">Headers（每行 Key: Value）</label>
-                    <textarea className="input mt-1 font-mono text-xs" rows={3} value={draft.headers}
-                      onChange={(e) => setDraft({ ...draft, headers: e.target.value })} placeholder="Authorization: Bearer …" />
-                  </div>
-                </>
-              )}
-              <div className="text-xs text-ink-muted p-3 rounded bg-surface-2 border border-line">
-                {hostConnected
-                  ? '保存后已接通的核心会热更新。'
-                  : (
-                    <>
-                      已写入配置，需重载核心生效。请到
-                      {' '}
-                      <Link to="/settings" className="text-brand hover:underline">设置 → AI 核心</Link>
-                      {' '}
-                      点击「重载核心」。
-                    </>
-                  )}
-              </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <button type="button" className="btn" onClick={() => { setShowAdd(false); setEditing('') }}>取消</button>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  disabled={saving || !(editing || draft.name.trim()) || (draft.transport === 'stdio' ? !draft.command.trim() : !draft.url.trim())}
-                  onClick={saveDraft}
-                >
-                  {saving ? '保存中' : '保存'}
-                </button>
-              </div>
+          {!connected ? (
+            <SurfaceGuide
+              title="核心还没接通"
+              body="已保存的服务器还在。测试连接和热更新要等核心接上。"
+              action={<SurfaceButton variant="primary" onClick={connect}>连接核心</SurfaceButton>}
+            />
+          ) : null}
+          {note ? <SurfaceBanner tone="quiet">{note}</SurfaceBanner> : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <SurfaceSegmented
+              label="范围"
+              value={segment}
+              onChange={setSegment}
+              options={[
+                { id: 'servers', label: `服务器 ${mcp.length}` },
+                { id: 'business', label: `业务连接器 ${connectors.length}` },
+              ]}
+            />
+            <div className="ml-auto flex gap-2">
+              <SurfaceButton onClick={runReload} disabled={busy}>{reloading ? '重载中' : '重载核心'}</SurfaceButton>
+              {segment === 'servers' ? (
+                <SurfaceButton variant="primary" onClick={() => openEditor()}>
+                  <Plus size={14} /> 添加
+                </SurfaceButton>
+              ) : null}
             </div>
           </div>
+          {segment === 'business' ? (
+            connectors.length ? <BusinessList rows={connectors} /> : (
+              <SurfaceEmpty icon={Plug} title="还没有业务连接器" body="到设置里登记之后，这里会列出它们。" />
+            )
+          ) : (
+            <div className={wide ? 'grid grid-cols-[minmax(0,1fr)_minmax(260px,340px)] gap-3' : 'space-y-3'}>
+              {(!picked || wide) ? (
+                <div className="min-w-0 space-y-2">
+                  <SurfaceSearch aria-label="搜索服务器" placeholder="搜索名称、命令或地址" value={query} onChange={(event) => setQuery(event.target.value)} />
+                  {filtered.length ? (
+                    <ServerList
+                      rows={filtered}
+                      selected={shownName || ''}
+                      busy={busy}
+                      onOpen={setPicked}
+                      onEnabled={runEnabled}
+                    />
+                  ) : (
+                    <SurfaceEmpty
+                      icon={Plug}
+                      title={mcp.length ? '没有匹配的服务器' : '还没有服务器'}
+                      body={mcp.length ? '换个词再找。' : '添加一台之后，可以在这里测试连接。'}
+                      action={mcp.length ? undefined : <SurfaceButton variant="primary" onClick={() => openEditor()}>添加</SurfaceButton>}
+                    />
+                  )}
+                </div>
+              ) : null}
+              {(picked || wide) ? (
+                <ServerDetail
+                  row={shown}
+                  resourceTools={resourceTools}
+                  showBack={!wide}
+                  busy={busy}
+                  health={shown ? (healthNotes[shown.serverName] || '') : ''}
+                  onBack={() => setPicked(null)}
+                  onTest={runHealth}
+                  onEdit={openEditor}
+                  onDelete={runDelete}
+                  onEnabled={runEnabled}
+                />
+              ) : null}
+            </div>
+          )}
         </div>
-      )}
+      ) : null}
+      <ServerEditor
+        open={editorOpen}
+        editing={editing}
+        draft={draft}
+        errors={errors}
+        recipes={recipes}
+        discovered={discovered}
+        probeNote={probeNote}
+        probeOk={probeOk}
+        saveNote={saveNote}
+        saving={saving}
+        hostConnected={connected}
+        onOpenChange={(open) => {
+          setEditorOpen(open)
+          if (!open) setEditing('')
+        }}
+        onChange={changeDraft}
+        onRecipe={applyRecipe}
+        onDiscover={applyDiscover}
+        onTest={runProbe}
+        onSave={saveDraft}
+      />
     </div>
   )
 }

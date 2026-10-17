@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import clsx from 'clsx'
+import { SurfaceButton } from '@/components/surface/Button'
+import { SurfaceField, SurfaceInput, SurfaceSelect, SurfaceTextarea } from '@/components/surface/Field'
+import { SurfaceSegmented } from '@/components/surface/Segmented'
+import { SurfaceSwitch } from '@/components/surface/Switch'
 import {
   catalogRowKey,
   catalogRowLabel,
   dictInnerUid,
+  dirtyTopLevelOps,
   isScalarNode,
   joinCatalog,
   objectFieldEntries,
@@ -36,18 +40,67 @@ function defaultFor(schema: Schema, uid: unknown) {
   return ''
 }
 
-function FieldShell({ label, children }: { label: string; children: ReactNode }) {
-  if (!label) return <>{children}</>
+function fieldCopy(meta: Record<string, unknown>, name: string) {
+  const title = typeof meta.title === 'string' && meta.title.trim() ? meta.title.trim() : name
+  const hint = typeof meta.description === 'string' && meta.description.trim() ? meta.description.trim() : ''
+  return { title, hint }
+}
+
+function FieldShell({
+  label,
+  hint,
+  error,
+  children,
+}: {
+  label: string
+  hint?: string
+  error?: string
+  children: ReactNode
+}) {
+  if (!label && !hint && !error) return <>{children}</>
   return (
-    <div className="block min-w-0">
-      <div className="text-xs font-medium text-ink mb-1.5">{label}</div>
+    <SurfaceField label={label || undefined} hint={hint} error={error}>
       {children}
-    </div>
+    </SurfaceField>
   )
 }
 
-function sameValue(left: unknown, right: unknown) {
-  return JSON.stringify(left) === JSON.stringify(right)
+function JsonValueField({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: unknown
+  disabled?: boolean
+  onChange: (next: unknown) => void
+}) {
+  const serialized = JSON.stringify(value, null, 2)
+  const [text, setText] = useState(serialized)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    setText(serialized)
+    setError('')
+  }, [serialized])
+  return (
+    <SurfaceField error={error || undefined}>
+      <SurfaceTextarea
+        className="font-mono text-kit-sm"
+        disabled={disabled}
+        value={text}
+        aria-invalid={error ? true : undefined}
+        onChange={(event) => {
+          const next = event.target.value
+          setText(next)
+          try {
+            onChange(JSON.parse(next))
+            setError('')
+          } catch {
+            setError('这段还不是合法的 JSON。')
+          }
+        }}
+      />
+    </SurfaceField>
+  )
 }
 
 function summaryOf(value: unknown) {
@@ -105,78 +158,80 @@ function FieldEditor({
   const node = schemaNode(schema, uid)
   const type = String(node?.type || '')
   const meta = node?.meta && typeof node.meta === 'object' ? node.meta as Record<string, unknown> : {}
+  const copy = fieldCopy(meta, name)
   const enums = unionConstOptions(schema, uid)
   const slot = secretSlot(secrets, path)
-  const wrap = (body: ReactNode) => (compact ? body : <FieldShell label={name}>{body}</FieldShell>)
+  const wrap = (body: ReactNode) => (compact ? body : <FieldShell label={copy.title} hint={copy.hint}>{body}</FieldShell>)
 
   if (type === 'boolean') {
     return (
-      <label className="flex items-center gap-2 min-h-8">
-        <input
-          type="checkbox"
-          className="rounded border-line"
-          checked={Boolean(value)}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-        {name ? <span className="text-sm">{name}</span> : null}
-      </label>
+      <SurfaceSwitch
+        checked={Boolean(value)}
+        disabled={disabled}
+        label={copy.title || '开关'}
+        hint={copy.hint || undefined}
+        onCheckedChange={onChange}
+      />
     )
   }
 
   if (type === 'number') {
-    return wrap(
-      <input
-        className="input w-full"
-        type="number"
-        step={meta.step === undefined ? undefined : Number(meta.step)}
-        min={meta.min === undefined ? undefined : Number(meta.min)}
-        max={meta.max === undefined ? undefined : Number(meta.max)}
-        value={value === undefined || value === null || Number.isNaN(value) ? '' : String(value)}
-        disabled={disabled}
-        onChange={(event) => {
-          const raw = event.target.value
-          onChange(raw === '' ? undefined : Number(raw))
-        }}
-      />,
+    const numeric = typeof value === 'number' ? value : value === '' || value == null ? null : Number(value)
+    let error = ''
+    if (typeof numeric === 'number' && !Number.isNaN(numeric)) {
+      if (meta.min !== undefined && numeric < Number(meta.min)) error = `不能小于 ${meta.min}。`
+      if (meta.max !== undefined && numeric > Number(meta.max)) error = `不能大于 ${meta.max}。`
+    }
+    return (
+      <FieldShell label={copy.title} hint={copy.hint} error={error}>
+        <SurfaceInput
+          type="number"
+          step={meta.step === undefined ? undefined : Number(meta.step)}
+          min={meta.min === undefined ? undefined : Number(meta.min)}
+          max={meta.max === undefined ? undefined : Number(meta.max)}
+          value={value === undefined || value === null || Number.isNaN(value) ? '' : String(value)}
+          disabled={disabled}
+          aria-invalid={error ? true : undefined}
+          onChange={(event) => {
+            const raw = event.target.value
+            onChange(raw === '' ? undefined : Number(raw))
+          }}
+        />
+      </FieldShell>
     )
   }
 
   if (type === 'union' && enums.length) {
     if (enums.length <= 5) {
-      return wrap(
-        <div className="flex flex-wrap gap-1">
-          {enums.map((option) => {
-            const selected = sameValue(value, option)
-            return (
-              <button
-                key={String(option)}
-                type="button"
-                className={clsx('btn h-8 px-2 text-xs', selected && 'btn-primary')}
-                disabled={disabled}
-                onClick={() => onChange(option)}
-              >
-                {String(option)}
-              </button>
-            )
-          })}
-        </div>,
+      return (
+        <FieldShell label={copy.title} hint={copy.hint}>
+          <SurfaceSegmented
+            value={value === undefined || value === null ? '' : String(value)}
+            disabled={disabled}
+            options={enums.map((option) => ({ id: String(option), label: String(option) }))}
+            onChange={(id) => {
+              const hit = enums.find((option) => String(option) === id)
+              if (hit !== undefined) onChange(hit)
+            }}
+          />
+        </FieldShell>
       )
     }
-    return wrap(
-      <select
-        className="input w-full"
-        value={value === undefined || value === null ? '' : String(value)}
-        disabled={disabled}
-        onChange={(event) => {
-          const hit = enums.find((option) => String(option) === event.target.value)
-          onChange(hit)
-        }}
-      >
-        {enums.map((option) => (
-          <option key={String(option)} value={String(option)}>{String(option)}</option>
-        ))}
-      </select>,
+    return (
+      <FieldShell label={copy.title} hint={copy.hint}>
+        <SurfaceSelect
+          value={value === undefined || value === null ? '' : String(value)}
+          disabled={disabled}
+          onChange={(event) => {
+            const hit = enums.find((option) => String(option) === event.target.value)
+            onChange(hit)
+          }}
+        >
+          {enums.map((option) => (
+            <option key={String(option)} value={String(option)}>{String(option)}</option>
+          ))}
+        </SurfaceSelect>
+      </FieldShell>
     )
   }
 
@@ -419,30 +474,28 @@ function FieldEditor({
 
   if (value && typeof value === 'object') {
     return wrap(
-      <textarea
-        className="input w-full min-h-[88px] font-mono text-xs"
-        disabled={disabled}
-        value={JSON.stringify(value, null, 2)}
-        onChange={(event) => {
-          try {
-            onChange(JSON.parse(event.target.value))
-          } catch {
-            /* keep typing until JSON parses */
-          }
-        }}
-      />,
+      <JsonValueField value={value} disabled={disabled} onChange={onChange} />,
     )
   }
 
-  return wrap(
-    <input
-      className="input w-full"
-      type={slot ? 'password' : 'text'}
-      placeholder={slot?.set ? '已配置' : undefined}
-      value={value === undefined || value === null ? '' : String(value)}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
-    />,
+  const required = meta.required === true
+  const missing = required && !String(value ?? '').trim() && !slot?.set
+  const secretSet = Boolean(slot?.set) && (value === undefined || value === null || value === '')
+  return (
+    <FieldShell
+      label={copy.title}
+      hint={copy.hint || (secretSet ? '已配置。留空表示不改。' : undefined)}
+      error={missing ? '这一项必填。' : undefined}
+    >
+      <SurfaceInput
+        type={slot ? 'password' : 'text'}
+        placeholder={secretSet ? '已配置' : undefined}
+        value={value === undefined || value === null ? '' : String(value)}
+        disabled={disabled}
+        aria-invalid={missing ? true : undefined}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </FieldShell>
   )
 }
 
@@ -794,20 +847,24 @@ function CatalogArrayField({
 }
 
 function SaveRow({
-  dirty,
+  count,
   disabled,
   onSave,
   onRevert,
 }: {
-  dirty: boolean
+  count: number
   disabled?: boolean
   onSave: () => void
   onRevert: () => void
 }) {
+  if (!count) return null
   return (
-    <div className="flex items-center gap-2">
-      <button type="button" className="btn-primary h-8 px-3 text-xs" disabled={disabled || !dirty} onClick={onSave}>保存</button>
-      <button type="button" className="btn-ghost h-8 px-3 text-xs" disabled={disabled || !dirty} onClick={onRevert}>还原</button>
+    <div className="flex items-center justify-between gap-3 border-t border-kit-line pt-3">
+      <span className="text-kit-sm text-kit-secondary">未保存 {count} 项</span>
+      <span className="flex gap-2">
+        <SurfaceButton variant="ghost" disabled={disabled} onClick={onRevert}>还原</SurfaceButton>
+        <SurfaceButton variant="primary" disabled={disabled} onClick={onSave}>保存</SurfaceButton>
+      </span>
     </div>
   )
 }
@@ -835,6 +892,7 @@ function DictKeyAdd({
         type="button"
         className="btn h-8 px-2 text-xs shrink-0"
         disabled={disabled || !key.trim() || existing.includes(key.trim())}
+        title={!key.trim() ? '键名不能为空' : existing.includes(key.trim()) ? '键名不能重复' : undefined}
         onClick={() => {
           onAdd(key.trim())
           setKey('')
@@ -873,13 +931,16 @@ export function SettingsDescribeForm({
   const fields = objectFieldEntries(schema, rootUid)
   const initial = value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {}
   const [draft, setDraft] = useState<Record<string, unknown>>(initial)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
+  const valueRef = useRef(value)
+  valueRef.current = value
 
   useEffect(() => {
-    setDraft(value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {})
-  }, [ns, revision, value])
+    const current = valueRef.current
+    setDraft(current && typeof current === 'object' && !Array.isArray(current) ? { ...current } : {})
+  }, [ns, revision])
 
-  const dirty = useMemo(() => !sameValue(draft, initial), [draft, initial])
+  const dirtyCount = dirtyTopLevelOps(initial, draft).length
   const summary = summaryOf(value)
   const boolFields = fields.filter((field) => String(schemaNode(schema, field.uid)?.type || '') === 'boolean')
   const headerBool = boolFields.length === 1 ? boolFields[0] : null
@@ -889,27 +950,29 @@ export function SettingsDescribeForm({
   if (!rootUid || !fields.length) return null
 
   return (
-    <div className="rounded-lg border border-line">
-      <button
-        type="button"
-        className="w-full flex items-center gap-2 px-3 py-2.5 text-left"
-        onClick={() => setOpen((current) => !current)}
-      >
-        {open ? <ChevronDown size={14} className="text-ink-subtle shrink-0" /> : <ChevronRight size={14} className="text-ink-subtle shrink-0" />}
-        <span className="text-sm font-medium truncate">{title || ns}</span>
+    <div className="rounded-kit border border-kit-line">
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {open ? <ChevronDown size={14} className="shrink-0 text-kit-tertiary" /> : <ChevronRight size={14} className="shrink-0 text-kit-tertiary" />}
+          <span className="truncate text-kit font-medium text-kit-ink">{title || ns}</span>
+          {summary ? <span className="ml-auto truncate text-kit-meta text-kit-secondary max-w-[45%]">{summary}</span> : null}
+          {dirtyCount ? <span className="shrink-0 text-kit-meta text-kit-warn">未保存 {dirtyCount} 项</span> : null}
+        </button>
         {headerBool ? (
-          <input
-            type="checkbox"
-            className="rounded border-line shrink-0"
+          <SurfaceSwitch
+            bare
             checked={Boolean(draft[headerBool.name])}
             disabled={disabled}
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) => setDraft({ ...draft, [headerBool.name]: event.target.checked })}
+            label={headerBool.name}
+            onCheckedChange={(next) => setDraft({ ...draft, [headerBool.name]: next })}
           />
         ) : null}
-        {summary ? <span className="ml-auto text-xs text-ink-muted truncate max-w-[45%]">{summary}</span> : null}
-        {dirty ? <span className="text-[11px] text-accent-amber shrink-0">未保存</span> : null}
-      </button>
+      </div>
       {open && (
         <div className="px-3 pb-3 space-y-3 border-t border-line pt-3">
           {hint ? <div className="text-xs text-ink-muted leading-5">{hint}</div> : null}
@@ -970,12 +1033,12 @@ export function SettingsDescribeForm({
               ))}
             </>
           ) : null}
-          <SaveRow dirty={dirty} disabled={disabled} onSave={() => onSave(draft)} onRevert={() => setDraft({ ...initial })} />
+          <SaveRow count={dirtyCount} disabled={disabled} onSave={() => onSave(draft)} onRevert={() => setDraft({ ...initial })} />
         </div>
       )}
-      {!open && dirty && (
+      {!open && dirtyCount > 0 && (
         <div className="px-3 pb-3">
-          <SaveRow dirty={dirty} disabled={disabled} onSave={() => onSave(draft)} onRevert={() => setDraft({ ...initial })} />
+          <SaveRow count={dirtyCount} disabled={disabled} onSave={() => onSave(draft)} onRevert={() => setDraft({ ...initial })} />
         </div>
       )}
     </div>

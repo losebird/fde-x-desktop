@@ -256,7 +256,7 @@ jobs:
           const passed = rows.filter((row) => row.status === 'passed').length
           console.log(`visual ${passed}/${rows.length}`)
           for (const row of rows) console.log(`visual ${row.status} ${row.file} ${row.title}`)
-          if (process.env.VISUAL_CODE !== '0' || passed !== rows.length || rows.length !== 13) {
+          if (process.env.VISUAL_CODE !== '0' || passed !== rows.length || rows.length !== 19) {
             console.log('ASSERT fail: playwright tests/visual')
             process.exit(1)
           }
@@ -279,3 +279,5 @@ jobs:
           echo "ASSERT ok: stale partial removed"
           node --test runtime/tests/iui-core-failure.test.mjs
           echo "ASSERT ok: core failure becomes error"
+          node --test runtime/tests/iui-retry.test.mjs
+          echo "ASSERT ok: iui retry reloads a repaired archive"
