@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { spawn } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -206,6 +206,7 @@ test('a standard session sends the skill catalog on the first model request', { 
     })
     const connectText = await connected.text()
     assert.equal(connected.ok, true, connectText.slice(0, 500))
+    await waitForSettingsImport(origin, home, model.origin, abortChild)
     const createdResponse = await fetch(new URL('/api/v1/ai/sessions', origin), {
       method: 'POST',
       headers: { origin, 'content-type': 'application/json' },
@@ -238,6 +239,30 @@ test('a standard session sends the skill catalog on the first model request', { 
     await rm(workspace, { recursive: true, force: true })
   }
 })
+
+async function waitForSettingsImport(origin, home, modelOrigin, abortChild) {
+  const deadline = Date.now() + 20000
+  let last = ''
+  while (Date.now() < deadline) {
+    const reason = abortChild()
+    if (reason) throw new Error(`settings import aborted: ${reason}`)
+    let fileReady = false
+    try {
+      await access(join(home, 'settings.yaml.imported'))
+      fileReady = true
+    } catch (error) {
+      if (!(error && error.code === 'ENOENT')) throw error
+    }
+    if (fileReady) {
+      const status = await fetch(new URL('/api/v1/ai/models-settings', origin), { headers: { origin } })
+      const text = await status.text()
+      last = text.slice(0, 500)
+      if (status.ok && text.includes(modelOrigin) && text.includes('grok-4.6')) return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  throw new Error(`timed out waiting for settings.yaml.imported to land in host settings\n${last}`)
+}
 
 function bodiesWithText(bodies) {
   return bodies.find((row) => row.raw && row.raw.includes('用一句话打个招呼')) || null
