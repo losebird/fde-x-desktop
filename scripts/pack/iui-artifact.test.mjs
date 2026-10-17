@@ -157,13 +157,12 @@ test('stageIuiArtifactIfAbsent installs once and leaves an existing profile tree
     const kept = await stageIuiArtifactIfAbsent({ dest, pin, artifactPath: bad })
     assert.equal(kept.action, 'profile-kept')
     assert.equal(readFileSync(join(dest, 'marker.txt'), 'utf8'), 'user-bytes')
-    await assert.rejects(
-      () => stageIuiArtifactIfAbsent({ dest: join(root, 'empty'), pin, artifactPath: bad }),
-      (error) => error.code === 'FDE_IUI_SHA_MISMATCH'
-        && error.message.includes(bad)
-        && error.message.includes(`expected ${pin.artifact.sha256}`)
-        && error.message.includes(`got ${sha256Hex(readFileSync(bad))}`),
-    )
+    const failed = await stageIuiArtifactIfAbsent({ dest: join(root, 'empty'), pin, artifactPath: bad })
+    assert.equal(failed.state, 'verify_failed')
+    assert.equal(failed.artifactPath, bad)
+    assert.equal(failed.expected, pin.artifact.sha256)
+    assert.equal(failed.actual, sha256Hex(readFileSync(bad)))
+    assert.equal(failed.command, 'node scripts/pack/build-iui.mjs --out ~/.dsh/vendor/iui')
     assert.equal(existsSync(join(root, 'empty', 'package.json')), false)
   } finally {
     rmSync(root, { recursive: true, force: true })

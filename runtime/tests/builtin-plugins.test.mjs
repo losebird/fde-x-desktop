@@ -117,17 +117,30 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
       process.env.FDE_IUI_ARTIFACT = bad
       IUI.source.sha256 = savedSha
       const again = new DshCoreConnector({ dshHome: empty, cwd: empty })
-      await assert.rejects(
-        () => again.ensureIsolatedProfile(),
-        (error) => {
-          assert.equal(error.code, 'FDE_IUI_SHA_MISMATCH')
-          assert.match(error.message, new RegExp(bad.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-          assert.match(error.message, new RegExp(`expected ${savedSha}`))
-          assert.match(error.message, /got [a-f0-9]{64}/)
-          return true
-        },
-      )
+      await again.ensureIsolatedProfile()
+      assert.equal(again.state, 'idle')
+      assert.equal(again.iui.state, 'verify_failed')
+      assert.equal(again.iui.expected, savedSha)
+      assert.match(again.iui.actual, /^[a-f0-9]{64}$/u)
+      assert.notEqual(again.iui.actual, savedSha)
+      assert.equal(again.iui.artifactPath, bad)
+      assert.equal(again.iui.command, 'node scripts/pack/build-iui.mjs --out ~/.dsh/vendor/iui')
       assert.equal(existsSync(join(empty, 'vendor', 'iui', 'package.json')), false)
+      const { stageIuiArtifactIfAbsent } = await import('../iui-stage.mjs')
+      const kept = join(empty, 'kept-iui')
+      await mkdir(kept, { recursive: true })
+      await writeFile(join(kept, 'package.json'), 'KEPT\n')
+      const keptResult = await stageIuiArtifactIfAbsent({
+        dest: kept,
+        pin: {
+          version: IUI.source.version,
+          commit: IUI.source.commit,
+          artifact: { sha256: savedSha },
+        },
+        artifactPath: bad,
+      })
+      assert.equal(keptResult.state, 'kept')
+      assert.equal(await readFile(join(kept, 'package.json'), 'utf8'), 'KEPT\n')
       await rm(empty, { recursive: true, force: true })
     } finally {
       IUI.source.sha256 = savedSha
