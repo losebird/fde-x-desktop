@@ -190,3 +190,65 @@ test('reinstall shows in-progress copy while the retry request is still open', a
   await expect(panel.getByText(failure)).toHaveCount(0)
   releaseRetry()
 })
+
+test('retry shows the same install failure again after install progress', async ({ page }) => {
+  test.setTimeout(60_000)
+  let hits = 0
+  let retries = 0
+  const failure = 'IUI 安装失败：归档不存在。请重试。'
+  const failed = payload({ state: 'failed', reason: '归档不存在' })
+  const progress = payload({
+    state: 'installing',
+    phase: 'link',
+    progress: { completed: 2, total: 4 },
+  })
+  await page.route((url) => url.pathname === '/api/v1/ai/status', async (route) => {
+    if (retries >= 1) await new Promise((resolve) => setTimeout(resolve, 400))
+    hits += 1
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(failed) })
+  })
+  await page.route((url) => url.pathname === '/api/v1/ai/connect', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(failed),
+  }))
+  await page.route((url) => url.pathname === '/api/v1/ai/iui/retry', (route) => {
+    retries += 1
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: progress.data }),
+    })
+  })
+  await page.route((url) => url.pathname === '/health', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      service: 'fde-x',
+      state: 'healthy',
+      authority: { transactional: 'sqlite', semantic: 'semantic-service', externalRecords: 'source-system' },
+      persistence: { state: 'healthy', database: { fingerprint: 'test', tableCount: 1 }, migrations: [] },
+      adapters: [{
+        capability: 'ai-runtime',
+        state: 'degraded',
+        version: '0.2.0-rc.2',
+        detail: '核心 AI 运行时正在受控启动和认证',
+        checkedAt: '2026-10-17T00:00:00.000Z',
+      }],
+      checkedAt: '2026-10-17T00:00:00.000Z',
+    }),
+  }))
+  await page.goto('/settings')
+  await page.waitForURL(/\/ai/)
+  const select = page.getByRole('combobox', { name: '分类' })
+  if (await select.isVisible()) await select.selectOption({ label: '运行环境' })
+  else await page.getByRole('navigation', { name: '分类' }).getByRole('button', { name: '运行环境', exact: true }).click()
+  const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: '运行环境诊断', level: 3 }) })
+  await expect(panel.getByText(failure)).toBeVisible()
+  await panel.getByRole('button', { name: '重试' }).click()
+  await expect(panel.getByText('正在首次安装… 写入配置 2/4')).toBeVisible()
+  await expect(panel.getByText(failure)).toBeVisible()
+  const settled = hits
+  await page.waitForTimeout(2000)
+  expect(hits - settled, 'the 400ms status watch should stop when the same install failure returns').toBeLessThan(3)
+})
