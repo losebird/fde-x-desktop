@@ -143,3 +143,31 @@ test('a different corepack failure is rethrown', async () => {
     },
   )
 })
+
+test('Node 22 stops when the resolved pnpm is an old corepack shim', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'corepack-shim-'))
+  const pnpm = join(dir, 'pnpm')
+  await writeFile(pnpm, `#!/bin/sh
+# require('./lib/corepack.cjs').runMain(['pnpm', ...process.argv.slice(2)]);
+printf '%s\\n' 'Error: Cannot find matching keyid: ...' >&2
+exit 1
+`)
+  await chmod(pnpm, 0o755)
+  await assert.rejects(
+    () => assertCorepackUsable({ PATH: dir }, pinnedVersion, '22.23.3'),
+    (error) => {
+      const message = error.message
+      assert.match(message, /Cannot find matching keyid/)
+      assert.equal(message.includes('ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING'), false)
+      assert.match(message, /pnpm/)
+      assert.match(message, /pnpx/)
+      assert.match(message, /yarn/)
+      assert.match(message, /EEXIST/)
+      const moveAt = message.indexOf('for name in corepack pnpm pnpx yarn')
+      const installAt = message.indexOf('npm install -g pnpm@11.7.0')
+      assert.equal(moveAt >= 0, true)
+      assert.equal(installAt > moveAt, true)
+      return true
+    },
+  )
+})
