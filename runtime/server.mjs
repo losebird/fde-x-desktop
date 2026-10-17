@@ -1266,6 +1266,19 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'POST' && url.pathname === '/api/v1/ai/iui/retry') {
+      let status
+      try {
+        status = { ...await aiRuntime.retryIui(), bffOrigin: advertisedRuntimeOrigin(port) }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        sendError(response, 502, 'ai/boot-failed', message || '核心启动失败', currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, { data: status, correlationId: currentCorrelationId })
+      return
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/v1/ai/connect') {
       let status
       try {
