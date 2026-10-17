@@ -212,3 +212,50 @@ test('the generate briefing button adds the session to the sidebar without a rel
   }).toBe(countBefore + 1)
   expect(loads).toBe(loadsAtRest)
 })
+
+test.describe('narrow sidebar', () => {
+  // 820px viewport: the tool rail leaves the AI column near the collapse line.
+  // If it is still the wide list, fold it. The count is the icon-bar buttons.
+  test.use({ viewport: { width: 820, height: 900 } })
+
+  test('a new session appears in the collapsed icon bar without a reload', async ({ page, request }) => {
+    const root = await mkdtemp(join(tmpdir(), 'fde-session-list-'))
+    const cwd = join(root, 'a')
+    await mkdir(cwd)
+    const title = `narrow-${root.split('/').at(-1)}`
+    await createWorkspace(request, cwd, title)
+    const sessionId = await createSession(request, cwd)
+
+    let loads = 0
+    page.on('load', () => {
+      loads += 1
+    })
+    const eventWorkspaces = watchEventWorkspaces(page)
+    await page.goto(`/ai/${sessionId}`, { waitUntil: 'domcontentloaded' })
+    expect(page.viewportSize()).toEqual({ width: 820, height: 900 })
+    await page.locator('aside').getByTitle(/会话栏/).first().waitFor()
+    await chooseWorkspace(page, title)
+    await expect.poll(() => eventWorkspaces.includes(cwd), {
+      message: 'workspace event stream was not open',
+    }).toBe(true)
+
+    const aside = page.locator('aside').filter({ has: page.getByTitle(/会话栏/) })
+    const collapse = aside.getByTitle('收起会话栏')
+    if (await collapse.isVisible()) await collapse.click()
+    await expect(aside.getByTitle('展开会话栏')).toBeVisible()
+    await expect(aside.locator('ul')).toHaveCount(0)
+    const icons = aside.locator('div.space-y-1 > button')
+    const countBefore = await icons.count()
+    expect(countBefore).toBeGreaterThan(0)
+    const loadsAtRest = loads
+
+    const created = await createSession(request, cwd)
+    expect(created).toBeTruthy()
+    expect(created).not.toBe(sessionId)
+    await expect.poll(() => icons.count(), {
+      timeout: 10_000,
+      message: 'narrow icon bar did not show the new session without a reload',
+    }).toBe(countBefore + 1)
+    expect(loads).toBe(loadsAtRest)
+  })
+})
