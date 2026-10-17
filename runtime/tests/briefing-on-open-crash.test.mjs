@@ -46,7 +46,7 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
     try {
       const res = await fetch(`${base}/health`)
       if (res.ok) break
-    } catch { /* retry */ }
+    } catch {}
     await delay(50)
   }
   assert.equal(child.exitCode, null, `core exited before listen ${child.exitCode}\n${log.slice(-1500)}`)
@@ -92,7 +92,10 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
       const ai = (body.data?.briefing?.sections || []).find((section) => section.type === 'ai')
       aiError = typeof ai?.error === 'string' ? ai.error : ''
       if (res.ok && aiError.includes('briefing generation failed')) break
-    } catch { /* process already gone */ }
+    } catch (error) {
+      if (child.exitCode === null) throw error
+      break
+    }
     await delay(40)
   }
 

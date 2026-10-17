@@ -4,7 +4,3 @@ export async function runBriefing(_deps, input) {
   }
   return { briefingId: '', briefing: null }
 }
-
-export function mergeBriefingSubmit() {
-  return { ok: false, error: 'unused' }
-}

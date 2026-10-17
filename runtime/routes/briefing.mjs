@@ -2,6 +2,7 @@ import { collectBag } from '../catalog-collect.mjs'
 import { resolveAllowedRequestOrigin } from '../config.mjs'
 import {
   createBriefingRun,
+  findInFlightBriefing,
   getOrCreateDefinition,
   getBriefing,
   getLatestBriefing,
@@ -66,9 +67,8 @@ function failureMessage(error) {
 function recordBriefingOpenFailure(db, workspaceCwd, error) {
   const message = failureMessage(error)
   const definition = getOrCreateDefinition(db, workspaceCwd)
-  const latest = getLatestBriefing(db, workspaceCwd)
-  const previous = Array.isArray(latest?.sections) ? latest.sections : []
-  if (latest && latest.status === 'failed' && previous.some((section) => section && section.error)) return
+  const inflight = findInFlightBriefing(db, workspaceCwd)
+  const previous = Array.isArray(inflight?.sections) ? inflight.sections : []
   const sections = definition.sections.filter((section) => section.enabled).map((section) => {
     const prior = previous.find((row) => row && row.id === section.id)
     if (prior && !prior.pendingAgent && section.type !== 'ai' && section.type !== 'mcp') return prior
@@ -93,8 +93,8 @@ function recordBriefingOpenFailure(db, workspaceCwd, error) {
     }
   })
   const patch = { status: 'failed', sections, agentError: message }
-  if (latest) {
-    updateBriefingContent(db, latest.id, patch)
+  if (inflight) {
+    updateBriefingContent(db, inflight.id, patch)
     return
   }
   const created = createBriefingRun(db, {
@@ -245,7 +245,6 @@ export async function handleBriefingRoutes(request, response, url, deps) {
             canvasSessionId,
           })
         }
-        return undefined
       })
       void opened.catch((error) => {
         console.warn('briefing_on_open_failed', error)
