@@ -11,15 +11,16 @@ node scripts/pack/stage.mjs
 node scripts/pack/verify.mjs
 ```
 
-On Node 26, `build-iui.mjs` stops before checkout when `corepack` on `PATH` is older than 0.31.0, or when that `corepack --version` prints `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`. The message is Chinese and includes commands to install `pnpm@11.7.0` and move that one corepack file aside. It does not switch to another toolchain. Check before a Mac self-pack:
+`build-iui.mjs` stops before checkout when the `pnpm` it resolves is an old corepack shim, or when `corepack` on `PATH` is older than 0.31.0. The check does not depend on the Node major. The Chinese message names the error the probe actually printed (`Cannot find matching keyid` or `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`) and tells you to move `corepack`, `pnpm`, `pnpx`, `yarn`, and `yarnpkg` in that bin directory before `npm install -g pnpm@11.7.0`. Moving first avoids `EEXIST` when corepack and Node share one global bin. The script does not delete those files and does not switch to another toolchain. A real `pnpm` 11.x on `PATH` is used as-is. Check before a Mac self-pack:
 
 ```bash
 node -v
+command -v pnpm || echo "PATH 上没有 pnpm"
 command -v corepack || echo "PATH 上没有 corepack"
-corepack --version || true
+pnpm --version || true
 ```
 
-If this is Node 26 and `corepack --version` is below `0.31.0`, run the printed `mv` before `node scripts/pack/build-iui.mjs`. Do not delete the whole directory from `PATH`.
+Run the printed loop before `node scripts/pack/build-iui.mjs`. Do not delete the whole directory from `PATH`.
 
 ## Environment
 
