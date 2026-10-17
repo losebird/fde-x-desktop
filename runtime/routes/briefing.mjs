@@ -1,6 +1,15 @@
 import { collectBag } from '../catalog-collect.mjs'
 import { resolveAllowedRequestOrigin } from '../config.mjs'
-import { getOrCreateDefinition, getBriefing, getLatestBriefing, saveDefinition } from '../briefing/store.mjs'
+import { emit } from '../events.mjs'
+import {
+  createBriefingRun,
+  findInFlightBriefing,
+  getOrCreateDefinition,
+  getBriefing,
+  getLatestBriefing,
+  saveDefinition,
+  updateBriefingContent,
+} from '../briefing/store.mjs'
 import { validateSchedule, validateSections, validateSources, validateDelivery } from '../briefing/validate.mjs'
 import { runBriefing } from '../briefing/run.mjs'
 import { rescheduleBriefingForWorkspace, shouldRunOnOpen } from '../briefing/scheduler.mjs'
@@ -48,6 +57,52 @@ function omitFromBody(body) {
   if (!Array.isArray(body?.omit)) return undefined
   const keys = body.omit.map((key) => String(key || '').trim()).filter(Boolean)
   return keys.length ? keys : undefined
+}
+
+function failureMessage(error) {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error.trim()) return error.trim()
+  return '生成失败'
+}
+
+function recordBriefingOpenFailure(db, workspaceCwd, error) {
+  const message = failureMessage(error)
+  const definition = getOrCreateDefinition(db, workspaceCwd)
+  const inflight = findInFlightBriefing(db, workspaceCwd)
+  const previous = Array.isArray(inflight?.sections) ? inflight.sections : []
+  const sections = definition.sections.filter((section) => section.enabled).map((section) => {
+    const prior = previous.find((row) => row && row.id === section.id)
+    if (prior && !prior.pendingAgent && section.type !== 'ai' && section.type !== 'mcp') return prior
+    if (section.type === 'ai' || section.type === 'mcp' || prior?.pendingAgent) {
+      return {
+        id: section.id,
+        title: section.title,
+        render: section.render,
+        type: section.type,
+        items: Array.isArray(prior?.items) ? prior.items : [],
+        error: message,
+        pendingAgent: false,
+      }
+    }
+    if (prior) return prior
+    return {
+      id: section.id,
+      title: section.title,
+      render: section.render,
+      type: section.type,
+      items: [],
+    }
+  })
+  const patch = { status: 'failed', sections, agentError: message }
+  const briefingId = inflight
+    ? inflight.id
+    : createBriefingRun(db, {
+      definitionId: definition.id,
+      workspaceCwd,
+      agentRequestId: '',
+    }).id
+  updateBriefingContent(db, briefingId, patch)
+  emit('briefing.ready', { briefingId, workspaceCwd, status: 'failed' }, { workspaceCwd })
 }
 
 function requireWorkspaceQuery(db, url, response, correlationId, fallbackCwd, cors) {
@@ -178,19 +233,26 @@ export async function handleBriefingRoutes(request, response, url, deps) {
     if (onOpen && shouldRunOnOpen(db, cwd)) {
       const connected = aiRuntime?.status?.().connected
       const canvasSessionId = String(url.searchParams.get('canvasSessionId') || '').trim()
-      void runBriefing(runBriefingDeps || { db, aiRuntime }, {
+      const opened = runBriefing(runBriefingDeps || { db, aiRuntime }, {
         workspaceCwd: cwd,
         mode: 'internal-only',
       }).then(() => {
         if (connected) {
-          void runBriefing(runBriefingDeps || { db, aiRuntime }, {
+          return runBriefing(runBriefingDeps || { db, aiRuntime }, {
             workspaceCwd: cwd,
             mode: 'full',
             skipIfCanvas: true,
             canvasSessionId,
           })
         }
-      }).catch((error) => console.warn('briefing_on_open_failed', error))
+      })
+      const recorded = opened.catch((error) => {
+        console.warn('briefing_on_open_failed', error)
+        recordBriefingOpenFailure(db, cwd, error)
+      })
+      void recorded.catch((error) => {
+        console.warn('briefing_on_open_record_failed', error)
+      })
     }
     const latest = getLatestBriefing(db, cwd)
     let def

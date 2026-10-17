@@ -144,6 +144,36 @@ export function itemsFromToolResult(raw, opts = {}) {
   return items.slice(0, cap)
 }
 
+function structuredFailure(node, depth) {
+  if (!isRecord(node) || depth > 6) return null
+  const code = typeof node.code === 'string' ? node.code.trim() : ''
+  const message = typeof node.message === 'string' ? node.message.trim() : ''
+  if (code || message) return { code, message }
+  for (const value of Object.values(node)) {
+    const found = structuredFailure(value, depth + 1)
+    if (found) return found
+  }
+  return null
+}
+
+export function briefingTurnFailure(event) {
+  const data = isRecord(event?.data) ? event.data : {}
+  const reason = data.reason
+  if (!isRecord(reason)) return null
+  if (typeof reason.kind === 'string' && reason.kind !== 'error') return null
+  return structuredFailure(reason, 0)
+}
+
+export function briefingTurnFailureText(failure) {
+  if (!failure || (!failure.code && !failure.message)) return ''
+  const code = failure.code || ''
+  if (code === 'MISSING_CREDENTIAL') {
+    return '没有配置模型密钥（MISSING_CREDENTIAL）。请到设置里配置 key。'
+  }
+  if (code) return `早报这一轮失败（${code}）。`
+  return '早报这一轮失败。'
+}
+
 function toolResultPayload(event) {
   const data = isRecord(event.data) ? event.data : {}
   const message = isRecord(data.message) ? data.message : {}
@@ -165,6 +195,7 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
   const names = new Map()
   let inTurn = false
   let ended = false
+  let turnFailure = null
   try {
     for await (const frame of aiRuntime.stream('session/follow', {
       request: {
@@ -197,6 +228,7 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
       }
       if (event.type === 'turn/end') {
         ended = true
+        turnFailure = briefingTurnFailure(event)
         break
       }
     }
@@ -208,5 +240,5 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
     clearTimeout(timer)
     abort.abort()
   }
-  return { byTool, ended }
+  return { byTool, ended, turnFailure }
 }
