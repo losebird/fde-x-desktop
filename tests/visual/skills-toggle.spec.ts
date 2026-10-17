@@ -1,10 +1,11 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { connectCore } from './host-core'
 
 const skillName = 'fde-toggle-skill'
 const source = '/tmp/fde-toggle-skill'
-const cwd = '/workspace'
+let cwd = ''
 const skillList = /\/api\/v1\/ai\/(?:skills|sessions\/[^/]+\/skills)(?:\?|$)/
 const rootOrder = ['user-dsh', 'user-agents', 'project-dsh', 'project-agents', 'custom']
 
@@ -59,6 +60,10 @@ function watchWrites(page: Page) {
 }
 
 test.beforeAll(async ({ request }) => {
+  test.setTimeout(120_000)
+  const connected = await connectCore(request)
+  cwd = connected.workspace || ''
+  expect(cwd).toEqual(expect.stringMatching(/^\//))
   root = await skillInstallRoot(request)
   bundleDir = join(root, skillName)
   rmSync(source, { recursive: true, force: true })
