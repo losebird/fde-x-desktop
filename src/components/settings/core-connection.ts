@@ -171,7 +171,11 @@ function acceptWatchedStatus(status: AiRuntimeStatus) {
     }
     return true
   }
-  if (sawMovement) return false
+  if (sawMovement) {
+    dropBaseline = ''
+    baselineHits = 0
+    return true
+  }
   baselineHits += 1
   if (baselineHits < 2) return false
   dropBaseline = ''
@@ -237,7 +241,6 @@ async function runIuiRetryNow() {
     if (previous) deliver(previous)
     throw error
   }
-  await runtimeApi.aiStatus().catch(() => undefined)
   if (!baseline || snapshotKey(posted) !== baseline) {
     sawMovement = true
     deliver(posted)
