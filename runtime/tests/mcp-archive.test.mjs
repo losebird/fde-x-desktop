@@ -520,3 +520,67 @@ test('ensureSkillProvidersInProfile disables host tool-skill and keeps the files
   }
 })
 
+async function writtenSkillProfile(prior) {
+  const { mkdtemp, mkdir, readFile, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'fde-skill-id-shape-'))
+  const file = join(home, 'profiles', 'fde-x', 'cordis.patch.yml')
+  await mkdir(join(home, 'profiles', 'fde-x'), { recursive: true })
+  await writeFile(file, prior)
+  const runtime = { dshHome: home, profileName: 'fde-x' }
+  try {
+    await ensureSkillProvidersInProfile(runtime)
+    const text = await readFile(file, 'utf8')
+    await ensureSkillProvidersInProfile(runtime)
+    const again = await readFile(file, 'utf8')
+    return { text, again }
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+}
+
+test('ensureSkillProvidersInProfile does not append a second row when the id line has a comment', async () => {
+  const prior = [
+    '- id: other-plugin',
+    '  name: "@example/keep-me"',
+    '  disabled: false',
+    '- id: tool-skill # 用户原来的行',
+    '  name: "@deepseek-ai/dsh-tool-skill"',
+    '  disabled: false',
+    '- id: skill-filesystem',
+    '  name: "@deepseek-ai/dsh-skill-filesystem"',
+    '  disabled: false',
+    '',
+  ].join('\n')
+  const expected = prior.replace(
+    '- id: tool-skill # 用户原来的行\n  name: "@deepseek-ai/dsh-tool-skill"\n  disabled: false\n',
+    '- id: tool-skill # 用户原来的行\n  name: "@deepseek-ai/dsh-tool-skill"\n  disabled: true\n',
+  )
+  const { text, again } = await writtenSkillProfile(prior)
+  assert.equal(text, expected)
+  assert.equal(again, text)
+})
+
+test('ensureSkillProvidersInProfile does not append a second row when name is written before id', async () => {
+  const prior = [
+    '- id: other-plugin',
+    '  name: "@example/keep-me"',
+    '  disabled: false',
+    '- name: "@deepseek-ai/dsh-tool-skill"',
+    '  id: tool-skill',
+    '  disabled: false',
+    '- id: skill-filesystem',
+    '  name: "@deepseek-ai/dsh-skill-filesystem"',
+    '  disabled: false',
+    '',
+  ].join('\n')
+  const expected = prior.replace(
+    '- name: "@deepseek-ai/dsh-tool-skill"\n  id: tool-skill\n  disabled: false\n',
+    '- name: "@deepseek-ai/dsh-tool-skill"\n  id: tool-skill\n  disabled: true\n',
+  )
+  const { text, again } = await writtenSkillProfile(prior)
+  assert.equal(text, expected)
+  assert.equal(again, text)
+})
+
