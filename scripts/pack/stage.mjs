@@ -477,6 +477,7 @@ export function includeRuntimePath(src, runtimeRoot) {
   const rel = full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full
   const parts = rel.split(/[/\\]/u)
   if (parts.includes('__pycache__')) return false
+  if (parts[0] === '.host-generation') return false
   if (parts[0] === 'native-workspaces') return false
   if (parts[0] === 'data') {
     const name = parts[parts.length - 1] || ''
