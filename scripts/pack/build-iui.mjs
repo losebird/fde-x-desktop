@@ -10,7 +10,7 @@ import { IUI_PIN } from './pins.mjs'
 import { PLUGIN_PIN_FILE } from '../../runtime/plugin-vendor.mjs'
 import { defaultIuiArtifactPath, explainPinDrift, iuiArtifactName, packDeterministicTarGz, retargetPrimitivePaths, sha256Hex } from './iui-artifact.mjs'
 import { sweepStaleIuiPartials } from '../../runtime/iui-stage.mjs'
-import { resolvePnpmRunner } from './pnpm-runner.mjs'
+import { assertCorepackUsable, resolvePnpmRunner } from './pnpm-runner.mjs'
 
 const execFile = promisify(execFileCb)
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -36,6 +36,7 @@ export async function buildIuiArtifact(options = {}) {
     ...process.env,
     COREPACK_HOME: process.env.COREPACK_HOME || '/tmp/corepack-home',
   }
+  await assertCorepackUsable(env, PNPM)
   const runner = await resolvePnpmRunner(env, PNPM)
   const pnpmLabel = [runner.command, ...runner.argsPrefix].join(' ')
   const pin = options.pin || IUI_PIN
