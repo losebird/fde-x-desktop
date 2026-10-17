@@ -175,37 +175,7 @@ function stopForStaleCorepack({ nodeVersion, binDir, corepackVersion, pinnedVers
   return error
 }
 
-export async function assertCorepackUsable(env = process.env, pinnedVersion, nodeVersion = process.versions.node) {
-  const pnpmPath = commandOnPath('pnpm', env)
-  if (pnpmPath && !isCorepackShim(pnpmPath)) {
-    const probe = await runProbe(pnpmPath, ['--version'], env)
-    if (!probe.ok) throw probe.error
-    const requiredMajor = String(pinnedVersion).split('.')[0]
-    if (probe.stdout.trim().split('.')[0] === requiredMajor) return
-  }
-
-  if (pnpmPath && isCorepackShim(pnpmPath)) {
-    const corepackVersion = corepackPackageVersion(pnpmPath)
-    const parsed = parseSemver(corepackVersion)
-    const old = Boolean(parsed && semverBelow(parsed, STALE_COREPACK_BELOW))
-    if (parsed && !old) return
-    const probe = await runProbe(pnpmPath, ['--version'], probeEnvForShim(env, old))
-    if (probe.ok) return
-    const probeText = `${probe.stdout}\n${probe.stderr}\n${probe.error?.message ?? ''}`
-    const errorName = corepackErrorName(probeText)
-    if (!errorName) throw probe.error
-    throw stopForStaleCorepack({
-      nodeVersion,
-      binDir: dirname(pnpmPath),
-      corepackVersion: parsed ? corepackVersion : '',
-      pinnedVersion,
-      errorName,
-      cause: probe.error,
-    })
-  }
-
-  const corepackPath = commandOnPath('corepack', env)
-  if (!corepackPath) return
+async function assertExecutedCorepack(corepackPath, env, pinnedVersion, nodeVersion) {
   const versionProbe = await runProbe(corepackPath, ['--version'], env)
   const versionText = `${versionProbe.stdout}\n${versionProbe.stderr}\n${versionProbe.error?.message ?? ''}`
   if (!versionProbe.ok) {
@@ -243,6 +213,41 @@ export async function assertCorepackUsable(env = process.env, pinnedVersion, nod
     errorName: corepackErrorName(launchText) || launch.stderr.trim().split('\n').find(Boolean) || `corepack ${versionProbe.stdout.trim()}`,
     cause: launch.error,
   })
+}
+
+export async function assertCorepackUsable(env = process.env, pinnedVersion, nodeVersion = process.versions.node) {
+  const pnpmPath = commandOnPath('pnpm', env)
+  const corepackPath = commandOnPath('corepack', env)
+  if (pnpmPath && !isCorepackShim(pnpmPath)) {
+    const probe = await runProbe(pnpmPath, ['--version'], env)
+    if (!probe.ok) throw probe.error
+    const requiredMajor = String(pinnedVersion).split('.')[0]
+    if (probe.stdout.trim().split('.')[0] === requiredMajor) return
+  }
+
+  if (corepackPath) {
+    await assertExecutedCorepack(corepackPath, env, pinnedVersion, nodeVersion)
+    return
+  }
+
+  if (pnpmPath && isCorepackShim(pnpmPath)) {
+    const corepackVersion = corepackPackageVersion(pnpmPath)
+    const parsed = parseSemver(corepackVersion)
+    const old = Boolean(parsed && semverBelow(parsed, STALE_COREPACK_BELOW))
+    const probe = await runProbe(pnpmPath, ['--version'], probeEnvForShim(env, old))
+    if (probe.ok) return
+    const probeText = `${probe.stdout}\n${probe.stderr}\n${probe.error?.message ?? ''}`
+    const errorName = corepackErrorName(probeText)
+    if (!errorName) throw probe.error
+    throw stopForStaleCorepack({
+      nodeVersion,
+      binDir: dirname(pnpmPath),
+      corepackVersion: parsed ? corepackVersion : '',
+      pinnedVersion,
+      errorName,
+      cause: probe.error,
+    })
+  }
 }
 
 export async function resolvePnpmRunner(env = process.env, pinnedVersion) {
