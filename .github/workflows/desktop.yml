@@ -46,6 +46,9 @@ jobs:
           node-version: '22'
           cache: pnpm
 
+      - name: Check runtime staging filter
+        run: node --test scripts/pack/stage-runtime.test.mjs
+
       - name: Install and build web app
         run: pnpm install --frozen-lockfile && pnpm build
 
