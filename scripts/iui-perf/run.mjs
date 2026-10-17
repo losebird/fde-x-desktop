@@ -25,7 +25,7 @@ import { writeProviderSettings, GROK_MODEL, GROK_ROUTE } from './lib/provider-ho
 import { redactText } from './lib/redact.mjs'
 import { PROMPT, systemText, toolsOf } from './lib/request-facts.mjs'
 import { planArms } from './lib/arms.mjs'
-import { applyProfilePatch } from './lib/profile-patch.mjs'
+import { applyProfilePatch, assertLiveProfilePatch } from './lib/profile-patch.mjs'
 import {
   assistantTextFromSse,
   billingOf,
@@ -513,6 +513,7 @@ async function main() {
     printHelp()
     return
   }
+  if (!staticMode) assertLiveProfilePatch({ staticMode: false })
   const artifact = await ensureArtifact()
   if (!assertNode()) return
   if (!await assertPnpm()) return

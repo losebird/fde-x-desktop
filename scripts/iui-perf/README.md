@@ -24,7 +24,9 @@ export FDE_IUI_ARTIFACT=/tmp/fde-iui-pack/scripts/pack/.cache/iui-<commit>.tar.g
 node scripts/iui-perf/run.mjs --static
 ```
 
-有 key 时，low 和 high 的 A/B 以及 B-default 各冷启动 3 次。脚本把 Host 的 baseURL 指到本机代理，再转发到 grok2api。Node 26。key 只留在环境变量里：
+有 key 时，low 和 high 的 A/B 以及 B-default 各冷启动 3 次。脚本把 Host 的 baseURL 指到本机代理，再转发到 grok2api。Node 26。key 只留在环境变量里。
+
+实时测量还要求本机已经有 fde-x profile 补丁。默认路径是 `$HOME/.dsh-fde-x/profiles/fde-x/cordis.patch.yml`。这是 FDE 的插件清单。没有这个文件时，脚本在启动时说明缺的是哪一个文件，以及怎么生成，而不是抛出裸的 ENOENT。生成方式：不要另设 `FDE_DSH_HOME`，在默认家目录执行一次 `node runtime/server.mjs`。启动时 `ensureIsolatedProfile` 会创建该文件。
 
 ```bash
 git clone --branch cursor/iui-pack-pin-6fc8 https://github.com/losebird/fde-x-desktop.git /tmp/fde-iui-pack
