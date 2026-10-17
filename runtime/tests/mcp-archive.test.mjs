@@ -23,6 +23,7 @@ import {
   homeCordisPatchPath,
   releaseMcpBootHold,
   resolveStdioCwd,
+  ensureSkillProvidersInProfile,
 } from '../mcp-archive.mjs'
 
 test('decorateDiscoveredMcpRows marks rows already in the archive', () => {
@@ -457,5 +458,204 @@ test('mcpArchivePaths uses the profile archive when present', () => {
   const profile = mcpArchivePaths({ dshHome: '/tmp/dsh-home', profileName: 'fde-x', patchFile: '/tmp/occupancy.patch.yml' })
   assert.deepEqual(profile, ['/tmp/dsh-home/profiles/fde-x/cordis.patch.yml'])
   assert.deepEqual(mcpArchivePaths({ patchFile: '/tmp/occupancy.patch.yml' }), ['/tmp/occupancy.patch.yml'])
+})
+
+function topLevelBlocks(text) {
+  return String(text).split(/\n(?=- )/u).map((part) => part.trim()).filter(Boolean)
+}
+
+function blockForId(text, id) {
+  return topLevelBlocks(text).find((part) => new RegExp(`^- id: ${id}\\b`, 'm').test(part)) || ''
+}
+
+function blockStarting(text, prefix) {
+  return topLevelBlocks(text).find((part) => part.startsWith(prefix)) || ''
+}
+
+test('ensureSkillProvidersInProfile disables host tool-skill and keeps the filesystem provider', async () => {
+  const { mkdtemp, mkdir, readFile, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'fde-skill-providers-'))
+  const file = join(home, 'profiles', 'fde-x', 'cordis.patch.yml')
+  await mkdir(join(home, 'profiles', 'fde-x'), { recursive: true })
+  const prior = [
+    '- id: other-plugin',
+    '  name: "@example/keep-me"',
+    '  disabled: false',
+    '- id: tool-skill',
+    '  name: "@deepseek-ai/dsh-tool-skill"',
+    '  disabled: false',
+    '  config:',
+    '    catalogDescriptionMaxLength: 500',
+    '- insert:',
+    '    - id: mcp-user-notes',
+    "      name: '@deepseek-ai/dsh-mcp-client'",
+    '      config:',
+    '        transport: stdio',
+    '        serverName: user-notes',
+    '        command: node',
+    '        args: ["notes.mjs"]',
+    '',
+  ].join('\n')
+  await writeFile(file, prior)
+  const runtime = { dshHome: home, profileName: 'fde-x' }
+  try {
+    await ensureSkillProvidersInProfile(runtime)
+    const text = await readFile(file, 'utf8')
+    const toolSkill = blockForId(text, 'tool-skill')
+    const filesystem = blockForId(text, 'skill-filesystem')
+    const other = blockForId(text, 'other-plugin')
+    assert.match(toolSkill, /disabled: true/)
+    assert.match(toolSkill, /catalogDescriptionMaxLength: 500/)
+    assert.match(filesystem, /disabled: false/)
+    assert.match(other, /@example\/keep-me/)
+    assert.equal(other, blockForId(prior, 'other-plugin'))
+    assert.equal(blockStarting(text, '- insert:'), blockStarting(prior, '- insert:'))
+    assert.equal(topLevelBlocks(text).filter((part) => /^- id: tool-skill\b/m.test(part)).length, 1)
+    await ensureSkillProvidersInProfile(runtime)
+    assert.equal(await readFile(file, 'utf8'), text)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+async function writtenSkillProfile(prior) {
+  const { mkdtemp, mkdir, readFile, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'fde-skill-id-shape-'))
+  const file = join(home, 'profiles', 'fde-x', 'cordis.patch.yml')
+  await mkdir(join(home, 'profiles', 'fde-x'), { recursive: true })
+  await writeFile(file, prior)
+  const runtime = { dshHome: home, profileName: 'fde-x' }
+  try {
+    await ensureSkillProvidersInProfile(runtime)
+    const text = await readFile(file, 'utf8')
+    await ensureSkillProvidersInProfile(runtime)
+    const again = await readFile(file, 'utf8')
+    return { text, again }
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+}
+
+test('ensureSkillProvidersInProfile does not append a second row when the id line has a comment', async () => {
+  const prior = [
+    '- id: other-plugin',
+    '  name: "@example/keep-me"',
+    '  disabled: false',
+    '- id: tool-skill # 用户原来的行',
+    '  name: "@deepseek-ai/dsh-tool-skill"',
+    '  disabled: false',
+    '- id: skill-filesystem',
+    '  name: "@deepseek-ai/dsh-skill-filesystem"',
+    '  disabled: false',
+    '',
+  ].join('\n')
+  const expected = prior.replace(
+    '- id: tool-skill # 用户原来的行\n  name: "@deepseek-ai/dsh-tool-skill"\n  disabled: false\n',
+    '- id: tool-skill # 用户原来的行\n  name: "@deepseek-ai/dsh-tool-skill"\n  disabled: true\n',
+  )
+  const { text, again } = await writtenSkillProfile(prior)
+  assert.equal(text, expected)
+  assert.equal(again, text)
+})
+
+test('ensureSkillProvidersInProfile does not append a second row when name is written before id', async () => {
+  const prior = [
+    '- id: other-plugin',
+    '  name: "@example/keep-me"',
+    '  disabled: false',
+    '- name: "@deepseek-ai/dsh-tool-skill"',
+    '  id: tool-skill',
+    '  disabled: false',
+    '- id: skill-filesystem',
+    '  name: "@deepseek-ai/dsh-skill-filesystem"',
+    '  disabled: false',
+    '',
+  ].join('\n')
+  const expected = prior.replace(
+    '- name: "@deepseek-ai/dsh-tool-skill"\n  id: tool-skill\n  disabled: false\n',
+    '- name: "@deepseek-ai/dsh-tool-skill"\n  id: tool-skill\n  disabled: true\n',
+  )
+  const { text, again } = await writtenSkillProfile(prior)
+  assert.equal(text, expected)
+  assert.equal(again, text)
+})
+
+test('ensureSkillProvidersInProfile keeps a disabled comment and the blank lines', async () => {
+  const prior = [
+    '- id: other-plugin',
+    '  name: "@example/keep-me"',
+    '  disabled: false',
+    '',
+    '- id: tool-skill',
+    '  name: "@deepseek-ai/dsh-tool-skill"',
+    '  disabled: false # 说明',
+    '',
+    '- id: skill-filesystem',
+    '  name: "@deepseek-ai/dsh-skill-filesystem"',
+    '  disabled: false',
+    '',
+  ].join('\n')
+  const expected = prior.replace('  disabled: false # 说明', '  disabled: true # 说明')
+  const { text, again } = await writtenSkillProfile(prior)
+  assert.equal(text, expected)
+  assert.equal(again, text)
+})
+
+test('ensureSkillProvidersInProfile disables tool-skill for every YAML false spelling', async () => {
+  const spellings = [
+    ['  disabled: False # 大写', '  disabled: true # 大写'],
+    ['  disabled: "false"', '  disabled: true'],
+    ["  disabled: 'false' # 引号", "  disabled: true # 引号"],
+    ['  disabled:', '  disabled: true'],
+    ['  disabled: no', '  disabled: true'],
+    ['  disabled: off # 开关', '  disabled: true # 开关'],
+    ['  disabled: ~', '  disabled: true'],
+  ]
+  for (const [from, to] of spellings) {
+    const prior = [
+      '- id: other-plugin',
+      '  name: "@example/keep-me"',
+      '  disabled: false',
+      '',
+      '- id: tool-skill',
+      '  name: "@deepseek-ai/dsh-tool-skill"',
+      from,
+      '',
+      '- id: skill-filesystem',
+      '  name: "@deepseek-ai/dsh-skill-filesystem"',
+      '  disabled: false',
+      '',
+    ].join('\n')
+    const expected = prior.replace(`${from}\n`, `${to}\n`)
+    const { text, again } = await writtenSkillProfile(prior)
+    assert.equal(text, expected, from)
+    assert.equal((text.match(/id: tool-skill/g) || []).length, 1, text)
+    assert.equal(again, text)
+  }
+})
+
+test('ensureSkillProvidersInProfile updates a flow tool-skill row in place', async () => {
+  const prior = [
+    '- id: other-plugin',
+    '  name: "@example/keep-me"',
+    '  disabled: false',
+    '',
+    '- { id: tool-skill, name: "@deepseek-ai/dsh-tool-skill", disabled: false } # 流式',
+    '',
+    '- id: skill-filesystem',
+    '  name: "@deepseek-ai/dsh-skill-filesystem"',
+    '  disabled: false',
+    '',
+  ].join('\n')
+  const expected = prior.replace('disabled: false } # 流式', 'disabled: true } # 流式')
+  const { text, again } = await writtenSkillProfile(prior)
+  assert.equal(text, expected)
+  assert.equal((text.match(/id: tool-skill/g) || []).length, 1, text)
+  assert.equal(text.includes('- id: tool-skill'), false, text)
+  assert.equal(again, text)
 })
 
