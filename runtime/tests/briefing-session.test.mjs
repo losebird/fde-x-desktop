@@ -36,3 +36,38 @@ test('resolveBriefingSession creates an fde-briefing session when none exists', 
   assert.equal(calls[1].args.request.agentPreset, 'fde-briefing')
   assert.equal(calls[1].args.request.cwd, '/ws/a')
 })
+
+test('resolveBriefingSession does not create a session when list fails', async () => {
+  const calls = []
+  await assert.rejects(
+    () => resolveBriefingSession({
+      call: async (endpoint) => {
+        calls.push(endpoint)
+        throw Object.assign(new Error('list down'), { code: 'session_list_failed' })
+      },
+    }, '/ws/a'),
+    (error) => error.message === 'list down',
+  )
+  assert.deepEqual(calls, ['session/list'])
+})
+
+test('resolveBriefingSession ignores a briefing row with no workspace', async () => {
+  const calls = []
+  const sessionId = await resolveBriefingSession({
+    call: async (endpoint) => {
+      calls.push(endpoint)
+      if (endpoint === 'session/list') {
+        return {
+          items: [{
+            sessionId: 'blank',
+            projections: { values: { agentPreset: 'fde-briefing' } },
+          }],
+        }
+      }
+      if (endpoint === 'session/create') return { sessionId: 'brief-new' }
+      throw new Error(endpoint)
+    },
+  }, '/ws/a')
+  assert.equal(sessionId, 'brief-new')
+  assert.deepEqual(calls, ['session/list', 'session/create'])
+})

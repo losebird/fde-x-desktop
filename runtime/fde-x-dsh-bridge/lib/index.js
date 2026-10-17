@@ -206,6 +206,7 @@ function apply(ctx) {
   }
 }
 
-module.exports = { apply, inject: ['webServer', 'tools'] }
+module.exports = { apply, installIuiModeGate, inject: ['webServer', 'tools'] }
 exports.apply = apply
+exports.installIuiModeGate = installIuiModeGate
 exports.inject = ['webServer', 'tools']
