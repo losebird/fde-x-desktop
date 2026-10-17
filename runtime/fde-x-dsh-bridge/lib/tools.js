@@ -91,8 +91,8 @@ const FDE_TOOL_NAMES = [
   'fde_app_records_query',
   'fde_app_records_propose',
   'fde_briefing_submit',
-  'fde_memory_draft',
   'fde_mcp_load',
+  'fde_memory_draft',
 ]
 
 function registerTools(ctx, { defineTool }) {

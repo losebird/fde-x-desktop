@@ -166,6 +166,26 @@ test('fde_mcp_load puts the real name on the next request and that name runs', a
   assert.match(missing.message, /mcp__ai-hot__aihot_get_latest/)
 })
 
+test('loading a second server keeps the first server on the next request', async () => {
+  const bus = createBus()
+  bridge.installIuiModeGate(bus)
+  const sessionId = 'sess-load-both'
+  await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+  const registered = []
+  tools.registerTools({
+    config: bus.config,
+    tools: { register(spec) { registered.push(spec) } },
+  }, { defineTool: (spec) => spec })
+  const load = registered.find((spec) => spec.name === 'fde_mcp_load')
+  await load.execute({ server: 'mail' }, { agent: agent(sessionId) })
+  await load.execute({ server: 'ai-hot' }, { agent: agent(sessionId) })
+  const assembled = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+  const names = assembled.tools.map((row) => row.name)
+  assert.equal(names.includes('mcp__mail__imap_search'), true)
+  assert.equal(names.includes('mcp__ai-hot__aihot_get_latest'), true)
+  assert.equal(names.includes('mcp__playwright__click'), false)
+})
+
 test('a host restart restores every loaded server from the session log', async () => {
   const home = await mkdtemp(join(tmpdir(), 'fde-mcp-log-'))
   const previous = process.env.FDE_DSH_SESSION_ROOT
