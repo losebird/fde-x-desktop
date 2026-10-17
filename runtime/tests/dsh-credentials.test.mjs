@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { credentialSourceHomes, seedDshCredentials, seedDshCredentialsSync } from '../dsh-credentials.mjs'
+import {
+  EMPTY_CREDENTIALS_DOCUMENT,
+  credentialSourceHomes,
+  ensureCredentialsDocument,
+  seedDshCredentials,
+  seedDshCredentialsSync,
+} from '../dsh-credentials.mjs'
 
 test('credentialSourceHomes skips dest and de-dupes', () => {
   const dest = '/tmp/fde-x-user/dsh-home'
@@ -46,6 +52,23 @@ test('seedDshCredentials falls back to fde home when official is missing', async
     })
     assert.equal(seeded.copied, true)
     assert.equal(readFileSync(seeded.dest, 'utf8'), 'from: fde\n')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('ensureCredentialsDocument writes an empty store and does not replace one', async () => {
+  const root = join(tmpdir(), `fde-cred-empty-${process.pid}-${Date.now()}`)
+  const destHome = join(root, 'desktop-home')
+  try {
+    const created = await ensureCredentialsDocument(destHome)
+    assert.equal(created.created, true)
+    assert.equal(readFileSync(created.dest, 'utf8'), EMPTY_CREDENTIALS_DOCUMENT)
+    assert.equal(statSync(created.dest).mode & 0o777, 0o600)
+    writeFileSync(created.dest, 'keep: yes\n', { mode: 0o600 })
+    const again = await ensureCredentialsDocument(destHome)
+    assert.equal(again.created, false)
+    assert.equal(readFileSync(again.dest, 'utf8'), 'keep: yes\n')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
