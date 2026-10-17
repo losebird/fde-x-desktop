@@ -12,11 +12,11 @@ export const SEMANTIC_RUNTIME = {
 
 export const IUI_PIN = {
   repo: 'https://github.com/losebird/IUI.git',
-  commit: '10db57b326a228e19e3093fcd694ae2ac5951408',
+  commit: '00d2fee598620b7d10a547f948d85ade8089a53e',
   version: '0.13.0-iui.27',
   artifact: {
     url: '',
-    sha256: 'c171f532ccd01e3b66272d9a364aefaaef7cd47dd37bcc4dd5444991998b634c',
+    sha256: '2e50249ac0f83a9fee13ed7e5b30e66de23de1f5d92a4721171f557718b240c6',
   },
 }
 
