@@ -32,8 +32,8 @@ function loadYamlLib() {
 
 const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/u
 const SKILL_PROVIDER_ROWS = [
-  { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem' },
-  { id: 'tool-skill', name: '@deepseek-ai/dsh-tool-skill' },
+  { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem', disabled: false },
+  { id: 'tool-skill', name: '@deepseek-ai/dsh-tool-skill', disabled: true },
 ]
 
 export function profileCordisPatchPath(aiRuntime) {
@@ -598,7 +598,7 @@ export async function ensureSkillProvidersInProfile(aiRuntime) {
     text = ''
   }
   let next = text
-  for (const row of SKILL_PROVIDER_ROWS) next = upsertPatchDisabled(next, row.id, false, row.name)
+  for (const row of SKILL_PROVIDER_ROWS) next = upsertPatchDisabled(next, row.id, row.disabled, row.name)
   if (next !== text) await writeNormalizedPatch(file, next)
   const home = aiRuntime?.dshHome || process.env.FDE_DSH_HOME
   if (!home) return
