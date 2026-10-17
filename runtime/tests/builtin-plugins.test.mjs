@@ -20,8 +20,8 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     assert.equal(pluginEnvKey('@losebird/iui'), 'FDE_PLUGIN__LOSEBIRD_IUI')
     assert.deepEqual(IUI.modes, ['standard'])
     assert.equal(IUI.source.version, '0.13.0-iui.27')
-    assert.equal(IUI.source.commit, 'dc47501012b6463d69398e3bdac70b001d8751fd')
-    assert.equal(IUI.source.sha256, '9a3b30e004c63137c4ce1ffc2388545630b46ad36e76654d1f363797272f23f3')
+    assert.equal(IUI.source.commit, '10db57b326a228e19e3093fcd694ae2ac5951408')
+    assert.equal(IUI.source.sha256, 'c171f532ccd01e3b66272d9a364aefaaef7cd47dd37bcc4dd5444991998b634c')
   })
 
   test('a clean profile links pinned IUI and keeps it across a second start', async () => {
