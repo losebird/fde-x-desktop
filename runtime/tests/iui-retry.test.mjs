@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:net'
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -11,7 +11,7 @@ import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.module === '@losebird/iui')
-const goodTar = join('/home/ubuntu/.dsh/vendor/iui', `iui-${IUI.source.commit}.tar.gz`)
+const goodTar = join(homedir(), '.dsh', 'vendor', 'iui', `iui-${IUI.source.commit}.tar.gz`)
 
 function freePort() {
   return new Promise((resolvePort, reject) => {

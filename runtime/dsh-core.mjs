@@ -24,7 +24,7 @@ import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import { BUILTIN_PLUGINS, pluginEnvKey } from './builtin-plugins.mjs'
 import { readProfileManifestFile, writeMergedProfileManifest } from './profile-manifest.mjs'
 import { reconcilePinnedVendor } from './plugin-vendor.mjs'
-import { stageIuiArtifactIfAbsent } from './iui-stage.mjs'
+import { stageIuiArtifactIfAbsent, sweepStaleIuiPartials } from './iui-stage.mjs'
 import { iuiProfileDir, promoteInstalledIui } from './iui-status.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
@@ -235,6 +235,8 @@ export class DshCoreConnector {
     this.pendingApprovals = new Map()
     this.eventAbort = null
     this.semanticRestarting = false
+    this.childStopExpected = false
+    this.iuiRetryPromise = null
     this.iui = { state: 'absent' }
   }
 
@@ -280,15 +282,31 @@ export class DshCoreConnector {
     return existsSync(join(iuiProfileDir(this.dshHome, this.profileName), 'package.json'))
   }
 
+  publishIui(next) {
+    const previous = JSON.stringify(this.iui ?? null)
+    const encoded = JSON.stringify(next)
+    this.iui = next
+    if (previous === encoded) return
+    console.info(`iui-state ${encoded}`)
+  }
+
+  failCore(reason) {
+    const text = String(reason || '核心启动失败')
+    this.state = 'error'
+    this.lastError = text
+    if (this.iui && this.iui.state === 'verify_failed') return
+    this.publishIui({ state: 'failed', reason: text })
+  }
+
   beginIuiInstall() {
     if (this.iui && this.iui.state === 'installing') return
     if (this.iuiPackagePresent()) return
-    this.iui = { state: 'installing', phase: 'stage', progress: { completed: 0, total: 4 } }
+    this.publishIui({ state: 'installing', phase: 'stage', progress: { completed: 0, total: 4 } })
   }
 
   noteIuiPhase(phase, completed) {
     if (!this.iui || this.iui.state !== 'installing') return
-    this.iui = { state: 'installing', phase, progress: { completed, total: 4 } }
+    this.publishIui({ state: 'installing', phase, progress: { completed, total: 4 } })
   }
 
   bootMark(phase) {
@@ -306,9 +324,9 @@ export class DshCoreConnector {
     return `iui-boot ${parts.join(' ')} total:${marks[marks.length - 1].at - marks[0].at}`
   }
 
-  async settleIuiEnabled() {
+  async settleIuiEnabled(attempts = 8) {
     let readError = ''
-    for (let attempt = 0; attempt < 8; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (!this.iui || this.iui.state !== 'installing') return
       if (this.state !== 'connected') return
       const result = await promoteInstalledIui(this, this.dshHome, this.profileName)
@@ -351,6 +369,8 @@ export class DshCoreConnector {
     this.state = 'starting'
     this.lastError = null
     this.logs = []
+    this.childStopExpected = false
+    try {
     if (!this.bin) {
       throw new Error('找不到 dsh。请安装 DeepSeek Harness，或设置 FDE_DSH_BIN 指向 dsh 可执行文件。')
     }
@@ -434,31 +454,26 @@ export class DshCoreConnector {
       windowsHide: true,
     })
     this.child = child
-    if (child.pid) {
-      await writePidFile(this.runDirectory, this.corePidFile, child.pid)
-    }
-
     child.stdout?.setEncoding('utf8')
     child.stderr?.setEncoding('utf8')
     child.stdout?.on('data', (chunk) => this.captureLogs(chunk))
     child.stderr?.on('data', (chunk) => this.captureLogs(chunk))
-    child.once('exit', (code, signal) => {
-      const expected = this.state === 'stopping' || this.state === 'stopped'
-      this.closeStreams()
-      this.child = null
-      this.cookie = null
-      this.origin = null
-      if (expected) {
-        this.state = 'stopped'
-      } else {
-        this.state = 'error'
-        this.lastError = `AI 服务意外退出：${signal ? `signal ${signal}` : `code ${code}`}`
+    this.armChildFailure(child)
+    await new Promise((resolveTick) => setImmediate(resolveTick))
+    if (this.state === 'error' || child.exitCode != null || child.signalCode != null) {
+      if (this.state !== 'error') {
+        const how = child.signalCode ? `signal ${child.signalCode}` : `code ${child.exitCode}`
+        const detail = this.logs.filter(Boolean).slice(-4).join(' | ')
+        this.failCore(detail ? `AI 服务意外退出：${how}：${detail}` : `AI 服务意外退出：${how}`)
       }
-      void this.cleanupCredentialsCopy()
-    })
+      throw new Error(this.lastError)
+    }
+    if (child.pid) {
+      await writePidFile(this.runDirectory, this.corePidFile, child.pid)
+    }
+    if (this.state === 'error') throw new Error(this.lastError)
 
-    try {
-      const launchUrl = await this.waitForAnnouncement(child)
+    const launchUrl = await this.waitForAnnouncement(child)
       const origin = publicOrigin(launchUrl)
       const first = await fetch(launchUrl, { redirect: 'manual', signal: AbortSignal.timeout(15_000) })
       if (first.status !== 303) throw new Error(`AI 服务认证交换失败：HTTP ${first.status}`)
@@ -492,12 +507,34 @@ export class DshCoreConnector {
       })
       return this.status()
     } catch (error) {
-      this.state = 'error'
-      this.lastError = errorMessage(error)
+      this.failCore(errorMessage(error))
       await this.releaseMcpBootHoldSafe()
       await this.stopChild()
       throw error
     }
+  }
+
+  armChildFailure(child) {
+    const onExit = (code, signal) => {
+      const expected = this.childStopExpected || this.state === 'stopping' || this.state === 'stopped'
+      this.closeStreams()
+      if (this.child === child) this.child = null
+      this.cookie = null
+      this.origin = null
+      if (!expected) {
+        const how = signal ? `signal ${signal}` : `code ${code}`
+        const detail = this.logs.filter(Boolean).slice(-4).join(' | ')
+        this.failCore(detail ? `AI 服务意外退出：${how}：${detail}` : `AI 服务意外退出：${how}`)
+      } else if (this.state !== 'error') {
+        this.state = 'stopped'
+      }
+      void this.cleanupCredentialsCopy()
+    }
+    child.once('exit', onExit)
+    child.once('error', (error) => {
+      if (this.childStopExpected || this.state === 'stopping' || this.state === 'stopped') return
+      this.failCore(errorMessage(error))
+    })
   }
 
   async releaseMcpBootHoldSafe() {
@@ -609,7 +646,7 @@ export class DshCoreConnector {
           artifactPath: this.pinnedArtifactPath(plugin),
         })
         if (staged.state === 'verify_failed') {
-          this.iui = staged
+          this.publishIui(staged)
           return false
         }
         if (staged.state === 'installed') this.noteIuiPhase('link', 2)
@@ -620,7 +657,7 @@ export class DshCoreConnector {
         })
         if (!result.ok) {
           const detail = result.error ? `${result.action}：${result.error}` : result.action
-          this.iui = { state: 'failed', reason: detail }
+          this.publishIui({ state: 'failed', reason: detail })
           this.recordPluginFailure(plugin, detail)
           return false
         }
@@ -653,7 +690,7 @@ export class DshCoreConnector {
     } catch (error) {
       if (error && error.code === 'FDE_IUI_SHA_MISMATCH') throw error
       const detail = error instanceof Error ? error.message : String(error)
-      if (plugin.source.kind === 'pinned') this.iui = { state: 'failed', reason: detail }
+      if (plugin.source.kind === 'pinned') this.publishIui({ state: 'failed', reason: detail })
       this.recordPluginFailure(plugin, detail)
       return false
     }
@@ -1367,9 +1404,23 @@ export class DshCoreConnector {
   async stopChild() {
     const child = this.child
     if (!child) return
-    await new Promise((resolveStop) => {
+    this.childStopExpected = true
+    if (child.exitCode != null || child.signalCode != null) {
+      await this.cleanupCredentialsCopy()
+      await removePidFile(this.runDirectory, this.corePidFile)
+      return
+    }
+    await new Promise((resolveStop, rejectStop) => {
       const timer = setTimeout(() => {
-        try { child.kill('SIGKILL') } catch { /* already exited */ }
+        if (child.exitCode != null || child.signalCode != null) return
+        try {
+          child.kill('SIGKILL')
+        } catch (error) {
+          if (child.exitCode == null && child.signalCode == null) {
+            clearTimeout(timer)
+            rejectStop(error)
+          }
+        }
       }, 5_000)
       child.once('exit', () => {
         clearTimeout(timer)
@@ -1377,16 +1428,44 @@ export class DshCoreConnector {
       })
       try {
         child.kill('SIGTERM')
-      } catch {
+      } catch (error) {
         clearTimeout(timer)
-        resolveStop()
+        if (child.exitCode == null && child.signalCode == null) rejectStop(error)
+        else resolveStop()
       }
     })
     await this.cleanupCredentialsCopy()
     await removePidFile(this.runDirectory, this.corePidFile)
   }
+
+  async retryIui() {
+    if (this.iuiRetryPromise) return this.iuiRetryPromise
+    this.iuiRetryPromise = this.retryIuiInternal().finally(() => {
+      this.iuiRetryPromise = null
+    })
+    return this.iuiRetryPromise
+  }
+
+  async retryIuiInternal() {
+    if (this.state === 'connected' && this.iui && this.iui.state === 'enabled') return this.status()
+    if (this.startPromise) await Promise.allSettled([this.startPromise])
+    const plugin = BUILTIN_PLUGINS.find((row) => row.module === '@losebird/iui')
+    this.publishIui({ state: 'installing', phase: 'stage', progress: { completed: 0, total: 4 } })
+    const modules = join(this.dshHome, 'profiles', this.profileName, 'node_modules')
+    await mkdir(modules, { recursive: true })
+    await this.linkBuiltinPlugin(plugin, modules)
+    if (this.iui && this.iui.state === 'verify_failed') return this.status()
+    if (this.state === 'connected') await this.reload()
+    else await this.start()
+    await this.settleIuiEnabled(40)
+    return this.status()
+  }
 }
 
 export function createCoreConnector(options) {
-  return new DshCoreConnector(options)
+  const connector = new DshCoreConnector(options)
+  const plugin = BUILTIN_PLUGINS.find((row) => row.module === '@losebird/iui')
+  if (plugin) sweepStaleIuiPartials(dirname(connector.pinnedArtifactPath(plugin)))
+  connector.beginIuiInstall()
+  return connector
 }

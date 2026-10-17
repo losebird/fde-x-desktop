@@ -2,11 +2,15 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
 import { generationDshBin } from '../generation.mjs'
+
+const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.module === '@losebird/iui')
+const goodTar = join(homedir(), '.dsh', 'vendor', 'iui', `iui-${IUI.source.commit}.tar.gz`)
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const realBin = join(root, 'runtime', '.host-generation', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
@@ -130,9 +134,10 @@ test('a core entry that exits on launch becomes error and IUI failed', { timeout
   assert.equal(original.includes(Buffer.from('import')), true)
   const home = await mkdtemp(join(tmpdir(), 'fde-core-exit-'))
   const port = await freePort()
+  await mkdir(home, { recursive: true })
+  await writeFile(join(home, '.credentials.yaml'), 'version: 1\nrefs: {}\n', { mode: 0o600 })
   await writeFile(realBin, "import 'fde-iui-missing-module'\n")
-  const artifact = '/home/ubuntu/.dsh/vendor/iui/iui-c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37.tar.gz'
-  const { child, logs } = spawnServer(home, port, artifact)
+  const { child, logs } = spawnServer(home, port, goodTar)
   const base = `http://127.0.0.1:${port}`
   try {
     await waitForHealth(base, child, logs)
