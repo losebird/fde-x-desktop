@@ -3,10 +3,14 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const skillName = 'fde-toggle-skill'
-const root = '/home/ubuntu/.dsh-fde-x/skills'
 const source = '/tmp/fde-toggle-skill'
-const manifestPath = `${root}/${skillName}/SKILL.md`
+const cwd = '/workspace'
 const skillList = /\/api\/v1\/ai\/(?:skills|sessions\/[^/]+\/skills)(?:\?|$)/
+const rootOrder = ['user-dsh', 'user-agents', 'project-dsh', 'project-agents', 'custom']
+
+let root = ''
+let manifestPath = ''
+let bundleDir = ''
 
 test.use({
   extraHTTPHeaders: { Origin: 'http://127.0.0.1:5174' },
@@ -23,9 +27,25 @@ async function skillRow(request: APIRequestContext) {
 
 async function setFlag(request: APIRequestContext, modelInvocable: boolean) {
   const response = await request.post('/api/v1/skills/model-invocable', {
-    data: { path: manifestPath, modelInvocable, cwd: '/workspace', sessionId: sid },
+    data: { path: manifestPath, modelInvocable, cwd, sessionId: sid },
   })
   expect(response.ok()).toBeTruthy()
+}
+
+async function skillInstallRoot(request: APIRequestContext) {
+  const response = await request.get(`/api/v1/skills/roots?${new URLSearchParams({ cwd })}`)
+  expect(response.ok()).toBeTruthy()
+  const body = await response.json() as { data?: { roots?: Array<{ path?: string; source?: string }> } }
+  const roots = body.data?.roots
+  expect(Array.isArray(roots)).toBeTruthy()
+  const list = roots ?? []
+  expect(list.length).toBeGreaterThan(0)
+  const picked = rootOrder
+    .map((source) => list.find((row) => row.source === source && typeof row.path === 'string' && row.path.startsWith('/')))
+    .find((row) => row)
+    ?? list.find((row) => typeof row.path === 'string' && row.path.startsWith('/'))
+  expect(picked?.path).toEqual(expect.stringMatching(/^\//))
+  return picked?.path ?? ''
 }
 
 function watchWrites(page: Page) {
@@ -39,8 +59,10 @@ function watchWrites(page: Page) {
 }
 
 test.beforeAll(async ({ request }) => {
+  root = await skillInstallRoot(request)
+  bundleDir = join(root, skillName)
   rmSync(source, { recursive: true, force: true })
-  rmSync(`${root}/${skillName}`, { recursive: true, force: true })
+  rmSync(bundleDir, { recursive: true, force: true })
   mkdirSync(source, { recursive: true })
   writeFileSync(join(source, 'SKILL.md'), `---
 name: ${skillName}
@@ -49,24 +71,28 @@ description: Toggle round trip skill.
 
 Toggle body.
 `)
-  const session = await request.post('/api/v1/ai/sessions', { data: { cwd: '/workspace' } })
+  const session = await request.post('/api/v1/ai/sessions', { data: { cwd } })
   expect(session.status()).toBe(201)
   const created = await session.json() as { data?: { sessionId?: string } }
   sid = created.data?.sessionId || ''
   expect(sid).toBeTruthy()
   const installed = await request.post('/api/v1/skills/install', {
-    data: { source, root, cwd: '/workspace' },
+    data: { source, root, cwd },
   })
   expect(installed.status()).toBe(201)
+  const saved = await installed.json() as { data?: { path?: string; dest?: string } }
+  expect(saved.data?.path).toEqual(expect.stringMatching(/SKILL\.md$/))
+  manifestPath = saved.data?.path ?? ''
+  if (saved.data?.dest) bundleDir = saved.data.dest
 })
 
 test.afterAll(async ({ request }) => {
-  if (sid) {
-    await request.delete(`/api/v1/skills/bundle?${new URLSearchParams({ path: manifestPath, cwd: '/workspace', sessionId: sid })}`)
+  if (sid && manifestPath) {
+    await request.delete(`/api/v1/skills/bundle?${new URLSearchParams({ path: manifestPath, cwd, sessionId: sid })}`)
     await request.post(`/api/v1/ai/sessions/${encodeURIComponent(sid)}/archive`)
   }
   rmSync(source, { recursive: true, force: true })
-  rmSync(`${root}/${skillName}`, { recursive: true, force: true })
+  if (bundleDir) rmSync(bundleDir, { recursive: true, force: true })
 })
 
 test('disable, enable, then disable reads back from the api', async ({ page, request }) => {
