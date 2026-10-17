@@ -130,11 +130,20 @@ function printHelp() {
   ].join('\n'))
 }
 
+function artifactAcquireHint() {
+  return [
+    '在分支 cursor/iui-pack-pin-6fc8 上执行 pnpm install --frozen-lockfile，然后 node scripts/pack/build-iui.mjs。',
+    `产物是 scripts/pack/.cache/${ARTIFACT_NAME}。文件名形状是 iui-<commit>.tar.gz。`,
+    '仓库没有发布这个包。.github/workflows/iui-tar-sha.yml 只在该分支构建并核对 sha256，不上传产物。pins.mjs 的 artifact.url 是空的。',
+  ].join('')
+}
+
 async function ensureArtifact() {
   const fromEnv = process.env.FDE_IUI_ARTIFACT
   if (fromEnv && existsSync(fromEnv)) return fromEnv
-  if (fromEnv) throw new Error(`FDE_IUI_ARTIFACT 指向的文件不存在：${fromEnv}`)
-  throw new Error(`缺少环境变量 FDE_IUI_ARTIFACT。把现成的 ${ARTIFACT_NAME} 路径放进去。本脚本不构建 IUI。`)
+  const hint = artifactAcquireHint()
+  if (fromEnv) throw new Error(`FDE_IUI_ARTIFACT 指向的文件不存在：${fromEnv}。${hint}`)
+  throw new Error(`缺少环境变量 FDE_IUI_ARTIFACT。${hint}`)
 }
 
 async function ensurePluginDir(artifact) {

@@ -10,17 +10,29 @@ endpoint 读 `GROK2API_BASE_URL`，默认 `http://127.0.0.1:8000/v1`。key 只�
 
 `IUI_PERF_PROFILE_PATCH` 指向一份 `cordis.patch.yml` 时，脚本把它复制进临时 HOME 的 `fde-x` 和 `web` profile，跑完删除临时 HOME。日志走 `lib/redact.mjs`。
 
-需要 Node 26 和 pnpm 11.20.0。实时跑还要本机 grok2api 在 `127.0.0.1:8000`。key 只放在环境变量 `GROK2API_API_KEY` 里，不要写进命令替换或文件。IUI 包只认环境变量 `FDE_IUI_ARTIFACT`，指向现成的 `iui-c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37.tar.gz`。变量缺失或文件不存在时脚本退出并说明原因，不在这条分支上构建 IUI。`node scripts/iui-perf/run.mjs --help` 只打印用法。
+需要 Node 26 和 pnpm 11.20.0。实时跑还要本机 grok2api 在 `127.0.0.1:8000`。key 只放在环境变量 `GROK2API_API_KEY` 里，不要写进命令替换或文件。IUI 包只认环境变量 `FDE_IUI_ARTIFACT`。本分支没有 `scripts/pack/build-iui.mjs`。打包在分支 `cursor/iui-pack-pin-6fc8` 上，先 `pnpm install --frozen-lockfile`，再 `node scripts/pack/build-iui.mjs`。产物是 `scripts/pack/.cache/iui-c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37.tar.gz`。仓库没有发布这个包。
 
-没有 key 时，本机假 OpenAI 服务只拦请求：
+没有 key 时，本机假 OpenAI 服务只拦请求。先拿到产物，再跑：
 
 ```bash
+git clone --branch cursor/iui-pack-pin-6fc8 https://github.com/losebird/fde-x-desktop.git /tmp/fde-iui-pack
+cd /tmp/fde-iui-pack
+pnpm install --frozen-lockfile
+node scripts/pack/build-iui.mjs
+export FDE_IUI_ARTIFACT=/tmp/fde-iui-pack/scripts/pack/.cache/iui-c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37.tar.gz
+# 回到本测量分支的检出目录
 node scripts/iui-perf/run.mjs --static
 ```
 
-有 key 时，low 和 high 的 A/B 以及 B-default 各冷启动 3 次。脚本把 Host 的 baseURL 指到本机代理，再转发到 grok2api：
+有 key 时，low 和 high 的 A/B 以及 B-default 各冷启动 3 次。脚本把 Host 的 baseURL 指到本机代理，再转发到 grok2api。Node 26。key 只留在环境变量里：
 
 ```bash
+git clone --branch cursor/iui-pack-pin-6fc8 https://github.com/losebird/fde-x-desktop.git /tmp/fde-iui-pack
+cd /tmp/fde-iui-pack
+pnpm install --frozen-lockfile
+node scripts/pack/build-iui.mjs
+export FDE_IUI_ARTIFACT=/tmp/fde-iui-pack/scripts/pack/.cache/iui-c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37.tar.gz
+# 回到本测量分支的检出目录
 export GROK2API_API_KEY
 IUI_PERF_PROFILE_PATCH="$HOME/.dsh-fde-x/profiles/fde-x/cordis.patch.yml" node scripts/iui-perf/run.mjs
 ```
