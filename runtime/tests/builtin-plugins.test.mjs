@@ -2,7 +2,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { lstat, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -133,6 +133,45 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
       IUI.source.sha256 = savedSha
       restoreEnv(saved)
       await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  test('a dev vendor symlink keeps the tar and stages IUI beside it', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-home-'))
+    const shared = await mkdtemp(join(tmpdir(), 'fde-shared-'))
+    const { archive, sha } = await fixtureArchive(home, IUI.source.version, IUI.source.commit)
+    const artifactName = `iui-${IUI.source.commit}.tar.gz`
+    const artifactDir = join(shared, 'iui')
+    await mkdir(artifactDir, { recursive: true })
+    await cp(archive, join(artifactDir, artifactName))
+    await symlink(shared, join(home, 'vendor'))
+    const savedSha = IUI.source.sha256
+    const saved = {
+      FDE_PLUGIN_IUI: process.env.FDE_PLUGIN_IUI,
+      FDE_PLUGIN_DSH_LAN_ASSIST: process.env.FDE_PLUGIN_DSH_LAN_ASSIST,
+      FDE_PLUGIN_DSH_SEMANTIC_OS: process.env.FDE_PLUGIN_DSH_SEMANTIC_OS,
+      FDE_IUI_ARTIFACT: process.env.FDE_IUI_ARTIFACT,
+      FDE_VENDOR_DIR: process.env.FDE_VENDOR_DIR,
+    }
+    delete process.env.FDE_PLUGIN_IUI
+    delete process.env.FDE_IUI_ARTIFACT
+    process.env.FDE_VENDOR_DIR = shared
+    process.env.FDE_PLUGIN_DSH_LAN_ASSIST = await tinyPlugin(home, 'lan')
+    process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = await tinyPlugin(home, 'sem')
+    IUI.source.sha256 = sha
+    try {
+      const connector = new DshCoreConnector({ dshHome: home, cwd: home })
+      await connector.ensureIsolatedProfile()
+      assert.equal(existsSync(join(artifactDir, artifactName)), true)
+      assert.equal(existsSync(join(artifactDir, 'package.json')), false)
+      const linked = join(home, 'profiles', 'fde-x', 'node_modules', '@losebird', 'iui', 'package.json')
+      assert.equal(JSON.parse(await readFile(linked, 'utf8')).version, IUI.source.version)
+      assert.equal(JSON.parse(await readFile(join(home, 'pinned', 'iui', 'package.json'), 'utf8')).version, IUI.source.version)
+    } finally {
+      IUI.source.sha256 = savedSha
+      restoreEnv(saved)
+      await rm(home, { recursive: true, force: true })
+      await rm(shared, { recursive: true, force: true })
     }
   })
 

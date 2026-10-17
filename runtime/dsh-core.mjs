@@ -475,6 +475,19 @@ export class DshCoreConnector {
     return join(root, plugin.dir, `iui-${plugin.source.commit}.tar.gz`)
   }
 
+  pinnedInstallDir(plugin) {
+    const shared = join(this.dshHome, 'vendor', plugin.dir)
+    const artifactPath = this.pinnedArtifactPath(plugin)
+    if (!artifactPath || !existsSync(artifactPath) || !existsSync(shared)) return shared
+    try {
+      if (realpathSync(shared) !== realpathSync(dirname(artifactPath))) return shared
+    } catch {
+      return shared
+    }
+    if (existsSync(join(shared, 'package.json'))) return shared
+    return join(this.dshHome, 'pinned', plugin.dir)
+  }
+
   pluginSourceCandidates(plugin) {
     const fromEnv = process.env[pluginEnvKey(plugin.dir)]
     const webLink = join(this.dshHome, 'profiles', 'web', 'node_modules', plugin.module)
@@ -512,7 +525,9 @@ export class DshCoreConnector {
 
   async linkBuiltinPlugin(plugin, modulesDir) {
     try {
-      const vendor = join(this.dshHome, 'vendor', plugin.dir)
+      const vendor = plugin.source.kind === 'pinned'
+        ? this.pinnedInstallDir(plugin)
+        : join(this.dshHome, 'vendor', plugin.dir)
       if (plugin.source.kind === 'pinned') {
         const sha256 = plugin.source.sha256
         if (!/^[a-f0-9]{64}$/u.test(String(sha256 || ''))) {
