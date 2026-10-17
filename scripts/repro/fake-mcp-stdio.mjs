@@ -1,8 +1,15 @@
 import { stdin, stdout } from 'node:process'
 
-const serverName = process.argv[2] === 'ai-hot' ? 'ai-hot' : 'mail'
-const toolName = serverName === 'ai-hot' ? 'aihot_get_latest' : 'imap_search'
-const sampleText = serverName === 'ai-hot' ? 'fake-news-item' : 'fake-mail-item'
+const specs = {
+  mail: { tool: 'imap_search', text: 'fake-mail-item' },
+  'ai-hot': { tool: 'aihot_get_latest', text: 'fake-news-item' },
+  'cua-driver': { tool: 'snapshot', text: 'fake-cua-item' },
+  'chrome-devtools': { tool: 'list_pages', text: 'fake-chrome-item' },
+  playwright: { tool: 'click', text: 'fake-playwright-item' },
+}
+const serverName = specs[process.argv[2]] ? process.argv[2] : 'mail'
+const toolName = specs[serverName].tool
+const sampleText = specs[serverName].text
 
 let buffer = Buffer.alloc(0)
 

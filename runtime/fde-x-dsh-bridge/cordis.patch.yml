@@ -1,0 +1,9 @@
+- insert:
+    - id: fde-x-dsh-bridge
+      name: fde-x-dsh-bridge
+      config:
+        standardDenyServers:
+          - cua-driver
+          - chrome-devtools
+          - playwright
+        briefingDenyUserMcp: true
