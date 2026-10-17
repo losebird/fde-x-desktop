@@ -167,7 +167,7 @@ export function decorateDiscoveredMcpRows(discovered, archiveNames) {
 }
 
 function isPatchBoundary(line) {
-  return line.startsWith('- id:') || line === '- insert:' || line.startsWith('- insert:')
+  return line.startsWith('- ')
 }
 
 export function splitPatchBlocks(text) {
@@ -569,14 +569,28 @@ export function upsertMcpDisabled(text, serverName, disabled) {
   return serializePatch(document)
 }
 
-function readTopLevelId(block) {
-  const line = String(block || '').split('\n')[0]
-  if (!line.startsWith('- id:')) return ''
-  let value = line.slice('- id:'.length).trim()
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    value = value.slice(1, -1)
+function yamlScalar(raw) {
+  let value = String(raw || '').trim()
+  if (value.startsWith('"') || value.startsWith("'")) {
+    const quote = value[0]
+    const end = value.indexOf(quote, 1)
+    if (end > 0) return value.slice(1, end)
   }
+  const commentAt = value.search(/\s#/)
+  if (commentAt >= 0) value = value.slice(0, commentAt).trim()
   return value
+}
+
+function readTopLevelId(block) {
+  for (const line of String(block || '').split('\n')) {
+    if (line.startsWith('   ') || line.startsWith('\t')) continue
+    let raw = ''
+    if (line.startsWith('- id:')) raw = line.slice('- id:'.length)
+    else if (line.startsWith('  id:')) raw = line.slice('  id:'.length)
+    else continue
+    return yamlScalar(raw)
+  }
+  return ''
 }
 
 function topLevelSpans(raw) {
@@ -606,10 +620,9 @@ function newPatchRow(id, disabled, name) {
 function editDisabledBlock(block, disabled, name) {
   const value = disabled ? 'true' : 'false'
   const lines = block.split('\n')
-  const idIndex = lines.findIndex((line) => line.startsWith('- id:'))
-  if (name && !lines.some((line) => /^  name:/.test(line))) {
-    lines.splice(idIndex + 1, 0, `  name: ${JSON.stringify(name)}`)
-  }
+  const idIndex = lines.findIndex((line) => line.startsWith('- id:') || line.startsWith('  id:'))
+  const hasName = lines.some((line) => line.startsWith('- name:') || line.startsWith('  name:'))
+  if (name && !hasName) lines.splice(Math.max(idIndex, 0) + 1, 0, `  name: ${JSON.stringify(name)}`)
   const disabledIndex = lines.findIndex((line) => /^  disabled:/.test(line))
   if (disabledIndex >= 0) lines[disabledIndex] = `  disabled: ${value}`
   else lines.splice(Math.max(idIndex, 0) + 1, 0, `  disabled: ${value}`)
