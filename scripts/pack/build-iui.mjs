@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { IUI_PIN } from './pins.mjs'
 import { PLUGIN_PIN_FILE } from '../../runtime/plugin-vendor.mjs'
-import { defaultIuiArtifactPath, packDeterministicTarGz, retargetPrimitivePaths, sha256Hex } from './iui-artifact.mjs'
+import { defaultIuiArtifactPath, iuiArtifactName, packDeterministicTarGz, retargetPrimitivePaths, sha256Hex } from './iui-artifact.mjs'
 import { resolvePnpmRunner } from './pnpm-runner.mjs'
 
 const execFile = promisify(execFileCb)
@@ -124,8 +124,42 @@ export async function buildIuiArtifact(options = {}) {
   return { artifactPath, sha256, version: sourcePkg.version, commit: pin.commit }
 }
 
+export function iuiArtifactPathFromArgv(argv, { repoRoot: root, commit }) {
+  let outDir = ''
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    if (arg === '--out') {
+      const value = argv[index + 1]
+      if (!value || value.startsWith('--')) {
+        throw new Error('build-iui --out needs a directory')
+      }
+      outDir = value
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--out=')) {
+      outDir = arg.slice('--out='.length)
+      if (!outDir) throw new Error('build-iui --out needs a directory')
+      continue
+    }
+    throw new Error(`build-iui: unknown argument ${arg}`)
+  }
+  if (!outDir) return defaultIuiArtifactPath(root, commit)
+  return join(outDir, iuiArtifactName(commit))
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
-  buildIuiArtifact().then((result) => {
+  let artifactPath
+  try {
+    artifactPath = iuiArtifactPathFromArgv(process.argv.slice(2), {
+      repoRoot,
+      commit: IUI_PIN.commit,
+    })
+  } catch (error) {
+    console.error(error.message)
+    process.exit(1)
+  }
+  buildIuiArtifact({ artifactPath }).then((result) => {
     console.log(`[build-iui] ${result.version} ${result.commit}`)
     console.log(`[build-iui] artifact ${result.artifactPath}`)
     console.log(`[build-iui] sha256 ${result.sha256}`)
