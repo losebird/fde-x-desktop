@@ -24,11 +24,15 @@ import { startOpenAiServer } from './lib/openai-server.mjs'
 import { writeProviderSettings, GROK_MODEL, GROK_ROUTE } from './lib/provider-home.mjs'
 import { redactText } from './lib/redact.mjs'
 import { PROMPT, systemText, toolsOf } from './lib/request-facts.mjs'
+import { planArms } from './lib/arms.mjs'
+import { applyProfilePatch } from './lib/profile-patch.mjs'
 import {
   assistantTextFromSse,
+  billingOf,
   compareCaptures,
   inventoryFile,
   iuiFences,
+  measurementReport,
   parseSseUsage,
   pickPromptTurn,
   requestIndex,
@@ -43,15 +47,7 @@ const IUI_SHA = 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a
 const ARTIFACT_NAME = `iui-${IUI_COMMIT}.tar.gz`
 
 const staticMode = process.argv.includes('--static')
-const matchedEffort = process.env.GROK2API_EFFORT || 'low'
-const runs = staticMode ? 1 : Number(process.env.IUI_PERF_RUNS || 3)
 const grokBase = process.env.GROK2API_BASE_URL || 'http://127.0.0.1:8000/v1'
-
-const ARMS = [
-  { id: 'A', api: 'openai-completions', effort: matchedEffort, kind: 'dsh' },
-  { id: 'B', api: 'openai-responses', effort: matchedEffort, kind: 'fde' },
-  { id: 'B-default', api: 'openai-responses', effort: null, kind: 'fde' },
-]
 
 function fail(message) {
   console.error(message)
@@ -179,32 +175,33 @@ async function readMetas(dir) {
   return rows
 }
 
-async function captureA({ baseUrl, pluginDir, capDir, forward, effort }) {
+async function captureA({ baseUrl, pluginDir, capDir, forward, effort, group }) {
   const home = await mkdtemp(join(tmpdir(), 'iui-perf-a-'))
   const workspace = await mkdtemp(join(tmpdir(), 'iui-perf-ws-'))
-  await writeEmptyCredentials(home)
-  await writeProviderSettings(home, { baseUrl, api: 'openai-completions', effort })
-  const bin = await ensureDshBin()
-  const log = openLog(join(capDir, 'boot.log'))
-  const apiKey = apiKeyForChild()
-  const add = spawnDsh(bin, ['plugin', '--profile', 'web', 'add', pluginDir], {
-    home,
-    cwd: workspace,
-    log,
-    apiKey,
-  })
-  const addCode = await onceExit(add.child, 300000)
-  if (addCode !== 0) {
-    log.end()
-    throw new Error(`dsh plugin add exit ${addCode}`)
-  }
-  const web = spawnDsh(bin, ['web', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
-    home,
-    cwd: workspace,
-    log,
-    apiKey,
-  })
+  let web = null
+  let log = null
   try {
+    await writeEmptyCredentials(home)
+    await writeProviderSettings(home, { baseUrl, api: 'openai-completions', effort })
+    await applyProfilePatch(home, ['web'])
+    const bin = await ensureDshBin()
+    log = openLog(join(capDir, 'boot.log'))
+    const apiKey = apiKeyForChild()
+    const add = spawnDsh(bin, ['plugin', '--profile', 'web', 'add', pluginDir], {
+      home,
+      cwd: workspace,
+      log,
+      apiKey,
+    })
+    const addCode = await onceExit(add.child, 300000)
+    if (addCode !== 0) throw new Error(`dsh plugin add exit ${addCode}`)
+    await applyProfilePatch(home, ['web'])
+    web = spawnDsh(bin, ['web', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
+      home,
+      cwd: workspace,
+      log,
+      apiKey,
+    })
     const match = await waitForLine(web.logs, /dsh web:\s+(\S+)/, 180000, { raw: true })
     const launchUrl = match[1]
     await waitForLine(web.logs, /settings: imported/, 60000).catch(() => {})
@@ -234,10 +231,9 @@ async function captureA({ baseUrl, pluginDir, capDir, forward, effort }) {
     })
     const records = await waitQuiet(capDir, forward ? 12 * 60 * 1000 : 180000, forward ? 8000 : 4000)
     return {
-      group: 'A',
+      group,
       api: 'openai-completions',
       effort: effort || '(default)',
-      home,
       origin,
       sessionId,
       e2eMs: Date.now() - started,
@@ -246,8 +242,10 @@ async function captureA({ baseUrl, pluginDir, capDir, forward, effort }) {
       note: staticMode ? '静态拦截往返，不是模型生成耗时。' : '从 prompt 被接受，到请求流静默。',
     }
   } finally {
-    await stopChild(web.child)
-    log.end()
+    if (web) await stopChild(web.child)
+    if (log) log.end()
+    await rm(home, { recursive: true, force: true })
+    await rm(workspace, { recursive: true, force: true })
   }
 }
 
@@ -255,37 +253,40 @@ async function captureFde({ baseUrl, artifact, capDir, port, forward, effort, gr
   const home = await mkdtemp(join(tmpdir(), 'iui-perf-b-'))
   const workspace = await mkdtemp(join(tmpdir(), 'iui-perf-ws-'))
   const db = join(home, 'fde.sqlite')
-  await writeEmptyCredentials(home)
-  await writeProviderSettings(home, { baseUrl, api, effort })
-  const log = openLog(join(capDir, 'boot.log'))
-  const env = {
-    ...childEnv(home, apiKeyForChild()),
-    FDE_DATABASE_PATH: db,
-    FDE_AI_WORKSPACE: workspace,
-    FDE_IUI_ARTIFACT: artifact,
-    FDE_RUNTIME_PORT: String(port),
-    FDE_LISTEN_HOST: '127.0.0.1',
-    FDE_VENDOR_DIR: join(home, 'missing-vendor'),
-  }
-  const child = spawn(process.execPath, ['runtime/boot.mjs'], {
-    cwd: repoRoot,
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  const logs = { stdout: '', stderr: '' }
-  child.stdout.setEncoding('utf8')
-  child.stderr.setEncoding('utf8')
-  child.stdout.on('data', (chunk) => {
-    const safe = redactText(chunk)
-    logs.stdout += safe
-    log.write(safe)
-  })
-  child.stderr.on('data', (chunk) => {
-    const safe = redactText(chunk)
-    logs.stderr += safe
-    log.write(safe)
-  })
+  let child = null
+  let log = null
   try {
+    await writeEmptyCredentials(home)
+    await writeProviderSettings(home, { baseUrl, api, effort })
+    await applyProfilePatch(home, ['fde-x'])
+    log = openLog(join(capDir, 'boot.log'))
+    const env = {
+      ...childEnv(home, apiKeyForChild()),
+      FDE_DATABASE_PATH: db,
+      FDE_AI_WORKSPACE: workspace,
+      FDE_IUI_ARTIFACT: artifact,
+      FDE_RUNTIME_PORT: String(port),
+      FDE_LISTEN_HOST: '127.0.0.1',
+      FDE_VENDOR_DIR: join(home, 'missing-vendor'),
+    }
+    child = spawn(process.execPath, ['runtime/boot.mjs'], {
+      cwd: repoRoot,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const logs = { stdout: '', stderr: '' }
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      const safe = redactText(chunk)
+      logs.stdout += safe
+      log.write(safe)
+    })
+    child.stderr.on('data', (chunk) => {
+      const safe = redactText(chunk)
+      logs.stderr += safe
+      log.write(safe)
+    })
     const announced = await new Promise((resolveWait, reject) => {
       const timer = setTimeout(() => reject(new Error(`fde boot timed out\n${logs.stderr.slice(-1500)}`)), 240000)
       const timerPoll = setInterval(() => {
@@ -353,7 +354,6 @@ async function captureFde({ baseUrl, artifact, capDir, port, forward, effort, gr
       group,
       api,
       effort: effort || '(default)',
-      home,
       origin,
       port: Number(announced),
       sessionId,
@@ -364,8 +364,10 @@ async function captureFde({ baseUrl, artifact, capDir, port, forward, effort, gr
       note: staticMode ? '静态拦截往返，不是模型生成耗时。' : '从 prompt 被接受，到请求流静默。',
     }
   } finally {
-    await stopChild(child)
-    log.end()
+    if (child) await stopChild(child)
+    if (log) log.end()
+    await rm(home, { recursive: true, force: true })
+    await rm(workspace, { recursive: true, force: true })
   }
 }
 
@@ -449,12 +451,17 @@ function stepLines(records, metas) {
   for (const row of requestIndex(records)) {
     const meta = byId.get(row.id) || {}
     const usage = meta.usage || {}
+    const bill = billingOf([meta])
+    const step = bill.steps[0] || {}
     const speed = speedOf(meta)
     lines.push(
       `- ${row.id} ${row.path || ''} model=${row.model || '(absent)'} effort=${row.effort} tools=${row.tools} prompt=${row.promptTurn}`,
     )
     lines.push(
-      `  input=${usage.input ?? '(无供应商 usage)'} output=${usage.output ?? '(无)'} cacheRead=${usage.cacheRead ?? '(无)'} 首token=${meta.firstByteMs ?? '(无)'} ms 生成=${speed ?? '(无)'} tok/s 耗时=${meta.totalMs ?? '(无)'} ms 工具调用=${JSON.stringify(row.toolUses)}`,
+      `  供应商 input=${usage.input ?? '(无)'} output=${usage.output ?? '(无)'} cacheRead=${usage.cacheRead ?? '(无)'}`,
+    )
+    lines.push(
+      `  计费 未缓存=${step.uncached ?? '(无)'} 缓存=${step.cached ?? '(无)'} 输出=${step.output ?? '(无)'} 首token=${meta.firstByteMs ?? '(无)'} ms 生成耗时=${step.genMs ?? '(无)'} ms 整段=${meta.totalMs ?? '(无)'} ms 速度=${speed ?? '(无)'} tok/s 工具调用=${JSON.stringify(row.toolUses)}`,
     )
   }
   return lines
@@ -466,14 +473,15 @@ function armCell(turn, field) {
   return value === undefined || value === null || value === '' ? '—' : value
 }
 
-function markdownTable(comparison, runsOut, defaultTurn) {
+function markdownTable(comparison, runsOut, defaultTurn, report) {
   const a = comparison.A
   const b = comparison.B
+  const coldStarts = new Set(runsOut.filter((row) => row.group === 'B-default').map((row) => row.index)).size
   const lines = [
     `# IUI grok2api 对比`,
     ``,
-    `模型 ${GROK_MODEL}。A 走 openai-completions，B 走 openai-responses。对齐 effort=${matchedEffort}。B-default 不写 reasoningEffort。`,
-    `分词器：${TOKENIZER_NAME}。静态表不是供应商账单。`,
+    `模型 ${GROK_MODEL}。A 走 openai-completions，B 走 openai-responses。默认同时跑 effort=low 和 effort=high，每臂冷启动 ${coldStarts || 1} 次。B-default 不写 reasoningEffort。`,
+    `分词器：${TOKENIZER_NAME}。静态表不是供应商账单。计费按每步未缓存、缓存、输出分开，再跨冷启动取中位数。不把两步的 input 总数相加。`,
     ``,
     `| 项 | A | B 对齐 effort | B 默认 effort |`,
     `| --- | ---: | ---: | ---: |`,
@@ -502,6 +510,7 @@ function markdownTable(comparison, runsOut, defaultTurn) {
     lines.push(...stepLines(row.records || [], row.metas || []))
     lines.push('')
   }
+  if (report && report.markdown) lines.push(report.markdown.trimEnd(), '')
   return `${lines.join('\n')}\n`
 }
 
@@ -518,10 +527,7 @@ async function main() {
   const digest = await sha256(artifact)
   if (digest !== IUI_SHA) throw new Error(`IUI sha256 ${digest} != pin ${IUI_SHA}`)
   const pluginDir = await ensurePluginDir(artifact)
-  const order = []
-  for (let index = 1; index <= runs; index += 1) {
-    for (const arm of ARMS) order.push({ ...arm, index })
-  }
+  const order = planArms({ env: process.env, staticMode })
   const finished = []
   let port = 4318
   for (const arm of order) {
@@ -542,6 +548,7 @@ async function main() {
           capDir,
           forward: !staticMode,
           effort: arm.effort,
+          group: arm.id,
         })
         : await captureFde({
           baseUrl,
@@ -567,10 +574,18 @@ async function main() {
     }
   }
   const sample = (id) => finished.find((row) => row.group === id && row.index === 1)
-  const a = sample('A')
-  const b = sample('B')
+  const a = sample('A-low') || finished.find((row) => String(row.group).startsWith('A-') && row.index === 1)
+  const b = sample('B-low') || finished.find((row) => String(row.group).startsWith('B-') && row.group !== 'B-default' && row.index === 1)
   const fallback = sample('B-default')
+  if (!a || !b || !fallback) throw new Error('缺少 A、B 或 B-default 的第一次捕获')
   const comparison = await compareCaptures(a, b)
+  const report = measurementReport(finished.map((row) => ({
+    group: row.group,
+    effort: row.effort,
+    index: row.index,
+    metas: row.metas,
+    body: (pickPromptTurn(row.records) || {}).body,
+  })))
   const defaultTurn = await (async () => {
     const { describeTurn } = await import('./lib/summarize.mjs')
     return describeTurn(pickPromptTurn(fallback.records))
@@ -588,8 +603,8 @@ async function main() {
     metas: row.metas,
     extras: row.extras,
   }))
-  await writeFile(join(outDir, 'comparison.json'), `${JSON.stringify({ comparison, defaultTurn, runs: publicRuns }, null, 2)}\n`)
-  await writeFile(join(outDir, 'comparison.md'), markdownTable(comparison, finished, defaultTurn))
+  await writeFile(join(outDir, 'comparison.json'), `${JSON.stringify({ comparison, defaultTurn, runs: publicRuns, efforts: report.groups }, null, 2)}\n`)
+  await writeFile(join(outDir, 'comparison.md'), markdownTable(comparison, finished, defaultTurn, report))
   const first = join(outDir, 'first-turn')
   await mkdir(first, { recursive: true })
   for (const row of [a, b, fallback]) {
@@ -606,7 +621,11 @@ async function main() {
   console.log(`wrote ${join(outDir, 'comparison.md')}`)
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack : error)
-  process.exitCode = 1
-})
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (invokedDirectly) {
+  main().catch((error) => {
+    const text = error instanceof Error ? error.stack || error.message : error
+    console.error(redactText(text))
+    process.exitCode = 1
+  })
+}

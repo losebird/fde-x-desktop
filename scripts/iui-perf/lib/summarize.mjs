@@ -253,3 +253,110 @@ export async function inventorySection(file, exportName) {
     exportName,
   }
 }
+
+function finite(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+export function spreadOf(values) {
+  const nums = (Array.isArray(values) ? values : [])
+    .map((value) => finite(value))
+    .filter((value) => value != null)
+    .sort((left, right) => left - right)
+  if (!nums.length) return { n: 0, median: null, min: null, max: null, range: null }
+  const mid = Math.floor(nums.length / 2)
+  const median = nums.length % 2 === 1 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2
+  return {
+    n: nums.length,
+    median,
+    min: nums[0],
+    max: nums[nums.length - 1],
+    range: nums[nums.length - 1] - nums[0],
+  }
+}
+
+export function billingOf(metas) {
+  const steps = []
+  for (const meta of Array.isArray(metas) ? metas : []) {
+    const usage = meta && meta.usage && typeof meta.usage === 'object' ? meta.usage : {}
+    const input = finite(usage.input)
+    const cached = finite(usage.cacheRead)
+    const output = finite(usage.output)
+    const firstByteMs = finite(meta.firstByteMs)
+    const totalMs = finite(meta.totalMs)
+    steps.push({
+      id: meta && meta.id,
+      uncached: input == null ? null : input - (cached == null ? 0 : cached),
+      cached: cached == null ? 0 : cached,
+      output: output == null ? 0 : output,
+      firstByteMs,
+      genMs: firstByteMs == null || totalMs == null ? null : totalMs - firstByteMs,
+    })
+  }
+  const sum = (key) => steps.reduce((total, step) => total + (typeof step[key] === 'number' ? step[key] : 0), 0)
+  return { steps, uncached: sum('uncached'), cached: sum('cached'), output: sum('output') }
+}
+
+export function skillCatalogOf(body) {
+  const raw = JSON.stringify(body == null ? '' : body)
+  return {
+    hasAvailableSkills: raw.includes('<available_skills>'),
+    hasEmptyNotice: raw.includes('No skills are currently available'),
+  }
+}
+
+function catalogLine(catalog) {
+  if (catalog && catalog.hasEmptyNotice) return '技能目录：空通知'
+  if (catalog && catalog.hasAvailableSkills) return '技能目录：有'
+  return '技能目录：无'
+}
+
+function groupSection(id, group) {
+  return [
+    `### ${id}`,
+    `首 token 中位 ${group.firstToken.median}，波动 ${group.firstToken.range}`,
+    `生成耗时中位 ${group.gen.median}，波动 ${group.gen.range}`,
+    `未缓存 ${group.billing.uncached.median}，缓存 ${group.billing.cached.median}，输出 ${group.billing.output.median}`,
+    catalogLine(group.skillCatalog),
+    '',
+  ]
+}
+
+export function measurementReport(runs) {
+  const rows = Array.isArray(runs) ? runs : []
+  const buckets = new Map()
+  for (const run of rows) {
+    const id = String(run && run.group || '')
+    if (!buckets.has(id)) buckets.set(id, [])
+    buckets.get(id).push(run)
+  }
+  const groups = {}
+  for (const [id, bucket] of buckets) {
+    const billings = bucket.map((run) => billingOf(run.metas))
+    const firstSteps = billings.map((bill) => bill.steps[0] || {})
+    const sample = bucket.find((run) => run && run.body != null) || bucket[0]
+    groups[id] = {
+      effort: bucket[0] && bucket[0].effort,
+      firstToken: spreadOf(firstSteps.map((step) => step.firstByteMs)),
+      gen: spreadOf(firstSteps.map((step) => step.genMs)),
+      billing: {
+        uncached: spreadOf(billings.map((bill) => bill.uncached)),
+        cached: spreadOf(billings.map((bill) => bill.cached)),
+        output: spreadOf(billings.map((bill) => bill.output)),
+      },
+      skillCatalog: skillCatalogOf(sample && sample.body),
+    }
+  }
+  const lines = []
+  for (const effort of ['low', 'high']) {
+    const ids = [...buckets.keys()].filter((id) => groups[id].effort === effort)
+    if (!ids.length) continue
+    lines.push(`## effort=${effort}`, '')
+    for (const id of ids) lines.push(...groupSection(id, groups[id]))
+  }
+  if (groups['B-default']) {
+    lines.push('## B-default', '')
+    lines.push(...groupSection('B-default', groups['B-default']))
+  }
+  return { groups, markdown: `${lines.join('\n')}\n` }
+}
