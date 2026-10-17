@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -39,6 +40,14 @@ test('IUI pin matches the builtin table and leaves the release URL empty', () =>
   assert.equal(IUI_PIN.artifact.url, '')
   assert.equal(IUI_PIN.artifact.sha256, iui.source.sha256)
   assert.equal(readFileSync(new URL('./stage.mjs', import.meta.url), 'utf8').includes('build-iui'), false)
+})
+
+test('the pin manifest matches pins.mjs', () => {
+  const manifest = JSON.parse(readFileSync(new URL('./iui-pin-manifest.json', import.meta.url), 'utf8'))
+  assert.equal(manifest.artifactSha256, IUI_PIN.artifact.sha256)
+  const pinFile = `${JSON.stringify({ commit: IUI_PIN.commit }, null, 2)}\n`
+  const pinSha = createHash('sha256').update(pinFile).digest('hex')
+  assert.equal(manifest.files['fde-plugin-pin.json'], pinSha)
 })
 
 test('retargetPrimitivePaths drops machine paths', () => {
