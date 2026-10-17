@@ -1,5 +1,6 @@
 import { collectBag } from '../catalog-collect.mjs'
 import { resolveAllowedRequestOrigin } from '../config.mjs'
+import { emit } from '../events.mjs'
 import {
   createBriefingRun,
   findInFlightBriefing,
@@ -93,16 +94,15 @@ function recordBriefingOpenFailure(db, workspaceCwd, error) {
     }
   })
   const patch = { status: 'failed', sections, agentError: message }
-  if (inflight) {
-    updateBriefingContent(db, inflight.id, patch)
-    return
-  }
-  const created = createBriefingRun(db, {
-    definitionId: definition.id,
-    workspaceCwd,
-    agentRequestId: '',
-  })
-  updateBriefingContent(db, created.id, patch)
+  const briefingId = inflight
+    ? inflight.id
+    : createBriefingRun(db, {
+      definitionId: definition.id,
+      workspaceCwd,
+      agentRequestId: '',
+    }).id
+  updateBriefingContent(db, briefingId, patch)
+  emit('briefing.ready', { briefingId, workspaceCwd, status: 'failed' }, { workspaceCwd })
 }
 
 function requireWorkspaceQuery(db, url, response, correlationId, fallbackCwd, cors) {
