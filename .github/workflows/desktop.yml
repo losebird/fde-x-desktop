@@ -46,6 +46,12 @@ jobs:
           node-version: '22'
           cache: pnpm
 
+      - name: Check runtime staging filter
+        run: node --test scripts/pack/stage-runtime.test.mjs
+
+      - name: Check staged resources path
+        run: node --test scripts/pack/staged-resources-path.test.mjs
+
       - name: Install and build web app
         run: pnpm install --frozen-lockfile && pnpm build
 
@@ -57,6 +63,9 @@ jobs:
 
       - name: Verify resources layout
         run: node scripts/pack/verify.mjs
+
+      - name: Boot staged server and connect dsh
+        run: node scripts/pack/connect-gate.mjs
 
       - name: Build desktop TypeScript
         working-directory: apps/desktop
