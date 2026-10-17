@@ -581,9 +581,18 @@ function yamlScalar(raw) {
   return value
 }
 
+function flowId(line) {
+  const match = String(line || '').match(/(?:^|[{,])\s*id\s*:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,}\s]+)/)
+  return match ? yamlScalar(match[1]) : ''
+}
+
 function readTopLevelId(block) {
   for (const line of String(block || '').split('\n')) {
     if (line.startsWith('   ') || line.startsWith('\t')) continue
+    if (/^-\s*\{/.test(line)) {
+      const id = flowId(line)
+      if (id) return id
+    }
     let raw = ''
     if (line.startsWith('- id:')) raw = line.slice('- id:'.length)
     else if (line.startsWith('  id:')) raw = line.slice('  id:'.length)
@@ -591,6 +600,64 @@ function readTopLevelId(block) {
     return yamlScalar(raw)
   }
   return ''
+}
+
+function splitScalarAndComment(rest) {
+  const trimmed = String(rest || '')
+  const lead = trimmed.match(/^\s*/)[0]
+  const body = trimmed.slice(lead.length)
+  if (!body) return { scalar: '', comment: '' }
+  const quote = body[0]
+  if (quote === '"' || quote === "'") {
+    let index = 1
+    while (index < body.length) {
+      if (quote === '"' && body[index] === '\\') {
+        index += 2
+        continue
+      }
+      if (body[index] === quote) {
+        return { scalar: body.slice(0, index + 1), comment: body.slice(index + 1) }
+      }
+      index += 1
+    }
+  }
+  const commentAt = body.search(/\s#/)
+  if (commentAt >= 0) return { scalar: body.slice(0, commentAt), comment: body.slice(commentAt) }
+  return { scalar: body.replace(/\s+$/u, ''), comment: '' }
+}
+
+function unquoteScalar(scalar) {
+  const text = String(scalar || '').trim()
+  if (text.length >= 2) {
+    const quote = text[0]
+    if ((quote === '"' || quote === "'") && text.endsWith(quote)) return text.slice(1, -1)
+  }
+  return text
+}
+
+function isYamlBoolOrEmpty(scalar) {
+  const text = unquoteScalar(scalar).trim()
+  if (text === '' || text === '~' || /^null$/i.test(text)) return true
+  return /^(?:true|false|yes|no|on|off|y|n)$/i.test(text)
+}
+
+function rewriteDisabledLine(line, value) {
+  const match = String(line || '').match(/^(\s*disabled:\s*)(.*)$/)
+  if (!match) return line
+  const parts = splitScalarAndComment(match[2])
+  if (!isYamlBoolOrEmpty(parts.scalar)) return line
+  const prefix = match[1].replace(/\s*$/u, ' ')
+  return `${prefix}${value}${parts.comment}`
+}
+
+function rewriteFlowDisabled(line, value) {
+  if (/disabled\s*:/.test(line)) {
+    return line.replace(
+      /disabled\s*:\s*(?:"[^"]*"|'[^']*'|~|[^,}\s]+)?/,
+      `disabled: ${value}`,
+    )
+  }
+  return line.replace(/}(\s*(?:#.*)?)?$/, `, disabled: ${value} }$1`)
 }
 
 function topLevelSpans(raw) {
@@ -620,12 +687,17 @@ function newPatchRow(id, disabled, name) {
 function editDisabledBlock(block, disabled, name) {
   const value = disabled ? 'true' : 'false'
   const lines = block.split('\n')
+  const flowIndex = lines.findIndex((line) => /^-\s*\{/.test(line))
+  if (flowIndex >= 0) {
+    lines[flowIndex] = rewriteFlowDisabled(lines[flowIndex], value)
+    return lines.join('\n')
+  }
   const idIndex = lines.findIndex((line) => line.startsWith('- id:') || line.startsWith('  id:'))
   const hasName = lines.some((line) => line.startsWith('- name:') || line.startsWith('  name:'))
   if (name && !hasName) lines.splice(Math.max(idIndex, 0) + 1, 0, `  name: ${JSON.stringify(name)}`)
   const disabledIndex = lines.findIndex((line) => /^  disabled:/.test(line))
   if (disabledIndex >= 0) {
-    lines[disabledIndex] = lines[disabledIndex].replace(/^(\s*disabled:\s*)(?:true|false)\b/, `$1${value}`)
+    lines[disabledIndex] = rewriteDisabledLine(lines[disabledIndex], value)
   } else {
     lines.splice(Math.max(idIndex, 0) + 1, 0, `  disabled: ${value}`)
   }

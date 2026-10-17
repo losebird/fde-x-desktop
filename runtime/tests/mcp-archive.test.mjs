@@ -630,7 +630,7 @@ test('ensureSkillProvidersInProfile disables tool-skill for every YAML false spe
       '  disabled: false',
       '',
     ].join('\n')
-    const expected = prior.replace(from, to)
+    const expected = prior.replace(`${from}\n`, `${to}\n`)
     const { text, again } = await writtenSkillProfile(prior)
     assert.equal(text, expected, from)
     assert.equal((text.match(/id: tool-skill/g) || []).length, 1, text)
