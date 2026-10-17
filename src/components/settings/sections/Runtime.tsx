@@ -62,7 +62,7 @@ export function RuntimeSection() {
                 detail={adapter.capability === 'ai-runtime' && boot.text
                   ? boot.text
                   : `${adapter.version ? `${adapter.version} · ` : ''}${adapter.detail ?? ''}`}
-                action={adapter.capability === 'ai-runtime' && (boot.kind === 'iui-failed' || boot.kind === 'verify_failed')
+                action={adapter.capability === 'ai-runtime' && (boot.kind === 'iui-failed' || boot.kind === 'verify_failed' || boot.kind === 'failed')
                   ? <IuiRetryButton />
                   : undefined}
               />
