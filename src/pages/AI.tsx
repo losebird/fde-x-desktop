@@ -20,6 +20,7 @@ import { useEvents } from '@/lib/events'
 import { combineAbortSignal } from '../../runtime/live-probe.mjs'
 // @ts-expect-error runtime ESM helper
 import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
+import { useCoreBoot } from '@/components/settings/core-connection'
 import {
   runtimeApi,
   RuntimeApiError,
@@ -34,6 +35,13 @@ const MIN_LEFT_OPEN = 720
 function displayError(error: unknown) {
   if (error instanceof RuntimeApiError) return error.message
   return error instanceof Error ? error.message : 'AI 运行时发生未知错误'
+}
+
+function coreDisconnectedCopy(kind: string, text: string) {
+  const electron = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
+  if (kind === 'starting') return text
+  if (kind === 'failed') return electron ? '本地核心还没接通。请稍候或重启应用。' : text
+  return electron ? '本地核心还没接通。请稍候或重启应用。' : '本地核心还没接通。'
 }
 
 function defaultBffOrigin() {
@@ -117,6 +125,7 @@ export default function AI() {
   terminalBagRef.current = terminalBag
 
   const runtimeConnected = runtimeStatus?.connected === true
+  const boot = useCoreBoot(!runtimeConnected)
   const visibleSessions = useMemo(
     () => {
       const rows = remoteSessions.filter((session) => {
@@ -827,9 +836,7 @@ export default function AI() {
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {!runtimeConnected ? (
           <div className="flex-1 flex items-center justify-center text-sm text-ink-muted px-6 text-center">
-            {typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
-              ? '本地核心还没接通。请稍候或重启应用。'
-              : '本地核心还没接通。请重新执行 `pnpm dev`；本机第二套请用 `pnpm run dev:peer`。'}
+            {coreDisconnectedCopy(boot.kind, boot.text)}
           </div>
         ) : (
           <>

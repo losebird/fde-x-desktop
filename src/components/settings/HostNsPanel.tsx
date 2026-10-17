@@ -4,6 +4,7 @@ import { SurfaceButton } from '@/components/surface/Button'
 import { SurfaceEmpty, SurfaceGuide } from '@/components/surface/EmptyState'
 import { SURFACE_CORE_DOWN, SURFACE_UNREACHABLE } from '@/components/surface/phase'
 import { SettingsDescribeForm } from '@/components/settings/SettingsDescribeForm'
+import { useCoreBoot } from '@/components/settings/core-connection'
 import { useHostSettings, type HostNsEntry } from '@/components/settings/use-host-settings'
 import type { SettingsNsHome } from '@/lib/settings-ns-home'
 
@@ -21,6 +22,7 @@ export function HostNsPanel({
   hint: string
 }) {
   const { entries, catalogs, busy, note, phase, message, load, save, connect } = useHostSettings()
+  const boot = useCoreBoot(phase === 'coreDown')
   const rows = entries.filter((row) => row.home === home)
   const blocked = rows.length === 0 && (phase === 'loading' || phase === 'unreachable' || phase === 'coreDown' || phase === 'error')
 
@@ -42,7 +44,22 @@ export function HostNsPanel({
           action={<SurfaceButton onClick={() => load()}>再试一次</SurfaceButton>}
         />
       ) : null}
-      {phase === 'coreDown' && rows.length === 0 ? (
+      {phase === 'coreDown' && rows.length === 0 && boot.kind === 'starting' ? (
+        <SurfaceGuide title="正在首次启动" body={boot.text} />
+      ) : null}
+      {phase === 'coreDown' && rows.length === 0 && boot.kind === 'failed' ? (
+        <SurfaceGuide
+          title="核心没有接通"
+          body={boot.text}
+          action={(
+            <div className="flex flex-wrap gap-2">
+              <SurfaceButton variant="primary" onClick={() => connect()}>连接核心</SurfaceButton>
+              <SurfaceButton onClick={openRuntime}>去运行环境查看</SurfaceButton>
+            </div>
+          )}
+        />
+      ) : null}
+      {phase === 'coreDown' && rows.length === 0 && boot.kind !== 'starting' && boot.kind !== 'failed' ? (
         <SurfaceGuide
           title="核心还没接通"
           body={`${hint} ${message || SURFACE_CORE_DOWN}`}

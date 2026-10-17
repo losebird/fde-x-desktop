@@ -608,9 +608,31 @@ export class RuntimeApiError extends Error {
 export class RuntimeApi {
   readonly baseUrl: string
   shareId = ''
+  private statusInflight: Promise<AiRuntimeStatus> | null = null
+  private connectInflight: Promise<AiRuntimeStatus> | null = null
 
   constructor(baseUrl = defaultRuntimeBaseUrl()) {
     this.baseUrl = String(baseUrl || '').replace(/\/$/, '')
+  }
+
+  private joinInflight<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return pending
+    if (signal.aborted) return Promise.reject(new RuntimeApiError(0, 'aborted', '请求已取消'))
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const finish = (fn: () => void) => {
+        if (settled) return
+        settled = true
+        signal.removeEventListener('abort', onAbort)
+        fn()
+      }
+      const onAbort = () => finish(() => reject(new RuntimeApiError(0, 'aborted', '请求已取消')))
+      signal.addEventListener('abort', onAbort, { once: true })
+      pending.then(
+        (value) => finish(() => resolve(value)),
+        (error) => finish(() => reject(error)),
+      )
+    })
   }
 
   bindShare(shareId: string) {
@@ -938,13 +960,25 @@ export class RuntimeApi {
   }
 
   async aiStatus(signal?: AbortSignal): Promise<AiRuntimeStatus> {
-    const result = await this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/status', { signal })
-    return result.data
+    if (!this.statusInflight) {
+      this.statusInflight = this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/status')
+        .then((result) => result.data)
+        .finally(() => {
+          this.statusInflight = null
+        })
+    }
+    return this.joinInflight(this.statusInflight, signal)
   }
 
   async connectAi(signal?: AbortSignal): Promise<AiRuntimeStatus> {
-    const result = await this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/connect', { method: 'POST', signal })
-    return result.data
+    if (!this.connectInflight) {
+      this.connectInflight = this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/connect', { method: 'POST' })
+        .then((result) => result.data)
+        .finally(() => {
+          this.connectInflight = null
+        })
+    }
+    return this.joinInflight(this.connectInflight, signal)
   }
 
   async disconnectAi(signal?: AbortSignal): Promise<AiRuntimeStatus> {

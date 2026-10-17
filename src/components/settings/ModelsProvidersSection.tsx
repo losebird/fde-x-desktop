@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react'
+import { useCoreBoot } from '@/components/settings/core-connection'
 import { capacityFieldText, formatCapacity, parseCapacity } from '@/components/settings/model-capacity'
 import { surfaceNote } from '@/components/settings/surface-note'
 import { mergeModelRows } from '../../../runtime/models-settings-rows.mjs'
@@ -326,6 +327,7 @@ export function ModelsProvidersSection({
   setNote: (value: string) => void
   onModelsRefresh: () => void
 }) {
+  const boot = useCoreBoot(!connected)
   const [snapshot, setSnapshot] = useState<ModelsSettingsSnapshot | null>(null)
   const [loadError, setLoadError] = useState('')
   const [listOpen, setListOpen] = useState(false)
@@ -360,7 +362,11 @@ export function ModelsProvidersSection({
   return (
     <>
       {!connected && (
-        <div className="mb-3 text-kit-sm text-kit-secondary">核心还没接通。现在只能看快照，保存要等核心接上。</div>
+        <div className="mb-3 text-kit-sm text-kit-secondary">
+          {boot.kind === 'starting' || boot.kind === 'failed'
+            ? boot.text
+            : '核心还没接通。现在只能看快照，保存要等核心接上。'}
+        </div>
       )}
       {note && <div className="mb-3 text-xs text-ink-muted">{note}</div>}
       {snapshot?.legacy && !loadError && (

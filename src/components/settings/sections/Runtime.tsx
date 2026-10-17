@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { Tag } from '@/components/ui'
 import { SurfaceBanner } from '@/components/surface/Banner'
 import { SurfaceButton } from '@/components/surface/Button'
-import { useWhenCoreConnects } from '@/components/settings/core-connection'
+import { useCoreBoot, useWhenCoreConnects } from '@/components/settings/core-connection'
 import { surfaceNote } from '@/components/settings/surface-note'
 import { runtimeApi, type RuntimeHealth } from '@/lib/runtime-api'
 
@@ -28,6 +28,7 @@ export function RuntimeSection() {
 
   useEffect(() => { void diagnoseRuntime() }, [diagnoseRuntime])
   useWhenCoreConnects(() => { void diagnoseRuntime() }, true)
+  const boot = useCoreBoot(true)
 
   return (
     <div className="space-y-4">
@@ -57,7 +58,9 @@ export function RuntimeSection() {
                 icon={adapter.capability === 'ai-runtime' ? Bot : adapter.capability === 'im-business-adapter' ? MessageCircleMore : Brain}
                 name={adapter.capability === 'ai-runtime' ? 'AI、文件、工具与自动化' : adapter.capability === 'im-business-adapter' ? 'IM 与业务系统操作' : '语义记忆'}
                 state={adapter.state}
-                detail={`${adapter.version ? `${adapter.version} · ` : ''}${adapter.detail ?? ''}`}
+                detail={adapter.capability === 'ai-runtime' && boot.kind === 'starting'
+                  ? boot.text
+                  : `${adapter.version ? `${adapter.version} · ` : ''}${adapter.detail ?? ''}`}
               />
             ))}
           </div>

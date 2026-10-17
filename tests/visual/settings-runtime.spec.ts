@@ -50,11 +50,13 @@ test('runtime panel leaves the controlled start copy after the core connects', a
     releaseHealth()
 
     const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: '运行环境诊断', level: 3 }) })
-    await expect(panel.getByText('受控启动')).toBeVisible({ timeout: 20_000 })
+    await expect(panel.getByText('正在首次启动')).toBeVisible({ timeout: 20_000 })
+    await expect(panel.getByText('请重新执行')).toHaveCount(0)
+    await expect(panel.getByText('IUI 未安装')).toHaveCount(0)
     const connected = await connectPromise
     const body = await connected.json() as { error?: { message?: string } }
     expect(connected.status(), body.error?.message || '').toBe(200)
-    await expect(panel.getByText('受控启动')).toHaveCount(0, { timeout: 20_000 })
+    await expect(panel.getByText('正在首次启动')).toHaveCount(0, { timeout: 20_000 })
     await expect(panel.getByText('已接通')).toBeVisible()
   } finally {
     releaseHealth()
