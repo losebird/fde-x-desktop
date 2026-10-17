@@ -140,7 +140,7 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
       })
     }
     updateBriefingContent(db, briefingId, { status: 'running', sections })
-    sessionId = await resolveBriefingSession(aiRuntime, workspaceCwd)
+    sessionId = await resolveBriefingSession(aiRuntime, workspaceCwd, emit)
     const agent = await runBriefingAgent(
       { db, aiRuntime },
       {
