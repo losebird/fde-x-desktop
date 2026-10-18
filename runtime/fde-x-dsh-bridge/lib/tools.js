@@ -88,6 +88,7 @@ const FDE_TOOL_NAMES = [
   'fde_app_spec_submit',
   'fde_app_records_query',
   'fde_app_records_propose',
+  'fde_plan_task_propose',
   'fde_briefing_submit',
   'fde_memory_draft',
 ]
@@ -196,6 +197,30 @@ function registerTools(ctx, { defineTool }) {
     },
     presentCall() {
       return { card: 'generic', title: 'fde_app_records_propose', kind: 'write' }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'fde_plan_task_propose',
+    description: 'Propose a plan task insert, update, or delete. The task changes only after a person confirms.',
+    parameters: {
+      workspaceId: { type: 'string', required: true },
+      op: { type: 'string', required: true, description: 'insert, update, or delete' },
+      taskId: { type: 'string' },
+      title: { type: 'string' },
+      notes: { type: 'string' },
+      status: { type: 'string' },
+      priority: { type: 'string' },
+      dueAt: { type: 'string' },
+      tags: { type: 'array', items: { type: 'string' } },
+    },
+    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
+    async execute(args, exec) {
+      const result = await callBridge('plan-task-propose', args, exec)
+      return JSON.stringify(result)
+    },
+    presentCall() {
+      return { card: 'generic', title: 'fde_plan_task_propose', kind: 'write' }
     },
   }))
 
