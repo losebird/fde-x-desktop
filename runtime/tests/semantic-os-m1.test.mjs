@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,6 +26,116 @@ function listen(handler) {
       resolve({ server, port: address.port })
     })
   })
+}
+
+function searchFoundKeyword(text, keyword) {
+  let body
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return false
+  }
+  const data = body && body.data && typeof body.data === 'object' ? body.data : body
+  const rows = []
+  for (const key of ['items', 'excerpts', 'results', 'hits']) {
+    if (Array.isArray(data[key])) rows.push(...data[key])
+  }
+  return JSON.stringify(rows).includes(keyword)
+}
+
+const ZSTD_MAGIC = 0xfd2fb528
+
+async function textOfFile(path, buf) {
+  if (!path.endsWith('.zstd')) return buf.toString('utf8')
+  const { zstdDecompressSync } = await import('node:zlib')
+  const parts = []
+  let offset = 0
+  while (offset + 4 <= buf.length) {
+    if (buf.readUInt32LE(offset) !== ZSTD_MAGIC) break
+    let end = buf.length
+    const next = buf.indexOf(Buffer.from([0x28, 0xb5, 0x2f, 0xfd]), offset + 4)
+    if (next !== -1) end = next
+    try {
+      parts.push(zstdDecompressSync(buf.subarray(offset, end)).toString('utf8'))
+    } catch {
+      break
+    }
+    offset = end
+  }
+  return parts.join('\n')
+}
+
+async function sessionFilesContain(dir, keyword, state = { found: false, files: [] }, depth = 0) {
+  if (depth > 8) return state
+  let entries = []
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return state
+  }
+  for (const entry of entries) {
+    if (entry.name === 'venv' || entry.name === 'node_modules') continue
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      await sessionFilesContain(path, keyword, state, depth + 1)
+      if (state.found) return state
+      continue
+    }
+    if (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.zstd') || entry.name.includes('session')) {
+      state.files.push(path)
+    }
+    let buf
+    try {
+      buf = await readFile(path)
+    } catch {
+      continue
+    }
+    if (buf.length > 8_000_000) continue
+    const text = await textOfFile(path, buf)
+    if (text.includes(keyword)) {
+      state.found = true
+      return state
+    }
+  }
+  return state
+}
+
+async function sessionUserTextHas(dir, keyword, eventText, depth = 0) {
+  if (depth > 8) return false
+  let entries = []
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return false
+  }
+  for (const entry of entries) {
+    if (entry.name === 'venv' || entry.name === 'node_modules') continue
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (await sessionUserTextHas(path, keyword, eventText, depth + 1)) return true
+      continue
+    }
+    if (!entry.name.endsWith('.jsonl') && !entry.name.endsWith('.jsonl.zstd')) continue
+    let buf
+    try {
+      buf = await readFile(path)
+    } catch {
+      continue
+    }
+    if (buf.length > 8_000_000) continue
+    const text = await textOfFile(path, buf)
+    for (const line of text.split('\n')) {
+      if (!line) continue
+      let event
+      try {
+        event = JSON.parse(line)
+      } catch {
+        continue
+      }
+      if (String(eventText(event) || '').includes(keyword)) return true
+    }
+  }
+  return false
 }
 
 async function until(predicate, budgetMs) {
@@ -213,7 +323,7 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
     }
   })
 
-  test('mounted semantic-os is ready and memory search is not 502', { timeout: 200_000 }, async (t) => {
+  test('mounted semantic-os is ready and memory search is not 502', { timeout: 840_000 }, async (t) => {
     if (!snapshotMounted()) {
       t.skip('FDE_PLUGIN_DSH_SEMANTIC_OS is not mounted')
       return
@@ -280,17 +390,79 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       const connect = await request('/api/v1/ai/connect', { method: 'POST' })
       const connectBody = await connect.json()
       assert.equal(connect.status, 200, JSON.stringify(connectBody))
-      const readyRes = await request('/api/v1/memory/ready')
-      const readyBody = await readyRes.json()
-      const searchRes = await request('/api/v1/memory/search?q=m1kw-42e228fa-session-ingest')
-      const searchText = await searchRes.text()
-      const statusRes = await request('/api/v1/ai/status')
-      const statusBody = await statusRes.json()
-      const recent = JSON.stringify(statusBody?.data?.recentLogs || []).slice(-4000)
-      const problems = []
-      if (readyBody?.data?.ready !== true) problems.push(`ready ${JSON.stringify(readyBody)}`)
-      if (searchRes.status === 502) problems.push(`search 502 ${searchText.slice(0, 500)}`)
-      assert.equal(problems.length, 0, `${problems.join('\n')}\n${recent}`)
+      const keyword = 'm1kw-42e228fa-iui-live'
+      const readyDeadline = Date.now() + 12 * 60 * 1000
+      let readyBody = null
+      while (Date.now() < readyDeadline) {
+        if (child.exitCode != null || child.signalCode != null) {
+          throw new Error(`runtime exited ${child.exitCode ?? child.signalCode}\n${output.text.slice(-3000)}`)
+        }
+        const readyRes = await request('/api/v1/memory/ready')
+        readyBody = await readyRes.json()
+        const data = readyBody?.data || {}
+        if (data.ready === true) break
+        const phase = String(data.install?.phase || '')
+        const reason = String(data.reason || '')
+        const terminal = phase === 'install_failed'
+          || reason === 'install_failed'
+          || reason === 'python_missing'
+          || reason === 'wheel_missing'
+          || reason === 'version_mismatch'
+          || reason === 'start_failed'
+        if (terminal) break
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
+      assert.equal(readyBody?.data?.ready, true, `ready ${JSON.stringify(readyBody)}`)
+      const created = await request('/api/v1/ai/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cwd: workspace }),
+      })
+      const createdBody = await created.json()
+      assert.equal(created.status, 201, JSON.stringify(createdBody))
+      const sessionId = String(createdBody?.data?.sessionId || '')
+      assert.equal(sessionId.length > 0, true, JSON.stringify(createdBody))
+      const prompted = await request(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/prompt`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: keyword }),
+        signal: AbortSignal.timeout(90_000),
+      })
+      const promptBody = await prompted.json()
+      assert.equal(prompted.status, 200, JSON.stringify(promptBody))
+      const ingestMod = await import(pathToFileURL(join(SNAPSHOT, 'session-ingest.js')).href)
+      const storedDeadline = Date.now() + 30_000
+      let stored = { found: false, files: [] }
+      let visible = false
+      while (Date.now() < storedDeadline) {
+        stored = await sessionFilesContain(home, keyword)
+        visible = await sessionUserTextHas(home, keyword, ingestMod.eventText)
+        if (visible) break
+        await new Promise((resolve) => setTimeout(resolve, 400))
+      }
+      let searchText = ''
+      let searchStatus = 0
+      let hit = false
+      let ingestBody = null
+      const searchDeadline = Date.now() + 180_000
+      while (Date.now() < searchDeadline) {
+        const ingested = await request('/api/v1/memory/session-ingest', { method: 'POST' })
+        ingestBody = await ingested.json()
+        assert.equal(ingested.status, 200, JSON.stringify(ingestBody))
+        const searchRes = await request(`/api/v1/memory/search?q=${encodeURIComponent(keyword)}&cwd=${encodeURIComponent(workspace)}`)
+        searchStatus = searchRes.status
+        searchText = await searchRes.text()
+        hit = searchFoundKeyword(searchText, keyword)
+        if (searchStatus !== 502 && hit) break
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+      }
+      let passages = ''
+      let cursors = ''
+      try { passages = await readFile(join(workspace, '.dsh', 'semantic-os', 'passages', 'texts.json'), 'utf8') } catch { /* not written */ }
+      try { cursors = await readFile(join(home, 'semantic-os', 'session-cursors.json'), 'utf8') } catch { /* not written */ }
+      const evidence = `visible=${visible} stored=${stored.found} cursors=${cursors.slice(0, 300)} passages=${passages.slice(0, 300)} ingest=${JSON.stringify(ingestBody).slice(0, 400)}`
+      assert.equal(searchStatus === 502, false, `search 502 ${searchText.slice(0, 800)} ${evidence}`)
+      assert.equal(hit, true, `search missed ${keyword} status=${searchStatus} ${searchText.slice(0, 800)} ${evidence}`)
     } finally {
       if (child.exitCode == null && child.signalCode == null) child.kill('SIGTERM')
       await new Promise((resolve) => {
