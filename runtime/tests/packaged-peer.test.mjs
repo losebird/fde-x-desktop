@@ -1,12 +1,13 @@
-import { mkdtemp, mkdir, cp, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, cp, readlink, rm, writeFile } from 'node:fs/promises'
 import { existsSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
 import { DshCoreConnector } from '../dsh-core.mjs'
 import { generationInstallRoot } from '../generation.mjs'
+import { linkPackagedPeers } from '../packaged-peer.mjs'
 
 const SNAPSHOT = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS || ''
 
@@ -48,6 +49,27 @@ test('importPeer resolves schemastery staged under resources/dsh', async (t) => 
       if (value == null) delete process.env[key]
       else process.env[key] = value
     }
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('linkPackagedPeers replaces a dangling profile symlink', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-peer-dangling-'))
+  const source = join(root, 'resources', 'dsh', 'node_modules', '@deepseek-ai', 'schemastery')
+  const home = join(root, 'dsh-home')
+  const dest = join(home, 'profiles', 'node_modules', '@deepseek-ai', 'schemastery')
+  await mkdir(source, { recursive: true })
+  await writeFile(join(source, 'package.json'), '{"name":"@deepseek-ai/schemastery"}\n')
+  await mkdir(dirname(dest), { recursive: true })
+  symlinkSync(join(root, 'missing-old-install'), dest)
+  try {
+    await assert.doesNotReject(() => linkPackagedPeers({
+      dshHome: home,
+      env: { FDE_RESOURCES: join(root, 'resources') },
+      specs: ['@deepseek-ai/schemastery'],
+    }))
+    assert.equal(resolve(await readlink(dest)), resolve(source))
+  } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
