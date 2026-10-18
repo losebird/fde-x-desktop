@@ -188,13 +188,6 @@ function loadDshTools() {
 }
 
 function apply(ctx) {
-  bridgeCtx = ctx
-  ctx.on('agent/created', (event) => {
-    rememberAgent(event && event.agent)
-  })
-  ctx.on('agent/disposed', (event) => {
-    forgetAgent(event && event.agent)
-  })
   if (ctx.webServer && typeof ctx.webServer.register === 'function') {
     ctx.effect(() => ctx.webServer.register({
       kind: 'prefix',
@@ -218,6 +211,13 @@ function apply(ctx) {
       console.error(`[fde-x-dsh-bridge] tools: ${message}`)
     }
   }
+  bridgeCtx = ctx
+  ctx.on('agent/created', (event) => {
+    rememberAgent(event && event.agent)
+  })
+  ctx.on('agent/disposed', (event) => {
+    forgetAgent(event && event.agent)
+  })
 }
 
 module.exports = { apply, inject: ['webServer', 'tools'] }
