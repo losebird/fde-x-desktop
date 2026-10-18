@@ -625,7 +625,7 @@ async function withPageToken(path: string, init?: RequestInit): Promise<RequestI
 export type PlanTaskProposal = {
   id: string
   workspaceId: string
-  op: 'insert' | 'update' | 'delete'
+  op: 'insert' | 'update'
   taskId: string
   title: string
 }

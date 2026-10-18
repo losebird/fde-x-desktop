@@ -4,7 +4,6 @@ import { decideProposal, openProposal } from '../proposals/commit.mjs'
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
-  deleteTask,
   getTask,
   insertTask,
   updateTask,
@@ -25,6 +24,16 @@ function changeFrom(input) {
   if (Array.isArray(input.tags)) change.tags = input.tags.map(String)
   if (typeof input.status === 'string') change.status = input.status
   return change
+}
+
+function invalidShape(input) {
+  if (Object.prototype.hasOwnProperty.call(input, 'priority') && !TASK_PRIORITIES.has(input.priority)) {
+    return { ok: false, error: 'validation_error', message: '任务优先级无效' }
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'dueAt') && input.dueAt !== null && typeof input.dueAt !== 'string') {
+    return { ok: false, error: 'validation_error', message: '截止时间无效' }
+  }
+  return null
 }
 
 function planDomain(opts) {
@@ -54,11 +63,6 @@ function planDomain(opts) {
         })
         return { applied: true, details: { op: plan.op, taskId: plan.taskId } }
       }
-      if (plan.op === 'delete') {
-        const removed = deleteTask(db, plan.taskId)
-        if (!removed) return { applied: false }
-        return { applied: true, details: { op: plan.op, taskId: plan.taskId } }
-      }
       const change = plan.change
       const fields = {}
       if (change.title !== undefined) fields.title = change.title
@@ -76,8 +80,8 @@ function planDomain(opts) {
 
 export function proposePlanTask(db, input) {
   const op = input.op
-  if (op !== 'insert' && op !== 'update' && op !== 'delete') {
-    return { ok: false, error: 'validation_error', message: 'op 必须是 insert、update 或 delete' }
+  if (op !== 'insert' && op !== 'update') {
+    return { ok: false, error: 'validation_error', message: 'op 必须是 insert 或 update' }
   }
   const workspaceId = typeof input.workspaceId === 'string' ? input.workspaceId.trim() : ''
   if (!workspaceId) return { ok: false, error: 'validation_error', message: '缺少 workspaceId' }
@@ -88,6 +92,8 @@ export function proposePlanTask(db, input) {
     if (typeof input.status === 'string' && !TASK_STATUSES.has(input.status)) {
       return { ok: false, error: 'validation_error', message: '任务状态无效' }
     }
+    const shape = invalidShape(input)
+    if (shape) return shape
     const taskId = createId('task')
     const sourceRef = typeof input.sourceRef === 'string' && input.sourceRef.trim()
       ? input.sourceRef.trim()
@@ -130,6 +136,8 @@ export function proposePlanTask(db, input) {
   if (change.status !== undefined && !TASK_STATUSES.has(change.status)) {
     return { ok: false, error: 'validation_error', message: '任务状态无效' }
   }
+  const shape = invalidShape(input)
+  if (shape) return shape
   if (op === 'update' && Object.keys(change).length === 0) {
     return { ok: false, error: 'validation_error', message: '没有要修改的字段' }
   }

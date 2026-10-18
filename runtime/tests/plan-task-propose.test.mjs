@@ -128,9 +128,7 @@ async function startServer() {
         bridgeToken = String(await readFile(tokenPath, 'utf8')).trim()
         if (bridgeToken) return
       }
-    } catch {
-      // The listener is not up yet.
-    }
+    } catch { /* retry */ }
     if (child.exitCode != null) break
     await delay(100)
   }
@@ -151,12 +149,12 @@ async function readJson(res) {
   return res.json().catch(() => ({}))
 }
 
-async function createWorkspace() {
+async function createWorkspace(metadata = {}) {
   const id = `ws_${randomUUID().replaceAll('-', '').slice(0, 12)}`
   const res = await fetch(`${base}/api/v1/workspaces`, {
     method: 'POST',
     headers: pageHeaders(),
-    body: JSON.stringify({ id, name: id, description: 'plan propose' }),
+    body: JSON.stringify({ id, name: id, description: 'plan propose', metadata }),
   })
   const payload = await readJson(res)
   assert.equal(res.status, 201, JSON.stringify(payload))
@@ -520,6 +518,87 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     assert.equal(proposed.payload.error, 'not_found')
     assert.equal(proposed.payload.message, '任务不存在')
     assert.equal(proposals(workspaceId).length, 0)
+  })
+
+  test('a matching session cwd selects the workspace and ignores a forged workspaceId', async () => {
+    const bound = join(root, 'bound')
+    await mkdir(bound, { recursive: true })
+    const workspaceId = await createWorkspace({ cwd: bound })
+    const otherId = await createWorkspace()
+    const task = await createTask(workspaceId, '原来的标题')
+    const proposed = await bridgePropose({
+      workspaceCwd: bound,
+      workspaceId: otherId,
+      op: 'update',
+      taskId: task.id,
+      title: '按 cwd 写入',
+    })
+    assert.equal(proposed.status, 200, JSON.stringify(proposed.payload))
+    const row = assertAwaiting(workspaceId)
+    assert.equal(proposals(otherId).length, 0)
+    const plan = JSON.parse(row.plan_json)
+    assert.equal(plan.workspaceId, workspaceId)
+    assert.equal(plan.change.title, '按 cwd 写入')
+    assert.equal(taskById(task.id).title, '原来的标题')
+    const inserted = await bridgePropose({
+      workspaceCwd: bound,
+      op: 'insert',
+      title: '只靠 cwd 新建',
+    })
+    assert.equal(inserted.status, 200, JSON.stringify(inserted.payload))
+    const rows = proposals(workspaceId)
+    assert.equal(rows.length, 2)
+    assert.equal(proposals(otherId).length, 0)
+    const created = rows.map((row) => JSON.parse(row.plan_json)).find((plan) => plan.op === 'insert')
+    assert.equal(created.workspaceId, workspaceId)
+    assert.equal(created.change.title, '只靠 cwd 新建')
+    assert.equal(taskById(created.taskId), null)
+  })
+
+  test('delete is not a task proposal', async () => {
+    const workspaceId = await createWorkspace()
+    const task = await createTask(workspaceId, '原来的标题')
+    const proposed = await bridgePropose({ workspaceId, op: 'delete', taskId: task.id })
+    assert.equal(proposed.status, 422, JSON.stringify(proposed.payload))
+    assert.equal(proposed.payload.error, 'validation_error')
+    assert.equal(proposed.payload.message, 'op 必须是 insert 或 update')
+    assert.equal(proposals(workspaceId).length, 0)
+    assert.equal(taskById(task.id).title, '原来的标题')
+  })
+
+  test('an illegal priority or dueAt is validation_error and writes no operation', async () => {
+    const workspaceId = await createWorkspace()
+    const priority = await bridgePropose({
+      workspaceId,
+      op: 'insert',
+      title: '新任务',
+      priority: 'nope',
+    })
+    assert.equal(priority.status, 422, JSON.stringify(priority.payload))
+    assert.equal(priority.payload.error, 'validation_error')
+    assert.equal(priority.payload.message, '任务优先级无效')
+    const due = await bridgePropose({
+      workspaceId,
+      op: 'insert',
+      title: '新任务',
+      dueAt: 1,
+    })
+    assert.equal(due.status, 422, JSON.stringify(due.payload))
+    assert.equal(due.payload.error, 'validation_error')
+    assert.equal(due.payload.message, '截止时间无效')
+    const task = await createTask(workspaceId, '原来的标题')
+    const updated = await bridgePropose({
+      workspaceId,
+      op: 'update',
+      taskId: task.id,
+      title: '提案标题',
+      priority: 'nope',
+    })
+    assert.equal(updated.status, 422, JSON.stringify(updated.payload))
+    assert.equal(updated.payload.error, 'validation_error')
+    assert.equal(updated.payload.message, '任务优先级无效')
+    assert.equal(proposals(workspaceId).length, 0)
+    assert.equal(taskById(task.id).title, '原来的标题')
   })
 
   test('an insert without a title is validation_error', async () => {

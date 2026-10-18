@@ -7,6 +7,7 @@ import { buildContextPack } from '../context-pack.mjs'
 import { draftMemoryFromBridge } from '../memory/writer.mjs'
 import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
+import { workspaceRowIdForCwd } from '../briefing/workspace.mjs'
 import { proposePlanTask } from '../plan/task-proposals.mjs'
 import { pathHasPrefix } from '../path-prefix.mjs'
 
@@ -189,7 +190,9 @@ export async function handleBridgeRoutes(request, response, url, deps) {
   }
 
   if (sub === 'plan-task-propose') {
-    const result = proposePlanTask(db, body)
+    const fromCwd = workspaceRowIdForCwd(db, workspaceCwd)
+    const fromBody = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
+    const result = proposePlanTask(db, { ...body, workspaceId: fromCwd || fromBody })
     if (!result.ok) {
       if (result.error === 'not_found') {
         bridgeError(response, 404, 'not_found', result.message, correlationId)

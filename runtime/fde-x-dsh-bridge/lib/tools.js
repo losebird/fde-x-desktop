@@ -202,10 +202,9 @@ function registerTools(ctx, { defineTool }) {
 
   ctx.tools.register(defineTool({
     name: 'fde_plan_task_propose',
-    description: 'Propose a plan task insert, update, or delete. The task changes only after a person confirms.',
+    description: 'Propose a plan task insert or update. The task changes only after a person confirms. The session workspace identifies the task; do not pass a workspace id.',
     parameters: {
-      workspaceId: { type: 'string', required: true },
-      op: { type: 'string', required: true, description: 'insert, update, or delete' },
+      op: { type: 'string', required: true, description: 'insert or update' },
       taskId: { type: 'string' },
       title: { type: 'string' },
       notes: { type: 'string' },
@@ -216,7 +215,9 @@ function registerTools(ctx, { defineTool }) {
     },
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
     async execute(args, exec) {
-      const result = await callBridge('plan-task-propose', args, exec)
+      const body = { ...args }
+      delete body.workspaceId
+      const result = await callBridge('plan-task-propose', body, exec)
       return JSON.stringify(result)
     },
     presentCall() {

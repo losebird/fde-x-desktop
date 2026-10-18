@@ -6,7 +6,6 @@ import { useApp } from '@/store/app'
 const OP_LABEL: Record<PlanTaskProposal['op'], string> = {
   insert: '新建',
   update: '修改',
-  delete: '删除',
 }
 
 function messageOf(cause: unknown) {

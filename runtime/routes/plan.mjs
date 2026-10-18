@@ -395,24 +395,14 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const result = decidePlanTask(db, operationId, decision, { correlationId })
     if (result.kind === 'ok' && decision === 'confirm') {
       const plan = result.operation.plan
-      if (plan.op === 'delete') {
-        emitTaskChanged(db, {
-          id: plan.taskId,
-          op: 'delete',
-          workspaceId: plan.workspaceId,
-          status: plan.before.status,
-          title: plan.before.title,
-        })
-      } else {
-        const row = getTask(db, plan.taskId)
-        emitTaskChanged(db, {
-          id: plan.taskId,
-          op: plan.op,
-          workspaceId: plan.workspaceId,
-          status: row.status,
-          title: row.title,
-        })
-      }
+      const row = getTask(db, plan.taskId)
+      emitTaskChanged(db, {
+        id: plan.taskId,
+        op: plan.op,
+        workspaceId: plan.workspaceId,
+        status: row.status,
+        title: row.title,
+      })
     }
     if (result.kind === 'ok') {
       planOk(response, 200, result.operation, correlationId)
