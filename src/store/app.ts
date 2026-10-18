@@ -9,7 +9,7 @@ import type {
   IMAttachment, IMTopic, IMHandoffPackage,
 } from '@/lib/types'
 import { seedUser } from '@/data/seed'
-import { RuntimeApiError, runtimeApi } from '@/lib/runtime-api'
+import { runtimeApi } from '@/lib/runtime-api'
 import { emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
 import { imBrowseOccupancy } from '@/lib/im-letter-home'
 import {
@@ -20,6 +20,7 @@ import {
   taskFromHostBagItem,
   workflowFromHostBagItem,
 } from '@/lib/plan-origin'
+import { RuntimeApiError } from '@/lib/runtime-api'
 
 const PLAN_UNAVAILABLE = '计划服务未就绪'
 
