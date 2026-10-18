@@ -729,6 +729,23 @@ test('启动时把上次留下的 queued 和 running 标成失败', async (t) =>
     assert.equal(runningStep.state, 'failed')
     assert.equal(JSON.parse(queuedStep.error_json).message, '上次运行被中断')
     assert.equal(JSON.parse(runningStep.error_json).message, '上次运行被中断')
+    const audits = read.prepare(`
+      SELECT action, target_ref, outcome, workspace_id, details_json
+      FROM audit_entries
+      ORDER BY target_ref
+    `).all()
+    assert.deepEqual(audits.map((row) => row.target_ref), [
+      'fde://plan/workflow-run-steps/wrs_boot_q',
+      'fde://plan/workflow-run-steps/wrs_boot_r',
+      'fde://plan/workflow-runs/wfr_boot_q',
+      'fde://plan/workflow-runs/wfr_boot_r',
+    ])
+    for (const row of audits) {
+      assert.equal(row.action, 'plan.workflow_run.interrupt')
+      assert.equal(row.outcome, 'failed')
+      assert.equal(row.workspace_id, 'ws_boot')
+      assert.equal(JSON.parse(row.details_json).message, '上次运行被中断')
+    }
   } finally {
     read.close()
   }
