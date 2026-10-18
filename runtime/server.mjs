@@ -87,7 +87,7 @@ import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
-import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, mintUiToken } from './routes/bridge.mjs'
+import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, mintUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
@@ -106,6 +106,7 @@ import {
 import { mergePageCors } from './proxy-cors.mjs'
 import { tryServeStatic } from './routes/static.mjs'
 import { shouldProxyDshPath } from './dsh-proxy-gate.mjs'
+import { pathHasPrefix } from './path-prefix.mjs'
 import {
   listWorkspaceDocumentVersions,
   rollbackWorkspaceDocument,
@@ -761,7 +762,7 @@ function dshProxyPath(url) {
 }
 
 function isSemanticOsPath(pathname) {
-  return pathname === '/semantic-os' || pathname.startsWith('/semantic-os/')
+  return pathHasPrefix(pathname, '/semantic-os')
 }
 
 function requestSemanticOsRawPath(request) {
@@ -772,9 +773,9 @@ function requestSemanticOsRawPath(request) {
 
 function requestTouchesSemanticOs(request) {
   const raw = requestSemanticOsRawPath(request)
-  if (raw.includes('/semantic-os')) return true
+  if (pathHasPrefix(raw, '/semantic-os')) return true
   try {
-    return decodeURIComponent(raw).includes('/semantic-os')
+    return pathHasPrefix(decodeURIComponent(raw), '/semantic-os')
   } catch {
     return false
   }
@@ -1059,6 +1060,10 @@ const server = createServer(async (request, response) => {
     const origin = request.headers.origin
     if (typeof origin !== 'string' || !allowedOrigins.has(origin)) {
       sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', currentCorrelationId)
+      return
+    }
+    if (url.pathname.startsWith('/api/v1/') && !verifyUiToken(request, uiToken)) {
+      sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', currentCorrelationId)
       return
     }
   }

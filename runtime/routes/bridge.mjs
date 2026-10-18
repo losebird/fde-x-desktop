@@ -7,6 +7,7 @@ import { buildContextPack } from '../context-pack.mjs'
 import { draftMemoryFromBridge } from '../memory/writer.mjs'
 import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
+import { pathHasPrefix } from '../path-prefix.mjs'
 
 const READY_TTL_MS = 10 * 60 * 1000
 
@@ -101,12 +102,9 @@ function notImplemented(response, correlationId, owner) {
   )
 }
 
-/**
- * Bridge token routes (no Origin gate). Returns true when handled.
- */
 export async function handleBridgeRoutes(request, response, url, deps) {
   const { db, bridgeToken, correlationId, readJson, aiRuntime } = deps
-  if (!url.pathname.startsWith('/api/v1/bridge/')) return false
+  if (!pathHasPrefix(url.pathname, '/api/v1/bridge/')) return false
 
   if (!verifyBridgeToken(request, bridgeToken)) {
     bridgeError(response, 401, 'bridge_unauthorized', '桥接令牌无效或缺失', correlationId)

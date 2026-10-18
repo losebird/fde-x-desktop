@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, symlinkSync } from 'node:fs'
+import { createInterface } from 'node:readline'
 import { createConnection } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { bindPageToken, readUiTokenLine } from './page-token-handoff.mjs'
 import {
   FDE_APP_ROOT,
   FDE_DSH_HOME,
@@ -79,14 +81,16 @@ function preparePeerHome() {
 }
 
 let shuttingDown = false
+let pageToken = ''
+let sendPageToken = () => {}
 process.on('SIGINT', () => { shuttingDown = true })
 process.on('SIGTERM', () => { shuttingDown = true })
 
-function run(command, args, extraEnv = {}) {
+function run(command, args, extraEnv = {}, stdio = 'inherit') {
   const child = spawn(command, args, {
     cwd: root,
     env: { ...process.env, ...extraEnv },
-    stdio: 'inherit',
+    stdio,
   })
   child.on('exit', (code, signal) => {
     if (shuttingDown) return
@@ -102,7 +106,17 @@ function runRuntime(extraEnv = {}) {
     const child = spawn(process.execPath, ['runtime/server.mjs'], {
       cwd: root,
       env,
-      stdio: 'inherit',
+      stdio: ['ignore', 'pipe', 'inherit'],
+    })
+    const lines = createInterface({ input: child.stdout })
+    lines.on('line', (line) => {
+      const token = readUiTokenLine(line)
+      if (token) {
+        pageToken = token
+        sendPageToken()
+        return
+      }
+      process.stdout.write(`${line}\n`)
     })
     child.on('exit', (code, signal) => {
       if (shuttingDown) return
@@ -128,7 +142,7 @@ runRuntime({
   FDE_DSH_HOME: peerHome,
   FDE_DSH_PROFILE: 'fde-x-peer',
   DSH_LAN_ASSIST_PORT: String(lanPort),
-  FDE_DATABASE_PATH: join(root, 'runtime', 'data', 'fde-workstation-peer.sqlite'),
+  FDE_DATABASE_PATH: process.env.FDE_DATABASE_PATH || join(root, 'runtime', 'data', 'fde-workstation-peer.sqlite'),
 })
 if (!await waitFor(runtimePort, 20_000)) {
   console.error('[fde-x] 对端核心没有起来')
@@ -138,7 +152,7 @@ if (!await waitFor(runtimePort, 20_000)) {
 const peerRuntimeUrl = `http://${host}:${runtimePort}`
 console.log(`[fde-x] 对端界面 http://127.0.0.1:${webPort}`)
 console.log('[fde-x] 配对：填对面 IM 显示的本机门牌（主环境 127.0.0.1:19527，对端 127.0.0.1:18528）')
-run(process.execPath, [
+const viteChild = run(process.execPath, [
   join(root, 'node_modules/vite/bin/vite.js'),
   '--host', '127.0.0.1',
   '--port', String(webPort),
@@ -146,4 +160,6 @@ run(process.execPath, [
   FDE_RUNTIME_URL: peerRuntimeUrl,
   VITE_FDE_RUNTIME_URL: peerRuntimeUrl,
   FDE_SKIP_RUNTIME_SPAWN: '1',
-})
+}, ['inherit', 'inherit', 'inherit', 'ipc'])
+sendPageToken = bindPageToken(viteChild, () => pageToken)
+sendPageToken()

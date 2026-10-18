@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { networkInterfaces } from 'node:os'
+import { pathHasPrefix } from '../path-prefix.mjs'
 
 function appIsTrashed(app) {
   return Boolean(app && String(app.deletedAt || '').trim())
@@ -32,7 +33,7 @@ export function isViteDevAsset(pathname) {
 export function isPublicAppFace(pathname, { staticDir } = {}) {
   const path = String(pathname || '')
   if (path === '/a' || path.startsWith('/a/')) return true
-  if (path.startsWith('/api/v1/app-share/')) return true
+  if (pathHasPrefix(path, '/api/v1/app-share/')) return true
   if (path.startsWith('/assets/')) return true
   if (path.startsWith('/brand/')) return true
   if (path === '/favicon.ico' || path === '/index.html') return true

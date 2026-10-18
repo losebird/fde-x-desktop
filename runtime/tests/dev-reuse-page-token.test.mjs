@@ -239,16 +239,16 @@ describe('dev reuse page token', { concurrency: 1 }, () => {
     }
     assert.match(token, /^[0-9a-f]{64}$/u, devWatch.output())
     const base = `http://127.0.0.1:${runtimePort}`
-    const created = await writeJson(base, '/api/v1/apps', { spec: SUPPLIER_VISITS_SPEC, workspaceCwd }, 'POST', pageOrigin)
+    const created = await writeJson(base, '/api/v1/apps', { spec: SUPPLIER_VISITS_SPEC, workspaceCwd }, 'POST', pageOrigin, token)
     assert.equal(created.status, 201, JSON.stringify(created.payload))
-    const activated = await writeJson(base, `/api/v1/apps/${encodeURIComponent(created.payload.data.appId)}/activate`, {}, 'POST', pageOrigin)
+    const activated = await writeJson(base, `/api/v1/apps/${encodeURIComponent(created.payload.data.appId)}/activate`, {}, 'POST', pageOrigin, token)
     assert.equal(activated.status, 200, JSON.stringify(activated.payload))
     const inserted = await writeJson(base, '/api/v1/apps/supplier-visits/visit', {
       supplier: 'ACME',
       visit_date: '2026-09-01',
       status: '计划',
       workspaceCwd,
-    }, 'POST', pageOrigin)
+    }, 'POST', pageOrigin, token)
     assert.equal(inserted.status, 201, JSON.stringify(inserted.payload))
     clearAudit()
     const patched = await fetch(
@@ -306,32 +306,16 @@ describe('dev reuse page token', { concurrency: 1 }, () => {
     assert.match(watched.output(), /^FDE_LISTENING\s+\d+/m)
     assert.equal(/^FDE_UI_TOKEN\s+/m.test(watched.output()), false, watched.output())
     const created = await writeJson(base, '/api/v1/apps', { spec: SUPPLIER_VISITS_SPEC, workspaceCwd }, 'POST')
-    assert.equal(created.status, 201, JSON.stringify(created.payload))
-    const activated = await writeJson(base, `/api/v1/apps/${encodeURIComponent(created.payload.data.appId)}/activate`, {}, 'POST')
-    assert.equal(activated.status, 200, JSON.stringify(activated.payload))
-    const inserted = await writeJson(base, '/api/v1/apps/supplier-visits/visit', {
-      supplier: 'ACME',
-      visit_date: '2026-09-01',
-      status: '计划',
-      workspaceCwd,
-    }, 'POST')
-    assert.equal(inserted.status, 201, JSON.stringify(inserted.payload))
-    const patched = await fetch(
-      `${base}/api/v1/apps/supplier-visits/visit/${encodeURIComponent(inserted.payload.data.id)}?workspace=${encodeURIComponent(workspaceCwd)}`,
-      {
-        method: 'PATCH',
-        headers: { Origin: origin, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: '已拜访' }),
-      },
-    )
-    assert.equal(patched.status, 401)
+    assert.equal(created.status, 401, JSON.stringify(created.payload))
   })
 })
 
-async function writeJson(base, path, body, method, requestOrigin = origin) {
+async function writeJson(base, path, body, method, requestOrigin = origin, token = '') {
+  const headers = { Origin: requestOrigin, 'Content-Type': 'application/json' }
+  if (token) headers['x-fde-ui-token'] = token
   const res = await fetch(`${base}${path}`, {
     method,
-    headers: { Origin: requestOrigin, 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   })
   const payload = await res.json().catch(() => ({}))

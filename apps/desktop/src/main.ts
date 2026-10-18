@@ -247,6 +247,7 @@ async function gracefulShutdown() {
         headers: {
           Origin: pageOrigin(bffPort),
           'Content-Type': 'application/json',
+          'x-fde-ui-token': uiToken,
         },
         body: '{}',
       })

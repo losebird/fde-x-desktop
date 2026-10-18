@@ -1,4 +1,4 @@
-import { createId } from '../db.mjs'
+import { appendAudit, createId } from '../db.mjs'
 import { emit } from '../events.mjs'
 import { collectBag, mutateBag } from '../catalog-collect.mjs'
 import {
@@ -17,6 +17,20 @@ const PRIORITIES = new Set(['low', 'med', 'high', 'urgent'])
 const EVENT_KINDS = new Set(['meeting', 'focus', 'reminder', 'external'])
 
 const isoNow = () => new Date().toISOString()
+
+function planWrote(response, status, data, correlationId, db, audit) {
+  appendAudit(db, {
+    workspaceId: audit.workspaceId ?? null,
+    actorId: 'actor_local_user',
+    action: audit.action,
+    targetRef: audit.targetRef ?? null,
+    outcome: 'succeeded',
+    riskLevel: 'low',
+    correlationId,
+    details: audit.details ?? {},
+  })
+  planOk(response, status, data, correlationId)
+}
 
 function planError(response, status, error, message, correlationId) {
   const body = JSON.stringify({ ok: false, error, message, correlationId })
@@ -259,7 +273,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     `).run(id, workspaceId, title, status, priority, dueAt, completedAt, sourceRef, JSON.stringify(tags), now, now)
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
     emitTaskChanged(db, { id, op: 'insert', workspaceId, status: row.status, title: row.title })
-    planOk(response, 201, mapTask(row), correlationId)
+    planWrote(response, 201, mapTask(row), correlationId, db, {
+      workspaceId,
+      action: 'plan.task.insert',
+      targetRef: `fde://plan/tasks/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -276,7 +295,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
           planError(response, 404, 'not_found', '任务不存在', correlationId)
           return true
         }
-        planOk(response, 200, updated, correlationId)
+        planWrote(response, 200, updated, correlationId, db, {
+          workspaceId: workspaceId || null,
+          action: 'plan.task.update',
+          targetRef: `fde://plan/tasks/${id}`,
+          details: { id },
+        })
       } catch (error) {
         planError(response, 502, 'host_goal_failed', error instanceof Error ? error.message : '改不了这条 goal', correlationId)
       }
@@ -316,7 +340,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     db.prepare(`UPDATE tasks SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k]), now, id)
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
     emitTaskChanged(db, { id, op: 'update', workspaceId: row.workspace_id, status: row.status, title: row.title })
-    planOk(response, 200, mapTask(row), correlationId)
+    planWrote(response, 200, mapTask(row), correlationId, db, {
+      workspaceId: row.workspace_id,
+      action: 'plan.task.update',
+      targetRef: `fde://plan/tasks/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -328,7 +357,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       const cwd = workspaceId ? workspaceCwdForEmit(db, workspaceId) : null
       try {
         await mutateHostGoal(aiRuntime, { id, status: 'archived', cwd })
-        planOk(response, 200, { id }, correlationId)
+        planWrote(response, 200, { id }, correlationId, db, {
+          workspaceId: workspaceId || null,
+          action: 'plan.task.delete',
+          targetRef: `fde://plan/tasks/${id}`,
+          details: { id },
+        })
       } catch (error) {
         planError(response, 502, 'host_goal_failed', error instanceof Error ? error.message : '清不了这条 goal', correlationId)
       }
@@ -341,7 +375,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     }
     db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
     emitTaskChanged(db, { id, op: 'delete', workspaceId: existing.workspace_id, status: existing.status, title: existing.title })
-    planOk(response, 200, { id }, correlationId)
+    planWrote(response, 200, { id }, correlationId, db, {
+      workspaceId: existing.workspace_id,
+      action: 'plan.task.delete',
+      targetRef: `fde://plan/tasks/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -403,7 +442,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?)
     `).run(id, workspaceId, title, startAt, endAt, timezone, location, kind, sourceRef, allDay, now, now)
     const row = db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(id)
-    planOk(response, 201, mapEvent(row), correlationId)
+    planWrote(response, 201, mapEvent(row), correlationId, db, {
+      workspaceId,
+      action: 'plan.event.insert',
+      targetRef: `fde://plan/events/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -436,7 +480,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const sets = keys.map((k) => `${k} = ?`).join(', ')
     db.prepare(`UPDATE calendar_events SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k]), now, id)
     const row = db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(id)
-    planOk(response, 200, mapEvent(row), correlationId)
+    planWrote(response, 200, mapEvent(row), correlationId, db, {
+      workspaceId: row.workspace_id,
+      action: 'plan.event.update',
+      targetRef: `fde://plan/events/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -448,7 +497,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       const cwd = workspaceId ? workspaceCwdForEmit(db, workspaceId) : null
       try {
         await mutateBag(aiRuntime, { kind: 'schedule', action: 'delete', id, cwd, workspaceId })
-        planOk(response, 200, { id }, correlationId)
+        planWrote(response, 200, { id }, correlationId, db, {
+          workspaceId: workspaceId || null,
+          action: 'plan.event.delete',
+          targetRef: `fde://plan/events/${id}`,
+          details: { id },
+        })
       } catch (error) {
         planError(response, 502, 'host_schedule_failed', error instanceof Error ? error.message : '清不了这条日程', correlationId)
       }
@@ -460,7 +514,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       return true
     }
     db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id)
-    planOk(response, 200, { id }, correlationId)
+    planWrote(response, 200, { id }, correlationId, db, {
+      workspaceId: existing.workspace_id,
+      action: 'plan.event.delete',
+      targetRef: `fde://plan/events/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -499,7 +558,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(id, workspaceId, name, status, JSON.stringify(trigger), JSON.stringify(definition), now, now)
     const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id)
-    planOk(response, 201, mapWorkflow(row), correlationId)
+    planWrote(response, 201, mapWorkflow(row), correlationId, db, {
+      workspaceId,
+      action: 'plan.workflow.insert',
+      targetRef: `fde://plan/workflows/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -517,7 +581,13 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       try {
         const bag = await mutateBag(aiRuntime, { kind: 'job', action: 'kill', id, cwd, workspaceId })
         const updated = (bag.items || []).map((row) => planWorkflowFromBag(row.fields || row, workspaceId)).find((row) => row.id === id)
-        planOk(response, 200, updated || planWorkflowFromBag({ id, status: 'paused' }, workspaceId), correlationId)
+        const updatedRow = updated || planWorkflowFromBag({ id, status: 'paused' }, workspaceId)
+        planWrote(response, 200, updatedRow, correlationId, db, {
+          workspaceId: workspaceId || null,
+          action: 'plan.workflow.update',
+          targetRef: `fde://plan/workflows/${id}`,
+          details: { id },
+        })
       } catch (error) {
         planError(response, 502, 'host_job_failed', error instanceof Error ? error.message : '停不了这条 job', correlationId)
       }
@@ -558,7 +628,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const sets = keys.map((k) => `${k} = ?`).join(', ')
     db.prepare(`UPDATE workflows SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k]), now, id)
     const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id)
-    planOk(response, 200, mapWorkflow(row), correlationId)
+    planWrote(response, 200, mapWorkflow(row), correlationId, db, {
+      workspaceId: row.workspace_id,
+      action: 'plan.workflow.update',
+      targetRef: `fde://plan/workflows/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -570,7 +645,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       const cwd = workspaceId ? workspaceCwdForEmit(db, workspaceId) : null
       try {
         await mutateBag(aiRuntime, { kind: 'job', action: 'kill', id, cwd, workspaceId })
-        planOk(response, 200, { id }, correlationId)
+        planWrote(response, 200, { id }, correlationId, db, {
+          workspaceId: workspaceId || null,
+          action: 'plan.workflow.delete',
+          targetRef: `fde://plan/workflows/${id}`,
+          details: { id },
+        })
       } catch (error) {
         planError(response, 502, 'host_job_failed', error instanceof Error ? error.message : '停不了这条 job', correlationId)
       }
@@ -582,7 +662,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       return true
     }
     db.prepare('DELETE FROM workflows WHERE id = ?').run(id)
-    planOk(response, 200, { id }, correlationId)
+    planWrote(response, 200, { id }, correlationId, db, {
+      workspaceId: existing.workspace_id,
+      action: 'plan.workflow.delete',
+      targetRef: `fde://plan/workflows/${id}`,
+      details: { id },
+    })
     return true
   }
 
