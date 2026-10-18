@@ -252,8 +252,6 @@ async function performRun(deps, ctx) {
 }
 
 function continueRun(deps, ctx) {
-  // The queued insert has already committed. session/create stays on this
-  // microtask so the HTTP response can return while that call is still held.
   queueMicrotask(() => {
     performRun(deps, ctx).catch((error) => {
       const message = error instanceof Error && error.message ? error.message : '运行失败'
