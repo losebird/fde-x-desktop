@@ -237,6 +237,37 @@ export function readLatestRunCards(db, workflowIds) {
   return cards
 }
 
+export function failInterruptedRuns(db) {
+  const runs = db.prepare(`SELECT id FROM workflow_runs WHERE state IN ('queued', 'running')`).all()
+  const steps = db.prepare(`SELECT id FROM workflow_run_steps WHERE state IN ('queued', 'running')`).all()
+  if (runs.length === 0 && steps.length === 0) return
+  const now = isoNow()
+  const message = '上次运行被中断'
+  db.exec('BEGIN IMMEDIATE;')
+  try {
+    const failStep = db.prepare(`
+      UPDATE workflow_run_steps
+      SET state = 'failed', error_json = ?, finished_at = COALESCE(finished_at, ?)
+      WHERE id = ? AND state IN ('queued', 'running')
+    `)
+    const failRun = db.prepare(`
+      UPDATE workflow_runs
+      SET state = 'failed', finished_at = COALESCE(finished_at, ?)
+      WHERE id = ? AND state IN ('queued', 'running')
+    `)
+    for (const step of steps) failStep.run(JSON.stringify({ message }), now, step.id)
+    for (const run of runs) failRun.run(now, run.id)
+    db.exec('COMMIT;')
+  } catch (error) {
+    try {
+      db.exec('ROLLBACK;')
+    } catch {
+      /* transaction already finished */
+    }
+    throw error
+  }
+}
+
 export function startWorkflowRun(deps, command) {
   const db = deps.db
   const workflowId = typeof command?.workflowId === 'string' ? command.workflowId : ''
