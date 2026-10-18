@@ -23,9 +23,7 @@ function passageFiles(cwd) {
   try {
     const real = realpathSync(cwd)
     if (real !== cwd) files.push(join(real, '.dsh', 'semantic-os', 'passages', 'texts.json'))
-  } catch {
-    /* cwd is not a directory yet */
-  }
+  } catch {}
   return files
 }
 

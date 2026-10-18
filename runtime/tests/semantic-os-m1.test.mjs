@@ -47,7 +47,7 @@ async function reapHomeProcesses(home) {
       continue
     }
     if (!env.includes(home)) continue
-    try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+    try { process.kill(pid, 'SIGKILL') } catch {}
   }
 }
 
@@ -512,8 +512,8 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       }
       let passages = ''
       let cursors = ''
-      try { passages = await readFile(join(workspace, '.dsh', 'semantic-os', 'passages', 'texts.json'), 'utf8') } catch { /* not written */ }
-      try { cursors = await readFile(join(home, 'semantic-os', 'session-cursors.json'), 'utf8') } catch { /* not written */ }
+      try { passages = await readFile(join(workspace, '.dsh', 'semantic-os', 'passages', 'texts.json'), 'utf8') } catch {}
+      try { cursors = await readFile(join(home, 'semantic-os', 'session-cursors.json'), 'utf8') } catch {}
       const evidence = `visible=${visible} stored=${stored.found} cursors=${cursors.slice(0, 300)} passages=${passages.slice(0, 300)} ingest=${JSON.stringify(ingestBody).slice(0, 400)}`
       assert.equal(searchStatus === 502, false, `search 502 ${searchText.slice(0, 800)} ${evidence}`)
       assert.equal(hit, true, `search missed ${keyword} status=${searchStatus} ${searchText.slice(0, 800)} ${evidence}`)
@@ -554,7 +554,7 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       child.kill('SIGTERM')
       await new Promise((resolve) => {
         const timer = setTimeout(() => {
-          try { child.kill('SIGKILL') } catch { /* already exited */ }
+          try { child.kill('SIGKILL') } catch {}
           resolve()
         }, 8000)
         child.once('exit', () => {
@@ -623,7 +623,7 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       if (child.exitCode == null && child.signalCode == null) child.kill('SIGTERM')
       await new Promise((resolve) => {
         const timer = setTimeout(() => {
-          try { child.kill('SIGKILL') } catch { /* already exited */ }
+          try { child.kill('SIGKILL') } catch {}
           resolve()
         }, 8000)
         child.once('exit', () => {

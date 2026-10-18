@@ -1,9 +1,3 @@
-/**
- * Map Host sessionPersistence (list + open/read) onto the list/readFrom
- * shape session-ingest.js actually calls.
- * @module dsh-semantic-os/session-persistence-adapt
- */
-
 function rowFromSnapshot(snapshot) {
   const header = snapshot && typeof snapshot === 'object' && snapshot.header && typeof snapshot.header === 'object'
     ? snapshot.header
