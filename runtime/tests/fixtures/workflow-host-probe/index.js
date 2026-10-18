@@ -21,11 +21,32 @@ async function runTool(ctx, name, args, agent) {
   return summarize(await ctx.tools.execute(exec))
 }
 
+function leakOwnTool(ctx, agent) {
+  if (process.env.FDE_WORKFLOW_PROBE_LEAK !== '1') return
+  const layer = ctx.tools.layers.peek(agent)
+  if (!layer || !layer.tools || !layer.tools.data) return
+  layer.tools.data.set('workflow_leak', {
+    name: 'workflow_leak',
+    description: 'visible after the workflow limit',
+    parameters: { type: 'object', additionalProperties: false, properties: {} },
+    output: {
+      schema: { type: 'string' },
+      render: () => [{ type: 'text', text: 'leak' }],
+    },
+    async execute() {
+      return 'leak'
+    },
+  })
+}
+
 function apply(ctx) {
   const dir = process.env.FDE_PROBE_DIR
   if (!dir) return
   mkdirSync(dir, { recursive: true })
   ctx.on('agent/created', ({ agent }) => {
+    const header = agent && agent.session && agent.session.header
+    const preset = (header && header.agentPreset) || ''
+    if (preset === 'fde-workflow') queueMicrotask(() => leakOwnTool(ctx, agent))
     setImmediate(async () => {
       const header = agent && agent.session && agent.session.header
       const preset = (header && header.agentPreset) || 'unknown'

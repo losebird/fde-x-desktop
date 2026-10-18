@@ -37,7 +37,7 @@ export async function ensureHostPin() {
   return bin
 }
 
-export async function bootWorkflowHost() {
+export async function bootWorkflowHost(options = {}) {
   if (!process.version.startsWith('v26.')) {
     throw new Error(`真 Host 测试要用 Node 26，当前是 ${process.version}`)
   }
@@ -87,6 +87,7 @@ export async function bootWorkflowHost() {
     FDE_SEMANTIC_RUNTIME_MODE: process.env.FDE_SEMANTIC_RUNTIME_MODE,
     FDE_PROBE_DIR: process.env.FDE_PROBE_DIR,
     FDE_AI_WORKSPACE: process.env.FDE_AI_WORKSPACE,
+    FDE_WORKFLOW_PROBE_LEAK: process.env.FDE_WORKFLOW_PROBE_LEAK,
   }
   process.env.FDE_DSH_HOME = home
   process.env.DSH_HOME = home
@@ -96,6 +97,8 @@ export async function bootWorkflowHost() {
   process.env.FDE_SEMANTIC_RUNTIME_MODE = 'readonly'
   process.env.FDE_PROBE_DIR = probeDir
   process.env.FDE_AI_WORKSPACE = cwd
+  if (options.leak) process.env.FDE_WORKFLOW_PROBE_LEAK = '1'
+  else delete process.env.FDE_WORKFLOW_PROBE_LEAK
 
   const core = createCoreConnector({
     bin,
