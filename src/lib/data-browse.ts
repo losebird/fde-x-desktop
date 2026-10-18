@@ -18,6 +18,7 @@ export type DataBrowse = {
   rowId: string
   kind: string
   traceId: string
+  appRid: string
   land: number
 }
 
@@ -29,6 +30,7 @@ export type DataLandHref = {
   entity?: string
   slug?: string
   workspaceAppId?: string | null
+  appRid?: string
 }
 
 export function emptyDataBrowse(): DataBrowse {
@@ -40,6 +42,7 @@ export function emptyDataBrowse(): DataBrowse {
     rowId: '',
     kind: '',
     traceId: '',
+    appRid: '',
     land: 0,
   }
 }
@@ -88,5 +91,10 @@ export function applyDataLand(browse: DataBrowse | null | undefined, href: DataL
   if (Object.prototype.hasOwnProperty.call(href || {}, 'workspaceAppId')) {
     next.workspaceAppId = href?.workspaceAppId || null
   }
+  next.appRid = typeof href?.appRid === 'string' ? href.appRid : ''
   return next
+}
+
+export function clearAppRecordFocus(workspaceAppId: string | null) {
+  return { workspaceAppId, appRid: '' }
 }

@@ -6,6 +6,8 @@ import {
 } from 'lucide-react'
 import { askAiForResult } from '@/lib/ask-ai'
 import { askOrigin } from '@/lib/ask-origin'
+import { openRef } from '@/lib/open-ref'
+import { planAppSource, planTaskAskFields } from '@/lib/plan-app-source'
 import type { JsonSchemaLite } from '@/lib/json-schema-lite'
 import clsx from 'clsx'
 import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
@@ -166,6 +168,28 @@ function formatAdvicePatch(patch: TaskAdvicePatch): string {
   return parts.length ? parts.join('；') : '（无字段变更）'
 }
 
+function planSourceButton(task: Task, selectTask: (id: Task['id']) => void) {
+  const handle = planAppSource(task.sourceRef || '')
+  if (!handle) return null
+  const row = handle.kind === 'row'
+  return (
+    <button
+      type="button"
+      className="text-xs text-ink-muted mt-0.5"
+      data-plan-source={row ? 'row' : 'app'}
+      data-plan-source-app={handle.ledgerId}
+      {...(row ? { 'data-plan-source-rid': handle.rid } : {})}
+      onClick={(event) => {
+        event.stopPropagation()
+        selectTask(task.id)
+        openRef(handle.href)
+      }}
+    >
+      {row ? '打开记录' : '打开应用'}
+    </button>
+  )
+}
+
 function TodoTab() {
   const tasks = useCurrentTasks()
   const addTask = useApp((s) => s.addTask)
@@ -304,11 +328,12 @@ function TodoTab() {
     if (selectedTask.notes) fields.notes = selectedTask.notes
     if (selectedTask.due) fields.due = selectedTask.due
     if (selectedTask.tags.length) fields.tags = selectedTask.tags.join(', ')
+    const asked = await planTaskAskFields(selectedTask.sourceRef || '')
     const result = await askOrigin(`task:${selectedTask.id}`, {
       title: selectedTask.title,
       text: selectedTask.notes || selectedTask.title,
       status: selectedTask.status,
-      fields,
+      fields: { ...fields, ...asked },
       tail: '请结合上述来源实体推进这项待办。禁止过账。',
       omit: ctxOmit,
       pack: ctxPack || undefined,
@@ -448,6 +473,7 @@ function TodoTab() {
               </button>
               <div className="min-w-0 px-2 cursor-pointer" onClick={() => selectTask(t.id)}>
                 <div className="font-medium text-sm truncate">{t.title}</div>
+                {planSourceButton(t, selectTask)}
                 {t.notes && <div className="text-xs text-ink-muted mt-0.5 truncate">{t.notes}</div>}
               </div>
               <div className="hidden @md:block text-xs text-ink-muted truncate">{t.due ?? '—'}</div>

@@ -17,12 +17,14 @@ import {
   pairComposeChart,
   recordActionUses,
   resolvedSurface,
+  isFdeAppSpec,
   specHasUse,
   viewById,
   visibleWorkSurfaceBlocks,
   workSurfacePages,
   type FdeAppDetail,
   type FdeAppPage,
+  type FdeAppSpec,
   type FdeAppView,
   type FdePlatformUse,
   type ResolvedFdeAppSurface,
@@ -32,6 +34,18 @@ type Props = {
   app: FdeAppDetail
   workspaceCwd: string
   onRefresh: () => void
+  focusEntity?: string
+  focusRid?: string
+}
+
+function cardsPageForEntity(spec: FdeAppSpec, entityName: string): string {
+  if (!entityName || resolvedSurface(spec).nav === 'stack') return ''
+  const { pages, extraViews } = workSurfacePages(spec)
+  const hit = pages.find((page) => visibleWorkSurfaceBlocks(page).some((block) => {
+    if (block.kind !== 'cards') return false
+    return viewById(spec, block.view, extraViews)?.entity === entityName
+  }))
+  return hit?.id || ''
 }
 
 function initialPageId(pages: FdeAppPage[], surface: ResolvedFdeAppSurface): string {
@@ -41,10 +55,13 @@ function initialPageId(pages: FdeAppPage[], surface: ResolvedFdeAppSurface): str
   return pages[0]?.id || ''
 }
 
-export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
+export function AppProductPage({ app, workspaceCwd, onRefresh, focusEntity, focusRid }: Props) {
   const { pages, extraViews } = workSurfacePages(app.spec)
   const surface = resolvedSurface(app.spec)
-  const [pageId, setPageId] = useState(() => initialPageId(pages, surface))
+  const [pageId, setPageId] = useState(() => {
+    if (!isFdeAppSpec(app.spec)) return initialPageId(pages, surface)
+    return cardsPageForEntity(app.spec, focusEntity || '') || initialPageId(pages, surface)
+  })
   const [reloadToken, setReloadToken] = useState(0)
   const page = pages.find((row) => row.id === pageId) || pages[0]
   const preview = app.status !== 'active'
@@ -55,6 +72,12 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
       setPageId(initialPageId(pages, surface))
     }
   }, [pageId, pages, surface])
+
+  useEffect(() => {
+    if (!focusEntity || !isFdeAppSpec(app.spec)) return
+    const next = cardsPageForEntity(app.spec, focusEntity)
+    if (next) setPageId(next)
+  }, [app.spec, focusEntity])
 
   const refresh = () => {
     setReloadToken((value) => value + 1)
@@ -84,8 +107,10 @@ export function AppProductPage({ app, workspaceCwd, onRefresh }: Props) {
               view={'view' in block ? viewById(app.spec, block.view, extraViews) : undefined}
               statViews={block.kind === 'stats' ? block.views.map((id) => viewById(app.spec, id, extraViews)).filter((row): row is FdeAppView => Boolean(row)) : []}
               kind={block.kind}
+              focusEntity={focusEntity}
+              focusRid={focusRid}
               capabilityUses={
-                block.kind === 'compose' || block.kind === 'form'
+                block.kind === 'compose' || block.kind === 'form' || block.kind === 'cards'
                   ? actionUses
                   : []
               }
@@ -168,7 +193,7 @@ function renderBlocks(
 }
 
 function ProductBlock({
-  app, workspaceCwd, preview, reloadToken, onRefresh, surface, view, statViews, kind, capabilityUses,
+  app, workspaceCwd, preview, reloadToken, onRefresh, surface, view, statViews, kind, capabilityUses, focusEntity, focusRid,
 }: {
   app: FdeAppDetail
   workspaceCwd: string
@@ -180,6 +205,8 @@ function ProductBlock({
   statViews: FdeAppView[]
   kind: FdeAppPage['blocks'][number]['kind']
   capabilityUses: FdePlatformUse[]
+  focusEntity?: string
+  focusRid?: string
 }) {
   const publicSurface = useAppPublicSurface()
   if (kind === 'stats') {
@@ -262,6 +289,7 @@ function ProductBlock({
         previewRows={previewRows}
         reloadToken={reloadToken}
         actionUses={capabilityUses}
+        focusRid={focusEntity && view.entity === focusEntity ? focusRid : undefined}
       />
     )
   }
