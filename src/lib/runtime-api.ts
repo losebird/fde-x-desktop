@@ -1944,6 +1944,7 @@ export class RuntimeApi {
     entity?: Record<string, unknown>
     intentKind?: 'decision' | 'draft' | 'lookup'
     sessionId?: string
+    taskIds?: readonly string[]
   }, signal?: AbortSignal): Promise<{ pack: Record<string, unknown>; warnings: string[] }> {
     let response: Response
     try {
