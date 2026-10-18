@@ -10,10 +10,18 @@ import {
   mergeTaskRows,
   mutateHostGoal,
 } from '../host-catalog.mjs'
+import { decidePlanTask, listOpenPlanTaskProposals } from '../plan/task-proposals.mjs'
+import {
+  TASK_PRIORITIES,
+  TASK_STATUSES,
+  deleteTask,
+  getTask,
+  insertTask,
+  listTasks,
+  updateTask,
+} from '../plan/task-store.mjs'
 
-const TASK_STATUSES = new Set(['todo', 'doing', 'done', 'archived'])
 const WORKFLOW_WRITE_STATUSES = new Set(['active', 'paused'])
-const PRIORITIES = new Set(['low', 'med', 'high', 'urgent'])
 const EVENT_KINDS = new Set(['meeting', 'focus', 'reminder', 'external'])
 
 const isoNow = () => new Date().toISOString()
@@ -214,18 +222,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     if (!workspaceId) return true
     const status = url.searchParams.get('status')
     const q = url.searchParams.get('q')
-    let sql = 'SELECT * FROM tasks WHERE workspace_id = ?'
-    const params = [workspaceId]
-    if (status) {
-      sql += ' AND status = ?'
-      params.push(status)
-    }
-    if (q) {
-      sql += ' AND title LIKE ?'
-      params.push(`%${q}%`)
-    }
-    sql += ' ORDER BY created_at DESC'
-    const rows = db.prepare(sql).all(...params).map(mapTask)
+    const rows = listTasks(db, { workspaceId, status, q }).map(mapTask)
     const cwd = workspaceCwdForEmit(db, workspaceId)
     let hostRows = []
     try {
@@ -256,22 +253,25 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'validation_error', '标题不能为空', correlationId)
       return true
     }
-    const priority = PRIORITIES.has(body.priority) ? body.priority : 'med'
+    const priority = TASK_PRIORITIES.has(body.priority) ? body.priority : 'med'
     const status = TASK_STATUSES.has(body.status) ? body.status : 'todo'
-    const now = isoNow()
     const id = createId('task')
     const tags = Array.isArray(body.tags) ? body.tags.map(String) : []
     const dueAt = typeof body.dueAt === 'string' ? body.dueAt : null
     const sourceRef = typeof body.sourceRef === 'string' && body.sourceRef.trim()
       ? body.sourceRef.trim()
       : `${ORIGIN_FDE_TASK}${id}`
-    const completedAt = status === 'done' ? now : null
-    db.prepare(`
-      INSERT INTO tasks
-        (id, workspace_id, title, notes, status, priority, due_at, completed_at, metadata_json, source_ref, tags_json, created_at, updated_at)
-      VALUES (?, ?, ?, '', ?, ?, ?, ?, '{}', ?, ?, ?, ?)
-    `).run(id, workspaceId, title, status, priority, dueAt, completedAt, sourceRef, JSON.stringify(tags), now, now)
-    const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
+    const row = insertTask(db, {
+      id,
+      workspaceId,
+      title,
+      notes: '',
+      status,
+      priority,
+      dueAt,
+      sourceRef,
+      tags,
+    })
     emitTaskChanged(db, { id, op: 'insert', workspaceId, status: row.status, title: row.title })
     planWrote(response, 201, mapTask(row), correlationId, db, {
       workspaceId,
@@ -306,7 +306,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       }
       return true
     }
-    const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
+    const existing = getTask(db, id)
     if (!existing) {
       planError(response, 404, 'not_found', '任务不存在', correlationId)
       return true
@@ -315,30 +315,24 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'validation_error', 'workspaceId 不匹配', correlationId)
       return true
     }
-    const patch = {}
-    if (typeof body.title === 'string') patch.title = body.title.trim()
-    if (typeof body.notes === 'string') patch.notes = body.notes
-    if (body.priority && PRIORITIES.has(body.priority)) patch.priority = body.priority
-    if (typeof body.dueAt === 'string' || body.dueAt === null) patch.due_at = body.dueAt
-    if (Array.isArray(body.tags)) patch.tags_json = JSON.stringify(body.tags.map(String))
+    const fields = {}
+    if (typeof body.title === 'string') fields.title = body.title.trim()
+    if (typeof body.notes === 'string') fields.notes = body.notes
+    if (body.priority && TASK_PRIORITIES.has(body.priority)) fields.priority = body.priority
+    if (typeof body.dueAt === 'string' || body.dueAt === null) fields.dueAt = body.dueAt
+    if (Array.isArray(body.tags)) fields.tags = body.tags.map(String)
     if (body.status) {
       if (!TASK_STATUSES.has(body.status)) {
         planError(response, 422, 'invalid_status', '任务状态无效', correlationId)
         return true
       }
-      patch.status = body.status
-      if (body.status === 'done') patch.completed_at = isoNow()
-      else patch.completed_at = null
+      fields.status = body.status
     }
-    const keys = Object.keys(patch)
-    if (!keys.length) {
+    if (!Object.keys(fields).length) {
       planOk(response, 200, mapTask(existing), correlationId)
       return true
     }
-    const now = isoNow()
-    const sets = keys.map((k) => `${k} = ?`).join(', ')
-    db.prepare(`UPDATE tasks SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k]), now, id)
-    const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
+    const row = updateTask(db, id, fields)
     emitTaskChanged(db, { id, op: 'update', workspaceId: row.workspace_id, status: row.status, title: row.title })
     planWrote(response, 200, mapTask(row), correlationId, db, {
       workspaceId: row.workspace_id,
@@ -368,12 +362,11 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       }
       return true
     }
-    const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
+    const existing = deleteTask(db, id)
     if (!existing) {
       planError(response, 404, 'not_found', '任务不存在', correlationId)
       return true
     }
-    db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
     emitTaskChanged(db, { id, op: 'delete', workspaceId: existing.workspace_id, status: existing.status, title: existing.title })
     planWrote(response, 200, { id }, correlationId, db, {
       workspaceId: existing.workspace_id,
@@ -382,6 +375,56 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       details: { id },
     })
     return true
+  }
+
+  if (method === 'GET' && url.pathname === '/api/v1/plan/task-proposals') {
+    const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
+    if (!workspaceId) return true
+    planOk(response, 200, listOpenPlanTaskProposals(db, workspaceId), correlationId)
+    return true
+  }
+
+  const proposalMatch = method === 'POST'
+    && segments.length === 6
+    && segments[3] === 'task-proposals'
+    && (segments[5] === 'confirm' || segments[5] === 'reject')
+  if (proposalMatch) {
+    await readJson(request)
+    const operationId = planRowId(segments[4])
+    const decision = segments[5]
+    const result = decidePlanTask(db, operationId, decision, { correlationId })
+    if (result.kind === 'ok' && decision === 'confirm') {
+      const plan = result.operation.plan
+      const row = getTask(db, plan.taskId)
+      emitTaskChanged(db, {
+        id: plan.taskId,
+        op: plan.op,
+        workspaceId: plan.workspaceId,
+        status: row.status,
+        title: row.title,
+      })
+    }
+    if (result.kind === 'ok') {
+      planOk(response, 200, result.operation, correlationId)
+      return true
+    }
+    if (result.kind === 'not_found' || result.kind === 'not_proposal') {
+      planError(response, 404, 'not_found', '提案不存在', correlationId)
+      return true
+    }
+    if (result.kind === 'invalid_state') {
+      planError(response, 409, 'invalid_state', '提案已经确认或拒绝', correlationId)
+      return true
+    }
+    if (result.kind === 'stale' && result.reason === 'task_exists') {
+      planError(response, 409, 'task_exists', '这个 id 已经有任务', correlationId)
+      return true
+    }
+    if (result.kind === 'stale') {
+      planError(response, 409, 'stale_task', '任务在提案之后已变更', correlationId)
+      return true
+    }
+    throw new Error(`unknown proposal result: ${result.kind}`)
   }
 
   if (method === 'GET' && url.pathname === '/api/v1/plan/events') {

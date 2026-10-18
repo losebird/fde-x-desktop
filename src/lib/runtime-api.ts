@@ -622,6 +622,14 @@ async function withPageToken(path: string, init?: RequestInit): Promise<RequestI
   return { ...init, headers }
 }
 
+export type PlanTaskProposal = {
+  id: string
+  workspaceId: string
+  op: 'insert' | 'update'
+  taskId: string
+  title: string
+}
+
 export class RuntimeApiError extends Error {
   status: number
   code: string
@@ -866,6 +874,23 @@ export class RuntimeApi {
   async deleteTask(id: string, opts?: { workspaceId?: string; signal?: AbortSignal }): Promise<void> {
     const params = opts?.workspaceId ? `?workspaceId=${encodeURIComponent(opts.workspaceId)}` : ''
     await this.planRequest(`/api/v1/plan/tasks/${encodeURIComponent(id)}${params}`, { method: 'DELETE', signal: opts?.signal })
+  }
+
+  async listPlanTaskProposals(workspaceId: string, signal?: AbortSignal): Promise<PlanTaskProposal[]> {
+    const params = new URLSearchParams({ workspaceId })
+    return this.planRequest<PlanTaskProposal[]>(`/api/v1/plan/task-proposals?${params}`, { signal })
+  }
+
+  async decidePlanTaskProposal(proposalId: string, decision: 'confirm' | 'reject', signal?: AbortSignal): Promise<void> {
+    await this.planRequest(
+      `/api/v1/plan/task-proposals/${encodeURIComponent(proposalId)}/${decision}`,
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+    )
   }
 
   async listEvents(workspaceId: string, fromMs: number, toMs: number, signal?: AbortSignal): Promise<ScheduleEvent[]> {
@@ -2639,6 +2664,21 @@ export class RuntimeApi {
       body: JSON.stringify({ note }),
     })
     return result.data
+  }
+
+  async decideRecordProposal(operationId: string, decision: 'confirm' | 'reject', signal?: AbortSignal) {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const token = await readUiToken()
+    if (token) headers['x-fde-ui-token'] = token
+    return this.request<{ ok: boolean; data: RuntimeOperation }>(
+      `/api/v1/apps/record-proposals/${encodeURIComponent(operationId)}/${decision}`,
+      {
+        method: 'POST',
+        signal,
+        headers,
+        body: '{}',
+      },
+    )
   }
 
   async bizPreview(body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {

@@ -7,6 +7,8 @@ import { buildContextPack } from '../context-pack.mjs'
 import { draftMemoryFromBridge } from '../memory/writer.mjs'
 import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
+import { workspaceRowIdForCwd } from '../briefing/workspace.mjs'
+import { proposePlanTask } from '../plan/task-proposals.mjs'
 import { pathHasPrefix } from '../path-prefix.mjs'
 
 const READY_TTL_MS = 10 * 60 * 1000
@@ -184,6 +186,25 @@ export async function handleBridgeRoutes(request, response, url, deps) {
       },
     )
     bridgeOk(response, 200, { ...pack, warnings }, correlationId)
+    return true
+  }
+
+  if (sub === 'plan-task-propose') {
+    const fromCwd = workspaceRowIdForCwd(db, workspaceCwd)
+    const fromBody = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
+    const result = proposePlanTask(db, { ...body, workspaceId: fromCwd || fromBody })
+    if (!result.ok) {
+      if (result.error === 'not_found') {
+        bridgeError(response, 404, 'not_found', result.message, correlationId)
+        return true
+      }
+      if (result.error === 'validation_error') {
+        bridgeError(response, 422, 'validation_error', result.message, correlationId)
+        return true
+      }
+      throw new Error(`plan task propose failed: ${result.error}`)
+    }
+    bridgeOk(response, 200, { ok: true, proposalId: result.proposalId, plan: result.plan }, correlationId)
     return true
   }
 
