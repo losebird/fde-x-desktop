@@ -66,7 +66,6 @@ import {
 import { inspectAdapters } from './adapters.mjs'
 import { LIVE_PATH, liveProbeBody, withProbeTimeout } from './live-probe.mjs'
 import { ENGINE_PROBE_MS, engineProbeKind } from './engine-probe.mjs'
-import { probeFailedReady } from './memory/missing-export.mjs'
 import { enrichReadyWithLlm, readDshDefaultLlm } from './dsh-default-llm.mjs'
 import { handlePlanRequest } from './routes/plan.mjs'
 import { handleCatalogRequest } from './routes/catalog.mjs'
@@ -1224,7 +1223,7 @@ const server = createServer(async (request, response) => {
       }
       const kind = engineProbeKind(result, failed)
       if (kind === 'probe-failed') {
-        sendJson(response, 200, { data: await probeFailedReady(aiRuntime), correlationId: currentCorrelationId })
+        sendJson(response, 200, { data: { probe: 'failed' }, correlationId: currentCorrelationId })
         return
       }
       if (kind === 'unready' && typeof aiRuntime.kickSemanticIfExited === 'function') {

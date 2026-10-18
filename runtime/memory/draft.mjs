@@ -4,7 +4,6 @@ import { looksLikeJsonDump } from '../biz/session-origin-text.mjs'
 import { loadOrigin } from '../routes/corpus.mjs'
 import { asDraftCard, cueFromOriginDoc, draftMemoryCardInsert } from './cards.mjs'
 import { hostSourceOf, instanceOriginOf, originOfCard } from './identity.mjs'
-import { missingPluginExport } from './missing-export.mjs'
 
 let skipCount = 0
 
@@ -52,10 +51,6 @@ export async function draftCard(deps, input = {}) {
   const given = String(input.label || [input.title, input.body].filter(Boolean).join('\n')).trim()
   if (auto && !origin) return { skipped: true, reason: 'not_an_instance' }
   if (!deps.aiRuntime?.status?.().connected) {
-    const named = await missingPluginExport(deps.aiRuntime)
-    if (named) {
-      return { ok: false, error: 'ai/memory-error', missingExport: named.missingExport, message: named.detail }
-    }
     skipCount += 1
     return { skipped: true, reason: 'semantic_down' }
   }
@@ -116,10 +111,6 @@ export async function draftCard(deps, input = {}) {
       card: asDraftCard({ ...(drafted && typeof drafted === 'object' ? drafted : {}), id: cardId }, label),
     }
   } catch (error) {
-    const named = await missingPluginExport(deps.aiRuntime)
-    if (named) {
-      return { ok: false, error: 'ai/memory-error', missingExport: named.missingExport, message: named.detail }
-    }
     console.warn('memory_writer_draft_failed', error)
     return { ok: false, error }
   }
