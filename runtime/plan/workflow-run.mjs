@@ -292,10 +292,12 @@ export function startWorkflowRun(deps, command) {
   const db = deps.db
   const workflowId = typeof command?.workflowId === 'string' ? command.workflowId : ''
   const correlationId = typeof command?.correlationId === 'string' ? command.correlationId : ''
+  const workspaceId = typeof command?.workspaceId === 'string' ? command.workspaceId.trim() : ''
   if (command?.trigger?.kind !== 'manual') throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
+  if (!workspaceId) throw rejectRun(400, 'missing_workspace_id', '缺少 workspaceId')
   if (!workflowId || isHostJobId(workflowId)) throw rejectRun(404, 'not_found', '工作流不存在')
   const workflow = db.prepare('SELECT id, workspace_id, definition_json FROM workflows WHERE id = ?').get(workflowId)
-  if (!workflow) throw rejectRun(404, 'not_found', '工作流不存在')
+  if (!workflow || workflow.workspace_id !== workspaceId) throw rejectRun(404, 'not_found', '工作流不存在')
   const steps = parseSteps(workflow.definition_json)
   assertAiPrompts(steps)
   const runId = createId('wfr')

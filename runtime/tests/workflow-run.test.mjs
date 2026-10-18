@@ -168,7 +168,7 @@ test('带页面令牌的 run 返回 200，并插入 queued', async (t) => {
     await rm(dbPath, { force: true })
   })
 
-  const { status, payload } = await postRun(port, 'wf_queued')
+  const { status, payload } = await postRun(port, 'wf_queued', { workspaceId: 'ws_run' })
   assert.equal(status, 200, `run status ${status}, workflow_runs ${runCount(db)}`)
   assert.equal(payload.ok, true)
   assert.equal(payload.data.state, 'queued')
@@ -263,7 +263,7 @@ test('会话改任务只增加 awaiting_approval，tasks 不变', async (t) => {
     await rm(dbPath, { force: true })
   })
 
-  const { status, payload } = await postRun(port, 'wf_prop')
+  const { status, payload } = await postRun(port, 'wf_prop', { workspaceId: 'ws_prop' })
   assert.equal(status, 200, `run status ${status}, workflow_runs ${runCount(db)}`)
   assert.equal(payload.data.state, 'queued')
   createGate.resolve()
@@ -315,7 +315,7 @@ test('AI 不可用时 run 为 failed，错误可读', async (t) => {
     await rm(dbPath, { force: true })
   })
 
-  const { status, payload } = await postRun(port, 'wf_down')
+  const { status, payload } = await postRun(port, 'wf_down', { workspaceId: 'ws_down' })
   assert.equal(status, 200, `run status ${status}, workflow_runs ${runCount(db)}`)
   assert.equal(payload.data.state, 'queued')
   await flush()
@@ -358,7 +358,7 @@ test('没有 ai 步骤时不把 run 标成成功', async (t) => {
     await rm(dbPath, { force: true })
   })
 
-  const { status, payload } = await postRun(port, 'wf_mem')
+  const { status, payload } = await postRun(port, 'wf_mem', { workspaceId: 'ws_mem' })
   assert.equal(status, 200, `run status ${status}, workflow_runs ${runCount(db)}`)
   assert.equal(payload.data.state, 'queued')
   await flush()
@@ -393,13 +393,13 @@ test('缺少提示、Host job、未知 id 不插入 run', async (t) => {
     await rm(dbPath, { force: true })
   })
 
-  const empty = await postRun(port, 'wf_empty')
+  const empty = await postRun(port, 'wf_empty', { workspaceId: 'ws_rej' })
   assert.equal(empty.status, 422, `run status ${empty.status}, workflow_runs ${runCount(db)}`)
   assert.equal(runCount(db), 0)
-  const host = await postRun(port, 'dsh-job:j1')
+  const host = await postRun(port, 'dsh-job:j1', { workspaceId: 'ws_rej' })
   assert.equal(host.status, 404)
   assert.equal(runCount(db), 0)
-  const missing = await postRun(port, 'wf_missing')
+  const missing = await postRun(port, 'wf_missing', { workspaceId: 'ws_rej' })
   assert.equal(missing.status, 404)
   assert.equal(runCount(db), 0)
 })

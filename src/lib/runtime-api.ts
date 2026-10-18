@@ -1000,10 +1000,11 @@ export class RuntimeApi {
   }
 
   async runWorkflow(id: string): Promise<void> {
+    const workspaceId = useApp.getState().activeWorkspaceId
     await this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: '{}',
+      body: JSON.stringify({ workspaceId }),
     })
   }
 

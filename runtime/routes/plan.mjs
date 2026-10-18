@@ -724,9 +724,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
 
   if (method === 'POST' && segments.length === 6 && segments[3] === 'workflows' && segments[5] === 'run') {
     const workflowId = planRowId(segments[4])
+    const body = await readJson(request)
+    const workspaceId = body && typeof body.workspaceId === 'string' ? body.workspaceId : ''
     try {
       const ticket = startWorkflowRun({ db, aiRuntime }, {
         workflowId,
+        workspaceId,
         correlationId,
         trigger: { kind: 'manual' },
       })
