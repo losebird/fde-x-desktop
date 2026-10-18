@@ -39,6 +39,10 @@ function taskCount() {
   return scalar('SELECT COUNT(*) AS n FROM tasks')
 }
 
+function visitCount() {
+  return scalar('SELECT COUNT(*) AS n FROM "app_supplier-visits__visit"')
+}
+
 function workflowCount() {
   return scalar('SELECT COUNT(*) AS n FROM workflows')
 }
@@ -548,5 +552,69 @@ describe('remaining writes require the page token', { concurrency: 1 }, () => {
     })
     assert.equal(created.status, 401, JSON.stringify(created.payload))
     assert.equal(taskCount(), before)
+  })
+
+  test('record insert requires the page token and accepts one', async (t) => {
+    await boot(t)
+    const created = await send('/api/v1/apps', {
+      token: pageToken,
+      body: { spec: SUPPLIER_VISITS_SPEC, workspaceCwd },
+    })
+    assert.equal(created.status, 201, JSON.stringify(created.payload))
+    const activated = await send(`/api/v1/apps/${encodeURIComponent(created.payload.data.appId)}/activate`, {
+      token: pageToken,
+      body: {},
+    })
+    assert.equal(activated.status, 200, JSON.stringify(activated.payload))
+    const before = visitCount()
+    const body = {
+      supplier: 'ACME',
+      visit_date: '2026-09-03',
+      status: '计划',
+      workspaceCwd,
+    }
+    const blocked = await send('/api/v1/apps/supplier-visits/visit', { body })
+    assert.equal(blocked.status, 401, JSON.stringify(blocked.payload))
+    assert.equal(visitCount(), before)
+    const inserted = await send('/api/v1/apps/supplier-visits/visit', { token: pageToken, body })
+    assert.notEqual(inserted.status, 401, JSON.stringify(inserted.payload))
+    assert.equal(visitCount(), before + 1)
+  })
+
+  test('record delete requires the page token and accepts one', async (t) => {
+    await boot(t)
+    const { rid } = await ledgerVisit()
+    const path = `/api/v1/apps/supplier-visits/visit/${encodeURIComponent(rid)}?workspace=${encodeURIComponent(workspaceCwd)}`
+    const blocked = await send(path, { method: 'DELETE' })
+    assert.equal(blocked.status, 401, JSON.stringify(blocked.payload))
+    const still = await fetch(`${base}${path}`)
+    assert.equal(still.status, 200)
+    const removed = await send(path, { method: 'DELETE', token: pageToken })
+    assert.notEqual(removed.status, 401, JSON.stringify(removed.payload))
+    const gone = await fetch(`${base}${path}`)
+    assert.equal(gone.status, 404)
+  })
+
+  test('mark-follow requires the page token and accepts one', async (t) => {
+    await boot(t)
+    const { rid } = await ledgerVisit()
+    const readPath = `${base}/api/v1/apps/supplier-visits/visit/${encodeURIComponent(rid)}?workspace=${encodeURIComponent(workspaceCwd)}`
+    const blocked = await send('/api/v1/apps/supplier-visits/actions/mark-follow', {
+      body: { rids: [rid], workspaceCwd },
+    })
+    assert.equal(blocked.status, 401, JSON.stringify(blocked.payload))
+    const before = await fetch(readPath)
+    const beforeBody = await before.json()
+    assert.equal(before.status, 200)
+    assert.equal(beforeBody.data.status, '计划')
+    const followed = await send('/api/v1/apps/supplier-visits/actions/mark-follow', {
+      token: pageToken,
+      body: { rids: [rid], workspaceCwd },
+    })
+    assert.notEqual(followed.status, 401, JSON.stringify(followed.payload))
+    const after = await fetch(readPath)
+    const afterBody = await after.json()
+    assert.equal(after.status, 200)
+    assert.equal(afterBody.data.status, '需跟进')
   })
 })
