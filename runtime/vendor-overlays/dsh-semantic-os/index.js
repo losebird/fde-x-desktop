@@ -16,8 +16,9 @@ import { createWriteLog } from './product.js'
 import { createOpeningCache } from './opening-brief.js'
 import { ensureProjectMemorySkill } from './skill-install.js'
 
-import { createSessionIngest, DEFAULT_SESSION_INGEST_INTERVAL_MIN } from './session-ingest.js'
+import { createSessionIngest, DEFAULT_SESSION_INGEST_INTERVAL_MIN, eventText, headerCwd, headerId } from './session-ingest.js'
 import { adaptSessionPersistence } from './session-persistence-adapt.js'
+import { attachSessionIndexCommit } from './session-index-commit.js'
 import { createExtract } from './extract-llm.js'
 import { createExtractQueue } from './extract-queue.js'
 import { createSlipIngest } from './slips.js'
@@ -110,6 +111,14 @@ export function apply(ctx, config) {
     extractQueue,
     getConfig: () => current(),
     onGraphWrite: (cwd, op) => writes.mark(cwd, op),
+  })
+  const indexCommit = attachSessionIndexCommit({
+    sidecar,
+    getPersistence: () => persistence,
+    postPython,
+    eventText,
+    headerId,
+    headerCwd,
   })
   const slips = createSlipIngest({
     sidecar,
@@ -220,6 +229,7 @@ export function apply(ctx, config) {
   ctx.inject(['sessionPersistence'], (pctx) => {
     persistence = adaptSessionPersistence(pctx.sessionPersistence)
     workspaceAuthority.setPersistence(persistence)
+    indexCommit.poke()
     pctx.effect(() => () => {
       persistence = null
       workspaceAuthority.setPersistence(null)
@@ -252,6 +262,7 @@ export function apply(ctx, config) {
 
   ctx.effect(() => {
     sessionIngest.start()
+    indexCommit.poke()
     let cancelled = false
     let tries = 0
     const runBackfill = () => {
@@ -281,6 +292,7 @@ export function apply(ctx, config) {
     return () => {
       cancelled = true
       clearTimeout(backfillTimer)
+      indexCommit.close()
       void sessionIngest.stop()
       void extractQueue.stop()
     }

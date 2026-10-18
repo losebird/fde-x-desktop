@@ -36,8 +36,11 @@ function searchPassages(cwd, keyword) {
   const raw = passageTexts(cwd)
   if (!raw) return false
   const parsed = JSON.parse(raw)
-  const items = Array.isArray(parsed.items) ? parsed.items : []
-  return items.some((item) => String(item && item.text || '').includes(keyword))
+  if (!parsed || typeof parsed !== 'object') return false
+  if (Array.isArray(parsed.items)) {
+    return parsed.items.some((item) => String(item && item.text || '').includes(keyword))
+  }
+  return Object.values(parsed).some((text) => typeof text === 'string' && text.includes(keyword))
 }
 
 async function loadCommit() {
@@ -89,13 +92,14 @@ function indexServer({ failFirst }) {
       const cwd = String(body.cwd || '')
       const dir = join(cwd, '.dsh', 'semantic-os', 'passages')
       const file = join(dir, 'texts.json')
-      let items = []
-      try { items = JSON.parse(readFileSync(file, 'utf8')).items || [] } catch { items = [] }
-      const ids = new Set(rows.map((row) => row.id))
-      items = items.filter((item) => !ids.has(item.id))
-      for (const row of rows) items.push({ id: row.id, text: row.text, time: row.time || 0 })
-      mkdir(dir, { recursive: true }).then(() => writeFile(file, JSON.stringify({ items }))).then(() => {
-        res.end(JSON.stringify({ ok: true, updated: rows.length, count: items.length }))
+      let store = {}
+      try {
+        const parsed = JSON.parse(readFileSync(file, 'utf8'))
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !Array.isArray(parsed.items)) store = parsed
+      } catch { store = {} }
+      for (const row of rows) store[row.id] = row.text
+      mkdir(dir, { recursive: true }).then(() => writeFile(file, JSON.stringify(store))).then(() => {
+        res.end(JSON.stringify({ ok: true, updated: rows.length, count: Object.keys(store).length }))
       }).catch((error) => {
         res.statusCode = 500
         res.end(JSON.stringify({ error: String(error) }))
@@ -163,6 +167,7 @@ describe('semantic-os cold start search', { concurrency: false }, () => {
         true,
         `cold start missed ${keyword} cursor=${cursorText} passages=${passageTexts(cwd)}`,
       )
+      assert.equal(JSON.parse(cursorText)[id], 17)
       sessions.push({ id: id2, cwd, events: [userEvent(4, keyword2)] })
       await freezeLog(home, id2)
       await ingest.tick()
@@ -233,6 +238,7 @@ describe('semantic-os cold start search', { concurrency: false }, () => {
         true,
         `restart missed ${keyword} cursor=${cursorText} passages=${passageTexts(cwd)}`,
       )
+      assert.equal(JSON.parse(cursorText)[id], 17)
       assert.equal(createHash('sha256').update(await readFile(file)).digest('hex'), hash)
       assert.equal(existsSync(file), true)
     } finally {

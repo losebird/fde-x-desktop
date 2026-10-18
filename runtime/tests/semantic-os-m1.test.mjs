@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync, symlinkSync } from 'node:fs'
@@ -26,6 +27,58 @@ function listen(handler) {
       resolve({ server, port: address.port })
     })
   })
+}
+
+async function reapHomeProcesses(home) {
+  let names = []
+  try {
+    names = await readdir('/proc')
+  } catch {
+    return
+  }
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue
+    const pid = Number(name)
+    if (pid === process.pid) continue
+    let env = ''
+    try {
+      env = await readFile(join('/proc', name, 'environ'))
+    } catch {
+      continue
+    }
+    if (!env.includes(home)) continue
+    try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+  }
+}
+
+async function sessionLogHashes(dir, state = new Map(), depth = 0) {
+  if (depth > 8) return state
+  let entries = []
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return state
+  }
+  for (const entry of entries) {
+    if (entry.name === 'venv' || entry.name === 'node_modules') continue
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      await sessionLogHashes(path, state, depth + 1)
+      continue
+    }
+    if (!entry.name.endsWith('.jsonl.zstd')) continue
+    state.set(path, createHash('sha256').update(await readFile(path)).digest('hex'))
+  }
+  return state
+}
+
+function sameHashes(before, after) {
+  if (before.size === 0) return false
+  if (before.size !== after.size) return false
+  for (const [path, hash] of before) {
+    if (after.get(path) !== hash) return false
+  }
+  return true
 }
 
 function searchFoundKeyword(text, keyword) {
@@ -323,7 +376,7 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
     }
   })
 
-  test('mounted semantic-os is ready and memory search is not 502', { timeout: 840_000 }, async (t) => {
+  test('mounted semantic-os is ready and memory search is not 502', { timeout: 1_500_000 }, async (t) => {
     if (!snapshotMounted()) {
       t.skip('FDE_PLUGIN_DSH_SEMANTIC_OS is not mounted')
       return
@@ -344,24 +397,25 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       assert.equal(existsSync(src), true, `${name} is not in the host generation`)
       symlinkSync(src, join(peerDir, name))
     }
+    const hostEnv = {
+      ...process.env,
+      HOME: home,
+      FDE_DSH_HOME: home,
+      FDE_VENDOR_DIR: join(home, 'vendor'),
+      FDE_PLUGIN_DSH_SEMANTIC_OS: SNAPSHOT,
+      FDE_DATABASE_PATH: dbPath,
+      FDE_AI_WORKSPACE: workspace,
+      FDE_RUNTIME_PORT: '0',
+      FDE_RUNTIME_SUPERVISED: '1',
+      FDE_DSH_PROFILE: 'm1-semantic',
+      FDE_SEMANTIC_RUNTIME_MODE: 'readonly',
+      DSH_TELEMETRY_DISABLED: '1',
+      DSH_LAN_ASSIST_PORT: '0',
+    }
     const output = { text: '' }
-    const child = spawn(process.execPath, ['runtime/server.mjs'], {
+    let child = spawn(process.execPath, ['runtime/server.mjs'], {
       cwd: repoRoot,
-      env: {
-        ...process.env,
-        HOME: home,
-        FDE_DSH_HOME: home,
-        FDE_VENDOR_DIR: join(home, 'vendor'),
-        FDE_PLUGIN_DSH_SEMANTIC_OS: SNAPSHOT,
-        FDE_DATABASE_PATH: dbPath,
-        FDE_AI_WORKSPACE: workspace,
-        FDE_RUNTIME_PORT: '0',
-        FDE_RUNTIME_SUPERVISED: '1',
-        FDE_DSH_PROFILE: 'm1-semantic',
-        FDE_SEMANTIC_RUNTIME_MODE: 'readonly',
-        DSH_TELEMETRY_DISABLED: '1',
-        DSH_LAN_ASSIST_PORT: '0',
-      },
+      env: hostEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     child.stdout.on('data', (chunk) => { output.text += chunk.toString() })
@@ -463,6 +517,108 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       const evidence = `visible=${visible} stored=${stored.found} cursors=${cursors.slice(0, 300)} passages=${passages.slice(0, 300)} ingest=${JSON.stringify(ingestBody).slice(0, 400)}`
       assert.equal(searchStatus === 502, false, `search 502 ${searchText.slice(0, 800)} ${evidence}`)
       assert.equal(hit, true, `search missed ${keyword} status=${searchStatus} ${searchText.slice(0, 800)} ${evidence}`)
+      const hashes = await sessionLogHashes(home)
+      assert.equal(hashes.size > 0, true, 'session jsonl.zstd was not written')
+      const keyword2 = `${keyword}-second`
+      const created2 = await request('/api/v1/ai/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cwd: workspace }),
+      })
+      const created2Body = await created2.json()
+      assert.equal(created2.status, 201, JSON.stringify(created2Body))
+      const session2 = String(created2Body?.data?.sessionId || '')
+      const prompted2 = await request(`/api/v1/ai/sessions/${encodeURIComponent(session2)}/prompt`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: keyword2 }),
+        signal: AbortSignal.timeout(90_000),
+      })
+      const prompt2Body = await prompted2.json()
+      assert.equal(prompted2.status, 200, JSON.stringify(prompt2Body))
+      let hit2 = false
+      const secondDeadline = Date.now() + 180_000
+      while (Date.now() < secondDeadline) {
+        const ingested = await request('/api/v1/memory/session-ingest', { method: 'POST' })
+        assert.equal(ingested.status, 200)
+        const searchRes = await request(`/api/v1/memory/search?q=${encodeURIComponent(keyword2)}&cwd=${encodeURIComponent(workspace)}`)
+        hit2 = searchFoundKeyword(await searchRes.text(), keyword2)
+        if (searchRes.status !== 502 && hit2) break
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+      }
+      assert.equal(hit2, true, `second session missed ${keyword2}`)
+      const hashesAfterSecond = await sessionLogHashes(home)
+      for (const [path, hash] of hashes) {
+        assert.equal(hashesAfterSecond.get(path), hash, `session log changed ${path}`)
+      }
+      child.kill('SIGTERM')
+      await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          try { child.kill('SIGKILL') } catch { /* already exited */ }
+          resolve()
+        }, 8000)
+        child.once('exit', () => {
+          clearTimeout(timer)
+          resolve()
+        })
+      })
+      await reapHomeProcesses(home)
+      output.text = ''
+      child = spawn(process.execPath, ['runtime/server.mjs'], {
+        cwd: repoRoot,
+        env: hostEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      child.stdout.on('data', (chunk) => { output.text += chunk.toString() })
+      child.stderr.on('data', (chunk) => { output.text += chunk.toString() })
+      const restarted = Date.now()
+      let port2 = 0
+      while (Date.now() - restarted < 30_000) {
+        if (child.exitCode != null || child.signalCode != null) {
+          throw new Error(`restart exited ${child.exitCode ?? child.signalCode}\n${output.text.slice(-3000)}`)
+        }
+        const match = output.text.match(/FDE_LISTENING (\d+)/)
+        if (match) {
+          port2 = Number(match[1])
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      if (!port2) throw new Error(`restart did not listen\n${output.text.slice(-3000)}`)
+      const request2 = (path, options = {}) => fetch(`http://127.0.0.1:${port2}${path}`, {
+        ...options,
+        headers: { origin: `http://127.0.0.1:${port2}`, ...(options.headers || {}) },
+      })
+      const connect2 = await request2('/api/v1/ai/connect', { method: 'POST' })
+      const connect2Body = await connect2.json()
+      assert.equal(connect2.status, 200, JSON.stringify(connect2Body))
+      const readyDeadline2 = Date.now() + 180_000
+      let ready2 = null
+      while (Date.now() < readyDeadline2) {
+        const readyRes = await request2('/api/v1/memory/ready')
+        ready2 = await readyRes.json()
+        if (ready2?.data?.ready === true) break
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+      assert.equal(ready2?.data?.ready, true, `restart ready ${JSON.stringify(ready2)} ${output.text.slice(-1500)}`)
+      for (const term of [keyword, keyword2]) {
+        let found = false
+        const deadline = Date.now() + 60_000
+        while (Date.now() < deadline) {
+          const ingested = await request2('/api/v1/memory/session-ingest', { method: 'POST' })
+          assert.equal(ingested.status, 200)
+          const searchRes = await request2(`/api/v1/memory/search?q=${encodeURIComponent(term)}&cwd=${encodeURIComponent(workspace)}`)
+          found = searchFoundKeyword(await searchRes.text(), term)
+          if (searchRes.status !== 502 && found) break
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
+        assert.equal(found, true, `restart missed ${term}`)
+      }
+      const hashesAfterRestart = await sessionLogHashes(home)
+      for (const [path, hash] of hashes) {
+        assert.equal(hashesAfterRestart.get(path), hash, `restart rewrote ${path}`)
+        assert.equal(existsSync(path), true)
+      }
     } finally {
       if (child.exitCode == null && child.signalCode == null) child.kill('SIGTERM')
       await new Promise((resolve) => {
