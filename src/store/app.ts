@@ -23,7 +23,7 @@ import {
 
 const PLAN_UNAVAILABLE = '计划服务未就绪'
 
-function planFailure(error) {
+function planFailure(error: unknown) {
   if (error instanceof RuntimeApiError && error.message) return error.message
   return PLAN_UNAVAILABLE
 }
