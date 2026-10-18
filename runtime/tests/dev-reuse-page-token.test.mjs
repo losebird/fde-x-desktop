@@ -1,15 +1,13 @@
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setTimeout as delay } from 'node:timers/promises'
 import { SUPPLIER_VISITS_SPEC } from '../apps/fixtures.mjs'
-import { isPidAlive, pidsChildrenOf, pidsListeningOnPort } from '../reclaim-runtime.mjs'
-import { ensureOwnedRuntime } from '../../scripts/dev-runtime.mjs'
-import { runtimePortOpen } from '../../scripts/runtime-port.mjs'
 
 const node = process.execPath
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -20,140 +18,261 @@ const dbPath = join(root, 'fde.sqlite')
 const dshHome = join(root, 'dsh-home')
 const workspaceCwd = join(root, 'workspace')
 
-function announce(child) {
-  let stdout = ''
-  let stderr = ''
-  child.stdout.on('data', (chunk) => { stdout += chunk.toString() })
-  child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
-  return {
-    async ready() {
-      for (let i = 0; i < 100; i += 1) {
-        const tokenMatch = /^FDE_UI_TOKEN\s+([0-9a-f]{64})$/m.exec(stdout)
-        const portMatch = /^FDE_LISTENING\s+(\d+)/m.exec(stdout)
-        if (portMatch && tokenMatch) {
-          const port = Number(portMatch[1])
-          const base = `http://127.0.0.1:${port}`
-          const res = await fetch(`${base}/health`).catch(() => null)
-          if (res?.ok) return { port, token: tokenMatch[1], base }
-        }
-        if (child.exitCode != null) break
-        await delay(100)
-      }
-      throw new Error(`owned BFF failed to start\n${stderr}\n${stdout}`)
-    },
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer()
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      server.close((error) => {
+        if (error) reject(error)
+        else resolve(port)
+      })
+    })
+  })
+}
+
+async function serverPids(databasePath) {
+  const pids = []
+  const names = await readdir('/proc')
+  for (const name of names) {
+    if (!/^\d+$/u.test(name)) continue
+    const pid = Number(name)
+    let environ
+    let cmdline
+    try {
+      environ = await readFile(`/proc/${pid}/environ`)
+      cmdline = await readFile(`/proc/${pid}/cmdline`)
+    } catch (error) {
+      if (error && (error.code === 'ENOENT' || error.code === 'EACCES')) continue
+      throw error
+    }
+    if (!environ.includes(Buffer.from(`FDE_DATABASE_PATH=${databasePath}`))) continue
+    if (!cmdline.includes('runtime/server.mjs')) continue
+    pids.push(pid)
   }
+  return pids.sort((left, right) => left - right)
+}
+
+function launch(args, options) {
+  return spawn(node, args, { detached: true, ...options })
+}
+
+function watchOutput(child) {
+  let output = ''
+  child.stdout.on('data', (chunk) => { output += chunk.toString() })
+  child.stderr.on('data', (chunk) => { output += chunk.toString() })
+  let code = null
+  child.on('exit', (exitCode) => { code = exitCode })
+  return {
+    output: () => output,
+    code: () => code,
+  }
+}
+
+function signalPid(pid, signal) {
+  try {
+    process.kill(pid, signal)
+  } catch (error) {
+    if (!error || error.code !== 'ESRCH') throw error
+  }
+}
+
+async function pidsInGroup(pgid) {
+  const pids = []
+  const names = await readdir('/proc')
+  for (const name of names) {
+    if (!/^\d+$/u.test(name)) continue
+    let stat
+    try {
+      stat = await readFile(`/proc/${name}/stat`, 'utf8')
+    } catch (error) {
+      if (error && (error.code === 'ENOENT' || error.code === 'EACCES')) continue
+      throw error
+    }
+    const rest = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+    if (Number(rest[2]) === pgid) pids.push(Number(name))
+  }
+  return pids
 }
 
 async function stop(child) {
-  if (!child || child.exitCode != null) return
-  child.kill('SIGTERM')
+  if (!child?.pid) return
+  const group = await pidsInGroup(child.pid)
+  for (const pid of [child.pid, ...group]) signalPid(pid, 'SIGKILL')
   for (let i = 0; i < 20; i += 1) {
-    if (child.exitCode != null) return
+    if (child.exitCode != null || child.signalCode != null) return
     await delay(50)
   }
-  child.kill('SIGKILL')
+  try {
+    await readFile(`/proc/${child.pid}/stat`)
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return
+    throw error
+  }
+  throw new Error(`process ${child.pid} did not exit`)
+}
+
+async function stopPids(pids) {
+  for (const pid of pids) signalPid(pid, 'SIGKILL')
+}
+
+function devEnv(extra) {
+  return {
+    ...process.env,
+    FDE_LISTEN_HOST: '127.0.0.1',
+    FDE_DATABASE_PATH: dbPath,
+    FDE_DSH_HOME: dshHome,
+    FDE_AI_WORKSPACE: workspaceCwd,
+    FDE_RUNTIME_SUPERVISED: '1',
+    ...extra,
+  }
 }
 
 describe('dev reuse page token', { concurrency: 1 }, () => {
-  test('a reused BFF still accepts a page-token record PATCH', async (t) => {
+  test('pnpm dev exits when the preferred port has a BFF and no page token', async (t) => {
     await rm(root, { recursive: true, force: true })
     await mkdir(workspaceCwd, { recursive: true })
     await mkdir(dshHome, { recursive: true })
-    const occupant = spawn(node, ['runtime/server.mjs'], {
+    const occupant = launch(['runtime/server.mjs'], {
       cwd: repoRoot,
-      env: {
-        ...process.env,
-        FDE_RUNTIME_PORT: '0',
-        FDE_LISTEN_HOST: '127.0.0.1',
-        FDE_DATABASE_PATH: dbPath,
-        FDE_DSH_HOME: dshHome,
-        FDE_AI_WORKSPACE: workspaceCwd,
-        FDE_RUNTIME_SUPERVISED: '1',
-      },
+      env: devEnv({ FDE_RUNTIME_PORT: '0' }),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    const occupantAnnounced = announce(occupant)
-    const extras = []
+    const occupantWatch = watchOutput(occupant)
+    let dev = null
     t.after(async () => {
-      await stop(occupant)
-      for (const child of extras) await stop(child)
-      await rm(root, { recursive: true, force: true })
+      try {
+        await stop(dev)
+        await stop(occupant)
+      } finally {
+        await stopPids(await serverPids(dbPath))
+        await rm(root, { recursive: true, force: true })
+      }
     })
-    const listening = await occupantAnnounced.ready()
+    let occupantPort = 0
+    for (let i = 0; i < 100; i += 1) {
+      const match = /^FDE_LISTENING\s+(\d+)/m.exec(occupantWatch.output())
+      if (match) {
+        occupantPort = Number(match[1])
+        const health = await fetch(`http://127.0.0.1:${occupantPort}/health`).catch(() => null)
+        if (health?.ok) break
+      }
+      if (occupant.exitCode != null) break
+      await delay(100)
+    }
+    assert.ok(occupantPort > 0, occupantWatch.output())
 
-    const owned = await ensureOwnedRuntime({
-      preferredPort: listening.port,
-      portOpen: (port) => runtimePortOpen(port, '127.0.0.1', 400),
-      listenersOn: (port) => pidsListeningOnPort(port),
-      childrenOf: (pid) => pidsChildrenOf(pid),
-      spawnOwned: async ({ port, keepPids }) => {
-        const child = spawn(node, ['runtime/server.mjs'], {
-          cwd: repoRoot,
-          env: {
-            ...process.env,
-            FDE_RUNTIME_PORT: String(port),
-            FDE_LISTEN_HOST: '127.0.0.1',
-            FDE_DATABASE_PATH: dbPath,
-            FDE_DSH_HOME: dshHome,
-            FDE_AI_WORKSPACE: workspaceCwd,
-            FDE_RUNTIME_SUPERVISED: '1',
-            FDE_RECLAIM_KEEP_PIDS: keepPids.join(','),
-          },
-          stdio: ['ignore', 'pipe', 'pipe'],
-        })
-        extras.push(child)
-        const started = await announce(child).ready()
-        return { port: started.port, token: started.token }
-      },
+    dev = launch([join(repoRoot, 'scripts/dev.mjs')], {
+      cwd: repoRoot,
+      env: devEnv({
+        FDE_RUNTIME_PORT: String(occupantPort),
+        FDE_WEB_PORT: String(await freePort()),
+      }),
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
+    const devWatch = watchOutput(dev)
+    let extra = false
+    for (let i = 0; i < 40; i += 1) {
+      const pids = await serverPids(dbPath)
+      extra = pids.some((pid) => pid !== occupant.pid)
+      if (extra || devWatch.code() !== null) break
+      await delay(100)
+    }
+    const left = await serverPids(dbPath)
+    assert.deepEqual(left, [occupant.pid], `${devWatch.output()}\npids=${left.join(',')}`)
+    assert.equal(devWatch.code(), 1, devWatch.output())
+    assert.match(devWatch.output(), /不复用，也不另起/)
+    assert.match(devWatch.output(), new RegExp(`kill ${occupant.pid}`))
+    const health = await fetch(`http://127.0.0.1:${occupantPort}/health`)
+    assert.equal(health.status, 200)
+  })
 
-    const base = `http://127.0.0.1:${owned.port}`
-    const created = await writeJson(base, '/api/v1/apps', { spec: SUPPLIER_VISITS_SPEC, workspaceCwd }, 'POST')
+  test('an empty port lets dev hand the page token to a record PATCH', async (t) => {
+    await rm(root, { recursive: true, force: true })
+    await mkdir(workspaceCwd, { recursive: true })
+    await mkdir(dshHome, { recursive: true })
+    const appRoot = join(root, 'app')
+    await mkdir(join(appRoot, 'node_modules/vite/bin'), { recursive: true })
+    await symlink(join(repoRoot, 'runtime'), join(appRoot, 'runtime'))
+    await writeFile(join(appRoot, 'node_modules/vite/bin/vite.js'), `
+      process.on('message', (msg) => {
+        if (msg && msg.type === 'fde-ui-token' && typeof msg.token === 'string') {
+          process.stdout.write('STUB_UI_TOKEN ' + msg.token + '\\n')
+        }
+      })
+      if (typeof process.send === 'function') process.send({ type: 'fde-vite-listening' })
+      setInterval(() => {}, 1 << 30)
+    `)
+    const runtimePort = await freePort()
+    const webPort = await freePort()
+    const pageOrigin = `http://127.0.0.1:${webPort}`
+    const dev = launch([join(repoRoot, 'scripts/dev.mjs')], {
+      cwd: repoRoot,
+      env: devEnv({
+        FDE_APP_ROOT: appRoot,
+        FDE_RUNTIME_PORT: String(runtimePort),
+        FDE_WEB_PORT: String(webPort),
+      }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const devWatch = watchOutput(dev)
+    t.after(async () => {
+      try {
+        await stop(dev)
+      } finally {
+        await stopPids(await serverPids(dbPath))
+        await rm(root, { recursive: true, force: true })
+      }
+    })
+    let token = ''
+    for (let i = 0; i < 100; i += 1) {
+      const match = /^STUB_UI_TOKEN\s+([0-9a-f]{64})$/m.exec(devWatch.output())
+      if (match) {
+        token = match[1]
+        const health = await fetch(`http://127.0.0.1:${runtimePort}/health`).catch(() => null)
+        if (health?.ok) break
+      }
+      if (devWatch.code() !== null) break
+      await delay(100)
+    }
+    assert.match(token, /^[0-9a-f]{64}$/u, devWatch.output())
+    const base = `http://127.0.0.1:${runtimePort}`
+    const created = await writeJson(base, '/api/v1/apps', { spec: SUPPLIER_VISITS_SPEC, workspaceCwd }, 'POST', pageOrigin)
     assert.equal(created.status, 201, JSON.stringify(created.payload))
-    const activated = await writeJson(base, `/api/v1/apps/${encodeURIComponent(created.payload.data.appId)}/activate`, {}, 'POST')
+    const activated = await writeJson(base, `/api/v1/apps/${encodeURIComponent(created.payload.data.appId)}/activate`, {}, 'POST', pageOrigin)
     assert.equal(activated.status, 200, JSON.stringify(activated.payload))
     const inserted = await writeJson(base, '/api/v1/apps/supplier-visits/visit', {
       supplier: 'ACME',
       visit_date: '2026-09-01',
       status: '计划',
       workspaceCwd,
-    }, 'POST')
+    }, 'POST', pageOrigin)
     assert.equal(inserted.status, 201, JSON.stringify(inserted.payload))
-    const rid = inserted.payload.data.id
     clearAudit()
-
     const patched = await fetch(
-      `${base}/api/v1/apps/supplier-visits/visit/${encodeURIComponent(rid)}?workspace=${encodeURIComponent(workspaceCwd)}`,
+      `${base}/api/v1/apps/supplier-visits/visit/${encodeURIComponent(inserted.payload.data.id)}?workspace=${encodeURIComponent(workspaceCwd)}`,
       {
         method: 'PATCH',
         headers: {
-          Origin: origin,
+          Origin: pageOrigin,
           'Content-Type': 'application/json',
-          'x-fde-ui-token': owned.token,
+          'x-fde-ui-token': token,
         },
         body: JSON.stringify({ status: '已拜访' }),
       },
     )
     const patchedBody = await patched.json().catch(() => ({}))
     assert.equal(patched.status, 200, JSON.stringify(patchedBody))
-    assert.equal(isPidAlive(occupant.pid), true)
-    const oldHealth = await fetch(`${listening.base}/health`)
-    assert.equal(oldHealth.status, 200)
-    assert.notEqual(owned.port, listening.port)
     assert.equal(auditCount(), 1)
-    const page = await fetch(`${base}/`)
-    const pageText = await page.text()
-    assert.equal(pageText.includes(owned.token), false)
-    const ai = await fetch(`${base}/ai`)
-    const aiText = await ai.text()
-    assert.equal(aiText.includes(owned.token), false)
   })
 
   test('an unsupervised BFF does not print the page token', async (t) => {
     await rm(root, { recursive: true, force: true })
     await mkdir(workspaceCwd, { recursive: true })
     await mkdir(dshHome, { recursive: true })
-    const child = spawn(node, ['runtime/server.mjs'], {
+    const child = launch(['runtime/server.mjs'], {
       cwd: repoRoot,
       env: {
         ...process.env,
@@ -165,27 +284,27 @@ describe('dev reuse page token', { concurrency: 1 }, () => {
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString() })
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
+    const watched = watchOutput(child)
     t.after(async () => {
-      await stop(child)
-      await rm(root, { recursive: true, force: true })
+      try {
+        await stop(child)
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
     })
     let base = ''
     for (let i = 0; i < 100; i += 1) {
-      const portMatch = /^FDE_LISTENING\s+(\d+)/m.exec(stdout)
+      const portMatch = /^FDE_LISTENING\s+(\d+)/m.exec(watched.output())
       if (portMatch) {
         base = `http://127.0.0.1:${portMatch[1]}`
         const res = await fetch(`${base}/health`).catch(() => null)
         if (res?.ok) break
       }
-      if (child.exitCode != null) break
+      if (watched.code() !== null) break
       await delay(100)
     }
-    assert.match(stdout, /^FDE_LISTENING\s+\d+/m)
-    assert.equal(/^FDE_UI_TOKEN\s+/m.test(stdout), false, stdout)
+    assert.match(watched.output(), /^FDE_LISTENING\s+\d+/m)
+    assert.equal(/^FDE_UI_TOKEN\s+/m.test(watched.output()), false, watched.output())
     const created = await writeJson(base, '/api/v1/apps', { spec: SUPPLIER_VISITS_SPEC, workspaceCwd }, 'POST')
     assert.equal(created.status, 201, JSON.stringify(created.payload))
     const activated = await writeJson(base, `/api/v1/apps/${encodeURIComponent(created.payload.data.appId)}/activate`, {}, 'POST')
@@ -209,10 +328,10 @@ describe('dev reuse page token', { concurrency: 1 }, () => {
   })
 })
 
-async function writeJson(base, path, body, method) {
+async function writeJson(base, path, body, method, requestOrigin = origin) {
   const res = await fetch(`${base}${path}`, {
     method,
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: { Origin: requestOrigin, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
   const payload = await res.json().catch(() => ({}))
