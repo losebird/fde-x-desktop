@@ -1,6 +1,6 @@
 import { existsSync, symlinkSync } from 'node:fs'
-import { mkdir, symlink } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { lstat, mkdir, readlink, symlink, unlink } from 'node:fs/promises'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 /** importPeer specs in dsh-semantic-os 42e228fa. */
 export const PACKAGED_PLUGIN_PEERS = [
@@ -33,6 +33,29 @@ async function linkDir(source, dest) {
   await symlink(source, dest)
 }
 
+async function lstatIfPresent(path) {
+  try {
+    return await lstat(path)
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+function linkTarget(linkPath, target) {
+  return isAbsolute(target) ? target : resolve(dirname(linkPath), target)
+}
+
+async function releaseDanglingLink(dest) {
+  const current = await lstatIfPresent(dest)
+  if (!current) return true
+  if (!current.isSymbolicLink()) return false
+  const pointed = linkTarget(dest, await readlink(dest))
+  if (await lstatIfPresent(pointed)) return false
+  await unlink(dest)
+  return true
+}
+
 export async function linkPackagedPeers({
   dshHome,
   env = process.env,
@@ -43,7 +66,7 @@ export async function linkPackagedPeers({
     const source = findPackagedPeer(spec, env)
     if (!source) continue
     const dest = join(dshHome, 'profiles', 'node_modules', spec)
-    if (existsSync(dest)) continue
+    if (!(await releaseDanglingLink(dest))) continue
     await linkDir(source, dest)
     linked.push(dest)
   }

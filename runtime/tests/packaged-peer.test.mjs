@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, cp, readlink, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, cp, readFile, readlink, rm, writeFile } from 'node:fs/promises'
 import { existsSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -69,6 +69,52 @@ test('linkPackagedPeers replaces a dangling profile symlink', async () => {
       specs: ['@deepseek-ai/schemastery'],
     }))
     assert.equal(resolve(await readlink(dest)), resolve(source))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('linkPackagedPeers leaves a real directory in place', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-peer-dir-'))
+  const source = join(root, 'resources', 'dsh', 'node_modules', '@deepseek-ai', 'schemastery')
+  const home = join(root, 'dsh-home')
+  const dest = join(home, 'profiles', 'node_modules', '@deepseek-ai', 'schemastery')
+  await mkdir(source, { recursive: true })
+  await writeFile(join(source, 'package.json'), '{"name":"@deepseek-ai/schemastery"}\n')
+  await mkdir(dest, { recursive: true })
+  await writeFile(join(dest, 'keep.txt'), 'keep\n')
+  try {
+    const linked = await linkPackagedPeers({
+      dshHome: home,
+      env: { FDE_RESOURCES: join(root, 'resources') },
+      specs: ['@deepseek-ai/schemastery'],
+    })
+    assert.deepEqual(linked, [])
+    assert.equal(await readFile(join(dest, 'keep.txt'), 'utf8'), 'keep\n')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('linkPackagedPeers leaves a live symlink in place', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-peer-live-'))
+  const source = join(root, 'resources', 'dsh', 'node_modules', '@deepseek-ai', 'schemastery')
+  const home = join(root, 'dsh-home')
+  const dest = join(home, 'profiles', 'node_modules', '@deepseek-ai', 'schemastery')
+  const live = join(root, 'live-install')
+  await mkdir(source, { recursive: true })
+  await writeFile(join(source, 'package.json'), '{"name":"@deepseek-ai/schemastery"}\n')
+  await mkdir(live, { recursive: true })
+  await mkdir(dirname(dest), { recursive: true })
+  symlinkSync(live, dest)
+  try {
+    const linked = await linkPackagedPeers({
+      dshHome: home,
+      env: { FDE_RESOURCES: join(root, 'resources') },
+      specs: ['@deepseek-ai/schemastery'],
+    })
+    assert.deepEqual(linked, [])
+    assert.equal(resolve(await readlink(dest)), resolve(live))
   } finally {
     await rm(root, { recursive: true, force: true })
   }
