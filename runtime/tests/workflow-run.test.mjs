@@ -607,6 +607,86 @@ test('跨工作区的 run 返回 404，workflow_runs 不增加', async (t) => {
   assert.equal(runCount(db), before)
 })
 
+test('没填 sourceRef 时 run 仍然开始', async (t) => {
+  const { dbPath, db } = openFixture('blank-source')
+  insertWorkspace(db, 'ws_blank', '')
+  insertWorkflow(db, {
+    id: 'wf_omit',
+    workspaceId: 'ws_blank',
+    trigger: { kind: 'manual' },
+    steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总' } }],
+  })
+  insertWorkflow(db, {
+    id: 'wf_empty_ref',
+    workspaceId: 'ws_blank',
+    trigger: { kind: 'manual' },
+    steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总', sourceRef: '' } }],
+  })
+  insertWorkflow(db, {
+    id: 'wf_blank_ref',
+    workspaceId: 'ws_blank',
+    trigger: { kind: 'manual' },
+    steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总', sourceRef: '   ' } }],
+  })
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    async call() {
+      return {}
+    },
+    async *stream() {},
+  }
+  const server = serve(db, aiRuntime, 'corr_blank')
+  const port = await listen(server)
+  t.after(async () => {
+    server.close()
+    db.close()
+    await rm(dbPath, { force: true })
+  })
+
+  const before = runCount(db)
+  const omitted = await postRun(port, 'wf_omit', { workspaceId: 'ws_blank' })
+  const empty = await postRun(port, 'wf_empty_ref', { workspaceId: 'ws_blank' })
+  const blank = await postRun(port, 'wf_blank_ref', { workspaceId: 'ws_blank' })
+  assert.equal(omitted.status, 200, `omitted ${omitted.status} ${omitted.payload.message || ''}`)
+  assert.equal(empty.status, 200, `empty ${empty.status} ${empty.payload.message || ''}`)
+  assert.equal(blank.status, 200, `blank ${blank.status} ${blank.payload.message || ''}`)
+  assert.equal(runCount(db), before + 3)
+  await flush()
+  const errors = db.prepare(`SELECT error_json FROM workflow_run_steps`).all()
+  assert.equal(errors.some((row) => String(row.error_json || '').includes('来源引用不合法')), false)
+})
+
+test('写了的 sourceRef 不被 planAppSource 接受时 run 返回 422', async (t) => {
+  const { dbPath, db } = openFixture('filled-source')
+  insertWorkspace(db, 'ws_filled', '')
+  insertWorkflow(db, {
+    id: 'wf_upper',
+    workspaceId: 'ws_filled',
+    trigger: { kind: 'manual' },
+    steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总', sourceRef: `app:app_${'A'.repeat(32)}` } }],
+  })
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    async call() {
+      return {}
+    },
+    async *stream() {},
+  }
+  const server = serve(db, aiRuntime, 'corr_filled')
+  const port = await listen(server)
+  t.after(async () => {
+    server.close()
+    db.close()
+    await rm(dbPath, { force: true })
+  })
+
+  const before = runCount(db)
+  const ran = await postRun(port, 'wf_upper', { workspaceId: 'ws_filled' })
+  assert.equal(ran.status, 422, `run status ${ran.status}, workflow_runs ${runCount(db)}`)
+  assert.equal(ran.payload.error, 'invalid_source_ref')
+  assert.equal(runCount(db), before)
+})
+
 test('运行从 queued 进入 running，再以 failed 结束，不进入 waiting', async (t) => {
   const { dbPath, db } = openFixture('machine')
   insertWorkspace(db, 'ws_machine', '')
