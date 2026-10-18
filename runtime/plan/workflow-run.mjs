@@ -1,10 +1,10 @@
 import { createId } from '../db.mjs'
 import { isHostJobId } from '../host-catalog.mjs'
-import { harvestTurnToolResults } from '../briefing/tool-official.mjs'
 
 const MANUAL_TRIGGER_JSON = '{"kind":"manual"}'
 const AI_DOWN = '核心 AI 运行时尚未连接'
 const MEMORY_ONLY = '没有记忆 M1，这一步只留提案'
+const TOOLS_UNRESTRICTED = '核心 AI 暂不支持限制步骤工具，未运行'
 
 const CARD_STATUS = {
   succeeded: 'success',
@@ -56,31 +56,10 @@ function assertAiPrompts(steps) {
   }
 }
 
-function workspaceCwd(db, workspaceId) {
-  const row = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(workspaceId)
-  if (!row) return ''
-  try {
-    const meta = JSON.parse(row.metadata_json || '{}')
-    const cwd = typeof meta.cwd === 'string' ? meta.cwd.trim() : ''
-    return cwd.startsWith('/') ? cwd : ''
-  } catch {
-    return ''
-  }
-}
-
 function runtimeConnected(aiRuntime) {
   if (!aiRuntime || typeof aiRuntime.status !== 'function') return false
   const status = aiRuntime.status()
   return Boolean(status && status.connected === true)
-}
-
-function promptText(config) {
-  const prompt = typeof config.prompt === 'string' ? config.prompt : ''
-  const lines = [prompt]
-  const sourceRef = typeof config.sourceRef === 'string' ? config.sourceRef.trim() : ''
-  if (sourceRef) lines.push(sourceRef)
-  lines.push('任务写入走 fde_plan_task_propose。记录写入走 fde_app_records_propose。')
-  return lines.join('\n')
 }
 
 function insertQueued(db, { runId, workflowId, correlationId, now, steps }) {
@@ -116,44 +95,12 @@ function changed(result) {
   return result.changes === 1
 }
 
-function claimRunning(db, runId, sessionId, now) {
-  return changed(db.prepare(`
-    UPDATE workflow_runs
-    SET state = 'running', output_json = ?, started_at = COALESCE(started_at, ?)
-    WHERE id = ? AND state = 'queued'
-  `).run(JSON.stringify({ sessionId }), now, runId))
-}
-
-function markRunSucceeded(db, runId, output, now) {
-  return changed(db.prepare(`
-    UPDATE workflow_runs
-    SET state = 'succeeded', output_json = ?, finished_at = ?
-    WHERE id = ? AND state = 'running'
-  `).run(JSON.stringify(output), now, runId))
-}
-
 function markRunFailed(db, runId, now) {
   return changed(db.prepare(`
     UPDATE workflow_runs
     SET state = 'failed', finished_at = COALESCE(finished_at, ?)
     WHERE id = ? AND state IN ('queued', 'running')
   `).run(now, runId))
-}
-
-function claimStepRunning(db, stepId, now) {
-  return changed(db.prepare(`
-    UPDATE workflow_run_steps
-    SET state = 'running', started_at = COALESCE(started_at, ?)
-    WHERE id = ? AND state = 'queued'
-  `).run(now, stepId))
-}
-
-function markStepSucceeded(db, stepId, output, now) {
-  return changed(db.prepare(`
-    UPDATE workflow_run_steps
-    SET state = 'succeeded', output_json = ?, error_json = NULL, finished_at = ?
-    WHERE id = ? AND state = 'running'
-  `).run(JSON.stringify(output), now, stepId))
 }
 
 function markStepFailed(db, stepId, message, now) {
@@ -207,48 +154,11 @@ async function performRun(deps, ctx) {
     return
   }
 
-  const cwd = workspaceCwd(db, ctx.workspaceId)
-  const created = await aiRuntime.call('session/create', {
-    request: cwd ? { cwd } : {},
-  })
-  const sessionId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
-  if (!sessionId) {
-    failRun(db, ctx, '没有建成会话')
-    return
-  }
-  if (!claimRunning(db, ctx.runId, sessionId, isoNow())) return
-
-  const nowClaimed = isoNow()
-  failSteps(db, memorySteps, MEMORY_ONLY, nowClaimed)
-  skipSteps(db, skipStepsList, nowClaimed)
-
-  let tools = {}
-  for (const step of aiSteps) {
-    if (!claimStepRunning(db, step.id, isoNow())) continue
-    await aiRuntime.call('session/prompt', {
-      request: {
-        requestId: createId('wrq'),
-        sessionId,
-        mode: 'queue',
-        content: [{ type: 'text', text: promptText(step.config) }],
-      },
-    })
-    const harvest = await harvestTurnToolResults(aiRuntime, sessionId)
-    const now = isoNow()
-    if (!harvest || harvest.ended !== true) {
-      markStepFailed(db, step.id, '回合没有结束', now)
-      markRunFailed(db, ctx.runId, now)
-      return
-    }
-    tools = harvest.byTool
-    markStepSucceeded(db, step.id, { sessionId, tools }, now)
-  }
-  const finishedAt = isoNow()
-  if (memorySteps.length > 0) {
-    markRunFailed(db, ctx.runId, finishedAt)
-    return
-  }
-  markRunSucceeded(db, ctx.runId, { sessionId, tools }, finishedAt)
+  const now = isoNow()
+  failSteps(db, aiSteps, TOOLS_UNRESTRICTED, now)
+  failSteps(db, memorySteps, MEMORY_ONLY, now)
+  skipSteps(db, skipStepsList, now)
+  markRunFailed(db, ctx.runId, now)
 }
 
 function continueRun(deps, ctx) {

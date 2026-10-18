@@ -9,21 +9,11 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { openDatabase } from '../db.mjs'
 import { handlePlanRequest } from '../routes/plan.mjs'
-import { proposePlanTask } from '../plan/task-proposals.mjs'
-
 const node = process.execPath
 const origin = 'http://127.0.0.1:5173'
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const migrations = join(repoRoot, 'runtime', 'migrations')
 const tokenText = 'secret-token'
-
-function deferred() {
-  let resolve
-  const promise = new Promise((done) => {
-    resolve = done
-  })
-  return { promise, resolve }
-}
 
 async function readRaw(request) {
   const chunks = []
@@ -134,35 +124,18 @@ test('带页面令牌的 run 返回 200，并插入 queued', async (t) => {
     trigger: { kind: 'keyword', patterns: ['早报'] },
     steps: [{ id: 's1', kind: 'ai', label: '问一句', config: { prompt: '汇总这条记录', sourceRef: 'app:visits:row1' } }],
   })
-  const createGate = deferred()
-  const turnGate = deferred()
-  const prompted = deferred()
   const calls = []
   const aiRuntime = {
     status: () => ({ connected: true }),
     async call(endpoint, args) {
       calls.push({ endpoint, args })
-      if (endpoint === 'session/create') {
-        await createGate.promise
-        return { sessionId: 'sess_wf' }
-      }
-      if (endpoint === 'session/prompt') {
-        prompted.resolve()
-        return {}
-      }
-      return { items: [] }
+      return { sessionId: 'sess_wf' }
     },
-    async *stream() {
-      yield { type: 'event', event: { type: 'turn/start' } }
-      await turnGate.promise
-      yield { type: 'event', event: { type: 'turn/end' } }
-    },
+    async *stream() {},
   }
   const server = serve(db, aiRuntime, 'corr_queued')
   const port = await listen(server)
   t.after(async () => {
-    createGate.resolve()
-    turnGate.resolve()
     server.close()
     db.close()
     await rm(dbPath, { force: true })
@@ -173,48 +146,28 @@ test('带页面令牌的 run 返回 200，并插入 queued', async (t) => {
   assert.equal(payload.ok, true)
   assert.equal(payload.data.state, 'queued')
   const runId = payload.data.id
-  const queued = db.prepare('SELECT state, output_json, correlation_id, trigger_json FROM workflow_runs WHERE id = ?').get(runId)
-  assert.equal(queued.state, 'queued')
-  assert.equal(queued.output_json, null)
-  assert.equal(queued.correlation_id, 'corr_queued')
-  assert.equal(queued.trigger_json, '{"kind":"manual"}')
+  await flush()
+  const finished = db.prepare('SELECT state, output_json, correlation_id, trigger_json FROM workflow_runs WHERE id = ?').get(runId)
+  assert.equal(finished.correlation_id, 'corr_queued')
+  assert.equal(finished.trigger_json, '{"kind":"manual"}')
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM workflow_run_steps WHERE run_id = ?').get(runId).n, 1)
   assert.equal(storedText(db, runId).includes(tokenText), false)
-
-  createGate.resolve()
-  await Promise.race([
-    prompted.promise,
-    delay(1000).then(() => assert.fail('session/prompt was not called')),
-  ])
-  const started = db.prepare('SELECT state, output_json FROM workflow_runs WHERE id = ?').get(runId)
-  const startedOutput = JSON.parse(started.output_json)
-  assert.equal(startedOutput.sessionId, 'sess_wf')
-  const promptCall = calls.find((call) => call.endpoint === 'session/prompt')
-  const promptText = JSON.stringify(promptCall.args)
-  assert.equal(promptText.includes('汇总这条记录'), true)
-  assert.equal(promptText.includes('app:visits:row1'), true)
-  assert.equal(promptText.includes(tokenText), false)
+  assert.equal(finished.state, 'failed')
+  assert.equal(calls.some((call) => call.endpoint === 'session/create'), false)
+  const step = db.prepare('SELECT state, error_json FROM workflow_run_steps WHERE run_id = ?').get(runId)
+  assert.equal(step.state, 'failed')
+  assert.equal(JSON.parse(step.error_json).message, '核心 AI 暂不支持限制步骤工具，未运行')
   assert.equal(storedText(db, runId).includes(tokenText), false)
-
-  turnGate.resolve()
-  await flush()
-  const finished = db.prepare('SELECT state, output_json FROM workflow_runs WHERE id = ?').get(runId)
-  assert.equal(finished.state, 'succeeded')
-  assert.equal(JSON.parse(finished.output_json).sessionId, 'sess_wf')
-  const step = db.prepare('SELECT state, output_json, error_json FROM workflow_run_steps WHERE run_id = ?').get(runId)
-  assert.equal(step.state, 'succeeded')
-  assert.equal(step.error_json, null)
-  assert.notEqual(step.output_json, null)
 
   const listed = await fetch('http://127.0.0.1:' + port + '/api/v1/plan/workflows?workspaceId=ws_run')
   const listBody = await listed.json()
   const card = listBody.data.find((row) => row.id === 'wf_queued')
-  assert.equal(card.lastRunStatus, 'success')
+  assert.equal(card.lastRunStatus, 'failed')
   assert.equal(typeof card.lastRunAt, 'string')
   assert.equal(card.lastRunAt.length > 0, true)
 })
 
-test('会话改任务只增加 awaiting_approval，tasks 不变', async (t) => {
+test('未开会话时任务不变，也不产生提案', async (t) => {
   const { dbPath, db } = openFixture('propose')
   insertWorkspace(db, 'ws_prop', '/tmp/fde-x-workflow-run-cwd')
   insertWorkflow(db, {
@@ -224,40 +177,18 @@ test('会话改任务只增加 awaiting_approval，tasks 不变', async (t) => {
     steps: [{ id: 's1', kind: 'ai', label: '改任务', config: { prompt: '把标题改掉' } }],
   })
   const before = insertTask(db, { id: 'task_prop', workspaceId: 'ws_prop', title: '原标题' })
-  const createGate = deferred()
-  const turnGate = deferred()
-  const prompted = deferred()
+  const calls = []
   const aiRuntime = {
     status: () => ({ connected: true }),
-    async call(endpoint) {
-      if (endpoint === 'session/create') {
-        await createGate.promise
-        return { sessionId: 'sess_prop' }
-      }
-      if (endpoint === 'session/prompt') {
-        const proposed = proposePlanTask(db, {
-          op: 'update',
-          workspaceId: 'ws_prop',
-          taskId: 'task_prop',
-          title: '被改掉',
-        })
-        assert.equal(proposed.ok, true)
-        prompted.resolve()
-        return {}
-      }
-      return { items: [] }
+    async call(endpoint, args) {
+      calls.push({ endpoint, args })
+      return { sessionId: 'sess_prop' }
     },
-    async *stream() {
-      yield { type: 'event', event: { type: 'turn/start' } }
-      await turnGate.promise
-      yield { type: 'event', event: { type: 'turn/end' } }
-    },
+    async *stream() {},
   }
   const server = serve(db, aiRuntime, 'corr_prop')
   const port = await listen(server)
   t.after(async () => {
-    createGate.resolve()
-    turnGate.resolve()
     server.close()
     db.close()
     await rm(dbPath, { force: true })
@@ -266,27 +197,17 @@ test('会话改任务只增加 awaiting_approval，tasks 不变', async (t) => {
   const { status, payload } = await postRun(port, 'wf_prop', { workspaceId: 'ws_prop' })
   assert.equal(status, 200, `run status ${status}, workflow_runs ${runCount(db)}`)
   assert.equal(payload.data.state, 'queued')
-  createGate.resolve()
-  await Promise.race([
-    prompted.promise,
-    delay(1000).then(() => assert.fail('session/prompt was not called')),
-  ])
+  await flush()
   const task = db.prepare('SELECT title, updated_at FROM tasks WHERE id = ?').get('task_prop')
   assert.equal(task.title, before.title)
   assert.equal(task.updated_at, before.updated_at)
   const pending = db.prepare(`
     SELECT state FROM operations WHERE workspace_id = ? AND action = 'plan.task.propose'
   `).all('ws_prop')
-  assert.equal(pending.length, 1)
-  assert.equal(pending[0].state, 'awaiting_approval')
-  turnGate.resolve()
-  await flush()
-  const after = db.prepare('SELECT title, updated_at FROM tasks WHERE id = ?').get('task_prop')
-  assert.equal(after.title, '原标题')
-  assert.equal(after.updated_at, before.updated_at)
-  const run = db.prepare('SELECT state, output_json FROM workflow_runs WHERE id = ?').get(payload.data.id)
-  assert.equal(run.state, 'succeeded')
-  assert.equal(JSON.parse(run.output_json).sessionId, 'sess_prop')
+  assert.equal(pending.length, 0)
+  const run = db.prepare('SELECT state FROM workflow_runs WHERE id = ?').get(payload.data.id)
+  assert.equal(run.state, 'failed')
+  assert.equal(calls.some((call) => call.endpoint === 'session/create'), false)
 })
 
 test('AI 不可用时 run 为 failed，错误可读', async (t) => {
