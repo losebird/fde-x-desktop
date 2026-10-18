@@ -16,6 +16,7 @@ import {
 } from '../runtime/config.mjs'
 import { seedDshCredentialsSync } from '../runtime/dsh-credentials.mjs'
 import { isPidAlive, pidsListeningOnPort, reclaimStrayRuntime } from '../runtime/reclaim-runtime.mjs'
+import { bindPageToken, readUiTokenLine } from './page-token-handoff.mjs'
 import { runtimePortOpen } from './runtime-port.mjs'
 
 const root = FDE_APP_ROOT
@@ -62,6 +63,7 @@ async function waitFor(port, timeoutMs) {
 let shuttingDown = false
 let pageToken = ''
 let viteChild = null
+let sendPageToken = () => {}
 process.on('SIGINT', () => { shuttingDown = true })
 process.on('SIGTERM', () => { shuttingDown = true })
 
@@ -128,10 +130,10 @@ function superviseRuntime(extraEnv = {}) {
       })
       const lines = createInterface({ input: child.stdout })
       lines.on('line', (line) => {
-        const match = /^FDE_UI_TOKEN\s+([0-9a-f]{64})$/u.exec(line.trim())
-        if (match) {
-          pageToken = match[1]
-          if (viteChild && viteChild.connected) viteChild.send({ type: 'fde-ui-token', token: pageToken })
+        const token = readUiTokenLine(line)
+        if (token) {
+          pageToken = token
+          sendPageToken()
           return
         }
         process.stdout.write(`${line}\n`)
@@ -197,12 +199,10 @@ viteChild = spawn(process.execPath, [
   },
   stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
 })
+sendPageToken = bindPageToken(viteChild, () => pageToken)
 viteChild.on('message', (msg) => {
   if (msg && msg.type === 'fde-runtime-restart' && runtimeSupervisorNudge) {
     void runtimeSupervisorNudge()
-  }
-  if (msg && msg.type === 'fde-vite-listening' && pageToken) {
-    viteChild.send({ type: 'fde-ui-token', token: pageToken })
   }
 })
 viteChild.on('exit', (code, signal) => {
