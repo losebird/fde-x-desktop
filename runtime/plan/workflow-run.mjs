@@ -80,6 +80,12 @@ function insertQueued(db, { runId, workflowId, correlationId, now, steps }) {
   const stored = steps.map((step) => ({ ...step, id: createId('wrs') }))
   db.exec('BEGIN IMMEDIATE;')
   try {
+    const open = db.prepare(`
+      SELECT id FROM workflow_runs
+      WHERE workflow_id = ? AND state IN ('queued', 'running')
+      LIMIT 1
+    `).get(workflowId)
+    if (open) throw rejectRun(409, 'conflict', '这条工作流已有未结束的运行')
     db.prepare(`
       INSERT INTO workflow_runs
         (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at)
