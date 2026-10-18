@@ -224,6 +224,7 @@ interface State {
   removeAgent: (id: ID) => void
   // workflows
   toggleWorkflow: (id: ID) => Promise<void>
+  runWorkflow: (id: ID) => Promise<void>
   addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt'>) => Promise<void>
   removeWorkflow: (id: ID) => Promise<void>
   // im
@@ -937,6 +938,16 @@ export const useApp = create<AppState>()(
             workflows: s.workflows.map((w) => (w.id === id ? updated : w)),
             planServiceError: null,
           }))
+        } catch {
+          set({ planServiceError: PLAN_UNAVAILABLE })
+          throw new Error(PLAN_UNAVAILABLE)
+        }
+      },
+      runWorkflow: async (id) => {
+        try {
+          await runtimeApi.runWorkflow(id)
+          const workspaceId = get().activeWorkspaceId
+          if (workspaceId) await get().hydratePlan(workspaceId)
         } catch {
           set({ planServiceError: PLAN_UNAVAILABLE })
           throw new Error(PLAN_UNAVAILABLE)
