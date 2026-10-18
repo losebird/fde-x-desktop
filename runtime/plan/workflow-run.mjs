@@ -115,11 +115,27 @@ function changed(result) {
   return result.changes === 1
 }
 
+function claimRunning(db, runId, now) {
+  db.prepare(`
+    UPDATE workflow_runs
+    SET state = 'running', started_at = COALESCE(started_at, ?)
+    WHERE id = ? AND state = 'queued'
+  `).run(now, runId)
+}
+
+function claimStepRunning(db, stepId, now) {
+  db.prepare(`
+    UPDATE workflow_run_steps
+    SET state = 'running', started_at = COALESCE(started_at, ?)
+    WHERE id = ? AND state = 'queued'
+  `).run(now, stepId)
+}
+
 function markRunFailed(db, runId, now) {
   return changed(db.prepare(`
     UPDATE workflow_runs
     SET state = 'failed', finished_at = COALESCE(finished_at, ?)
-    WHERE id = ? AND state IN ('queued', 'running')
+    WHERE id = ? AND state = 'running'
   `).run(now, runId))
 }
 
@@ -127,12 +143,15 @@ function markStepFailed(db, stepId, message, now) {
   return changed(db.prepare(`
     UPDATE workflow_run_steps
     SET state = 'failed', error_json = ?, finished_at = COALESCE(finished_at, ?)
-    WHERE id = ? AND state IN ('queued', 'running')
+    WHERE id = ? AND state = 'running'
   `).run(JSON.stringify({ message }), now, stepId))
 }
 
 function failSteps(db, steps, message, now) {
-  for (const step of steps) markStepFailed(db, step.id, message, now)
+  for (const step of steps) {
+    claimStepRunning(db, step.id, now)
+    markStepFailed(db, step.id, message, now)
+  }
 }
 
 function markStepSkipped(db, stepId, now) {
@@ -149,24 +168,25 @@ function skipSteps(db, steps, now) {
 
 function failRun(db, ctx, message) {
   const now = isoNow()
+  claimRunning(db, ctx.runId, now)
   failSteps(db, ctx.steps, message, now)
   markRunFailed(db, ctx.runId, now)
 }
 
 async function performRun(deps, ctx) {
   const { db, aiRuntime } = deps
+  const now = isoNow()
+  claimRunning(db, ctx.runId, now)
   const aiSteps = ctx.steps.filter((step) => step.kind === 'ai')
   const memorySteps = ctx.steps.filter((step) => step.kind === 'memory.add')
   const skipStepsList = ctx.steps.filter((step) => step.kind !== 'ai' && step.kind !== 'memory.add')
   if (aiSteps.length === 0) {
-    const now = isoNow()
     failSteps(db, memorySteps, MEMORY_ONLY, now)
     failSteps(db, skipStepsList, '没有可执行的 ai 步骤', now)
     markRunFailed(db, ctx.runId, now)
     return
   }
   if (!runtimeConnected(aiRuntime)) {
-    const now = isoNow()
     failSteps(db, aiSteps, AI_DOWN, now)
     failSteps(db, memorySteps, MEMORY_ONLY, now)
     skipSteps(db, skipStepsList, now)
@@ -174,7 +194,6 @@ async function performRun(deps, ctx) {
     return
   }
 
-  const now = isoNow()
   failSteps(db, aiSteps, TOOLS_UNRESTRICTED, now)
   failSteps(db, memorySteps, MEMORY_ONLY, now)
   skipSteps(db, skipStepsList, now)
