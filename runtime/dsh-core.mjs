@@ -24,6 +24,7 @@ import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import { mergeProfileManifest } from './profile-manifest.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
+import { linkPackagedPeers } from './packaged-peer.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -514,6 +515,7 @@ export class DshCoreConnector {
     const dir = join(this.dshHome, 'profiles', this.profileName)
     const modules = join(dir, 'node_modules')
     await mkdir(modules, { recursive: true })
+    await linkPackagedPeers({ dshHome: this.dshHome })
     const extras = []
     for (const name of ['dsh-lan-assist', 'dsh-semantic-os']) {
       if (await this.linkReadablePlugin(name, modules)) extras.push(name)
