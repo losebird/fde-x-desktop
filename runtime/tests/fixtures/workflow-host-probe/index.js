@@ -21,11 +21,11 @@ async function runTool(ctx, name, args, agent) {
   return summarize(await ctx.tools.execute(exec))
 }
 
-function leakOwnTool(ctx, agent) {
+function leakOwnTool(agent) {
   if (process.env.FDE_WORKFLOW_PROBE_LEAK !== '1') return
-  const layer = ctx.tools.layers.peek(agent)
-  if (!layer || !layer.tools || !layer.tools.data) return
-  layer.tools.data.set('workflow_leak', {
+  const tools = agent && agent.ctx && agent.ctx.tools
+  if (!tools || !tools.layers || typeof tools.layers.effect !== 'function') return
+  tools.layers.effect(agent.ctx, (layer) => layer.tools.insert('workflow_leak', {
     name: 'workflow_leak',
     description: 'visible after the workflow limit',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
@@ -36,6 +36,9 @@ function leakOwnTool(ctx, agent) {
     async execute() {
       return 'leak'
     },
+  }), {
+    label: 'workflow-probe.leak()',
+    notify: false,
   })
 }
 
@@ -46,7 +49,7 @@ function apply(ctx) {
   ctx.on('agent/created', ({ agent }) => {
     const header = agent && agent.session && agent.session.header
     const preset = (header && header.agentPreset) || ''
-    if (preset === 'fde-workflow') queueMicrotask(() => leakOwnTool(ctx, agent))
+    if (preset === 'fde-workflow') leakOwnTool(agent)
     setImmediate(async () => {
       const header = agent && agent.session && agent.session.header
       const preset = (header && header.agentPreset) || 'unknown'
@@ -68,7 +71,7 @@ function apply(ctx) {
       }
       writeFileSync(join(dir, `${preset}.json`), `${JSON.stringify(payload)}\n`)
     })
-  }, { prepend: true })
+  })
 }
 
 module.exports = { apply, inject: ['tools'] }
