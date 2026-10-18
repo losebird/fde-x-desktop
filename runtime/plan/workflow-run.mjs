@@ -1,5 +1,5 @@
 import { planAppSource } from '../app-source.mjs'
-import { createId } from '../db.mjs'
+import { appendAudit, createId } from '../db.mjs'
 import { isHostJobId } from '../host-catalog.mjs'
 
 const MANUAL_TRIGGER_JSON = '{"kind":"manual"}'
@@ -237,12 +237,38 @@ export function readLatestRunCards(db, workflowIds) {
   return cards
 }
 
+const INTERRUPTED = '上次运行被中断'
+
+function auditInterrupted(db, row, targetRef, now) {
+  appendAudit(db, {
+    workspaceId: row.workspace_id,
+    actorId: 'actor_system',
+    action: 'plan.workflow_run.interrupt',
+    targetRef,
+    outcome: 'failed',
+    riskLevel: 'low',
+    correlationId: row.correlation_id || '',
+    details: { message: INTERRUPTED, previousState: row.state },
+    occurredAt: now,
+  })
+}
+
 export function failInterruptedRuns(db) {
-  const runs = db.prepare(`SELECT id FROM workflow_runs WHERE state IN ('queued', 'running')`).all()
-  const steps = db.prepare(`SELECT id FROM workflow_run_steps WHERE state IN ('queued', 'running')`).all()
+  const runs = db.prepare(`
+    SELECT r.id, r.state, r.correlation_id, w.workspace_id
+    FROM workflow_runs r
+    LEFT JOIN workflows w ON w.id = r.workflow_id
+    WHERE r.state IN ('queued', 'running')
+  `).all()
+  const steps = db.prepare(`
+    SELECT s.id, s.state, r.correlation_id, w.workspace_id
+    FROM workflow_run_steps s
+    JOIN workflow_runs r ON r.id = s.run_id
+    LEFT JOIN workflows w ON w.id = r.workflow_id
+    WHERE s.state IN ('queued', 'running')
+  `).all()
   if (runs.length === 0 && steps.length === 0) return
   const now = isoNow()
-  const message = '上次运行被中断'
   db.exec('BEGIN IMMEDIATE;')
   try {
     const failStep = db.prepare(`
@@ -255,8 +281,14 @@ export function failInterruptedRuns(db) {
       SET state = 'failed', finished_at = COALESCE(finished_at, ?)
       WHERE id = ? AND state IN ('queued', 'running')
     `)
-    for (const step of steps) failStep.run(JSON.stringify({ message }), now, step.id)
-    for (const run of runs) failRun.run(now, run.id)
+    for (const step of steps) {
+      if (failStep.run(JSON.stringify({ message: INTERRUPTED }), now, step.id).changes !== 1) continue
+      auditInterrupted(db, step, `fde://plan/workflow-run-steps/${step.id}`, now)
+    }
+    for (const run of runs) {
+      if (failRun.run(now, run.id).changes !== 1) continue
+      auditInterrupted(db, run, `fde://plan/workflow-runs/${run.id}`, now)
+    }
     db.exec('COMMIT;')
   } catch (error) {
     try {
