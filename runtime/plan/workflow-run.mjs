@@ -1,3 +1,4 @@
+import { planAppSource } from '../app-source.mjs'
 import { createId } from '../db.mjs'
 import { isHostJobId } from '../host-catalog.mjs'
 
@@ -46,6 +47,19 @@ function parseSteps(definitionJson) {
       config,
     }
   })
+}
+
+export function hasIllegalSourceRef(steps) {
+  if (!Array.isArray(steps)) return false
+  for (const step of steps) {
+    const config = step && typeof step === 'object' && step.config && typeof step.config === 'object' && !Array.isArray(step.config)
+      ? step.config
+      : null
+    if (!config) continue
+    const sourceRef = typeof config.sourceRef === 'string' ? config.sourceRef.trim() : ''
+    if (sourceRef && !planAppSource(sourceRef)) return true
+  }
+  return false
 }
 
 function assertAiPrompts(steps) {
@@ -209,6 +223,7 @@ export function startWorkflowRun(deps, command) {
   const workflow = db.prepare('SELECT id, workspace_id, definition_json FROM workflows WHERE id = ?').get(workflowId)
   if (!workflow || workflow.workspace_id !== workspaceId) throw rejectRun(404, 'not_found', '工作流不存在')
   const steps = parseSteps(workflow.definition_json)
+  if (hasIllegalSourceRef(steps)) throw rejectRun(422, 'validation_error', '来源引用不合法')
   assertAiPrompts(steps)
   const runId = createId('wfr')
   const storedSteps = insertQueued(db, {

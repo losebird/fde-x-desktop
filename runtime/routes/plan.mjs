@@ -11,7 +11,7 @@ import {
   mutateHostGoal,
 } from '../host-catalog.mjs'
 import { decidePlanTask, listOpenPlanTaskProposals } from '../plan/task-proposals.mjs'
-import { readLatestRunCards, startWorkflowRun } from '../plan/workflow-run.mjs'
+import { hasIllegalSourceRef, readLatestRunCards, startWorkflowRun } from '../plan/workflow-run.mjs'
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
@@ -593,6 +593,10 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'validation_error', '名称不能为空', correlationId)
       return true
     }
+    if (hasIllegalSourceRef(body.steps)) {
+      planError(response, 422, 'validation_error', '来源引用不合法', correlationId)
+      return true
+    }
     const status = WORKFLOW_WRITE_STATUSES.has(body.status) ? body.status : 'paused'
     const trigger = body.trigger && typeof body.trigger === 'object' ? body.trigger : { kind: 'manual' }
     const definition = {
@@ -647,6 +651,10 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const existing = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id)
     if (!existing) {
       planError(response, 404, 'not_found', '工作流不存在', correlationId)
+      return true
+    }
+    if (hasIllegalSourceRef(body.steps)) {
+      planError(response, 422, 'validation_error', '来源引用不合法', correlationId)
       return true
     }
     const patch = {}

@@ -9,7 +9,7 @@ import type {
   IMAttachment, IMTopic, IMHandoffPackage,
 } from '@/lib/types'
 import { seedUser } from '@/data/seed'
-import { runtimeApi } from '@/lib/runtime-api'
+import { RuntimeApiError, runtimeApi } from '@/lib/runtime-api'
 import { emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
 import { imBrowseOccupancy } from '@/lib/im-letter-home'
 import {
@@ -22,6 +22,11 @@ import {
 } from '@/lib/plan-origin'
 
 const PLAN_UNAVAILABLE = '计划服务未就绪'
+
+function planFailure(error) {
+  if (error instanceof RuntimeApiError && error.message) return error.message
+  return PLAN_UNAVAILABLE
+}
 
 // =======================================================
 //                  Stage Manager 侧栏系统
@@ -948,9 +953,10 @@ export const useApp = create<AppState>()(
           await runtimeApi.runWorkflow(id)
           const workspaceId = get().activeWorkspaceId
           if (workspaceId) await get().hydratePlan(workspaceId)
-        } catch {
-          set({ planServiceError: PLAN_UNAVAILABLE })
-          throw new Error(PLAN_UNAVAILABLE)
+        } catch (error) {
+          const message = planFailure(error)
+          set({ planServiceError: message })
+          throw new Error(message)
         }
       },
       addWorkflow: async (w) => {
@@ -968,9 +974,10 @@ export const useApp = create<AppState>()(
             emoji: w.emoji,
           })
           set((s) => ({ workflows: [created, ...s.workflows], planServiceError: null }))
-        } catch {
-          set({ planServiceError: PLAN_UNAVAILABLE })
-          throw new Error(PLAN_UNAVAILABLE)
+        } catch (error) {
+          const message = planFailure(error)
+          set({ planServiceError: message })
+          throw new Error(message)
         }
       },
       removeWorkflow: async (id) => {

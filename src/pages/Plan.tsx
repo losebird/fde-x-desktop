@@ -1044,7 +1044,7 @@ function WorkflowTab() {
               </div>
               <div>
                 <label className="text-xs text-ink-muted">来源引用 (可选)</label>
-                <input className="input mt-1.5 w-full" value={draft.sourceRef} onChange={(e) => setDraft({ ...draft, sourceRef: e.target.value })} placeholder="例如 app:visits:row1" />
+                <input className="input mt-1.5 w-full" value={draft.sourceRef} onChange={(e) => setDraft({ ...draft, sourceRef: e.target.value })} placeholder="app:app_ 后接 32 位十六进制" />
               </div>
             </>
           )}

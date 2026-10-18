@@ -136,7 +136,7 @@ test('带页面令牌的 run 返回 200，并插入 queued', async (t) => {
     id: 'wf_queued',
     workspaceId: 'ws_run',
     trigger: { kind: 'keyword', patterns: ['早报'] },
-    steps: [{ id: 's1', kind: 'ai', label: '问一句', config: { prompt: '汇总这条记录', sourceRef: 'app:visits:row1' } }],
+    steps: [{ id: 's1', kind: 'ai', label: '问一句', config: { prompt: '汇总这条记录', sourceRef: `app:app_${'a'.repeat(32)}:rec${'b'.repeat(32)}` } }],
   })
   const calls = []
   const aiRuntime = {
