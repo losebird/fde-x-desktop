@@ -97,13 +97,17 @@ test('memory scope failure does not break other scopes', async () => {
   assert.ok(warnings.includes('memory_engine_not_ready') || warnings.includes('memory_find_failed'))
 })
 
-test('explicit taskIds include undated todo in prompt', async () => {
+test('explicit taskIds control tasks in prompt', async () => {
   const taskIdsDbPath = '/tmp/fde-x-context-pack-task-ids.sqlite'
   await rm(taskIdsDbPath, { force: true }).catch(() => undefined)
   await mkdir('/tmp/fde-x-context-pack-ws', { recursive: true })
   const db = openDatabase(taskIdsDbPath, join(repoRoot, 'runtime/migrations'))
   const now = new Date().toISOString()
   const undatedId = 'task_undated_p1_test'
+  const overdueId = 'task_overdue_p1_test'
+  const dueTodayId = 'task_due_today_p1_test'
+  const doneId = 'task_done_p1_test'
+  const secondId = 'task_second_p1_test'
   db.prepare(`
     INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
     VALUES (?, 'ws_personal', '无截止日待办P1', '', 'todo', 'med', NULL, ?, ?)
@@ -115,16 +119,83 @@ test('explicit taskIds include undated todo in prompt', async () => {
       throw new Error('down')
     },
   }
-  const { pack } = await buildContextPack(
+  const baseInput = {
+    workspaceCwd: '/tmp/fde-x-context-pack-ws',
+    scopes: ['tasks'],
+  }
+  const explicitUndated = await buildContextPack(
     { db, aiRuntime },
-    {
-      workspaceCwd: '/tmp/fde-x-context-pack-ws',
-      scopes: ['tasks'],
-      taskIds: [undatedId],
-    },
+    { ...baseInput, taskIds: [undatedId] },
   )
-  const text = renderContextForPrompt(pack)
-  assert.match(text, /无截止日待办P1/)
+  const explicitText = renderContextForPrompt(explicitUndated.pack)
+  assert.match(explicitText, /无截止日待办P1/)
+
+  const windowPack = await buildContextPack({ db, aiRuntime }, baseInput)
+  const windowText = renderContextForPrompt(windowPack.pack)
+  assert.match(windowText, /【今日待办】/)
+  assert.equal(windowText.includes('无截止日待办P1'), false)
+
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  db.prepare(`
+    INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+    VALUES (?, 'ws_personal', '逾期待办P1', '', 'todo', 'med', ?, ?, ?)
+  `).run(overdueId, yesterday.toISOString(), now, now)
+
+  const withOverdueExplicit = renderContextForPrompt(
+    (await buildContextPack({ db, aiRuntime }, { ...baseInput, taskIds: [undatedId] })).pack,
+  )
+  const withOverdueWindow = renderContextForPrompt(
+    (await buildContextPack({ db, aiRuntime }, baseInput)).pack,
+  )
+  assert.match(withOverdueExplicit, /逾期 1 条/)
+  assert.match(withOverdueWindow, /逾期 1 条/)
+
+  const dueToday = new Date()
+  dueToday.setHours(12, 0, 0, 0)
+  db.prepare(`
+    INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+    VALUES (?, 'ws_personal', '今日截止待办P1', '', 'todo', 'med', ?, ?, ?)
+  `).run(dueTodayId, dueToday.toISOString(), now, now)
+
+  const onlyUndated = renderContextForPrompt(
+    (await buildContextPack({ db, aiRuntime }, { ...baseInput, taskIds: [undatedId] })).pack,
+  )
+  assert.match(onlyUndated, /无截止日待办P1/)
+  assert.equal(onlyUndated.includes('今日截止待办P1'), false)
+
+  db.prepare(`
+    INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+    VALUES (?, 'ws_personal', '第二条待办P1', '', 'doing', 'med', NULL, ?, ?)
+  `).run(secondId, now, now)
+  db.prepare(`
+    INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+    VALUES (?, 'ws_personal', '已完成待办P1', '', 'done', 'med', NULL, ?, ?)
+  `).run(doneId, now, now)
+
+  const ordered = renderContextForPrompt(
+    (await buildContextPack({ db, aiRuntime }, { ...baseInput, taskIds: [doneId, secondId] })).pack,
+  )
+  const donePos = ordered.indexOf('已完成待办P1')
+  const secondPos = ordered.indexOf('第二条待办P1')
+  assert.ok(donePos >= 0 && secondPos >= 0 && donePos < secondPos)
+  assert.match(ordered, /已完成待办P1（done）/)
+
+  const missingRow = await buildContextPack(
+    { db, aiRuntime },
+    { ...baseInput, taskIds: [undatedId, 'task_not_in_db'] },
+  )
+  const missingText = renderContextForPrompt(missingRow.pack)
+  assert.match(missingText, /无截止日待办P1/)
+  assert.equal(missingRow.warnings.includes('task_ids_invalid'), false)
+
+  const invalid = await buildContextPack(
+    { db, aiRuntime },
+    { ...baseInput, taskIds: 'nope' },
+  )
+  const invalidText = renderContextForPrompt(invalid.pack)
+  assert.equal(invalidText.includes('今日截止待办P1'), false)
+  assert.ok(invalid.warnings.includes('task_ids_invalid'))
 })
 
 test('scope timeout is reported in warnings', async () => {

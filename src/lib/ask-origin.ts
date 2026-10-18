@@ -1,4 +1,11 @@
-import { buildContextPack, renderContextForPrompt, type ContextPack, type ContextScope } from '@/lib/context-pack'
+import {
+  applyPromptPackChoice,
+  buildContextPack,
+  renderContextForPrompt,
+  type ContextPack,
+  type ContextScope,
+  type PromptPackChoice,
+} from '@/lib/context-pack'
 import { submitCurrentTurn } from '@/lib/current-turn'
 import { classifyHitId, originOfCard } from '@/lib/memory-identity'
 import { originKindOf, renderOriginEntity, type OriginEntityInput } from '@/lib/origin-entity'
@@ -22,22 +29,21 @@ export async function askWithEntity(opts: OriginEntityInput & {
   tail?: string
   scopes?: ContextScope[]
   omit?: Set<string>
-  pack?: ContextPack
-  warnings?: string[]
   revealAi?: boolean
-}): Promise<AskWithEntityResult> {
+} & PromptPackChoice): Promise<AskWithEntityResult> {
   const originBlock = renderOriginEntity(opts)
-  let pack: ContextPack | undefined = opts.pack
-  let warnings: string[] = opts.warnings || []
+  const choice = applyPromptPackChoice(opts.scopes ?? [], opts)
+  let pack: ContextPack | undefined = choice.pack
+  let warnings: string[] = choice.warnings
   let packText = ''
-  const scopes = opts.scopes
   try {
-    if (!pack && scopes?.length) {
+    if (!pack && choice.scopes.length) {
       const packed = await buildContextPack({
-        scopes,
+        scopes: choice.scopes,
         query: String(opts.title || opts.text || '').slice(0, 80),
         entity: opts.entity,
         intentKind: 'lookup',
+        ...choice.taskIdInput,
       })
       pack = packed.pack
       warnings = packed.warnings || []
@@ -94,10 +100,8 @@ export async function askOrigin(origin: string, extra: OriginEntityInput & {
   tail?: string
   scopes?: ContextScope[]
   omit?: Set<string>
-  pack?: ContextPack
-  warnings?: string[]
   revealAi?: boolean
-} = {}): Promise<AskWithEntityResult> {
+} & PromptPackChoice = {}): Promise<AskWithEntityResult> {
   const raw = String(origin || '').trim()
   const originDoc = await loadOriginDoc(raw)
   const kind = originKindOf(raw) || 'memory'
@@ -119,9 +123,10 @@ export async function askOrigin(origin: string, extra: OriginEntityInput & {
     tail: extra.tail,
     scopes: extra.scopes || scopesForOrigin(raw),
     omit: extra.omit,
+    revealAi: extra.revealAi,
+    taskIds: extra.taskIds,
     pack: extra.pack,
     warnings: extra.warnings,
-    revealAi: extra.revealAi,
   })
 }
 
