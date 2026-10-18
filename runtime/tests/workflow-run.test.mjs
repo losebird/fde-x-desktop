@@ -99,7 +99,7 @@ function serve(db, aiRuntime, correlationId) {
   return server
 }
 
-async function postRun(port, workflowId) {
+async function postRun(port, workflowId, body = {}) {
   const response = await fetch(`http://127.0.0.1:${port}/api/v1/plan/workflows/${encodeURIComponent(workflowId)}/run`, {
     method: 'POST',
     headers: {
@@ -107,7 +107,7 @@ async function postRun(port, workflowId) {
       'Content-Type': 'application/json',
       'x-fde-ui-token': 'a'.repeat(64),
     },
-    body: '{}',
+    body: JSON.stringify(body),
   })
   const payload = await response.json()
   return { status: response.status, payload }
@@ -402,6 +402,37 @@ test('缺少提示、Host job、未知 id 不插入 run', async (t) => {
   const missing = await postRun(port, 'wf_missing')
   assert.equal(missing.status, 404)
   assert.equal(runCount(db), 0)
+})
+
+test('跨工作区的 run 返回 404，workflow_runs 不增加', async (t) => {
+  const { dbPath, db } = openFixture('cross')
+  insertWorkspace(db, 'ws_owner', '')
+  insertWorkspace(db, 'ws_other', '')
+  insertWorkflow(db, {
+    id: 'wf_cross',
+    workspaceId: 'ws_owner',
+    trigger: { kind: 'manual' },
+    steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总' } }],
+  })
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    async call() {
+      return { sessionId: 'sess_cross' }
+    },
+    async *stream() {},
+  }
+  const server = serve(db, aiRuntime, 'corr_cross')
+  const port = await listen(server)
+  t.after(async () => {
+    server.close()
+    db.close()
+    await rm(dbPath, { force: true })
+  })
+
+  const before = runCount(db)
+  const { status } = await postRun(port, 'wf_cross', { workspaceId: 'ws_other' })
+  assert.equal(status, 404, `run status ${status}, workflow_runs ${runCount(db)}`)
+  assert.equal(runCount(db), before)
 })
 
 test('不带页面令牌的 run 返回 401，workflow_runs 仍是 0 行', async (t) => {
