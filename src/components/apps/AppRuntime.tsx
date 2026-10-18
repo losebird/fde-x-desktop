@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { AppProductPage } from '@/components/apps/AppProductPage'
 import { appBuilderPrompt } from '@/lib/app-builder-prompt'
@@ -10,8 +10,10 @@ import { SpecForm } from '@/components/apps/SpecForm'
 import { SpecEditor } from '@/components/apps/SpecEditor'
 import { AppWebRuntime } from '@/components/apps/AppWebRuntime'
 import { appIsTrashed, hasProductPages, isCurrentRevisionPending, isFdeAppSpec, isFdeWebSpec, mockRowsForEntity, type FdeAppDetail } from '@/lib/app-spec'
+import { focusOpenEntity } from '@/lib/plan-app-source'
 import { runtimeApi } from '@/lib/runtime-api'
 import { AppPublicSurface } from '@/lib/app-public-surface'
+import { useApp } from '@/store/app'
 
 type Props = {
   app: FdeAppDetail
@@ -37,6 +39,10 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
   const [viewId, setViewId] = useState(views[0]?.id || views[0]?.type || '0')
   const [showBuilder, setShowBuilder] = useState(false)
   const [detailRid, setDetailRid] = useState('')
+  const [focusEntity, setFocusEntity] = useState('')
+  const browseAppId = useApp((state) => state.dataBrowse.workspaceAppId)
+  const appRid = useApp((state) => state.dataBrowse.appRid)
+  const land = useApp((state) => state.dataBrowse.land)
   const [note, setNote] = useState('')
   const [reviseDescription, setReviseDescription] = useState('')
   const [reviseGenerating, setReviseGenerating] = useState(false)
@@ -48,6 +54,49 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
   const pendingMaterialize = isCurrentRevisionPending(app)
   const product = hasProductPages(spec)
   const daily = variant === 'workspace' && product
+
+  useEffect(() => {
+    if (browseAppId !== app.id) return
+    if (!appRid) {
+      setFocusEntity('')
+      setDetailRid('')
+      return
+    }
+    const rid = appRid
+    const landAt = land
+    const appId = app.id
+    let alive = true
+    void focusOpenEntity(app.spec, rid).then((entity: string) => {
+      if (!alive) return
+      const browse = useApp.getState().dataBrowse
+      if (browse.appRid !== rid || browse.land !== landAt || browse.workspaceAppId !== appId) return
+      const specNow = app.spec
+      if (!isFdeAppSpec(specNow)) {
+        setFocusEntity('')
+        setDetailRid('')
+        return
+      }
+      if (hasProductPages(specNow)) {
+        setFocusEntity(entity)
+        return
+      }
+      setFocusEntity('')
+      const specViews = specNow.views
+      const match = entity
+        ? specViews.find((view) => view.entity === entity && view.type === 'table')
+          || specViews.find((view) => view.entity === entity)
+        : undefined
+      if (!match) {
+        setDetailRid('')
+        return
+      }
+      setViewId(match.id || match.type)
+      setDetailRid(rid)
+    })
+    return () => {
+      alive = false
+    }
+  }, [browseAppId, appRid, land, app.id, app.spec])
 
   const activate = async () => {
     setNote('')
@@ -308,6 +357,8 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
             app={app}
             workspaceCwd={workspaceCwd}
             onRefresh={onChanged}
+            focusEntity={focusEntity}
+            focusRid={appRid}
           />
         </div>
       ) : (

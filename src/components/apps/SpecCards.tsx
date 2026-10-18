@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { ExternalLink, Play } from 'lucide-react'
 import { AppCapabilityBar } from '@/components/apps/AppCapabilityBar'
 import {
@@ -27,6 +27,7 @@ type Props = {
   reloadToken?: number
   recordActions?: ReactNode
   actionUses?: FdePlatformUse[]
+  focusRid?: string
 }
 
 const HERO_TONES = [
@@ -47,7 +48,8 @@ function heroToneClassFor(key: string) {
 const primaryActionBaseClass =
   'flex h-9 w-full items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-opacity hover:opacity-90'
 
-export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, recordActions, actionUses }: Props) {
+export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, recordActions, actionUses, focusRid }: Props) {
+  const rootRef = useRef<HTMLDivElement>(null)
   const [rows, setRows] = useState<Record<string, unknown>[]>(previewRows ?? [])
   const [error, setError] = useState('')
   const [openProof, setOpenProof] = useState<{ href: string; mode: AppOpenedMode } | null>(null)
@@ -76,6 +78,12 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
 
   useEffect(() => { void load() }, [load, reloadToken])
 
+  useEffect(() => {
+    if (!focusRid) return
+    const node = rootRef.current?.querySelector<HTMLElement>('[data-app-record-open="true"]')
+    node?.scrollIntoView({ block: 'nearest' })
+  }, [focusRid, rows])
+
   const groups = useMemo(() => {
     if (!groupBy) return [{ key: '', label: view.label || ent?.label || '卡片', rows }]
     const keys = groupOptions.length
@@ -98,7 +106,7 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
   }
 
   return (
-    <div className="space-y-3" data-app-cards="true">
+    <div ref={rootRef} className="space-y-3" data-app-cards="true">
       <div className="flex items-center justify-between">
         <div className="text-sm font-medium">{view.label || ent?.label || '卡片'}</div>
         {previewRows && <span className="text-[10px] text-ink-muted border border-line px-1 rounded">示例</span>}
@@ -153,6 +161,7 @@ export function SpecCards({ app, view, workspaceCwd, previewRows, reloadToken, r
                     className="border border-line rounded-xl bg-surface overflow-hidden min-w-0 shadow-pop flex flex-col"
                     data-app-card="true"
                     data-app-card-title={title || undefined}
+                    data-app-record-open={focusRid && String(row.id) === focusRid ? 'true' : undefined}
                   >
                     <div
                       className={`relative shrink-0 flex items-center justify-center ${heroBelow ? '' : 'p-3'} ${heroHeightClass} ${heroTone}`}
