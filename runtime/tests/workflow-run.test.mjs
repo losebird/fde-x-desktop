@@ -687,7 +687,7 @@ test('写了的 sourceRef 不被 planAppSource 接受时 run 返回 422', async 
   assert.equal(runCount(db), before)
 })
 
-test('运行从 queued 进入 running，再以 failed 结束，不进入 waiting', async (t) => {
+test('不能限制工具时 run 从 queued 直接失败，不进入 waiting', async (t) => {
   const { dbPath, db } = openFixture('machine')
   insertWorkspace(db, 'ws_machine', '')
   insertWorkflow(db, {
@@ -728,7 +728,7 @@ test('运行从 queued 进入 running，再以 failed 结束，不进入 waiting
   assert.equal(payload.data.state, 'queued')
   await flush()
   const trace = db.prepare('SELECT state FROM run_state_trace WHERE run_id = ? ORDER BY id').all(payload.data.id)
-  assert.deepEqual(trace.map((row) => row.state), ['running', 'failed'])
+  assert.deepEqual(trace.map((row) => row.state), ['failed'])
 })
 
 test('启动时把上次留下的 queued 和 running 标成失败', async (t) => {
