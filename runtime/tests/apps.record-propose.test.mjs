@@ -137,6 +137,23 @@ describe('app record propose', () => {
     assert.equal(db.prepare('SELECT state FROM operations WHERE id = ?').get(proposed.proposalId).state, 'cancelled')
     db.close()
   })
+
+  test('confirm refuses when the same field changed after the proposal', async () => {
+    const db = openFresh()
+    const { row } = await readyVisit(db)
+    const proposed = await proposeStatus(db, row.id, '已拜访')
+    const patched = await patchVisit(db, row.id, { status: '需跟进' })
+    assert.equal(patched.status, 200, JSON.stringify(patched.payload))
+    const confirmed = await decide(db, proposed.proposalId, 'confirm', {
+      'x-fde-ui-token': PAGE_TOKEN,
+    }, { status: '已拜访' })
+    assert.equal(confirmed.status, 409)
+    const after = getRecord(db, SUPPLIER_VISITS_SPEC, 'visit', CWD, row.id)
+    assert.equal(after.status, '需跟进')
+    const op = db.prepare('SELECT state FROM operations WHERE id = ?').get(proposed.proposalId)
+    assert.notEqual(op.state, 'succeeded')
+    db.close()
+  })
 })
 
 async function readyVisit(db) {
@@ -167,6 +184,35 @@ async function proposeStatus(db, rid, status) {
 
 function countAction(db, action) {
   return Number(db.prepare('SELECT COUNT(*) AS n FROM audit_entries WHERE action = ?').get(action).n)
+}
+
+async function patchVisit(db, rid, body) {
+  const env = { status: 0, payload: null }
+  const handled = await handleAppsRoutes(
+    {
+      method: 'PATCH',
+      headers: { origin: ORIGIN, 'x-fde-ui-token': PAGE_TOKEN },
+    },
+    {},
+    new URL(`http://127.0.0.1/api/v1/apps/supplier-visits/visit/${encodeURIComponent(rid)}?workspace=${encodeURIComponent(CWD)}`),
+    {
+      db,
+      allowedOrigins: new Set([ORIGIN]),
+      correlationId: 'corr_s2',
+      uiToken: PAGE_TOKEN,
+      sendJson(_response, code, payload) {
+        env.status = code
+        env.payload = payload
+      },
+      sendError(_response, code, error, message, correlationId, details) {
+        env.status = code
+        env.payload = { error: { code: error, message, details }, correlationId }
+      },
+      readJson: async () => body,
+    },
+  )
+  assert.equal(handled, true)
+  return env
 }
 
 async function decide(db, operationId, decision, headers, body) {
