@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import * as zlib from 'node:zlib'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -38,8 +39,8 @@ export async function ensureHostPin() {
 }
 
 export async function bootWorkflowHost(options = {}) {
-  if (!process.version.startsWith('v26.')) {
-    throw new Error(`真 Host 测试要用 Node 26，当前是 ${process.version}`)
+  if (typeof zlib.zstdDecompress !== 'function') {
+    throw new Error(`真 Host 测试需要 node:zlib 的 zstdDecompress，当前是 ${process.version}`)
   }
   const bin = await ensureHostPin()
   const home = await mkdtemp(join(tmpdir(), 'fde-workflow-host-'))
