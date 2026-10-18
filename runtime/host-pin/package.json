@@ -1,0 +1,8 @@
+{
+  "name": "fde-x-host-pin",
+  "private": true,
+  "description": "Locked DeepSeek Harness pin for the product host and workflow tool-limit tests. Install with npm ci into this directory. Do not install globally.",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2"
+  }
+}

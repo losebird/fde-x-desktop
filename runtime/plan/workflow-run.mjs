@@ -1,11 +1,14 @@
 import { planAppSource } from '../app-source.mjs'
 import { appendAudit, createId } from '../db.mjs'
+import { WORKFLOW_PRESET, WORKFLOW_TOOLS, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
 import { isHostJobId } from '../host-catalog.mjs'
 
 const MANUAL_TRIGGER_JSON = '{"kind":"manual"}'
 const AI_DOWN = '核心 AI 运行时尚未连接'
 const MEMORY_ONLY = '没有记忆 M1，这一步只留提案'
 const TOOLS_UNRESTRICTED = '核心 AI 暂不支持限制步骤工具，未运行'
+const TOOLS_MISMATCH = '工作流会话可见工具不是查询和提案这三项，未运行'
+const TOOLS_UNCHECKED = '工作流会话的可见工具没有核对上，未运行'
 
 const CARD_STATUS = {
   succeeded: 'success',
@@ -119,7 +122,7 @@ function markRunFailed(db, runId, now) {
   return changed(db.prepare(`
     UPDATE workflow_runs
     SET state = 'failed', finished_at = COALESCE(finished_at, ?)
-    WHERE id = ? AND state = 'queued'
+    WHERE id = ? AND state IN ('queued', 'running')
   `).run(now, runId))
 }
 
@@ -127,7 +130,7 @@ function markStepFailed(db, stepId, message, now) {
   return changed(db.prepare(`
     UPDATE workflow_run_steps
     SET state = 'failed', error_json = ?, finished_at = COALESCE(finished_at, ?)
-    WHERE id = ? AND state = 'queued'
+    WHERE id = ? AND state IN ('queued', 'running')
   `).run(JSON.stringify({ message }), now, stepId))
 }
 
@@ -145,6 +148,36 @@ function markStepSkipped(db, stepId, now) {
 
 function skipSteps(db, steps, now) {
   for (const step of steps) markStepSkipped(db, step.id, now)
+}
+
+function toolsMatchContract(tools) {
+  const expected = [...WORKFLOW_TOOLS].sort()
+  if (!Array.isArray(tools) || tools.length !== expected.length) return false
+  const names = tools.map((name) => (typeof name === 'string' ? name : '')).sort()
+  return expected.every((name, index) => names[index] === name)
+}
+
+async function readVisibleTools(aiRuntime, sessionId) {
+  const origin = aiRuntime && typeof aiRuntime.origin === 'string' ? aiRuntime.origin : ''
+  const cookie = aiRuntime && typeof aiRuntime.cookie === 'string' ? aiRuntime.cookie : ''
+  if (!origin || !cookie) return { kind: 'unchecked' }
+  let response
+  try {
+    const url = new URL('/fde-session/visible-tools', origin)
+    url.searchParams.set('sessionId', sessionId)
+    response = await fetch(url, { headers: { cookie, origin } })
+  } catch {
+    return { kind: 'unchecked' }
+  }
+  if (!response.ok) return { kind: 'unchecked' }
+  let payload
+  try {
+    payload = await response.json()
+  } catch {
+    return { kind: 'unchecked' }
+  }
+  if (!payload || payload.ok !== true || !Array.isArray(payload.tools)) return { kind: 'unchecked' }
+  return { kind: toolsMatchContract(payload.tools) ? 'match' : 'mismatch' }
 }
 
 function failRun(db, ctx, message) {
@@ -173,10 +206,119 @@ async function performRun(deps, ctx) {
     return
   }
 
-  failSteps(db, aiSteps, TOOLS_UNRESTRICTED, now)
-  failSteps(db, memorySteps, MEMORY_ONLY, now)
-  skipSteps(db, skipStepsList, now)
-  markRunFailed(db, ctx.runId, now)
+  if (!workflowLimitReady()) {
+    failSteps(db, aiSteps, TOOLS_UNRESTRICTED, now)
+    failSteps(db, memorySteps, MEMORY_ONLY, now)
+    skipSteps(db, skipStepsList, now)
+    markRunFailed(db, ctx.runId, now)
+    return
+  }
+  const cwd = workspaceCwd(db, ctx.workspaceId)
+  if (!cwd) {
+    failSteps(db, aiSteps, '工作区没有可用目录，未开会话', now)
+    failSteps(db, memorySteps, MEMORY_ONLY, now)
+    skipSteps(db, skipStepsList, now)
+    markRunFailed(db, ctx.runId, now)
+    return
+  }
+  const created = await aiRuntime.call('session/create', {
+    request: { cwd, agentPreset: WORKFLOW_PRESET },
+  })
+  const sessionId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
+  if (!sessionId) throw new Error('工作流会话没有建立')
+  const visible = await readVisibleTools(aiRuntime, sessionId)
+  if (visible.kind !== 'match') {
+    const message = visible.kind === 'mismatch' ? TOOLS_MISMATCH : TOOLS_UNCHECKED
+    failSteps(db, aiSteps, message, isoNow())
+    failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
+    skipSteps(db, skipStepsList, isoNow())
+    markRunFailed(db, ctx.runId, isoNow())
+    return
+  }
+  claimRunning(db, ctx.runId, aiSteps, sessionId, isoNow())
+  for (const step of aiSteps) {
+    await aiRuntime.call('session/prompt', {
+      request: {
+        requestId: createId('req'),
+        sessionId,
+        mode: 'queue',
+        content: [{ type: 'text', text: stepText(step) }],
+      },
+    })
+    await followTurn(aiRuntime, sessionId)
+    markStepSucceeded(db, step.id, isoNow())
+  }
+  const finished = isoNow()
+  failSteps(db, memorySteps, MEMORY_ONLY, finished)
+  skipSteps(db, skipStepsList, finished)
+  if (memorySteps.length > 0) markRunFailed(db, ctx.runId, finished)
+  else markRunSucceeded(db, ctx.runId, finished)
+}
+
+function workspaceCwd(db, workspaceId) {
+  const row = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(workspaceId)
+  if (!row) return ''
+  const meta = JSON.parse(row.metadata_json ?? '{}')
+  const raw = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
+  const cwd = String(raw).trim()
+  return cwd.startsWith('/') ? cwd : ''
+}
+
+function stepText(step) {
+  const prompt = typeof step.config.prompt === 'string' ? step.config.prompt.trim() : ''
+  const sourceRef = typeof step.config.sourceRef === 'string' ? step.config.sourceRef.trim() : ''
+  if (!sourceRef) return prompt
+  return `${prompt}\n来源：${sourceRef}`
+}
+
+function claimRunning(db, runId, steps, sessionId, now) {
+  const run = db.prepare(`
+    UPDATE workflow_runs
+    SET state = 'running', started_at = COALESCE(started_at, ?), output_json = ?
+    WHERE id = ? AND state = 'queued'
+  `).run(now, JSON.stringify({ sessionId }), runId)
+  if (run.changes !== 1) throw new Error('运行没能进入 running')
+  for (const step of steps) {
+    const updated = db.prepare(`
+      UPDATE workflow_run_steps
+      SET state = 'running', started_at = COALESCE(started_at, ?)
+      WHERE id = ? AND state = 'queued'
+    `).run(now, step.id)
+    if (updated.changes !== 1) throw new Error('步骤没能进入 running')
+  }
+}
+
+function markStepSucceeded(db, stepId, now) {
+  const updated = db.prepare(`
+    UPDATE workflow_run_steps
+    SET state = 'succeeded', finished_at = COALESCE(finished_at, ?)
+    WHERE id = ? AND state = 'running'
+  `).run(now, stepId)
+  if (updated.changes !== 1) throw new Error('步骤没能完成')
+}
+
+function markRunSucceeded(db, runId, now) {
+  const updated = db.prepare(`
+    UPDATE workflow_runs
+    SET state = 'succeeded', finished_at = COALESCE(finished_at, ?)
+    WHERE id = ? AND state = 'running'
+  `).run(now, runId)
+  if (updated.changes !== 1) throw new Error('运行没能完成')
+}
+
+async function followTurn(aiRuntime, sessionId) {
+  if (!aiRuntime || typeof aiRuntime.stream !== 'function') throw new Error('会话没有结束这一轮')
+  const stream = aiRuntime.stream('session/follow', {
+    request: {
+      address: { kind: 'session', sessionId },
+      maxMessages: 80,
+    },
+  })
+  for await (const frame of stream) {
+    const event = frame && frame.type === 'event' ? frame.event : null
+    if (event && event.type === 'turn/end') return
+  }
+  throw new Error('会话没有结束这一轮')
 }
 
 function continueRun(deps, ctx) {

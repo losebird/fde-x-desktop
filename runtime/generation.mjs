@@ -1,7 +1,7 @@
 /**
  * One Host generation. Occupancy and catalog rebind after this pin starts.
  */
-import { cp, mkdir, writeFile, readFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -83,18 +83,21 @@ export async function ensureGenerationHost() {
       /* reinstall */
     }
   }
+  const pinDir = join(runtimeDir, 'host-pin')
+  const lockPath = join(pinDir, 'package-lock.json')
+  if (!existsSync(lockPath)) throw new Error(`世代 Host 缺少锁文件：${lockPath}`)
   await mkdir(root, { recursive: true })
-  await writeFile(
-    join(root, 'package.json'),
-    `${JSON.stringify({
-      name: 'fde-x-host-generation',
-      private: true,
-      dependencies: { '@deepseek-ai/dsh': HOST_GENERATION.pin },
-    }, null, 2)}\n`,
-  )
-  await execFile('npm', ['i', '--omit=dev', '--no-audit', '--no-fund'], {
+  await cp(join(pinDir, 'package.json'), join(root, 'package.json'))
+  await cp(lockPath, join(root, 'package-lock.json'))
+  await execFile('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund', '--ignore-scripts'], {
     cwd: root,
     maxBuffer: 128 * 1024 * 1024,
+    env: {
+      ...process.env,
+      npm_config_cache: join(root, '.npm-cache'),
+      npm_config_prefix: root,
+      npm_config_update_notifier: 'false',
+    },
   })
   if (!(await ensureDshShim(root))) {
     throw new Error(`世代 Host 缺少 dsh 入口：${root}`)
