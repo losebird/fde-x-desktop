@@ -113,6 +113,31 @@ export function proposeRecordUpdate(db, input) {
   return { ok: true, proposalId: id, plan }
 }
 
+function closeFailed(db, operation, operationId, actorId, opts, reason) {
+  const now = new Date().toISOString()
+  const updated = db.prepare(`
+    UPDATE operations
+    SET state = 'failed', updated_at = ?, finished_at = ?
+    WHERE id = ? AND state = 'awaiting_approval'
+  `).run(now, now, operationId)
+  if (updated.changes !== 1) {
+    db.exec('ROLLBACK;')
+    return { kind: 'invalid_state', operation: getOperation(db, operationId) }
+  }
+  appendAudit(db, {
+    workspaceId: operation.workspaceId,
+    actorId,
+    action: 'app.record.confirm',
+    targetRef: operation.targetRef,
+    outcome: 'failed',
+    riskLevel: 'low',
+    correlationId: opts.correlationId || operation.correlationId,
+    details: { operationId, reason },
+  })
+  db.exec('COMMIT;')
+  return { kind: 'closed', operation: getOperation(db, operationId) }
+}
+
 function loadOpenProposal(db, operationId) {
   const operation = getOperation(db, operationId)
   if (!operation) return { kind: 'not_found' }
@@ -141,34 +166,16 @@ export function confirmRecordProposal(db, operationId, opts = {}) {
     for (const patch of plan.patches) {
       const current = getRecord(db, app.spec, plan.entity, plan.workspaceCwd, patch.rid)
       if (!current) {
-        db.exec('ROLLBACK;')
-        return { kind: 'not_found' }
+        const closed = closeFailed(db, operation, operationId, actorId, opts, 'record_missing')
+        if (closed.kind === 'invalid_state') return closed
+        return { kind: 'not_found', operation: closed.operation }
       }
       currentRows.push(current)
     }
     if (plan.patches.some((patch, index) => rowMoved(currentRows[index], patch))) {
-      const now = new Date().toISOString()
-      const updated = db.prepare(`
-        UPDATE operations
-        SET state = 'failed', updated_at = ?, finished_at = ?
-        WHERE id = ? AND state = 'awaiting_approval'
-      `).run(now, now, operationId)
-      if (updated.changes !== 1) {
-        db.exec('ROLLBACK;')
-        return { kind: 'invalid_state', operation: getOperation(db, operationId) }
-      }
-      appendAudit(db, {
-        workspaceId: operation.workspaceId,
-        actorId,
-        action: 'app.record.confirm',
-        targetRef: operation.targetRef,
-        outcome: 'failed',
-        riskLevel: 'low',
-        correlationId: opts.correlationId || operation.correlationId,
-        details: { operationId, reason: 'stale_record' },
-      })
-      db.exec('COMMIT;')
-      return { kind: 'stale', operation: getOperation(db, operationId) }
+      const closed = closeFailed(db, operation, operationId, actorId, opts, 'stale_record')
+      if (closed.kind === 'invalid_state') return closed
+      return { kind: 'stale', operation: closed.operation }
     }
     for (const patch of plan.patches) {
       const row = patchRecord(db, app.spec, plan.entity, plan.workspaceCwd, patch.rid, patch.fields)
