@@ -158,11 +158,11 @@ async function fillTasks(db, pack, workspaceCwd, taskList) {
     WHERE workspace_id = ? AND status IN ('todo', 'doing')
       AND due_at IS NOT NULL AND due_at < ?
   `).get(workspaceId, now)
-  let todayRows = []
+  let taskRows = []
   if (taskList.kind === 'window') {
     const dayStart = isoDayStart()
     const dayEnd = isoDayEnd()
-    todayRows = db.prepare(`
+    taskRows = db.prepare(`
       SELECT id, title, status, due_at FROM tasks
       WHERE workspace_id = ? AND status IN ('todo', 'doing')
         AND due_at IS NOT NULL AND due_at >= ? AND due_at <= ?
@@ -170,18 +170,18 @@ async function fillTasks(db, pack, workspaceCwd, taskList) {
     `).all(workspaceId, dayStart, dayEnd)
   } else if (taskList.ids.length > 0) {
     const placeholders = taskList.ids.map(() => '?').join(', ')
-    const rows = db.prepare(`
+    const loaded = db.prepare(`
       SELECT id, title, status, due_at FROM tasks
       WHERE workspace_id = ? AND id IN (${placeholders})
     `).all(workspaceId, ...taskList.ids)
-    const byId = new Map(rows.map((t) => [t.id, t]))
+    const byId = new Map(loaded.map((t) => [t.id, t]))
     for (const id of taskList.ids) {
       const t = byId.get(id)
-      if (t) todayRows.push(t)
+      if (t) taskRows.push(t)
     }
   }
   pack.tasks = {
-    today: todayRows.map(mapTaskRow),
+    today: taskRows.map(mapTaskRow),
     overdue: Number(overdue?.n || 0),
   }
 }
