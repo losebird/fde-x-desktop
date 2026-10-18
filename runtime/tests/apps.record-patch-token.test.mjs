@@ -51,6 +51,7 @@ async function startServer() {
       FDE_DATABASE_PATH: dbPath,
       FDE_DSH_HOME: dshHome,
       FDE_AI_WORKSPACE: workspaceCwd,
+      FDE_RUNTIME_SUPERVISED: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

@@ -148,6 +148,65 @@ describe('dev reuse page token', { concurrency: 1 }, () => {
     const aiText = await ai.text()
     assert.equal(aiText.includes(owned.token), false)
   })
+
+  test('an unsupervised BFF does not print the page token', async (t) => {
+    await rm(root, { recursive: true, force: true })
+    await mkdir(workspaceCwd, { recursive: true })
+    await mkdir(dshHome, { recursive: true })
+    const child = spawn(node, ['runtime/server.mjs'], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        FDE_RUNTIME_PORT: '0',
+        FDE_LISTEN_HOST: '127.0.0.1',
+        FDE_DATABASE_PATH: dbPath,
+        FDE_DSH_HOME: dshHome,
+        FDE_AI_WORKSPACE: workspaceCwd,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString() })
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
+    t.after(async () => {
+      await stop(child)
+      await rm(root, { recursive: true, force: true })
+    })
+    let base = ''
+    for (let i = 0; i < 100; i += 1) {
+      const portMatch = /^FDE_LISTENING\s+(\d+)/m.exec(stdout)
+      if (portMatch) {
+        base = `http://127.0.0.1:${portMatch[1]}`
+        const res = await fetch(`${base}/health`).catch(() => null)
+        if (res?.ok) break
+      }
+      if (child.exitCode != null) break
+      await delay(100)
+    }
+    assert.match(stdout, /^FDE_LISTENING\s+\d+/m)
+    assert.equal(/^FDE_UI_TOKEN\s+/m.test(stdout), false, stdout)
+    const created = await writeJson(base, '/api/v1/apps', { spec: SUPPLIER_VISITS_SPEC, workspaceCwd }, 'POST')
+    assert.equal(created.status, 201, JSON.stringify(created.payload))
+    const activated = await writeJson(base, `/api/v1/apps/${encodeURIComponent(created.payload.data.appId)}/activate`, {}, 'POST')
+    assert.equal(activated.status, 200, JSON.stringify(activated.payload))
+    const inserted = await writeJson(base, '/api/v1/apps/supplier-visits/visit', {
+      supplier: 'ACME',
+      visit_date: '2026-09-01',
+      status: '计划',
+      workspaceCwd,
+    }, 'POST')
+    assert.equal(inserted.status, 201, JSON.stringify(inserted.payload))
+    const patched = await fetch(
+      `${base}/api/v1/apps/supplier-visits/visit/${encodeURIComponent(inserted.payload.data.id)}?workspace=${encodeURIComponent(workspaceCwd)}`,
+      {
+        method: 'PATCH',
+        headers: { Origin: origin, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: '已拜访' }),
+      },
+    )
+    assert.equal(patched.status, 401)
+  })
 })
 
 async function writeJson(base, path, body, method) {
