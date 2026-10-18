@@ -218,11 +218,11 @@ export function readLatestRunCards(db, workflowIds) {
 
 const INTERRUPTED = '上次运行被中断'
 
-function auditInterrupted(db, row, targetRef, now) {
+function auditInterrupted(db, row, targetRef, action, now) {
   appendAudit(db, {
     workspaceId: row.workspace_id,
     actorId: 'actor_system',
-    action: 'plan.workflow_run.interrupt',
+    action,
     targetRef,
     outcome: 'failed',
     riskLevel: 'low',
@@ -262,11 +262,11 @@ export function failInterruptedRuns(db) {
     `)
     for (const step of steps) {
       if (failStep.run(JSON.stringify({ message: INTERRUPTED }), now, step.id).changes !== 1) continue
-      auditInterrupted(db, step, `fde://plan/workflow-run-steps/${step.id}`, now)
+      auditInterrupted(db, step, `fde://plan/workflow-run-steps/${step.id}`, 'workflow_run_step.reaped', now)
     }
     for (const run of runs) {
       if (failRun.run(now, run.id).changes !== 1) continue
-      auditInterrupted(db, run, `fde://plan/workflow-runs/${run.id}`, now)
+      auditInterrupted(db, run, `fde://plan/workflow-runs/${run.id}`, 'workflow_run.reaped', now)
     }
     db.exec('COMMIT;')
   } catch (error) {
