@@ -87,7 +87,7 @@ import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
-import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, mintUiToken } from './routes/bridge.mjs'
+import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, mintUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
@@ -1059,6 +1059,10 @@ const server = createServer(async (request, response) => {
     const origin = request.headers.origin
     if (typeof origin !== 'string' || !allowedOrigins.has(origin)) {
       sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', currentCorrelationId)
+      return
+    }
+    if (url.pathname.startsWith('/api/v1/') && !verifyUiToken(request, uiToken)) {
+      sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', currentCorrelationId)
       return
     }
   }

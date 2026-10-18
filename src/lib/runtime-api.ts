@@ -602,6 +602,26 @@ async function readUiToken() {
   return meta?.getAttribute('content')?.trim() ?? ''
 }
 
+const PAGE_TOKEN_HEADER = 'x-fde-ui-token'
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+function requestPathname(path: string) {
+  const query = path.indexOf('?')
+  return query === -1 ? path : path.slice(0, query)
+}
+
+async function withPageToken(path: string, init?: RequestInit): Promise<RequestInit | undefined> {
+  const method = String(init?.method || 'GET').toUpperCase()
+  if (!WRITE_METHODS.has(method)) return init
+  const pathname = requestPathname(path)
+  if (!pathname.startsWith('/api/v1/') || pathname.startsWith('/api/v1/app-share/')) return init
+  const token = await readUiToken()
+  if (!token) return init
+  const headers = new Headers(init?.headers)
+  if (!headers.has(PAGE_TOKEN_HEADER)) headers.set(PAGE_TOKEN_HEADER, token)
+  return { ...init, headers }
+}
+
 export class RuntimeApiError extends Error {
   status: number
   code: string
@@ -731,7 +751,7 @@ export class RuntimeApi {
   private async planRequest<T>(path: string, init?: RequestInit): Promise<T> {
     let response: Response
     try {
-      response = await fetch(this.planFetchUrl(path), init)
+      response = await fetch(this.planFetchUrl(path), await withPageToken(path, init))
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }
@@ -968,7 +988,10 @@ export class RuntimeApi {
     const waitSec = Math.round(waitMs / 1000)
     try {
       if (typeof window !== 'undefined') {
-        const response = await fetch(this.uiFetchUrl('/api/v1/ai/reload'), { method: 'POST', signal })
+        const response = await fetch(
+          this.uiFetchUrl('/api/v1/ai/reload'),
+          await withPageToken('/api/v1/ai/reload', { method: 'POST', signal }),
+        )
         if (!response.ok && response.status < 500) {
           const payload = await response.json().catch(() => ({})) as {
             error?: string | { code?: string; message?: string }
@@ -1958,12 +1981,12 @@ export class RuntimeApi {
   }, signal?: AbortSignal): Promise<{ pack: Record<string, unknown>; warnings: string[] }> {
     let response: Response
     try {
-      response = await fetch(this.uiFetchUrl('/api/v1/context/pack'), {
+      response = await fetch(this.uiFetchUrl('/api/v1/context/pack'), await withPageToken('/api/v1/context/pack', {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
-      })
+      }))
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }
@@ -2382,12 +2405,12 @@ export class RuntimeApi {
   async putDeclarativeAppSpec(appId: string, input: { spec: JsonValue; changeNote?: string }, signal?: AbortSignal) {
     let response: Response
     try {
-      response = await fetch(`${this.baseUrl}/api/v1/apps/${encodeURIComponent(appId)}/spec`, {
+      response = await fetch(`${this.baseUrl}/api/v1/apps/${encodeURIComponent(appId)}/spec`, await withPageToken(`/api/v1/apps/${encodeURIComponent(appId)}/spec`, {
         method: 'PUT',
         signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
-      })
+      }))
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }
@@ -2836,7 +2859,7 @@ export class RuntimeApi {
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     let response: Response
     try {
-      response = await fetch(`${this.baseUrl}${path}`, init)
+      response = await fetch(`${this.baseUrl}${path}`, await withPageToken(path, init))
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }

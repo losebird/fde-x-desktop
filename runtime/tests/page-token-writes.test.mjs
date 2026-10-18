@@ -51,6 +51,48 @@ function auditCount() {
   return scalar('SELECT COUNT(*) AS n FROM audit_entries')
 }
 
+function auditFor(action) {
+  const db = openDb()
+  try {
+    return db.prepare('SELECT action, outcome FROM audit_entries WHERE action = ?').all(action)
+  } finally {
+    db.close()
+  }
+}
+
+async function readBridgeToken() {
+  const tokenPath = join(dshHome, 'run', 'bridge.token')
+  for (let i = 0; i < 20; i += 1) {
+    if (existsSync(tokenPath)) return String(await readFile(tokenPath, 'utf8')).trim()
+    await delay(50)
+  }
+  throw new Error('bridge token missing')
+}
+
+async function ledgerVisit() {
+  const created = await send('/api/v1/apps', {
+    token: pageToken,
+    body: { spec: SUPPLIER_VISITS_SPEC, workspaceCwd },
+  })
+  assert.equal(created.status, 201, JSON.stringify(created.payload))
+  const activated = await send(`/api/v1/apps/${encodeURIComponent(created.payload.data.appId)}/activate`, {
+    token: pageToken,
+    body: {},
+  })
+  assert.equal(activated.status, 200, JSON.stringify(activated.payload))
+  const inserted = await send('/api/v1/apps/supplier-visits/visit', {
+    token: pageToken,
+    body: {
+      supplier: 'ACME',
+      visit_date: '2026-09-01',
+      status: '计划',
+      workspaceCwd,
+    },
+  })
+  assert.equal(inserted.status, 201, JSON.stringify(inserted.payload))
+  return { appId: created.payload.data.appId, rid: inserted.payload.data.id }
+}
+
 function taskTitle(id) {
   const db = openDb()
   try {
@@ -320,5 +362,181 @@ describe('remaining writes require the page token', { concurrency: 1 }, () => {
       body: { workspaceCwd, mode: 'internal-only' },
     })
     assert.equal(ran.status, 401, JSON.stringify(ran.payload))
+  })
+
+  test('page token creates a plan task and writes one audit row', async (t) => {
+    await boot(t)
+    const before = auditCount()
+    const created = await send('/api/v1/plan/tasks', {
+      token: pageToken,
+      body: { workspaceId: 'ws_personal', title: '带令牌' },
+    })
+    assert.equal(created.status, 201, JSON.stringify(created.payload))
+    assert.equal(created.payload.data.title, '带令牌')
+    assert.equal(auditCount(), before + 1)
+    const rows = auditFor('plan.task.insert')
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].outcome, 'succeeded')
+  })
+
+  test('page token patches a plan task and writes one audit row', async (t) => {
+    await boot(t)
+    const created = await send('/api/v1/plan/tasks', {
+      token: pageToken,
+      body: { workspaceId: 'ws_personal', title: '原标题' },
+    })
+    assert.equal(created.status, 201, JSON.stringify(created.payload))
+    const id = created.payload.data.id
+    const before = auditCount()
+    const patched = await send(`/api/v1/plan/tasks/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      token: pageToken,
+      body: { title: '改后' },
+    })
+    assert.equal(patched.status, 200, JSON.stringify(patched.payload))
+    assert.equal(patched.payload.data.title, '改后')
+    assert.equal(taskTitle(id), '改后')
+    assert.equal(auditCount(), before + 1)
+    assert.equal(auditFor('plan.task.update').length, 1)
+  })
+
+  test('page token creates a workflow and writes one audit row', async (t) => {
+    await boot(t)
+    const before = auditCount()
+    const created = await send('/api/v1/plan/workflows', {
+      token: pageToken,
+      body: { workspaceId: 'ws_personal', name: '带令牌流' },
+    })
+    assert.equal(created.status, 201, JSON.stringify(created.payload))
+    assert.equal(created.payload.data.name, '带令牌流')
+    assert.equal(auditCount(), before + 1)
+    assert.equal(auditFor('plan.workflow.insert')[0].outcome, 'succeeded')
+  })
+
+  test('bridge token is not accepted as the page token', async (t) => {
+    await boot(t)
+    const bridgeToken = await readBridgeToken()
+    assert.notEqual(bridgeToken, pageToken)
+    const before = taskCount()
+    const created = await send('/api/v1/plan/tasks', {
+      token: bridgeToken,
+      body: { workspaceId: 'ws_personal', title: '桥令牌' },
+    })
+    assert.equal(created.status, 401, JSON.stringify(created.payload))
+    assert.equal(taskCount(), before)
+    assert.equal(auditCount(), 0)
+  })
+
+  test('a page token does not bypass a forbidden Origin', async (t) => {
+    await boot(t)
+    const before = taskCount()
+    const created = await send('/api/v1/plan/tasks', {
+      token: pageToken,
+      origin: 'http://evil.example',
+      body: { workspaceId: 'ws_personal', title: '越权' },
+    })
+    assert.equal(created.status, 403, JSON.stringify(created.payload))
+    assert.equal(taskCount(), before)
+  })
+
+  test('page token deletes an app record', async (t) => {
+    await boot(t)
+    const { rid } = await ledgerVisit()
+    const removed = await send(
+      `/api/v1/apps/supplier-visits/visit/${encodeURIComponent(rid)}?workspace=${encodeURIComponent(workspaceCwd)}`,
+      { method: 'DELETE', token: pageToken },
+    )
+    assert.equal(removed.status, 200, JSON.stringify(removed.payload))
+    const got = await fetch(
+      `${base}/api/v1/apps/supplier-visits/visit/${encodeURIComponent(rid)}?workspace=${encodeURIComponent(workspaceCwd)}`,
+    )
+    assert.equal(got.status, 404)
+  })
+
+  test('page token mark-follow updates the record', async (t) => {
+    await boot(t)
+    const { rid } = await ledgerVisit()
+    const followed = await send('/api/v1/apps/supplier-visits/actions/mark-follow', {
+      token: pageToken,
+      body: { rids: [rid], workspaceCwd },
+    })
+    assert.equal(followed.status, 200, JSON.stringify(followed.payload))
+    const got = await fetch(
+      `${base}/api/v1/apps/supplier-visits/visit/${encodeURIComponent(rid)}?workspace=${encodeURIComponent(workspaceCwd)}`,
+    )
+    const gotBody = await got.json()
+    assert.equal(got.status, 200)
+    assert.equal(gotBody.data.status, '需跟进')
+  })
+
+  test('page token mkdir and credential writes keep their current results', async (t) => {
+    await boot(t)
+    const dir = join(workspaceCwd, 's3-probe')
+    const created = await send('/api/v1/files/mkdir', {
+      token: pageToken,
+      body: { name: 's3-probe' },
+    })
+    assert.equal(created.status, 201, JSON.stringify(created.payload))
+    assert.equal(existsSync(dir), true)
+    const credPath = join(dshHome, '.credentials.yaml')
+    const saved = await send('/api/v1/ai/credentials', {
+      token: pageToken,
+      body: { name: 'S3_CANARY', value: 'not-a-real-secret' },
+    })
+    assert.equal(saved.status, 200, JSON.stringify(saved.payload))
+    const text = await readFile(credPath, 'utf8')
+    assert.equal(text.includes('S3_CANARY'), true)
+  })
+
+  test('page token leaves handler results that were already not 2xx', async (t) => {
+    await boot(t)
+    const drafted = await send('/api/v1/im/draft', { token: pageToken, body: { text: 'x' } })
+    assert.equal(drafted.status, 503, JSON.stringify(drafted.payload))
+    const mcp = await send('/api/v1/mcp/servers', { token: pageToken, body: { serverName: '' } })
+    assert.equal(mcp.status, 400, JSON.stringify(mcp.payload))
+    const skill = await send('/api/v1/skills/bundle/file', {
+      method: 'PUT',
+      token: pageToken,
+      body: { path: '', rel: '', text: 'x' },
+    })
+    assert.equal(skill.status, 403, JSON.stringify(skill.payload))
+    const session = await send('/api/v1/ai/sessions', {
+      token: pageToken,
+      body: { workspaceId: 'ws_personal' },
+    })
+    assert.equal(session.status, 503, JSON.stringify(session.payload))
+    const memory = await send('/api/v1/memory/settings', {
+      token: pageToken,
+      body: { enabled: false },
+    })
+    assert.equal(memory.status, 503, JSON.stringify(memory.payload))
+    const briefing = await send('/api/v1/briefing/run', {
+      token: pageToken,
+      body: { workspaceCwd, mode: 'internal-only' },
+    })
+    assert.equal(briefing.status, 400, JSON.stringify(briefing.payload))
+  })
+
+  test('public share insert stays open without a page token', async (t) => {
+    await boot(t)
+    const { appId } = await ledgerVisit()
+    const shared = await send(`/api/v1/apps/${encodeURIComponent(appId)}/share`, {
+      token: pageToken,
+      body: {},
+    })
+    assert.equal(shared.status, 200, JSON.stringify(shared.payload))
+    const shareId = shared.payload.data.shareId
+    const inserted = await fetch(`${base}/api/v1/app-share/${encodeURIComponent(shareId)}/visit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        supplier: 'SHARE',
+        visit_date: '2026-09-02',
+        status: '计划',
+      }),
+    })
+    const body = await inserted.json()
+    assert.equal(inserted.status, 201, JSON.stringify(body))
+    assert.equal(body.data.supplier, 'SHARE')
   })
 })
