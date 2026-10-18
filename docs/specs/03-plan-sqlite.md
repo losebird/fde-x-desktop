@@ -52,7 +52,17 @@
 
 关键字 trigger 只写入 `trigger_json`，不执行。事件 trigger 只保存，不执行。卡片写明这两种 trigger 未执行。以后若要执行这两种 trigger，改变它们到点或触发时会跑什么的写入，也按下面的到点写入原则。
 
-人工 HTTP 路由和调度器的内部 run 函数各自写入运行记录，互不调用。两者都只接受本地 workflow id，都不拿 Host job 的空 `steps` 去跑。两者都向 `workflow_runs` 插入一行，`state` 为 `queued`。步骤可以是 `kind` 为 `ai` 的一步。这一步有提示。`sourceRef` 可选，用来点名一条业务记录。插入之后打开一个已有的 AI 会话来跑这一步。步骤开始后，把会话 id 写入该行的 `output_json`。会话结束后，把输出写回同一行的 `output_json`，并保留会话 id。每个步骤另写 `workflow_run_steps` 一行。该行的 `state`、`output_json` 和 `error_json` 分别记下状态、输出和错误。插入时写满这两张表已有的 NOT NULL 列。不新增列。
+人工 HTTP 路由和调度器的内部 run 函数各自写入运行记录，互不调用。两者都只接受本地 workflow id，都不拿 Host job 的空 `steps` 去跑。人工 HTTP 先核对工作区。人工 HTTP 和调度器都核对 `sourceRef`，并确认没有 `queued` 或 `running` 的运行。这些检查通过之后，才向 `workflow_runs` 插入一行，`state` 为 `queued`。是否已有未完成运行，要和这次插入放在同一个写事务里。步骤可以是 `kind` 为 `ai` 的一步。这一步有提示。`sourceRef` 可以不写。写了就用来点名一个应用账本，或这个账本里的一条记录。插入之后，若这一步可以运行，再打开一个已有的 AI 会话来跑这一步。步骤开始后，把会话 id 写入该运行行的 `output_json`。会话结束后，把输出写回同一行的 `output_json`，并保留会话 id。每个步骤另写 `workflow_run_steps` 一行。该行的 `state`、`output_json` 和 `error_json` 分别记下状态、输出和错误。插入时写满这两张表已有的 NOT NULL 列。不新增列。
+
+`POST /api/v1/plan/workflows/:id/run` 只运行当前工作区的本地工作流。请求里的 `workspaceId` 必须等于该工作流的 `workspace_id`。工作区不一致、工作流不存在，或 id 属于 Host job 时，返回 404 `not_found`，并且不新增 `workflow_runs` 行。这种请求不读取步骤，也不继续做后面的校验。
+
+`sourceRef` 只接受两种格式。一种是 `app:<ledger>`。另一种是 `app:<ledger>:rec` 后面紧跟 32 位十六进制。十六进制字符来自 `0-9`、`a-f` 和 `A-F`。`<ledger>` 是不含冒号的非空一段。不写 `sourceRef` 可以通过。写了但不属于这两种格式时，人工 HTTP 返回 422 `invalid_source_ref`，不新增 `workflow_runs` 行。调度器遇到同样不合法的 `sourceRef` 时也不插入运行行。
+
+同一条工作流已经有 `queued` 或 `running` 的 `workflow_runs` 行时，不再开始另一次运行，也不新增行。人工 HTTP 返回 409 `run_in_progress`。调度器直接跳过。
+
+步骤会话只放行只读查询工具和提案工具，也就是 `fde_app_records_query`、`fde_plan_task_propose` 和记录提案 `fde_app_records_propose`。核心 AI 如果没法按这次会话限制工具，运行行已经插入，这一步就不运行，也不打开会话。该 run 的 `state` 改为 `failed`。这次运行里的 ai 步骤各自在 `error_json` 写一句能读懂的中文原因。不新增列。
+
+BFF 启动时，先把上次遗留的 `queued` 和 `running` 行标成 `failed`，再接受新的运行。这里的行包括 `workflow_runs` 和 `workflow_run_steps`。已经是其它状态的行不动。
 
 这个内部 run 函数不对外暴露。不挂 MCP，不挂 bridge，不挂 HTTP。唯一调用者是进程内调度器。人工 HTTP 路由不是它的调用者。
 
@@ -68,7 +78,7 @@ cron 触发的运行适用同一条规则。AI 在这次运行里的任何写入
 
 调度器上线时，库里已经存在的 active 且 `trigger.kind` 为 `cron` 的行先不跑。人用页面令牌重新确认一次之后，该行才按 cron 跑。只带 Origin 的请求不能完成这次确认。确认记在该工作流行上。现有列不够时，由第 8 条那个 PR 增加一列，不新造表。
 
-AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改记录的写路径。S3 把计划写接口纳入同一把页面令牌。步骤里改任务要等 S3。没有 S3 时，不提供改任务的写路径。会话里的写工具只有提案。不允许另开一条绕过确认的写通道。调度器写入的 `workflow_runs` 不是 AI 写任务或业务记录的通道。没有记忆 M1 时，要写记忆的步骤只留提案。失败原因写入该步骤的 `error_json`。该 run 的 `state` 不写成 `succeeded`。
+AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改记录的写路径。S3 把计划写接口纳入同一把页面令牌。步骤里改任务要等 S3。没有 S3 时，不提供改任务的写路径。步骤会话的工具放行见上面。不允许另开一条绕过确认的写通道。调度器写入的 `workflow_runs` 不是 AI 写任务或业务记录的通道。没有记忆 M1 时，要写记忆的步骤只留提案。失败原因写入该步骤的 `error_json`。该 run 的 `state` 不写成 `succeeded`。
 
 人触发的 HTTP run 和计划页「运行」按钮待实现。它们依赖安全方案 S1 的页面令牌函数和 S2。进程内 cron 调度器另待实现，依赖 S3，不能只靠 S1 和 S2 上线。步骤里改任务的确认另等 S3。关键字 trigger 和事件 trigger 不纳入这些后续 PR。
 
@@ -86,9 +96,9 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 | `POST/PATCH/DELETE /api/v1/plan/events[/:id]` | 同 tasks 模式 | |
 | `GET /api/v1/plan/workflows?workspaceId` | | `{ ok, data }` |
 | `POST/PATCH/DELETE /api/v1/plan/workflows[/:id]` | `status` 只能 `active|paused`。会改变到点执行内容、时间或是否执行的写入见 4.1。只带 Origin 返回 401。待实现，依赖 S3 | |
-| `POST /api/v1/plan/workflows/:id/run` | 外部 HTTP。页面令牌，不是 `bridge.token`。见 4.1。待实现 | 200，新建行 `workflow_runs.state` 为 `queued`。无令牌或只带 Origin 时 401 |
+| `POST /api/v1/plan/workflows/:id/run` | 外部 HTTP。页面令牌，不是 `bridge.token`。只跑当前工作区的本地工作流。见 4.1。待实现 | 200，新建行 `workflow_runs.state` 为 `queued`。无令牌或只带 Origin 时 401。工作区不一致时 404，不新增行。`sourceRef` 不合法时 422，不新增行。已有 `queued` 或 `running` 时 409，不新增行 |
 
-错误：404 `not_found`、422 `invalid_status`、400 缺 `workspaceId`。
+错误：404 `not_found`、422 `invalid_status`、422 `invalid_source_ref`、409 `run_in_progress`、400 缺 `workspaceId`。步骤会话的工具放行、失败时的中文原因，以及 BFF 启动时把遗留的 `queued` 和 `running` 标成 `failed`，见 4.1。
 
 `runtime-api.ts` 新增：`listTasks/createTask/updateTask/deleteTask/listEvents/…/listWorkflows/…`，类型 `Task/PlanEvent/Workflow` 放 `src/lib/types.ts`。
 
@@ -118,7 +128,7 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 6. ⌘K 输入「验收」→ 任务分组出现「验收 A」→ 回车打开计划并高亮。
 7. 「整理待办」→ 左栏当前会话收到 prompt → 建议抽屉出现 →「应用」一条 → 任务变更。
 8. 5174 回归：计划页可打开（首次会空，因为之前只在内存）。
-9. 工作流 run，待实现，后续 PR。外部 HTTP 带页面令牌时返回 200，新行 `workflow_runs.state` 为 `queued`。步骤开始后，该行 `output_json` 含会话 id。只带 Origin 或没有页面令牌时返回 401。cron 不经过这条 HTTP。内部 run 函数不挂 MCP、bridge 或 HTTP，只给进程内调度器。调度器待实现，依赖 S3。只有 S1 和 S2 时不上线。会改变到点自动执行什么、何时执行或是否执行的写入，只带 Origin 返回 401。例子包括新建 cron、置为 active、改 trigger、改定义、改步骤、改 prompt，以及复制、导入、暂停、删除和重新启用。持有页面令牌的人可以直接写。AI 只能提案。提案时 `audit_entries` 记 `awaiting_approval`。确认或拒绝时各再记一条。走提案时，确认前不改会进入到点运行的定义。调度器上线前已存在的 active cron 行，人重新确认前不跑。关键字 trigger 和事件 trigger 在卡片上显示未执行。
+9. 工作流 run，待实现，后续 PR。外部 HTTP 带页面令牌，且工作区、`sourceRef` 和未完成运行都通过时，返回 200，新行 `workflow_runs.state` 为 `queued`。步骤开始后，该行 `output_json` 含会话 id。只带 Origin 或没有页面令牌时返回 401。工作区不一致时返回 404，不新增 `workflow_runs` 行。`sourceRef` 不是 `app:<ledger>`，也不是 `app:<ledger>:rec` 加 32 位十六进制时，返回 422，不新增行。同一工作流已有 `queued` 或 `running` 时返回 409，不新增行。步骤会话只放行 `fde_app_records_query`、`fde_plan_task_propose` 和 `fde_app_records_propose`。核心 AI 不能按会话限制工具时，这一步不运行，run 为 `failed`，步骤 `error_json` 有一句中文原因。BFF 启动后，原先 `queued` 或 `running` 的运行行和步骤行变为 `failed`。cron 不经过这条 HTTP。内部 run 函数不挂 MCP、bridge 或 HTTP，只给进程内调度器。调度器待实现，依赖 S3。只有 S1 和 S2 时不上线。会改变到点自动执行什么、何时执行或是否执行的写入，只带 Origin 返回 401。例子包括新建 cron、置为 active、改 trigger、改定义、改步骤、改 prompt，以及复制、导入、暂停、删除和重新启用。持有页面令牌的人可以直接写。AI 只能提案。提案时 `audit_entries` 记 `awaiting_approval`。确认或拒绝时各再记一条。走提案时，确认前不改会进入到点运行的定义。调度器上线前已存在的 active cron 行，人重新确认前不跑。关键字 trigger 和事件 trigger 在卡片上显示未执行。
 
 自动化：`runtime/tests/plan.test.mjs`：CRUD、工作区隔离、状态校验、completed_at 自动填。工作流 run 的自动化留在后续 PR，见 4.1。
 
@@ -130,8 +140,8 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 4. `feat(im): 摘成待办 persists via plan API`
 5. `feat(palette): search tasks`
 6. `feat(plan): 整理待办 via askAiForResult`（依赖规格 02 落地，否则跳过并在报告注明）
-7. 不在前六条。后续 PR 做人工 HTTP run 和「运行」按钮。依赖安全方案 S1 的页面令牌函数和 S2。
-8. 不在前六条。后续 PR 做进程内 cron 调度器，以及 4.1 的到点写入原则。依赖 S3。只有 S1 和 S2 时不上线。上线时已存在的 active cron 行要等人重新确认。
+7. 不在前六条。后续 PR 做人工 HTTP run 和「运行」按钮。依赖安全方案 S1 的页面令牌函数和 S2。工作区、`sourceRef`、同时只跑一次、步骤工具放行，以及 BFF 启动时清理遗留运行，见 4.1。
+8. 不在前六条。后续 PR 做进程内 cron 调度器，以及 4.1 的到点写入原则。依赖 S3。只有 S1 和 S2 时不上线。上线时已存在的 active cron 行要等人重新确认。调度器插入运行之前使用 4.1 的 `sourceRef` 校验、同时只跑一次，以及步骤工具放行。
 
 ## 10. 开放问题
 
