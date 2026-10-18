@@ -107,7 +107,7 @@ export async function askOrigin(origin: string, extra: OriginEntityInput & {
   const kind = originKindOf(raw) || 'memory'
   const title = String(extra.title || originDoc.title || '').trim()
   const text = String(extra.text || extra.title || originDoc.text || '').trim()
-  return askWithEntity({
+  const shared = {
     title,
     text,
     status: extra.status,
@@ -124,10 +124,11 @@ export async function askOrigin(origin: string, extra: OriginEntityInput & {
     scopes: extra.scopes || scopesForOrigin(raw),
     omit: extra.omit,
     revealAi: extra.revealAi,
-    taskIds: extra.taskIds,
-    pack: extra.pack,
-    warnings: extra.warnings,
-  })
+  }
+  if (extra.taskIds !== undefined) {
+    return askWithEntity({ ...shared, taskIds: extra.taskIds })
+  }
+  return askWithEntity({ ...shared, pack: extra.pack, warnings: extra.warnings })
 }
 
 export async function askOriginFromCard(row: Record<string, unknown>) {
