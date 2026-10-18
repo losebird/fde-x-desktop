@@ -1,12 +1,14 @@
 import { planAppSource } from '../app-source.mjs'
 import { appendAudit, createId } from '../db.mjs'
-import { WORKFLOW_PRESET, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
+import { WORKFLOW_PRESET, WORKFLOW_TOOLS, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
 import { isHostJobId } from '../host-catalog.mjs'
 
 const MANUAL_TRIGGER_JSON = '{"kind":"manual"}'
 const AI_DOWN = '核心 AI 运行时尚未连接'
 const MEMORY_ONLY = '没有记忆 M1，这一步只留提案'
 const TOOLS_UNRESTRICTED = '核心 AI 暂不支持限制步骤工具，未运行'
+const TOOLS_MISMATCH = '工作流会话可见工具不是查询和提案这三项，未运行'
+const TOOLS_UNCHECKED = '工作流会话的可见工具没有核对上，未运行'
 
 const CARD_STATUS = {
   succeeded: 'success',
@@ -148,6 +150,36 @@ function skipSteps(db, steps, now) {
   for (const step of steps) markStepSkipped(db, step.id, now)
 }
 
+function toolsMatchContract(tools) {
+  const expected = [...WORKFLOW_TOOLS].sort()
+  if (!Array.isArray(tools) || tools.length !== expected.length) return false
+  const names = tools.map((name) => (typeof name === 'string' ? name : '')).sort()
+  return expected.every((name, index) => names[index] === name)
+}
+
+async function readVisibleTools(aiRuntime, sessionId) {
+  const origin = aiRuntime && typeof aiRuntime.origin === 'string' ? aiRuntime.origin : ''
+  const cookie = aiRuntime && typeof aiRuntime.cookie === 'string' ? aiRuntime.cookie : ''
+  if (!origin || !cookie) return { kind: 'unchecked' }
+  let response
+  try {
+    const url = new URL('/fde-session/visible-tools', origin)
+    url.searchParams.set('sessionId', sessionId)
+    response = await fetch(url, { headers: { cookie, origin } })
+  } catch {
+    return { kind: 'unchecked' }
+  }
+  if (!response.ok) return { kind: 'unchecked' }
+  let payload
+  try {
+    payload = await response.json()
+  } catch {
+    return { kind: 'unchecked' }
+  }
+  if (!payload || payload.ok !== true || !Array.isArray(payload.tools)) return { kind: 'unchecked' }
+  return { kind: toolsMatchContract(payload.tools) ? 'match' : 'mismatch' }
+}
+
 function failRun(db, ctx, message) {
   const now = isoNow()
   failSteps(db, ctx.steps, message, now)
@@ -194,6 +226,15 @@ async function performRun(deps, ctx) {
   })
   const sessionId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
   if (!sessionId) throw new Error('工作流会话没有建立')
+  const visible = await readVisibleTools(aiRuntime, sessionId)
+  if (visible.kind !== 'match') {
+    const message = visible.kind === 'mismatch' ? TOOLS_MISMATCH : TOOLS_UNCHECKED
+    failSteps(db, aiSteps, message, isoNow())
+    failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
+    skipSteps(db, skipStepsList, isoNow())
+    markRunFailed(db, ctx.runId, isoNow())
+    return
+  }
   claimRunning(db, ctx.runId, aiSteps, sessionId, isoNow())
   for (const step of aiSteps) {
     await aiRuntime.call('session/prompt', {

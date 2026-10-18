@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { openDatabase } from '../db.mjs'
-import { proposePlanTask } from '../plan/task-proposals.mjs'
 import { handlePlanRequest } from '../routes/plan.mjs'
 
 const home = join(tmpdir(), `fde-x-workflow-limit-home-${process.pid}`)
@@ -97,11 +96,11 @@ function installTrace(db) {
   `)
 }
 
-test('限制生效后 run 进入 running，并留下待确认的任务提案', async (t) => {
-  const dbPath = join(tmpdir(), `fde-x-workflow-limited-${process.pid}.sqlite`)
+test('可见工具核对不上时 run 从 queued 直接失败且不发送步骤', async (t) => {
+  const dbPath = join(tmpdir(), `fde-x-workflow-unchecked-${process.pid}.sqlite`)
   const db = openDatabase(dbPath, migrations)
-  insertWorkspace(db, 'ws_limited', '/tmp/fde-x-workflow-limited-cwd')
-  insertWorkflow(db, 'wf_limited', 'ws_limited', [
+  insertWorkspace(db, 'ws_unchecked', '/tmp/fde-x-workflow-unchecked-cwd')
+  insertWorkflow(db, 'wf_unchecked', 'ws_unchecked', [
     { id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总这条记录', sourceRef } },
   ])
   installTrace(db)
@@ -110,24 +109,14 @@ test('限制生效后 run 进入 running，并留下待确认的任务提案', a
     status: () => ({ connected: true }),
     async call(endpoint, args) {
       calls.push({ endpoint, args })
-      if (endpoint === 'session/create') return { sessionId: 'sess_limited' }
-      if (endpoint === 'session/prompt') {
-        proposePlanTask(db, {
-          op: 'insert',
-          workspaceId: 'ws_limited',
-          title: '跟进这条记录',
-          sourceRef,
-          correlationId: 'corr_limited',
-        })
-        return {}
-      }
+      if (endpoint === 'session/create') return { sessionId: 'session-unchecked' }
       return {}
     },
     async *stream() {
       yield { type: 'event', event: { type: 'turn/end' } }
     },
   }
-  const server = serve(db, aiRuntime, 'corr_limited')
+  const server = serve(db, aiRuntime, 'corr_unchecked')
   const port = await listen(server)
   t.after(async () => {
     server.close()
@@ -135,36 +124,22 @@ test('限制生效后 run 进入 running，并留下待确认的任务提案', a
     await rm(dbPath, { force: true })
   })
 
-  const tasksBefore = db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n
-  const docsBefore = db.prepare('SELECT COUNT(*) AS n FROM app_documents').get().n
-  const { status, payload } = await postRun(port, 'wf_limited', 'ws_limited')
+  const { status, payload } = await postRun(port, 'wf_unchecked', 'ws_unchecked')
   assert.equal(status, 200)
   assert.equal(payload.data.state, 'queued')
   await flush()
 
-  const created = calls.find((call) => call.endpoint === 'session/create')
-  assert.deepEqual(created.args.request, {
-    cwd: '/tmp/fde-x-workflow-limited-cwd',
-    agentPreset: 'fde-workflow',
-  })
-  const prompted = calls.find((call) => call.endpoint === 'session/prompt')
-  assert.equal(prompted.args.request.sessionId, 'sess_limited')
-  assert.equal(prompted.args.request.mode, 'queue')
-  assert.equal(prompted.args.request.content[0].text, `汇总这条记录\n来源：${sourceRef}`)
-  assert.deepEqual(traceOf(db, payload.data.id), ['running', 'succeeded'])
+  assert.equal(calls.some((call) => call.endpoint === 'session/create'), true)
+  assert.equal(calls.some((call) => call.endpoint === 'session/prompt'), false)
+  assert.deepEqual(traceOf(db, payload.data.id), ['failed'])
   const run = db.prepare('SELECT state, output_json FROM workflow_runs WHERE id = ?').get(payload.data.id)
   const step = db.prepare('SELECT state, error_json FROM workflow_run_steps WHERE run_id = ?').get(payload.data.id)
-  assert.equal(run.state, 'succeeded')
-  assert.equal(JSON.parse(run.output_json).sessionId, 'sess_limited')
-  assert.equal(step.state, 'succeeded')
-  assert.equal(step.error_json, null)
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n, tasksBefore)
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM app_documents').get().n, docsBefore)
-  const ops = db.prepare('SELECT state, action, execution_mode FROM operations').all()
-  assert.equal(ops.length, 1)
-  assert.equal(ops[0].state, 'awaiting_approval')
-  assert.equal(ops[0].action, 'plan.task.propose')
-  assert.equal(ops[0].execution_mode, 'dry_run')
+  assert.equal(run.state, 'failed')
+  assert.equal(run.output_json, null)
+  assert.equal(step.state, 'failed')
+  assert.equal(JSON.parse(step.error_json).message, '工作流会话的可见工具没有核对上，未运行')
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM operations').get().n, 0)
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n, 0)
 })
 
 test('会话没建成时 run 从 queued 直接失败', async (t) => {

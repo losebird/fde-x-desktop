@@ -6,6 +6,25 @@ const { join } = require('node:path')
 
 const SKIP_SESSION_FILES = new Set(['session.lock'])
 const PREFIX = '/fde-session'
+const sessions = new Map()
+let bridgeCtx = null
+
+function sessionIds(agent) {
+  const header = agent.session && agent.session.header
+  return [agent.id, agent.session && agent.session.id, header && header.id]
+}
+
+function rememberAgent(agent) {
+  if (!agent) return
+  for (const id of sessionIds(agent)) {
+    if (typeof id === 'string' && id) sessions.set(id, agent)
+  }
+}
+
+function forgetAgent(agent) {
+  if (!agent) return
+  for (const id of sessionIds(agent)) sessions.delete(id)
+}
 
 function sessionRoot() {
   return process.env.FDE_DSH_SESSION_ROOT || join(process.env.DSH_HOME || join(homedir(), '.dsh-fde-x'), 'sessions')
@@ -110,6 +129,17 @@ async function handler(req, res) {
     return
   }
   try {
+    if (req.method === 'GET' && path === '/visible-tools') {
+      const sessionId = url.searchParams.get('sessionId') || ''
+      const agent = sessions.get(sessionId)
+      if (!bridgeCtx || !agent || !bridgeCtx.tools || typeof bridgeCtx.tools.schemas !== 'function') {
+        json(res, 404, { ok: false, error: 'session_tools_unavailable' })
+        return
+      }
+      const tools = bridgeCtx.tools.schemas(agent).map((row) => row.name).sort()
+      json(res, 200, { ok: true, tools })
+      return
+    }
     if (req.method === 'GET' && path === '/export') {
       const sessionId = url.searchParams.get('sessionId') || ''
       const bundle = await readBundle(sessionId)
@@ -158,6 +188,13 @@ function loadDshTools() {
 }
 
 function apply(ctx) {
+  bridgeCtx = ctx
+  ctx.on('agent/created', (event) => {
+    rememberAgent(event && event.agent)
+  })
+  ctx.on('agent/disposed', (event) => {
+    forgetAgent(event && event.agent)
+  })
   if (ctx.webServer && typeof ctx.webServer.register === 'function') {
     ctx.effect(() => ctx.webServer.register({
       kind: 'prefix',
