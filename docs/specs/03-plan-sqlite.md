@@ -52,17 +52,19 @@
 
 关键字 trigger 只写入 `trigger_json`，不执行。事件 trigger 只保存，不执行。卡片写明这两种 trigger 未执行。以后若要执行这两种 trigger，改变它们到点或触发时会跑什么的写入，也按下面的到点写入原则。
 
-人工 HTTP 路由和调度器的内部 run 函数各自写入运行记录，互不调用。两者都只接受本地 workflow id，都不拿 Host job 的空 `steps` 去跑。人工 HTTP 先核对工作区。人工 HTTP 和调度器都核对 `sourceRef`，并确认没有 `queued` 或 `running` 的运行。这些检查通过之后，才向 `workflow_runs` 插入一行，`state` 为 `queued`。是否已有未完成运行，要和这次插入放在同一个写事务里。步骤可以是 `kind` 为 `ai` 的一步。这一步有提示。`sourceRef` 可以不写。写了就用来点名一个应用账本，或这个账本里的一条记录。插入之后，若这一步可以运行，再打开一个已有的 AI 会话来跑这一步。步骤开始后，把会话 id 写入该运行行的 `output_json`。会话结束后，把输出写回同一行的 `output_json`，并保留会话 id。每个步骤另写 `workflow_run_steps` 一行。该行的 `state`、`output_json` 和 `error_json` 分别记下状态、输出和错误。插入时写满这两张表已有的 NOT NULL 列。不新增列。
+人工 HTTP 路由和调度器的内部 run 函数各自写入运行记录，互不调用。两者都只接受本地 workflow id，都不拿 Host job 的空 `steps` 去跑。人工 HTTP 先核对工作区。人工 HTTP 和调度器都核对 `sourceRef`，并确认没有 `queued` 或 `running` 的运行。这些检查通过之后，才向 `workflow_runs` 插入一行，`state` 为 `queued`。是否已有未完成运行，要和这次插入放在同一个写事务里。步骤可以是 `kind` 为 `ai` 的一步。这一步有提示。`sourceRef` 可以不写。写了就按下面的 `planAppSource` 点名账本，或其中一条记录。插入之后，若这一步可以运行，再打开一个已有的 AI 会话来跑这一步。步骤开始后，把会话 id 写入该运行行的 `output_json`。会话结束后，把输出写回同一行的 `output_json`，并保留会话 id。每个步骤另写 `workflow_run_steps` 一行。该行的 `state`、`output_json` 和 `error_json` 分别记下状态、输出和错误。插入时写满这两张表已有的 NOT NULL 列。不新增列。
 
 `POST /api/v1/plan/workflows/:id/run` 只运行当前工作区的本地工作流。请求里的 `workspaceId` 必须等于该工作流的 `workspace_id`。工作区不一致、工作流不存在，或 id 属于 Host job 时，返回 404 `not_found`，并且不新增 `workflow_runs` 行。这种请求不读取步骤，也不继续做后面的校验。
 
-`sourceRef` 只接受两种格式。一种是 `app:<ledger>`。另一种是 `app:<ledger>:rec` 后面紧跟 32 位十六进制。十六进制字符来自 `0-9`、`a-f` 和 `A-F`。`<ledger>` 是不含冒号的非空一段。不写 `sourceRef` 可以通过。写了但不属于这两种格式时，人工 HTTP 返回 422 `invalid_source_ref`，不新增 `workflow_runs` 行。调度器遇到同样不合法的 `sourceRef` 时也不插入运行行。
+工作流步骤上的 `sourceRef` 以 `runtime/app-source.mjs` 为唯一来源。判断函数是这个文件里的 `planAppSource`。不写 `sourceRef` 可以通过。写了就必须被 `planAppSource` 接受。它先去掉首尾空白，再只接受两种值。一种是 `app:app_` 接 32 位小写十六进制。账本正则是 `/^app_[0-9a-f]{32}$/`。另一种是在这之后再跟 `:rec` 和 32 位小写十六进制。记录正则是 `/^rec[0-9a-f]{32}$/`。大写十六进制、其它账本 id、或多出来的一段，都不接受。不接受时，人工 HTTP 返回 422 `invalid_source_ref`，不新增 `workflow_runs` 行。调度器遇到同样不合法的 `sourceRef` 时也不插入运行行。
 
 同一条工作流已经有 `queued` 或 `running` 的 `workflow_runs` 行时，不再开始另一次运行，也不新增行。人工 HTTP 返回 409 `run_in_progress`。调度器直接跳过。
 
-步骤会话只放行只读查询工具和提案工具，也就是 `fde_app_records_query`、`fde_plan_task_propose` 和记录提案 `fde_app_records_propose`。核心 AI 如果没法按这次会话限制工具，运行行已经插入，这一步就不运行，也不打开会话。该 run 的 `state` 改为 `failed`。这次运行里的 ai 步骤各自在 `error_json` 写一句能读懂的中文原因。不新增列。
+步骤会话只放行只读查询工具和提案工具，也就是 `fde_app_records_query`、`fde_plan_task_propose` 和记录提案 `fde_app_records_propose`。核心 AI 如果没法按这次会话限制工具，运行行已经插入，这一步就不运行，也不打开会话。该 run 从 `queued` 直接改为 `failed`，不进入 `running`。这次运行里的 ai 步骤各自在 `error_json` 写一句能读懂的中文原因。不新增列。
 
-BFF 启动时，先把上次遗留的 `queued` 和 `running` 行标成 `failed`，再接受新的运行。这里的行包括 `workflow_runs` 和 `workflow_run_steps`。已经是其它状态的行不动。
+本版运行不进入 `waiting`。`workflow_runs` 和同一次运行的步骤都不写这个值。表的 CHECK 里仍有 `waiting`，本版不用。能打开会话的运行走 `queued` → `running` → `succeeded`，或 `queued` → `running` → `failed`。步骤里要人确认的内容改走独立提案。提案在这次运行之外等待。等人确认不把运行留在 `waiting`。能打开会话时，运行仍走到 `succeeded` 或 `failed`。
+
+BFF 启动时，先把上次遗留的 `queued` 和 `running` 行标成 `failed`，再接受新的运行。这里的行包括 `workflow_runs` 和 `workflow_run_steps`。已经是其它状态的行不动。每回收一行，向 `audit_entries` 写一条。`outcome` 用已有的 `failed`。运行行的 `action` 是 `workflow_run.reaped`。步骤行的 `action` 是 `workflow_run_step.reaped`。`target_ref` 是该行 id。不新增列，不新增取值，不另造审计表。
 
 这个内部 run 函数不对外暴露。不挂 MCP，不挂 bridge，不挂 HTTP。唯一调用者是进程内调度器。人工 HTTP 路由不是它的调用者。
 
@@ -98,7 +100,7 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 | `POST/PATCH/DELETE /api/v1/plan/workflows[/:id]` | `status` 只能 `active|paused`。会改变到点执行内容、时间或是否执行的写入见 4.1。只带 Origin 返回 401。待实现，依赖 S3 | |
 | `POST /api/v1/plan/workflows/:id/run` | 外部 HTTP。页面令牌，不是 `bridge.token`。只跑当前工作区的本地工作流。见 4.1。待实现 | 200，新建行 `workflow_runs.state` 为 `queued`。无令牌或只带 Origin 时 401。工作区不一致时 404，不新增行。`sourceRef` 不合法时 422，不新增行。已有 `queued` 或 `running` 时 409，不新增行 |
 
-错误：404 `not_found`、422 `invalid_status`、422 `invalid_source_ref`、409 `run_in_progress`、400 缺 `workspaceId`。步骤会话的工具放行、失败时的中文原因，以及 BFF 启动时把遗留的 `queued` 和 `running` 标成 `failed`，见 4.1。
+错误：404 `not_found`、422 `invalid_status`、422 `invalid_source_ref`、409 `run_in_progress`、400 缺 `workspaceId`。`sourceRef` 以 `runtime/app-source.mjs` 的 `planAppSource` 为唯一来源。步骤会话的工具放行、失败时的中文原因，以及 BFF 启动时把遗留的 `queued` 和 `running` 标成 `failed` 并每行写一条审计，见 4.1。本版运行不进入 `waiting`。
 
 `runtime-api.ts` 新增：`listTasks/createTask/updateTask/deleteTask/listEvents/…/listWorkflows/…`，类型 `Task/PlanEvent/Workflow` 放 `src/lib/types.ts`。
 
@@ -128,7 +130,7 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 6. ⌘K 输入「验收」→ 任务分组出现「验收 A」→ 回车打开计划并高亮。
 7. 「整理待办」→ 左栏当前会话收到 prompt → 建议抽屉出现 →「应用」一条 → 任务变更。
 8. 5174 回归：计划页可打开（首次会空，因为之前只在内存）。
-9. 工作流 run，待实现，后续 PR。外部 HTTP 带页面令牌，且工作区、`sourceRef` 和未完成运行都通过时，返回 200，新行 `workflow_runs.state` 为 `queued`。步骤开始后，该行 `output_json` 含会话 id。只带 Origin 或没有页面令牌时返回 401。工作区不一致时返回 404，不新增 `workflow_runs` 行。`sourceRef` 不是 `app:<ledger>`，也不是 `app:<ledger>:rec` 加 32 位十六进制时，返回 422，不新增行。同一工作流已有 `queued` 或 `running` 时返回 409，不新增行。步骤会话只放行 `fde_app_records_query`、`fde_plan_task_propose` 和 `fde_app_records_propose`。核心 AI 不能按会话限制工具时，这一步不运行，run 为 `failed`，步骤 `error_json` 有一句中文原因。BFF 启动后，原先 `queued` 或 `running` 的运行行和步骤行变为 `failed`。cron 不经过这条 HTTP。内部 run 函数不挂 MCP、bridge 或 HTTP，只给进程内调度器。调度器待实现，依赖 S3。只有 S1 和 S2 时不上线。会改变到点自动执行什么、何时执行或是否执行的写入，只带 Origin 返回 401。例子包括新建 cron、置为 active、改 trigger、改定义、改步骤、改 prompt，以及复制、导入、暂停、删除和重新启用。持有页面令牌的人可以直接写。AI 只能提案。提案时 `audit_entries` 记 `awaiting_approval`。确认或拒绝时各再记一条。走提案时，确认前不改会进入到点运行的定义。调度器上线前已存在的 active cron 行，人重新确认前不跑。关键字 trigger 和事件 trigger 在卡片上显示未执行。
+9. 工作流 run，待实现，后续 PR。外部 HTTP 带页面令牌，且工作区、`sourceRef` 和未完成运行都通过时，返回 200，新行 `workflow_runs.state` 为 `queued`。步骤开始后，该行 `output_json` 含会话 id。只带 Origin 或没有页面令牌时返回 401。工作区不一致时返回 404，不新增 `workflow_runs` 行。`sourceRef` 写了但不被 `planAppSource` 接受时，返回 422，不新增行。格式以 `runtime/app-source.mjs` 为唯一来源。同一工作流已有 `queued` 或 `running` 时返回 409，不新增行。步骤会话只放行 `fde_app_records_query`、`fde_plan_task_propose` 和 `fde_app_records_propose`。核心 AI 不能按会话限制工具时，这一步不运行，run 从 `queued` 改为 `failed`，步骤 `error_json` 有一句中文原因。能打开会话的运行走 `queued` → `running` → `succeeded` 或 `failed`。本版不进入 `waiting`。要人确认的内容走独立提案，运行照常结束。BFF 启动后，原先 `queued` 或 `running` 的运行行和步骤行变为 `failed`。每回收一行写一条 `audit_entries`，`outcome` 为 `failed`。cron 不经过这条 HTTP。内部 run 函数不挂 MCP、bridge 或 HTTP，只给进程内调度器。调度器待实现，依赖 S3。只有 S1 和 S2 时不上线。会改变到点自动执行什么、何时执行或是否执行的写入，只带 Origin 返回 401。例子包括新建 cron、置为 active、改 trigger、改定义、改步骤、改 prompt，以及复制、导入、暂停、删除和重新启用。持有页面令牌的人可以直接写。AI 只能提案。提案时 `audit_entries` 记 `awaiting_approval`。确认或拒绝时各再记一条。走提案时，确认前不改会进入到点运行的定义。调度器上线前已存在的 active cron 行，人重新确认前不跑。关键字 trigger 和事件 trigger 在卡片上显示未执行。
 
 自动化：`runtime/tests/plan.test.mjs`：CRUD、工作区隔离、状态校验、completed_at 自动填。工作流 run 的自动化留在后续 PR，见 4.1。
 
@@ -140,9 +142,13 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 4. `feat(im): 摘成待办 persists via plan API`
 5. `feat(palette): search tasks`
 6. `feat(plan): 整理待办 via askAiForResult`（依赖规格 02 落地，否则跳过并在报告注明）
-7. 不在前六条。后续 PR 做人工 HTTP run 和「运行」按钮。依赖安全方案 S1 的页面令牌函数和 S2。工作区、`sourceRef`、同时只跑一次、步骤工具放行，以及 BFF 启动时清理遗留运行，见 4.1。
+7. 不在前六条。后续 PR 做人工 HTTP run 和「运行」按钮。依赖安全方案 S1 的页面令牌函数和 S2。工作区、`sourceRef`、同时只跑一次、步骤工具放行，以及 BFF 启动时清理遗留运行并为每行写审计，见 4.1。
 8. 不在前六条。后续 PR 做进程内 cron 调度器，以及 4.1 的到点写入原则。依赖 S3。只有 S1 和 S2 时不上线。上线时已存在的 active cron 行要等人重新确认。调度器插入运行之前使用 4.1 的 `sourceRef` 校验、同时只跑一次，以及步骤工具放行。
 
 ## 10. 开放问题
 
 已关闭：真实表名与列见 §4；`events` 在 store 里的字段名保留，映射到 `calendar_events`。
+
+## 11. 已知限制
+
+未确认的提案可以堆积。堆积不受 409 约束。409 只限制同一条工作流同时存在 `queued` 或 `running` 的运行。
