@@ -87,6 +87,10 @@ function limitWorkflowAgent(ctx, agent) {
 }
 
 function installWorkflowToolLimit(ctx) {
+  ctx.tools.guard((exec) => {
+    if (exec && exec.agent) return
+    return DENY
+  })
   ctx.on('tools/change', () => {
     scheduleStrip()
   })
