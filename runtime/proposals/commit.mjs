@@ -151,7 +151,7 @@ export function decideProposal(db, operationId, decision, domain) {
         details: { operationId, reason: closing.reason },
       })
       db.exec('COMMIT;')
-      return { kind: closing.kind, operation: getOperation(db, operationId) }
+      return { kind: closing.kind, reason: closing.reason, operation: getOperation(db, operationId) }
     }
     const applied = domain.apply(db, operation.plan)
     if (applied.applied !== true) {

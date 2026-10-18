@@ -416,6 +416,10 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 409, 'invalid_state', '提案已经确认或拒绝', correlationId)
       return true
     }
+    if (result.kind === 'stale' && result.reason === 'task_exists') {
+      planError(response, 409, 'task_exists', '这个 id 已经有任务', correlationId)
+      return true
+    }
     if (result.kind === 'stale') {
       planError(response, 409, 'stale_task', '任务在提案之后已变更', correlationId)
       return true
