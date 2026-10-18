@@ -106,6 +106,7 @@ import {
 import { mergePageCors } from './proxy-cors.mjs'
 import { tryServeStatic } from './routes/static.mjs'
 import { shouldProxyDshPath } from './dsh-proxy-gate.mjs'
+import { pathHasPrefix } from './path-prefix.mjs'
 import {
   listWorkspaceDocumentVersions,
   rollbackWorkspaceDocument,
@@ -761,7 +762,7 @@ function dshProxyPath(url) {
 }
 
 function isSemanticOsPath(pathname) {
-  return pathname === '/semantic-os' || pathname.startsWith('/semantic-os/')
+  return pathHasPrefix(pathname, '/semantic-os')
 }
 
 function requestSemanticOsRawPath(request) {
@@ -772,9 +773,9 @@ function requestSemanticOsRawPath(request) {
 
 function requestTouchesSemanticOs(request) {
   const raw = requestSemanticOsRawPath(request)
-  if (raw.includes('/semantic-os')) return true
+  if (pathHasPrefix(raw, '/semantic-os')) return true
   try {
-    return decodeURIComponent(raw).includes('/semantic-os')
+    return pathHasPrefix(decodeURIComponent(raw), '/semantic-os')
   } catch {
     return false
   }
