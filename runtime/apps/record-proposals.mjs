@@ -6,6 +6,17 @@ const RECORD_PROPOSAL_ACTION = 'app.record.propose'
 
 const RESERVED_KEYS = new Set(['id', 'rid', 'workspace', 'workspaceCwd'])
 
+function expectedVersion(patches) {
+  if (patches.length === 1) return String(patches[0].base.updated_at)
+  return JSON.stringify(Object.fromEntries(patches.map((patch) => [patch.rid, patch.base.updated_at])))
+}
+
+function rowMoved(row, patch) {
+  const base = patch.base
+  if (!base || typeof base !== 'object' || Array.isArray(base)) return true
+  return row.updated_at !== base.updated_at
+}
+
 function recordPatches(spec, entity, rows) {
   const entities = Array.isArray(spec?.entities) ? spec.entities : []
   const ent = entities.find((item) => item && item.name === entity)
@@ -33,11 +44,17 @@ function recordPatches(spec, entity, rows) {
 }
 
 export function proposeRecordUpdate(db, input) {
-  const patches = recordPatches(input.app.spec, input.entity, input.rows)
-  if (!patches) return { ok: false, error: 'validation_error', message: '更新提案需要记录和字段' }
-  for (const patch of patches) {
+  const drafted = recordPatches(input.app.spec, input.entity, input.rows)
+  if (!drafted) return { ok: false, error: 'validation_error', message: '更新提案需要记录和字段' }
+  const patches = []
+  for (const patch of drafted) {
     const existing = getRecord(db, input.app.spec, input.entity, input.workspaceCwd, patch.rid)
     if (!existing) return { ok: false, error: 'not_found', message: '记录不存在' }
+    patches.push({
+      rid: patch.rid,
+      fields: patch.fields,
+      base: { updated_at: existing.updated_at },
+    })
   }
   const id = createId('op')
   const now = new Date().toISOString()
@@ -62,7 +79,7 @@ export function proposeRecordUpdate(db, input) {
         (id, workspace_id, connection_id, app_id, requested_by, target_ref, action, operation_kind,
          risk_level, execution_mode, state, idempotency_key, expected_version, input_json, plan_json,
          correlation_id, causation_id, created_at, updated_at)
-      VALUES (?, ?, NULL, ?, ?, ?, ?, 'write', 'low', 'dry_run', 'awaiting_approval', ?, NULL, ?, ?, ?, NULL, ?, ?)
+      VALUES (?, ?, NULL, ?, ?, ?, ?, 'write', 'low', 'dry_run', 'awaiting_approval', ?, ?, ?, ?, ?, NULL, ?, ?)
     `).run(
       id,
       input.workspaceId,
@@ -71,6 +88,7 @@ export function proposeRecordUpdate(db, input) {
       targetRef,
       RECORD_PROPOSAL_ACTION,
       createId('idem'),
+      expectedVersion(patches),
       planJson,
       planJson,
       correlationId,
@@ -118,6 +136,39 @@ export function confirmRecordProposal(db, operationId, opts = {}) {
     if (!app || app.status !== 'active' || appIsTrashed(app)) {
       db.exec('ROLLBACK;')
       return { kind: 'not_found' }
+    }
+    const currentRows = []
+    for (const patch of plan.patches) {
+      const current = getRecord(db, app.spec, plan.entity, plan.workspaceCwd, patch.rid)
+      if (!current) {
+        db.exec('ROLLBACK;')
+        return { kind: 'not_found' }
+      }
+      currentRows.push(current)
+    }
+    if (plan.patches.some((patch, index) => rowMoved(currentRows[index], patch))) {
+      const now = new Date().toISOString()
+      const updated = db.prepare(`
+        UPDATE operations
+        SET state = 'failed', updated_at = ?, finished_at = ?
+        WHERE id = ? AND state = 'awaiting_approval'
+      `).run(now, now, operationId)
+      if (updated.changes !== 1) {
+        db.exec('ROLLBACK;')
+        return { kind: 'invalid_state', operation: getOperation(db, operationId) }
+      }
+      appendAudit(db, {
+        workspaceId: operation.workspaceId,
+        actorId,
+        action: 'app.record.confirm',
+        targetRef: operation.targetRef,
+        outcome: 'failed',
+        riskLevel: 'low',
+        correlationId: opts.correlationId || operation.correlationId,
+        details: { operationId, reason: 'stale_record' },
+      })
+      db.exec('COMMIT;')
+      return { kind: 'stale', operation: getOperation(db, operationId) }
     }
     for (const patch of plan.patches) {
       const row = patchRecord(db, app.spec, plan.entity, plan.workspaceCwd, patch.rid, patch.fields)

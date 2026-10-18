@@ -223,6 +223,10 @@ export async function handleAppsRoutes(request, response, url, deps) {
         sendError(response, 409, 'invalid_state', '提案已经确认或拒绝', correlationId, { state: result.operation?.state })
         return true
       }
+      if (result.kind === 'stale') {
+        sendError(response, 409, 'stale_record', '记录在提案之后已变更', correlationId, { state: result.operation?.state })
+        return true
+      }
       sendJson(response, 200, { ok: true, data: result.operation, correlationId })
     } catch (error) {
       if (error?.code === 'validation_error') {
