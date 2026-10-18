@@ -539,4 +539,14 @@ describe('remaining writes require the page token', { concurrency: 1 }, () => {
     assert.equal(inserted.status, 201, JSON.stringify(body))
     assert.equal(body.data.supplier, 'SHARE')
   })
+
+  test('a plan write whose path contains /semantic-os requires the page token', async (t) => {
+    await boot(t)
+    const before = taskCount()
+    const created = await send('/api/v1/plan/tasks/semantic-os', {
+      body: { workspaceId: 'ws_personal', title: '夹着语义' },
+    })
+    assert.equal(created.status, 401, JSON.stringify(created.payload))
+    assert.equal(taskCount(), before)
+  })
 })
