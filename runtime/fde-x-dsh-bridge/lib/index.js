@@ -168,8 +168,10 @@ function apply(ctx) {
   try {
     const { defineTool } = loadDshTools()
     const { registerTools, FDE_TOOL_NAMES } = require('./tools.js')
+    const { installWorkflowToolLimit } = require('./workflow-limit.js')
     registerTools(ctx, { defineTool })
-    writeBridgeToolsStatus({ ok: true, tools: FDE_TOOL_NAMES })
+    installWorkflowToolLimit(ctx)
+    writeBridgeToolsStatus({ ok: true, tools: FDE_TOOL_NAMES, workflowLimit: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     writeBridgeToolsStatus({ ok: false, error: message })

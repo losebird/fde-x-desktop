@@ -170,11 +170,50 @@ test('fde-workflow 会话不能看到或调用三个工具以外的工具', asyn
   const names = root.tools.schemas(agent).map((row) => row.name).sort()
   const extraVisible = names.filter((name) => !ALLOWED.has(name))
   const callable = []
+  const denied = []
   for (const name of OUTSIDE) {
     const result = await execute(root, agent, name)
     if (!result.isError) callable.push(name)
+    else denied.push(result.content?.[0]?.text || '')
   }
+  assert.deepEqual(names, [...WORKFLOW_TOOLS].sort())
   assert.deepEqual({ extraVisible, callable }, { extraVisible: [], callable: [] })
+  assert.equal(denied.length, OUTSIDE.length)
+  for (const text of denied) assert.match(text, /工作流步骤不能调用这个工具/)
+})
+
+test('认不出 fde-workflow 时拒绝这个会话', () => {
+  const agent = {
+    session: { header: { agentPreset: 'fde-workflow' } },
+    ctx: {
+      tools: {
+        restrict() {
+          throw new Error('should not restrict')
+        },
+        guard() {
+          throw new Error('should not guard')
+        },
+      },
+    },
+  }
+  assert.throws(
+    () => limitWorkflowAgent({ get() { return undefined } }, agent),
+    /工作流预设未能限制工具/,
+  )
+  const presets = { composedPreset() { return 'chat' } }
+  assert.throws(
+    () => limitWorkflowAgent({
+      get(name) {
+        return name === 'agentPresets' ? presets : undefined
+      },
+    }, agent),
+    /工作流预设未能限制工具/,
+  )
+})
+
+test('读不到预设时普通会话保持原样', () => {
+  const chat = { session: { header: { agentPreset: 'chat' } } }
+  limitWorkflowAgent({ get() { return undefined } }, chat)
 })
 
 test('三个允许的工具在无人值守时不会进入审批', async () => {

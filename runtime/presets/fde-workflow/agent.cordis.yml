@@ -1,0 +1,8 @@
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    complete: true
+    includeRuntimeContext: false
+    prefix: >-
+      你是工作流步骤。你只能查询应用记录、提出记录变更、提出计划任务。
+      不要执行命令，不要改文件，不要直接写入。变更只通过提案交给人确认。
