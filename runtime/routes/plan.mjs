@@ -594,7 +594,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       return true
     }
     if (hasIllegalSourceRef(body.steps)) {
-      planError(response, 422, 'validation_error', '来源引用不合法', correlationId)
+      planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
       return true
     }
     const status = WORKFLOW_WRITE_STATUSES.has(body.status) ? body.status : 'paused'
@@ -654,7 +654,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       return true
     }
     if (hasIllegalSourceRef(body.steps)) {
-      planError(response, 422, 'validation_error', '来源引用不合法', correlationId)
+      planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
       return true
     }
     const patch = {}

@@ -85,7 +85,7 @@ function insertQueued(db, { runId, workflowId, correlationId, now, steps }) {
       WHERE workflow_id = ? AND state IN ('queued', 'running')
       LIMIT 1
     `).get(workflowId)
-    if (open) throw rejectRun(409, 'conflict', '这条工作流已有未结束的运行')
+    if (open) throw rejectRun(409, 'run_in_progress', '这条工作流已有未结束的运行')
     db.prepare(`
       INSERT INTO workflow_runs
         (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at)
@@ -229,7 +229,7 @@ export function startWorkflowRun(deps, command) {
   const workflow = db.prepare('SELECT id, workspace_id, definition_json FROM workflows WHERE id = ?').get(workflowId)
   if (!workflow || workflow.workspace_id !== workspaceId) throw rejectRun(404, 'not_found', '工作流不存在')
   const steps = parseSteps(workflow.definition_json)
-  if (hasIllegalSourceRef(steps)) throw rejectRun(422, 'validation_error', '来源引用不合法')
+  if (hasIllegalSourceRef(steps)) throw rejectRun(422, 'invalid_source_ref', '来源引用不合法')
   assertAiPrompts(steps)
   const runId = createId('wfr')
   const storedSteps = insertQueued(db, {
