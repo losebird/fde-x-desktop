@@ -11,6 +11,7 @@ import {
   mutateHostGoal,
 } from '../host-catalog.mjs'
 import { decidePlanTask, listOpenPlanTaskProposals } from '../plan/task-proposals.mjs'
+import { readLatestRunCards, startWorkflowRun } from '../plan/workflow-run.mjs'
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
@@ -570,6 +571,13 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
     if (!workspaceId) return true
     const rows = db.prepare('SELECT * FROM workflows WHERE workspace_id = ? ORDER BY created_at DESC').all(workspaceId).map(mapWorkflow)
+    const cards = readLatestRunCards(db, rows.map((row) => row.id))
+    for (const row of rows) {
+      const card = cards.get(row.id)
+      if (!card) continue
+      row.lastRunAt = card.lastRunAt
+      row.lastRunStatus = card.lastRunStatus
+    }
     const cwd = workspaceCwdForEmit(db, workspaceId)
     const hostRows = (await hostBagFields(aiRuntime, 'job', workspaceId, cwd)).map((row) => planWorkflowFromBag(row, workspaceId))
     planOk(response, 200, mergeTaskRows(rows, hostRows), correlationId)
@@ -711,6 +719,24 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       targetRef: `fde://plan/workflows/${id}`,
       details: { id },
     })
+    return true
+  }
+
+  if (method === 'POST' && segments.length === 6 && segments[3] === 'workflows' && segments[5] === 'run') {
+    const workflowId = planRowId(segments[4])
+    try {
+      const ticket = startWorkflowRun({ db, aiRuntime }, {
+        workflowId,
+        correlationId,
+        trigger: { kind: 'manual' },
+      })
+      planOk(response, 200, ticket, correlationId)
+    } catch (error) {
+      const status = Number.isInteger(error.status) ? error.status : 500
+      const code = typeof error.code === 'string' ? error.code : 'internal'
+      const message = error instanceof Error ? error.message : '运行失败'
+      planError(response, status, code, message, correlationId)
+    }
     return true
   }
 
