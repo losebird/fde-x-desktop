@@ -49,6 +49,7 @@ import { isWebAppSpec } from '../apps/spec.mjs'
 import { writeBundleFiles } from '../apps/bundle.mjs'
 import { serveWebAppAsset } from '../apps/web-host.mjs'
 import { getDocument, putDocument } from '../apps/documents.mjs'
+import { confirmRecordProposal, proposeRecordUpdate, rejectRecordProposal } from '../apps/record-proposals.mjs'
 
 function sharePayload(request, share) {
   if (!share) return null
@@ -199,6 +200,38 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', correlationId)
       return true
     }
+  }
+
+  const proposalMatch = pathname.match(/^\/api\/v1\/apps\/record-proposals\/([^/]+)\/(confirm|reject)$/)
+  if (request.method === 'POST' && proposalMatch) {
+    if (!verifyUiToken(request, uiToken)) {
+      sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', correlationId)
+      return true
+    }
+    await readJson(request)
+    const operationId = decodeURIComponent(proposalMatch[1])
+    const decision = proposalMatch[2]
+    try {
+      const result = decision === 'confirm'
+        ? confirmRecordProposal(db, operationId, { correlationId })
+        : rejectRecordProposal(db, operationId, { correlationId })
+      if (result.kind === 'not_found' || result.kind === 'not_proposal') {
+        sendError(response, 404, 'not_found', '提案不存在', correlationId)
+        return true
+      }
+      if (result.kind === 'invalid_state') {
+        sendError(response, 409, 'invalid_state', '提案已经确认或拒绝', correlationId, { state: result.operation?.state })
+        return true
+      }
+      sendJson(response, 200, { ok: true, data: result.operation, correlationId })
+    } catch (error) {
+      if (error?.code === 'validation_error') {
+        sendJson(response, 422, { ok: false, errors: error.errors, correlationId })
+        return true
+      }
+      throw error
+    }
+    return true
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/apps') {
@@ -933,17 +966,28 @@ export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
     const app = findActiveAppBySlug(db, workspaceId, slug, workspaceCwd)
     if (!app) return { ok: false, error: 'app_not_active', message: '应用未激活' }
     const op = String(body.op || 'insert')
-    return {
-      ok: true,
-      proposal: {
-        kind: 'app.record',
-        slug,
-        entity,
-        op,
-        rows: body.rows,
-        note: '仅提案，不写库',
-      },
+    if (op !== 'update') {
+      return {
+        ok: true,
+        proposal: {
+          kind: 'app.record',
+          slug,
+          entity,
+          op,
+          rows: body.rows,
+          note: '仅提案，不写库',
+        },
+      }
     }
+    const proposed = proposeRecordUpdate(db, {
+      workspaceId,
+      app,
+      entity,
+      workspaceCwd,
+      rows: body.rows,
+    })
+    if (!proposed.ok) return proposed
+    return { ok: true, proposalId: proposed.proposalId, proposal: proposed.plan }
   }
   return null
 }

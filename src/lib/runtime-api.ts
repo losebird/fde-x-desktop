@@ -2618,6 +2618,21 @@ export class RuntimeApi {
     return result.data
   }
 
+  async decideRecordProposal(operationId: string, decision: 'confirm' | 'reject', signal?: AbortSignal) {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const token = await readUiToken()
+    if (token) headers['x-fde-ui-token'] = token
+    return this.request<{ ok: boolean; data: RuntimeOperation }>(
+      `/api/v1/apps/record-proposals/${encodeURIComponent(operationId)}/${decision}`,
+      {
+        method: 'POST',
+        signal,
+        headers,
+        body: '{}',
+      },
+    )
+  }
+
   async bizPreview(body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const result = await this.request<{ data: Record<string, unknown> }>(withWorkspaceCwd('/api/v1/biz/preview'), {
       method: 'POST',
