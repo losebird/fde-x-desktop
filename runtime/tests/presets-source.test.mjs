@@ -30,6 +30,9 @@ test('generated patch registers FDE folders as dsh-agent-preset inserts', async 
   assert.match(text, /name: FDE 应用构建/)
   assert.match(text, /name: FDE 工作流/)
   assert.doesNotMatch(text, /^- include:/m)
+})
+
+test('fde-workflow preset only declares a persona', async () => {
   const workflow = await readFile(join(FDE_RUNTIME_DIR, 'presets', 'fde-workflow', 'agent.cordis.yml'), 'utf8')
   assert.match(workflow, /@deepseek-ai\/dsh-persona/)
   assert.match(workflow, /prefix:/)
