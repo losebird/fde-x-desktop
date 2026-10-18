@@ -404,6 +404,55 @@ test('缺少提示、Host job、未知 id 不插入 run', async (t) => {
   assert.equal(runCount(db), 0)
 })
 
+test('步骤会话不带着未确认的写工具运行', async (t) => {
+  const { dbPath, db } = openFixture('tools')
+  insertWorkspace(db, 'ws_tools', '/tmp/fde-x-workflow-run-cwd')
+  insertWorkflow(db, {
+    id: 'wf_tools',
+    workspaceId: 'ws_tools',
+    trigger: { kind: 'manual' },
+    steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总这条记录' } }],
+  })
+  const calls = []
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    async call(endpoint, args) {
+      calls.push({ endpoint, args })
+      if (endpoint === 'session/create') return { sessionId: 'sess_tools' }
+      return {}
+    },
+    async *stream() {
+      yield { type: 'event', event: { type: 'turn/end' } }
+    },
+  }
+  const server = serve(db, aiRuntime, 'corr_tools')
+  const port = await listen(server)
+  t.after(async () => {
+    server.close()
+    db.close()
+    await rm(dbPath, { force: true })
+  })
+
+  const { status, payload } = await postRun(port, 'wf_tools', { workspaceId: 'ws_tools' })
+  assert.equal(status, 200)
+  assert.equal(payload.data.state, 'queued')
+  await flush()
+  const created = calls.find((call) => call.endpoint === 'session/create')
+  const request = created && created.args && created.args.request
+  const tools = request && (Array.isArray(request.allowedTools) ? request.allowedTools : Array.isArray(request.tools) ? request.tools : null)
+  const allowed = new Set(['fde_app_records_query', 'fde_plan_task_propose', 'fde_app_records_propose'])
+  if (tools) {
+    assert.equal(tools.every((name) => allowed.has(name)), true)
+    assert.equal(tools.includes('fde_app_spec_submit'), false)
+  } else {
+    assert.equal(created, undefined)
+    const run = db.prepare('SELECT state FROM workflow_runs WHERE id = ?').get(payload.data.id)
+    const step = db.prepare('SELECT error_json FROM workflow_run_steps WHERE run_id = ?').get(payload.data.id)
+    assert.equal(run.state, 'failed')
+    assert.equal(JSON.parse(step.error_json).message, '核心 AI 暂不支持限制步骤工具，未运行')
+  }
+})
+
 test('跨工作区的 run 返回 404，workflow_runs 不增加', async (t) => {
   const { dbPath, db } = openFixture('cross')
   insertWorkspace(db, 'ws_owner', '')
