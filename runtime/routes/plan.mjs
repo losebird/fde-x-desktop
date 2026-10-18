@@ -11,6 +11,7 @@ import {
   mutateHostGoal,
 } from '../host-catalog.mjs'
 import { decidePlanTask, listOpenPlanTaskProposals } from '../plan/task-proposals.mjs'
+import { hasIllegalSourceRef, readLatestRunCards, startWorkflowRun } from '../plan/workflow-run.mjs'
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
@@ -570,6 +571,13 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
     if (!workspaceId) return true
     const rows = db.prepare('SELECT * FROM workflows WHERE workspace_id = ? ORDER BY created_at DESC').all(workspaceId).map(mapWorkflow)
+    const cards = readLatestRunCards(db, rows.map((row) => row.id))
+    for (const row of rows) {
+      const card = cards.get(row.id)
+      if (!card) continue
+      row.lastRunAt = card.lastRunAt
+      row.lastRunStatus = card.lastRunStatus
+    }
     const cwd = workspaceCwdForEmit(db, workspaceId)
     const hostRows = (await hostBagFields(aiRuntime, 'job', workspaceId, cwd)).map((row) => planWorkflowFromBag(row, workspaceId))
     planOk(response, 200, mergeTaskRows(rows, hostRows), correlationId)
@@ -583,6 +591,10 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const name = typeof body.name === 'string' ? body.name.trim() : ''
     if (!name) {
       planError(response, 422, 'validation_error', '名称不能为空', correlationId)
+      return true
+    }
+    if (hasIllegalSourceRef(body.steps)) {
+      planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
       return true
     }
     const status = WORKFLOW_WRITE_STATUSES.has(body.status) ? body.status : 'paused'
@@ -639,6 +651,10 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const existing = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id)
     if (!existing) {
       planError(response, 404, 'not_found', '工作流不存在', correlationId)
+      return true
+    }
+    if (hasIllegalSourceRef(body.steps)) {
+      planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
       return true
     }
     const patch = {}
@@ -711,6 +727,27 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       targetRef: `fde://plan/workflows/${id}`,
       details: { id },
     })
+    return true
+  }
+
+  if (method === 'POST' && segments.length === 6 && segments[3] === 'workflows' && segments[5] === 'run') {
+    const workflowId = planRowId(segments[4])
+    const body = await readJson(request)
+    const workspaceId = body && typeof body.workspaceId === 'string' ? body.workspaceId : ''
+    try {
+      const ticket = startWorkflowRun({ db, aiRuntime }, {
+        workflowId,
+        workspaceId,
+        correlationId,
+        trigger: { kind: 'manual' },
+      })
+      planOk(response, 200, ticket, correlationId)
+    } catch (error) {
+      const status = Number.isInteger(error.status) ? error.status : 500
+      const code = typeof error.code === 'string' ? error.code : 'internal'
+      const message = error instanceof Error ? error.message : '运行失败'
+      planError(response, status, code, message, correlationId)
+    }
     return true
   }
 

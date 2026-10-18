@@ -68,6 +68,7 @@ import { LIVE_PATH, liveProbeBody, withProbeTimeout } from './live-probe.mjs'
 import { ENGINE_PROBE_MS, engineProbeKind } from './engine-probe.mjs'
 import { enrichReadyWithLlm, readDshDefaultLlm } from './dsh-default-llm.mjs'
 import { handlePlanRequest } from './routes/plan.mjs'
+import { failInterruptedRuns } from './plan/workflow-run.mjs'
 import { handleCatalogRequest } from './routes/catalog.mjs'
 import { collectBag } from './catalog-collect.mjs'
 import { ensureTypertVerbs } from './catalog-typert.mjs'
@@ -153,6 +154,7 @@ const port = FDE_RUNTIME_PORT
 const host = FDE_LISTEN_HOST
 let advertisedOrigin = ''
 const db = openDatabase(databasePath, migrationsDirectory)
+failInterruptedRuns(db)
 configureEventBus(db)
 const aiRuntime = createCoreConnector({
   cwd: FDE_AI_WORKSPACE,

@@ -20,8 +20,14 @@ import {
   taskFromHostBagItem,
   workflowFromHostBagItem,
 } from '@/lib/plan-origin'
+import { RuntimeApiError } from '@/lib/runtime-api'
 
 const PLAN_UNAVAILABLE = '计划服务未就绪'
+
+function planFailure(error: unknown) {
+  if (error instanceof RuntimeApiError && error.message) return error.message
+  return PLAN_UNAVAILABLE
+}
 
 // =======================================================
 //                  Stage Manager 侧栏系统
@@ -224,6 +230,7 @@ interface State {
   removeAgent: (id: ID) => void
   // workflows
   toggleWorkflow: (id: ID) => Promise<void>
+  runWorkflow: (id: ID) => Promise<void>
   addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt'>) => Promise<void>
   removeWorkflow: (id: ID) => Promise<void>
   // im
@@ -942,6 +949,17 @@ export const useApp = create<AppState>()(
           throw new Error(PLAN_UNAVAILABLE)
         }
       },
+      runWorkflow: async (id) => {
+        try {
+          await runtimeApi.runWorkflow(id)
+          const workspaceId = get().activeWorkspaceId
+          if (workspaceId) await get().hydratePlan(workspaceId)
+        } catch (error) {
+          const message = planFailure(error)
+          set({ planServiceError: message })
+          throw new Error(message)
+        }
+      },
       addWorkflow: async (w) => {
         const workspaceId = get().activeWorkspaceId
         if (!workspaceId) return
@@ -957,9 +975,10 @@ export const useApp = create<AppState>()(
             emoji: w.emoji,
           })
           set((s) => ({ workflows: [created, ...s.workflows], planServiceError: null }))
-        } catch {
-          set({ planServiceError: PLAN_UNAVAILABLE })
-          throw new Error(PLAN_UNAVAILABLE)
+        } catch (error) {
+          const message = planFailure(error)
+          set({ planServiceError: message })
+          throw new Error(message)
         }
       },
       removeWorkflow: async (id) => {

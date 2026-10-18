@@ -813,6 +813,10 @@ export class RuntimeApi {
   private mapPlanWorkflow(row: Record<string, unknown>): Workflow {
     const trigger = this.normalizeWorkflowTrigger(row.trigger)
     const steps = Array.isArray(row.steps) ? row.steps as Workflow['steps'] : []
+    const lastRunAt = typeof row.lastRunAt === 'string' && row.lastRunAt !== '' ? row.lastRunAt : undefined
+    const lastRunStatus = row.lastRunStatus === 'success' || row.lastRunStatus === 'failed' || row.lastRunStatus === 'running'
+      ? row.lastRunStatus
+      : undefined
     return {
       id: String(row.id),
       name: String(row.name),
@@ -820,6 +824,8 @@ export class RuntimeApi {
       status: row.status === 'active' ? 'active' : 'paused',
       trigger,
       steps,
+      lastRunAt,
+      lastRunStatus,
       category: (row.category as Workflow['category']) ?? 'system',
       emoji: typeof row.emoji === 'string' ? row.emoji : '🤖',
       createdAt: String(row.createdAt),
@@ -991,6 +997,15 @@ export class RuntimeApi {
   async deleteWorkflow(id: string, opts?: { workspaceId?: string; signal?: AbortSignal }): Promise<void> {
     const params = opts?.workspaceId ? `?workspaceId=${encodeURIComponent(opts.workspaceId)}` : ''
     await this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}${params}`, { method: 'DELETE', signal: opts?.signal })
+  }
+
+  async runWorkflow(id: string): Promise<void> {
+    const workspaceId = useApp.getState().activeWorkspaceId
+    await this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId }),
+    })
   }
 
   async aiStatus(signal?: AbortSignal): Promise<AiRuntimeStatus> {
