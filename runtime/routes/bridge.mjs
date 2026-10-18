@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -33,6 +33,29 @@ export function verifyBridgeToken(request, expected) {
   const raw = request.headers['x-fde-bridge-token']
   const value = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? String(raw[0] || '').trim() : ''
   return Boolean(value && expected && value === expected)
+}
+
+export function mintUiToken() {
+  return randomBytes(32).toString('hex')
+}
+
+function headerToken(request, name) {
+  const raw = request.headers[name]
+  if (typeof raw === 'string') return raw.trim()
+  if (Array.isArray(raw)) return String(raw[0] || '').trim()
+  return ''
+}
+
+export function verifyUiToken(request, expected) {
+  const value = headerToken(request, 'x-fde-ui-token')
+  const expectedText = typeof expected === 'string' ? expected : ''
+  const valueBytes = Buffer.from(value)
+  const expectedBytes = Buffer.from(expectedText)
+  const left = Buffer.alloc(64)
+  const right = Buffer.alloc(64)
+  valueBytes.copy(left)
+  expectedBytes.copy(right)
+  return timingSafeEqual(left, right) && valueBytes.length === 64 && expectedBytes.length === 64
 }
 
 function bridgeError(response, status, error, message, correlationId) {

@@ -591,6 +591,17 @@ export type MemoryDraftCard = {
   body: string
 }
 
+async function readUiToken() {
+  if (typeof window === 'undefined') return ''
+  const fromDesktop = window.fdeDesktop?.uiToken
+  if (fromDesktop) {
+    const value = String(await fromDesktop()).trim()
+    if (value) return value
+  }
+  const meta = document.querySelector('meta[name="fde-ui-token"]')
+  return meta?.getAttribute('content')?.trim() ?? ''
+}
+
 export class RuntimeApiError extends Error {
   status: number
   code: string
@@ -2526,12 +2537,17 @@ export class RuntimeApi {
   async patchAppRecord(slug: string, entity: string, rid: string, workspaceCwd: string, body: Record<string, unknown>, signal?: AbortSignal) {
     const workspace = this.appWorkspaceQuery(workspaceCwd)
     const q = workspace ? `?${workspace}` : ''
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (!this.shareId) {
+      const token = await readUiToken()
+      if (token) headers['x-fde-ui-token'] = token
+    }
     return this.request<{ ok: boolean; data: Record<string, unknown>; errors?: { path: string; message: string }[] }>(
       `${this.appRecordsBase(slug)}/${encodeURIComponent(entity)}/${encodeURIComponent(rid)}${q}`,
       {
         method: 'PATCH',
         signal,
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(body),
       },
     )

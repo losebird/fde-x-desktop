@@ -21,6 +21,7 @@ const MAX_BFF_EXITS = 3
 let mainWindow: BrowserWindow | null = null
 let bffChild: ChildProcess | null = null
 let bffPort = 0
+let uiToken = ''
 let quitTimer: ReturnType<typeof setTimeout> | null = null
 let respawnTimer: ReturnType<typeof setTimeout> | null = null
 let quitting = false
@@ -96,6 +97,7 @@ async function startBff() {
   )
   bffChild = spawned.child
   bffPort = spawned.port
+  uiToken = spawned.uiToken
   exitStreak = 0
   await writeLastBffPort(pack.roots.base, spawned.port)
   spawned.child.once('exit', onBffExit)
@@ -274,6 +276,7 @@ app.whenReady().then(() => {
     bffPort,
     resources: resolvePackagedResources(),
   }))
+  ipcMain.handle('fde:ui-token', () => uiToken)
 
   return createWindow()
 }).catch((error: unknown) => {
