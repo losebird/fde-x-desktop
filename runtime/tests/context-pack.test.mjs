@@ -97,6 +97,36 @@ test('memory scope failure does not break other scopes', async () => {
   assert.ok(warnings.includes('memory_engine_not_ready') || warnings.includes('memory_find_failed'))
 })
 
+test('explicit taskIds include undated todo in prompt', async () => {
+  const taskIdsDbPath = '/tmp/fde-x-context-pack-task-ids.sqlite'
+  await rm(taskIdsDbPath, { force: true }).catch(() => undefined)
+  await mkdir('/tmp/fde-x-context-pack-ws', { recursive: true })
+  const db = openDatabase(taskIdsDbPath, join(repoRoot, 'runtime/migrations'))
+  const now = new Date().toISOString()
+  const undatedId = 'task_undated_p1_test'
+  db.prepare(`
+    INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+    VALUES (?, 'ws_personal', '无截止日待办P1', '', 'todo', 'med', NULL, ?, ?)
+  `).run(undatedId, now, now)
+  const aiRuntime = {
+    status: () => ({ connected: false }),
+    lanAssist: async () => ({ unreadTotal: 0, requests: [] }),
+    semanticOs: async () => {
+      throw new Error('down')
+    },
+  }
+  const { pack } = await buildContextPack(
+    { db, aiRuntime },
+    {
+      workspaceCwd: '/tmp/fde-x-context-pack-ws',
+      scopes: ['tasks'],
+      taskIds: [undatedId],
+    },
+  )
+  const text = renderContextForPrompt(pack)
+  assert.match(text, /无截止日待办P1/)
+})
+
 test('scope timeout is reported in warnings', async () => {
   const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
   const aiRuntime = {
