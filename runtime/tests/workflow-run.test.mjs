@@ -607,6 +607,50 @@ test('跨工作区的 run 返回 404，workflow_runs 不增加', async (t) => {
   assert.equal(runCount(db), before)
 })
 
+test('运行从 queued 进入 running，再以 failed 结束，不进入 waiting', async (t) => {
+  const { dbPath, db } = openFixture('machine')
+  insertWorkspace(db, 'ws_machine', '')
+  insertWorkflow(db, {
+    id: 'wf_machine',
+    workspaceId: 'ws_machine',
+    trigger: { kind: 'manual' },
+    steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总', sourceRef: `app:app_${'a'.repeat(32)}` } }],
+  })
+  db.exec(`
+    CREATE TABLE run_state_trace (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      state TEXT NOT NULL
+    );
+    CREATE TRIGGER trace_workflow_run_state
+    AFTER UPDATE OF state ON workflow_runs
+    BEGIN
+      INSERT INTO run_state_trace (run_id, state) VALUES (NEW.id, NEW.state);
+    END;
+  `)
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    async call() {
+      return { sessionId: 'sess_machine' }
+    },
+    async *stream() {},
+  }
+  const server = serve(db, aiRuntime, 'corr_machine')
+  const port = await listen(server)
+  t.after(async () => {
+    server.close()
+    db.close()
+    await rm(dbPath, { force: true })
+  })
+
+  const { status, payload } = await postRun(port, 'wf_machine', { workspaceId: 'ws_machine' })
+  assert.equal(status, 200, `run status ${status}`)
+  assert.equal(payload.data.state, 'queued')
+  await flush()
+  const trace = db.prepare('SELECT state FROM run_state_trace WHERE run_id = ? ORDER BY id').all(payload.data.id)
+  assert.deepEqual(trace.map((row) => row.state), ['running', 'failed'])
+})
+
 test('启动时把上次留下的 queued 和 running 标成失败', async (t) => {
   const root = `/tmp/fde-x-workflow-run-boot-${process.pid}`
   const dbPath = join(root, 'fde.sqlite')
