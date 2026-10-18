@@ -516,6 +516,89 @@ test('跨工作区的 run 返回 404，workflow_runs 不增加', async (t) => {
   assert.equal(runCount(db), before)
 })
 
+test('启动时把上次留下的 queued 和 running 标成失败', async (t) => {
+  const root = `/tmp/fde-x-workflow-run-boot-${process.pid}`
+  const dbPath = join(root, 'fde.sqlite')
+  await rm(root, { recursive: true, force: true })
+  await mkdir(root, { recursive: true })
+  const db = openDatabase(dbPath, migrations)
+  insertWorkspace(db, 'ws_boot', '')
+  insertWorkflow(db, {
+    id: 'wf_boot',
+    workspaceId: 'ws_boot',
+    trigger: { kind: 'manual' },
+    steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总' } }],
+  })
+  const now = new Date().toISOString()
+  const insertRun = db.prepare(`
+    INSERT INTO workflow_runs
+      (id, workflow_id, state, trigger_json, input_json, correlation_id, created_at)
+    VALUES (?, 'wf_boot', ?, '{"kind":"manual"}', '{}', 'corr_boot', ?)
+  `)
+  insertRun.run('wfr_boot_q', 'queued', now)
+  insertRun.run('wfr_boot_r', 'running', now)
+  insertRun.run('wfr_boot_ok', 'succeeded', now)
+  const insertStep = db.prepare(`
+    INSERT INTO workflow_run_steps (id, run_id, step_key, sequence_no, state)
+    VALUES (?, ?, 's1', 1, ?)
+  `)
+  insertStep.run('wrs_boot_q', 'wfr_boot_q', 'queued')
+  insertStep.run('wrs_boot_r', 'wfr_boot_r', 'running')
+  db.close()
+
+  const child = spawn(node, ['runtime/server.mjs'], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      FDE_RUNTIME_PORT: '0',
+      FDE_LISTEN_HOST: '127.0.0.1',
+      FDE_DATABASE_PATH: dbPath,
+      FDE_AI_WORKSPACE: root,
+      FDE_RUNTIME_SUPERVISED: '1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString()
+  })
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString()
+  })
+  t.after(async () => {
+    if (child.exitCode == null) child.kill('SIGTERM')
+    await rm(root, { recursive: true, force: true })
+  })
+  let listening = false
+  for (let i = 0; i < 100; i += 1) {
+    if (/^FDE_LISTENING\s+(\d+)/m.test(stdout)) {
+      listening = true
+      break
+    }
+    if (child.exitCode != null) break
+    await delay(100)
+  }
+  assert.equal(listening, true, `server failed\n${stderr}\n${stdout}`)
+  const read = new DatabaseSync(dbPath, { readOnly: true, timeout: 5000 })
+  try {
+    const queued = read.prepare(`SELECT state FROM workflow_runs WHERE id = 'wfr_boot_q'`).get()
+    const running = read.prepare(`SELECT state FROM workflow_runs WHERE id = 'wfr_boot_r'`).get()
+    const done = read.prepare(`SELECT state FROM workflow_runs WHERE id = 'wfr_boot_ok'`).get()
+    const queuedStep = read.prepare(`SELECT state, error_json FROM workflow_run_steps WHERE id = 'wrs_boot_q'`).get()
+    const runningStep = read.prepare(`SELECT state, error_json FROM workflow_run_steps WHERE id = 'wrs_boot_r'`).get()
+    assert.equal(queued.state, 'failed')
+    assert.equal(running.state, 'failed')
+    assert.equal(done.state, 'succeeded')
+    assert.equal(queuedStep.state, 'failed')
+    assert.equal(runningStep.state, 'failed')
+    assert.equal(JSON.parse(queuedStep.error_json).message, '上次运行被中断')
+    assert.equal(JSON.parse(runningStep.error_json).message, '上次运行被中断')
+  } finally {
+    read.close()
+  }
+})
+
 test('不带页面令牌的 run 返回 401，workflow_runs 仍是 0 行', async (t) => {
   const root = `/tmp/fde-x-workflow-run-401-${process.pid}`
   const dbPath = join(root, 'fde.sqlite')
