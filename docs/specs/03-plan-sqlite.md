@@ -50,7 +50,7 @@
 
 `trigger.kind` 为 `cron` 时，到点由 fde-x server 进程内的调度器调用只属于它的内部 run 函数。cron 不经过需要页面令牌的 HTTP 入口，也不携带页面令牌。该调度器待实现。没有 S3 时不上线。Host schedule 现在只有目录的 list 和 delete，不会 POST run。cron 因此不走 Host schedule。
 
-关键字 trigger 只写入 `trigger_json`，不执行。事件 trigger 只保存，不执行。卡片写明这两种 trigger 未执行。
+关键字 trigger 只写入 `trigger_json`，不执行。事件 trigger 只保存，不执行。卡片写明这两种 trigger 未执行。以后若要执行这两种 trigger，改变它们到点或触发时会跑什么的写入，也按下面的到点写入原则。
 
 人工 HTTP 路由和调度器的内部 run 函数各自写入运行记录，互不调用。两者都只接受本地 workflow id，都不拿 Host job 的空 `steps` 去跑。两者都向 `workflow_runs` 插入一行，`state` 为 `queued`。步骤可以是 `kind` 为 `ai` 的一步。这一步有提示。`sourceRef` 可选，用来点名一条业务记录。插入之后打开一个已有的 AI 会话来跑这一步。步骤开始后，把会话 id 写入该行的 `output_json`。会话结束后，把输出写回同一行的 `output_json`，并保留会话 id。每个步骤另写 `workflow_run_steps` 一行。该行的 `state`、`output_json` 和 `error_json` 分别记下状态、输出和错误。插入时写满这两张表已有的 NOT NULL 列。不新增列。
 
@@ -60,7 +60,13 @@ AI 发起的写一律先提案，再等人确认。提案生成时向 `audit_ent
 
 cron 触发的运行适用同一条规则。AI 在这次运行里的任何写入都只生成提案。提案时记 `awaiting_approval`。确认或拒绝时各再记一条。业务表只在确认后才写。
 
-新建 `trigger.kind` 为 `cron` 的工作流、把工作流 `status` 改为 `active`、修改 `trigger`，这三种操作都要带页面令牌，或者先写成提案等人确认。只带 Origin 返回 401。AI 读不到页面令牌，所以 AI 只能走提案。这三种提案的审计与上面相同。确认前不改 `workflows` 上的这三项。这三种操作待实现，并且依赖 S3。S3 是计划写接口加固。只有 S1 和 S2 时，不提供这三种写路径，进程内调度器也不上线。
+任何会改变到点自动执行什么、何时执行、或是否执行的写入，都必须带页面令牌，或者走提案由人确认。只带 Origin 返回 401。新建 cron 工作流、置为 active、改 trigger、改 `definition_json`、改步骤、改 prompt，都只是例子，不是完整清单。一个请求里只要有一项落入这条原则，整个请求都按它处理。不能只留下其中不敏感的字段。AI 读不到页面令牌，所以 AI 只能走提案。持有页面令牌的人可以直接写。这类提案的审计与上面相同。走提案时，确认前不改会进入到点运行的定义、trigger 和是否执行。这条原则待实现，并且依赖 S3。S3 是计划写接口加固。只有 S1 和 S2 时，不提供这类写路径，进程内调度器也不上线。
+
+复制、导入、以及从另一条工作流生成新行，都按这条原则。把 `paused` 改回 `active` 也按这条原则。暂停和删除同样改变是否执行，也按这条原则。工作流写接口不改 `workspace_id`。以后若要改，也按这条原则。
+
+工作流步骤可以点名一条计划任务或业务记录。改那条任务或记录不在本规格另开写路径。任务写入按 S3。业务记录写入按 S1 和 S2。到点发给模型的提示只包含人已确认的定义。某个字段一旦会进入这份提示，改它就落入上面的原则。
+
+调度器上线时，库里已经存在的 active 且 `trigger.kind` 为 `cron` 的行先不跑。人用页面令牌重新确认一次之后，该行才按 cron 跑。只带 Origin 的请求不能完成这次确认。确认记在该工作流行上。现有列不够时，由第 8 条那个 PR 增加一列，不新造表。
 
 AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改记录的写路径。S3 把计划写接口纳入同一把页面令牌。步骤里改任务要等 S3。没有 S3 时，不提供改任务的写路径。会话里的写工具只有提案。不允许另开一条绕过确认的写通道。调度器写入的 `workflow_runs` 不是 AI 写任务或业务记录的通道。没有记忆 M1 时，要写记忆的步骤只留提案。失败原因写入该步骤的 `error_json`。该 run 的 `state` 不写成 `succeeded`。
 
@@ -68,7 +74,7 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 
 ## 5. API 契约（`runtime/routes/plan.mjs`）
 
-所有路由带 `?workspaceId=`（GET）或 body `workspaceId`（写）。写操作走 Origin 闸。新建 cron 工作流、把 `status` 改为 `active`、修改 `trigger` 这三种不能只靠 Origin。它们要带页面令牌，或先提案再确认。只带 Origin 返回 401。这三种待实现，依赖 S3。外部 HTTP 的 `POST /api/v1/plan/workflows/:id/run` 还必须带安全方案 S1 的页面令牌。这把页面令牌不是 `bridge.token`。只带 Origin、没有页面令牌时返回 401。cron 到点不走这条 HTTP 路由。调度器的内部 run 函数不挂在这条路由上，也不挂 MCP 或 bridge。AI、模型和 Host 读不到这把页面令牌。
+所有路由带 `?workspaceId=`（GET）或 body `workspaceId`（写）。写操作走 Origin 闸。会改变到点自动执行什么、何时执行或是否执行的写入见 4.1。只带 Origin 返回 401。这类写入待实现，依赖 S3。外部 HTTP 的 `POST /api/v1/plan/workflows/:id/run` 还必须带安全方案 S1 的页面令牌。这把页面令牌不是 `bridge.token`。只带 Origin、没有页面令牌时返回 401。cron 到点不走这条 HTTP 路由。调度器的内部 run 函数不挂在这条路由上，也不挂 MCP 或 bridge。AI、模型和 Host 读不到这把页面令牌。
 
 | 路由 | 入参 | 返回 |
 |---|---|---|
@@ -79,7 +85,7 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 | `GET /api/v1/plan/events?workspaceId&from&to`（读 `calendar_events`） | 时间窗（ms） | `{ ok, data: Event[] }` |
 | `POST/PATCH/DELETE /api/v1/plan/events[/:id]` | 同 tasks 模式 | |
 | `GET /api/v1/plan/workflows?workspaceId` | | `{ ok, data }` |
-| `POST/PATCH/DELETE /api/v1/plan/workflows[/:id]` | `status` 只能 `active|paused`。新建 cron、改为 `active`、修改 `trigger` 要页面令牌或提案。只带 Origin 返回 401。待实现，依赖 S3 | |
+| `POST/PATCH/DELETE /api/v1/plan/workflows[/:id]` | `status` 只能 `active|paused`。会改变到点执行内容、时间或是否执行的写入见 4.1。只带 Origin 返回 401。待实现，依赖 S3 | |
 | `POST /api/v1/plan/workflows/:id/run` | 外部 HTTP。页面令牌，不是 `bridge.token`。见 4.1。待实现 | 200，新建行 `workflow_runs.state` 为 `queued`。无令牌或只带 Origin 时 401 |
 
 错误：404 `not_found`、422 `invalid_status`、400 缺 `workspaceId`。
@@ -91,7 +97,7 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 - `app.ts`（`buildInitial` tasks L262；`partialize` L872–883；migrate L904）：`tasks/events/workflows` 改为**缓存**，不 persist；新增 `hydratePlan(workspaceId)` 拉三个列表；`addTask/updateTask/…` 改为「先调 API，成功后更新缓存」（乐观更新可选，失败回滚 + 黄条）。
 - `Plan.tsx`：挂载与工作区切换时 `hydratePlan`；订阅 `task.changed` 事件刷新（规格 01 可用时）。
 - **周视图**（L365–387）：以本周一为起点生成 7 天真日期（`Intl.DateTimeFormat('zh-CN')`），每格显示落在当天的 `events`；无事件显示现有空态文案，不凑格。
-- **工作流**：`active` 时「暂停」可点，`status` 改为 `paused`。删除内存里的 `runWorkflow` 和未用 import。把 `status` 改为 `active` 要带页面令牌，或先提案再确认。只带 Origin 返回 401。这一条待实现，依赖 S3。没有 S3 时，启用不能把工作流变成会到点跑的 active。「运行」按钮待实现。人点「运行」时调用 `POST /api/v1/plan/workflows/:id/run`，请求带页面令牌。cron 由 4.1 的进程内调度器触发。调度器的内部 run 函数不挂 MCP、bridge 或 HTTP。关键字 trigger 和事件 trigger 保持不可运行，文案写明未执行。
+- **工作流**：删除内存里的 `runWorkflow` 和未用 import。暂停、重新启用、改定义和改步骤，凡会改变到点执行内容、时间或是否执行的保存，都见 4.1。待实现，依赖 S3。没有 S3 时，这类保存不能使工作流到点跑起来。「运行」按钮待实现。人点「运行」时调用 `POST /api/v1/plan/workflows/:id/run`，请求带页面令牌。cron 由 4.1 的进程内调度器触发。调度器的内部 run 函数不挂 MCP、bridge 或 HTTP。关键字 trigger 和事件 trigger 保持不可运行，文案写明未执行。
 - **IM 摘成待办**（`IMWorkspace.tsx` L1517–1522）：`createTask({ workspaceId: activeWorkspaceId, title, sourceRef:'im:'+requestId })`，成功黄条「已加入计划」，失败红条。
 - **⌘K**：`tasks` 分组读 store 缓存（已水合），命中后打开计划面板并高亮该任务（现有 `togglePanel('plan')` + `selectTask` 若无则加最小 state）。
 - **「整理待办」按钮**（待办 Tab 顶栏，复用现有按钮样式）：`askAiForResult({ intent:'整理待办', prompt:'根据以下待办给出去重/合并/优先级建议，用 fde_submit_result 提交', schema: TaskAdviceSchema, context:['tasks'] })` → 结果以「建议」列表弹在抽屉里，人点「应用」逐条 PATCH。**不自动改**。
@@ -108,11 +114,11 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 2. 切换顶栏工作区 → 列表按工作区变化；切回 → 「验收 A」回来。
 3. IM 任一消息 → 摘成待办 → 计划里出现，`source_ref` 为 `im:<id>`。
 4. 日程周视图表头为本周真实日期；新建一个明天的事件 → 出现在对应格。
-5. 工作流暂停。新建为 paused。「暂停」后 `status` 为 `paused`。把 `status` 改为 `active`、新建 cron 工作流和修改 `trigger` 见第 9 条。
+5. 工作流新建为 paused。暂停、重新启用，以及其它会改变到点执行内容、时间或是否执行的写入，见第 9 条。
 6. ⌘K 输入「验收」→ 任务分组出现「验收 A」→ 回车打开计划并高亮。
 7. 「整理待办」→ 左栏当前会话收到 prompt → 建议抽屉出现 →「应用」一条 → 任务变更。
 8. 5174 回归：计划页可打开（首次会空，因为之前只在内存）。
-9. 工作流 run，待实现，后续 PR。外部 HTTP 带页面令牌时返回 200，新行 `workflow_runs.state` 为 `queued`。步骤开始后，该行 `output_json` 含会话 id。只带 Origin 或没有页面令牌时返回 401。cron 不经过这条 HTTP。内部 run 函数不挂 MCP、bridge 或 HTTP，只给进程内调度器。调度器待实现，依赖 S3。只有 S1 和 S2 时不上线。新建 cron 工作流、把 `status` 改为 `active`、修改 `trigger`，只带 Origin 返回 401。持有页面令牌的人可以直接完成这三种操作。AI 做这三件事只能提案。提案时 `audit_entries` 记 `awaiting_approval`。确认或拒绝时各再记一条。确认前不改 `workflows`。`tasks` 和业务记录只在确认后才写。关键字 trigger 和事件 trigger 在卡片上显示未执行。
+9. 工作流 run，待实现，后续 PR。外部 HTTP 带页面令牌时返回 200，新行 `workflow_runs.state` 为 `queued`。步骤开始后，该行 `output_json` 含会话 id。只带 Origin 或没有页面令牌时返回 401。cron 不经过这条 HTTP。内部 run 函数不挂 MCP、bridge 或 HTTP，只给进程内调度器。调度器待实现，依赖 S3。只有 S1 和 S2 时不上线。会改变到点自动执行什么、何时执行或是否执行的写入，只带 Origin 返回 401。例子包括新建 cron、置为 active、改 trigger、改定义、改步骤、改 prompt，以及复制、导入、暂停、删除和重新启用。持有页面令牌的人可以直接写。AI 只能提案。提案时 `audit_entries` 记 `awaiting_approval`。确认或拒绝时各再记一条。走提案时，确认前不改会进入到点运行的定义。调度器上线前已存在的 active cron 行，人重新确认前不跑。关键字 trigger 和事件 trigger 在卡片上显示未执行。
 
 自动化：`runtime/tests/plan.test.mjs`：CRUD、工作区隔离、状态校验、completed_at 自动填。工作流 run 的自动化留在后续 PR，见 4.1。
 
@@ -120,12 +126,12 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 
 1. `feat(runtime): plan tasks/events/workflows CRUD routes`
 2. `feat(web): hydrate plan from API; drop persisted in-memory plan`
-3. `fix(plan): real week dates; workflow pause; remove dead run`。把 `status` 改为 `active` 不在这条。
+3. `fix(plan): real week dates; workflow pause; remove dead run`。到点写入原则不在这条。
 4. `feat(im): 摘成待办 persists via plan API`
 5. `feat(palette): search tasks`
 6. `feat(plan): 整理待办 via askAiForResult`（依赖规格 02 落地，否则跳过并在报告注明）
 7. 不在前六条。后续 PR 做人工 HTTP run 和「运行」按钮。依赖安全方案 S1 的页面令牌函数和 S2。
-8. 不在前六条。后续 PR 做进程内 cron 调度器，以及新建 cron 工作流、把 `status` 改为 `active`、修改 `trigger` 的页面令牌或提案。依赖 S3。只有 S1 和 S2 时不上线。
+8. 不在前六条。后续 PR 做进程内 cron 调度器，以及 4.1 的到点写入原则。依赖 S3。只有 S1 和 S2 时不上线。上线时已存在的 active cron 行要等人重新确认。
 
 ## 10. 开放问题
 
