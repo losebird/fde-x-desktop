@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createInterface } from 'node:readline'
 import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -59,6 +60,8 @@ async function waitFor(port, timeoutMs) {
 }
 
 let shuttingDown = false
+let pageToken = ''
+let viteChild = null
 process.on('SIGINT', () => { shuttingDown = true })
 process.on('SIGTERM', () => { shuttingDown = true })
 
@@ -121,7 +124,17 @@ function superviseRuntime(extraEnv = {}, { adoptExisting = false } = {}) {
       child = spawn(process.execPath, ['runtime/server.mjs'], {
         cwd: root,
         env,
-        stdio: 'inherit',
+        stdio: ['ignore', 'pipe', 'inherit'],
+      })
+      const lines = createInterface({ input: child.stdout })
+      lines.on('line', (line) => {
+        const match = /^FDE_UI_TOKEN\s+([0-9a-f]{64})$/u.exec(line.trim())
+        if (match) {
+          pageToken = match[1]
+          if (viteChild && viteChild.connected) viteChild.send({ type: 'fde-ui-token', token: pageToken })
+          return
+        }
+        process.stdout.write(`${line}\n`)
       })
       portWatchCtl.start()
       child.on('exit', (code, signal) => {
@@ -174,7 +187,7 @@ if (!await portOpen(runtimePort)) {
 }
 
 console.log(`[fde-x] 打开界面 http://127.0.0.1:${webPort}`)
-const viteChild = spawn(process.execPath, [
+viteChild = spawn(process.execPath, [
   join(root, 'node_modules/vite/bin/vite.js'),
   '--host', '127.0.0.1',
   '--port', String(webPort),
@@ -190,6 +203,9 @@ const viteChild = spawn(process.execPath, [
 viteChild.on('message', (msg) => {
   if (msg && msg.type === 'fde-runtime-restart' && runtimeSupervisorNudge) {
     void runtimeSupervisorNudge()
+  }
+  if (msg && msg.type === 'fde-vite-listening' && pageToken) {
+    viteChild.send({ type: 'fde-ui-token', token: pageToken })
   }
 })
 viteChild.on('exit', (code, signal) => {

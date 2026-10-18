@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { spawn } from 'node:child_process'
+import { createInterface } from 'node:readline'
 import { createConnection } from 'node:net'
 import { fileURLToPath, URL } from 'node:url'
 import { runtimePortOpen } from './scripts/runtime-port.mjs'
@@ -41,6 +42,25 @@ function waitForPort(port: number, host: string, timeoutMs = 4000) {
 function fdeRuntimePlugin(): Plugin {
   let runtimeChild: ReturnType<typeof spawn> | null = null
   let shuttingDown = false
+  let uiToken = ''
+
+  if (typeof process.on === 'function') {
+    process.on('message', (msg: unknown) => {
+      if (!msg || typeof msg !== 'object') return
+      const token = (msg as { type?: string; token?: string }).type === 'fde-ui-token'
+        ? (msg as { token?: string }).token
+        : ''
+      if (typeof token === 'string' && /^[0-9a-f]{64}$/u.test(token)) uiToken = token
+    })
+    process.send?.({ type: 'fde-vite-listening' })
+  }
+
+  function takeUiTokenLine(line: string) {
+    const match = /^FDE_UI_TOKEN\s+([0-9a-f]{64})$/u.exec(line.trim())
+    if (!match) return false
+    uiToken = match[1]
+    return true
+  }
 
   function spawnSupervisedRuntime(server: Parameters<NonNullable<Plugin['configureServer']>>[0]) {
     if (shuttingDown || runtimeChild) return
@@ -54,8 +74,15 @@ function fdeRuntimePlugin(): Plugin {
         FDE_RUNTIME_SUPERVISED: '1',
         FDE_ALLOWED_ORIGINS: devAllowedOrigins.join(','),
       },
-      stdio: 'inherit',
+      stdio: ['ignore', 'pipe', 'inherit'],
     })
+    if (child.stdout) {
+      const lines = createInterface({ input: child.stdout })
+      lines.on('line', (line) => {
+        if (takeUiTokenLine(line)) return
+        process.stdout.write(`${line}\n`)
+      })
+    }
     runtimeChild = child
     child.on('error', (error) => {
       server.config.logger.error(`[fde-x] 无法启动本地核心：${error.message}`)
@@ -70,6 +97,11 @@ function fdeRuntimePlugin(): Plugin {
 
   return {
     name: 'fde-x-runtime',
+    transformIndexHtml(html) {
+      if (!/^[0-9a-f]{64}$/u.test(uiToken)) return html
+      if (html.includes('name="fde-ui-token"')) return html
+      return html.replace('</head>', `<meta name="fde-ui-token" content="${uiToken}" />\n</head>`)
+    },
     async configureServer(server) {
       const host = FDE_RUNTIME_HOST
       if (process.env.FDE_DEV_SUPERVISOR_IPC === '1' && typeof process.send === 'function') {
