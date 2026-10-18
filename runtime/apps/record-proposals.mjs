@@ -6,12 +6,6 @@ const RECORD_PROPOSAL_ACTION = 'app.record.propose'
 
 const RESERVED_KEYS = new Set(['id', 'rid', 'workspace', 'workspaceCwd'])
 
-/**
- * @param {Record<string, unknown>} spec
- * @param {string} entity
- * @param {unknown} rows
- * @returns {{ rid: string, fields: Record<string, unknown> }[] | null}
- */
 function recordPatches(spec, entity, rows) {
   const entities = Array.isArray(spec?.entities) ? spec.entities : []
   const ent = entities.find((item) => item && item.name === entity)
@@ -38,18 +32,6 @@ function recordPatches(spec, entity, rows) {
   return patches
 }
 
-/**
- * @param {import('node:sqlite').DatabaseSync} db
- * @param {{
- *   workspaceId: string,
- *   app: { id: string, spec: Record<string, unknown> },
- *   entity: string,
- *   workspaceCwd: string,
- *   rows: unknown,
- *   correlationId?: string,
- *   actorId?: string,
- * }} input
- */
 export function proposeRecordUpdate(db, input) {
   const patches = recordPatches(input.app.spec, input.entity, input.rows)
   if (!patches) return { ok: false, error: 'validation_error', message: '更新提案需要记录和字段' }
@@ -121,11 +103,6 @@ function loadOpenProposal(db, operationId) {
   return { kind: 'open', operation }
 }
 
-/**
- * @param {import('node:sqlite').DatabaseSync} db
- * @param {string} operationId
- * @param {{ correlationId?: string, actorId?: string }} [opts]
- */
 export function confirmRecordProposal(db, operationId, opts = {}) {
   const actorId = opts.actorId ?? 'actor_local_user'
   db.exec('BEGIN IMMEDIATE;')
@@ -177,11 +154,6 @@ export function confirmRecordProposal(db, operationId, opts = {}) {
   return { kind: 'ok', operation: getOperation(db, operationId) }
 }
 
-/**
- * @param {import('node:sqlite').DatabaseSync} db
- * @param {string} operationId
- * @param {{ correlationId?: string, actorId?: string }} [opts]
- */
 export function rejectRecordProposal(db, operationId, opts = {}) {
   const actorId = opts.actorId ?? 'actor_local_user'
   db.exec('BEGIN IMMEDIATE;')
