@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { openDatabase } from '../db.mjs'
 import { SUPPLIER_VISITS_SPEC } from '../apps/fixtures.mjs'
 import { activateApp, createAppDraft } from '../apps/repository.mjs'
-import { getRecord, insertRecord, patchRecord } from '../apps/records.mjs'
+import { deleteRecord, getRecord, insertRecord, patchRecord } from '../apps/records.mjs'
 import { handleAppsBridge, handleAppsRoutes } from '../routes/apps.mjs'
 
 const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)), '..')
@@ -155,6 +155,31 @@ describe('app record propose', () => {
     const audits = db.prepare(`SELECT outcome FROM audit_entries WHERE action = 'app.record.confirm'`).all()
     assert.equal(audits.length, 1)
     assert.equal(audits[0].outcome, 'failed')
+    db.close()
+  })
+
+  test('confirm closes the proposal when the record was deleted', async () => {
+    const db = openFresh()
+    const { row } = await readyVisit(db)
+    const proposed = await proposeStatus(db, row.id, '已拜访')
+    assert.equal(deleteRecord(db, SUPPLIER_VISITS_SPEC, 'visit', CWD, row.id), true)
+    const confirmed = await decide(db, proposed.proposalId, 'confirm', {
+      'x-fde-ui-token': PAGE_TOKEN,
+    }, {})
+    assert.equal(confirmed.status, 404)
+    const op = db.prepare('SELECT state FROM operations WHERE id = ?').get(proposed.proposalId)
+    assert.equal(op.state, 'failed')
+    const audits = db.prepare(`SELECT outcome FROM audit_entries WHERE action = 'app.record.confirm'`).all()
+    assert.equal(audits.length, 1)
+    assert.equal(audits[0].outcome, 'failed')
+    const again = await decide(db, proposed.proposalId, 'confirm', {
+      'x-fde-ui-token': PAGE_TOKEN,
+    }, {})
+    assert.equal(again.status, 409)
+    assert.equal(again.payload.error.code, 'invalid_state')
+    assert.equal(db.prepare('SELECT state FROM operations WHERE id = ?').get(proposed.proposalId).state, 'failed')
+    assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM audit_entries WHERE action = 'app.record.confirm'`).get().n, 1)
+    assert.equal(getRecord(db, SUPPLIER_VISITS_SPEC, 'visit', CWD, row.id), null)
     db.close()
   })
 })
