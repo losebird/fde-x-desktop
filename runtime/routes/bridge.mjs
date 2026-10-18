@@ -102,9 +102,6 @@ function notImplemented(response, correlationId, owner) {
   )
 }
 
-/**
- * Bridge token routes (no Origin gate). Returns true when handled.
- */
 export async function handleBridgeRoutes(request, response, url, deps) {
   const { db, bridgeToken, correlationId, readJson, aiRuntime } = deps
   if (!pathHasPrefix(url.pathname, '/api/v1/bridge/')) return false

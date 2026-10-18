@@ -67,7 +67,6 @@ let sendPageToken = () => {}
 process.on('SIGINT', () => { shuttingDown = true })
 process.on('SIGTERM', () => { shuttingDown = true })
 
-/** Dev 监督：口不通就杀掉再拉（设置里重载核心在 BFF 已死时经 Vite IPC 触发）。 */
 let runtimeSupervisorNudge = null
 
 function attachRuntimePortWatch(getChild, port) {

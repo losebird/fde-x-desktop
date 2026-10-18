@@ -1,5 +1,3 @@
-/** Packaged static owns FDE routes; only /dsh-app is the Host iframe mouth. */
-
 import { isViteDevAsset } from './apps/share.mjs'
 import { pathHasPrefix } from './path-prefix.mjs'
 
