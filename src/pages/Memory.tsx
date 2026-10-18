@@ -56,6 +56,13 @@ function isDrawerId(value: string): value is DrawerId {
   return (DRAWERS as readonly string[]).includes(value)
 }
 
+function memoryEngineStatus(ready: Record<string, unknown> | null, online: boolean) {
+  if (online) return '系统在线'
+  const name = typeof ready?.missingExport === 'string' ? ready.missingExport.trim() : ''
+  if (name) return `插件导入失败，缺少导出 ${name}`
+  return '引擎未就绪'
+}
+
 function folderName(cwd: string) {
   return cwd.split('/').filter(Boolean).at(-1) || cwd
 }
@@ -377,7 +384,7 @@ export default function Memory() {
     <div className="h-full min-h-0 overflow-auto px-6 py-5">
       <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted mb-2">
         <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${online ? 'bg-emerald-500' : 'bg-amber-400'}`} />
-        <span>{online ? '系统在线' : '引擎未就绪'}</span>
+        <span>{memoryEngineStatus(ready, online)}</span>
         <span className="text-ink-subtle">·</span>
         <span className="truncate min-w-0" title={cwd || undefined}>{title}</span>
       </div>
@@ -403,7 +410,7 @@ export default function Memory() {
       <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted mb-2">
         <button type="button" className="btn" onClick={goHome}>返回</button>
         <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${online ? 'bg-emerald-500' : 'bg-amber-400'}`} />
-        <span>{online ? '系统在线' : '引擎未就绪'}</span>
+        <span>{memoryEngineStatus(ready, online)}</span>
         <span className="text-ink-subtle">·</span>
         <span className="truncate min-w-0" title={cwd || undefined}>{title}</span>
       </div>
@@ -861,7 +868,7 @@ function HealthPanel({ cwd, ready, onRetry }: { cwd: string; ready: Record<strin
   )
   return (
     <div className="space-y-3 text-sm min-w-0">
-      <div>引擎 {ready?.ready ? '就绪' : '未就绪'}{cwd ? ` · ${cwd.split('/').filter(Boolean).at(-1)}` : ''}</div>
+      <div>引擎 {ready?.ready ? '就绪' : '未就绪'}{typeof ready?.missingExport === 'string' && ready.missingExport.trim() ? ` · 插件导入失败，缺少导出 ${ready.missingExport.trim()}` : ''}{cwd ? ` · ${cwd.split('/').filter(Boolean).at(-1)}` : ''}</div>
       <p className="text-xs text-ink-muted">按类看缺出处、重复、过期的记忆，不是装依赖的体检表。</p>
       {!ready?.ready && <button type="button" className="btn" onClick={onRetry}>再拉起引擎</button>}
       {err && <div className="text-xs text-accent-red">{err}</div>}
