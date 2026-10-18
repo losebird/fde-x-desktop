@@ -821,7 +821,10 @@ test('启动时把上次留下的 queued 和 running 标成失败', async (t) =>
       'fde://plan/workflow-runs/wfr_boot_r',
     ])
     for (const row of audits) {
-      assert.equal(row.action, 'plan.workflow_run.interrupt')
+      const action = row.target_ref.includes('/workflow-run-steps/')
+        ? 'workflow_run_step.reaped'
+        : 'workflow_run.reaped'
+      assert.equal(row.action, action)
       assert.equal(row.outcome, 'failed')
       assert.equal(row.workspace_id, 'ws_boot')
       assert.equal(JSON.parse(row.details_json).message, '上次运行被中断')
