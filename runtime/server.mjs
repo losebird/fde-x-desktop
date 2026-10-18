@@ -3382,13 +3382,6 @@ server.on('upgrade', (request, socket, head) => {
 
 void ensureTypertVerbs().catch(() => undefined)
 
-function reclaimKeepPids() {
-  return String(process.env.FDE_RECLAIM_KEEP_PIDS || '')
-    .split(',')
-    .map((part) => Number(part.trim()))
-    .filter((pid) => Number.isInteger(pid) && pid > 1)
-}
-
 server.listen(port, host, () => {
   const bound = server.address()
   const actualPort = typeof bound === 'object' && bound ? bound.port : port
@@ -3399,7 +3392,7 @@ server.listen(port, host, () => {
   console.log(`FDE-X runtime listening on http://${host}:${actualPort}`)
   console.log(`SQLite authority: ${databasePath}`)
   void reclaimStrayRuntime({
-    keep: [process.pid, process.ppid, ...reclaimKeepPids()],
+    keep: [process.pid, process.ppid],
     runtimePort: actualPort,
     lanPort: 0,
     profileName: '',
