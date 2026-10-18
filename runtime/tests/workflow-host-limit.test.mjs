@@ -31,3 +31,30 @@ test('真 Host 上 fde-workflow 会话只看见三个工具', async () => {
     await host.stop()
   }
 })
+
+test('真 Host 上无法确认调用方时拒绝 bash', async () => {
+  const host = await bootWorkflowHost()
+  try {
+    await host.core.call('session/create', {
+      request: { cwd: host.cwd, agentPreset: 'standard' },
+    })
+    await host.core.call('session/create', {
+      request: { cwd: host.cwd, agentPreset: 'fde-workflow' },
+    })
+    const standard = await waitForProbe(host.probeDir, 'standard')
+    const workflow = await waitForProbe(host.probeDir, 'fde-workflow')
+    assert.equal(standard.names.length, 44)
+    assert.equal(standard.bashWithAgent.isError, false)
+    assert.match(standard.bashWithAgent.text, /^RAN/)
+    const denied = 'Error: 工作流步骤不能调用这个工具'
+    assert.deepEqual({
+      bash: workflow.bashNoAgent.text,
+      spec: workflow.specNoAgent.text,
+    }, {
+      bash: denied,
+      spec: denied,
+    })
+  } finally {
+    await host.stop()
+  }
+})
