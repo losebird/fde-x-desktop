@@ -70,7 +70,7 @@ test('限制没有生效时 run 从 queued 直接失败且不发送步骤', asyn
       request: { cwd: host.cwd, agentPreset: 'fde-workflow' },
     })
     const seen = await waitForProbe(host.probeDir, 'fde-workflow')
-    assert.equal(seen.names.includes('workflow_leak'), true)
+    assert.deepEqual(seen.names, [...THREE, 'workflow_leak'])
 
     insertWorkspace(db, 'ws_host', host.cwd)
     insertWorkflow(db, 'wf_host', 'ws_host')

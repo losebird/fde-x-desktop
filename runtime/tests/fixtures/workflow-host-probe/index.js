@@ -68,7 +68,7 @@ function apply(ctx) {
       }
       writeFileSync(join(dir, `${preset}.json`), `${JSON.stringify(payload)}\n`)
     })
-  })
+  }, { prepend: true })
 }
 
 module.exports = { apply, inject: ['tools'] }
