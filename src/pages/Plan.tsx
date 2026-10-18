@@ -15,7 +15,7 @@ import { useEvents } from '@/lib/events'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 import { hostGoalStatusOnly, isHostGoalId, isHostJobId, isHostScheduleId } from '@/lib/plan-origin'
-import { PlanTaskProposals } from '@/pages/PlanTaskProposals'
+import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
