@@ -1,4 +1,5 @@
 import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE, FDE_RUNTIME_PORT } from '../config.mjs'
+import { verifyUiToken } from './bridge.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { emit } from '../events.mjs'
 import { workspaceIdForCwd } from '../briefing/workspace.mjs'
@@ -181,10 +182,11 @@ function recordAppOperation(db, {
  *   sendError: Function,
  *   sendJson: Function,
  *   readJson: Function,
+ *   uiToken?: string,
  * }} deps
  */
 export async function handleAppsRoutes(request, response, url, deps) {
-  const { db, aiRuntime, allowedOrigins, correlationId, sendError, sendJson, readJson } = deps
+  const { db, aiRuntime, allowedOrigins, correlationId, sendError, sendJson, readJson, uiToken } = deps
   const pathname = url.pathname
   if (!pathname.startsWith('/api/v1/apps') && !pathname.startsWith('/api/v1/bridge/app-')) {
     return false
@@ -748,20 +750,35 @@ export async function handleAppsRoutes(request, response, url, deps) {
         }
         return true
       }
+      if (!verifyUiToken(request, uiToken)) {
+        sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', correlationId)
+        return true
+      }
       try {
         const row = patchRecord(db, app.spec, entity, workspaceCwd, rid, body)
         if (!row) {
           sendError(response, 404, 'not_found', '记录不存在', correlationId)
           return true
         }
+        const targetRef = `fde://workstation/app/${slug}/${entity}/${rid}`
         recordAppOperation(db, {
           workspaceId,
           appId: app.id,
-          targetRef: `fde://workstation/app/${slug}/${entity}/${rid}`,
+          targetRef,
           action: 'app.record.patch',
           input: body,
           plan: { diff: body },
           correlationId,
+        })
+        appendAudit(db, {
+          workspaceId,
+          actorId: 'actor_local_user',
+          action: 'app.record.patch',
+          targetRef,
+          outcome: 'succeeded',
+          riskLevel: 'low',
+          correlationId,
+          details: { slug, entity, rid },
         })
         emit('app.record.changed', recordChangePayload(app, {
           entity,

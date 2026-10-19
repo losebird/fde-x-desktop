@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createInterface } from 'node:readline'
 import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -14,7 +15,7 @@ import {
   resolveDshBin,
 } from '../runtime/config.mjs'
 import { seedDshCredentialsSync } from '../runtime/dsh-credentials.mjs'
-import { isPidAlive, reclaimStrayRuntime } from '../runtime/reclaim-runtime.mjs'
+import { isPidAlive, pidsListeningOnPort, reclaimStrayRuntime } from '../runtime/reclaim-runtime.mjs'
 import { runtimePortOpen } from './runtime-port.mjs'
 import { ensureGenerationHost } from '../runtime/generation.mjs'
 
@@ -65,6 +66,8 @@ async function waitFor(port, timeoutMs) {
 }
 
 let shuttingDown = false
+let pageToken = ''
+let viteChild = null
 process.on('SIGINT', () => { shuttingDown = true })
 process.on('SIGTERM', () => { shuttingDown = true })
 
@@ -103,7 +106,7 @@ function bindRuntimeSupervisorNudge(getChild, port, boot) {
   }
 }
 
-function superviseRuntime(extraEnv = {}, { adoptExisting = false } = {}) {
+function superviseRuntime(extraEnv = {}) {
   const env = { ...process.env, ...extraEnv, FDE_RUNTIME_SUPERVISED: '1' }
   let child = null
   let booting = false
@@ -128,7 +131,17 @@ function superviseRuntime(extraEnv = {}, { adoptExisting = false } = {}) {
       child = spawn(process.execPath, ['runtime/boot.mjs'], {
         cwd: root,
         env,
-        stdio: 'inherit',
+        stdio: ['ignore', 'pipe', 'inherit'],
+      })
+      const lines = createInterface({ input: child.stdout })
+      lines.on('line', (line) => {
+        const match = /^FDE_UI_TOKEN\s+([0-9a-f]{64})$/u.exec(line.trim())
+        if (match) {
+          pageToken = match[1]
+          if (viteChild && viteChild.connected) viteChild.send({ type: 'fde-ui-token', token: pageToken })
+          return
+        }
+        process.stdout.write(`${line}\n`)
       })
       portWatchCtl.start()
       child.on('exit', (code, signal) => {
@@ -143,49 +156,46 @@ function superviseRuntime(extraEnv = {}, { adoptExisting = false } = {}) {
     }
   }
   bindRuntimeSupervisorNudge(() => child, runtimePort, boot)
-  if (!adoptExisting) {
-    void boot()
-    return
-  }
-  const watch = async () => {
-    while (!shuttingDown) {
-      if (!child && !(await portOpen(runtimePort, 300))) await boot()
-      await new Promise((resolveWait) => setTimeout(resolveWait, 400))
-    }
-  }
-  void watch()
+  void boot()
 }
 
 prepareFdeHome()
 devMark('home')
 
-if (!await portOpen(runtimePort)) {
-  console.log(`[fde-x] 正在启动本地核心 http://${host}:${runtimePort}`)
-  await ensureGenerationHost()
-  devMark('generation')
-  const dshBin = FDE_DSH_BIN || resolveDshBin()
-  superviseRuntime({
-    FDE_RUNTIME_PORT: String(runtimePort),
-    FDE_RUNTIME_HOST: host,
-    ...(dshBin ? { FDE_DSH_BIN: dshBin } : {}),
-    FDE_DSH_HOME: fdeHome,
-    DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || DSH_LAN_ASSIST_PORT,
-  })
-  const ready = await waitFor(runtimePort, 12_000)
-  devMark(ready ? 'runtime' : 'runtime-timeout')
-  if (!ready) {
-    console.error('[fde-x] 本地核心没有在 12 秒内起来。请看上方 runtime 报错。')
-    process.exit(1)
+if (await portOpen(runtimePort)) {
+  const occupants = await pidsListeningOnPort(runtimePort)
+  console.error(`[fde-x] ${runtimePort} 已有核心在听，但这个 dev 拿不到它的页面令牌。不复用，也不另起。`)
+  console.error(`[fde-x] 占用进程 pid：${occupants.length ? occupants.join('、') : '没有查到'}`)
+  if (occupants.length === 0) {
+    console.error(`[fde-x] 停掉占用 ${runtimePort} 的进程后再运行 pnpm dev。`)
+  } else {
+    for (const pid of occupants) {
+      console.error(`[fde-x] 停掉后再运行 pnpm dev：kill ${pid}`)
+    }
   }
-} else {
-  console.log(`[fde-x] 复用已有本地核心 http://${host}:${runtimePort}`)
-  console.log('[fde-x] 已挂监督：设置里「重载核心」退出后会自动再拉起')
-  const dshBin = FDE_DSH_BIN || resolveDshBin()
-  superviseRuntime(dshBin ? { FDE_DSH_BIN: dshBin } : {}, { adoptExisting: true })
+  process.exit(1)
+}
+
+console.log(`[fde-x] 正在启动本地核心 http://${host}:${runtimePort}`)
+await ensureGenerationHost()
+devMark('generation')
+const dshBin = FDE_DSH_BIN || resolveDshBin()
+superviseRuntime({
+  FDE_RUNTIME_PORT: String(runtimePort),
+  FDE_RUNTIME_HOST: host,
+  ...(dshBin ? { FDE_DSH_BIN: dshBin } : {}),
+  FDE_DSH_HOME: fdeHome,
+  DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || DSH_LAN_ASSIST_PORT,
+})
+const ready = await waitFor(runtimePort, 12_000)
+devMark(ready ? 'runtime' : 'runtime-timeout')
+if (!ready) {
+  console.error('[fde-x] 本地核心没有在 12 秒内起来。请看上方 runtime 报错。')
+  process.exit(1)
 }
 
 console.log(`[fde-x] 打开界面 http://127.0.0.1:${webPort}`)
-const viteChild = spawn(process.execPath, [
+viteChild = spawn(process.execPath, [
   join(root, 'node_modules/vite/bin/vite.js'),
   '--host', '127.0.0.1',
   '--port', String(webPort),
@@ -201,6 +211,9 @@ const viteChild = spawn(process.execPath, [
 viteChild.on('message', (msg) => {
   if (msg && msg.type === 'fde-runtime-restart' && runtimeSupervisorNudge) {
     void runtimeSupervisorNudge()
+  }
+  if (msg && msg.type === 'fde-vite-listening' && pageToken) {
+    viteChild.send({ type: 'fde-ui-token', token: pageToken })
   }
 })
 viteChild.on('exit', (code, signal) => {

@@ -4,6 +4,7 @@ interface FdeDesktopBridge {
   pickDirectory: () => Promise<{ path: string | null }>
   openExternal: (url: string) => Promise<void>
   appInfo: () => Promise<{ version: string; bffPort: number; resources: string }>
+  uiToken?: () => Promise<string>
 }
 
 interface Window {
