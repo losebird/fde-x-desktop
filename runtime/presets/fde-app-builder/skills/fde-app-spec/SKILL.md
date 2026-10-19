@@ -1,3 +1,8 @@
+---
+name: fde-app-spec
+description: "生成工作台应用并通过 `fde_app_spec_submit` 提交。"
+---
+
 # fde-app-spec
 
 生成工作台应用并通过 `fde_app_spec_submit` 提交。
