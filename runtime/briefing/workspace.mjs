@@ -30,7 +30,17 @@ export function workspaceRowIdForCwd(db, workspaceCwd) {
   return row?.id || ''
 }
 
-export function workspaceIdForCwd(db, workspaceCwd) {
-  return workspaceRowIdForCwd(db, workspaceCwd) || 'ws_personal'
+export function resolveWorkspaceIdOrFail(db, resolved) {
+  if (resolved?.error) return { error: resolved.error }
+  if (resolved?.id) return { workspaceId: resolved.id }
+  if (resolved?.source === 'request') {
+    const row = workspaceRowForCwd(db, resolved.cwd)
+    if (!row) return { error: 'missing_workspace' }
+    return { workspaceId: row.id, cwd: resolved.cwd }
+  }
+  if (!resolved?.cwd) return { workspaceId: 'ws_personal' }
+  const row = workspaceRowForCwd(db, resolved.cwd)
+  if (row) return { workspaceId: row.id, cwd: resolved.cwd }
+  return { workspaceId: 'ws_personal', cwd: resolved.cwd }
 }
 

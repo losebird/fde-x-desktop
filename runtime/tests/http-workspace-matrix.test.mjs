@@ -20,7 +20,7 @@ const WIN_MARK = 'matrix-win-marker'
 const SLASH_MARK = 'matrix-slash-marker'
 const DEFAULT_MARK = 'matrix-default-marker'
 
-const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context'])
+const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context', 'business-apps'])
 const READ_RE = /searchParams\.(?:get|has)\(\s*['"`](?:cwd|workspace)['"`]|body\??\.(?:cwd|workspaceCwd|workspace)\b|body\??\[['"`](?:cwd|workspace)['"`]\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\s*\(/
 
 function registerWorkspace(db, id, cwd) {
@@ -120,7 +120,7 @@ function paramFor(mode) {
 }
 
 function personalMarkers() {
-  return [WIN_MARK, SLASH_MARK, DEFAULT_MARK, 'matrix-default-app', 'matrix-win-app', 'matrix-slash-app', 'matrix-surface-default', 'matrix-surface-win', 'matrix-surface-slash', 'matrix-default-brief', 'matrix-win-brief', 'matrix-slash-brief', 'AGENTS.md', 'win-marker.txt']
+  return [WIN_MARK, SLASH_MARK, DEFAULT_MARK, 'matrix-default-app', 'matrix-win-app', 'matrix-slash-app', 'matrix-personal-task', 'matrix-surface-default', 'matrix-surface-win', 'matrix-surface-slash', 'matrix-default-brief', 'matrix-win-brief', 'matrix-slash-brief', 'AGENTS.md', 'win-marker.txt']
 }
 
 async function requestRoute(server, route, mode, token) {
@@ -157,7 +157,11 @@ async function requestRoute(server, route, mode, token) {
       const started = Date.now()
       try {
         while (Date.now() - started < 1500 && !text.includes('matrix-')) {
-          const chunk = await reader.read()
+          const chunk = await Promise.race([
+            reader.read(),
+            delay(200).then(() => ({ timeout: true })),
+          ])
+          if (chunk.timeout) continue
           if (chunk.done) break
           if (chunk.value) text += Buffer.from(chunk.value).toString()
         }
@@ -179,7 +183,7 @@ function checkCase(route, mode, status, text) {
     for (const marker of personalMarkers()) {
       if (text.includes(marker)) problems.push(`${label} leaked ${marker}`)
     }
-    if (status !== 404 || !text.includes('工作区未登记')) {
+    if (APPS_UNREGISTERED.has(route.id) && (status !== 404 || !text.includes('工作区未登记'))) {
       problems.push(`${label} status ${status} ${text.slice(0, 180)}`)
     }
     return problems
@@ -270,6 +274,11 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
   insertMarkerApp(server.db, 'app_matrix_win', 'ws_matrix_win', 'matrix-win-app')
   insertMarkerApp(server.db, 'app_matrix_slash', 'ws_matrix_slash', 'matrix-slash-app')
   insertMarkerApp(server.db, 'app_matrix_default', 'ws_personal', 'matrix-default-app')
+  const taskNow = new Date().toISOString()
+  server.db.prepare(`
+    INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+    VALUES ('task_matrix_personal', 'ws_personal', 'matrix-personal-task', '', 'todo', 'med', NULL, ?, ?)
+  `).run(taskNow, taskNow)
   let token = ''
   for (let attempt = 0; attempt < 20 && !token; attempt += 1) {
     try {
@@ -281,8 +290,7 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
   const problems = []
   if (!surfaceWin || !surfaceSlash || !surfaceDefault) problems.push('surface seed failed')
     for (const route of httpWorkspaceRoutes) {
-      const modes = ['win', 'slash', 'illegal', 'absent']
-      if (APPS_UNREGISTERED.has(route.id)) modes.push('unreg-win', 'unreg-slash')
+      const modes = ['win', 'slash', 'illegal', 'absent', 'unreg-win', 'unreg-slash']
       for (const mode of modes) {
         try {
           const result = await requestRoute(server, route, mode, token)

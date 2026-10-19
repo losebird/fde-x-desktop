@@ -1,3 +1,4 @@
+import { resolveWorkspaceIdOrFail } from './briefing/workspace.mjs'
 import { canonicalWorkspaceCwd, sameWorkspaceCwd } from './cwd.mjs'
 import { listBusinessApps, listBusinessConnections, listOperations, listWorkspaces } from './db.mjs'
 import { memoryLandHref } from './memory/identity.mjs'
@@ -152,13 +153,6 @@ function parseTaskList(taskIds) {
   return { query: { kind: 'explicit', ids } }
 }
 
-function packWorkspaceId(db, workspaceCwd, cwdSource) {
-  const row = workspaceRowForCwd(db, workspaceCwd)
-  if (row) return row.id
-  if (cwdSource === 'request') return null
-  return 'ws_personal'
-}
-
 async function fillTasks(db, pack, workspaceId, taskList) {
   const now = new Date().toISOString()
   const overdue = db.prepare(`
@@ -311,10 +305,9 @@ export async function buildContextPack(deps, input) {
   if (!cwd) {
     return { pack, warnings: ['workspace_cwd_missing'] }
   }
-  const workspaceId = packWorkspaceId(deps.db, cwd, cwdSource)
-  if (!workspaceId) {
-    return { pack, warnings, error: 'missing_workspace' }
-  }
+  const ident = resolveWorkspaceIdOrFail(deps.db, { cwd, source: cwdSource || 'request' })
+  if (ident.error) return { pack, warnings, error: ident.error }
+  const workspaceId = ident.workspaceId
 
   for (const scope of scopeList) {
     const result = await withBudget(deadline, async () => {

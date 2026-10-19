@@ -87,6 +87,7 @@ export const httpWorkspaceRoutes = [
   { id: 'skills-model-invocable', file: 'runtime/routes/skills.mjs', method: 'POST', path: '/api/v1/skills/model-invocable', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-install', file: 'runtime/routes/skills.mjs', method: 'POST', path: '/api/v1/skills/install', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-bundle-delete', file: 'runtime/routes/skills.mjs', method: 'DELETE', path: '/api/v1/skills/bundle', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
+  { id: 'business-apps', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/business/apps', place: 'query', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
   { id: 'apps', file: 'runtime/routes/apps.mjs', method: 'GET', path: '/api/v1/apps', place: 'query', param: 'workspace', proof: 'apps', absent: 'apps-default', illegal: 'unmatched' },
   { id: 'apps-create', file: 'runtime/routes/apps.mjs', method: 'POST', path: '/api/v1/apps', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
   { id: 'apps-entity', file: 'runtime/routes/apps.mjs', method: 'GET', path: '/api/v1/apps/matrix-slug/visit', place: 'query', param: 'workspace', proof: 'status', absent: 'runtime', illegal: 'unmatched' },

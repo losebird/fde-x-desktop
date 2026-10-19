@@ -150,6 +150,7 @@ import {
   FDE_WEB_PORT,
 } from './config.mjs'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
+import { resolveWorkspaceIdOrFail } from './briefing/workspace.mjs'
 import { resolveHttpWorkspace } from './http-workspace.mjs'
 
 const runtimeDirectory = FDE_RUNTIME_DIR
@@ -3065,8 +3066,25 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/business/apps') {
-      const workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
-      const workspaceCwd = url.searchParams.get('workspaceCwd') ?? ''
+      const rawId = url.searchParams.get('workspaceId')
+      const resolvedApps = resolveHttpWorkspace({
+        url,
+        slots: [['query', 'workspaceCwd']],
+        whenAbsent: 'omit',
+      })
+      if (resolvedApps.error) {
+        sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+        return
+      }
+      if (resolvedApps.source === 'request' && !rawId) {
+        const ident = resolveWorkspaceIdOrFail(db, resolvedApps)
+        if (ident.error === 'missing_workspace') {
+          sendError(response, 404, 'not_found', '工作区未登记', currentCorrelationId)
+          return
+        }
+      }
+      const workspaceId = rawId ?? 'ws_personal'
+      const workspaceCwd = resolvedApps.cwd || ''
       const shares = liveShareIdsByApp(db)
       const items = listBusinessApps(db, { workspaceId, workspaceCwd }).map((row) => ({
         ...row,

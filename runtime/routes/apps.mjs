@@ -4,7 +4,7 @@ import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE, FDE_RUNTIME_PORT } from 
 import { verifyUiToken } from './bridge.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { emit } from '../events.mjs'
-import { workspaceRowIdForCwd } from '../briefing/workspace.mjs'
+import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 import {
   buildAgentActionJobs,
   buildBizPreviewIntents,
@@ -84,9 +84,7 @@ function rejectAppWorkspace(resolved, response, correlationId, sendError) {
 }
 
 function idForSuppliedPath(db, cwd) {
-  const workspaceId = workspaceRowIdForCwd(db, cwd)
-  if (!workspaceId) return { error: 'missing_workspace' }
-  return { workspaceId }
+  return resolveWorkspaceIdOrFail(db, { cwd, source: 'request' })
 }
 
 function appIdentity(db, url, body, slots) {
@@ -103,8 +101,8 @@ function appIdentity(db, url, body, slots) {
     if (found.error) return found
     return { workspaceId: found.workspaceId, hint: resolved.cwd }
   }
-  if (resolved.id) return { workspaceId: resolved.id, hint: '' }
-  return { workspaceId: 'ws_personal', hint: '' }
+  const ident = resolveWorkspaceIdOrFail(db, resolved)
+  return { workspaceId: ident.workspaceId, hint: '' }
 }
 
 function appRecordCwd(url, body, spec, aiRuntime, place) {
@@ -331,7 +329,9 @@ export async function handleAppsRoutes(request, response, url, deps) {
       if (rejectAppWorkspace(found, response, correlationId, sendError)) return true
       workspaceId = found.workspaceId
     } else if (!workspaceId) {
-      workspaceId = workspaceRowIdForCwd(db, workspaceCwd) || 'ws_personal'
+      const found = resolveWorkspaceIdOrFail(db, pathResolved)
+      if (rejectAppWorkspace(found, response, correlationId, sendError)) return true
+      workspaceId = found.workspaceId
     }
     const spec = body.spec
     if (!spec || typeof spec !== 'object') {
@@ -977,11 +977,9 @@ export async function handleAppsRoutes(request, response, url, deps) {
  * @param {string} workspaceCwd
  */
 export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
-  let workspaceId = 'ws_personal'
-  if (workspaceCwd) {
-    workspaceId = workspaceRowIdForCwd(db, workspaceCwd)
-    if (!workspaceId) return { ok: false, status: 404, errors: [{ path: 'workspaceCwd', message: '工作区未登记' }] }
-  }
+  const found = resolveWorkspaceIdOrFail(db, workspaceCwd ? { cwd: workspaceCwd, source: 'request' } : {})
+  if (found.error) return { ok: false, status: 404, errors: [{ path: 'workspaceCwd', message: '工作区未登记' }] }
+  const workspaceId = found.workspaceId
   if (sub === 'app-spec-submit') {
     const spec = body.spec
     if (!spec || typeof spec !== 'object') {
