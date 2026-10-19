@@ -14,6 +14,8 @@ const runtimeRoot = join(repoRoot, 'runtime')
 const WIN = 'C:/x'
 const SLASH = '/x'
 const ILLEGAL = 'a/b'
+const UNREG_WIN = 'C:/unregistered'
+const UNREG_SLASH = '/y-not-registered'
 const WIN_MARK = 'matrix-win-marker'
 const SLASH_MARK = 'matrix-slash-marker'
 const DEFAULT_MARK = 'matrix-default-marker'
@@ -108,6 +110,18 @@ async function startServer(env) {
   }
 }
 
+function paramFor(mode) {
+  if (mode === 'win') return WIN
+  if (mode === 'slash') return SLASH
+  if (mode === 'unreg-win') return UNREG_WIN
+  if (mode === 'unreg-slash') return UNREG_SLASH
+  return ILLEGAL
+}
+
+function personalMarkers() {
+  return [WIN_MARK, SLASH_MARK, DEFAULT_MARK, 'matrix-default-app', 'matrix-win-app', 'matrix-slash-app', 'matrix-surface-default', 'matrix-surface-win', 'matrix-surface-slash', 'matrix-default-brief', 'matrix-win-brief', 'matrix-slash-brief', 'AGENTS.md', 'win-marker.txt']
+}
+
 async function requestRoute(server, route, mode, token) {
   const url = new URL(route.path, server.base)
   const body = { ...(route.extra || {}) }
@@ -115,9 +129,9 @@ async function requestRoute(server, route, mode, token) {
     for (const [key, value] of Object.entries(route.extra || {})) {
       if (value != null && typeof value !== 'object') url.searchParams.set(key, String(value))
     }
-    if (mode !== 'absent') url.searchParams.set(route.param, mode === 'win' ? WIN : mode === 'slash' ? SLASH : ILLEGAL)
+    if (mode !== 'absent') url.searchParams.set(route.param, paramFor(mode))
   } else if (mode !== 'absent') {
-    body[route.param] = mode === 'win' ? WIN : mode === 'slash' ? SLASH : ILLEGAL
+    body[route.param] = paramFor(mode)
   }
   if (route.proof === 'bridge') {
     body.requestId = `matrix-${route.id}-${mode}`
@@ -160,6 +174,15 @@ async function requestRoute(server, route, mode, token) {
 function checkCase(route, mode, status, text) {
   const problems = []
   const label = `${route.id} ${mode}`
+  if (mode === 'unreg-win' || mode === 'unreg-slash') {
+    for (const marker of personalMarkers()) {
+      if (text.includes(marker)) problems.push(`${label} leaked ${marker}`)
+    }
+    if (route.unregistered === 'missing' && (status !== 400 || !text.includes('missing_workspace'))) {
+      problems.push(`${label} status ${status} ${text.slice(0, 180)}`)
+    }
+    return problems
+  }
   const rejected = workspaceRejected(status, text)
   if (mode === 'illegal') {
     if (route.illegal === 'unmatched') {
@@ -257,7 +280,7 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
   const problems = []
   if (!surfaceWin || !surfaceSlash || !surfaceDefault) problems.push('surface seed failed')
     for (const route of httpWorkspaceRoutes) {
-      for (const mode of ['win', 'slash', 'illegal', 'absent']) {
+      for (const mode of ['win', 'slash', 'illegal', 'absent', 'unreg-win', 'unreg-slash']) {
         try {
           const result = await requestRoute(server, route, mode, token)
           problems.push(...checkCase(route, mode, result.status, result.text))
@@ -267,7 +290,12 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
             if (!row || row.workspace_cwd !== expected) problems.push(`${route.id} ${mode} stored ${row?.workspace_cwd}`)
           }
         } catch (error) {
-          problems.push(`${route.id} ${mode} ${error instanceof Error ? error.message : String(error)}`)
+          const message = error instanceof Error ? error.message : String(error)
+          if ((mode === 'unreg-win' || mode === 'unreg-slash') && route.proof === 'events-sse' && /abort/i.test(message)) {
+            problems.push(...checkCase(route, mode, 200, ''))
+            continue
+          }
+          problems.push(`${route.id} ${mode} ${message}`)
         }
       }
     }
