@@ -201,6 +201,7 @@ test('sync restores a stale dsh-lan-assist entry', () => {
       assert.equal(sha256(readFileSync(join(root, rel))), hash, rel)
     }
     plantSemanticReadme(root)
+    plantOverlays(root)
     const verified = run('verify', root, source)
     assert.equal(verified.status, 0, verified.stderr)
   } finally {
@@ -291,6 +292,7 @@ test('verify reports the lock entry when dsh-semantic-os is removed or corrupted
       const synced = run('sync', root, source)
       assert.equal(synced.status, 0, synced.stderr)
       plantSemanticReadme(root)
+      plantOverlays(root)
       const healthy = run('verify', root, source)
       assert.equal(healthy.status, 0, healthy.stderr)
       rewriteLock(root, mutate)

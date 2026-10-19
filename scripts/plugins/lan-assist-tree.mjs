@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, sep } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { diskFiles, readLock, verifyLockDocument } from './lock-check.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -25,9 +26,6 @@ const PLUGIN_DIR = 'runtime/plugins/dsh-lan-assist'
 const DOCS_DIR = 'docs/plugins/dsh-lan-assist'
 const TOOLS_DIR = 'tools/lan-assist-nats'
 const LOCK_PATH = 'runtime/plugins/plugins.lock.json'
-const REQUIRED_PLUGINS = ['dsh-lan-assist', 'dsh-semantic-os']
-const SHA40 = /^[a-f0-9]{40}$/u
-const HEX64 = /^[a-f0-9]{64}$/u
 
 const EXCLUDE_FILES = new Set(['leftover-cancel.mjs'])
 const EXCLUDE_PREFIXES = ['demo/', 'dist/']
@@ -161,6 +159,29 @@ export function buildTree(source, overlayDir) {
     if (fromSource !== blob) throw new Error(`${name} blob ${fromSource} != ${blob}`)
   }
   return files
+}
+
+export function canonicalLanShape(plugin) {
+  const source = plugin.source && typeof plugin.source === 'object' ? plugin.source : {}
+  const overlay = plugin.overlay && typeof plugin.overlay === 'object' ? plugin.overlay : {}
+  const rawBlobs = plugin.blobs && typeof plugin.blobs === 'object' && !Array.isArray(plugin.blobs) ? plugin.blobs : {}
+  const blobs = {}
+  for (const name of Object.keys(VENDOR_BLOBS)) {
+    if (Object.hasOwn(rawBlobs, name)) blobs[name] = rawBlobs[name]
+  }
+  const natsIn = plugin.dependencies && typeof plugin.dependencies === 'object' ? plugin.dependencies.nats : undefined
+  const nats = natsIn && typeof natsIn === 'object' ? natsIn : {}
+  const rawFiles = plugin.files && typeof plugin.files === 'object' && !Array.isArray(plugin.files) ? plugin.files : {}
+  const files = {}
+  for (const rel of Object.keys(rawFiles).sort()) files[rel] = rawFiles[rel]
+  return {
+    source: { repo: source.repo, commit: source.commit, parent: source.parent },
+    overlay: { repo: overlay.repo, commit: overlay.commit, path: overlay.path },
+    blobs,
+    excluded: Array.isArray(plugin.excluded) ? plugin.excluded.slice() : plugin.excluded,
+    dependencies: { nats: { version: nats.version, integrity: nats.integrity } },
+    files,
+  }
 }
 
 function lockDocument(files) {
@@ -316,90 +337,6 @@ function writeTree(root, files) {
   return loaded.existing
 }
 
-function diskFiles(root, dir) {
-  const abs = join(root, dir)
-  if (!existsSync(abs)) return []
-  const out = []
-  const walk = (current) => {
-    for (const name of readdirSync(current)) {
-      if (name === 'node_modules' || name === '.tmp-npm' || name === '.nsc-local' || name === '.git') continue
-      const path = join(current, name)
-      if (statSync(path).isDirectory()) walk(path)
-      else out.push(relative(root, path).split(sep).join('/'))
-    }
-  }
-  walk(abs)
-  return out
-}
-
-function treesFor(name, files) {
-  const roots = new Set()
-  for (const rel of Object.keys(files)) {
-    if (rel.startsWith(`runtime/plugins/${name}/`)) roots.add(`runtime/plugins/${name}`)
-    else if (rel.startsWith(`docs/plugins/${name}/`)) roots.add(`docs/plugins/${name}`)
-    else if (rel.startsWith('tools/')) roots.add(`tools/${rel.split('/')[1]}`)
-  }
-  return [...roots]
-}
-
-function verifyForeignEntry(root, name, plugin, errors) {
-  if (!plugin || typeof plugin !== 'object' || Array.isArray(plugin)) {
-    errors.push(`plugins.lock.json entry ${name} is not an object`)
-    return
-  }
-  const source = plugin.source
-  const overlay = plugin.overlay
-  if (!source || typeof source.repo !== 'string' || !/^[^/\s]+\/[^/\s]+$/u.test(source.repo)) errors.push(`${name} source.repo`)
-  if (!source || !SHA40.test(source.commit || '')) errors.push(`${name} source.commit`)
-  if (!source || !SHA40.test(source.parent || '')) errors.push(`${name} source.parent`)
-  if (!overlay || typeof overlay.repo !== 'string' || !overlay.repo) errors.push(`${name} overlay.repo`)
-  if (!overlay || !SHA40.test(overlay.commit || '')) errors.push(`${name} overlay.commit`)
-  if (!overlay || typeof overlay.path !== 'string' || !overlay.path) errors.push(`${name} overlay.path`)
-  const files = plugin.files
-  if (!files || typeof files !== 'object' || Array.isArray(files)) {
-    errors.push(`${name} files`)
-    return
-  }
-  for (const [rel, hash] of Object.entries(files)) {
-    if (typeof hash !== 'string' || !HEX64.test(hash)) {
-      errors.push(`${name} bad hash ${rel}`)
-      continue
-    }
-    const abs = join(root, rel)
-    if (!existsSync(abs)) {
-      errors.push(`${name} missing ${rel}`)
-      continue
-    }
-    const got = sha256(readFileSync(abs))
-    if (got !== hash) errors.push(`${name} mismatch ${rel} disk=${got} lock=${hash}`)
-  }
-  const expected = new Set(Object.keys(files))
-  for (const tree of treesFor(name, files)) {
-    for (const rel of diskFiles(root, tree)) {
-      if (!expected.has(rel)) errors.push(`${name} extra ${rel}`)
-    }
-  }
-}
-
-function verifyLockEntries(root, parsed, synthesized, errors) {
-  const plugins = parsed && parsed.plugins
-  if (!plugins || typeof plugins !== 'object' || Array.isArray(plugins)) {
-    errors.push('plugins.lock.json plugins must be an object')
-    return
-  }
-  for (const name of REQUIRED_PLUGINS) {
-    if (!Object.hasOwn(plugins, name)) errors.push(`plugins.lock.json missing entry ${name}`)
-  }
-  const want = synthesized.plugins['dsh-lan-assist']
-  if (Object.hasOwn(plugins, 'dsh-lan-assist') && JSON.stringify(plugins['dsh-lan-assist']) !== JSON.stringify(want)) {
-    errors.push('plugins.lock.json entry dsh-lan-assist does not match the synthesized tree')
-  }
-  for (const [name, plugin] of Object.entries(plugins)) {
-    if (name === 'dsh-lan-assist') continue
-    verifyForeignEntry(root, name, plugin, errors)
-  }
-}
-
 function fail(errors) {
   for (const error of errors) console.error(error)
   console.error(`lan-assist tree verify failed (${errors.length})`)
@@ -428,11 +365,16 @@ function verify(root, source, overlayDir) {
     const disk = readFileSync(abs)
     if (!disk.equals(bytes)) errors.push(`bytes differ ${rel} disk=${sha256(disk)} expected=${sha256(bytes)}`)
   }
-  const lockAbs = join(root, LOCK_PATH)
-  if (!existsSync(lockAbs)) errors.push(`missing ${LOCK_PATH}`)
+  const read = readLock(root)
+  if (read.syntax) {
+    errors.push(read.error)
+    fail(errors)
+  }
+  if (read.error) errors.push(read.error)
   else {
-    const parsed = JSON.parse(readFileSync(lockAbs, 'utf8'))
-    verifyLockEntries(root, parsed, lock, errors)
+    verifyLockDocument(root, read.lock, errors, {
+      'dsh-lan-assist': lock.plugins['dsh-lan-assist'],
+    })
   }
   const pluginPkg = JSON.parse(readFileSync(join(root, PLUGIN_DIR, 'package.json'), 'utf8'))
   if (pluginPkg.dependencies?.nats !== NATS_VERSION) errors.push('package.json dependencies.nats is not 2.29.3')
