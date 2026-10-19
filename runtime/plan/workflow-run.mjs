@@ -497,7 +497,7 @@ export function readWorkflowRuns(db, workflowIds) {
   if (ids.length === 0) return new Map()
   const placeholders = ids.map(() => '?').join(', ')
   const rows = db.prepare(`
-    SELECT id, workflow_id, state, output_json
+    SELECT id, workflow_id, state, output_json, trigger_json
     FROM workflow_runs
     WHERE workflow_id IN (${placeholders})
     ORDER BY created_at DESC, rowid DESC
@@ -511,8 +511,14 @@ export function readWorkflowRuns(db, workflowIds) {
       message = typeof output.message === 'string' ? output.message : ''
       sessionId = typeof output.sessionId === 'string' ? output.sessionId : ''
     }
+    let eventId = ''
+    if (row.trigger_json) {
+      const trigger = JSON.parse(row.trigger_json)
+      if (trigger && trigger.kind === 'schedule' && typeof trigger.eventId === 'string') eventId = trigger.eventId
+    }
     const list = grouped.get(row.workflow_id) || []
     const run = { id: row.id, state: row.state, message }
+    if (eventId) run.eventId = eventId
     if (sessionId) run.sessionId = sessionId
     list.push(run)
     grouped.set(row.workflow_id, list)

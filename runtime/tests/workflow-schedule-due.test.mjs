@@ -289,6 +289,14 @@ test('忙碌超过宽限记一次忙碌跳过且不重复', async () => {
     await tickWorkflowSchedules({ db, aiRuntime }, clock)
     assert.equal(scheduleKeyRows(db, 'wf_bp').length, 1)
     assertNoSession(calls)
+
+    failInterruptedRuns(db)
+    const restarted = new Date(now.getTime() + 1000)
+    await tickWorkflowSchedules({ db, aiRuntime }, { now: restarted, bootedAt: restarted })
+    const afterRestart = scheduleKeyRows(db, 'wf_bp')
+    assert.equal(afterRestart.length, 1)
+    assert.equal(JSON.parse(afterRestart[0].output_json).message, BUSY_MESSAGE)
+    assertNoSession(calls)
   } finally {
     db.close()
     await rm(dbPath, { force: true })
@@ -415,7 +423,7 @@ test('重启不会重跑已记下的定时运行 (ii) 宽限内忙碌后记错�
     insertWorkflow(db, 'wf_r2', 'ws_r2', 'active')
     const now2 = new Date()
     const bootedAtFirst = new Date(now2.getTime() - 5 * 60 * 1000)
-    const startAt = new Date(now2.getTime() - 60 * 1000).toISOString()
+    const startAt = new Date(now2.getTime() - 10 * 1000).toISOString()
     const createdAt = new Date(now2.getTime() - 2 * 60 * 1000).toISOString()
     insertSchedule(db, 'cevt_r2', 'ws_r2', 'wf_r2', startAt, createdAt, 'once')
     insertOpenRun(db, {
