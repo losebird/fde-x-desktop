@@ -105,12 +105,13 @@ export function decideProposal(db, operationId, decision, domain) {
         db.exec('ROLLBACK;')
         return { kind: 'invalid_state', operation: getOperation(db, operationId) }
       }
+      const rejected = typeof domain.rejectedDetails === 'function' ? domain.rejectedDetails(db, operation) : {}
       auditProposal(db, operation, {
         actorId,
         action: domain.rejectAction,
         outcome: 'rejected',
         correlationId,
-        details: { operationId },
+        details: { operationId, ...rejected },
       })
       db.exec('COMMIT;')
       return { kind: 'ok', operation: getOperation(db, operationId) }
