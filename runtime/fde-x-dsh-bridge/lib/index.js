@@ -272,10 +272,13 @@ function installIuiModeGate(ctx, config) {
     throw new Error('IUI mode gate requires ctx.on')
   }
   const mountOf = () => resolveMcpMount(config)
+  const { applyMcpCatalog } = require('./mcp-catalog.js')
+  const { toolSessionId } = require('./tools.js')
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembled = await next()
     const preset = presetFromAgent(context && context.agent)
-    return gatePromptAssembly(assembled, preset, mountOf())
+    const gated = gatePromptAssembly(assembled, preset, mountOf())
+    return applyMcpCatalog(gated, toolSessionId({ agent: context && context.agent }))
   }, true)
   ctx.on('agent/pre-step', async (payload, next) => {
     const decision = await next()
@@ -308,7 +311,7 @@ function apply(ctx, config) {
   try {
     const { defineTool } = loadDshTools()
     const { registerTools, FDE_TOOL_NAMES } = require('./tools.js')
-    registerTools(ctx, { defineTool })
+    registerTools(ctx, { defineTool, config })
     writeBridgeToolsStatus({ ok: true, tools: FDE_TOOL_NAMES })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
