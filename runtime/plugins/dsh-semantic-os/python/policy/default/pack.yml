@@ -1,0 +1,7 @@
+# Default expressible policy pack. Copied only when the workspace policy dir is empty.
+# PolicyEngine evaluates boolean rules only. It does not intercept.
+name: default
+rules:
+  - name: allow-graph-read
+    when: true
+    result: true

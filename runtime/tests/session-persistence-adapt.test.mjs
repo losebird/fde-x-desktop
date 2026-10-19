@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { adaptSessionPersistence } from '../vendor-overlays/dsh-semantic-os/session-persistence-adapt.js'
+import { adaptSessionPersistence } from '../plugins/dsh-semantic-os/session-persistence-adapt.js'
 
 const overlayIndex = readFileSync(join(import.meta.dirname, '../vendor-overlays/dsh-semantic-os/index.js'), 'utf8')
 
@@ -15,9 +15,13 @@ test('overlay imports adaptSessionPersistence from its own file', () => {
 
 test('adaptSessionPersistence maps Host snapshots onto list and readFrom', async () => {
   assert.equal(adaptSessionPersistence(null), null)
-  assert.equal(adaptSessionPersistence({ async list() { return [] } }), null)
+  const listOnly = { async list() { return [] } }
+  assert.equal(adaptSessionPersistence(listOnly), listOnly)
   const already = { async list() { return [] }, async readFrom() { return { events: [] } } }
-  assert.equal(adaptSessionPersistence(already), already)
+  const wrapped = adaptSessionPersistence(already)
+  assert.notEqual(wrapped, already)
+  assert.deepEqual(await wrapped.list(), [])
+  assert.deepEqual(await wrapped.readFrom('already', 0), { events: [] })
 
   const opened = []
   const closed = []
@@ -47,10 +51,12 @@ test('adaptSessionPersistence maps Host snapshots onto list and readFrom', async
   const rows = await adapted.list()
   assert.deepEqual(rows.map((row) => ({ id: row.id, cwd: row.cwd })), [
     { id: 'sess-1', cwd },
-    { id: 'sess-2', cwd: '/tmp/other' },
+    { id: '', cwd: '/tmp/other' },
   ])
   assert.equal(rows[0].header, undefined)
-  assert.equal(rows[0].meta.id, 'sess-1')
+  assert.equal(rows[0].meta, undefined)
+  assert.equal(rows[0].createdAt, 10)
+  assert.equal(rows[0].updatedAt, 10)
   const packed = await adapted.readFrom('sess-1', 4)
   assert.equal(packed.events[0].seq, 4)
   assert.deepEqual(opened, [['sess-1', 'read']])
