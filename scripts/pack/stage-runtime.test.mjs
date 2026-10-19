@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { cp, mkdtemp, rm } from 'node:fs/promises'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
-import { pathToFileURL, fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { includeRuntimePath } from './stage.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -21,6 +21,26 @@ test('pack runtime excludes user sqlite and semantic-os cache', () => {
   assert.equal(includeRuntimePath(join(root, 'data', 'semantic-os', 'runtime', 'current.json'), root), false)
   assert.equal(includeRuntimePath(join(root, 'native-workspaces', 'ws_personal'), root), false)
   assert.equal(includeRuntimePath(join(root, 'vendor-overlays', 'dsh-semantic-os', 'python', '__pycache__', 'x.pyc'), root), false)
+  assert.equal(
+    includeRuntimePath(join(root, '.host-generation', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'), root),
+    false,
+  )
+})
+
+test('copying runtime drops .host-generation from the staged tree', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fde-stage-runtime-'))
+  const src = join(dir, 'runtime')
+  const dest = join(dir, 'app', 'runtime')
+  const planted = join(src, '.host-generation', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+  await mkdir(join(planted, '..'), { recursive: true })
+  await writeFile(planted, 'planted\n')
+  await writeFile(join(src, 'server.mjs'), 'export {}\n')
+  await cp(src, dest, {
+    recursive: true,
+    filter: (path) => includeRuntimePath(path, src),
+  })
+  assert.equal(existsSync(join(dest, 'server.mjs')), true)
+  assert.equal(existsSync(join(dest, '.host-generation')), false)
 })
 
 function outsideRuntimeImports(runtimeRoot) {

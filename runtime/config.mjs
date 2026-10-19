@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, dirname, join, resolve } from 'node:path'
+import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { generationDshBin } from './generation.mjs'
 
@@ -17,7 +17,23 @@ export const FDE_RUNTIME_DIR = runtimeDirectory
 
 export const FDE_APP_ROOT = resolve(expandHome(process.env.FDE_APP_ROOT || join(runtimeDirectory, '..')))
 
-export const FDE_RESOURCES = resolve(expandHome(process.env.FDE_RESOURCES || FDE_APP_ROOT))
+function bundledDshCandidates(resourcesRoot) {
+  const names = process.platform === 'win32' ? ['dsh.cmd', 'dsh'] : ['dsh']
+  return names.map((name) => join(resourcesRoot, 'dsh', 'bin', name))
+}
+
+export function defaultResourcesRoot(runtimeDir = runtimeDirectory, env = process.env) {
+  const appRoot = resolve(expandHome(env.FDE_APP_ROOT || join(runtimeDir, '..')))
+  if (env.FDE_RESOURCES) return resolve(expandHome(env.FDE_RESOURCES))
+  if (basename(appRoot) !== 'app') return appRoot
+  const staged = resolve(appRoot, '..')
+  const stagedHit = bundledDshCandidates(staged).some((path) => existsSync(path))
+  const insideHit = bundledDshCandidates(appRoot).some((path) => existsSync(path))
+  if (stagedHit && !insideHit) return staged
+  return appRoot
+}
+
+export const FDE_RESOURCES = defaultResourcesRoot()
 
 export const FDE_DSH_HOME = resolve(expandHome(process.env.FDE_DSH_HOME || join(homedir(), '.dsh-fde-x')))
 
