@@ -129,6 +129,8 @@ import {
   validateApiKeyInput,
 } from './models-settings.mjs'
 import { startBriefingScheduler } from './briefing/scheduler.mjs'
+import { discardBriefingSessionAllow, stageBriefingSessionAllow } from './briefing/session.mjs'
+import { readDefinitionSections } from './briefing/store.mjs'
 import { startMemoryWriter } from './memory/writer.mjs'
 import { asDraftCard, attachCuesOnCards, attachCuesOnGroups, collapseCueCards, loadNamedCards, validateMemoryCardLabel } from './memory/cards.mjs'
 import { attachCardOrigin, draftCard } from './memory/draft.mjs'
@@ -1999,6 +2001,9 @@ const server = createServer(async (request, response) => {
         ...(typeof body.agentPreset === 'string' && body.agentPreset ? { agentPreset: body.agentPreset } : {}),
       }
       const session = await aiRuntime.call('session/create', { request: requestBody })
+      if (requestBody.agentPreset === 'fde-briefing' && session?.sessionId) {
+        stageBriefingSessionAllow(aiRuntime, session.sessionId, cwd ? readDefinitionSections(db, cwd) : [])
+      }
       if (workspaceId && session?.sessionId) {
         try {
           await aiRuntime.call('workspace/insertSessionBefore', { request: { workspaceId, sessionId: session.sessionId } })
@@ -2126,6 +2131,11 @@ const server = createServer(async (request, response) => {
       const archived = await aiRuntime.call('workspace/archiveSession', {
         request: { sessionId: archivedId },
       })
+      try {
+        discardBriefingSessionAllow(aiRuntime, archivedId)
+      } catch (error) {
+        console.warn('briefing_allow_discard_failed', error instanceof Error ? error.message : error)
+      }
       emit('ai.session.changed', { sessionId: archivedId, kind: 'deleted' }, { sessionId: archivedId })
       sendJson(response, 200, { data: archived, correlationId: currentCorrelationId })
       return

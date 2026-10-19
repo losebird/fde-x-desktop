@@ -1,4 +1,6 @@
+import { discardBriefingAllow, stageBriefingAllow } from '../fde-x-dsh-bridge/lib/briefing-allow.js'
 import { listedSessions } from '../session-primary.mjs'
+import { briefingAllowServerNames } from './defaults.mjs'
 
 const BRIEFING_PRESET = 'fde-briefing'
 
@@ -16,7 +18,24 @@ function rowCwd(row) {
   return ''
 }
 
-export async function resolveBriefingSession(aiRuntime, cwd) {
+export function stageBriefingSessionAllow(aiRuntime, sessionId, sections) {
+  try {
+    stageBriefingAllow(
+      String(sessionId || ''),
+      briefingAllowServerNames(sections),
+      aiRuntime && aiRuntime.dshHome,
+    )
+  } catch (error) {
+    // A missing allow file denies every user MCP. Generating the briefing still continues.
+    console.warn('briefing_allow_stage_failed', error instanceof Error ? error.message : error)
+  }
+}
+
+export function discardBriefingSessionAllow(aiRuntime, sessionId) {
+  discardBriefingAllow(String(sessionId || ''), aiRuntime && aiRuntime.dshHome)
+}
+
+export async function resolveBriefingSession(aiRuntime, cwd, sections) {
   const workspaceCwd = String(cwd || '')
   if (!workspaceCwd) {
     const error = new Error('早报会话缺少工作区')
@@ -29,7 +48,10 @@ export async function resolveBriefingSession(aiRuntime, cwd) {
     return rowCwd(row) === workspaceCwd
   })
   const existingId = existing ? String(existing.sessionId || existing.id || '') : ''
-  if (existingId) return existingId
+  if (existingId) {
+    if (Array.isArray(sections)) stageBriefingSessionAllow(aiRuntime, existingId, sections)
+    return existingId
+  }
   const created = await aiRuntime.call('session/create', {
     request: { cwd: workspaceCwd, agentPreset: BRIEFING_PRESET },
   })
@@ -39,5 +61,6 @@ export async function resolveBriefingSession(aiRuntime, cwd) {
     error.code = 'briefing_session_missing'
     throw error
   }
+  if (Array.isArray(sections)) stageBriefingSessionAllow(aiRuntime, sessionId, sections)
   return sessionId
 }
