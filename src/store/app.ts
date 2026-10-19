@@ -231,7 +231,7 @@ interface State {
   // workflows
   toggleWorkflow: (id: ID) => Promise<void>
   runWorkflow: (id: ID) => Promise<void>
-  addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt'>, confirmDanger?: string[]) => Promise<void>
+  addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt' | 'runs'>, confirmDanger?: string[]) => Promise<void>
   removeWorkflow: (id: ID) => Promise<void>
   // im
   sendIM: (threadId: ID, text: string, opts?: { attachments?: IMAttachment[]; handoff?: IMHandoffPackage; topicId?: ID; replyToId?: ID; aiChatId?: ID }) => void
