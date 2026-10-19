@@ -286,4 +286,26 @@ describe('真 Host 上的 allow 文件和会停住的工具', { concurrency: 1 }
       await rm(outsideDir, { recursive: true, force: true })
     }
   })
+
+  test('已经存在的 0644 allow 文件要收成 0600，符号链接目标的权限不动', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-allow-mode-existing-'))
+    const outsideDir = await mkdtemp(join(tmpdir(), 'fde-allow-mode-outside-'))
+    try {
+      const dir = allowDir(home)
+      mkdirSync(dir, { recursive: true, mode: 0o700 })
+      const stale = join(dir, 'session-stale-mode.json')
+      writeFileSync(stale, '{"tools":["fde_app_records_query"]}\n', { mode: 0o644 })
+      chmodSync(stale, 0o644)
+      const outside = join(outsideDir, 'secret.json')
+      writeFileSync(outside, '{"secret":true}\n', { mode: 0o644 })
+      chmodSync(outside, 0o644)
+      symlinkSync(outside, join(dir, 'session-link.json'))
+      stageWorkflowAllow('session-other', [QUERY], home)
+      assert.equal(modeBits(stale), 0o600)
+      assert.equal(modeBits(outside), 0o644)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+      await rm(outsideDir, { recursive: true, force: true })
+    }
+  })
 })
