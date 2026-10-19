@@ -19,6 +19,7 @@ import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
 import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
+import { PLAN_DAY_HOURS, planDayMarkerTop, planDayOffsetMinutes } from '../../runtime/plan/plan-day-hours.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -555,7 +556,7 @@ function TodoTab() {
 // =======================================================
 // Tab 2: 日程
 // =======================================================
-const HOURS = Array.from({ length: 14 }, (_, i) => 7 + i)
+const HOURS = PLAN_DAY_HOURS
 
 const KIND_TONE: Record<ScheduleEvent['kind'], { bg: string; tag: 'blue'|'green'|'amber'|'purple' }> = {
   meeting:  { bg: 'bg-blue-50 border-blue-200 text-accent-blue',     tag: 'blue' },
@@ -566,6 +567,7 @@ const KIND_TONE: Record<ScheduleEvent['kind'], { bg: string; tag: 'blue'|'green'
 
 function ScheduleTab() {
   const events = useApp((s) => s.events)
+  const workflows = useCurrentWorkflows()
   const addEvent = useApp((s) => s.addEvent)
   const removeEvent = useApp((s) => s.removeEvent)
   const [view, setView] = useState<'day' | 'week'>('day')
@@ -573,15 +575,12 @@ function ScheduleTab() {
   const [draft, setDraft] = useState({
     title: '', startH: 14, startM: 0, endH: 14, endM: 30,
     kind: 'focus' as ScheduleEvent['kind'], location: '',
+    workflowId: '', recurrence: 'once' as 'once' | 'daily',
   })
 
   const todayKey = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
   const todays = useMemo(() => events.filter((e) => todayKey(e.start)), [events])
 
-  function toPos(start: string) {
-    const d = new Date(start)
-    return d.getHours() * 60 + d.getMinutes()
-  }
   const weekStart = useMemo(() => {
     const d = new Date()
     const weekday = d.getDay()
@@ -616,9 +615,17 @@ function ScheduleTab() {
     base.setHours(draft.startH, draft.startM, 0, 0)
     const end = new Date(base)
     end.setHours(draft.endH, draft.endM, 0, 0)
-    void addEvent({ title: draft.title, start: base.toISOString(), end: end.toISOString(), kind: draft.kind, location: draft.location || undefined })
+    void addEvent({
+      title: draft.title,
+      start: base.toISOString(),
+      end: end.toISOString(),
+      kind: draft.kind,
+      location: draft.location || undefined,
+      workflowId: draft.workflowId || undefined,
+      recurrence: draft.workflowId ? draft.recurrence : undefined,
+    })
       .then(() => {
-        setDraft({ title: '', startH: 14, startM: 0, endH: 14, endM: 30, kind: 'focus', location: '' })
+        setDraft({ title: '', startH: 14, startM: 0, endH: 14, endM: 30, kind: 'focus', location: '', workflowId: '', recurrence: 'once' })
         setOpenNew(false)
       })
       .catch(() => undefined)
@@ -647,18 +654,25 @@ function ScheduleTab() {
               </div>
               <div className="relative">
                 {HOURS.map((h) => <div key={h} className="h-14 border-b border-line" />)}
-                <div className="absolute left-0 right-0" style={{ top: `${4.5 * 56 + 14}px` }}>
+                <div className="absolute left-0 right-0" style={{ top: `${planDayMarkerTop(11, 30)}px` }}>
                   <span className="absolute -left-1 -top-1.5 w-2 h-2 rounded-full bg-accent-red" />
                   <span className="block h-px bg-accent-red" />
                 </div>
                 {todays.map((e) => {
-                  const startMin = toPos(e.start) - 7 * 60
-                  const endMin = toPos(e.end) - 7 * 60
+                  const startMin = planDayOffsetMinutes(e.start)
+                  const endMin = planDayOffsetMinutes(e.end)
                   const top = (startMin / 60) * 56
                   const height = ((endMin - startMin) / 60) * 56
                   return (
                     <div key={e.id} className={clsx('absolute left-2 right-2 rounded border px-2 py-1.5 text-xs overflow-hidden', KIND_TONE[e.kind].bg)} style={{ top, height: Math.max(height, 24) }}>
                       <div className="font-medium truncate">{e.title}</div>
+                      {e.workflowId && (
+                        <div className="opacity-70 text-[11px] truncate">
+                          {workflowToolCopy.scheduleWorkflow} {workflows.find((row) => row.id === e.workflowId)?.name || e.workflowId}
+                          {' · '}
+                          {e.recurrence === 'daily' ? workflowToolCopy.scheduleDaily : workflowToolCopy.scheduleOnce}
+                        </div>
+                      )}
                       <div className="opacity-70 text-[11px]">
                         {new Date(e.start).getHours().toString().padStart(2, '0')}:{new Date(e.start).getMinutes().toString().padStart(2, '0')}–
                         {new Date(e.end).getHours().toString().padStart(2, '0')}:{new Date(e.end).getMinutes().toString().padStart(2, '0')}
@@ -741,7 +755,7 @@ function ScheduleTab() {
               <div className="flex gap-1 mt-1.5">
                 <select className="input flex-1" value={draft.startH} onChange={(e) => setDraft({ ...draft, startH: Number(e.target.value) })}>
                   {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-                  <option value={21}>21</option><option value={22}>22</option>
+                  <option value={22}>22</option>
                 </select>
                 <select className="input flex-1" value={draft.startM} onChange={(e) => setDraft({ ...draft, startM: Number(e.target.value) })}>
                   {[0,15,30,45].map((m) => <option key={m} value={m}>{m.toString().padStart(2,'0')}</option>)}
@@ -753,7 +767,7 @@ function ScheduleTab() {
               <div className="flex gap-1 mt-1.5">
                 <select className="input flex-1" value={draft.endH} onChange={(e) => setDraft({ ...draft, endH: Number(e.target.value) })}>
                   {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-                  <option value={21}>21</option><option value={22}>22</option>
+                  <option value={22}>22</option>
                 </select>
                 <select className="input flex-1" value={draft.endM} onChange={(e) => setDraft({ ...draft, endM: Number(e.target.value) })}>
                   {[0,15,30,45].map((m) => <option key={m} value={m}>{m.toString().padStart(2,'0')}</option>)}
@@ -761,6 +775,22 @@ function ScheduleTab() {
               </div>
             </div>
           </div>
+          <div>
+            <label className="text-xs text-ink-muted">{workflowToolCopy.scheduleWorkflow}</label>
+            <select className="input mt-1.5 w-full" value={draft.workflowId} onChange={(e) => setDraft({ ...draft, workflowId: e.target.value })}>
+              <option value="">{workflowToolCopy.scheduleNone}</option>
+              {workflows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+            </select>
+          </div>
+          {draft.workflowId && (
+            <div>
+              <label className="text-xs text-ink-muted">{workflowToolCopy.scheduleRecurrence}</label>
+              <select className="input mt-1.5 w-full" value={draft.recurrence} onChange={(e) => setDraft({ ...draft, recurrence: e.target.value === 'daily' ? 'daily' : 'once' })}>
+                <option value="once">{workflowToolCopy.scheduleOnce}</option>
+                <option value="daily">{workflowToolCopy.scheduleDaily}</option>
+              </select>
+            </div>
+          )}
           <div>
             <label className="text-xs text-ink-muted">类型</label>
             <select className="input mt-1.5 w-full" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as ScheduleEvent['kind'] })}>
@@ -1100,10 +1130,13 @@ function WorkflowTab() {
                       </div>
                     )
                   })}
-                  <div className="mt-2 text-[11px] text-ink-muted flex items-center gap-3">
+                  <div className="mt-2 text-[11px] text-ink-muted flex items-center gap-3 flex-wrap">
                     {w.lastRunAt && (
                       <span>上次运行: {new Date(w.lastRunAt).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
                     )}
+                    {w.runs.map((run) => (
+                      <span key={run.id}>{run.message || run.state}</span>
+                    ))}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">

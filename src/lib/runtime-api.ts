@@ -798,6 +798,8 @@ export class RuntimeApi {
       end: row.endAt,
       location: row.location ?? undefined,
       kind: row.kind,
+      workflowId: typeof row.workflowId === 'string' ? row.workflowId : undefined,
+      recurrence: row.recurrence === 'once' || row.recurrence === 'daily' ? row.recurrence : undefined,
     }
   }
 
@@ -817,6 +819,16 @@ export class RuntimeApi {
     const lastRunStatus = row.lastRunStatus === 'success' || row.lastRunStatus === 'failed' || row.lastRunStatus === 'running'
       ? row.lastRunStatus
       : undefined
+    const runs = Array.isArray(row.runs)
+      ? row.runs.map((run) => {
+        const record = run as { id?: unknown; state?: unknown; message?: unknown }
+        return {
+          id: String(record.id),
+          state: typeof record.state === 'string' ? record.state : '',
+          message: typeof record.message === 'string' ? record.message : '',
+        }
+      })
+      : []
     return {
       id: String(row.id),
       name: String(row.name),
@@ -826,6 +838,7 @@ export class RuntimeApi {
       steps,
       lastRunAt,
       lastRunStatus,
+      runs,
       category: (row.category as Workflow['category']) ?? 'system',
       emoji: typeof row.emoji === 'string' ? row.emoji : '🤖',
       createdAt: String(row.createdAt),
@@ -917,6 +930,8 @@ export class RuntimeApi {
     kind?: ScheduleEvent['kind']
     location?: string
     allDay?: boolean
+    workflowId?: string
+    recurrence?: 'once' | 'daily'
   }, signal?: AbortSignal): Promise<ScheduleEvent> {
     const row = await this.planRequest<PlanEvent>('/api/v1/plan/events', {
       method: 'POST',

@@ -17,6 +17,7 @@ const TOOLS_EMPTY = '工具清单不能为空，未运行'
 const TOOLS_WAIT = '这一步选了会等人答复的工具，无人值守不能运行'
 const TOOLS_BACKGROUND = '这一步选了会停下来等后台任务的工具，无人值守不能运行'
 const TOOLS_ASK = '当前权限会要求确认，这一步选了会直接执行的工具，未运行'
+const TOOLS_UNCONFIRMED = '直接执行的工具需要逐项确认'
 const TOOLS_PERSONA = '这一步要带的人设没有核对上，未运行'
 
 const CARD_STATUS = {
@@ -88,21 +89,39 @@ function runtimeConnected(aiRuntime) {
   return Boolean(status && status.connected === true)
 }
 
-function insertQueued(db, { runId, workflowId, correlationId, now, steps }) {
+function insertQueued(db, { runId, workflowId, correlationId, now, steps, triggerJson, scheduleKey }) {
   const stored = steps.map((step) => ({ ...step, id: createId('wrs') }))
   db.exec('BEGIN IMMEDIATE;')
   try {
-    const open = db.prepare(`
-      SELECT id FROM workflow_runs
-      WHERE workflow_id = ? AND state IN ('queued', 'running')
-      LIMIT 1
-    `).get(workflowId)
-    if (open) throw rejectRun(409, 'run_in_progress', '这条工作流已有未结束的运行')
-    db.prepare(`
-      INSERT INTO workflow_runs
-        (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at)
-      VALUES (?, ?, 'queued', ?, '{}', NULL, ?, NULL, NULL, ?)
-    `).run(runId, workflowId, MANUAL_TRIGGER_JSON, correlationId, now)
+    if (scheduleKey) {
+      const inserted = db.prepare(`
+        INSERT INTO workflow_runs
+          (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at, schedule_key)
+        SELECT ?, ?, 'queued', ?, '{}', NULL, ?, NULL, NULL, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM workflow_runs WHERE schedule_key = ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM workflow_runs
+            WHERE workflow_id = ? AND state IN ('queued', 'running')
+          )
+      `).run(runId, workflowId, triggerJson, correlationId, now, scheduleKey, scheduleKey, workflowId)
+      if (inserted.changes !== 1) {
+        const existing = db.prepare('SELECT id, state FROM workflow_runs WHERE schedule_key = ?').get(scheduleKey)
+        db.exec('COMMIT;')
+        return { claimed: false, existing: existing || null, steps: [] }
+      }
+    } else {
+      const open = db.prepare(`
+        SELECT id FROM workflow_runs
+        WHERE workflow_id = ? AND state IN ('queued', 'running')
+        LIMIT 1
+      `).get(workflowId)
+      if (open) throw rejectRun(409, 'run_in_progress', '这条工作流已有未结束的运行')
+      db.prepare(`
+        INSERT INTO workflow_runs
+          (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at, schedule_key)
+        VALUES (?, ?, 'queued', ?, '{}', NULL, ?, NULL, NULL, ?, ?)
+      `).run(runId, workflowId, triggerJson, correlationId, now, null)
+    }
     const insertStep = db.prepare(`
       INSERT INTO workflow_run_steps
         (id, run_id, step_key, sequence_no, state, input_json, output_json, error_json, started_at, finished_at)
@@ -120,7 +139,7 @@ function insertQueued(db, { runId, workflowId, correlationId, now, steps }) {
     }
     throw error
   }
-  return stored
+  return { claimed: true, existing: null, steps: stored }
 }
 
 function changed(result) {
@@ -428,6 +447,37 @@ function continueRun(deps, ctx) {
   })
 }
 
+export function readWorkflowRuns(db, workflowIds) {
+  if (!Array.isArray(workflowIds) || workflowIds.length === 0) return new Map()
+  const ids = []
+  const seen = new Set()
+  for (const id of workflowIds) {
+    if (typeof id !== 'string' || !id || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  if (ids.length === 0) return new Map()
+  const placeholders = ids.map(() => '?').join(', ')
+  const rows = db.prepare(`
+    SELECT id, workflow_id, state, output_json
+    FROM workflow_runs
+    WHERE workflow_id IN (${placeholders})
+    ORDER BY created_at DESC, rowid DESC
+  `).all(...ids)
+  const grouped = new Map()
+  for (const row of rows) {
+    let message = ''
+    if (row.output_json) {
+      const output = JSON.parse(row.output_json)
+      message = typeof output.message === 'string' ? output.message : ''
+    }
+    const list = grouped.get(row.workflow_id) || []
+    list.push({ id: row.id, state: row.state, message })
+    grouped.set(row.workflow_id, list)
+  }
+  return grouped
+}
+
 export function readLatestRunCards(db, workflowIds) {
   if (!Array.isArray(workflowIds) || workflowIds.length === 0) return new Map()
   const ids = []
@@ -519,12 +569,46 @@ export function failInterruptedRuns(db) {
   }
 }
 
+function unconfirmedScheduleDanger(definitionJson) {
+  let definition = {}
+  try {
+    definition = JSON.parse(definitionJson)
+  } catch {
+    definition = {}
+  }
+  const confirmed = new Set(Array.isArray(definition.confirmedDanger)
+    ? definition.confirmedDanger.filter((name) => typeof name === 'string')
+    : [])
+  const steps = Array.isArray(definition.steps) ? definition.steps : []
+  for (const step of steps) {
+    if (!step || step.kind !== 'ai' || !step.config || typeof step.config !== 'object' || Array.isArray(step.config)) continue
+    if (!Object.hasOwn(step.config, 'tools') || !Array.isArray(step.config.tools)) continue
+    for (const name of step.config.tools) {
+      if (typeof name === 'string' && toolTier(name) === 'danger' && !confirmed.has(name)) return TOOLS_UNCONFIRMED
+    }
+  }
+  return ''
+}
+
+function acceptedTrigger(command) {
+  const trigger = command?.trigger
+  if (trigger?.kind === 'manual') return { json: MANUAL_TRIGGER_JSON, scheduleKey: null }
+  if (trigger?.kind !== 'schedule') throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
+  const eventId = typeof trigger.eventId === 'string' ? trigger.eventId : ''
+  const occurrence = typeof trigger.occurrence === 'string' ? trigger.occurrence : ''
+  if (!eventId || !occurrence) throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
+  return {
+    json: JSON.stringify({ kind: 'schedule', eventId, occurrence }),
+    scheduleKey: `${eventId}@${occurrence}`,
+  }
+}
+
 export function startWorkflowRun(deps, command) {
   const db = deps.db
   const workflowId = typeof command?.workflowId === 'string' ? command.workflowId : ''
   const correlationId = typeof command?.correlationId === 'string' ? command.correlationId : ''
   const workspaceId = typeof command?.workspaceId === 'string' ? command.workspaceId.trim() : ''
-  if (command?.trigger?.kind !== 'manual') throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
+  const trigger = acceptedTrigger(command)
   if (!workspaceId) throw rejectRun(400, 'missing_workspace_id', '缺少 workspaceId')
   if (!workflowId || isHostJobId(workflowId)) throw rejectRun(404, 'not_found', '工作流不存在')
   const workflow = db.prepare('SELECT id, workspace_id, definition_json FROM workflows WHERE id = ?').get(workflowId)
@@ -533,17 +617,49 @@ export function startWorkflowRun(deps, command) {
   if (hasIllegalSourceRef(steps)) throw rejectRun(422, 'invalid_source_ref', '来源引用不合法')
   assertAiPrompts(steps)
   const runId = createId('wfr')
-  const storedSteps = insertQueued(db, {
+  const queued = insertQueued(db, {
     runId,
     workflowId,
     correlationId,
     now: isoNow(),
     steps,
+    triggerJson: trigger.json,
+    scheduleKey: trigger.scheduleKey,
   })
+  if (!queued.claimed) {
+    if (queued.existing) {
+      return {
+        id: queued.existing.id,
+        workflowId,
+        state: queued.existing.state,
+        correlationId,
+        already: true,
+      }
+    }
+    return {
+      id: '',
+      workflowId,
+      state: 'queued',
+      correlationId,
+      busy: true,
+    }
+  }
+  if (trigger.scheduleKey) {
+    const blocked = unconfirmedScheduleDanger(workflow.definition_json)
+    if (blocked) {
+      failRun(db, { runId, steps: queued.steps }, blocked)
+      return {
+        id: runId,
+        workflowId,
+        state: 'failed',
+        correlationId,
+      }
+    }
+  }
   continueRun(deps, {
     runId,
     workspaceId: workflow.workspace_id,
-    steps: storedSteps,
+    steps: queued.steps,
   })
   return {
     id: runId,

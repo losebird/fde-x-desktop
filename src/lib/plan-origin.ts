@@ -121,6 +121,7 @@ export function workflowFromHostBagItem(
     steps: Array.isArray(row.steps) ? row.steps as Workflow['steps'] : [],
     category: WORKFLOW_CATEGORIES.has(categoryRaw) ? categoryRaw as Workflow['category'] : 'system',
     emoji: typeof row.emoji === 'string' ? row.emoji : '🤖',
+    runs: [],
     createdAt: String(row.createdAt || new Date().toISOString()),
     workspaceId: typeof row.workspaceId === 'string' ? row.workspaceId : workspaceId,
   }
