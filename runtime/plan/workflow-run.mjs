@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { planAppSource } from '../app-source.mjs'
 import { appendAudit, createId } from '../db.mjs'
-import { WORKFLOW_PRESET, WORKFLOW_TOOLS, stageWorkflowAllow, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
+import { WORKFLOW_PRESET, WORKFLOW_TOOLS, discardWorkflowAllow, stageWorkflowAllow, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
+import { listWorkflowCatalog } from './workflow-catalog.mjs'
 import { isHostJobId } from '../host-catalog.mjs'
-import { toolTier, waitsForPerson } from './tool-risk.mjs'
+import { toolTier, waitsForBackground, waitsForPerson } from './tool-risk.mjs'
 
 const MANUAL_TRIGGER_JSON = '{"kind":"manual"}'
 const AI_DOWN = '核心 AI 运行时尚未连接'
@@ -14,7 +15,9 @@ const TOOLS_MISMATCH_CUSTOM = '工作流会话可见工具和这一步选中的�
 const TOOLS_UNCHECKED = '工作流会话的可见工具没有核对上，未运行'
 const TOOLS_EMPTY = '工具清单不能为空，未运行'
 const TOOLS_WAIT = '这一步选了会等人答复的工具，无人值守不能运行'
+const TOOLS_BACKGROUND = '这一步选了会停下来等后台任务的工具，无人值守不能运行'
 const TOOLS_ASK = '当前权限会要求确认，这一步选了会直接执行的工具，未运行'
+const TOOLS_PERSONA = '这一步要带的人设没有核对上，未运行'
 
 const CARD_STATUS = {
   succeeded: 'success',
@@ -166,6 +169,19 @@ function mismatchMessage(tools) {
   return namesEqual(tools, WORKFLOW_TOOLS) ? TOOLS_MISMATCH : TOOLS_MISMATCH_CUSTOM
 }
 
+function stepPreset(step) {
+  const id = step && step.config && step.config.presetId
+  return typeof id === 'string' && id ? id : ''
+}
+
+async function personaFor(aiRuntime, cwd, presetId) {
+  const catalog = await listWorkflowCatalog(aiRuntime, cwd)
+  const preset = (catalog.presets || []).find((row) => row.id === presetId)
+  const persona = preset && preset.persona
+  if (!persona || typeof persona.text !== 'string' || !persona.text) return null
+  return { text: persona.text, complete: persona.complete === true }
+}
+
 function stepTools(step) {
   const config = step.config
   if (!config || !Object.hasOwn(config, 'tools')) return [...WORKFLOW_TOOLS]
@@ -260,13 +276,39 @@ async function performRun(deps, ctx) {
       markRunFailed(db, ctx.runId, isoNow())
       return
     }
+    if (tools.some((name) => waitsForBackground(name))) {
+      failSteps(db, aiSteps, TOOLS_BACKGROUND, isoNow())
+      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
+      skipSteps(db, skipStepsList, isoNow())
+      markRunFailed(db, ctx.runId, isoNow())
+      return
+    }
     const sessionId = `session-${randomUUID()}`
-    stageWorkflowAllow(sessionId, tools, aiRuntime && aiRuntime.dshHome)
-    const created = await aiRuntime.call('session/create', {
-      request: { cwd, agentPreset: WORKFLOW_PRESET, sessionId },
-    })
+    const presetId = stepPreset(step)
+    const persona = presetId ? await personaFor(aiRuntime, cwd, presetId) : null
+    if (presetId && !persona) {
+      failSteps(db, aiSteps, TOOLS_PERSONA, isoNow())
+      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
+      skipSteps(db, skipStepsList, isoNow())
+      markRunFailed(db, ctx.runId, isoNow())
+      return
+    }
+    const allowHome = aiRuntime && aiRuntime.dshHome
+    stageWorkflowAllow(sessionId, tools, allowHome, persona)
+    let created
+    try {
+      created = await aiRuntime.call('session/create', {
+        request: { cwd, agentPreset: WORKFLOW_PRESET, sessionId },
+      })
+    } catch (error) {
+      discardWorkflowAllow(sessionId, allowHome)
+      throw error
+    }
     const actualId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
-    if (!actualId) throw new Error('工作流会话没有建立')
+    if (!actualId) {
+      discardWorkflowAllow(sessionId, allowHome)
+      throw new Error('工作流会话没有建立')
+    }
     const visible = await readVisibleTools(aiRuntime, actualId)
     if (visible.kind !== 'listed') {
       failSteps(db, aiSteps, TOOLS_UNCHECKED, isoNow())

@@ -12,7 +12,7 @@ const TOOL_RISK = {
   grep: 'read',
   read_image: 'read',
   job_list: 'read',
-  job_output: 'read',
+  job_output: 'wait',
   get_goal: 'read',
   list_agents: 'read',
   team_task_list: 'read',
@@ -63,8 +63,14 @@ export function toolTier(name, marks) {
   return 'danger'
 }
 
+const WAITS_FOR_BACKGROUND = new Set(['job_output'])
+
 export function waitsForPerson(name) {
   return WAITS_FOR_PERSON.has(name)
+}
+
+export function waitsForBackground(name) {
+  return WAITS_FOR_BACKGROUND.has(name)
 }
 
 export function dangerNames(names) {
@@ -83,10 +89,12 @@ export function toolAuditRows(steps) {
   if (!Array.isArray(steps)) return []
   return steps.filter((step) => step && step.kind === 'ai').map((step) => {
     const tools = resolvedTools(step)
+    const presetId = step.config && typeof step.config.presetId === 'string' ? step.config.presetId : ''
     return {
       id: typeof step.id === 'string' ? step.id : '',
       tools,
       danger: dangerNames(tools),
+      presetId,
     }
   })
 }
@@ -128,6 +136,19 @@ export function rejectToolList(steps, confirmDanger, catalog) {
   const confirmed = Array.isArray(confirmDanger) ? [...confirmDanger].sort() : []
   if (confirmed.length !== danger.length || confirmed.some((name, index) => name !== danger[index])) {
     return '直接执行的工具需要逐项确认'
+  }
+  return null
+}
+
+export function rejectPreset(steps, presets) {
+  const known = new Map((Array.isArray(presets) ? presets : []).map((row) => [row.id, row]))
+  for (const step of Array.isArray(steps) ? steps : []) {
+    if (!step || step.kind !== 'ai' || !step.config || typeof step.config !== 'object') continue
+    if (!Object.hasOwn(step.config, 'presetId')) continue
+    const id = step.config.presetId
+    if (typeof id !== 'string' || !id || !known.has(id)) return '预设不在可选清单里'
+    const persona = known.get(id).persona
+    if (!persona || typeof persona.text !== 'string' || !persona.text) return '这个预设没有可带上的人设'
   }
   return null
 }
