@@ -32,8 +32,8 @@ function loadYamlLib() {
 
 const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/u
 const SKILL_PROVIDER_ROWS = [
-  { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem' },
-  { id: 'tool-skill', name: '@deepseek-ai/dsh-tool-skill' },
+  { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem', disabled: false },
+  { id: 'tool-skill', name: '@deepseek-ai/dsh-tool-skill', disabled: true },
 ]
 
 export function profileCordisPatchPath(aiRuntime) {
@@ -167,7 +167,7 @@ export function decorateDiscoveredMcpRows(discovered, archiveNames) {
 }
 
 function isPatchBoundary(line) {
-  return line.startsWith('- id:') || line === '- insert:' || line.startsWith('- insert:')
+  return line.startsWith('- ')
 }
 
 export function splitPatchBlocks(text) {
@@ -569,23 +569,159 @@ export function upsertMcpDisabled(text, serverName, disabled) {
   return serializePatch(document)
 }
 
+function yamlScalar(raw) {
+  let value = String(raw || '').trim()
+  if (value.startsWith('"') || value.startsWith("'")) {
+    const quote = value[0]
+    const end = value.indexOf(quote, 1)
+    if (end > 0) return value.slice(1, end)
+  }
+  const commentAt = value.search(/\s#/)
+  if (commentAt >= 0) value = value.slice(0, commentAt).trim()
+  return value
+}
+
+function flowId(line) {
+  const match = String(line || '').match(/(?:^|[{,])\s*id\s*:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,}\s]+)/)
+  return match ? yamlScalar(match[1]) : ''
+}
+
+function readTopLevelId(block) {
+  for (const line of String(block || '').split('\n')) {
+    if (line.startsWith('   ') || line.startsWith('\t')) continue
+    if (/^-\s*\{/.test(line)) {
+      const id = flowId(line)
+      if (id) return id
+    }
+    let raw = ''
+    if (line.startsWith('- id:')) raw = line.slice('- id:'.length)
+    else if (line.startsWith('  id:')) raw = line.slice('  id:'.length)
+    else continue
+    return yamlScalar(raw)
+  }
+  return ''
+}
+
+function splitScalarAndComment(rest) {
+  const trimmed = String(rest || '')
+  const lead = trimmed.match(/^\s*/)[0]
+  const body = trimmed.slice(lead.length)
+  if (!body) return { scalar: '', comment: '' }
+  const quote = body[0]
+  if (quote === '"' || quote === "'") {
+    let index = 1
+    while (index < body.length) {
+      if (quote === '"' && body[index] === '\\') {
+        index += 2
+        continue
+      }
+      if (body[index] === quote) {
+        return { scalar: body.slice(0, index + 1), comment: body.slice(index + 1) }
+      }
+      index += 1
+    }
+  }
+  const commentAt = body.search(/\s#/)
+  if (commentAt >= 0) return { scalar: body.slice(0, commentAt), comment: body.slice(commentAt) }
+  return { scalar: body.replace(/\s+$/u, ''), comment: '' }
+}
+
+function unquoteScalar(scalar) {
+  const text = String(scalar || '').trim()
+  if (text.length >= 2) {
+    const quote = text[0]
+    if ((quote === '"' || quote === "'") && text.endsWith(quote)) return text.slice(1, -1)
+  }
+  return text
+}
+
+function isYamlBoolOrEmpty(scalar) {
+  const text = unquoteScalar(scalar).trim()
+  if (text === '' || text === '~' || /^null$/i.test(text)) return true
+  return /^(?:true|false|yes|no|on|off|y|n)$/i.test(text)
+}
+
+function rewriteDisabledLine(line, value) {
+  const match = String(line || '').match(/^(\s*disabled:\s*)(.*)$/)
+  if (!match) return line
+  const parts = splitScalarAndComment(match[2])
+  if (!isYamlBoolOrEmpty(parts.scalar)) return line
+  const prefix = match[1].replace(/\s*$/u, ' ')
+  return `${prefix}${value}${parts.comment}`
+}
+
+function rewriteFlowDisabled(line, value) {
+  if (/disabled\s*:/.test(line)) {
+    return line.replace(
+      /disabled\s*:\s*(?:"[^"]*"|'[^']*'|~|[^,}\s]+)?/,
+      `disabled: ${value}`,
+    )
+  }
+  return line.replace(/}(\s*(?:#.*)?)?$/, `, disabled: ${value} }$1`)
+}
+
+function topLevelSpans(raw) {
+  const starts = []
+  let index = 0
+  while (index <= raw.length) {
+    const end = raw.indexOf('\n', index)
+    const lineEnd = end === -1 ? raw.length : end
+    const line = raw.slice(index, lineEnd)
+    if (isPatchBoundary(line)) starts.push(index)
+    if (end === -1) break
+    index = end + 1
+  }
+  return starts.map((start, position) => {
+    const end = position + 1 < starts.length ? starts[position + 1] : raw.length
+    return { start, end, text: raw.slice(start, end) }
+  })
+}
+
+function newPatchRow(id, disabled, name) {
+  const lines = [`- id: ${id}`]
+  if (name) lines.push(`  name: ${JSON.stringify(name)}`)
+  lines.push(`  disabled: ${disabled ? 'true' : 'false'}`)
+  return `${lines.join('\n')}\n`
+}
+
+function editDisabledBlock(block, disabled, name) {
+  const value = disabled ? 'true' : 'false'
+  const lines = block.split('\n')
+  const flowIndex = lines.findIndex((line) => /^-\s*\{/.test(line))
+  if (flowIndex >= 0) {
+    lines[flowIndex] = rewriteFlowDisabled(lines[flowIndex], value)
+    return lines.join('\n')
+  }
+  const idIndex = lines.findIndex((line) => line.startsWith('- id:') || line.startsWith('  id:'))
+  const hasName = lines.some((line) => line.startsWith('- name:') || line.startsWith('  name:'))
+  if (name && !hasName) lines.splice(Math.max(idIndex, 0) + 1, 0, `  name: ${JSON.stringify(name)}`)
+  const disabledIndex = lines.findIndex((line) => /^  disabled:/.test(line))
+  if (disabledIndex >= 0) {
+    lines[disabledIndex] = rewriteDisabledLine(lines[disabledIndex], value)
+  } else {
+    lines.splice(Math.max(idIndex, 0) + 1, 0, `  disabled: ${value}`)
+  }
+  return lines.join('\n')
+}
+
 export function upsertPatchDisabled(text, id, disabled, name) {
-  const document = loadPatchDocument(text)
-  if (!isSeq(document.contents)) document.contents = new YAMLSeq()
+  const raw = String(text ?? '')
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed === '[]') return newPatchRow(id, Boolean(disabled), name)
+  const spans = topLevelSpans(raw)
   let target = null
-  for (const item of eachTopMaps(document)) {
-    if (item.has('insert')) continue
-    if (String(item.get('id') || '') !== id) continue
-    target = item
+  for (const span of spans) {
+    if (readTopLevelId(span.text) !== id) continue
+    target = span
   }
   if (!target) {
-    target = new YAMLMap()
-    target.set('id', id)
-    if (name) target.set('name', name)
-    document.contents.add(target)
+    const row = newPatchRow(id, Boolean(disabled), name).replace(/\n$/, '')
+    const base = raw.endsWith('\n') || raw.length === 0 ? raw : `${raw}\n`
+    return `${base}${row}\n`
   }
-  target.set('disabled', Boolean(disabled))
-  return serializePatch(document)
+  const edited = editDisabledBlock(target.text, Boolean(disabled), name)
+  if (edited === target.text) return raw
+  return `${raw.slice(0, target.start)}${edited}${raw.slice(target.end)}`
 }
 
 export async function ensureSkillProvidersInProfile(aiRuntime) {
@@ -598,8 +734,8 @@ export async function ensureSkillProvidersInProfile(aiRuntime) {
     text = ''
   }
   let next = text
-  for (const row of SKILL_PROVIDER_ROWS) next = upsertPatchDisabled(next, row.id, false, row.name)
-  if (next !== text) await writeNormalizedPatch(file, next)
+  for (const row of SKILL_PROVIDER_ROWS) next = upsertPatchDisabled(next, row.id, row.disabled, row.name)
+  if (next !== text) await writeFile(file, next)
   const home = aiRuntime?.dshHome || process.env.FDE_DSH_HOME
   if (!home) return
   const dest = join(home, 'skills')
