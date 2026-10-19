@@ -1,4 +1,5 @@
 import { FDE_AI_WORKSPACE } from '../config.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { loadMemoryWorkspaceVocab } from '../biz/memory-vocab.mjs'
 import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
 import { invokeBizSlot } from '../biz/invoke.mjs'
@@ -378,19 +379,48 @@ function recordSurfaceFromPreview(db, workspaceCwd, body, preview) {
 }
 
 function resolveBizWorkspace(url, aiRuntime) {
-  const fromQuery = String(url.searchParams.get('workspace') || url.searchParams.get('cwd') || '').trim()
-  if (fromQuery.startsWith('/')) return fromQuery
+  if (url.searchParams.has('workspace')) {
+    const cwd = canonicalWorkspaceCwd(url.searchParams.get('workspace'))
+    if (!cwd) return { error: 'workspace_invalid' }
+    return { cwd }
+  }
+  if (url.searchParams.has('cwd')) {
+    const cwd = canonicalWorkspaceCwd(url.searchParams.get('cwd'))
+    if (!cwd) return { error: 'workspace_invalid' }
+    return { cwd }
+  }
   const fromRuntime = typeof aiRuntime?.cwd === 'string' ? aiRuntime.cwd.trim() : ''
-  if (fromRuntime.startsWith('/')) return fromRuntime
-  return FDE_AI_WORKSPACE
+  if (fromRuntime.startsWith('/')) return { cwd: fromRuntime }
+  return { cwd: FDE_AI_WORKSPACE }
 }
 
 function resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd) {
   const explicit = requestMemoryCwd(url, body)
-  if (explicit) return explicit
-  const fromBodyWorkspace = body && typeof body.workspace === 'string' ? body.workspace.trim() : ''
-  if (fromBodyWorkspace.startsWith('/')) return fromBodyWorkspace
+  if (explicit) return { cwd: canonicalWorkspaceCwd(explicit) || explicit }
+  const bodyCwd = body && typeof body.cwd === 'string' ? body.cwd.trim() : ''
+  if (bodyCwd) {
+    const cwd = canonicalWorkspaceCwd(bodyCwd)
+    if (!cwd) return { error: 'workspace_invalid' }
+    return { cwd }
+  }
+  if (url.searchParams.has('cwd')) {
+    const cwd = canonicalWorkspaceCwd(url.searchParams.get('cwd'))
+    if (!cwd) return { error: 'workspace_invalid' }
+    return { cwd }
+  }
+  const bodyWorkspace = body && typeof body.workspace === 'string' ? body.workspace.trim() : ''
+  if (bodyWorkspace) {
+    const cwd = canonicalWorkspaceCwd(bodyWorkspace)
+    if (!cwd) return { error: 'workspace_invalid' }
+    return { cwd }
+  }
   return resolveBizWorkspace(url, aiRuntime)
+}
+
+function rejectWorkspace(resolved, response, correlationId, sendError) {
+  if (!resolved.error) return false
+  sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+  return true
 }
 
 async function runConnectorVocabGenerate(aiRuntime, {
@@ -643,7 +673,9 @@ export async function handleBizRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && url.pathname === '/api/v1/biz/vocab/generate') {
     const body = await readJson(request)
-    const workspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const resolvedWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
+    const workspace = resolvedWorkspace.cwd
     const systemId = String(body.systemId || '').trim()
     if (systemId) {
       const found = await findBizSystem(aiRuntime, systemId)
@@ -719,7 +751,9 @@ export async function handleBizRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/kinds') {
-    const workspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
+    const resolvedWorkspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
+    if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
+    const workspace = resolvedWorkspace.cwd
     try {
       const data = await loadBizVocab(aiRuntime, workspace)
       sendJson(response, 200, { data, correlationId })
@@ -736,7 +770,9 @@ export async function handleBizRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/traces') {
-    const workspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
+    const resolvedWorkspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
+    if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
+    const workspace = resolvedWorkspace.cwd
     const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 50)))
     const traceId = String(url.searchParams.get('id') || url.searchParams.get('traceId') || '').trim()
     if (traceId) {
@@ -802,7 +838,9 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendError(response, 400, 'validation_error', 'trace_id 不能为空', correlationId)
       return true
     }
-    const workspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const resolvedWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
+    const workspace = resolvedWorkspace.cwd
     const audit = getBizWriteAuditByTraceId(db, traceId)
     if (!audit || !Array.isArray(audit.changes) || !audit.changes.length) {
       markRollbackBlockedIfPermanent(db, traceId, 'not_found', 404)
@@ -936,7 +974,12 @@ export async function handleBizRoutes(request, response, url, deps) {
       const sheetWorkspace = official && typeof official.workspace === 'string' && official.workspace.startsWith('/')
         ? official.workspace
         : ''
-      const bizCwd = requestMemoryCwd(url, {}) || sheetWorkspace || resolveBizWorkspace(url, aiRuntime)
+      let bizCwd = requestMemoryCwd(url, {}) || sheetWorkspace
+      if (!bizCwd) {
+        const resolvedWorkspace = resolveBizWorkspace(url, aiRuntime)
+        if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
+        bizCwd = resolvedWorkspace.cwd
+      }
       let handed = official
       if (handed) {
         try {
@@ -961,7 +1004,11 @@ export async function handleBizRoutes(request, response, url, deps) {
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/connections') {
     const workspaceId = url.searchParams.get('workspace') ?? url.searchParams.get('workspaceId') ?? 'ws_personal'
-    const workspace = resolveActiveBizCwd(url, null, aiRuntime, requestMemoryCwd)
+    const cwdUrl = new URL(url)
+    cwdUrl.searchParams.delete('workspace')
+    const resolvedWorkspace = resolveActiveBizCwd(cwdUrl, null, aiRuntime, requestMemoryCwd)
+    if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
+    const workspace = resolvedWorkspace.cwd
     let online = false
     let catalogVersion = null
     let state = null
@@ -1006,7 +1053,9 @@ export async function handleBizRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && url.pathname === '/api/v1/biz/preview') {
     const body = await readJson(request)
-    const bizWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const resolvedWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
+    const bizWorkspace = resolvedWorkspace.cwd
     const kind = String(body.kind || '').trim()
     const routed = kind ? await mcpRouteForKind(aiRuntime, bizWorkspace, kind) : null
     if (routed?.error) {
@@ -1182,7 +1231,9 @@ export async function handleBizRoutes(request, response, url, deps) {
     let vocabGenerated = null
     const shouldGenerate = body.generateVocab !== false && body.syncVocab !== false
     if (shouldGenerate && token && baseUrl) {
-      const workspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+      const resolvedWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+      if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
+      const workspace = resolvedWorkspace.cwd
       try {
         vocabGenerated = await runConnectorVocabGenerate(aiRuntime, {
           workspace,
@@ -1197,7 +1248,9 @@ export async function handleBizRoutes(request, response, url, deps) {
         }
       }
     }
-    const lampWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const resolvedLamp = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    if (rejectWorkspace(resolvedLamp, response, correlationId, sendError)) return true
+    const lampWorkspace = resolvedLamp.cwd
     let lampVocab = null
     try {
       lampVocab = await loadBizVocab(aiRuntime, lampWorkspace)
@@ -1271,7 +1324,9 @@ export async function handleBizRoutes(request, response, url, deps) {
       return true
     }
     const rollbackOfTraceId = String(body.rollback_of_trace_id || body.rollbackOfTraceId || '').trim()
-    const bizWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    const resolvedWorkspace = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
+    const bizWorkspace = resolvedWorkspace.cwd
     const writeSource = String(body.source || '').trim()
     if (writeSource !== 'workstation') {
       sendError(response, 403, 'biz_write_forbidden', '请在右侧确认过账', correlationId)

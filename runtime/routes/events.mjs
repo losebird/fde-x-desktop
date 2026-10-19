@@ -12,9 +12,11 @@ import {
 const MAX_SSE_CONNECTIONS = 32
 const PING_INTERVAL_MS = 25_000
 
-function workspaceQuery(raw) {
-  const workspace = String(raw || '').trim()
-  return canonicalWorkspaceCwd(workspace) ? workspace : undefined
+function workspaceFilter(url) {
+  if (!url.searchParams.has('workspace')) return { cwd: undefined }
+  const cwd = canonicalWorkspaceCwd(url.searchParams.get('workspace'))
+  if (!cwd) return { error: 'workspace_invalid' }
+  return { cwd }
 }
 
 /** @type {Set<import('node:http').ServerResponse>} */
@@ -47,9 +49,14 @@ export async function handleEventsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/events/recent') {
+    const filter = workspaceFilter(url)
+    if (filter.error) {
+      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+      return true
+    }
     const type = String(url.searchParams.get('type') || '').trim()
     const limit = Number(url.searchParams.get('limit') ?? 50)
-    const workspaceCwd = workspaceQuery(url.searchParams.get('workspace'))
+    const workspaceCwd = filter.cwd
     const items = listRecentEvents(db, {
       workspaceCwd,
       type: type || undefined,
@@ -60,12 +67,17 @@ export async function handleEventsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/events') {
+    const filter = workspaceFilter(url)
+    if (filter.error) {
+      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+      return true
+    }
     if (activeSse.size >= MAX_SSE_CONNECTIONS) {
       sendError(response, 429, 'too_many_connections', '事件流连接过多，请稍后重试', correlationId)
       return true
     }
 
-    const workspaceCwd = workspaceQuery(url.searchParams.get('workspace'))
+    const workspaceCwd = filter.cwd
     const since = String(url.searchParams.get('since') || '').trim()
 
     response.writeHead(200, {
