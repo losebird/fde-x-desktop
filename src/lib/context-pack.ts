@@ -20,11 +20,42 @@ export type ContextPack = {
 
 export type ContextPackEntity = ContextPack['entity']
 
+export type PromptPackChoice =
+  | { taskIds?: undefined; pack?: ContextPack; warnings?: string[] }
+  | { taskIds: readonly string[]; pack?: never; warnings?: never }
+
+export function applyPromptPackChoice(
+  scopes: readonly ContextScope[],
+  choice: PromptPackChoice,
+): {
+  scopes: ContextScope[]
+  pack?: ContextPack
+  warnings: string[]
+  taskIdInput: { taskIds?: readonly string[] }
+} {
+  const scopeCopy = [...scopes]
+  if (choice.taskIds === undefined) {
+    return {
+      scopes: scopeCopy,
+      pack: choice.pack,
+      warnings: choice.warnings || [],
+      taskIdInput: {},
+    }
+  }
+  return {
+    scopes: scopeCopy,
+    pack: undefined,
+    warnings: [],
+    taskIdInput: { taskIds: choice.taskIds },
+  }
+}
+
 export async function buildContextPack(opts: {
   scopes: ContextScope[]
   query?: string
   entity?: ContextPackEntity
   intentKind?: 'decision' | 'draft' | 'lookup'
+  taskIds?: readonly string[]
 }): Promise<{ pack: ContextPack; warnings: string[] }> {
   const workspace = loadCurrentWorkspaceCwd()
   if (!workspace.ok) {
@@ -36,6 +67,7 @@ export async function buildContextPack(opts: {
     query: opts.query,
     entity: opts.entity,
     intentKind: opts.intentKind,
+    taskIds: opts.taskIds,
   })
   return { pack: result.pack as ContextPack, warnings: result.warnings }
 }

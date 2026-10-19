@@ -40,6 +40,7 @@ export async function handleContextPackRoute(request, response, url, deps) {
       entity: body.entity,
       intentKind: body.intentKind,
       sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
+      taskIds: body.taskIds,
     },
   )
   sendJson(response, 200, { ok: true, data: pack, warnings, correlationId })

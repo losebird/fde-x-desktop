@@ -275,8 +275,7 @@ function TodoTab() {
       schema: TaskAdviceSchema,
       context: ['tasks'],
       omit: ctxOmit,
-      pack: selectedTaskId ? undefined : (ctxPack || undefined),
-      warnings: selectedTaskId ? undefined : ctxWarnings,
+      taskIds: filtered.map((row) => row.id),
     })
     setOrganizeLoading(false)
     if (!result.ok) {
@@ -311,8 +310,7 @@ function TodoTab() {
       fields,
       tail: '请结合上述来源实体推进这项待办。禁止过账。',
       omit: ctxOmit,
-      pack: ctxPack || undefined,
-      warnings: ctxWarnings,
+      taskIds: [selectedTask.id],
       revealAi: true,
     })
     setAskLoading(false)
