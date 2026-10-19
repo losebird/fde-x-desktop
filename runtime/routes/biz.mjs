@@ -311,7 +311,6 @@ export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}
 }
 
 /**
- * Emit biz.sheet.pending for all SSE clients (workspaceCwd null avoids cwd mismatch drops).
  * @param {Record<string, unknown>} sheet
  * @param {{ sessionId?: string, source?: string, workspaceCwd?: string }} [meta]
  */
@@ -349,7 +348,7 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
     sheet: payloadSheet,
     ...(tokenIndex ? { writePreview: tokenIndex } : {}),
   }, {
-    workspaceCwd: null,
+    workspaceCwd: canonicalWorkspaceCwd(workspaceCwd) || null,
     sessionId,
     source,
   })

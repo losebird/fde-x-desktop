@@ -78,31 +78,40 @@ function rejectAppWorkspace(resolved, response, correlationId, sendError) {
     sendError(response, 404, 'not_found', '工作区未登记', correlationId)
     return true
   }
+  if (resolved?.error === 'workspace_mismatch') {
+    sendError(response, 400, 'workspace_mismatch', '工作区 id 与路径不一致', correlationId)
+    return true
+  }
   if (!resolved?.error) return false
   sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
   return true
 }
 
-function idForSuppliedPath(db, cwd) {
-  return resolveWorkspaceIdOrFail(db, { cwd, source: 'request' })
-}
-
 function appIdentity(db, url, body, slots) {
-  const resolved = resolveHttpWorkspace({
-    url,
-    body,
-    role: 'id-or-path',
-    whenAbsent: 'omit',
-    slots,
-  })
-  if (resolved.error) return resolved
-  if (resolved.cwd) {
-    const found = idForSuppliedPath(db, resolved.cwd)
-    if (found.error) return found
-    return { workspaceId: found.workspaceId, hint: resolved.cwd }
+  let pathHit = null
+  let suppliedId = ''
+  for (const [from, key] of slots) {
+    const role = key === 'cwd' || key === 'workspaceCwd' ? 'path' : 'id-or-path'
+    const one = resolveHttpWorkspace({
+      url,
+      body,
+      role,
+      whenAbsent: 'omit',
+      slots: [[from, key]],
+    })
+    if (one.error) return one
+    if (one.cwd && !pathHit) pathHit = one
+    if (one.id && !suppliedId) suppliedId = one.id
   }
-  const ident = resolveWorkspaceIdOrFail(db, resolved)
-  return { workspaceId: ident.workspaceId, hint: '' }
+  if (!suppliedId && body && typeof body.workspaceId === 'string' && body.workspaceId.trim()) {
+    suppliedId = body.workspaceId.trim()
+  }
+  const ident = resolveWorkspaceIdOrFail(db, {
+    ...(pathHit || {}),
+    id: suppliedId,
+  })
+  if (ident.error) return ident
+  return { workspaceId: ident.workspaceId, hint: pathHit?.cwd || '' }
 }
 
 function appRecordCwd(url, body, spec, aiRuntime, place) {
@@ -307,32 +316,39 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && pathname === '/api/v1/apps') {
     const body = await readJson(request)
-    const pathResolved = resolveHttpWorkspace({
+    const explicit = resolveHttpWorkspace({
       body,
+      role: 'path',
+      whenAbsent: 'omit',
       slots: [['body', 'workspaceCwd'], ['body', 'cwd']],
+    })
+    if (rejectAppWorkspace(explicit, response, correlationId, sendError)) return true
+    let requestPath = explicit.source === 'request' ? explicit : null
+    let slotId = ''
+    if (typeof body.workspace === 'string' && body.workspace) {
+      const named = resolveHttpWorkspace({
+        body,
+        role: 'id-or-path',
+        whenAbsent: 'omit',
+        slots: [['body', 'workspace']],
+      })
+      if (rejectAppWorkspace(named, response, correlationId, sendError)) return true
+      if (named.cwd && !requestPath) requestPath = named
+      if (named.id) slotId = named.id
+    }
+    const suppliedId = typeof body.workspaceId === 'string' && body.workspaceId.trim()
+      ? body.workspaceId.trim()
+      : slotId
+    const base = requestPath || resolveHttpWorkspace({
       runtimeCwd: aiRuntime?.cwd,
       fallbackCwd: FDE_AI_WORKSPACE,
+      slots: [],
     })
-    if (rejectAppWorkspace(pathResolved, response, correlationId, sendError)) return true
-    const workspaceCwd = pathResolved.cwd
-    const identity = appIdentity(db, null, body, [['body', 'workspace']])
-    if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
-    let workspaceId = typeof body.workspaceId === 'string' && body.workspaceId ? body.workspaceId : ''
-    if (!workspaceId && identity.hint) {
-      const found = idForSuppliedPath(db, identity.hint)
-      if (rejectAppWorkspace(found, response, correlationId, sendError)) return true
-      workspaceId = found.workspaceId
-    } else if (!workspaceId && body.workspace) {
-      workspaceId = identity.workspaceId
-    } else if (!workspaceId && pathResolved.source === 'request') {
-      const found = idForSuppliedPath(db, workspaceCwd)
-      if (rejectAppWorkspace(found, response, correlationId, sendError)) return true
-      workspaceId = found.workspaceId
-    } else if (!workspaceId) {
-      const found = resolveWorkspaceIdOrFail(db, pathResolved)
-      if (rejectAppWorkspace(found, response, correlationId, sendError)) return true
-      workspaceId = found.workspaceId
-    }
+    if (rejectAppWorkspace(base, response, correlationId, sendError)) return true
+    const ident = resolveWorkspaceIdOrFail(db, { ...base, id: suppliedId })
+    if (rejectAppWorkspace(ident, response, correlationId, sendError)) return true
+    const workspaceId = ident.workspaceId
+    const workspaceCwd = ident.cwd || base.cwd || ''
     const spec = body.spec
     if (!spec || typeof spec !== 'object') {
       sendError(response, 400, 'validation_error', 'spec 不能为空', correlationId)
@@ -624,16 +640,10 @@ export async function handleAppsRoutes(request, response, url, deps) {
     const slug = decodeURIComponent(actionMatch[1])
     const actionName = decodeURIComponent(actionMatch[2])
     const body = await readJson(request)
-    const identity = appIdentity(db, null, body, [['body', 'workspace']])
+    const identity = appIdentity(db, null, body, [['body', 'workspaceCwd'], ['body', 'cwd'], ['body', 'workspace']])
     if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
-    const workspaceId = body.workspaceId ?? identity.workspaceId
-    const hint = resolveHttpWorkspace({
-      body,
-      role: 'id-or-path',
-      whenAbsent: 'omit',
-      slots: [['body', 'workspaceCwd'], ['body', 'workspace']],
-    })
-    const app = requireActiveApp(db, workspaceId, slug, hint.cwd || '')
+    const workspaceId = identity.workspaceId
+    const app = requireActiveApp(db, workspaceId, slug, identity.hint || '')
     if (!app) {
       sendError(response, 404, 'not_found', '应用未激活', correlationId)
       return true
@@ -714,16 +724,10 @@ export async function handleAppsRoutes(request, response, url, deps) {
     const slug = decodeURIComponent(entityListMatch[1])
     const entity = decodeURIComponent(entityListMatch[2])
     const body = await readJson(request)
-    const identity = appIdentity(db, null, body, [['body', 'workspace']])
+    const identity = appIdentity(db, null, body, [['body', 'workspaceCwd'], ['body', 'cwd'], ['body', 'workspace']])
     if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
-    const workspaceId = body.workspaceId ?? identity.workspaceId
-    const hint = resolveHttpWorkspace({
-      body,
-      role: 'id-or-path',
-      whenAbsent: 'omit',
-      slots: [['body', 'workspaceCwd'], ['body', 'workspace']],
-    })
-    const app = requireActiveApp(db, workspaceId, slug, hint.cwd || '')
+    const workspaceId = identity.workspaceId
+    const app = requireActiveApp(db, workspaceId, slug, identity.hint || '')
     if (!app) {
       sendError(response, 404, 'not_found', '应用未激活', correlationId)
       return true
@@ -977,7 +981,13 @@ export async function handleAppsRoutes(request, response, url, deps) {
  * @param {string} workspaceCwd
  */
 export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
-  const found = resolveWorkspaceIdOrFail(db, workspaceCwd ? { cwd: workspaceCwd, source: 'request' } : {})
+  const suppliedId = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
+  const found = resolveWorkspaceIdOrFail(db, workspaceCwd
+    ? { cwd: workspaceCwd, source: 'request', id: suppliedId }
+    : {})
+  if (found.error === 'workspace_mismatch') {
+    return { ok: false, status: 400, error: 'workspace_mismatch', errors: [{ path: 'workspaceId', message: '工作区 id 与路径不一致' }] }
+  }
   if (found.error) return { ok: false, status: 404, errors: [{ path: 'workspaceCwd', message: '工作区未登记' }] }
   const workspaceId = found.workspaceId
   if (sub === 'app-spec-submit') {

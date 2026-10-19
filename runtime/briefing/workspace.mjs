@@ -32,12 +32,15 @@ export function workspaceRowIdForCwd(db, workspaceCwd) {
 
 export function resolveWorkspaceIdOrFail(db, resolved) {
   if (resolved?.error) return { error: resolved.error }
-  if (resolved?.id) return { workspaceId: resolved.id }
-  if (resolved?.source === 'request') {
-    const row = workspaceRowForCwd(db, resolved.cwd)
+  const suppliedId = typeof resolved?.id === 'string' ? resolved.id.trim() : ''
+  const requestPath = resolved?.source === 'request' ? canonicalWorkspaceCwd(resolved.cwd) : ''
+  if (requestPath) {
+    const row = workspaceRowForCwd(db, requestPath)
     if (!row) return { error: 'missing_workspace' }
-    return { workspaceId: row.id, cwd: resolved.cwd }
+    if (suppliedId && suppliedId !== row.id) return { error: 'workspace_mismatch' }
+    return { workspaceId: row.id, cwd: requestPath }
   }
+  if (suppliedId) return { workspaceId: suppliedId }
   if (!resolved?.cwd) return { workspaceId: 'ws_personal' }
   const row = workspaceRowForCwd(db, resolved.cwd)
   if (row) return { workspaceId: row.id, cwd: resolved.cwd }

@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { canonicalWorkspaceCwd, canonicalWorkspaceCwdSql, workspaceCwdEqual } from './cwd.mjs'
+import { workspaceCwdForId } from './briefing/workspace.mjs'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -136,10 +137,13 @@ export function appendAudit(db, entry) {
 export function enqueueEvent(db, event) {
   const id = event.id ?? createId('evt')
   const occurredAt = event.occurredAt ?? isoNow()
+  const workspaceCwd = event.workspaceCwd == null || event.workspaceCwd === ''
+    ? null
+    : (canonicalWorkspaceCwd(event.workspaceCwd) || String(event.workspaceCwd))
   db.prepare(`
     INSERT INTO outbox_events
-      (id, event_type, schema_version, source_ref, subject_ref, correlation_id, causation_id, payload_json, occurred_at, available_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, event_type, schema_version, source_ref, subject_ref, correlation_id, causation_id, payload_json, occurred_at, available_at, workspace_cwd)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     event.type,
@@ -151,6 +155,7 @@ export function enqueueEvent(db, event) {
     JSON.stringify(event.payload ?? {}),
     occurredAt,
     event.availableAt ?? occurredAt,
+    workspaceCwd,
   )
   return id
 }
@@ -399,6 +404,7 @@ export function createBusinessApp(db, input) {
       subjectRef: `fde://workstation/business-app/${id}`,
       correlationId,
       payload: { appId: id, name: input.name, revision: 1, status: 'draft' },
+      workspaceCwd: workspaceCwdForId(db, input.workspaceId ?? 'ws_personal'),
     })
     db.exec('COMMIT;')
   } catch (error) {

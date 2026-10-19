@@ -7,7 +7,7 @@ import { buildContextPack } from '../context-pack.mjs'
 import { draftMemoryFromBridge } from '../memory/writer.mjs'
 import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
-import { workspaceCwdForId, workspaceRowIdForCwd } from '../briefing/workspace.mjs'
+import { resolveWorkspaceIdOrFail, workspaceCwdForId } from '../briefing/workspace.mjs'
 import { proposePlanTask } from '../plan/task-proposals.mjs'
 import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { pathHasPrefix } from '../path-prefix.mjs'
@@ -207,9 +207,21 @@ export async function handleBridgeRoutes(request, response, url, deps) {
   }
 
   if (sub === 'plan-task-propose') {
-    const fromCwd = workspaceRowIdForCwd(db, workspaceCwd)
     const fromBody = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
-    const result = proposePlanTask(db, { ...body, workspaceId: fromCwd || fromBody })
+    let workspaceId = fromBody
+    if (workspaceCwd) {
+      const ident = resolveWorkspaceIdOrFail(db, { cwd: workspaceCwd, source: 'request', id: fromBody })
+      if (ident.error === 'missing_workspace') {
+        bridgeError(response, 404, 'not_found', '工作区未登记', correlationId)
+        return true
+      }
+      if (ident.error === 'workspace_mismatch') {
+        bridgeError(response, 400, 'workspace_mismatch', '工作区 id 与路径不一致', correlationId)
+        return true
+      }
+      workspaceId = ident.workspaceId
+    }
+    const result = proposePlanTask(db, { ...body, workspaceId })
     if (!result.ok) {
       if (result.error === 'not_found') {
         bridgeError(response, 404, 'not_found', result.message, correlationId)
@@ -259,8 +271,9 @@ export async function handleBridgeRoutes(request, response, url, deps) {
           emit('ai.result.ready', { requestId }, { workspaceCwd, sessionId: sessionId || undefined })
         }
       }
-      if (bridgeResult.ok === false && bridgeResult.status === 404) {
-        bridgeError(response, 404, 'not_found', bridgeResult.errors[0].message, correlationId)
+      if (bridgeResult.ok === false && (bridgeResult.status === 404 || bridgeResult.status === 400)) {
+        const code = bridgeResult.status === 400 ? (bridgeResult.error || 'workspace_mismatch') : 'not_found'
+        bridgeError(response, bridgeResult.status, code, bridgeResult.errors[0].message, correlationId)
         return true
       }
       bridgeOk(response, bridgeResult.ok === false ? 422 : 200, bridgeResult, correlationId)
