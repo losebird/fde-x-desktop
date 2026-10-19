@@ -620,4 +620,78 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     assert.equal(proposed.status, 401)
     assert.equal(proposals(workspaceId).length, 0)
   })
+
+  async function recentEvents(type, workspaceCwd) {
+    const params = new URLSearchParams({ type, limit: '100' })
+    if (workspaceCwd) params.set('workspace', workspaceCwd)
+    const res = await fetch(`${base}/api/v1/events/recent?${params}`, {
+      headers: { Origin: origin },
+    })
+    const payload = await readJson(res)
+    assert.equal(res.status, 200, JSON.stringify(payload))
+    return payload.items || []
+  }
+
+  function eventsFor(items, proposalId) {
+    return items.filter((item) => item?.payload?.proposalId === proposalId)
+  }
+
+  test('propose, confirm, and reject emit task.proposal.changed and a trailing slash still matches', async () => {
+    const bound = join(root, 'emit-cwd')
+    await mkdir(bound, { recursive: true })
+    const workspaceId = await createWorkspace({ cwd: bound })
+    const task = await createTask(workspaceId, '原来的标题')
+    const changedBefore = (await recentEvents('task.changed', bound)).length
+    const proposed = await bridgePropose({
+      workspaceCwd: `${bound}/`,
+      op: 'update',
+      taskId: task.id,
+      title: '提案标题',
+      priority: 'high',
+    })
+    assert.equal(proposed.status, 200, JSON.stringify(proposed.payload))
+    const row = assertAwaiting(workspaceId)
+    const listed = await fetch(`${base}/api/v1/plan/task-proposals?workspaceId=${encodeURIComponent(workspaceId)}`)
+    const listedPayload = await readJson(listed)
+    assert.equal(listed.status, 200, JSON.stringify(listedPayload))
+    const hit = listedPayload.data.find((item) => item.id === row.id)
+    assert.equal(hit.before.priority, 'med')
+    assert.equal(hit.before.title, '原来的标题')
+    assert.equal(hit.change.priority, 'high')
+    assert.equal(hit.change.title, '提案标题')
+    const plain = eventsFor(await recentEvents('task.proposal.changed', bound), row.id)
+    const slashed = eventsFor(await recentEvents('task.proposal.changed', `${bound}/`), row.id)
+    assert.equal(plain.length, 1)
+    assert.equal(slashed.length, 1)
+    assert.equal(plain[0].type, 'task.proposal.changed')
+    assert.equal(plain[0].workspaceCwd, bound)
+    assert.equal(plain[0].payload.taskId, task.id)
+    assert.equal(plain[0].payload.op, 'update')
+    assert.equal((await recentEvents('task.changed', bound)).length, changedBefore)
+
+    const confirmed = await decide(row.id, 'confirm', pageHeaders(), {})
+    assert.equal(confirmed.status, 200, JSON.stringify(confirmed.payload))
+    assert.equal(eventsFor(await recentEvents('task.proposal.changed', `${bound}/`), row.id).length, 2)
+    assert.equal((await recentEvents('task.changed', bound)).length, changedBefore + 1)
+    assert.equal(taskById(task.id).title, '提案标题')
+
+    const rejectedProposal = await bridgePropose({
+      workspaceCwd: `${bound}/`,
+      op: 'update',
+      taskId: task.id,
+      notes: '不要这条',
+    })
+    assert.equal(rejectedProposal.status, 200, JSON.stringify(rejectedProposal.payload))
+    const open = proposals(workspaceId).find((item) => item.state === 'awaiting_approval')
+    assert.ok(open)
+    const afterProposeReject = eventsFor(await recentEvents('task.proposal.changed', bound), open.id)
+    assert.equal(afterProposeReject.length, 1)
+    const changedBeforeReject = (await recentEvents('task.changed', bound)).length
+    const rejected = await decide(open.id, 'reject', pageHeaders(), {})
+    assert.equal(rejected.status, 200, JSON.stringify(rejected.payload))
+    assert.equal(eventsFor(await recentEvents('task.proposal.changed', `${bound}/`), open.id).length, 2)
+    assert.equal((await recentEvents('task.changed', bound)).length, changedBeforeReject)
+    assert.equal(taskById(task.id).title, '提案标题')
+    assert.equal(taskById(task.id).notes ?? '', '')
+  })
 })
