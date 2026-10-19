@@ -1,4 +1,5 @@
 import { resolveAllowedRequestOrigin } from '../config.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import {
   configureEventBus,
   emit,
@@ -10,6 +11,11 @@ import {
 
 const MAX_SSE_CONNECTIONS = 32
 const PING_INTERVAL_MS = 25_000
+
+function workspaceQuery(raw) {
+  const workspace = String(raw || '').trim()
+  return canonicalWorkspaceCwd(workspace) ? workspace : undefined
+}
 
 /** @type {Set<import('node:http').ServerResponse>} */
 const activeSse = new Set()
@@ -41,10 +47,9 @@ export async function handleEventsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/events/recent') {
-    const workspace = String(url.searchParams.get('workspace') || '').trim()
     const type = String(url.searchParams.get('type') || '').trim()
     const limit = Number(url.searchParams.get('limit') ?? 50)
-    const workspaceCwd = workspace.startsWith('/') ? workspace : undefined
+    const workspaceCwd = workspaceQuery(url.searchParams.get('workspace'))
     const items = listRecentEvents(db, {
       workspaceCwd,
       type: type || undefined,
@@ -60,8 +65,7 @@ export async function handleEventsRoutes(request, response, url, deps) {
       return true
     }
 
-    const workspace = String(url.searchParams.get('workspace') || '').trim()
-    const workspaceCwd = workspace.startsWith('/') ? workspace : undefined
+    const workspaceCwd = workspaceQuery(url.searchParams.get('workspace'))
     const since = String(url.searchParams.get('since') || '').trim()
 
     response.writeHead(200, {

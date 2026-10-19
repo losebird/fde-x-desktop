@@ -850,13 +850,14 @@ export function setBizWriteAuditRollbackState(db, traceId, rollbackState) {
 }
 
 export function listBizWriteAudits(db, workspaceCwd, limit = 50) {
+  const match = workspaceCwdEqual(db, 'workspace_cwd', workspaceCwd)
   const rows = db.prepare(`
     SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, lookup_bind_json, written_at, rollback_state
     FROM biz_write_audit
-    WHERE workspace_cwd = ?
+    WHERE ${match.sql}
     ORDER BY written_at DESC
     LIMIT ?
-  `).all(workspaceCwd, Math.max(1, Math.min(200, limit)))
+  `).all(...match.params, Math.max(1, Math.min(200, limit)))
   return rows.map((row) => ({
     id: row.id,
     workspaceCwd: row.workspace_cwd,
