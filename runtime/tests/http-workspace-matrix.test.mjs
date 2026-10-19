@@ -20,7 +20,10 @@ const WIN_MARK = 'matrix-win-marker'
 const SLASH_MARK = 'matrix-slash-marker'
 const DEFAULT_MARK = 'matrix-default-marker'
 
-const READ_RE = /searchParams\.(?:get|has)\(\s*['"](?:cwd|workspace)['"]|body\??\.(?:cwd|workspaceCwd|workspace)\b|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\s*\(/
+const WORKSPACE_KEY = 'cwd|workspace|workspaceCwd|workspacePath|workingDirectory'
+const READ_RE = new RegExp(
+  `searchParams\\.(?:get|has)\\(\\s*['"\`](?:${WORKSPACE_KEY})['"\`]|body\\??\\.(?:${WORKSPACE_KEY})\\b|body\\??\\[['"\`](?:${WORKSPACE_KEY})['"\`]\\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\\s*\\(`,
+)
 
 function registerWorkspace(db, id, cwd) {
   const now = new Date().toISOString()
@@ -319,17 +322,23 @@ function pathExempt(rel, found) {
   })
 }
 
-function pathRegistered(found) {
+function discoveredMethod(window) {
+  const matches = [...window.matchAll(/request\.method === '([A-Z]+)'/g)]
+  return matches.length ? matches[matches.length - 1][1] : ''
+}
+
+function pathRegistered(method, found) {
   return httpWorkspaceRoutes.some((route) => {
-    if (found === route.path || found.startsWith(`${route.path}/`)) return true
-    return route.path.startsWith(found.endsWith('/') ? found : `${found}/`)
+    const pathOk = found === route.path || found.startsWith(`${route.path}/`) || route.path.startsWith(found.endsWith('/') ? found : `${found}/`)
+    if (!pathOk) return false
+    return !method || route.method === method
   })
 }
 
 function discoveredPaths(window) {
   const found = []
-  for (const match of window.matchAll(/['"](\/(?:api\/v1|semantic-os)\/[^'"]*)['"]/g)) found.push(match[1])
-  for (const match of window.matchAll(/\\\/api\\\/v1\\\/([A-Za-z0-9/_-]+)/g)) found.push(`/api/v1/${match[1]}`)
+  const re = /['"](\/(?:api\/v1|semantic-os)\/[^'"]*)['"]|\\\/api\\\/v1\\\/([A-Za-z0-9/_-]+)/g
+  for (const match of window.matchAll(re)) found.push(match[1] || `/api/v1/${match[2]}`)
   return found
 }
 
@@ -383,8 +392,9 @@ test('http workspace readers are registered', async () => {
         return
       }
       const routePath = found[found.length - 1]
-      if (pathExempt(rel, routePath) || pathRegistered(routePath)) return
-      problems.push(`${rel}:${index + 1} ${routePath} is not registered`)
+      const method = discoveredMethod(window)
+      if (pathExempt(rel, routePath) || pathRegistered(method, routePath)) return
+      problems.push(`${rel}:${index + 1} ${method || 'ANY'} ${routePath} is not registered`)
     })
   }
   assert.deepEqual(problems, [])

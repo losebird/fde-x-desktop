@@ -50,6 +50,8 @@ import {
   databaseHealth,
   enqueueEvent,
   ensureWorkspace,
+  getWorkspace,
+  patchWorkspaceMetadata,
   executeDryRun,
   executeOperationLive,
   getOperation,
@@ -149,6 +151,7 @@ import {
 } from './config.mjs'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { resolveHttpWorkspace } from './http-workspace.mjs'
+import { workspaceRowIdForCwd } from './briefing/workspace.mjs'
 
 const runtimeDirectory = FDE_RUNTIME_DIR
 const databasePath = FDE_DATABASE_PATH
@@ -163,6 +166,11 @@ configureEventBus(db)
 const aiRuntime = createCoreConnector({
   cwd: canonicalWorkspaceCwd(process.env.FDE_AI_WORKSPACE) || FDE_AI_WORKSPACE,
 })
+const personalWorkspace = getWorkspace(db, 'ws_personal')
+const personalMeta = personalWorkspace?.metadata && typeof personalWorkspace.metadata === 'object' ? personalWorkspace.metadata : {}
+const personalStored = canonicalWorkspaceCwd(personalMeta.cwd) || canonicalWorkspaceCwd(personalMeta.path)
+const runtimeWorkspaceCwd = canonicalWorkspaceCwd(aiRuntime.cwd) || canonicalWorkspaceCwd(FDE_AI_WORKSPACE)
+if (!personalStored && runtimeWorkspaceCwd) patchWorkspaceMetadata(db, 'ws_personal', { cwd: runtimeWorkspaceCwd })
 startMemoryWriter({ db, aiRuntime })
 let bridgeToken = ''
 const uiToken = mintUiToken()
@@ -3058,9 +3066,22 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/business/apps') {
-      const workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
-      const workspaceCwd = url.searchParams.get('workspaceCwd') ?? ''
       const shares = liveShareIdsByApp(db)
+      let workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
+      let workspaceCwd = ''
+      if (url.searchParams.has('workspaceCwd')) {
+        workspaceCwd = canonicalWorkspaceCwd(url.searchParams.get('workspaceCwd'))
+        if (!workspaceCwd) {
+          sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+          return
+        }
+        const rowId = workspaceRowIdForCwd(db, workspaceCwd)
+        if (!rowId) {
+          sendError(response, 400, 'missing_workspace', '工作区未登记', currentCorrelationId)
+          return
+        }
+        if (!url.searchParams.get('workspaceId')) workspaceId = rowId
+      }
       const items = listBusinessApps(db, { workspaceId, workspaceCwd }).map((row) => ({
         ...row,
         shareId: shares.get(row.id) || '',

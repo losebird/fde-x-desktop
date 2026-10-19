@@ -93,6 +93,7 @@ describe('hosted web app occupancy', () => {
     const cwd = `/tmp/fde-web-pub-${Date.now()}`
     mkdirSync(cwd, { recursive: true })
     const sqlite = db()
+    sqlite.prepare(`UPDATE workspaces SET metadata_json = ? WHERE id = 'ws_personal'`).run(JSON.stringify({ cwd }))
     const spec = webSpec(`pub-${Date.now().toString(36)}`)
     const submitted = await handleAppsBridge('app-spec-submit', {
       spec,

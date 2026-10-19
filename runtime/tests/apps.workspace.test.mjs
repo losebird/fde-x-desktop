@@ -55,6 +55,7 @@ describe('apps workspace identity', () => {
   test('bridge submit returns appId and stores cwd on spec', async () => {
     const db = openDatabase(`/tmp/fde-apps-ws3-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const spec = uniqueSpec()
+    db.prepare(`UPDATE workspaces SET metadata_json = ? WHERE id = 'ws_personal'`).run(JSON.stringify({ cwd: CWD }))
     const result = await handleAppsBridge('app-spec-submit', { spec }, db, CWD)
     assert.equal(result.ok, true)
     assert.ok(result.appId)

@@ -1,6 +1,5 @@
 import { findInFlightBriefing, getLatestBriefing, getOrCreateDefinition, listScheduledDefinitions } from './store.mjs'
 import { runBriefing } from './run.mjs'
-import { listWorkspaces } from '../db.mjs'
 import { canonicalWorkspaceCwd } from '../cwd.mjs'
 
 const TICK_MS = 60_000
@@ -17,23 +16,21 @@ function scheduleKey(definitionId, dayKey, at) {
   return `${definitionId}:${dayKey}:${at}`
 }
 
-function workspaceCwdForDefinition(db, workspaceId) {
-  const row = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(workspaceId)
-  if (row) {
-    try {
-      const meta = JSON.parse(row.metadata_json || '{}')
-      const path = canonicalWorkspaceCwd(meta.cwd) || canonicalWorkspaceCwd(meta.path)
-      if (path) return path
-    } catch { /* fall through */ }
-  }
-  for (const ws of listWorkspaces(db)) {
-    if (ws.id === workspaceId) {
-      const meta = ws.metadata && typeof ws.metadata === 'object' ? ws.metadata : {}
-      const path = canonicalWorkspaceCwd(meta.cwd) || canonicalWorkspaceCwd(meta.path)
-      if (path) return path
-    }
-  }
+function rawWorkspacePath(meta) {
+  if (!meta || typeof meta !== 'object') return ''
+  if (typeof meta.cwd === 'string' && meta.cwd.trim()) return meta.cwd
+  if (typeof meta.path === 'string' && meta.path.trim()) return meta.path
   return ''
+}
+
+function storedWorkspaceCwd(db, workspaceId) {
+  const row = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(workspaceId)
+  if (!row) return { cwd: '' }
+  const raw = rawWorkspacePath(JSON.parse(row.metadata_json || '{}'))
+  if (!raw) return { cwd: '' }
+  const cwd = canonicalWorkspaceCwd(raw)
+  if (!cwd) return { illegal: true }
+  return { cwd }
 }
 
 function shouldFireSchedule(schedule, now) {
@@ -85,11 +82,12 @@ export async function tickBriefingScheduler(deps) {
     if (!shouldFireSchedule(schedule, now)) continue
     const at = schedule.at || '08:30'
     const key = scheduleKey(row.id, dayKey, at)
+    const stored = storedWorkspaceCwd(deps.db, row.workspace_id)
+    if (stored.illegal) continue
+    const workspaceCwd = stored.cwd || canonicalWorkspaceCwd(deps.defaultCwd)
+    if (!workspaceCwd) continue
     if (firedToday.has(key)) continue
     firedToday.set(key, true)
-    const workspaceCwd = canonicalWorkspaceCwd(workspaceCwdForDefinition(deps.db, row.workspace_id))
-      || canonicalWorkspaceCwd(deps.defaultCwd)
-    if (!workspaceCwd) continue
     try {
       if (findInFlightBriefing(deps.db, workspaceCwd)) continue
       const connected = deps.aiRuntime?.status?.().connected

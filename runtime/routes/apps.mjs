@@ -4,7 +4,7 @@ import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE, FDE_RUNTIME_PORT } from 
 import { verifyUiToken } from './bridge.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { emit } from '../events.mjs'
-import { workspaceIdForCwd } from '../briefing/workspace.mjs'
+import { workspaceRowIdForCwd } from '../briefing/workspace.mjs'
 import {
   buildAgentActionJobs,
   buildBizPreviewIntents,
@@ -74,9 +74,19 @@ function specWorkspaceCwd(spec) {
 }
 
 function rejectAppWorkspace(resolved, response, correlationId, sendError) {
+  if (resolved?.error === 'missing_workspace') {
+    sendError(response, 400, 'missing_workspace', '工作区未登记', correlationId)
+    return true
+  }
   if (!resolved?.error) return false
   sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
   return true
+}
+
+function idForSuppliedPath(db, cwd) {
+  const workspaceId = workspaceRowIdForCwd(db, cwd)
+  if (!workspaceId) return { error: 'missing_workspace' }
+  return { workspaceId }
 }
 
 function appIdentity(db, url, body, slots) {
@@ -88,7 +98,11 @@ function appIdentity(db, url, body, slots) {
     slots,
   })
   if (resolved.error) return resolved
-  if (resolved.cwd) return { workspaceId: workspaceIdForCwd(db, resolved.cwd), hint: resolved.cwd }
+  if (resolved.cwd) {
+    const found = idForSuppliedPath(db, resolved.cwd)
+    if (found.error) return found
+    return { workspaceId: found.workspaceId, hint: resolved.cwd }
+  }
   if (resolved.id) return { workspaceId: resolved.id, hint: '' }
   return { workspaceId: 'ws_personal', hint: '' }
 }
@@ -305,13 +319,20 @@ export async function handleAppsRoutes(request, response, url, deps) {
     const workspaceCwd = pathResolved.cwd
     const identity = appIdentity(db, null, body, [['body', 'workspace']])
     if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
-    const workspaceId = body.workspaceId ?? (
-      identity.hint
-        ? workspaceIdForCwd(db, identity.hint)
-        : body.workspace
-          ? identity.workspaceId
-          : workspaceIdForCwd(db, workspaceCwd)
-    )
+    let workspaceId = typeof body.workspaceId === 'string' && body.workspaceId ? body.workspaceId : ''
+    if (!workspaceId && identity.hint) {
+      const found = idForSuppliedPath(db, identity.hint)
+      if (rejectAppWorkspace(found, response, correlationId, sendError)) return true
+      workspaceId = found.workspaceId
+    } else if (!workspaceId && body.workspace) {
+      workspaceId = identity.workspaceId
+    } else if (!workspaceId && pathResolved.source === 'request') {
+      const found = idForSuppliedPath(db, workspaceCwd)
+      if (rejectAppWorkspace(found, response, correlationId, sendError)) return true
+      workspaceId = found.workspaceId
+    } else if (!workspaceId) {
+      workspaceId = workspaceRowIdForCwd(db, workspaceCwd) || 'ws_personal'
+    }
     const spec = body.spec
     if (!spec || typeof spec !== 'object') {
       sendError(response, 400, 'validation_error', 'spec 不能为空', correlationId)
@@ -956,7 +977,11 @@ export async function handleAppsRoutes(request, response, url, deps) {
  * @param {string} workspaceCwd
  */
 export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
-  const workspaceId = workspaceCwd ? workspaceIdForCwd(db, workspaceCwd) : 'ws_personal'
+  let workspaceId = 'ws_personal'
+  if (workspaceCwd) {
+    workspaceId = workspaceRowIdForCwd(db, workspaceCwd)
+    if (!workspaceId) return { ok: false, errors: [{ path: 'workspaceCwd', message: '工作区未登记' }] }
+  }
   if (sub === 'app-spec-submit') {
     const spec = body.spec
     if (!spec || typeof spec !== 'object') {
