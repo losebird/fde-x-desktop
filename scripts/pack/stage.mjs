@@ -13,9 +13,11 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { DSH_NPM_VERSION, SEMANTIC_RUNTIME } from './pins.mjs'
+import { DSH_NPM_VERSION, IUI_PIN, SEMANTIC_RUNTIME } from './pins.mjs'
 import { NODE_DIST_VERSION, nodeDistArchiveName, nodeDistPresent, nodeDistUrls } from './node-dist.mjs'
 import { stagePluginTree } from './plugin-stage.mjs'
+import { BUILTIN_PLUGINS } from '../../runtime/builtin-plugins.mjs'
+import { bundledPluginVersions, defaultIuiArtifactPath, stageIuiArtifact } from './iui-artifact.mjs'
 
 const execFile = promisify(execFileCb)
 
@@ -538,15 +540,23 @@ async function main() {
   await stageBffPackages(appRoot)
 
   const pluginsRoot = join(resourcesRoot, 'plugins')
-  for (const name of ['dsh-lan-assist', 'dsh-semantic-os']) {
-    const from = join(vendorDir, name)
-    const to = join(pluginsRoot, name)
-    if (!existsSync(from)) {
-      console.warn(`[stage] skip ${name}: missing ${from}`)
+  for (const plugin of BUILTIN_PLUGINS) {
+    if (plugin.source.kind === 'vendor') {
+      const from = join(vendorDir, plugin.dir)
+      const to = join(pluginsRoot, plugin.dir)
+      if (!existsSync(from)) {
+        console.warn(`[stage] skip ${plugin.dir}: missing ${from}`)
+        continue
+      }
+      await stagePluginTree(from, to)
+      console.log(`[stage] plugin ${plugin.dir} → ${to}`)
       continue
     }
-    await stagePluginTree(from, to)
-    console.log(`[stage] plugin ${name} → ${to}`)
+    if (plugin.source.kind !== 'pinned') continue
+    const artifactPath = process.env.FDE_IUI_ARTIFACT || defaultIuiArtifactPath(repoRoot, IUI_PIN.commit)
+    const to = join(pluginsRoot, plugin.dir)
+    await stageIuiArtifact({ dest: to, pin: IUI_PIN, artifactPath })
+    console.log(`[stage] plugin ${plugin.dir} ← artifact ${IUI_PIN.artifact.url || artifactPath}`)
   }
 
   const dshDest = join(resourcesRoot, 'dsh')
@@ -562,10 +572,7 @@ async function main() {
     platformKey: runtimeKey,
     dsh: { version: DSH_NPM_VERSION, staged: dshStaged },
     node: { version: NODE_DIST_VERSION, staged: nodeStaged },
-    plugins: {
-      'dsh-lan-assist': existsSync(join(pluginsRoot, 'dsh-lan-assist')),
-      'dsh-semantic-os': existsSync(join(pluginsRoot, 'dsh-semantic-os')),
-    },
+    plugins: bundledPluginVersions(BUILTIN_PLUGINS, pluginsRoot),
     semanticRuntime: {
       runtimeVersion: SEMANTIC_RUNTIME.runtimeVersion,
       key: runtimeKey,

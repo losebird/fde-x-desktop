@@ -84,6 +84,9 @@ importers:
       browserslist:
         specifier: ^4.24.0
         version: 4.28.9
+      pako:
+        specifier: 2.1.0
+        version: 2.1.0
       postcss:
         specifier: ^8.4.49
         version: 8.5.28
@@ -1657,6 +1660,9 @@ packages:
 
   pako@1.0.11:
     resolution: {integrity: sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==}
+
+  pako@2.1.0:
+    resolution: {integrity: sha512-w+eufiZ1WuJYgPXbV/PO3NCMEc3xqylkKHzp8bxp1uW4qaSNQUkwmLLEc3kKsfz8lpV1F8Ht3U1Cm+9Srog2ug==}
 
   parse-entities@4.0.2:
     resolution: {integrity: sha512-GG2AQYWoLgL877gQIKeRPGO1xF9+eG1ujIb5soS5gPvLQ1y2o8FL90w2QWNdf9I361Mpp7726c+lj3U0qK1uGw==}
@@ -4027,6 +4033,8 @@ snapshots:
       safe-push-apply: 1.0.0
 
   pako@1.0.11: {}
+
+  pako@2.1.0: {}
 
   parse-entities@4.0.2:
     dependencies:

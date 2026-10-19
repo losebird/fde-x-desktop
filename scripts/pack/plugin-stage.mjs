@@ -18,8 +18,8 @@ export const PLUGIN_SKIP_DIRS = new Set([
   '__pycache__',
 ])
 
-function skipName(name) {
-  return PLUGIN_SKIP_DIRS.has(name) || name === '推广图'
+function skipName(name, skip = PLUGIN_SKIP_DIRS) {
+  return skip.has(name) || name === '推广图'
 }
 
 export async function pluginCopyList(from) {
@@ -33,12 +33,14 @@ export async function pluginCopyList(from) {
   }
 }
 
-export async function stagePluginTree(from, to) {
+export async function stagePluginTree(from, to, options = {}) {
   if (!existsSync(from)) return false
+  const skip = new Set(PLUGIN_SKIP_DIRS)
+  if (options.keepNodeModules) skip.delete('node_modules')
   await rm(to, { recursive: true, force: true })
   await mkdir(dirname(to), { recursive: true })
   const listed = await pluginCopyList(from)
-  const extras = ['package.json', 'LICENSE', 'README.md', 'cordis.patch.yml']
+  const extras = ['package.json', 'LICENSE', 'README.md', 'cordis.patch.yml', 'fde-plugin-pin.json', 'SKILL.md']
   if (listed && listed.length) {
     await mkdir(to, { recursive: true })
     for (const name of extras) {
@@ -46,13 +48,19 @@ export async function stagePluginTree(from, to) {
       if (existsSync(src)) await cp(src, join(to, name), { dereference: true })
     }
     for (const entry of listed) {
-      if (skipName(entry.split(/[\\/]/u)[0])) continue
+      if (skipName(entry.split(/[\\/]/u)[0], skip)) continue
       const src = join(from, entry)
       if (!existsSync(src)) continue
       await cp(src, join(to, entry), {
         recursive: true,
         dereference: true,
-        filter: (srcPath) => !skipName(basename(srcPath)),
+        filter: (srcPath) => !skipName(basename(srcPath), skip),
+      })
+    }
+    if (options.keepNodeModules && existsSync(join(from, 'node_modules'))) {
+      await cp(join(from, 'node_modules'), join(to, 'node_modules'), {
+        recursive: true,
+        dereference: true,
       })
     }
     return true
@@ -64,7 +72,7 @@ export async function stagePluginTree(from, to) {
       if (srcPath === from) return true
       const rel = relative(from, srcPath)
       const top = rel.split(/[\\/]/u)[0]
-      return !skipName(top) && !skipName(basename(srcPath))
+      return !skipName(top, skip) && !skipName(basename(srcPath), skip)
     },
   })
   return true
