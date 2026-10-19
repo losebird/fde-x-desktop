@@ -12,7 +12,7 @@ const TOOL_RISK = {
   grep: 'read',
   read_image: 'read',
   job_list: 'read',
-  job_output: 'read',
+  job_output: 'wait',
   get_goal: 'read',
   list_agents: 'read',
   team_task_list: 'read',
@@ -63,8 +63,14 @@ export function toolTier(name, marks) {
   return 'danger'
 }
 
+const WAITS_FOR_BACKGROUND = new Set(['job_output'])
+
 export function waitsForPerson(name) {
   return WAITS_FOR_PERSON.has(name)
+}
+
+export function waitsForBackground(name) {
+  return WAITS_FOR_BACKGROUND.has(name)
 }
 
 export function dangerNames(names) {

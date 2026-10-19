@@ -1,4 +1,4 @@
-const { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } = require('node:fs')
+const { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } = require('node:fs')
 const { homedir } = require('node:os')
 const { dirname, join } = require('node:path')
 
@@ -20,6 +20,15 @@ function allowFile(sessionId, home) {
   return join(home || dshHome(), 'run', 'workflow-allow', `${id}.json`)
 }
 
+function allowDirectory(home) {
+  return join(home || dshHome(), 'run', 'workflow-allow')
+}
+
+function tightenAllowDirectory(dir) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  chmodSync(dir, 0o700)
+}
+
 function stageWorkflowAllow(sessionId, tools, home, persona) {
   const file = allowFile(sessionId, home)
   if (!file) throw new Error(UNCONFIRMED)
@@ -29,15 +38,38 @@ function stageWorkflowAllow(sessionId, tools, home, persona) {
     if (typeof persona.text !== 'string' || !persona.text) throw new Error(UNCONFIRMED)
     body.persona = { text: persona.text, complete: persona.complete === true }
   }
-  mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, `${JSON.stringify(body)}\n`)
+  tightenAllowDirectory(dirname(file))
+  writeFileSync(file, `${JSON.stringify(body)}\n`, { mode: 0o600 })
+  chmodSync(file, 0o600)
+}
+
+function discardWorkflowAllow(sessionId, home) {
+  const file = allowFile(sessionId, home)
+  if (!file || !existsSync(file)) return
+  unlinkSync(file)
+}
+
+function sweepWorkflowAllow(home) {
+  const dir = allowDirectory(home)
+  tightenAllowDirectory(dir)
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith('.json')) continue
+    unlinkSync(join(dir, name))
+  }
 }
 
 function consumeWorkflowAllow(sessionId) {
   const file = allowFile(sessionId)
   if (!file || !existsSync(file)) return null
-  const payload = JSON.parse(readFileSync(file, 'utf8'))
+  const raw = readFileSync(file, 'utf8')
   unlinkSync(file)
+  let payload
+  try {
+    payload = JSON.parse(raw)
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error(UNCONFIRMED)
+    throw error
+  }
   if (!payload || !Array.isArray(payload.tools) || payload.tools.length === 0) throw new Error(UNCONFIRMED)
   if (payload.tools.some((name) => typeof name !== 'string' || !name)) throw new Error(UNCONFIRMED)
   let persona = null
@@ -204,6 +236,7 @@ function limitWorkflowAgent(ctx, agent) {
 }
 
 function installWorkflowToolLimit(ctx) {
+  sweepWorkflowAllow()
   ctx.tools.guard((exec) => {
     if (exec && exec.agent) return
     return DENY
@@ -212,7 +245,11 @@ function installWorkflowToolLimit(ctx) {
     scheduleStrip()
   })
   ctx.on('agent/disposed', (event) => {
-    watched.delete(event && event.agent)
+    const agent = event && event.agent
+    watched.delete(agent)
+    const header = agent && agent.session && agent.session.header
+    const sessionId = (header && header.id) || (agent && agent.session && agent.session.id) || (agent && agent.id)
+    discardWorkflowAllow(sessionId)
   })
   runWorkflowLimitLast(ctx)
   return true
@@ -251,4 +288,5 @@ module.exports = {
   installWorkflowToolLimit,
   workflowLimitReady,
   stageWorkflowAllow,
+  discardWorkflowAllow,
 }
