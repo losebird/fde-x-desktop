@@ -53,12 +53,19 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
         run: pnpm test:strict
 
+      # upload-artifact skips dotfiles, and *.log is gitignored.
+      - name: Collect test env logs
+        if: always()
+        run: |
+          mkdir -p test-env-logs
+          if [ -f .test-env.log ]; then cp .test-env.log test-env-logs/setup.txt; fi
+          if [ -f .test-strict.log ]; then cp .test-strict.log test-env-logs/strict.txt; fi
+          find test-env-logs -type f -print
+
       - name: Upload test env logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-env-logs
-          path: |
-            .test-env.log
-            .test-strict.log
-          if-no-files-found: warn
+          path: test-env-logs/
+          if-no-files-found: error
