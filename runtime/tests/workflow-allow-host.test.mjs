@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { describe, test } from 'node:test'
 import { handlePlanRequest } from '../routes/plan.mjs'
 import { openDatabase } from '../db.mjs'
-import { stageWorkflowAllow } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
+import { stageWorkflowAllow, sweepWorkflowAllow } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
 import { startWorkflowRun } from '../plan/workflow-run.mjs'
 import { bootWorkflowHost, waitForProbe } from './support/workflow-host.mjs'
 
@@ -242,6 +242,70 @@ describe('真 Host 上的 allow 文件和会停住的工具', { concurrency: 1 }
       db.close()
       await rm(dbPath, { force: true })
       await host.stop()
+    }
+  })
+
+  test('allow 目录是符号链接时不删外部 json，并且失败关闭', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-allow-link-'))
+    const outsideDir = await mkdtemp(join(tmpdir(), 'fde-allow-outside-'))
+    try {
+      const outside = join(outsideDir, 'outside.json')
+      writeFileSync(outside, '{"kept":true}\n')
+      mkdirSync(join(home, 'run'), { recursive: true })
+      symlinkSync(outsideDir, allowDir(home))
+      let thrown = null
+      try {
+        sweepWorkflowAllow(home)
+      } catch (error) {
+        thrown = error
+      }
+      assert.equal(existsSync(outside), true)
+      assert.equal(thrown instanceof Error, true)
+      assert.equal(thrown && thrown.message, UNCONFIRMED)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+      await rm(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  test('allow 目录里的符号链接文件不会被跟进去', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-allow-file-link-'))
+    const outsideDir = await mkdtemp(join(tmpdir(), 'fde-allow-file-outside-'))
+    try {
+      const outside = join(outsideDir, 'outside.json')
+      writeFileSync(outside, '{"kept":true}\n')
+      const dir = allowDir(home)
+      mkdirSync(dir, { recursive: true })
+      symlinkSync(outside, join(dir, 'session-link.json'))
+      sweepWorkflowAllow(home)
+      assert.equal(existsSync(outside), true)
+      const kept = readFileSync(outside, 'utf8')
+      assert.equal(kept, '{"kept":true}\n')
+    } finally {
+      await rm(home, { recursive: true, force: true })
+      await rm(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  test('已经存在的 0644 allow 文件要收成 0600，符号链接目标的权限不动', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-allow-mode-existing-'))
+    const outsideDir = await mkdtemp(join(tmpdir(), 'fde-allow-mode-outside-'))
+    try {
+      const dir = allowDir(home)
+      mkdirSync(dir, { recursive: true, mode: 0o700 })
+      const stale = join(dir, 'session-stale-mode.json')
+      writeFileSync(stale, '{"tools":["fde_app_records_query"]}\n', { mode: 0o644 })
+      chmodSync(stale, 0o644)
+      const outside = join(outsideDir, 'secret.json')
+      writeFileSync(outside, '{"secret":true}\n', { mode: 0o644 })
+      chmodSync(outside, 0o644)
+      symlinkSync(outside, join(dir, 'session-link.json'))
+      stageWorkflowAllow('session-other', [QUERY], home)
+      assert.equal(modeBits(stale), 0o600)
+      assert.equal(modeBits(outside), 0o644)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+      await rm(outsideDir, { recursive: true, force: true })
     }
   })
 })

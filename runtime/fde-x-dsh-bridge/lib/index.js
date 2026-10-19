@@ -284,10 +284,18 @@ function createFdeSessionHandler(ctx) {
 
 function personaSection(agent) {
   const prompt = agent && agent.ctx && agent.ctx.systemPrompt
-  if (!prompt || !prompt.layers || typeof prompt.layers.merge !== 'function') return null
-  const merged = prompt.layers.merge(agent, (layer) => layer.sections)
-  const section = merged && typeof merged.get === 'function' ? merged.get('deployment:persona-prefix') : null
-  if (!section || typeof section.text !== 'string' || !section.text) return null
+  if (!prompt || !prompt.layers) return null
+  const layers = []
+  if (prompt.layers.global) layers.push(prompt.layers.global)
+  if (typeof prompt.layers.chainLayers === 'function') layers.push(...prompt.layers.chainLayers(agent))
+  let section = null
+  for (const layer of layers) {
+    const table = layer && layer.sections
+    const found = table && typeof table.get === 'function' ? table.get('deployment:persona-prefix') : null
+    if (!found || found.workflowAllow === true || typeof found.text !== 'string' || !found.text) continue
+    section = found
+  }
+  if (!section) return null
   return { text: section.text, complete: section.complete === true }
 }
 

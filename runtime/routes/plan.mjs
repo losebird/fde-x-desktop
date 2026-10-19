@@ -13,7 +13,7 @@ import {
 import { decidePlanTask, listOpenPlanTaskProposals } from '../plan/task-proposals.mjs'
 import { hasIllegalSourceRef, readLatestRunCards, startWorkflowRun } from '../plan/workflow-run.mjs'
 import { listSelectableTools, listWorkflowCatalog } from '../plan/workflow-catalog.mjs'
-import { rejectPreset, rejectToolList, toolChangeAudit } from '../plan/tool-risk.mjs'
+import { rejectPreset, rejectToolList, toolChangeAudit, withoutStepPersona } from '../plan/tool-risk.mjs'
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
@@ -667,7 +667,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       description: typeof body.description === 'string' ? body.description : '',
       category: body.category ?? 'system',
       emoji: body.emoji ?? '🤖',
-      steps: Array.isArray(body.steps) ? body.steps : [],
+      steps: Array.isArray(body.steps) ? withoutStepPersona(body.steps) : [],
     }
     const now = isoNow()
     const id = createId('wf')
@@ -746,7 +746,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       if (typeof body.description === 'string') definition.description = body.description
       if (body.category) definition.category = body.category
       if (body.emoji) definition.emoji = body.emoji
-      if (Array.isArray(body.steps)) definition.steps = body.steps
+      if (Array.isArray(body.steps)) definition.steps = withoutStepPersona(body.steps)
       patch.definition_json = JSON.stringify(definition)
     }
     const keys = Object.keys(patch)
