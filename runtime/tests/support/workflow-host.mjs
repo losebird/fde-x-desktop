@@ -49,6 +49,14 @@ export async function bootWorkflowHost(options = {}) {
   const profileName = 'fde-workflow-host'
   await mkdir(cwd, { recursive: true })
   await mkdir(probeDir, { recursive: true })
+  if (options.staleAllow) {
+    const allowDir = join(home, 'run', 'workflow-allow')
+    await mkdir(allowDir, { recursive: true, mode: 0o755 })
+    await chmod(allowDir, 0o755)
+    const stale = join(allowDir, 'session-stale-allow.json')
+    await writeFile(stale, '{}\n', { mode: 0o644 })
+    await chmod(stale, 0o644)
+  }
   const credentials = join(home, '.credentials.yaml')
   await writeFile(credentials, '', { mode: 0o600 })
   await chmod(credentials, 0o600)
