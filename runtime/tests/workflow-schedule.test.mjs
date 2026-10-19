@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '../db.mjs'
+import { handlePlanRequest } from '../routes/plan.mjs'
 import { tickWorkflowSchedules } from '../plan/workflow-schedule.mjs'
 
 const migrations = join(import.meta.dirname, '..', 'migrations')
@@ -142,6 +143,50 @@ test('同一个触发点再 tick 一次不会再开会话', async () => {
     if (second.started[0]) await waitForTerminal(db, second.started[0].id)
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM workflow_runs WHERE workflow_id = ?').get('wf_once').n, 1)
     assert.equal(calls.filter((endpoint) => endpoint === 'session/create').length > 1, false)
+  } finally {
+    db.close()
+    await rm(dbPath, { force: true })
+  }
+})
+
+async function readWorkflows(db, workspaceId) {
+  let status = 0
+  let raw = ''
+  const response = {
+    writeHead(code) { status = code },
+    end(body) { raw = body || '' },
+  }
+  const url = new URL(`/api/v1/plan/workflows?workspaceId=${workspaceId}`, 'http://127.0.0.1')
+  await handlePlanRequest({ method: 'GET', headers: {} }, response, url, {
+    db,
+    enqueueEvent() {},
+    readJson: async () => ({}),
+    aiRuntime: null,
+  }, 'corr_hist')
+  return { status, body: JSON.parse(raw) }
+}
+
+test('错过写在 workflow_runs 里，列表直接读出这条历史', async () => {
+  const dbPath = join(tmpdir(), `fde-x-schedule-hist-${process.pid}.sqlite`)
+  const db = openDatabase(dbPath, migrations)
+  const { aiRuntime } = runtime()
+  try {
+    insertWorkspace(db, 'ws_hist')
+    insertWorkflow(db, 'wf_hist', 'ws_hist')
+    const now = new Date()
+    const startAt = new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString()
+    const createdAt = new Date(now.getTime() - 4 * 60 * 60 * 1000).toISOString()
+    insertSchedule(db, 'cevt_hist', 'ws_hist', 'wf_hist', startAt, createdAt, 'once')
+    await tickWorkflowSchedules({ db, aiRuntime }, { now, bootedAt: now })
+    const stored = db.prepare('SELECT id FROM workflow_runs WHERE workflow_id = ?').get('wf_hist')
+    const listed = await readWorkflows(db, 'ws_hist')
+    const card = listed.body.data.find((row) => row.id === 'wf_hist')
+    assert.equal(listed.status, 200)
+    assert.deepEqual(card.runs, [{
+      id: stored.id,
+      state: 'cancelled',
+      message: '错过',
+    }])
   } finally {
     db.close()
     await rm(dbPath, { force: true })
