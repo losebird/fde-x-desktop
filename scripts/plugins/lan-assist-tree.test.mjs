@@ -180,6 +180,7 @@ test('sync restores a stale dsh-lan-assist entry', () => {
     for (const [rel, hash] of Object.entries(entry.files)) {
       assert.equal(sha256(readFileSync(join(root, rel))), hash, rel)
     }
+    plantSemanticReadme(root)
     const verified = run('verify', root, source)
     assert.equal(verified.status, 0, verified.stderr)
   } finally {
