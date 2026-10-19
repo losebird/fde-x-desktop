@@ -188,7 +188,7 @@ export function listEventsAfter(db, { sinceId, workspaceCwd, limit = 500 } = {})
 
   const envelopes = rows.map((row) => envelopeFromRow(row))
   if (!workspaceCwd) return envelopes
-  return envelopes.filter((item) => item.workspaceCwd != null && sameWorkspaceCwd(item.workspaceCwd, workspaceCwd))
+  return envelopes.filter((item) => item.workspaceCwd == null || sameWorkspaceCwd(item.workspaceCwd, workspaceCwd))
 }
 
 /**
@@ -207,7 +207,7 @@ export function listRecentEvents(db, { workspaceCwd, type, limit = 50 } = {}) {
     const canonical = canonicalWorkspaceCwd(workspaceCwd)
     if (canonical) {
       const fn = canonicalWorkspaceCwdSql(db)
-      clauses.push(`${fn}(workspace_cwd) = ?`)
+      clauses.push(`(workspace_cwd IS NULL OR ${fn}(workspace_cwd) = ?)`)
       params.push(canonical)
     }
   }
@@ -227,6 +227,6 @@ export function listRecentEvents(db, { workspaceCwd, type, limit = 50 } = {}) {
  */
 export function matchesWorkspaceFilter(envelope, workspaceCwd) {
   if (!workspaceCwd) return true
-  if (envelope.workspaceCwd == null) return false
+  if (envelope.workspaceCwd == null) return true
   return sameWorkspaceCwd(envelope.workspaceCwd, workspaceCwd)
 }

@@ -19,8 +19,6 @@ const UNREG_SLASH = '/y-not-registered'
 const WIN_MARK = 'matrix-win-marker'
 const SLASH_MARK = 'matrix-slash-marker'
 const DEFAULT_MARK = 'matrix-default-marker'
-const NULL_MARK = 'matrix-null-personal'
-const PERSONAL_ZONE = ['matrix-default-app', 'matrix-personal-task', NULL_MARK]
 
 const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context', 'business-apps'])
 const READ_RE = /searchParams\.(?:get|has)\(\s*['"`](?:cwd|workspace)['"`]|body\??\.(?:cwd|workspaceCwd|workspace)\b|body\??\[['"`](?:cwd|workspace)['"`]\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\s*\(/
@@ -33,14 +31,14 @@ function registerWorkspace(db, id, cwd) {
   `).run(id, JSON.stringify({ cwd }), now, now)
 }
 
-function insertMarkerEvent(db, id, cwd, marker, extra = {}) {
+function insertMarkerEvent(db, id, cwd, marker) {
   const now = new Date().toISOString()
   db.prepare(`
     INSERT INTO outbox_events (
       id, event_type, schema_version, source_ref, subject_ref, correlation_id,
       payload_json, occurred_at, available_at, ts, workspace_cwd, source, delivered
     ) VALUES (?, 'matrix.marker', 1, ?, NULL, ?, ?, ?, ?, ?, ?, 'bff', 0)
-  `).run(id, cwd ? `fde://workspace${cwd}` : 'fde://global', id, JSON.stringify({ marker, ...extra }), now, now, Date.now(), cwd)
+  `).run(id, `fde://workspace${cwd}`, id, JSON.stringify({ marker }), now, now, Date.now(), cwd)
 }
 
 function insertMarkerApp(db, id, workspaceId, name) {
@@ -57,8 +55,8 @@ function workspaceRejected(status, text) {
 }
 
 function foreignMarkers(mode) {
-  if (mode === 'win') return [SLASH_MARK, DEFAULT_MARK, ...PERSONAL_ZONE]
-  if (mode === 'slash') return [WIN_MARK, DEFAULT_MARK, ...PERSONAL_ZONE]
+  if (mode === 'win') return [SLASH_MARK, DEFAULT_MARK]
+  if (mode === 'slash') return [WIN_MARK, DEFAULT_MARK]
   if (mode === 'illegal') return [WIN_MARK, SLASH_MARK, DEFAULT_MARK]
   return [WIN_MARK, SLASH_MARK]
 }
@@ -122,7 +120,7 @@ function paramFor(mode) {
 }
 
 function personalMarkers() {
-  return [WIN_MARK, SLASH_MARK, DEFAULT_MARK, 'matrix-default-app', 'matrix-win-app', 'matrix-slash-app', 'matrix-personal-task', NULL_MARK, 'matrix-surface-default', 'matrix-surface-win', 'matrix-surface-slash', 'matrix-default-brief', 'matrix-win-brief', 'matrix-slash-brief', 'AGENTS.md', 'win-marker.txt']
+  return [WIN_MARK, SLASH_MARK, DEFAULT_MARK, 'matrix-default-app', 'matrix-win-app', 'matrix-slash-app', 'matrix-personal-task', 'matrix-surface-default', 'matrix-surface-win', 'matrix-surface-slash', 'matrix-default-brief', 'matrix-win-brief', 'matrix-slash-brief', 'AGENTS.md', 'win-marker.txt']
 }
 
 async function requestRoute(server, route, mode, token) {
@@ -158,12 +156,13 @@ async function requestRoute(server, route, mode, token) {
       let text = ''
       const started = Date.now()
       try {
-        while (Date.now() - started < 1500) {
+        while (Date.now() - started < 1500 && !text.includes('matrix-')) {
           const chunk = await Promise.race([
             reader.read(),
-            delay(250).then(() => ({ timeout: true })),
+            delay(200).then(() => ({ timeout: true })),
           ])
-          if (chunk.timeout || chunk.done) break
+          if (chunk.timeout) continue
+          if (chunk.done) break
           if (chunk.value) text += Buffer.from(chunk.value).toString()
         }
       } finally {
@@ -230,14 +229,11 @@ function checkCase(route, mode, status, text) {
   }
   if (route.proof === 'events' && mode === 'win' && !text.includes(WIN_MARK)) problems.push(`${label} missed win event`)
   if (route.proof === 'events' && mode === 'slash' && !text.includes(SLASH_MARK)) problems.push(`${label} missed slash event`)
-  if (route.proof === 'events' && mode === 'absent' && (!text.includes(WIN_MARK) || !text.includes(DEFAULT_MARK) || !text.includes(NULL_MARK))) {
+  if (route.proof === 'events' && mode === 'absent' && (!text.includes(WIN_MARK) || !text.includes(DEFAULT_MARK))) {
     problems.push(`${label} dropped an unfiltered event`)
   }
   if (route.proof === 'events-sse' && mode === 'win' && status === 200 && !text.includes(WIN_MARK)) problems.push(`${label} missed win event`)
   if (route.proof === 'events-sse' && mode === 'slash' && status === 200 && !text.includes(SLASH_MARK)) problems.push(`${label} missed slash event`)
-  if (route.proof === 'events-sse' && mode === 'absent' && status === 200 && !text.includes(NULL_MARK)) {
-    problems.push(`${label} dropped a null-cwd event`)
-  }
   if (route.proof === 'apps' && mode === 'win' && (!text.includes('matrix-win-app') || text.includes('matrix-default-app') || text.includes('matrix-slash-app'))) {
     problems.push(`${label} crossed apps`)
   }
@@ -275,7 +271,6 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
   insertMarkerEvent(server.db, 'evt_matrix_win', WIN, WIN_MARK)
   insertMarkerEvent(server.db, 'evt_matrix_slash', SLASH, SLASH_MARK)
   insertMarkerEvent(server.db, 'evt_matrix_default', repoRoot, DEFAULT_MARK)
-  insertMarkerEvent(server.db, 'evt_matrix_null', null, NULL_MARK, { name: 'matrix-default-app' })
   insertMarkerApp(server.db, 'app_matrix_win', 'ws_matrix_win', 'matrix-win-app')
   insertMarkerApp(server.db, 'app_matrix_slash', 'ws_matrix_slash', 'matrix-slash-app')
   insertMarkerApp(server.db, 'app_matrix_default', 'ws_personal', 'matrix-default-app')

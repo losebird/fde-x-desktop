@@ -1,5 +1,4 @@
-import { canonicalWorkspaceCwd, sameWorkspaceCwd } from '../cwd.mjs'
-import { workspaceCwdForId } from '../briefing/workspace.mjs'
+import { sameWorkspaceCwd } from '../cwd.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { emit } from '../events.mjs'
 import { applyMaterialize } from './materialize.mjs'
@@ -14,13 +13,6 @@ const LIVE_APP = `(deleted_at IS NULL OR deleted_at = '')`
 const APP_COLUMNS = `id, workspace_id, name, app_kind, status, current_revision, definition_json, created_at, updated_at, deleted_at`
 
 const isoNow = () => new Date().toISOString()
-
-function eventCwd(db, spec, workspaceId, explicit) {
-  return canonicalWorkspaceCwd(explicit)
-    || canonicalWorkspaceCwd(spec?._workspaceCwd)
-    || workspaceCwdForId(db, workspaceId)
-    || null
-}
 
 function safeSlug(def) {
   return def && typeof def === 'object' && typeof def.slug === 'string' ? def.slug : null
@@ -148,7 +140,7 @@ export function createAppDraft(db, input) {
     db.exec('ROLLBACK;')
     throw error
   }
-  emit('app.spec.submitted', { appId: id, revision: 1 }, { workspaceCwd: eventCwd(db, spec, input.workspaceId, input.workspaceCwd) })
+  emit('app.spec.submitted', { appId: id, revision: 1 }, { workspaceCwd: input.workspaceCwd || null })
   return { ok: true, data: { appId: id, revision: 1 } }
 }
 
@@ -199,7 +191,7 @@ export function putAppSpec(db, appId, input) {
     db.exec('ROLLBACK;')
     throw error
   }
-  emit('app.spec.submitted', { appId, revision: nextRevision }, { workspaceCwd: eventCwd(db, spec, app.workspaceId) })
+  emit('app.spec.submitted', { appId, revision: nextRevision }, { workspaceCwd: spec._workspaceCwd || null })
   return { kind: 'ok', data: { revision: nextRevision } }
 }
 
@@ -258,14 +250,12 @@ export function activateApp(db, appId, hooks = {}) {
       SET ddl_applied_json = ?, materialize_status = 'applied'
       WHERE app_id = ? AND revision = ?
     `).run(JSON.stringify(applied), appId, app.currentRevision)
-    const activatedCwd = eventCwd(db, app.spec, app.workspaceId)
     enqueueEvent(db, {
       type: 'app.activated',
       sourceRef: `fde://workstation/app/${appId}`,
       subjectRef: `fde://workstation/app/${appId}`,
       correlationId: hooks.correlationId ?? createId('corr'),
       payload: { appId, slug: app.spec.slug, revision: app.currentRevision },
-      workspaceCwd: activatedCwd,
     })
     db.exec('COMMIT;')
   } catch (error) {
@@ -274,7 +264,7 @@ export function activateApp(db, appId, hooks = {}) {
   }
 
   emit('app.activated', { appId, slug: app.spec.slug }, {
-    workspaceCwd: eventCwd(db, app.spec, app.workspaceId),
+    workspaceCwd: app.spec._workspaceCwd || null,
   })
   return { kind: 'ok', data: { status: 'active', applied } }
 }

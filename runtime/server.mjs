@@ -3076,9 +3076,10 @@ const server = createServer(async (request, response) => {
         sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
         return
       }
+      const suppliedId = typeof rawId === 'string' ? rawId.trim() : ''
       const ident = resolveWorkspaceIdOrFail(db, {
         ...resolvedApps,
-        id: typeof rawId === 'string' ? rawId : '',
+        id: suppliedId,
       })
       if (ident.error === 'missing_workspace') {
         sendError(response, 404, 'not_found', '工作区未登记', currentCorrelationId)
@@ -3093,10 +3094,10 @@ const server = createServer(async (request, response) => {
         return
       }
       const shares = liveShareIdsByApp(db)
-      const items = listBusinessApps(db, {
-        workspaceId: ident.workspaceId,
-        workspaceCwd: ident.cwd || '',
-      }).map((row) => ({
+      const pathOnly = resolvedApps.source === 'request' && !suppliedId
+      const items = listBusinessApps(db, pathOnly
+        ? { workspaceId: 'ws_personal', workspaceCwd: resolvedApps.cwd || '' }
+        : { workspaceId: ident.workspaceId, workspaceCwd: ident.cwd || '' }).map((row) => ({
         ...row,
         shareId: shares.get(row.id) || '',
       }))
