@@ -1,5 +1,9 @@
 node_modules/
 scripts/pack/.cache/
+.test-env
+.vendor/
+.dsh-fde-x-test/
+runtime/vendor-overlays/**/__pycache__/
 dist/
 runtime/.host-generation/
 runtime/data/*.sqlite*

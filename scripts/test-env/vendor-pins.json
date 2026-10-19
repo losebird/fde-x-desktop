@@ -1,0 +1,34 @@
+{
+  "dsh-lan-assist": {
+    "repo": "losebird/dsh-lan-assist",
+    "commit": "31d75468e0ffd58bb5bb214325c7517c7c42a8ab",
+    "note": "wip/mac-snapshot-2026-10-19. Transitional test pin. Delete this entry after the plugin tree lands in fde-x.",
+    "requiredFiles": [
+      "traces.js",
+      "conversation.js",
+      "mail-proj.js",
+      "nats-relay.js",
+      "transport.js",
+      "univer-open.js",
+      "sqlite.js"
+    ]
+  },
+  "dsh-semantic-os": {
+    "repo": "losebird/dsh-semantic-os",
+    "commit": "a13e45390a860162042ddbcdd5b6eee3b92651d8",
+    "note": "wip/mac-snapshot-2026-10-19. Transitional test pin. Delete this entry after the plugin tree lands in fde-x.",
+    "requiredFiles": [
+      "session-ingest.js",
+      "peers.js",
+      "package.json"
+    ]
+  },
+  "iui": {
+    "from": "runtime/iui-pin.mjs"
+  },
+  "nats": {
+    "version": "2.29.3",
+    "integrity": "sha512-tOQCRCwC74DgBTk4pWZ9V45sk4d7peoE2njVprMRCBXrhJ5q5cYM7i6W+Uvw2qUrcfOSnuisrX7bEx3b3Wx4QA==",
+    "plugin": "dsh-lan-assist"
+  }
+}
