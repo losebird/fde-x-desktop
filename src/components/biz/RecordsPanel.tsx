@@ -101,7 +101,7 @@ import {
   shouldAbortLeftoverAskForWritePreview,
 } from '@/lib/biz-hit-set-pick-cancel'
 import { useEvents } from '@/lib/events'
-import { incomingSheetClosesOpenDrawer, shouldOpenWriteConfirm, stampWriteTokenUsed } from '@/lib/write-confirm.ts'
+import { commitPostedWrite, mergeWriteTokenIndex, resolveWriteDrawerFace, shouldOpenWriteConfirm } from '@/lib/write-confirm.ts'
 
 const PAGE_SIZE = 10
 const ROW_DISPLAY_INDEX_LABEL = '序号'
@@ -284,6 +284,59 @@ function shouldOpenWritePreviewDrawer(
     alreadyAtTarget: isApproveAlreadyAtTarget(sheet),
     tokenIndex,
   })
+}
+
+type RecordsDrawer = {
+  previewId: string
+  sheet: Record<string, unknown>
+  canWrite: boolean
+  gateReason?: string
+  originalRow?: SheetRow
+  patch?: Record<string, unknown>
+}
+
+function nextDrawerState(
+  open: RecordsDrawer | null,
+  sheet: Record<string, unknown>,
+  tokenIndex: Record<string, string> | null,
+  opts?: { leaving?: boolean; holdId?: string; postedSheet?: Record<string, unknown> },
+): RecordsDrawer | null {
+  const face = resolveWriteDrawerFace({
+    open: open
+      ? {
+          previewId: open.previewId,
+          gateReason: open.gateReason,
+          canWrite: open.canWrite,
+          action: String(open.sheet?.action || ''),
+        }
+      : null,
+    sheet,
+    tokenIndex,
+    dismissed: isBizPreviewDismissed(sheet),
+    hasChanges: sheetHasConfirmablePreviewChanges(sheet),
+    alreadyAtTarget: isApproveAlreadyAtTarget(sheet),
+    leaving: opts?.leaving,
+    holdPreviewId: opts?.holdId,
+  })
+  if (face === 'keep') return open
+  if (face === 'posted') {
+    if (!open) return null
+    if (open.gateReason === '已过账') return open
+    const previewId = String(opts?.holdId || open.previewId || '').trim() || open.previewId
+    return {
+      ...open,
+      previewId,
+      sheet: opts?.postedSheet || open.sheet,
+      canWrite: false,
+      gateReason: '已过账',
+    }
+  }
+  if (face === 'closed') return null
+  return {
+    previewId: sheetPreviewId(sheet),
+    sheet,
+    canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
+  }
 }
 
 function isSingleRowWritePreview(sheet: Record<string, unknown>) {
@@ -483,6 +536,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
 
   const displayedSheetRef = useRef<Record<string, unknown> | null>(null)
   const writePreviewRef = useRef<Record<string, string> | null>(null)
+  const postedHoldRef = useRef('')
   liveSessionIdRef.current = String(activeAiSessionId || '').trim()
   const peekActivePending = useCallback(() => {
     const sid = String(activeAiSessionId || historySessionIdRef.current || '').trim()
@@ -902,6 +956,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     const previewId = drawer?.previewId
       || (pendingSheet ? sheetPreviewId(pendingSheet) : '')
     if (previewId) dismissBizPreviewId(previewId)
+    postedHoldRef.current = ''
     setDrawer(null)
     clearBizPendingSheet(String(activeAiSessionId || historySessionIdRef.current || '').trim() || undefined)
     displayBeforeWriteRef.current = null
@@ -914,6 +969,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     const previewId = drawer?.previewId
       || (pendingSheet ? sheetPreviewId(pendingSheet) : '')
     if (previewId) dismissBizPreviewId(previewId)
+    postedHoldRef.current = ''
     setDrawer(null)
     const floated = displayBeforeWriteRef.current
     displayBeforeWriteRef.current = null
@@ -1116,6 +1172,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     const isWritePreview = Boolean(previewId && !isBizListQueryAction(action))
 
     if (isWritePreview && isBizPreviewDismissed(next)) {
+      postedHoldRef.current = ''
       setDrawer(null)
       return true
     }
@@ -1128,7 +1185,6 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       appliedSheetFpRef.current = ''
     }
     const incomingFp = sheetRowsFingerprint(next)
-    const historyPinned = Boolean(historyPinnedSurfaceIdRef.current)
     if (incomingFp && incomingFp === appliedSheetFpRef.current) {
       const appliedSheet = coalesceKnownHitTotal(
         { ...next, rows: cloneSheetRows(next.rows), columns: normalizeSheetColumns(next.columns) },
@@ -1138,49 +1194,18 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         setListSheetMeta(appliedSheet)
         displayedSheetRef.current = appliedSheet
       }
-      if (shouldOpenWritePreviewDrawer(next, historyPinned, writePreviewRef.current)) {
-        setDrawer((prev) => {
-          const prevId = prev?.previewId || ''
-          const prevAction = String(prev?.sheet?.action || '')
-          if (prev && prevId === previewId && prevAction === action) return prev
-          return {
-            previewId,
-            sheet: next,
-            canWrite: Boolean(next.canWrite ?? next.can_write),
-          }
-        })
-      } else {
-        setDrawer((open) => (
-          incomingSheetClosesOpenDrawer(open?.previewId, next, {
-            dismissed: isBizPreviewDismissed(next),
-            tokenIndex: writePreviewRef.current,
-          })
-            ? null
-            : open
-        ))
-      }
+      setDrawer((open) => nextDrawerState(open, next, writePreviewRef.current, {
+        holdId: postedHoldRef.current,
+      }))
       return rowCount > 0 || Boolean(next.kind)
     }
     const conn = connections.find((c) => c.id === connectionId) || connections[0]
     maybeSaveListRestore(next)
     applySheet(next, conn?.name || '连接器', surfaceId)
     rememberBizPendingSheet(next)
-    if (shouldOpenWritePreviewDrawer(next, historyPinned, writePreviewRef.current)) {
-      setDrawer({
-        previewId,
-        sheet: next,
-        canWrite: Boolean(next.canWrite ?? next.can_write),
-      })
-    } else {
-      setDrawer((open) => (
-        incomingSheetClosesOpenDrawer(open?.previewId, next, {
-          dismissed: isBizPreviewDismissed(next),
-          tokenIndex: writePreviewRef.current,
-        })
-          ? null
-          : open
-      ))
-    }
+    setDrawer((open) => nextDrawerState(open, next, writePreviewRef.current, {
+      holdId: postedHoldRef.current,
+    }))
     void bindSurfaceIdIfKnown(next, surfaceId)
     return rowCount > 0 || Boolean(next.kind)
   }, [applySheet, bindSurfaceIdIfKnown, connectionId, connections, ensureListRestoreBeforeWritePreview, kindCatalog, maybeSaveListRestore])
@@ -1205,7 +1230,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     }
     try {
       const { sheet, writePreview } = await runtimeApi.getBizPendingSheet(undefined, sid || undefined)
-      if (writePreview) writePreviewRef.current = writePreview
+      if (writePreview) writePreviewRef.current = mergeWriteTokenIndex(writePreview, writePreviewRef.current)
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (liveSid && sid && liveSid !== sid) return false
       if (!sheet || typeof sheet !== 'object') return false
@@ -1241,6 +1266,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       setColumns([])
       setListSheetMeta(null)
       setPending(null)
+      postedHoldRef.current = ''
       setDrawer(null)
       setKind('')
       setSheetIdentity('')
@@ -1251,7 +1277,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       clearDisplayedForSession()
     }
     void runtimeApi.getBizPendingSheet(undefined, sid || undefined).then(({ sheet, writePreview }) => {
-      if (writePreview) writePreviewRef.current = writePreview
+      if (writePreview) writePreviewRef.current = mergeWriteTokenIndex(writePreview, writePreviewRef.current)
       if (liveSessionIdRef.current !== sid) return
       if (
         sheet
@@ -1328,7 +1354,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         ? { ...sheetWithSession, sessionId: eventSessionId }
         : sheetWithSession
       if (payload.writePreview && typeof payload.writePreview === 'object') {
-        writePreviewRef.current = payload.writePreview
+        writePreviewRef.current = mergeWriteTokenIndex(payload.writePreview, writePreviewRef.current)
       }
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (liveSid && !sheetBelongsToSession(stamped, liveSid)) return
@@ -1529,6 +1555,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
   }, [resolveSurfaceSheet])
 
   const loadSurface = useCallback(async (surface: BizSurfaceRecord) => {
+    postedHoldRef.current = ''
     setHistorySurfaceId(surface.id)
     historyPinnedSurfaceIdRef.current = surface.id
     operationKindViewRef.current = surface.kind || ''
@@ -1580,15 +1607,31 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     const action = String(sheet.action || surface.action || '')
     const writePreviewId = surface.previewId || sheetPreviewId(sheet)
     const previewSheet = writePreviewId ? { ...sheet, previewId: writePreviewId, action } : sheet
-    if (shouldOpenWritePreviewDrawer(previewSheet, true, writePreviewRef.current)) {
-      setDrawer({
+    setDrawer((open) => {
+      const face = resolveWriteDrawerFace({
+        open: open
+          ? {
+              previewId: open.previewId,
+              gateReason: open.gateReason,
+              canWrite: open.canWrite,
+              action: String(open.sheet?.action || ''),
+            }
+          : null,
+        sheet: previewSheet,
+        tokenIndex: writePreviewRef.current,
+        dismissed: isBizPreviewDismissed(previewSheet),
+        hasChanges: sheetHasConfirmablePreviewChanges(previewSheet),
+        alreadyAtTarget: isApproveAlreadyAtTarget(previewSheet),
+      })
+      if (face !== 'confirm' || !shouldOpenWritePreviewDrawer(previewSheet, true, writePreviewRef.current)) {
+        return null
+      }
+      return {
         previewId: writePreviewId,
         sheet,
         canWrite: Boolean(sheet.canWrite ?? sheet.can_write),
-      })
-    } else {
-      setDrawer(null)
-    }
+      }
+    })
   }, [applySheet, commitListRestore, resolveSurfaceSheet, surfaceHistoryLabel])
 
   const selectKind = useCallback((nextKind: string, nextRelation?: string) => {
@@ -1966,10 +2009,22 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       clearBizPreviewDismissed(drawer.previewId)
       clearBizPendingSheet(String(activeAiSessionId || historySessionIdRef.current || '').trim() || undefined)
       const usedId = String(previewId || drawer.previewId || '').trim()
-      if (usedId) {
-        writePreviewRef.current = { ...(writePreviewRef.current || {}), [usedId]: 'used' }
-      }
-      const usedSheet = stampWriteTokenUsed(writeSheet)
+      const listed = written && written.sheet && typeof written.sheet === 'object'
+        ? written.sheet as Record<string, unknown>
+        : null
+      const settled = commitPostedWrite({
+        openPreviewId: drawer.previewId,
+        previewId: usedId,
+        writeSheet,
+        listed,
+        tokenIndex: writePreviewRef.current,
+        dismissed: listed ? isBizPreviewDismissed(listed) : false,
+        hasChanges: listed ? sheetHasConfirmablePreviewChanges(listed) : false,
+        alreadyAtTarget: listed ? isApproveAlreadyAtTarget(listed) : false,
+      })
+      writePreviewRef.current = settled.tokenIndex
+      postedHoldRef.current = usedId
+      const usedSheet = settled.sheet
       setListSheetMeta((prev) => {
         if (!prev) return usedSheet
         const prevId = sheetPreviewId(prev)
@@ -1978,11 +2033,6 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       })
       commitListRestore(null)
       historyPinnedSurfaceIdRef.current = ''
-      const listed = written && written.sheet && typeof written.sheet === 'object'
-        ? written.sheet as Record<string, unknown>
-        : null
-      if (listed) applyPendingSheet(listed)
-      else void hydrateFromPending()
       const postedId = usedId || drawer.previewId
       setDrawer((prev) => {
         if (!prev || (prev.previewId !== drawer.previewId && prev.previewId !== postedId)) return prev
@@ -1994,6 +2044,8 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
           gateReason: '已过账',
         }
       })
+      if (listed) applyPendingSheet(listed)
+      else void hydrateFromPending()
       const verifyMiss = written && written.verified === false
       setNotice(verifyMiss
         ? (typeof written.hint === 'string' && written.hint.trim() ? written.hint : '业务已收，回读对不上。')

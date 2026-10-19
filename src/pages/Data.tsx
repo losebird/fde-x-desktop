@@ -220,7 +220,7 @@ export default function Data() {
           onOpenOperations={() => setView('operations')}
         />
       )}
-      {view === 'records' && (
+      <div className={view === 'records' ? 'min-w-0' : 'hidden'}>
         <RecordsPanel
           connections={connections}
           apps={apps.filter((app) => !appIsTrashed(app))}
@@ -229,7 +229,7 @@ export default function Data() {
           onPlan={() => setView('operations')}
           onPlanWithTarget={() => setView('operations')}
         />
-      )}
+      </div>
       {view === 'operations' && (
         <OperationControlPanel runtimeReady={!error} vocab={vocab} />
       )}
