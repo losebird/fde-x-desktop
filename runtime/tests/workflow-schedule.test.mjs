@@ -147,3 +147,33 @@ test('同一个触发点再 tick 一次不会再开会话', async () => {
     await rm(dbPath, { force: true })
   }
 })
+
+test('两个连接同时 tick 同一个触发点只留下一条运行', async () => {
+  const dbPath = join(tmpdir(), `fde-x-schedule-two-${process.pid}.sqlite`)
+  const dbA = openDatabase(dbPath, migrations)
+  const dbB = openDatabase(dbPath, migrations)
+  const first = runtime()
+  const second = runtime()
+  try {
+    insertWorkspace(dbA, 'ws_two')
+    insertWorkflow(dbA, 'wf_two', 'ws_two')
+    const now = new Date()
+    const bootedAt = new Date(now.getTime() - 5 * 60 * 1000)
+    const startAt = new Date(now.getTime() - 60 * 1000).toISOString()
+    const createdAt = new Date(now.getTime() - 2 * 60 * 1000).toISOString()
+    insertSchedule(dbA, 'cevt_two', 'ws_two', 'wf_two', startAt, createdAt, 'once')
+    const clock = { now, bootedAt }
+    await Promise.all([
+      tickWorkflowSchedules({ db: dbA, aiRuntime: first.aiRuntime }, clock),
+      tickWorkflowSchedules({ db: dbB, aiRuntime: second.aiRuntime }, clock),
+    ])
+    const rows = dbA.prepare('SELECT id FROM workflow_runs WHERE workflow_id = ?').all('wf_two')
+    assert.equal(rows.length, 1)
+    const calls = [...first.calls, ...second.calls].filter((endpoint) => endpoint === 'session/create')
+    assert.equal(calls.length <= 1, true)
+  } finally {
+    dbA.close()
+    dbB.close()
+    await rm(dbPath, { force: true })
+  }
+})

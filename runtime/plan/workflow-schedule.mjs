@@ -1,4 +1,7 @@
+import { createId } from '../db.mjs'
 import { startWorkflowRun } from './workflow-run.mjs'
+
+const MISSED_MESSAGE = '错过'
 
 function civilParts(instant, timeZone) {
   const fmt = new Intl.DateTimeFormat('en-US', {
@@ -85,6 +88,39 @@ export function occurrenceInstants(event, untilMs) {
   return points
 }
 
+function recordMissed(db, row, occurrence) {
+  const scheduleKey = `${row.id}@${occurrence}`
+  const now = new Date().toISOString()
+  const runId = createId('wfr')
+  db.exec('BEGIN IMMEDIATE;')
+  try {
+    db.prepare(`
+      INSERT INTO workflow_runs
+        (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at, schedule_key)
+      SELECT ?, ?, 'cancelled', ?, '{}', ?, ?, NULL, ?, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM workflow_runs WHERE schedule_key = ?)
+    `).run(
+      runId,
+      row.workflow_id,
+      JSON.stringify({ kind: 'schedule', eventId: row.id, occurrence }),
+      JSON.stringify({ message: MISSED_MESSAGE }),
+      `schedule:${row.id}:${occurrence}`,
+      now,
+      now,
+      scheduleKey,
+      scheduleKey,
+    )
+    db.exec('COMMIT;')
+  } catch (error) {
+    try {
+      db.exec('ROLLBACK;')
+    } catch {
+      /* transaction already finished */
+    }
+    throw error
+  }
+}
+
 export async function tickWorkflowSchedules(deps, clock) {
   const now = clock.now instanceof Date ? clock.now : new Date(clock.now)
   const bootedAt = clock.bootedAt instanceof Date ? clock.bootedAt : new Date(clock.bootedAt)
@@ -103,13 +139,18 @@ export async function tickWorkflowSchedules(deps, clock) {
     const points = occurrenceInstants(row, now.getTime())
     for (const occurrence of points) {
       const at = Date.parse(occurrence)
-      if (at < bootedAt.getTime() || at > now.getTime()) continue
+      if (at > now.getTime()) continue
+      if (at < bootedAt.getTime()) {
+        recordMissed(deps.db, row, occurrence)
+        continue
+      }
       const ticket = startWorkflowRun(deps, {
         workflowId: row.workflow_id,
         workspaceId: row.workspace_id,
         correlationId: `schedule:${row.id}:${occurrence}`,
         trigger: { kind: 'schedule', eventId: row.id, occurrence },
       })
+      if (ticket.already || ticket.busy) continue
       started.push(ticket)
     }
   }

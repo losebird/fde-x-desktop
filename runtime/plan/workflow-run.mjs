@@ -92,17 +92,35 @@ function insertQueued(db, { runId, workflowId, correlationId, now, steps, trigge
   const stored = steps.map((step) => ({ ...step, id: createId('wrs') }))
   db.exec('BEGIN IMMEDIATE;')
   try {
-    const open = db.prepare(`
-      SELECT id FROM workflow_runs
-      WHERE workflow_id = ? AND state IN ('queued', 'running')
-      LIMIT 1
-    `).get(workflowId)
-    if (open) throw rejectRun(409, 'run_in_progress', '这条工作流已有未结束的运行')
-    db.prepare(`
-      INSERT INTO workflow_runs
-        (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at, schedule_key)
-      VALUES (?, ?, 'queued', ?, '{}', NULL, ?, NULL, NULL, ?, ?)
-    `).run(runId, workflowId, triggerJson, correlationId, now, scheduleKey)
+    if (scheduleKey) {
+      const inserted = db.prepare(`
+        INSERT INTO workflow_runs
+          (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at, schedule_key)
+        SELECT ?, ?, 'queued', ?, '{}', NULL, ?, NULL, NULL, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM workflow_runs WHERE schedule_key = ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM workflow_runs
+            WHERE workflow_id = ? AND state IN ('queued', 'running')
+          )
+      `).run(runId, workflowId, triggerJson, correlationId, now, scheduleKey, scheduleKey, workflowId)
+      if (inserted.changes !== 1) {
+        const existing = db.prepare('SELECT id, state FROM workflow_runs WHERE schedule_key = ?').get(scheduleKey)
+        db.exec('COMMIT;')
+        return { claimed: false, existing: existing || null, steps: [] }
+      }
+    } else {
+      const open = db.prepare(`
+        SELECT id FROM workflow_runs
+        WHERE workflow_id = ? AND state IN ('queued', 'running')
+        LIMIT 1
+      `).get(workflowId)
+      if (open) throw rejectRun(409, 'run_in_progress', '这条工作流已有未结束的运行')
+      db.prepare(`
+        INSERT INTO workflow_runs
+          (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at, schedule_key)
+        VALUES (?, ?, 'queued', ?, '{}', NULL, ?, NULL, NULL, ?, ?)
+      `).run(runId, workflowId, triggerJson, correlationId, now, null)
+    }
     const insertStep = db.prepare(`
       INSERT INTO workflow_run_steps
         (id, run_id, step_key, sequence_no, state, input_json, output_json, error_json, started_at, finished_at)
@@ -120,7 +138,7 @@ function insertQueued(db, { runId, workflowId, correlationId, now, steps, trigge
     }
     throw error
   }
-  return stored
+  return { claimed: true, existing: null, steps: stored }
 }
 
 function changed(result) {
@@ -546,7 +564,7 @@ export function startWorkflowRun(deps, command) {
   if (hasIllegalSourceRef(steps)) throw rejectRun(422, 'invalid_source_ref', '来源引用不合法')
   assertAiPrompts(steps)
   const runId = createId('wfr')
-  const storedSteps = insertQueued(db, {
+  const queued = insertQueued(db, {
     runId,
     workflowId,
     correlationId,
@@ -555,10 +573,28 @@ export function startWorkflowRun(deps, command) {
     triggerJson: trigger.json,
     scheduleKey: trigger.scheduleKey,
   })
+  if (!queued.claimed) {
+    if (queued.existing) {
+      return {
+        id: queued.existing.id,
+        workflowId,
+        state: queued.existing.state,
+        correlationId,
+        already: true,
+      }
+    }
+    return {
+      id: '',
+      workflowId,
+      state: 'queued',
+      correlationId,
+      busy: true,
+    }
+  }
   continueRun(deps, {
     runId,
     workspaceId: workflow.workspace_id,
-    steps: storedSteps,
+    steps: queued.steps,
   })
   return {
     id: runId,
