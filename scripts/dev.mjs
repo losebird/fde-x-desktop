@@ -18,6 +18,11 @@ import { isPidAlive, reclaimStrayRuntime } from '../runtime/reclaim-runtime.mjs'
 import { runtimePortOpen } from './runtime-port.mjs'
 import { ensureGenerationHost } from '../runtime/generation.mjs'
 
+const devStartedAt = Date.now()
+function devMark(phase) {
+  console.info(`iui-boot dev ${phase}:${Date.now() - devStartedAt}`)
+}
+
 const root = FDE_APP_ROOT
 const host = FDE_RUNTIME_HOST
 const runtimePort = FDE_RUNTIME_PORT
@@ -152,10 +157,12 @@ function superviseRuntime(extraEnv = {}, { adoptExisting = false } = {}) {
 }
 
 prepareFdeHome()
+devMark('home')
 
 if (!await portOpen(runtimePort)) {
   console.log(`[fde-x] 正在启动本地核心 http://${host}:${runtimePort}`)
   await ensureGenerationHost()
+  devMark('generation')
   const dshBin = FDE_DSH_BIN || resolveDshBin()
   superviseRuntime({
     FDE_RUNTIME_PORT: String(runtimePort),
@@ -165,6 +172,7 @@ if (!await portOpen(runtimePort)) {
     DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || DSH_LAN_ASSIST_PORT,
   })
   const ready = await waitFor(runtimePort, 12_000)
+  devMark(ready ? 'runtime' : 'runtime-timeout')
   if (!ready) {
     console.error('[fde-x] 本地核心没有在 12 秒内起来。请看上方 runtime 报错。')
     process.exit(1)
