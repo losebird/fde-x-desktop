@@ -391,8 +391,7 @@ function verifyLockEntries(root, parsed, synthesized, errors) {
     if (!Object.hasOwn(plugins, name)) errors.push(`plugins.lock.json missing entry ${name}`)
   }
   const want = synthesized.plugins['dsh-lan-assist']
-  const got = plugins['dsh-lan-assist']
-  if (got && JSON.stringify(got) !== JSON.stringify(want)) {
+  if (Object.hasOwn(plugins, 'dsh-lan-assist') && JSON.stringify(plugins['dsh-lan-assist']) !== JSON.stringify(want)) {
     errors.push('plugins.lock.json entry dsh-lan-assist does not match the synthesized tree')
   }
   for (const [name, plugin] of Object.entries(plugins)) {
