@@ -630,6 +630,36 @@ export type PlanTaskProposal = {
   title: string
 }
 
+export type PlanHistoryChange = {
+  field: string
+  before: unknown
+  after: unknown
+}
+
+export type PlanHistoryEntry = {
+  at: string
+  kind: 'change' | 'run'
+  action: string
+  actor: 'you' | 'ai' | 'system'
+  legacy: boolean
+  changes: PlanHistoryChange[] | null
+  label: string
+  via?: string
+  run?: {
+    id: string
+    state: string
+    message: string
+    trigger: 'manual' | 'schedule'
+    sessionId?: string
+  }
+}
+
+export type PlanHistory = {
+  hostManaged: boolean
+  note?: string
+  entries: PlanHistoryEntry[]
+}
+
 export class RuntimeApiError extends Error {
   status: number
   code: string
@@ -787,6 +817,7 @@ export class RuntimeApi {
       workspaceId: typeof row.workspaceId === 'string' ? row.workspaceId : undefined,
       sourceRef: typeof row.sourceRef === 'string' ? row.sourceRef : undefined,
       completedAt: typeof row.completedAt === 'string' ? row.completedAt : undefined,
+      updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : undefined,
     }
   }
 
@@ -800,6 +831,7 @@ export class RuntimeApi {
       kind: row.kind,
       workflowId: typeof row.workflowId === 'string' ? row.workflowId : undefined,
       recurrence: row.recurrence === 'once' || row.recurrence === 'daily' ? row.recurrence : undefined,
+      updatedAt: row.updatedAt,
     }
   }
 
@@ -846,6 +878,7 @@ export class RuntimeApi {
       category: (row.category as Workflow['category']) ?? 'system',
       emoji: typeof row.emoji === 'string' ? row.emoji : '🤖',
       createdAt: String(row.createdAt),
+      updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : undefined,
       workspaceId: typeof row.workspaceId === 'string' ? row.workspaceId : undefined,
     }
   }
@@ -884,6 +917,8 @@ export class RuntimeApi {
     dueAt: string | null
     tags: string[]
     workspaceId: string
+    expectedUpdatedAt: string
+    via: string
   }>, signal?: AbortSignal): Promise<Task> {
     const row = await this.planRequest<Record<string, unknown>>(`/api/v1/plan/tasks/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -954,6 +989,9 @@ export class RuntimeApi {
     location: string | null
     allDay: boolean
     workspaceId: string
+    workflowId: string | null
+    recurrence: 'once' | 'daily' | null
+    expectedUpdatedAt: string
   }>, signal?: AbortSignal): Promise<ScheduleEvent> {
     const row = await this.planRequest<PlanEvent>(`/api/v1/plan/events/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -1020,6 +1058,8 @@ export class RuntimeApi {
     category: Workflow['category']
     emoji: string
     workspaceId: string
+    expectedUpdatedAt: string
+    confirmDanger: string[]
   }>, signal?: AbortSignal): Promise<Workflow> {
     const row = await this.planRequest<Record<string, unknown>>(`/api/v1/plan/workflows/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -1028,6 +1068,11 @@ export class RuntimeApi {
       body: JSON.stringify(patch),
     })
     return this.mapPlanWorkflow(row)
+  }
+
+  async listPlanHistory(workspaceId: string, targetRef: string, signal?: AbortSignal): Promise<PlanHistory> {
+    const params = new URLSearchParams({ workspaceId, targetRef })
+    return this.planRequest<PlanHistory>(`/api/v1/plan/history?${params}`, { signal })
   }
 
   async deleteWorkflow(id: string, opts?: { workspaceId?: string; signal?: AbortSignal }): Promise<void> {
