@@ -572,7 +572,7 @@ export class DshCoreConnector {
     extras.push(...availableProductBundles())
     await writeMergedProfileManifest(packagePath, {
       profileName: this.profileName,
-      requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...extras],
+      requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...extras, 'fde-x-dsh-bridge'],
     })
     const cordisYml = join(dir, 'cordis.yml')
     try {

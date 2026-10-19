@@ -3,6 +3,7 @@ const IUI_SECTION_NAME = 'iui:fence'
 const IUI_TOOL_NAMES = ['get_trip_stop_images', 'get_place_images']
 const IUI_SKILL_NAME = 'iui'
 const IUI_HTML_DENY_PREFIX = 'IUI:'
+const STANDARD_DENY_SERVERS = ['cua-driver', 'chrome-devtools', 'playwright']
 
 function iuiAllowedForPreset(preset) {
   return IUI_MODES.includes(preset)
@@ -14,17 +15,72 @@ function presetFromAgent(agent) {
   return typeof preset === 'string' ? preset : ''
 }
 
-function gatePromptAssembly(assembly, preset) {
-  if (!assembly || typeof assembly !== 'object' || iuiAllowedForPreset(preset)) return assembly
-  return {
-    ...assembly,
-    sections: Array.isArray(assembly.sections)
-      ? assembly.sections.filter((section) => !section || section.name !== IUI_SECTION_NAME)
-      : assembly.sections,
-    tools: Array.isArray(assembly.tools)
-      ? assembly.tools.filter((tool) => !tool || !IUI_TOOL_NAMES.includes(tool.name))
-      : assembly.tools,
+function mcpServerName(toolName) {
+  const name = String(toolName || '')
+  if (!name.startsWith('mcp__')) return ''
+  const body = name.slice(5)
+  const cut = body.indexOf('__')
+  if (cut <= 0) return ''
+  return body.slice(0, cut)
+}
+
+const volatileWrite = Symbol.for('cosmokit.volatile.write')
+
+function configValue(value) {
+  if (value && typeof value === 'object' && typeof value.get === 'function' && typeof value[volatileWrite] === 'function') {
+    return value.get()
   }
+  return value
+}
+
+function mcpMountFromConfig(config) {
+  const source = config && typeof config === 'object' ? config : {}
+  const listed = configValue(source.standardDenyServers)
+  const standardDenyServers = Array.isArray(listed)
+    ? listed.map((item) => String(item || '').trim()).filter(Boolean)
+    : STANDARD_DENY_SERVERS.slice()
+  const briefingDenyUserMcp = configValue(source.briefingDenyUserMcp)
+  return {
+    standardDenyServers,
+    briefingDenyUserMcp: briefingDenyUserMcp !== false,
+  }
+}
+
+function resolveMcpMount(mount) {
+  if (mount && Array.isArray(mount.standardDenyServers) && typeof mount.briefingDenyUserMcp === 'boolean') return mount
+  return mcpMountFromConfig(mount)
+}
+
+function deniedMcpServer(toolName, preset, mount) {
+  const server = mcpServerName(toolName)
+  if (!server) return ''
+  const table = resolveMcpMount(mount)
+  if (preset === 'fde-briefing' && table.briefingDenyUserMcp) return server
+  if (preset === 'standard' && table.standardDenyServers.includes(server)) return server
+  return ''
+}
+
+function stripDeniedMcpTools(assembly, preset, mount) {
+  if (!assembly || typeof assembly !== 'object' || !Array.isArray(assembly.tools)) return assembly
+  const tools = assembly.tools.filter((tool) => !deniedMcpServer(tool && tool.name, preset, mount))
+  if (tools.length === assembly.tools.length) return assembly
+  return { ...assembly, tools }
+}
+
+function gatePromptAssembly(assembly, preset, mount) {
+  const table = resolveMcpMount(mount)
+  const stripped = !assembly || typeof assembly !== 'object' || iuiAllowedForPreset(preset)
+    ? assembly
+    : {
+      ...assembly,
+      sections: Array.isArray(assembly.sections)
+        ? assembly.sections.filter((section) => !section || section.name !== IUI_SECTION_NAME)
+        : assembly.sections,
+      tools: Array.isArray(assembly.tools)
+        ? assembly.tools.filter((tool) => !tool || !IUI_TOOL_NAMES.includes(tool.name))
+        : assembly.tools,
+    }
+  return stripDeniedMcpTools(stripped, preset, table)
 }
 
 function stripIuiSkillLine(text) {
@@ -76,8 +132,13 @@ module.exports = {
   IUI_TOOL_NAMES,
   IUI_SKILL_NAME,
   IUI_HTML_DENY_PREFIX,
+  STANDARD_DENY_SERVERS,
   iuiAllowedForPreset,
   presetFromAgent,
+  mcpServerName,
+  mcpMountFromConfig,
+  resolveMcpMount,
+  deniedMcpServer,
   gatePromptAssembly,
   gatePreStepDecision,
   isIuiHtmlDeny,
