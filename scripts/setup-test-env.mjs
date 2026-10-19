@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { IUI_PIN } from '../runtime/iui-pin.mjs'
 import { buildIuiArtifact } from './pack/build-iui.mjs'
+import { githubRemoteUrls, redactSecrets, trimReadToken } from './test-env/github-auth.mjs'
 import {
   assertMergedPlugins,
   loadPins,
@@ -25,17 +26,9 @@ const logPath = join(repoRoot, '.test-env.log')
 const logStream = createWriteStream(logPath, { flags: 'w' })
 
 function log(line) {
-  const text = String(line)
+  const text = redactSecrets(String(line), readToken())
   console.log(text)
   logStream.write(`${text}\n`)
-}
-
-function redact(text) {
-  return String(text)
-    .replace(/bearer\s+\S+/giu, 'bearer [REDACTED]')
-    .replace(/ghs_[A-Za-z0-9_]+/gu, 'ghs_[REDACTED]')
-    .replace(/github_pat_[A-Za-z0-9_]+/gu, 'github_pat_[REDACTED]')
-    .replace(/ghp_[A-Za-z0-9_]+/gu, 'ghp_[REDACTED]')
 }
 
 function finishLog() {
@@ -45,15 +38,16 @@ function finishLog() {
 }
 
 async function run(command, args, options = {}) {
+  const { secret, ...execOptions } = options
   try {
     const result = await execFile(command, args, {
       maxBuffer: 64 * 1024 * 1024,
-      ...options,
+      ...execOptions,
       env: {
         ...process.env,
         GIT_TERMINAL_PROMPT: '0',
         npm_config_update_notifier: 'false',
-        ...options.env,
+        ...execOptions.env,
       },
     })
     return { stdout: result.stdout || '', stderr: result.stderr || '' }
@@ -61,7 +55,7 @@ async function run(command, args, options = {}) {
     const stderr = error && error.stderr ? error.stderr : ''
     const stdout = error && error.stdout ? error.stdout : ''
     const message = error instanceof Error ? error.message : String(error)
-    const wrapped = new Error(redact(`${command} failed\n${stderr}\n${stdout}\n${message}`))
+    const wrapped = new Error(redactSecrets(`${command} failed\n${stderr}\n${stdout}\n${message}`, secret || readToken()))
     throw wrapped
   }
 }
@@ -83,14 +77,13 @@ function preflight() {
 }
 
 function readToken() {
-  const token = String(process.env.FDE_PLUGIN_READ_TOKEN || '').trim()
-  return token
+  return trimReadToken(process.env.FDE_PLUGIN_READ_TOKEN)
 }
 
 function githubRefusal(plugin, detail) {
   return [
     `Cannot fetch ${plugin.repo}@${plugin.commit}.`,
-    detail ? redact(detail).trim() : '',
+    detail ? redactSecrets(detail, readToken()).trim() : '',
     'The cloud credential and the Actions GITHUB_TOKEN cannot read this private repository.',
     'Refusing to skip.',
     `Set ${sourceEnvName(plugin.dir)} to a git bundle or a local checkout that contains that commit,`,
@@ -142,32 +135,48 @@ async function fetchCommit(dest, plugin, remote) {
   }
 }
 
+async function clearGithubRemote(dest, auth) {
+  try {
+    if (!existsSync(join(dest, '.git'))) return
+    await run('git', ['remote', 'set-url', 'origin', auth.cleanUrl], { cwd: dest, secret: auth.token })
+  } catch {
+    // Keep the fetch error when set-url cannot run.
+  }
+}
+
 async function fetchGitHub(dest, plugin) {
-  const token = readToken()
-  const url = `https://github.com/${plugin.repo}.git`
+  const auth = githubRemoteUrls(plugin.repo, readToken())
   await rm(dest, { recursive: true, force: true })
   await mkdir(dest, { recursive: true })
   await run('git', ['init', '-q'], { cwd: dest })
-  await run('git', ['remote', 'add', 'origin', url], { cwd: dest })
-  const args = ['-c', 'credential.helper=']
-  if (token) {
-    args.push('-c', `http.extraheader=AUTHORIZATION: bearer ${token}`)
-  } else if (commandExists('gh')) {
-    args.push('-c', `credential.https://github.com.helper=!${join(process.env.PATH.split(':').find((dir) => existsSync(join(dir, 'gh'))) || '', 'gh')} auth git-credential`)
-  } else {
+  await run('git', ['remote', 'add', 'origin', auth.fetchUrl], { cwd: dest, secret: auth.token })
+  if (!auth.token && !commandExists('gh')) {
+    await rm(dest, { recursive: true, force: true })
     throw new Error(githubRefusal(plugin, 'No FDE_PLUGIN_READ_TOKEN and no gh binary.'))
   }
-  args.push('fetch', '--depth', '1', 'origin', plugin.commit)
   try {
-    await run('git', args, { cwd: dest })
+    const args = ['-c', 'credential.helper=']
+    if (!auth.token) {
+      const ghDir = String(process.env.PATH || '').split(':').find((dir) => existsSync(join(dir, 'gh'))) || ''
+      args.push('-c', `credential.https://github.com.helper=!${join(ghDir, 'gh')} auth git-credential`)
+    }
+    args.push('fetch', '--depth', '1', 'origin', plugin.commit)
+    await run('git', args, { cwd: dest, secret: auth.token })
+    await clearGithubRemote(dest, auth)
+    await run('git', ['checkout', '-q', '--detach', 'FETCH_HEAD'], { cwd: dest, secret: auth.token })
   } catch (error) {
+    await clearGithubRemote(dest, auth)
     await rm(dest, { recursive: true, force: true })
     throw new Error(githubRefusal(plugin, error instanceof Error ? error.message : String(error)))
   }
-  await run('git', ['checkout', '-q', '--detach', 'FETCH_HEAD'], { cwd: dest })
   const head = await headOf(dest)
   if (head !== plugin.commit) {
     throw new Error(githubRefusal(plugin, `${plugin.dir} resolved to ${head || '(empty)'} instead of ${plugin.commit}`))
+  }
+  const { stdout } = await run('git', ['config', '--local', '--get', 'remote.origin.url'], { cwd: dest, secret: auth.token })
+  if (stdout.includes('x-access-token') || (auth.token && stdout.includes(auth.token))) {
+    await rm(dest, { recursive: true, force: true })
+    throw new Error(githubRefusal(plugin, 'origin URL still contains credentials'))
   }
 }
 
