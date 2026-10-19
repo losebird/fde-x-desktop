@@ -113,6 +113,7 @@ export function mapBriefingRow(row) {
     summary: typeof content.summary === 'string' ? content.summary : '',
     sessionId: typeof content.sessionId === 'string' ? content.sessionId : '',
     agentRequestId: row.agent_request_id || content.agentRequestId || '',
+    agentError: typeof content.agentError === 'string' ? content.agentError : '',
     scheduleHint: content.scheduleHint || null,
   }
 }
