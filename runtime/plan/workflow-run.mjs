@@ -243,6 +243,11 @@ function failRun(db, ctx, message) {
   markRunFailed(db, ctx.runId, now)
 }
 
+async function archiveSessionBestEffort(aiRuntime, sessionId) {
+  if (!sessionId || !aiRuntime || typeof aiRuntime.call !== 'function') return
+  await aiRuntime.call('workspace/archiveSession', { request: { sessionId } }).catch(() => undefined)
+}
+
 async function performRun(deps, ctx) {
   const { db, aiRuntime } = deps
   const now = isoNow()
@@ -283,12 +288,7 @@ async function performRun(deps, ctx) {
   const releaseSession = async (requestedId, actualId) => {
     discardWorkflowAllow(requestedId, allowHome)
     if (actualId && actualId !== requestedId) discardWorkflowAllow(actualId, allowHome)
-    if (!actualId || !aiRuntime || typeof aiRuntime.call !== 'function') return
-    try {
-      await aiRuntime.call('workspace/archiveSession', { request: { sessionId: actualId } })
-    } catch {
-      /* 删不掉会话时，核对失败的结果保持不变 */
-    }
+    await archiveSessionBestEffort(aiRuntime, actualId)
   }
   const releasePrepared = async () => {
     const pending = prepared.splice(0, prepared.length)
