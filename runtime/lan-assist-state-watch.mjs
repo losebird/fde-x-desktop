@@ -1,3 +1,4 @@
+import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { emit } from './events.mjs'
 import { emitBizSheetPending } from './routes/biz.mjs'
 import { pendingSheetWatchFingerprint } from './biz/sheet-fingerprint.mjs'
@@ -108,9 +109,7 @@ function officialFromState(state) {
 }
 
 function emitOfficialSheet(sheet, deps, source = 'round-end', surfaceId, writePreview) {
-  const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
-    ? sheet.workspace
-    : deps.cwd
+  const workspaceCwd = canonicalWorkspaceCwd(sheet.workspace) || canonicalWorkspaceCwd(deps.cwd) || deps.cwd
   const sessionId = typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined
   const emitted = emitBizSheetPending(sheet, {
     sessionId,

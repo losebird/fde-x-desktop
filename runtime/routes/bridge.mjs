@@ -9,7 +9,7 @@ import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
 import { workspaceCwdForId, workspaceRowIdForCwd } from '../briefing/workspace.mjs'
 import { proposePlanTask } from '../plan/task-proposals.mjs'
-import { canonicalWorkspaceCwd } from '../cwd.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { pathHasPrefix } from '../path-prefix.mjs'
 
 const READY_TTL_MS = 10 * 60 * 1000
@@ -131,7 +131,17 @@ export async function handleBridgeRoutes(request, response, url, deps) {
     return true
   }
 
-  const workspaceCwd = canonicalWorkspaceCwd(body.workspaceCwd)
+  const resolvedBridge = resolveHttpWorkspace({
+    url,
+    body,
+    slots: [['body', 'workspaceCwd'], ['body', 'cwd']],
+    whenAbsent: 'omit',
+  })
+  if (resolvedBridge.error) {
+    bridgeError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+    return true
+  }
+  const workspaceCwd = resolvedBridge.cwd || ''
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
 
   if (sub === 'submit-result') {

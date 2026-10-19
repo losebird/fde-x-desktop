@@ -12,6 +12,8 @@ import {
 import { LIVE_PATH, LIVE_PROBE_MS, combineAbortSignal, probeRuntimeLive } from '../../runtime/live-probe.mjs'
 // @ts-expect-error runtime ESM helper
 import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
+// @ts-expect-error runtime ESM helper
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 
 const CONNECT_ATTEMPT_MS = 5_000
 
@@ -692,7 +694,7 @@ export class RuntimeApi {
   }
 
   async semanticCoverage(cwd?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const dir = cwd && cwd.startsWith('/') ? cwd : currentWorkspaceCwd()
+    const dir = canonicalWorkspaceCwd(cwd) || currentWorkspaceCwd()
     if (!dir) return { ok: false, error: 'NO_CWD' }
     try {
       return await this.request<Record<string, unknown>>(`/semantic-os/api/coverage?cwd=${encodeURIComponent(dir)}`, { signal })
@@ -703,7 +705,7 @@ export class RuntimeApi {
   }
 
   async semanticPython(op: string, args: Record<string, unknown> = {}, cwd?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const dir = cwd && cwd.startsWith('/') ? cwd : currentWorkspaceCwd()
+    const dir = canonicalWorkspaceCwd(cwd) || currentWorkspaceCwd()
     return this.request<Record<string, unknown>>('/semantic-os/python', {
       method: 'POST',
       signal,
@@ -733,7 +735,7 @@ export class RuntimeApi {
   }
 
   async ensureWorkspace(input: { id: string; name: string; description?: string; cwd?: string }, signal?: AbortSignal): Promise<void> {
-    const cwd = typeof input.cwd === 'string' && input.cwd.startsWith('/') ? input.cwd : ''
+    const cwd = canonicalWorkspaceCwd(input.cwd)
     await this.request('/api/v1/workspaces', {
       method: 'POST',
       signal,
@@ -1384,7 +1386,7 @@ export class RuntimeApi {
   }
 
   async memoryDeps(cwd?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const dir = cwd && cwd.startsWith('/') ? cwd : currentWorkspaceCwd()
+    const dir = canonicalWorkspaceCwd(cwd) || currentWorkspaceCwd()
     const query = dir ? `?cwd=${encodeURIComponent(dir)}` : ''
     const result = await this.request<{ data: Record<string, unknown> }>(`/api/v1/memory/deps${query}`, { signal })
     return result.data
@@ -1960,16 +1962,14 @@ export class RuntimeApi {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...body,
-        workspaceCwd: typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-          ? body.workspaceCwd
-          : currentWorkspaceCwd(),
+        workspaceCwd: canonicalWorkspaceCwd(body.workspaceCwd) || currentWorkspaceCwd(),
       }),
     })
     return result.data
   }
 
   async runBriefing(mode: 'full' | 'internal-only' = 'full', opts?: { sessionId?: string; workspaceCwd?: string; omit?: string[]; signal?: AbortSignal }): Promise<{ briefingId: string; briefing: BriefingSnapshot }> {
-    const workspaceCwd = opts?.workspaceCwd && opts.workspaceCwd.startsWith('/') ? opts.workspaceCwd : currentWorkspaceCwd()
+    const workspaceCwd = canonicalWorkspaceCwd(opts?.workspaceCwd) || currentWorkspaceCwd()
     const omit = Array.isArray(opts?.omit) ? opts.omit.filter((key) => typeof key === 'string' && key) : []
     const result = await this.request<{ ok: true; data: { briefingId: string; briefing: BriefingSnapshot } }>('/api/v1/briefing/run', {
       method: 'POST',
@@ -2860,7 +2860,7 @@ export class RuntimeApi {
   }
 
   async listBizKinds(signal?: AbortSignal, workspaceCwd?: string): Promise<BizVocabSheet> {
-    const cwd = workspaceCwd?.trim().startsWith('/') ? workspaceCwd.trim() : currentWorkspaceCwd()
+    const cwd = canonicalWorkspaceCwd(workspaceCwd) || currentWorkspaceCwd()
     const path = cwd
       ? `/api/v1/biz/kinds?cwd=${encodeURIComponent(cwd)}`
       : withWorkspaceCwd('/api/v1/biz/kinds')

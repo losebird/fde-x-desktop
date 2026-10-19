@@ -148,6 +148,7 @@ import {
   FDE_WEB_PORT,
 } from './config.mjs'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
+import { resolveHttpWorkspace } from './http-workspace.mjs'
 
 const runtimeDirectory = FDE_RUNTIME_DIR
 const databasePath = FDE_DATABASE_PATH
@@ -178,19 +179,19 @@ function normalizeBaseUrl(raw) {
   return withScheme.replace(/\/+$/u, '')
 }
 
-function requestMemoryCwd(url, body) {
-  const fromBody = body && typeof body.cwd === 'string' ? body.cwd.trim() : ''
-  const fromQuery = url.searchParams.has('cwd') ? String(url.searchParams.get('cwd') ?? '').trim() : ''
-  return canonicalWorkspaceCwd(fromBody || fromQuery)
-}
-
-function rejectBadCwd(url, body, response, correlationId) {
-  const bodyPresent = Boolean(body && typeof body.cwd === 'string' && body.cwd.trim())
-  const queryPresent = url.searchParams.has('cwd')
-  if (!bodyPresent && !queryPresent) return false
-  if (requestMemoryCwd(url, body)) return false
-  sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
-  return true
+function requireHttpWorkspace(url, body, response, correlationId, extra = {}) {
+  const resolved = resolveHttpWorkspace({
+    url,
+    body,
+    runtimeCwd: aiRuntime?.cwd,
+    fallbackCwd: FDE_AI_WORKSPACE,
+    ...extra,
+  })
+  if (resolved.error) {
+    sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+    return null
+  }
+  return resolved
 }
 
 function workspaceCwdOf(operation) {
@@ -891,17 +892,22 @@ function proxySemanticOs(request, response, url) {
     sendError(response, 400, 'validation_error', '语义路径不合法')
     return
   }
+  const proxyUrl = new URL(path, 'http://dsh.local')
+  const resolvedProxy = resolveHttpWorkspace({
+    url: proxyUrl,
+    slots: [['query', 'cwd']],
+    whenAbsent: 'omit',
+  })
+  if (resolvedProxy.error) {
+    sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径')
+    return
+  }
   if (!aiRuntime.origin || !aiRuntime.cookie) {
     sendError(response, 503, 'ai/not-connected', '核心未接通，无法打开语义系统')
     return
   }
   const target = new URL(aiRuntime.origin)
-  const queryCwdRaw = String(new URL(path, 'http://dsh.local').searchParams.get('cwd') || '')
-  const queryCwd = canonicalWorkspaceCwd(queryCwdRaw)
-  if (queryCwdRaw.trim() && !queryCwd) {
-    sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径')
-    return
-  }
+  const queryCwd = resolvedProxy.cwd || ''
   const asciiCwd = queryCwd && !/[^\u0000-\u007F]/u.test(queryCwd) ? queryCwd : ''
   const headers = latin1RequestHeaders(request.headers, {
     host: target.host,
@@ -1148,7 +1154,6 @@ const server = createServer(async (request, response) => {
       stripSecrets,
       normalizeBaseUrl,
       exchangeNocoBaseToken,
-      requestMemoryCwd,
     })) return
 
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/favicon.ico')) {
@@ -1866,8 +1871,9 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/deps') {
-      if (rejectBadCwd(url, null, response, currentCorrelationId)) return
-      const cwd = requestMemoryCwd(url)
+      const resolvedDeps = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedDeps) return
+      const cwd = resolvedDeps.cwd
       const result = await aiRuntime.semanticOs('/deps', { method: 'GET', ...(cwd ? { cwd } : {}) })
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
       return
@@ -1937,12 +1943,17 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/ai/workspaces') {
       const body = await readJson(request)
-      const path = String(body.path || '').trim()
       const title = String(body.title || '').trim()
-      if (!path || !path.startsWith('/')) {
-        sendError(response, 400, 'validation_error', '需要本机绝对路径，例如 /home/你/项目 或 C:\\Users\\你\\项目', currentCorrelationId)
+      const resolvedPath = resolveHttpWorkspace({
+        body,
+        slots: [['body', 'path']],
+        whenAbsent: 'omit',
+      })
+      if (resolvedPath.error || !resolvedPath.cwd) {
+        sendError(response, 400, 'workspace_invalid', '需要本机绝对路径，例如 /home/你/项目 或 C:\\Users\\你\\项目', currentCorrelationId)
         return
       }
+      const path = resolvedPath.cwd
       const created = await aiRuntime.call('workspace/create', { request: { path } })
       const workspace = created?.workspace || created
       const workspaceId = String(workspace?.workspaceId || '')
@@ -2317,17 +2328,19 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/search') {
-      if (rejectBadCwd(url, null, response, currentCorrelationId)) return
+      const resolvedSearch = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedSearch) return
       const query = url.searchParams.get('q') || ''
-      const cwd = requestMemoryCwd(url)
+      const cwd = resolvedSearch.cwd
       const result = await aiRuntime.semanticOs('/find', { query, ...(cwd ? { cwd } : {}) })
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
       return
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/health') {
-      if (rejectBadCwd(url, null, response, currentCorrelationId)) return
-      const cwd = requestMemoryCwd(url)
+      const resolvedHealth = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedHealth) return
+      const cwd = resolvedHealth.cwd
       const offset = Math.max(0, Number(url.searchParams.get('offset') || 0) || 0)
       const dupOffset = Math.max(0, Number(url.searchParams.get('dup_offset') || 0) || 0)
       const health = await aiRuntime.semanticOs('/python', {
@@ -2368,8 +2381,9 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/memory/health/act') {
       const body = await readJson(request)
-      if (rejectBadCwd(url, body, response, currentCorrelationId)) return
-      const cwd = requestMemoryCwd(url, body)
+      const resolvedAct = requireHttpWorkspace(url, body, response, currentCorrelationId)
+      if (!resolvedAct) return
+      const cwd = resolvedAct.cwd
       const plan = healthWritePlan(body)
       if (plan.error === 'nodded') {
         sendError(response, 400, 'validation_error', '梳理需要 nodded=true', currentCorrelationId)
@@ -2428,8 +2442,9 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/cards') {
-      if (rejectBadCwd(url, null, response, currentCorrelationId)) return
-      const cwd = requestMemoryCwd(url)
+      const resolvedCards = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedCards) return
+      const cwd = resolvedCards.cwd
       const includeFiled = url.searchParams.get('include_filed') === 'true'
       const result = await aiRuntime.semanticOs('/python', {
         op: 'list_memory_cards',
@@ -2454,8 +2469,9 @@ const server = createServer(async (request, response) => {
         return
       }
       const cardId = decodeURIComponent(memoryCardNodMatch[1])
-      if (rejectBadCwd(url, body, response, currentCorrelationId)) return
-      const cwd = requestMemoryCwd(url, body)
+      const resolvedNod = requireHttpWorkspace(url, body, response, currentCorrelationId)
+      if (!resolvedNod) return
+      const cwd = resolvedNod.cwd
       const result = await aiRuntime.semanticOs('/python', {
         op: 'nod_memory_card',
         args: { id: cardId, nodded: true },
@@ -2481,8 +2497,9 @@ const server = createServer(async (request, response) => {
         sendError(response, 400, 'validation_error', '记忆正文至少 8 个有效字符', currentCorrelationId)
         return
       }
-      if (rejectBadCwd(url, body, response, currentCorrelationId)) return
-      const cwd = requestMemoryCwd(url, body)
+      const resolvedDraft = requireHttpWorkspace(url, body, response, currentCorrelationId)
+      if (!resolvedDraft) return
+      const cwd = resolvedDraft.cwd
       const drafted = await draftCard({ db, aiRuntime }, {
         cwd,
         origin,
@@ -2769,17 +2786,9 @@ const server = createServer(async (request, response) => {
           return
         }
       }
-      let root
-      if (url.searchParams.has('cwd')) {
-        const canonical = canonicalWorkspaceCwd(url.searchParams.get('cwd'))
-        if (!canonical) {
-          sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
-          return
-        }
-        root = resolve(canonical)
-      } else {
-        root = resolve(canonicalWorkspaceCwd(aiRuntime.cwd) || aiRuntime.cwd)
-      }
+      const resolvedFiles = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedFiles) return
+      const root = resolve(resolvedFiles.cwd)
       const runtimeRoot = resolve(aiRuntime.cwd)
       if (root !== runtimeRoot && !root.startsWith(runtimeRoot + sep)) {
         sendError(response, 403, 'path_forbidden', '该工作区目录 4318 读不了（系统权限）。请先在这个工作区开一条 AI 会话，再打开文件页。', currentCorrelationId)
@@ -3482,11 +3491,12 @@ server.listen(port, host, () => {
         onDown: hooks && hooks.onDown,
       }),
     } : {}),
-    cwd: FDE_AI_WORKSPACE,
+    cwd: canonicalWorkspaceCwd(aiRuntime.cwd) || canonicalWorkspaceCwd(FDE_AI_WORKSPACE) || FDE_AI_WORKSPACE,
     prepareSurface: (sheet, sessionId) => {
-      const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
-        ? sheet.workspace
-        : FDE_AI_WORKSPACE
+      const workspaceCwd = canonicalWorkspaceCwd(sheet.workspace)
+        || canonicalWorkspaceCwd(aiRuntime.cwd)
+        || canonicalWorkspaceCwd(FDE_AI_WORKSPACE)
+        || FDE_AI_WORKSPACE
       return recordSurfaceFromPreview(db, workspaceCwd, {
         kind: sheet.kind,
         action: sheet.action,

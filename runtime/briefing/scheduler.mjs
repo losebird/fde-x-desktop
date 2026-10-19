@@ -1,6 +1,7 @@
 import { findInFlightBriefing, getLatestBriefing, getOrCreateDefinition, listScheduledDefinitions } from './store.mjs'
 import { runBriefing } from './run.mjs'
 import { listWorkspaces } from '../db.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 
 const TICK_MS = 60_000
 const firedToday = new Map()
@@ -21,15 +22,15 @@ function workspaceCwdForDefinition(db, workspaceId) {
   if (row) {
     try {
       const meta = JSON.parse(row.metadata_json || '{}')
-      const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-      if (path.startsWith('/')) return path
+      const path = canonicalWorkspaceCwd(meta.cwd) || canonicalWorkspaceCwd(meta.path)
+      if (path) return path
     } catch { /* fall through */ }
   }
   for (const ws of listWorkspaces(db)) {
     if (ws.id === workspaceId) {
       const meta = ws.metadata && typeof ws.metadata === 'object' ? ws.metadata : {}
-      const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-      if (path.startsWith('/')) return path
+      const path = canonicalWorkspaceCwd(meta.cwd) || canonicalWorkspaceCwd(meta.path)
+      if (path) return path
     }
   }
   return ''
@@ -86,8 +87,9 @@ export function startBriefingScheduler(deps) {
       const key = scheduleKey(row.id, dayKey, at)
       if (firedToday.has(key)) continue
       firedToday.set(key, true)
-      const workspaceCwd = workspaceCwdForDefinition(deps.db, row.workspace_id) || deps.defaultCwd
-      if (!workspaceCwd.startsWith('/')) continue
+      const workspaceCwd = canonicalWorkspaceCwd(workspaceCwdForDefinition(deps.db, row.workspace_id))
+        || canonicalWorkspaceCwd(deps.defaultCwd)
+      if (!workspaceCwd) continue
       try {
         if (findInFlightBriefing(deps.db, workspaceCwd)) continue
         const connected = deps.aiRuntime?.status?.().connected

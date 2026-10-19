@@ -1,5 +1,5 @@
 import { resolveAllowedRequestOrigin } from '../config.mjs'
-import { canonicalWorkspaceCwd } from '../cwd.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import {
   configureEventBus,
   emit,
@@ -13,10 +13,14 @@ const MAX_SSE_CONNECTIONS = 32
 const PING_INTERVAL_MS = 25_000
 
 function workspaceFilter(url) {
-  if (!url.searchParams.has('workspace')) return { cwd: undefined }
-  const cwd = canonicalWorkspaceCwd(url.searchParams.get('workspace'))
-  if (!cwd) return { error: 'workspace_invalid' }
-  return { cwd }
+  const resolved = resolveHttpWorkspace({
+    url,
+    slots: [['query', 'workspace'], ['query', 'cwd']],
+    whenAbsent: 'omit',
+  })
+  if (resolved.error) return resolved
+  if (resolved.omitted) return { cwd: undefined }
+  return { cwd: resolved.cwd }
 }
 
 /** @type {Set<import('node:http').ServerResponse>} */

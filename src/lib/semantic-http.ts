@@ -1,3 +1,5 @@
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
+
 type HostBind = { el: HTMLElement; cwd: string }
 type FetchFn = typeof fetch
 
@@ -17,13 +19,15 @@ function hostCwd(): string {
     if (!el.isConnected) continue
     if (el.offsetParent === null && el.getClientRects().length === 0) continue
     const live = el.getAttribute('data-cwd') || cwd
-    if (live.startsWith('/')) return live
+    const absolute = canonicalWorkspaceCwd(live)
+    if (absolute) return absolute
   }
   for (let i = hosts.length - 1; i >= 0; i -= 1) {
     const { el, cwd } = hosts[i]
     if (!el.isConnected) continue
     const live = el.getAttribute('data-cwd') || cwd
-    if (live.startsWith('/')) return live
+    const absolute = canonicalWorkspaceCwd(live)
+    if (absolute) return absolute
   }
   return ''
 }
@@ -61,7 +65,8 @@ export function rewriteGraphUpdatesUrl(url: string | URL, cwd = ''): string | UR
     if (parsed.pathname !== GRAPH_UPDATES_PATH) return url
     parsed.pathname = SEMANTIC_GRAPH_UPDATES_PATH
     const live = cwd || hostCwd()
-    if (live.startsWith('/') && !parsed.searchParams.get('cwd')) parsed.searchParams.set('cwd', live)
+    const cwdLive = canonicalWorkspaceCwd(live)
+    if (cwdLive && !parsed.searchParams.get('cwd')) parsed.searchParams.set('cwd', cwdLive)
     return typeof url === 'string' ? parsed.toString() : parsed
   } catch {
     return url
@@ -105,7 +110,7 @@ function unwrap() {
 }
 
 export function installSemanticOsHttp(el: HTMLElement, cwd: string): () => void {
-  const bind: HostBind = { el, cwd: cwd.startsWith('/') ? cwd : '' }
+  const bind: HostBind = { el, cwd: canonicalWorkspaceCwd(cwd) }
   hosts.push(bind)
   ensureWrap()
   return () => {

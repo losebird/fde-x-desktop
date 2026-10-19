@@ -3,6 +3,7 @@ import { Card } from '@/components/ui'
 import { useEvents } from '@/lib/events'
 import { RuntimeApiError, runtimeApi, type PlanTaskProposal } from '@/lib/runtime-api'
 import { useApp } from '@/store/app'
+import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
 
 const OP_LABEL: Record<PlanTaskProposal['op'], string> = {
   insert: '新建',
@@ -74,8 +75,7 @@ export function PlanTaskProposals() {
   const [busyId, setBusyId] = useState('')
   const workspaceCwd = useMemo(() => {
     const row = workspaces.find((item) => item.id === workspaceId)
-    const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
-    return cwd.startsWith('/') ? cwd : undefined
+    return canonicalWorkspaceCwd(row?.cwd) || undefined
   }, [workspaces, workspaceId])
 
   const reload = useCallback(async () => {

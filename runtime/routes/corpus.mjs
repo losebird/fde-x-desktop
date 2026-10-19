@@ -5,7 +5,9 @@ import { resolveBizCorpusOrigin } from '../biz/corpus-origin.mjs'
 import { readSessionUserOrigin } from '../biz/session-origin-text.mjs'
 import { findActiveAppBySlug } from '../apps/repository.mjs'
 import { getRecord } from '../apps/records.mjs'
+import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { canonicalWorkspaceCwd, sameWorkspaceCwd } from '../cwd.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { listWorkspaces } from '../db.mjs'
 import { filePathOf, originOfCard, sessionIdOf } from '../memory/identity.mjs'
 import { bizTraceIdOf, originHref } from '../memory/origin-href.mjs'
@@ -141,7 +143,7 @@ async function resolveSession(sessionKey) {
 
 async function resolveFile(cwd, fileId) {
   const rel = filePathOf(fileId)
-  if (!rel || !cwd || !cwd.startsWith('/')) return null
+  if (!rel || !canonicalWorkspaceCwd(cwd)) return null
   const root = await realpath(cwd).catch(() => '')
   if (!root) return null
   const abs = rel.startsWith('/') ? rel : join(cwd, rel)
@@ -179,9 +181,14 @@ async function resolveMemoryCard(aiRuntime, cwd, cardId) {
   }
 }
 
-function cwdOf(url) {
-  const raw = String(url?.searchParams?.get('cwd') || url?.searchParams?.get('workspace') || '').trim()
-  return canonicalWorkspaceCwd(raw)
+function cwdOf(url, runtimeCwd) {
+  const resolved = resolveHttpWorkspace({
+    url,
+    slots: [['query', 'cwd'], ['query', 'workspace']],
+    runtimeCwd,
+    fallbackCwd: FDE_AI_WORKSPACE,
+  })
+  return resolved
 }
 
 /**
@@ -190,7 +197,7 @@ function cwdOf(url) {
  */
 export async function loadOrigin(deps, id) {
   const { db, aiRuntime, url } = deps
-  const cwd = cwdOf(url) || String(deps.cwd || '')
+  const cwd = canonicalWorkspaceCwd(deps.cwd) || String(deps.cwd || '')
   if (id.startsWith('biz:')) {
     const traceId = bizTraceIdOf(id)
     if (!traceId) return { ok: false, missing: true, message: '不支持的 corpus id' }
@@ -273,7 +280,8 @@ export async function handleCorpusRoute(request, response, url, deps) {
     correlationId,
   })
   const id = decodeURIComponent(match[1])
-  if ((url.searchParams.has('cwd') || url.searchParams.has('workspace')) && !cwdOf(url)) {
+  const resolvedCwd = cwdOf(url, aiRuntime?.cwd)
+  if (resolvedCwd.error) {
     const sendError = typeof deps.sendError === 'function' ? deps.sendError : null
     if (sendError) sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
     else sendJson(response, 400, { ok: false, error: { code: 'workspace_invalid', message: '工作区必须是绝对路径' }, correlationId })
@@ -281,7 +289,7 @@ export async function handleCorpusRoute(request, response, url, deps) {
   }
 
   try {
-    const resolved = await loadOrigin({ db, aiRuntime, url, cwd: cwdOf(url) }, id)
+    const resolved = await loadOrigin({ db, aiRuntime, url, cwd: resolvedCwd.cwd }, id)
     if (resolved.missing) {
       notFound(resolved.message || '找不到原文')
       return true

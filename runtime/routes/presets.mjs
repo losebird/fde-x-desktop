@@ -4,6 +4,8 @@ import { basename, join, relative, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { FDE_APP_ROOT, FDE_RUNTIME_DIR } from '../config.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { createId } from '../db.mjs'
 import { collectBag, mutateBag, describeKindVerbs } from '../catalog-collect.mjs'
 import { withPresetDisplay } from '../preset-display.mjs'
@@ -162,7 +164,8 @@ function readAgentPresetRoots(settingsText, dshHome, profileName) {
   const rootsBlock = settingsText.match(/agent-presets:[\s\S]*?roots:\s*\n((?:\s+-\s+.+\n?)+)/m)?.[1] || ''
   for (const match of rootsBlock.matchAll(/^\s*-\s*(.+)$/gm)) {
     const value = match[1].trim().replace(/^['"]|['"]$/g, '')
-    if (value.startsWith('/')) roots.push({ kind: 'root', root: value })
+    const root = canonicalWorkspaceCwd(value)
+    if (root) roots.push({ kind: 'root', root })
   }
 
   return roots
@@ -306,11 +309,16 @@ export async function handlePresetRoutes(request, response, url, ctx) {
 
   if (request.method === 'POST' && url.pathname === '/api/v1/ai/presets/import-dir') {
     const body = await readJson(request)
-    const path = typeof body.path === 'string' ? body.path.trim() : ''
-    if (!path.startsWith('/')) {
-      sendError(response, 400, 'validation_error', '请填写本机绝对路径', currentCorrelationId)
+    const resolvedPath = resolveHttpWorkspace({
+      body,
+      slots: [['body', 'path']],
+      whenAbsent: 'omit',
+    })
+    if (resolvedPath.error || !resolvedPath.cwd) {
+      sendError(response, 400, 'workspace_invalid', '请填写本机绝对路径', currentCorrelationId)
       return true
     }
+    const path = resolvedPath.cwd
     const shippedIds = await shippedPresetIds(aiRuntime)
     const result = await validatePresetDirectory(path, { shippedIds })
     if (!result.ok) {
@@ -323,12 +331,17 @@ export async function handlePresetRoutes(request, response, url, ctx) {
 
   if (request.method === 'POST' && url.pathname === '/api/v1/ai/presets/import-dir/confirm') {
     const body = await readJson(request)
-    const path = typeof body.path === 'string' ? body.path.trim() : ''
     const overrideId = typeof body.id === 'string' ? body.id.trim() : ''
-    if (!path.startsWith('/')) {
-      sendError(response, 400, 'validation_error', 'path 无效', currentCorrelationId)
+    const resolvedPath = resolveHttpWorkspace({
+      body,
+      slots: [['body', 'path']],
+      whenAbsent: 'omit',
+    })
+    if (resolvedPath.error || !resolvedPath.cwd) {
+      sendError(response, 400, 'workspace_invalid', 'path 无效', currentCorrelationId)
       return true
     }
+    const path = resolvedPath.cwd
     const shippedIds = await shippedPresetIds(aiRuntime)
     const checked = await validatePresetDirectory(path, { shippedIds })
     if (!checked.ok) {
@@ -398,13 +411,18 @@ export async function handlePresetRoutes(request, response, url, ctx) {
 
   if (request.method === 'POST' && url.pathname === '/api/v1/ai/presets/import-git/confirm') {
     const body = await readJson(request)
-    const tempPath = typeof body.tempPath === 'string' ? body.tempPath.trim() : ''
     const cloneRoot = typeof body.cloneRoot === 'string' ? body.cloneRoot.trim() : ''
     const overrideId = typeof body.id === 'string' ? body.id.trim() : ''
-    if (!tempPath.startsWith('/')) {
-      sendError(response, 400, 'validation_error', 'tempPath 无效', currentCorrelationId)
+    const resolvedTemp = resolveHttpWorkspace({
+      body,
+      slots: [['body', 'tempPath']],
+      whenAbsent: 'omit',
+    })
+    if (resolvedTemp.error || !resolvedTemp.cwd) {
+      sendError(response, 400, 'workspace_invalid', 'tempPath 无效', currentCorrelationId)
       return true
     }
+    const tempPath = resolvedTemp.cwd
     const shippedIds = await shippedPresetIds(aiRuntime)
     const checked = await validatePresetDirectory(tempPath, { shippedIds })
     if (!checked.ok) {

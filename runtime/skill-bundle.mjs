@@ -66,7 +66,8 @@ export function parseSkillCustomDirs(text) {
     const item = line.match(/^\s+-\s+(.+)$/)
     if (item) {
       const path = item[1].trim().replace(/^['"]|['"]$/g, '')
-      if (path.startsWith('/')) dirs.push(path)
+      const canonical = canonicalWorkspaceCwd(path)
+      if (canonical) dirs.push(canonical)
       continue
     }
     break

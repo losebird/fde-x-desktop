@@ -34,15 +34,3 @@ export function workspaceIdForCwd(db, workspaceCwd) {
   return workspaceRowIdForCwd(db, workspaceCwd) || 'ws_personal'
 }
 
-export function resolveWorkspaceCwd(db, queryWorkspace, fallbackCwd) {
-  const raw = String(queryWorkspace || '').trim()
-  if (raw) return canonicalWorkspaceCwd(raw)
-  const row = workspaceRowForCwd(db, fallbackCwd)
-  if (row) {
-    const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
-    const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-    const fromRow = canonicalWorkspaceCwd(path)
-    if (fromRow) return fromRow
-  }
-  return canonicalWorkspaceCwd(fallbackCwd)
-}

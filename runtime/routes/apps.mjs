@@ -1,4 +1,5 @@
 import { canonicalWorkspaceCwd } from '../cwd.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE, FDE_RUNTIME_PORT } from '../config.mjs'
 import { verifyUiToken } from './bridge.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
@@ -68,31 +69,59 @@ function sharePayload(request, share) {
   }
 }
 
-function defaultWorkspaceCwd() {
-  return FDE_AI_WORKSPACE
+function specWorkspaceCwd(spec) {
+  return canonicalWorkspaceCwd(spec?._workspaceCwd) || canonicalWorkspaceCwd(FDE_AI_WORKSPACE) || FDE_AI_WORKSPACE
 }
 
-function resolveWorkspaceId(db, queryWorkspace) {
-  const raw = String(queryWorkspace || '').trim()
-  if (!raw) return 'ws_personal'
-  const cwd = canonicalWorkspaceCwd(raw)
-  if (cwd) return workspaceIdForCwd(db, cwd)
-  return raw
+function rejectAppWorkspace(resolved, response, correlationId, sendError) {
+  if (!resolved?.error) return false
+  sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+  return true
 }
 
-function resolveWorkspaceCwd(queryWorkspace, spec) {
-  const raw = String(queryWorkspace || '').trim()
-  const cwd = canonicalWorkspaceCwd(raw)
-  if (cwd) return cwd
-  if (spec?._workspaceCwd) {
-    const fromSpec = canonicalWorkspaceCwd(spec._workspaceCwd) || String(spec._workspaceCwd)
-    return fromSpec
-  }
-  return defaultWorkspaceCwd()
+function appIdentity(db, url, body, slots) {
+  const resolved = resolveHttpWorkspace({
+    url,
+    body,
+    role: 'id-or-path',
+    whenAbsent: 'omit',
+    slots,
+  })
+  if (resolved.error) return resolved
+  if (resolved.cwd) return { workspaceId: workspaceIdForCwd(db, resolved.cwd), hint: resolved.cwd }
+  if (resolved.id) return { workspaceId: resolved.id, hint: '' }
+  return { workspaceId: 'ws_personal', hint: '' }
 }
 
-function cwdHint(queryWorkspace) {
-  return canonicalWorkspaceCwd(queryWorkspace)
+function appRecordCwd(url, body, spec, aiRuntime, place) {
+  const pathSlots = place === 'body'
+    ? [['body', 'workspaceCwd'], ['body', 'cwd']]
+    : [['query', 'cwd']]
+  const named = resolveHttpWorkspace({
+    url,
+    body,
+    role: 'path',
+    whenAbsent: 'omit',
+    slots: pathSlots,
+  })
+  if (named.error) return named
+  if (named.cwd) return { cwd: named.cwd }
+  const identSlots = place === 'body' ? [['body', 'workspace']] : [['query', 'workspace']]
+  const ident = resolveHttpWorkspace({
+    url,
+    body,
+    role: 'id-or-path',
+    whenAbsent: 'omit',
+    slots: identSlots,
+  })
+  if (ident.cwd) return { cwd: ident.cwd }
+  const fromSpec = canonicalWorkspaceCwd(spec?._workspaceCwd)
+  if (fromSpec) return { cwd: fromSpec }
+  return resolveHttpWorkspace({
+    runtimeCwd: aiRuntime?.cwd,
+    fallbackCwd: FDE_AI_WORKSPACE,
+    slots: [],
+  })
 }
 
 function sendInvokeError(sendError, response, error, correlationId) {
@@ -244,7 +273,9 @@ export async function handleAppsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/apps') {
-    const workspaceId = resolveWorkspaceId(db, url.searchParams.get('workspace') || url.searchParams.get('cwd'))
+    const identity = appIdentity(db, url, null, [['query', 'workspace'], ['query', 'cwd']])
+    if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
+    const workspaceId = identity.workspaceId
     const items = listApps(db, workspaceId)
     sendJson(response, 200, {
       ok: true,
@@ -264,13 +295,23 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && pathname === '/api/v1/apps') {
     const body = await readJson(request)
-    const suppliedWorkspace = typeof body.workspaceCwd === 'string' ? body.workspaceCwd.trim() : ''
-    const workspaceCwd = suppliedWorkspace ? canonicalWorkspaceCwd(suppliedWorkspace) : defaultWorkspaceCwd()
-    if (suppliedWorkspace && !workspaceCwd) {
-      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
-      return true
-    }
-    const workspaceId = body.workspaceId ?? resolveWorkspaceId(db, body.workspace || workspaceCwd)
+    const pathResolved = resolveHttpWorkspace({
+      body,
+      slots: [['body', 'workspaceCwd'], ['body', 'cwd']],
+      runtimeCwd: aiRuntime?.cwd,
+      fallbackCwd: FDE_AI_WORKSPACE,
+    })
+    if (rejectAppWorkspace(pathResolved, response, correlationId, sendError)) return true
+    const workspaceCwd = pathResolved.cwd
+    const identity = appIdentity(db, null, body, [['body', 'workspace']])
+    if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
+    const workspaceId = body.workspaceId ?? (
+      identity.hint
+        ? workspaceIdForCwd(db, identity.hint)
+        : body.workspace
+          ? identity.workspaceId
+          : workspaceIdForCwd(db, workspaceCwd)
+    )
     const spec = body.spec
     if (!spec || typeof spec !== 'object') {
       sendError(response, 400, 'validation_error', 'spec 不能为空', correlationId)
@@ -316,7 +357,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendError(response, 404, 'not_found', '不是托管 Web 应用', correlationId)
       return true
     }
-    const cwd = String(app.spec._workspaceCwd || defaultWorkspaceCwd())
+    const cwd = specWorkspaceCwd(app.spec)
     const rel = liveMatch[2] ? decodeURIComponent(liveMatch[2]) : ''
     const served = serveWebAppAsset(request, response, {
       spec: app.spec,
@@ -342,7 +383,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendError(response, 404, 'not_found', '不是托管 Web 应用', correlationId)
       return true
     }
-    const cwd = String(app.spec._workspaceCwd || defaultWorkspaceCwd())
+    const cwd = specWorkspaceCwd(app.spec)
     const key = decodeURIComponent(storeMatch[2])
     const slug = String(app.spec.slug || app.slug || '')
     if (request.method === 'GET') {
@@ -495,7 +536,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
         return true
       }
       const slug = String(app.spec?.slug || app.slug || '')
-      const workspaceCwd = resolveWorkspaceCwd(app.spec?._workspaceCwd, app.spec)
+      const workspaceCwd = specWorkspaceCwd(app.spec)
       if (!slug || !canonicalWorkspaceCwd(workspaceCwd)) {
         sendError(response, 422, 'validation_error', '应用没有可分享的工作区', correlationId)
         return true
@@ -528,9 +569,9 @@ export async function handleAppsRoutes(request, response, url, deps) {
   if (request.method === 'GET' && statsMatch) {
     const slug = decodeURIComponent(statsMatch[1])
     const viewId = decodeURIComponent(statsMatch[2])
-    const workspaceQuery = url.searchParams.get('workspace')
-    const workspaceId = resolveWorkspaceId(db, workspaceQuery)
-    const app = requireActiveApp(db, workspaceId, slug, cwdHint(workspaceQuery))
+    const identity = appIdentity(db, url, null, [['query', 'workspace'], ['query', 'cwd']])
+    if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
+    const app = requireActiveApp(db, identity.workspaceId, slug, identity.hint)
     if (!app) {
       sendError(response, 404, 'not_found', '应用未激活', correlationId)
       return true
@@ -540,7 +581,9 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendError(response, 404, 'not_found', '统计视图不存在', correlationId)
       return true
     }
-    const workspaceCwd = resolveWorkspaceCwd(url.searchParams.get('workspace'), app.spec)
+    const record = appRecordCwd(url, null, app.spec, aiRuntime, 'query')
+    if (rejectAppWorkspace(record, response, correlationId, sendError)) return true
+    const workspaceCwd = record.cwd
     if (specRecordsViaMcp(db, app.spec, workspaceCwd)) {
       try {
         const value = await computeBoundStat({ db, aiRuntime }, app.spec, view, workspaceCwd)
@@ -560,9 +603,16 @@ export async function handleAppsRoutes(request, response, url, deps) {
     const slug = decodeURIComponent(actionMatch[1])
     const actionName = decodeURIComponent(actionMatch[2])
     const body = await readJson(request)
-    const workspaceQuery = body.workspaceCwd ?? body.workspace
-    const workspaceId = resolveWorkspaceId(db, body.workspaceId ?? body.workspace)
-    const app = requireActiveApp(db, workspaceId, slug, cwdHint(workspaceQuery))
+    const identity = appIdentity(db, null, body, [['body', 'workspace']])
+    if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
+    const workspaceId = body.workspaceId ?? identity.workspaceId
+    const hint = resolveHttpWorkspace({
+      body,
+      role: 'id-or-path',
+      whenAbsent: 'omit',
+      slots: [['body', 'workspaceCwd'], ['body', 'workspace']],
+    })
+    const app = requireActiveApp(db, workspaceId, slug, hint.cwd || '')
     if (!app) {
       sendError(response, 404, 'not_found', '应用未激活', correlationId)
       return true
@@ -573,7 +623,9 @@ export async function handleAppsRoutes(request, response, url, deps) {
       return true
     }
     const rids = Array.isArray(body.rids) ? body.rids.map(String) : []
-    const workspaceCwd = resolveWorkspaceCwd(body.workspaceCwd ?? body.workspace, app.spec)
+    const record = appRecordCwd(null, body, app.spec, aiRuntime, 'body')
+    if (rejectAppWorkspace(record, response, correlationId, sendError)) return true
+    const workspaceCwd = record.cwd
     if (action.kind === 'set') {
       if (specRecordsViaMcp(db, app.spec, workspaceCwd)) {
         sendError(response, 400, 'no_set', 'set 只在本地台账可用', correlationId)
@@ -641,14 +693,23 @@ export async function handleAppsRoutes(request, response, url, deps) {
     const slug = decodeURIComponent(entityListMatch[1])
     const entity = decodeURIComponent(entityListMatch[2])
     const body = await readJson(request)
-    const workspaceQuery = body.workspaceCwd ?? body.workspace
-    const workspaceId = resolveWorkspaceId(db, body.workspaceId ?? body.workspace)
-    const app = requireActiveApp(db, workspaceId, slug, cwdHint(workspaceQuery))
+    const identity = appIdentity(db, null, body, [['body', 'workspace']])
+    if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
+    const workspaceId = body.workspaceId ?? identity.workspaceId
+    const hint = resolveHttpWorkspace({
+      body,
+      role: 'id-or-path',
+      whenAbsent: 'omit',
+      slots: [['body', 'workspaceCwd'], ['body', 'workspace']],
+    })
+    const app = requireActiveApp(db, workspaceId, slug, hint.cwd || '')
     if (!app) {
       sendError(response, 404, 'not_found', '应用未激活', correlationId)
       return true
     }
-    const workspaceCwd = resolveWorkspaceCwd(body.workspaceCwd ?? body.workspace, app.spec)
+    const record = appRecordCwd(null, body, app.spec, aiRuntime, 'body')
+    if (rejectAppWorkspace(record, response, correlationId, sendError)) return true
+    const workspaceCwd = record.cwd
     if (specRecordsViaMcp(db, app.spec, workspaceCwd)) {
       try {
         const written = await writeBoundRecord({ db, aiRuntime }, app.spec, entity, workspaceCwd, {
@@ -692,14 +753,16 @@ export async function handleAppsRoutes(request, response, url, deps) {
   if (request.method === 'GET' && entityListMatch) {
     const slug = decodeURIComponent(entityListMatch[1])
     const entity = decodeURIComponent(entityListMatch[2])
-    const workspaceQuery = url.searchParams.get('workspace')
-    const workspaceId = resolveWorkspaceId(db, workspaceQuery)
-    const app = requireActiveApp(db, workspaceId, slug, cwdHint(workspaceQuery))
+    const identity = appIdentity(db, url, null, [['query', 'workspace'], ['query', 'cwd']])
+    if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
+    const app = requireActiveApp(db, identity.workspaceId, slug, identity.hint)
     if (!app) {
       sendError(response, 404, 'not_found', '应用未激活', correlationId)
       return true
     }
-    const workspaceCwd = resolveWorkspaceCwd(url.searchParams.get('workspace'), app.spec)
+    const record = appRecordCwd(url, null, app.spec, aiRuntime, 'query')
+    if (rejectAppWorkspace(record, response, correlationId, sendError)) return true
+    const workspaceCwd = record.cwd
     if (specRecordsViaMcp(db, app.spec, workspaceCwd)) {
       let filter = {}
       try {
@@ -746,14 +809,17 @@ export async function handleAppsRoutes(request, response, url, deps) {
     const slug = decodeURIComponent(entityRowMatch[1])
     const entity = decodeURIComponent(entityRowMatch[2])
     const rid = decodeURIComponent(entityRowMatch[3])
-    const workspaceQuery = url.searchParams.get('workspace')
-    const workspaceId = resolveWorkspaceId(db, workspaceQuery)
-    const app = requireActiveApp(db, workspaceId, slug, cwdHint(workspaceQuery))
+    const identity = appIdentity(db, url, null, [['query', 'workspace'], ['query', 'cwd']])
+    if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
+    const workspaceId = identity.workspaceId
+    const app = requireActiveApp(db, workspaceId, slug, identity.hint)
     if (!app) {
       sendError(response, 404, 'not_found', '应用未激活', correlationId)
       return true
     }
-    const workspaceCwd = resolveWorkspaceCwd(url.searchParams.get('workspace'), app.spec)
+    const record = appRecordCwd(url, null, app.spec, aiRuntime, 'query')
+    if (rejectAppWorkspace(record, response, correlationId, sendError)) return true
+    const workspaceCwd = record.cwd
     const bound = specRecordsViaMcp(db, app.spec, workspaceCwd)
 
     if (request.method === 'GET') {

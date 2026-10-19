@@ -1,7 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { collectBag } from '../catalog-collect.mjs'
-import { canonicalWorkspaceCwd } from '../cwd.mjs'
+import { FDE_AI_WORKSPACE } from '../config.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import {
   bundleRootFromPath,
   confinedRelPath,
@@ -13,12 +14,18 @@ import {
   uninstallSkillBundle,
 } from '../skill-bundle.mjs'
 
-function cwdFrom(url, body) {
-  const raw = (body && (body.cwd || body.workspace))
-    || (url && (url.searchParams.get('cwd') || url.searchParams.get('workspace')))
-    || ''
-  const text = String(raw || '').trim()
-  return canonicalWorkspaceCwd(text) || text
+function cwdFrom(url, body, aiRuntime, response, correlationId, sendError) {
+  const resolved = resolveHttpWorkspace({
+    url,
+    body,
+    runtimeCwd: aiRuntime?.cwd,
+    fallbackCwd: FDE_AI_WORKSPACE,
+  })
+  if (resolved.error) {
+    sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+    return ''
+  }
+  return resolved.cwd
 }
 
 function sessionFrom(url, body) {
@@ -44,7 +51,8 @@ export async function handleSkillRoutes(request, response, url, ctx) {
   const { aiRuntime, currentCorrelationId, sendJson, sendError, readJson } = ctx
 
   if (request.method === 'GET' && url.pathname === '/api/v1/skills/roots') {
-    const cwd = cwdFrom(url)
+    const cwd = cwdFrom(url, undefined, aiRuntime, response, currentCorrelationId, sendError)
+    if (!cwd) return true
     const roots = await skillRootsForCwd(aiRuntime, cwd)
     sendJson(response, 200, { data: { roots }, correlationId: currentCorrelationId })
     return true
@@ -52,7 +60,8 @@ export async function handleSkillRoutes(request, response, url, ctx) {
 
   if (request.method === 'GET' && url.pathname === '/api/v1/skills/bundle/files') {
     const skillPath = url.searchParams.get('path') || ''
-    const cwd = cwdFrom(url)
+    const cwd = cwdFrom(url, undefined, aiRuntime, response, currentCorrelationId, sendError)
+    if (!cwd) return true
     const sessionId = sessionFrom(url)
     if (!skillPath) {
       sendError(response, 400, 'validation_error', '缺少 path', currentCorrelationId)
@@ -71,7 +80,8 @@ export async function handleSkillRoutes(request, response, url, ctx) {
   if (request.method === 'GET' && url.pathname === '/api/v1/skills/bundle/file') {
     const skillPath = url.searchParams.get('path') || ''
     const rel = url.searchParams.get('rel') || ''
-    const cwd = cwdFrom(url)
+    const cwd = cwdFrom(url, undefined, aiRuntime, response, currentCorrelationId, sendError)
+    if (!cwd) return true
     const sessionId = sessionFrom(url)
     try {
       const { bundleRoot } = await managedBundle(aiRuntime, { cwd, sessionId, skillPath })
@@ -89,7 +99,8 @@ export async function handleSkillRoutes(request, response, url, ctx) {
     const skillPath = typeof body.path === 'string' ? body.path : ''
     const rel = typeof body.rel === 'string' ? body.rel : ''
     const text = typeof body.text === 'string' ? body.text : ''
-    const cwd = cwdFrom(url, body)
+    const cwd = cwdFrom(url, body, aiRuntime, response, currentCorrelationId, sendError)
+    if (!cwd) return true
     const sessionId = sessionFrom(url, body)
     try {
       const { bundleRoot } = await managedBundle(aiRuntime, { cwd, sessionId, skillPath })
@@ -110,7 +121,8 @@ export async function handleSkillRoutes(request, response, url, ctx) {
   if (request.method === 'DELETE' && url.pathname === '/api/v1/skills/bundle/file') {
     const skillPath = url.searchParams.get('path') || ''
     const rel = url.searchParams.get('rel') || ''
-    const cwd = cwdFrom(url)
+    const cwd = cwdFrom(url, undefined, aiRuntime, response, currentCorrelationId, sendError)
+    if (!cwd) return true
     const sessionId = sessionFrom(url)
     try {
       const { bundleRoot } = await managedBundle(aiRuntime, { cwd, sessionId, skillPath })
@@ -131,7 +143,8 @@ export async function handleSkillRoutes(request, response, url, ctx) {
     const body = await readJson(request)
     const skillPath = typeof body.path === 'string' ? body.path : ''
     const modelInvocable = Boolean(body.modelInvocable)
-    const cwd = cwdFrom(url, body)
+    const cwd = cwdFrom(url, body, aiRuntime, response, currentCorrelationId, sendError)
+    if (!cwd) return true
     const sessionId = sessionFrom(url, body)
     try {
       const { bundleRoot } = await managedBundle(aiRuntime, { cwd, sessionId, skillPath })
@@ -148,7 +161,8 @@ export async function handleSkillRoutes(request, response, url, ctx) {
     const body = await readJson(request)
     const source = typeof body.source === 'string' ? body.source.trim() : ''
     const root = typeof body.root === 'string' ? body.root.trim() : ''
-    const cwd = cwdFrom(url, body)
+    const cwd = cwdFrom(url, body, aiRuntime, response, currentCorrelationId, sendError)
+    if (!cwd) return true
     if (!source || !root) {
       sendError(response, 400, 'validation_error', '需要 source 和 root', currentCorrelationId)
       return true
@@ -169,7 +183,8 @@ export async function handleSkillRoutes(request, response, url, ctx) {
 
   if (request.method === 'DELETE' && url.pathname === '/api/v1/skills/bundle') {
     const skillPath = url.searchParams.get('path') || ''
-    const cwd = cwdFrom(url)
+    const cwd = cwdFrom(url, undefined, aiRuntime, response, currentCorrelationId, sendError)
+    if (!cwd) return true
     const sessionId = sessionFrom(url)
     try {
       const { bundleRoot } = await managedBundle(aiRuntime, { cwd, sessionId, skillPath })
