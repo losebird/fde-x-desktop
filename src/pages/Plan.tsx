@@ -19,6 +19,7 @@ import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
 import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
+import { PLAN_DAY_HOURS } from '../../runtime/plan/plan-day-hours.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -555,7 +556,7 @@ function TodoTab() {
 // =======================================================
 // Tab 2: 日程
 // =======================================================
-const HOURS = Array.from({ length: 14 }, (_, i) => 7 + i)
+const HOURS = PLAN_DAY_HOURS
 
 const KIND_TONE: Record<ScheduleEvent['kind'], { bg: string; tag: 'blue'|'green'|'amber'|'purple' }> = {
   meeting:  { bg: 'bg-blue-50 border-blue-200 text-accent-blue',     tag: 'blue' },
