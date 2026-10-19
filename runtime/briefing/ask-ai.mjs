@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { buildContextPack, renderContextForPrompt } from '../context-pack.mjs'
 import { callHostMcp, mcpPublicName } from '../host-mcp-call.mjs'
 import { waitUntilSessionIdle } from '../session-primary.mjs'
-import { harvestTurnToolResults } from './tool-official.mjs'
+import { briefingTurnFailureText, harvestTurnToolResults } from './tool-official.mjs'
 
 function briefingRequestId() {
   return `brq_${randomBytes(12).toString('hex')}`
@@ -139,9 +139,11 @@ export async function runBriefingAgent(deps, {
   }
 
   const harvest = await harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs })
+  const turnError = briefingTurnFailureText(harvest.turnFailure)
   return {
-    ok: harvest.ended,
-    error: harvest.ended ? '' : 'timeout',
+    ok: harvest.ended && !turnError,
+    error: turnError || (harvest.ended ? '' : 'timeout'),
+    turnError,
     sessionId,
     agentRequestId,
     blocked,
