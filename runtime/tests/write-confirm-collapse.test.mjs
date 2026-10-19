@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -13,6 +13,7 @@ import {
   writeTokenStatus,
 } from '../biz/write-confirm.mjs'
 import {
+  incomingSheetClosesOpenDrawer,
   shouldOpenWriteConfirm,
   writeTokenLive,
   writeTokenStatus as sheetWriteTokenStatus,
@@ -20,11 +21,22 @@ import {
 
 const overlayDir = join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist')
 const vendorDir = join(FDE_DSH_HOME, 'vendor', 'dsh-lan-assist')
-const staged = mkdtempSync(join(tmpdir(), 'lan-assist-confirm-'))
-cpSync(vendorDir, staged, { recursive: true })
-cpSync(overlayDir, staged, { recursive: true })
-const { createGate } = await import(pathToFileURL(join(staged, 'write.js')).href)
-const { createGate: createOpening, voidUnusedTokens } = await import(pathToFileURL(join(staged, 'gate.js')).href)
+let createGate
+let createOpening
+let voidUnusedTokens
+if (existsSync(vendorDir)) {
+  const staged = mkdtempSync(join(tmpdir(), 'lan-assist-confirm-'))
+  cpSync(vendorDir, staged, { recursive: true })
+  cpSync(overlayDir, staged, { recursive: true })
+  ;({ createGate } = await import(pathToFileURL(join(staged, 'write.js')).href))
+  ;({ createGate: createOpening, voidUnusedTokens } = await import(pathToFileURL(join(staged, 'gate.js')).href))
+}
+
+function skipWithoutVendor(t) {
+  if (createGate && createOpening && voidUnusedTokens) return false
+  t.skip(`missing ${vendorDir}`)
+  return true
+}
 
 const kind = 'KindW'
 const vocab = [{
@@ -75,7 +87,46 @@ test('drawer opens only while the write token is unused', () => {
   )
 })
 
-test('write success rereads written identity 现查 and does not keep the write preview as official', async () => {
+test('incoming sheet keeps a live write drawer open for 现查 and for an empty preview id', () => {
+  const openId = 'pv-open'
+  const live = openSheet()
+  assert.equal(
+    incomingSheetClosesOpenDrawer(openId, { ...live, action: '现查', preview_id: '', canWrite: false }, { dismissed: false }),
+    false,
+  )
+  assert.equal(
+    incomingSheetClosesOpenDrawer(openId, { ...live, action: '现查', preview_id: openId }, {
+      dismissed: false,
+      tokenIndex: { 'pv-open': 'used' },
+    }),
+    false,
+  )
+  assert.equal(
+    incomingSheetClosesOpenDrawer(openId, { ...live, preview_id: '', previewId: '' }, { dismissed: false }),
+    false,
+  )
+  assert.equal(incomingSheetClosesOpenDrawer('', live, { dismissed: true }), false)
+  assert.equal(
+    incomingSheetClosesOpenDrawer(openId, live, { dismissed: true }),
+    true,
+  )
+  assert.equal(
+    incomingSheetClosesOpenDrawer(openId, live, { dismissed: false, tokenIndex: { 'pv-open': 'used' } }),
+    true,
+  )
+  assert.equal(
+    incomingSheetClosesOpenDrawer(openId, { ...live, writeToken: 'expired' }, { dismissed: false }),
+    true,
+  )
+  assert.equal(incomingSheetClosesOpenDrawer(openId, live, { dismissed: false }), false)
+  assert.equal(
+    incomingSheetClosesOpenDrawer(openId, { ...live, preview_id: 'pv-other' }, { dismissed: true }),
+    false,
+  )
+})
+
+test('write success rereads written identity 现查 and does not keep the write preview as official', async (t) => {
+  if (skipWithoutVendor(t)) return
   const rows = [
     { no: 'ROW-1', status: 'open', fields: { id: '1', status: 'open', title: '甲' } },
   ]
@@ -113,7 +164,8 @@ test('write success rereads written identity 现查 and does not keep the write 
   assert.equal(listed.querySettled, true)
 })
 
-test('post-write identity 现查 ignores listBind where that no longer matches', async () => {
+test('post-write identity 现查 ignores listBind where that no longer matches', async (t) => {
+  if (skipWithoutVendor(t)) return
   const before = {
     no: 'LV-1',
     status: 'pending',
@@ -185,7 +237,8 @@ test('post-write identity 现查 ignores listBind where that no longer matches',
   assert.equal(String(rows[0].status || rows[0].fields?.status || ''), 'approved')
 })
 
-test('0-row identity 现查 keeps the write receipt instead of an empty official', async () => {
+test('0-row identity 现查 keeps the write receipt instead of an empty official', async (t) => {
+  if (skipWithoutVendor(t)) return
   const row = {
     no: 'GONE-1',
     status: 'open',
@@ -228,7 +281,8 @@ test('0-row identity 现查 keeps the write receipt instead of an empty official
   assert.equal(written.sheet, undefined)
 })
 
-test('dismissed write token cannot be confirmed again', async () => {
+test('dismissed write token cannot be confirmed again', async (t) => {
+  if (skipWithoutVendor(t)) return
   const g = createGate({
     vocab,
     lookupTodo() {
@@ -298,7 +352,8 @@ test('token index reports open, used, and expired', () => {
   })
 })
 
-test('successful post voids sibling tokens from the same opening', () => {
+test('successful post voids sibling tokens from the same opening', (t) => {
+  if (skipWithoutVendor(t)) return
   const tokens = new Map([
     ['pv-lead', { used: true, expiresAt: 9_000 }],
     ['pv-sib', { used: false, expiresAt: 9_000 }],
@@ -309,7 +364,8 @@ test('successful post voids sibling tokens from the same opening', () => {
   assert.equal(previewTokenIndex(tokens, 1)['pv-sib'], 'used')
 })
 
-test('wrote follow-up lookup stays a lookup and does not mint a write token', async () => {
+test('wrote follow-up lookup stays a lookup and does not mint a write token', async (t) => {
+  if (skipWithoutVendor(t)) return
   const speech = '新增一笔 KindW'
   const rounds = createSessionRoundStore()
   rounds.startRound('sess-a')
@@ -358,7 +414,8 @@ test('wrote follow-up lookup stays a lookup and does not mint a write token', as
   assert.ok(lookups >= 1)
 })
 
-test('empty create patch does not mint a token; a literal patch does', async () => {
+test('empty create patch does not mint a token; a literal patch does', async (t) => {
+  if (skipWithoutVendor(t)) return
   const gate = createGate({
     vocab,
     fieldsOf: async () => [{ name: 'title', title: '标题' }],
@@ -391,7 +448,8 @@ test('empty create patch does not mint a token; a literal patch does', async () 
   assert.equal(token.patch.title, '甲')
 })
 
-test('confirm posts only the clicked changed token and voids empty creates first', async () => {
+test('confirm posts only the clicked changed token and voids empty creates first', async (t) => {
+  if (skipWithoutVendor(t)) return
   const tokens = new Map([
     ['pv-empty', { used: false, action: '新建', patch: {}, expiresAt: 9_000_000_000_000 }],
     ['pv-real', { used: false, action: '新建', patch: { title: '甲' }, expiresAt: 9_000_000_000_000 }],
