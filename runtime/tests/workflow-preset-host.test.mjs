@@ -301,4 +301,70 @@ describe('真 Host 上从预设带入工具', { concurrency: 1 }, () => {
       await host.stop()
     }
   })
+
+  test('注入文本没有占位符，写出最终工具清单，只改 presetId 不改放行', async () => {
+    const host = await bootWorkflowHost()
+    const dbPath = join(tmpdir(), `fde-x-preset-render-${process.pid}.sqlite`)
+    const db = openDatabase(dbPath, migrations)
+    insertWorkspace(db, 'ws_render', host.cwd)
+    const calls = []
+    stubRuntime(host, calls)
+    const line = '本步只能使用这些工具：fde_app_records_query'
+    try {
+      async function runWith(presetId) {
+        const now = new Date().toISOString()
+        const id = `wf_render_${presetId}`
+        db.prepare(`
+          INSERT INTO workflows
+            (id, workspace_id, name, status, trigger_json, definition_json, revision, created_at, updated_at)
+          VALUES (?, 'ws_render', ?, 'paused', ?, ?, 1, ?, ?)
+        `).run(
+          id,
+          presetId,
+          JSON.stringify({ kind: 'manual' }),
+          JSON.stringify({
+            steps: [{
+              id: 's1',
+              kind: 'ai',
+              label: 'AI',
+              config: { prompt: '只查询', tools: [QUERY], presetId },
+            }],
+          }),
+          now,
+          now,
+        )
+        const ticket = startWorkflowRun({ db, aiRuntime: host.core }, {
+          workflowId: id,
+          workspaceId: 'ws_render',
+          correlationId: `corr_render_${presetId}`,
+          trigger: { kind: 'manual' },
+        })
+        await waitForTerminal(db, ticket.id)
+        const run = db.prepare('SELECT state, output_json FROM workflow_runs WHERE id = ?').get(ticket.id)
+        const stepRow = db.prepare('SELECT error_json FROM workflow_run_steps WHERE run_id = ?').get(ticket.id)
+        assert.equal(run.state, 'succeeded', stepRow && stepRow.error_json)
+        const output = JSON.parse(run.output_json)
+        assert.deepEqual(output.tools, [QUERY])
+        const seen = await waitForProbe(host.probeDir, output.sessionId)
+        assert.deepEqual(seen.names, [QUERY])
+        assert.equal(seen.personaPrefix.includes('{{'), false, seen.personaPrefix)
+        assert.equal(seen.personaPrefix.includes(line), true, seen.personaPrefix)
+        assert.equal(seen.personaPrefix.includes('bash'), false, seen.personaPrefix)
+        assert.deepEqual(seen.promptSections, [seen.personaPrefix])
+        return seen.personaPrefix
+      }
+
+      const injected = {}
+      for (const presetId of ['standard', 'cordis', 'ptc']) {
+        injected[presetId] = await runWith(presetId)
+      }
+      const workflowText = await runWith('fde-workflow')
+      assert.notEqual(workflowText, injected.standard)
+      assert.equal(calls.includes('session/prompt'), true)
+    } finally {
+      db.close()
+      await rm(dbPath, { force: true })
+      await host.stop()
+    }
+  })
 })

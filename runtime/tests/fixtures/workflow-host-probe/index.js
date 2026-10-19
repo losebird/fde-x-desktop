@@ -131,6 +131,13 @@ function apply(ctx) {
         const extra = process.env.FDE_WORKFLOW_PROBE_CALL
         if (extra) payload.extraCall = await runTool(ctx, extra, {}, agent)
         payload.personaPrefix = personaPrefix(agent)
+        const prompt = agent.ctx && agent.ctx.systemPrompt
+        if (prompt && typeof prompt.assemble === 'function') {
+          const assembly = await prompt.assemble({ scope: agent.ctx, agent })
+          payload.promptSections = Array.isArray(assembly.sections)
+            ? assembly.sections.map((section) => (section && typeof section.text === 'string' ? section.text : ''))
+            : []
+        }
       } catch (error) {
         payload.error = error instanceof Error ? error.message : String(error)
       }
