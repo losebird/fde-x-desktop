@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { describe, test } from 'node:test'
 import { handlePlanRequest } from '../routes/plan.mjs'
 import { openDatabase } from '../db.mjs'
-import { stageWorkflowAllow } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
+import { stageWorkflowAllow, sweepWorkflowAllow } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
 import { startWorkflowRun } from '../plan/workflow-run.mjs'
 import { bootWorkflowHost, waitForProbe } from './support/workflow-host.mjs'
 
@@ -242,6 +242,29 @@ describe('真 Host 上的 allow 文件和会停住的工具', { concurrency: 1 }
       db.close()
       await rm(dbPath, { force: true })
       await host.stop()
+    }
+  })
+
+  test('allow 目录是符号链接时不删外部 json，并且失败关闭', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-allow-link-'))
+    const outsideDir = await mkdtemp(join(tmpdir(), 'fde-allow-outside-'))
+    try {
+      const outside = join(outsideDir, 'outside.json')
+      writeFileSync(outside, '{"kept":true}\n')
+      mkdirSync(join(home, 'run'), { recursive: true })
+      symlinkSync(outsideDir, allowDir(home))
+      let thrown = null
+      try {
+        sweepWorkflowAllow(home)
+      } catch (error) {
+        thrown = error
+      }
+      assert.equal(existsSync(outside), true)
+      assert.equal(thrown instanceof Error, true)
+      assert.equal(thrown && thrown.message, UNCONFIRMED)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+      await rm(outsideDir, { recursive: true, force: true })
     }
   })
 })

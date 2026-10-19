@@ -380,4 +380,5 @@ module.exports = {
   workflowLimitReady,
   stageWorkflowAllow,
   discardWorkflowAllow,
+  sweepWorkflowAllow,
 }
