@@ -2,7 +2,7 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
-  Clock, MapPin, Calendar as CalIcon, Repeat, Zap, Play, Power, Sparkles, Bot,
+  Clock, MapPin, Calendar as CalIcon, Repeat, Play, Power, Sparkles, Bot,
 } from 'lucide-react'
 import { askAiForResult } from '@/lib/ask-ai'
 import { askOrigin } from '@/lib/ask-origin'
@@ -873,12 +873,23 @@ function emptyWorkflowDraft(): {
   }
 }
 
+function workflowRunWords(workflow: Workflow): { hold: string; outcome: string } {
+  const hold = workflow.status === 'active' ? '已启用' : '已暂停'
+  const state = workflow.runs[0]?.state
+  if (state === 'queued') return { hold: '', outcome: '排队' }
+  if (state === 'running' || state === 'waiting') return { hold: '', outcome: '运行中' }
+  if (state === 'succeeded') return { hold, outcome: '成功' }
+  if (state === 'failed' || state === 'cancelled') return { hold, outcome: '失败' }
+  return { hold, outcome: '' }
+}
+
 function WorkflowTab() {
   const workflows = useCurrentWorkflows()
   const workspaceId = useApp((s) => s.activeWorkspaceId)
   const planServiceError = useApp((s) => s.planServiceError)
   const toggleWorkflow = useApp((s) => s.toggleWorkflow)
   const runWorkflow = useApp((s) => s.runWorkflow)
+  const workflowRunSubmitIds = useApp((s) => s.workflowRunSubmitIds)
   const removeWorkflow = useApp((s) => s.removeWorkflow)
   const addWorkflow = useApp((s) => s.addWorkflow)
   const [q, setQ] = useState('')
@@ -1072,7 +1083,7 @@ function WorkflowTab() {
           <div className="flex border border-line rounded overflow-hidden">
             {[
               { k: 'all', label: '全部', count: workflows.length },
-              { k: 'active', label: '运行中', count: workflows.filter((w) => w.status === 'active').length },
+              { k: 'active', label: '已启用', count: workflows.filter((w) => w.status === 'active').length },
               { k: 'paused', label: '已暂停', count: workflows.filter((w) => w.status === 'paused').length },
             ].map((t) => (
               <button
@@ -1103,21 +1114,25 @@ function WorkflowTab() {
         <Empty title="没有匹配的工作流" hint="试试清空筛选,或新建一条工作流" />
       ) : (
         <div className="space-y-3">
-          {visible.map((w) => (
+          {visible.map((w) => {
+            const words = workflowRunWords(w)
+            const submitting = workflowRunSubmitIds.includes(w.id)
+            return (
             <Card key={w.id}>
               <div className="flex items-start gap-3">
                 <div className="text-2xl shrink-0">{w.emoji}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="text-sm font-medium">{w.name}</div>
-                    <Tag kind={w.status === 'active' ? 'green' : 'default'}>{w.status === 'active' ? '运行中' : '已暂停'}</Tag>
+                    {words.hold ? (
+                      <Tag kind={w.status === 'active' ? 'green' : 'default'}>{words.hold}</Tag>
+                    ) : null}
                     <Tag kind="blue">{w.category}</Tag>
-                    {w.lastRunStatus && (
-                      <Tag kind={w.lastRunStatus === 'success' ? 'green' : w.lastRunStatus === 'failed' ? 'red' : 'amber'}>
-                        {w.lastRunStatus === 'running' && <Zap size={10} className="inline mr-0.5" />}
-                        {w.lastRunStatus}
+                    {words.outcome ? (
+                      <Tag kind={words.outcome === '成功' ? 'green' : words.outcome === '失败' ? 'red' : 'amber'}>
+                        {words.outcome}
                       </Tag>
-                    )}
+                    ) : null}
                   </div>
                   <div className="text-xs text-ink-muted mt-1">{w.description}</div>
                   {/* trigger 信息 */}
@@ -1154,24 +1169,21 @@ function WorkflowTab() {
                       </div>
                     )
                   })}
-                  <div className="mt-2 text-[11px] text-ink-muted flex items-center gap-3 flex-wrap">
-                    {w.lastRunAt && (
+                  {w.lastRunAt && (
+                    <div className="mt-2 text-[11px] text-ink-muted flex items-center gap-3 flex-wrap">
                       <span>上次运行: {new Date(w.lastRunAt).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
-                    )}
-                    {w.runs.map((run) => (
-                      <span key={run.id}>{run.message || run.state}</span>
-                    ))}
-                  </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
                   <button
                     type="button"
                     className="btn"
-                    disabled={isHostJobId(w.id)}
+                    disabled={isHostJobId(w.id) || submitting}
                     title={isHostJobId(w.id) ? '不运行 Host job' : '运行'}
                     onClick={() => void runWorkflow(w.id)}
                   >
-                    <Play size={12} /> 运行
+                    <Play size={12} /> {submitting ? '正在提交' : '运行'}
                   </button>
                   <button
                     type="button"
@@ -1190,7 +1202,8 @@ function WorkflowTab() {
                 </div>
               </div>
             </Card>
-          ))}
+            )
+          })}
         </div>
       )}
 

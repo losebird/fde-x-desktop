@@ -278,81 +278,90 @@ async function performRun(deps, ctx) {
     markRunFailed(db, ctx.runId, now)
     return
   }
+  const allowHome = aiRuntime && aiRuntime.dshHome
   const prepared = []
+  const releaseSession = async (requestedId, actualId) => {
+    discardWorkflowAllow(requestedId, allowHome)
+    if (actualId && actualId !== requestedId) discardWorkflowAllow(actualId, allowHome)
+    if (!actualId || !aiRuntime || typeof aiRuntime.call !== 'function') return
+    try {
+      await aiRuntime.call('workspace/archiveSession', { request: { sessionId: actualId } })
+    } catch {
+      /* 删不掉会话时，核对失败的结果保持不变 */
+    }
+  }
+  const releasePrepared = async () => {
+    const pending = prepared.splice(0, prepared.length)
+    for (const item of pending) await releaseSession(item.requestedId, item.sessionId)
+  }
+  const failPrepared = async (message, extra) => {
+    if (extra) await releaseSession(extra.requestedId, extra.actualId)
+    await releasePrepared()
+    const failedAt = isoNow()
+    failSteps(db, aiSteps, message, failedAt)
+    failSteps(db, memorySteps, MEMORY_ONLY, failedAt)
+    skipSteps(db, skipStepsList, failedAt)
+    markRunFailed(db, ctx.runId, failedAt)
+  }
   for (const step of aiSteps) {
     const tools = stepTools(step)
     if (!tools) {
-      failSteps(db, aiSteps, TOOLS_EMPTY, isoNow())
-      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
-      skipSteps(db, skipStepsList, isoNow())
-      markRunFailed(db, ctx.runId, isoNow())
+      await failPrepared(TOOLS_EMPTY)
       return
     }
     if (tools.some((name) => waitsForPerson(name))) {
-      failSteps(db, aiSteps, TOOLS_WAIT, isoNow())
-      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
-      skipSteps(db, skipStepsList, isoNow())
-      markRunFailed(db, ctx.runId, isoNow())
+      await failPrepared(TOOLS_WAIT)
       return
     }
     if (tools.some((name) => waitsForBackground(name))) {
-      failSteps(db, aiSteps, TOOLS_BACKGROUND, isoNow())
-      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
-      skipSteps(db, skipStepsList, isoNow())
-      markRunFailed(db, ctx.runId, isoNow())
+      await failPrepared(TOOLS_BACKGROUND)
       return
     }
-    const sessionId = `session-${randomUUID()}`
+    const requestedId = `session-${randomUUID()}`
     const presetId = stepPreset(step)
     const persona = presetId ? await personaFor(aiRuntime, cwd, presetId) : null
     if (presetId && !persona) {
-      failSteps(db, aiSteps, TOOLS_PERSONA, isoNow())
-      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
-      skipSteps(db, skipStepsList, isoNow())
-      markRunFailed(db, ctx.runId, isoNow())
+      await failPrepared(TOOLS_PERSONA)
       return
     }
-    const allowHome = aiRuntime && aiRuntime.dshHome
-    stageWorkflowAllow(sessionId, tools, allowHome, persona)
+    stageWorkflowAllow(requestedId, tools, allowHome, persona)
     let created
     try {
       created = await aiRuntime.call('session/create', {
-        request: { cwd, agentPreset: WORKFLOW_PRESET, sessionId },
+        request: { cwd, agentPreset: WORKFLOW_PRESET, sessionId: requestedId },
       })
     } catch (error) {
-      discardWorkflowAllow(sessionId, allowHome)
+      discardWorkflowAllow(requestedId, allowHome)
+      await releasePrepared()
       throw error
     }
     const actualId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
     if (!actualId) {
-      discardWorkflowAllow(sessionId, allowHome)
+      discardWorkflowAllow(requestedId, allowHome)
+      await releasePrepared()
       throw new Error('工作流会话没有建立')
     }
     const visible = await readVisibleTools(aiRuntime, actualId)
     if (visible.kind !== 'listed') {
-      failSteps(db, aiSteps, TOOLS_UNCHECKED, isoNow())
-      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
-      skipSteps(db, skipStepsList, isoNow())
-      markRunFailed(db, ctx.runId, isoNow())
+      await failPrepared(TOOLS_UNCHECKED, { requestedId, actualId })
       return
     }
     if (!namesEqual(tools, visible.tools)) {
-      failSteps(db, aiSteps, mismatchMessage(tools), isoNow())
-      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
-      skipSteps(db, skipStepsList, isoNow())
-      markRunFailed(db, ctx.runId, isoNow())
+      await failPrepared(mismatchMessage(tools), { requestedId, actualId })
       return
     }
     if (tools.some((name) => toolTier(name) === 'danger') && visible.approval !== 'never') {
-      failSteps(db, aiSteps, TOOLS_ASK, isoNow())
-      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
-      skipSteps(db, skipStepsList, isoNow())
-      markRunFailed(db, ctx.runId, isoNow())
+      await failPrepared(TOOLS_ASK, { requestedId, actualId })
       return
     }
-    prepared.push({ step, sessionId: actualId, tools: [...tools].sort() })
+    prepared.push({ step, requestedId, sessionId: actualId, tools: [...tools].sort() })
   }
-  claimRunning(db, ctx.runId, aiSteps, prepared[0].sessionId, prepared[0].tools, isoNow())
+  try {
+    claimRunning(db, ctx.runId, aiSteps, prepared[0].sessionId, prepared[0].tools, isoNow())
+  } catch (error) {
+    await releasePrepared()
+    throw error
+  }
   for (const item of prepared) {
     await aiRuntime.call('session/prompt', {
       request: {
@@ -467,12 +476,16 @@ export function readWorkflowRuns(db, workflowIds) {
   const grouped = new Map()
   for (const row of rows) {
     let message = ''
+    let sessionId = ''
     if (row.output_json) {
       const output = JSON.parse(row.output_json)
       message = typeof output.message === 'string' ? output.message : ''
+      sessionId = typeof output.sessionId === 'string' ? output.sessionId : ''
     }
     const list = grouped.get(row.workflow_id) || []
-    list.push({ id: row.id, state: row.state, message })
+    const run = { id: row.id, state: row.state, message }
+    if (sessionId) run.sessionId = sessionId
+    list.push(run)
     grouped.set(row.workflow_id, list)
   }
   return grouped

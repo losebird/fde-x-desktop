@@ -230,6 +230,7 @@ interface State {
   removeAgent: (id: ID) => void
   // workflows
   toggleWorkflow: (id: ID) => Promise<void>
+  workflowRunSubmitIds: ID[]
   runWorkflow: (id: ID) => Promise<void>
   addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt' | 'runs'>, confirmDanger?: string[]) => Promise<void>
   removeWorkflow: (id: ID) => Promise<void>
@@ -364,6 +365,49 @@ function withPanelFull(panels: SidePanelItem[], id: string): SidePanelItem[] {
     if (p.state === 'full' || p.state === 'half') return { ...p, state: 'tab' as const }
     return p
   })
+}
+
+const WORKFLOW_RUN_WATCH_MS = 30_000
+const WORKFLOW_RUN_WATCH_GAP_MS = 400
+
+function sessionIdOfRun(run: Workflow['runs'][number] | undefined): string {
+  const value = run && (run as { sessionId?: unknown }).sessionId
+  return typeof value === 'string' ? value : ''
+}
+
+async function followWorkflowRun(
+  get: () => AppState,
+  set: (partial: (state: AppState) => Partial<AppState>) => void,
+  workflowId: string,
+  runId: string,
+) {
+  const started = Date.now()
+  let revealed = false
+  while (true) {
+    const workflow = get().workflows.find((row) => row.id === workflowId)
+    const run = runId
+      ? workflow?.runs.find((row) => row.id === runId)
+      : workflow?.runs[0]
+    const sessionId = sessionIdOfRun(run)
+    if (sessionId && !revealed) {
+      revealed = true
+      const { revealAi } = await import('@/lib/reveal-ai')
+      revealAi(sessionId)
+    }
+    if (run && run.state !== 'queued') return
+    if (Date.now() - started >= WORKFLOW_RUN_WATCH_MS) return
+    await new Promise((resolve) => setTimeout(resolve, WORKFLOW_RUN_WATCH_GAP_MS))
+    const workspaceId = get().activeWorkspaceId
+    if (!workspaceId) return
+    try {
+      const rows = await runtimeApi.listWorkflows(workspaceId)
+      set((state) => ({
+        workflows: state.workflows.map((row) => rows.find((next) => next.id === row.id) ?? row),
+      }))
+    } catch {
+      /* 下一轮再拉列表 */
+    }
+  }
 }
 
 export const useApp = create<AppState>()(
@@ -683,6 +727,7 @@ export const useApp = create<AppState>()(
       },
 
       planServiceError: null,
+      workflowRunSubmitIds: [] as ID[],
       selectedTaskId: null,
       selectTask: (id) => set({ selectedTaskId: id }),
       hydratePlan: async (workspaceId) => {
@@ -951,11 +996,24 @@ export const useApp = create<AppState>()(
         }
       },
       runWorkflow: async (id) => {
+        set((s) => ({
+          workflowRunSubmitIds: s.workflowRunSubmitIds.includes(id)
+            ? s.workflowRunSubmitIds
+            : [...s.workflowRunSubmitIds, id],
+        }))
+        const clearSubmit = () => {
+          set((s) => ({
+            workflowRunSubmitIds: s.workflowRunSubmitIds.filter((item) => item !== id),
+          }))
+        }
         try {
-          await runtimeApi.runWorkflow(id)
+          const ticket = await runtimeApi.runWorkflow(id)
           const workspaceId = get().activeWorkspaceId
           if (workspaceId) await get().hydratePlan(workspaceId)
+          clearSubmit()
+          await followWorkflowRun(get, set, id, typeof ticket?.id === 'string' ? ticket.id : '')
         } catch (error) {
+          clearSubmit()
           const message = planFailure(error)
           set({ planServiceError: message })
           throw new Error(message)
@@ -1089,7 +1147,13 @@ export const useApp = create<AppState>()(
         set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })) })),
 
       resetDemo: () =>
-        set(() => ({ ...buildInitial(), panels: defaultPanels(), drawers: defaultDrawers(), activeAiSessionId: null })),
+        set(() => ({
+          ...buildInitial(),
+          panels: defaultPanels(),
+          drawers: defaultDrawers(),
+          activeAiSessionId: null,
+          workflowRunSubmitIds: [],
+        })),
     }),
     {
       name: 'scene-39-workstation',
