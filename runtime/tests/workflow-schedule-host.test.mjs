@@ -90,4 +90,40 @@ describe('日程到点跑受限工作流', { concurrency: 1 }, () => {
       await host.stop()
     }
   })
+
+  test('重复 tick 不重复跑', async () => {
+    const host = await bootWorkflowHost()
+    const dbPath = join(tmpdir(), `fde-x-schedule-repeat-${process.pid}.sqlite`)
+    const db = openDatabase(dbPath, migrations)
+    try {
+      const calls = []
+      const call = host.core.call.bind(host.core)
+      host.core.call = async (endpoint, args, signal) => {
+        calls.push(endpoint)
+        return call(endpoint, args, signal)
+      }
+      host.core.stream = async function* () {
+        yield { type: 'event', event: { type: 'turn/end' } }
+      }
+      const now = new Date()
+      const bootedAt = new Date(now.getTime() - 5 * 60 * 1000)
+      const startAt = new Date(now.getTime() - 60 * 1000).toISOString()
+      const createdAt = new Date(now.getTime() - 2 * 60 * 1000).toISOString()
+      insertWorkspace(db, 'ws_repeat', host.cwd)
+      insertWorkflow(db, 'wf_repeat', 'ws_repeat')
+      insertSchedule(db, 'cevt_repeat', 'ws_repeat', 'wf_repeat', startAt, createdAt)
+      const clock = { now, bootedAt }
+      const first = await tickWorkflowSchedules({ db, aiRuntime: host.core }, clock)
+      assert.equal(first.started.length, 1)
+      assert.equal(await waitForTerminal(db, first.started[0].id), 'succeeded')
+      const second = await tickWorkflowSchedules({ db, aiRuntime: host.core }, clock)
+      if (second.started[0]) await waitForTerminal(db, second.started[0].id)
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM workflow_runs WHERE workflow_id = ?').get('wf_repeat').n, 1)
+      assert.equal(calls.filter((endpoint) => endpoint === 'session/create').length, 1)
+    } finally {
+      db.close()
+      await rm(dbPath, { force: true })
+      await host.stop()
+    }
+  })
 })
