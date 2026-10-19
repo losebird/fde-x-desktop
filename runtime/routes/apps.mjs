@@ -75,7 +75,7 @@ function specWorkspaceCwd(spec) {
 
 function rejectAppWorkspace(resolved, response, correlationId, sendError) {
   if (resolved?.error === 'missing_workspace') {
-    sendError(response, 400, 'missing_workspace', '工作区未登记', correlationId)
+    sendError(response, 404, 'not_found', '工作区未登记', correlationId)
     return true
   }
   if (!resolved?.error) return false
@@ -980,7 +980,7 @@ export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
   let workspaceId = 'ws_personal'
   if (workspaceCwd) {
     workspaceId = workspaceRowIdForCwd(db, workspaceCwd)
-    if (!workspaceId) return { ok: false, errors: [{ path: 'workspaceCwd', message: '工作区未登记' }] }
+    if (!workspaceId) return { ok: false, status: 404, errors: [{ path: 'workspaceCwd', message: '工作区未登记' }] }
   }
   if (sub === 'app-spec-submit') {
     const spec = body.spec

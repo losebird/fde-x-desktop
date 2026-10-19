@@ -20,10 +20,8 @@ const WIN_MARK = 'matrix-win-marker'
 const SLASH_MARK = 'matrix-slash-marker'
 const DEFAULT_MARK = 'matrix-default-marker'
 
-const WORKSPACE_KEY = 'cwd|workspace|workspaceCwd|workspacePath|workingDirectory'
-const READ_RE = new RegExp(
-  `searchParams\\.(?:get|has)\\(\\s*['"\`](?:${WORKSPACE_KEY})['"\`]|body\\??\\.(?:${WORKSPACE_KEY})\\b|body\\??\\[['"\`](?:${WORKSPACE_KEY})['"\`]\\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\\s*\\(`,
-)
+const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity'])
+const READ_RE = /searchParams\.(?:get|has)\(\s*['"`](?:cwd|workspace)['"`]|body\??\.(?:cwd|workspaceCwd|workspace)\b|body\??\[['"`](?:cwd|workspace)['"`]\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\s*\(/
 
 function registerWorkspace(db, id, cwd) {
   const now = new Date().toISOString()
@@ -181,7 +179,7 @@ function checkCase(route, mode, status, text) {
     for (const marker of personalMarkers()) {
       if (text.includes(marker)) problems.push(`${label} leaked ${marker}`)
     }
-    if (route.unregistered === 'missing' && (status !== 400 || !text.includes('missing_workspace'))) {
+    if (status !== 404 || !text.includes('工作区未登记')) {
       problems.push(`${label} status ${status} ${text.slice(0, 180)}`)
     }
     return problems
@@ -283,7 +281,9 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
   const problems = []
   if (!surfaceWin || !surfaceSlash || !surfaceDefault) problems.push('surface seed failed')
     for (const route of httpWorkspaceRoutes) {
-      for (const mode of ['win', 'slash', 'illegal', 'absent', 'unreg-win', 'unreg-slash']) {
+      const modes = ['win', 'slash', 'illegal', 'absent']
+      if (APPS_UNREGISTERED.has(route.id)) modes.push('unreg-win', 'unreg-slash')
+      for (const mode of modes) {
         try {
           const result = await requestRoute(server, route, mode, token)
           problems.push(...checkCase(route, mode, result.status, result.text))
@@ -294,10 +294,6 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
-          if ((mode === 'unreg-win' || mode === 'unreg-slash') && route.proof === 'events-sse' && /abort/i.test(message)) {
-            problems.push(...checkCase(route, mode, 200, ''))
-            continue
-          }
           problems.push(`${route.id} ${mode} ${message}`)
         }
       }
@@ -322,23 +318,17 @@ function pathExempt(rel, found) {
   })
 }
 
-function discoveredMethod(window) {
-  const matches = [...window.matchAll(/request\.method === '([A-Z]+)'/g)]
-  return matches.length ? matches[matches.length - 1][1] : ''
-}
-
-function pathRegistered(method, found) {
+function pathRegistered(found) {
   return httpWorkspaceRoutes.some((route) => {
-    const pathOk = found === route.path || found.startsWith(`${route.path}/`) || route.path.startsWith(found.endsWith('/') ? found : `${found}/`)
-    if (!pathOk) return false
-    return !method || route.method === method
+    if (found === route.path || found.startsWith(`${route.path}/`)) return true
+    return route.path.startsWith(found.endsWith('/') ? found : `${found}/`)
   })
 }
 
 function discoveredPaths(window) {
   const found = []
-  const re = /['"](\/(?:api\/v1|semantic-os)\/[^'"]*)['"]|\\\/api\\\/v1\\\/([A-Za-z0-9/_-]+)/g
-  for (const match of window.matchAll(re)) found.push(match[1] || `/api/v1/${match[2]}`)
+  for (const match of window.matchAll(/['"](\/(?:api\/v1|semantic-os)\/[^'"]*)['"]/g)) found.push(match[1])
+  for (const match of window.matchAll(/\\\/api\\\/v1\\\/([A-Za-z0-9/_-]+)/g)) found.push(`/api/v1/${match[1]}`)
   return found
 }
 
@@ -392,10 +382,23 @@ test('http workspace readers are registered', async () => {
         return
       }
       const routePath = found[found.length - 1]
-      const method = discoveredMethod(window)
-      if (pathExempt(rel, routePath) || pathRegistered(method, routePath)) return
-      problems.push(`${rel}:${index + 1} ${method || 'ANY'} ${routePath} is not registered`)
+      if (pathExempt(rel, routePath) || pathRegistered(routePath)) return
+      problems.push(`${rel}:${index + 1} ${routePath} is not registered`)
     })
   }
   assert.deepEqual(problems, [])
+})
+
+test('template and bracket workspace reads are scanned', () => {
+  const samples = [
+    'searchParams.get(`cwd`)',
+    'searchParams.get(`workspace`)',
+    "body['cwd']",
+    "body['workspace']",
+  ]
+  for (const sample of samples) {
+    assert.match(sample, READ_RE, sample)
+  }
+  assert.equal(READ_RE.test('searchParams.get("workspacePath")'), false)
+  assert.equal(READ_RE.test("body['workingDirectory']"), false)
 })

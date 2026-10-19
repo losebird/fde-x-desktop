@@ -254,6 +254,10 @@ export async function handleBridgeRoutes(request, response, url, deps) {
           emit('ai.result.ready', { requestId }, { workspaceCwd, sessionId: sessionId || undefined })
         }
       }
+      if (bridgeResult.ok === false && bridgeResult.status === 404) {
+        bridgeError(response, 404, 'not_found', bridgeResult.errors[0].message, correlationId)
+        return true
+      }
       bridgeOk(response, bridgeResult.ok === false ? 422 : 200, bridgeResult, correlationId)
       return true
     }

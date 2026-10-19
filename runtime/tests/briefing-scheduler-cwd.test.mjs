@@ -41,17 +41,28 @@ test('a drive-letter schedule runs and an illegal stored cwd does not use the de
   insertSchedule(db, 'ws_sched_bad')
   insertSchedule(db, 'ws_sched_empty')
   const calls = []
+  const warnings = []
+  const warn = console.warn
+  console.warn = (...args) => { warnings.push(args.map((part) => String(part))) }
   setBriefingClock(() => new Date('2026-10-19T08:30:00'))
-  await tickBriefingScheduler({
-    db,
-    aiRuntime: { status: () => ({ connected: false }) },
-    defaultCwd: DEFAULT_CWD,
-    runBriefing: async (_deps, input) => {
-      calls.push(input.workspaceCwd)
-    },
-  })
-  db.close()
+  try {
+    await tickBriefingScheduler({
+      db,
+      aiRuntime: { status: () => ({ connected: false }) },
+      defaultCwd: DEFAULT_CWD,
+      runBriefing: async (_deps, input) => {
+        calls.push(input.workspaceCwd)
+      },
+    })
+  } finally {
+    console.warn = warn
+    db.close()
+  }
   assert.ok(calls.includes('C:/sched'))
   assert.equal(calls.filter((cwd) => cwd === DEFAULT_CWD).length, 1)
   assert.equal(calls.includes('proj'), false)
+  const skipped = warnings.find((parts) => parts[0] === 'briefing_schedule_skipped')
+  assert.ok(skipped, 'skipped schedule was not logged')
+  assert.equal(skipped[1], 'bdef_ws_sched_bad')
+  assert.equal(skipped[2], 'proj')
 })

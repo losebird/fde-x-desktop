@@ -29,7 +29,7 @@ function storedWorkspaceCwd(db, workspaceId) {
   const raw = rawWorkspacePath(JSON.parse(row.metadata_json || '{}'))
   if (!raw) return { cwd: '' }
   const cwd = canonicalWorkspaceCwd(raw)
-  if (!cwd) return { illegal: true }
+  if (!cwd) return { illegal: true, raw }
   return { cwd }
 }
 
@@ -83,7 +83,10 @@ export async function tickBriefingScheduler(deps) {
     const at = schedule.at || '08:30'
     const key = scheduleKey(row.id, dayKey, at)
     const stored = storedWorkspaceCwd(deps.db, row.workspace_id)
-    if (stored.illegal) continue
+    if (stored.illegal) {
+      console.warn('briefing_schedule_skipped', row.id, stored.raw)
+      continue
+    }
     const workspaceCwd = stored.cwd || canonicalWorkspaceCwd(deps.defaultCwd)
     if (!workspaceCwd) continue
     if (firedToday.has(key)) continue
