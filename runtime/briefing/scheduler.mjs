@@ -1,4 +1,4 @@
-import { findInFlightBriefing, getOrCreateDefinition, listScheduledDefinitions } from './store.mjs'
+import { findInFlightBriefing, getLatestBriefing, getOrCreateDefinition, listScheduledDefinitions } from './store.mjs'
 import { runBriefing } from './run.mjs'
 import { listWorkspaces } from '../db.mjs'
 
@@ -49,13 +49,9 @@ function shouldFireSchedule(schedule, now) {
 }
 
 function latestBriefingToday(db, workspaceCwd) {
-  const row = db.prepare(`
-    SELECT generated_at, created_at FROM briefings
-    WHERE workspace_cwd = ?
-    ORDER BY COALESCE(generated_at, created_at) DESC LIMIT 1
-  `).get(workspaceCwd)
+  const row = getLatestBriefing(db, workspaceCwd)
   if (!row) return null
-  const ts = new Date(row.generated_at || row.created_at)
+  const ts = new Date(row.generatedAt)
   const now = clock()
   if (ts.toDateString() === now.toDateString()) return row
   return null

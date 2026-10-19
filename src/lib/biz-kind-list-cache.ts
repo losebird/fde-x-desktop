@@ -1,4 +1,5 @@
 import { listQueryFingerprint, operationBundlesAlign } from '@/lib/biz-list-query'
+import { sameWorkspaceCacheKey, workspaceCacheKey } from '../../runtime/cwd.mjs'
 
 const STORAGE_KEY = 'fde:biz:kind-list-cache'
 
@@ -47,15 +48,16 @@ export function rememberBizKindListSheet(
   surfaceId?: string,
 ) {
   const kind = String(sheet.kind || '')
-  if (!workspaceCwd || !kind || !isListSheet(sheet)) return
+  const key = workspaceCacheKey(workspaceCwd)
+  if (!key || !kind || !isListSheet(sheet)) return
   const queryFingerprint = listQueryFingerprint(sheet)
   const entries = readAll().filter((row) => !(
-    row.workspaceCwd === workspaceCwd
+    sameWorkspaceCacheKey(row.workspaceCwd, key)
     && row.kind === kind
     && row.queryFingerprint === queryFingerprint
   ))
   entries.push({
-    workspaceCwd,
+    workspaceCwd: key,
     kind,
     queryFingerprint,
     sheet,
@@ -67,9 +69,9 @@ export function rememberBizKindListSheet(
 }
 
 export function listBizKindListSnapshots(workspaceCwd: string): BizKindListSnapshot[] {
-  if (!workspaceCwd) return []
+  if (!workspaceCacheKey(workspaceCwd)) return []
   return readAll()
-    .filter((row) => row.workspaceCwd === workspaceCwd)
+    .filter((row) => sameWorkspaceCacheKey(row.workspaceCwd, workspaceCwd))
     .sort((a, b) => b.at - a.at)
 }
 
@@ -78,9 +80,9 @@ export function peekBizKindListSheet(
   kind: string,
   queryFingerprint?: string,
 ): { sheet: Record<string, unknown>; connName: string; surfaceId?: string } | null {
-  if (!workspaceCwd || !kind) return null
+  if (!workspaceCacheKey(workspaceCwd) || !kind) return null
   const rows = readAll()
-    .filter((row) => row.workspaceCwd === workspaceCwd && row.kind === kind)
+    .filter((row) => sameWorkspaceCacheKey(row.workspaceCwd, workspaceCwd) && row.kind === kind)
     .sort((a, b) => b.at - a.at)
   const hit = queryFingerprint
     ? rows.find((row) => row.queryFingerprint === queryFingerprint)
@@ -93,8 +95,8 @@ export function peekBizKindListSheetBySurfaceId(
   workspaceCwd: string,
   surfaceId: string,
 ): { sheet: Record<string, unknown>; connName: string; surfaceId?: string } | null {
-  if (!workspaceCwd || !surfaceId) return null
-  const hit = readAll().find((row) => row.workspaceCwd === workspaceCwd && row.surfaceId === surfaceId)
+  if (!workspaceCacheKey(workspaceCwd) || !surfaceId) return null
+  const hit = readAll().find((row) => sameWorkspaceCacheKey(row.workspaceCwd, workspaceCwd) && row.surfaceId === surfaceId)
   if (!hit) return null
   return { sheet: hit.sheet, connName: hit.connName, surfaceId: hit.surfaceId }
 }
@@ -104,9 +106,9 @@ export function peekBizKindListSheetForOperation(
   kind: string,
   anchor: Record<string, unknown> | null | undefined,
 ): { sheet: Record<string, unknown>; connName: string; surfaceId?: string } | null {
-  if (!workspaceCwd || !kind) return null
+  if (!workspaceCacheKey(workspaceCwd) || !kind) return null
   const rows = readAll()
-    .filter((row) => row.workspaceCwd === workspaceCwd && row.kind === kind)
+    .filter((row) => sameWorkspaceCacheKey(row.workspaceCwd, workspaceCwd) && row.kind === kind)
     .sort((a, b) => b.at - a.at)
   if (!anchor) return null
   const anchorFp = listQueryFingerprint(anchor)

@@ -1,4 +1,5 @@
 import { createId } from '../db.mjs'
+import { workspaceCwdEqual } from '../cwd.mjs'
 import { defaultSchedule, defaultSections, prepareDefinitionSections, sourcesFromMcpSections } from './defaults.mjs'
 import { workspaceRowIdForCwd } from './workspace.mjs'
 
@@ -124,12 +125,13 @@ export function getBriefing(db, id) {
 }
 
 export function getLatestBriefing(db, workspaceCwd) {
+  const match = workspaceCwdEqual(db, 'workspace_cwd', workspaceCwd)
   const row = db.prepare(`
     SELECT * FROM briefings
-    WHERE workspace_cwd = ?
+    WHERE ${match.sql}
     ORDER BY COALESCE(generated_at, created_at) DESC
     LIMIT 1
-  `).get(workspaceCwd)
+  `).get(...match.params)
   return row ? mapBriefingRow(row) : null
 }
 

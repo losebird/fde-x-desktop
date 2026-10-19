@@ -131,6 +131,7 @@ test('records documents briefings and biz surfaces match stored cwd spellings wi
     slash,
   )
   const bareRun = createBriefingRun(db, { definitionId: definition.id, workspaceCwd: bare })
+  db.prepare('UPDATE briefings SET generated_at = ? WHERE id = ?').run(new Date(Date.now() + 60_000).toISOString(), bareRun.id)
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM briefings').get().n, 2)
   assert.equal(getLatestBriefing(db, slash).id, bareRun.id)
   assert.equal(

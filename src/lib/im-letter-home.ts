@@ -1,9 +1,8 @@
-/** Browser port of `runtime/vendor-overlays/dsh-lan-assist/letter-home.js`. Write-path homeForIncoming / homeForOutgoing stays on the overlay. */
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 
+/** Browser port of `runtime/vendor-overlays/dsh-lan-assist/letter-home.js`. Write-path homeForIncoming / homeForOutgoing stays on the overlay. */
 export function normalizeCwd(value: unknown): string {
-  const raw = String(value || '').trim()
-  if (!raw.startsWith('/')) return ''
-  return raw.replace(/\/+$/, '') || '/'
+  return canonicalWorkspaceCwd(value)
 }
 
 export function localCwdSet(workspaces: Array<{ cwd?: string; path?: string } | string>): Set<string> {

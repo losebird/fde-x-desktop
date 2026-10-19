@@ -1,5 +1,10 @@
 import { createId } from '../db.mjs'
+import { workspaceCwdEqual } from '../cwd.mjs'
 import { quoteTable, tableNameForEntity } from './spec.mjs'
+
+function cwdMatch(db, cwd) {
+  return workspaceCwdEqual(db, 'workspace_cwd', cwd)
+}
 
 /**
  * @param {Record<string, unknown>} spec
@@ -98,8 +103,9 @@ export function listRecords(db, spec, entityName, workspaceCwd, opts = {}) {
     return { rows: [], columns: listColumns(spec, entityName), total: 0 }
   }
 
-  const where = ['workspace_cwd = ?', '(deleted_at IS NULL OR deleted_at = 0)']
-  const params = [workspaceCwd]
+  const match = cwdMatch(db, workspaceCwd)
+  const where = [match.sql, '(deleted_at IS NULL OR deleted_at = 0)']
+  const params = [...match.params]
   if (opts.filter && typeof opts.filter === 'object') {
     for (const [key, val] of Object.entries(opts.filter)) {
       if (val === undefined || val === '') continue
@@ -161,9 +167,10 @@ function formatRow(row, spec, entityName) {
 export function getRecord(db, spec, entityName, workspaceCwd, rid) {
   const table = tableNameForEntity(String(spec.slug), entityName)
   const quoted = quoteTable(table)
+  const match = cwdMatch(db, workspaceCwd)
   const row = db.prepare(
-    `SELECT * FROM ${quoted} WHERE id = ? AND workspace_cwd = ? AND (deleted_at IS NULL OR deleted_at = 0)`,
-  ).get(rid, workspaceCwd)
+    `SELECT * FROM ${quoted} WHERE id = ? AND ${match.sql} AND (deleted_at IS NULL OR deleted_at = 0)`,
+  ).get(rid, ...match.params)
   if (!row) return null
   return formatRow(row, spec, entityName)
 }
@@ -212,9 +219,10 @@ export function patchRecord(db, spec, entityName, workspaceCwd, rid, input) {
     sets.push(`"${field.name}" = ?`)
     vals.push(serializeField(field, input[field.name]))
   }
-  vals.push(rid, workspaceCwd)
+  const match = cwdMatch(db, workspaceCwd)
+  vals.push(rid, ...match.params)
   db.prepare(
-    `UPDATE ${quoted} SET ${sets.join(', ')} WHERE id = ? AND workspace_cwd = ?`,
+    `UPDATE ${quoted} SET ${sets.join(', ')} WHERE id = ? AND ${match.sql}`,
   ).run(...vals)
   return getRecord(db, spec, entityName, workspaceCwd, rid)
 }
@@ -223,9 +231,10 @@ export function deleteRecord(db, spec, entityName, workspaceCwd, rid) {
   const table = tableNameForEntity(String(spec.slug), entityName)
   const quoted = quoteTable(table)
   const now = Date.now()
+  const match = cwdMatch(db, workspaceCwd)
   const result = db.prepare(
-    `UPDATE ${quoted} SET deleted_at = ?, updated_at = ? WHERE id = ? AND workspace_cwd = ? AND (deleted_at IS NULL OR deleted_at = 0)`,
-  ).run(now, now, rid, workspaceCwd)
+    `UPDATE ${quoted} SET deleted_at = ?, updated_at = ? WHERE id = ? AND ${match.sql} AND (deleted_at IS NULL OR deleted_at = 0)`,
+  ).run(now, now, rid, ...match.params)
   return result.changes > 0
 }
 
@@ -253,16 +262,18 @@ export function computeStat(db, spec, view, workspaceCwd) {
   if (!exists) return { value: 0, label: view.label || '统计' }
   const metric = view.metric || { fn: 'count' }
   const fn = String(metric.fn || 'count')
+  const match = cwdMatch(db, workspaceCwd)
+  const where = `${match.sql} AND (deleted_at IS NULL OR deleted_at = 0)`
   let sql
   if (fn === 'count') {
-    sql = `SELECT COUNT(*) AS v FROM ${quoted} WHERE workspace_cwd = ? AND (deleted_at IS NULL OR deleted_at = 0)`
+    sql = `SELECT COUNT(*) AS v FROM ${quoted} WHERE ${where}`
   } else if (fn === 'sum' && metric.field) {
-    sql = `SELECT SUM("${metric.field}") AS v FROM ${quoted} WHERE workspace_cwd = ? AND (deleted_at IS NULL OR deleted_at = 0)`
+    sql = `SELECT SUM("${metric.field}") AS v FROM ${quoted} WHERE ${where}`
   } else if (fn === 'avg' && metric.field) {
-    sql = `SELECT AVG("${metric.field}") AS v FROM ${quoted} WHERE workspace_cwd = ? AND (deleted_at IS NULL OR deleted_at = 0)`
+    sql = `SELECT AVG("${metric.field}") AS v FROM ${quoted} WHERE ${where}`
   } else {
-    sql = `SELECT COUNT(*) AS v FROM ${quoted} WHERE workspace_cwd = ? AND (deleted_at IS NULL OR deleted_at = 0)`
+    sql = `SELECT COUNT(*) AS v FROM ${quoted} WHERE ${where}`
   }
-  const row = db.prepare(sql).get(workspaceCwd)
+  const row = db.prepare(sql).get(...match.params)
   return { value: row?.v ?? 0, label: view.label || '统计' }
 }
