@@ -1,0 +1,63 @@
+name: Unit
+
+# Not a required check. A later packaging change is what turns this into a merge gate.
+# Until dsh-lan-assist and dsh-semantic-os live in this repo, a runner that cannot
+# fetch the pinned commits fails in setup-test-env. It does not skip the suite.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install lsof
+        run: sudo apt-get update && sudo apt-get install -y lsof
+
+      - name: Install workspace dependencies
+        env:
+          COREPACK_HOME: ${{ runner.temp }}/corepack
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: pnpm install --frozen-lockfile
+
+      - name: Assemble the test environment
+        env:
+          COREPACK_HOME: ${{ runner.temp }}/corepack
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+          FDE_PLUGIN_READ_TOKEN: ${{ secrets.FDE_PLUGIN_READ_TOKEN }}
+        run: pnpm test:env
+
+      - name: Run unit tests, failing on any skip
+        env:
+          COREPACK_HOME: ${{ runner.temp }}/corepack
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: pnpm test:strict
+
+      - name: Upload test env logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-env-logs
+          path: |
+            .test-env.log
+            .test-strict.log
+          if-no-files-found: warn
