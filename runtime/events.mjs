@@ -181,7 +181,7 @@ export function listEventsAfter(db, { sinceId, workspaceCwd, limit = 500 } = {})
 
   const envelopes = rows.map((row) => envelopeFromRow(row))
   if (!workspaceCwd) return envelopes
-  return envelopes.filter((item) => item.workspaceCwd == null || item.workspaceCwd === workspaceCwd)
+  return envelopes.filter((item) => item.workspaceCwd == null || sameWorkspaceCwd(item.workspaceCwd, workspaceCwd))
 }
 
 /**
@@ -199,8 +199,8 @@ export function listRecentEvents(db, { workspaceCwd, type, limit = 50 } = {}) {
   if (workspaceCwd) {
     const canonical = canonicalWorkspaceCwd(workspaceCwd)
     if (canonical) {
-      clauses.push('(workspace_cwd IS NULL OR rtrim(workspace_cwd, ?) = ?)')
-      params.push('/', canonical)
+      clauses.push("(workspace_cwd IS NULL OR rtrim(replace(workspace_cwd, ?, '/'), ?) = ?)")
+      params.push('\\', '/', canonical)
     }
   }
   const rows = db.prepare(`

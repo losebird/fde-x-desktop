@@ -1,6 +1,7 @@
 /**
  * One Host catalog bag per kind. Pages filter this bag.
  */
+import { sameWorkspaceCwd } from './cwd.mjs'
 import { surfaceOfKind, SEAM_CATALOG, collectGoals, mutateHostGoal, ORIGIN_DSH_GOAL, ORIGIN_DSH_SCHEDULE, ORIGIN_DSH_JOB, ORIGIN_FDE_TASK } from './host-catalog.mjs'
 import { listTypertVerbs, verbsForKind, listMcpResourceToolNames, ensureTypertVerbs } from './catalog-typert.mjs'
 
@@ -92,7 +93,7 @@ async function primarySessionIds(aiRuntime, input) {
   try {
     const listed = await aiRuntime.call('session/list', { _request: { includeBlank: true } })
     const items = Array.isArray(listed) ? listed : (listed && Array.isArray(listed.items) ? listed.items : [])
-    const rows = items.filter((row) => row && row.origin !== 'subagent' && !row.parentSessionId && String(row.cwd || '') === cwd)
+    const rows = items.filter((row) => row && row.origin !== 'subagent' && !row.parentSessionId && sameWorkspaceCwd(row.cwd, cwd))
     rows.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
     const bound = rows[0] ? String(rows[0].sessionId || rows[0].id || '') : ''
     return bound ? [bound] : []

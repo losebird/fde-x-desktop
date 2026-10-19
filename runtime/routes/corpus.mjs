@@ -5,6 +5,7 @@ import { resolveBizCorpusOrigin } from '../biz/corpus-origin.mjs'
 import { readSessionUserOrigin } from '../biz/session-origin-text.mjs'
 import { findActiveAppBySlug } from '../apps/repository.mjs'
 import { getRecord } from '../apps/records.mjs'
+import { sameWorkspaceCwd } from '../cwd.mjs'
 import { listWorkspaces } from '../db.mjs'
 import { filePathOf, originOfCard, sessionIdOf } from '../memory/identity.mjs'
 import { bizTraceIdOf, originHref } from '../memory/origin-href.mjs'
@@ -78,7 +79,7 @@ function workspaceRowForCwd(db, workspaceCwd) {
   for (const row of rows) {
     const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
     const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-    if (path === workspaceCwd) return row
+    if (sameWorkspaceCwd(path, workspaceCwd)) return row
   }
   return null
 }

@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -325,6 +326,7 @@ export function updateBusinessConnectionStatusByProvider(db, provider, status, l
 
 export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd = '' } = {}) {
   const cwd = String(workspaceCwd || '').trim()
+  const canonical = canonicalWorkspaceCwd(cwd)
   const rows = cwd
     ? db.prepare(`
         SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
@@ -332,8 +334,9 @@ export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd
         FROM business_apps
         WHERE workspace_id = ?
            OR json_extract(definition_json, '$._workspaceCwd') = ?
+           OR (? != '' AND rtrim(replace(json_extract(definition_json, '$._workspaceCwd'), ?, '/'), '/') = ?)
         ORDER BY updated_at DESC
-      `).all(workspaceId, cwd)
+      `).all(workspaceId, cwd, canonical, '\\', canonical)
     : db.prepare(`
         SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
                created_by, created_at, updated_at, deleted_at

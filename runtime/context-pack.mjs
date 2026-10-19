@@ -1,3 +1,4 @@
+import { sameWorkspaceCwd } from './cwd.mjs'
 import { listBusinessApps, listBusinessConnections, listOperations, listWorkspaces } from './db.mjs'
 import { memoryLandHref } from './memory/identity.mjs'
 import { formatTaskLine } from './plan/task-advice.mjs'
@@ -16,7 +17,7 @@ function workspaceRowForCwd(db, workspaceCwd) {
   for (const row of rows) {
     const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
     const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-    if (path === workspaceCwd) return row
+    if (sameWorkspaceCwd(path, workspaceCwd)) return row
   }
   return null
 }
