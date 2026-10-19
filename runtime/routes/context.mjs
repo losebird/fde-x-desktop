@@ -38,7 +38,7 @@ export async function handleContextPackRoute(request, response, url, deps) {
   }
   const workspaceCwd = resolvedPack.cwd
   const scopes = Array.isArray(body.scopes) ? body.scopes.map(String) : []
-  const { pack, warnings } = await buildContextPack(
+  const { pack, warnings, error } = await buildContextPack(
     { db, aiRuntime },
     {
       workspaceCwd,
@@ -48,8 +48,13 @@ export async function handleContextPackRoute(request, response, url, deps) {
       intentKind: body.intentKind,
       sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
       taskIds: body.taskIds,
+      cwdSource: resolvedPack.source,
     },
   )
+  if (error === 'missing_workspace') {
+    sendError(response, 404, 'not_found', '工作区未登记', correlationId)
+    return true
+  }
   sendJson(response, 200, { ok: true, data: pack, warnings, correlationId })
   return true
 }

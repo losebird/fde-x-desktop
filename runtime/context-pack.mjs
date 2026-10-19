@@ -152,9 +152,14 @@ function parseTaskList(taskIds) {
   return { query: { kind: 'explicit', ids } }
 }
 
-async function fillTasks(db, pack, workspaceCwd, taskList) {
+function packWorkspaceId(db, workspaceCwd, cwdSource) {
   const row = workspaceRowForCwd(db, workspaceCwd)
-  const workspaceId = row?.id || 'ws_personal'
+  if (row) return row.id
+  if (cwdSource === 'request') return null
+  return 'ws_personal'
+}
+
+async function fillTasks(db, pack, workspaceId, taskList) {
   const now = new Date().toISOString()
   const overdue = db.prepare(`
     SELECT COUNT(*) AS n FROM tasks
@@ -201,9 +206,7 @@ async function fillIm(aiRuntime, pack) {
   pack.im = { unread, recent }
 }
 
-async function fillBiz(db, pack, workspaceCwd) {
-  const row = workspaceRowForCwd(db, workspaceCwd)
-  const workspaceId = row?.id || 'ws_personal'
+async function fillBiz(db, pack, workspaceId) {
   const connections = listBusinessConnections(db, { workspaceId }).slice(0, 6).map((c) => ({
     id: c.id,
     name: c.name,
@@ -220,9 +223,7 @@ async function fillBiz(db, pack, workspaceCwd) {
   }
 }
 
-async function fillApps(db, pack, workspaceCwd) {
-  const row = workspaceRowForCwd(db, workspaceCwd)
-  const workspaceId = row?.id || 'ws_personal'
+async function fillApps(db, pack, workspaceId) {
   const apps = listBusinessApps(db, { workspaceId }).filter((app) => !String(app.deletedAt || '').trim()).slice(0, 8).map((app) => {
     let entities = []
     try {
@@ -299,6 +300,7 @@ export async function buildContextPack(deps, input) {
     intentKind,
     sessionId,
     taskIds,
+    cwdSource,
   } = input
   const warnings = []
   const pack = { generatedAt: Date.now() }
@@ -309,6 +311,10 @@ export async function buildContextPack(deps, input) {
   if (!cwd) {
     return { pack, warnings: ['workspace_cwd_missing'] }
   }
+  const workspaceId = packWorkspaceId(deps.db, cwd, cwdSource)
+  if (!workspaceId) {
+    return { pack, warnings, error: 'missing_workspace' }
+  }
 
   for (const scope of scopeList) {
     const result = await withBudget(deadline, async () => {
@@ -317,11 +323,11 @@ export async function buildContextPack(deps, input) {
         else if (scope === 'tasks') {
           const parsed = parseTaskList(taskIds)
           if (parsed.warning) warnings.push(parsed.warning)
-          await fillTasks(deps.db, pack, cwd, parsed.query)
+          await fillTasks(deps.db, pack, workspaceId, parsed.query)
         }
         else if (scope === 'im') await fillIm(deps.aiRuntime, pack)
-        else if (scope === 'biz') await fillBiz(deps.db, pack, cwd)
-        else if (scope === 'apps') await fillApps(deps.db, pack, cwd)
+        else if (scope === 'biz') await fillBiz(deps.db, pack, workspaceId)
+        else if (scope === 'apps') await fillApps(deps.db, pack, workspaceId)
         else if (scope === 'memory') await fillMemory(deps.aiRuntime, pack, { workspaceCwd: cwd, query, entity, intentKind }, warnings)
         return { ok: true }
       } catch (error) {

@@ -187,7 +187,7 @@ export async function handleBridgeRoutes(request, response, url, deps) {
       bridgeError(response, 400, 'validation_error', 'scope 不能为空', correlationId)
       return true
     }
-    const { pack, warnings } = await buildContextPack(
+    const { pack, warnings, error } = await buildContextPack(
       { db, aiRuntime },
       {
         workspaceCwd,
@@ -195,8 +195,13 @@ export async function handleBridgeRoutes(request, response, url, deps) {
         sessionId,
         query: typeof body.query === 'string' ? body.query : undefined,
         intentKind: body.intentKind,
+        cwdSource: resolvedBridge.source,
       },
     )
+    if (error === 'missing_workspace') {
+      bridgeError(response, 404, 'not_found', '工作区未登记', correlationId)
+      return true
+    }
     bridgeOk(response, 200, { ...pack, warnings }, correlationId)
     return true
   }

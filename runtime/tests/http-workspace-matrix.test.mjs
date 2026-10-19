@@ -20,7 +20,7 @@ const WIN_MARK = 'matrix-win-marker'
 const SLASH_MARK = 'matrix-slash-marker'
 const DEFAULT_MARK = 'matrix-default-marker'
 
-const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity'])
+const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context'])
 const READ_RE = /searchParams\.(?:get|has)\(\s*['"`](?:cwd|workspace)['"`]|body\??\.(?:cwd|workspaceCwd|workspace)\b|body\??\[['"`](?:cwd|workspace)['"`]\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\s*\(/
 
 function registerWorkspace(db, id, cwd) {
@@ -141,7 +141,7 @@ async function requestRoute(server, route, mode, token) {
   }
   const headers = { Origin: `http://127.0.0.1:${server.port}` }
   if (route.method !== 'GET' && server.uiToken) headers['x-fde-ui-token'] = server.uiToken
-  if (route.proof === 'bridge') headers['x-fde-bridge-token'] = token
+  if (route.proof === 'bridge' || route.path.startsWith('/api/v1/bridge/')) headers['x-fde-bridge-token'] = token
   let payload
   if (route.place === 'body' || route.method !== 'GET') {
     headers['Content-Type'] = 'application/json'
