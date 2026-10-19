@@ -1,4 +1,4 @@
-export const PLAN_DAY_HOURS = Array.from({ length: 14 }, (_, index) => 7 + index)
+export const PLAN_DAY_HOURS = Array.from({ length: 16 }, (_, index) => 6 + index)
 export const PLAN_DAY_ORIGIN_HOUR = PLAN_DAY_HOURS[0]
 
 export function planDayOffsetMinutes(iso) {

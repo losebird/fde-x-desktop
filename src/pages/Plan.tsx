@@ -19,7 +19,7 @@ import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
 import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
-import { PLAN_DAY_HOURS } from '../../runtime/plan/plan-day-hours.mjs'
+import { PLAN_DAY_HOURS, planDayMarkerTop, planDayOffsetMinutes } from '../../runtime/plan/plan-day-hours.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -581,10 +581,6 @@ function ScheduleTab() {
   const todayKey = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
   const todays = useMemo(() => events.filter((e) => todayKey(e.start)), [events])
 
-  function toPos(start: string) {
-    const d = new Date(start)
-    return d.getHours() * 60 + d.getMinutes()
-  }
   const weekStart = useMemo(() => {
     const d = new Date()
     const weekday = d.getDay()
@@ -658,13 +654,13 @@ function ScheduleTab() {
               </div>
               <div className="relative">
                 {HOURS.map((h) => <div key={h} className="h-14 border-b border-line" />)}
-                <div className="absolute left-0 right-0" style={{ top: `${4.5 * 56 + 14}px` }}>
+                <div className="absolute left-0 right-0" style={{ top: `${planDayMarkerTop(11, 30)}px` }}>
                   <span className="absolute -left-1 -top-1.5 w-2 h-2 rounded-full bg-accent-red" />
                   <span className="block h-px bg-accent-red" />
                 </div>
                 {todays.map((e) => {
-                  const startMin = toPos(e.start) - 7 * 60
-                  const endMin = toPos(e.end) - 7 * 60
+                  const startMin = planDayOffsetMinutes(e.start)
+                  const endMin = planDayOffsetMinutes(e.end)
                   const top = (startMin / 60) * 56
                   const height = ((endMin - startMin) / 60) * 56
                   return (
@@ -759,7 +755,7 @@ function ScheduleTab() {
               <div className="flex gap-1 mt-1.5">
                 <select className="input flex-1" value={draft.startH} onChange={(e) => setDraft({ ...draft, startH: Number(e.target.value) })}>
                   {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-                  <option value={21}>21</option><option value={22}>22</option>
+                  <option value={22}>22</option>
                 </select>
                 <select className="input flex-1" value={draft.startM} onChange={(e) => setDraft({ ...draft, startM: Number(e.target.value) })}>
                   {[0,15,30,45].map((m) => <option key={m} value={m}>{m.toString().padStart(2,'0')}</option>)}
@@ -771,7 +767,7 @@ function ScheduleTab() {
               <div className="flex gap-1 mt-1.5">
                 <select className="input flex-1" value={draft.endH} onChange={(e) => setDraft({ ...draft, endH: Number(e.target.value) })}>
                   {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-                  <option value={21}>21</option><option value={22}>22</option>
+                  <option value={22}>22</option>
                 </select>
                 <select className="input flex-1" value={draft.endM} onChange={(e) => setDraft({ ...draft, endM: Number(e.target.value) })}>
                   {[0,15,30,45].map((m) => <option key={m} value={m}>{m.toString().padStart(2,'0')}</option>)}
