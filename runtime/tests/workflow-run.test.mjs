@@ -1109,3 +1109,227 @@ test('列表载荷里最新 state 仍是 queued，和 lastRunStatus 分开', asy
   assert.equal(card.runs[1].state, 'succeeded')
   assert.equal(card.lastRunStatus, 'running')
 })
+
+function visibleDeltaSource(dbHref, runHref) {
+  return `import http from 'node:http'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { openDatabase } from ${JSON.stringify(dbHref)}
+import { startWorkflowRun } from ${JSON.stringify(runHref)}
+
+const home = process.env.FDE_DSH_HOME
+const mode = process.argv[2]
+const migrations = process.env.FDE_MIGRATIONS
+mkdirSync(join(home, 'run'), { recursive: true })
+writeFileSync(join(home, 'run', 'bridge-tools.json'), JSON.stringify({
+  ok: true,
+  workflowLimit: true,
+  tools: ['fde_app_records_query', 'fde_app_records_propose', 'fde_plan_task_propose'],
+}) + '\\n')
+
+const steps = {
+  one: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总' } }],
+  multi: [
+    { id: 's1', kind: 'ai', label: 'AI', config: { prompt: '先汇总' } },
+    { id: 's2', kind: 'ai', label: 'AI', config: { prompt: '再汇总' } },
+  ],
+  split: [
+    { id: 's1', kind: 'ai', label: 'AI', config: { prompt: '只查询', tools: ['fde_app_records_query'] } },
+    { id: 's2', kind: 'ai', label: 'AI', config: { prompt: '再提案', tools: ['fde_app_records_propose'] } },
+  ],
+  archive: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总' } }],
+}[mode]
+
+const db = openDatabase(join(home, 'run.sqlite'), migrations)
+const now = new Date().toISOString()
+db.prepare(\`
+  INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+  VALUES ('ws_vis', 'ws_vis', '', 'active', ?, ?, ?)
+\`).run(JSON.stringify({ cwd: '/tmp/fde-x-workflow-visible-cwd' }), now, now)
+db.prepare(\`
+  INSERT INTO workflows
+    (id, workspace_id, name, status, trigger_json, definition_json, revision, created_at, updated_at)
+  VALUES ('wf_vis', 'ws_vis', '验收流', 'paused', '{"kind":"manual"}', ?, 1, ?, ?)
+\`).run(JSON.stringify({ steps }), now, now)
+
+function listen(server) {
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve(server.address().port))
+  })
+}
+
+const bridge = http.createServer((request, response) => {
+  const url = new URL(request.url, 'http://127.0.0.1')
+  if (request.method === 'GET' && url.pathname === '/fde-session/visible-tools') {
+    let tools = ['fde_app_records_query']
+    if (mode !== 'archive') {
+      const sessionId = url.searchParams.get('sessionId') || ''
+      const staged = JSON.parse(readFileSync(join(home, 'run', 'workflow-allow', sessionId + '.json'), 'utf8'))
+      tools = staged.tools
+    }
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ ok: true, tools, approval: 'ask' }))
+    return
+  }
+  response.writeHead(404)
+  response.end()
+})
+
+const calls = []
+const archivedOk = []
+const warnings = []
+const originalWarn = console.warn
+console.warn = (...args) => {
+  warnings.push(args.map((item) => String(item)).join(' '))
+}
+const port = await listen(bridge)
+const aiRuntime = {
+  origin: 'http://127.0.0.1:' + port,
+  cookie: 'sid=test',
+  dshHome: home,
+  status: () => ({ connected: true }),
+  async call(endpoint, args) {
+    const requestBody = args && args.request ? args.request : {}
+    calls.push({
+      endpoint,
+      sessionId: requestBody.sessionId || '',
+      title: requestBody.title || '',
+    })
+    if (endpoint === 'session/create') return { sessionId: requestBody.sessionId }
+    if (endpoint === 'workspace/archiveSession') {
+      if (mode === 'archive') throw new Error('archive down')
+      archivedOk.push(requestBody.sessionId || '')
+      return {}
+    }
+    return {}
+  },
+  async *stream() {
+    yield { type: 'event', event: { type: 'turn/end' } }
+  },
+}
+
+const ticket = startWorkflowRun({ db, aiRuntime }, {
+  workflowId: 'wf_vis',
+  workspaceId: 'ws_vis',
+  correlationId: 'corr_vis',
+  trigger: { kind: 'manual' },
+})
+const startedAt = Date.now()
+let row = null
+while (Date.now() - startedAt < 4000) {
+  row = db.prepare('SELECT state, output_json FROM workflow_runs WHERE id = ?').get(ticket.id)
+  if (row && row.state !== 'queued' && row.state !== 'running') break
+  await new Promise((resolve) => setImmediate(resolve))
+}
+const creates = calls.filter((call) => call.endpoint === 'session/create')
+const prompts = calls.filter((call) => call.endpoint === 'session/prompt')
+const renames = calls.filter((call) => call.endpoint === 'session/rename')
+const createIds = creates.map((call) => call.sessionId)
+const output = row && row.output_json ? JSON.parse(row.output_json) : null
+const messages = db.prepare('SELECT error_json FROM workflow_run_steps ORDER BY sequence_no').all().map((step) => {
+  if (!step.error_json) return ''
+  return JSON.parse(step.error_json).message || ''
+})
+console.warn = originalWarn
+bridge.close()
+db.close()
+process.stdout.write(JSON.stringify({
+  state: row ? row.state : '',
+  creates: createIds.length,
+  createIds,
+  prompts: prompts.length,
+  promptSessions: [...new Set(prompts.map((call) => call.sessionId))],
+  visible: createIds.filter((id) => !archivedOk.includes(id)).length,
+  claimed: output && output.sessionId ? output.sessionId : '',
+  renameTitle: renames[0] ? renames[0].title : '',
+  renameSession: renames[0] ? renames[0].sessionId : '',
+  archives: calls.filter((call) => call.endpoint === 'workspace/archiveSession').length,
+  warnings,
+  messages,
+}) + '\\n')
+`
+}
+
+function runVisibleDelta(mode) {
+  const home = `/tmp/fde-x-wf-vis-${mode}-${process.pid}-${Date.now()}`
+  const script = join(home, 'case.mjs')
+  return mkdir(home, { recursive: true }).then(async () => {
+    await writeFile(script, visibleDeltaSource(
+      new URL('../db.mjs', import.meta.url).href,
+      new URL('../plan/workflow-run.mjs', import.meta.url).href,
+    ))
+    return new Promise((resolve) => {
+      const child = spawn(node, [script, mode], {
+        cwd: repoRoot,
+        env: { ...process.env, FDE_DSH_HOME: home, FDE_MIGRATIONS: migrations },
+      })
+      let stdout = ''
+      let stderr = ''
+      const timer = setTimeout(() => child.kill('SIGKILL'), 15000)
+      child.stdout.on('data', (chunk) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
+      child.on('close', (code) => {
+        clearTimeout(timer)
+        resolve({ code, stdout, stderr, home })
+      })
+    })
+  })
+}
+
+async function readVisibleDelta(mode) {
+  const { code, stdout, stderr, home } = await runVisibleDelta(mode)
+  try {
+    assert.equal(code, 0, `${stderr}\n${stdout}`)
+    return JSON.parse(stdout.trim().split('\n').at(-1))
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+}
+
+test('一次手动运行净增可见会话不超过 1，并写成工作流名', async () => {
+  const result = await readVisibleDelta('one')
+  assert.equal(result.state, 'succeeded')
+  assert.equal(result.creates, 1)
+  assert.equal(result.prompts, 1)
+  assert.equal(result.visible, 1)
+  assert.deepEqual(result.promptSessions, result.createIds)
+  assert.equal(result.claimed, result.createIds[0])
+  assert.equal(result.renameTitle, '验收流')
+  assert.equal(result.renameSession, result.createIds[0])
+})
+
+test('多个 AI 步骤同一次运行仍只净增 1 条可见会话', async () => {
+  const result = await readVisibleDelta('multi')
+  assert.equal(result.state, 'succeeded')
+  assert.equal(result.creates, 1)
+  assert.equal(result.prompts, 2)
+  assert.equal(result.visible, 1)
+  assert.deepEqual(result.promptSessions, result.createIds)
+  assert.equal(result.claimed, result.createIds[0])
+  assert.equal(result.renameTitle, '验收流')
+  assert.equal(result.renameSession, result.createIds[0])
+})
+
+test('同一次运行的 AI 步骤工具不一致时不开会话', async () => {
+  const result = await readVisibleDelta('split')
+  assert.equal(result.creates, 0)
+  assert.equal(result.visible, 0)
+  assert.equal(result.prompts, 0)
+  assert.equal(result.state, 'failed')
+  assert.deepEqual(result.messages, [
+    '同一次运行里的 AI 步骤工具或人设不一致，未开会话',
+    '同一次运行里的 AI 步骤工具或人设不一致，未开会话',
+  ])
+})
+
+test('归档会话失败时打出日志', async () => {
+  const result = await readVisibleDelta('archive')
+  assert.equal(result.state, 'failed')
+  assert.equal(result.creates, 1)
+  assert.equal(result.archives, 1)
+  assert.equal(result.prompts, 0)
+  assert.equal(
+    result.warnings.some((line) => line.includes('workflow_session_archive_failed') && line.includes(result.createIds[0])),
+    true,
+  )
+})

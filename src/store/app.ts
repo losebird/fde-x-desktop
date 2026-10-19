@@ -369,6 +369,7 @@ function withPanelFull(panels: SidePanelItem[], id: string): SidePanelItem[] {
 
 const WORKFLOW_RUN_WATCH_MS = 30_000
 const WORKFLOW_RUN_WATCH_GAP_MS = 400
+const workflowRunLockRef: { current: Set<ID> } = { current: new Set() }
 
 function sessionIdOfRun(run: Workflow['runs'][number] | undefined): string {
   const value = run && (run as { sessionId?: unknown }).sessionId
@@ -1001,6 +1002,8 @@ export const useApp = create<AppState>()(
         }
       },
       runWorkflow: async (id) => {
+        if (workflowRunLockRef.current.has(id)) return
+        workflowRunLockRef.current.add(id)
         set((s) => ({
           workflowRunSubmitIds: s.workflowRunSubmitIds.includes(id)
             ? s.workflowRunSubmitIds
@@ -1016,8 +1019,10 @@ export const useApp = create<AppState>()(
           const workspaceId = get().activeWorkspaceId
           if (workspaceId) await get().hydratePlan(workspaceId)
           clearSubmit()
+          workflowRunLockRef.current.delete(id)
           await followWorkflowRun(get, set, id, typeof ticket?.id === 'string' ? ticket.id : '')
         } catch (error) {
+          workflowRunLockRef.current.delete(id)
           clearSubmit()
           const message = planFailure(error)
           set({ planServiceError: message })
