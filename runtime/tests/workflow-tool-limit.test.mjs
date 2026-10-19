@@ -43,6 +43,11 @@ const { AgentPresetRegistry } = pinRequire('@deepseek-ai/dsh-agent-preset-regist
 class Prompt extends Service {
   constructor(ctx) {
     super(ctx, 'systemPrompt')
+    this.layers = {
+      effect(_ctx, action) {
+        action({ sections: { insert() { return () => {} } } })
+      },
+    }
   }
 
   tools() {}
