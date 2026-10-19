@@ -36,6 +36,23 @@ export function confirmTokenClosed(
   return status === 'used' || status === 'expired' || status === 'absent'
 }
 
+export function incomingSheetClosesOpenDrawer(
+  openPreviewId: string | null | undefined,
+  sheet: Record<string, unknown> | null | undefined,
+  opts?: {
+    dismissed?: boolean
+    tokenIndex?: Record<string, string> | null
+  },
+): boolean {
+  const openId = String(openPreviewId ?? '').trim()
+  if (!openId || !sheet || typeof sheet !== 'object') return false
+  if (String(sheet.action || '').trim() === '现查') return false
+  const incomingId = String(sheet.preview_id ?? sheet.previewId ?? '').trim()
+  if (!incomingId || incomingId !== openId) return false
+  if (opts?.dismissed) return true
+  return confirmTokenClosed(sheet, opts?.tokenIndex)
+}
+
 export function stampWriteTokenUsed(sheet: Record<string, unknown>): Record<string, unknown> {
   return { ...sheet, writeToken: 'used', write_token: 'used' }
 }

@@ -101,7 +101,7 @@ import {
   shouldAbortLeftoverAskForWritePreview,
 } from '@/lib/biz-hit-set-pick-cancel'
 import { useEvents } from '@/lib/events'
-import { shouldOpenWriteConfirm, stampWriteTokenUsed, writeTokenLive } from '@/lib/write-confirm.ts'
+import { incomingSheetClosesOpenDrawer, shouldOpenWriteConfirm, stampWriteTokenUsed } from '@/lib/write-confirm.ts'
 
 const PAGE_SIZE = 10
 const ROW_DISPLAY_INDEX_LABEL = '序号'
@@ -1149,8 +1149,15 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
             canWrite: Boolean(next.canWrite ?? next.can_write),
           }
         })
-      } else if (isBizPreviewDismissed(next) || !writeTokenLive(next, writePreviewRef.current)) {
-        setDrawer(null)
+      } else {
+        setDrawer((open) => (
+          incomingSheetClosesOpenDrawer(open?.previewId, next, {
+            dismissed: isBizPreviewDismissed(next),
+            tokenIndex: writePreviewRef.current,
+          })
+            ? null
+            : open
+        ))
       }
       return rowCount > 0 || Boolean(next.kind)
     }
@@ -1164,8 +1171,15 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         sheet: next,
         canWrite: Boolean(next.canWrite ?? next.can_write),
       })
-    } else if (isBizPreviewDismissed(next) || !writeTokenLive(next, writePreviewRef.current)) {
-      setDrawer(null)
+    } else {
+      setDrawer((open) => (
+        incomingSheetClosesOpenDrawer(open?.previewId, next, {
+          dismissed: isBizPreviewDismissed(next),
+          tokenIndex: writePreviewRef.current,
+        })
+          ? null
+          : open
+      ))
     }
     void bindSurfaceIdIfKnown(next, surfaceId)
     return rowCount > 0 || Boolean(next.kind)
@@ -1962,7 +1976,6 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         if (prevId && prevId === usedId) return { ...prev, writeToken: 'used', write_token: 'used' }
         return prev
       })
-      setDrawer(null)
       commitListRestore(null)
       historyPinnedSurfaceIdRef.current = ''
       const listed = written && written.sheet && typeof written.sheet === 'object'
@@ -1970,6 +1983,17 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         : null
       if (listed) applyPendingSheet(listed)
       else void hydrateFromPending()
+      const postedId = usedId || drawer.previewId
+      setDrawer((prev) => {
+        if (!prev || (prev.previewId !== drawer.previewId && prev.previewId !== postedId)) return prev
+        return {
+          ...prev,
+          previewId: postedId,
+          sheet: usedSheet,
+          canWrite: false,
+          gateReason: '已过账',
+        }
+      })
       const verifyMiss = written && written.verified === false
       setNotice(verifyMiss
         ? (typeof written.hint === 'string' && written.hint.trim() ? written.hint : '业务已收，回读对不上。')
