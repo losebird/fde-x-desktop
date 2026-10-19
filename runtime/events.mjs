@@ -1,3 +1,5 @@
+import { canonicalWorkspaceCwd, sameWorkspaceCwd } from './cwd.mjs'
+
 /** Monotonic event ids (time + sequence) so same-ms rows sort in emit order. */
 let eventOrdinal = 0n
 
@@ -195,8 +197,11 @@ export function listRecentEvents(db, { workspaceCwd, type, limit = 50 } = {}) {
     params.push(type)
   }
   if (workspaceCwd) {
-    clauses.push('(workspace_cwd IS NULL OR workspace_cwd = ?)')
-    params.push(workspaceCwd)
+    const canonical = canonicalWorkspaceCwd(workspaceCwd)
+    if (canonical) {
+      clauses.push('(workspace_cwd IS NULL OR rtrim(workspace_cwd, ?) = ?)')
+      params.push('/', canonical)
+    }
   }
   const rows = db.prepare(`
     SELECT id, event_type, payload_json, occurred_at, ts, workspace_cwd, session_id, source
@@ -214,5 +219,6 @@ export function listRecentEvents(db, { workspaceCwd, type, limit = 50 } = {}) {
  */
 export function matchesWorkspaceFilter(envelope, workspaceCwd) {
   if (!workspaceCwd) return true
-  return envelope.workspaceCwd == null || envelope.workspaceCwd === workspaceCwd
+  if (envelope.workspaceCwd == null) return true
+  return sameWorkspaceCwd(envelope.workspaceCwd, workspaceCwd)
 }

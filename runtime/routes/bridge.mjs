@@ -7,7 +7,7 @@ import { buildContextPack } from '../context-pack.mjs'
 import { draftMemoryFromBridge } from '../memory/writer.mjs'
 import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
-import { workspaceRowIdForCwd } from '../briefing/workspace.mjs'
+import { workspaceCwdForId, workspaceRowIdForCwd } from '../briefing/workspace.mjs'
 import { proposePlanTask } from '../plan/task-proposals.mjs'
 import { pathHasPrefix } from '../path-prefix.mjs'
 
@@ -207,6 +207,11 @@ export async function handleBridgeRoutes(request, response, url, deps) {
       }
       throw new Error(`plan task propose failed: ${result.error}`)
     }
+    emit('task.proposal.changed', {
+      proposalId: result.proposalId,
+      taskId: result.plan.taskId,
+      op: result.plan.op,
+    }, { workspaceCwd: workspaceCwdForId(db, result.plan.workspaceId) })
     bridgeOk(response, 200, { ok: true, proposalId: result.proposalId, plan: result.plan }, correlationId)
     return true
   }
