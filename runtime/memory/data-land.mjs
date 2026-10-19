@@ -17,6 +17,7 @@ export function emptyDataBrowse() {
     rowId: '',
     kind: '',
     traceId: '',
+    appRid: '',
     land: 0,
   }
 }
@@ -65,5 +66,10 @@ export function applyDataLand(browse, href) {
   if (Object.prototype.hasOwnProperty.call(href || {}, 'workspaceAppId')) {
     next.workspaceAppId = href.workspaceAppId || null
   }
+  next.appRid = typeof href?.appRid === 'string' ? href.appRid : ''
   return next
+}
+
+export function clearAppRecordFocus(workspaceAppId) {
+  return { workspaceAppId, appRid: '' }
 }

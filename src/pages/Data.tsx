@@ -28,7 +28,7 @@ import { runDeclaredPlatformUse } from '@/lib/app-platform'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { RecordsPanel } from '@/components/biz/RecordsPanel'
 import { OperationControlPanel } from '@/components/biz/OperationControlPanel'
-import { dataLandView } from '@/lib/data-browse'
+import { clearAppRecordFocus, dataLandView } from '@/lib/data-browse'
 
 type Tone = 'default' | 'red' | 'amber' | 'blue' | 'purple' | 'teal' | 'green'
 
@@ -579,7 +579,7 @@ function Overview({
   const landSlug = useApp((state) => state.dataBrowse.slug)
   const dataLand = useApp((state) => state.dataBrowse.land)
   const setDataBrowse = useApp((state) => state.setDataBrowse)
-  const setWorkspaceAppId = (id: string) => setDataBrowse({ workspaceAppId: id || null })
+  const setWorkspaceAppId = (id: string) => setDataBrowse(clearAppRecordFocus(id || null))
   const [deleteTarget, setDeleteTarget] = useState<BusinessAppRecord | null>(null)
   const [purgeTarget, setPurgeTarget] = useState<BusinessAppRecord | null>(null)
   const [trashedOpen, setTrashedOpen] = useState(false)

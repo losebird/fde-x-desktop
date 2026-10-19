@@ -10,7 +10,7 @@ import type {
 } from '@/lib/types'
 import { seedUser } from '@/data/seed'
 import { runtimeApi } from '@/lib/runtime-api'
-import { emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
+import { clearAppRecordFocus, emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
 import { imBrowseOccupancy } from '@/lib/im-letter-home'
 import {
   eventFromHostBagItem,
@@ -546,7 +546,7 @@ export const useApp = create<AppState>()(
             const already = dataPanel?.state === 'full' || dataPanel?.state === 'half'
             return {
               floating,
-              dataBrowse: { ...s.dataBrowse, workspaceAppId: appId, view: 'overview' as const },
+              dataBrowse: { ...s.dataBrowse, ...clearAppRecordFocus(appId), view: 'overview' as const },
               ...(already ? {} : { panels: withPanelFull(s.panels, 'data') }),
             }
           }
