@@ -1,6 +1,6 @@
-import { appendAudit, createId, getOperation } from '../db.mjs'
 import { appIsTrashed, getAppById } from './repository.mjs'
 import { getRecord, patchRecord } from './records.mjs'
+import { decideProposal, openProposal } from '../proposals/commit.mjs'
 
 const RECORD_PROPOSAL_ACTION = 'app.record.propose'
 
@@ -9,12 +9,6 @@ const RESERVED_KEYS = new Set(['id', 'rid', 'workspace', 'workspaceCwd'])
 function expectedVersion(patches) {
   if (patches.length === 1) return String(patches[0].base.updated_at)
   return JSON.stringify(Object.fromEntries(patches.map((patch) => [patch.rid, patch.base.updated_at])))
-}
-
-function rowMoved(row, patch) {
-  const base = patch.base
-  if (!base || typeof base !== 'object' || Array.isArray(base)) return true
-  return row.updated_at !== base.updated_at
 }
 
 function recordPatches(spec, entity, rows) {
@@ -43,6 +37,36 @@ function recordPatches(spec, entity, rows) {
   return patches
 }
 
+function recordDomain(opts) {
+  return {
+    action: RECORD_PROPOSAL_ACTION,
+    confirmAction: 'app.record.confirm',
+    rejectAction: 'app.record.reject',
+    actorId: opts.actorId,
+    correlationId: opts.correlationId,
+    // A null base on a live record used to close as stale_record.
+    reasons: { missing: 'record_missing', moved: 'stale_record', appeared: 'stale_record' },
+    load(db, plan) {
+      const app = getAppById(db, plan.appId)
+      if (!app || app.status !== 'active' || appIsTrashed(app)) return { hold: true }
+      const versions = []
+      for (const patch of plan.patches) {
+        const current = getRecord(db, app.spec, plan.entity, plan.workspaceCwd, patch.rid)
+        versions.push({ current: current ? current.updated_at : null, base: patch.base })
+      }
+      return { versions }
+    },
+    apply(db, plan) {
+      const app = getAppById(db, plan.appId)
+      for (const patch of plan.patches) {
+        const row = patchRecord(db, app.spec, plan.entity, plan.workspaceCwd, patch.rid, patch.fields)
+        if (!row) return { applied: false }
+      }
+      return { applied: true, details: { patches: plan.patches } }
+    },
+  }
+}
+
 export function proposeRecordUpdate(db, input) {
   const drafted = recordPatches(input.app.spec, input.entity, input.rows)
   if (!drafted) return { ok: false, error: 'validation_error', message: '更新提案需要记录和字段' }
@@ -56,10 +80,6 @@ export function proposeRecordUpdate(db, input) {
       base: { updated_at: existing.updated_at },
     })
   }
-  const id = createId('op')
-  const now = new Date().toISOString()
-  const correlationId = input.correlationId || createId('corr')
-  const actorId = input.actorId ?? 'actor_local_user'
   const plan = {
     kind: 'app.record.propose',
     appId: input.app.id,
@@ -71,181 +91,22 @@ export function proposeRecordUpdate(db, input) {
   const targetRef = patches.length === 1
     ? `fde://workstation/app/${plan.slug}/${input.entity}/${patches[0].rid}`
     : `fde://workstation/app/${input.app.id}`
-  const planJson = JSON.stringify(plan)
-  db.exec('BEGIN IMMEDIATE;')
-  try {
-    db.prepare(`
-      INSERT INTO operations
-        (id, workspace_id, connection_id, app_id, requested_by, target_ref, action, operation_kind,
-         risk_level, execution_mode, state, idempotency_key, expected_version, input_json, plan_json,
-         correlation_id, causation_id, created_at, updated_at)
-      VALUES (?, ?, NULL, ?, ?, ?, ?, 'write', 'low', 'dry_run', 'awaiting_approval', ?, ?, ?, ?, ?, NULL, ?, ?)
-    `).run(
-      id,
-      input.workspaceId,
-      input.app.id,
-      actorId,
-      targetRef,
-      RECORD_PROPOSAL_ACTION,
-      createId('idem'),
-      expectedVersion(patches),
-      planJson,
-      planJson,
-      correlationId,
-      now,
-      now,
-    )
-    appendAudit(db, {
-      workspaceId: input.workspaceId,
-      actorId,
-      action: 'app.record.propose',
-      targetRef,
-      outcome: 'accepted',
-      riskLevel: 'low',
-      correlationId,
-      details: plan,
-    })
-    db.exec('COMMIT;')
-  } catch (error) {
-    db.exec('ROLLBACK;')
-    throw error
-  }
-  return { ok: true, proposalId: id, plan }
-}
-
-function closeFailed(db, operation, operationId, actorId, opts, reason) {
-  const now = new Date().toISOString()
-  const updated = db.prepare(`
-    UPDATE operations
-    SET state = 'failed', updated_at = ?, finished_at = ?
-    WHERE id = ? AND state = 'awaiting_approval'
-  `).run(now, now, operationId)
-  if (updated.changes !== 1) {
-    db.exec('ROLLBACK;')
-    return { kind: 'invalid_state', operation: getOperation(db, operationId) }
-  }
-  appendAudit(db, {
-    workspaceId: operation.workspaceId,
-    actorId,
-    action: 'app.record.confirm',
-    targetRef: operation.targetRef,
-    outcome: 'failed',
-    riskLevel: 'low',
-    correlationId: opts.correlationId || operation.correlationId,
-    details: { operationId, reason },
+  return openProposal(db, {
+    workspaceId: input.workspaceId,
+    appId: input.app.id,
+    actorId: input.actorId,
+    targetRef,
+    action: RECORD_PROPOSAL_ACTION,
+    expectedVersion: expectedVersion(patches),
+    plan,
+    correlationId: input.correlationId,
   })
-  db.exec('COMMIT;')
-  return { kind: 'closed', operation: getOperation(db, operationId) }
-}
-
-function loadOpenProposal(db, operationId) {
-  const operation = getOperation(db, operationId)
-  if (!operation) return { kind: 'not_found' }
-  if (operation.action !== RECORD_PROPOSAL_ACTION) return { kind: 'not_proposal' }
-  if (operation.state !== 'awaiting_approval') return { kind: 'invalid_state', operation }
-  return { kind: 'open', operation }
 }
 
 export function confirmRecordProposal(db, operationId, opts = {}) {
-  const actorId = opts.actorId ?? 'actor_local_user'
-  db.exec('BEGIN IMMEDIATE;')
-  try {
-    const loaded = loadOpenProposal(db, operationId)
-    if (loaded.kind !== 'open') {
-      db.exec('ROLLBACK;')
-      return loaded
-    }
-    const operation = loaded.operation
-    const plan = operation.plan
-    const app = getAppById(db, plan.appId)
-    if (!app || app.status !== 'active' || appIsTrashed(app)) {
-      db.exec('ROLLBACK;')
-      return { kind: 'not_found' }
-    }
-    const currentRows = []
-    for (const patch of plan.patches) {
-      const current = getRecord(db, app.spec, plan.entity, plan.workspaceCwd, patch.rid)
-      if (!current) {
-        const closed = closeFailed(db, operation, operationId, actorId, opts, 'record_missing')
-        if (closed.kind === 'invalid_state') return closed
-        return { kind: 'not_found', operation: closed.operation }
-      }
-      currentRows.push(current)
-    }
-    if (plan.patches.some((patch, index) => rowMoved(currentRows[index], patch))) {
-      const closed = closeFailed(db, operation, operationId, actorId, opts, 'stale_record')
-      if (closed.kind === 'invalid_state') return closed
-      return { kind: 'stale', operation: closed.operation }
-    }
-    for (const patch of plan.patches) {
-      const row = patchRecord(db, app.spec, plan.entity, plan.workspaceCwd, patch.rid, patch.fields)
-      if (!row) {
-        db.exec('ROLLBACK;')
-        return { kind: 'not_found' }
-      }
-    }
-    const now = new Date().toISOString()
-    const updated = db.prepare(`
-      UPDATE operations
-      SET state = 'succeeded', updated_at = ?, finished_at = ?
-      WHERE id = ? AND state = 'awaiting_approval'
-    `).run(now, now, operationId)
-    if (updated.changes !== 1) {
-      db.exec('ROLLBACK;')
-      return { kind: 'invalid_state', operation: getOperation(db, operationId) }
-    }
-    appendAudit(db, {
-      workspaceId: operation.workspaceId,
-      actorId,
-      action: 'app.record.confirm',
-      targetRef: operation.targetRef,
-      outcome: 'succeeded',
-      riskLevel: 'low',
-      correlationId: opts.correlationId || operation.correlationId,
-      details: { operationId, patches: plan.patches },
-    })
-    db.exec('COMMIT;')
-  } catch (error) {
-    db.exec('ROLLBACK;')
-    throw error
-  }
-  return { kind: 'ok', operation: getOperation(db, operationId) }
+  return decideProposal(db, operationId, 'confirm', recordDomain(opts))
 }
 
 export function rejectRecordProposal(db, operationId, opts = {}) {
-  const actorId = opts.actorId ?? 'actor_local_user'
-  db.exec('BEGIN IMMEDIATE;')
-  try {
-    const loaded = loadOpenProposal(db, operationId)
-    if (loaded.kind !== 'open') {
-      db.exec('ROLLBACK;')
-      return loaded
-    }
-    const operation = loaded.operation
-    const now = new Date().toISOString()
-    const updated = db.prepare(`
-      UPDATE operations
-      SET state = 'cancelled', updated_at = ?, finished_at = ?
-      WHERE id = ? AND state = 'awaiting_approval'
-    `).run(now, now, operationId)
-    if (updated.changes !== 1) {
-      db.exec('ROLLBACK;')
-      return { kind: 'invalid_state', operation: getOperation(db, operationId) }
-    }
-    appendAudit(db, {
-      workspaceId: operation.workspaceId,
-      actorId,
-      action: 'app.record.reject',
-      targetRef: operation.targetRef,
-      outcome: 'rejected',
-      riskLevel: 'low',
-      correlationId: opts.correlationId || operation.correlationId,
-      details: { operationId },
-    })
-    db.exec('COMMIT;')
-  } catch (error) {
-    db.exec('ROLLBACK;')
-    throw error
-  }
-  return { kind: 'ok', operation: getOperation(db, operationId) }
+  return decideProposal(db, operationId, 'reject', recordDomain(opts))
 }

@@ -17,6 +17,7 @@ import { useEvents } from '@/lib/events'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 import { hostGoalStatusOnly, isHostGoalId, isHostJobId, isHostScheduleId } from '@/lib/plan-origin'
+import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -438,6 +439,7 @@ function TodoTab() {
       </Card>
       {askError && <div className="text-xs text-accent-red mb-3">{askError}</div>}
 
+      <PlanTaskProposals />
       {filtered.length === 0 ? (
         <Empty title="这个筛选下没有任务" hint="可以新建一个,或切换其它 Tab" action={
           <button className="btn-primary" title="新建任务" onClick={() => setShowNew(true)}><Plus size={14} /> 新建任务</button>
