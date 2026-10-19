@@ -45,6 +45,11 @@ function resolveScheduleBinding(db, workspaceId, body) {
   return { present: true, workflowId, recurrence: body.recurrence }
 }
 
+function confirmedDangerList(body) {
+  if (!Array.isArray(body.confirmDanger)) return []
+  return [...new Set(body.confirmDanger.filter((name) => typeof name === 'string'))].sort()
+}
+
 function rejectScheduleToken(request, response, correlationId, uiToken) {
   if (verifyUiToken(request, uiToken)) return false
   planError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', correlationId)
@@ -713,6 +718,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       category: body.category ?? 'system',
       emoji: body.emoji ?? '🤖',
       steps: Array.isArray(body.steps) ? withoutStepPersona(body.steps) : [],
+      confirmedDanger: confirmedDangerList(body),
     }
     const now = isoNow()
     const id = createId('wf')
@@ -791,7 +797,10 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       if (typeof body.description === 'string') definition.description = body.description
       if (body.category) definition.category = body.category
       if (body.emoji) definition.emoji = body.emoji
-      if (Array.isArray(body.steps)) definition.steps = withoutStepPersona(body.steps)
+      if (Array.isArray(body.steps)) {
+        definition.steps = withoutStepPersona(body.steps)
+        definition.confirmedDanger = confirmedDangerList(body)
+      }
       patch.definition_json = JSON.stringify(definition)
     }
     const keys = Object.keys(patch)

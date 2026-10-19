@@ -193,6 +193,37 @@ test('错过写在 workflow_runs 里，列表直接读出这条历史', async ()
   }
 })
 
+test('保存工作流时记下已确认的直接执行工具', async () => {
+  const dbPath = join(tmpdir(), `fde-x-schedule-confirm-${process.pid}.sqlite`)
+  const db = openDatabase(dbPath, migrations)
+  insertWorkspace(db, 'ws_confirm')
+  try {
+    let status = 0
+    let raw = ''
+    const response = {
+      writeHead(code) { status = code },
+      end(body) { raw = body || '' },
+    }
+    await handlePlanRequest({ method: 'POST', headers: {} }, response, new URL('/api/v1/plan/workflows', 'http://127.0.0.1'), {
+      db,
+      enqueueEvent() {},
+      readJson: async () => ({
+        workspaceId: 'ws_confirm',
+        name: '确认流',
+        steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '只查询' } }],
+        confirmDanger: ['bash'],
+      }),
+      aiRuntime: null,
+    }, 'corr_confirm')
+    assert.equal(status, 201, raw)
+    const stored = db.prepare('SELECT definition_json FROM workflows WHERE id = ?').get(JSON.parse(raw).data.id)
+    assert.deepEqual(JSON.parse(stored.definition_json).confirmedDanger, ['bash'])
+  } finally {
+    db.close()
+    await rm(dbPath, { force: true })
+  }
+})
+
 test('两个连接同时 tick 同一个触发点只留下一条运行', async () => {
   const dbPath = join(tmpdir(), `fde-x-schedule-two-${process.pid}.sqlite`)
   const dbA = openDatabase(dbPath, migrations)
