@@ -11,7 +11,7 @@ import {
   mutateHostGoal,
 } from '../host-catalog.mjs'
 import { decidePlanTask, listOpenPlanTaskProposals } from '../plan/task-proposals.mjs'
-import { hasIllegalSourceRef, readLatestRunCards, startWorkflowRun } from '../plan/workflow-run.mjs'
+import { hasIllegalSourceRef, readLatestRunCards, readWorkflowRuns, startWorkflowRun } from '../plan/workflow-run.mjs'
 import { listSelectableTools, listWorkflowCatalog } from '../plan/workflow-catalog.mjs'
 import { rejectPreset, rejectToolList, toolChangeAudit, withoutStepPersona } from '../plan/tool-risk.mjs'
 import {
@@ -630,7 +630,9 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     if (!workspaceId) return true
     const rows = db.prepare('SELECT * FROM workflows WHERE workspace_id = ? ORDER BY created_at DESC').all(workspaceId).map(mapWorkflow)
     const cards = readLatestRunCards(db, rows.map((row) => row.id))
+    const runs = readWorkflowRuns(db, rows.map((row) => row.id))
     for (const row of rows) {
+      row.runs = runs.get(row.id) || []
       const card = cards.get(row.id)
       if (!card) continue
       row.lastRunAt = card.lastRunAt

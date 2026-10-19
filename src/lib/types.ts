@@ -93,6 +93,12 @@ export interface FileVersion {
 }
 
 // 自动化工作流。语义:"当 trigger 命中时,按 steps 顺序执行"。和 Task/Schedule 并列。
+export interface WorkflowRunRecord {
+  id: ID
+  state: string
+  message: string
+}
+
 export interface Workflow {
   id: ID
   name: string
@@ -109,6 +115,7 @@ export interface Workflow {
   // 上次运行
   lastRunAt?: string
   lastRunStatus?: 'success' | 'failed' | 'running'
+  runs: WorkflowRunRecord[]
   // 元信息
   category: 'data' | 'im' | 'file' | 'memory' | 'system'
   emoji: string

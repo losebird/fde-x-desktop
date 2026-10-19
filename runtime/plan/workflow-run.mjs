@@ -446,6 +446,37 @@ function continueRun(deps, ctx) {
   })
 }
 
+export function readWorkflowRuns(db, workflowIds) {
+  if (!Array.isArray(workflowIds) || workflowIds.length === 0) return new Map()
+  const ids = []
+  const seen = new Set()
+  for (const id of workflowIds) {
+    if (typeof id !== 'string' || !id || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  if (ids.length === 0) return new Map()
+  const placeholders = ids.map(() => '?').join(', ')
+  const rows = db.prepare(`
+    SELECT id, workflow_id, state, output_json
+    FROM workflow_runs
+    WHERE workflow_id IN (${placeholders})
+    ORDER BY created_at DESC, rowid DESC
+  `).all(...ids)
+  const grouped = new Map()
+  for (const row of rows) {
+    let message = ''
+    if (row.output_json) {
+      const output = JSON.parse(row.output_json)
+      message = typeof output.message === 'string' ? output.message : ''
+    }
+    const list = grouped.get(row.workflow_id) || []
+    list.push({ id: row.id, state: row.state, message })
+    grouped.set(row.workflow_id, list)
+  }
+  return grouped
+}
+
 export function readLatestRunCards(db, workflowIds) {
   if (!Array.isArray(workflowIds) || workflowIds.length === 0) return new Map()
   const ids = []

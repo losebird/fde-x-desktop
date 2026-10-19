@@ -1100,10 +1100,13 @@ function WorkflowTab() {
                       </div>
                     )
                   })}
-                  <div className="mt-2 text-[11px] text-ink-muted flex items-center gap-3">
+                  <div className="mt-2 text-[11px] text-ink-muted flex items-center gap-3 flex-wrap">
                     {w.lastRunAt && (
                       <span>上次运行: {new Date(w.lastRunAt).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
                     )}
+                    {w.runs.map((run) => (
+                      <span key={run.id}>{run.message || run.state}</span>
+                    ))}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
