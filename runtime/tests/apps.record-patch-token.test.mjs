@@ -91,7 +91,7 @@ async function stopServer() {
 async function writeJson(path, body, method) {
   const res = await fetch(`${base}${path}`, {
     method,
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: { Origin: origin, 'Content-Type': 'application/json', 'x-fde-ui-token': pageToken },
     body: JSON.stringify(body),
   })
   const payload = await res.json().catch(() => ({}))
@@ -244,7 +244,7 @@ test('bridge token is not accepted as the page token', async (t) => {
   assert.equal(auditCount(), 0)
 })
 
-test('forged origin can still create a plan task', async (t) => {
+test('page token still creates a plan task', async (t) => {
   await startServer()
   t.after(async () => {
     await stopServer()

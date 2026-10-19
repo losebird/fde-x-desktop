@@ -13,6 +13,7 @@ import { resolveLiveShare } from '../apps/share.mjs'
 import { isWebAppSpec } from '../apps/spec.mjs'
 import { serveWebAppAsset } from '../apps/web-host.mjs'
 import { getDocument, putDocument } from '../apps/documents.mjs'
+import { pathHasPrefix } from '../path-prefix.mjs'
 
 function sendInvokeError(sendError, response, error, correlationId) {
   const code = String(error?.code || 'invoke_failed')
@@ -93,7 +94,7 @@ export function handlePublicWebBundle(request, response, url, { db }) {
 export async function handleAppShareRoutes(request, response, url, deps) {
   const { db, correlationId, sendError, sendJson, readJson } = deps
   const pathname = url.pathname
-  if (!pathname.startsWith('/api/v1/app-share/')) return false
+  if (!pathHasPrefix(pathname, '/api/v1/app-share/')) return false
 
   const rest = pathname.slice('/api/v1/app-share/'.length)
   const parts = rest.split('/').filter(Boolean).map((part) => decodeURIComponent(part))

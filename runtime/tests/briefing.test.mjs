@@ -21,10 +21,20 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const wsCwd = '/tmp/fde-x-briefing-test-ws'
 
 let child
+let pageToken = ''
+
+function writeHeaders() {
+  return {
+    Origin: origin,
+    'Content-Type': 'application/json',
+    'x-fde-ui-token': pageToken,
+  }
+}
 
 async function startServer() {
   await rm(dbPath, { force: true }).catch(() => undefined)
   await mkdir(wsCwd, { recursive: true })
+  pageToken = ''
   child = spawn(node, ['runtime/server.mjs'], {
     cwd: repoRoot,
     env: {
@@ -32,13 +42,20 @@ async function startServer() {
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: dbPath,
       FDE_AI_WORKSPACE: wsCwd,
+      FDE_RUNTIME_SUPERVISED: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString()
+    const tokenMatch = /^FDE_UI_TOKEN\s+([0-9a-f]{64})$/m.exec(stdout)
+    if (tokenMatch) pageToken = tokenMatch[1]
   })
   for (let i = 0; i < 40; i += 1) {
     try {
       const res = await fetch(`${base}/health`)
-      if (res.ok) return
+      if (res.ok && pageToken) return
     } catch { /* retry */ }
     await delay(50)
   }
@@ -92,7 +109,7 @@ test('internal-only run isolates section failures', async (t) => {
 
   await fetch(`${base}/api/v1/workspaces`, {
     method: 'POST',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({
       id: 'ws_brief',
       name: 'brief',
@@ -112,7 +129,7 @@ test('internal-only run isolates section failures', async (t) => {
 
   const runRes = await fetch(`${base}/api/v1/briefing/run`, {
     method: 'POST',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({ workspaceCwd: wsCwd, mode: 'internal-only' }),
   })
   assert.equal(runRes.status, 200)
@@ -177,7 +194,7 @@ test('latest accepts cwd and onOpen with CORS', async (t) => {
   await mkdir(otherCwd, { recursive: true })
   await fetch(`${base}/api/v1/workspaces`, {
     method: 'POST',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({
       id: 'ws_brief_cwd',
       name: 'cwd',
