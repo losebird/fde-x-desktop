@@ -19,6 +19,7 @@ const TOOLS_BACKGROUND = '这一步选了会停下来等后台任务的工具，
 const TOOLS_ASK = '当前权限会要求确认，这一步选了会直接执行的工具，未运行'
 const TOOLS_UNCONFIRMED = '直接执行的工具需要逐项确认'
 const TOOLS_PERSONA = '这一步要带的人设没有核对上，未运行'
+const TOOLS_DIVERGE = '同一次运行里的 AI 步骤工具或人设不一致，未开会话'
 
 const CARD_STATUS = {
   succeeded: 'success',
@@ -243,9 +244,28 @@ function failRun(db, ctx, message) {
   markRunFailed(db, ctx.runId, now)
 }
 
+function warnSession(event, sessionId, error) {
+  const message = error instanceof Error && error.message ? error.message : String(error)
+  console.warn(event, sessionId, message)
+}
+
 async function archiveSessionBestEffort(aiRuntime, sessionId) {
   if (!sessionId || !aiRuntime || typeof aiRuntime.call !== 'function') return
-  await aiRuntime.call('workspace/archiveSession', { request: { sessionId } }).catch(() => undefined)
+  try {
+    await aiRuntime.call('workspace/archiveSession', { request: { sessionId } })
+  } catch (error) {
+    warnSession('workflow_session_archive_failed', sessionId, error)
+  }
+}
+
+async function renameSession(aiRuntime, sessionId, title) {
+  const name = typeof title === 'string' ? title.trim() : ''
+  if (!name || !sessionId || !aiRuntime || typeof aiRuntime.call !== 'function') return
+  try {
+    await aiRuntime.call('session/rename', { request: { sessionId, title: name } })
+  } catch (error) {
+    warnSession('workflow_session_rename_failed', sessionId, error)
+  }
 }
 
 async function performRun(deps, ctx) {
@@ -284,15 +304,16 @@ async function performRun(deps, ctx) {
     return
   }
   const allowHome = aiRuntime && aiRuntime.dshHome
-  const prepared = []
+  let session = null
   const releaseSession = async (requestedId, actualId) => {
     discardWorkflowAllow(requestedId, allowHome)
     if (actualId && actualId !== requestedId) discardWorkflowAllow(actualId, allowHome)
     await archiveSessionBestEffort(aiRuntime, actualId)
   }
   const releasePrepared = async () => {
-    const pending = prepared.splice(0, prepared.length)
-    for (const item of pending) await releaseSession(item.requestedId, item.sessionId)
+    const pending = session
+    session = null
+    if (pending) await releaseSession(pending.requestedId, pending.sessionId)
   }
   const failPrepared = async (message, extra) => {
     if (extra) await releaseSession(extra.requestedId, extra.actualId)
@@ -303,6 +324,7 @@ async function performRun(deps, ctx) {
     skipSteps(db, skipStepsList, failedAt)
     markRunFailed(db, ctx.runId, failedAt)
   }
+  const shapes = []
   for (const step of aiSteps) {
     const tools = stepTools(step)
     if (!tools) {
@@ -317,61 +339,68 @@ async function performRun(deps, ctx) {
       await failPrepared(TOOLS_BACKGROUND)
       return
     }
-    const requestedId = `session-${randomUUID()}`
-    const presetId = stepPreset(step)
-    const persona = presetId ? await personaFor(aiRuntime, cwd, presetId) : null
-    if (presetId && !persona) {
-      await failPrepared(TOOLS_PERSONA)
-      return
-    }
-    stageWorkflowAllow(requestedId, tools, allowHome, persona)
-    let created
-    try {
-      created = await aiRuntime.call('session/create', {
-        request: { cwd, agentPreset: WORKFLOW_PRESET, sessionId: requestedId },
-      })
-    } catch (error) {
-      discardWorkflowAllow(requestedId, allowHome)
-      await releasePrepared()
-      throw error
-    }
-    const actualId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
-    if (!actualId) {
-      discardWorkflowAllow(requestedId, allowHome)
-      await releasePrepared()
-      throw new Error('工作流会话没有建立')
-    }
-    const visible = await readVisibleTools(aiRuntime, actualId)
-    if (visible.kind !== 'listed') {
-      await failPrepared(TOOLS_UNCHECKED, { requestedId, actualId })
-      return
-    }
-    if (!namesEqual(tools, visible.tools)) {
-      await failPrepared(mismatchMessage(tools), { requestedId, actualId })
-      return
-    }
-    if (tools.some((name) => toolTier(name) === 'danger') && visible.approval !== 'never') {
-      await failPrepared(TOOLS_ASK, { requestedId, actualId })
-      return
-    }
-    prepared.push({ step, requestedId, sessionId: actualId, tools: [...tools].sort() })
+    shapes.push({ step, tools, presetId: stepPreset(step) })
   }
+  const head = shapes[0]
+  const compatible = shapes.every((item) => item.presetId === head.presetId && namesEqual(item.tools, head.tools))
+  if (!compatible) {
+    await failPrepared(TOOLS_DIVERGE)
+    return
+  }
+  const persona = head.presetId ? await personaFor(aiRuntime, cwd, head.presetId) : null
+  if (head.presetId && !persona) {
+    await failPrepared(TOOLS_PERSONA)
+    return
+  }
+  const requestedId = `session-${randomUUID()}`
+  stageWorkflowAllow(requestedId, head.tools, allowHome, persona)
+  let created
   try {
-    claimRunning(db, ctx.runId, aiSteps, prepared[0].sessionId, prepared[0].tools, isoNow())
+    created = await aiRuntime.call('session/create', {
+      request: { cwd, agentPreset: WORKFLOW_PRESET, sessionId: requestedId },
+    })
+  } catch (error) {
+    discardWorkflowAllow(requestedId, allowHome)
+    await releasePrepared()
+    throw error
+  }
+  const actualId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
+  if (!actualId) {
+    discardWorkflowAllow(requestedId, allowHome)
+    await releasePrepared()
+    throw new Error('工作流会话没有建立')
+  }
+  const visible = await readVisibleTools(aiRuntime, actualId)
+  if (visible.kind !== 'listed') {
+    await failPrepared(TOOLS_UNCHECKED, { requestedId, actualId })
+    return
+  }
+  if (!namesEqual(head.tools, visible.tools)) {
+    await failPrepared(mismatchMessage(head.tools), { requestedId, actualId })
+    return
+  }
+  if (head.tools.some((name) => toolTier(name) === 'danger') && visible.approval !== 'never') {
+    await failPrepared(TOOLS_ASK, { requestedId, actualId })
+    return
+  }
+  session = { requestedId, sessionId: actualId, tools: [...head.tools].sort() }
+  await renameSession(aiRuntime, actualId, ctx.workflowName)
+  try {
+    claimRunning(db, ctx.runId, aiSteps, session.sessionId, session.tools, isoNow())
   } catch (error) {
     await releasePrepared()
     throw error
   }
-  for (const item of prepared) {
+  for (const item of shapes) {
     await aiRuntime.call('session/prompt', {
       request: {
         requestId: createId('req'),
-        sessionId: item.sessionId,
+        sessionId: session.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text: stepText(item.step) }],
       },
     })
-    await followTurn(aiRuntime, item.sessionId)
+    await followTurn(aiRuntime, session.sessionId)
     markStepSucceeded(db, item.step.id, isoNow())
   }
   const finished = isoNow()
@@ -624,7 +653,7 @@ export function startWorkflowRun(deps, command) {
   const trigger = acceptedTrigger(command)
   if (!workspaceId) throw rejectRun(400, 'missing_workspace_id', '缺少 workspaceId')
   if (!workflowId || isHostJobId(workflowId)) throw rejectRun(404, 'not_found', '工作流不存在')
-  const workflow = db.prepare('SELECT id, workspace_id, definition_json FROM workflows WHERE id = ?').get(workflowId)
+  const workflow = db.prepare('SELECT id, workspace_id, name, definition_json FROM workflows WHERE id = ?').get(workflowId)
   if (!workflow || workflow.workspace_id !== workspaceId) throw rejectRun(404, 'not_found', '工作流不存在')
   const steps = parseSteps(workflow.definition_json)
   if (hasIllegalSourceRef(steps)) throw rejectRun(422, 'invalid_source_ref', '来源引用不合法')
@@ -672,6 +701,7 @@ export function startWorkflowRun(deps, command) {
   continueRun(deps, {
     runId,
     workspaceId: workflow.workspace_id,
+    workflowName: typeof workflow.name === 'string' ? workflow.name : '',
     steps: queued.steps,
   })
   return {
