@@ -19,6 +19,11 @@ export const workflowToolCopy = {
   loading: '正在读取可选工具',
   unavailable: '可选工具还没核对上',
   allowedUnknown: '放行清单还没核对上',
+  scheduleWorkflow: '绑定工作流',
+  scheduleNone: '不绑定',
+  scheduleOnce: '到点一次',
+  scheduleDaily: '每天这个时间',
+  scheduleRecurrence: '什么时候跑',
 } as const
 
 export type WorkflowToolTier = keyof typeof workflowToolCopy.tier

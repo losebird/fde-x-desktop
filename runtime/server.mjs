@@ -69,6 +69,7 @@ import { ENGINE_PROBE_MS, engineProbeKind } from './engine-probe.mjs'
 import { enrichReadyWithLlm, readDshDefaultLlm } from './dsh-default-llm.mjs'
 import { handlePlanRequest } from './routes/plan.mjs'
 import { failInterruptedRuns } from './plan/workflow-run.mjs'
+import { tickWorkflowSchedules } from './plan/workflow-schedule.mjs'
 import { handleCatalogRequest } from './routes/catalog.mjs'
 import { collectBag } from './catalog-collect.mjs'
 import { ensureTypertVerbs } from './catalog-typert.mjs'
@@ -155,6 +156,7 @@ const host = FDE_LISTEN_HOST
 let advertisedOrigin = ''
 const db = openDatabase(databasePath, migrationsDirectory)
 failInterruptedRuns(db)
+const workflowScheduleBootedAt = new Date()
 configureEventBus(db)
 const aiRuntime = createCoreConnector({
   cwd: FDE_AI_WORKSPACE,
@@ -3302,7 +3304,7 @@ const server = createServer(async (request, response) => {
     if (await handleCatalogRequest(request, response, url, { aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, currentCorrelationId)) {
       return
     }
-    if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime }, currentCorrelationId)) {
+    if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime, uiToken }, currentCorrelationId)) {
       return
     }
 
@@ -3413,6 +3415,12 @@ server.listen(port, host, () => {
   console.log(`FDE_LISTENING ${actualPort}`)
   console.log(`FDE-X runtime listening on ${advertisedOrigin}`)
   console.log(`SQLite authority: ${databasePath}`)
+  const workflowScheduleTimer = setInterval(() => {
+    void tickWorkflowSchedules({ db, aiRuntime }, { now: new Date(), bootedAt: workflowScheduleBootedAt }).catch((error) => {
+      console.error('workflow_schedule_tick_failed', error)
+    })
+  }, 15_000)
+  if (typeof workflowScheduleTimer.unref === 'function') workflowScheduleTimer.unref()
   void reclaimStrayRuntime({
     keep: [process.pid, process.ppid],
     runtimePort: actualPort,
