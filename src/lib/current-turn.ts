@@ -47,6 +47,7 @@ export type SubmitCurrentTurnInput = {
   fillThreadId?: string
   sessionId?: string
   reveal?: boolean
+  adopt?: boolean
 }
 
 export type SubmitCurrentTurnResult =
@@ -94,14 +95,16 @@ export async function submitCurrentTurn(input: SubmitCurrentTurnInput): Promise<
     return workspace
   }
   const requestId = newRequestId()
-  useApp.getState().setActiveAiSessionId(sessionId)
+  if (input.adopt !== false) {
+    useApp.getState().setActiveAiSessionId(sessionId)
+    sink?.select({
+      sessionId,
+      cwd,
+      workspaceId,
+      requestId,
+    })
+  }
   if (input.reveal !== false) revealAi(sessionId)
-  sink?.select({
-    sessionId,
-    cwd,
-    workspaceId,
-    requestId,
-  })
   try {
     await runtimeApi.promptAi(sessionId, { text, requestId })
   } catch (cause) {

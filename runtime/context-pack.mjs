@@ -1,5 +1,6 @@
 import { listBusinessApps, listBusinessConnections, listOperations, listWorkspaces } from './db.mjs'
 import { memoryLandHref } from './memory/identity.mjs'
+import { formatTaskLine } from './plan/task-advice.mjs'
 
 const PACK_BUDGET_MS = 3000
 
@@ -125,6 +126,7 @@ async function fillWorkspace(db, pack, workspaceCwd, sessionId) {
 
 function mapTaskRow(t) {
   const row = { id: t.id, title: t.title, status: t.status }
+  if (t.priority != null) row.priority = t.priority
   if (t.due_at != null) row.dueAt = t.due_at
   return row
 }
@@ -163,7 +165,7 @@ async function fillTasks(db, pack, workspaceCwd, taskList) {
     const dayStart = isoDayStart()
     const dayEnd = isoDayEnd()
     taskRows = db.prepare(`
-      SELECT id, title, status, due_at FROM tasks
+      SELECT id, title, status, priority, due_at FROM tasks
       WHERE workspace_id = ? AND status IN ('todo', 'doing')
         AND due_at IS NOT NULL AND due_at >= ? AND due_at <= ?
       ORDER BY due_at ASC LIMIT 20
@@ -171,7 +173,7 @@ async function fillTasks(db, pack, workspaceCwd, taskList) {
   } else if (taskList.ids.length > 0) {
     const placeholders = taskList.ids.map(() => '?').join(', ')
     const loaded = db.prepare(`
-      SELECT id, title, status, due_at FROM tasks
+      SELECT id, title, status, priority, due_at FROM tasks
       WHERE workspace_id = ? AND id IN (${placeholders})
     `).all(workspaceId, ...taskList.ids)
     const byId = new Map(loaded.map((t) => [t.id, t]))
@@ -342,8 +344,8 @@ export async function buildContextPack(deps, input) {
   return { pack, warnings }
 }
 
-/** @param {Record<string, unknown>} pack @param {Set<string>} omit */
-export function renderContextForPrompt(pack, omit = new Set()) {
+/** @param {Record<string, unknown>} pack @param {Set<string>} omit @param {{ taskIds?: boolean }} [options] */
+export function renderContextForPrompt(pack, omit = new Set(), options = {}) {
   const lines = []
   const w = pack.workspace && typeof pack.workspace === 'object' ? pack.workspace : null
   if (w && !omit.has('workspace')) {
@@ -353,7 +355,8 @@ export function renderContextForPrompt(pack, omit = new Set()) {
   if (pack.tasks && !omit.has('tasks')) {
     const t = pack.tasks
     const today = (Array.isArray(t.today) ? t.today : []).filter((row) => !omit.has(`tasks:${row.id}`))
-    lines.push('【今日待办】', today.length ? today.map((row) => `- ${row.title}（${row.status}）`).join('\n') : '（无）')
+    const lineFor = options.taskIds ? (row) => formatTaskLine(row) : (row) => `- ${row.title}（${row.status}）`
+    lines.push('【今日待办】', today.length ? today.map(lineFor).join('\n') : '（无）')
     if (typeof t.overdue === 'number' && t.overdue > 0) lines.push(`逾期 ${t.overdue} 条`)
   }
   if (pack.im && !omit.has('im')) {
