@@ -10,6 +10,7 @@ import {
   FDE_RUNTIME_HOST,
   FDE_VENDOR_DIR,
 } from '../runtime/config.mjs'
+import { ensureGenerationHost } from '../runtime/generation.mjs'
 
 const root = FDE_APP_ROOT
 const host = FDE_RUNTIME_HOST
@@ -98,8 +99,9 @@ function run(command, args, extraEnv = {}) {
 
 function runRuntime(extraEnv = {}) {
   const env = { ...process.env, ...extraEnv, FDE_RUNTIME_SUPERVISED: '1' }
-  const boot = () => {
-    const child = spawn(process.execPath, ['runtime/server.mjs'], {
+  const boot = async () => {
+    await ensureGenerationHost()
+    const child = spawn(process.execPath, ['runtime/boot.mjs'], {
       cwd: root,
       env,
       stdio: 'inherit',
@@ -122,6 +124,7 @@ if (await portOpen(runtimePort)) {
 }
 
 console.log(`[fde-x] 对端核心 http://${host}:${runtimePort}  门牌 127.0.0.1:${lanPort}`)
+await ensureGenerationHost()
 runRuntime({
   FDE_RUNTIME_PORT: String(runtimePort),
   FDE_RUNTIME_HOST: host,

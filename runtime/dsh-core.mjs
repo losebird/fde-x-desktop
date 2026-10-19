@@ -21,7 +21,9 @@ import {
 } from './config.mjs'
 import { hostChildEnv, resolveHostSpawn } from './host-spawn.mjs'
 import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
-import { mergeProfileManifest } from './profile-manifest.mjs'
+import { BUILTIN_PLUGINS, pluginEnvKey } from './builtin-plugins.mjs'
+import { readProfileManifestFile, writeMergedProfileManifest } from './profile-manifest.mjs'
+import { reconcilePinnedVendor } from './plugin-vendor.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 
@@ -461,13 +463,17 @@ export class DshCoreConnector {
     }
   }
 
-  pluginSourceCandidates(name) {
-    const envKey = `FDE_PLUGIN_${name.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()}`
-    const fromEnv = process.env[envKey]
-    const webLink = join(this.dshHome, 'profiles', 'web', 'node_modules', name)
+  pluginSourceCandidates(plugin) {
+    const fromEnv = process.env[pluginEnvKey(plugin.dir)]
+    const webLink = join(this.dshHome, 'profiles', 'web', 'node_modules', plugin.module)
     const candidates = []
     if (fromEnv) candidates.push(fromEnv)
-    candidates.push(join(FDE_VENDOR_DIR, name))
+    candidates.push(join(FDE_VENDOR_DIR, plugin.dir))
+    if (plugin.module !== plugin.dir) {
+      const moduleEnv = process.env[pluginEnvKey(plugin.module)]
+      if (moduleEnv && moduleEnv !== fromEnv) candidates.push(moduleEnv)
+      candidates.push(join(FDE_VENDOR_DIR, plugin.module))
+    }
     try {
       if (existsSync(webLink)) candidates.push(realpathSync(webLink))
     } catch {
@@ -486,51 +492,87 @@ export class DshCoreConnector {
     }
   }
 
-  async linkReadablePlugin(name, modulesDir) {
-    const vendor = join(this.dshHome, 'vendor', name)
-    const link = join(modulesDir, name)
-    if (process.env.FDE_REFRESH_PLUGINS === '1') {
-      await rm(vendor, { recursive: true, force: true })
-    }
-    if (!existsSync(vendor)) {
-      for (const source of this.pluginSourceCandidates(name)) {
-        try {
-          await access(source, constants.R_OK)
-          await mkdir(dirname(vendor), { recursive: true })
-          await cp(source, vendor, { recursive: true, dereference: true })
-          break
-        } catch {
-          /* try next candidate */
+  recordPluginFailure(plugin, detail) {
+    const text = `可选插件 ${plugin.module} 挂载失败：${detail}`
+    this.pluginLinkFailures.push(text)
+    console.warn('builtin_plugin_link_failed', text)
+  }
+
+  async linkBuiltinPlugin(plugin, modulesDir) {
+    try {
+      const vendor = join(this.dshHome, 'vendor', plugin.dir)
+      if (plugin.source.kind === 'pinned') {
+        const result = await reconcilePinnedVendor({
+          vendorDir: vendor,
+          pin: { version: plugin.source.version, commit: plugin.source.commit },
+          candidates: this.pluginSourceCandidates(plugin),
+        })
+        if (!result.ok) {
+          const detail = result.error ? `${result.action}：${result.error}` : result.action
+          this.recordPluginFailure(plugin, detail)
+          return false
+        }
+      } else {
+        if (process.env.FDE_REFRESH_PLUGINS === '1') {
+          await rm(vendor, { recursive: true, force: true })
+        }
+        if (!existsSync(vendor)) {
+          for (const source of this.pluginSourceCandidates(plugin)) {
+            try {
+              await access(source, constants.R_OK)
+              await mkdir(dirname(vendor), { recursive: true })
+              await cp(source, vendor, { recursive: true, dereference: true })
+              break
+            } catch {
+              continue
+            }
+          }
+        }
+        if (!existsSync(vendor)) {
+          this.recordPluginFailure(plugin, 'missing-source')
+          return false
         }
       }
+      await this.applyVendorOverlay(plugin.dir, vendor)
+      const link = join(modulesDir, plugin.module)
+      await mkdir(dirname(link), { recursive: true })
+      await linkPath(vendor, link)
+      return true
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      this.recordPluginFailure(plugin, detail)
+      return false
     }
-    if (!existsSync(vendor)) return false
-    await this.applyVendorOverlay(name, vendor)
-    await linkPath(vendor, link)
-    return true
   }
 
   async ensureIsolatedProfile() {
+    try {
+      await this.installIsolatedProfile()
+    } catch (error) {
+      this.state = 'error'
+      this.lastError = errorMessage(error)
+      await this.cleanupCredentialsCopy()
+      throw error
+    }
+  }
+
+  async installIsolatedProfile() {
     const dir = join(this.dshHome, 'profiles', this.profileName)
     const modules = join(dir, 'node_modules')
-    await mkdir(modules, { recursive: true })
-    const extras = []
-    for (const name of ['dsh-lan-assist', 'dsh-semantic-os']) {
-      if (await this.linkReadablePlugin(name, modules)) extras.push(name)
-    }
-    extras.push(...availableProductBundles())
     const packagePath = join(dir, 'package.json')
-    let existing = null
-    try {
-      existing = JSON.parse(await readFile(packagePath, 'utf8'))
-    } catch {
-      existing = null
+    await readProfileManifestFile(packagePath)
+    await mkdir(modules, { recursive: true })
+    this.pluginLinkFailures = []
+    const extras = []
+    for (const plugin of BUILTIN_PLUGINS) {
+      if (await this.linkBuiltinPlugin(plugin, modules)) extras.push(plugin.module)
     }
-    const manifest = mergeProfileManifest(existing, {
+    this.lastError = this.pluginLinkFailures.length ? this.pluginLinkFailures.join('；') : null
+    extras.push(...availableProductBundles())
+    await writeMergedProfileManifest(packagePath, {
       profileName: this.profileName,
       requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...extras],
     })
-    await writeFile(packagePath, `${JSON.stringify(manifest, null, 2)}\n`)
     const cordisYml = join(dir, 'cordis.yml')
     try {
       await access(cordisYml)

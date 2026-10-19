@@ -16,6 +16,7 @@ import {
 import { seedDshCredentialsSync } from '../runtime/dsh-credentials.mjs'
 import { isPidAlive, reclaimStrayRuntime } from '../runtime/reclaim-runtime.mjs'
 import { runtimePortOpen } from './runtime-port.mjs'
+import { ensureGenerationHost } from '../runtime/generation.mjs'
 
 const root = FDE_APP_ROOT
 const host = FDE_RUNTIME_HOST
@@ -118,7 +119,8 @@ function superviseRuntime(extraEnv = {}, { adoptExisting = false } = {}) {
       })
       if (shuttingDown) return
       if (await portOpen(runtimePort, 300)) return
-      child = spawn(process.execPath, ['runtime/server.mjs'], {
+      await ensureGenerationHost()
+      child = spawn(process.execPath, ['runtime/boot.mjs'], {
         cwd: root,
         env,
         stdio: 'inherit',
@@ -153,6 +155,7 @@ prepareFdeHome()
 
 if (!await portOpen(runtimePort)) {
   console.log(`[fde-x] 正在启动本地核心 http://${host}:${runtimePort}`)
+  await ensureGenerationHost()
   const dshBin = FDE_DSH_BIN || resolveDshBin()
   superviseRuntime({
     FDE_RUNTIME_PORT: String(runtimePort),
