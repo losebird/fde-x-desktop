@@ -2,12 +2,12 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
-  Clock, MapPin, Calendar as CalIcon, Repeat, Play, Power, Sparkles, Bot,
+  Clock, MapPin, Calendar as CalIcon, Repeat, Play, Power, Sparkles, MoreHorizontal,
 } from 'lucide-react'
 import { askAiForResult } from '@/lib/ask-ai'
-import { askOrigin } from '@/lib/ask-origin'
+import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { openRef } from '@/lib/open-ref'
-import { planAppSource, planTaskAskFields } from '@/lib/plan-app-source'
+import { planTaskSource } from '@/lib/plan-app-source'
 import type { JsonSchemaLite } from '@/lib/json-schema-lite'
 import clsx from 'clsx'
 import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
@@ -22,6 +22,8 @@ import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
 import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
 import { PLAN_DAY_HOURS, planDayMarkerTop, planDayOffsetMinutes } from '../../runtime/plan/plan-day-hours.mjs'
+import { planTaskMenu } from '../../runtime/plan/task-menu.mjs'
+import { taskHandoffPrompt } from '../../runtime/plan/task-handoff.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -174,23 +176,23 @@ function formatAdvicePatch(patch: TaskAdvicePatch): string {
 }
 
 function planSourceButton(task: Task, selectTask: (id: Task['id']) => void) {
-  const handle = planAppSource(task.sourceRef || '')
-  if (!handle) return null
+  const handle = planTaskSource(task.sourceRef || '')
+  if (!handle?.href) return null
   const row = handle.kind === 'row'
   return (
     <button
       type="button"
       className="text-xs text-ink-muted mt-0.5"
-      data-plan-source={row ? 'row' : 'app'}
-      data-plan-source-app={handle.ledgerId}
-      {...(row ? { 'data-plan-source-rid': handle.rid } : {})}
+      data-plan-source={handle.kind}
+      {...(handle.ledgerId ? { 'data-plan-source-app': handle.ledgerId } : {})}
+      {...(row && handle.rid ? { 'data-plan-source-rid': handle.rid } : {})}
       onClick={(event) => {
         event.stopPropagation()
         selectTask(task.id)
         openRef(handle.href)
       }}
     >
-      {row ? '打开记录' : '打开应用'}
+      来源：{handle.label} ↗
     </button>
   )
 }
@@ -219,14 +221,20 @@ function TodoTab() {
   const [organizeAdvice, setOrganizeAdvice] = useState<TaskAdviceResult | null>(null)
   const [appliedKeys, setAppliedKeys] = useState<Set<string>>(() => new Set())
   const [applyingKey, setApplyingKey] = useState<string | null>(null)
-  const [draft, setDraft] = useState<Pick<Task, 'title'|'priority'|'due'|'tags'>>({
-    title: '', priority: 'med', due: '', tags: [],
+  const [draft, setDraft] = useState<{ title: string; priority: Task['priority']; due: string; tags: string[]; sourceRef: string }>({
+    title: '', priority: 'med', due: '', tags: [], sourceRef: '',
   })
   const [ctxPack, setCtxPack] = useState<ContextPack | null>(null)
   const [ctxWarnings, setCtxWarnings] = useState<string[]>([])
   const [ctxOmit, setCtxOmit] = useState<Set<string>>(() => new Set())
   const [askError, setAskError] = useState('')
   const [askLoading, setAskLoading] = useState(false)
+  const [menuTaskId, setMenuTaskId] = useState<string | null>(null)
+  const [handoffTask, setHandoffTask] = useState<Task | null>(null)
+  const [handoffNote, setHandoffNote] = useState('')
+  const [markDoing, setMarkDoing] = useState(true)
+  const [newError, setNewError] = useState('')
+  const [aiRuns, setAiRuns] = useState<Map<string, Array<{ id: string; sessionId: string; state: string }>>>(() => new Map())
   const selectedTask = tasks.find((row) => row.id === selectedTaskId) || null
   const taskPackKey = tasks.map((row) => `${row.id}:${row.status}`).join('|')
 
@@ -280,16 +288,21 @@ function TodoTab() {
 
   function submit() {
     if (!draft.title.trim()) return
+    setNewError('')
+    const sourceRef = draft.sourceRef.trim()
     void addTask({
       title: draft.title,
       priority: draft.priority,
       due: draft.due || undefined,
       tags: draft.tags,
       status: 'todo',
+      ...(sourceRef ? { sourceRef } : {}),
     }).then(() => {
-      setDraft({ title: '', priority: 'med', due: '', tags: [] })
+      setDraft({ title: '', priority: 'med', due: '', tags: [], sourceRef: '' })
       setShowNew(false)
-    }).catch(() => undefined)
+    }).catch((error) => {
+      setNewError(error instanceof Error ? error.message : '创建失败')
+    })
   }
 
   async function runOrganizeTodos() {
@@ -321,30 +334,95 @@ function TodoTab() {
     setOrganizeAdvice(result.data)
   }
 
-  async function runAskSelected() {
-    if (!selectedTask) return
+  const filteredIds = filtered.map((row) => row.id).join('|')
+
+  useEffect(() => {
+    let cancelled = false
+    const ids = filteredIds ? filteredIds.split('|') : []
+    void Promise.all(ids.map(async (id) => {
+      if (isHostGoalId(id)) return [id, []] as [string, Array<{ id: string; sessionId: string; state: string }>]
+      try {
+        const runs = await runtimeApi.listTaskAiRuns(id)
+        return [id, runs] as [string, Array<{ id: string; sessionId: string; state: string }>]
+      } catch {
+        return [id, []] as [string, Array<{ id: string; sessionId: string; state: string }>]
+      }
+    })).then((rows) => {
+      if (!cancelled) setAiRuns(new Map(rows))
+    })
+    return () => { cancelled = true }
+  }, [filteredIds])
+
+  useEffect(() => {
+    if (!menuTaskId) return
+    function close(event: MouseEvent) {
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-plan-task-menu]')) return
+      setMenuTaskId(null)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [menuTaskId])
+
+  async function startHandoff() {
+    if (!handoffTask) return
+    const task = handoffTask
+    if (!planTaskMenu(task).handoff.enabled) return
     setAskLoading(true)
     setAskError('')
-    const fields: Record<string, unknown> = {
-      status: selectedTask.status,
-      priority: selectedTask.priority,
+    try {
+      if (markDoing) await updateTask(task.id, { status: 'doing' })
+      const workspace = loadCurrentWorkspaceCwd()
+      if (!workspace.ok) throw new Error(workspace.error)
+      const built = taskHandoffPrompt({
+        id: task.id,
+        title: task.title,
+        sourceRef: task.sourceRef || '',
+        notes: task.notes,
+      }, handoffNote)
+      const created = await runtimeApi.createAiSession({
+        cwd: workspace.cwd,
+        agentPreset: built.preset,
+      })
+      await runtimeApi.renameAiSession(created.sessionId, built.sessionTitle).catch(() => undefined)
+      const requestId = crypto.randomUUID()
+      await runtimeApi.startTaskAiRun(task.id, { sessionId: created.sessionId, requestId })
+      setAiRuns((prev) => {
+        const next = new Map(prev)
+        const rows = next.get(task.id) || []
+        next.set(task.id, [...rows, { id: requestId, sessionId: created.sessionId, state: 'running' }])
+        return next
+      })
+      setHandoffTask(null)
+      setHandoffNote('')
+      try {
+        await runtimeApi.promptAi(created.sessionId, { text: built.prompt, requestId })
+      } catch (error) {
+        setAskError(error instanceof Error ? error.message : '交给 AI 失败')
+      }
+    } catch (error) {
+      setAskError(error instanceof Error ? error.message : '交给 AI 失败')
+    } finally {
+      setAskLoading(false)
     }
-    if (selectedTask.notes) fields.notes = selectedTask.notes
-    if (selectedTask.due) fields.due = selectedTask.due
-    if (selectedTask.tags.length) fields.tags = selectedTask.tags.join(', ')
-    const asked = await planTaskAskFields(selectedTask.sourceRef || '')
-    const result = await askOrigin(`task:${selectedTask.id}`, {
-      title: selectedTask.title,
-      text: selectedTask.notes || selectedTask.title,
-      status: selectedTask.status,
-      fields: { ...fields, ...asked },
-      tail: '请结合上述来源实体推进这项待办。禁止过账。',
-      omit: ctxOmit,
-      taskIds: [selectedTask.id],
-      revealAi: true,
-    })
-    setAskLoading(false)
-    if (!result.ok) setAskError(result.error)
+  }
+
+  async function cancelHandoff(task: Task) {
+    setAskError('')
+    try {
+      await runtimeApi.cancelTaskAiRun(task.id)
+      setAiRuns((prev) => {
+        const next = new Map(prev)
+        const rows = (next.get(task.id) || []).map((row) => (
+          row.state === 'running' ? { ...row, state: 'cancelled' } : row
+        ))
+        next.set(task.id, rows)
+        return next
+      })
+      setMenuTaskId(null)
+    } catch (error) {
+      setAskError(error instanceof Error ? error.message : '取消失败')
+    }
   }
 
   async function applySuggestion(suggestion: TaskAdviceSuggestion, key: string) {
@@ -418,15 +496,6 @@ function TodoTab() {
             >
               <Sparkles size={14} /> {organizeLoading ? '整理中…' : '整理待办'}
             </button>
-            <button
-              type="button"
-              className="btn h-8"
-              disabled={!selectedTask || askLoading}
-              title="交给当前 AI"
-              onClick={() => void runAskSelected()}
-            >
-              <Bot size={14} /> {askLoading ? '交给中…' : '交给当前 AI'}
-            </button>
             <ContextChips
               pack={ctxPack}
               warnings={ctxWarnings}
@@ -441,7 +510,27 @@ function TodoTab() {
           </div>
         </div>
       </Card>
-      {askError && <div className="text-xs text-accent-red mb-3">{askError}</div>}
+      {askError && !handoffTask && <div className="text-xs text-accent-red mb-3">{askError}</div>}
+      {handoffTask && (
+        <div className="fixed inset-0 z-40 bg-ink/20 flex items-center justify-center" onClick={() => { if (!askLoading) setHandoffTask(null) }}>
+          <div className="bg-white border border-line rounded-lg shadow-xl w-[28rem] max-w-[calc(100%-2rem)] p-4" onClick={(event) => event.stopPropagation()}>
+            <div className="text-sm font-medium">只把「{handoffTask.title}」这 1 条交给 AI。</div>
+            <div className="text-xs text-ink-muted mt-2">新会话：待办 · {handoffTask.title}</div>
+            <div className="text-xs text-ink-muted mt-1">AI 可以查询记录、提出修改。改待办或业务都要你确认才落库。</div>
+            <label className="block text-xs text-ink-muted mt-3">补充说明（可选）</label>
+            <input className="input mt-1.5 w-full" value={handoffNote} onChange={(event) => setHandoffNote(event.target.value)} />
+            <label className="mt-3 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={markDoing} onChange={(event) => setMarkDoing(event.target.checked)} />
+              开始时标为进行中
+            </label>
+            {askError && <div className="text-xs text-accent-red mt-3">{askError}</div>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" className="btn" disabled={askLoading} onClick={() => setHandoffTask(null)}>取消</button>
+              <button type="button" className="btn-primary" disabled={askLoading} onClick={() => void startHandoff()}>{askLoading ? '处理中…' : '开始处理'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <PlanTaskProposals />
       {filtered.length === 0 ? (
@@ -475,17 +564,108 @@ function TodoTab() {
                 {t.status === 'todo'  && <Circle size={16} />}
                 {t.status === 'archived' && <Archive size={16} className="text-ink-subtle" />}
               </button>
-              <div className="min-w-0 px-2 cursor-pointer" onClick={() => selectTask(t.id)}>
+              <div
+                className="min-w-0 px-2 cursor-pointer"
+                onClick={() => selectTask(t.id)}
+                onDoubleClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  selectTask(t.id)
+                }}
+              >
                 <div className="font-medium text-sm truncate">{t.title}</div>
                 {planSourceButton(t, selectTask)}
+                {(() => {
+                  const running = (aiRuns.get(t.id) || []).find((row) => row.state === 'running')
+                  if (!running) return null
+                  return (
+                    <button
+                      type="button"
+                      className="text-xs text-ink-muted mt-0.5"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openRef({ panel: 'ai', sessionId: running.sessionId })
+                      }}
+                    >
+                      AI 处理中 · 打开会话
+                    </button>
+                  )
+                })()}
                 {t.notes && <div className="text-xs text-ink-muted mt-0.5 truncate">{t.notes}</div>}
               </div>
               <div className="hidden @md:block text-xs text-ink-muted truncate">{t.due ?? '—'}</div>
               <div className="hidden @md:block"><Tag kind={PRIORITY_TAG[t.priority].kind}>{PRIORITY_TAG[t.priority].label}</Tag></div>
               <div className="hidden @xl:flex gap-1 flex-wrap min-w-0 overflow-hidden"><div className="flex gap-1 flex-wrap">{t.tags.slice(0, 2).map((g) => <Tag key={g}>#{g}</Tag>)}{t.tags.length > 2 && <Tag>+{t.tags.length - 2}</Tag>}</div></div>
-              <button onClick={() => void removeTask(t.id)} className="btn-ghost p-1 text-ink-subtle hover:text-accent-red flex items-center justify-center" title={isHostGoalId(t.id) ? '归档 Host goal' : '删除'}>
-                <Trash2 size={14} />
-              </button>
+              <div className="relative flex items-center justify-center" data-plan-task-menu>
+                <button
+                  type="button"
+                  className="btn-ghost p-1 text-ink-subtle flex items-center justify-center"
+                  title="更多"
+                  aria-label="更多"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setMenuTaskId((current) => current === t.id ? null : t.id)
+                  }}
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+                {menuTaskId === t.id && (
+                  <div
+                    className="absolute right-0 top-7 z-20 w-44 bg-white border border-line rounded-lg shadow-xl py-1"
+                    onClick={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-40"
+                      disabled={!planTaskMenu(t).handoff.enabled || Boolean((aiRuns.get(t.id) || []).find((row) => row.state === 'running'))}
+                      title={planTaskMenu(t).handoff.reason || undefined}
+                      onClick={() => {
+                        setHandoffTask(t)
+                        setHandoffNote('')
+                        setMarkDoing(true)
+                        setMenuTaskId(null)
+                      }}
+                    >
+                      交给 AI
+                    </button>
+                    {(aiRuns.get(t.id) || []).some((row) => row.state === 'running') && (
+                      <button
+                        type="button"
+                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2"
+                        onClick={() => void cancelHandoff(t)}
+                      >
+                        取消 AI 处理
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-40"
+                      disabled={!planTaskMenu(t).openSource.enabled}
+                      title={planTaskMenu(t).openSource.enabled ? undefined : planTaskMenu(t).openSource.reason}
+                      onClick={() => {
+                        const href = planTaskMenu(t).openSource.href
+                        if (!href) return
+                        selectTask(t.id)
+                        openRef(href)
+                        setMenuTaskId(null)
+                      }}
+                    >
+                      打开来源记录
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 text-accent-red"
+                      onClick={() => {
+                        setMenuTaskId(null)
+                        void removeTask(t.id)
+                      }}
+                    >
+                      删除
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           ))}
         </Card>
@@ -520,6 +700,11 @@ function TodoTab() {
             <label className="text-xs text-ink-muted">标签 (逗号分隔)</label>
             <input className="input mt-1.5 w-full" placeholder="例如: scene, prototype" value={draft.tags.join(', ')} onChange={(e) => setDraft({ ...draft, tags: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} />
           </div>
+          <div>
+            <label className="text-xs text-ink-muted">来源</label>
+            <input className="input mt-1.5 w-full" value={draft.sourceRef} onChange={(e) => setDraft({ ...draft, sourceRef: e.target.value })} placeholder="biz:种类:编号，im:消息，或 app:台账" />
+          </div>
+          {newError && <div className="text-xs text-accent-red">{newError}</div>}
           <div className="flex justify-end gap-2 pt-4 border-t border-line">
             <button className="btn" onClick={() => setShowNew(false)}>取消</button>
             <button className="btn-primary" onClick={submit}>创建</button>

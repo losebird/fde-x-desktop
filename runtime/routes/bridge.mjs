@@ -201,8 +201,8 @@ export async function handleBridgeRoutes(request, response, url, deps) {
         bridgeError(response, 404, 'not_found', result.message, correlationId)
         return true
       }
-      if (result.error === 'validation_error') {
-        bridgeError(response, 422, 'validation_error', result.message, correlationId)
+      if (result.error === 'validation_error' || result.error === 'invalid_source_ref') {
+        bridgeError(response, 422, result.error, result.message, correlationId)
         return true
       }
       throw new Error(`plan task propose failed: ${result.error}`)

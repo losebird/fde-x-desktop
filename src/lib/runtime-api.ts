@@ -894,6 +894,47 @@ export class RuntimeApi {
     return this.mapPlanTask(row)
   }
 
+  async listTaskAiRuns(taskId: string, signal?: AbortSignal): Promise<Array<{
+    id: string
+    taskId: string
+    sessionId: string
+    requestId: string
+    state: string
+  }>> {
+    const data = await this.planRequest<{ runs: Array<{
+      id: string
+      taskId: string
+      sessionId: string
+      requestId: string
+      state: string
+    }> }>(`/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`, { signal })
+    return Array.isArray(data?.runs) ? data.runs : []
+  }
+
+  async startTaskAiRun(taskId: string, input: { sessionId: string; requestId: string }, signal?: AbortSignal) {
+    return this.planRequest<{ id: string; sessionId: string; state: string }>(
+      `/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`,
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      },
+    )
+  }
+
+  async cancelTaskAiRun(taskId: string, signal?: AbortSignal) {
+    return this.planRequest<{ state: string }>(
+      `/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`,
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'cancel' }),
+      },
+    )
+  }
+
   async deleteTask(id: string, opts?: { workspaceId?: string; signal?: AbortSignal }): Promise<void> {
     const params = opts?.workspaceId ? `?workspaceId=${encodeURIComponent(opts.workspaceId)}` : ''
     await this.planRequest(`/api/v1/plan/tasks/${encodeURIComponent(id)}${params}`, { method: 'DELETE', signal: opts?.signal })

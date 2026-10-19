@@ -77,6 +77,10 @@ export function updateTask(db, id, fields) {
     sets.push('completed_at = ?')
     params.push(fields.status === 'done' ? isoNow() : null)
   }
+  if (fields.sourceRef !== undefined) {
+    sets.push('source_ref = ?')
+    params.push(fields.sourceRef)
+  }
   if (!sets.length) return existing
   params.push(isoNow(), id)
   db.prepare(`UPDATE tasks SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).run(...params)
