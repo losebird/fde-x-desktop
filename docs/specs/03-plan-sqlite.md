@@ -60,7 +60,17 @@
 
 同一条工作流已经有 `queued` 或 `running` 的 `workflow_runs` 行时，不再开始另一次运行，也不新增行。人工 HTTP 返回 409 `run_in_progress`。调度器直接跳过。
 
-步骤会话只放行只读查询工具和提案工具，也就是 `fde_app_records_query`、`fde_plan_task_propose` 和记录提案 `fde_app_records_propose`。核心 AI 如果没法按这次会话限制工具，运行行已经插入，这一步就不运行，也不打开会话。该 run 从 `queued` 直接改为 `failed`，不进入 `running`。这次运行里的 ai 步骤各自在 `error_json` 写一句能读懂的中文原因。不新增列。
+每个 AI 步骤在 `config.tools` 保存自己的工具清单。这个字段缺失时，按 `fde_app_records_query`、`fde_app_records_propose`、`fde_plan_task_propose` 放行。会话只放行这一步选中的工具。普通 standard 会话仍使用完整工具集。
+
+风险分三档，`read`、`propose`、`danger`。分档以 `runtime/plan/tool-risk.mjs` 的 `TOOL_RISK` 为准。表里没有的工具一律归入 `danger`。名字以 `mcp__` 开头的工具，只有 `readOnly` 为 `true` 时归入 `read`，否则归入 `danger`。会等人答复的工具是 `ask_user_question`、`exit_plan_mode`、`wait_agent`。
+
+选了 `danger` 工具时，保存请求必须带 `confirmDanger`。同一次保存里，写了 `tools` 的 AI 步骤选出的 `danger` 名字，去重并排序后，必须和 `confirmDanger` 排序后逐项相同。没选 `danger` 时，`confirmDanger` 不传或为空数组。对不上时返回 422 `validation_error`，消息是「直接执行的工具需要逐项确认」，并且不写库。
+
+工具名不在 `GET /api/v1/plan/workflow-tools` 返回的名单里时，返回 422 `validation_error`，消息是「工具不在可选清单里」，并且不写库。`tools` 为空、含空名，或有重复名字时，返回 422 `validation_error`，消息是「工具清单不能为空」，并且不写库。
+
+清单相对保存前有变化时，写一条 `audit_entries`。`action` 是 `plan.workflow.tools`。`outcome` 是 `succeeded`。`details` 含修改前、修改后和 `danger` 名单。没有变化不写。不新增列。
+
+调用 `session/prompt` 之前先核对。可见工具集合和这一步的清单不一致，当前权限需要确认而本步又选了 `danger` 工具，或本步选了会等人答复的工具时，run 从 `queued` 直接改为 `failed`，不进入 `running`，也不调用 `session/prompt`。清单是默认三项时，原因是「工作流会话可见工具不是查询和提案这三项，未运行」。清单是自选时，原因是「工作流会话可见工具和这一步选中的工具不一致，未运行」。权限会要求确认时，原因是「当前权限会要求确认，这一步选了会直接执行的工具，未运行」。选了会等人答复的工具时，原因是「这一步选了会等人答复的工具，无人值守不能运行」。核心 AI 还不能限制步骤工具时，原因是「核心 AI 暂不支持限制步骤工具，未运行」。可见工具没有核对上时，原因是「工作流会话的可见工具没有核对上，未运行」。运行时清单为空时，原因是「工具清单不能为空，未运行」。这些原因写入该步骤的 `error_json`。
 
 本版运行不进入 `waiting`。`workflow_runs` 和同一次运行的步骤都不写这个值。表的 CHECK 里仍有 `waiting`，本版不用。能打开会话的运行走 `queued` → `running` → `succeeded`，或 `queued` → `running` → `failed`。步骤里要人确认的内容改走独立提案。提案在这次运行之外等待。等人确认不把运行留在 `waiting`。能打开会话时，运行仍走到 `succeeded` 或 `failed`。
 
@@ -97,10 +107,11 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 | `GET /api/v1/plan/events?workspaceId&from&to`（读 `calendar_events`） | 时间窗（ms） | `{ ok, data: Event[] }` |
 | `POST/PATCH/DELETE /api/v1/plan/events[/:id]` | 同 tasks 模式 | |
 | `GET /api/v1/plan/workflows?workspaceId` | | `{ ok, data }` |
+| `GET /api/v1/plan/workflow-tools?workspaceId=` | 只读。不要求页面令牌 | `{ ok, data: { tools: [{ name, tier, grantable }], defaults } }`。`tier` 为 `read`、`propose` 或 `danger`。`defaults` 是字段缺失时的三项 |
 | `POST/PATCH/DELETE /api/v1/plan/workflows[/:id]` | `status` 只能 `active|paused`。会改变到点执行内容、时间或是否执行的写入见 4.1。只带 Origin 返回 401。待实现，依赖 S3 | |
 | `POST /api/v1/plan/workflows/:id/run` | 外部 HTTP。页面令牌，不是 `bridge.token`。只跑当前工作区的本地工作流。见 4.1。待实现 | 200，新建行 `workflow_runs.state` 为 `queued`。无令牌或只带 Origin 时 401。工作区不一致时 404，不新增行。`sourceRef` 不合法时 422，不新增行。已有 `queued` 或 `running` 时 409，不新增行 |
 
-错误：404 `not_found`、422 `invalid_status`、422 `invalid_source_ref`、409 `run_in_progress`、400 缺 `workspaceId`。`sourceRef` 以 `runtime/app-source.mjs` 的 `planAppSource` 为唯一来源。步骤会话的工具放行、失败时的中文原因，以及 BFF 启动时把遗留的 `queued` 和 `running` 标成 `failed` 并每行写一条审计，见 4.1。本版运行不进入 `waiting`。
+错误：404 `not_found`、422 `invalid_status`、422 `invalid_source_ref`、409 `run_in_progress`、400 缺 `workspaceId`。这个顺序不变。保存工具清单时，未知工具名、空清单，以及 `confirmDanger` 与所选 `danger` 工具不一致，再返回 422 `validation_error`，不写库。这些写请求没有页面令牌时返回 401 `ui_token_invalid`，消息是「缺少或无效的页面令牌」。只读 `GET /api/v1/plan/workflow-tools` 见上表。`sourceRef` 以 `runtime/app-source.mjs` 的 `planAppSource` 为唯一来源。步骤工具清单、失败时的中文原因，以及 BFF 启动时把遗留的 `queued` 和 `running` 标成 `failed` 并每行写一条审计，见 4.1。本版运行不进入 `waiting`。
 
 `runtime-api.ts` 新增：`listTasks/createTask/updateTask/deleteTask/listEvents/…/listWorkflows/…`，类型 `Task/PlanEvent/Workflow` 放 `src/lib/types.ts`。
 
@@ -130,7 +141,7 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 6. ⌘K 输入「验收」→ 任务分组出现「验收 A」→ 回车打开计划并高亮。
 7. 「整理待办」→ 左栏当前会话收到 prompt → 建议抽屉出现 →「应用」一条 → 任务变更。
 8. 5174 回归：计划页可打开（首次会空，因为之前只在内存）。
-9. 工作流 run，待实现，后续 PR。外部 HTTP 带页面令牌，且工作区、`sourceRef` 和未完成运行都通过时，返回 200，新行 `workflow_runs.state` 为 `queued`。步骤开始后，该行 `output_json` 含会话 id。只带 Origin 或没有页面令牌时返回 401。工作区不一致时返回 404，不新增 `workflow_runs` 行。`sourceRef` 写了但不被 `planAppSource` 接受时，返回 422，不新增行。格式以 `runtime/app-source.mjs` 为唯一来源。同一工作流已有 `queued` 或 `running` 时返回 409，不新增行。步骤会话只放行 `fde_app_records_query`、`fde_plan_task_propose` 和 `fde_app_records_propose`。核心 AI 不能按会话限制工具时，这一步不运行，run 从 `queued` 改为 `failed`，步骤 `error_json` 有一句中文原因。能打开会话的运行走 `queued` → `running` → `succeeded` 或 `failed`。本版不进入 `waiting`。要人确认的内容走独立提案，运行照常结束。BFF 启动后，原先 `queued` 或 `running` 的运行行和步骤行变为 `failed`。每回收一行写一条 `audit_entries`，`outcome` 为 `failed`。cron 不经过这条 HTTP。内部 run 函数不挂 MCP、bridge 或 HTTP，只给进程内调度器。调度器待实现，依赖 S3。只有 S1 和 S2 时不上线。会改变到点自动执行什么、何时执行或是否执行的写入，只带 Origin 返回 401。例子包括新建 cron、置为 active、改 trigger、改定义、改步骤、改 prompt，以及复制、导入、暂停、删除和重新启用。持有页面令牌的人可以直接写。AI 只能提案。提案时 `audit_entries` 记 `awaiting_approval`。确认或拒绝时各再记一条。走提案时，确认前不改会进入到点运行的定义。调度器上线前已存在的 active cron 行，人重新确认前不跑。关键字 trigger 和事件 trigger 在卡片上显示未执行。
+9. 工作流 run，待实现，后续 PR。外部 HTTP 带页面令牌，且工作区、`sourceRef` 和未完成运行都通过时，返回 200，新行 `workflow_runs.state` 为 `queued`。步骤开始后，该行 `output_json` 含会话 id。只带 Origin 或没有页面令牌时返回 401。工作区不一致时返回 404，不新增 `workflow_runs` 行。`sourceRef` 写了但不被 `planAppSource` 接受时，返回 422，不新增行。格式以 `runtime/app-source.mjs` 为唯一来源。同一工作流已有 `queued` 或 `running` 时返回 409，不新增行。每个 AI 步骤保存自己的工具清单。字段缺失时按 `fde_app_records_query`、`fde_app_records_propose`、`fde_plan_task_propose` 放行。表外工具和没有 `readOnly` 的 MCP 工具归入 `danger`。未知工具名、空清单，或 `confirmDanger` 与所选 `danger` 工具不一致时，返回 422，不写库。清单有变化时写一条 `plan.workflow.tools` 审计。可见工具和清单不一致、当前权限需要确认而本步选了 `danger`，或本步选了会等人答复的工具时，run 从 `queued` 改为 `failed`，不调用 `session/prompt`。能打开会话的运行走 `queued` → `running` → `succeeded` 或 `failed`。本版不进入 `waiting`。要人确认的内容走独立提案，运行照常结束。BFF 启动后，原先 `queued` 或 `running` 的运行行和步骤行变为 `failed`。每回收一行写一条 `audit_entries`，`outcome` 为 `failed`。cron 不经过这条 HTTP。内部 run 函数不挂 MCP、bridge 或 HTTP，只给进程内调度器。调度器待实现，依赖 S3。只有 S1 和 S2 时不上线。会改变到点自动执行什么、何时执行或是否执行的写入，只带 Origin 返回 401。例子包括新建 cron、置为 active、改 trigger、改定义、改步骤、改 prompt，以及复制、导入、暂停、删除和重新启用。持有页面令牌的人可以直接写。AI 只能提案。提案时 `audit_entries` 记 `awaiting_approval`。确认或拒绝时各再记一条。走提案时，确认前不改会进入到点运行的定义。调度器上线前已存在的 active cron 行，人重新确认前不跑。关键字 trigger 和事件 trigger 在卡片上显示未执行。
 
 自动化：`runtime/tests/plan.test.mjs`：CRUD、工作区隔离、状态校验、completed_at 自动填。工作流 run 的自动化留在后续 PR，见 4.1。
 
@@ -142,8 +153,8 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 4. `feat(im): 摘成待办 persists via plan API`
 5. `feat(palette): search tasks`
 6. `feat(plan): 整理待办 via askAiForResult`（依赖规格 02 落地，否则跳过并在报告注明）
-7. 不在前六条。后续 PR 做人工 HTTP run 和「运行」按钮。依赖安全方案 S1 的页面令牌函数和 S2。工作区、`sourceRef`、同时只跑一次、步骤工具放行，以及 BFF 启动时清理遗留运行并为每行写审计，见 4.1。
-8. 不在前六条。后续 PR 做进程内 cron 调度器，以及 4.1 的到点写入原则。依赖 S3。只有 S1 和 S2 时不上线。上线时已存在的 active cron 行要等人重新确认。调度器插入运行之前使用 4.1 的 `sourceRef` 校验、同时只跑一次，以及步骤工具放行。
+7. 不在前六条。后续 PR 做人工 HTTP run 和「运行」按钮。依赖安全方案 S1 的页面令牌函数和 S2。工作区、`sourceRef`、同时只跑一次、每个 AI 步骤自选工具清单，以及 BFF 启动时清理遗留运行并为每行写审计，见 4.1。字段缺失时才用默认三项。
+8. 不在前六条。后续 PR 做进程内 cron 调度器，以及 4.1 的到点写入原则。依赖 S3。只有 S1 和 S2 时不上线。上线时已存在的 active cron 行要等人重新确认。调度器插入运行之前使用 4.1 的 `sourceRef` 校验、同时只跑一次，以及每个 AI 步骤自己的工具清单。字段缺失时才用默认三项。
 
 ## 10. 开放问题
 
@@ -152,3 +163,5 @@ AI 改记录要等 S2 的提案工具。没有该提案工具时，不提供改�
 ## 11. 已知限制
 
 未确认的提案可以堆积。堆积不受 409 约束。409 只限制同一条工作流同时存在 `queued` 或 `running` 的运行。
+
+当前默认权限下，`danger` 工具会直接执行，所以保存清单时必须由用户显式确认。
