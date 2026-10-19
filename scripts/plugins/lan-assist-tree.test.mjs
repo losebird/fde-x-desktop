@@ -345,3 +345,20 @@ test('sync writes nothing when the lock is missing, unreadable, or structurally 
     }
   }
 })
+
+test('verify names dsh-lan-assist when that lock entry is null', () => {
+  const source = sourceCheckout()
+  const root = mkdtempSync(join(tmpdir(), 'lan-lock-null-'))
+  try {
+    writeLock(root, unifiedLock())
+    const synced = run('sync', root, source)
+    assert.equal(synced.status, 0, synced.stderr)
+    plantSemanticReadme(root)
+    rewriteLock(root, (doc) => { doc.plugins['dsh-lan-assist'] = null })
+    const verified = run('verify', root, source)
+    assert.notEqual(verified.status, 0)
+    assert.match(verified.stderr, /dsh-lan-assist/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
