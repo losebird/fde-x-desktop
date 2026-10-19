@@ -119,7 +119,7 @@ export interface Workflow {
 
 export interface WorkflowStep {
   id: ID
-  kind: 'tool.call' | 'im.send' | 'data.query' | 'file.write' | 'memory.add' | 'delay'
+  kind: 'tool.call' | 'im.send' | 'data.query' | 'file.write' | 'memory.add' | 'delay' | 'ai'
   label: string
   config: Record<string, string | number>
 }

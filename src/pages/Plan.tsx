@@ -810,24 +810,22 @@ function ScheduleTab() {
 // =======================================================
 const WORKFLOW_EMOJIS = ['🤖', '⚡', '🔁', '📬', '📝', '🗃️', '📊', '🔔']
 
-function WorkflowTab() {
-  const workflows = useCurrentWorkflows()
-  const toggleWorkflow = useApp((s) => s.toggleWorkflow)
-  const removeWorkflow = useApp((s) => s.removeWorkflow)
-  const addWorkflow = useApp((s) => s.addWorkflow)
-  const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<'all' | Workflow['status']>('all')
-  const [showNew, setShowNew] = useState(false)
-  const [draft, setDraft] = useState<{
-    name: string
-    description: string
-    category: Workflow['category']
-    triggerKind: Workflow['trigger']['kind']
-    triggerExpr: string
-    triggerPatterns: string
-    triggerOn: 'task.done' | 'file.save' | 'order.new' | 'im.received'
-    emoji: string
-  }>({
+const SAVED_ONLY = '本版仅保存，不自动执行'
+
+function emptyWorkflowDraft(): {
+  name: string
+  description: string
+  category: Workflow['category']
+  triggerKind: Workflow['trigger']['kind']
+  triggerExpr: string
+  triggerPatterns: string
+  triggerOn: 'task.done' | 'file.save' | 'order.new' | 'im.received'
+  emoji: string
+  stepKind: 'ai' | 'delay'
+  prompt: string
+  sourceRef: string
+} {
+  return {
     name: '',
     description: '',
     category: 'system',
@@ -836,7 +834,22 @@ function WorkflowTab() {
     triggerPatterns: '',
     triggerOn: 'task.done',
     emoji: '🤖',
-  })
+    stepKind: 'ai',
+    prompt: '',
+    sourceRef: '',
+  }
+}
+
+function WorkflowTab() {
+  const workflows = useCurrentWorkflows()
+  const toggleWorkflow = useApp((s) => s.toggleWorkflow)
+  const runWorkflow = useApp((s) => s.runWorkflow)
+  const removeWorkflow = useApp((s) => s.removeWorkflow)
+  const addWorkflow = useApp((s) => s.addWorkflow)
+  const [q, setQ] = useState('')
+  const [filter, setFilter] = useState<'all' | Workflow['status']>('all')
+  const [showNew, setShowNew] = useState(false)
+  const [draft, setDraft] = useState(emptyWorkflowDraft)
 
   const visible = workflows.filter((w) => {
     if (filter !== 'all' && w.status !== filter) return false
@@ -855,9 +868,12 @@ function WorkflowTab() {
 
   function submit() {
     if (!draft.name.trim()) return
-    const steps: WorkflowStep[] = [
-      { id: uid('s'), kind: 'delay', label: '本版不自动跑 AI 或记忆', config: {} },
-    ]
+    const prompt = draft.prompt.trim()
+    const sourceRef = draft.sourceRef.trim()
+    if (draft.stepKind === 'ai' && !prompt) return
+    const step: WorkflowStep = draft.stepKind === 'ai'
+      ? { id: uid('s'), kind: 'ai', label: 'AI', config: sourceRef ? { prompt, sourceRef } : { prompt } }
+      : { id: uid('s'), kind: 'delay', label: '等待', config: {} }
     void addWorkflow({
       name: draft.name.trim(),
       description: draft.description.trim() || '自动创建的工作流',
@@ -865,12 +881,9 @@ function WorkflowTab() {
       trigger: buildTrigger(),
       emoji: draft.emoji,
       status: 'paused',
-      steps,
+      steps: [step],
     }).then(() => {
-      setDraft({
-        name: '', description: '', category: 'system', triggerKind: 'manual',
-        triggerExpr: '0 9 * * *', triggerPatterns: '', triggerOn: 'task.done', emoji: '🤖',
-      })
+      setDraft(emptyWorkflowDraft())
       setShowNew(false)
     }).catch(() => undefined)
   }
@@ -937,6 +950,9 @@ function WorkflowTab() {
                     {w.trigger.kind === 'event' && <>⚡ on {w.trigger.on}</>}
                     {w.trigger.kind === 'manual' && <>👆 手动触发</>}
                   </div>
+                  {(w.trigger.kind === 'keyword' || w.trigger.kind === 'event') && (
+                    <div className="mt-2 text-xs text-ink-muted">{SAVED_ONLY}</div>
+                  )}
                   {/* 步骤时间线 */}
                   <div className="mt-3 flex items-center gap-1 flex-wrap">
                     {w.steps.map((s, i) => (
@@ -953,7 +969,15 @@ function WorkflowTab() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
-                  <button type="button" className="btn" disabled title="本版不自动运行"><Play size={12} /> 运行</button>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={isHostJobId(w.id)}
+                    title={isHostJobId(w.id) ? '不运行 Host job' : '运行'}
+                    onClick={() => void runWorkflow(w.id)}
+                  >
+                    <Play size={12} /> 运行
+                  </button>
                   <button
                     type="button"
                     onClick={() => void toggleWorkflow(w.id)}
@@ -1030,6 +1054,25 @@ function WorkflowTab() {
             </div>
           )}
           <div>
+            <label className="text-xs text-ink-muted">步骤</label>
+            <select className="input mt-1.5 w-full" value={draft.stepKind} onChange={(e) => setDraft({ ...draft, stepKind: e.target.value === 'delay' ? 'delay' : 'ai' })}>
+              <option value="ai">AI</option>
+              <option value="delay">等待</option>
+            </select>
+          </div>
+          {draft.stepKind === 'ai' && (
+            <>
+              <div>
+                <label className="text-xs text-ink-muted">提示</label>
+                <textarea className="input mt-1.5 w-full" rows={3} value={draft.prompt} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} placeholder="这一步让 AI 做什么" />
+              </div>
+              <div>
+                <label className="text-xs text-ink-muted">来源引用 (可选)</label>
+                <input className="input mt-1.5 w-full" value={draft.sourceRef} onChange={(e) => setDraft({ ...draft, sourceRef: e.target.value })} placeholder="app:app_ 后接 32 位十六进制" />
+              </div>
+            </>
+          )}
+          <div>
             <label className="text-xs text-ink-muted">图标</label>
             <div className="flex flex-wrap gap-2 mt-1.5">
               {WORKFLOW_EMOJIS.map((emoji) => (
@@ -1044,7 +1087,7 @@ function WorkflowTab() {
             </div>
           </div>
           <div className="text-xs text-ink-muted p-3 rounded bg-surface-2 border border-line">
-            新建后默认 paused，可到列表点击「启用」。本版不自动运行。
+            新建后默认 paused，可到列表点击「启用」或「运行」。关键字和事件触发只保存。{SAVED_ONLY}
           </div>
           <div className="flex justify-end gap-2 pt-4 border-t border-line">
             <button className="btn" onClick={() => setShowNew(false)}>取消</button>
