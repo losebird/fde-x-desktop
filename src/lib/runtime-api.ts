@@ -821,12 +821,16 @@ export class RuntimeApi {
       : undefined
     const runs = Array.isArray(row.runs)
       ? row.runs.map((run) => {
-        const record = run as { id?: unknown; state?: unknown; message?: unknown }
-        return {
+        const record = run as { id?: unknown; state?: unknown; message?: unknown; sessionId?: unknown }
+        const mapped: Workflow['runs'][number] = {
           id: String(record.id),
           state: typeof record.state === 'string' ? record.state : '',
           message: typeof record.message === 'string' ? record.message : '',
         }
+        if (typeof record.sessionId === 'string' && record.sessionId) {
+          Object.assign(mapped, { sessionId: record.sessionId })
+        }
+        return mapped
       })
       : []
     return {
@@ -1031,9 +1035,9 @@ export class RuntimeApi {
     await this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}${params}`, { method: 'DELETE', signal: opts?.signal })
   }
 
-  async runWorkflow(id: string): Promise<void> {
+  async runWorkflow(id: string): Promise<{ id: string; workflowId: string; state: string; correlationId?: string }> {
     const workspaceId = useApp.getState().activeWorkspaceId
-    await this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}/run`, {
+    return this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workspaceId }),
