@@ -18,6 +18,24 @@ async function fetchCatalog(origin, cookie, sessionId) {
   return payload
 }
 
+async function readThroughProbe(aiRuntime, cwd, agentPreset, missingMessage, read) {
+  const created = await aiRuntime.call('session/create', {
+    request: { cwd, agentPreset },
+  })
+  const sessionId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
+  if (!sessionId) throw new Error(missingMessage)
+  let payload = null
+  let readError = null
+  try {
+    payload = await read(sessionId)
+  } catch (error) {
+    readError = error
+  }
+  await aiRuntime.call('workspace/archiveSession', { request: { sessionId } })
+  if (readError) throw readError
+  return { sessionId, payload }
+}
+
 export async function listSelectableTools(aiRuntime, cwd) {
   const origin = aiRuntime && typeof aiRuntime.origin === 'string' ? aiRuntime.origin : ''
   const cookie = aiRuntime && typeof aiRuntime.cookie === 'string' ? aiRuntime.cookie : ''
@@ -29,13 +47,11 @@ export async function listSelectableTools(aiRuntime, cwd) {
   }
   let payload = catalogSessionId ? await fetchCatalog(origin, cookie, catalogSessionId) : null
   if (!payload) {
-    const created = await aiRuntime.call('session/create', {
-      request: { cwd, agentPreset: 'standard' },
+    const probe = await readThroughProbe(aiRuntime, cwd, 'standard', '普通会话没有建立', (sessionId) => {
+      return fetchCatalog(origin, cookie, sessionId)
     })
-    const sessionId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
-    if (!sessionId) throw new Error('普通会话没有建立')
-    catalogSessionId = sessionId
-    payload = await fetchCatalog(origin, cookie, sessionId)
+    payload = probe.payload
+    if (payload) catalogSessionId = probe.sessionId
   }
   if (!payload) throw new Error('普通会话的工具没有列出来')
   const tools = payload.tools.map((row) => ({
@@ -70,15 +86,12 @@ async function presetSession(aiRuntime, cwd, origin, cookie, presetId) {
       return snap
     }
   }
-  const created = await aiRuntime.call('session/create', {
-    request: { cwd, agentPreset: presetId },
+  const probe = await readThroughProbe(aiRuntime, cwd, presetId, '预设会话没有建立', (sessionId) => {
+    return bridgeJson(origin, cookie, '/fde-session/preset-snapshot', sessionId)
   })
-  const sessionId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
-  if (!sessionId) throw new Error('预设会话没有建立')
-  presetSessions.set(presetId, sessionId)
-  const snap = await bridgeJson(origin, cookie, '/fde-session/preset-snapshot', sessionId)
-  if (!snap || !Array.isArray(snap.tools)) throw new Error('预设会话的工具没有列出来')
-  return snap
+  if (!probe.payload || !Array.isArray(probe.payload.tools)) throw new Error('预设会话的工具没有列出来')
+  presetSessions.set(presetId, probe.sessionId)
+  return probe.payload
 }
 
 export async function listWorkflowCatalog(aiRuntime, cwd) {
