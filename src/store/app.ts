@@ -231,7 +231,7 @@ interface State {
   // workflows
   toggleWorkflow: (id: ID) => Promise<void>
   runWorkflow: (id: ID) => Promise<void>
-  addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt'>) => Promise<void>
+  addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt'>, confirmDanger?: string[]) => Promise<void>
   removeWorkflow: (id: ID) => Promise<void>
   // im
   sendIM: (threadId: ID, text: string, opts?: { attachments?: IMAttachment[]; handoff?: IMHandoffPackage; topicId?: ID; replyToId?: ID; aiChatId?: ID }) => void
@@ -960,7 +960,7 @@ export const useApp = create<AppState>()(
           throw new Error(message)
         }
       },
-      addWorkflow: async (w) => {
+      addWorkflow: async (w, confirmDanger) => {
         const workspaceId = get().activeWorkspaceId
         if (!workspaceId) return
         try {
@@ -973,6 +973,7 @@ export const useApp = create<AppState>()(
             steps: w.steps,
             category: w.category,
             emoji: w.emoji,
+            ...(confirmDanger && confirmDanger.length > 0 ? { confirmDanger } : {}),
           })
           set((s) => ({ workflows: [created, ...s.workflows], planServiceError: null }))
         } catch (error) {

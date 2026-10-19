@@ -1,4 +1,4 @@
-const { mkdirSync, writeFileSync } = require('node:fs')
+const { mkdirSync, renameSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 
 function summarize(result) {
@@ -103,7 +103,10 @@ function apply(ctx) {
       } catch (error) {
         payload.error = error instanceof Error ? error.message : String(error)
       }
-      writeFileSync(join(dir, `${preset}.json`), `${JSON.stringify(payload)}\n`)
+      const dest = join(dir, `${preset}.json`)
+      const tmp = join(dir, `.${preset}.${process.pid}.tmp`)
+      writeFileSync(tmp, `${JSON.stringify(payload)}\n`)
+      renameSync(tmp, dest)
     })
   })
 }

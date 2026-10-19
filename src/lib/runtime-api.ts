@@ -956,6 +956,14 @@ export class RuntimeApi {
     return rows.map((row) => this.mapPlanWorkflow(row))
   }
 
+  async listWorkflowTools(workspaceId: string, signal?: AbortSignal): Promise<{
+    tools: Array<{ name: string; tier: string; grantable?: boolean }>
+    defaults: string[]
+  }> {
+    const params = new URLSearchParams({ workspaceId })
+    return this.planRequest(`/api/v1/plan/workflow-tools?${params}`, { signal })
+  }
+
   async createWorkflow(input: {
     workspaceId: string
     name: string
@@ -965,6 +973,7 @@ export class RuntimeApi {
     steps?: Workflow['steps']
     category?: Workflow['category']
     emoji?: string
+    confirmDanger?: string[]
   }, signal?: AbortSignal): Promise<Workflow> {
     const row = await this.planRequest<Record<string, unknown>>('/api/v1/plan/workflows', {
       method: 'POST',
