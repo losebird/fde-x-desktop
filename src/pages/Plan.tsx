@@ -21,7 +21,8 @@ import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
 import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
-import { PLAN_DAY_HOURS, planDayMarkerTop, planDayOffsetMinutes } from '../../runtime/plan/plan-day-hours.mjs'
+import { PLAN_DAY_HOURS, planDayOffsetMinutes, planNowMarker, scheduleInstants } from '../../runtime/plan/plan-day-hours.mjs'
+import { scheduleTriggerLabel } from '../../runtime/plan/schedule-outcome.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -589,18 +590,65 @@ const KIND_TONE: Record<ScheduleEvent['kind'], { bg: string; tag: 'blue'|'green'
   external: { bg: 'bg-purple-50 border-purple-200 text-accent-purple', tag: 'purple' },
 }
 
+function localDateValue(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+function emptyEventDraft() {
+  return {
+    title: '',
+    date: localDateValue(new Date()),
+    start: '14:00',
+    end: '14:30',
+    kind: 'focus' as ScheduleEvent['kind'],
+    location: '',
+    workflowId: '',
+    recurrence: 'once' as 'once' | 'daily',
+  }
+}
+
+function eventTriggerRun(event: ScheduleEvent, workflows: Workflow[]) {
+  if (!event.workflowId) return null
+  const workflow = workflows.find((row) => row.id === event.workflowId)
+  if (!workflow) return null
+  return workflow.runs.find((run) => run.eventId === event.id) || null
+}
+
+function TriggerStatus({ event, workflows }: { event: ScheduleEvent; workflows: Workflow[] }) {
+  const run = eventTriggerRun(event, workflows)
+  if (!run) return null
+  const label = scheduleTriggerLabel(run)
+  if (!label) return null
+  if (run.sessionId) {
+    return (
+      <button
+        type="button"
+        className="opacity-80 text-[11px] underline truncate text-left"
+        onClick={(click) => {
+          click.stopPropagation()
+          openRef({ panel: 'ai', sessionId: run.sessionId })
+        }}
+      >
+        {label}
+      </button>
+    )
+  }
+  return <div className="opacity-80 text-[11px] truncate">{label}</div>
+}
+
 function ScheduleTab() {
   const events = useApp((s) => s.events)
   const workflows = useCurrentWorkflows()
   const addEvent = useApp((s) => s.addEvent)
   const removeEvent = useApp((s) => s.removeEvent)
+  const toggleWorkflow = useApp((s) => s.toggleWorkflow)
   const [view, setView] = useState<'day' | 'week'>('day')
   const [openNew, setOpenNew] = useState(false)
-  const [draft, setDraft] = useState({
-    title: '', startH: 14, startM: 0, endH: 14, endM: 30,
-    kind: 'focus' as ScheduleEvent['kind'], location: '',
-    workflowId: '', recurrence: 'once' as 'once' | 'daily',
-  })
+  const [saving, setSaving] = useState(false)
+  const [clock, setClock] = useState(() => new Date())
+  const [draft, setDraft] = useState(emptyEventDraft)
 
   const todayKey = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
   const todays = useMemo(() => events.filter((e) => todayKey(e.start)), [events])
@@ -632,27 +680,37 @@ function ScheduleTab() {
       && start.getDate() === d.getDate()
   })
 
-  function submit() {
-    if (!draft.title.trim()) return
-    const base = new Date()
-    base.setHours(0, 0, 0, 0)
-    base.setHours(draft.startH, draft.startM, 0, 0)
-    const end = new Date(base)
-    end.setHours(draft.endH, draft.endM, 0, 0)
-    void addEvent({
-      title: draft.title,
-      start: base.toISOString(),
-      end: end.toISOString(),
-      kind: draft.kind,
-      location: draft.location || undefined,
-      workflowId: draft.workflowId || undefined,
-      recurrence: draft.workflowId ? draft.recurrence : undefined,
-    })
-      .then(() => {
-        setDraft({ title: '', startH: 14, startM: 0, endH: 14, endM: 30, kind: 'focus', location: '', workflowId: '', recurrence: 'once' })
-        setOpenNew(false)
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const nowMarker = planNowMarker(clock)
+  const selectedWorkflow = workflows.find((row) => row.id === draft.workflowId)
+  const bindPaused = Boolean(draft.workflowId && selectedWorkflow?.status === 'paused')
+
+  async function submit() {
+    if (saving || !draft.title.trim() || !draft.date || !draft.start || !draft.end) return
+    const range = scheduleInstants(draft.date, draft.start, draft.end)
+    setSaving(true)
+    try {
+      if (bindPaused) await toggleWorkflow(draft.workflowId)
+      await addEvent({
+        title: draft.title,
+        start: range.start,
+        end: range.end,
+        kind: draft.kind,
+        location: draft.location || undefined,
+        workflowId: draft.workflowId || undefined,
+        recurrence: draft.workflowId ? draft.recurrence : undefined,
       })
-      .catch(() => undefined)
+      setDraft(emptyEventDraft())
+      setOpenNew(false)
+    } catch {
+      return
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -678,10 +736,12 @@ function ScheduleTab() {
               </div>
               <div className="relative">
                 {HOURS.map((h) => <div key={h} className="h-14 border-b border-line" />)}
-                <div className="absolute left-0 right-0" style={{ top: `${planDayMarkerTop(11, 30)}px` }}>
-                  <span className="absolute -left-1 -top-1.5 w-2 h-2 rounded-full bg-accent-red" />
-                  <span className="block h-px bg-accent-red" />
-                </div>
+                {nowMarker != null && (
+                  <div className="absolute left-0 right-0" style={{ top: `${nowMarker}px` }} data-now-marker="">
+                    <span className="absolute -left-1 -top-1.5 w-2 h-2 rounded-full bg-accent-red" />
+                    <span className="block h-px bg-accent-red" />
+                  </div>
+                )}
                 {todays.map((e) => {
                   const startMin = planDayOffsetMinutes(e.start)
                   const endMin = planDayOffsetMinutes(e.end)
@@ -697,6 +757,7 @@ function ScheduleTab() {
                           {e.recurrence === 'daily' ? workflowToolCopy.scheduleDaily : workflowToolCopy.scheduleOnce}
                         </div>
                       )}
+                      <TriggerStatus event={e} workflows={workflows} />
                       <div className="opacity-70 text-[11px]">
                         {new Date(e.start).getHours().toString().padStart(2, '0')}:{new Date(e.start).getMinutes().toString().padStart(2, '0')}–
                         {new Date(e.end).getHours().toString().padStart(2, '0')}:{new Date(e.end).getMinutes().toString().padStart(2, '0')}
@@ -721,6 +782,7 @@ function ScheduleTab() {
                         <Tag kind={KIND_TONE[e.kind].tag}>{e.kind}</Tag>
                         {e.location && <><MapPin size={10} /> {e.location}</>}
                       </div>
+                      <TriggerStatus event={e} workflows={workflows} />
                     </div>
                     <button
                       className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100"
@@ -758,6 +820,7 @@ function ScheduleTab() {
                       <div className="opacity-70">
                         {new Date(e.start).getHours().toString().padStart(2, '0')}:{new Date(e.start).getMinutes().toString().padStart(2, '0')}
                       </div>
+                      <TriggerStatus event={e} workflows={workflows} />
                     </div>
                   ))}
                 </div>
@@ -773,30 +836,18 @@ function ScheduleTab() {
             <label className="text-xs text-ink-muted">标题</label>
             <input className="input mt-1.5 w-full" autoFocus value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="例如:产品评审" />
           </div>
+          <div>
+            <label className="text-xs text-ink-muted">日期</label>
+            <input type="date" className="input mt-1.5 w-full" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-ink-muted">开始</label>
-              <div className="flex gap-1 mt-1.5">
-                <select className="input flex-1" value={draft.startH} onChange={(e) => setDraft({ ...draft, startH: Number(e.target.value) })}>
-                  {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-                  <option value={22}>22</option>
-                </select>
-                <select className="input flex-1" value={draft.startM} onChange={(e) => setDraft({ ...draft, startM: Number(e.target.value) })}>
-                  {[0,15,30,45].map((m) => <option key={m} value={m}>{m.toString().padStart(2,'0')}</option>)}
-                </select>
-              </div>
+              <input type="time" className="input mt-1.5 w-full" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} />
             </div>
             <div>
               <label className="text-xs text-ink-muted">结束</label>
-              <div className="flex gap-1 mt-1.5">
-                <select className="input flex-1" value={draft.endH} onChange={(e) => setDraft({ ...draft, endH: Number(e.target.value) })}>
-                  {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-                  <option value={22}>22</option>
-                </select>
-                <select className="input flex-1" value={draft.endM} onChange={(e) => setDraft({ ...draft, endM: Number(e.target.value) })}>
-                  {[0,15,30,45].map((m) => <option key={m} value={m}>{m.toString().padStart(2,'0')}</option>)}
-                </select>
-              </div>
+              <input type="time" className="input mt-1.5 w-full" value={draft.end} onChange={(e) => setDraft({ ...draft, end: e.target.value })} />
             </div>
           </div>
           <div>
@@ -805,6 +856,9 @@ function ScheduleTab() {
               <option value="">{workflowToolCopy.scheduleNone}</option>
               {workflows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
             </select>
+            {bindPaused && (
+              <p className="mt-1.5 text-xs text-accent-amber">该工作流已暂停，到点不会运行</p>
+            )}
           </div>
           {draft.workflowId && (
             <div>
@@ -830,7 +884,7 @@ function ScheduleTab() {
           </div>
           <div className="flex justify-end gap-2 pt-4 border-t border-line">
             <button className="btn" onClick={() => setOpenNew(false)}>取消</button>
-            <button className="btn-primary" onClick={submit}>创建</button>
+            <button className="btn-primary" onClick={() => void submit()} disabled={saving}>{bindPaused ? '绑定并启用' : '创建'}</button>
           </div>
         </div>
       </RightDrawer>

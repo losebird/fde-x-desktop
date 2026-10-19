@@ -101,6 +101,8 @@ export interface WorkflowRunRecord {
   id: ID
   state: string
   message: string
+  eventId?: string
+  sessionId?: string
 }
 
 export interface Workflow {

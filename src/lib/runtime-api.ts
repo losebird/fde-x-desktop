@@ -821,15 +821,14 @@ export class RuntimeApi {
       : undefined
     const runs = Array.isArray(row.runs)
       ? row.runs.map((run) => {
-        const record = run as { id?: unknown; state?: unknown; message?: unknown; sessionId?: unknown }
+        const record = run as { id?: unknown; state?: unknown; message?: unknown; sessionId?: unknown; eventId?: unknown }
         const mapped: Workflow['runs'][number] = {
           id: String(record.id),
           state: typeof record.state === 'string' ? record.state : '',
           message: typeof record.message === 'string' ? record.message : '',
         }
-        if (typeof record.sessionId === 'string' && record.sessionId) {
-          Object.assign(mapped, { sessionId: record.sessionId })
-        }
+        if (typeof record.eventId === 'string' && record.eventId) mapped.eventId = record.eventId
+        if (typeof record.sessionId === 'string' && record.sessionId) mapped.sessionId = record.sessionId
         return mapped
       })
       : []
