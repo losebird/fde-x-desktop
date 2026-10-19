@@ -140,6 +140,17 @@ export function rejectToolList(steps, confirmDanger, catalog) {
   return null
 }
 
+export function withoutStepPersona(steps) {
+  if (!Array.isArray(steps)) return steps
+  return steps.map((step) => {
+    if (!step || typeof step !== 'object' || !step.config || typeof step.config !== 'object' || Array.isArray(step.config)) return step
+    if (!Object.hasOwn(step.config, 'persona')) return step
+    const config = { ...step.config }
+    delete config.persona
+    return { ...step, config }
+  })
+}
+
 export function rejectPreset(steps, presets) {
   const known = new Map((Array.isArray(presets) ? presets : []).map((row) => [row.id, row]))
   for (const step of Array.isArray(steps) ? steps : []) {
