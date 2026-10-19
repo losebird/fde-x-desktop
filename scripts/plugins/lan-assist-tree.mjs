@@ -193,10 +193,20 @@ function writeTree(root, files) {
     mkdirSync(dirname(abs), { recursive: true })
     writeFileSync(abs, bytes)
   }
-  const lock = lockDocument(files)
-  mkdirSync(dirname(join(root, LOCK_PATH)), { recursive: true })
-  writeFileSync(join(root, LOCK_PATH), jsonBytes(lock))
-  return lock
+  const lockAbs = join(root, LOCK_PATH)
+  if (!existsSync(lockAbs)) throw new Error(`missing ${LOCK_PATH}`)
+  let existing
+  try {
+    existing = JSON.parse(readFileSync(lockAbs, 'utf8'))
+  } catch {
+    throw new Error(`unreadable ${LOCK_PATH}`)
+  }
+  if (!existing || typeof existing !== 'object' || Array.isArray(existing) || !existing.plugins || typeof existing.plugins !== 'object' || Array.isArray(existing.plugins)) {
+    throw new Error(`unreadable ${LOCK_PATH}`)
+  }
+  existing.plugins['dsh-lan-assist'] = lockDocument(files).plugins['dsh-lan-assist']
+  writeFileSync(lockAbs, jsonBytes(existing))
+  return existing
 }
 
 function diskFiles(root, dir) {
