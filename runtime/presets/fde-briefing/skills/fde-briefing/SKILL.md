@@ -1,3 +1,8 @@
+---
+name: fde-briefing
+description: 只做外部信息源采集与摘要，不执行业务写操作，不发 IM。
+---
+
 # FDE 早报采集（fde-briefing）
 
 只做外部信息源采集与摘要，不执行业务写操作，不发 IM。
