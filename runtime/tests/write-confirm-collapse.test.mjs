@@ -13,7 +13,10 @@ import {
   writeTokenStatus,
 } from '../biz/write-confirm.mjs'
 import {
+  commitPostedWrite,
   incomingSheetClosesOpenDrawer,
+  mergeWriteTokenIndex,
+  resolveWriteDrawerFace,
   shouldOpenWriteConfirm,
   writeTokenLive,
   writeTokenStatus as sheetWriteTokenStatus,
@@ -123,6 +126,128 @@ test('incoming sheet keeps a live write drawer open for 现查 and for an empty 
     incomingSheetClosesOpenDrawer(openId, { ...live, preview_id: 'pv-other' }, { dismissed: true }),
     false,
   )
+})
+
+test('posted or used preview does not reopen as confirm after remount or kind select', () => {
+  const live = openSheet({ preview_id: 'pv-post', action: '改行' })
+  const usedIndex = { 'pv-post': 'used' }
+  const posted = { previewId: 'pv-post', gateReason: '已过账', canWrite: false, action: '改行' }
+  const openOpts = { dismissed: false, hasChanges: true, alreadyAtTarget: false }
+
+  const stayed = resolveWriteDrawerFace({
+    open: posted,
+    sheet: live,
+    tokenIndex: usedIndex,
+    ...openOpts,
+  })
+  assert.equal(stayed, 'posted')
+  assert.notEqual(stayed, 'confirm')
+
+  const remount = resolveWriteDrawerFace({
+    open: null,
+    sheet: live,
+    tokenIndex: usedIndex,
+    ...openOpts,
+  })
+  assert.equal(remount, 'closed')
+  assert.notEqual(remount, 'confirm')
+
+  const stamped = resolveWriteDrawerFace({
+    open: null,
+    sheet: { ...live, writeToken: 'used', write_token: 'used' },
+    tokenIndex: null,
+    ...openOpts,
+  })
+  assert.equal(stamped, 'closed')
+  assert.notEqual(stamped, 'confirm')
+
+  const left = resolveWriteDrawerFace({
+    open: posted,
+    sheet: live,
+    tokenIndex: usedIndex,
+    ...openOpts,
+    leaving: true,
+  })
+  assert.equal(left, 'closed')
+
+  const returned = resolveWriteDrawerFace({
+    open: null,
+    sheet: live,
+    tokenIndex: usedIndex,
+    ...openOpts,
+  })
+  assert.equal(returned, 'closed')
+  assert.notEqual(returned, 'confirm')
+
+  const kindSwitch = resolveWriteDrawerFace({
+    open: posted,
+    sheet: { ...live, kind: 'KindOther' },
+    tokenIndex: usedIndex,
+    ...openOpts,
+  })
+  assert.equal(kindSwitch, 'posted')
+  assert.notEqual(kindSwitch, 'confirm')
+
+  const fresh = resolveWriteDrawerFace({
+    open: posted,
+    sheet: openSheet({ preview_id: 'pv-new' }),
+    tokenIndex: usedIndex,
+    ...openOpts,
+  })
+  assert.equal(fresh, 'confirm')
+
+  const merged = mergeWriteTokenIndex({ 'pv-post': 'open', 'pv-new': 'open' }, { 'pv-post': 'used' })
+  assert.ok(merged)
+  assert.equal(merged['pv-post'], 'used')
+  assert.equal(merged['pv-new'], 'open')
+  const afterHydrate = resolveWriteDrawerFace({
+    open: null,
+    sheet: live,
+    tokenIndex: merged,
+    ...openOpts,
+  })
+  assert.equal(afterHydrate, 'closed')
+  assert.notEqual(afterHydrate, 'confirm')
+
+  const postedQuery = commitPostedWrite({
+    openPreviewId: 'pv-post',
+    previewId: 'pv-post',
+    writeSheet: live,
+    listed: { kind, action: '现查', canWrite: false, rows: [{ no: 'ROW-1' }] },
+    tokenIndex: null,
+    dismissed: false,
+    hasChanges: false,
+    alreadyAtTarget: false,
+  })
+  assert.equal(postedQuery.tokenIndex['pv-post'], 'used')
+  assert.equal(postedQuery.sheet.writeToken, 'used')
+  assert.equal(postedQuery.face, 'posted')
+  assert.notEqual(postedQuery.face, 'confirm')
+
+  const postedSame = commitPostedWrite({
+    openPreviewId: 'pv-post',
+    previewId: 'pv-post',
+    writeSheet: live,
+    listed: live,
+    tokenIndex: {},
+    dismissed: false,
+    hasChanges: true,
+    alreadyAtTarget: false,
+  })
+  assert.equal(postedSame.tokenIndex['pv-post'], 'used')
+  assert.equal(postedSame.face, 'posted')
+  assert.notEqual(postedSame.face, 'confirm')
+
+  const dismissed = resolveWriteDrawerFace({
+    open: posted,
+    sheet: live,
+    tokenIndex: usedIndex,
+    dismissed: true,
+    hasChanges: true,
+    alreadyAtTarget: false,
+  })
+  assert.equal(dismissed, 'closed')
+  assert.notEqual(dismissed, 'confirm')
 })
 
 test('write success rereads written identity 现查 and does not keep the write preview as official', async (t) => {
