@@ -3291,7 +3291,7 @@ const server = createServer(async (request, response) => {
     if (await handleCatalogRequest(request, response, url, { aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, currentCorrelationId)) {
       return
     }
-    if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime }, currentCorrelationId)) {
+    if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime, uiToken }, currentCorrelationId)) {
       return
     }
 

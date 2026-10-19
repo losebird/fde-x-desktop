@@ -798,6 +798,8 @@ export class RuntimeApi {
       end: row.endAt,
       location: row.location ?? undefined,
       kind: row.kind,
+      workflowId: typeof row.workflowId === 'string' ? row.workflowId : undefined,
+      recurrence: row.recurrence === 'once' || row.recurrence === 'daily' ? row.recurrence : undefined,
     }
   }
 
@@ -928,6 +930,8 @@ export class RuntimeApi {
     kind?: ScheduleEvent['kind']
     location?: string
     allDay?: boolean
+    workflowId?: string
+    recurrence?: 'once' | 'daily'
   }, signal?: AbortSignal): Promise<ScheduleEvent> {
     const row = await this.planRequest<PlanEvent>('/api/v1/plan/events', {
       method: 'POST',

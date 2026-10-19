@@ -50,6 +50,8 @@ export interface PlanEvent {
   kind: ScheduleEvent['kind']
   allDay?: boolean
   sourceRef?: string | null
+  workflowId?: string | null
+  recurrence?: 'once' | 'daily' | null
   createdAt: string
   updatedAt: string
 }
@@ -62,6 +64,8 @@ export interface ScheduleEvent {
   location?: string
   attendees?: string[]
   kind: 'meeting' | 'focus' | 'reminder' | 'external'
+  workflowId?: string
+  recurrence?: 'once' | 'daily'
 }
 
 export interface FileNode {

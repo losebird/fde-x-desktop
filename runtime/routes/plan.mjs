@@ -1,4 +1,5 @@
 import { appendAudit, createId } from '../db.mjs'
+import { verifyUiToken } from './bridge.mjs'
 import { emit } from '../events.mjs'
 import { collectBag, mutateBag } from '../catalog-collect.mjs'
 import {
@@ -26,6 +27,29 @@ import {
 
 const WORKFLOW_WRITE_STATUSES = new Set(['active', 'paused'])
 const EVENT_KINDS = new Set(['meeting', 'focus', 'reminder', 'external'])
+const SCHEDULE_RECURRENCE = new Set(['once', 'daily'])
+
+function scheduleFieldsPresent(body) {
+  return Boolean(body && typeof body === 'object' && (Object.hasOwn(body, 'workflowId') || Object.hasOwn(body, 'recurrence')))
+}
+
+function resolveScheduleBinding(db, workspaceId, body) {
+  if (!scheduleFieldsPresent(body)) return { present: false, workflowId: null, recurrence: null }
+  if (body.workflowId === null && body.recurrence === null) return { present: true, workflowId: null, recurrence: null }
+  const workflowId = typeof body.workflowId === 'string' ? body.workflowId.trim() : ''
+  if (!workflowId || !SCHEDULE_RECURRENCE.has(body.recurrence)) {
+    return { present: true, error: '日程要同时绑定工作流和一次或每天' }
+  }
+  const workflow = db.prepare('SELECT id FROM workflows WHERE id = ? AND workspace_id = ?').get(workflowId, workspaceId)
+  if (!workflow) return { present: true, error: '工作流不存在' }
+  return { present: true, workflowId, recurrence: body.recurrence }
+}
+
+function rejectScheduleToken(request, response, correlationId, uiToken) {
+  if (verifyUiToken(request, uiToken)) return false
+  planError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', correlationId)
+  return true
+}
 
 const isoNow = () => new Date().toISOString()
 
@@ -145,6 +169,8 @@ function mapEvent(row) {
     kind: row.event_kind,
     allDay: Boolean(row.all_day),
     sourceRef: row.source_ref ?? null,
+    workflowId: row.workflow_id ?? null,
+    recurrence: row.recurrence ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -257,7 +283,7 @@ function planWorkflowFromBag(row, workspaceId) {
   }
 }
 
-export async function handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime }, correlationId) {
+export async function handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime, uiToken }, correlationId) {
   if (!url.pathname.startsWith('/api/v1/plan/')) return false
 
   const method = request.method ?? 'GET'
@@ -518,6 +544,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'validation_error', '标题与起止时间必填', correlationId)
       return true
     }
+    if (scheduleFieldsPresent(body) && rejectScheduleToken(request, response, correlationId, uiToken)) return true
+    const binding = resolveScheduleBinding(db, workspaceId, body)
+    if (binding.error) {
+      planError(response, 422, 'validation_error', binding.error, correlationId)
+      return true
+    }
     const kind = EVENT_KINDS.has(body.kind) ? body.kind : 'meeting'
     const now = isoNow()
     const id = createId('cevt')
@@ -527,9 +559,9 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const sourceRef = typeof body.sourceRef === 'string' ? body.sourceRef : null
     db.prepare(`
       INSERT INTO calendar_events
-        (id, workspace_id, title, start_at, end_at, timezone, location, event_kind, metadata_json, source_ref, all_day, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?)
-    `).run(id, workspaceId, title, startAt, endAt, timezone, location, kind, sourceRef, allDay, now, now)
+        (id, workspace_id, title, start_at, end_at, timezone, location, event_kind, metadata_json, source_ref, all_day, workflow_id, recurrence, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?, ?)
+    `).run(id, workspaceId, title, startAt, endAt, timezone, location, kind, sourceRef, allDay, binding.workflowId, binding.recurrence, now, now)
     const row = db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(id)
     planWrote(response, 201, mapEvent(row), correlationId, db, {
       workspaceId,
@@ -553,7 +585,17 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '日程不存在', correlationId)
       return true
     }
+    if ((existing.workflow_id || scheduleFieldsPresent(body)) && rejectScheduleToken(request, response, correlationId, uiToken)) return true
     const patch = {}
+    if (scheduleFieldsPresent(body)) {
+      const binding = resolveScheduleBinding(db, existing.workspace_id, body)
+      if (binding.error) {
+        planError(response, 422, 'validation_error', binding.error, correlationId)
+        return true
+      }
+      patch.workflow_id = binding.workflowId
+      patch.recurrence = binding.recurrence
+    }
     if (typeof body.title === 'string') patch.title = body.title.trim()
     if (typeof body.startAt === 'string') patch.start_at = body.startAt
     if (typeof body.endAt === 'string') patch.end_at = body.endAt
@@ -602,6 +644,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '日程不存在', correlationId)
       return true
     }
+    if (existing.workflow_id && rejectScheduleToken(request, response, correlationId, uiToken)) return true
     db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id)
     planWrote(response, 200, { id }, correlationId, db, {
       workspaceId: existing.workspace_id,

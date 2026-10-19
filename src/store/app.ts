@@ -791,6 +791,7 @@ export const useApp = create<AppState>()(
             endAt: e.end,
             kind: e.kind,
             location: e.location,
+            ...(e.workflowId && e.recurrence ? { workflowId: e.workflowId, recurrence: e.recurrence } : {}),
           })
           set((s) => ({ events: [...s.events, created], planServiceError: null }))
         } catch {
