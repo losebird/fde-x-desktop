@@ -55,9 +55,18 @@ export function generatedAgentPresetPatchPath() {
   return join(FDE_RUNTIME_DIR, 'presets', '.generated-agent-presets.patch.yml')
 }
 
+function presetInsertOrder(a, b) {
+  // The briefing preset's last rows move on other branches. Keep this insert ahead of them.
+  if (a === 'fde-workflow') return -1
+  if (b === 'fde-workflow') return 1
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
+}
+
 export async function writeGeneratedAgentPresetPatch(root = fdePresetRoot()) {
   const dest = generatedAgentPresetPatchPath()
-  const ids = [...fdePresetIdsFromDisk(root)].sort()
+  const ids = [...fdePresetIdsFromDisk(root)].sort(presetInsertOrder)
   const inserts = []
   for (const id of ids) {
     const dir = join(root, id)
