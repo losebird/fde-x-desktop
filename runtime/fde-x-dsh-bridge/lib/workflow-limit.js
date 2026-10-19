@@ -304,8 +304,7 @@ function stepPromptText(prompt, agent, rawText, tools) {
   return text
 }
 
-function applyPersona(agent, text) {
-  const prompt = agent.ctx && agent.ctx.systemPrompt
+function applyPersona(agent, prompt, text) {
   if (!prompt || !prompt.layers || typeof prompt.layers.effect !== 'function' || typeof prompt.getSectionOrder !== 'function') {
     throw new Error(UNCONFIRMED)
   }
@@ -364,9 +363,10 @@ function limitWorkflowAgent(ctx, agent) {
   tools.guard((exec) => {
     if (!allow.includes(exec && exec.name)) return DENY
   })
-  const prompt = agent.ctx && agent.ctx.systemPrompt
+  const prompt = agent.ctx && typeof agent.ctx.get === 'function' ? agent.ctx.get('systemPrompt') : null
+  if (!prompt) throw new Error(UNCONFIRMED)
   const raw = persona && persona.text ? persona.text : presetPrefix(prompt, agent)
-  applyPersona(agent, stepPromptText(prompt, agent, raw, allow))
+  applyPersona(agent, prompt, stepPromptText(prompt, agent, raw, allow))
   watched.add(agent)
   limited.add(agent)
   scheduleStrip()
