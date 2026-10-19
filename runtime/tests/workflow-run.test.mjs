@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import http from 'node:http'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
@@ -892,4 +892,220 @@ test('不带页面令牌的 run 返回 401，workflow_runs 仍是 0 行', async 
   } finally {
     read.close()
   }
+})
+
+function isolatedCaseSource(dbHref, planHref) {
+  return `import http from 'node:http'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { openDatabase } from ${JSON.stringify(dbHref)}
+import { handlePlanRequest } from ${JSON.stringify(planHref)}
+
+const home = process.env.FDE_DSH_HOME
+const mode = process.argv[2]
+const origin = 'http://127.0.0.1:5173'
+const migrations = process.env.FDE_MIGRATIONS
+mkdirSync(join(home, 'run'), { recursive: true })
+writeFileSync(join(home, 'run', 'bridge-tools.json'), JSON.stringify({
+  ok: true,
+  workflowLimit: true,
+  tools: ['fde_app_records_query', 'fde_app_records_propose', 'fde_plan_task_propose'],
+}) + '\\n')
+
+function listen(server) {
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve(server.address().port))
+  })
+}
+
+const dbPath = join(home, 'run.sqlite')
+const db = openDatabase(dbPath, migrations)
+const now = new Date().toISOString()
+db.prepare(\`
+  INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+  VALUES ('ws_e', 'ws_e', '', 'active', ?, ?, ?)
+\`).run(JSON.stringify({ cwd: '/tmp/fde-x-workflow-run-cwd' }), now, now)
+db.prepare(\`
+  INSERT INTO workflows
+    (id, workspace_id, name, status, trigger_json, definition_json, revision, created_at, updated_at)
+  VALUES ('wf_e', 'ws_e', '验收流', 'paused', '{"kind":"manual"}', ?, 1, ?, ?)
+\`).run(JSON.stringify({
+  steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总' } }],
+}), now, now)
+
+const calls = []
+let release = () => {}
+const gate = new Promise((resolve) => { release = resolve })
+const aiRuntime = {
+  status: () => ({ connected: true }),
+  dshHome: home,
+  async call(endpoint, args) {
+    const sessionId = args && args.request && args.request.sessionId
+    calls.push({ endpoint, sessionId })
+    if (endpoint === 'session/create') {
+      if (mode === 'second') await gate
+      return { sessionId }
+    }
+    return {}
+  },
+  async *stream() {},
+}
+const server = http.createServer(async (request, response) => {
+  const chunks = []
+  for await (const chunk of request) chunks.push(chunk)
+  const raw = Buffer.concat(chunks).toString('utf8')
+  const parsed = raw ? JSON.parse(raw) : {}
+  const url = new URL(request.url, 'http://127.0.0.1')
+  const handled = await handlePlanRequest(request, response, url, {
+    db,
+    enqueueEvent() {},
+    readJson: async () => parsed,
+    aiRuntime,
+  }, 'corr_e')
+  if (!handled && !response.headersSent) {
+    response.writeHead(404)
+    response.end()
+  }
+})
+const port = await listen(server)
+
+async function postRun() {
+  const response = await fetch('http://127.0.0.1:' + port + '/api/v1/plan/workflows/wf_e/run', {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspaceId: 'ws_e' }),
+  })
+  return { status: response.status, payload: await response.json() }
+}
+
+async function flush() {
+  for (let i = 0; i < 30; i += 1) await new Promise((resolve) => setImmediate(resolve))
+}
+
+const creates = () => calls.filter((call) => call.endpoint === 'session/create')
+let second = null
+if (mode === 'second') {
+  await postRun()
+  for (let i = 0; i < 50 && creates().length === 0; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+  second = await postRun()
+  release()
+  await flush()
+} else {
+  await postRun()
+  await flush()
+}
+const create = creates()[0]
+const archive = calls.find((call) => call.endpoint === 'workspace/archiveSession')
+const sessionId = create ? create.sessionId : ''
+const run = db.prepare('SELECT state FROM workflow_runs ORDER BY created_at').all()
+const workflow = db.prepare('SELECT status FROM workflows WHERE id = ?').get('wf_e')
+const result = {
+  creates: creates().length,
+  prompts: calls.filter((call) => call.endpoint === 'session/prompt').length,
+  secondStatus: second ? second.status : 0,
+  secondMessage: second && second.payload ? second.payload.message : '',
+  runCount: run.length,
+  runState: run[0] ? run[0].state : '',
+  workflowStatus: workflow.status,
+  sessionId,
+  archivedId: archive ? archive.sessionId : '',
+  allowLeft: sessionId ? existsSync(join(home, 'run', 'workflow-allow', sessionId + '.json')) : false,
+}
+server.close()
+db.close()
+process.stdout.write(JSON.stringify(result) + '\\n')
+`
+}
+
+function runIsolated(mode) {
+  const home = `/tmp/fde-x-wf-e-${mode}-${process.pid}-${Date.now()}`
+  const script = join(home, 'case.mjs')
+  return mkdir(home, { recursive: true }).then(async () => {
+    await writeFile(script, isolatedCaseSource(
+      new URL('../db.mjs', import.meta.url).href,
+      new URL('../routes/plan.mjs', import.meta.url).href,
+    ))
+    return new Promise((resolve) => {
+      const child = spawn(node, [script, mode], {
+        cwd: repoRoot,
+        env: { ...process.env, FDE_DSH_HOME: home, FDE_MIGRATIONS: migrations },
+      })
+      let stdout = ''
+      let stderr = ''
+      const timer = setTimeout(() => child.kill('SIGKILL'), 15000)
+      child.stdout.on('data', (chunk) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
+      child.on('close', (code) => {
+        clearTimeout(timer)
+        resolve({ code, stdout, stderr, home })
+      })
+    })
+  })
+}
+
+test('queued 时再次手动运行返回 409，且不再 session/create', async () => {
+  const { code, stdout, stderr, home } = await runIsolated('second')
+  try {
+    assert.equal(code, 0, `${stderr}\n${stdout}`)
+    const result = JSON.parse(stdout.trim().split('\n').at(-1))
+    assert.equal(result.secondStatus, 409)
+    assert.equal(result.secondMessage, '这条工作流已有未结束的运行')
+    assert.equal(result.creates, 1)
+    assert.equal(result.runCount, 1)
+    assert.equal(result.workflowStatus, 'paused')
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('核对失败发生在 session/create 之后时删掉该会话', async () => {
+  const { code, stdout, stderr, home } = await runIsolated('prepare')
+  try {
+    assert.equal(code, 0, `${stderr}\n${stdout}`)
+    const result = JSON.parse(stdout.trim().split('\n').at(-1))
+    assert.equal(result.creates, 1)
+    assert.equal(result.prompts, 0)
+    assert.equal(result.runState, 'failed')
+    assert.equal(result.sessionId.length > 0, true)
+    assert.equal(result.archivedId, result.sessionId)
+    assert.equal(result.allowLeft, false)
+    assert.equal(result.workflowStatus, 'paused')
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('列表载荷里最新 state 仍是 queued，和 lastRunStatus 分开', async (t) => {
+  const { dbPath, db } = openFixture('card-state')
+  insertWorkspace(db, 'ws_card', '')
+  insertWorkflow(db, {
+    id: 'wf_card',
+    workspaceId: 'ws_card',
+    trigger: { kind: 'manual' },
+    steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总' } }],
+  })
+  const insertRun = db.prepare(`
+    INSERT INTO workflow_runs
+      (id, workflow_id, state, trigger_json, input_json, correlation_id, created_at)
+    VALUES (?, ?, ?, '{"kind":"manual"}', '{}', 'corr_card', ?)
+  `)
+  insertRun.run('wfr_old', 'wf_card', 'succeeded', '2020-01-01T00:00:00.000Z')
+  insertRun.run('wfr_new', 'wf_card', 'queued', '2020-01-02T00:00:00.000Z')
+  const server = serve(db, { status: () => ({ connected: false }), async call() { return {} }, async *stream() {} }, 'corr_card')
+  const port = await listen(server)
+  t.after(async () => {
+    server.close()
+    db.close()
+    await rm(dbPath, { force: true })
+  })
+  const listed = await fetch(`http://127.0.0.1:${port}/api/v1/plan/workflows?workspaceId=ws_card`)
+  const listBody = await listed.json()
+  const card = listBody.data.find((row) => row.id === 'wf_card')
+  assert.equal(card.status, 'paused')
+  assert.equal(card.runs[0].id, 'wfr_new')
+  assert.equal(card.runs[0].state, 'queued')
+  assert.equal(card.runs[1].state, 'succeeded')
+  assert.equal(card.lastRunStatus, 'running')
 })
