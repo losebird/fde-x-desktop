@@ -232,8 +232,8 @@
                   backgroundMode: one-shot
                   maxDepth: provider-managed
 
-              - id: workflow-worker-thread
-                name: '@deepseek-ai/dsh-workflow-worker-thread'
+              - id: workflow-ptc
+                name: '@deepseek-ai/dsh-workflow-ptc'
                 config:
                   provider: spawn
 
@@ -495,8 +495,8 @@
                   backgroundMode: one-shot
                   maxDepth: provider-managed
 
-              - id: workflow-worker-thread
-                name: '@deepseek-ai/dsh-workflow-worker-thread'
+              - id: workflow-ptc
+                name: '@deepseek-ai/dsh-workflow-ptc'
                 config:
                   provider: spawn
 
@@ -529,9 +529,3 @@
 
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
-
-          - id: fde-briefing-skills
-            name: '@deepseek-ai/dsh-skill-filesystem'
-            config:
-              roots:
-                - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
