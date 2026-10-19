@@ -134,10 +134,6 @@ function walkOverlay(dir, prefix = '') {
   return out
 }
 
-export function lockPlugin(source, overlayDir) {
-  return lockDocument(buildTree(source, overlayDir)).plugins['dsh-lan-assist']
-}
-
 export function buildTree(source, overlayDir) {
   const head = gitHead(source)
   if (head !== SOURCE_COMMIT) throw new Error(`source HEAD ${head} != ${SOURCE_COMMIT}`)
