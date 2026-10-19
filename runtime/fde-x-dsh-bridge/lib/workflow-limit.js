@@ -50,6 +50,19 @@ function prepareAllowDirectory(dir) {
   chmodSync(dir, 0o700)
 }
 
+function tightenRegularAllowFile(file, info) {
+  if (!info.isFile() || info.isSymbolicLink()) return
+  if ((info.mode & 0o777) !== 0o600) chmodSync(file, 0o600)
+}
+
+function tightenExistingAllowFiles(dir) {
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith('.json')) continue
+    const file = join(dir, name)
+    tightenRegularAllowFile(file, lstatSync(file))
+  }
+}
+
 function stageWorkflowAllow(sessionId, tools, home, persona) {
   const file = allowFile(sessionId, home)
   if (!file) throw new Error(UNCONFIRMED)
@@ -60,6 +73,7 @@ function stageWorkflowAllow(sessionId, tools, home, persona) {
     body.persona = { text: persona.text, complete: persona.complete === true }
   }
   prepareAllowDirectory(dirname(file))
+  tightenExistingAllowFiles(dirname(file))
   const existing = statOrNull(file)
   if (existing && (existing.isSymbolicLink() || !existing.isFile())) throw new Error(UNCONFIRMED)
   writeFileSync(file, `${JSON.stringify(body)}\n`, { mode: 0o600 })
@@ -99,6 +113,7 @@ function consumeWorkflowAllow(sessionId) {
   const info = statOrNull(file)
   if (!info) return null
   if (info.isSymbolicLink() || !info.isFile()) throw new Error(UNCONFIRMED)
+  tightenRegularAllowFile(file, info)
   const raw = readFileSync(file, 'utf8')
   unlinkSync(file)
   let payload
