@@ -1,4 +1,4 @@
-const { mkdirSync, writeFileSync } = require('node:fs')
+const { mkdirSync, renameSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 
 function summarize(result) {
@@ -42,10 +42,36 @@ function leakOwnTool(agent) {
   })
 }
 
+function registerExtra(ctx) {
+  if (process.env.FDE_WORKFLOW_PROBE_EXTRA !== '1') return
+  const bare = {
+    name: 'mcp__probe__bare',
+    description: 'mcp tool without a read-only mark',
+    parameters: { type: 'object', additionalProperties: false, properties: {} },
+    output: { schema: { type: 'string' }, render: () => [{ type: 'text', text: 'bare' }] },
+    async execute() { return 'bare' },
+  }
+  const marked = {
+    ...bare,
+    name: 'mcp__probe__ro',
+    description: 'mcp tool marked read-only',
+    readOnly: true,
+    async execute() { return 'ro' },
+  }
+  ctx.tools.register(bare)
+  ctx.tools.register(marked)
+}
+
 function apply(ctx) {
   const dir = process.env.FDE_PROBE_DIR
   if (!dir) return
   mkdirSync(dir, { recursive: true })
+  registerExtra(ctx)
+  let approvalAsked = 0
+  ctx.on('approval/request', (_request, next) => {
+    approvalAsked += 1
+    return next()
+  })
   ctx.on('agent/created', ({ agent }) => {
     const header = agent && agent.session && agent.session.header
     const preset = (header && header.agentPreset) || ''
@@ -66,10 +92,21 @@ function apply(ctx) {
         payload.bashNoAgent = await runTool(ctx, 'bash', { command: 'echo RAN', description: 'probe' })
         payload.bashWithAgent = await runTool(ctx, 'bash', { command: 'echo RAN', description: 'probe' }, agent)
         payload.specNoAgent = await runTool(ctx, 'fde_app_spec_submit', { requestId: 'r', spec: { name: 'x' } })
+        payload.approvalAsked = approvalAsked
+        payload.sessionId = (header && header.id) || ''
+        const presets = ctx.get('permissionPresets')
+        payload.preset = presets && typeof presets.current === 'function' ? presets.current(agent.session) : null
+        const approval = ctx.get('approval')
+        payload.approvalPolicy = approval && approval.config ? approval.config.policy : null
+        const extra = process.env.FDE_WORKFLOW_PROBE_CALL
+        if (extra) payload.extraCall = await runTool(ctx, extra, {}, agent)
       } catch (error) {
         payload.error = error instanceof Error ? error.message : String(error)
       }
-      writeFileSync(join(dir, `${preset}.json`), `${JSON.stringify(payload)}\n`)
+      const dest = join(dir, `${preset}.json`)
+      const tmp = join(dir, `.${preset}.${process.pid}.tmp`)
+      writeFileSync(tmp, `${JSON.stringify(payload)}\n`)
+      renameSync(tmp, dest)
     })
   })
 }

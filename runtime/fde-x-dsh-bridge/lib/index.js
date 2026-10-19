@@ -169,7 +169,7 @@ function createFdeSessionHandler(ctx) {
           return
         }
         const tools = bridgeCtx.tools.schemas(agent).map((row) => row.name).sort()
-        json(res, 200, { ok: true, tools })
+        json(res, 200, { ok: true, tools, approval: sessionApproval(agent) })
         return
       }
       if (req.method === 'POST' && path === '/mcp/call') {
@@ -208,6 +208,27 @@ function createFdeSessionHandler(ctx) {
         json(res, 200, { ok: true, text: textFromToolResult(result) })
         return
       }
+      if (req.method === 'GET' && path === '/tool-catalog') {
+        const sessionId = url.searchParams.get('sessionId') || ''
+        const agent = sessions.get(sessionId)
+        const header = agent && agent.session && agent.session.header
+        const preset = header && header.agentPreset
+        if (!bridgeCtx || !agent || preset !== 'standard' || !bridgeCtx.tools || typeof bridgeCtx.tools.schemas !== 'function') {
+          json(res, 404, { ok: false, error: 'session_tools_unavailable' })
+          return
+        }
+        const view = bridgeCtx.tools.view(agent)
+        const tools = bridgeCtx.tools.schemas(agent).map((row) => {
+          const definition = bridgeCtx.tools.get(row.name, agent)
+          return {
+            name: row.name,
+            readOnly: explicitReadOnly(definition),
+            grantable: Boolean(view && view.restrictableNames && view.restrictableNames.has(row.name)),
+          }
+        }).sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+        json(res, 200, { ok: true, tools })
+        return
+      }
       if (req.method === 'GET' && path === '/export') {
         const sessionId = url.searchParams.get('sessionId') || ''
         const bundle = await readBundle(sessionId)
@@ -229,6 +250,19 @@ function createFdeSessionHandler(ctx) {
       json(res, 400, { ok: false, error: error instanceof Error ? error.message : '失败' })
     }
   }
+}
+
+function explicitReadOnly(definition) {
+  if (!definition || typeof definition !== 'object') return false
+  if (definition.readOnly === true) return true
+  const annotations = definition.annotations
+  return Boolean(annotations && annotations.readOnlyHint === true)
+}
+
+function sessionApproval(agent) {
+  const presets = bridgeCtx.get('permissionPresets')
+  if (!presets || typeof presets.current !== 'function') return 'ask'
+  return presets.current(agent.session) === 'danger-full-access' ? 'never' : 'ask'
 }
 
 function dshHome() {

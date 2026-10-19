@@ -1,14 +1,20 @@
+import { randomUUID } from 'node:crypto'
 import { planAppSource } from '../app-source.mjs'
 import { appendAudit, createId } from '../db.mjs'
-import { WORKFLOW_PRESET, WORKFLOW_TOOLS, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
+import { WORKFLOW_PRESET, WORKFLOW_TOOLS, stageWorkflowAllow, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
 import { isHostJobId } from '../host-catalog.mjs'
+import { toolTier, waitsForPerson } from './tool-risk.mjs'
 
 const MANUAL_TRIGGER_JSON = '{"kind":"manual"}'
 const AI_DOWN = '核心 AI 运行时尚未连接'
 const MEMORY_ONLY = '没有记忆 M1，这一步只留提案'
 const TOOLS_UNRESTRICTED = '核心 AI 暂不支持限制步骤工具，未运行'
 const TOOLS_MISMATCH = '工作流会话可见工具不是查询和提案这三项，未运行'
+const TOOLS_MISMATCH_CUSTOM = '工作流会话可见工具和这一步选中的工具不一致，未运行'
 const TOOLS_UNCHECKED = '工作流会话的可见工具没有核对上，未运行'
+const TOOLS_EMPTY = '工具清单不能为空，未运行'
+const TOOLS_WAIT = '这一步选了会等人答复的工具，无人值守不能运行'
+const TOOLS_ASK = '当前权限会要求确认，这一步选了会直接执行的工具，未运行'
 
 const CARD_STATUS = {
   succeeded: 'success',
@@ -150,11 +156,23 @@ function skipSteps(db, steps, now) {
   for (const step of steps) markStepSkipped(db, step.id, now)
 }
 
-function toolsMatchContract(tools) {
-  const expected = [...WORKFLOW_TOOLS].sort()
-  if (!Array.isArray(tools) || tools.length !== expected.length) return false
-  const names = tools.map((name) => (typeof name === 'string' ? name : '')).sort()
-  return expected.every((name, index) => names[index] === name)
+function namesEqual(expected, actual) {
+  const left = [...expected].sort()
+  const right = Array.isArray(actual) ? actual.map((name) => (typeof name === 'string' ? name : '')).sort() : []
+  return left.length === right.length && left.every((name, index) => name === right[index])
+}
+
+function mismatchMessage(tools) {
+  return namesEqual(tools, WORKFLOW_TOOLS) ? TOOLS_MISMATCH : TOOLS_MISMATCH_CUSTOM
+}
+
+function stepTools(step) {
+  const config = step.config
+  if (!config || !Object.hasOwn(config, 'tools')) return [...WORKFLOW_TOOLS]
+  const tools = config.tools
+  if (!Array.isArray(tools) || tools.length === 0) return null
+  if (tools.some((name) => typeof name !== 'string' || !name)) return null
+  return tools
 }
 
 async function readVisibleTools(aiRuntime, sessionId) {
@@ -177,7 +195,11 @@ async function readVisibleTools(aiRuntime, sessionId) {
     return { kind: 'unchecked' }
   }
   if (!payload || payload.ok !== true || !Array.isArray(payload.tools)) return { kind: 'unchecked' }
-  return { kind: toolsMatchContract(payload.tools) ? 'match' : 'mismatch' }
+  return {
+    kind: 'listed',
+    tools: payload.tools,
+    approval: payload.approval === 'never' ? 'never' : 'ask',
+  }
 }
 
 function failRun(db, ctx, message) {
@@ -221,32 +243,66 @@ async function performRun(deps, ctx) {
     markRunFailed(db, ctx.runId, now)
     return
   }
-  const created = await aiRuntime.call('session/create', {
-    request: { cwd, agentPreset: WORKFLOW_PRESET },
-  })
-  const sessionId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
-  if (!sessionId) throw new Error('工作流会话没有建立')
-  const visible = await readVisibleTools(aiRuntime, sessionId)
-  if (visible.kind !== 'match') {
-    const message = visible.kind === 'mismatch' ? TOOLS_MISMATCH : TOOLS_UNCHECKED
-    failSteps(db, aiSteps, message, isoNow())
-    failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
-    skipSteps(db, skipStepsList, isoNow())
-    markRunFailed(db, ctx.runId, isoNow())
-    return
-  }
-  claimRunning(db, ctx.runId, aiSteps, sessionId, isoNow())
+  const prepared = []
   for (const step of aiSteps) {
+    const tools = stepTools(step)
+    if (!tools) {
+      failSteps(db, aiSteps, TOOLS_EMPTY, isoNow())
+      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
+      skipSteps(db, skipStepsList, isoNow())
+      markRunFailed(db, ctx.runId, isoNow())
+      return
+    }
+    if (tools.some((name) => waitsForPerson(name))) {
+      failSteps(db, aiSteps, TOOLS_WAIT, isoNow())
+      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
+      skipSteps(db, skipStepsList, isoNow())
+      markRunFailed(db, ctx.runId, isoNow())
+      return
+    }
+    const sessionId = `session-${randomUUID()}`
+    stageWorkflowAllow(sessionId, tools, aiRuntime && aiRuntime.dshHome)
+    const created = await aiRuntime.call('session/create', {
+      request: { cwd, agentPreset: WORKFLOW_PRESET, sessionId },
+    })
+    const actualId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
+    if (!actualId) throw new Error('工作流会话没有建立')
+    const visible = await readVisibleTools(aiRuntime, actualId)
+    if (visible.kind !== 'listed') {
+      failSteps(db, aiSteps, TOOLS_UNCHECKED, isoNow())
+      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
+      skipSteps(db, skipStepsList, isoNow())
+      markRunFailed(db, ctx.runId, isoNow())
+      return
+    }
+    if (!namesEqual(tools, visible.tools)) {
+      failSteps(db, aiSteps, mismatchMessage(tools), isoNow())
+      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
+      skipSteps(db, skipStepsList, isoNow())
+      markRunFailed(db, ctx.runId, isoNow())
+      return
+    }
+    if (tools.some((name) => toolTier(name) === 'danger') && visible.approval !== 'never') {
+      failSteps(db, aiSteps, TOOLS_ASK, isoNow())
+      failSteps(db, memorySteps, MEMORY_ONLY, isoNow())
+      skipSteps(db, skipStepsList, isoNow())
+      markRunFailed(db, ctx.runId, isoNow())
+      return
+    }
+    prepared.push({ step, sessionId: actualId, tools: [...tools].sort() })
+  }
+  claimRunning(db, ctx.runId, aiSteps, prepared[0].sessionId, prepared[0].tools, isoNow())
+  for (const item of prepared) {
     await aiRuntime.call('session/prompt', {
       request: {
         requestId: createId('req'),
-        sessionId,
+        sessionId: item.sessionId,
         mode: 'queue',
-        content: [{ type: 'text', text: stepText(step) }],
+        content: [{ type: 'text', text: stepText(item.step) }],
       },
     })
-    await followTurn(aiRuntime, sessionId)
-    markStepSucceeded(db, step.id, isoNow())
+    await followTurn(aiRuntime, item.sessionId)
+    markStepSucceeded(db, item.step.id, isoNow())
   }
   const finished = isoNow()
   failSteps(db, memorySteps, MEMORY_ONLY, finished)
@@ -271,12 +327,12 @@ function stepText(step) {
   return `${prompt}\n来源：${sourceRef}`
 }
 
-function claimRunning(db, runId, steps, sessionId, now) {
+function claimRunning(db, runId, steps, sessionId, tools, now) {
   const run = db.prepare(`
     UPDATE workflow_runs
     SET state = 'running', started_at = COALESCE(started_at, ?), output_json = ?
     WHERE id = ? AND state = 'queued'
-  `).run(now, JSON.stringify({ sessionId }), runId)
+  `).run(now, JSON.stringify({ sessionId, tools }), runId)
   if (run.changes !== 1) throw new Error('运行没能进入 running')
   for (const step of steps) {
     const updated = db.prepare(`
