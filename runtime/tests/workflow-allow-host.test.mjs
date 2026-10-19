@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
@@ -262,6 +262,25 @@ describe('真 Host 上的 allow 文件和会停住的工具', { concurrency: 1 }
       assert.equal(existsSync(outside), true)
       assert.equal(thrown instanceof Error, true)
       assert.equal(thrown && thrown.message, UNCONFIRMED)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+      await rm(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  test('allow 目录里的符号链接文件不会被跟进去', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-allow-file-link-'))
+    const outsideDir = await mkdtemp(join(tmpdir(), 'fde-allow-file-outside-'))
+    try {
+      const outside = join(outsideDir, 'outside.json')
+      writeFileSync(outside, '{"kept":true}\n')
+      const dir = allowDir(home)
+      mkdirSync(dir, { recursive: true })
+      symlinkSync(outside, join(dir, 'session-link.json'))
+      sweepWorkflowAllow(home)
+      assert.equal(existsSync(outside), true)
+      const kept = readFileSync(outside, 'utf8')
+      assert.equal(kept, '{"kept":true}\n')
     } finally {
       await rm(home, { recursive: true, force: true })
       await rm(outsideDir, { recursive: true, force: true })

@@ -1,4 +1,4 @@
-const { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } = require('node:fs')
+const { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } = require('node:fs')
 const { createRequire } = require('node:module')
 const { homedir } = require('node:os')
 const { dirname, join } = require('node:path')
@@ -31,8 +31,22 @@ function allowDirectory(home) {
   return join(home || dshHome(), 'run', 'workflow-allow')
 }
 
-function tightenAllowDirectory(dir) {
-  mkdirSync(dir, { recursive: true, mode: 0o700 })
+function statOrNull(path) {
+  try {
+    return lstatSync(path)
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+function prepareAllowDirectory(dir) {
+  let info = statOrNull(dir)
+  if (!info) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    info = lstatSync(dir)
+  }
+  if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(UNCONFIRMED)
   chmodSync(dir, 0o700)
 }
 
@@ -45,29 +59,46 @@ function stageWorkflowAllow(sessionId, tools, home, persona) {
     if (typeof persona.text !== 'string' || !persona.text) throw new Error(UNCONFIRMED)
     body.persona = { text: persona.text, complete: persona.complete === true }
   }
-  tightenAllowDirectory(dirname(file))
+  prepareAllowDirectory(dirname(file))
+  const existing = statOrNull(file)
+  if (existing && (existing.isSymbolicLink() || !existing.isFile())) throw new Error(UNCONFIRMED)
   writeFileSync(file, `${JSON.stringify(body)}\n`, { mode: 0o600 })
   chmodSync(file, 0o600)
 }
 
 function discardWorkflowAllow(sessionId, home) {
   const file = allowFile(sessionId, home)
-  if (!file || !existsSync(file)) return
-  unlinkSync(file)
+  if (!file) return
+  const dirInfo = statOrNull(dirname(file))
+  if (!dirInfo) return
+  if (dirInfo.isSymbolicLink() || !dirInfo.isDirectory()) throw new Error(UNCONFIRMED)
+  const info = statOrNull(file)
+  if (!info) return
+  if (info.isSymbolicLink() || info.isFile()) unlinkSync(file)
 }
 
 function sweepWorkflowAllow(home) {
   const dir = allowDirectory(home)
-  tightenAllowDirectory(dir)
+  prepareAllowDirectory(dir)
   for (const name of readdirSync(dir)) {
     if (!name.endsWith('.json')) continue
-    unlinkSync(join(dir, name))
+    const file = join(dir, name)
+    const info = lstatSync(file)
+    if (info.isSymbolicLink()) {
+      unlinkSync(file)
+      continue
+    }
+    if (!info.isFile()) continue
+    unlinkSync(file)
   }
 }
 
 function consumeWorkflowAllow(sessionId) {
   const file = allowFile(sessionId)
-  if (!file || !existsSync(file)) return null
+  if (!file) return null
+  const info = statOrNull(file)
+  if (!info) return null
+  if (info.isSymbolicLink() || !info.isFile()) throw new Error(UNCONFIRMED)
   const raw = readFileSync(file, 'utf8')
   unlinkSync(file)
   let payload
