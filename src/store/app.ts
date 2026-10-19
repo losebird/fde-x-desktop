@@ -375,6 +375,19 @@ function sessionIdOfRun(run: Workflow['runs'][number] | undefined): string {
   return typeof value === 'string' ? value : ''
 }
 
+async function refreshWorkflowListIgnoringError(
+  get: () => AppState,
+  set: (partial: (state: AppState) => Partial<AppState>) => void,
+) {
+  const workspaceId = get().activeWorkspaceId
+  if (!workspaceId) return
+  const rows = await runtimeApi.listWorkflows(workspaceId).catch(() => null)
+  if (!rows) return
+  set((state) => ({
+    workflows: state.workflows.map((row) => rows.find((next) => next.id === row.id) ?? row),
+  }))
+}
+
 async function followWorkflowRun(
   get: () => AppState,
   set: (partial: (state: AppState) => Partial<AppState>) => void,
@@ -397,16 +410,8 @@ async function followWorkflowRun(
     if (run && run.state !== 'queued') return
     if (Date.now() - started >= WORKFLOW_RUN_WATCH_MS) return
     await new Promise((resolve) => setTimeout(resolve, WORKFLOW_RUN_WATCH_GAP_MS))
-    const workspaceId = get().activeWorkspaceId
-    if (!workspaceId) return
-    try {
-      const rows = await runtimeApi.listWorkflows(workspaceId)
-      set((state) => ({
-        workflows: state.workflows.map((row) => rows.find((next) => next.id === row.id) ?? row),
-      }))
-    } catch {
-      /* 下一轮再拉列表 */
-    }
+    if (!get().activeWorkspaceId) return
+    await refreshWorkflowListIgnoringError(get, set)
   }
 }
 
