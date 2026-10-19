@@ -471,6 +471,8 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
   const dataLand = useApp((state) => state.dataBrowse.land)
   const landKind = useApp((state) => state.dataBrowse.kind)
   const landRowId = useApp((state) => state.dataBrowse.rowId)
+  const landConnection = useApp((state) => state.dataBrowse.connection || '')
+  const connectionLand = useApp((state) => state.dataBrowse.connectionLand || 0)
   const activeWorkspaceCwd = useApp((state) => {
     const row = state.workspaces.find((item) => item.id === state.activeWorkspaceId)
     const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
@@ -1821,19 +1823,26 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     const wantedNo = String(landRowId || '').trim()
     if (drawer) return
     if (peekActivePending() && !(wantedKind && wantedNo)) return
+    if (wantedKind && wantedNo && connectionLand === dataLand && landConnection && connections.length === 0) return
     lastConsumedLand = dataLand
     if (wantedKind && wantedNo) {
       const catalog = kindRowsFromVocab(vocab)
       const canonical = resolveConnectedKind(wantedKind, catalog) || wantedKind
       const row = catalog.find((item) => item.kind === canonical)
-      const conn = String(row?.connection || '').trim()
-      if (conn && conn !== 'lookup') setConnectionId(conn)
+      const named = connectionLand === dataLand && landConnection
+        ? connections.find((item) => item.name === landConnection || item.id === landConnection)
+        : null
+      if (named) setConnectionId(named.id)
+      else {
+        const conn = String(row?.connection || '').trim()
+        if (conn && conn !== 'lookup') setConnectionId(conn)
+      }
       setKind(canonical)
       void runPreview('现查', { kind: canonical, no: wantedNo })
       return
     }
     if (wantedKind && wantedKind !== kind) selectKind(wantedKind)
-  }, [dataLand, dataView, landKind, landRowId, kind, drawer, peekActivePending, selectKind, runPreview, vocab])
+  }, [connectionLand, connections, dataLand, dataView, landConnection, landKind, landRowId, kind, drawer, peekActivePending, selectKind, runPreview, vocab])
 
   useEffect(() => {
     if (dataView !== 'records') return
