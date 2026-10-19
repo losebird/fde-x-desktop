@@ -44,6 +44,29 @@ fi
   "$NODE" -v
 } >"$LOG_DIR/node-version.txt"
 
+print_gate_reason() {
+  node -e '
+    const fs = require("fs")
+    let data
+    try { data = JSON.parse(fs.readFileSync(process.argv[1], "utf8")) }
+    catch { process.exit(0) }
+    if (data.reason === "ui_token_not_printed") {
+      console.log("ui_token_not_printed")
+      process.exit(0)
+    }
+    if (data.connect === 401) {
+      let reason = "401"
+      try {
+        const body = JSON.parse(data.connectBody || "")
+        const error = body && body.error
+        if (typeof error === "string" && error) reason = error
+        else if (error && typeof error.code === "string" && error.code) reason = error.code
+      } catch {}
+      console.log(reason)
+    }
+  ' "$1"
+}
+
 run_gate() {
   local name="$1"
   shift
@@ -57,6 +80,7 @@ run_gate() {
     STATUS=1
   fi
   if ! node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(!(d.ok&&d.health===200&&d.connected===true&&d.hasRequireAsync===false)) process.exit(1)' "$LOG_DIR/$name.json"; then
+    print_gate_reason "$LOG_DIR/$name.json" || true
     say "$name did not connect"
     STATUS=1
   fi
