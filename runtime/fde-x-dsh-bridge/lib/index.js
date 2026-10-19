@@ -387,9 +387,11 @@ function installIuiModeGate(ctx, config) {
   const { toolSessionId } = require('./tools.js')
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembled = await next()
-    const preset = presetFromAgent(context && context.agent)
-    const gated = gatePromptAssembly(assembled, preset, mountOf())
-    return applyMcpCatalog(gated, toolSessionId({ agent: context && context.agent }))
+    const agent = context && context.agent
+    const preset = presetFromAgent(agent)
+    const sessionId = toolSessionId({ agent })
+    const gated = gatePromptAssembly(assembled, preset, mountOf(), sessionId)
+    return applyMcpCatalog(gated, sessionId)
   }, true)
   ctx.on('agent/pre-step', async (payload, next) => {
     const decision = await next()
@@ -397,7 +399,7 @@ function installIuiModeGate(ctx, config) {
   }, true)
   ctx.on('tools/pre-execute', async (exec, next) => {
     const preset = presetFromAgent(exec && exec.agent)
-    const server = deniedMcpServer(exec && exec.name, preset, mountOf())
+    const server = deniedMcpServer(exec && exec.name, preset, mountOf(), toolSessionId(exec))
     if (server) return { kind: 'deny', reason: `MCP 服务 ${server} 未挂到预设 ${preset}` }
     const decision = await next()
     if (resumePastIuiHtmlDeny(decision, preset)) return next()
@@ -420,6 +422,12 @@ function apply(ctx, config) {
     }))
   }
   try {
+    require('./briefing-allow.js').sweepBriefingAllow()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('briefing_allow_sweep_failed', message)
+  }
+  try {
     const { defineTool } = loadDshTools()
     const { registerTools, FDE_TOOL_NAMES } = require('./tools.js')
     const { installWorkflowToolLimit } = require('./workflow-limit.js')
@@ -440,7 +448,21 @@ function apply(ctx, config) {
     rememberAgent(event && event.agent)
   })
   ctx.on('agent/disposed', (event) => {
-    forgetAgent(event && event.agent)
+    const agent = event && event.agent
+    forgetAgent(agent)
+    const { discardBriefingAllow } = require('./briefing-allow.js')
+    const session = agent && agent.session
+    const header = session && session.header
+    const ids = [
+      session && session.sessionId,
+      session && session.id,
+      header && header.sessionId,
+      header && header.id,
+      agent && agent.id,
+    ]
+    for (const id of ids) {
+      if (typeof id === 'string' && id) discardBriefingAllow(id)
+    }
   })
 }
 

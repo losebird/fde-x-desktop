@@ -51,27 +51,38 @@ function resolveMcpMount(mount) {
   return mcpMountFromConfig(mount)
 }
 
-function deniedServer(server, preset, mount) {
+function briefingAllowServers(sessionId) {
+  if (typeof sessionId !== 'string' || !sessionId) return []
+  const { readBriefingAllow } = require('./fde-x-dsh-bridge/lib/briefing-allow.js')
+  return readBriefingAllow(sessionId)
+}
+
+function deniedServer(server, preset, mount, sessionId) {
   const name = String(server || '').trim()
   if (!name) return ''
   const table = resolveMcpMount(mount)
-  if (preset === 'fde-briefing' && table.briefingDenyUserMcp) return name
+  if (preset === 'fde-briefing' && table.briefingDenyUserMcp) {
+    // Browser and desktop servers stay off a briefing session even if a section names them.
+    if (STANDARD_DENY_SERVERS.includes(name)) return name
+    if (briefingAllowServers(sessionId).includes(name)) return ''
+    return name
+  }
   if (preset === 'standard' && table.standardDenyServers.includes(name)) return name
   return ''
 }
 
-function deniedMcpServer(toolName, preset, mount) {
-  return deniedServer(mcpServerName(toolName), preset, mount)
+function deniedMcpServer(toolName, preset, mount, sessionId) {
+  return deniedServer(mcpServerName(toolName), preset, mount, sessionId)
 }
 
-function stripDeniedMcpTools(assembly, preset, mount) {
+function stripDeniedMcpTools(assembly, preset, mount, sessionId) {
   if (!assembly || typeof assembly !== 'object' || !Array.isArray(assembly.tools)) return assembly
-  const tools = assembly.tools.filter((tool) => !deniedMcpServer(tool && tool.name, preset, mount))
+  const tools = assembly.tools.filter((tool) => !deniedMcpServer(tool && tool.name, preset, mount, sessionId))
   if (tools.length === assembly.tools.length) return assembly
   return { ...assembly, tools }
 }
 
-function gatePromptAssembly(assembly, preset, mount) {
+function gatePromptAssembly(assembly, preset, mount, sessionId) {
   const table = resolveMcpMount(mount)
   const stripped = !assembly || typeof assembly !== 'object' || iuiAllowedForPreset(preset)
     ? assembly
@@ -84,7 +95,7 @@ function gatePromptAssembly(assembly, preset, mount) {
         ? assembly.tools.filter((tool) => !tool || !IUI_TOOL_NAMES.includes(tool.name))
         : assembly.tools,
     }
-  return stripDeniedMcpTools(stripped, preset, table)
+  return stripDeniedMcpTools(stripped, preset, table, sessionId)
 }
 
 function stripIuiSkillLine(text) {
