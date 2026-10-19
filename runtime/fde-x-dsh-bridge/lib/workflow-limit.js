@@ -1,4 +1,4 @@
-const { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } = require('node:fs')
+const { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } = require('node:fs')
 const { homedir } = require('node:os')
 const { dirname, join } = require('node:path')
 
@@ -20,22 +20,64 @@ function allowFile(sessionId, home) {
   return join(home || dshHome(), 'run', 'workflow-allow', `${id}.json`)
 }
 
-function stageWorkflowAllow(sessionId, tools, home) {
+function allowDirectory(home) {
+  return join(home || dshHome(), 'run', 'workflow-allow')
+}
+
+function tightenAllowDirectory(dir) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  chmodSync(dir, 0o700)
+}
+
+function stageWorkflowAllow(sessionId, tools, home, persona) {
   const file = allowFile(sessionId, home)
   if (!file) throw new Error(UNCONFIRMED)
   if (!Array.isArray(tools) || tools.length === 0) throw new Error(UNCONFIRMED)
-  mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, `${JSON.stringify({ tools })}\n`)
+  const body = { tools }
+  if (persona) {
+    if (typeof persona.text !== 'string' || !persona.text) throw new Error(UNCONFIRMED)
+    body.persona = { text: persona.text, complete: persona.complete === true }
+  }
+  tightenAllowDirectory(dirname(file))
+  writeFileSync(file, `${JSON.stringify(body)}\n`, { mode: 0o600 })
+  chmodSync(file, 0o600)
+}
+
+function discardWorkflowAllow(sessionId, home) {
+  const file = allowFile(sessionId, home)
+  if (!file || !existsSync(file)) return
+  unlinkSync(file)
+}
+
+function sweepWorkflowAllow(home) {
+  const dir = allowDirectory(home)
+  tightenAllowDirectory(dir)
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith('.json')) continue
+    unlinkSync(join(dir, name))
+  }
 }
 
 function consumeWorkflowAllow(sessionId) {
   const file = allowFile(sessionId)
   if (!file || !existsSync(file)) return null
-  const payload = JSON.parse(readFileSync(file, 'utf8'))
+  const raw = readFileSync(file, 'utf8')
   unlinkSync(file)
+  let payload
+  try {
+    payload = JSON.parse(raw)
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error(UNCONFIRMED)
+    throw error
+  }
   if (!payload || !Array.isArray(payload.tools) || payload.tools.length === 0) throw new Error(UNCONFIRMED)
   if (payload.tools.some((name) => typeof name !== 'string' || !name)) throw new Error(UNCONFIRMED)
-  return payload.tools
+  let persona = null
+  if (payload.persona !== undefined) {
+    if (!payload.persona || typeof payload.persona.text !== 'string' || !payload.persona.text) throw new Error(UNCONFIRMED)
+    persona = { text: payload.persona.text, complete: payload.persona.complete === true }
+  }
+  return { tools: payload.tools, persona }
 }
 
 function headerPreset(agent) {
@@ -98,7 +140,19 @@ function layerTables(tools) {
   return tables
 }
 
-function locateDefinition(tools, name) {
+function ownLayer(tools, agent) {
+  if (!tools || !tools.layers || typeof tools.layers.peek !== 'function' || !agent) return null
+  const layer = tools.layers.peek(agent)
+  if (layer && layer.tools && typeof layer.tools.get === 'function') return layer
+  return null
+}
+
+function locateDefinition(tools, name, agent) {
+  const own = ownLayer(tools, agent)
+  if (own) {
+    const found = own.tools.get(name)
+    if (found) return found
+  }
   for (const table of layerTables(tools)) {
     if (typeof table.get !== 'function') continue
     const found = table.get(name)
@@ -108,8 +162,28 @@ function locateDefinition(tools, name) {
 }
 
 function grantOnAgent(tools, agent, name, definition) {
-  tools.layers.effect(agent.ctx, (layer) => layer.tools.insert(name, definition), {
+  tools.layers.effect(agent.ctx, (layer) => {
+    if (layer.tools.has(name)) return () => {}
+    return layer.tools.insert(name, definition)
+  }, {
     label: 'workflow-allow.grant()',
+    notify: false,
+  })
+}
+
+function applyPersona(agent, persona) {
+  const prompt = agent.ctx && agent.ctx.systemPrompt
+  if (!prompt || !prompt.layers || typeof prompt.layers.effect !== 'function' || typeof prompt.getSectionOrder !== 'function') {
+    throw new Error(UNCONFIRMED)
+  }
+  const section = {
+    name: 'deployment:persona-prefix',
+    order: prompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
+    text: persona.text,
+  }
+  if (persona.complete) section.complete = true
+  prompt.layers.effect(agent.ctx, (layer) => layer.sections.insert(section.name, section), {
+    label: 'workflow-allow.persona()',
     notify: false,
   })
 }
@@ -127,7 +201,8 @@ function limitWorkflowAgent(ctx, agent) {
   const sessionHeader = agent && agent.session && agent.session.header
   const sessionId = (sessionHeader && sessionHeader.id) || (agent.session && agent.session.id) || agent.id
   const staged = consumeWorkflowAllow(sessionId)
-  const allow = staged || [...WORKFLOW_TOOLS]
+  const allow = staged ? staged.tools : [...WORKFLOW_TOOLS]
+  const persona = staged && staged.persona
   const snapshot = typeof tools.view === 'function' ? tools.view(agent) : null
   const restrictable = snapshot && snapshot.restrictableNames
   if (!restrictable || typeof restrictable.has !== 'function') throw new Error(UNCONFIRMED)
@@ -138,7 +213,7 @@ function limitWorkflowAgent(ctx, agent) {
       inherited.push(name)
       continue
     }
-    const definition = locateDefinition(tools, name)
+    const definition = locateDefinition(tools, name, agent)
     if (!definition) throw new Error(UNCONFIRMED)
     grants.push({ name, definition })
   }
@@ -154,12 +229,14 @@ function limitWorkflowAgent(ctx, agent) {
   tools.guard((exec) => {
     if (!allow.includes(exec && exec.name)) return DENY
   })
+  if (persona) applyPersona(agent, persona)
   watched.add(agent)
   limited.add(agent)
   scheduleStrip()
 }
 
 function installWorkflowToolLimit(ctx) {
+  sweepWorkflowAllow()
   ctx.tools.guard((exec) => {
     if (exec && exec.agent) return
     return DENY
@@ -167,13 +244,34 @@ function installWorkflowToolLimit(ctx) {
   ctx.on('tools/change', () => {
     scheduleStrip()
   })
-  ctx.on('agent/created', (event) => {
-    limitWorkflowAgent(ctx, event && event.agent)
-  })
   ctx.on('agent/disposed', (event) => {
-    watched.delete(event && event.agent)
+    const agent = event && event.agent
+    watched.delete(agent)
+    const header = agent && agent.session && agent.session.header
+    const sessionId = (header && header.id) || (agent && agent.session && agent.session.id) || (agent && agent.id)
+    discardWorkflowAllow(sessionId)
   })
+  runWorkflowLimitLast(ctx)
   return true
+}
+
+function runWorkflowLimitLast(ctx) {
+  const settle = (event) => {
+    limitWorkflowAgent(ctx, event && event.agent)
+  }
+  ctx.on('agent/created', settle)
+  const hooks = ctx.events && ctx.events._hooks && ctx.events._hooks['agent/created']
+  const mine = hooks && hooks[hooks.length - 1]
+  if (!mine) return
+  ctx.on('internal/dispatch', (_type, name) => {
+    if (name !== 'agent/created') return
+    const list = ctx.events._hooks['agent/created']
+    if (!list) return
+    const index = list.indexOf(mine)
+    if (index < 0 || index === list.length - 1) return
+    list.splice(index, 1)
+    list.push(mine)
+  })
 }
 
 function workflowLimitReady() {
@@ -190,4 +288,5 @@ module.exports = {
   installWorkflowToolLimit,
   workflowLimitReady,
   stageWorkflowAllow,
+  discardWorkflowAllow,
 }

@@ -49,6 +49,14 @@ export async function bootWorkflowHost(options = {}) {
   const profileName = 'fde-workflow-host'
   await mkdir(cwd, { recursive: true })
   await mkdir(probeDir, { recursive: true })
+  if (options.staleAllow) {
+    const allowDir = join(home, 'run', 'workflow-allow')
+    await mkdir(allowDir, { recursive: true, mode: 0o755 })
+    await chmod(allowDir, 0o755)
+    const stale = join(allowDir, 'session-stale-allow.json')
+    await writeFile(stale, '{}\n', { mode: 0o644 })
+    await chmod(stale, 0o644)
+  }
   const credentials = join(home, '.credentials.yaml')
   await writeFile(credentials, '', { mode: 0o600 })
   await chmod(credentials, 0o600)
@@ -91,6 +99,7 @@ export async function bootWorkflowHost(options = {}) {
     FDE_WORKFLOW_PROBE_LEAK: process.env.FDE_WORKFLOW_PROBE_LEAK,
     FDE_WORKFLOW_PROBE_EXTRA: process.env.FDE_WORKFLOW_PROBE_EXTRA,
     FDE_WORKFLOW_PROBE_CALL: process.env.FDE_WORKFLOW_PROBE_CALL,
+    FDE_WORKFLOW_PROBE_PRESET_ONLY: process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY,
   }
   process.env.FDE_DSH_HOME = home
   process.env.DSH_HOME = home
@@ -106,6 +115,8 @@ export async function bootWorkflowHost(options = {}) {
   else delete process.env.FDE_WORKFLOW_PROBE_EXTRA
   if (options.callTool) process.env.FDE_WORKFLOW_PROBE_CALL = options.callTool
   else delete process.env.FDE_WORKFLOW_PROBE_CALL
+  if (options.presetOnly) process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY = '1'
+  else delete process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY
 
   const core = createCoreConnector({
     bin,

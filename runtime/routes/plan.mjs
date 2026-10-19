@@ -12,8 +12,8 @@ import {
 } from '../host-catalog.mjs'
 import { decidePlanTask, listOpenPlanTaskProposals } from '../plan/task-proposals.mjs'
 import { hasIllegalSourceRef, readLatestRunCards, startWorkflowRun } from '../plan/workflow-run.mjs'
-import { listSelectableTools } from '../plan/workflow-catalog.mjs'
-import { rejectToolList, toolChangeAudit } from '../plan/tool-risk.mjs'
+import { listSelectableTools, listWorkflowCatalog } from '../plan/workflow-catalog.mjs'
+import { rejectPreset, rejectToolList, toolChangeAudit } from '../plan/tool-risk.mjs'
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
@@ -45,9 +45,16 @@ async function gateWorkflowTools(body, previousSteps, aiRuntime, cwd) {
   })
   if (!needsCatalog) return null
   if (!cwd) return { error: '工作区没有可用目录' }
-  const catalog = await listSelectableTools(aiRuntime, cwd)
+  const needsPreset = body.steps.some((step) => {
+    return step && step.kind === 'ai' && step.config && typeof step.config === 'object' && Object.hasOwn(step.config, 'presetId')
+  })
+  const catalog = needsPreset ? await listWorkflowCatalog(aiRuntime, cwd) : await listSelectableTools(aiRuntime, cwd)
   const message = rejectToolList(body.steps, body.confirmDanger, catalog)
   if (message) return { error: message }
+  if (needsPreset) {
+    const presetMessage = rejectPreset(body.steps, catalog.presets)
+    if (presetMessage) return { error: presetMessage }
+  }
   return toolChangeAudit(previousSteps, body.steps)
 }
 
@@ -613,7 +620,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'validation_error', '工作区没有可用目录', correlationId)
       return true
     }
-    const catalog = await listSelectableTools(aiRuntime, cwd)
+    const catalog = await listWorkflowCatalog(aiRuntime, cwd)
     planOk(response, 200, catalog, correlationId)
     return true
   }

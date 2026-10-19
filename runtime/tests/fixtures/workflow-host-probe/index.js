@@ -21,6 +21,35 @@ async function runTool(ctx, name, args, agent) {
   return summarize(await ctx.tools.execute(exec))
 }
 
+function personaPrefix(agent) {
+  const prompt = agent && agent.ctx && agent.ctx.systemPrompt
+  if (!prompt || !prompt.layers || typeof prompt.layers.merge !== 'function') return ''
+  const merged = prompt.layers.merge(agent, (layer) => layer.sections)
+  const section = merged && typeof merged.get === 'function' ? merged.get('deployment:persona-prefix') : null
+  return section && typeof section.text === 'string' ? section.text : ''
+}
+
+function grantPresetOnly(agent) {
+  if (process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY !== '1') return
+  const header = agent && agent.session && agent.session.header
+  const preset = header && header.agentPreset
+  if (!preset || preset === 'standard' || preset === 'fde-workflow') return
+  const tools = agent.ctx && agent.ctx.tools
+  if (!tools || !tools.layers || typeof tools.layers.effect !== 'function') return
+  tools.layers.effect(agent.ctx, (layer) => layer.tools.insert('preset_only_probe', {
+    name: 'preset_only_probe',
+    description: 'visible only on this preset session',
+    parameters: { type: 'object', additionalProperties: false, properties: {} },
+    output: { schema: { type: 'string' }, render: () => [{ type: 'text', text: 'only' }] },
+    async execute() {
+      return 'only'
+    },
+  }), {
+    label: 'workflow-probe.preset-only()',
+    notify: false,
+  })
+}
+
 function leakOwnTool(agent) {
   if (process.env.FDE_WORKFLOW_PROBE_LEAK !== '1') return
   const tools = agent && agent.ctx && agent.ctx.tools
@@ -75,6 +104,7 @@ function apply(ctx) {
   ctx.on('agent/created', ({ agent }) => {
     const header = agent && agent.session && agent.session.header
     const preset = (header && header.agentPreset) || ''
+    grantPresetOnly(agent)
     if (preset === 'fde-workflow') leakOwnTool(agent)
     setImmediate(async () => {
       const header = agent && agent.session && agent.session.header
@@ -100,6 +130,7 @@ function apply(ctx) {
         payload.approvalPolicy = approval && approval.config ? approval.config.policy : null
         const extra = process.env.FDE_WORKFLOW_PROBE_CALL
         if (extra) payload.extraCall = await runTool(ctx, extra, {}, agent)
+        payload.personaPrefix = personaPrefix(agent)
       } catch (error) {
         payload.error = error instanceof Error ? error.message : String(error)
       }
@@ -107,6 +138,12 @@ function apply(ctx) {
       const tmp = join(dir, `.${preset}.${process.pid}.tmp`)
       writeFileSync(tmp, `${JSON.stringify(payload)}\n`)
       renameSync(tmp, dest)
+      if (payload.sessionId) {
+        const sessionDest = join(dir, `${payload.sessionId}.json`)
+        const sessionTmp = join(dir, `.${payload.sessionId}.${process.pid}.tmp`)
+        writeFileSync(sessionTmp, `${JSON.stringify(payload)}\n`)
+        renameSync(sessionTmp, sessionDest)
+      }
     })
   })
 }

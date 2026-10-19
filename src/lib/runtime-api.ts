@@ -959,6 +959,14 @@ export class RuntimeApi {
   async listWorkflowTools(workspaceId: string, signal?: AbortSignal): Promise<{
     tools: Array<{ name: string; tier: string; grantable?: boolean }>
     defaults: string[]
+    presets?: Array<{
+      id: string
+      name: string
+      hasDanger: boolean
+      unavailable?: string
+      persona: { text: string; complete: boolean } | null
+      tools: Array<{ name: string; tier: string; selectable: boolean; reason?: string; blocksRun?: boolean }>
+    }>
   }> {
     const params = new URLSearchParams({ workspaceId })
     return this.planRequest(`/api/v1/plan/workflow-tools?${params}`, { signal })

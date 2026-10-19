@@ -10,7 +10,7 @@ export interface WorkflowToolOption {
   tier: string
 }
 
-const TIER_ORDER: WorkflowToolTier[] = ['read', 'propose', 'danger']
+const TIER_ORDER: WorkflowToolTier[] = ['read', 'propose', 'danger', 'wait']
 
 export function WorkflowToolPicker({
   tools,
@@ -48,14 +48,15 @@ export function WorkflowToolPicker({
           const rows = tools.filter((row) => workflowToolTier(row.tier) === tier)
           if (rows.length === 0) return null
           const danger = tier === 'danger'
+          const waiting = tier === 'wait'
           return (
             <div key={tier}>
-              <div className={clsx('text-[11px] mb-1', danger ? 'text-accent-red' : 'text-ink-muted')}>
+              <div className={clsx('text-[11px] mb-1', danger && 'text-accent-red', waiting && 'text-accent-amber', !danger && !waiting && 'text-ink-muted')}>
                 {workflowToolCopy.tier[tier]}
               </div>
               <div className="space-y-1">
                 {rows.map((row) => (
-                  <label key={row.name} className={clsx('flex items-center gap-2 text-xs font-mono', danger && 'text-accent-red')}>
+                  <label key={row.name} className={clsx('flex items-center gap-2 text-xs font-mono', danger && 'text-accent-red', waiting && 'text-accent-amber')}>
                     <input
                       type="checkbox"
                       checked={chosen.has(row.name)}

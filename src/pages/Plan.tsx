@@ -20,7 +20,7 @@ import { hostGoalStatusOnly, isHostGoalId, isHostJobId, isHostScheduleId } from 
 import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
-import { readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
+import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -855,10 +855,21 @@ function WorkflowTab() {
   const [filter, setFilter] = useState<'all' | Workflow['status']>('all')
   const [showNew, setShowNew] = useState(false)
   const [draft, setDraft] = useState(emptyWorkflowDraft)
-  const [catalog, setCatalog] = useState<{ tools: Array<{ name: string; tier: string }>; defaults: string[] } | null>(null)
+  const [catalog, setCatalog] = useState<{
+    tools: Array<{ name: string; tier: string }>
+    defaults: string[]
+    presets: Array<{
+      id: string
+      name: string
+      hasDanger: boolean
+      unavailable?: string
+      tools: Array<{ name: string; tier: string; selectable: boolean; reason?: string; blocksRun?: boolean }>
+    }>
+  } | null>(null)
   const [catalogNote, setCatalogNote] = useState('')
   const [selectedTools, setSelectedTools] = useState<string[] | null>(null)
-  const [pendingDanger, setPendingDanger] = useState<string | null>(null)
+  const [pendingDanger, setPendingDanger] = useState<string[]>([])
+  const [presetId, setPresetId] = useState('')
   const [toolNote, setToolNote] = useState('')
 
   useEffect(() => {
@@ -871,6 +882,7 @@ function WorkflowTab() {
       setCatalog({
         tools: Array.isArray(row.tools) ? row.tools : [],
         defaults: Array.isArray(row.defaults) ? row.defaults.filter((name) => typeof name === 'string' && name) : [],
+        presets: Array.isArray(row.presets) ? row.presets : [],
       })
       setCatalogNote('')
     }).catch((error: unknown) => {
@@ -892,17 +904,44 @@ function WorkflowTab() {
   function openNew() {
     setDraft(emptyWorkflowDraft())
     setSelectedTools(null)
-    setPendingDanger(null)
+    setPendingDanger([])
+    setPresetId('')
     setToolNote('')
     setShowNew(true)
   }
 
-  function toggleTool(name: string, tier: 'read' | 'propose' | 'danger', checked: boolean) {
-    if (tier === 'danger' && checked) {
-      setPendingDanger(name)
+  function applyPreset(id: string) {
+    setPresetId(id)
+    if (!id || !catalog) {
+      setPendingDanger([])
       return
     }
-    setPendingDanger((current) => (current === name ? null : current))
+    const preset = catalog.presets.find((row) => row.id === id)
+    if (!preset) return
+    if (preset.unavailable) {
+      setPendingDanger([])
+      setToolNote(`${preset.name} ${preset.unavailable}`)
+      return
+    }
+    const selectable = preset.tools.filter((tool) => tool.selectable !== false && tool.blocksRun !== true)
+    const danger = selectable.filter((tool) => workflowToolTier(tool.tier) === 'danger').map((tool) => tool.name)
+    const safe = selectable.filter((tool) => workflowToolTier(tool.tier) !== 'danger').map((tool) => tool.name)
+    setSelectedTools(safe)
+    setPendingDanger(danger)
+    const excluded = preset.tools.filter((tool) => tool.selectable === false).map((tool) => tool.name)
+    const waiting = preset.tools.filter((tool) => tool.blocksRun === true).map((tool) => tool.name)
+    const notes = []
+    if (excluded.length > 0) notes.push(`${workflowToolCopy.excludedLabel} ${excluded.join('、')}`)
+    if (waiting.length > 0) notes.push(`${workflowToolCopy.waitSkipped} ${waiting.join('、')}`)
+    setToolNote(notes.join(' '))
+  }
+
+  function toggleTool(name: string, tier: 'read' | 'propose' | 'danger' | 'wait', checked: boolean) {
+    if (tier === 'danger' && checked) {
+      setPendingDanger([name])
+      return
+    }
+    setPendingDanger((current) => current.filter((item) => item !== name))
     setSelectedTools((current) => {
       const list = current ?? []
       const next = checked ? (list.includes(name) ? list : [...list, name]) : list.filter((item) => item !== name)
@@ -916,10 +955,16 @@ function WorkflowTab() {
   }
 
   function confirmDangerTool() {
-    if (!pendingDanger) return
-    const name = pendingDanger
-    setSelectedTools((current) => (current && current.includes(name) ? current : [...(current ?? []), name]))
-    setPendingDanger(null)
+    if (pendingDanger.length === 0) return
+    const names = pendingDanger
+    setSelectedTools((current) => {
+      const next = [...(current ?? [])]
+      for (const name of names) {
+        if (!next.includes(name)) next.push(name)
+      }
+      return next
+    })
+    setPendingDanger([])
     setToolNote('')
   }
 
@@ -961,11 +1006,13 @@ function WorkflowTab() {
         return
       }
       confirmDanger = tools.filter((name) => tiers.get(name) === 'danger').sort()
+      const config: WorkflowStep['config'] = presetId ? { prompt, tools, presetId } : { prompt, tools }
+      if (sourceRef) config.sourceRef = sourceRef
       step = {
         id: uid('s'),
         kind: 'ai',
         label: 'AI',
-        config: sourceRef ? { prompt, sourceRef, tools } : { prompt, tools },
+        config,
       }
     } else {
       step = { id: uid('s'), kind: 'delay', label: '等待', config: {} }
@@ -981,7 +1028,8 @@ function WorkflowTab() {
     }, confirmDanger).then(() => {
       setDraft(emptyWorkflowDraft())
       setSelectedTools(null)
-      setPendingDanger(null)
+      setPendingDanger([])
+      setPresetId('')
       setToolNote('')
       setShowNew(false)
     }).catch(() => undefined)
@@ -1064,10 +1112,15 @@ function WorkflowTab() {
                   {w.steps.filter((s) => s.kind === 'ai').map((s) => {
                     const explicit = readStepTools(s)
                     const shown = explicit ?? (catalog?.defaults ?? [])
+                    const fromPreset = readStepPreset(s)
+                    const presetName = catalog?.presets.find((row) => row.id === fromPreset)?.name || fromPreset
                     return (
                       <div key={`${s.id}-tools`} className="mt-2 text-[11px] text-ink-muted">
-                        {workflowToolCopy.allowedLabel}{' '}
-                        {shown.length === 0 ? workflowToolCopy.allowedUnknown : shown.join('、')}
+                        {fromPreset ? <div>{workflowToolCopy.presetFrom} {presetName}</div> : null}
+                        <div>
+                          {workflowToolCopy.allowedLabel}{' '}
+                          {shown.length === 0 ? workflowToolCopy.allowedUnknown : shown.join('、')}
+                        </div>
                       </div>
                     )
                   })}
@@ -1180,15 +1233,29 @@ function WorkflowTab() {
                 <input className="input mt-1.5 w-full" value={draft.sourceRef} onChange={(e) => setDraft({ ...draft, sourceRef: e.target.value })} placeholder="app:app_ 后接 32 位十六进制" />
               </div>
               {catalog ? (
-                <WorkflowToolPicker
-                  tools={catalog.tools}
-                  selected={selectedTools ?? []}
-                  pendingDanger={pendingDanger}
-                  note={toolNote}
-                  onToggle={toggleTool}
-                  onConfirmDanger={confirmDangerTool}
-                  onCancelDanger={() => setPendingDanger(null)}
-                />
+                <>
+                  <div>
+                    <label className="text-xs text-ink-muted">{workflowToolCopy.presetLabel}</label>
+                    <select className="input mt-1.5 w-full" value={presetId} onChange={(event) => applyPreset(event.target.value)}>
+                      <option value="">{workflowToolCopy.presetNone}</option>
+                      {catalog.presets.map((preset) => (
+                        <option key={preset.id} value={preset.id} disabled={Boolean(preset.unavailable)}>{preset.name}</option>
+                      ))}
+                    </select>
+                    {catalog.presets.filter((preset) => preset.unavailable).map((preset) => (
+                      <div key={`${preset.id}-unavailable`} className="mt-1 text-xs text-ink-muted">{preset.name} {preset.unavailable}</div>
+                    ))}
+                  </div>
+                  <WorkflowToolPicker
+                    tools={catalog.tools}
+                    selected={selectedTools ?? []}
+                    pendingDanger={pendingDanger.length > 0 ? pendingDanger.join('、') : null}
+                    note={toolNote}
+                    onToggle={toggleTool}
+                    onConfirmDanger={confirmDangerTool}
+                    onCancelDanger={() => setPendingDanger([])}
+                  />
+                </>
               ) : (
                 <div className="text-xs text-ink-muted">{catalogNote || workflowToolCopy.loading}</div>
               )}
@@ -1216,7 +1283,7 @@ function WorkflowTab() {
           )}
           <div className="flex justify-end gap-2 pt-4 border-t border-line">
             <button className="btn" onClick={() => setShowNew(false)}>取消</button>
-            <button className="btn-primary" onClick={submit} disabled={draft.stepKind === 'ai' && Boolean(pendingDanger)}>创建</button>
+            <button className="btn-primary" onClick={submit} disabled={draft.stepKind === 'ai' && pendingDanger.length > 0}>创建</button>
           </div>
         </div>
       </RightDrawer>
