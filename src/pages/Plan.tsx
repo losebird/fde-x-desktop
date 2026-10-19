@@ -16,6 +16,9 @@ import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 import { hostGoalStatusOnly, isHostGoalId, isHostJobId, isHostScheduleId } from '@/lib/plan-origin'
 import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
+import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
+import { runtimeApi } from '@/lib/runtime-api'
+import { readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -818,6 +821,8 @@ function emptyWorkflowDraft(): {
 
 function WorkflowTab() {
   const workflows = useCurrentWorkflows()
+  const workspaceId = useApp((s) => s.activeWorkspaceId)
+  const planServiceError = useApp((s) => s.planServiceError)
   const toggleWorkflow = useApp((s) => s.toggleWorkflow)
   const runWorkflow = useApp((s) => s.runWorkflow)
   const removeWorkflow = useApp((s) => s.removeWorkflow)
@@ -826,6 +831,73 @@ function WorkflowTab() {
   const [filter, setFilter] = useState<'all' | Workflow['status']>('all')
   const [showNew, setShowNew] = useState(false)
   const [draft, setDraft] = useState(emptyWorkflowDraft)
+  const [catalog, setCatalog] = useState<{ tools: Array<{ name: string; tier: string }>; defaults: string[] } | null>(null)
+  const [catalogNote, setCatalogNote] = useState('')
+  const [selectedTools, setSelectedTools] = useState<string[] | null>(null)
+  const [pendingDanger, setPendingDanger] = useState<string | null>(null)
+  const [toolNote, setToolNote] = useState('')
+
+  useEffect(() => {
+    if (!workspaceId) return
+    let cancelled = false
+    setCatalog(null)
+    setCatalogNote(workflowToolCopy.loading)
+    void runtimeApi.listWorkflowTools(workspaceId).then((row) => {
+      if (cancelled) return
+      setCatalog({
+        tools: Array.isArray(row.tools) ? row.tools : [],
+        defaults: Array.isArray(row.defaults) ? row.defaults.filter((name) => typeof name === 'string' && name) : [],
+      })
+      setCatalogNote('')
+    }).catch((error: unknown) => {
+      if (cancelled) return
+      setCatalog(null)
+      setCatalogNote(error instanceof Error && error.message ? error.message : workflowToolCopy.unavailable)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (!showNew || !catalog || selectedTools) return
+    const initial = catalog.defaults.filter((name) => workflowToolTier(catalog.tools.find((row) => row.name === name)?.tier || '') !== 'danger')
+    setSelectedTools(initial)
+  }, [showNew, catalog, selectedTools])
+
+  function openNew() {
+    setDraft(emptyWorkflowDraft())
+    setSelectedTools(null)
+    setPendingDanger(null)
+    setToolNote('')
+    setShowNew(true)
+  }
+
+  function toggleTool(name: string, tier: 'read' | 'propose' | 'danger', checked: boolean) {
+    if (tier === 'danger' && checked) {
+      setPendingDanger(name)
+      return
+    }
+    setPendingDanger((current) => (current === name ? null : current))
+    setSelectedTools((current) => {
+      const list = current ?? []
+      const next = checked ? (list.includes(name) ? list : [...list, name]) : list.filter((item) => item !== name)
+      if (next.length === 0) {
+        setToolNote(workflowToolCopy.emptyList)
+        return list
+      }
+      setToolNote('')
+      return next
+    })
+  }
+
+  function confirmDangerTool() {
+    if (!pendingDanger) return
+    const name = pendingDanger
+    setSelectedTools((current) => (current && current.includes(name) ? current : [...(current ?? []), name]))
+    setPendingDanger(null)
+    setToolNote('')
+  }
 
   const visible = workflows.filter((w) => {
     if (filter !== 'all' && w.status !== filter) return false
@@ -847,9 +919,33 @@ function WorkflowTab() {
     const prompt = draft.prompt.trim()
     const sourceRef = draft.sourceRef.trim()
     if (draft.stepKind === 'ai' && !prompt) return
-    const step: WorkflowStep = draft.stepKind === 'ai'
-      ? { id: uid('s'), kind: 'ai', label: 'AI', config: sourceRef ? { prompt, sourceRef } : { prompt } }
-      : { id: uid('s'), kind: 'delay', label: '等待', config: {} }
+    let confirmDanger: string[] | undefined
+    let step: WorkflowStep
+    if (draft.stepKind === 'ai') {
+      if (!catalog) {
+        setToolNote(catalogNote || workflowToolCopy.unavailable)
+        return
+      }
+      const tools = selectedTools ?? []
+      if (tools.length === 0) {
+        setToolNote(workflowToolCopy.emptyList)
+        return
+      }
+      const tiers = new Map(catalog.tools.map((row) => [row.name, workflowToolTier(row.tier)]))
+      if (tools.some((name) => !tiers.has(name))) {
+        setToolNote(workflowToolCopy.unavailable)
+        return
+      }
+      confirmDanger = tools.filter((name) => tiers.get(name) === 'danger').sort()
+      step = {
+        id: uid('s'),
+        kind: 'ai',
+        label: 'AI',
+        config: sourceRef ? { prompt, sourceRef, tools } : { prompt, tools },
+      }
+    } else {
+      step = { id: uid('s'), kind: 'delay', label: '等待', config: {} }
+    }
     void addWorkflow({
       name: draft.name.trim(),
       description: draft.description.trim() || '自动创建的工作流',
@@ -858,8 +954,11 @@ function WorkflowTab() {
       emoji: draft.emoji,
       status: 'paused',
       steps: [step],
-    }).then(() => {
+    }, confirmDanger).then(() => {
       setDraft(emptyWorkflowDraft())
+      setSelectedTools(null)
+      setPendingDanger(null)
+      setToolNote('')
       setShowNew(false)
     }).catch(() => undefined)
   }
@@ -894,7 +993,7 @@ function WorkflowTab() {
             <input className="input pl-8 h-8 w-full" placeholder="搜索工作流" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <div className="flex-1" />
-          <button className="btn-primary" title="新建工作流" onClick={() => setShowNew(true)}><Plus size={14} /> 新建</button>
+          <button className="btn-primary" title="新建工作流" onClick={openNew}><Plus size={14} /> 新建</button>
         </div>
       </Card>
 
@@ -938,6 +1037,16 @@ function WorkflowTab() {
                       </span>
                     ))}
                   </div>
+                  {w.steps.filter((s) => s.kind === 'ai').map((s) => {
+                    const explicit = readStepTools(s)
+                    const shown = explicit ?? (catalog?.defaults ?? [])
+                    return (
+                      <div key={`${s.id}-tools`} className="mt-2 text-[11px] text-ink-muted">
+                        {workflowToolCopy.allowedLabel}{' '}
+                        {shown.length === 0 ? workflowToolCopy.allowedUnknown : shown.join('、')}
+                      </div>
+                    )
+                  })}
                   <div className="mt-2 text-[11px] text-ink-muted flex items-center gap-3">
                     {w.lastRunAt && (
                       <span>上次运行: {new Date(w.lastRunAt).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -1046,6 +1155,19 @@ function WorkflowTab() {
                 <label className="text-xs text-ink-muted">来源引用 (可选)</label>
                 <input className="input mt-1.5 w-full" value={draft.sourceRef} onChange={(e) => setDraft({ ...draft, sourceRef: e.target.value })} placeholder="app:app_ 后接 32 位十六进制" />
               </div>
+              {catalog ? (
+                <WorkflowToolPicker
+                  tools={catalog.tools}
+                  selected={selectedTools ?? []}
+                  pendingDanger={pendingDanger}
+                  note={toolNote}
+                  onToggle={toggleTool}
+                  onConfirmDanger={confirmDangerTool}
+                  onCancelDanger={() => setPendingDanger(null)}
+                />
+              ) : (
+                <div className="text-xs text-ink-muted">{catalogNote || workflowToolCopy.loading}</div>
+              )}
             </>
           )}
           <div>
@@ -1065,9 +1187,12 @@ function WorkflowTab() {
           <div className="text-xs text-ink-muted p-3 rounded bg-surface-2 border border-line">
             新建后默认 paused，可到列表点击「启用」或「运行」。关键字和事件触发只保存。{SAVED_ONLY}
           </div>
+          {showNew && planServiceError && (
+            <div className="text-xs text-accent-red">{planServiceError}</div>
+          )}
           <div className="flex justify-end gap-2 pt-4 border-t border-line">
             <button className="btn" onClick={() => setShowNew(false)}>取消</button>
-            <button className="btn-primary" onClick={submit}>创建</button>
+            <button className="btn-primary" onClick={submit} disabled={draft.stepKind === 'ai' && Boolean(pendingDanger)}>创建</button>
           </div>
         </div>
       </RightDrawer>

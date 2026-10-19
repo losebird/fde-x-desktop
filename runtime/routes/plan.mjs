@@ -12,6 +12,8 @@ import {
 } from '../host-catalog.mjs'
 import { decidePlanTask, listOpenPlanTaskProposals } from '../plan/task-proposals.mjs'
 import { hasIllegalSourceRef, readLatestRunCards, startWorkflowRun } from '../plan/workflow-run.mjs'
+import { listSelectableTools } from '../plan/workflow-catalog.mjs'
+import { rejectToolList, toolChangeAudit } from '../plan/tool-risk.mjs'
 import {
   TASK_PRIORITIES,
   TASK_STATUSES,
@@ -26,6 +28,42 @@ const WORKFLOW_WRITE_STATUSES = new Set(['active', 'paused'])
 const EVENT_KINDS = new Set(['meeting', 'focus', 'reminder', 'external'])
 
 const isoNow = () => new Date().toISOString()
+
+function rememberedSteps(definitionJson) {
+  try {
+    const definition = JSON.parse(definitionJson)
+    return Array.isArray(definition.steps) ? definition.steps : []
+  } catch {
+    return []
+  }
+}
+
+async function gateWorkflowTools(body, previousSteps, aiRuntime, cwd) {
+  if (!Array.isArray(body.steps)) return null
+  const needsCatalog = body.steps.some((step) => {
+    return step && step.kind === 'ai' && step.config && typeof step.config === 'object' && Object.hasOwn(step.config, 'tools')
+  })
+  if (!needsCatalog) return null
+  if (!cwd) return { error: '工作区没有可用目录' }
+  const catalog = await listSelectableTools(aiRuntime, cwd)
+  const message = rejectToolList(body.steps, body.confirmDanger, catalog)
+  if (message) return { error: message }
+  return toolChangeAudit(previousSteps, body.steps)
+}
+
+function writeToolAudit(db, correlationId, workspaceId, id, change) {
+  if (!change) return
+  appendAudit(db, {
+    workspaceId,
+    actorId: 'actor_local_user',
+    action: 'plan.workflow.tools',
+    targetRef: `fde://plan/workflows/${id}`,
+    outcome: 'succeeded',
+    riskLevel: change.danger.length ? 'high' : 'low',
+    correlationId,
+    details: change,
+  })
+}
 
 function planWrote(response, status, data, correlationId, db, audit) {
   appendAudit(db, {
@@ -567,6 +605,19 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     return true
   }
 
+  if (method === 'GET' && url.pathname === '/api/v1/plan/workflow-tools') {
+    const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
+    if (!workspaceId) return true
+    const cwd = workspaceCwdForEmit(db, workspaceId)
+    if (!cwd) {
+      planError(response, 422, 'validation_error', '工作区没有可用目录', correlationId)
+      return true
+    }
+    const catalog = await listSelectableTools(aiRuntime, cwd)
+    planOk(response, 200, catalog, correlationId)
+    return true
+  }
+
   if (method === 'GET' && url.pathname === '/api/v1/plan/workflows') {
     const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
     if (!workspaceId) return true
@@ -597,6 +648,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
       return true
     }
+    const cwd = workspaceCwdForEmit(db, workspaceId)
+    const toolChange = await gateWorkflowTools(body, null, aiRuntime, cwd)
+    if (toolChange && toolChange.error) {
+      planError(response, 422, 'validation_error', toolChange.error, correlationId)
+      return true
+    }
     const status = WORKFLOW_WRITE_STATUSES.has(body.status) ? body.status : 'paused'
     const trigger = body.trigger && typeof body.trigger === 'object' ? body.trigger : { kind: 'manual' }
     const definition = {
@@ -613,6 +670,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(id, workspaceId, name, status, JSON.stringify(trigger), JSON.stringify(definition), now, now)
     const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id)
+    writeToolAudit(db, correlationId, workspaceId, id, toolChange)
     planWrote(response, 201, mapWorkflow(row), correlationId, db, {
       workspaceId,
       action: 'plan.workflow.insert',
@@ -657,6 +715,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
       return true
     }
+    const cwd = workspaceCwdForEmit(db, existing.workspace_id)
+    const toolChange = await gateWorkflowTools(body, rememberedSteps(existing.definition_json), aiRuntime, cwd)
+    if (toolChange && toolChange.error) {
+      planError(response, 422, 'validation_error', toolChange.error, correlationId)
+      return true
+    }
     const patch = {}
     if (typeof body.name === 'string') patch.name = body.name.trim()
     if (body.status) {
@@ -687,6 +751,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const sets = keys.map((k) => `${k} = ?`).join(', ')
     db.prepare(`UPDATE workflows SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k]), now, id)
     const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id)
+    writeToolAudit(db, correlationId, row.workspace_id, id, toolChange)
     planWrote(response, 200, mapWorkflow(row), correlationId, db, {
       workspaceId: row.workspace_id,
       action: 'plan.workflow.update',

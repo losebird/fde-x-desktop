@@ -1,6 +1,6 @@
-const { existsSync, readFileSync } = require('node:fs')
+const { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } = require('node:fs')
 const { homedir } = require('node:os')
-const { join } = require('node:path')
+const { dirname, join } = require('node:path')
 
 const WORKFLOW_PRESET = 'fde-workflow'
 const WORKFLOW_TOOLS = ['fde_app_records_query', 'fde_app_records_propose', 'fde_plan_task_propose']
@@ -12,6 +12,30 @@ let stripping = false
 
 function dshHome() {
   return process.env.FDE_DSH_HOME || process.env.DSH_HOME || join(homedir(), '.dsh-fde-x')
+}
+
+function allowFile(sessionId, home) {
+  const id = String(sessionId || '')
+  if (!/^session-[A-Za-z0-9-]+$/.test(id)) return ''
+  return join(home || dshHome(), 'run', 'workflow-allow', `${id}.json`)
+}
+
+function stageWorkflowAllow(sessionId, tools, home) {
+  const file = allowFile(sessionId, home)
+  if (!file) throw new Error(UNCONFIRMED)
+  if (!Array.isArray(tools) || tools.length === 0) throw new Error(UNCONFIRMED)
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, `${JSON.stringify({ tools })}\n`)
+}
+
+function consumeWorkflowAllow(sessionId) {
+  const file = allowFile(sessionId)
+  if (!file || !existsSync(file)) return null
+  const payload = JSON.parse(readFileSync(file, 'utf8'))
+  unlinkSync(file)
+  if (!payload || !Array.isArray(payload.tools) || payload.tools.length === 0) throw new Error(UNCONFIRMED)
+  if (payload.tools.some((name) => typeof name !== 'string' || !name)) throw new Error(UNCONFIRMED)
+  return payload.tools
 }
 
 function headerPreset(agent) {
@@ -61,6 +85,35 @@ function scheduleStrip() {
   })
 }
 
+function layerTables(tools) {
+  const tables = []
+  const globalLayer = tools.layers && tools.layers.global
+  if (globalLayer && globalLayer.tools) tables.push(globalLayer.tools)
+  const scoped = tools.layers && tools.layers.scoped
+  if (scoped && typeof scoped.values === 'function') {
+    for (const layer of scoped.values()) {
+      if (layer && layer.tools) tables.push(layer.tools)
+    }
+  }
+  return tables
+}
+
+function locateDefinition(tools, name) {
+  for (const table of layerTables(tools)) {
+    if (typeof table.get !== 'function') continue
+    const found = table.get(name)
+    if (found) return found
+  }
+  return undefined
+}
+
+function grantOnAgent(tools, agent, name, definition) {
+  tools.layers.effect(agent.ctx, (layer) => layer.tools.insert(name, definition), {
+    label: 'workflow-allow.grant()',
+    notify: false,
+  })
+}
+
 function limitWorkflowAgent(ctx, agent) {
   const header = headerPreset(agent)
   const composed = composedPresetId(ctx, agent)
@@ -71,16 +124,36 @@ function limitWorkflowAgent(ctx, agent) {
   if (!tools || typeof tools.restrict !== 'function' || typeof tools.guard !== 'function') {
     throw new Error(UNCONFIRMED)
   }
-  tools.restrict({ allow: [...WORKFLOW_TOOLS] })
-  tools.guard((exec) => {
-    if (!WORKFLOW_TOOLS.includes(exec && exec.name)) return DENY
-  })
+  const sessionHeader = agent && agent.session && agent.session.header
+  const sessionId = (sessionHeader && sessionHeader.id) || (agent.session && agent.session.id) || agent.id
+  const staged = consumeWorkflowAllow(sessionId)
+  const allow = staged || [...WORKFLOW_TOOLS]
+  const snapshot = typeof tools.view === 'function' ? tools.view(agent) : null
+  const restrictable = snapshot && snapshot.restrictableNames
+  if (!restrictable || typeof restrictable.has !== 'function') throw new Error(UNCONFIRMED)
+  const inherited = []
+  const grants = []
+  for (const name of allow) {
+    if (restrictable.has(name)) {
+      inherited.push(name)
+      continue
+    }
+    const definition = locateDefinition(tools, name)
+    if (!definition) throw new Error(UNCONFIRMED)
+    grants.push({ name, definition })
+  }
   stripping = true
   try {
     stripOwnLayer(agent)
   } finally {
     stripping = false
   }
+  for (const grant of grants) grantOnAgent(tools, agent, grant.name, grant.definition)
+  if (inherited.length > 0) tools.restrict({ allow: inherited })
+  else if (restrictable.size > 0) tools.restrict({ deny: [...restrictable] })
+  tools.guard((exec) => {
+    if (!allow.includes(exec && exec.name)) return DENY
+  })
   watched.add(agent)
   limited.add(agent)
   scheduleStrip()
@@ -116,4 +189,5 @@ module.exports = {
   limitWorkflowAgent,
   installWorkflowToolLimit,
   workflowLimitReady,
+  stageWorkflowAllow,
 }

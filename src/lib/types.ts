@@ -121,7 +121,7 @@ export interface WorkflowStep {
   id: ID
   kind: 'tool.call' | 'im.send' | 'data.query' | 'file.write' | 'memory.add' | 'delay' | 'ai'
   label: string
-  config: Record<string, string | number>
+  config: Record<string, string | number | string[]>
 }
 
 export type ArtifactKind = 'image' | 'poster' | 'web' | 'dashboard' | 'ppt' | 'file'
