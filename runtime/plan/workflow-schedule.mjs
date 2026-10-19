@@ -191,7 +191,11 @@ export async function tickWorkflowSchedules(deps, clock) {
       } catch (error) {
         const message = businessFailureMessage(error)
         if (message) {
-          recordScheduleResult(deps.db, row, occurrence, 'failed', message)
+          try {
+            recordScheduleResult(deps.db, row, occurrence, 'failed', message)
+          } catch (writeError) {
+            console.error('workflow_schedule_tick_failed', writeError)
+          }
           continue
         }
         console.error('workflow_schedule_tick_failed', error)
