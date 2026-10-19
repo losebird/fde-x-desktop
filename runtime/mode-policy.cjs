@@ -57,13 +57,17 @@ function briefingAllowServers(sessionId) {
   return readBriefingAllow(sessionId)
 }
 
+function deniedBriefingBrowserServer(name) {
+  return STANDARD_DENY_SERVERS.includes(name) ? name : ''
+}
+
 function deniedServer(server, preset, mount, sessionId) {
   const name = String(server || '').trim()
   if (!name) return ''
   const table = resolveMcpMount(mount)
   if (preset === 'fde-briefing' && table.briefingDenyUserMcp) {
-    // Browser and desktop servers stay off a briefing session even if a section names them.
-    if (STANDARD_DENY_SERVERS.includes(name)) return name
+    const browser = deniedBriefingBrowserServer(name)
+    if (browser) return browser
     if (briefingAllowServers(sessionId).includes(name)) return ''
     return name
   }
