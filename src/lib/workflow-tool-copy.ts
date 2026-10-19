@@ -5,7 +5,13 @@ export const workflowToolCopy = {
     read: '只读',
     propose: '提案',
     danger: '直接执行',
+    wait: '会停住',
   },
+  presetLabel: '从预设带入',
+  presetNone: '不从预设带入',
+  excludedLabel: '这些工具不在可选清单里',
+  waitSkipped: '这些工具会让无人值守停住，没有勾上',
+  presetFrom: '来自预设',
   dangerConfirm: '自动运行时会直接执行、不可撤回',
   confirmDanger: '确认勾选',
   cancelDanger: '先不勾选',
@@ -18,8 +24,13 @@ export const workflowToolCopy = {
 export type WorkflowToolTier = keyof typeof workflowToolCopy.tier
 
 export function workflowToolTier(tier: string): WorkflowToolTier {
-  if (tier === 'read' || tier === 'propose' || tier === 'danger') return tier
+  if (tier === 'read' || tier === 'propose' || tier === 'danger' || tier === 'wait') return tier
   return 'danger'
+}
+
+export function readStepPreset(step: { kind?: string; config?: { presetId?: unknown } }): string {
+  if (!step || step.kind !== 'ai' || !step.config || typeof step.config !== 'object') return ''
+  return typeof step.config.presetId === 'string' ? step.config.presetId : ''
 }
 
 export function readStepTools(step: { kind?: string; config?: { tools?: unknown } }): string[] | null {

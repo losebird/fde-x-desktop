@@ -140,6 +140,36 @@ async function handler(req, res) {
       json(res, 200, { ok: true, tools, approval: sessionApproval(agent) })
       return
     }
+    if (req.method === 'GET' && path === '/preset-inventory') {
+      const presets = bridgeCtx && bridgeCtx.get('agentPresets')
+      if (!presets || typeof presets.compositionInventory !== 'function') {
+        json(res, 400, { ok: false, error: 'preset_inventory_unavailable' })
+        return
+      }
+      const rows = await presets.compositionInventory()
+      json(res, 200, {
+        ok: true,
+        presets: rows.map((row) => ({
+          id: row.id,
+          name: typeof row.name === 'string' && row.name ? row.name : row.id,
+        })),
+      })
+      return
+    }
+    if (req.method === 'GET' && path === '/preset-snapshot') {
+      const sessionId = url.searchParams.get('sessionId') || ''
+      const agent = sessions.get(sessionId)
+      if (!bridgeCtx || !agent || !bridgeCtx.tools || typeof bridgeCtx.tools.schemas !== 'function') {
+        json(res, 404, { ok: false, error: 'session_tools_unavailable' })
+        return
+      }
+      const tools = bridgeCtx.tools.schemas(agent).map((row) => {
+        const definition = bridgeCtx.tools.get(row.name, agent)
+        return { name: row.name, readOnly: explicitReadOnly(definition) }
+      }).sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+      json(res, 200, { ok: true, tools, persona: personaSection(agent) })
+      return
+    }
     if (req.method === 'GET' && path === '/tool-catalog') {
       const sessionId = url.searchParams.get('sessionId') || ''
       const agent = sessions.get(sessionId)
@@ -181,6 +211,15 @@ async function handler(req, res) {
   } catch (error) {
     json(res, 400, { ok: false, error: error instanceof Error ? error.message : '失败' })
   }
+}
+
+function personaSection(agent) {
+  const prompt = agent && agent.ctx && agent.ctx.systemPrompt
+  if (!prompt || !prompt.layers || typeof prompt.layers.merge !== 'function') return null
+  const merged = prompt.layers.merge(agent, (layer) => layer.sections)
+  const section = merged && typeof merged.get === 'function' ? merged.get('deployment:persona-prefix') : null
+  if (!section || typeof section.text !== 'string' || !section.text) return null
+  return { text: section.text, complete: section.complete === true }
 }
 
 function explicitReadOnly(definition) {

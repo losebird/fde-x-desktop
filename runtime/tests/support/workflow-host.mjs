@@ -91,6 +91,7 @@ export async function bootWorkflowHost(options = {}) {
     FDE_WORKFLOW_PROBE_LEAK: process.env.FDE_WORKFLOW_PROBE_LEAK,
     FDE_WORKFLOW_PROBE_EXTRA: process.env.FDE_WORKFLOW_PROBE_EXTRA,
     FDE_WORKFLOW_PROBE_CALL: process.env.FDE_WORKFLOW_PROBE_CALL,
+    FDE_WORKFLOW_PROBE_PRESET_ONLY: process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY,
   }
   process.env.FDE_DSH_HOME = home
   process.env.DSH_HOME = home
@@ -106,6 +107,8 @@ export async function bootWorkflowHost(options = {}) {
   else delete process.env.FDE_WORKFLOW_PROBE_EXTRA
   if (options.callTool) process.env.FDE_WORKFLOW_PROBE_CALL = options.callTool
   else delete process.env.FDE_WORKFLOW_PROBE_CALL
+  if (options.presetOnly) process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY = '1'
+  else delete process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY
 
   const core = createCoreConnector({
     bin,

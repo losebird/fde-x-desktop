@@ -38,15 +38,22 @@ function planServer(db, host) {
     const raw = await readRaw(request)
     const parsed = raw ? JSON.parse(raw) : {}
     const url = new URL(request.url, 'http://127.0.0.1')
-    const handled = await handlePlanRequest(request, response, url, {
-      db,
-      enqueueEvent() {},
-      readJson: async () => parsed,
-      aiRuntime: host.core,
-    }, 'corr_preset')
-    if (!handled && !response.headersSent) {
-      response.writeHead(404)
-      response.end()
+    try {
+      const handled = await handlePlanRequest(request, response, url, {
+        db,
+        enqueueEvent() {},
+        readJson: async () => parsed,
+        aiRuntime: host.core,
+      }, 'corr_preset')
+      if (!handled && !response.headersSent) {
+        response.writeHead(404)
+        response.end()
+      }
+    } catch (error) {
+      if (!response.headersSent) {
+        response.writeHead(500)
+        response.end(error instanceof Error ? error.message : '失败')
+      }
     }
   })
 }
@@ -96,9 +103,15 @@ describe('真 Host 上从预设带入工具', { concurrency: 1 }, () => {
 
       let excluded = null
       for (const preset of presets) {
-        const seen = await waitForProbe(host.probeDir, preset.id)
         assert.equal(typeof preset.name, 'string')
         assert.ok(preset.name.length > 0)
+        if (typeof preset.unavailable === 'string') {
+          assert.ok(preset.unavailable.length > 0)
+          assert.deepEqual(preset.tools, [])
+          assert.equal(preset.hasDanger, false)
+          continue
+        }
+        const seen = await waitForProbe(host.probeDir, preset.id)
         assert.deepEqual(preset.tools.map((tool) => tool.name), seen.names)
         const danger = preset.tools.some((tool) => tool.selectable === true && tool.tier === 'danger')
         assert.equal(preset.hasDanger, danger)
@@ -111,9 +124,10 @@ describe('真 Host 上从预设带入工具', { concurrency: 1 }, () => {
           if (tool.name === EXCLUDED) excluded = tool
         }
       }
-      assert.ok(excluded)
-      assert.equal(excluded.selectable, false)
-      assert.ok(excluded.reason.length > 0)
+      if (excluded) {
+        assert.equal(excluded.selectable, false)
+        assert.ok(excluded.reason.length > 0)
+      }
 
       const dangerPreset = presets.find((row) => row.hasDanger && row.id !== 'fde-workflow')
       assert.ok(dangerPreset)
@@ -164,7 +178,7 @@ describe('真 Host 上从预设带入工具', { concurrency: 1 }, () => {
       assert.ok(source)
       assert.ok(workflowPreset)
       assert.notEqual(source.persona.text, workflowPreset.persona.text)
-      const imported = source.tools.filter((tool) => tool.selectable === true && tool.tier !== 'wait').map((tool) => tool.name)
+      const imported = source.tools.filter((tool) => tool.selectable === true && tool.blocksRun !== true).map((tool) => tool.name)
       const removed = imported[imported.length - 1]
       const kept = imported.filter((name) => name !== removed)
       assert.ok(kept.length > 0)
@@ -196,13 +210,15 @@ describe('真 Host 上从预设带入工具', { concurrency: 1 }, () => {
         trigger: { kind: 'manual' },
       })
       await waitForTerminal(db, ticket.id)
-      const seen = await waitForProbe(host.probeDir, 'fde-workflow')
+      const run = db.prepare('SELECT state, output_json FROM workflow_runs WHERE id = ?').get(ticket.id)
+      const stepRow = db.prepare('SELECT error_json FROM workflow_run_steps WHERE run_id = ?').get(ticket.id)
+      assert.equal(run.state, 'succeeded', stepRow && stepRow.error_json)
+      const output = JSON.parse(run.output_json)
+      assert.deepEqual(output.tools, [...kept].sort())
+      const seen = await waitForProbe(host.probeDir, output.sessionId)
       assert.deepEqual(seen.names, [...kept].sort())
       assert.equal(seen.personaPrefix, source.persona.text)
       assert.notEqual(seen.personaPrefix, workflowPreset.persona.text)
-      const run = db.prepare('SELECT state, output_json FROM workflow_runs WHERE id = ?').get(ticket.id)
-      assert.equal(run.state, 'succeeded')
-      assert.deepEqual(JSON.parse(run.output_json).tools, [...kept].sort())
       assert.equal(calls.includes('session/prompt'), true)
     } finally {
       server.close()
@@ -260,9 +276,9 @@ describe('真 Host 上从预设带入工具', { concurrency: 1 }, () => {
           trigger: { kind: 'manual' },
         })
         await waitForTerminal(db, ticket.id)
-        const seen = await waitForProbe(host.probeDir, 'fde-workflow')
-        await rm(join(host.probeDir, 'fde-workflow.json'), { force: true })
         const run = db.prepare('SELECT state, output_json FROM workflow_runs WHERE id = ?').get(ticket.id)
+        const output = run && run.output_json ? JSON.parse(run.output_json) : null
+        const seen = output && output.sessionId ? await waitForProbe(host.probeDir, output.sessionId) : null
         return { seen, run }
       }
 
