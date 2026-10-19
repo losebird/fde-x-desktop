@@ -7,7 +7,6 @@ function storedEventCwd(workspaceCwd) {
   return canonicalWorkspaceCwd(text) || text
 }
 
-/** Monotonic event ids (time + sequence) so same-ms rows sort in emit order. */
 let eventOrdinal = 0n
 
 function createEventId(ts) {

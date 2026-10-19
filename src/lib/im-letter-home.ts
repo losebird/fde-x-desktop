@@ -1,6 +1,5 @@
 import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 
-/** Browser port of `runtime/vendor-overlays/dsh-lan-assist/letter-home.js`. Write-path homeForIncoming / homeForOutgoing stays on the overlay. */
 export function normalizeCwd(value: unknown): string {
   return canonicalWorkspaceCwd(value)
 }
