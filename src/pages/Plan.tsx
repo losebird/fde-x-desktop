@@ -1,5 +1,6 @@
 // 计划模块:三 Tab 合并 —— 待办 / 日程 / 工作流
 import { useState, useMemo, useEffect, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
   Clock, MapPin, Calendar as CalIcon, Repeat, Play, Power, Sparkles, MoreHorizontal,
@@ -230,6 +231,7 @@ function TodoTab() {
   const [askError, setAskError] = useState('')
   const [askLoading, setAskLoading] = useState(false)
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null)
+  const [menuBox, setMenuBox] = useState<{ top: number; left: number } | null>(null)
   const [handoffTask, setHandoffTask] = useState<Task | null>(null)
   const [handoffNote, setHandoffNote] = useState('')
   const [markDoing, setMarkDoing] = useState(true)
@@ -604,14 +606,28 @@ function TodoTab() {
                   aria-label="更多"
                   onClick={(event) => {
                     event.stopPropagation()
-                    setMenuTaskId((current) => current === t.id ? null : t.id)
+                    const opening = menuTaskId !== t.id
+                    if (!opening) {
+                      setMenuTaskId(null)
+                      setMenuBox(null)
+                      return
+                    }
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    const height = 148
+                    const top = rect.bottom + height > window.innerHeight - 8
+                      ? Math.max(8, rect.top - height - 4)
+                      : rect.bottom + 4
+                    setMenuBox({ top, left: Math.max(8, rect.right - 176) })
+                    setMenuTaskId(t.id)
                   }}
                 >
                   <MoreHorizontal size={14} />
                 </button>
-                {menuTaskId === t.id && (
+                {menuTaskId === t.id && menuBox && createPortal(
                   <div
-                    className="absolute right-0 top-7 z-20 w-44 bg-white border border-line rounded-lg shadow-xl py-1"
+                    data-plan-task-menu
+                    className="fixed z-50 w-44 bg-white border border-line rounded-lg shadow-xl py-1"
+                    style={{ top: menuBox.top, left: menuBox.left }}
                     onClick={(event) => event.stopPropagation()}
                     onDoubleClick={(event) => event.stopPropagation()}
                   >
@@ -663,7 +679,8 @@ function TodoTab() {
                     >
                       删除
                     </button>
-                  </div>
+                  </div>,
+                  document.body,
                 )}
               </div>
             </div>
