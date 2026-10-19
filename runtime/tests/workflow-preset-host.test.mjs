@@ -217,7 +217,8 @@ describe('真 Host 上从预设带入工具', { concurrency: 1 }, () => {
       assert.deepEqual(output.tools, [...kept].sort())
       const seen = await waitForProbe(host.probeDir, output.sessionId)
       assert.deepEqual(seen.names, [...kept].sort())
-      assert.equal(seen.personaPrefix, source.persona.text)
+      assert.equal(seen.personaPrefix.includes('{{'), false, seen.personaPrefix)
+      assert.equal(seen.personaPrefix.includes(`本步只能使用这些工具：${[...kept].sort().join('、')}`), true, seen.personaPrefix)
       assert.notEqual(seen.personaPrefix, workflowPreset.persona.text)
       assert.equal(calls.includes('session/prompt'), true)
     } finally {
@@ -286,13 +287,15 @@ describe('真 Host 上从预设带入工具', { concurrency: 1 }, () => {
       assert.equal(first.run.state, 'succeeded')
       assert.deepEqual(first.seen.names, [QUERY])
       assert.deepEqual(JSON.parse(first.run.output_json).tools, [QUERY])
-      assert.equal(first.seen.personaPrefix, standard.persona.text)
+      assert.equal(first.seen.personaPrefix.includes('{{'), false, first.seen.personaPrefix)
+      assert.equal(first.seen.personaPrefix.includes('本步只能使用这些工具：fde_app_records_query'), true, first.seen.personaPrefix)
 
       const second = await runWith('fde-workflow')
       assert.equal(second.run.state, 'succeeded')
       assert.deepEqual(second.seen.names, [QUERY])
       assert.deepEqual(JSON.parse(second.run.output_json).tools, [QUERY])
-      assert.equal(second.seen.personaPrefix, workflowPreset.persona.text)
+      assert.equal(second.seen.personaPrefix.includes('{{'), false, second.seen.personaPrefix)
+      assert.equal(second.seen.personaPrefix.includes('本步只能使用这些工具：fde_app_records_query'), true, second.seen.personaPrefix)
       assert.notEqual(second.seen.personaPrefix, first.seen.personaPrefix)
     } finally {
       server.close()
@@ -349,6 +352,9 @@ describe('真 Host 上从预设带入工具', { concurrency: 1 }, () => {
         assert.deepEqual(seen.names, [QUERY])
         assert.equal(seen.personaPrefix.includes('{{'), false, seen.personaPrefix)
         assert.equal(seen.personaPrefix.includes(line), true, seen.personaPrefix)
+        assert.equal(seen.personaPrefix.split(line).length, 2, seen.personaPrefix)
+        assert.equal(seen.personaPrefix.includes('fde_app_records_propose'), false, seen.personaPrefix)
+        assert.equal(seen.personaPrefix.includes('fde_plan_task_propose'), false, seen.personaPrefix)
         assert.equal(seen.personaPrefix.includes('bash'), false, seen.personaPrefix)
         assert.deepEqual(seen.promptSections, [seen.personaPrefix])
         return seen.personaPrefix

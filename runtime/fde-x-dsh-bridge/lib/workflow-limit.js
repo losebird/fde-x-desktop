@@ -1,4 +1,5 @@
 const { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } = require('node:fs')
+const { createRequire } = require('node:module')
 const { homedir } = require('node:os')
 const { dirname, join } = require('node:path')
 
@@ -6,9 +7,15 @@ const WORKFLOW_PRESET = 'fde-workflow'
 const WORKFLOW_TOOLS = ['fde_app_records_query', 'fde_app_records_propose', 'fde_plan_task_propose']
 const DENY = '工作流步骤不能调用这个工具'
 const UNCONFIRMED = '工作流预设未能限制工具'
+const CAPABILITY_CLAIMS = [
+  ['查询应用记录', 'fde_app_records_query'],
+  ['提出记录变更', 'fde_app_records_propose'],
+  ['提出计划任务', 'fde_plan_task_propose'],
+]
 const limited = new WeakSet()
 const watched = new Set()
 let stripping = false
+let renderPromptFn = null
 
 function dshHome() {
   return process.env.FDE_DSH_HOME || process.env.DSH_HOME || join(homedir(), '.dsh-fde-x')
@@ -171,17 +178,99 @@ function grantOnAgent(tools, agent, name, definition) {
   })
 }
 
-function applyPersona(agent, persona) {
+function loadRenderPrompt() {
+  if (typeof renderPromptFn === 'function') return renderPromptFn
+  const seeds = []
+  if (require.main && require.main.filename) seeds.push(require.main.filename)
+  if (process.argv[1]) seeds.push(process.argv[1])
+  let last
+  for (const seed of seeds) {
+    try {
+      const loaded = createRequire(seed)('@deepseek-ai/dsh-system-prompt')
+      if (loaded && typeof loaded.renderPrompt === 'function') {
+        renderPromptFn = loaded.renderPrompt
+        return renderPromptFn
+      }
+    } catch (error) {
+      last = error
+    }
+  }
+  throw last || new Error(UNCONFIRMED)
+}
+
+function allowLine(tools) {
+  return `本步只能使用这些工具：${[...tools].sort().join('、')}`
+}
+
+function claimFits(text, tools) {
+  const allow = new Set(tools)
+  for (const [phrase, name] of CAPABILITY_CLAIMS) {
+    if (text.includes(phrase) && !allow.has(name)) return false
+  }
+  return true
+}
+
+function promptVariables(prompt, agent) {
+  const context = { scope: agent, agent }
+  const variables = {}
+  const globalLayer = prompt.layers && prompt.layers.global
+  const globalVars = globalLayer && globalLayer.variables
+  if (!globalVars || typeof globalVars.entries !== 'function' || typeof prompt.layers.chainLayers !== 'function') {
+    throw new Error(UNCONFIRMED)
+  }
+  for (const [name, provider] of globalVars.entries()) variables[name] = provider(context)
+  for (const layer of prompt.layers.chainLayers(agent)) {
+    if (!layer || !layer.variables || typeof layer.variables.entries !== 'function') continue
+    for (const [name, provider] of layer.variables.entries()) variables[name] = provider(context)
+  }
+  return variables
+}
+
+function renderPersonaText(prompt, agent, text) {
+  const rendered = loadRenderPrompt()({
+    sections: [{ name: 'deployment:persona-prefix', text }],
+    variables: promptVariables(prompt, agent),
+  })
+  if (typeof rendered !== 'string' || rendered.includes('{{')) throw new Error(UNCONFIRMED)
+  return rendered.trim()
+}
+
+function presetPrefix(prompt, agent) {
+  if (!prompt || !prompt.layers) return ''
+  const layers = []
+  if (prompt.layers.global) layers.push(prompt.layers.global)
+  if (typeof prompt.layers.chainLayers === 'function') layers.push(...prompt.layers.chainLayers(agent))
+  let section = null
+  for (const layer of layers) {
+    const table = layer && layer.sections
+    const found = table && typeof table.get === 'function' ? table.get('deployment:persona-prefix') : null
+    if (!found || found.workflowAllow === true || typeof found.text !== 'string') continue
+    section = found
+  }
+  return section ? section.text : ''
+}
+
+function stepPromptText(prompt, agent, rawText, tools) {
+  const rendered = rawText ? renderPersonaText(prompt, agent, rawText) : ''
+  const usable = rendered && !rendered.includes('本步只能使用这些工具：') && claimFits(rendered, tools) ? rendered : ''
+  const text = usable ? `${usable}\n\n${allowLine(tools)}` : allowLine(tools)
+  if (text.includes('{{')) throw new Error(UNCONFIRMED)
+  return text
+}
+
+function applyPersona(agent, text) {
   const prompt = agent.ctx && agent.ctx.systemPrompt
   if (!prompt || !prompt.layers || typeof prompt.layers.effect !== 'function' || typeof prompt.getSectionOrder !== 'function') {
     throw new Error(UNCONFIRMED)
   }
+  if (typeof text !== 'string' || !text || text.includes('{{')) throw new Error(UNCONFIRMED)
   const section = {
     name: 'deployment:persona-prefix',
     order: prompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
-    text: persona.text,
+    text,
+    complete: true,
+    workflowAllow: true,
   }
-  if (persona.complete) section.complete = true
   prompt.layers.effect(agent.ctx, (layer) => layer.sections.insert(section.name, section), {
     label: 'workflow-allow.persona()',
     notify: false,
@@ -229,7 +318,9 @@ function limitWorkflowAgent(ctx, agent) {
   tools.guard((exec) => {
     if (!allow.includes(exec && exec.name)) return DENY
   })
-  if (persona) applyPersona(agent, persona)
+  const prompt = agent.ctx && agent.ctx.systemPrompt
+  const raw = persona && persona.text ? persona.text : presetPrefix(prompt, agent)
+  applyPersona(agent, stepPromptText(prompt, agent, raw, allow))
   watched.add(agent)
   limited.add(agent)
   scheduleStrip()

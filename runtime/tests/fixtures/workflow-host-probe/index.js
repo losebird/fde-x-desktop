@@ -133,7 +133,7 @@ function apply(ctx) {
         payload.personaPrefix = personaPrefix(agent)
         const prompt = agent.ctx && agent.ctx.systemPrompt
         if (prompt && typeof prompt.assemble === 'function') {
-          const assembly = await prompt.assemble({ scope: agent.ctx, agent })
+          const assembly = await prompt.assemble({ scope: agent, agent })
           payload.promptSections = Array.isArray(assembly.sections)
             ? assembly.sections.map((section) => (section && typeof section.text === 'string' ? section.text : ''))
             : []
