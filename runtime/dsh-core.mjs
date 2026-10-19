@@ -28,6 +28,7 @@ import { stageIuiArtifactIfAbsent, sweepStaleIuiPartials } from './iui-stage.mjs
 import { iuiProfileDir, promoteInstalledIui } from './iui-status.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
+import { linkPackagedPeers } from './packaged-peer.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -710,6 +711,7 @@ export class DshCoreConnector {
   async installIsolatedProfile() {
     const dir = join(this.dshHome, 'profiles', this.profileName)
     const modules = join(dir, 'node_modules')
+    await linkPackagedPeers({ dshHome: this.dshHome })
     const packagePath = join(dir, 'package.json')
     await readProfileManifestFile(packagePath)
     await mkdir(modules, { recursive: true })
