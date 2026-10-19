@@ -6,6 +6,7 @@ import { cp, lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'nod
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { IUI_PIN } from '../iui-pin.mjs'
 import { BUILTIN_PLUGINS, builtinBundleNames, builtinStageDirs, pluginEnvKey } from '../builtin-plugins.mjs'
 import { PLUGIN_PIN_FILE } from '../plugin-vendor.mjs'
 import { DshCoreConnector } from '../dsh-core.mjs'
@@ -19,9 +20,19 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     assert.equal(pluginEnvKey('iui'), 'FDE_PLUGIN_IUI')
     assert.equal(pluginEnvKey('@losebird/iui'), 'FDE_PLUGIN__LOSEBIRD_IUI')
     assert.deepEqual(IUI.modes, ['standard'])
-    assert.equal(IUI.source.version, '0.13.0-iui.26')
-    assert.equal(IUI.source.commit, 'c5b5a4b7b9b5d39f541a796b9bb5e495f61c6c37')
-    assert.equal(IUI.source.sha256, 'f3dc3ef1d099aace99d626f38c1c9eac1cf0ce1f631a67ba64919155ca0225a5')
+    assert.equal(IUI.source.version, IUI_PIN.version)
+    assert.equal(IUI.source.commit, IUI_PIN.commit)
+    assert.equal(IUI.source.sha256, IUI_PIN.artifact.sha256)
+  })
+
+  test('the iui row is loaded from pins.mjs', async () => {
+    const source = await readFile(new URL('../builtin-plugins.mjs', import.meta.url), 'utf8')
+    assert.equal(source.includes(IUI_PIN.commit), false)
+    assert.equal(source.includes(IUI_PIN.artifact.sha256), false)
+    assert.match(source, /from '\.\/iui-pin\.mjs'/)
+    assert.equal(IUI.source.version, IUI_PIN.version)
+    assert.equal(IUI.source.commit, IUI_PIN.commit)
+    assert.equal(IUI.source.sha256, IUI_PIN.artifact.sha256)
   })
 
   test('a clean profile links pinned IUI and keeps it across a second start', async () => {
