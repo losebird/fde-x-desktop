@@ -21,9 +21,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm 9 rejects this repo's pnpm-workspace.yaml. It has allowBuilds and no packages field.
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 12.14.0
 
       - uses: actions/setup-node@v4
         with:
