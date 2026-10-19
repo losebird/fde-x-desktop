@@ -8,6 +8,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const script = fileURLToPath(new URL('./lan-assist-tree.mjs', import.meta.url))
+const lockScript = fileURLToPath(new URL('./plugins-lock.mjs', import.meta.url))
 const LOCK_REL = 'runtime/plugins/plugins.lock.json'
 const PIN = '31d75468e0ffd58bb5bb214325c7517c7c42a8ab'
 
@@ -131,6 +132,25 @@ function writeLock(root, text) {
 
 function run(command, root, source) {
   return spawnSync(process.execPath, [script, command, '--source', source, '--root', root], { encoding: 'utf8' })
+}
+
+function runLock(root) {
+  return spawnSync(process.execPath, [lockScript, '--root', root], { encoding: 'utf8' })
+}
+
+function plantOverlays(root) {
+  mkdirSync(join(root, 'runtime/vendor-overlays/dsh-lan-assist'), { recursive: true })
+  mkdirSync(join(root, 'runtime/vendor-overlays/dsh-semantic-os'), { recursive: true })
+}
+
+function prepareSynced(source) {
+  const root = mkdtempSync(join(tmpdir(), 'lan-lock-both-'))
+  writeLock(root, unifiedLock())
+  const synced = run('sync', root, source)
+  assert.equal(synced.status, 0, synced.stderr)
+  plantSemanticReadme(root)
+  plantOverlays(root)
+  return root
 }
 
 test('sync replaces only the dsh-lan-assist lock entry', () => {
@@ -358,6 +378,99 @@ test('verify names dsh-lan-assist when that lock entry is null', () => {
     const verified = run('verify', root, source)
     assert.notEqual(verified.status, 0)
     assert.match(verified.stderr, /dsh-lan-assist/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('both lock checkers reject version 2', () => {
+  const source = sourceCheckout()
+  const root = prepareSynced(source)
+  try {
+    const healthyLan = run('verify', root, source)
+    const healthyLock = runLock(root)
+    assert.equal(healthyLan.status, 0, healthyLan.stderr)
+    assert.equal(healthyLock.status, 0, healthyLock.stderr)
+    rewriteLock(root, (doc) => { doc.version = 2 })
+    const lan = run('verify', root, source)
+    const lock = runLock(root)
+    assert.equal(lan.status, 1, lan.stderr)
+    assert.equal(lock.status, 1, lock.stderr)
+    assert.match(lan.stderr, /version must be 1/)
+    assert.match(lock.stderr, /version must be 1/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('both lock checkers reject a missing overlay path', () => {
+  const source = sourceCheckout()
+  const root = prepareSynced(source)
+  try {
+    const healthyLan = run('verify', root, source)
+    const healthyLock = runLock(root)
+    assert.equal(healthyLan.status, 0, healthyLan.stderr)
+    assert.equal(healthyLock.status, 0, healthyLock.stderr)
+    rewriteLock(root, (doc) => {
+      doc.plugins['dsh-semantic-os'].overlay.path = 'does/not/exist'
+    })
+    const lan = run('verify', root, source)
+    const lock = runLock(root)
+    assert.equal(lan.status, 1, lan.stderr)
+    assert.equal(lock.status, 1, lock.stderr)
+    assert.match(lan.stderr, /missing overlay does\/not\/exist/)
+    assert.match(lock.stderr, /missing overlay does\/not\/exist/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('both lock checkers reject an extra lan field or reordered lan keys', () => {
+  const source = sourceCheckout()
+  const mutations = [
+    (doc) => { doc.plugins['dsh-lan-assist'].note = 'extra' },
+    (doc) => {
+      const entry = doc.plugins['dsh-lan-assist']
+      const keys = Object.keys(entry)
+      const rotated = {}
+      for (const key of keys.slice(1)) rotated[key] = entry[key]
+      rotated[keys[0]] = entry[keys[0]]
+      doc.plugins['dsh-lan-assist'] = rotated
+    },
+  ]
+  for (const mutate of mutations) {
+    const root = prepareSynced(source)
+    try {
+      const healthyLan = run('verify', root, source)
+      const healthyLock = runLock(root)
+      assert.equal(healthyLan.status, 0, healthyLan.stderr)
+      assert.equal(healthyLock.status, 0, healthyLock.stderr)
+      rewriteLock(root, mutate)
+      const lan = run('verify', root, source)
+      const lock = runLock(root)
+      assert.equal(lan.status, 1, lan.stderr)
+      assert.equal(lock.status, 1, lock.stderr)
+      assert.match(lan.stderr, /does not match the synthesized tree/)
+      assert.match(lock.stderr, /does not match the synthesized tree/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('both lock checkers report bad json through fail', () => {
+  const source = sourceCheckout()
+  const root = mkdtempSync(join(tmpdir(), 'lan-lock-badjson-'))
+  try {
+    writeLock(root, '{')
+    const lan = run('verify', root, source)
+    const lock = runLock(root)
+    assert.equal(lan.status, 1, lan.stderr)
+    assert.equal(lock.status, 1, lock.stderr)
+    assert.match(lan.stderr, /lan-assist tree verify failed/)
+    assert.match(lock.stderr, /plugins\.lock verify failed/)
+    assert.match(lan.stderr, /plugins\.lock\.json/)
+    assert.match(lock.stderr, /plugins\.lock\.json/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
