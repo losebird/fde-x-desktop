@@ -389,9 +389,10 @@ function resolveBizWorkspace(url, aiRuntime) {
     if (!cwd) return { error: 'workspace_invalid' }
     return { cwd }
   }
-  const fromRuntime = typeof aiRuntime?.cwd === 'string' ? aiRuntime.cwd.trim() : ''
-  if (fromRuntime.startsWith('/')) return { cwd: fromRuntime }
-  return { cwd: FDE_AI_WORKSPACE }
+  const fromRuntime = canonicalWorkspaceCwd(aiRuntime?.cwd)
+  if (fromRuntime) return { cwd: fromRuntime }
+  const fallback = canonicalWorkspaceCwd(FDE_AI_WORKSPACE)
+  return { cwd: fallback || FDE_AI_WORKSPACE }
 }
 
 function resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd) {
@@ -914,10 +915,10 @@ export async function handleBizRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/v1/biz/surfaces') {
-    const workspace = String(url.searchParams.get('workspace') || url.searchParams.get('cwd') || '').trim()
-    const workspaceCwd = workspace.startsWith('/') ? workspace : FDE_AI_WORKSPACE
+    const resolved = resolveBizWorkspace(url, aiRuntime)
+    if (rejectWorkspace(resolved, response, correlationId, sendError)) return true
     const limit = Number(url.searchParams.get('limit') ?? 20)
-    const items = listBizSurfaces(db, workspaceCwd, limit)
+    const items = listBizSurfaces(db, resolved.cwd, limit)
     sendJson(response, 200, { items, correlationId })
     return true
   }
@@ -941,7 +942,9 @@ export async function handleBizRoutes(request, response, url, deps) {
         sendError(response, 400, 'focus_failed', '没有可展示的官方表', correlationId)
         return true
       }
-      const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
+      const resolvedFocus = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+      if (rejectWorkspace(resolvedFocus, response, correlationId, sendError)) return true
+      const bizCwd = resolvedFocus.cwd
       let handed = sheetPayloadFromRaw(rawSheet)
       try {
         const kinds = await loadWorkspaceKinds(aiRuntime, bizCwd)
@@ -971,8 +974,8 @@ export async function handleBizRoutes(request, response, url, deps) {
       const officialRaw = state.officialRoundSheet
       const official = sheetAfterDismissedWrite(sheetPayloadFromRaw(officialRaw))
       const writePreview = state.writePreview && typeof state.writePreview === 'object' ? state.writePreview : null
-      const sheetWorkspace = official && typeof official.workspace === 'string' && official.workspace.startsWith('/')
-        ? official.workspace
+      const sheetWorkspace = official && typeof official.workspace === 'string'
+        ? canonicalWorkspaceCwd(official.workspace)
         : ''
       let bizCwd = requestMemoryCwd(url, {}) || sheetWorkspace
       if (!bizCwd) {
@@ -1155,7 +1158,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       return true
     }
     const preview = await aiRuntime.lanAssist('/preview', { method: 'POST', body: translated.payload })
-    const bizCwd = requestMemoryCwd(url, body) || FDE_AI_WORKSPACE
+    const bizCwd = bizWorkspace
     const previewSheet = preview?.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
     if (body.replay !== true && preview && preview.ok !== false) {
       recordSurfaceFromPreview(db, bizCwd, body, preview)
@@ -1270,6 +1273,8 @@ export async function handleBizRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && url.pathname === '/api/v1/biz/preview/dismiss') {
     const body = await readJson(request).catch(() => ({}))
+    const resolvedDismiss = resolveActiveBizCwd(url, body, aiRuntime, requestMemoryCwd)
+    if (rejectWorkspace(resolvedDismiss, response, correlationId, sendError)) return true
     const previewId = typeof body.preview_id === 'string' ? body.preview_id.trim() : ''
     let hall = {}
     try {
@@ -1299,7 +1304,7 @@ export async function handleBizRoutes(request, response, url, deps) {
           emitBizSheetPending(official, {
             sessionId: publishSid || String(official.sessionId || ''),
             source: 'dismiss',
-            workspaceCwd: requestMemoryCwd(url, body) || FDE_AI_WORKSPACE,
+            workspaceCwd: resolvedDismiss.cwd,
             writePreview: state && state.writePreview,
           })
         }
@@ -1419,7 +1424,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendJson(response, 200, { data: written, correlationId })
       return true
     }
-    const bizCwd = requestMemoryCwd(url, body) || bizWorkspace || FDE_AI_WORKSPACE
+    const bizCwd = bizWorkspace
     const sheet = pendingSheet && typeof pendingSheet === 'object' ? pendingSheet : null
     const auditChanges = Array.isArray(body.changes)
       ? body.changes

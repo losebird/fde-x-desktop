@@ -204,8 +204,8 @@ export function patchWorkspaceMetadata(db, id, patch) {
 export function ensureWorkspace(db, input) {
   const existing = getWorkspace(db, input.id)
   if (!existing) return createWorkspace(db, input)
-  const cwd = typeof input.metadata?.cwd === 'string' ? input.metadata.cwd.trim() : ''
-  if (cwd.startsWith('/')) return patchWorkspaceMetadata(db, input.id, { cwd })
+  const cwd = canonicalWorkspaceCwd(input.metadata?.cwd)
+  if (cwd) return patchWorkspaceMetadata(db, input.id, { cwd })
   return existing
 }
 

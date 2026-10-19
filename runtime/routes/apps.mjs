@@ -1,3 +1,4 @@
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE, FDE_RUNTIME_PORT } from '../config.mjs'
 import { verifyUiToken } from './bridge.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
@@ -74,20 +75,24 @@ function defaultWorkspaceCwd() {
 function resolveWorkspaceId(db, queryWorkspace) {
   const raw = String(queryWorkspace || '').trim()
   if (!raw) return 'ws_personal'
-  if (raw.startsWith('/')) return workspaceIdForCwd(db, raw)
+  const cwd = canonicalWorkspaceCwd(raw)
+  if (cwd) return workspaceIdForCwd(db, cwd)
   return raw
 }
 
 function resolveWorkspaceCwd(queryWorkspace, spec) {
   const raw = String(queryWorkspace || '').trim()
-  if (raw.startsWith('/')) return raw
-  if (spec?._workspaceCwd) return String(spec._workspaceCwd)
+  const cwd = canonicalWorkspaceCwd(raw)
+  if (cwd) return cwd
+  if (spec?._workspaceCwd) {
+    const fromSpec = canonicalWorkspaceCwd(spec._workspaceCwd) || String(spec._workspaceCwd)
+    return fromSpec
+  }
   return defaultWorkspaceCwd()
 }
 
 function cwdHint(queryWorkspace) {
-  const raw = String(queryWorkspace || '').trim()
-  return raw.startsWith('/') ? raw : ''
+  return canonicalWorkspaceCwd(queryWorkspace)
 }
 
 function sendInvokeError(sendError, response, error, correlationId) {
@@ -259,9 +264,12 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && pathname === '/api/v1/apps') {
     const body = await readJson(request)
-    const workspaceCwd = typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-      ? body.workspaceCwd
-      : defaultWorkspaceCwd()
+    const suppliedWorkspace = typeof body.workspaceCwd === 'string' ? body.workspaceCwd.trim() : ''
+    const workspaceCwd = suppliedWorkspace ? canonicalWorkspaceCwd(suppliedWorkspace) : defaultWorkspaceCwd()
+    if (suppliedWorkspace && !workspaceCwd) {
+      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+      return true
+    }
     const workspaceId = body.workspaceId ?? resolveWorkspaceId(db, body.workspace || workspaceCwd)
     const spec = body.spec
     if (!spec || typeof spec !== 'object') {
@@ -488,7 +496,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
       }
       const slug = String(app.spec?.slug || app.slug || '')
       const workspaceCwd = resolveWorkspaceCwd(app.spec?._workspaceCwd, app.spec)
-      if (!slug || !workspaceCwd.startsWith('/')) {
+      if (!slug || !canonicalWorkspaceCwd(workspaceCwd)) {
         sendError(response, 422, 'validation_error', '应用没有可分享的工作区', correlationId)
         return true
       }

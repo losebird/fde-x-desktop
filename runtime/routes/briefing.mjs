@@ -13,6 +13,7 @@ import {
 import { validateSchedule, validateSections, validateSources, validateDelivery } from '../briefing/validate.mjs'
 import { runBriefing } from '../briefing/run.mjs'
 import { rescheduleBriefingForWorkspace, shouldRunOnOpen } from '../briefing/scheduler.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { resolveWorkspaceCwd } from '../briefing/workspace.mjs'
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 
@@ -47,10 +48,6 @@ function briefingOk(response, status, data, correlationId, cors = {}) {
     ...cors,
   })
   response.end(body)
-}
-
-function queryWorkspace(url) {
-  return url.searchParams.get('cwd') || url.searchParams.get('workspace')
 }
 
 function omitFromBody(body) {
@@ -106,12 +103,30 @@ function recordBriefingOpenFailure(db, workspaceCwd, error) {
 }
 
 function requireWorkspaceQuery(db, url, response, correlationId, fallbackCwd, cors) {
-  const cwd = resolveWorkspaceCwd(db, queryWorkspace(url), fallbackCwd)
-  if (!cwd.startsWith('/')) {
+  if (url.searchParams.has('cwd') || url.searchParams.has('workspace')) {
+    const cwd = canonicalWorkspaceCwd(url.searchParams.get('cwd') || url.searchParams.get('workspace'))
+    if (!cwd) {
+      briefingError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId, cors)
+      return ''
+    }
+    return cwd
+  }
+  const cwd = resolveWorkspaceCwd(db, '', fallbackCwd)
+  if (!canonicalWorkspaceCwd(cwd)) {
     briefingError(response, 400, 'missing_workspace', '需要 workspace 绝对路径', correlationId, cors)
     return ''
   }
   return cwd
+}
+
+function briefingCwdFromBody(body, db, fallbackCwd) {
+  if (typeof body?.workspaceCwd === 'string' && body.workspaceCwd.trim()) {
+    return canonicalWorkspaceCwd(body.workspaceCwd)
+  }
+  if (typeof body?.workspace === 'string' && body.workspace.trim()) {
+    return canonicalWorkspaceCwd(body.workspace)
+  }
+  return resolveWorkspaceCwd(db, '', fallbackCwd)
 }
 
 /**
@@ -162,11 +177,9 @@ export async function handleBriefingRoutes(request, response, url, deps) {
 
   if (request.method === 'PUT' && pathname === '/api/v1/briefing/definition') {
     const body = await readJson(request)
-    const cwd = typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-      ? body.workspaceCwd
-      : resolveWorkspaceCwd(db, body.workspace, defaultWorkspaceCwd)
-    if (!cwd.startsWith('/')) {
-      briefingError(response, 400, 'missing_workspace', '需要 workspaceCwd', correlationId, cors)
+    const cwd = briefingCwdFromBody(body, db, defaultWorkspaceCwd)
+    if (!canonicalWorkspaceCwd(cwd)) {
+      briefingError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId, cors)
       return true
     }
     const errors = [
@@ -199,11 +212,9 @@ export async function handleBriefingRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && pathname === '/api/v1/briefing/run') {
     const body = await readJson(request)
-    const cwd = typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-      ? body.workspaceCwd
-      : resolveWorkspaceCwd(db, body.workspace, defaultWorkspaceCwd)
-    if (!cwd.startsWith('/')) {
-      briefingError(response, 400, 'missing_workspace', '需要 workspaceCwd', correlationId, cors)
+    const cwd = briefingCwdFromBody(body, db, defaultWorkspaceCwd)
+    if (!canonicalWorkspaceCwd(cwd)) {
+      briefingError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId, cors)
       return true
     }
     const mode = body.mode === 'internal-only' ? 'internal-only' : 'full'

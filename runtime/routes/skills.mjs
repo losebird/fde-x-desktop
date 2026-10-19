@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { collectBag } from '../catalog-collect.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import {
   bundleRootFromPath,
   confinedRelPath,
@@ -16,7 +17,8 @@ function cwdFrom(url, body) {
   const raw = (body && (body.cwd || body.workspace))
     || (url && (url.searchParams.get('cwd') || url.searchParams.get('workspace')))
     || ''
-  return String(raw || '').trim()
+  const text = String(raw || '').trim()
+  return canonicalWorkspaceCwd(text) || text
 }
 
 function sessionFrom(url, body) {

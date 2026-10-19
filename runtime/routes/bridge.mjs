@@ -9,6 +9,7 @@ import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
 import { workspaceCwdForId, workspaceRowIdForCwd } from '../briefing/workspace.mjs'
 import { proposePlanTask } from '../plan/task-proposals.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { pathHasPrefix } from '../path-prefix.mjs'
 
 const READY_TTL_MS = 10 * 60 * 1000
@@ -130,9 +131,7 @@ export async function handleBridgeRoutes(request, response, url, deps) {
     return true
   }
 
-  const workspaceCwd = typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-    ? body.workspaceCwd
-    : ''
+  const workspaceCwd = canonicalWorkspaceCwd(body.workspaceCwd)
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
 
   if (sub === 'submit-result') {

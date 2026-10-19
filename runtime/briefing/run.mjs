@@ -1,3 +1,4 @@
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { emit } from '../events.mjs'
 import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
 import { resolveBriefingSession } from './session.mjs'
@@ -84,8 +85,8 @@ function computeRunStatus(sections) {
  */
 export async function runBriefing(deps, input) {
   const { db } = deps
-  const workspaceCwd = String(input.workspaceCwd || '').trim()
-  if (!workspaceCwd.startsWith('/')) {
+  const workspaceCwd = canonicalWorkspaceCwd(input.workspaceCwd)
+  if (!workspaceCwd) {
     throw Object.assign(new Error('需要工作区绝对路径 cwd'), { code: 'validation_error' })
   }
   const mode = input.mode === 'internal-only' ? 'internal-only' : 'full'

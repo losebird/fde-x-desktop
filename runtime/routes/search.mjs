@@ -1,10 +1,11 @@
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { loadSearchSheet } from '../search/search-sheet.mjs'
 
 export async function handleSearchRoute(request, response, url, ctx) {
   if (!(request.method === 'GET' && url.pathname === '/api/v1/search')) return false
   const { db, aiRuntime, sendJson, sendError, correlationId } = ctx
-  const cwd = String(url.searchParams.get('cwd') || '').trim()
-  if (!cwd.startsWith('/')) {
+  const cwd = canonicalWorkspaceCwd(url.searchParams.get('cwd'))
+  if (!cwd) {
     sendError(response, 400, 'validation_error', '需要当前工作区目录', correlationId)
     return true
   }

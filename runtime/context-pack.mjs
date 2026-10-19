@@ -1,4 +1,4 @@
-import { sameWorkspaceCwd } from './cwd.mjs'
+import { canonicalWorkspaceCwd, sameWorkspaceCwd } from './cwd.mjs'
 import { listBusinessApps, listBusinessConnections, listOperations, listWorkspaces } from './db.mjs'
 import { memoryLandHref } from './memory/identity.mjs'
 import { formatTaskLine } from './plan/task-advice.mjs'
@@ -302,7 +302,7 @@ export async function buildContextPack(deps, input) {
   } = input
   const warnings = []
   const pack = { generatedAt: Date.now() }
-  const cwd = typeof workspaceCwd === 'string' && workspaceCwd.startsWith('/') ? workspaceCwd : ''
+  const cwd = canonicalWorkspaceCwd(workspaceCwd)
   const scopeList = scopes.filter((s) => ALLOWED_SCOPES.has(s))
   const deadline = Date.now() + PACK_BUDGET_MS
 

@@ -5,6 +5,7 @@ import { constants } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { listBusinessConnections } from '../db.mjs'
 import { FDE_AI_WORKSPACE, FDE_RESOURCES } from '../config.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { desktopProcessPath } from '../desktop-process-path.mjs'
 import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
 import { collectBag } from '../catalog-collect.mjs'
@@ -185,9 +186,7 @@ export async function buildConnectors(db, aiRuntime) {
     console.warn('mcp connectors state failed', error)
   }
   const lookup = state?.lookup && typeof state.lookup === 'object' ? state.lookup : {}
-  const cwd = typeof aiRuntime.cwd === 'string' && aiRuntime.cwd.startsWith('/')
-    ? aiRuntime.cwd
-    : FDE_AI_WORKSPACE
+  const cwd = canonicalWorkspaceCwd(aiRuntime?.cwd) || canonicalWorkspaceCwd(FDE_AI_WORKSPACE) || FDE_AI_WORKSPACE
   let catalogVersion = ''
   try {
     const vocab = await loadBizVocab(aiRuntime, cwd)
@@ -575,10 +574,15 @@ export async function handleMcpRoutes(request, response, url, ctx) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/v1/mcp/projection') {
+    if (url.searchParams.has('cwd') && !canonicalWorkspaceCwd(url.searchParams.get('cwd'))) {
+      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+      return true
+    }
+    const rawCwd = url.searchParams.get('cwd') || url.searchParams.get('workspace') || ''
     const bag = await collectBag(aiRuntime, 'mcp', {
       project: true,
       sessionId: url.searchParams.get('sessionId') || '',
-      cwd: url.searchParams.get('cwd') || url.searchParams.get('workspace') || '',
+      cwd: canonicalWorkspaceCwd(rawCwd) || rawCwd,
     })
     const mcp = Array.isArray(bag.raw?.mcp) ? bag.raw.mcp : bag.items.map((row) => row.fields)
     const resourceTools = Array.isArray(bag.raw?.resourceTools) ? bag.raw.resourceTools : []

@@ -1,4 +1,5 @@
 import { buildContextPack } from '../context-pack.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 
 function sendJson(response, status, body) {
   const raw = JSON.stringify(body)
@@ -23,9 +24,7 @@ export async function handleContextPackRoute(request, response, url, deps) {
     sendError(response, 400, 'invalid_json', '请求体不是合法 JSON', correlationId)
     return true
   }
-  const workspaceCwd = typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-    ? body.workspaceCwd
-    : ''
+  const workspaceCwd = canonicalWorkspaceCwd(body.workspaceCwd)
   if (!workspaceCwd) {
     sendError(response, 400, 'validation_error', '需要工作区 cwd', correlationId)
     return true
