@@ -88,7 +88,7 @@ function runtimeConnected(aiRuntime) {
   return Boolean(status && status.connected === true)
 }
 
-function insertQueued(db, { runId, workflowId, correlationId, now, steps }) {
+function insertQueued(db, { runId, workflowId, correlationId, now, steps, triggerJson, scheduleKey }) {
   const stored = steps.map((step) => ({ ...step, id: createId('wrs') }))
   db.exec('BEGIN IMMEDIATE;')
   try {
@@ -100,9 +100,9 @@ function insertQueued(db, { runId, workflowId, correlationId, now, steps }) {
     if (open) throw rejectRun(409, 'run_in_progress', '这条工作流已有未结束的运行')
     db.prepare(`
       INSERT INTO workflow_runs
-        (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at)
-      VALUES (?, ?, 'queued', ?, '{}', NULL, ?, NULL, NULL, ?)
-    `).run(runId, workflowId, MANUAL_TRIGGER_JSON, correlationId, now)
+        (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at, schedule_key)
+      VALUES (?, ?, 'queued', ?, '{}', NULL, ?, NULL, NULL, ?, ?)
+    `).run(runId, workflowId, triggerJson, correlationId, now, scheduleKey)
     const insertStep = db.prepare(`
       INSERT INTO workflow_run_steps
         (id, run_id, step_key, sequence_no, state, input_json, output_json, error_json, started_at, finished_at)
@@ -519,12 +519,25 @@ export function failInterruptedRuns(db) {
   }
 }
 
+function acceptedTrigger(command) {
+  const trigger = command?.trigger
+  if (trigger?.kind === 'manual') return { json: MANUAL_TRIGGER_JSON, scheduleKey: null }
+  if (trigger?.kind !== 'schedule') throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
+  const eventId = typeof trigger.eventId === 'string' ? trigger.eventId : ''
+  const occurrence = typeof trigger.occurrence === 'string' ? trigger.occurrence : ''
+  if (!eventId || !occurrence) throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
+  return {
+    json: JSON.stringify({ kind: 'schedule', eventId, occurrence }),
+    scheduleKey: `${eventId}@${occurrence}`,
+  }
+}
+
 export function startWorkflowRun(deps, command) {
   const db = deps.db
   const workflowId = typeof command?.workflowId === 'string' ? command.workflowId : ''
   const correlationId = typeof command?.correlationId === 'string' ? command.correlationId : ''
   const workspaceId = typeof command?.workspaceId === 'string' ? command.workspaceId.trim() : ''
-  if (command?.trigger?.kind !== 'manual') throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
+  const trigger = acceptedTrigger(command)
   if (!workspaceId) throw rejectRun(400, 'missing_workspace_id', '缺少 workspaceId')
   if (!workflowId || isHostJobId(workflowId)) throw rejectRun(404, 'not_found', '工作流不存在')
   const workflow = db.prepare('SELECT id, workspace_id, definition_json FROM workflows WHERE id = ?').get(workflowId)
@@ -539,6 +552,8 @@ export function startWorkflowRun(deps, command) {
     correlationId,
     now: isoNow(),
     steps,
+    triggerJson: trigger.json,
+    scheduleKey: trigger.scheduleKey,
   })
   continueRun(deps, {
     runId,
