@@ -1,5 +1,6 @@
 import { emit } from '../events.mjs'
 import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
+import { resolveBriefingSession } from './session.mjs'
 import { collectInternalSection } from './collectors.mjs'
 import { runBriefingAgent } from './ask-ai.mjs'
 import { itemsFromToolResult } from './tool-official.mjs'
@@ -139,10 +140,7 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
       })
     }
     updateBriefingContent(db, briefingId, { status: 'running', sections })
-    sessionId = await resolvePrimarySessionForRuntime(aiRuntime, {
-      cwd: workspaceCwd,
-      sessionId: String(input.sessionId || '').trim(),
-    })
+    sessionId = await resolveBriefingSession(aiRuntime, workspaceCwd)
     const agent = await runBriefingAgent(
       { db, aiRuntime },
       {

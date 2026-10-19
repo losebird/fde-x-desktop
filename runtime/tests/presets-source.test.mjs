@@ -27,4 +27,8 @@ test('generated patch registers FDE folders as dsh-agent-preset inserts', async 
   assert.match(text, /id: fde-briefing/)
   assert.match(text, /name: FDE 应用构建/)
   assert.doesNotMatch(text, /^- include:/m)
+  assert.doesNotMatch(text, /new URL\('skills\/'/)
+  assert.doesNotMatch(text, /\/workspace\//)
+  assert.match(text, /process\.env\.FDE_RUNTIME_DIR \+ '\/presets\/fde-briefing\/skills'/)
+  assert.match(text, /process\.env\.FDE_RUNTIME_DIR \+ '\/presets\/fde-app-builder\/skills'/)
 })

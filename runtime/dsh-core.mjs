@@ -364,6 +364,7 @@ export class DshCoreConnector {
         DSH_HOME: this.dshHome,
         DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE || 'danger-full-access',
         DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT,
+        FDE_RUNTIME_DIR: this.runtimeDirectory,
         FDE_AI_WORKSPACE: this.cwd,
         FDE_DSH_CREDENTIALS_PATH: this.credentialsPath,
         ...(process.env.DSH_SEMANTICA_PYTHON || semanticaPython ? { DSH_SEMANTICA_PYTHON: process.env.DSH_SEMANTICA_PYTHON || semanticaPython } : {}),
