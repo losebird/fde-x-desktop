@@ -747,8 +747,9 @@ function ScheduleTab() {
                   const endMin = planDayOffsetMinutes(e.end)
                   const top = (startMin / 60) * 56
                   const height = ((endMin - startMin) / 60) * 56
+                  const triggerLabel = scheduleTriggerLabel(eventTriggerRun(e, workflows))
                   return (
-                    <div key={e.id} className={clsx('absolute left-2 right-2 rounded border px-2 py-1.5 text-xs overflow-hidden', KIND_TONE[e.kind].bg)} style={{ top, height: Math.max(height, 24) }}>
+                    <div key={e.id} className={clsx('absolute left-2 right-2 rounded border px-2 py-1.5 text-xs overflow-hidden', KIND_TONE[e.kind].bg)} style={{ top, height: Math.max(height, triggerLabel ? 52 : 24) }}>
                       <div className="font-medium truncate">{e.title}</div>
                       {e.workflowId && (
                         <div className="opacity-70 text-[11px] truncate">

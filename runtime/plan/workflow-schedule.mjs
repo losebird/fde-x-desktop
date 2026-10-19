@@ -116,9 +116,7 @@ function recordScheduleResult(db, row, occurrence, state, message) {
   } catch (error) {
     try {
       db.exec('ROLLBACK;')
-    } catch {
-      /* transaction already finished */
-    }
+    } catch {}
     throw error
   }
 }
