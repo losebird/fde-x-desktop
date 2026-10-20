@@ -3038,7 +3038,22 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/v1/events/pending') {
       const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 50)))
-      sendJson(response, 200, { items: listPendingEvents(db, limit), correlationId: currentCorrelationId })
+      const resolvedPending = resolveHttpWorkspace({
+        url,
+        slots: [['query', 'workspace'], ['query', 'cwd']],
+        whenAbsent: 'omit',
+      })
+      if (resolvedPending.error) {
+        sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, {
+        items: listPendingEvents(db, {
+          limit,
+          workspaceCwd: resolvedPending.omitted ? undefined : resolvedPending.cwd,
+        }),
+        correlationId: currentCorrelationId,
+      })
       return
     }
 

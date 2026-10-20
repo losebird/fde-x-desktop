@@ -236,15 +236,23 @@ function mapWorkspace(row) {
   }
 }
 
-export function listPendingEvents(db, limit = 50) {
+export function listPendingEvents(db, { limit = 50, workspaceCwd } = {}) {
+  const params = [isoNow()]
+  let workspaceSql = ''
+  if (workspaceCwd) {
+    const fn = canonicalWorkspaceCwdSql(db)
+    workspaceSql = ` AND ${fn}(workspace_cwd) = ?`
+    params.push(canonicalWorkspaceCwd(workspaceCwd))
+  }
+  params.push(limit)
   return db.prepare(`
     SELECT id, event_type, schema_version, source_ref, subject_ref, correlation_id,
            causation_id, payload_json, occurred_at, available_at, attempt_count, last_error
     FROM outbox_events
-    WHERE published_at IS NULL AND available_at <= ?
+    WHERE published_at IS NULL AND available_at <= ?${workspaceSql}
     ORDER BY occurred_at ASC
     LIMIT ?
-  `).all(isoNow(), limit).map((row) => ({
+  `).all(...params).map((row) => ({
     id: row.id,
     type: row.event_type,
     schemaVersion: row.schema_version,
