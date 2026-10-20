@@ -236,3 +236,37 @@ test('catalog uses workspaceId instead of dropping it', async () => {
     await rm(dbPath, { force: true })
   }
 })
+
+test('apps list does not treat workspacePath or workingDirectory as the personal workspace', async () => {
+  const dbPath = `/tmp/fde-ws-guard-alias-${process.pid}.sqlite`
+  await rm(dbPath, { force: true })
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  db.close()
+  const server = await startServer(dbPath)
+  try {
+    const byPath = await fetch(`${server.base}/api/v1/apps?workspacePath=/y-not-registered`)
+    const byPathPayload = await byPath.json()
+    const byDir = await fetch(`${server.base}/api/v1/apps?workingDirectory=relative/path`)
+    const byDirPayload = await byDir.json()
+    const business = await fetch(`${server.base}/api/v1/business/apps?workspacePath=/y-not-registered`)
+    const businessPayload = await business.json()
+    assert.deepEqual({
+      byPath: byPath.status,
+      byPathCode: byPathPayload.error?.code,
+      byDir: byDir.status,
+      byDirCode: byDirPayload.error?.code,
+      business: business.status,
+      businessCode: businessPayload.error?.code,
+    }, {
+      byPath: 404,
+      byPathCode: 'missing_workspace',
+      byDir: 400,
+      byDirCode: 'workspace_invalid',
+      business: 404,
+      businessCode: 'missing_workspace',
+    })
+  } finally {
+    await server.stop()
+    await rm(dbPath, { force: true })
+  }
+})
