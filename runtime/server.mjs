@@ -29,14 +29,15 @@ async function pickLocalDirectory() {
   }
   try {
     const { stdout } = await execFileAsync('osascript', ['-e', 'POSIX path of (choose folder with prompt "选择工作区目录")'], { timeout: 120000 })
-    const path = String(stdout || '').trim().replace(/\/$/, '')
-    if (path.startsWith('/')) return { path }
+    const path = pickedDirectory(stdout)
+    if (path) return { path }
   } catch (error) {
     if (error && (error.code === '1' || error.code === 1)) return { path: null }
   }
   try {
     const picked = await aiRuntime.call('directoryPicker/pick', {})
-    if (typeof picked === 'string' && picked.startsWith('/')) return { path: picked.replace(/\/$/, '') }
+    const path = pickedDirectory(picked)
+    if (path) return { path }
   } catch { /* 没有原生选择器就放弃 */ }
   return { path: null }
 }
@@ -149,7 +150,7 @@ import {
   FDE_STATIC_DIR,
   FDE_WEB_PORT,
 } from './config.mjs'
-import { canonicalWorkspaceCwd } from './cwd.mjs'
+import { canonicalWorkspaceCwd, pickedDirectory } from './cwd.mjs'
 import { resolveWorkspaceIdOrFail } from './briefing/workspace.mjs'
 import { httpStatusForWorkspaceError, resolveHttpWorkspace } from './http-workspace.mjs'
 
