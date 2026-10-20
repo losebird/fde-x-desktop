@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process'
 import * as zlib from 'node:zlib'
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { FDE_VENDOR_DIR } from '../../config.mjs'
 import { createCoreConnector } from '../../dsh-core.mjs'
 import { PRODUCT_BUNDLE_IDS } from '../../product-bundles.mjs'
 
@@ -100,6 +101,11 @@ export async function bootWorkflowHost(options = {}) {
     FDE_WORKFLOW_PROBE_EXTRA: process.env.FDE_WORKFLOW_PROBE_EXTRA,
     FDE_WORKFLOW_PROBE_CALL: process.env.FDE_WORKFLOW_PROBE_CALL,
     FDE_WORKFLOW_PROBE_PRESET_ONLY: process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY,
+    FDE_VENDOR_DIR: process.env.FDE_VENDOR_DIR,
+    FDE_IUI_ARTIFACT: process.env.FDE_IUI_ARTIFACT,
+  }
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith('FDE_PLUGIN_')) previous[key] = process.env[key]
   }
   process.env.FDE_DSH_HOME = home
   process.env.DSH_HOME = home
@@ -118,29 +124,66 @@ export async function bootWorkflowHost(options = {}) {
   if (options.presetOnly) process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY = '1'
   else delete process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY
 
-  const core = createCoreConnector({
-    bin,
-    dshHome: home,
-    cwd,
-    patchFile,
-    profileName,
-    startTimeoutMs: 90_000,
-  })
-  const status = await core.start()
+  let hiddenVendor = null
+  if (!options.withPlugins) {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('FDE_PLUGIN_')) delete process.env[key]
+    }
+    delete process.env.FDE_IUI_ARTIFACT
+    const emptyVendor = join(home, 'empty-vendor')
+    await mkdir(emptyVendor, { recursive: true })
+    process.env.FDE_VENDOR_DIR = emptyVendor
+    hiddenVendor = await hideFrozenVendor()
+  }
+
+  let core
+  let status
+  try {
+    core = createCoreConnector({
+      bin,
+      dshHome: home,
+      cwd,
+      patchFile,
+      profileName,
+      startTimeoutMs: 90_000,
+    })
+    status = await core.start()
+  } catch (error) {
+    await showFrozenVendor(hiddenVendor)
+    restoreEnv(previous)
+    throw error
+  }
   if (!status.connected || status.version !== PIN) {
     const detail = status.lastError || (status.recentLogs || []).slice(-12).join('\n')
     await core.stop().catch(() => {})
+    await showFrozenVendor(hiddenVendor)
     restoreEnv(previous)
     throw new Error(`真 Host 没有连上 ${PIN}：${detail}`)
   }
 
   async function stop() {
     await core.stop().catch(() => {})
+    await showFrozenVendor(hiddenVendor)
     restoreEnv(previous)
     await rm(home, { recursive: true, force: true })
   }
 
   return { core, cwd, probeDir, home, version: status.version, stop }
+}
+
+async function hideFrozenVendor() {
+  if (!existsSync(FDE_VENDOR_DIR)) return null
+  const hidden = `${FDE_VENDOR_DIR}.fde-workflow-hidden-${process.pid}`
+  await rename(FDE_VENDOR_DIR, hidden)
+  return hidden
+}
+
+async function showFrozenVendor(hidden) {
+  if (!hidden) return
+  if (existsSync(FDE_VENDOR_DIR)) {
+    throw new Error(`隔离结束时 ${FDE_VENDOR_DIR} 已经存在，不能把 ${hidden} 移回去`)
+  }
+  await rename(hidden, FDE_VENDOR_DIR)
 }
 
 function restoreEnv(previous) {
