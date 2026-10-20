@@ -170,3 +170,20 @@ test('an unknown workspace id, with or without a path, is missing_workspace', as
     await rm(dbPath, { force: true })
   }
 })
+
+test('pending events for an unregistered absolute path are missing_workspace', async () => {
+  const dbPath = `/tmp/fde-ws-guard-d-${process.pid}.sqlite`
+  await rm(dbPath, { force: true })
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  db.close()
+  const server = await startServer(dbPath)
+  try {
+    const response = await fetch(`${server.base}/api/v1/events/pending?cwd=/y-not-registered`)
+    const payload = await response.json()
+    assert.equal(response.status, 404)
+    assert.equal(payload.error.code, 'missing_workspace')
+  } finally {
+    await server.stop()
+    await rm(dbPath, { force: true })
+  }
+})
