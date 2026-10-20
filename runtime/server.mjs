@@ -164,8 +164,10 @@ const db = openDatabase(databasePath, migrationsDirectory)
 failInterruptedRuns(db)
 const workflowScheduleBootedAt = new Date()
 configureEventBus(db)
+const testDshBin = String(process.env.FDE_TEST_DSH_BIN || '').trim()
 const aiRuntime = createCoreConnector({
   cwd: canonicalWorkspaceCwd(process.env.FDE_AI_WORKSPACE) || FDE_AI_WORKSPACE,
+  ...(testDshBin ? { bin: testDshBin } : {}),
 })
 const personalWorkspace = getWorkspace(db, 'ws_personal')
 const personalMeta = personalWorkspace?.metadata && typeof personalWorkspace.metadata === 'object' ? personalWorkspace.metadata : {}
