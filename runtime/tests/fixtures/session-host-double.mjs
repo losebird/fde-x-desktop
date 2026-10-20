@@ -30,9 +30,8 @@ function send(res, status, body, headers = {}) {
 }
 
 function usageFor(cwd) {
-  if (String(cwd).includes('ws-guard-b')) return { cwd, bytes: 9, secret: '用量秘密B' }
   if (String(cwd).includes('ws-guard-a')) return { cwd, bytes: 3, secret: '用量秘密A' }
-  return { cwd, bytes: 1, secret: '用量秘密全局' }
+  return { cwd, bytes: 9, secret: '用量秘密B' }
 }
 
 const server = createServer(async (req, res) => {

@@ -221,3 +221,26 @@ test('other session id mouths from another workspace are 404', async () => {
   assert.equal(owner.payload?.data?.title, '标题B')
   assert.equal(owner.payload?.data?.running, true)
 })
+
+test('corpus session text from another workspace is 404', async () => {
+  const sid = 'sess_corpus_b'
+  await mkdir(join(sessionRoot, 'foreign', sid), { recursive: true })
+  await writeFile(join(sessionRoot, 'foreign', sid, 'session.v3.jsonl'), [
+    JSON.stringify({ type: 'session/header', data: { id: sid, cwd: '/ws-guard-b' } }),
+    JSON.stringify({ type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '语料会话秘密' }] } }),
+    '',
+  ].join('\n'), 'utf8')
+  const foreign = await call(server, 'GET', `/api/v1/corpus/${encodeURIComponent(`session:${sid}`)}?cwd=${encodeURIComponent('/ws-guard-a')}`)
+  const owned = await call(server, 'GET', `/api/v1/corpus/${encodeURIComponent(`session:${sid}`)}?cwd=${encodeURIComponent('/ws-guard-b')}`)
+  assert.equal(foreign.status, 404)
+  assert.equal(foreign.text.includes('语料会话秘密'), false)
+  assert.equal(owned.status, 200)
+  assert.equal(owned.text.includes('语料会话秘密'), true)
+})
+
+test('memory usage from another workspace does not return that workspace secret', async () => {
+  const read = await call(server, 'GET', `/api/v1/memory/usage?cwd=${encodeURIComponent('/ws-guard-a')}`)
+  assert.equal(read.status, 200)
+  assert.equal(read.payload?.data?.secret, '用量秘密A')
+  assert.equal(read.text.includes('用量秘密B'), false)
+})
