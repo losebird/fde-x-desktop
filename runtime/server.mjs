@@ -151,7 +151,8 @@ import {
   FDE_WEB_PORT,
 } from './config.mjs'
 import { canonicalWorkspaceCwd, pickedDirectory } from './cwd.mjs'
-import { resolveWorkspaceIdOrFail } from './briefing/workspace.mjs'
+import { resolveWorkspaceIdOrFail, workspaceCwdForId } from './briefing/workspace.mjs'
+import { findSessionForWorkspace, sessionCwdOf, sessionsForWorkspace } from './ai/session-scope.mjs'
 import { httpStatusForWorkspaceError, resolveHttpWorkspace } from './http-workspace.mjs'
 
 const runtimeDirectory = FDE_RUNTIME_DIR
@@ -658,10 +659,32 @@ function toAiSessionSummary(item) {
     ...(typeof item.parentSessionId === 'string' ? { parentSessionId: item.parentSessionId } : {}),
     ...(item.origin === 'subagent' ? { origin: 'subagent' } : {}),
     ...(typeof item.cwd === 'string' ? { cwd: item.cwd } : {}),
+    archived: Boolean(item.archived),
     ...(typeof values.agentPreset === 'string' ? { agentPreset: values.agentPreset } : {}),
     ...(selection.lastUsed && typeof selection.lastUsed === 'object' ? { lastUsedModel: selection.lastUsed } : {}),
     ...(selection.next && typeof selection.next === 'object' ? { nextModel: selection.next } : {}),
   }
+}
+
+function rejectWorkspaceIdent(ident, response, correlationId) {
+  const failure = httpStatusForWorkspaceError(ident?.error)
+  if (!failure) return false
+  sendError(response, failure.status, failure.code, failure.message, correlationId)
+  return true
+}
+
+async function scopedSession(url, body, sessionId, response, correlationId) {
+  const ident = requestAppWorkspace(db, url, body)
+  if (rejectWorkspaceIdent(ident, response, correlationId)) return null
+  const workspaceCwd = ident.hint || workspaceCwdForId(db, ident.workspaceId) || ''
+  const sessions = await aiRuntime.call('session/list', { _request: {} })
+  const items = Array.isArray(sessions?.items) ? sessions.items : []
+  const item = findSessionForWorkspace(items, sessionId, workspaceCwd, ident.workspaceId)
+  if (!item) {
+    sendError(response, 404, 'not_found', '会话不存在', correlationId)
+    return null
+  }
+  return { ident, workspaceCwd, item }
 }
 
 const FDE_DSH_OCCUPANCY_PATCH = (() => {
@@ -1986,6 +2009,9 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/ai/sessions') {
+      const listIdent = requestAppWorkspace(db, url, null)
+      if (rejectWorkspaceIdent(listIdent, response, currentCorrelationId)) return
+      const workspaceCwd = listIdent.hint || workspaceCwdForId(db, listIdent.workspaceId) || ''
       const cursor = url.searchParams.get('cursor') ?? undefined
       const includeBlank = url.searchParams.get('includeBlank') === 'true'
       const includeSubagents = url.searchParams.get('includeSubagents') === 'true'
@@ -1995,14 +2021,13 @@ const server = createServer(async (request, response) => {
         readWorkspaceBaseline(),
       ])
       const archived = new Set(baseline.archivedSessionIds)
-      const items = Array.isArray(sessions?.items)
-        ? sessions.items
-          .map((row) => ({
-            ...toAiSessionSummary(row),
-            ...(archived.has(row.sessionId) ? { archived: true } : {}),
-          }))
-          .filter((item) => (includeArchived ? item.archived : !archived.has(item.sessionId)) && (includeBlank || !item.blank) && (includeSubagents || !isSubagentSession(item)))
-        : []
+      const visible = sessionsForWorkspace(Array.isArray(sessions?.items) ? sessions.items : [], workspaceCwd, listIdent.workspaceId)
+      const items = visible
+        .map((row) => ({
+          ...toAiSessionSummary(row),
+          ...(archived.has(row.sessionId) ? { archived: true } : {}),
+        }))
+        .filter((item) => (includeArchived ? item.archived : !archived.has(item.sessionId) && !item.archived) && (includeBlank || !item.blank) && (includeSubagents || !isSubagentSession(item)))
       sendJson(response, 200, { data: { items }, correlationId: currentCorrelationId })
       return
     }
@@ -2010,14 +2035,9 @@ const server = createServer(async (request, response) => {
     const aiSessionGetMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)$/)
     if (request.method === 'GET' && aiSessionGetMatch) {
       const sessionId = decodeURIComponent(aiSessionGetMatch[1])
-      const sessions = await aiRuntime.call('session/list', { _request: {} })
-      const items = Array.isArray(sessions?.items) ? sessions.items : []
-      const item = items.find((row) => row.sessionId === sessionId)
-      if (!item) {
-        sendError(response, 404, 'not_found', '会话不存在', currentCorrelationId)
-        return
-      }
-      sendJson(response, 200, { data: toAiSessionSummary(item), correlationId: currentCorrelationId })
+      const scoped = await scopedSession(url, null, sessionId, response, currentCorrelationId)
+      if (!scoped) return
+      sendJson(response, 200, { data: toAiSessionSummary(scoped.item), correlationId: currentCorrelationId })
       return
     }
 
@@ -2148,6 +2168,8 @@ const server = createServer(async (request, response) => {
     const aiExportMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/export$/)
     if (request.method === 'GET' && aiExportMatch) {
       const sessionId = decodeURIComponent(aiExportMatch[1])
+      const scopedExport = await scopedSession(url, null, sessionId, response, currentCorrelationId)
+      if (!scopedExport) return
       try {
         const bundle = await readSessionTree(sessionRootOf(), sessionId)
         sendJson(response, 200, { data: bundle, correlationId: currentCorrelationId })
@@ -2161,6 +2183,8 @@ const server = createServer(async (request, response) => {
     const aiArchiveMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/archive$/)
     if (request.method === 'POST' && aiArchiveMatch) {
       const archivedId = decodeURIComponent(aiArchiveMatch[1])
+      const scopedArchive = await scopedSession(url, null, archivedId, response, currentCorrelationId)
+      if (!scopedArchive) return
       const archived = await aiRuntime.call('workspace/archiveSession', {
         request: { sessionId: archivedId },
       })
@@ -2171,12 +2195,32 @@ const server = createServer(async (request, response) => {
 
     const aiForkMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/fork$/)
     if (request.method === 'POST' && aiForkMatch) {
-      sendError(response, 409, 'session_owned_by_ui', '会话写锁由工作台 DSH 页占用，请在会话列表里分叉', currentCorrelationId)
+      const forkedFrom = decodeURIComponent(aiForkMatch[1])
+      const scopedFork = await scopedSession(url, null, forkedFrom, response, currentCorrelationId)
+      if (!scopedFork) return
+      const workspaceCwd = sessionCwdOf(scopedFork.item) || scopedFork.workspaceCwd
+      const created = await aiRuntime.call('session/create', {
+        request: {
+          ...(workspaceCwd ? { cwd: workspaceCwd } : {}),
+        },
+      })
+      if (created?.sessionId) {
+        emit('ai.session.changed', { sessionId: created.sessionId, kind: 'created' }, {
+          workspaceCwd: workspaceCwd || null,
+          sessionId: created.sessionId,
+        })
+      }
+      sendJson(response, 201, {
+        data: { sessionId: created?.sessionId, cwd: workspaceCwd },
+        correlationId: currentCorrelationId,
+      })
       return
     }
 
     const aiFollowMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/follow$/)
     if (request.method === 'GET' && aiFollowMatch) {
+      const scopedFollow = await scopedSession(url, null, decodeURIComponent(aiFollowMatch[1]), response, currentCorrelationId)
+      if (!scopedFollow) return
       sendError(response, 409, 'session_owned_by_ui', '会话写锁由工作台 DSH 页占用，禁止 4318 再 follow', currentCorrelationId)
       return
     }
@@ -2184,11 +2228,13 @@ const server = createServer(async (request, response) => {
     const aiRenameMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/rename$/)
     if (request.method === 'POST' && aiRenameMatch) {
       const body = await readJson(request)
+      const renamedId = decodeURIComponent(aiRenameMatch[1])
+      const scopedRename = await scopedSession(url, body, renamedId, response, currentCorrelationId)
+      if (!scopedRename) return
       if (typeof body.title !== 'string' || body.title.trim().length === 0) {
         sendError(response, 400, 'validation_error', '会话名称不能为空', currentCorrelationId)
         return
       }
-      const renamedId = decodeURIComponent(aiRenameMatch[1])
       const renamed = await aiRuntime.call('session/rename', {
         request: { sessionId: renamedId, title: body.title.trim() },
       })
@@ -2199,6 +2245,9 @@ const server = createServer(async (request, response) => {
 
     const aiModelMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/model$/)
     if (request.method === 'POST' && aiModelMatch) {
+      const body = await readJson(request)
+      const scopedModel = await scopedSession(url, body, decodeURIComponent(aiModelMatch[1]), response, currentCorrelationId)
+      if (!scopedModel) return
       sendError(response, 409, 'session_owned_by_ui', '会话写锁由工作台 DSH 页占用，请在 DSH 里改模型', currentCorrelationId)
       return
     }
@@ -2206,6 +2255,8 @@ const server = createServer(async (request, response) => {
     const aiAttachMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/attachments$/)
     if (request.method === 'POST' && aiAttachMatch) {
       const body = await readJson(request)
+      const scopedAttach = await scopedSession(url, body, decodeURIComponent(aiAttachMatch[1]), response, currentCorrelationId)
+      if (!scopedAttach) return
       if (typeof body.data !== 'string' || !body.data) {
         sendError(response, 400, 'validation_error', '附件内容不能为空', currentCorrelationId)
         return
@@ -2224,6 +2275,8 @@ const server = createServer(async (request, response) => {
     const aiPromptMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/prompt$/)
     if (request.method === 'POST' && aiPromptMatch) {
       const body = await readJson(request)
+      const scopedPrompt = await scopedSession(url, body, decodeURIComponent(aiPromptMatch[1]), response, currentCorrelationId)
+      if (!scopedPrompt) return
       const text = typeof body.text === 'string' ? body.text.trim() : ''
       if (!text) {
         sendError(response, 400, 'validation_error', 'prompt 不能为空', currentCorrelationId)
@@ -2253,6 +2306,8 @@ const server = createServer(async (request, response) => {
     const aiPresetMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/preset$/)
     if (request.method === 'POST' && aiPresetMatch) {
       const body = await readJson(request)
+      const scopedPreset = await scopedSession(url, body, decodeURIComponent(aiPresetMatch[1]), response, currentCorrelationId)
+      if (!scopedPreset) return
       if (typeof body.agentPreset !== 'string' || !body.agentPreset.trim()) {
         sendError(response, 400, 'validation_error', 'agentPreset 不能为空', currentCorrelationId)
         return
@@ -2267,12 +2322,16 @@ const server = createServer(async (request, response) => {
 
     const aiCommandsMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/commands$/)
     if (request.method === 'GET' && aiCommandsMatch) {
+      const scopedCommands = await scopedSession(url, null, decodeURIComponent(aiCommandsMatch[1]), response, currentCorrelationId)
+      if (!scopedCommands) return
       const commands = await aiRuntime.call('commands/list', { agentId: decodeURIComponent(aiCommandsMatch[1]) })
       sendJson(response, 200, { data: commands, correlationId: currentCorrelationId })
       return
     }
     if (request.method === 'POST' && aiCommandsMatch) {
       const body = await readJson(request)
+      const scopedCommand = await scopedSession(url, body, decodeURIComponent(aiCommandsMatch[1]), response, currentCorrelationId)
+      if (!scopedCommand) return
       const line = typeof body.line === 'string' ? body.line.trim() : ''
       if (!line) {
         sendError(response, 400, 'validation_error', '命令不能为空', currentCorrelationId)
@@ -2290,6 +2349,8 @@ const server = createServer(async (request, response) => {
     const aiPermissionMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/permission$/)
     if (request.method === 'POST' && aiPermissionMatch) {
       const body = await readJson(request)
+      const scopedPermission = await scopedSession(url, body, decodeURIComponent(aiPermissionMatch[1]), response, currentCorrelationId)
+      if (!scopedPermission) return
       if (typeof body.preset !== 'string' || !body.preset.trim()) {
         sendError(response, 400, 'validation_error', '权限档不能为空', currentCorrelationId)
         return
@@ -2311,6 +2372,8 @@ const server = createServer(async (request, response) => {
 
     const aiSkillsMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/skills$/)
     if (request.method === 'GET' && aiSkillsMatch) {
+      const scopedSkills = await scopedSession(url, null, decodeURIComponent(aiSkillsMatch[1]), response, currentCorrelationId)
+      if (!scopedSkills) return
       const bag = await collectBag(aiRuntime, 'skill', { sessionId: decodeURIComponent(aiSkillsMatch[1]) })
       sendJson(response, 200, { data: bag.raw || { items: bag.items }, correlationId: currentCorrelationId })
       return
@@ -2319,6 +2382,8 @@ const server = createServer(async (request, response) => {
     const aiApprovalMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/approval$/)
     if (request.method === 'POST' && aiApprovalMatch) {
       const body = await readJson(request)
+      const scopedApproval = await scopedSession(url, body, decodeURIComponent(aiApprovalMatch[1]), response, currentCorrelationId)
+      if (!scopedApproval) return
       const decided = await aiRuntime.decideApproval(decodeURIComponent(aiApprovalMatch[1]), body.outcome)
       sendJson(response, 200, { data: decided, correlationId: currentCorrelationId })
       return
@@ -2327,6 +2392,8 @@ const server = createServer(async (request, response) => {
     const aiCancelMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/cancel$/)
     if (request.method === 'POST' && aiCancelMatch) {
       const cancelBody = await readJson(request).catch(() => ({}))
+      const scopedCancel = await scopedSession(url, cancelBody, decodeURIComponent(aiCancelMatch[1]), response, currentCorrelationId)
+      if (!scopedCancel) return
       const cancelKind = String(cancelBody?.kind || cancelBody?.reason || '').trim()
       const receipt = await aiRuntime.call('session/cancel', {
         request: {

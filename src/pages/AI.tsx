@@ -229,7 +229,7 @@ export default function AI() {
   }, [activeId, dropStoppedTerminal])
 
   async function reloadRemoteSessions(signal?: AbortSignal) {
-    const sessions = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true, includeArchived: sessionLane === 'archived' }, signal)
+    const sessions = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true, includeArchived: sessionLane === 'archived', workspaceId: useApp.getState().activeWorkspaceId }, signal)
     setRemoteSessions(sessions)
     return sessions
   }
@@ -305,7 +305,7 @@ export default function AI() {
         let found: AiSessionSummary | undefined
         let listed: AiSessionSummary[] = []
         while (Date.now() < deadline) {
-          listed = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true }).catch(() => [])
+          listed = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true, workspaceId: useApp.getState().activeWorkspaceId }).catch(() => [])
           found = listed.find((row) => row.sessionId === sid)
           if (found) {
             setRemoteSessions(listed.map((row) => (titles.get(row.sessionId) ? { ...row, title: titles.get(row.sessionId)! } : row)))
@@ -423,7 +423,7 @@ export default function AI() {
         if (!active) return
         setRuntimeStatus(status)
         const [sessions, roster, dshWorkspaces, workspaceBag] = await Promise.all([
-          runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true }, abort.signal),
+          runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true, workspaceId: activeWorkspaceId }, abort.signal),
           runtimeApi.listAiPresets(abort.signal).catch(() => ({ presets: [] as Array<{ id: string }> })),
           runtimeApi.listAiWorkspaces(abort.signal).catch(() => []),
           runtimeApi.catalogBag('workspace', {}, abort.signal).catch(() => ({ actions: [] as string[] })),

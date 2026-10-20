@@ -52,6 +52,9 @@ const SCOPE_WORD = {
   insertOperationStep: 'workspaceId',
   readWorkflowRuns: 'workspaceId',
   readLatestRunCards: 'workspaceId',
+  sessionBelongsToWorkspace: 'workspaceCwd',
+  sessionsForWorkspace: 'workspaceCwd',
+  findSessionForWorkspace: 'workspaceCwd',
 }
 
 function registerWorkspace(db, id, cwd) {

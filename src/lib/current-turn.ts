@@ -106,7 +106,7 @@ export async function submitCurrentTurn(input: SubmitCurrentTurnInput): Promise<
   }
   if (input.reveal !== false) revealAi(sessionId)
   try {
-    await runtimeApi.promptAi(sessionId, { text, requestId })
+    await runtimeApi.promptAi(sessionId, { text, requestId, ...(workspaceId ? { workspaceId } : {}) })
   } catch (cause) {
     return { ok: false, error: cause instanceof Error ? cause.message : '没问出去' }
   }
