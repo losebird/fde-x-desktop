@@ -32,16 +32,7 @@ child.on('error', () => {
   if (!killed) process.exit(1)
 })
 
-child.on('exit', (code, signal) => {
+child.on('exit', () => {
   if (killed) return
-  if (signal) {
-    process.removeAllListeners(signal)
-    try {
-      process.kill(process.pid, signal)
-    } catch {
-      process.exit(1)
-    }
-    return
-  }
-  process.exit(code ?? 0)
+  killGroup()
 })
