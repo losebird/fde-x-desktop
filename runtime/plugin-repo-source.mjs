@@ -137,7 +137,7 @@ function resolvePy(fromFile, spec) {
 }
 
 export async function firstMissingClosure(root) {
-  if (!existsSync(join(root, 'index.js'))) {
+  if (existsSync(join(root, 'package.json')) && !existsSync(join(root, 'index.js'))) {
     const files = await walk(root)
     if (files.some((file) => /\.(js|mjs)$/.test(file))) return 'index.js'
   }

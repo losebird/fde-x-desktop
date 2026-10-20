@@ -594,7 +594,9 @@ export class DshCoreConnector {
     const fromEnv = process.env[pluginEnvKey(plugin.dir)]
     const webLink = join(this.dshHome, 'profiles', 'web', 'node_modules', plugin.module)
     const candidates = []
-    if (fromEnv) candidates.push(fromEnv)
+    if (fromEnv && !(plugin.source && plugin.source.kind === 'repo' && resolve(fromEnv) === resolve(FDE_VENDOR_DIR, plugin.dir))) {
+      candidates.push(fromEnv)
+    }
     if (plugin.source && plugin.source.kind === 'repo') {
       const rel = String(plugin.source.path || `runtime/plugins/${plugin.dir}`)
       const underRuntime = rel.startsWith('runtime/') ? rel.slice('runtime/'.length) : rel
@@ -616,7 +618,9 @@ export class DshCoreConnector {
   }
 
   async linkRepoPlugin(plugin) {
-    const injected = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
+    let injected = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
+    // The suite mount under FDE_VENDOR_DIR is a checkout, not the install body.
+    if (injected && resolve(injected) === resolve(FDE_VENDOR_DIR, plugin.dir)) injected = ''
     const source = injected || join(this.runtimeDirectory, 'plugins', plugin.dir)
     try {
       await access(source, constants.R_OK)
