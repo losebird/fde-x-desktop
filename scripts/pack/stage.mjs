@@ -16,6 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DSH_NPM_VERSION, IUI_PIN, SEMANTIC_RUNTIME } from './pins.mjs'
 import { NODE_DIST_VERSION, nodeDistArchiveName, nodeDistPresent, nodeDistUrls } from './node-dist.mjs'
 import { stagePluginTree } from './plugin-stage.mjs'
+import { REQUIRED_PLUGINS, readLock } from '../plugins/lock-check.mjs'
 import { BUILTIN_PLUGINS } from '../../runtime/builtin-plugins.mjs'
 import { bundledPluginVersions, defaultIuiArtifactPath, stageIuiArtifact } from './iui-artifact.mjs'
 
@@ -517,7 +518,32 @@ async function stageBffPackages(dest) {
   )
 }
 
+export function missingLockedPluginFiles(root) {
+  const read = readLock(root)
+  if (read.error) return [read.error]
+  const plugins = read.lock.plugins
+  const missing = []
+  for (const name of REQUIRED_PLUGINS) {
+    const files = plugins && plugins[name] && plugins[name].files
+    if (!files || typeof files !== 'object' || Array.isArray(files)) {
+      missing.push(`missing plugin ${name}`)
+      continue
+    }
+    for (const rel of Object.keys(files)) {
+      if (!existsSync(join(root, rel))) missing.push(rel)
+    }
+  }
+  return missing
+}
+
 async function main() {
+  const missingPlugins = missingLockedPluginFiles(repoRoot)
+  if (missingPlugins.length) {
+    console.error('[stage] missing plugin files:')
+    for (const rel of missingPlugins) console.error(`missing ${rel}`)
+    process.exit(1)
+  }
+
   console.log(`[stage] resources root: ${resourcesRoot}`)
   await mkdir(appRoot, { recursive: true })
 
@@ -542,14 +568,25 @@ async function main() {
 
   const pluginsRoot = join(resourcesRoot, 'plugins')
   for (const plugin of BUILTIN_PLUGINS) {
+    if (plugin.source.kind === 'repo') {
+      const from = join(repoRoot, plugin.source.path)
+      const to = join(pluginsRoot, plugin.dir)
+      const staged = await stagePluginTree(from, to, { strict: true })
+      if (!staged) {
+        console.error(`[stage] missing plugin ${plugin.dir}: ${plugin.source.path}`)
+        process.exit(1)
+      }
+      console.log(`[stage] plugin ${plugin.dir} ← ${plugin.source.path}`)
+      continue
+    }
     if (plugin.source.kind === 'vendor') {
       const from = join(vendorDir, plugin.dir)
       const to = join(pluginsRoot, plugin.dir)
       if (!existsSync(from)) {
-        console.warn(`[stage] skip ${plugin.dir}: missing ${from}`)
-        continue
+        console.error(`[stage] missing plugin ${plugin.dir}: ${from}`)
+        process.exit(1)
       }
-      await stagePluginTree(from, to)
+      await stagePluginTree(from, to, { strict: true })
       console.log(`[stage] plugin ${plugin.dir} → ${to}`)
       continue
     }

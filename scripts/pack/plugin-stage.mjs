@@ -41,6 +41,7 @@ export async function stagePluginTree(from, to, options = {}) {
   await mkdir(dirname(to), { recursive: true })
   const listed = await pluginCopyList(from)
   const extras = ['package.json', 'LICENSE', 'README.md', 'cordis.patch.yml', 'fde-plugin-pin.json', 'SKILL.md']
+  const missing = []
   if (listed && listed.length) {
     await mkdir(to, { recursive: true })
     for (const name of extras) {
@@ -50,7 +51,10 @@ export async function stagePluginTree(from, to, options = {}) {
     for (const entry of listed) {
       if (skipName(entry.split(/[\\/]/u)[0], skip)) continue
       const src = join(from, entry)
-      if (!existsSync(src)) continue
+      if (!existsSync(src)) {
+        if (options.strict) missing.push(entry)
+        continue
+      }
       await cp(src, join(to, entry), {
         recursive: true,
         dereference: true,
@@ -62,6 +66,9 @@ export async function stagePluginTree(from, to, options = {}) {
         recursive: true,
         dereference: true,
       })
+    }
+    if (missing.length) {
+      throw new Error(`[stage] missing plugin files:\n${missing.map((entry) => `missing ${entry}`).join('\n')}`)
     }
     return true
   }
