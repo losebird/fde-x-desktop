@@ -11,3 +11,5 @@ ts	phase	decision	why	evidence	result
 2026-10-20T03:50:00Z	item7	guard reports alias, short prefix, wrong method, hidden get, and a helper outside its body	those reads used to pass	78633571 d6bee377	tests green
 2026-10-20T03:55:00Z	item8	directory picker uses canonicalWorkspaceCwd	startsWith slash dropped drive and UNC paths	3cae9d6f 5425ff5a	tests green
 2026-10-20T03:55:00Z	item9	scheduler left as it is	storedWorkspaceCwd already uses canonicalWorkspaceCwd and the drive-letter test passes	runtime/briefing/scheduler.mjs	no change
+2026-10-20T04:10:00Z	item2	mailbox replay expects a null cwd to miss the filter	events.test.mjs still asserted the old leak after the filter change	60cf9162	tests green
+2026-10-20T04:10:00Z	suite	plugin bundles are not on this machine	private repos do not resolve and the named tar is absent	sha check and gh repo view	suite may skip
