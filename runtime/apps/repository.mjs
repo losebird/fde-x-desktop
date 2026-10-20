@@ -400,10 +400,10 @@ export function findActiveAppBySlug(db, workspaceId, slug, workspaceCwd) {
     SELECT ${APP_COLUMNS}
     FROM business_apps
     WHERE status = 'active' AND ${LIVE_APP}
-  `).all().map(mapApp).filter((row) => row.slug === slug)
+  `).all().map(mapApp).filter((row) => row.slug === slug && row.workspaceId === workspaceId)
   if (cwd) {
     const byCwd = rows.find((row) => row.spec && sameWorkspaceCwd(row.spec._workspaceCwd, cwd))
     if (byCwd) return byCwd
   }
-  return rows.find((row) => row.workspaceId === workspaceId) || null
+  return rows[0] || null
 }

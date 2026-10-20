@@ -342,8 +342,12 @@ export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd
                created_by, created_at, updated_at, deleted_at
         FROM business_apps
         WHERE workspace_id = ?
-           OR json_extract(definition_json, '$._workspaceCwd') = ?
-           OR (? != '' AND ${cwdSql}(json_extract(definition_json, '$._workspaceCwd')) = ?)
+          AND (
+            json_extract(definition_json, '$._workspaceCwd') IS NULL
+            OR json_extract(definition_json, '$._workspaceCwd') = ''
+            OR json_extract(definition_json, '$._workspaceCwd') = ?
+            OR (? != '' AND ${cwdSql}(json_extract(definition_json, '$._workspaceCwd')) = ?)
+          )
         ORDER BY updated_at DESC
       `).all(workspaceId, cwd, canonical, canonical)
     : db.prepare(`

@@ -38,7 +38,7 @@ describe('apps workspace identity', () => {
     db.close()
   })
 
-  test('activate then find by slug+cwd even if workspaceId differs', () => {
+  test('activate then find by slug stays inside the workspace id', () => {
     const db = openDatabase(`/tmp/fde-apps-ws2-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const spec = uniqueSpec()
     const created = createAppDraft(db, {

@@ -13,3 +13,6 @@ ts	phase	decision	why	evidence	result
 2026-10-20T03:55:00Z	item9	scheduler left as it is	storedWorkspaceCwd already uses canonicalWorkspaceCwd and the drive-letter test passes	runtime/briefing/scheduler.mjs	no change
 2026-10-20T04:10:00Z	item2	mailbox replay expects a null cwd to miss the filter	events.test.mjs still asserted the old leak after the filter change	60cf9162	tests green
 2026-10-20T04:10:00Z	suite	plugin bundles are not on this machine	private repos do not resolve and the named tar is absent	sha check and gh repo view	suite may skip
+2026-10-20T04:15:00Z	item1	a row is listed only for its workspace id	the OR on _workspaceCwd let a personal row show up for another id	74073bb2	green follows
+2026-10-20T04:15:00Z	leftover	unknown id without a path stays accepted	resolveWorkspaceIdOrFail does not check that the id exists	runtime/briefing/workspace.mjs	not fixed
+2026-10-20T04:15:00Z	leftover	same-file prefix of 3 or more segments still covers child routes	the guard uses that prefix so shared parsers stay registered	http-workspace-matrix.test.mjs pathRegistered	not fixed
