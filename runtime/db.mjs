@@ -428,6 +428,8 @@ export function updateBusinessApp(db, id, input) {
   `).get(id)
   if (!existing) return null
   if (String(existing.deleted_at || '').trim()) return null
+  const expectedWorkspaceId = typeof input.workspaceId === 'string' ? input.workspaceId.trim() : ''
+  if (!expectedWorkspaceId || existing.workspace_id !== expectedWorkspaceId) return null
   const definition = input.definition && typeof input.definition === 'object' ? input.definition : JSON.parse(existing.definition_json)
   const name = typeof input.name === 'string' && input.name.trim() ? input.name.trim() : existing.name
   const nextRevision = Number(existing.current_revision || 1) + 1
@@ -439,8 +441,8 @@ export function updateBusinessApp(db, id, input) {
     db.prepare(`
       UPDATE business_apps
       SET name = ?, current_revision = ?, definition_json = ?, updated_at = ?
-      WHERE id = ?
-    `).run(name, nextRevision, JSON.stringify(definition), now, id)
+      WHERE id = ? AND workspace_id = ?
+    `).run(name, nextRevision, JSON.stringify(definition), now, id, expectedWorkspaceId)
     db.prepare(`
       INSERT INTO business_app_revisions
         (id, app_id, revision, definition_json, change_note, created_by, created_at)

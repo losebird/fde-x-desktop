@@ -87,7 +87,7 @@ import { migrateBoundWorkspaceSources, readBizSystems } from './biz/systems-stor
 import { startSemanticReadyWatch } from './semantic-ready-watch.mjs'
 import { refreshLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
-import { handleAppsRoutes } from './routes/apps.mjs'
+import { handleAppsRoutes, requestAppWorkspace } from './routes/apps.mjs'
 import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.mjs'
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
@@ -3162,7 +3162,21 @@ const server = createServer(async (request, response) => {
         return
       }
       const body = await readJson(request)
+      const putIdent = requestAppWorkspace(db, url, body)
+      if (putIdent.error === 'missing_workspace') {
+        sendError(response, 404, 'not_found', '工作区未登记', currentCorrelationId)
+        return
+      }
+      if (putIdent.error === 'workspace_mismatch') {
+        sendError(response, 400, 'workspace_mismatch', '工作区 id 与路径不一致', currentCorrelationId)
+        return
+      }
+      if (putIdent.error) {
+        sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+        return
+      }
       const app = updateBusinessApp(db, appId, {
+        workspaceId: putIdent.workspaceId,
         name: body.name,
         definition: body.definition && typeof body.definition === 'object' ? body.definition : undefined,
         changeNote: typeof body.changeNote === 'string' ? body.changeNote : undefined,
