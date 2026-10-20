@@ -1,4 +1,6 @@
 import { appendAudit, createId } from '../db.mjs'
+import { httpStatusForWorkspaceError } from '../http-workspace.mjs'
+import { requestAppWorkspace } from './apps.mjs'
 import { verifyUiToken } from './bridge.mjs'
 import { emit } from '../events.mjs'
 import { workspaceCwdForId } from '../briefing/workspace.mjs'
@@ -236,6 +238,20 @@ function workspaceExists(db, workspaceId) {
   return Boolean(db.prepare('SELECT 1 FROM workspaces WHERE id = ?').get(workspaceId))
 }
 
+function rejectForeignPlanRow(db, url, body, response, correlationId, row, missingMessage) {
+  const ident = requestAppWorkspace(db, url, body)
+  const failure = httpStatusForWorkspaceError(ident.error)
+  if (failure) {
+    planError(response, failure.status, failure.code, failure.message, correlationId)
+    return true
+  }
+  if (row.workspace_id !== ident.workspaceId) {
+    planError(response, 404, 'not_found', missingMessage, correlationId)
+    return true
+  }
+  return false
+}
+
 async function hostBagFields(aiRuntime, kind, workspaceId, cwd) {
   try {
     const bag = await collectBag(aiRuntime, kind, { workspaceId, cwd })
@@ -380,10 +396,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '任务不存在', correlationId)
       return true
     }
-    if (body.workspaceId && body.workspaceId !== existing.workspace_id) {
-      planError(response, 422, 'validation_error', 'workspaceId 不匹配', correlationId)
-      return true
-    }
+    if (rejectForeignPlanRow(db, url, body, response, correlationId, existing, '任务不存在')) return true
     const fields = {}
     if (typeof body.title === 'string') fields.title = body.title.trim()
     if (typeof body.notes === 'string') fields.notes = body.notes
@@ -431,11 +444,13 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       }
       return true
     }
-    const existing = deleteTask(db, id)
+    const existing = getTask(db, id)
     if (!existing) {
       planError(response, 404, 'not_found', '任务不存在', correlationId)
       return true
     }
+    if (rejectForeignPlanRow(db, url, null, response, correlationId, existing, '任务不存在')) return true
+    deleteTask(db, id)
     emitTaskChanged(db, { id, op: 'delete', workspaceId: existing.workspace_id, status: existing.status, title: existing.title })
     planWrote(response, 200, { id }, correlationId, db, {
       workspaceId: existing.workspace_id,
@@ -588,6 +603,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '日程不存在', correlationId)
       return true
     }
+    if (rejectForeignPlanRow(db, url, body, response, correlationId, existing, '日程不存在')) return true
     if ((existing.workflow_id || scheduleFieldsPresent(body)) && rejectScheduleToken(request, response, correlationId, uiToken)) return true
     const patch = {}
     if (scheduleFieldsPresent(body)) {
@@ -647,6 +663,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '日程不存在', correlationId)
       return true
     }
+    if (rejectForeignPlanRow(db, url, null, response, correlationId, existing, '日程不存在')) return true
     if (existing.workflow_id && rejectScheduleToken(request, response, correlationId, uiToken)) return true
     db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id)
     planWrote(response, 200, { id }, correlationId, db, {
@@ -767,6 +784,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '工作流不存在', correlationId)
       return true
     }
+    if (rejectForeignPlanRow(db, url, body, response, correlationId, existing, '工作流不存在')) return true
     if (hasIllegalSourceRef(body.steps)) {
       planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
       return true
@@ -844,6 +862,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '工作流不存在', correlationId)
       return true
     }
+    if (rejectForeignPlanRow(db, url, null, response, correlationId, existing, '工作流不存在')) return true
     db.prepare('DELETE FROM workflows WHERE id = ?').run(id)
     planWrote(response, 200, { id }, correlationId, db, {
       workspaceId: existing.workspace_id,
