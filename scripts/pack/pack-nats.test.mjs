@@ -29,7 +29,7 @@ function copyCleanLan(dest) {
   })
 }
 
-test('a clean lan-assist tree stages nats 2.29.3 with the lock integrity', async () => {
+test('a clean lan-assist tree stages nats 2.29.3 with the lock integrity', { timeout: 180000 }, async () => {
   const root = join(tmpdir(), `fde-nats-stage-${process.pid}`)
   const source = join(root, 'src')
   const dest = join(root, 'resources', 'plugins', 'dsh-lan-assist')

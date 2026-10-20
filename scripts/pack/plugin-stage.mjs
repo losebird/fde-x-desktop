@@ -61,6 +61,9 @@ export async function stagePluginTree(from, to, options = {}) {
         filter: (srcPath) => !skipName(basename(srcPath), skip),
       })
     }
+    if (options.keepNodeModules && existsSync(join(from, 'package-lock.json'))) {
+      await cp(join(from, 'package-lock.json'), join(to, 'package-lock.json'), { dereference: true })
+    }
     if (options.keepNodeModules && existsSync(join(from, 'node_modules'))) {
       await cp(join(from, 'node_modules'), join(to, 'node_modules'), {
         recursive: true,

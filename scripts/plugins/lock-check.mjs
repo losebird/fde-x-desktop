@@ -13,6 +13,12 @@ function sha256(buf) {
   return createHash('sha256').update(buf).digest('hex')
 }
 
+export function pluginTreeHash(files) {
+  const hash = createHash('sha256')
+  for (const rel of Object.keys(files).sort()) hash.update(`${rel}\0${files[rel]}\n`)
+  return hash.digest('hex')
+}
+
 export function readLock(root) {
   const lockAbs = join(root, LOCK_REL)
   if (!existsSync(lockAbs)) return { error: `missing ${LOCK_REL}` }

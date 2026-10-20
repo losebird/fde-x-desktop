@@ -518,6 +518,17 @@ async function stageBffPackages(dest) {
   )
 }
 
+export async function stageLanAssist(source, dest) {
+  await execFile(
+    'npm',
+    ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'],
+    { cwd: source, maxBuffer: 64 * 1024 * 1024 },
+  )
+  const staged = await stagePluginTree(source, dest, { strict: true, keepNodeModules: true })
+  if (!staged) throw new Error(`[stage] missing plugin dsh-lan-assist: ${source}`)
+  return true
+}
+
 export function missingLockedPluginFiles(root) {
   const read = readLock(root)
   if (read.error) return [read.error]
@@ -571,10 +582,13 @@ async function main() {
     if (plugin.source.kind === 'repo') {
       const from = join(repoRoot, plugin.source.path)
       const to = join(pluginsRoot, plugin.dir)
-      const staged = await stagePluginTree(from, to, { strict: true })
-      if (!staged) {
-        console.error(`[stage] missing plugin ${plugin.dir}: ${plugin.source.path}`)
-        process.exit(1)
+      if (plugin.dir === 'dsh-lan-assist') await stageLanAssist(from, to)
+      else {
+        const staged = await stagePluginTree(from, to, { strict: true })
+        if (!staged) {
+          console.error(`[stage] missing plugin ${plugin.dir}: ${plugin.source.path}`)
+          process.exit(1)
+        }
       }
       console.log(`[stage] plugin ${plugin.dir} ← ${plugin.source.path}`)
       continue
@@ -605,12 +619,13 @@ async function main() {
 
   const semantic = await stageSemantic()
 
+  const locked = readLock(repoRoot)
   const versions = {
     stagedAt: new Date().toISOString(),
     platformKey: runtimeKey,
     dsh: { version: DSH_NPM_VERSION, staged: dshStaged },
     node: { version: NODE_DIST_VERSION, staged: nodeStaged },
-    plugins: bundledPluginVersions(BUILTIN_PLUGINS, pluginsRoot),
+    plugins: bundledPluginVersions(BUILTIN_PLUGINS, pluginsRoot, locked.lock && locked.lock.plugins),
     semanticRuntime: {
       runtimeVersion: SEMANTIC_RUNTIME.runtimeVersion,
       key: runtimeKey,
