@@ -431,6 +431,32 @@ test('a workspace filter drops events whose cwd is null', () => {
   db.close()
 })
 
+function workspaceReadProblems(rel, text) {
+  const problems = []
+  const lines = text.split('\n')
+  lines.forEach((line, index) => {
+    if (!READ_RE.test(line)) return
+    if (/^\s*(export\s+)?(async\s+)?function\s/.test(line)) return
+    if (helperOwns(lines, index)) return
+    const window = lines.slice(Math.max(0, index - 80), index + 1).join('\n')
+    if (window.includes('safeSemanticOsUpstreamPath')) {
+      if (!httpWorkspaceRoutes.some((route) => route.path.startsWith('/semantic-os'))) {
+        problems.push(`${rel}:${index + 1} semantic proxy is not registered`)
+      }
+      return
+    }
+    const found = discoveredPaths(window)
+    if (found.length === 0) {
+      problems.push(`${rel}:${index + 1} reads workspace/cwd without a route path`)
+      return
+    }
+    const routePath = found[found.length - 1]
+    if (pathExempt(rel, routePath) || pathRegistered(routePath)) return
+    problems.push(`${rel}:${index + 1} ${routePath} is not registered`)
+  })
+  return problems
+}
+
 test('http workspace readers are registered', async () => {
   const problems = []
   const seen = new Set(httpWorkspaceRoutes.map((route) => route.id))
@@ -438,30 +464,25 @@ test('http workspace readers are registered', async () => {
   for (const file of await runtimeSources()) {
     const rel = relative(repoRoot, file)
     if (wholeFileExempt(rel)) continue
-    const text = await readFile(file, 'utf8')
-    const lines = text.split('\n')
-    lines.forEach((line, index) => {
-      if (!READ_RE.test(line)) return
-      if (/^\s*(export\s+)?(async\s+)?function\s/.test(line)) return
-      if (helperOwns(lines, index)) return
-      const window = lines.slice(Math.max(0, index - 80), index + 1).join('\n')
-      if (window.includes('safeSemanticOsUpstreamPath')) {
-        if (!httpWorkspaceRoutes.some((route) => route.path.startsWith('/semantic-os'))) {
-          problems.push(`${rel}:${index + 1} semantic proxy is not registered`)
-        }
-        return
-      }
-      const found = discoveredPaths(window)
-      if (found.length === 0) {
-        problems.push(`${rel}:${index + 1} reads workspace/cwd without a route path`)
-        return
-      }
-      const routePath = found[found.length - 1]
-      if (pathExempt(rel, routePath) || pathRegistered(routePath)) return
-      problems.push(`${rel}:${index + 1} ${routePath} is not registered`)
-    })
+    problems.push(...workspaceReadProblems(rel, await readFile(file, 'utf8')))
   }
   assert.deepEqual(problems, [])
+})
+
+test('guard bypasses are reported', () => {
+  const bypasses = {
+    alias: "if (url.pathname === '/api/v1/not-a-workspace-route') {\n  const cwd = url.searchParams.get('workspacePath')\n}\n",
+    directory: "if (url.pathname === '/api/v1/not-a-workspace-route') {\n  const cwd = body.workingDirectory\n}\n",
+    prefix: "if (url.pathname.startsWith('/api/v1/')) {\n  const cwd = url.searchParams.get('cwd')\n}\n",
+    hidden: "if (url.pathname === '/api/v1/not-a-workspace-route') {\n  const picked = url.searchParams\n  const cwd = picked.get('cwd')\n}\n",
+    helper: 'function workspaceOf(input) {\n  return input\n}\nconst cwd = url.searchParams.get(\'cwd\')\n',
+    method: "if (request.method === 'POST' && url.pathname === '/api/v1/events/recent') {\n  const cwd = url.searchParams.get('cwd')\n}\n",
+  }
+  const open = []
+  for (const [name, source] of Object.entries(bypasses)) {
+    if (workspaceReadProblems('runtime/routes/ghost.mjs', source).length === 0) open.push(name)
+  }
+  assert.deepEqual(open, [])
 })
 
 test('template and bracket workspace reads are scanned', () => {
