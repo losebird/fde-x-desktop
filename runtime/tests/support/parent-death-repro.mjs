@@ -50,6 +50,25 @@ export function judgeHostGroupWindow(samples) {
   }
 }
 
+export function judgeHostCrash(report) {
+  const windowJudgment = judgeHostGroupWindow(report?.samples)
+  const pips = Array.isArray(report?.pipBefore) ? report.pipBefore : []
+  const leaderPgid = report?.leaderPgid
+  const inGroup = pips.length > 0
+    && Number.isInteger(leaderPgid)
+    && leaderPgid > 1
+    && pips.every((row) => row.pgid === leaderPgid && !String(row.stat || '').includes('Z'))
+  return {
+    endClear: windowJudgment.endClear,
+    stayedClear: windowJudgment.stayedClear,
+    transientPid1: windowJudgment.transientPid1,
+    inGroup,
+    leaderPgid: leaderPgid ?? null,
+    pip: pips.map((row) => ({ pid: row.pid, pgid: row.pgid, stat: row.stat })),
+    pass: inGroup && windowJudgment.pass,
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
 }
@@ -357,10 +376,22 @@ export async function runParentDeath(options = {}) {
       report.beforeKids = kids.filter((row) => alive(row.pid))
       report.beforeRows = (await homeProcesses(ready.home)).map((row) => markRow(row, report.hostPid))
       const leaderPid = report.hostPid
+      const leaderRow = report.beforeRows.find((row) => row.pid === leaderPid) || await processRow(leaderPid)
+      report.leaderPgid = leaderRow?.pgid ?? null
+      report.pipBefore = report.beforeKids.map((row) => ({
+        pid: row.pid,
+        ppid: row.ppid,
+        pgid: row.pgid,
+        sid: row.sid,
+        stat: row.stat,
+      }))
       const hostRow = report.beforeRows.find((row) => row.role === 'host' && alive(row.pid))
       if (!hostRow) throw new Error(`did not find the host bin under ${ready.home}`)
       if (hostRow.pid === leaderPid || hostRow.pid === child.pid) {
         throw new Error(`crash probe would signal pid ${hostRow.pid}, which is the parent or the group leader`)
+      }
+      if (!judgeHostCrash(report).inGroup) {
+        throw new Error(`pip was not running in the host group before SIGKILL: ${JSON.stringify({ pip: report.pipBefore, leaderPgid: report.leaderPgid })}`)
       }
       report.hostBefore = hostRow
       report.killed = { pid: hostRow.pid, role: hostRow.role, leaderPid, parentPid: child.pid }
@@ -388,7 +419,10 @@ export async function runParentDeath(options = {}) {
           })
         }
       }
-      report.verdict = report.reparented.length > 0 ? 'red' : 'green'
+      report.judgment = judgeHostGroupWindow(report.samples)
+      report.crashJudgment = judgeHostCrash(report)
+      report.transientPid1 = report.crashJudgment.transientPid1
+      report.verdict = report.crashJudgment.pass ? 'green' : 'red'
       if (!report.parentAliveAfter) throw new Error('crash probe parent exited during the host SIGKILL window')
     } else {
       const stable = await messages.next((options.holdMs ?? 30_000) + 30_000)
@@ -448,13 +482,15 @@ export async function runParentDeath(options = {}) {
     : report.mode === 'crash'
       ? report.error == null
         && report.connector === 'DshCoreConnector'
-        && report.beforeKids.length > 0
         && report.samples.length > 0
         && report.killed?.role === 'host'
         && report.killed.pid !== report.parentPid
         && report.killed.pid !== report.killed.leaderPid
         && report.parentAliveAfter === true
-        && (report.verdict === 'red' || report.verdict === 'green')
+        && report.crashJudgment?.inGroup === true
+        && report.crashJudgment?.pass === true
+        && report.elapsedMs != null
+        && report.elapsedMs <= deadlineMs
     : report.error == null
       && report.stable?.type === 'stable'
       && report.webLine === true
