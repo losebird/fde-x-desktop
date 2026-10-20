@@ -26,6 +26,7 @@ import { PLAN_DAY_HOURS, planDayMarkerTop, planDayOffsetMinutes } from '../../ru
 import { planTaskMenu } from '../../runtime/plan/task-menu.mjs'
 import { taskHandoffPrompt } from '../../runtime/plan/task-handoff.mjs'
 import { handoffTask as runTaskHandoff } from '../../runtime/plan/handoff-run.mjs'
+import { planAiRunOpen } from '../../runtime/plan/plan-ai-chip.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -591,17 +592,18 @@ function TodoTab() {
                 {planSourceButton(t, selectTask)}
                 {(() => {
                   const running = (aiRuns.get(t.id) || []).find((row) => row.state === 'running')
-                  if (!running) return null
+                  const open = planAiRunOpen(running)
+                  if (!open) return null
                   return (
                     <button
                       type="button"
                       className="text-xs text-ink-muted mt-0.5"
                       onClick={(event) => {
                         event.stopPropagation()
-                        openRef({ panel: 'ai', sessionId: running.sessionId })
+                        openRef({ panel: 'ai', sessionId: open.sessionId })
                       }}
                     >
-                      AI 处理中 · 打开会话
+                      {open.label}
                     </button>
                   )
                 })()}

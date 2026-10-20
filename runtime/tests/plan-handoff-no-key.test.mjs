@@ -165,6 +165,14 @@ test('a handoff with no model key gets 503 and the row stays doing and cancellab
     assert.equal(sessionStatus, 503, sessionCode)
     assert.equal(sessionCode, 'ai/not-connected')
     assert.equal(outcome.sessionStatus, 503)
+    assert.notEqual(outcome.sessionId, requestId)
+    assert.equal(outcome.sessionId || '', '')
+    const runs = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`, { headers: pageHeaders() })
+    const runsBody = await readJson(runs)
+    const stored = (runsBody.data?.runs || []).find((item) => item.state === 'running')
+    assert.ok(stored, JSON.stringify(runsBody))
+    assert.notEqual(stored.sessionId, requestId)
+    assert.equal(stored.sessionId, '')
     const listed = await fetch(`${base}/api/v1/plan/tasks?workspaceId=ws_nokey`, { headers: pageHeaders() })
     const listedBody = await readJson(listed)
     const row = (listedBody.data || []).find((item) => item.id === taskId)
@@ -181,6 +189,15 @@ test('a handoff with no model key gets 503 and the row stays doing and cancellab
     const afterBody = await readJson(after)
     const afterRow = (afterBody.data || []).find((item) => item.id === taskId)
     assert.equal(afterRow && afterRow.status, 'doing')
+    const retried = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`, {
+      method: 'POST',
+      headers: pageHeaders(),
+      body: JSON.stringify({ sessionId: 'sess_after_cancel', requestId: 'req_after_cancel' }),
+    })
+    const retriedBody = await readJson(retried)
+    assert.equal(retried.status, 201, JSON.stringify(retriedBody))
+    assert.equal(retriedBody.data.sessionId, 'sess_after_cancel')
+    assert.equal(retriedBody.data.state, 'running')
   } finally {
     await stopServer()
     await rm(root, { recursive: true, force: true })
