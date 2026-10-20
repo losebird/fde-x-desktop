@@ -49,6 +49,13 @@ export function resolveHttpWorkspace({
   return { error: 'workspace_invalid' }
 }
 
+export function httpStatusForWorkspaceError(error) {
+  if (error === 'missing_workspace') return { status: 404, code: 'not_found', message: '工作区未登记' }
+  if (error === 'workspace_mismatch') return { status: 400, code: 'workspace_mismatch', message: '工作区 id 与路径不一致' }
+  if (error === 'workspace_invalid') return { status: 400, code: 'workspace_invalid', message: '工作区必须是绝对路径' }
+  return null
+}
+
 export const httpWorkspaceRoutes = [
   { id: 'biz-surfaces', file: 'runtime/routes/biz.mjs', method: 'GET', path: '/api/v1/biz/surfaces', place: 'query', param: 'workspace', proof: 'surfaces', absent: 'runtime' },
   { id: 'biz-kinds', file: 'runtime/routes/biz.mjs', method: 'GET', path: '/api/v1/biz/kinds', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },

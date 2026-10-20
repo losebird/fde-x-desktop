@@ -1,8 +1,17 @@
 import { collectBag, mutateBag, streamBag } from '../catalog-collect.mjs'
 import { FDE_AI_WORKSPACE } from '../config.mjs'
-import { resolveHttpWorkspace } from '../http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
+import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 
-export async function handleCatalogRequest(request, response, url, { aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, correlationId) {
+function rejectCatalogWorkspace(db, resolved, response, correlationId, sendError) {
+  const failure = httpStatusForWorkspaceError(resolved?.error)
+    || httpStatusForWorkspaceError(resolveWorkspaceIdOrFail(db, resolved).error)
+  if (!failure) return false
+  sendError(response, failure.status, failure.code, failure.message, correlationId)
+  return true
+}
+
+export async function handleCatalogRequest(request, response, url, { db, aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, correlationId) {
   if (!url.pathname.startsWith('/api/v1/catalog')) return false
 
   if (request.method === 'GET' && url.pathname === '/api/v1/catalog/stream') {
@@ -52,10 +61,7 @@ export async function handleCatalogRequest(request, response, url, { aiRuntime, 
       runtimeCwd: aiRuntime?.cwd,
       fallbackCwd: FDE_AI_WORKSPACE,
     })
-    if (resolved.error) {
-      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
-      return true
-    }
+    if (rejectCatalogWorkspace(db, resolved, response, correlationId, sendError)) return true
     const cwd = resolved.cwd
     const input = {
       sessionId: url.searchParams.get('sessionId') || '',
@@ -87,10 +93,7 @@ export async function handleCatalogRequest(request, response, url, { aiRuntime, 
       runtimeCwd: aiRuntime?.cwd,
       fallbackCwd: FDE_AI_WORKSPACE,
     })
-    if (resolved.error) {
-      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
-      return true
-    }
+    if (rejectCatalogWorkspace(db, resolved, response, correlationId, sendError)) return true
     const cwd = resolved.cwd
     try {
       const bag = await mutateBag(aiRuntime, {

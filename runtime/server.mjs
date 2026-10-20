@@ -151,7 +151,7 @@ import {
 } from './config.mjs'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { resolveWorkspaceIdOrFail } from './briefing/workspace.mjs'
-import { resolveHttpWorkspace } from './http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from './http-workspace.mjs'
 
 const runtimeDirectory = FDE_RUNTIME_DIR
 const databasePath = FDE_DATABASE_PATH
@@ -3058,7 +3058,22 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/business/connections') {
-      const workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
+      const rawId = url.searchParams.get('workspaceId')
+      const resolvedConnections = resolveHttpWorkspace({
+        url,
+        slots: [['query', 'workspaceCwd'], ['query', 'cwd']],
+        whenAbsent: 'omit',
+      })
+      const connectionIdent = resolveWorkspaceIdOrFail(db, {
+        ...resolvedConnections,
+        id: typeof rawId === 'string' ? rawId.trim() : '',
+      })
+      const connectionFailure = httpStatusForWorkspaceError(connectionIdent.error)
+      if (connectionFailure) {
+        sendError(response, connectionFailure.status, connectionFailure.code, connectionFailure.message, currentCorrelationId)
+        return
+      }
+      const workspaceId = connectionIdent.workspaceId
       await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options))
       await migrateBoundWorkspaceSources(db, aiRuntime).catch(() => ({ migrated: 0 }))
       const listed = await readBizSystems(aiRuntime)
@@ -3390,7 +3405,7 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    if (await handleCatalogRequest(request, response, url, { aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, currentCorrelationId)) {
+    if (await handleCatalogRequest(request, response, url, { db, aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, currentCorrelationId)) {
       return
     }
     if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime, uiToken }, currentCorrelationId)) {
