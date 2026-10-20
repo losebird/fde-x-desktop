@@ -84,7 +84,7 @@ function appIdentity(db, url, body, slots) {
   let pathHit = null
   let suppliedId = ''
   for (const [from, key] of slots) {
-    const role = key === 'cwd' || key === 'workspaceCwd' ? 'path' : 'id-or-path'
+    const role = key === 'workspace' || key === 'workspaceId' ? 'id-or-path' : 'path'
     const one = resolveHttpWorkspace({
       url,
       body,
@@ -317,7 +317,13 @@ export async function handleAppsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/apps') {
-    const identity = appIdentity(db, url, null, [['query', 'workspace'], ['query', 'cwd']])
+    const identity = appIdentity(db, url, null, [
+      ['query', 'workspace'],
+      ['query', 'cwd'],
+      ['query', 'workspaceCwd'],
+      ['query', 'workspacePath'],
+      ['query', 'workingDirectory'],
+    ])
     if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
     const workspaceId = identity.workspaceId
     const items = listApps(db, workspaceId)

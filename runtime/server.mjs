@@ -3108,7 +3108,12 @@ const server = createServer(async (request, response) => {
       const rawId = url.searchParams.get('workspaceId')
       const resolvedApps = resolveHttpWorkspace({
         url,
-        slots: [['query', 'workspaceCwd']],
+        slots: [
+          ['query', 'workspaceCwd'],
+          ['query', 'cwd'],
+          ['query', 'workspacePath'],
+          ['query', 'workingDirectory'],
+        ],
         whenAbsent: 'omit',
       })
       if (resolvedApps.error) {
