@@ -457,7 +457,14 @@ test('MCP boot hold uses the home layer and restores it', async () => {
 test('mcpArchivePaths uses the profile archive when present', () => {
   const profile = mcpArchivePaths({ dshHome: '/tmp/dsh-home', profileName: 'fde-x', patchFile: '/tmp/occupancy.patch.yml' })
   assert.deepEqual(profile, ['/tmp/dsh-home/profiles/fde-x/cordis.patch.yml'])
-  assert.deepEqual(mcpArchivePaths({ patchFile: '/tmp/occupancy.patch.yml' }), ['/tmp/occupancy.patch.yml'])
+  const ambient = process.env.FDE_DSH_HOME
+  delete process.env.FDE_DSH_HOME
+  try {
+    assert.deepEqual(mcpArchivePaths({ patchFile: '/tmp/occupancy.patch.yml' }), ['/tmp/occupancy.patch.yml'])
+  } finally {
+    if (ambient === undefined) delete process.env.FDE_DSH_HOME
+    else process.env.FDE_DSH_HOME = ambient
+  }
 })
 
 function topLevelBlocks(text) {
