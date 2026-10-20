@@ -4,6 +4,7 @@ import { createServer } from 'node:http'
 import { mkdir, rm } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { openDatabase, createId } from '../db.mjs'
 import { handleCorpusRoute } from '../routes/corpus.mjs'
 
@@ -31,6 +32,7 @@ test('task prefix resolves from sqlite', async () => {
     INSERT INTO tasks (id, workspace_id, title, notes, status, priority, created_at, updated_at)
     VALUES (?, 'ws_personal', '写完规格', '备注', 'done', 'med', ?, ?)
   `).run(taskId, now, now)
+  db.prepare('UPDATE workspaces SET metadata_json = ? WHERE id = ?').run(JSON.stringify({ cwd: FDE_AI_WORKSPACE }), 'ws_personal')
   const aiRuntime = { lanAssist: async () => ({}) }
   const { base, close } = await withServer(async (request, response) => {
     const url = new URL(request.url, base)

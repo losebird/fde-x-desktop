@@ -829,7 +829,8 @@ export const useApp = create<AppState>()(
         if (!task) return
         const order: Task['status'][] = ['todo', 'doing', 'done', 'archived']
         const next = order[(order.indexOf(task.status) + 1) % order.length]
-        await get().updateTask(id, { status: next })
+        const workspaceId = get().activeWorkspaceId
+        await get().updateTask(id, { status: next, workspaceId })
       },
 
       addEvent: async (e) => {

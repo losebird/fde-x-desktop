@@ -142,6 +142,7 @@ describe('biz surfaces and live execute', () => {
     `).run(id, now, now)
     insertOperationStep(db, id, 1, 'approve', 'succeeded', {})
     const result = await executeOperationLive(db, id, {
+      workspaceId: 'ws_personal',
       writePreview: async () => ({}),
     })
     assert.equal(result.kind, 'preview_expired')
@@ -160,7 +161,7 @@ describe('biz surfaces and live execute', () => {
       VALUES (?, 'ws_personal', NULL, NULL, 'actor_local_user', 'fde://external/x/table/y', 'record.update', 'write',
         'high', 'live', 'awaiting_approval', 'idem_live_2', NULL, '{}', '{"previewId":"pv_1"}', 'corr', NULL, ?, ?)
     `).run(id, now, now)
-    const result = await executeOperationLive(db, id, { writePreview: async () => ({ ok: true }) })
+    const result = await executeOperationLive(db, id, { workspaceId: 'ws_personal', writePreview: async () => ({ ok: true }) })
     assert.equal(result.kind, 'invalid_state')
     db.close()
   })
@@ -181,6 +182,7 @@ describe('biz surfaces and live execute', () => {
     insertOperationStep(db, id, 1, 'approve', 'succeeded', {})
     const result = await executeOperationLive(db, id, {
       correlationId: 'corr_live_ok',
+      workspaceId: 'ws_personal',
       writePreview: async () => ({ receipt_id: 'rcpt_1', kind: '采购单', action: '改行' }),
     })
     assert.equal(result.kind, 'ok')
@@ -207,7 +209,7 @@ describe('biz surfaces and live execute', () => {
       INSERT INTO approvals (id, operation_id, requested_from, decision, policy_json, requested_at)
       VALUES ('appr_1', ?, 'actor_local_user', 'pending', '{}', ?)
     `).run(id, now)
-    const out = approveOperation(db, id, { note: 'ok', correlationId: 'corr_appr' })
+    const out = approveOperation(db, id, { note: 'ok', correlationId: 'corr_appr', workspaceId: 'ws_personal' })
     assert.equal(out.kind, 'ok')
     const step = db.prepare('SELECT step_kind FROM operation_steps WHERE operation_id = ? AND step_kind = ?').get(id, 'approve')
     assert.ok(step)

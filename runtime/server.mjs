@@ -585,16 +585,6 @@ function sendError(response, status, code, message, correlationId, details) {
   })
 }
 
-function foreignOperation(db, url, body, operation) {
-  const ident = requestAppWorkspace(db, url, body)
-  const failure = httpStatusForWorkspaceError(ident.error)
-  if (failure) return failure
-  if (operation.workspaceId !== ident.workspaceId) {
-    return { status: 404, code: 'not_found', message: '操作不存在' }
-  }
-  return null
-}
-
 function openEventStream(response) {
   response.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -3208,14 +3198,25 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/v1/operations') {
       const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 100)))
-      const workspaceId = url.searchParams.get('workspaceId') ?? undefined
-      sendJson(response, 200, { items: listOperations(db, { workspaceId, limit }), correlationId: currentCorrelationId })
+      const listIdent = requestAppWorkspace(db, url, null)
+      const listFailure = httpStatusForWorkspaceError(listIdent.error)
+      if (listFailure) {
+        sendError(response, listFailure.status, listFailure.code, listFailure.message, currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, { items: listOperations(db, { workspaceId: listIdent.workspaceId, limit }), correlationId: currentCorrelationId })
       return
     }
 
     const operationMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)$/)
     if (request.method === 'GET' && operationMatch) {
-      const operation = getOperation(db, operationMatch[1])
+      const readIdent = requestAppWorkspace(db, url, null)
+      const readFailure = httpStatusForWorkspaceError(readIdent.error)
+      if (readFailure) {
+        sendError(response, readFailure.status, readFailure.code, readFailure.message, currentCorrelationId)
+        return
+      }
+      const operation = getOperation(db, operationMatch[1], readIdent.workspaceId)
       if (!operation) {
         sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
         return
@@ -3226,7 +3227,13 @@ const server = createServer(async (request, response) => {
 
     const traceMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)\/trace$/)
     if (request.method === 'GET' && traceMatch) {
-      const trace = getOperationTrace(db, traceMatch[1])
+      const traceIdent = requestAppWorkspace(db, url, null)
+      const traceFailure = httpStatusForWorkspaceError(traceIdent.error)
+      if (traceFailure) {
+        sendError(response, traceFailure.status, traceFailure.code, traceFailure.message, currentCorrelationId)
+        return
+      }
+      const trace = getOperationTrace(db, traceMatch[1], traceIdent.workspaceId)
       if (!trace) {
         sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
         return
@@ -3238,20 +3245,22 @@ const server = createServer(async (request, response) => {
     const approveMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)\/approve$/)
     if (request.method === 'POST' && approveMatch) {
       const body = await readJson(request)
-      const operation = getOperation(db, approveMatch[1])
-      if (!operation) {
-        sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
+      const approveIdent = requestAppWorkspace(db, url, body)
+      const approveFailure = httpStatusForWorkspaceError(approveIdent.error)
+      if (approveFailure) {
+        sendError(response, approveFailure.status, approveFailure.code, approveFailure.message, currentCorrelationId)
         return
       }
-      const denied = foreignOperation(db, url, body, operation)
-      if (denied) {
-        sendError(response, denied.status, denied.code, denied.message, currentCorrelationId)
+      const operation = getOperation(db, approveMatch[1], approveIdent.workspaceId)
+      if (!operation) {
+        sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
         return
       }
       const result = approveOperation(db, approveMatch[1], {
         actorId: 'actor_local_user',
         note: typeof body.note === 'string' ? body.note : '',
         correlationId: currentCorrelationId,
+        workspaceId: approveIdent.workspaceId,
       })
       if (result.kind === 'not_found') {
         sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
@@ -3268,20 +3277,22 @@ const server = createServer(async (request, response) => {
     const executeMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)\/execute$/)
     if (request.method === 'POST' && executeMatch) {
       const body = await readJson(request)
-      const operationBefore = getOperation(db, executeMatch[1])
-      if (!operationBefore) {
-        sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
+      const executeIdent = requestAppWorkspace(db, url, body)
+      const executeFailure = httpStatusForWorkspaceError(executeIdent.error)
+      if (executeFailure) {
+        sendError(response, executeFailure.status, executeFailure.code, executeFailure.message, currentCorrelationId)
         return
       }
-      const denied = foreignOperation(db, url, body, operationBefore)
-      if (denied) {
-        sendError(response, denied.status, denied.code, denied.message, currentCorrelationId)
+      const operationBefore = getOperation(db, executeMatch[1], executeIdent.workspaceId)
+      if (!operationBefore) {
+        sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
         return
       }
       if (operationBefore.executionMode === 'live') {
         const result = await executeOperationLive(db, executeMatch[1], {
           actorId: 'actor_local_user',
           correlationId: currentCorrelationId,
+          workspaceId: executeIdent.workspaceId,
           writePreview: async (previewId) => aiRuntime.lanAssist('/write', {
             method: 'POST',
             body: { preview_id: previewId, trace_id: currentCorrelationId, source: 'workstation' },
@@ -3317,6 +3328,7 @@ const server = createServer(async (request, response) => {
       const result = executeDryRun(db, executeMatch[1], {
         actorId: 'actor_local_user',
         correlationId: currentCorrelationId,
+        workspaceId: executeIdent.workspaceId,
       })
       if (result.kind === 'not_found') {
         sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
@@ -3438,7 +3450,7 @@ const server = createServer(async (request, response) => {
       }
 
       sendJson(response, 201, {
-        data: getOperation(db, id),
+        data: getOperation(db, id, opIdent.workspaceId),
         note: '本端点只创建可审计的操作计划，不直接调用外部业务系统。',
         correlationId: currentCorrelationId,
       })

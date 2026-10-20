@@ -401,7 +401,8 @@ function TodoTab() {
     setApplyingKey(key)
     setOrganizeError('')
     try {
-      await updateTask(suggestion.taskId, nextPatch as TaskAdvicePatch)
+      const workspaceId = useApp.getState().activeWorkspaceId
+      await updateTask(suggestion.taskId, { ...nextPatch, workspaceId } as TaskAdvicePatch)
       setAppliedKeys((prev) => new Set(prev).add(key))
     } catch (cause) {
       setOrganizeError(cause instanceof Error ? cause.message : '应用建议失败')

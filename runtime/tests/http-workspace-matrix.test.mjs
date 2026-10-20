@@ -21,7 +21,7 @@ const WIN_MARK = 'matrix-win-marker'
 const SLASH_MARK = 'matrix-slash-marker'
 const DEFAULT_MARK = 'matrix-default-marker'
 
-const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context', 'bridge-plan-task', 'business-apps', 'business-apps-create', 'operations-create', 'catalog', 'catalog-post', 'business-connections', 'biz-connections', 'briefing-latest', 'briefing-definition', 'briefing-run'])
+const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context', 'bridge-plan-task', 'business-apps', 'business-apps-create', 'operations-create', 'catalog', 'catalog-post', 'catalog-stream', 'business-connections', 'biz-connections', 'briefing-latest', 'briefing-definition', 'briefing-run'])
 const WS_KEY = 'cwd|workspace|workspaceCwd|workspaceId|workspacePath|workingDirectory'
 const PATH_KEY = 'cwd|workspaceCwd|workspacePath|workingDirectory'
 const ENTRY_CALL = String.raw`resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd|workspaceFilter|requestAppWorkspace|requireOwnedApp|settleCatalogWorkspace|catalogWorkspaceId`
@@ -157,6 +157,13 @@ async function requestRoute(server, route, mode, token) {
   const timer = setTimeout(() => controller.abort(), route.proof === 'events-sse' ? 2500 : 8000)
   try {
     const response = await fetch(url, { method: route.method, headers, body: payload, signal: controller.signal })
+    if (route.proof === 'catalog-sse') {
+      if (response.status === 200 && response.body) {
+        await response.body.cancel().catch(() => {})
+        return { status: response.status, text: '' }
+      }
+      return { status: response.status, text: await response.text() }
+    }
     if (route.proof === 'events-sse' && response.status === 200 && response.body) {
       const reader = response.body.getReader()
       let text = ''

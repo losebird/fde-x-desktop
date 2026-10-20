@@ -1,5 +1,6 @@
 import { createId } from '../db.mjs'
 import { canonicalWorkspaceCwd, workspaceCwdEqual } from '../cwd.mjs'
+import { getAppById } from './repository.mjs'
 
 const KEY_RE = /^[A-Za-z0-9._-]{1,80}$/
 const MAX_JSON = 2 * 1024 * 1024
@@ -25,7 +26,8 @@ function findDocumentRow(db, { appId, workspaceCwd, key }) {
   `).get(appId, ...match.params, docKey, canonicalWorkspaceCwd(workspaceCwd))
 }
 
-export function getDocument(db, { appId, workspaceCwd, key }) {
+export function getDocument(db, { appId, workspaceCwd, key, workspaceId }) {
+  if (!getAppById(db, appId, workspaceId)) return null
   const row = findDocumentRow(db, { appId, workspaceCwd, key })
   if (!row) return null
   try {
@@ -35,7 +37,8 @@ export function getDocument(db, { appId, workspaceCwd, key }) {
   }
 }
 
-export function putDocument(db, { appId, slug, workspaceCwd, key, value }) {
+export function putDocument(db, { appId, slug, workspaceCwd, key, value, workspaceId }) {
+  if (!getAppById(db, appId, workspaceId)) return null
   const docKey = assertDocKey(key)
   const json = JSON.stringify(value === undefined ? null : value)
   if (Buffer.byteLength(json, 'utf8') > MAX_JSON) {

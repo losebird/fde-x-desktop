@@ -429,8 +429,8 @@ export function createBusinessApp(db, input) {
 export function updateBusinessApp(db, id, input) {
   const existing = db.prepare(`
     SELECT id, workspace_id, name, current_revision, definition_json, deleted_at
-    FROM business_apps WHERE id = ?
-  `).get(id)
+    FROM business_apps WHERE workspace_id = ? AND id = ?
+  `).get(input.workspaceId, id)
   if (!existing) return null
   if (String(existing.deleted_at || '').trim()) return null
   const expectedWorkspaceId = typeof input.workspaceId === 'string' ? input.workspaceId.trim() : ''
@@ -446,8 +446,8 @@ export function updateBusinessApp(db, id, input) {
     db.prepare(`
       UPDATE business_apps
       SET name = ?, current_revision = ?, definition_json = ?, updated_at = ?
-      WHERE id = ? AND workspace_id = ?
-    `).run(name, nextRevision, JSON.stringify(definition), now, id, expectedWorkspaceId)
+      WHERE workspace_id = ? AND id = ?
+    `).run(name, nextRevision, JSON.stringify(definition), now, expectedWorkspaceId, id)
     db.prepare(`
       INSERT INTO business_app_revisions
         (id, app_id, revision, definition_json, change_note, created_by, created_at)
@@ -470,8 +470,8 @@ export function updateBusinessApp(db, id, input) {
   return listBusinessApps(db, { workspaceId: existing.workspace_id }).find((app) => app.id === id)
 }
 
-export function getOperationTrace(db, id) {
-  const operation = getOperation(db, id)
+export function getOperationTrace(db, id, workspaceId) {
+  const operation = getOperation(db, id, workspaceId)
   if (!operation) return null
   const steps = db.prepare(`
     SELECT id, sequence_no, step_kind, state, tool_ref, input_json, output_json, error_json, started_at, finished_at
@@ -543,30 +543,23 @@ export function getOperationTrace(db, id) {
 }
 
 export function listOperations(db, { workspaceId, limit = 100 } = {}) {
-  const rows = workspaceId
-    ? db.prepare(`
-        SELECT id, workspace_id, connection_id, app_id, requested_by, target_ref, action,
-               operation_kind, risk_level, execution_mode, state, idempotency_key, expected_version,
-               input_json, plan_json, correlation_id, causation_id, created_at, updated_at, started_at, finished_at
-        FROM operations WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?
-      `).all(workspaceId, limit)
-    : db.prepare(`
-        SELECT id, workspace_id, connection_id, app_id, requested_by, target_ref, action,
-               operation_kind, risk_level, execution_mode, state, idempotency_key, expected_version,
-               input_json, plan_json, correlation_id, causation_id, created_at, updated_at, started_at, finished_at
-        FROM operations ORDER BY created_at DESC LIMIT ?
-      `).all(limit)
+  const rows = db.prepare(`
+    SELECT id, workspace_id, connection_id, app_id, requested_by, target_ref, action,
+           operation_kind, risk_level, execution_mode, state, idempotency_key, expected_version,
+           input_json, plan_json, correlation_id, causation_id, created_at, updated_at, started_at, finished_at
+    FROM operations WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?
+  `).all(workspaceId, limit)
 
   return rows.map(mapOperation)
 }
 
-export function getOperation(db, id) {
+export function getOperation(db, id, workspaceId) {
   const row = db.prepare(`
     SELECT id, workspace_id, connection_id, app_id, requested_by, target_ref, action,
            operation_kind, risk_level, execution_mode, state, idempotency_key, expected_version,
            input_json, plan_json, correlation_id, causation_id, created_at, updated_at, started_at, finished_at
-    FROM operations WHERE id = ?
-  `).get(id)
+    FROM operations WHERE workspace_id = ? AND id = ?
+  `).get(workspaceId, id)
   return row ? mapOperation(row) : null
 }
 
@@ -596,8 +589,8 @@ function mapOperation(row) {
   }
 }
 
-export function approveOperation(db, id, { actorId = 'actor_local_user', note = '', correlationId }) {
-  const operation = getOperation(db, id)
+export function approveOperation(db, id, { actorId = 'actor_local_user', note = '', correlationId, workspaceId }) {
+  const operation = getOperation(db, id, workspaceId)
   if (!operation) return { kind: 'not_found' }
   if (operation.state !== 'awaiting_approval') return { kind: 'invalid_state', operation }
   const now = isoNow()
@@ -609,7 +602,7 @@ export function approveOperation(db, id, { actorId = 'actor_local_user', note = 
       SET decision = 'approved', decision_note = ?, decided_at = ?
       WHERE operation_id = ? AND decision = 'pending'
     `).run(note, now, id)
-    db.prepare(`UPDATE operations SET state = 'approved', updated_at = ? WHERE id = ?`).run(now, id)
+    db.prepare(`UPDATE operations SET state = 'approved', updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, workspaceId, id)
     insertOperationStep(db, id, 1, 'approve', 'succeeded', { note })
     appendAudit(db, {
       workspaceId: operation.workspaceId,
@@ -633,11 +626,11 @@ export function approveOperation(db, id, { actorId = 'actor_local_user', note = 
     db.exec('ROLLBACK;')
     throw error
   }
-  return { kind: 'ok', operation: getOperation(db, id) }
+  return { kind: 'ok', operation: getOperation(db, id, workspaceId) }
 }
 
-export function executeDryRun(db, id, { actorId = 'actor_local_user', correlationId }) {
-  const operation = getOperation(db, id)
+export function executeDryRun(db, id, { actorId = 'actor_local_user', correlationId, workspaceId }) {
+  const operation = getOperation(db, id, workspaceId)
   if (!operation) return { kind: 'not_found' }
   if (operation.executionMode !== 'dry_run') return { kind: 'live_not_supported', operation }
   if (!['draft', 'approved'].includes(operation.state)) return { kind: 'invalid_state', operation }
@@ -653,8 +646,8 @@ export function executeDryRun(db, id, { actorId = 'actor_local_user', correlatio
   db.exec('BEGIN IMMEDIATE;')
   try {
     db.prepare(`
-      UPDATE operations SET state = 'uncertain', started_at = ?, finished_at = ?, updated_at = ? WHERE id = ?
-    `).run(now, now, now, id)
+      UPDATE operations SET state = 'uncertain', started_at = ?, finished_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?
+    `).run(now, now, now, workspaceId, id)
     db.prepare(`
       INSERT INTO operation_receipts
         (id, operation_id, receipt_kind, result_json, received_at)
@@ -682,7 +675,7 @@ export function executeDryRun(db, id, { actorId = 'actor_local_user', correlatio
     db.exec('ROLLBACK;')
     throw error
   }
-  return { kind: 'ok', operation: getOperation(db, id), receipt: result }
+  return { kind: 'ok', operation: getOperation(db, id, workspaceId), receipt: result }
 }
 
 export function insertOperationStep(db, operationId, sequenceNo, stepKind, state, input = {}, output = null, error = null) {
@@ -900,8 +893,8 @@ export function listBizWriteAudits(db, workspaceCwd, limit = 50) {
  * @param {string} id
  * @param {{ actorId?: string, correlationId?: string, writePreview: (previewId: string) => Promise<Record<string, unknown>> }} deps
  */
-export async function executeOperationLive(db, id, { actorId = 'actor_local_user', correlationId, writePreview }) {
-  const operation = getOperation(db, id)
+export async function executeOperationLive(db, id, { actorId = 'actor_local_user', correlationId, writePreview, workspaceId }) {
+  const operation = getOperation(db, id, workspaceId)
   if (!operation) return { kind: 'not_found' }
   if (operation.executionMode !== 'live') return { kind: 'live_not_supported', operation }
   if (operation.state !== 'approved') return { kind: 'invalid_state', operation }
@@ -913,7 +906,7 @@ export async function executeOperationLive(db, id, { actorId = 'actor_local_user
   const now = isoNow()
   db.exec('BEGIN IMMEDIATE;')
   try {
-    db.prepare(`UPDATE operations SET state = 'executing', started_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
+    db.prepare(`UPDATE operations SET state = 'executing', started_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, now, workspaceId, id)
     insertOperationStep(db, id, 2, 'write', 'running', { previewId })
     db.exec('COMMIT;')
   } catch (error) {
@@ -934,14 +927,14 @@ export async function executeOperationLive(db, id, { actorId = 'actor_local_user
         UPDATE operation_steps SET state = 'failed', error_json = ?, finished_at = ?
         WHERE operation_id = ? AND sequence_no = 2 AND step_kind = 'write'
       `).run(JSON.stringify({ message }), now, id)
-      db.prepare(`UPDATE operations SET state = 'failed', finished_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
+      db.prepare(`UPDATE operations SET state = 'failed', finished_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, now, workspaceId, id)
       db.exec('COMMIT;')
     } catch (inner) {
       db.exec('ROLLBACK;')
       throw inner
     }
-    if (expired) return { kind: 'preview_expired', operation: getOperation(db, id), message }
-    return { kind: 'write_failed', operation: getOperation(db, id), message }
+    if (expired) return { kind: 'preview_expired', operation: getOperation(db, id, workspaceId), message }
+    return { kind: 'write_failed', operation: getOperation(db, id, workspaceId), message }
   }
 
   const receipt = {
@@ -958,7 +951,7 @@ export async function executeOperationLive(db, id, { actorId = 'actor_local_user
       WHERE operation_id = ? AND sequence_no = 2 AND step_kind = 'write'
     `).run(JSON.stringify(written), now, id)
     insertOperationStep(db, id, 3, 'receipt', 'succeeded', {}, receipt)
-    db.prepare(`UPDATE operations SET state = 'succeeded', finished_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
+    db.prepare(`UPDATE operations SET state = 'succeeded', finished_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, now, workspaceId, id)
     db.prepare(`
       INSERT INTO operation_receipts (id, operation_id, receipt_kind, result_json, received_at)
       VALUES (?, ?, 'executed', ?, ?)
@@ -985,7 +978,7 @@ export async function executeOperationLive(db, id, { actorId = 'actor_local_user
     db.exec('ROLLBACK;')
     throw error
   }
-  return { kind: 'ok', operation: getOperation(db, id), receipt }
+  return { kind: 'ok', operation: getOperation(db, id, workspaceId), receipt }
 }
 
 export function databaseHealth(db, databasePath) {

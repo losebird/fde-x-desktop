@@ -86,6 +86,7 @@ export const httpWorkspaceRoutes = [
   { id: 'memory-cards-post', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/memory/cards', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { label: 'matrix marker label', origin: 'note:matrix' } },
   { id: 'memory-nod', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/memory/cards/matrix/nod', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { nodded: true } },
   { id: 'catalog', file: 'runtime/routes/catalog.mjs', method: 'GET', path: '/api/v1/catalog', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime', extra: { kind: 'file' } },
+  { id: 'catalog-stream', file: 'runtime/routes/catalog.mjs', method: 'GET', path: '/api/v1/catalog/stream', place: 'query', param: 'cwd', proof: 'catalog-sse', absent: 'runtime', extra: { kind: 'file', action: 'matrix' } },
   { id: 'catalog-post', file: 'runtime/routes/catalog.mjs', method: 'POST', path: '/api/v1/catalog', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { kind: 'file', action: 'matrix' } },
   { id: 'business-connections', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/business/connections', place: 'query', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
   { id: 'biz-connections', file: 'runtime/routes/biz.mjs', method: 'GET', path: '/api/v1/biz/connections', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },

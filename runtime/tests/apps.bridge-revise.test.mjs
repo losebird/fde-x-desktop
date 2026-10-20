@@ -44,7 +44,7 @@ describe('bridge app-spec-submit revise', () => {
     const created = await handleAppsBridge('app-spec-submit', { spec }, db, CWD)
     assert.equal(created.ok, true)
     const appId = created.appId
-    const activated = activateApp(db, appId)
+    const activated = activateApp(db, appId, { workspaceId: 'ws_personal' })
     assert.equal(activated.kind, 'ok')
     const countBefore = listBusinessApps(db, { workspaceId: 'ws_personal', workspaceCwd: CWD }).length
     const nextSpec = {
@@ -57,7 +57,7 @@ describe('bridge app-spec-submit revise', () => {
     assert.equal(revised.revision, 2)
     const countAfter = listBusinessApps(db, { workspaceId: 'ws_personal', workspaceCwd: CWD }).length
     assert.equal(countAfter, countBefore)
-    const app = getAppById(db, appId)
+    const app = getAppById(db, appId, 'ws_personal')
     assert.equal(app.currentRevision, 2)
     assert.equal(app.spec.name, nextSpec.name)
     db.close()

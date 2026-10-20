@@ -62,8 +62,9 @@ function planDomain(opts) {
     actorId: opts.actorId,
     correlationId: opts.correlationId,
     reasons: { missing: 'task_missing', moved: 'stale_task', appeared: 'task_exists' },
+    workspaceId: opts.workspaceId,
     load(db, plan) {
-      const row = getTask(db, plan.taskId)
+      const row = getTask(db, plan.taskId, plan.workspaceId)
       return { versions: [{ current: row ? row.updated_at : null, base: plan.change.base }] }
     },
     apply(db, plan) {
@@ -89,7 +90,7 @@ function planDomain(opts) {
       if (change.dueAt !== undefined) fields.dueAt = change.dueAt
       if (change.tags !== undefined) fields.tags = change.tags
       if (change.status !== undefined) fields.status = change.status
-      const row = updateTask(db, plan.taskId, fields)
+      const row = updateTask(db, plan.taskId, fields, plan.workspaceId)
       if (!row) return { applied: false }
       return { applied: true, details: { op: plan.op, taskId: plan.taskId } }
     },
@@ -146,7 +147,7 @@ export function proposePlanTask(db, input) {
   const taskId = typeof input.taskId === 'string' ? input.taskId.trim() : ''
   if (isHostGoalId(taskId)) return { ok: false, error: 'validation_error', message: 'Host goal 只能改状态' }
   if (!taskId) return { ok: false, error: 'not_found', message: '任务不存在' }
-  const existing = getTask(db, taskId)
+  const existing = getTask(db, taskId, workspaceId)
   if (!existing || existing.workspace_id !== workspaceId) {
     return { ok: false, error: 'not_found', message: '任务不存在' }
   }

@@ -7,6 +7,7 @@ import { findActiveAppBySlug } from '../apps/repository.mjs'
 import { getRecord } from '../apps/records.mjs'
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { canonicalWorkspaceCwd, sameWorkspaceCwd } from '../cwd.mjs'
+import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { listWorkspaces } from '../db.mjs'
 import { filePathOf, originOfCard, sessionIdOf } from '../memory/identity.mjs'
@@ -39,8 +40,8 @@ async function resolveImMessage(aiRuntime, requestId) {
   }
 }
 
-function resolveTask(db, taskId) {
-  const row = db.prepare('SELECT id, title, notes, status FROM tasks WHERE id = ?').get(taskId)
+function resolveTask(db, taskId, workspaceId) {
+  const row = db.prepare('SELECT id, title, notes, status FROM tasks WHERE workspace_id = ? AND id = ?').get(workspaceId, taskId)
   if (!row) return null
   return {
     title: row.title,
@@ -216,7 +217,9 @@ export async function loadOrigin(deps, id) {
     return { ok: true, ...resolved }
   }
   if (id.startsWith('task:')) {
-    const resolved = resolveTask(db, id.slice(5))
+    const ident = resolveWorkspaceIdOrFail(db, { cwd, source: 'request' })
+    if (ident.error) return { ok: false, missing: true, message: '找不到该任务' }
+    const resolved = resolveTask(db, id.slice(5), ident.workspaceId)
     if (!resolved) return { ok: false, missing: true, message: '找不到该任务' }
     return { ok: true, ...resolved }
   }

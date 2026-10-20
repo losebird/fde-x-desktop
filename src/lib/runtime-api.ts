@@ -2430,7 +2430,7 @@ export class RuntimeApi {
     return result.data
   }
 
-  async updateBusinessApp(id: string, input: { name?: string; definition?: JsonValue; changeNote?: string }, signal?: AbortSignal): Promise<BusinessAppRecord> {
+  async updateBusinessApp(id: string, input: { name?: string; definition?: JsonValue; changeNote?: string; workspaceId?: string }, signal?: AbortSignal): Promise<BusinessAppRecord> {
     const result = await this.request<{ data: BusinessAppRecord }>(`/api/v1/business/apps/${encodeURIComponent(id)}`, {
       method: 'PUT',
       signal,

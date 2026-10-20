@@ -96,7 +96,7 @@ test('没有页面令牌时不能修改已绑定工作流的日程', async () =>
   insertBoundEvent(db, 'cevt_tok')
   try {
     const before = counts(db)
-    const patched = await call(db, 'PATCH', '/api/v1/plan/events/cevt_tok', { title: '改过' }, { uiToken: mintUiToken() })
+    const patched = await call(db, 'PATCH', '/api/v1/plan/events/cevt_tok', { title: '改过', workspaceId: 'ws_tok' }, { uiToken: mintUiToken() })
     const after = counts(db)
     const title = db.prepare('SELECT title FROM calendar_events WHERE id = ?').get('cevt_tok').title
     assert.equal(patched.status, 401)
@@ -116,7 +116,7 @@ test('没有页面令牌时不能删除已绑定工作流的日程', async () =>
   insertBoundEvent(db, 'cevt_tok')
   try {
     const before = counts(db)
-    const removed = await call(db, 'DELETE', '/api/v1/plan/events/cevt_tok', {}, { uiToken: mintUiToken() })
+    const removed = await call(db, 'DELETE', '/api/v1/plan/events/cevt_tok?workspaceId=ws_tok', {}, { uiToken: mintUiToken() })
     const after = counts(db)
     const left = db.prepare('SELECT COUNT(*) AS n FROM calendar_events WHERE id = ?').get('cevt_tok').n
     assert.equal(removed.status, 401)
