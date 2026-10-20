@@ -87,13 +87,13 @@ describe('biz surfaces and live execute', () => {
     assert.match(core, /line0\.hint/)
   })
 
-  test('listBusinessConnections merges ws_personal lan-assist into active workspace', () => {
+  test('listBusinessConnections keeps an empty lan-assist adapter in the personal workspace', () => {
     const db = openDatabase(`/tmp/fde-biz-conn-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const wsId = '1985293d-03bb-496f-ad69-5c7f2ac23149'
     const personal = listBusinessConnections(db, { workspaceId: 'ws_personal' })
     const scoped = listBusinessConnections(db, { workspaceId: wsId })
     assert.ok(personal.some((c) => c.id === 'conn_lan_assist'))
-    assert.equal(scoped.filter((c) => c.id === 'conn_lan_assist').length, 1)
+    assert.equal(scoped.filter((c) => c.id === 'conn_lan_assist').length, 0)
     db.close()
   })
 

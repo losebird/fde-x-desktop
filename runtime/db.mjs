@@ -285,7 +285,12 @@ export function listBusinessConnections(db, { workspaceId = 'ws_personal' } = {}
                credential_ref, capabilities_json, last_health_json, created_at, updated_at
         FROM business_connections
         WHERE workspace_id = ?
-           OR (workspace_id = 'ws_personal' AND provider IN (${SHARED_BUSINESS_CONNECTION_PROVIDERS.map(() => '?').join(', ')}))
+           OR (
+             workspace_id = 'ws_personal'
+             AND provider IN (${SHARED_BUSINESS_CONNECTION_PROVIDERS.map(() => '?').join(', ')})
+             AND credential_ref IS NOT NULL
+             AND credential_ref != ''
+           )
         ORDER BY name ASC
       `).all(workspaceId, ...SHARED_BUSINESS_CONNECTION_PROVIDERS)
 
