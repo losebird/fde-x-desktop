@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { clipSearchPayload, toModelExcerpt } from '../vendor-overlays/dsh-semantic-os/search-excerpt.js'
+import { clipSearchPayload, toModelExcerpt } from '../plugins/dsh-semantic-os/search-excerpt.js'
 
 const FAT = {
   results: [{

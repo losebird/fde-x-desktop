@@ -1,4 +1,4 @@
-import { normalizeCwd } from './vendor-overlays/dsh-lan-assist/letter-home.js'
+import { normalizeCwd } from './plugins/dsh-lan-assist/letter-home.js'
 
 export function isPrimarySession(session) {
   return Boolean(session) && session.origin !== 'subagent' && !session.parentSessionId

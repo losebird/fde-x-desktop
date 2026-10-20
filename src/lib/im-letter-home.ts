@@ -1,4 +1,4 @@
-/** Browser port of `runtime/vendor-overlays/dsh-lan-assist/letter-home.js`. Write-path homeForIncoming / homeForOutgoing stays on the overlay. */
+/** Browser port of `runtime/plugins/dsh-lan-assist/letter-home.js`. Write-path homeForIncoming / homeForOutgoing stays on the overlay. */
 
 export function normalizeCwd(value: unknown): string {
   const raw = String(value || '').trim()

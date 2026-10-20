@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { FDE_DSH_HOME } from '../config.mjs'
 
-const overlayDir = join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist')
+const overlayDir = join(import.meta.dirname, '..', 'plugins', 'dsh-lan-assist')
 const vendorDir = join(FDE_DSH_HOME, 'vendor', 'dsh-lan-assist')
 const staged = mkdtempSync(join(tmpdir(), 'plan-receipt-'))
 cpSync(vendorDir, staged, { recursive: true })

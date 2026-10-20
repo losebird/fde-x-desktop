@@ -4,7 +4,7 @@ import { pendingSheetWatchFingerprint } from './biz/sheet-fingerprint.mjs'
 import { sheetAfterDismissedWrite } from './biz/dismissed-previews.mjs'
 import { sheetPayloadFromRaw } from './biz/sheet-payload.mjs'
 import { reconcileLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
-import { localCwdSet, unreadSheet } from './vendor-overlays/dsh-lan-assist/letter-home.js'
+import { localCwdSet, unreadSheet } from './plugins/dsh-lan-assist/letter-home.js'
 
 
 const POLL_MS = 1000

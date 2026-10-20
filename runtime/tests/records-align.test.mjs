@@ -90,7 +90,7 @@ test('RecordsPanel keeps history pin, closes write preview, and skips empty draw
   assert.match(src, /<tbody key=\{sheetIdentity/)
   assert.match(src, /selectSessionHistorySurfaces/)
   assert.match(src, /shouldApplyPendingSheetSource/)
-  const overlayIndex = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/index.js'), 'utf8')
+  const overlayIndex = readFileSync(join(repoRoot, 'runtime/plugins/dsh-lan-assist/index.js'), 'utf8')
   assert.match(overlayIndex, /official-sheet/)
   assert.match(overlayIndex, /if \(outcome && outcome.emit\)/)
   assert.match(src, /PENDING_HYDRATE_MS/)
@@ -247,7 +247,7 @@ test('matchSurfaceIdForSheet no longer impersonates kind+action[0]', () => {
 })
 
 test('a clicked row is not the whole hit set', async () => {
-  const { rowsForClickedWrite } = await import('../vendor-overlays/dsh-lan-assist/slots.js')
+  const { rowsForClickedWrite } = await import('../plugins/dsh-lan-assist/slots.js')
   const rows = [
     { no: '同名', fields: { id: '1' } },
     { no: '同名', fields: { id: '2' } },
@@ -502,7 +502,7 @@ test('coalesceKnownHitTotal fills missing zero for known settled sheet', async (
 })
 
 test('materialize known settled peer copies hitTotal zero for footer', async () => {
-  const { materializeOperationKindSheet } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
+  const { materializeOperationKindSheet } = await import('../plugins/dsh-lan-assist/operation-kind-sheet.mjs')
   const official = {
     kind: 'KindB',
     action: '现查',
@@ -526,8 +526,8 @@ test('materialize known settled peer copies hitTotal zero for footer', async () 
 })
 
 test('focus-kind projects a hop side and leaves official kind', async () => {
-  const { createSessionRoundStore } = await import('../vendor-overlays/dsh-lan-assist/session-round.js')
-  const { projectOfficialKind } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
+  const { createSessionRoundStore } = await import('../plugins/dsh-lan-assist/session-round.js')
+  const { projectOfficialKind } = await import('../plugins/dsh-lan-assist/operation-kind-sheet.mjs')
   const rounds = createSessionRoundStore()
   rounds.startRound('sess-a')
   const official = {
@@ -565,7 +565,7 @@ test('focus-kind projects a hop side and leaves official kind', async () => {
 })
 
 test('materialize peer kind prefers exact kind over alias bucket', async () => {
-  const { materializeOperationKindSheet } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
+  const { materializeOperationKindSheet } = await import('../plugins/dsh-lan-assist/operation-kind-sheet.mjs')
   const official = {
     kind: 'LongKind',
     action: '现查',
@@ -591,7 +591,7 @@ test('materialize peer kind prefers exact kind over alias bucket', async () => {
 })
 
 test('materialize peer kind inherits pageSize for hitTotal paging', async () => {
-  const { materializeOperationKindSheet } = await import('../vendor-overlays/dsh-lan-assist/operation-kind-sheet.mjs')
+  const { materializeOperationKindSheet } = await import('../plugins/dsh-lan-assist/operation-kind-sheet.mjs')
   const official = {
     kind: 'KindB',
     action: '现查',
@@ -626,7 +626,7 @@ test('biz focus-kind route updates official pending', () => {
 })
 
 test('focus-kind gate projects published sheet and does not previewBiz', () => {
-  const index = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/index.js'), 'utf8')
+  const index = readFileSync(join(repoRoot, 'runtime/plugins/dsh-lan-assist/index.js'), 'utf8')
   assert.match(index, /projectOfficialKind/)
   const focusFn = index.slice(index.indexOf('focusOperationKind'))
   assert.doesNotMatch(focusFn.slice(0, 400), /previewBiz/)

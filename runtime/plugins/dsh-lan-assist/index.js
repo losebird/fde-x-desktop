@@ -163,7 +163,7 @@ export async function apply(ctx, config) {
     send: (door, frame, opts) => transport.send(door, frame, opts),
     relayStatus: () => (relay && typeof relay.status === 'function'
       ? relay.status()
-      : { configured: false, connected: false }),
+      : { configured: false, connected: false, error: '' }),
     onRelayChange: async () => {
       await restartRelayListen()
       try {
@@ -483,7 +483,7 @@ export async function apply(ctx, config) {
       if (relay && typeof relay.close === 'function') await relay.close()
       const self = (await store.get()).self
       const st = relay && typeof relay.status === 'function' ? relay.status() : { configured: false }
-      if (relay && st.configured && self && self.id && typeof relay.listen === 'function') {
+      if (relay && st.configured && !st.error && self && self.id && typeof relay.listen === 'function') {
         stopRelay = await relay.listen(self.id, (frame) => onLanFrame(frame, { remote: 'relay' }))
       }
     }

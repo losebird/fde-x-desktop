@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { FDE_DSH_HOME } from '../config.mjs'
-import { matchedWriteIdentity } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { matchedWriteIdentity } from '../plugins/dsh-lan-assist/lookup.js'
 
-const overlayDir = join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist')
+const overlayDir = join(import.meta.dirname, '..', 'plugins', 'dsh-lan-assist')
 const vendorDir = join(FDE_DSH_HOME, 'vendor', 'dsh-lan-assist')
 const staged = mkdtempSync(join(tmpdir(), 'lan-assist-lookup-key-'))
 cpSync(vendorDir, staged, { recursive: true })

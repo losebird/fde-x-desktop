@@ -4257,7 +4257,9 @@ window.__ModuleLoader__.load({
     function chatConnFace(p) {
       const rows = listOf(p.lookups)
       const relay = p.relay || {}
-      const relaySpeak = !relay.configured ? '未配' : (relay.connected ? '已连接' : '已配未连')
+      const relaySpeak = relay.error
+        ? String(relay.error)
+        : (!relay.configured ? '未配' : (relay.connected ? '已连接' : '已配未连'))
       const env = !!relay.env
       return h('div', { className: 'dla-sheet-scroll' },
         h('p', { className: 'dla-sheet-kicker' }, env
@@ -5051,6 +5053,7 @@ window.__ModuleLoader__.load({
                         url: state && state.relayUrl,
                         credsSet: !!(state && state.relayCredsSet),
                         env: !!(state && state.relayEnv),
+                        error: (state && state.relay && state.relay.error) || (state && state.relayError) || '',
                       },
                       relayDraft,
                       credsDraft,

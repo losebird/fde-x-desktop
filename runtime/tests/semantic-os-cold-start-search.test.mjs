@@ -44,7 +44,7 @@ function searchPassages(cwd, keyword) {
 }
 
 async function loadCommit() {
-  const file = join(repoRoot, 'runtime/vendor-overlays/dsh-semantic-os/session-index-commit.js')
+  const file = join(repoRoot, 'runtime/plugins/dsh-semantic-os/session-index-commit.js')
   if (!existsSync(file)) return null
   return import(pathToFileURL(file).href)
 }

@@ -24,7 +24,7 @@ import {
   imBrowseForVisibleTalk,
   followLetter,
   laneOfLetterHome,
-} from '../vendor-overlays/dsh-lan-assist/letter-home.js'
+} from '../plugins/dsh-lan-assist/letter-home.js'
 
 const a = '/Users/zxz/ws-a'
 const b = '/Users/zxz/ws-b'

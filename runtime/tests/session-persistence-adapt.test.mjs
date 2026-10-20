@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { adaptSessionPersistence } from '../plugins/dsh-semantic-os/session-persistence-adapt.js'
 
-const overlayIndex = readFileSync(join(import.meta.dirname, '../vendor-overlays/dsh-semantic-os/index.js'), 'utf8')
+const overlayIndex = readFileSync(join(import.meta.dirname, '../plugins/dsh-semantic-os/index.js'), 'utf8')
 
 test('overlay imports adaptSessionPersistence from its own file', () => {
   assert.match(overlayIndex, /import \{ createSessionIngest, DEFAULT_SESSION_INGEST_INTERVAL_MIN, eventText, headerCwd, headerId \} from '\.\/session-ingest\.js'/)
