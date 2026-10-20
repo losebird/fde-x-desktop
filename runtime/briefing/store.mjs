@@ -1,5 +1,5 @@
 import { createId } from '../db.mjs'
-import { workspaceCwdEqual } from '../cwd.mjs'
+import { canonicalWorkspaceCwd, canonicalWorkspaceCwdSql, workspaceCwdEqual } from '../cwd.mjs'
 import { defaultSchedule, defaultSections, prepareDefinitionSections, sourcesFromMcpSections } from './defaults.mjs'
 import { workspaceRowIdForCwd } from './workspace.mjs'
 
@@ -119,8 +119,12 @@ export function mapBriefingRow(row) {
   }
 }
 
-export function getBriefing(db, id) {
-  const row = db.prepare('SELECT * FROM briefings WHERE id = ?').get(id)
+export function getBriefing(db, id, workspaceCwd) {
+  const fn = canonicalWorkspaceCwdSql(db)
+  const wanted = canonicalWorkspaceCwd(workspaceCwd) || String(workspaceCwd || '')
+  const row = db.prepare(`
+    SELECT * FROM briefings WHERE ${fn}(workspace_cwd) = ? AND id = ?
+  `).get(wanted, id)
   return row ? mapBriefingRow(row) : null
 }
 
@@ -163,8 +167,12 @@ export function createBriefingRun(db, { definitionId, workspaceCwd, agentRequest
   return { id, agentRequestId }
 }
 
-export function updateBriefingContent(db, id, patch) {
-  const row = db.prepare('SELECT content_json, state FROM briefings WHERE id = ?').get(id)
+export function updateBriefingContent(db, id, patch, workspaceCwd) {
+  const fn = canonicalWorkspaceCwdSql(db)
+  const wanted = canonicalWorkspaceCwd(workspaceCwd) || String(workspaceCwd || '')
+  const row = db.prepare(`
+    SELECT content_json, state FROM briefings WHERE ${fn}(workspace_cwd) = ? AND id = ?
+  `).get(wanted, id)
   if (!row) return null
   const content = parseJson(row.content_json, {})
   const next = { ...content, ...patch }
@@ -174,9 +182,9 @@ export function updateBriefingContent(db, id, patch) {
   db.prepare(`
     UPDATE briefings
     SET content_json = ?, state = ?, generated_at = COALESCE(generated_at, ?)
-    WHERE id = ?
-  `).run(JSON.stringify(next), state, isoNow(), id)
-  return getBriefing(db, id)
+    WHERE ${fn}(workspace_cwd) = ? AND id = ?
+  `).run(JSON.stringify(next), state, isoNow(), wanted, id)
+  return getBriefing(db, id, workspaceCwd)
 }
 
 export function findBriefingByAgentRequest(db, requestId) {

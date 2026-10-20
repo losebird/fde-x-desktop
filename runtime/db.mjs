@@ -315,23 +315,23 @@ export function listBusinessConnections(db, { workspaceId = 'ws_personal' } = {}
   }))
 }
 
-export function updateBusinessConnectionStatusByProvider(db, provider, status, lastHealth = null) {
+export function updateBusinessConnectionStatusByProvider(db, provider, status, lastHealth = null, workspaceId) {
   const wantProvider = String(provider || '').trim()
   const wantStatus = String(status || '').trim()
   if (!wantProvider || !wantStatus) return { changed: 0 }
   const now = isoNow()
   const healthJson = lastHealth && typeof lastHealth === 'object' ? JSON.stringify(lastHealth) : null
   const rows = db.prepare(`
-    SELECT id, status FROM business_connections WHERE provider = ?
-  `).all(wantProvider)
+    SELECT id, status FROM business_connections WHERE workspace_id = ? AND provider = ?
+  `).all(workspaceId, wantProvider)
   let changed = 0
   for (const row of rows) {
     if (row.status === wantStatus && !healthJson) continue
     db.prepare(`
       UPDATE business_connections
       SET status = ?, updated_at = ?, last_health_json = COALESCE(?, last_health_json)
-      WHERE id = ?
-    `).run(wantStatus, now, healthJson, row.id)
+      WHERE workspace_id = ? AND id = ?
+    `).run(wantStatus, now, healthJson, workspaceId, row.id)
     changed += 1
   }
   return { changed }
@@ -603,7 +603,7 @@ export function approveOperation(db, id, { actorId = 'actor_local_user', note = 
       WHERE operation_id = ? AND decision = 'pending'
     `).run(note, now, id)
     db.prepare(`UPDATE operations SET state = 'approved', updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, workspaceId, id)
-    insertOperationStep(db, id, 1, 'approve', 'succeeded', { note })
+    insertOperationStep(db, id, 1, 'approve', 'succeeded', { note }, null, null, workspaceId)
     appendAudit(db, {
       workspaceId: operation.workspaceId,
       actorId,
@@ -678,7 +678,9 @@ export function executeDryRun(db, id, { actorId = 'actor_local_user', correlatio
   return { kind: 'ok', operation: getOperation(db, id, workspaceId), receipt: result }
 }
 
-export function insertOperationStep(db, operationId, sequenceNo, stepKind, state, input = {}, output = null, error = null) {
+export function insertOperationStep(db, operationId, sequenceNo, stepKind, state, input = {}, output = null, error = null, workspaceId) {
+  const owned = db.prepare('SELECT 1 FROM operations WHERE workspace_id = ? AND id = ?').get(workspaceId, operationId)
+  if (!owned) return
   const now = isoNow()
   db.prepare(`
     INSERT INTO operation_steps
@@ -843,21 +845,25 @@ export function memoryWriteCardByOrigins(db, origins) {
   return map
 }
 
-export function getBizWriteAuditByTraceId(db, traceId) {
+export function getBizWriteAuditByTraceId(db, traceId, workspaceCwd) {
+  const fn = canonicalWorkspaceCwdSql(db)
+  const wanted = canonicalWorkspaceCwd(workspaceCwd) || String(workspaceCwd || '')
   const row = db.prepare(`
     SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, lookup_bind_json, written_at, rollback_state
-    FROM biz_write_audit WHERE trace_id = ?
-  `).get(String(traceId || '').trim())
+    FROM biz_write_audit WHERE ${fn}(workspace_cwd) = ? AND trace_id = ?
+  `).get(wanted, String(traceId || '').trim())
   return mapBizWriteAuditRow(row)
 }
 
-export function setBizWriteAuditRollbackState(db, traceId, rollbackState) {
+export function setBizWriteAuditRollbackState(db, traceId, rollbackState, workspaceCwd) {
   const id = String(traceId || '').trim()
   const state = String(rollbackState || 'none').trim()
   if (!id || !state || state === 'none') return false
+  const fn = canonicalWorkspaceCwdSql(db)
+  const wanted = canonicalWorkspaceCwd(workspaceCwd) || String(workspaceCwd || '')
   const result = db.prepare(`
-    UPDATE biz_write_audit SET rollback_state = ? WHERE trace_id = ?
-  `).run(state, id)
+    UPDATE biz_write_audit SET rollback_state = ? WHERE ${fn}(workspace_cwd) = ? AND trace_id = ?
+  `).run(state, wanted, id)
   return result.changes > 0
 }
 
@@ -907,7 +913,7 @@ export async function executeOperationLive(db, id, { actorId = 'actor_local_user
   db.exec('BEGIN IMMEDIATE;')
   try {
     db.prepare(`UPDATE operations SET state = 'executing', started_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, now, workspaceId, id)
-    insertOperationStep(db, id, 2, 'write', 'running', { previewId })
+    insertOperationStep(db, id, 2, 'write', 'running', { previewId }, null, null, workspaceId)
     db.exec('COMMIT;')
   } catch (error) {
     db.exec('ROLLBACK;')
@@ -950,7 +956,7 @@ export async function executeOperationLive(db, id, { actorId = 'actor_local_user
       UPDATE operation_steps SET state = 'succeeded', output_json = ?, finished_at = ?
       WHERE operation_id = ? AND sequence_no = 2 AND step_kind = 'write'
     `).run(JSON.stringify(written), now, id)
-    insertOperationStep(db, id, 3, 'receipt', 'succeeded', {}, receipt)
+    insertOperationStep(db, id, 3, 'receipt', 'succeeded', {}, receipt, null, workspaceId)
     db.prepare(`UPDATE operations SET state = 'succeeded', finished_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, now, workspaceId, id)
     db.prepare(`
       INSERT INTO operation_receipts (id, operation_id, receipt_kind, result_json, received_at)

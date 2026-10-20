@@ -485,7 +485,7 @@ function continueRun(deps, ctx) {
   })
 }
 
-export function readWorkflowRuns(db, workflowIds) {
+export function readWorkflowRuns(db, workflowIds, workspaceId) {
   if (!Array.isArray(workflowIds) || workflowIds.length === 0) return new Map()
   const ids = []
   const seen = new Set()
@@ -497,11 +497,12 @@ export function readWorkflowRuns(db, workflowIds) {
   if (ids.length === 0) return new Map()
   const placeholders = ids.map(() => '?').join(', ')
   const rows = db.prepare(`
-    SELECT id, workflow_id, state, output_json
-    FROM workflow_runs
-    WHERE workflow_id IN (${placeholders})
-    ORDER BY created_at DESC, rowid DESC
-  `).all(...ids)
+    SELECT r.id, r.workflow_id, r.state, r.output_json
+    FROM workflow_runs r
+    JOIN workflows w ON w.id = r.workflow_id AND w.workspace_id = ?
+    WHERE r.workflow_id IN (${placeholders})
+    ORDER BY r.created_at DESC, r.rowid DESC
+  `).all(workspaceId, ...ids)
   const grouped = new Map()
   for (const row of rows) {
     let message = ''
@@ -520,7 +521,7 @@ export function readWorkflowRuns(db, workflowIds) {
   return grouped
 }
 
-export function readLatestRunCards(db, workflowIds) {
+export function readLatestRunCards(db, workflowIds, workspaceId) {
   if (!Array.isArray(workflowIds) || workflowIds.length === 0) return new Map()
   const ids = []
   const seen = new Set()
@@ -532,11 +533,12 @@ export function readLatestRunCards(db, workflowIds) {
   if (ids.length === 0) return new Map()
   const placeholders = ids.map(() => '?').join(', ')
   const rows = db.prepare(`
-    SELECT workflow_id, state, finished_at, started_at, created_at
-    FROM workflow_runs
-    WHERE workflow_id IN (${placeholders})
-    ORDER BY created_at DESC, rowid DESC
-  `).all(...ids)
+    SELECT r.workflow_id, r.state, r.finished_at, r.started_at, r.created_at
+    FROM workflow_runs r
+    JOIN workflows w ON w.id = r.workflow_id AND w.workspace_id = ?
+    WHERE r.workflow_id IN (${placeholders})
+    ORDER BY r.created_at DESC, r.rowid DESC
+  `).all(workspaceId, ...ids)
   const cards = new Map()
   for (const row of rows) {
     if (cards.has(row.workflow_id)) continue

@@ -704,8 +704,8 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
     if (!workspaceId) return true
     const rows = db.prepare('SELECT * FROM workflows WHERE workspace_id = ? ORDER BY created_at DESC').all(workspaceId).map(mapWorkflow)
-    const cards = readLatestRunCards(db, rows.map((row) => row.id))
-    const runs = readWorkflowRuns(db, rows.map((row) => row.id))
+    const cards = readLatestRunCards(db, rows.map((row) => row.id), workspaceId)
+    const runs = readWorkflowRuns(db, rows.map((row) => row.id), workspaceId)
     for (const row of rows) {
       row.runs = runs.get(row.id) || []
       const card = cards.get(row.id)

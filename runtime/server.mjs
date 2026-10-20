@@ -3083,7 +3083,7 @@ const server = createServer(async (request, response) => {
         return
       }
       const workspaceId = connectionIdent.workspaceId
-      await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options))
+      await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options), { workspaceId })
       await migrateBoundWorkspaceSources(db, aiRuntime).catch(() => ({ migrated: 0 }))
       const listed = await readBizSystems(aiRuntime)
       const mcpItems = (listed.systems || []).map((row) => ({
@@ -3360,7 +3360,7 @@ const server = createServer(async (request, response) => {
         sendError(response, opFailure.status, opFailure.code, opFailure.message, currentCorrelationId)
         return
       }
-      const operationWorkspaceId = opIdent.workspaceId
+      const workspaceId = opIdent.workspaceId
       const required = ['targetRef', 'action', 'operationKind', 'riskLevel', 'input']
       const missing = required.filter((key) => body[key] === undefined || body[key] === '')
       if (missing.length > 0) {
@@ -3396,7 +3396,7 @@ const server = createServer(async (request, response) => {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           id,
-          operationWorkspaceId,
+          workspaceId,
           body.connectionId ?? null,
           body.appId ?? null,
           'actor_local_user',
@@ -3416,7 +3416,7 @@ const server = createServer(async (request, response) => {
           now,
         )
         if (body.plan && typeof body.plan === 'object' && typeof body.plan.previewId === 'string' && body.plan.previewId) {
-          insertOperationStep(db, id, 0, 'preview', 'succeeded', { previewId: body.plan.previewId }, body.plan)
+          insertOperationStep(db, id, 0, 'preview', 'succeeded', { previewId: body.plan.previewId }, body.plan, null, workspaceId)
         }
         if (writeNeedsApproval) {
           db.prepare(`
@@ -3426,7 +3426,7 @@ const server = createServer(async (request, response) => {
           `).run(createId('approval'), id, JSON.stringify({ reason: 'write_risk_gate', riskLevel: body.riskLevel }), now)
         }
         appendAudit(db, {
-          workspaceId: operationWorkspaceId,
+          workspaceId,
           actorId: 'actor_local_user',
           action: 'operation.plan',
           targetRef: `fde://workstation/operation/${id}`,

@@ -50,8 +50,8 @@ function resolveTask(db, taskId, workspaceId) {
   }
 }
 
-function resolveBriefing(db, briefingId) {
-  const row = db.prepare('SELECT id, content_json, generated_at FROM briefings WHERE id = ?').get(briefingId)
+function resolveBriefing(db, briefingId, workspaceCwd) {
+  const row = db.prepare('SELECT id, content_json, generated_at FROM briefings WHERE workspace_cwd = ? AND id = ?').get(workspaceCwd, briefingId)
   if (!row) return null
   let content = {}
   try {
@@ -224,7 +224,8 @@ export async function loadOrigin(deps, id) {
     return { ok: true, ...resolved }
   }
   if (id.startsWith('briefing:')) {
-    const resolved = resolveBriefing(db, id.slice(9))
+    const workspaceCwd = cwd
+    const resolved = resolveBriefing(db, id.slice(9), workspaceCwd)
     if (!resolved) return { ok: false, missing: true, message: '找不到该早报' }
     if (resolved.unreadable) {
       return { ok: false, title: resolved.title, text: '', message: resolved.unreadable, href: resolved.href }

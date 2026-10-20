@@ -140,7 +140,7 @@ describe('biz surfaces and live execute', () => {
       VALUES (?, 'ws_personal', NULL, NULL, 'actor_local_user', 'fde://external/x/table/y', 'record.update', 'write',
         'high', 'live', 'approved', 'idem_live_1', NULL, '{}', '{}', 'corr', NULL, ?, ?)
     `).run(id, now, now)
-    insertOperationStep(db, id, 1, 'approve', 'succeeded', {})
+    insertOperationStep(db, id, 1, 'approve', 'succeeded', {}, null, null, 'ws_personal')
     const result = await executeOperationLive(db, id, {
       workspaceId: 'ws_personal',
       writePreview: async () => ({}),
@@ -178,8 +178,8 @@ describe('biz surfaces and live execute', () => {
       VALUES (?, 'ws_personal', NULL, NULL, 'actor_local_user', 'fde://external/x/table/y', 'record.update', 'write',
         'high', 'live', 'approved', 'idem_live_3', NULL, '{}', '{"previewId":"pv_ok","kind":"采购单","action":"改行"}', 'corr', NULL, ?, ?)
     `).run(id, now, now)
-    insertOperationStep(db, id, 0, 'preview', 'succeeded', { previewId: 'pv_ok' })
-    insertOperationStep(db, id, 1, 'approve', 'succeeded', {})
+    insertOperationStep(db, id, 0, 'preview', 'succeeded', { previewId: 'pv_ok' }, null, null, 'ws_personal')
+    insertOperationStep(db, id, 1, 'approve', 'succeeded', {}, null, null, 'ws_personal')
     const result = await executeOperationLive(db, id, {
       correlationId: 'corr_live_ok',
       workspaceId: 'ws_personal',
