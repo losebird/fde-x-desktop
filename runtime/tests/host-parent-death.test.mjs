@@ -6,6 +6,9 @@ test('SIGKILL of the connector reaps the host group within 2s', { timeout: 240_0
   const out = process.env.PARENT_DEATH_OUT || ''
   const report = await runParentDeath({ mode: 'death', out: out || undefined })
   assert.equal(report.error, null, JSON.stringify(report))
+  assert.equal(report.connector, 'DshCoreConnector')
+  assert.ok(report.samples.length > 0, JSON.stringify(report.samples))
+  assert.equal(report.samples.some((sample) => sample.rows.some((row) => row.ppid === 1)), false, JSON.stringify(report.samples))
   assert.equal(report.webLine, true, JSON.stringify(report))
   assert.equal(report.epipe, false, JSON.stringify(report))
   assert.ok(report.httpStatus >= 200 && report.httpStatus < 400, JSON.stringify(report))

@@ -39,6 +39,25 @@ function isSemanticaPip(row) {
   return row.args.includes('semantica') && /\bpip\d*\b/u.test(row.args)
 }
 
+function roleOf(row, leaderPid) {
+  if (row.pid === leaderPid || row.args.includes('host-group.mjs')) return 'leader'
+  if (isSemanticaPip(row)) return 'pip'
+  if (row.args.includes('bin.js') || row.args.includes('@deepseek-ai/dsh')) return 'host'
+  return 'other'
+}
+
+function markRow(row, leaderPid) {
+  return {
+    pid: row.pid,
+    ppid: row.ppid,
+    pgid: row.pgid,
+    sid: row.sid,
+    stat: row.stat,
+    role: roleOf(row, leaderPid),
+    args: row.args,
+  }
+}
+
 async function processOwnsHome(pid, home) {
   try {
     const env = await readFile(join('/proc', String(pid), 'environ'))
@@ -133,6 +152,33 @@ function readMessages(child) {
   }
 }
 
+async function sampleWindow(home, leaderPid, tracked, killedAt, deadlineMs, includeZombies = false) {
+  const until = killedAt + deadlineMs
+  const samples = []
+  let last = []
+  let goneAt = null
+  while (Date.now() < until) {
+    const byPid = new Map()
+    for (const row of await listProcesses()) {
+      if (!includeZombies && row.stat.includes('Z')) continue
+      if (tracked.has(row.pid)) byPid.set(row.pid, row)
+    }
+    for (const row of await homeProcesses(home)) byPid.set(row.pid, row)
+    const rows = [...byPid.values()]
+    last = rows.map((row) => markRow(row, leaderPid))
+    samples.push({ tMs: Date.now() - killedAt, rows: last })
+    if (goneAt == null && rows.length === 0) goneAt = Date.now()
+    const wait = Math.min(100, until - Date.now())
+    if (wait <= 0) break
+    await sleep(wait)
+  }
+  return {
+    samples,
+    last,
+    elapsedMs: (goneAt ?? Date.now()) - killedAt,
+  }
+}
+
 function alive(pid) {
   if (!Number.isInteger(pid) || pid <= 1) return false
   try {
@@ -204,10 +250,14 @@ export async function runParentDeath(options = {}) {
     webLine: false,
     httpStatus: 0,
     epipe: false,
+    connector: null,
     beforeKids: [],
+    beforeRows: [],
+    samples: [],
     survivors: [],
     reparented: [],
     elapsedMs: null,
+    verdict: null,
     stable: null,
     error: null,
     stdoutTail: '',
@@ -222,6 +272,7 @@ export async function runParentDeath(options = {}) {
     report.home = ready.home
     report.hostPid = ready.hostPid
     report.parentPid = ready.parentPid
+    report.connector = ready.connector || ''
     report.webLine = ready.webLine
     report.httpStatus = ready.status
     report.epipe = ready.epipe
@@ -236,25 +287,46 @@ export async function runParentDeath(options = {}) {
       } while (Date.now() < pipUntil)
       report.beforeKids = kids.filter((row) => alive(row.pid))
       report.hostBefore = report.hostPid ? await processRow(report.hostPid) : null
+      report.beforeRows = (await homeProcesses(ready.home)).map((row) => markRow(row, report.hostPid))
       const killedAt = Date.now()
       expectExit = true
       process.kill(child.pid, 'SIGKILL')
-      const tracked = new Set([report.hostPid, ...report.beforeKids.map((row) => row.pid)].filter((pid) => Number.isInteger(pid)))
-      let last = []
-      let goneAt = null
-      const until = killedAt + deadlineMs
+      const tracked = new Set([
+        report.hostPid,
+        ...report.beforeRows.map((row) => row.pid),
+        ...report.beforeKids.map((row) => row.pid),
+      ].filter((pid) => Number.isInteger(pid)))
+      const window = await sampleWindow(ready.home, report.hostPid, tracked, killedAt, deadlineMs)
+      report.samples = window.samples
+      report.elapsedMs = window.elapsedMs
+      report.survivors = window.last
+      report.reparented = window.last.filter((row) => row.ppid === 1)
+      report.verdict = report.reparented.length === 0 && report.survivors.length === 0 ? 'green' : 'red'
+    } else if (mode === 'crash') {
+      const pipUntil = Date.now() + 20_000
+      let kids = []
       do {
-        last = await homeProcesses(ready.home)
-        if (last.length === 0 && [...tracked].every((pid) => !alive(pid))) {
-          goneAt = Date.now()
-          break
-        }
-        if (Date.now() >= until) break
-        await sleep(100)
-      } while (Date.now() < until)
-      report.elapsedMs = (goneAt ?? Date.now()) - killedAt
-      report.survivors = last
-      report.reparented = last.filter((row) => row.ppid === 1)
+        kids = (await homeProcesses(ready.home)).filter(isSemanticaPip)
+        if (kids.length > 0) break
+        await sleep(200)
+      } while (Date.now() < pipUntil)
+      report.beforeKids = kids.filter((row) => alive(row.pid))
+      report.beforeRows = (await homeProcesses(ready.home)).map((row) => markRow(row, report.hostPid))
+      const leaderPid = report.hostPid
+      const hostRow = report.beforeRows.find((row) => row.role === 'host' && alive(row.pid))
+      if (!hostRow) throw new Error(`did not find the host bin under ${ready.home}`)
+      report.hostBefore = hostRow
+      const killedAt = Date.now()
+      process.kill(hostRow.pid, 'SIGKILL')
+      const tracked = new Set([hostRow.pid, leaderPid, ...report.beforeKids.map((row) => row.pid)])
+      const window = await sampleWindow(ready.home, leaderPid, tracked, killedAt, deadlineMs, true)
+      report.samples = window.samples
+      report.elapsedMs = window.elapsedMs
+      const hostOrPip = (row) => row.role === 'pip' || row.role === 'host'
+      const live = (row) => !String(row.stat).includes('Z')
+      report.survivors = window.last.filter((row) => hostOrPip(row) && live(row))
+      report.reparented = report.samples.flatMap((sample) => sample.rows.filter((row) => hostOrPip(row) && live(row) && row.ppid === 1))
+      report.verdict = report.reparented.length > 0 ? 'red' : 'green'
     } else {
       const stable = await messages.next((options.holdMs ?? 30_000) + 30_000)
       report.stable = stable
@@ -292,18 +364,28 @@ export async function runParentDeath(options = {}) {
     report.stdoutTail = stdout.slice(-2000)
     report.stderrTail = stderr.slice(-2000)
   }
+  const sawPid1 = report.samples.some((sample) => sample.rows.some((row) => row.ppid === 1))
   report.ok = report.mode === 'death'
     ? report.error == null
+      && report.connector === 'DshCoreConnector'
       && report.webLine === true
       && report.epipe === false
       && report.httpStatus >= 200
       && report.httpStatus < 400
       && report.beforeKids.length > 0
+      && report.samples.length > 0
       && report.survivors.length === 0
       && report.reparented.length === 0
+      && sawPid1 === false
       && report.elapsedMs != null
       && report.elapsedMs <= deadlineMs
       && report.hostBefore?.ppid === report.parentPid
+    : report.mode === 'crash'
+      ? report.error == null
+        && report.connector === 'DshCoreConnector'
+        && report.beforeKids.length > 0
+        && report.samples.length > 0
+        && (report.verdict === 'red' || report.verdict === 'green')
     : report.error == null
       && report.stable?.type === 'stable'
       && report.webLine === true
@@ -322,7 +404,7 @@ export async function runParentDeath(options = {}) {
 
 async function main() {
   const args = process.argv.slice(2)
-  const mode = args.includes('--stable') ? 'stable' : 'death'
+  const mode = args.includes('--crash') ? 'crash' : args.includes('--stable') ? 'stable' : 'death'
   const outFlag = args.indexOf('--out')
   const out = outFlag >= 0 ? resolve(args[outFlag + 1] || '') : ''
   const report = await runParentDeath({ mode, out: out || undefined })

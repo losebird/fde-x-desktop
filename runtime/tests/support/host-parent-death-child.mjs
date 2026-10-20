@@ -60,6 +60,7 @@ send({
   home: host.home,
   hostPid: host.core.child?.pid ?? null,
   parentPid: process.pid,
+  connector: host.core?.constructor?.name || '',
   version: host.version,
   origin: host.core.origin,
   ...readyProbe,
