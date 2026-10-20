@@ -215,7 +215,6 @@ export class DshCoreConnector {
     this.version = null
     this.patchFile = options.patchFile ?? CONFIG_DSH_PATCH
     this.profileName = options.profileName ?? process.env.FDE_DSH_PROFILE ?? 'fde-x'
-    this.vendorRoot = typeof options.vendorRoot === 'string' && options.vendorRoot ? options.vendorRoot : ''
     this.runtimeDirectory = FDE_RUNTIME_DIR
     this.runDirectory = fdeRunDirectory(this.dshHome)
     this.corePidFile = `dsh-core-${this.profileName}.pid`
@@ -591,21 +590,15 @@ export class DshCoreConnector {
   }
 
   pluginSourceCandidates(plugin) {
+    const fromEnv = process.env[pluginEnvKey(plugin.dir)]
     const webLink = join(this.dshHome, 'profiles', 'web', 'node_modules', plugin.module)
     const candidates = []
-    const vendorRoot = this.vendorRoot || FDE_VENDOR_DIR
-    if (!this.vendorRoot) {
-      const fromEnv = process.env[pluginEnvKey(plugin.dir)]
-      if (fromEnv) candidates.push(fromEnv)
-    }
-    candidates.push(join(vendorRoot, plugin.dir))
+    if (fromEnv) candidates.push(fromEnv)
+    candidates.push(join(FDE_VENDOR_DIR, plugin.dir))
     if (plugin.module !== plugin.dir) {
-      if (!this.vendorRoot) {
-        const moduleEnv = process.env[pluginEnvKey(plugin.module)]
-        const dirEnv = process.env[pluginEnvKey(plugin.dir)]
-        if (moduleEnv && moduleEnv !== dirEnv) candidates.push(moduleEnv)
-      }
-      candidates.push(join(vendorRoot, plugin.module))
+      const moduleEnv = process.env[pluginEnvKey(plugin.module)]
+      if (moduleEnv && moduleEnv !== fromEnv) candidates.push(moduleEnv)
+      candidates.push(join(FDE_VENDOR_DIR, plugin.module))
     }
     try {
       if (existsSync(webLink)) candidates.push(realpathSync(webLink))

@@ -45,3 +45,23 @@ export const STANDARD_SESSION_TOOLS = [
   'workflow',
   'write',
 ]
+
+export const LAN_ASSIST_SESSION_TOOLS = [
+  'ask_colleague',
+  'biz_describe',
+  'biz_preview',
+  'biz_traces',
+  'biz_write',
+  'list_visible',
+]
+
+export const IUI_SESSION_TOOLS = [
+  'get_place_images',
+  'get_trip_stop_images',
+]
+
+export const STANDARD_BUNDLE_TOOLS = [
+  ...STANDARD_SESSION_TOOLS,
+  ...LAN_ASSIST_SESSION_TOOLS,
+  ...IUI_SESSION_TOOLS,
+].sort()

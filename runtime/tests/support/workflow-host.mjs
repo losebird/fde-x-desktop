@@ -100,12 +100,6 @@ export async function bootWorkflowHost(options = {}) {
     FDE_WORKFLOW_PROBE_EXTRA: process.env.FDE_WORKFLOW_PROBE_EXTRA,
     FDE_WORKFLOW_PROBE_CALL: process.env.FDE_WORKFLOW_PROBE_CALL,
     FDE_WORKFLOW_PROBE_PRESET_ONLY: process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY,
-    FDE_VENDOR_DIR: process.env.FDE_VENDOR_DIR,
-    FDE_IUI_ARTIFACT: process.env.FDE_IUI_ARTIFACT,
-    FDE_PLUGIN_DSH_LAN_ASSIST: process.env.FDE_PLUGIN_DSH_LAN_ASSIST,
-    FDE_PLUGIN_DSH_SEMANTIC_OS: process.env.FDE_PLUGIN_DSH_SEMANTIC_OS,
-    FDE_PLUGIN_IUI: process.env.FDE_PLUGIN_IUI,
-    FDE_PLUGIN__LOSEBIRD_IUI: process.env.FDE_PLUGIN__LOSEBIRD_IUI,
   }
   process.env.FDE_DSH_HOME = home
   process.env.DSH_HOME = home
@@ -124,22 +118,12 @@ export async function bootWorkflowHost(options = {}) {
   if (options.presetOnly) process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY = '1'
   else delete process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY
 
-  const emptyVendor = join(home, 'empty-vendor')
-  await mkdir(emptyVendor, { recursive: true })
-  process.env.FDE_VENDOR_DIR = emptyVendor
-  delete process.env.FDE_IUI_ARTIFACT
-  delete process.env.FDE_PLUGIN_DSH_LAN_ASSIST
-  delete process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
-  delete process.env.FDE_PLUGIN_IUI
-  delete process.env.FDE_PLUGIN__LOSEBIRD_IUI
-
   const core = createCoreConnector({
     bin,
     dshHome: home,
     cwd,
     patchFile,
     profileName,
-    vendorRoot: emptyVendor,
     startTimeoutMs: 90_000,
   })
   const status = await core.start()
