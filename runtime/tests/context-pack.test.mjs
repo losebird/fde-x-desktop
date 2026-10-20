@@ -284,8 +284,8 @@ test('context pack uses the supplied workspace id and rejects a mismatch', async
   bindPersonalCwd(db, '/tmp/pack-a')
   db.prepare(`
     INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
-    VALUES ('task_pack_b', 'ws_pack_b', 'pack-b-task', '', 'todo', 'med', NULL, ?, ?)
-  `).run(now, now)
+    VALUES ('task_pack_b', 'ws_pack_b', 'pack-b-task', '', 'todo', 'med', ?, ?, ?)
+  `).run(now, now, now)
   const aiRuntime = { status: () => ({ connected: false }) }
   const mismatched = await buildContextPack({ db, aiRuntime }, {
     workspaceCwd: '/tmp/pack-a',

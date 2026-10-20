@@ -1,6 +1,6 @@
 import { buildContextPack } from '../context-pack.mjs'
 import { FDE_AI_WORKSPACE } from '../config.mjs'
-import { resolveHttpWorkspace } from '../http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
 
 function sendJson(response, status, body) {
   const raw = JSON.stringify(body)
@@ -48,11 +48,13 @@ export async function handleContextPackRoute(request, response, url, deps) {
       intentKind: body.intentKind,
       sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
       taskIds: body.taskIds,
+      workspaceId: typeof body.workspaceId === 'string' ? body.workspaceId : undefined,
       cwdSource: resolvedPack.source,
     },
   )
-  if (error === 'missing_workspace') {
-    sendError(response, 404, 'not_found', '工作区未登记', correlationId)
+  const failure = httpStatusForWorkspaceError(error)
+  if (failure) {
+    sendError(response, failure.status, failure.code, failure.message, correlationId)
     return true
   }
   sendJson(response, 200, { ok: true, data: pack, warnings, correlationId })

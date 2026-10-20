@@ -294,6 +294,7 @@ export async function buildContextPack(deps, input) {
     intentKind,
     sessionId,
     taskIds,
+    workspaceId: suppliedWorkspaceId,
     cwdSource,
   } = input
   const warnings = []
@@ -305,7 +306,11 @@ export async function buildContextPack(deps, input) {
   if (!cwd) {
     return { pack, warnings: ['workspace_cwd_missing'] }
   }
-  const ident = resolveWorkspaceIdOrFail(deps.db, { cwd, source: cwdSource || 'request' })
+  const ident = resolveWorkspaceIdOrFail(deps.db, {
+    cwd,
+    source: cwdSource || 'request',
+    id: typeof suppliedWorkspaceId === 'string' ? suppliedWorkspaceId.trim() : '',
+  })
   if (ident.error) return { pack, warnings, error: ident.error }
   const workspaceId = ident.workspaceId
 

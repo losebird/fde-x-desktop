@@ -9,7 +9,7 @@ import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
 import { resolveWorkspaceIdOrFail, workspaceCwdForId } from '../briefing/workspace.mjs'
 import { proposePlanTask } from '../plan/task-proposals.mjs'
-import { resolveHttpWorkspace } from '../http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
 import { pathHasPrefix } from '../path-prefix.mjs'
 
 const READY_TTL_MS = 10 * 60 * 1000
@@ -195,11 +195,13 @@ export async function handleBridgeRoutes(request, response, url, deps) {
         sessionId,
         query: typeof body.query === 'string' ? body.query : undefined,
         intentKind: body.intentKind,
+        workspaceId: typeof body.workspaceId === 'string' ? body.workspaceId : undefined,
         cwdSource: resolvedBridge.source,
       },
     )
-    if (error === 'missing_workspace') {
-      bridgeError(response, 404, 'not_found', '工作区未登记', correlationId)
+    const failure = httpStatusForWorkspaceError(error)
+    if (failure) {
+      bridgeError(response, failure.status, failure.code, failure.message, correlationId)
       return true
     }
     bridgeOk(response, 200, { ...pack, warnings }, correlationId)
