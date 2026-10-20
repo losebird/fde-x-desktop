@@ -1,10 +1,29 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { bootWorkflowHost, hostPinDir, waitForProbe } from './support/workflow-host.mjs'
 
 const WORKFLOW_TOOLS = ['fde_app_records_propose', 'fde_app_records_query', 'fde_plan_task_propose']
+
+test('真 Host 不把环境里的供应商插件链进普通会话', async () => {
+  const plugin = await mkdtemp(join(tmpdir(), 'fde-ambient-plugin-'))
+  const saved = process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+  process.env.FDE_PLUGIN_DSH_LAN_ASSIST = plugin
+  await writeFile(join(plugin, 'package.json'), `${JSON.stringify({ name: 'dsh-lan-assist', version: '0.0.0' })}\n`)
+  const host = await bootWorkflowHost()
+  try {
+    const manifest = JSON.parse(readFileSync(join(host.home, 'profiles', 'fde-workflow-host', 'package.json'), 'utf8'))
+    assert.equal(manifest.dsh.profile.bundles.includes('dsh-lan-assist'), false)
+  } finally {
+    await host.stop()
+    if (saved === undefined) delete process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+    else process.env.FDE_PLUGIN_DSH_LAN_ASSIST = saved
+    await rm(plugin, { recursive: true, force: true })
+  }
+})
 
 test('锁文件把 Host pin 固定在 0.2.0-rc.2', () => {
   const lock = JSON.parse(readFileSync(join(hostPinDir(), 'package-lock.json'), 'utf8'))
