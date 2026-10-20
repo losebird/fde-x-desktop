@@ -67,6 +67,7 @@ export const httpWorkspaceRoutes = [
   { id: 'briefing-run', file: 'runtime/routes/briefing.mjs', method: 'POST', path: '/api/v1/briefing/run', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime', extra: { mode: 'internal-only' } },
   { id: 'events-recent', file: 'runtime/routes/events.mjs', method: 'GET', path: '/api/v1/events/recent', place: 'query', param: 'workspace', proof: 'events', absent: 'unfiltered' },
   { id: 'events-sse', file: 'runtime/routes/events.mjs', method: 'GET', path: '/api/v1/events', place: 'query', param: 'workspace', proof: 'events-sse', absent: 'unfiltered' },
+  { id: 'events-pending', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/events/pending', place: 'query', param: 'workspace', proof: 'events', absent: 'unfiltered' },
   { id: 'search', file: 'runtime/routes/search.mjs', method: 'GET', path: '/api/v1/search', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'memory-search', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/memory/search', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime', extra: { q: 'x' } },
   { id: 'memory-deps', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/memory/deps', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
@@ -102,7 +103,6 @@ export const httpWorkspaceRoutes = [
 ]
 
 export const httpWorkspaceExemptions = [
-  { file: 'runtime/server.mjs', path: '/api/v1/events/pending', reason: 'GET /api/v1/events/pending 不读 workspace，也不按工作区过滤' },
   { file: 'runtime/session-bind.mjs', reason: '创建会话的 cwd 与 workspaceId 二选一。路径手用 canonicalWorkspaceCwd。缺省不是运行时 cwd' },
   { file: 'runtime/routes/plan.mjs', reason: 'workspaceId 是工作区 id' },
   { file: 'runtime/routes/biz.mjs', path: '/api/v1/biz/connections', reason: 'GET /api/v1/biz/connections 的 workspace 查询是连接 id。同文件的路径参数走 resolveHttpWorkspace' },
