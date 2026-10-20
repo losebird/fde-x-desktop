@@ -137,7 +137,8 @@ export async function bootWorkflowHost(options = {}) {
   async function stop() {
     await core.stop().catch(() => {})
     restoreEnv(previous)
-    await rm(home, { recursive: true, force: true })
+    // semantic-os can still write bytecode into this home while rm walks it
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
   }
 
   return { core, cwd, probeDir, home, version: status.version, stop }

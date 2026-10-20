@@ -1,9 +1,21 @@
 import { createHash } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
-import { existsSync, lstatSync } from 'node:fs'
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { gzipSync } from 'node:zlib'
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { cp, lstat, mkdir, mkdtemp, readFile, rename, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, sep } from 'node:path'
+import { basename, dirname, extname, join, relative, sep } from 'node:path'
 
 const MARKER = '.fde-plugin-installed.json'
 const SKIP_WALK = new Set(['node_modules', '.git', 'runtime-dist', '__pycache__', '.nsc-local', '.tmp-npm'])
@@ -51,27 +63,30 @@ async function unlinkIfSymlink(path) {
   }
 }
 
-async function walk(dir) {
+function walk(dir) {
   const out = []
-  let names
-  try {
-    names = await readdir(dir)
-  } catch {
-    return out
-  }
-  for (const name of names) {
-    if (SKIP_WALK.has(name)) continue
-    const path = join(dir, name)
-    let st
+  const visit = (current) => {
+    let names
     try {
-      st = await lstat(path)
+      names = readdirSync(current)
     } catch {
-      continue
+      return
     }
-    if (st.isSymbolicLink()) continue
-    if (st.isDirectory()) out.push(...await walk(path))
-    else if (!name.endsWith('.min.js')) out.push(path)
+    for (const name of names) {
+      if (SKIP_WALK.has(name)) continue
+      const path = join(current, name)
+      let st
+      try {
+        st = lstatSync(path)
+      } catch {
+        continue
+      }
+      if (st.isSymbolicLink()) continue
+      if (st.isDirectory()) visit(path)
+      else if (!name.endsWith('.min.js')) out.push(path)
+    }
   }
+  visit(dir)
   return out
 }
 
@@ -138,12 +153,12 @@ function resolvePy(fromFile, spec) {
 
 export async function firstMissingClosure(root) {
   if (existsSync(join(root, 'package.json')) && !existsSync(join(root, 'index.js'))) {
-    const files = await walk(root)
+    const files = walk(root)
     if (files.some((file) => /\.(js|mjs)$/.test(file))) return 'index.js'
   }
-  const files = await walk(root)
+  const files = walk(root)
   for (const file of files) {
-    const text = await readFile(file, 'utf8')
+    const text = readFileSync(file, 'utf8')
     if (/\.(js|mjs)$/.test(file)) {
       for (const spec of jsSpecifiers(text)) {
         const hit = resolveJs(file, spec)
@@ -163,15 +178,59 @@ export async function firstMissingClosure(root) {
   return null
 }
 
-async function digestTree(dir) {
-  const files = (await walk(dir)).filter((file) => !file.endsWith(MARKER)).sort()
+function digestTree(dir) {
+  const files = walk(dir).filter((file) => !file.endsWith(MARKER)).sort()
   const hash = createHash('sha256')
   for (const file of files) {
     hash.update(relative(dir, file).split(sep).join('/'))
     hash.update('\0')
-    hash.update(await readFile(file))
+    hash.update(readFileSync(file))
     hash.update('\0')
   }
+  return hash.digest('hex')
+}
+
+export function sourceStamp(dir) {
+  const hash = createHash('sha256')
+  const visit = (current) => {
+    let names
+    try {
+      names = readdirSync(current).slice().sort()
+    } catch {
+      return
+    }
+    for (const name of names) {
+      if (SKIP_WALK.has(name) || name === MARKER) continue
+      const path = join(current, name)
+      let st
+      try {
+        st = lstatSync(path, { bigint: true })
+      } catch {
+        continue
+      }
+      if (st.isSymbolicLink()) continue
+      const rel = relative(dir, path).split(sep).join('/')
+      if (st.isDirectory()) {
+        hash.update('d\0')
+        hash.update(rel)
+        hash.update('\0')
+        hash.update(st.mtimeNs.toString())
+        hash.update('\0')
+        visit(path)
+      } else if (!name.endsWith('.min.js')) {
+        hash.update('f\0')
+        hash.update(rel)
+        hash.update('\0')
+        hash.update(st.size.toString())
+        hash.update('\0')
+        hash.update(st.mtimeNs.toString())
+        hash.update('\0')
+        hash.update(st.ino.toString())
+        hash.update('\0')
+      }
+    }
+  }
+  visit(dir)
   return hash.digest('hex')
 }
 
@@ -276,6 +335,153 @@ async function vendorIsSymlink(dshHome) {
   }
 }
 
+const NPM_PACK_MTIME = 499162500
+const natsProofs = new Map()
+
+function padOctal(num, size) {
+  const str = Math.floor(num).toString(8)
+  const body = str.length === size - 1 ? str : `${'0'.repeat(size - str.length - 2)}${str} `
+  return `${body}\0`
+}
+
+function readJsonFile(path) {
+  return JSON.parse(readFileSync(path, 'utf8'))
+}
+
+function pluginDeclaresNats(pluginDir) {
+  const pkgPath = join(pluginDir, 'package.json')
+  if (!existsSync(pkgPath)) return false
+  const pkg = readJsonFile(pkgPath)
+  return Boolean(pkg.dependencies && pkg.dependencies.nats)
+}
+
+function natsLockSpec(pluginDir) {
+  const lockPath = join(pluginDir, 'package-lock.json')
+  if (!existsSync(lockPath)) return null
+  const lock = readJsonFile(lockPath)
+  const row = lock.packages && lock.packages['node_modules/nats']
+  if (!row || typeof row.version !== 'string' || typeof row.integrity !== 'string') return null
+  return { version: row.version, integrity: row.integrity }
+}
+
+function natsPackNames(natsDir) {
+  const names = []
+  const visit = (current) => {
+    for (const name of readdirSync(current)) {
+      const path = join(current, name)
+      const st = lstatSync(path)
+      if (st.isSymbolicLink()) continue
+      if (st.isDirectory()) visit(path)
+      else names.push(relative(natsDir, path).split(sep).join('/'))
+    }
+  }
+  visit(natsDir)
+  names.sort((a, b) => {
+    const exta = extname(a).toLowerCase()
+    const extb = extname(b).toLowerCase()
+    const basea = basename(a).toLowerCase()
+    const baseb = basename(b).toLowerCase()
+    return exta.localeCompare(extb, 'en')
+      || basea.localeCompare(baseb, 'en')
+      || a.localeCompare(b, 'en')
+  })
+  return names
+}
+
+function natsFileMode(path) {
+  return (lstatSync(path).mode & 0o111) ? 0o755 : 0o644
+}
+
+export function natsContentDigest(natsDir) {
+  const hash = createHash('sha256')
+  for (const rel of natsPackNames(natsDir)) {
+    const path = join(natsDir, rel)
+    hash.update(rel)
+    hash.update('\0')
+    hash.update(String(natsFileMode(path)))
+    hash.update('\0')
+    hash.update(readFileSync(path))
+    hash.update('\0')
+  }
+  return hash.digest('hex')
+}
+
+function tarHeader(name, size, mode) {
+  const buf = Buffer.alloc(512)
+  buf.write(name, 0, 'utf8')
+  buf.write(padOctal(mode, 8), 100, 'ascii')
+  buf.write(padOctal(size, 12), 124, 'ascii')
+  buf.write(padOctal(NPM_PACK_MTIME, 12), 136, 'ascii')
+  buf[156] = 0x30
+  buf.write('ustar\0' + '00', 257, 'ascii')
+  buf.write(padOctal(0, 8), 329, 'ascii')
+  buf.write(padOctal(0, 8), 337, 'ascii')
+  let sum = 8 * 0x20
+  for (let i = 0; i < 148; i += 1) sum += buf[i]
+  for (let i = 156; i < 512; i += 1) sum += buf[i]
+  buf.write(padOctal(sum, 8), 148, 'ascii')
+  return buf
+}
+
+function natsPackIntegrity(natsDir) {
+  const chunks = []
+  for (const rel of natsPackNames(natsDir)) {
+    const path = join(natsDir, rel)
+    const data = readFileSync(path)
+    chunks.push(tarHeader(`package/${rel}`, data.length, natsFileMode(path)))
+    chunks.push(data)
+    const pad = (512 - (data.length % 512)) % 512
+    if (pad) chunks.push(Buffer.alloc(pad))
+  }
+  chunks.push(Buffer.alloc(1024))
+  // npm portable pack. sha512 of this gzip is the lock integrity.
+  const gz = gzipSync(Buffer.concat(chunks), { level: 9, memLevel: 8 })
+  gz[4] = 0
+  gz[5] = 0
+  gz[6] = 0
+  gz[7] = 0
+  gz[8] = 2
+  gz[9] = 0xff
+  return `sha512-${createHash('sha512').update(gz).digest('base64')}`
+}
+
+export function natsInstallFact(pluginDir) {
+  if (!pluginDeclaresNats(pluginDir)) return { needed: false }
+  const pkgPath = join(pluginDir, 'node_modules', 'nats', 'package.json')
+  if (!existsSync(pkgPath)) return { needed: true, missing: true }
+  const version = String(readJsonFile(pkgPath).version || '')
+  return {
+    needed: true,
+    missing: false,
+    version,
+    content: natsContentDigest(join(pluginDir, 'node_modules', 'nats')),
+  }
+}
+
+export function natsIntegrityProblem(pluginDir) {
+  const fact = natsInstallFact(pluginDir)
+  if (!fact.needed) return null
+  if (fact.missing) return 'NATS_DEPENDENCY_MISSING'
+  const lock = natsLockSpec(pluginDir)
+  if (!lock || fact.version !== lock.version) return 'nats integrity mismatch'
+  const key = `${lock.integrity}\0${lock.version}\0${fact.content}`
+  const cached = natsProofs.get(key)
+  if (cached === true) return null
+  if (cached === false) return 'nats integrity mismatch'
+  const ok = natsPackIntegrity(join(pluginDir, 'node_modules', 'nats')) === lock.integrity
+  natsProofs.set(key, ok)
+  return ok ? null : 'nats integrity mismatch'
+}
+
+export function natsStampFields(pluginDir) {
+  const fact = natsInstallFact(pluginDir)
+  if (!fact.needed) return null
+  const problem = natsIntegrityProblem(pluginDir)
+  if (problem) return { problem }
+  const lock = natsLockSpec(pluginDir)
+  return { version: fact.version, integrity: lock.integrity, content: fact.content }
+}
+
 export async function syncRepoCache({ dshHome, pluginDir, source, refresh, lockText }) {
   let locked = null
   if (lockText) {
@@ -291,55 +497,71 @@ export async function syncRepoCache({ dshHome, pluginDir, source, refresh, lockT
     ? join(dshHome, 'plugin-cache', pluginDir)
     : join(dshHome, 'vendor', pluginDir)
   const parked = linkedVendor ? null : await detachVendorLink(dshHome, pluginDir)
-  const digest = await digestTree(source)
+  const digest = digestTree(source)
   const marker = await readMarker(dest)
   const destReady = existsSync(dest) && !lstatSync(dest).isSymbolicLink()
-  const same = marker && marker.digest === digest && (!locked || marker.lock === 'match')
-  if (destReady && same && !refresh) {
+  const lockHash = lockText ? sha256(lockText) : ''
+  const lockOk = !locked || (marker && marker.lock === 'match' && marker.lockHash === lockHash)
+  const same = marker && marker.digest === digest && lockOk
+  const natsFact = destReady ? natsInstallFact(dest) : { needed: false }
+  const natsDrift = Boolean(
+    natsFact.needed && !natsFact.missing && marker
+    && (marker.natsContent !== natsFact.content || marker.natsVersion !== natsFact.version),
+  )
+  if (destReady && same && !natsDrift && !refresh) {
     await restoreRuntimeDist(dest, parked)
     return { ok: true, copied: false, linkDir: dest }
   }
-  const tempParent = await mkdtemp(join(tmpdir(), 'fde-plugin-stage-'))
+  const tempParent = mkdtempSync(join(tmpdir(), 'fde-plugin-stage-'))
   const temp = join(tempParent, pluginDir)
-  await cp(source, temp, { recursive: true, dereference: true, filter: copyFilter(source) })
-  if (locked) {
-    for (const [rel, hash] of locked) {
-      const file = join(temp, rel)
-      if (!existsSync(file)) {
-        await rm(tempParent, { recursive: true, force: true })
-        return { ok: false, error: `missing ${rel.split('/').pop()}` }
-      }
-      const got = sha256(await readFile(file))
-      if (got !== hash) {
-        await rm(tempParent, { recursive: true, force: true })
-        return { ok: false, error: `mismatch ${rel.split('/').pop()}` }
+  try {
+    cpSync(source, temp, { recursive: true, dereference: true, filter: copyFilter(source) })
+    if (locked) {
+      for (const [rel, hash] of locked) {
+        const file = join(temp, rel)
+        if (!existsSync(file)) return { ok: false, error: `missing ${rel.split('/').pop()}` }
+        if (sha256(readFileSync(file)) !== hash) return { ok: false, error: `mismatch ${rel.split('/').pop()}` }
       }
     }
+    mkdirSync(dirname(dest), { recursive: true })
+    rmSync(dest, { recursive: true, force: true })
+    renameSync(temp, dest)
+  } finally {
+    rmSync(tempParent, { recursive: true, force: true })
   }
-  await mkdir(dirname(dest), { recursive: true })
-  await rm(dest, { recursive: true, force: true })
-  await rename(temp, dest)
-  await rm(tempParent, { recursive: true, force: true })
   await restoreRuntimeDist(dest, parked)
-  await writeFile(join(dest, MARKER), `${JSON.stringify({ digest, lock: locked ? 'match' : 'injected' })}\n`)
+  const installedNats = natsInstallFact(dest)
+  if (installedNats.needed && !installedNats.missing) {
+    const problem = natsIntegrityProblem(dest)
+    if (problem) return { ok: false, error: problem }
+  }
+  writeFileSync(join(dest, MARKER), `${JSON.stringify({
+    digest,
+    lock: locked ? 'match' : 'injected',
+    lockHash,
+    ...(installedNats.needed && !installedNats.missing
+      ? { natsVersion: installedNats.version, natsContent: installedNats.content }
+      : {}),
+  })}\n`)
   return { ok: true, copied: true, linkDir: dest }
 }
 
 export async function natsDependencyError(pluginDir) {
   let pkg
   try {
-    pkg = JSON.parse(await readFile(join(pluginDir, 'package.json'), 'utf8'))
+    pkg = JSON.parse(readFileSync(join(pluginDir, 'package.json'), 'utf8'))
   } catch {
     return null
   }
   if (!pkg.dependencies || !pkg.dependencies.nats) return null
-  const probe = join(pluginDir, `.nats-preflight-${process.pid}.mjs`)
-  await writeFile(probe, "try { await import('nats') } catch { process.stdout.write(JSON.stringify({ error: 'NATS_DEPENDENCY_MISSING' })); process.exit(1) }\n")
+  if (!existsSync(join(pluginDir, 'node_modules', 'nats', 'package.json'))) return 'NATS_DEPENDENCY_MISSING'
   try {
-    const ran = spawnSync(process.execPath, [probe], { cwd: pluginDir, encoding: 'utf8' })
-    if (ran.status !== 0) return 'NATS_DEPENDENCY_MISSING'
+    const req = createRequire(join(pluginDir, 'package.json'))
+    const resolved = req.resolve('nats')
+    delete req.cache[resolved]
+    req('nats')
     return null
-  } finally {
-    await rm(probe, { force: true })
+  } catch {
+    return 'NATS_DEPENDENCY_MISSING'
   }
 }
