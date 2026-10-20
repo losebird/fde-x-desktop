@@ -3048,6 +3048,14 @@ const server = createServer(async (request, response) => {
         sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
         return
       }
+      if (!resolvedPending.omitted) {
+        const pendingIdent = resolveWorkspaceIdOrFail(db, resolvedPending)
+        const pendingFailure = httpStatusForWorkspaceError(pendingIdent.error)
+        if (pendingFailure) {
+          sendError(response, pendingFailure.status, pendingFailure.code, pendingFailure.message, currentCorrelationId)
+          return
+        }
+      }
       sendJson(response, 200, {
         items: listPendingEvents(db, {
           limit,
