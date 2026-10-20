@@ -482,6 +482,16 @@ function workspaceReadProblems(rel, text) {
   return problems
 }
 
+test('a handler that skips resolveHttpWorkspace fails the guard', async () => {
+  const problems = []
+  for (const file of await runtimeSources()) {
+    const rel = relative(repoRoot, file)
+    if (wholeFileExempt(rel)) continue
+    problems.push(...workspaceReadProblems(rel, await readFile(file, 'utf8')))
+  }
+  assert.ok(problems.some((line) => line.includes('ws-guard-probe') && line.includes('resolveHttpWorkspace')))
+})
+
 test('http workspace readers are registered', async () => {
   const problems = []
   const seen = new Set(httpWorkspaceRoutes.map((route) => route.id))

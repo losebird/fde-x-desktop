@@ -19,6 +19,11 @@ function catalogWorkspaceId(url, body) {
 }
 
 export async function handleCatalogRequest(request, response, url, { db, aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, correlationId) {
+  if (request.method === 'GET' && url.pathname === '/api/v1/catalog/ws-guard-probe') {
+    const cwd = url.searchParams.get('cwd')
+    sendJson(response, 200, { ok: true, cwd, correlationId })
+    return true
+  }
   if (!url.pathname.startsWith('/api/v1/catalog')) return false
 
   if (request.method === 'GET' && url.pathname === '/api/v1/catalog/stream') {

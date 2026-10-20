@@ -85,6 +85,7 @@ export const httpWorkspaceRoutes = [
   { id: 'memory-health-act', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/memory/health/act', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'memory-cards-post', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/memory/cards', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { label: 'matrix marker label', origin: 'note:matrix' } },
   { id: 'memory-nod', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/memory/cards/matrix/nod', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { nodded: true } },
+  { id: 'catalog-probe', file: 'runtime/routes/catalog.mjs', method: 'GET', path: '/api/v1/catalog/ws-guard-probe', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime', illegal: 'unmatched' },
   { id: 'catalog', file: 'runtime/routes/catalog.mjs', method: 'GET', path: '/api/v1/catalog', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime', extra: { kind: 'file' } },
   { id: 'catalog-post', file: 'runtime/routes/catalog.mjs', method: 'POST', path: '/api/v1/catalog', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { kind: 'file', action: 'matrix' } },
   { id: 'business-connections', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/business/connections', place: 'query', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
