@@ -1829,14 +1829,12 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     if (wantedKind && wantedNo) {
       const catalog = kindRowsFromVocab(vocab)
       const canonical = resolveConnectedKind(wantedKind, catalog) || wantedKind
-      const row = catalog.find((item) => item.kind === canonical)
       const nextConnectionId = recordsLandConnectionId({
         currentId: connectionId,
         dataLand,
         connectionLand,
         landConnection,
         connections,
-        vocabConnection: row?.connection,
       })
       if (nextConnectionId && nextConnectionId !== connectionId) setConnectionId(nextConnectionId)
       setKind(canonical)
