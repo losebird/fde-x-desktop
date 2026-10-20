@@ -19,7 +19,7 @@ function phraseFor(mode) {
   if (mode === 'code0') return 'AI 服务启动前退出（code 0）'
   if (mode === 'sigsegv') return 'AI 服务启动前退出（signal SIGSEGV）'
   if (mode === 'sigkill') return 'AI 服务启动前退出（signal SIGKILL）'
-  if (mode === 'missing') return '真实退出状态未知'
+  if (mode === 'missing' || mode === 'stale') return '真实退出状态未知'
   throw new Error(`unknown host exit mode ${mode}`)
 }
 
@@ -164,11 +164,17 @@ export async function runHostExitStatus(options = {}) {
       throw new Error(`pip was not running in the host group: ${JSON.stringify(report)}`)
     }
     if (mode === 'sigsegv' || mode === 'sigkill') process.kill(ready.hostPid, mode === 'sigsegv' ? 'SIGSEGV' : 'SIGKILL')
-    else if (mode === 'missing') process.kill(leaderPid, 'SIGKILL')
-    else await writeFile(goPath, mode === 'code3' ? '3\n' : '0\n')
+    else if (mode === 'missing' || mode === 'stale') {
+      if (mode === 'stale') {
+        report.stalePath = join(tmpdir(), 'fde-host-exit', `${leaderPid}.json`)
+        await mkdir(dirname(report.stalePath), { recursive: true })
+        await writeFile(report.stalePath, `${JSON.stringify({ code: 3 })}\n`)
+      }
+      process.kill(leaderPid, 'SIGKILL')
+    } else await writeFile(goPath, mode === 'code3' ? '3\n' : '0\n')
     const settled = await started
     report.message = settled.message
-    if (mode !== 'missing') {
+    if (mode !== 'missing' && mode !== 'stale') {
       const tracked = new Set([leaderPid, ready.hostPid, ready.pipPid].filter((pid) => Number.isInteger(pid)))
       const killedAt = Date.now()
       report.samples = await sampleTracked(tracked, leaderPid, ready.hostPid, ready.pipPid, PARENT_DEATH_DEADLINE_MS)
@@ -179,6 +185,16 @@ export async function runHostExitStatus(options = {}) {
   } catch (error) {
     report.error = error instanceof Error ? error.message : String(error)
   } finally {
+    if (mode === 'missing' || mode === 'stale') {
+      for (const pid of [report.pipBefore?.pid, report.hostPid, report.leaderPid]) {
+        if (!Number.isInteger(pid) || pid <= 1) continue
+        try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+      }
+      if (Number.isInteger(report.leaderPid) && report.leaderPid > 1) {
+        try { process.kill(-report.leaderPid, 'SIGKILL') } catch { /* group already gone */ }
+      }
+    }
+    if (report.stalePath) await rm(report.stalePath, { force: true }).catch(() => {})
     if (core) await core.stop().catch(() => {})
     await rm(home, { recursive: true, force: true }).catch(() => {})
     for (const [key, value] of Object.entries(previous)) {
@@ -198,7 +214,7 @@ export async function runHostExitStatus(options = {}) {
     && report.message.includes('真实退出状态未知')
     && report.message.includes('signal SIGKILL')
     && !report.message.includes('code 3')
-  report.ok = mode === 'missing' ? unknown : known
+  report.ok = mode === 'missing' || mode === 'stale' ? unknown : known
   if (options.out) {
     const { mkdir: mkdirOut, writeFile: writeOut } = await import('node:fs/promises')
     await mkdirOut(dirname(options.out), { recursive: true })

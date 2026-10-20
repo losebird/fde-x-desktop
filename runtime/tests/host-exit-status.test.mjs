@@ -18,6 +18,16 @@ for (const mode of ['code3', 'sigsegv', 'sigkill', 'code0']) {
   })
 }
 
+test('a stale pid status file is not the host exit', { timeout: 180_000 }, async () => {
+  const report = await runHostExitStatus({ mode: 'stale' })
+  assert.equal(report.error, null, JSON.stringify(report))
+  assert.equal(report.inGroup, true)
+  assert.equal(report.message.includes('真实退出状态未知'), true, report.message)
+  assert.equal(report.message.includes('signal SIGKILL'), true, report.message)
+  assert.equal(report.message.includes('code 3'), false, report.message)
+  assert.equal(report.ok, true)
+})
+
 test('a missing host status falls back without inventing a code', { timeout: 180_000 }, async () => {
   const report = await runHostExitStatus({ mode: 'missing' })
   assert.equal(report.error, null, JSON.stringify(report))
