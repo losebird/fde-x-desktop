@@ -459,6 +459,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
     }
     if (request.method === 'PUT' || request.method === 'POST') {
       const body = await readJson(request)
+      if (!requireOwnedApp(db, url, body, app.id, response, correlationId, sendError)) return true
       try {
         const saved = putDocument(db, {
           appId: app.id,
