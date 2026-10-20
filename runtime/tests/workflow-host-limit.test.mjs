@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { FDE_VENDOR_DIR } from '../config.mjs'
 import { bootWorkflowHost, hostPinDir, waitForProbe } from './support/workflow-host.mjs'
 import { STANDARD_BUNDLE_TOOLS, STANDARD_SESSION_TOOLS } from './support/standard-session-tools.mjs'
 
@@ -63,6 +64,27 @@ test('标准 bundle 下普通会话看见核心工具、lan-assist 和 IUI', asy
   } finally {
     await host.stop()
   }
+})
+
+test('核心名单断言不改真实 vendor 目录', async () => {
+  const before = statSync(FDE_VENDOR_DIR)
+  const host = await bootWorkflowHost()
+  try {
+    await host.core.call('session/create', {
+      request: { cwd: host.cwd, agentPreset: 'standard' },
+    })
+    const standard = await waitForProbe(host.probeDir, 'standard')
+    assert.equal(standard.error, null)
+    assert.deepEqual(standard.names, STANDARD_SESSION_TOOLS)
+  } finally {
+    await host.stop()
+  }
+  const after = statSync(FDE_VENDOR_DIR)
+  assert.equal(after.ino, before.ino)
+  assert.equal(after.mtimeMs, before.mtimeMs)
+  assert.equal(after.ctimeMs, before.ctimeMs)
+  const hidden = readdirSync(dirname(FDE_VENDOR_DIR)).filter((name) => name.includes('.fde-workflow-hidden-'))
+  assert.deepEqual(hidden, [])
 })
 
 test('锁文件把 Host pin 固定在 0.2.0-rc.2', () => {
