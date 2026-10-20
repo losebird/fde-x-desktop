@@ -3144,12 +3144,18 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/business/apps') {
       const body = await readJson(request)
+      const createIdent = requestAppWorkspace(db, url, body)
+      const createFailure = httpStatusForWorkspaceError(createIdent.error)
+      if (createFailure) {
+        sendError(response, createFailure.status, createFailure.code, createFailure.message, currentCorrelationId)
+        return
+      }
       if (typeof body.name !== 'string' || body.name.trim().length === 0) {
         sendError(response, 400, 'validation_error', '应用名称不能为空', currentCorrelationId)
         return
       }
       const app = createBusinessApp(db, {
-        workspaceId: body.workspaceId ?? 'ws_personal',
+        workspaceId: createIdent.workspaceId,
         name: body.name.trim(),
         definition: body.definition && typeof body.definition === 'object' ? body.definition : {},
         changeNote: typeof body.changeNote === 'string' ? body.changeNote : undefined,
@@ -3310,6 +3316,13 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/operations') {
       const body = await readJson(request)
+      const opIdent = requestAppWorkspace(db, url, body)
+      const opFailure = httpStatusForWorkspaceError(opIdent.error)
+      if (opFailure) {
+        sendError(response, opFailure.status, opFailure.code, opFailure.message, currentCorrelationId)
+        return
+      }
+      const operationWorkspaceId = opIdent.workspaceId
       const required = ['targetRef', 'action', 'operationKind', 'riskLevel', 'input']
       const missing = required.filter((key) => body[key] === undefined || body[key] === '')
       if (missing.length > 0) {
@@ -3345,7 +3358,7 @@ const server = createServer(async (request, response) => {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           id,
-          body.workspaceId ?? 'ws_personal',
+          operationWorkspaceId,
           body.connectionId ?? null,
           body.appId ?? null,
           'actor_local_user',
@@ -3375,7 +3388,7 @@ const server = createServer(async (request, response) => {
           `).run(createId('approval'), id, JSON.stringify({ reason: 'write_risk_gate', riskLevel: body.riskLevel }), now)
         }
         appendAudit(db, {
-          workspaceId: body.workspaceId ?? 'ws_personal',
+          workspaceId: operationWorkspaceId,
           actorId: 'actor_local_user',
           action: 'operation.plan',
           targetRef: `fde://workstation/operation/${id}`,

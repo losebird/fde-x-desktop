@@ -208,8 +208,18 @@ export async function handleBridgeRoutes(request, response, url, deps) {
     return true
   }
 
-  if (sub === 'plan-task-propose') {
-    const fromBody = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
+  if (sub === 'plan-task-propose' && url.pathname === '/api/v1/bridge/plan-task-propose') {
+    const idResolved = resolveHttpWorkspace({
+      body,
+      role: 'id-or-path',
+      whenAbsent: 'omit',
+      slots: [['body', 'workspaceId']],
+    })
+    if (idResolved.error) {
+      bridgeError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+      return true
+    }
+    const fromBody = idResolved.id || ''
     let workspaceId = fromBody
     if (workspaceCwd) {
       const ident = resolveWorkspaceIdOrFail(db, { cwd: workspaceCwd, source: 'request', id: fromBody })

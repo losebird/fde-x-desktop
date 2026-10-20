@@ -1034,14 +1034,23 @@ export async function handleAppsRoutes(request, response, url, deps) {
  * @param {string} workspaceCwd
  */
 export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
-  const suppliedId = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
-  const found = resolveWorkspaceIdOrFail(db, workspaceCwd
-    ? { cwd: workspaceCwd, source: 'request', id: suppliedId }
-    : {})
-  if (found.error === 'workspace_mismatch') {
-    return { ok: false, status: 400, error: 'workspace_mismatch', errors: [{ path: 'workspaceId', message: '工作区 id 与路径不一致' }] }
+  const shaped = { ...body }
+  delete shaped.cwd
+  delete shaped.workspace
+  delete shaped.workspacePath
+  delete shaped.workingDirectory
+  if (workspaceCwd) shaped.workspaceCwd = workspaceCwd
+  else delete shaped.workspaceCwd
+  const found = requestAppWorkspace(db, new URL('http://127.0.0.1/api/v1/bridge/app-spec-submit'), shaped)
+  const failure = httpStatusForWorkspaceError(found.error)
+  if (failure) {
+    return {
+      ok: false,
+      status: failure.status,
+      error: failure.code,
+      errors: [{ path: failure.code === 'workspace_mismatch' ? 'workspaceId' : 'workspaceCwd', message: failure.message }],
+    }
   }
-  if (found.error) return { ok: false, status: 404, errors: [{ path: 'workspaceCwd', message: '工作区未登记' }] }
   const workspaceId = found.workspaceId
   if (sub === 'app-spec-submit') {
     const spec = body.spec
