@@ -270,3 +270,33 @@ test('apps list does not treat workspacePath or workingDirectory as the personal
     await rm(dbPath, { force: true })
   }
 })
+
+test('recent events and search reject an unregistered workspace path', async () => {
+  const dbPath = `/tmp/fde-ws-guard-recent-${process.pid}.sqlite`
+  await rm(dbPath, { force: true })
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  db.close()
+  const server = await startServer(dbPath)
+  try {
+    const recent = await fetch(`${server.base}/api/v1/events/recent?cwd=/y-not-registered`, {
+      headers: { Origin: server.base },
+    })
+    const recentPayload = await recent.json()
+    const found = await fetch(`${server.base}/api/v1/search?cwd=/y-not-registered&q=x`)
+    const foundPayload = await found.json()
+    assert.deepEqual({
+      recent: recent.status,
+      recentCode: recentPayload.error?.code,
+      search: found.status,
+      searchCode: foundPayload.error?.code,
+    }, {
+      recent: 404,
+      recentCode: 'missing_workspace',
+      search: 404,
+      searchCode: 'missing_workspace',
+    })
+  } finally {
+    await server.stop()
+    await rm(dbPath, { force: true })
+  }
+})
