@@ -3094,10 +3094,10 @@ const server = createServer(async (request, response) => {
         return
       }
       const shares = liveShareIdsByApp(db)
-      const pathOnly = resolvedApps.source === 'request' && !suppliedId
-      const items = listBusinessApps(db, pathOnly
-        ? { workspaceId: 'ws_personal', workspaceCwd: resolvedApps.cwd || '' }
-        : { workspaceId: ident.workspaceId, workspaceCwd: ident.cwd || '' }).map((row) => ({
+      const items = listBusinessApps(db, {
+        workspaceId: ident.workspaceId,
+        workspaceCwd: ident.cwd || '',
+      }).map((row) => ({
         ...row,
         shareId: shares.get(row.id) || '',
       }))
