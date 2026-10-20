@@ -207,6 +207,25 @@ export async function parseHostRpcValue(response, rpcId, endpoint) {
   return envelope.result.value
 }
 
+function signalHostGroup(child, signal) {
+  const pid = child?.pid
+  if (process.platform !== 'win32' && Number.isInteger(pid) && pid > 1) {
+    try {
+      process.kill(-pid, signal)
+      return
+    } catch (error) {
+      if (error?.code !== 'ESRCH') throw error
+    }
+  }
+  if (!child || child.exitCode != null || child.signalCode != null) return
+  try {
+    child.kill(signal)
+  } catch (error) {
+    if (error?.code === 'ESRCH') return
+    throw error
+  }
+}
+
 export class DshCoreConnector {
   constructor(options = {}) {
     this.bin = resolveDshBin(options.bin)
@@ -453,6 +472,7 @@ export class DshCoreConnector {
       }),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      detached: process.platform !== 'win32',
     })
     this.child = child
     child.stdout?.setEncoding('utf8')
@@ -1408,6 +1428,7 @@ export class DshCoreConnector {
     if (!child) return
     this.childStopExpected = true
     if (child.exitCode != null || child.signalCode != null) {
+      signalHostGroup(child, 'SIGKILL')
       await this.cleanupCredentialsCopy()
       await removePidFile(this.runDirectory, this.corePidFile)
       return
@@ -1416,7 +1437,7 @@ export class DshCoreConnector {
       const timer = setTimeout(() => {
         if (child.exitCode != null || child.signalCode != null) return
         try {
-          child.kill('SIGKILL')
+          signalHostGroup(child, 'SIGKILL')
         } catch (error) {
           if (child.exitCode == null && child.signalCode == null) {
             clearTimeout(timer)
@@ -1429,13 +1450,14 @@ export class DshCoreConnector {
         resolveStop()
       })
       try {
-        child.kill('SIGTERM')
+        signalHostGroup(child, 'SIGTERM')
       } catch (error) {
         clearTimeout(timer)
         if (child.exitCode == null && child.signalCode == null) rejectStop(error)
         else resolveStop()
       }
     })
+    signalHostGroup(child, 'SIGKILL')
     await this.cleanupCredentialsCopy()
     await removePidFile(this.runDirectory, this.corePidFile)
   }
