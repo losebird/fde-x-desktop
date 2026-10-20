@@ -29,7 +29,7 @@ import { iuiProfileDir, promoteInstalledIui } from './iui-status.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 import { linkPackagedPeers } from './packaged-peer.mjs'
-import { firstMissingClosure, natsDependencyError, sourceStamp, syncRepoCache } from './plugin-repo-source.mjs'
+import { firstMissingClosure, natsContentDigest, natsDependencyError, natsStampFields, sourceStamp, syncRepoCache } from './plugin-repo-source.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -679,13 +679,16 @@ export class DshCoreConnector {
         return 'miss'
       }
       if (row.needsNats) {
-        const natsId = fileIdentity(join(dest, 'node_modules', 'nats', 'package.json'))
-        if (!natsId) {
+        const natsDir = join(dest, 'node_modules', 'nats')
+        const natsPkg = join(natsDir, 'package.json')
+        if (!existsSync(natsPkg)) {
           this.state = 'error'
           this.lastError = 'NATS_DEPENDENCY_MISSING'
           return 'error'
         }
-        if (natsId !== row.nats) return 'miss'
+        const version = String(JSON.parse(readFileSync(natsPkg, 'utf8')).version || '')
+        const content = natsContentDigest(natsDir)
+        if (!row.natsIntegrity || version !== row.natsVersion || content !== row.natsContent) return 'miss'
       }
     }
     const iui = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'iui')
@@ -709,9 +712,16 @@ export class DshCoreConnector {
         /* a plugin without package.json does not declare nats */
       }
       const needsNats = Boolean(pkg.dependencies && pkg.dependencies.nats)
-      const nats = needsNats ? fileIdentity(join(dest, 'node_modules', 'nats', 'package.json')) : ''
-      if (needsNats && !nats) return
-      plugins[plugin.dir] = { source, tree: sourceStamp(source), needsNats, nats }
+      const nats = needsNats ? natsStampFields(dest) : null
+      if (needsNats && (!nats || nats.problem)) return
+      plugins[plugin.dir] = {
+        source,
+        tree: sourceStamp(source),
+        needsNats,
+        natsVersion: nats ? nats.version : '',
+        natsIntegrity: nats ? nats.integrity : '',
+        natsContent: nats ? nats.content : '',
+      }
     }
     writeFileSync(this.profileStampPath(), `${JSON.stringify({
       lock: fileIdentity(join(this.runtimeDirectory, 'plugins', 'plugins.lock.json')),
