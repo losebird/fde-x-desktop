@@ -31,11 +31,13 @@ function freePort() {
 test('a tampered vendor tar disables IUI and leaves the core connected', { timeout: 180_000 }, async () => {
   assert.equal(existsSync(join(root, 'scripts/pack/build-iui.mjs')), true)
   const home = await mkdtemp(join(tmpdir(), 'fde-sha-degrade-'))
+  const blankHome = join(home, 'blank-home')
   const artifact = join(home, 'vendor-tar', `iui-${IUI.source.commit}.tar.gz`)
   const bytes = Buffer.from('tampered-iui-archive')
   const actual = createHash('sha256').update(bytes).digest('hex')
   const port = await freePort()
   const database = join(home, 'data', 'fde-workstation.sqlite')
+  await mkdir(blankHome, { recursive: true })
   await mkdir(dirname(artifact), { recursive: true })
   await writeFile(artifact, bytes)
   const logs = []
@@ -43,6 +45,7 @@ test('a tampered vendor tar disables IUI and leaves the core connected', { timeo
     cwd: root,
     env: {
       ...process.env,
+      HOME: blankHome,
       FDE_DSH_HOME: home,
       FDE_RUNTIME_SUPERVISED: '1',
       FDE_IUI_ARTIFACT: artifact,

@@ -35,7 +35,9 @@ async function readStatus(base) {
 
 test('repacking a failed archive enables IUI without restarting the dev process', { timeout: 180_000 }, async () => {
   const home = await mkdtemp(join(tmpdir(), 'fde-iui-retry-'))
+  const blankHome = join(home, 'blank-home')
   const artifact = join(home, 'vendor-tar', `iui-${IUI.source.commit}.tar.gz`)
+  await mkdir(blankHome, { recursive: true })
   await mkdir(dirname(artifact), { recursive: true })
   await writeFile(artifact, 'tampered-iui-archive')
   const badSha = createHash('sha256').update('tampered-iui-archive').digest('hex')
@@ -45,6 +47,7 @@ test('repacking a failed archive enables IUI without restarting the dev process'
     cwd: root,
     env: {
       ...process.env,
+      HOME: blankHome,
       FDE_DSH_HOME: home,
       FDE_RUNTIME_SUPERVISED: '1',
       FDE_IUI_ARTIFACT: artifact,
