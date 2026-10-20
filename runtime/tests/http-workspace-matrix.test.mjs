@@ -22,7 +22,9 @@ const SLASH_MARK = 'matrix-slash-marker'
 const DEFAULT_MARK = 'matrix-default-marker'
 
 const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context', 'business-apps', 'catalog', 'catalog-post', 'business-connections', 'biz-connections', 'briefing-latest', 'briefing-definition', 'briefing-run'])
-const READ_RE = /searchParams\.(?:get|has)\(\s*['"`](?:cwd|workspace)['"`]|body\??\.(?:cwd|workspaceCwd|workspace)\b|body\??\[['"`](?:cwd|workspace)['"`]\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\s*\(/
+const WS_KEY = 'cwd|workspace|workspaceCwd|workspacePath|workingDirectory'
+const PATH_KEY = 'cwd|workspaceCwd|workspacePath|workingDirectory'
+const READ_RE = new RegExp(String.raw`searchParams\.(?:get|has)\(\s*['"\`](?:${WS_KEY})['"\`]|(?:[A-Za-z_][A-Za-z0-9_]*)\.(?:get|has)\(\s*['"\`](?:${PATH_KEY})['"\`]|body\??\.(?:${WS_KEY})\b|body\??\[['\"\`](?:${WS_KEY})['\"\`]\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\s*\(`)
 
 function registerWorkspace(db, id, cwd) {
   const now = new Date().toISOString()
@@ -378,11 +380,21 @@ function pathExempt(rel, found) {
   })
 }
 
-function pathRegistered(found) {
-  return httpWorkspaceRoutes.some((route) => {
-    if (found === route.path || found.startsWith(`${route.path}/`)) return true
-    return route.path.startsWith(found.endsWith('/') ? found : `${found}/`)
-  })
+function pathRegistered(found, method, rel) {
+  const sameFile = (route) => !rel || route.file === rel
+  const matches = (route) => {
+    if (method && route.method !== method) return false
+    return found === route.path || found.startsWith(`${route.path}/`)
+  }
+  if (httpWorkspaceRoutes.some((route) => sameFile(route) && matches(route))) return true
+  const prefix = found.endsWith('/') ? found : `${found}/`
+  if (prefix.split('/').filter(Boolean).length < 3) return false
+  return httpWorkspaceRoutes.some((route) => sameFile(route) && route.path.startsWith(prefix) && (!method || route.method === method))
+}
+
+function methodIn(window) {
+  const matches = [...window.matchAll(/method === ['"](GET|POST|PUT|PATCH|DELETE)['"]/g)]
+  return matches.length ? matches[matches.length - 1][1] : ''
 }
 
 function discoveredPaths(window) {
@@ -392,14 +404,28 @@ function discoveredPaths(window) {
   return found
 }
 
-function helperOwns(lines, index) {
-  for (let cursor = index; cursor >= Math.max(0, index - 50); cursor -= 1) {
-    if (/pathname === |pathname\.match\(|pathHasPrefix\(url\.pathname/.test(lines[cursor]) && cursor !== index) return false
-    if (/function (requireHttpWorkspace|bizWorkspace|cwdFrom|cwdOf|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd|workspaceFilter|workspaceOf|specWorkspaceCwd)\b/.test(lines[cursor])) {
-      return true
+const HELPER_RE = /^function (requireHttpWorkspace|bizWorkspace|cwdFrom|cwdOf|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd|workspaceFilter|workspaceOf|specWorkspaceCwd)\b/
+
+function helperRanges(lines) {
+  const ranges = []
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!HELPER_RE.test(lines[i].trim())) continue
+    let depth = 0
+    let started = false
+    for (let j = i; j < lines.length; j += 1) {
+      for (const ch of lines[j]) {
+        if (ch === '{') {
+          depth += 1
+          started = true
+        } else if (ch === '}') depth -= 1
+      }
+      if (started && depth <= 0) {
+        ranges.push([i, j])
+        break
+      }
     }
   }
-  return false
+  return ranges
 }
 
 async function runtimeSources() {
@@ -434,10 +460,11 @@ test('a workspace filter drops events whose cwd is null', () => {
 function workspaceReadProblems(rel, text) {
   const problems = []
   const lines = text.split('\n')
+  const ranges = helperRanges(lines)
   lines.forEach((line, index) => {
     if (!READ_RE.test(line)) return
     if (/^\s*(export\s+)?(async\s+)?function\s/.test(line)) return
-    if (helperOwns(lines, index)) return
+    if (ranges.some(([start, end]) => index > start && index <= end)) return
     const window = lines.slice(Math.max(0, index - 80), index + 1).join('\n')
     if (window.includes('safeSemanticOsUpstreamPath')) {
       if (!httpWorkspaceRoutes.some((route) => route.path.startsWith('/semantic-os'))) {
@@ -450,9 +477,11 @@ function workspaceReadProblems(rel, text) {
       problems.push(`${rel}:${index + 1} reads workspace/cwd without a route path`)
       return
     }
-    const routePath = found[found.length - 1]
-    if (pathExempt(rel, routePath) || pathRegistered(routePath)) return
-    problems.push(`${rel}:${index + 1} ${routePath} is not registered`)
+    const method = methodIn(window)
+    const registered = found.filter((path) => pathRegistered(path, method, rel))
+    const chosen = registered.length ? registered[registered.length - 1] : found[found.length - 1]
+    if (pathExempt(rel, chosen) || pathRegistered(chosen, method, rel)) return
+    problems.push(`${rel}:${index + 1} ${chosen} is not registered`)
   })
   return problems
 }
@@ -495,6 +524,7 @@ test('template and bracket workspace reads are scanned', () => {
   for (const sample of samples) {
     assert.match(sample, READ_RE, sample)
   }
-  assert.equal(READ_RE.test('searchParams.get("workspacePath")'), false)
-  assert.equal(READ_RE.test("body['workingDirectory']"), false)
+  assert.match('searchParams.get("workspacePath")', READ_RE)
+  assert.match("body['workingDirectory']", READ_RE)
+  assert.match("picked.get('cwd')", READ_RE)
 })

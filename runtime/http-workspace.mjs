@@ -71,6 +71,7 @@ export const httpWorkspaceRoutes = [
   { id: 'files', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/files', place: 'query', param: 'cwd', proof: 'files', absent: 'runtime' },
   { id: 'briefing-latest', file: 'runtime/routes/briefing.mjs', method: 'GET', path: '/api/v1/briefing/latest', place: 'query', param: 'workspace', proof: 'briefing', absent: 'runtime' },
   { id: 'briefing-definition', file: 'runtime/routes/briefing.mjs', method: 'GET', path: '/api/v1/briefing/definition', place: 'query', param: 'workspace', proof: 'briefing', absent: 'runtime' },
+  { id: 'briefing-definition-put', file: 'runtime/routes/briefing.mjs', method: 'PUT', path: '/api/v1/briefing/definition', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
   { id: 'briefing-run', file: 'runtime/routes/briefing.mjs', method: 'POST', path: '/api/v1/briefing/run', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime', extra: { mode: 'internal-only' } },
   { id: 'events-recent', file: 'runtime/routes/events.mjs', method: 'GET', path: '/api/v1/events/recent', place: 'query', param: 'workspace', proof: 'events', absent: 'unfiltered' },
   { id: 'events-sse', file: 'runtime/routes/events.mjs', method: 'GET', path: '/api/v1/events', place: 'query', param: 'workspace', proof: 'events-sse', absent: 'unfiltered' },
