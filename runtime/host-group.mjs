@@ -1,10 +1,24 @@
 import { spawn } from 'node:child_process'
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const command = process.argv[2]
 const args = process.argv.slice(3)
 if (!command) process.exit(1)
 
 let killed = false
+
+function publishHostExit(code, signal) {
+  const dir = join(tmpdir(), 'fde-host-exit')
+  const finalPath = join(dir, `${process.pid}.json`)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(`${finalPath}.tmp`, JSON.stringify({
+    code: Number.isInteger(code) ? code : null,
+    signal: signal || null,
+  }))
+  renameSync(`${finalPath}.tmp`, finalPath)
+}
 
 function killGroup() {
   if (killed) return
@@ -32,7 +46,12 @@ child.on('error', () => {
   if (!killed) process.exit(1)
 })
 
-child.on('exit', () => {
+child.on('exit', (code, signal) => {
   if (killed) return
+  try {
+    publishHostExit(code, signal)
+  } catch {
+    /* still reap the group when the status file cannot be written */
+  }
   killGroup()
 })

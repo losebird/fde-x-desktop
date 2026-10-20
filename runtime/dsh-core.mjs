@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
-import { constants, existsSync, realpathSync, symlinkSync } from 'node:fs'
+import { constants, existsSync, readFileSync, realpathSync, symlinkSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -229,6 +229,31 @@ function hostGroupAlive(pgid) {
       resolve(false)
     })
   })
+}
+
+const hostExitPhrases = new WeakMap()
+
+function describeHostExit(child, code, signal) {
+  const leader = signal ? `signal ${signal}` : `code ${code}`
+  if (process.platform === 'win32') return leader
+  const cached = hostExitPhrases.get(child)
+  if (cached) return cached
+  let phrase = ''
+  const pid = child?.pid
+  if (Number.isInteger(pid) && pid > 1) {
+    const path = join(tmpdir(), 'fde-host-exit', `${pid}.json`)
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8'))
+      if (typeof parsed?.signal === 'string' && parsed.signal) phrase = `signal ${parsed.signal}`
+      else if (Number.isInteger(parsed?.code)) phrase = `code ${parsed.code}`
+    } catch {
+      phrase = ''
+    }
+    try { unlinkSync(path) } catch { /* no status file */ }
+  }
+  const resolved = phrase || `${leader}，真实退出状态未知`
+  hostExitPhrases.set(child, resolved)
+  return resolved
 }
 
 function signalHostGroup(child, signal) {
@@ -515,7 +540,7 @@ export class DshCoreConnector {
     await new Promise((resolveTick) => setImmediate(resolveTick))
     if (this.state === 'error' || child.exitCode != null || child.signalCode != null) {
       if (this.state !== 'error') {
-        const how = child.signalCode ? `signal ${child.signalCode}` : `code ${child.exitCode}`
+        const how = describeHostExit(child, child.exitCode, child.signalCode)
         const detail = this.logs.filter(Boolean).slice(-4).join(' | ')
         this.failCore(detail ? `AI 服务意外退出：${how}：${detail}` : `AI 服务意外退出：${how}`)
       }
@@ -575,7 +600,7 @@ export class DshCoreConnector {
       this.cookie = null
       this.origin = null
       if (!expected) {
-        const how = signal ? `signal ${signal}` : `code ${code}`
+        const how = describeHostExit(child, code, signal)
         const detail = this.logs.filter(Boolean).slice(-4).join(' | ')
         this.failCore(detail ? `AI 服务意外退出：${how}：${detail}` : `AI 服务意外退出：${how}`)
       } else if (this.state !== 'error') {
@@ -980,7 +1005,7 @@ export class DshCoreConnector {
       const onExit = (code, signal) => {
         cleanup()
         const detail = redactSensitiveText(stderr.trim()).split(/\r?\n/u).filter(Boolean).slice(0, 6).join(' | ')
-        const reason = signal ? `signal ${signal}` : `code ${code}`
+        const reason = describeHostExit(child, code, signal)
         reject(new Error(detail ? `AI 服务启动前退出（${reason}）：${detail}` : `AI 服务启动前退出（${reason}）`))
       }
       const onError = (error) => {
