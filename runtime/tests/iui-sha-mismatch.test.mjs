@@ -9,6 +9,9 @@ import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
+import { createPageTokenClient } from './support/page-token-fetch.mjs'
+
+const page = createPageTokenClient()
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.module === '@losebird/iui')
@@ -41,6 +44,7 @@ test('a tampered vendor tar disables IUI and leaves the core connected', { timeo
     env: {
       ...process.env,
       FDE_DSH_HOME: home,
+      FDE_RUNTIME_SUPERVISED: '1',
       FDE_IUI_ARTIFACT: artifact,
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: database,
@@ -49,14 +53,17 @@ test('a tampered vendor tar disables IUI and leaves the core connected', { timeo
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
-  child.stdout.on('data', (chunk) => logs.push(String(chunk)))
+  child.stdout.on('data', (chunk) => {
+    page.observe(chunk)
+    logs.push(String(chunk))
+  })
   child.stderr.on('data', (chunk) => logs.push(String(chunk)))
   const base = `http://127.0.0.1:${port}`
   try {
     let health = null
     for (let attempt = 0; attempt < 40; attempt += 1) {
       try {
-        const response = await fetch(`${base}/health`)
+        const response = await page.fetch(`${base}/health`)
         if (response.ok) {
           health = await response.json()
           break
@@ -69,7 +76,7 @@ test('a tampered vendor tar disables IUI and leaves the core connected', { timeo
     }
     assert.ok(health, `server did not serve /health\n${logs.join('').slice(-2000)}`)
     assert.equal(health.state, 'healthy')
-    const connect = await fetch(`${base}/api/v1/ai/connect`, {
+    const connect = await page.fetch(`${base}/api/v1/ai/connect`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -80,7 +87,7 @@ test('a tampered vendor tar disables IUI and leaves the core connected', { timeo
     const connectText = await connect.text()
     console.log(`ai connect ${connect.status} ${connectText.slice(0, 800)}`)
     assert.equal(connect.status, 200, connectText.slice(0, 800))
-    const live = await fetch(`${base}/health`).then((response) => response.json())
+    const live = await page.fetch(`${base}/health`).then((response) => response.json())
     assert.equal(live.state, 'healthy')
     const ai = (live.adapters || []).find((row) => row.capability === 'ai-runtime')
     assert.ok(ai, 'ai-runtime adapter missing')

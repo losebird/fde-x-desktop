@@ -8,6 +8,9 @@ import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
+import { createPageTokenClient } from './support/page-token-fetch.mjs'
+
+const page = createPageTokenClient()
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.module === '@losebird/iui')
@@ -25,7 +28,7 @@ function freePort() {
 }
 
 async function readStatus(base) {
-  const response = await fetch(`${base}/api/v1/ai/status`)
+  const response = await page.fetch(`${base}/api/v1/ai/status`)
   assert.equal(response.status, 200)
   return response.json()
 }
@@ -43,6 +46,7 @@ test('repacking a failed archive enables IUI without restarting the dev process'
     env: {
       ...process.env,
       FDE_DSH_HOME: home,
+      FDE_RUNTIME_SUPERVISED: '1',
       FDE_IUI_ARTIFACT: artifact,
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: join(home, 'data', 'fde-workstation.sqlite'),
@@ -54,7 +58,10 @@ test('repacking a failed archive enables IUI without restarting the dev process'
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
-  child.stdout.on('data', (chunk) => logs.push(String(chunk)))
+  child.stdout.on('data', (chunk) => {
+    page.observe(chunk)
+    logs.push(String(chunk))
+  })
   child.stderr.on('data', (chunk) => logs.push(String(chunk)))
   const base = `http://127.0.0.1:${port}`
   const headers = {
@@ -65,7 +72,7 @@ test('repacking a failed archive enables IUI without restarting the dev process'
     let health = null
     for (let attempt = 0; attempt < 40; attempt += 1) {
       try {
-        const response = await fetch(`${base}/health`)
+        const response = await page.fetch(`${base}/health`)
         if (response.ok) {
           health = await response.json()
           break
@@ -78,7 +85,7 @@ test('repacking a failed archive enables IUI without restarting the dev process'
       await new Promise((resolveWait) => setTimeout(resolveWait, 250))
     }
     assert.ok(health, `server did not serve /health\n${logs.join('').slice(-2000)}`)
-    const connect = await fetch(`${base}/api/v1/ai/connect`, { method: 'POST', headers, body: '{}' })
+    const connect = await page.fetch(`${base}/api/v1/ai/connect`, { method: 'POST', headers, body: '{}' })
     const connectText = await connect.text()
     console.log(`connect ${connect.status} ${connectText.slice(0, 500)}`)
     assert.equal(connect.status, 200, connectText.slice(0, 500))
@@ -87,18 +94,18 @@ test('repacking a failed archive enables IUI without restarting the dev process'
     assert.equal(first.data.iui.state, 'verify_failed')
     assert.equal(first.data.iui.actual, badSha)
     await copyFile(goodTar, artifact)
-    const again = await fetch(`${base}/api/v1/ai/connect`, { method: 'POST', headers, body: '{}' })
+    const again = await page.fetch(`${base}/api/v1/ai/connect`, { method: 'POST', headers, body: '{}' })
     const againBody = await again.json()
     console.log(`second connect ${again.status} ${JSON.stringify(againBody.data && againBody.data.iui)}`)
     assert.equal(againBody.data.iui.state, 'verify_failed')
-    const retry = await fetch(`${base}/api/v1/ai/iui/retry`, { method: 'POST', headers, body: '{}' })
+    const retry = await page.fetch(`${base}/api/v1/ai/iui/retry`, { method: 'POST', headers, body: '{}' })
     const retryText = await retry.text()
     console.log(`retry ${retry.status} ${retryText.slice(0, 800)}`)
     assert.equal(retry.status, 200, retryText.slice(0, 800))
     const retried = JSON.parse(retryText)
     assert.equal(retried.data.iui.state, 'enabled')
     assert.equal(retried.data.state, 'connected')
-    const second = await fetch(`${base}/api/v1/ai/iui/retry`, { method: 'POST', headers, body: '{}' })
+    const second = await page.fetch(`${base}/api/v1/ai/iui/retry`, { method: 'POST', headers, body: '{}' })
     const secondBody = await second.json()
     console.log(`retry again ${second.status} ${JSON.stringify(secondBody.data && secondBody.data.iui)}`)
     assert.equal(second.status, 200)
