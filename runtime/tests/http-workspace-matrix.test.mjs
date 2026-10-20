@@ -246,6 +246,13 @@ function checkCase(route, mode, status, text) {
   if (route.proof === 'apps' && mode === 'illegal' && (text.includes('matrix-default-app') || text.includes('matrix-win-app'))) {
     problems.push(`${label} crossed workspace`)
   }
+  if (route.id === 'business-apps' && (mode === 'win' || mode === 'slash')) {
+    const own = mode === 'win' ? 'matrix-win-app' : 'matrix-slash-app'
+    const other = mode === 'win' ? 'matrix-slash-app' : 'matrix-win-app'
+    if (!text.includes(own) || text.includes('matrix-default-app') || text.includes(other)) {
+      problems.push(`${label} mixed business apps`)
+    }
+  }
   return problems
 }
 
