@@ -2,7 +2,7 @@ import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
 import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE, FDE_RUNTIME_PORT } from '../config.mjs'
 import { verifyUiToken } from './bridge.mjs'
-import { appendAudit, createId, enqueueEvent } from '../db.mjs'
+import { appendAudit, createId, enqueueEvent, getOperation } from '../db.mjs'
 import { emit } from '../events.mjs'
 import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 import {
@@ -286,9 +286,18 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', correlationId)
       return true
     }
-    await readJson(request)
+    const body = await readJson(request)
     const operationId = decodeURIComponent(proposalMatch[1])
     const decision = proposalMatch[2]
+    const peeked = getOperation(db, operationId)
+    if (peeked) {
+      const ident = requestAppWorkspace(db, url, body)
+      if (rejectAppWorkspace(ident, response, correlationId, sendError)) return true
+      if (peeked.workspaceId !== ident.workspaceId) {
+        sendError(response, 404, 'not_found', '提案不存在', correlationId)
+        return true
+      }
+    }
     try {
       const result = decision === 'confirm'
         ? confirmRecordProposal(db, operationId, { correlationId })
