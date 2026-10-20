@@ -585,6 +585,16 @@ function sendError(response, status, code, message, correlationId, details) {
   })
 }
 
+function foreignOperation(db, url, body, operation) {
+  const ident = requestAppWorkspace(db, url, body)
+  const failure = httpStatusForWorkspaceError(ident.error)
+  if (failure) return failure
+  if (operation.workspaceId !== ident.workspaceId) {
+    return { status: 404, code: 'not_found', message: '操作不存在' }
+  }
+  return null
+}
+
 function openEventStream(response) {
   response.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -3228,6 +3238,16 @@ const server = createServer(async (request, response) => {
     const approveMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)\/approve$/)
     if (request.method === 'POST' && approveMatch) {
       const body = await readJson(request)
+      const operation = getOperation(db, approveMatch[1])
+      if (!operation) {
+        sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
+        return
+      }
+      const denied = foreignOperation(db, url, body, operation)
+      if (denied) {
+        sendError(response, denied.status, denied.code, denied.message, currentCorrelationId)
+        return
+      }
       const result = approveOperation(db, approveMatch[1], {
         actorId: 'actor_local_user',
         note: typeof body.note === 'string' ? body.note : '',
@@ -3247,9 +3267,15 @@ const server = createServer(async (request, response) => {
 
     const executeMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)\/execute$/)
     if (request.method === 'POST' && executeMatch) {
+      const body = await readJson(request)
       const operationBefore = getOperation(db, executeMatch[1])
       if (!operationBefore) {
         sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
+        return
+      }
+      const denied = foreignOperation(db, url, body, operationBefore)
+      if (denied) {
+        sendError(response, denied.status, denied.code, denied.message, currentCorrelationId)
         return
       }
       if (operationBefore.executionMode === 'live') {
