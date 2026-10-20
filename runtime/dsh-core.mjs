@@ -449,7 +449,7 @@ export class DshCoreConnector {
     }
 
     const host = resolveHostSpawn(this.bin)
-    const child = spawn(host.command, [
+    const hostArgs = [
       ...host.args,
       '--profile', this.profileName,
       '--patch', this.patchFile,
@@ -457,7 +457,11 @@ export class DshCoreConnector {
       '--host', '127.0.0.1',
       '--port', '0',
       '--no-open',
-    ], {
+    ]
+    const groupLeader = process.platform !== 'win32'
+    const child = spawn(host.command, groupLeader
+      ? [join(FDE_RUNTIME_DIR, 'host-group.mjs'), host.command, ...hostArgs]
+      : hostArgs, {
       cwd: this.cwd,
       env: hostChildEnv({
         DSH_HOME: this.dshHome,
@@ -470,9 +474,13 @@ export class DshCoreConnector {
         ...(process.env.FDE_DSH_SESSION_ROOT ? { FDE_DSH_SESSION_ROOT: process.env.FDE_DSH_SESSION_ROOT } : {}),
         ...(process.env.FDE_DSH_STORAGE_ROOT ? { FDE_DSH_STORAGE_ROOT: process.env.FDE_DSH_STORAGE_ROOT } : {}),
       }),
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [groupLeader ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       windowsHide: true,
-      detached: process.platform !== 'win32',
+      detached: groupLeader,
+    })
+    child.stdin?.on('error', (error) => {
+      if (error?.code === 'EPIPE' || error?.code === 'ECONNRESET' || error?.code === 'ERR_STREAM_DESTROYED') return
+      throw error
     })
     this.child = child
     child.stdout?.setEncoding('utf8')
