@@ -197,11 +197,29 @@
 | `getRecord` | `GET /api/v1/apps/:slug/:entity/:id`。`appIdentity` 先定工作区，`requireActiveApp` 取该区应用，`appRecordCwd` 得到 cwd，再 `getRecord(..., workspaceCwd, rid)`。SQL 是 `WHERE id = ? AND cwdMatch` | 旧代码已经带 cwd。预期会失败的红测在旧代码上会通过，所以没有写。这是读代码，没有跑跨区探测 | 调用点仍带 `workspaceCwd`。结构扫描把缺这个词的调用判红 | 已按 cwd 收住 |
 | `patchRecord` | `PATCH /api/v1/apps/:slug/:entity/:id`，同一条解析，然后 `patchRecord(..., workspaceCwd, rid, body)` | 同上。读代码，没有跨区探测 | 同上 | 已按 cwd 收住 |
 | `deleteRecord` | `DELETE /api/v1/apps/:slug/:entity/:id`，同一条解析，然后 `deleteRecord(..., workspaceCwd, rid)` | 同上。读代码，没有跨区探测 | 同上 | 已按 cwd 收住 |
-| AI 会话 | `GET /api/v1/ai/sessions` 和 `GET /api/v1/ai/sessions/:id` 调 `aiRuntime.call('session/list')`。`toAiSessionSummary` 可以带上 host 行的 `cwd`。列表不按 fde 工作区过滤。`POST /api/v1/ai/sessions` 用 `parseSessionBind`，创建时带 workspaceId 或 cwd，审计仍写 `ws_personal`。这是一个 Host 会话表，不是按工作区分开的 sqlite 行 | 本轮没有写跨区红测 | 没有改 | 后续 |
+| AI 会话 | `GET /api/v1/ai/sessions` 和带 `sessionId` 的口。r5 改判，见下一节 | r5 红 `0beabe1a` | r5 绿 `21dc465f` | 已收住 |
 | AI 模型 | `GET /api/v1/ai/models` 调 `session/modelCatalog`。`GET/POST /api/v1/ai/models-settings` 及其 mutate、credential、apply 走 Host settings RPC | 本轮没有写跨区红测 | 没有改 | 后续 |
 | AI 凭证 | `GET/POST /api/v1/ai/credentials` 读写 `join(aiRuntime.dshHome, '.credentials.yaml')`。一个运行时目录一份文件，不按工作区分 | 本轮没有写跨区红测 | 没有改 | 后续 |
 | AI provider | `GET /api/v1/ai/providers` 调 `llm/listProviders` 和 `llm/listConfigurableProviders`，再读 `settings.yaml`。`POST /api/v1/ai/providers` 和 custom、discover 也是 Host 目录 | 本轮没有写跨区红测 | 没有改 | 后续 |
 
 `getWorkspace` 和 `listWorkspaces` 读的是工作区登记表。`workspaces.id` 就是工作区 id。它们不在这张收口表里。
 
-结构扫描没有扫 `server.mjs` 里的 AI 路由正文。上面四行是读路由得出的调用链，不是扫描器的输出。
+结构扫描没有扫 `server.mjs` 里的 AI 路由正文。上面四行是读路由得出的调用链，不是扫描器的输出。模型、凭证、provider 仍是 Host 全局，本轮不给它们加工作区列。
+
+## r5 入口
+
+会话红 `0beabe1a9bf24f4e3509389418263b8355355ec2`。会话绿 `21dc465fd52cfbf58e3f3d8d67bd2a8747f6af9a`。语料会话和用量红 `a70204a7be089fd858a335cf8e1fb019d60b4ed8`。语料会话和用量绿 `2151c587eb8c717494b96b0b387aec0908dcf13b`。状态码来自 `runtime/tests/ws-guard-r5.test.mjs`，请求进真实路由，Host 是双份。
+
+省略工作区时，列表走 `requestAppWorkspace`，没有 id 也没有 cwd 则是 `ws_personal`。带 cwd 的会话不会出现在这个缺省列表里。分叉用原会话的 cwd 创建，不改用请求方的工作区。没有 `DELETE /api/v1/ai/sessions/:id`。归档是删除口。
+
+| 入口 | HTTP 路由或调用链 | 红的结果 | 绿的结果 | 处置 |
+| --- | --- | --- | --- | --- |
+| 会话列表 | `GET /api/v1/ai/sessions` 先解析工作区，再 `sessionsForWorkspace(items, workspaceCwd, workspaceId)` | A 的列表含有 B 的会话 | 200。A 的列表有 A、没有 B。省略工作区的列表两者都没有 | 已收住 |
+| 按 id 读会话 | `GET /api/v1/ai/sessions/:id` 走 `findSessionForWorkspace` | 200，正文有「标题B」 | 404 `not_found`，正文没有「标题B」 | 已收住 |
+| 提问 | `POST /api/v1/ai/sessions/:id/prompt` 在 `session/prompt` 之前查找 | 200，`accepted` 为 true，B 进入 running | 404。B 仍是 running false，标题仍是「标题B」 | 已收住 |
+| 分叉 | `POST /api/v1/ai/sessions/:id/fork`。命中后 `session/create` 的 cwd 取 `sessionCwdOf` | 本区分叉 409 `session_owned_by_ui`。外区分叉也是 409 | 本区 201。新会话 cwd 是 `/ws-guard-a`，A 的列表有它，B 的列表没有。外区分叉 B 是 404，B 的列表仍是原来那一条 | 已收住。新会话落在原会话的工作区 |
+| 运行中归档、改名 | `POST .../archive` 和 `POST .../rename` 在 Host 调用前查找 | 归档 200。Host 双份把 running 改成 false，标题改成「已归档」 | 两条都是 404。B 仍 running，标题仍是「标题B」，`archived` 仍是 false | 已收住。没有副作用 |
+| 其余 sessionId 口 | export、cancel、commands、permission、preset、attachments、approval、model、follow、skills | export 是 200，正文能带上「导出会话秘密」 | 全部 404。B 的标题和 running 不变 | 已收住 |
+| `corpus/session:*` | `GET /api/v1/corpus/session:%3Aid` 到 `resolveSession`。`sessionLogCwd` 读 `session/header` 的 cwd，对不上就返回找不到 | A 的 cwd 读 B 的会话，200，正文含「语料会话秘密」 | 404，正文没有该句。B 自己的 cwd 仍是 200，正文有该句。header 没有 cwd 的旧语料测试仍通过 | 已收住 |
+| `GET /api/v1/memory/usage` | 原先 `semanticOs('/usage')` 不带请求 cwd，Host 双份对未点名的 cwd 返回 B 的用量。现在和 `memory/deps` 一样把 `requireHttpWorkspace` 的 cwd 传进去 | A 的 `cwd=/ws-guard-a` 得到 `用量秘密B` | 200，`secret` 是「用量秘密A」，正文没有「用量秘密B」 | 已收住。没有给用量加工作区列。省略 cwd 时仍用运行时 cwd，和 deps 相同 |
+| AI 模型、凭证、provider | Host 全局目录和 settings RPC | 本轮没有把它们做成跨区红测 | 没有改 | 后续。不加工区列 |
