@@ -134,6 +134,8 @@ test('Host stop does not leave semantica pip reparented to pid 1', { timeout: 24
     if (!host?.core) throw new Error('真 Host 没有在时限内连上')
     report.beforeKids = live
     report.recentLogs = (host.core.logs || []).slice(-12)
+    report.webLine = (host.core.logs || []).some((line) => /^dsh web:\s+\S+/u.test(String(line)))
+    report.epipe = (host.core.logs || []).some((line) => String(line).includes('EPIPE'))
     report.lastError = host.core.lastError || null
     const tracked = new Map(live.map((row) => [row.pid, row]))
     try {
@@ -153,11 +155,15 @@ test('Host stop does not leave semantica pip reparented to pid 1', { timeout: 24
     } while (Date.now() < deadline)
     report.survivors = [...seen.values()].filter((row) => !row.stat.includes('Z'))
     report.reparented = report.survivors.filter((row) => row.ppid === 1)
+    report.epipeAfter = (host.core.logs || []).some((line) => String(line).includes('EPIPE'))
     const out = process.env.ORPHAN_PIP_OUT
     if (out) {
       await mkdir(dirname(out), { recursive: true })
       await writeFile(out, `${JSON.stringify(report, null, 2)}\n`)
     }
+    assert.equal(report.webLine, true, JSON.stringify(report.recentLogs))
+    assert.equal(report.epipe, false, JSON.stringify(report.recentLogs))
+    assert.equal(report.epipeAfter, false, JSON.stringify(host.core.logs || []).slice(-2000))
     assert.ok(report.beforeKids.length > 0, `did not observe semantica pip under the live host: ${JSON.stringify(report)}`)
     assert.deepEqual(report.reparented, [], `stop left semantica pip reparented to pid 1: ${JSON.stringify(report.reparented)}`)
     assert.deepEqual(report.survivors, [], `stop left semantica pip alive: ${JSON.stringify(report.survivors)}`)
