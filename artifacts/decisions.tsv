@@ -2,3 +2,12 @@ ts	phase	decision	why	evidence	result
 2026-10-20T02:40:00Z	start	this run starts the workspace isolation branch	the log is new	bc-37fa3907-642d-5171-96fb-892d24edbca1	open
 2026-10-20T02:40:00Z	frame	stack on 1e7cdb50, no conflict with #58	HEAD equals the named commit	git rev-parse HEAD	1e7cdb504b56731530e10aaf747f412f352d8df3
 2026-10-20T02:40:00Z	rule	unregistered absolute path is 404 not_found 工作区未登记	apps already return that; briefing 400 is the outlier	artifacts/callsites.md	open
+2026-10-20T03:20:00Z	item1	list business apps by the workspace id that owns the path	the OR leak was the route substituting ws_personal	89827928 e8873be2	tests green
+2026-10-20T03:25:00Z	item2	a workspace filter no longer matches a null cwd	null was treated as every workspace	1f9e8c0a 2e1f7e99	tests green
+2026-10-20T03:30:00Z	item3	pending events use the same workspace filter	the route did not read workspace	671f0d93 1b18fcd5	tests green
+2026-10-20T03:35:00Z	item4	catalog and both connection routes 404 an unregistered path	they parsed a path and then read personal data	8c74e608 480de69d	tests green
+2026-10-20T03:40:00Z	item5	context pack passes workspaceId into resolveWorkspaceIdOrFail	the id was dropped before the check	34f1c2c2 43ef50f7	tests green
+2026-10-20T03:45:00Z	rule	unregistered path is 404 not_found 工作区未登记	briefing was the 400 outlier	68468f16 d0360225	tests green
+2026-10-20T03:50:00Z	item7	guard reports alias, short prefix, wrong method, hidden get, and a helper outside its body	those reads used to pass	78633571 d6bee377	tests green
+2026-10-20T03:55:00Z	item8	directory picker uses canonicalWorkspaceCwd	startsWith slash dropped drive and UNC paths	3cae9d6f 5425ff5a	tests green
+2026-10-20T03:55:00Z	item9	scheduler left as it is	storedWorkspaceCwd already uses canonicalWorkspaceCwd and the drive-letter test passes	runtime/briefing/scheduler.mjs	no change
