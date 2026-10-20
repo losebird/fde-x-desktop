@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process'
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname } from 'node:path'
 
 const command = process.argv[2]
 const args = process.argv.slice(3)
@@ -10,14 +9,15 @@ if (!command) process.exit(1)
 let killed = false
 
 function publishHostExit(code, signal) {
-  const dir = join(tmpdir(), 'fde-host-exit')
-  const finalPath = join(dir, `${process.pid}.json`)
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(`${finalPath}.tmp`, JSON.stringify({
+  const finalPath = process.env.FDE_HOST_EXIT_STATUS
+  if (!finalPath) return
+  mkdirSync(dirname(finalPath), { recursive: true })
+  const tmpPath = `${finalPath}.${process.pid}.tmp`
+  writeFileSync(tmpPath, JSON.stringify({
     code: Number.isInteger(code) ? code : null,
     signal: signal || null,
   }))
-  renameSync(`${finalPath}.tmp`, finalPath)
+  renameSync(tmpPath, finalPath)
 }
 
 function killGroup() {
@@ -37,9 +37,12 @@ process.stdin.on('error', (error) => {
 })
 process.stdin.resume()
 
+const hostEnv = { ...process.env }
+delete hostEnv.FDE_HOST_EXIT_STATUS
 const child = spawn(command, args, {
   stdio: ['ignore', 'inherit', 'inherit'],
   windowsHide: true,
+  env: hostEnv,
 })
 
 child.on('error', () => {

@@ -231,7 +231,15 @@ function hostGroupAlive(pgid) {
   })
 }
 
+const hostExitPaths = new WeakMap()
 const hostExitPhrases = new WeakMap()
+
+function discardHostExit(child) {
+  const path = hostExitPaths.get(child)
+  if (!path) return
+  hostExitPaths.delete(child)
+  try { unlinkSync(path) } catch { /* status file was never written */ }
+}
 
 function describeHostExit(child, code, signal) {
   const leader = signal ? `signal ${signal}` : `code ${code}`
@@ -239,9 +247,8 @@ function describeHostExit(child, code, signal) {
   const cached = hostExitPhrases.get(child)
   if (cached) return cached
   let phrase = ''
-  const pid = child?.pid
-  if (Number.isInteger(pid) && pid > 1) {
-    const path = join(tmpdir(), 'fde-host-exit', `${pid}.json`)
+  const path = hostExitPaths.get(child)
+  if (path) {
     try {
       const parsed = JSON.parse(readFileSync(path, 'utf8'))
       if (typeof parsed?.signal === 'string' && parsed.signal) phrase = `signal ${parsed.signal}`
@@ -250,6 +257,7 @@ function describeHostExit(child, code, signal) {
       phrase = ''
     }
     try { unlinkSync(path) } catch { /* no status file */ }
+    hostExitPaths.delete(child)
   }
   const resolved = phrase || `${leader}，真实退出状态未知`
   hostExitPhrases.set(child, resolved)
@@ -508,6 +516,7 @@ export class DshCoreConnector {
       '--no-open',
     ]
     const groupLeader = process.platform !== 'win32'
+    const exitStatusPath = groupLeader ? join(tmpdir(), 'fde-host-exit', `${randomUUID()}.json`) : ''
     const child = spawn(host.command, groupLeader
       ? [join(FDE_RUNTIME_DIR, 'host-group.mjs'), host.command, ...hostArgs]
       : hostArgs, {
@@ -519,6 +528,7 @@ export class DshCoreConnector {
         FDE_RUNTIME_DIR: this.runtimeDirectory,
         FDE_AI_WORKSPACE: this.cwd,
         FDE_DSH_CREDENTIALS_PATH: this.credentialsPath,
+        ...(exitStatusPath ? { FDE_HOST_EXIT_STATUS: exitStatusPath } : {}),
         ...(process.env.DSH_SEMANTICA_PYTHON || semanticaPython ? { DSH_SEMANTICA_PYTHON: process.env.DSH_SEMANTICA_PYTHON || semanticaPython } : {}),
         ...(process.env.FDE_DSH_SESSION_ROOT ? { FDE_DSH_SESSION_ROOT: process.env.FDE_DSH_SESSION_ROOT } : {}),
         ...(process.env.FDE_DSH_STORAGE_ROOT ? { FDE_DSH_STORAGE_ROOT: process.env.FDE_DSH_STORAGE_ROOT } : {}),
@@ -527,6 +537,7 @@ export class DshCoreConnector {
       windowsHide: true,
       detached: groupLeader,
     })
+    if (exitStatusPath) hostExitPaths.set(child, exitStatusPath)
     child.stdin?.on('error', (error) => {
       if (error?.code === 'EPIPE' || error?.code === 'ECONNRESET' || error?.code === 'ERR_STREAM_DESTROYED') return
       throw error
@@ -603,8 +614,9 @@ export class DshCoreConnector {
         const how = describeHostExit(child, code, signal)
         const detail = this.logs.filter(Boolean).slice(-4).join(' | ')
         this.failCore(detail ? `AI 服务意外退出：${how}：${detail}` : `AI 服务意外退出：${how}`)
-      } else if (this.state !== 'error') {
-        this.state = 'stopped'
+      } else {
+        discardHostExit(child)
+        if (this.state !== 'error') this.state = 'stopped'
       }
       void this.cleanupCredentialsCopy()
     }
