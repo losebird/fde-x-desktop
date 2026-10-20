@@ -18,6 +18,8 @@ function phraseFor(mode) {
   if (mode === 'code3') return 'AI 服务启动前退出（code 3）'
   if (mode === 'code0') return 'AI 服务启动前退出（code 0）'
   if (mode === 'sigsegv') return 'AI 服务启动前退出（signal SIGSEGV）'
+  if (mode === 'sigkill') return 'AI 服务启动前退出（signal SIGKILL）'
+  if (mode === 'missing') return '真实退出状态未知'
   throw new Error(`unknown host exit mode ${mode}`)
 }
 
@@ -98,7 +100,7 @@ export async function runHostExitStatus(options = {}) {
   }
   process.env.FAKE_HOST_READY = readyPath
   process.env.FAKE_HOST_GO = goPath
-  process.env.FAKE_HOST_MODE = mode === 'sigsegv' ? 'signal' : 'code'
+  process.env.FAKE_HOST_MODE = mode === 'code3' || mode === 'code0' ? 'code' : 'signal'
   process.env.FDE_SEMANTIC_RUNTIME_MODE = process.env.FDE_SEMANTIC_RUNTIME_MODE || 'readonly'
   const report = {
     mode,
@@ -161,16 +163,19 @@ export async function runHostExitStatus(options = {}) {
     if (!report.inGroup) {
       throw new Error(`pip was not running in the host group: ${JSON.stringify(report)}`)
     }
-    if (mode === 'sigsegv') process.kill(ready.hostPid, 'SIGSEGV')
+    if (mode === 'sigsegv' || mode === 'sigkill') process.kill(ready.hostPid, mode === 'sigsegv' ? 'SIGSEGV' : 'SIGKILL')
+    else if (mode === 'missing') process.kill(leaderPid, 'SIGKILL')
     else await writeFile(goPath, mode === 'code3' ? '3\n' : '0\n')
     const settled = await started
     report.message = settled.message
-    const tracked = new Set([leaderPid, ready.hostPid, ready.pipPid].filter((pid) => Number.isInteger(pid)))
-    const killedAt = Date.now()
-    report.samples = await sampleTracked(tracked, leaderPid, ready.hostPid, ready.pipPid, PARENT_DEATH_DEADLINE_MS)
-    report.judgment = judgeHostGroupWindow(report.samples)
-    const emptyAt = report.samples.find((sample) => sample.rows.length === 0)
-    report.elapsedMs = emptyAt ? emptyAt.tMs : Date.now() - killedAt
+    if (mode !== 'missing') {
+      const tracked = new Set([leaderPid, ready.hostPid, ready.pipPid].filter((pid) => Number.isInteger(pid)))
+      const killedAt = Date.now()
+      report.samples = await sampleTracked(tracked, leaderPid, ready.hostPid, ready.pipPid, PARENT_DEATH_DEADLINE_MS)
+      report.judgment = judgeHostGroupWindow(report.samples)
+      const emptyAt = report.samples.find((sample) => sample.rows.length === 0)
+      report.elapsedMs = emptyAt ? emptyAt.tMs : Date.now() - killedAt
+    }
   } catch (error) {
     report.error = error instanceof Error ? error.message : String(error)
   } finally {
@@ -181,12 +186,19 @@ export async function runHostExitStatus(options = {}) {
       else process.env[key] = value
     }
   }
-  report.ok = report.error == null
+  const known = report.error == null
     && report.inGroup === true
     && report.message.includes(phrase)
+    && !report.message.includes('真实退出状态未知')
     && report.judgment?.pass === true
     && report.elapsedMs != null
     && report.elapsedMs <= PARENT_DEATH_DEADLINE_MS
+  const unknown = report.error == null
+    && report.inGroup === true
+    && report.message.includes('真实退出状态未知')
+    && report.message.includes('signal SIGKILL')
+    && !report.message.includes('code 3')
+  report.ok = mode === 'missing' ? unknown : known
   if (options.out) {
     const { mkdir: mkdirOut, writeFile: writeOut } = await import('node:fs/promises')
     await mkdirOut(dirname(options.out), { recursive: true })
