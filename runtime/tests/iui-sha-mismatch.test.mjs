@@ -10,6 +10,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
 import { createPageTokenClient } from './support/page-token-fetch.mjs'
+import { writeFakeDshCredentials } from './support/iui-home-fixture.mjs'
 
 const page = createPageTokenClient()
 
@@ -39,6 +40,7 @@ test('a tampered vendor tar disables IUI and leaves the core connected', { timeo
   const database = join(home, 'data', 'fde-workstation.sqlite')
   await mkdir(blankHome, { recursive: true })
   await mkdir(dirname(artifact), { recursive: true })
+  await writeFakeDshCredentials(home)
   await writeFile(artifact, bytes)
   const logs = []
   const child = spawn(process.execPath, ['runtime/server.mjs'], {

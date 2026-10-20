@@ -3,18 +3,19 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:net'
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
 import { createPageTokenClient } from './support/page-token-fetch.mjs'
+import { goodIuiTar, writeFakeDshCredentials } from './support/iui-home-fixture.mjs'
 
 const page = createPageTokenClient()
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.module === '@losebird/iui')
-const goodTar = join(homedir(), '.dsh', 'vendor', 'iui', `iui-${IUI.source.commit}.tar.gz`)
+const goodTar = goodIuiTar(IUI.source.commit)
 
 function freePort() {
   return new Promise((resolvePort, reject) => {
@@ -39,6 +40,7 @@ test('repacking a failed archive enables IUI without restarting the dev process'
   const artifact = join(home, 'vendor-tar', `iui-${IUI.source.commit}.tar.gz`)
   await mkdir(blankHome, { recursive: true })
   await mkdir(dirname(artifact), { recursive: true })
+  await writeFakeDshCredentials(home)
   await writeFile(artifact, 'tampered-iui-archive')
   const badSha = createHash('sha256').update('tampered-iui-archive').digest('hex')
   const port = await freePort()
