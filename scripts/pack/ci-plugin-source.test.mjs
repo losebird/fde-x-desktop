@@ -14,5 +14,6 @@ test('desktop and mac workflows take plugins from the repo and do not copy ~/.ds
     assert.equal(text.includes('.dsh/vendor/dsh-lan-assist'), false, rel)
     assert.equal(text.includes('.dsh/vendor/dsh-semantic-os'), false, rel)
     assert.match(text, /runtime\/plugins/, rel)
+    assert.equal(text.includes('FDE_ALLOW_MISSING_PLUGINS'), false, rel)
   }
 })

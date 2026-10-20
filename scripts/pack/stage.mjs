@@ -518,13 +518,20 @@ async function stageBffPackages(dest) {
   )
 }
 
-export async function stageLanAssist(source, dest) {
+export function allowMissingPlugins() {
+  return process.env.FDE_ALLOW_MISSING_PLUGINS === '1'
+}
+
+export async function stageLanAssist(source, dest, options = {}) {
   await execFile(
     'npm',
     ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'],
     { cwd: source, maxBuffer: 64 * 1024 * 1024 },
   )
-  const staged = await stagePluginTree(source, dest, { strict: true, keepNodeModules: true })
+  const staged = await stagePluginTree(source, dest, {
+    strict: options.strict !== false,
+    keepNodeModules: true,
+  })
   if (!staged) throw new Error(`[stage] missing plugin dsh-lan-assist: ${source}`)
   return true
 }
@@ -549,10 +556,15 @@ export function missingLockedPluginFiles(root) {
 
 async function main() {
   const missingPlugins = missingLockedPluginFiles(repoRoot)
-  if (missingPlugins.length) {
+  const allowMissing = allowMissingPlugins()
+  if (missingPlugins.length && !allowMissing) {
     console.error('[stage] missing plugin files:')
     for (const rel of missingPlugins) console.error(`missing ${rel}`)
     process.exit(1)
+  }
+  if (missingPlugins.length) {
+    console.warn('[stage] FDE_ALLOW_MISSING_PLUGINS=1')
+    for (const rel of missingPlugins) console.warn(`missing ${rel}`)
   }
 
   console.log(`[stage] resources root: ${resourcesRoot}`)
@@ -582,9 +594,9 @@ async function main() {
     if (plugin.source.kind === 'repo') {
       const from = join(repoRoot, plugin.source.path)
       const to = join(pluginsRoot, plugin.dir)
-      if (plugin.dir === 'dsh-lan-assist') await stageLanAssist(from, to)
+      if (plugin.dir === 'dsh-lan-assist') await stageLanAssist(from, to, { strict: !allowMissing })
       else {
-        const staged = await stagePluginTree(from, to, { strict: true })
+        const staged = await stagePluginTree(from, to, { strict: !allowMissing })
         if (!staged) {
           console.error(`[stage] missing plugin ${plugin.dir}: ${plugin.source.path}`)
           process.exit(1)
