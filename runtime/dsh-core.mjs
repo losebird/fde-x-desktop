@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { constants, existsSync, realpathSync, symlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -205,6 +205,30 @@ export async function parseHostRpcValue(response, rpcId, endpoint) {
     throw new AiRemoteError(remote.code ?? 'ai/remote-error', remote.message ?? 'AI 远程调用失败', remote.details ?? {})
   }
   return envelope.result.value
+}
+
+function hostGroupAlive(pgid) {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32' || !Number.isInteger(pgid) || pgid <= 1) {
+      resolve(false)
+      return
+    }
+    execFile('ps', ['-ax', '-o', 'pgid=,stat='], { timeout: 2000 }, (error, stdout) => {
+      if (error) {
+        resolve(false)
+        return
+      }
+      for (const line of String(stdout || '').split('\n')) {
+        const match = line.match(/^\s*(\d+)\s+(\S+)/u)
+        if (!match) continue
+        if (Number(match[1]) === pgid && !match[2].includes('Z')) {
+          resolve(true)
+          return
+        }
+      }
+      resolve(false)
+    })
+  })
 }
 
 function signalHostGroup(child, signal) {
@@ -1441,30 +1465,15 @@ export class DshCoreConnector {
       await removePidFile(this.runDirectory, this.corePidFile)
       return
     }
-    await new Promise((resolveStop, rejectStop) => {
-      const timer = setTimeout(() => {
-        if (child.exitCode != null || child.signalCode != null) return
-        try {
-          signalHostGroup(child, 'SIGKILL')
-        } catch (error) {
-          if (child.exitCode == null && child.signalCode == null) {
-            clearTimeout(timer)
-            rejectStop(error)
-          }
-        }
-      }, 5_000)
-      child.once('exit', () => {
-        clearTimeout(timer)
-        resolveStop()
-      })
-      try {
-        signalHostGroup(child, 'SIGTERM')
-      } catch (error) {
-        clearTimeout(timer)
-        if (child.exitCode == null && child.signalCode == null) rejectStop(error)
-        else resolveStop()
-      }
-    })
+    try {
+      signalHostGroup(child, 'SIGTERM')
+    } catch (error) {
+      if (child.exitCode == null && child.signalCode == null) throw error
+    }
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline && await hostGroupAlive(child.pid)) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+    }
     signalHostGroup(child, 'SIGKILL')
     await this.cleanupCredentialsCopy()
     await removePidFile(this.runDirectory, this.corePidFile)

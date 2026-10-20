@@ -45,11 +45,3 @@ child.on('exit', (code, signal) => {
   }
   process.exit(code ?? 0)
 })
-
-// Group SIGTERM already reached the host. Exiting here would make stop() skip the host's grace period.
-process.on('SIGTERM', () => {
-  if (child.exitCode != null || child.signalCode != null) process.exit(0)
-})
-process.on('SIGINT', () => {
-  if (child.exitCode != null || child.signalCode != null) process.exit(0)
-})
