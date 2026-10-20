@@ -419,4 +419,85 @@ if (process.env.PR4_CASE) {
       await rm(emptyVendor, { recursive: true, force: true })
     }
   }))
+
+  async function withReadyProfile(check) {
+    const home = await mkdtemp(join(tmpdir(), 'fde-pr4-nats-swap-'))
+    const emptyVendor = await mkdtemp(join(tmpdir(), 'fde-empty-vendor-'))
+    const savedVendor = process.env.FDE_VENDOR_DIR
+    const savedIui = process.env.FDE_PLUGIN_IUI
+    const savedLan = process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+    const savedSem = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+    const savedArtifact = process.env.FDE_IUI_ARTIFACT
+    const savedRefresh = process.env.FDE_REFRESH_PLUGINS
+    delete process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+    delete process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+    delete process.env.FDE_IUI_ARTIFACT
+    delete process.env.FDE_REFRESH_PLUGINS
+    process.env.FDE_VENDOR_DIR = emptyVendor
+    process.env.FDE_PLUGIN_IUI = await writeIui(home)
+    try {
+      const connector = new DshCoreConnector({ dshHome: home, cwd: home })
+      await connector.ensureIsolatedProfile()
+      assert.equal(connector.state, 'idle', connector.lastError)
+      assert.equal(connector.lastError, null)
+      await check(connector, home)
+    } finally {
+      if (savedVendor === undefined) delete process.env.FDE_VENDOR_DIR
+      else process.env.FDE_VENDOR_DIR = savedVendor
+      if (savedIui === undefined) delete process.env.FDE_PLUGIN_IUI
+      else process.env.FDE_PLUGIN_IUI = savedIui
+      if (savedLan === undefined) delete process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+      else process.env.FDE_PLUGIN_DSH_LAN_ASSIST = savedLan
+      if (savedSem === undefined) delete process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+      else process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = savedSem
+      if (savedArtifact === undefined) delete process.env.FDE_IUI_ARTIFACT
+      else process.env.FDE_IUI_ARTIFACT = savedArtifact
+      if (savedRefresh === undefined) delete process.env.FDE_REFRESH_PLUGINS
+      else process.env.FDE_REFRESH_PLUGINS = savedRefresh
+      await rm(home, { recursive: true, force: true })
+      await rm(emptyVendor, { recursive: true, force: true })
+    }
+  }
+
+  test('a swapped installed nats version is not left idle', async () => {
+    await withReadyProfile(async (connector, home) => {
+      const pkgPath = join(home, 'vendor', 'dsh-lan-assist', 'node_modules', 'nats', 'package.json')
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+      pkg.version = '9.9.9'
+      writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
+      await connector.ensureIsolatedProfile()
+      const after = JSON.parse(readFileSync(pkgPath, 'utf8'))
+      const silent = connector.state === 'idle' && after.version === '9.9.9'
+      assert.equal(silent, false, `swapped nats stayed idle ${connector.state} ${after.version} ${connector.lastError}`)
+      if (connector.state === 'idle') {
+        assert.equal(after.version, '2.29.3')
+        assert.equal(connector.lastError, null)
+      } else {
+        assert.equal(connector.state, 'error')
+        assert.match(String(connector.lastError), /nats/i)
+        assert.equal(/NO_NATS/.test(connector.lastError || ''), false)
+      }
+    })
+  })
+
+  test('an edited installed nats index is not left idle', async () => {
+    await withReadyProfile(async (connector, home) => {
+      const indexPath = join(home, 'vendor', 'dsh-lan-assist', 'node_modules', 'nats', 'index.js')
+      const raw = readFileSync(indexPath)
+      const marker = '\n/* fde-nats-tamper */\n'
+      writeFileSync(indexPath, Buffer.concat([raw, Buffer.from(marker)]))
+      await connector.ensureIsolatedProfile()
+      const body = readFileSync(indexPath, 'utf8')
+      const silent = connector.state === 'idle' && body.includes('fde-nats-tamper')
+      assert.equal(silent, false, `edited nats index stayed idle ${connector.state} ${connector.lastError}`)
+      if (connector.state === 'idle') {
+        assert.equal(body.includes('fde-nats-tamper'), false)
+        assert.equal(connector.lastError, null)
+      } else {
+        assert.equal(connector.state, 'error')
+        assert.match(String(connector.lastError), /nats/i)
+        assert.equal(/NO_NATS/.test(connector.lastError || ''), false)
+      }
+    })
+  })
 }
