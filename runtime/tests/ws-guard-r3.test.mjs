@@ -36,7 +36,23 @@ const SCOPED_CALLS = [
   'putDocument',
 ]
 
-const SCOPED_TABLES = ['business_apps', 'operations', 'tasks', 'calendar_events', 'workflows']
+const SCOPED_TABLES = ['business_apps', 'operations', 'tasks', 'calendar_events', 'workflows', 'business_connections', 'operation_steps', 'workflow_runs']
+
+const CWD_TABLES = ['briefings', 'biz_write_audit']
+
+const SCOPE_WORD = {
+  getBriefing: 'workspaceCwd',
+  updateBriefingContent: 'workspaceCwd',
+  resolveBriefing: 'workspaceCwd',
+  getBizWriteAuditByTraceId: 'workspaceCwd',
+  getRecord: 'workspaceCwd',
+  patchRecord: 'workspaceCwd',
+  deleteRecord: 'workspaceCwd',
+  updateBusinessConnectionStatusByProvider: 'workspaceId',
+  insertOperationStep: 'workspaceId',
+  readWorkflowRuns: 'workspaceId',
+  readLatestRunCards: 'workspaceId',
+}
 
 function registerWorkspace(db, id, cwd) {
   const now = new Date().toISOString()
@@ -381,11 +397,15 @@ function callSites(text, callee) {
 
 function sqlSites(text) {
   const sites = []
-  const re = new RegExp(String.raw`(?:SELECT|UPDATE|DELETE)[\s\S]{0,240}?\b(?:${SCOPED_TABLES.join('|')})\b[\s\S]{0,240}?WHERE\s+id\s*=\s*\?`, 'g')
+  const tables = [...SCOPED_TABLES, ...CWD_TABLES].join('|')
+  const re = new RegExp(String.raw`(?:SELECT|UPDATE|DELETE)[\s\S]{0,240}?\b(?:${tables})\b[\s\S]{0,320}?WHERE\s+(?:id|trace_id)\s*=\s*\?`, 'g')
   for (const match of text.matchAll(re)) {
-    if (match[0].includes('workspace_id')) continue
+    const cwdTable = CWD_TABLES.some((table) => match[0].includes(table))
+    const filtered = cwdTable ? /workspace_cwd\s*\)?\s*=/.test(match[0]) : /workspace_id\s*=/.test(match[0])
+    if (filtered) continue
     const line = text.slice(0, match.index).split('\n').length
-    sites.push({ line, sql: match[0].replace(/\s+/g, ' ').slice(0, 140) })
+    const table = [...SCOPED_TABLES, ...CWD_TABLES].find((name) => match[0].includes(name)) || ''
+    sites.push({ line, table, sql: match[0].replace(/\s+/g, ' ').slice(0, 140) })
   }
   return sites
 }
@@ -406,25 +426,33 @@ async function sourceFiles(dir) {
 
 test('primary key access passes workspaceId', async () => {
   const problems = []
-  const allow = new Set(workspaceScopeAllow.map((row) => `${row.file}:${row.enclosing}:${row.callee}`))
+  const allow = new Set(workspaceScopeAllow.filter((row) => row.callee).map((row) => `${row.file}:${row.enclosing}:${row.callee}`))
   for (const row of workspaceScopeAllow) {
-    if (!row.file || !row.callee || !row.reason) problems.push(`allow row missing file, callee, or reason: ${JSON.stringify(row)}`)
+    const callRow = Boolean(row.callee)
+    const sqlRow = Boolean(row.table)
+    if (!row.file || !row.reason || callRow === sqlRow) {
+      problems.push(`allow row needs a reason and exactly one of callee or table: ${JSON.stringify(row)}`)
+    }
   }
+  const callees = [...SCOPED_CALLS, ...Object.keys(SCOPE_WORD)]
   for (const full of await sourceFiles(repoRoot)) {
     const rel = relative(repoRoot, full)
     if (rel.startsWith('runtime/tests/')) continue
     const text = await readFile(full, 'utf8')
-    for (const callee of SCOPED_CALLS) {
+    for (const callee of callees) {
+      const word = SCOPE_WORD[callee] || 'workspaceId'
       for (const site of callSites(text, callee)) {
-        if (/\bworkspaceId\b/.test(site.args)) continue
+        if (new RegExp(`\\b${word}\\b`).test(site.args)) continue
         const key = `${rel}:${site.enclosing}:${callee}`
         if (allow.has(key)) continue
-        problems.push(`${rel}:${site.line} ${site.enclosing || '(top)'} calls ${callee} without workspaceId`)
+        problems.push(`${rel}:${site.line} ${site.enclosing || '(top)'} calls ${callee} without ${word}`)
       }
     }
     if (!rel.startsWith('runtime/')) continue
     for (const site of sqlSites(text)) {
-      problems.push(`${rel}:${site.line} sql by id without workspace_id: ${site.sql}`)
+      const skipped = workspaceScopeAllow.some((row) => row.file === rel && row.table === site.table && row.reason && !row.callee)
+      if (skipped) continue
+      problems.push(`${rel}:${site.line} sql by id without workspace scope: ${site.sql}`)
     }
   }
   assert.deepEqual(problems, [])
