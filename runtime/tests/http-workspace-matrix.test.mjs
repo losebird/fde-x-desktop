@@ -21,7 +21,7 @@ const WIN_MARK = 'matrix-win-marker'
 const SLASH_MARK = 'matrix-slash-marker'
 const DEFAULT_MARK = 'matrix-default-marker'
 
-const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context', 'business-apps'])
+const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context', 'business-apps', 'catalog', 'catalog-post', 'business-connections', 'biz-connections'])
 const READ_RE = /searchParams\.(?:get|has)\(\s*['"`](?:cwd|workspace)['"`]|body\??\.(?:cwd|workspaceCwd|workspace)\b|body\??\[['"`](?:cwd|workspace)['"`]\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\s*\(/
 
 function registerWorkspace(db, id, cwd) {
