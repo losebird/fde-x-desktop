@@ -1,5 +1,5 @@
 import { canonicalWorkspaceCwd } from '../cwd.mjs'
-import { resolveHttpWorkspace } from '../http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
 import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE, FDE_RUNTIME_PORT } from '../config.mjs'
 import { verifyUiToken } from './bridge.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
@@ -74,16 +74,9 @@ function specWorkspaceCwd(spec) {
 }
 
 function rejectAppWorkspace(resolved, response, correlationId, sendError) {
-  if (resolved?.error === 'missing_workspace') {
-    sendError(response, 404, 'not_found', '工作区未登记', correlationId)
-    return true
-  }
-  if (resolved?.error === 'workspace_mismatch') {
-    sendError(response, 400, 'workspace_mismatch', '工作区 id 与路径不一致', correlationId)
-    return true
-  }
-  if (!resolved?.error) return false
-  sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+  const failure = httpStatusForWorkspaceError(resolved?.error)
+  if (!failure) return false
+  sendError(response, failure.status, failure.code, failure.message, correlationId)
   return true
 }
 

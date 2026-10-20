@@ -213,12 +213,9 @@ export async function handleBridgeRoutes(request, response, url, deps) {
     let workspaceId = fromBody
     if (workspaceCwd) {
       const ident = resolveWorkspaceIdOrFail(db, { cwd: workspaceCwd, source: 'request', id: fromBody })
-      if (ident.error === 'missing_workspace') {
-        bridgeError(response, 404, 'not_found', '工作区未登记', correlationId)
-        return true
-      }
-      if (ident.error === 'workspace_mismatch') {
-        bridgeError(response, 400, 'workspace_mismatch', '工作区 id 与路径不一致', correlationId)
+      const identFailure = httpStatusForWorkspaceError(ident.error)
+      if (identFailure) {
+        bridgeError(response, identFailure.status, identFailure.code, identFailure.message, correlationId)
         return true
       }
       workspaceId = ident.workspaceId

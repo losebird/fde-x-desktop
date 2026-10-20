@@ -80,4 +80,4 @@
 
 ## 统一规则
 
-请求带了绝对路径，库里没有对应工作区行：HTTP 404，code `not_found`，message `工作区未登记`。路径不是绝对路径：400 `workspace_invalid`。id 和路径不是同一行：400 `workspace_mismatch`。没带路径也没带 id：维持各路由现有的缺省（个人区或运行时 cwd）。
+请求给了工作区 id 或绝对路径，库里没有对应工作区行：HTTP 404，code `missing_workspace`，message `工作区未登记`。路径不是绝对路径：400 `workspace_invalid`。id 和路径不是同一行：400 `workspace_mismatch`。没带路径也没带 id：维持各路由现有的缺省（个人区或运行时 cwd）。

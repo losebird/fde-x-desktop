@@ -3112,16 +3112,9 @@ const server = createServer(async (request, response) => {
         ...resolvedApps,
         id: suppliedId,
       })
-      if (ident.error === 'missing_workspace') {
-        sendError(response, 404, 'not_found', '工作区未登记', currentCorrelationId)
-        return
-      }
-      if (ident.error === 'workspace_mismatch') {
-        sendError(response, 400, 'workspace_mismatch', '工作区 id 与路径不一致', currentCorrelationId)
-        return
-      }
-      if (ident.error) {
-        sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+      const appsFailure = httpStatusForWorkspaceError(ident.error)
+      if (appsFailure) {
+        sendError(response, appsFailure.status, appsFailure.code, appsFailure.message, currentCorrelationId)
         return
       }
       const shares = liveShareIdsByApp(db)
@@ -3163,16 +3156,9 @@ const server = createServer(async (request, response) => {
       }
       const body = await readJson(request)
       const putIdent = requestAppWorkspace(db, url, body)
-      if (putIdent.error === 'missing_workspace') {
-        sendError(response, 404, 'not_found', '工作区未登记', currentCorrelationId)
-        return
-      }
-      if (putIdent.error === 'workspace_mismatch') {
-        sendError(response, 400, 'workspace_mismatch', '工作区 id 与路径不一致', currentCorrelationId)
-        return
-      }
-      if (putIdent.error) {
-        sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+      const putFailure = httpStatusForWorkspaceError(putIdent.error)
+      if (putFailure) {
+        sendError(response, putFailure.status, putFailure.code, putFailure.message, currentCorrelationId)
         return
       }
       const app = updateBusinessApp(db, appId, {

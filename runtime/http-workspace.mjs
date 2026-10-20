@@ -50,7 +50,7 @@ export function resolveHttpWorkspace({
 }
 
 export function httpStatusForWorkspaceError(error) {
-  if (error === 'missing_workspace') return { status: 404, code: 'not_found', message: '工作区未登记' }
+  if (error === 'missing_workspace') return { status: 404, code: 'missing_workspace', message: '工作区未登记' }
   if (error === 'workspace_mismatch') return { status: 400, code: 'workspace_mismatch', message: '工作区 id 与路径不一致' }
   if (error === 'workspace_invalid') return { status: 400, code: 'workspace_invalid', message: '工作区必须是绝对路径' }
   return null

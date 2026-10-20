@@ -519,7 +519,7 @@ describe('remaining writes require the page token', { concurrency: 1 }, () => {
       body: { workspaceCwd: '/y-not-registered', mode: 'internal-only' },
     })
     assert.equal(briefing.status, 404, JSON.stringify(briefing.payload))
-    assert.equal(briefing.payload.error, 'not_found')
+    assert.equal(briefing.payload.error, 'missing_workspace')
   })
 
   test('public share insert stays open without a page token', async (t) => {
