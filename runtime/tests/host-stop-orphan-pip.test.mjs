@@ -42,7 +42,7 @@ async function processOwnsHome(pid, home) {
   try {
     const env = await readFile(join('/proc', String(pid), 'environ'))
     if (env.includes(home)) return true
-  } catch { /* process exited or environ is unreadable */ }
+  } catch {}
   return false
 }
 
@@ -164,7 +164,7 @@ test('Host stop does not leave semantica pip reparented to pid 1', { timeout: 24
   } finally {
     if (host?.home) {
       for (const row of await semanticaPips(host.home).catch(() => [])) {
-        try { process.kill(row.pid, 'SIGKILL') } catch { /* already gone */ }
+        try { process.kill(row.pid, 'SIGKILL') } catch {}
       }
     }
     if (host) await host.stop().catch(() => {})
