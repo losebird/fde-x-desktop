@@ -330,7 +330,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const workspaceId = requireWorkspaceId(body.workspaceId, response, correlationId)
     if (!workspaceId) return true
     if (!workspaceExists(db, workspaceId)) {
-      planError(response, 404, 'not_found', '工作区不存在', correlationId)
+      planError(response, 404, 'missing_workspace', '工作区未登记', correlationId)
       return true
     }
     const title = typeof body.title === 'string' ? body.title.trim() : ''
@@ -552,7 +552,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const workspaceId = requireWorkspaceId(body.workspaceId, response, correlationId)
     if (!workspaceId) return true
     if (!workspaceExists(db, workspaceId)) {
-      planError(response, 404, 'not_found', '工作区不存在', correlationId)
+      planError(response, 404, 'missing_workspace', '工作区未登记', correlationId)
       return true
     }
     const title = typeof body.title === 'string' ? body.title.trim() : ''
@@ -603,8 +603,8 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '日程不存在', correlationId)
       return true
     }
-    if (rejectForeignPlanRow(db, url, body, response, correlationId, existing, '日程不存在')) return true
     if ((existing.workflow_id || scheduleFieldsPresent(body)) && rejectScheduleToken(request, response, correlationId, uiToken)) return true
+    if (rejectForeignPlanRow(db, url, body, response, correlationId, existing, '日程不存在')) return true
     const patch = {}
     if (scheduleFieldsPresent(body)) {
       const binding = resolveScheduleBinding(db, existing.workspace_id, body)
@@ -663,8 +663,8 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '日程不存在', correlationId)
       return true
     }
-    if (rejectForeignPlanRow(db, url, null, response, correlationId, existing, '日程不存在')) return true
     if (existing.workflow_id && rejectScheduleToken(request, response, correlationId, uiToken)) return true
+    if (rejectForeignPlanRow(db, url, null, response, correlationId, existing, '日程不存在')) return true
     db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id)
     planWrote(response, 200, { id }, correlationId, db, {
       workspaceId: existing.workspace_id,

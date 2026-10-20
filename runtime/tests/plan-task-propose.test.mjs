@@ -182,8 +182,9 @@ async function patchTask(id, body) {
   return { status: res.status, payload }
 }
 
-async function deleteTask(id) {
-  const res = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(id)}`, {
+async function deleteTask(id, workspaceId) {
+  const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''
+  const res = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(id)}${query}`, {
     method: 'DELETE',
     headers: pageHeaders(),
   })
@@ -347,7 +348,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     const task = await createTask(workspaceId, '原来的标题')
     await bridgePropose({ workspaceId, op: 'update', taskId: task.id, title: '提案标题' })
     const row = assertAwaiting(workspaceId)
-    const patched = await patchTask(task.id, { title: '人手改过' })
+    const patched = await patchTask(task.id, { workspaceId, title: '人手改过' })
     assert.equal(patched.status, 200, JSON.stringify(patched.payload))
     const confirmed = await decide(row.id, 'confirm', pageHeaders(), { title: '提案标题' })
     assert.equal(confirmed.status, 409)
@@ -374,7 +375,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     const task = await createTask(workspaceId, '原来的标题')
     await bridgePropose({ workspaceId, op: 'update', taskId: task.id, title: '提案标题' })
     const row = assertAwaiting(workspaceId)
-    const removed = await deleteTask(task.id)
+    const removed = await deleteTask(task.id, workspaceId)
     assert.equal(removed.status, 200, JSON.stringify(removed.payload))
     const confirmed = await decide(row.id, 'confirm', pageHeaders(), {})
     assert.equal(confirmed.status, 404)

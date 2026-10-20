@@ -156,6 +156,7 @@ test('带页面令牌时创建、修改、删除绑定都会写入并留下审�
     assert.equal(db.prepare(`SELECT action FROM audit_entries WHERE target_ref = ? AND action = 'plan.event.insert'`).get(`fde://plan/events/${id}`).action, 'plan.event.insert')
 
     const patched = await call(db, 'PATCH', `/api/v1/plan/events/${id}`, {
+      workspaceId: 'ws_tok',
       workflowId: 'wf_tok',
       recurrence: 'daily',
     }, token)
@@ -164,7 +165,7 @@ test('带页面令牌时创建、修改、删除绑定都会写入并留下审�
     assert.equal(db.prepare('SELECT recurrence FROM calendar_events WHERE id = ?').get(id).recurrence, 'daily')
     assert.equal(db.prepare(`SELECT action FROM audit_entries WHERE target_ref = ? AND action = 'plan.event.update'`).get(`fde://plan/events/${id}`).action, 'plan.event.update')
 
-    const removed = await call(db, 'DELETE', `/api/v1/plan/events/${id}`, {}, token)
+    const removed = await call(db, 'DELETE', `/api/v1/plan/events/${id}?workspaceId=${encodeURIComponent('ws_tok')}`, {}, token)
     assert.equal(removed.status, 200)
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM calendar_events WHERE id = ?').get(id).n, 0)
     assert.equal(db.prepare(`SELECT action FROM audit_entries WHERE target_ref = ? AND action = 'plan.event.delete'`).get(`fde://plan/events/${id}`).action, 'plan.event.delete')
