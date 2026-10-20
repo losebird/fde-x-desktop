@@ -1,7 +1,18 @@
 import { createHash } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
-import { existsSync, lstatSync } from 'node:fs'
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { cp, lstat, mkdir, mkdtemp, readFile, rename, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 
@@ -51,27 +62,30 @@ async function unlinkIfSymlink(path) {
   }
 }
 
-async function walk(dir) {
+function walk(dir) {
   const out = []
-  let names
-  try {
-    names = await readdir(dir)
-  } catch {
-    return out
-  }
-  for (const name of names) {
-    if (SKIP_WALK.has(name)) continue
-    const path = join(dir, name)
-    let st
+  const visit = (current) => {
+    let names
     try {
-      st = await lstat(path)
+      names = readdirSync(current)
     } catch {
-      continue
+      return
     }
-    if (st.isSymbolicLink()) continue
-    if (st.isDirectory()) out.push(...await walk(path))
-    else if (!name.endsWith('.min.js')) out.push(path)
+    for (const name of names) {
+      if (SKIP_WALK.has(name)) continue
+      const path = join(current, name)
+      let st
+      try {
+        st = lstatSync(path)
+      } catch {
+        continue
+      }
+      if (st.isSymbolicLink()) continue
+      if (st.isDirectory()) visit(path)
+      else if (!name.endsWith('.min.js')) out.push(path)
+    }
   }
+  visit(dir)
   return out
 }
 
@@ -138,12 +152,12 @@ function resolvePy(fromFile, spec) {
 
 export async function firstMissingClosure(root) {
   if (existsSync(join(root, 'package.json')) && !existsSync(join(root, 'index.js'))) {
-    const files = await walk(root)
+    const files = walk(root)
     if (files.some((file) => /\.(js|mjs)$/.test(file))) return 'index.js'
   }
-  const files = await walk(root)
+  const files = walk(root)
   for (const file of files) {
-    const text = await readFile(file, 'utf8')
+    const text = readFileSync(file, 'utf8')
     if (/\.(js|mjs)$/.test(file)) {
       for (const spec of jsSpecifiers(text)) {
         const hit = resolveJs(file, spec)
@@ -163,15 +177,59 @@ export async function firstMissingClosure(root) {
   return null
 }
 
-async function digestTree(dir) {
-  const files = (await walk(dir)).filter((file) => !file.endsWith(MARKER)).sort()
+function digestTree(dir) {
+  const files = walk(dir).filter((file) => !file.endsWith(MARKER)).sort()
   const hash = createHash('sha256')
   for (const file of files) {
     hash.update(relative(dir, file).split(sep).join('/'))
     hash.update('\0')
-    hash.update(await readFile(file))
+    hash.update(readFileSync(file))
     hash.update('\0')
   }
+  return hash.digest('hex')
+}
+
+export function sourceStamp(dir) {
+  const hash = createHash('sha256')
+  const visit = (current) => {
+    let names
+    try {
+      names = readdirSync(current).slice().sort()
+    } catch {
+      return
+    }
+    for (const name of names) {
+      if (SKIP_WALK.has(name) || name === MARKER) continue
+      const path = join(current, name)
+      let st
+      try {
+        st = lstatSync(path, { bigint: true })
+      } catch {
+        continue
+      }
+      if (st.isSymbolicLink()) continue
+      const rel = relative(dir, path).split(sep).join('/')
+      if (st.isDirectory()) {
+        hash.update('d\0')
+        hash.update(rel)
+        hash.update('\0')
+        hash.update(st.mtimeNs.toString())
+        hash.update('\0')
+        visit(path)
+      } else if (!name.endsWith('.min.js')) {
+        hash.update('f\0')
+        hash.update(rel)
+        hash.update('\0')
+        hash.update(st.size.toString())
+        hash.update('\0')
+        hash.update(st.mtimeNs.toString())
+        hash.update('\0')
+        hash.update(st.ino.toString())
+        hash.update('\0')
+      }
+    }
+  }
+  visit(dir)
   return hash.digest('hex')
 }
 
@@ -291,55 +349,54 @@ export async function syncRepoCache({ dshHome, pluginDir, source, refresh, lockT
     ? join(dshHome, 'plugin-cache', pluginDir)
     : join(dshHome, 'vendor', pluginDir)
   const parked = linkedVendor ? null : await detachVendorLink(dshHome, pluginDir)
-  const digest = await digestTree(source)
+  const digest = digestTree(source)
   const marker = await readMarker(dest)
   const destReady = existsSync(dest) && !lstatSync(dest).isSymbolicLink()
-  const same = marker && marker.digest === digest && (!locked || marker.lock === 'match')
+  const lockHash = lockText ? sha256(lockText) : ''
+  const lockOk = !locked || (marker && marker.lock === 'match' && marker.lockHash === lockHash)
+  const same = marker && marker.digest === digest && lockOk
   if (destReady && same && !refresh) {
     await restoreRuntimeDist(dest, parked)
     return { ok: true, copied: false, linkDir: dest }
   }
-  const tempParent = await mkdtemp(join(tmpdir(), 'fde-plugin-stage-'))
+  const tempParent = mkdtempSync(join(tmpdir(), 'fde-plugin-stage-'))
   const temp = join(tempParent, pluginDir)
-  await cp(source, temp, { recursive: true, dereference: true, filter: copyFilter(source) })
-  if (locked) {
-    for (const [rel, hash] of locked) {
-      const file = join(temp, rel)
-      if (!existsSync(file)) {
-        await rm(tempParent, { recursive: true, force: true })
-        return { ok: false, error: `missing ${rel.split('/').pop()}` }
-      }
-      const got = sha256(await readFile(file))
-      if (got !== hash) {
-        await rm(tempParent, { recursive: true, force: true })
-        return { ok: false, error: `mismatch ${rel.split('/').pop()}` }
+  try {
+    cpSync(source, temp, { recursive: true, dereference: true, filter: copyFilter(source) })
+    if (locked) {
+      for (const [rel, hash] of locked) {
+        const file = join(temp, rel)
+        if (!existsSync(file)) return { ok: false, error: `missing ${rel.split('/').pop()}` }
+        if (sha256(readFileSync(file)) !== hash) return { ok: false, error: `mismatch ${rel.split('/').pop()}` }
       }
     }
+    mkdirSync(dirname(dest), { recursive: true })
+    rmSync(dest, { recursive: true, force: true })
+    renameSync(temp, dest)
+  } finally {
+    rmSync(tempParent, { recursive: true, force: true })
   }
-  await mkdir(dirname(dest), { recursive: true })
-  await rm(dest, { recursive: true, force: true })
-  await rename(temp, dest)
-  await rm(tempParent, { recursive: true, force: true })
   await restoreRuntimeDist(dest, parked)
-  await writeFile(join(dest, MARKER), `${JSON.stringify({ digest, lock: locked ? 'match' : 'injected' })}\n`)
+  writeFileSync(join(dest, MARKER), `${JSON.stringify({ digest, lock: locked ? 'match' : 'injected', lockHash })}\n`)
   return { ok: true, copied: true, linkDir: dest }
 }
 
 export async function natsDependencyError(pluginDir) {
   let pkg
   try {
-    pkg = JSON.parse(await readFile(join(pluginDir, 'package.json'), 'utf8'))
+    pkg = JSON.parse(readFileSync(join(pluginDir, 'package.json'), 'utf8'))
   } catch {
     return null
   }
   if (!pkg.dependencies || !pkg.dependencies.nats) return null
-  const probe = join(pluginDir, `.nats-preflight-${process.pid}.mjs`)
-  await writeFile(probe, "try { await import('nats') } catch { process.stdout.write(JSON.stringify({ error: 'NATS_DEPENDENCY_MISSING' })); process.exit(1) }\n")
+  if (!existsSync(join(pluginDir, 'node_modules', 'nats', 'package.json'))) return 'NATS_DEPENDENCY_MISSING'
   try {
-    const ran = spawnSync(process.execPath, [probe], { cwd: pluginDir, encoding: 'utf8' })
-    if (ran.status !== 0) return 'NATS_DEPENDENCY_MISSING'
+    const req = createRequire(join(pluginDir, 'package.json'))
+    const resolved = req.resolve('nats')
+    delete req.cache[resolved]
+    req('nats')
     return null
-  } finally {
-    await rm(probe, { force: true })
+  } catch {
+    return 'NATS_DEPENDENCY_MISSING'
   }
 }

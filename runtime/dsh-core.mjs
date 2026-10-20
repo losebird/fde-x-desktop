@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
-import { constants, existsSync, realpathSync, symlinkSync } from 'node:fs'
+import { constants, existsSync, lstatSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -29,7 +29,7 @@ import { iuiProfileDir, promoteInstalledIui } from './iui-status.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 import { linkPackagedPeers } from './packaged-peer.mjs'
-import { firstMissingClosure, natsDependencyError, syncRepoCache } from './plugin-repo-source.mjs'
+import { firstMissingClosure, natsDependencyError, sourceStamp, syncRepoCache } from './plugin-repo-source.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -58,6 +58,16 @@ async function writePidFile(runDir, name, pid) {
 
 async function removePidFile(runDir, name) {
   await rm(join(runDir, name), { force: true })
+}
+
+function fileIdentity(path) {
+  try {
+    const st = lstatSync(path, { bigint: true })
+    if (st.isSymbolicLink()) return ''
+    return `${st.size}:${st.mtimeNs}:${st.ino}`
+  } catch {
+    return ''
+  }
 }
 
 async function linkPath(target, linkPath) {
@@ -617,11 +627,105 @@ export class DshCoreConnector {
     return candidates
   }
 
-  async linkRepoPlugin(plugin) {
+  repoPluginSource(plugin) {
     let injected = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
     // The suite mount under FDE_VENDOR_DIR is a checkout, not the install body.
     if (injected && resolve(injected) === resolve(FDE_VENDOR_DIR, plugin.dir)) injected = ''
-    const source = injected || join(this.runtimeDirectory, 'plugins', plugin.dir)
+    return injected || join(this.runtimeDirectory, 'plugins', plugin.dir)
+  }
+
+  profileStampPath() {
+    return join(this.dshHome, `.fde-profile-stamp-${this.profileName}.json`)
+  }
+
+  readProfileStamp() {
+    try {
+      return JSON.parse(readFileSync(this.profileStampPath(), 'utf8'))
+    } catch {
+      return null
+    }
+  }
+
+  reuseStampedProfile() {
+    if (process.env.FDE_REFRESH_PLUGINS === '1') return 'miss'
+    const saved = this.readProfileStamp()
+    if (!saved || !saved.plugins) return 'miss'
+    const lockId = fileIdentity(join(this.runtimeDirectory, 'plugins', 'plugins.lock.json'))
+    if ((saved.lock || '') !== lockId) return 'miss'
+    const dir = join(this.dshHome, 'profiles', this.profileName)
+    const modules = join(dir, 'node_modules')
+    if ((saved.manifest || '') !== fileIdentity(join(dir, 'package.json'))) return 'miss'
+    if ((saved.cordis || '') !== fileIdentity(join(dir, 'cordis.yml'))) return 'miss'
+    if ((saved.patch || '') !== fileIdentity(join(dir, 'cordis.patch.yml'))) return 'miss'
+    for (const plugin of BUILTIN_PLUGINS) {
+      if (!plugin.source || plugin.source.kind !== 'repo') continue
+      const row = saved.plugins[plugin.dir]
+      if (!row) return 'miss'
+      const source = resolve(this.repoPluginSource(plugin))
+      if (source !== row.source) return 'miss'
+      let tree = ''
+      try {
+        tree = sourceStamp(source)
+      } catch {
+        return 'miss'
+      }
+      if (tree !== row.tree) return 'miss'
+      const link = join(modules, plugin.module)
+      if (!existsSync(link)) return 'miss'
+      let dest = ''
+      try {
+        dest = realpathSync(link)
+      } catch {
+        return 'miss'
+      }
+      if (row.needsNats) {
+        const natsId = fileIdentity(join(dest, 'node_modules', 'nats', 'package.json'))
+        if (!natsId) {
+          this.state = 'error'
+          this.lastError = 'NATS_DEPENDENCY_MISSING'
+          return 'error'
+        }
+        if (natsId !== row.nats) return 'miss'
+      }
+    }
+    const iui = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'iui')
+    if (iui && !existsSync(join(modules, iui.module))) return 'miss'
+    if (!existsSync(join(modules, 'fde-x-dsh-bridge'))) return 'miss'
+    return 'ready'
+  }
+
+  writeProfileStamp() {
+    const dir = join(this.dshHome, 'profiles', this.profileName)
+    const modules = join(dir, 'node_modules')
+    const plugins = {}
+    for (const plugin of BUILTIN_PLUGINS) {
+      if (!plugin.source || plugin.source.kind !== 'repo') continue
+      const source = resolve(this.repoPluginSource(plugin))
+      const dest = realpathSync(join(modules, plugin.module))
+      let pkg = {}
+      try {
+        pkg = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
+      } catch {
+        /* a plugin without package.json does not declare nats */
+      }
+      const needsNats = Boolean(pkg.dependencies && pkg.dependencies.nats)
+      const nats = needsNats ? fileIdentity(join(dest, 'node_modules', 'nats', 'package.json')) : ''
+      if (needsNats && !nats) return
+      plugins[plugin.dir] = { source, tree: sourceStamp(source), needsNats, nats }
+    }
+    writeFileSync(this.profileStampPath(), `${JSON.stringify({
+      lock: fileIdentity(join(this.runtimeDirectory, 'plugins', 'plugins.lock.json')),
+      manifest: fileIdentity(join(dir, 'package.json')),
+      cordis: fileIdentity(join(dir, 'cordis.yml')),
+      patch: fileIdentity(join(dir, 'cordis.patch.yml')),
+      plugins,
+    })}\n`)
+  }
+
+  async linkRepoPlugin(plugin) {
+    const source = this.repoPluginSource(plugin)
+    const injectedEnv = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
+    const injected = Boolean(injectedEnv) && resolve(injectedEnv) !== resolve(FDE_VENDOR_DIR, plugin.dir)
     try {
       await access(source, constants.R_OK)
     } catch {
@@ -744,6 +848,12 @@ export class DshCoreConnector {
   }
 
   async installIsolatedProfile() {
+    const reused = this.reuseStampedProfile()
+    if (reused === 'ready') {
+      if (this.state === 'idle') this.lastError = null
+      return
+    }
+    if (reused === 'error') return
     const dir = join(this.dshHome, 'profiles', this.profileName)
     const modules = join(dir, 'node_modules')
     await linkPackagedPeers({ dshHome: this.dshHome })
@@ -789,6 +899,7 @@ export class DshCoreConnector {
     const bridgeSource = resolve(this.runtimeDirectory, 'fde-x-dsh-bridge')
     const bridgeLink = join(modules, 'fde-x-dsh-bridge')
     await linkPath(bridgeSource, bridgeLink)
+    if (this.state !== 'error' && !this.lastError) this.writeProfileStamp()
   }
 
   async ensureSharedSemanticRuntime() {

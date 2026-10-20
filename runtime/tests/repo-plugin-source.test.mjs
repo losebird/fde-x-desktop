@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -200,18 +200,27 @@ if (process.env.PR4_CASE) {
     process.exit(1)
   })
 } else {
+  let gate = Promise.resolve()
+  function exclusive(fn) {
+    const run = gate.then(fn, fn)
+    gate = run.then(() => {}, () => {})
+    return run
+  }
+
   function child(name) {
-    const emptyVendor = mkdtempSync(join(tmpdir(), 'fde-empty-vendor-'))
-    const env = { ...process.env, PR4_CASE: name, FDE_VENDOR_DIR: emptyVendor }
-    delete env.FDE_PLUGIN_DSH_LAN_ASSIST
-    delete env.FDE_PLUGIN_DSH_SEMANTIC_OS
-    delete env.FDE_PLUGIN_IUI
-    delete env.FDE_IUI_ARTIFACT
-    delete env.FDE_REFRESH_PLUGINS
-    const ran = spawnSync(process.execPath, [self], { env, encoding: 'utf8', timeout: 180000 })
-    rm(emptyVendor, { recursive: true, force: true }).catch(() => {})
-    assert.equal(ran.status, 0, ran.stderr || ran.stdout)
-    return JSON.parse(ran.stdout)
+    return exclusive(() => {
+      const emptyVendor = mkdtempSync(join(tmpdir(), 'fde-empty-vendor-'))
+      const env = { ...process.env, PR4_CASE: name, FDE_VENDOR_DIR: emptyVendor }
+      delete env.FDE_PLUGIN_DSH_LAN_ASSIST
+      delete env.FDE_PLUGIN_DSH_SEMANTIC_OS
+      delete env.FDE_PLUGIN_IUI
+      delete env.FDE_IUI_ARTIFACT
+      delete env.FDE_REFRESH_PLUGINS
+      const ran = spawnSync(process.execPath, [self], { env, encoding: 'utf8', timeout: 180000 })
+      rm(emptyVendor, { recursive: true, force: true }).catch(() => {})
+      assert.equal(ran.status, 0, ran.stderr || ran.stdout)
+      return JSON.parse(ran.stdout)
+    })
   }
 
   test('repo kind points at runtime/plugins', () => {
@@ -227,8 +236,8 @@ if (process.env.PR4_CASE) {
     assert.equal(peer.includes('linkVendorTarget'), false)
   })
 
-  test('clean home links both plugins from runtime/plugins with no vendor directory', () => {
-    const got = child('clean')
+  test('clean home links both plugins from runtime/plugins with no vendor directory', async () => {
+    const got = await child('clean')
     assert.equal(got.state, 'idle')
     assert.equal(got.lastError, null)
     assert.equal(got.lanMatch, true)
@@ -237,16 +246,16 @@ if (process.env.PR4_CASE) {
     assert.equal(got.bundles.includes('dsh-semantic-os'), true)
   })
 
-  test('upgrade keeps runtime-dist and replaces plugin bytes', () => {
-    const got = child('upgrade')
+  test('upgrade keeps runtime-dist and replaces plugin bytes', async () => {
+    const got = await child('upgrade')
     assert.equal(got.state, 'idle')
     assert.equal(got.lastError, null)
     assert.equal(got.keep, 'keep-runtime-dist\n')
     assert.equal(got.replaced, true)
   })
 
-  test('old vendor symlink is not written through and runtime-dist is kept', () => {
-    const got = child('symlink')
+  test('old vendor symlink is not written through and runtime-dist is kept', async () => {
+    const got = await child('symlink')
     assert.equal(got.userUntouched, true)
     assert.equal(got.vendorIsLink, false)
     assert.equal(got.homeKeep, 'user-dist\n')
@@ -254,27 +263,27 @@ if (process.env.PR4_CASE) {
     assert.equal(got.lastError, null)
   })
 
-  test('missing repo plugin sets state error', () => {
-    const got = child('missing-index')
+  test('missing repo plugin sets state error', async () => {
+    const got = await child('missing-index')
     assert.equal(got.state, 'error')
     assert.match(got.lastError, /index\.js/)
   })
 
-  test('missing nats sets connector error', () => {
-    const got = child('missing-nats')
+  test('missing nats sets connector error', async () => {
+    const got = await child('missing-nats')
     assert.equal(got.state, 'error')
     assert.match(got.lastError, /NATS_DEPENDENCY_MISSING/)
     assert.equal(/NO_NATS/.test(got.lastError || ''), false)
   })
 
-  test('deleting nats from a temp copy sets connector error', () => {
-    const got = child('deleted-nats')
+  test('deleting nats from a temp copy sets connector error', async () => {
+    const got = await child('deleted-nats')
     assert.equal(got.state, 'error')
     assert.match(got.lastError, /NATS_DEPENDENCY_MISSING/)
     assert.equal(/NO_NATS/.test(got.lastError || ''), false)
   })
 
-  test('a changed lock after a ready profile is an error', async () => {
+  test('a changed lock after a ready profile is an error', async () => exclusive(async () => {
     const lockPath = join(repoRoot, 'runtime', 'plugins', 'plugins.lock.json')
     const raw = readFileSync(lockPath)
     const home = await mkdtemp(join(tmpdir(), 'fde-pr4-lock-'))
@@ -322,5 +331,92 @@ if (process.env.PR4_CASE) {
       await rm(home, { recursive: true, force: true })
       await rm(emptyVendor, { recursive: true, force: true })
     }
+  }))
+
+  test('deleting installed nats after a ready profile is an error', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'fde-pr4-nats-'))
+    const emptyVendor = await mkdtemp(join(tmpdir(), 'fde-empty-vendor-'))
+    const savedVendor = process.env.FDE_VENDOR_DIR
+    const savedIui = process.env.FDE_PLUGIN_IUI
+    const savedLan = process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+    const savedSem = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+    const savedArtifact = process.env.FDE_IUI_ARTIFACT
+    const savedRefresh = process.env.FDE_REFRESH_PLUGINS
+    delete process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+    delete process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+    delete process.env.FDE_IUI_ARTIFACT
+    delete process.env.FDE_REFRESH_PLUGINS
+    process.env.FDE_VENDOR_DIR = emptyVendor
+    process.env.FDE_PLUGIN_IUI = await writeIui(home)
+    try {
+      const connector = new DshCoreConnector({ dshHome: home, cwd: home })
+      await connector.ensureIsolatedProfile()
+      assert.equal(connector.state, 'idle')
+      const natsDir = join(home, 'vendor', 'dsh-lan-assist', 'node_modules', 'nats')
+      rmSync(natsDir, { recursive: true, force: true })
+      await connector.ensureIsolatedProfile()
+      assert.equal(connector.state, 'error')
+      assert.match(connector.lastError, /NATS_DEPENDENCY_MISSING/)
+      assert.equal(existsSync(natsDir), false)
+    } finally {
+      if (savedVendor === undefined) delete process.env.FDE_VENDOR_DIR
+      else process.env.FDE_VENDOR_DIR = savedVendor
+      if (savedIui === undefined) delete process.env.FDE_PLUGIN_IUI
+      else process.env.FDE_PLUGIN_IUI = savedIui
+      if (savedLan === undefined) delete process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+      else process.env.FDE_PLUGIN_DSH_LAN_ASSIST = savedLan
+      if (savedSem === undefined) delete process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+      else process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = savedSem
+      if (savedArtifact === undefined) delete process.env.FDE_IUI_ARTIFACT
+      else process.env.FDE_IUI_ARTIFACT = savedArtifact
+      if (savedRefresh === undefined) delete process.env.FDE_REFRESH_PLUGINS
+      else process.env.FDE_REFRESH_PLUGINS = savedRefresh
+      await rm(home, { recursive: true, force: true })
+      await rm(emptyVendor, { recursive: true, force: true })
+    }
   })
+
+  test('a changed plugin file after a ready profile is an error', async () => exclusive(async () => {
+    const indexPath = join(repoRoot, 'runtime', 'plugins', 'dsh-lan-assist', 'index.js')
+    const raw = readFileSync(indexPath)
+    const home = await mkdtemp(join(tmpdir(), 'fde-pr4-tree-'))
+    const emptyVendor = await mkdtemp(join(tmpdir(), 'fde-empty-vendor-'))
+    const savedVendor = process.env.FDE_VENDOR_DIR
+    const savedIui = process.env.FDE_PLUGIN_IUI
+    const savedLan = process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+    const savedSem = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+    const savedArtifact = process.env.FDE_IUI_ARTIFACT
+    const savedRefresh = process.env.FDE_REFRESH_PLUGINS
+    delete process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+    delete process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+    delete process.env.FDE_IUI_ARTIFACT
+    delete process.env.FDE_REFRESH_PLUGINS
+    process.env.FDE_VENDOR_DIR = emptyVendor
+    process.env.FDE_PLUGIN_IUI = await writeIui(home)
+    try {
+      const connector = new DshCoreConnector({ dshHome: home, cwd: home })
+      await connector.ensureIsolatedProfile()
+      assert.equal(connector.state, 'idle')
+      writeFileSync(indexPath, Buffer.concat([raw, Buffer.from('\n')]))
+      await connector.ensureIsolatedProfile()
+      assert.equal(connector.state, 'error')
+      assert.match(connector.lastError, /mismatch index\.js/)
+    } finally {
+      writeFileSync(indexPath, raw)
+      if (savedVendor === undefined) delete process.env.FDE_VENDOR_DIR
+      else process.env.FDE_VENDOR_DIR = savedVendor
+      if (savedIui === undefined) delete process.env.FDE_PLUGIN_IUI
+      else process.env.FDE_PLUGIN_IUI = savedIui
+      if (savedLan === undefined) delete process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+      else process.env.FDE_PLUGIN_DSH_LAN_ASSIST = savedLan
+      if (savedSem === undefined) delete process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+      else process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = savedSem
+      if (savedArtifact === undefined) delete process.env.FDE_IUI_ARTIFACT
+      else process.env.FDE_IUI_ARTIFACT = savedArtifact
+      if (savedRefresh === undefined) delete process.env.FDE_REFRESH_PLUGINS
+      else process.env.FDE_REFRESH_PLUGINS = savedRefresh
+      await rm(home, { recursive: true, force: true })
+      await rm(emptyVendor, { recursive: true, force: true })
+    }
+  }))
 }
