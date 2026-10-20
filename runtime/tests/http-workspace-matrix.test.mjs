@@ -381,15 +381,11 @@ function pathExempt(rel, found) {
 }
 
 function pathRegistered(found, method, rel) {
-  const sameFile = (route) => !rel || route.file === rel
-  const matches = (route) => {
+  return httpWorkspaceRoutes.some((route) => {
+    if (rel && route.file !== rel) return false
     if (method && route.method !== method) return false
-    return found === route.path || found.startsWith(`${route.path}/`)
-  }
-  if (httpWorkspaceRoutes.some((route) => sameFile(route) && matches(route))) return true
-  const prefix = found.endsWith('/') ? found : `${found}/`
-  if (prefix.split('/').filter(Boolean).length < 3) return false
-  return httpWorkspaceRoutes.some((route) => sameFile(route) && route.path.startsWith(prefix) && (!method || route.method === method))
+    return found === route.path
+  })
 }
 
 function methodIn(window) {
