@@ -207,6 +207,7 @@ export async function loadOrigin(deps, id) {
       aiRuntime,
       traceId,
       url,
+      workspaceCwd: cwd,
     })
     if (resolved.ok) return { ok: true, title: resolved.title, text: resolved.text, href: resolved.href }
     return { ok: false, title: '当时原文', text: '', message: resolved.message || '暂时读不出原文', href: resolved.href }
