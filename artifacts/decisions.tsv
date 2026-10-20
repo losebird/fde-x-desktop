@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-10-20T02:40:00Z	start	this run starts the workspace isolation branch	the log is new	bc-37fa3907-642d-5171-96fb-892d24edbca1	open
+2026-10-20T02:40:00Z	frame	stack on 1e7cdb50, no conflict with #58	HEAD equals the named commit	git rev-parse HEAD	1e7cdb504b56731530e10aaf747f412f352d8df3
+2026-10-20T02:40:00Z	rule	unregistered absolute path is 404 not_found 工作区未登记	apps already return that; briefing 400 is the outlier	artifacts/callsites.md	open
