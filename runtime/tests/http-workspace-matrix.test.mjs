@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { join, relative } from 'node:path'
 import { insertBizSurface, openDatabase } from '../db.mjs'
 import { getOrCreateDefinition } from '../briefing/store.mjs'
+import { listEventsAfter, listRecentEvents, matchesWorkspaceFilter } from '../events.mjs'
 import { httpWorkspaceExemptions, httpWorkspaceRoutes } from '../http-workspace.mjs'
 
 const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)), '..')
@@ -183,6 +184,9 @@ function checkCase(route, mode, status, text) {
     for (const marker of personalMarkers()) {
       if (text.includes(marker)) problems.push(`${label} leaked ${marker}`)
     }
+    if (route.proof === 'events' && text.includes('matrix-null-marker')) {
+      problems.push(`${label} kept a null workspace event`)
+    }
     if (APPS_UNREGISTERED.has(route.id) && (status !== 404 || !text.includes('工作区未登记'))) {
       problems.push(`${label} status ${status} ${text.slice(0, 180)}`)
     }
@@ -232,6 +236,12 @@ function checkCase(route, mode, status, text) {
   if (route.proof === 'events' && mode === 'absent' && (!text.includes(WIN_MARK) || !text.includes(DEFAULT_MARK))) {
     problems.push(`${label} dropped an unfiltered event`)
   }
+  if (route.proof === 'events' && mode !== 'absent' && mode !== 'illegal' && text.includes('matrix-null-marker')) {
+    problems.push(`${label} kept a null workspace event`)
+  }
+  if (route.proof === 'events' && mode === 'absent' && !text.includes('matrix-null-marker')) {
+    problems.push(`${label} dropped an unfiltered null event`)
+  }
   if (route.proof === 'events-sse' && mode === 'win' && status === 200 && !text.includes(WIN_MARK)) problems.push(`${label} missed win event`)
   if (route.proof === 'events-sse' && mode === 'slash' && status === 200 && !text.includes(SLASH_MARK)) problems.push(`${label} missed slash event`)
   if (route.proof === 'apps' && mode === 'win' && (!text.includes('matrix-win-app') || text.includes('matrix-default-app') || text.includes('matrix-slash-app'))) {
@@ -278,6 +288,7 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
   insertMarkerEvent(server.db, 'evt_matrix_win', WIN, WIN_MARK)
   insertMarkerEvent(server.db, 'evt_matrix_slash', SLASH, SLASH_MARK)
   insertMarkerEvent(server.db, 'evt_matrix_default', repoRoot, DEFAULT_MARK)
+  insertMarkerEvent(server.db, 'evt_matrix_null', null, 'matrix-null-marker')
   insertMarkerApp(server.db, 'app_matrix_win', 'ws_matrix_win', 'matrix-win-app')
   insertMarkerApp(server.db, 'app_matrix_slash', 'ws_matrix_slash', 'matrix-slash-app')
   insertMarkerApp(server.db, 'app_matrix_default', 'ws_personal', 'matrix-default-app')
@@ -403,6 +414,21 @@ async function runtimeSources() {
   await walk(runtimeRoot)
   return files
 }
+
+test('a workspace filter drops events whose cwd is null', () => {
+  const dbPath = `/tmp/fde-null-cwd-${process.pid}.sqlite`
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  insertMarkerEvent(db, 'evt_null', null, 'matrix-null-marker')
+  insertMarkerEvent(db, 'evt_slash', SLASH, SLASH_MARK)
+  const recent = listRecentEvents(db, { workspaceCwd: SLASH })
+  const replay = listEventsAfter(db, { workspaceCwd: SLASH })
+  assert.equal(recent.some((item) => item.id === 'evt_null'), false)
+  assert.equal(recent.some((item) => item.id === 'evt_slash'), true)
+  assert.equal(replay.some((item) => item.id === 'evt_null'), false)
+  assert.equal(matchesWorkspaceFilter({ workspaceCwd: null }, SLASH), false)
+  assert.equal(listRecentEvents(db, {}).some((item) => item.id === 'evt_null'), true)
+  db.close()
+})
 
 test('http workspace readers are registered', async () => {
   const problems = []
