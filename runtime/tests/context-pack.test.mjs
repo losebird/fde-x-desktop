@@ -273,3 +273,35 @@ test('scope timeout is reported in warnings', async () => {
   )
   assert.ok(warnings.some((w) => w.endsWith('_timeout')))
 })
+
+test('context pack uses the supplied workspace id and rejects a mismatch', async () => {
+  const db = openDatabase(`/tmp/fde-pack-id-${process.pid}.sqlite`, join(repoRoot, 'runtime/migrations'))
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_pack_b', 'b', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd: '/tmp/pack-b' }), now, now)
+  bindPersonalCwd(db, '/tmp/pack-a')
+  db.prepare(`
+    INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+    VALUES ('task_pack_b', 'ws_pack_b', 'pack-b-task', '', 'todo', 'med', NULL, ?, ?)
+  `).run(now, now)
+  const aiRuntime = { status: () => ({ connected: false }) }
+  const mismatched = await buildContextPack({ db, aiRuntime }, {
+    workspaceCwd: '/tmp/pack-a',
+    workspaceId: 'ws_pack_b',
+    scopes: ['tasks'],
+    cwdSource: 'request',
+  })
+  const byId = await buildContextPack({ db, aiRuntime }, {
+    workspaceCwd: '/tmp/pack-a',
+    workspaceId: 'ws_pack_b',
+    scopes: ['tasks'],
+    cwdSource: 'runtime',
+  })
+  assert.equal(mismatched.error, 'workspace_mismatch')
+  assert.equal(JSON.stringify(mismatched.pack).includes('pack-b-task'), false)
+  assert.equal(byId.error, undefined)
+  assert.equal(JSON.stringify(byId.pack).includes('pack-b-task'), true)
+  db.close()
+})

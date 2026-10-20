@@ -335,6 +335,7 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
       { id: 'plan-task', method: 'POST', path: '/api/v1/bridge/plan-task-propose', bridge: true, body: { workspaceId: 'ws_personal', workspaceCwd: UNREG_WIN, op: 'insert', title: 'matrix bypass' } },
       { id: 'business-apps-mismatch', method: 'GET', path: '/api/v1/business/apps', query: { workspaceId: 'ws_personal', workspaceCwd: WIN }, expect: 'mismatch' },
       { id: 'apps-mismatch', method: 'GET', path: '/api/v1/apps', query: { workspace: 'ws_personal', cwd: WIN }, expect: 'mismatch' },
+      { id: 'context-pack-mismatch', method: 'POST', path: '/api/v1/context/pack', body: { workspaceId: 'ws_personal', workspaceCwd: WIN, scopes: ['tasks'] }, expect: 'mismatch' },
     ]
     for (const row of bypasses) {
       const url = new URL(row.path, server.base)
