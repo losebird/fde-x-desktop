@@ -206,3 +206,33 @@ test('catalog stream rejects an unregistered workspace path', async () => {
     await rm(dbPath, { force: true })
   }
 })
+
+test('catalog uses workspaceId instead of dropping it', async () => {
+  const dbPath = `/tmp/fde-ws-guard-cat-${process.pid}.sqlite`
+  await rm(dbPath, { force: true })
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  registerWorkspace(db, 'ws_cat_a', '/ws-cat-a')
+  registerWorkspace(db, 'ws_cat_b', '/ws-cat-b')
+  db.close()
+  const server = await startServer(dbPath)
+  try {
+    const missing = await fetch(`${server.base}/api/v1/catalog?kind=file&workspaceId=ws_missing`)
+    const missingPayload = await missing.json()
+    const mismatch = await fetch(`${server.base}/api/v1/catalog?kind=file&cwd=/ws-cat-a&workspaceId=ws_cat_b`)
+    const mismatchPayload = await mismatch.json()
+    assert.deepEqual({
+      missing: missing.status,
+      missingCode: missingPayload.error?.code,
+      mismatch: mismatch.status,
+      mismatchCode: mismatchPayload.error?.code,
+    }, {
+      missing: 404,
+      missingCode: 'missing_workspace',
+      mismatch: 400,
+      mismatchCode: 'workspace_mismatch',
+    })
+  } finally {
+    await server.stop()
+    await rm(dbPath, { force: true })
+  }
+})
