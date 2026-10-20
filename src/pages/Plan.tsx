@@ -25,6 +25,7 @@ import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } fro
 import { PLAN_DAY_HOURS, planDayMarkerTop, planDayOffsetMinutes } from '../../runtime/plan/plan-day-hours.mjs'
 import { planTaskMenu } from '../../runtime/plan/task-menu.mjs'
 import { taskHandoffPrompt } from '../../runtime/plan/task-handoff.mjs'
+import { handoffTask as runTaskHandoff } from '../../runtime/plan/handoff-run.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -373,7 +374,6 @@ function TodoTab() {
     setAskLoading(true)
     setAskError('')
     try {
-      if (markDoing) await updateTask(task.id, { status: 'doing' })
       const workspace = loadCurrentWorkspaceCwd()
       if (!workspace.ok) throw new Error(workspace.error)
       const built = taskHandoffPrompt({
@@ -382,24 +382,36 @@ function TodoTab() {
         sourceRef: task.sourceRef || '',
         notes: task.notes,
       }, handoffNote)
-      const created = await runtimeApi.createAiSession({
-        cwd: workspace.cwd,
-        agentPreset: built.preset,
-      })
-      await runtimeApi.renameAiSession(created.sessionId, built.sessionTitle).catch(() => undefined)
       const requestId = crypto.randomUUID()
-      await runtimeApi.startTaskAiRun(task.id, { sessionId: created.sessionId, requestId })
-      setAiRuns((prev) => {
-        const next = new Map(prev)
-        const rows = next.get(task.id) || []
-        next.set(task.id, [...rows, { id: requestId, sessionId: created.sessionId, state: 'running' }])
-        return next
+      const outcome = await runTaskHandoff({
+        updateStatus: (taskId, status) => updateTask(taskId, { status }),
+        createSession: (input) => runtimeApi.createAiSession(input),
+        rename: (sessionId, title) => runtimeApi.renameAiSession(sessionId, title).catch(() => undefined),
+        startRun: (taskId, input) => runtimeApi.startTaskAiRun(taskId, input),
+        prompt: (sessionId, input) => runtimeApi.promptAi(sessionId, input),
+      }, {
+        taskId: task.id,
+        cwd: workspace.cwd,
+        preset: built.preset,
+        sessionTitle: built.sessionTitle,
+        prompt: built.prompt,
+        requestId,
+        markDoing,
       })
-      setHandoffTask(null)
-      setHandoffNote('')
-      try {
-        await runtimeApi.promptAi(created.sessionId, { text: built.prompt, requestId })
-      } catch (error) {
+      if (outcome.sessionId) {
+        setAiRuns((prev) => {
+          const next = new Map(prev)
+          const rows = next.get(task.id) || []
+          next.set(task.id, [...rows, { id: requestId, sessionId: outcome.sessionId, state: 'running' }])
+          return next
+        })
+      }
+      if (outcome.sessionStatus === 201) {
+        setHandoffTask(null)
+        setHandoffNote('')
+      }
+      if (!outcome.ok) {
+        const error = outcome.promptError || outcome.error
         setAskError(error instanceof Error ? error.message : '交给 AI 失败')
       }
     } catch (error) {
