@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -48,6 +49,42 @@ test('listen mouth refuses path traversal and unsigned frames', () => {
   assert.equal(pair.ok, true)
   assert.equal(pair.store, true)
   assert.match(pair.id, /^pair-/)
+})
+
+test('a missing nats import exits 1 from the generated daemon', async () => {
+  const src = daemonSource()
+  assert.doesNotMatch(src, /import\('nats'\)[\s\S]{0,120}catch \{ return \}/)
+  const home = await mkdtemp(join(tmpdir(), 'dla-listen-'))
+  const root = join(home, 'lan-assist')
+  await mkdir(root, { recursive: true })
+  await writeFile(join(root, 'state.json'), JSON.stringify({ self: { id: 'pk_self' } }))
+  const script = join(root, 'listen-daemon.mjs')
+  await writeFile(script, src)
+  const port = 18000 + (process.pid % 10000)
+  const child = spawn(process.execPath, [script], {
+    env: {
+      ...process.env,
+      DSH_HOME: home,
+      DSH_LAN_ASSIST_NATS: 'nats://127.0.0.1:1',
+      DSH_LAN_ASSIST_PORT: String(port),
+      NODE_PATH: '',
+    },
+  })
+  let stdout = ''
+  child.stdout.on('data', (chunk) => { stdout += chunk })
+  const code = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      resolve(null)
+    }, 2000)
+    child.on('exit', (status) => {
+      clearTimeout(timer)
+      resolve(status)
+    })
+  })
+  await rm(home, { recursive: true, force: true })
+  assert.equal(code, 1)
+  assert.match(stdout, /"error":"NATS_DEPENDENCY_MISSING"/)
 })
 
 test('listen daemon source subscribes NATS when the env is set', () => {
