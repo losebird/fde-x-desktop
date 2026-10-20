@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, symlinkSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { createConnection } from 'node:net'
 import { homedir } from 'node:os'
@@ -10,7 +10,6 @@ import {
   FDE_DSH_HOME,
   FDE_OFFICIAL_DSH_HOME,
   FDE_RUNTIME_HOST,
-  FDE_VENDOR_DIR,
 } from '../runtime/config.mjs'
 import { ensureGenerationHost } from '../runtime/generation.mjs'
 
@@ -22,18 +21,6 @@ const lanPort = Number(process.env.FDE_PEER_LAN_PORT ?? 18528)
 const peerHome = process.env.FDE_PEER_DSH_HOME || join(homedir(), '.dsh-fde-peer')
 const officialHome = FDE_OFFICIAL_DSH_HOME
 const mainHome = FDE_DSH_HOME
-
-function linkVendorTarget(target, linkPath) {
-  if (process.platform === 'win32') {
-    try {
-      symlinkSync(target, linkPath, 'junction')
-      return
-    } catch {
-      return
-    }
-  }
-  symlinkSync(target, linkPath)
-}
 
 function portOpen(port, timeoutMs = 400) {
   return new Promise((resolveOpen) => {
@@ -69,11 +56,6 @@ function preparePeerHome() {
   const cred = existsSync(join(mainHome, '.credentials.yaml')) ? join(mainHome, '.credentials.yaml') : join(officialHome, '.credentials.yaml')
   const dest = join(peerHome, '.credentials.yaml')
   if (existsSync(cred) && !existsSync(dest)) copyFileSync(cred, dest)
-  const vendor = join(peerHome, 'vendor')
-  const shared = existsSync(FDE_VENDOR_DIR)
-    ? FDE_VENDOR_DIR
-    : (existsSync(join(officialHome, 'vendor')) ? join(officialHome, 'vendor') : join(mainHome, 'vendor'))
-  if (existsSync(shared) && !existsSync(vendor)) linkVendorTarget(shared, vendor)
   const storages = join(peerHome, 'storages')
   mkdirSync(storages, { recursive: true })
   const wsSrc = join(mainHome, 'storages', 'workspace.json')
