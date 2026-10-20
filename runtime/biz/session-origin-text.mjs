@@ -124,8 +124,13 @@ async function textsFromBuffer(name, buf) {
 }
 
 function cwdOfHeaderEvent(event) {
-  if (!event || event.type !== 'session/header') return ''
+  if (!event || typeof event !== 'object') return ''
   const data = event.data && typeof event.data === 'object' ? event.data : {}
+  if (event.type === 'session') {
+    const raw = event.cwd || event.header?.cwd || data.cwd || data.header?.cwd || data.meta?.cwd || ''
+    return canonicalWorkspaceCwd(raw)
+  }
+  if (event.type !== 'session/header') return ''
   const raw = data.cwd || data.header?.cwd || data.meta?.cwd || ''
   return canonicalWorkspaceCwd(raw)
 }
