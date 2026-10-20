@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { PARENT_DEATH_DEADLINE_MS, runParentDeath } from './support/parent-death-repro.mjs'
+import { PARENT_DEATH_DEADLINE_MS, judgeHostGroupWindow, runParentDeath } from './support/parent-death-repro.mjs'
 
 test('SIGKILL of the connector reaps the host group within 2s', { timeout: 240_000 }, async () => {
   const out = process.env.PARENT_DEATH_OUT || ''
@@ -8,7 +8,11 @@ test('SIGKILL of the connector reaps the host group within 2s', { timeout: 240_0
   assert.equal(report.error, null, JSON.stringify(report))
   assert.equal(report.connector, 'DshCoreConnector')
   assert.ok(report.samples.length > 0, JSON.stringify(report.samples))
-  assert.equal(report.samples.some((sample) => sample.rows.some((row) => row.ppid === 1)), false, JSON.stringify(report.samples))
+  const judgment = judgeHostGroupWindow(report.samples)
+  assert.deepEqual(report.judgment, judgment)
+  assert.equal(judgment.endClear, true, JSON.stringify(judgment))
+  assert.equal(judgment.stayedClear, true, JSON.stringify(judgment))
+  assert.equal(judgment.pass, true, JSON.stringify(judgment))
   assert.equal(report.webLine, true, JSON.stringify(report))
   assert.equal(report.epipe, false, JSON.stringify(report))
   assert.ok(report.httpStatus >= 200 && report.httpStatus < 400, JSON.stringify(report))

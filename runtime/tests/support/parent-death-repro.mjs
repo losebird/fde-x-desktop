@@ -10,6 +10,46 @@ const execFileAsync = promisify(execFile)
 
 export const PARENT_DEATH_DEADLINE_MS = 2000
 
+const GROUP_ROLES = new Set(['leader', 'host', 'pip'])
+
+export function judgeHostGroupWindow(samples) {
+  const transientPid1 = []
+  let sawEmpty = false
+  let reappeared = false
+  for (const sample of samples || []) {
+    const group = (sample.rows || []).filter((row) => GROUP_ROLES.has(row.role))
+    if (sawEmpty) {
+      if (group.length > 0) reappeared = true
+      continue
+    }
+    if (group.length === 0) {
+      sawEmpty = true
+      continue
+    }
+    for (const row of group) {
+      if (row.ppid !== 1) continue
+      transientPid1.push({
+        tMs: sample.tMs,
+        pid: row.pid,
+        ppid: row.ppid,
+        pgid: row.pgid,
+        sid: row.sid,
+        stat: row.stat,
+        role: row.role,
+      })
+    }
+  }
+  const lastGroup = ((samples || []).at(-1)?.rows || []).filter((row) => GROUP_ROLES.has(row.role))
+  const endClear = (samples || []).length > 0 && lastGroup.length === 0
+  const stayedClear = sawEmpty && reappeared === false
+  return {
+    endClear,
+    stayedClear,
+    transientPid1,
+    pass: endClear && stayedClear,
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
 }
@@ -197,7 +237,7 @@ function ownPgid() {
 }
 
 export async function runParentDeath(options = {}) {
-  const mode = options.mode === 'stable' ? 'stable' : 'death'
+  const mode = options.mode === 'stable' || options.mode === 'crash' ? options.mode : 'death'
   const deadlineMs = options.deadlineMs ?? PARENT_DEATH_DEADLINE_MS
   const semantic = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS || ''
   const lan = process.env.FDE_PLUGIN_DSH_LAN_ASSIST || ''
@@ -215,6 +255,8 @@ export async function runParentDeath(options = {}) {
   env.FDE_PLUGIN_DSH_LAN_ASSIST = lan
   if (mode === 'stable') env.FDE_PARENT_DEATH_HOLD_MS = String(options.holdMs ?? 30_000)
   else delete env.FDE_PARENT_DEATH_HOLD_MS
+  if (mode === 'crash') env.FDE_PARENT_DEATH_KEEPALIVE = '1'
+  else delete env.FDE_PARENT_DEATH_KEEPALIVE
 
   const child = spawn(process.execPath, [childPath], {
     env,
@@ -301,7 +343,9 @@ export async function runParentDeath(options = {}) {
       report.elapsedMs = window.elapsedMs
       report.survivors = window.last
       report.reparented = window.last.filter((row) => row.ppid === 1)
-      report.verdict = report.reparented.length === 0 && report.survivors.length === 0 ? 'green' : 'red'
+      report.judgment = judgeHostGroupWindow(report.samples)
+      report.transientPid1 = report.judgment.transientPid1
+      report.verdict = report.judgment.pass ? 'green' : 'red'
     } else if (mode === 'crash') {
       const pipUntil = Date.now() + 20_000
       let kids = []
@@ -315,18 +359,37 @@ export async function runParentDeath(options = {}) {
       const leaderPid = report.hostPid
       const hostRow = report.beforeRows.find((row) => row.role === 'host' && alive(row.pid))
       if (!hostRow) throw new Error(`did not find the host bin under ${ready.home}`)
+      if (hostRow.pid === leaderPid || hostRow.pid === child.pid) {
+        throw new Error(`crash probe would signal pid ${hostRow.pid}, which is the parent or the group leader`)
+      }
       report.hostBefore = hostRow
+      report.killed = { pid: hostRow.pid, role: hostRow.role, leaderPid, parentPid: child.pid }
       const killedAt = Date.now()
       process.kill(hostRow.pid, 'SIGKILL')
       const tracked = new Set([hostRow.pid, leaderPid, ...report.beforeKids.map((row) => row.pid)])
       const window = await sampleWindow(ready.home, leaderPid, tracked, killedAt, deadlineMs, true)
       report.samples = window.samples
       report.elapsedMs = window.elapsedMs
-      const hostOrPip = (row) => row.role === 'pip' || row.role === 'host'
+      report.parentAliveAfter = alive(child.pid)
       const live = (row) => !String(row.stat).includes('Z')
-      report.survivors = window.last.filter((row) => hostOrPip(row) && live(row))
-      report.reparented = report.samples.flatMap((sample) => sample.rows.filter((row) => hostOrPip(row) && live(row) && row.ppid === 1))
+      report.survivors = window.last.filter((row) => (row.role === 'pip' || row.role === 'host') && live(row))
+      report.reparented = []
+      for (const sample of report.samples) {
+        for (const row of sample.rows) {
+          if (row.role !== 'pip' || row.ppid !== 1 || !live(row)) continue
+          report.reparented.push({
+            tMs: sample.tMs,
+            pid: row.pid,
+            ppid: row.ppid,
+            pgid: row.pgid,
+            sid: row.sid,
+            stat: row.stat,
+            role: row.role,
+          })
+        }
+      }
       report.verdict = report.reparented.length > 0 ? 'red' : 'green'
+      if (!report.parentAliveAfter) throw new Error('crash probe parent exited during the host SIGKILL window')
     } else {
       const stable = await messages.next((options.holdMs ?? 30_000) + 30_000)
       report.stable = stable
@@ -348,6 +411,11 @@ export async function runParentDeath(options = {}) {
     if (alive(child.pid)) {
       try { process.kill(child.pid, 'SIGKILL') } catch {}
     }
+    for (const row of [...(report.beforeKids || []), ...(report.reparented || [])]) {
+      if (Number.isInteger(row.pid)) {
+        try { process.kill(row.pid, 'SIGKILL') } catch {}
+      }
+    }
     if (report.home) {
       const mine = ownPgid()
       for (const row of await homeProcesses(report.home).catch(() => [])) {
@@ -364,7 +432,6 @@ export async function runParentDeath(options = {}) {
     report.stdoutTail = stdout.slice(-2000)
     report.stderrTail = stderr.slice(-2000)
   }
-  const sawPid1 = report.samples.some((sample) => sample.rows.some((row) => row.ppid === 1))
   report.ok = report.mode === 'death'
     ? report.error == null
       && report.connector === 'DshCoreConnector'
@@ -374,9 +441,7 @@ export async function runParentDeath(options = {}) {
       && report.httpStatus < 400
       && report.beforeKids.length > 0
       && report.samples.length > 0
-      && report.survivors.length === 0
-      && report.reparented.length === 0
-      && sawPid1 === false
+      && report.judgment?.pass === true
       && report.elapsedMs != null
       && report.elapsedMs <= deadlineMs
       && report.hostBefore?.ppid === report.parentPid
@@ -385,6 +450,10 @@ export async function runParentDeath(options = {}) {
         && report.connector === 'DshCoreConnector'
         && report.beforeKids.length > 0
         && report.samples.length > 0
+        && report.killed?.role === 'host'
+        && report.killed.pid !== report.parentPid
+        && report.killed.pid !== report.killed.leaderPid
+        && report.parentAliveAfter === true
         && (report.verdict === 'red' || report.verdict === 'green')
     : report.error == null
       && report.stable?.type === 'stable'

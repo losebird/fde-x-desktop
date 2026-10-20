@@ -78,4 +78,5 @@ if (hold > 0) {
   })
 }
 
+if (process.env.FDE_PARENT_DEATH_KEEPALIVE === '1') setInterval(() => {}, 1000)
 await new Promise(() => {})
