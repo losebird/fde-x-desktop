@@ -10,6 +10,9 @@
 
 | 短名 | 完整 sha | 内容 |
 | --- | --- | --- |
+| r6 红 | `7f5ba342e1f1e2cf314df1e3b54486d90875ec7b` | 真 Host 上 A 读 B 的 live 会话语料是 200，正文含「本区开工」。空的 activeWorkspaceId 还没有默认区可拉 |
+| r6 语料绿 | `c67e79f70d5b8f2268af4cd6a63662b0e93bad20` | live 头 `type: session` 的 cwd 对不上就 404 |
+| r6 列表绿 | `b3d174a98f6677a7f10e8eba21153e84a99242a7` | 切工作区重新拉列表。空 id 点名当前默认区 |
 | r5 会话红 | `0beabe1a9bf24f4e3509389418263b8355355ec2` | 列表含外区会话，读和提问是 200，分叉是 409，运行中的外区归档是 200 |
 | r5 会话绿 | `21dc465fd52cfbf58e3f3d8d67bd2a8747f6af9a` | 查找在 Host 写入之前。外区 404。分叉落在原会话 cwd |
 | r5 语料和用量红 | `a70204a7be089fd858a335cf8e1fb019d60b4ed8` | A 读到 B 的会话原文。A 的用量请求带回 B 的秘密 |
@@ -227,3 +230,14 @@
 | `corpus/session:*` | `GET /api/v1/corpus/session:%3Aid` 到 `resolveSession`。`sessionLogCwd` 读 `session/header` 的 cwd，对不上就返回找不到 | A 的 cwd 读 B 的会话，200，正文含「语料会话秘密」 | 404，正文没有该句。B 自己的 cwd 仍是 200，正文有该句。header 没有 cwd 的旧语料测试仍通过 | 已收住 |
 | `GET /api/v1/memory/usage` | 原先 `semanticOs('/usage')` 不带请求 cwd，Host 双份对未点名的 cwd 返回 B 的用量。现在和 `memory/deps` 一样把 `requireHttpWorkspace` 的 cwd 传进去 | A 的 `cwd=/ws-guard-a` 得到 `用量秘密B` | 200，`secret` 是「用量秘密A」，正文没有「用量秘密B」 | 已收住。没有给用量加工作区列。省略 cwd 时仍用运行时 cwd，和 deps 相同 |
 | AI 模型、凭证、provider | Host 全局目录和 settings RPC | 本轮没有把它们做成跨区红测 | 没有改 | 后续。不加工区列 |
+
+## r6 入口
+
+红 `7f5ba342e1f1e2cf314df1e3b54486d90875ec7b`。语料绿 `c67e79f70d5b8f2268af4cd6a63662b0e93bad20`。列表绿 `b3d174a98f6677a7f10e8eba21153e84a99242a7`。语料红绿都在真 Host 上，没有设 `FDE_TEST_DSH_BIN`。
+
+| 入口 | HTTP 路由或调用链 | 红的结果 | 绿的结果 | 处置 |
+| --- | --- | --- | --- | --- |
+| live `corpus/session:*` | `sessionLogCwd` 也认 `type: session` 事件上的 `cwd`。`session/header` 的旧形状还在 | A 的 cwd 读 B 的 live sessionId，200，正文含「本区开工」 | 404 `not_found`，正文没有「本区开工」。B 自己的 cwd 仍是 200，正文有该句 | 已收住 |
+| 会话列表的工作区 | `src/lib/ai-session-list.ts` 的 `sessionListWorkspaceId`。`AI.tsx` 在 bootstrap、`reloadRemoteSessions` 和复原轮询使用它。`activeWorkspaceId` 变化时重新拉 | 模块不存在，测试失败 | 有会话的区切到另一区再切回来，查询是该区、该区、再该区，列表仍有原会话。空 id 且没有工作区列表时点名 `ws_personal` | 已收住 |
+| 没有 cwd 的旧会话 | `sessionBelongsToWorkspace`。会话没有 cwd 时只匹配 `workspaceId === ws_personal` | 代码已在，这轮补了断言 | 该会话出现在 `ws_personal` 和省略工作区的列表，不出现在 `ws_a` | 已收住 |
+| `GET /api/v1/memory/usage` 真 Host | `requireHttpWorkspace` 后 `semanticOs('/usage')`。Host 再请求 `/semantic-os/usage` | 真 Host A、B、省略 cwd 都是 502，`ai/memory-error`，消息是「语义设置失败：HTTP 404」。`/api/v1/memory/ready` 是 200，`probe` 为 `failed`。`/api/v1/memory/deps` 同样 502 | 没有改这条路由。不是 401 或 403。deps 在传入 cwd 之前就走同一条 Host 页，同样 404 | 卡点。语义服务没有挂出 `/semantic-os/usage`。Host 双份的用量测试仍是绿 |
