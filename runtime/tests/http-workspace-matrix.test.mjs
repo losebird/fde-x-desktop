@@ -400,7 +400,7 @@ function discoveredPaths(window) {
   return found
 }
 
-const HELPER_RE = /^(?:export\s+)?function (requireHttpWorkspace|bizWorkspace|cwdFrom|cwdOf|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd|workspaceFilter|workspaceOf|specWorkspaceCwd|requestAppWorkspace|requireOwnedApp)\b/
+const HELPER_RE = /^(?:export\s+)?function (requireHttpWorkspace|bizWorkspace|cwdFrom|cwdOf|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd|workspaceFilter|workspaceOf|specWorkspaceCwd|requestAppWorkspace|requireOwnedApp|catalogWorkspaceId|settleCatalogWorkspace)\b/
 
 function helperRanges(lines) {
   const ranges = []
