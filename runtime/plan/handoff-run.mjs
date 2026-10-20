@@ -37,12 +37,12 @@ export async function handoffTask(api, input) {
     return { ok: true, sessionStatus: 201, requestId, sessionId, status: 'doing' }
   } catch (error) {
     if (error && error.status === 503) {
-      await api.startRun(taskId, { sessionId: requestId, requestId })
+      await api.startRun(taskId, { sessionId: '', requestId })
       return {
         ok: false,
         sessionStatus: 503,
         requestId,
-        sessionId: requestId,
+        sessionId: '',
         status: 'doing',
         error,
         errorCode: error.code || '',

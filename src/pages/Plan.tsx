@@ -399,11 +399,15 @@ function TodoTab() {
         requestId,
         markDoing,
       })
-      if (outcome.sessionId) {
+      if (outcome.sessionStatus === 201 || outcome.sessionStatus === 503) {
         setAiRuns((prev) => {
           const next = new Map(prev)
           const rows = next.get(task.id) || []
-          next.set(task.id, [...rows, { id: requestId, sessionId: outcome.sessionId, state: 'running' }])
+          next.set(task.id, [...rows, {
+            id: requestId,
+            sessionId: outcome.sessionId || '',
+            state: 'running',
+          }])
           return next
         })
       }

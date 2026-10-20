@@ -27,9 +27,9 @@ export function listTaskAiRuns(db, taskId) {
 
 export function startTaskAiRun(db, input) {
   const taskId = String(input.taskId || '').trim()
-  const sessionId = String(input.sessionId || '').trim()
   const requestId = String(input.requestId || '').trim()
-  if (!taskId || !sessionId || !requestId) {
+  const sessionId = input.sessionId == null ? '' : String(input.sessionId).trim()
+  if (!taskId || !requestId) {
     return { ok: false, status: 422, error: 'validation_error', message: '缺少会话或请求' }
   }
   const running = db.prepare(`
