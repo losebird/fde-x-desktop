@@ -21,6 +21,13 @@ export async function handleCatalogRequest(request, response, url, { db, aiRunti
       sendError(response, 400, 'validation_error', '缺少 kind 或 action', correlationId)
       return true
     }
+    const resolved = resolveHttpWorkspace({
+      url,
+      slots: [['query', 'cwd'], ['query', 'workspace']],
+      runtimeCwd: aiRuntime?.cwd,
+      fallbackCwd: FDE_AI_WORKSPACE,
+    })
+    if (rejectCatalogWorkspace(db, resolved, response, correlationId, sendError)) return true
     const abort = new AbortController()
     request.on('close', () => abort.abort())
     try {
@@ -29,6 +36,7 @@ export async function handleCatalogRequest(request, response, url, { db, aiRunti
       for await (const frame of streamBag(aiRuntime, {
         kind,
         action,
+        cwd: resolved.cwd,
         sessionId: url.searchParams.get('sessionId') || '',
         id: url.searchParams.get('id') || '',
         path: url.searchParams.get('path') || '.',
