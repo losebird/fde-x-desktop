@@ -64,7 +64,7 @@ async function startServer() {
     try {
       const res = await fetch(`${base}/health`)
       if (res.ok && pageToken) return
-    } catch { /* retry */ }
+    } catch {}
     if (child.exitCode != null) break
     await delay(100)
   }
