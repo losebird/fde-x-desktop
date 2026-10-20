@@ -13,7 +13,7 @@ import {
 import { validateSchedule, validateSections, validateSources, validateDelivery } from '../briefing/validate.mjs'
 import { runBriefing } from '../briefing/run.mjs'
 import { rescheduleBriefingForWorkspace, shouldRunOnOpen } from '../briefing/scheduler.mjs'
-import { resolveHttpWorkspace } from '../http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 
 function briefingCors(request, allowedOrigins) {
@@ -25,6 +25,11 @@ function briefingCors(request, allowedOrigins) {
     'Access-Control-Allow-Headers': 'Content-Type, X-Correlation-Id',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   }
+}
+
+function briefingMissing(response, correlationId, cors) {
+  const failure = httpStatusForWorkspaceError('missing_workspace')
+  briefingError(response, failure.status, failure.code, failure.message, correlationId, cors)
 }
 
 function briefingError(response, status, error, message, correlationId, cors = {}) {
@@ -160,7 +165,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       briefingOk(response, 200, def, correlationId, cors)
     } catch (error) {
       if (error && error.code === 'missing_workspace') {
-        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        briefingMissing(response, correlationId, cors)
         return true
       }
       throw error
@@ -196,7 +201,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       briefingOk(response, 200, saved, correlationId, cors)
     } catch (error) {
       if (error && error.code === 'missing_workspace') {
-        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        briefingMissing(response, correlationId, cors)
         return true
       }
       throw error
@@ -224,7 +229,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       briefingOk(response, 200, { briefingId: result.briefingId, briefing: result.briefing }, correlationId, cors)
     } catch (error) {
       if (error && error.code === 'missing_workspace') {
-        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        briefingMissing(response, correlationId, cors)
         return true
       }
       briefingError(response, 500, 'briefing_run_failed', error instanceof Error ? error.message : '生成失败', correlationId, cors)
@@ -266,7 +271,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       def = getOrCreateDefinition(db, cwd)
     } catch (error) {
       if (error && error.code === 'missing_workspace') {
-        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        briefingMissing(response, correlationId, cors)
         return true
       }
       throw error
