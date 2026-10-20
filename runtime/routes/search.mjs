@@ -1,5 +1,6 @@
 import { FDE_AI_WORKSPACE } from '../config.mjs'
-import { resolveHttpWorkspace } from '../http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
+import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 import { loadSearchSheet } from '../search/search-sheet.mjs'
 
 export async function handleSearchRoute(request, response, url, ctx) {
@@ -11,13 +12,15 @@ export async function handleSearchRoute(request, response, url, ctx) {
     runtimeCwd: aiRuntime?.cwd,
     fallbackCwd: FDE_AI_WORKSPACE,
   })
-  if (resolved.error) {
-    sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+  const ident = resolved.error ? resolved : resolveWorkspaceIdOrFail(db, resolved)
+  const failure = httpStatusForWorkspaceError(ident.error)
+  if (failure) {
+    sendError(response, failure.status, failure.code, failure.message, correlationId)
     return true
   }
   const query = String(url.searchParams.get('q') || '')
   const sessionId = String(url.searchParams.get('sessionId') || '').trim()
-  const sheet = await loadSearchSheet({ aiRuntime, db }, { cwd: resolved.cwd, query, sessionId })
+  const sheet = await loadSearchSheet({ aiRuntime, db }, { cwd: ident.cwd || resolved.cwd, query, sessionId })
   sendJson(response, 200, { data: sheet, correlationId })
   return true
 }
