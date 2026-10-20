@@ -56,6 +56,7 @@ async function runCase(name) {
     if (name === 'symlink') return await symlinkCase(home)
     if (name === 'missing-index') return await missingIndexCase(home)
     if (name === 'missing-nats') return await missingNatsCase(home)
+    if (name === 'deleted-nats') return await deletedNatsCase(home)
     throw new Error(`unknown case ${name}`)
   } finally {
     for (const [key, value] of Object.entries(saved)) {
@@ -162,6 +163,21 @@ async function missingIndexCase(home) {
   return { state: connector.state, lastError: connector.lastError }
 }
 
+async function deletedNatsCase(home) {
+  const fixture = await mkdtemp(join(tmpdir(), 'fde-lan-delnats-'))
+  await cp(join(repoRoot, 'runtime', 'plugins', 'dsh-lan-assist'), fixture, {
+    recursive: true,
+    filter: (src) => !src.split('/').includes('.git'),
+  })
+  await rm(join(fixture, 'node_modules', 'nats'), { recursive: true, force: true })
+  process.env.FDE_PLUGIN_DSH_LAN_ASSIST = fixture
+  process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = await tiny(home, 'sem')
+  const connector = new DshCoreConnector({ dshHome: home, cwd: home })
+  await connector.ensureIsolatedProfile()
+  await rm(fixture, { recursive: true, force: true })
+  return { state: connector.state, lastError: connector.lastError }
+}
+
 async function missingNatsCase(home) {
   const fixture = await mkdtemp(join(tmpdir(), 'fde-lan-nonats-'))
   await cp(join(repoRoot, 'runtime', 'plugins', 'dsh-lan-assist'), fixture, {
@@ -246,6 +262,13 @@ if (process.env.PR4_CASE) {
 
   test('missing nats sets connector error', () => {
     const got = child('missing-nats')
+    assert.equal(got.state, 'error')
+    assert.match(got.lastError, /NATS_DEPENDENCY_MISSING/)
+    assert.equal(/NO_NATS/.test(got.lastError || ''), false)
+  })
+
+  test('deleting nats from a temp copy sets connector error', () => {
+    const got = child('deleted-nats')
     assert.equal(got.state, 'error')
     assert.match(got.lastError, /NATS_DEPENDENCY_MISSING/)
     assert.equal(/NO_NATS/.test(got.lastError || ''), false)

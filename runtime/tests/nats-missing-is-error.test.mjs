@@ -6,10 +6,10 @@ import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createLocalHandler } from '../http.js'
-import { createView } from '../view.js'
+import { createLocalHandler } from '../plugins/dsh-lan-assist/http.js'
+import { createView } from '../plugins/dsh-lan-assist/view.js'
 
-const pluginDir = fileURLToPath(new URL('..', import.meta.url))
+const pluginDir = fileURLToPath(new URL('../plugins/dsh-lan-assist/', import.meta.url))
 
 function rejectsNoNatsIdle(status, sent) {
   const idle = !status || status.state === 'idle' || status.state == null
