@@ -506,10 +506,12 @@ test('guard bypasses are reported', () => {
     hidden: "if (url.pathname === '/api/v1/not-a-workspace-route') {\n  const picked = url.searchParams\n  const cwd = picked.get('cwd')\n}\n",
     helper: 'function workspaceOf(input) {\n  return input\n}\nconst cwd = url.searchParams.get(\'cwd\')\n',
     method: "if (request.method === 'POST' && url.pathname === '/api/v1/events/recent') {\n  const cwd = url.searchParams.get('cwd')\n}\n",
+    child: "if (request.method === 'GET' && url.pathname === '/api/v1/catalog/stream') {\n  const cwd = url.searchParams.get('cwd')\n}\n",
   }
   const open = []
   for (const [name, source] of Object.entries(bypasses)) {
-    if (workspaceReadProblems('runtime/routes/ghost.mjs', source).length === 0) open.push(name)
+    const file = name === 'child' ? 'runtime/routes/catalog.mjs' : 'runtime/routes/ghost.mjs'
+    if (workspaceReadProblems(file, source).length === 0) open.push(name)
   }
   assert.deepEqual(open, [])
 })
