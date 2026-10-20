@@ -97,6 +97,22 @@ describe('biz surfaces and live execute', () => {
     db.close()
   })
 
+  test('an empty-credential lan-assist adapter stays in the personal workspace', () => {
+    const db = openDatabase(`/tmp/fde-biz-conn-empty-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
+    const wsId = 'ws_other_guard'
+    const before = listBusinessConnections(db, { workspaceId: wsId })
+    db.prepare(`UPDATE business_connections SET credential_ref = ? WHERE id = ?`).run('cred_lan', 'conn_lan_assist')
+    const after = listBusinessConnections(db, { workspaceId: wsId })
+    db.close()
+    assert.deepEqual({
+      before: before.some((row) => row.id === 'conn_lan_assist'),
+      after: after.some((row) => row.id === 'conn_lan_assist'),
+    }, {
+      before: false,
+      after: true,
+    })
+  })
+
   test('biz_surfaces insert and list', () => {
     const db = openDatabase(`/tmp/fde-biz-surface-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     insertBizSurface(db, {
