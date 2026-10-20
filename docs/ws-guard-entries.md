@@ -1,15 +1,17 @@
 # 工作区读写入口
 
-这张表替代 Store 里的 `ws-guard-decisions.tsv`。每一行是一个读写入口。已收住表示这个入口只碰当前工作区的行。红、绿是该入口对应的提交。白名单在 `runtime/workspace-scope-allow.mjs`，当前是空数组，没有一条正则放过全部调用。
+这张表替代 Store 里的 `ws-guard-decisions.tsv`。每一行是一个读写入口。已收住表示这个入口只碰当前工作区的行。红、绿是该入口对应的提交。白名单在 `runtime/workspace-scope-allow.mjs`。每一条是文件加调用名，或文件加表名，外加理由。没有一条正则放过全部调用。r4 之后只留一行，`workflow_runs` 按 run id 更新。
 
 简报里的 `getBusinessApp` 没有这个函数名。按主键读应用的函数是 `getAppById`。`app_documents` 没有 `workspace_id` 列。`getDocument` 和 `putDocument` 先调用 `getAppById(db, appId, workspaceId)`，应用不属于该工作区就返回空。
 
-结构测试是 `runtime/tests/ws-guard-r3.test.mjs` 的 `primary key access passes workspaceId`。它扫描生产代码里下列函数的调用点，参数里必须出现标识符 `workspaceId`。它也扫描 `business_apps`、`operations`、`tasks`、`calendar_events`、`workflows` 上 `WHERE id = ?` 的语句，匹配文本里必须已经出现 `workspace_id`。测试目录、`node_modules`、`vendor-overlays`、`dist` 不扫。
+结构测试是 `runtime/tests/ws-guard-r3.test.mjs` 的 `primary key access passes workspaceId`。它扫描生产代码里主键函数的调用点。`workspaceId` 族的参数里必须出现标识符 `workspaceId`。cwd 族必须出现 `workspaceCwd`。它也扫描 `business_apps`、`operations`、`tasks`、`calendar_events`、`workflows`、`business_connections`、`operation_steps`、`workflow_runs` 上 `WHERE id = ?` 的语句，匹配文本里必须有 `workspace_id =`。`briefings` 和 `biz_write_audit` 必须有 `workspace_cwd =`。测试目录、`node_modules`、`vendor-overlays`、`dist`、`.git` 不扫。r4 把早报、审计、连接灯、操作步骤、工作流 run 读取、记录和上述表加进这次扫描。红 `25be63ae` 在旧代码上失败。绿 `6e6fcf97` 之后只剩白名单那一行。
 
 ## 提交
 
 | 短名 | 完整 sha | 内容 |
 | --- | --- | --- |
+| r4 红 | `25be63aef1f692dfa642c02043552d44e6ab12c5` | 早报、语料早报、审计按 trace、连接灯跨区，以及扩大后的结构测试，都红 |
+| r4 绿 | `6e6fcf976a116ec02dea5828ccdb966c508fc172` | 早报和审计按 cwd 过滤。连接灯只改请求工作区。监视器只改 `ws_personal`。操作步骤先确认父操作属于该工作区。工作流 run 读取按 `workspace_id` 连接 |
 | r3 红 | `357581184c3f92844292e57dd853640d85bfa4d6` | 跨区读、跨区 task-proposal、未登记 workflow、catalog stream 未登记、结构测试，五条都红 |
 | r3 绿 | `d2ca959c138b7869b80627d3e59d4ba9a601ea13` | 主键函数带 `workspaceId`，SQL 为 `WHERE workspace_id = ? AND id = ?`，workflow 创建改 404，catalog stream 登记 |
 | r3 工作流加载 | `7599e9b661412565d299cb0148c589624b5cf276` | `startWorkflowRun` 的 SELECT 改成 `WHERE workspace_id = ? AND id = ?`。结构测试因为列名单里已有 `workspace_id` 而没有把这一行判红 |
@@ -177,25 +179,29 @@
 
 空凭证的 lan-assist 连接留在个人区。红 `bea44099`，绿 `69ba1c65`。这不是一条 HTTP 路由。
 
-## 本轮没有收进 workspace_id 过滤
+## r4 入口
 
-这些函数仍按主键或其它键读写。结构扫描的表名单和调用名单都不包含它们。本轮没有给它们红测试，也没有改它们。红绿留空。
+红提交 `25be63aef1f692dfa642c02043552d44e6ab12c5`。绿提交 `6e6fcf976a116ec02dea5828ccdb966c508fc172`。状态码是 `runtime/tests/ws-guard-r4.test.mjs` 实测。没有写成失败测试的行，红绿栏写明原因。
 
-| 函数 | 文件 | 已收住 | 红 | 绿 | 现状 |
-| --- | --- | --- | --- | --- | --- |
-| `getRecord` | `runtime/apps/records.mjs` | 按 cwd，不是 `workspace_id` |  |  | `WHERE id = ?` 后面还有 workspace cwd 条件 |
-| `patchRecord` | 同上 | 按 cwd，不是 `workspace_id` |  |  | 同上 |
-| `deleteRecord` | 同上 | 按 cwd，不是 `workspace_id` |  |  | 同上 |
-| `insertOperationStep` | `runtime/db.mjs` | 否 |  |  | 按 operation id 插入步骤，没有 `workspace_id` |
-| `getBizWriteAuditByTraceId` | `runtime/db.mjs` | 否 |  |  | 按 trace id |
-| `updateBusinessConnectionStatusByProvider` | `runtime/db.mjs` | 否 |  |  | 先按 provider 选出连接，再按连接 id 更新，会碰到每个工作区里同名 provider |
-| `getBriefing` | `runtime/briefing/store.mjs` | 否 |  |  | `briefings WHERE id = ?` |
-| `updateBriefingContent` | 同上 | 否 |  |  | 按 briefing id 更新 |
-| `resolveBriefing` | `runtime/routes/corpus.mjs` | 否 |  |  | `briefings WHERE id = ?` |
-| `readWorkflowRuns` | `runtime/plan/workflow-run.mjs` | 否 |  |  | `workflow_runs` 按 `workflow_id IN (...)` |
-| `readLatestRunCards` | 同上 | 否 |  |  | 同上 |
-| `markRunFailed` 及同文件的 run、step 更新 | 同上 | 否 |  |  | `workflow_runs`、`workflow_run_steps` 按 run id 或 step id |
-| `getWorkspace` | `runtime/db.mjs` | 登记表 |  |  | `workspaces.id` 就是工作区 id |
-| `listWorkspaces` | 同上 | 登记表 |  |  | 列出工作区本身 |
+| 入口 | HTTP 路由或调用链 | 红的结果 | 绿的结果 | 处置 |
+| --- | --- | --- | --- | --- |
+| `getBriefing` | `GET /api/v1/briefing/:id` 在 `runtime/routes/briefing.mjs` 先 `requireWorkspaceQuery`，再 `getBriefing(db, id, workspaceCwd)`。SQL 是 `canonical(workspace_cwd) = ? AND id = ?` | A 区路径读 B 区早报 `brf_b`，状态 200，正文含「早报秘密」 | 404，正文没有「早报秘密」 | 已收住 |
+| `resolveBriefing` | `GET /api/v1/corpus/briefing%3A:id` 到 `loadOrigin`，再 `resolveBriefing(db, id, workspaceCwd)`。SQL 是 `WHERE workspace_cwd = ? AND id = ?` | 同一条红测，语料口状态 200，正文含「早报秘密」 | 404，正文没有「早报秘密」 | 已收住 |
+| `updateBriefingContent` | 没有路由接受客户端传来的早报 id。`POST /api/v1/briefing/run` 和 `GET /api/v1/briefing/latest` 失败记录先按该 cwd 创建或找到早报，再把这个 id 交给 `updateBriefingContent`。`mergeBriefingSubmit` 用 `findBriefingByAgentRequest` 找到行之后，用该行自己的 `workspaceCwd` 更新。函数本身仍按 cwd 过滤，因为结构扫描要求调用点带 `workspaceCwd` | 没有单独的 HTTP 状态码。扩大后的结构测试在旧代码上把这些调用判红 | 结构测试通过。更新语句带 `workspace_cwd = ? AND id = ?` | 已收住。HTTP 不能拿别的工作区的早报 id 来写 |
+| `getBizWriteAuditByTraceId` | `GET /api/v1/biz/traces?traceId=`、`POST /api/v1/biz/rollback/preview`、`POST /api/v1/biz/write` 把请求 cwd 传进查找。`setBizWriteAuditRollbackState` 用同一 cwd，别的工作区的 trace 改不到行。语料 `biz:` 走 `resolveBizCorpusOrigin`。`originHref` 只有调用方传入 `workspaceCwd` 才查审计 | A 区路径加 B 区 `trace_b`，状态 200，正文含「审计秘密」 | 404，正文没有「审计秘密」。回滚标记同样带 cwd，找不到就不改行 | 已收住 |
+| `updateBusinessConnectionStatusByProvider` | `GET /api/v1/business/connections` 和 `GET /api/v1/biz/connections`，以及 preview、write 里的灯刷新，都把请求的 `workspaceId` 传进去。SELECT 和 UPDATE 都是 `workspace_id = ?`。`runtime/lan-assist-state-watch.mjs` 只对 `ws_personal` 调 `reconcileLanAssistConnectionLamp` | A 区刷新连接后，B 区 `lan-assist` 行的 status 从 `error` 变成 `pending` | 同一行保持 `error` | 已收住 |
+| `insertOperationStep` | 批准、现场执行、`POST /api/v1/operations` 都先在请求工作区里解析出 operation id，再插入步骤。函数先查 `operations WHERE workspace_id = ? AND id = ?`，对不上就不插入 | 没有单独的 HTTP 跨区状态码。结构测试在旧代码上把缺 `workspaceId` 的调用判红 | 结构测试通过。外区 operation id 插不进行 | 已收住 |
+| `readWorkflowRuns` | 只从 `GET /api/v1/plan/workflows` 调用。工作流 id 已经来自 `workflows WHERE workspace_id = ?`。读取再 `JOIN workflows ON workspace_id = ?` | 没有测到 HTTP 200 泄漏。结构测试因为调用缺 `workspaceId` 而红 | 结构测试通过。JOIN 带上 `workspaceId` | 已收住 |
+| `readLatestRunCards` | 同上，同一条 GET | 同上，结构测试红 | 同上，JOIN 带上 `workspaceId` | 已收住 |
+| `workflow_runs` 按 run id 更新 | `POST /api/v1/plan/workflows/:id/run` 先走 `startWorkflowRun`。别的工作区的工作流在插入 run 之前就是 404，提交 `7599e9b6`。之后按刚插入的 run id 改状态。没有另一条 HTTP 口接受外来 run id。启动时 `failInterruptedRuns` 收的是本进程未完成的 run | 结构测试把按 run id 的 UPDATE 判红 | 白名单一行。文件 `runtime/plan/workflow-run.mjs`，表 `workflow_runs`。读取 JOIN 已收住，更新语句仍按 run id | 白名单。理由写在 `runtime/workspace-scope-allow.mjs` |
+| `getRecord` | `GET /api/v1/apps/:slug/:entity/:id`。`appIdentity` 先定工作区，`requireActiveApp` 取该区应用，`appRecordCwd` 得到 cwd，再 `getRecord(..., workspaceCwd, rid)`。SQL 是 `WHERE id = ? AND cwdMatch` | 旧代码已经带 cwd。预期会失败的红测在旧代码上会通过，所以没有写。这是读代码，没有跑跨区探测 | 调用点仍带 `workspaceCwd`。结构扫描把缺这个词的调用判红 | 已按 cwd 收住 |
+| `patchRecord` | `PATCH /api/v1/apps/:slug/:entity/:id`，同一条解析，然后 `patchRecord(..., workspaceCwd, rid, body)` | 同上。读代码，没有跨区探测 | 同上 | 已按 cwd 收住 |
+| `deleteRecord` | `DELETE /api/v1/apps/:slug/:entity/:id`，同一条解析，然后 `deleteRecord(..., workspaceCwd, rid)` | 同上。读代码，没有跨区探测 | 同上 | 已按 cwd 收住 |
+| AI 会话 | `GET /api/v1/ai/sessions` 和 `GET /api/v1/ai/sessions/:id` 调 `aiRuntime.call('session/list')`。`toAiSessionSummary` 可以带上 host 行的 `cwd`。列表不按 fde 工作区过滤。`POST /api/v1/ai/sessions` 用 `parseSessionBind`，创建时带 workspaceId 或 cwd，审计仍写 `ws_personal`。这是一个 Host 会话表，不是按工作区分开的 sqlite 行 | 本轮没有写跨区红测 | 没有改 | 后续 |
+| AI 模型 | `GET /api/v1/ai/models` 调 `session/modelCatalog`。`GET/POST /api/v1/ai/models-settings` 及其 mutate、credential、apply 走 Host settings RPC | 本轮没有写跨区红测 | 没有改 | 后续 |
+| AI 凭证 | `GET/POST /api/v1/ai/credentials` 读写 `join(aiRuntime.dshHome, '.credentials.yaml')`。一个运行时目录一份文件，不按工作区分 | 本轮没有写跨区红测 | 没有改 | 后续 |
+| AI provider | `GET /api/v1/ai/providers` 调 `llm/listProviders` 和 `llm/listConfigurableProviders`，再读 `settings.yaml`。`POST /api/v1/ai/providers` 和 custom、discover 也是 Host 目录 | 本轮没有写跨区红测 | 没有改 | 后续 |
 
-AI 会话、模型、凭证、provider 这些口不在 `httpWorkspaceRoutes` 里，也不在上面的主键族里。本轮没有逐条重测。
+`getWorkspace` 和 `listWorkspaces` 读的是工作区登记表。`workspaces.id` 就是工作区 id。它们不在这张收口表里。
+
+结构扫描没有扫 `server.mjs` 里的 AI 路由正文。上面四行是读路由得出的调用链，不是扫描器的输出。
