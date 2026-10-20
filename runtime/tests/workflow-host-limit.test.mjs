@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { bootWorkflowHost, hostPinDir, waitForProbe } from './support/workflow-host.mjs'
+import { STANDARD_SESSION_TOOLS } from './support/standard-session-tools.mjs'
 
 const WORKFLOW_TOOLS = ['fde_app_records_propose', 'fde_app_records_query', 'fde_plan_task_propose']
 
@@ -44,7 +45,7 @@ test('真 Host 上 fde-workflow 会话只看见三个工具', async () => {
     const workflow = await waitForProbe(host.probeDir, 'fde-workflow')
     assert.equal(standard.error, null)
     assert.equal(workflow.error, null)
-    assert.equal(standard.names.length, 44)
+    assert.deepEqual(standard.names, STANDARD_SESSION_TOOLS)
     assert.deepEqual(workflow.names, WORKFLOW_TOOLS)
   } finally {
     await host.stop()
@@ -62,7 +63,7 @@ test('真 Host 上无法确认调用方时拒绝 bash', async () => {
     })
     const standard = await waitForProbe(host.probeDir, 'standard')
     const workflow = await waitForProbe(host.probeDir, 'fde-workflow')
-    assert.equal(standard.names.length, 44)
+    assert.deepEqual(standard.names, STANDARD_SESSION_TOOLS)
     assert.equal(standard.bashWithAgent.isError, false)
     assert.match(standard.bashWithAgent.text, /^RAN/)
     const denied = 'Error: 工作流步骤不能调用这个工具'
