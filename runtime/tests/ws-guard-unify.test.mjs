@@ -142,3 +142,31 @@ test('a business app in workspace B stays unchanged when workspace A or no works
     await rm(dbPath, { force: true })
   }
 })
+
+test('an unknown workspace id, with or without a path, is missing_workspace', async () => {
+  const dbPath = `/tmp/fde-ws-guard-a-${process.pid}.sqlite`
+  await rm(dbPath, { force: true })
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  db.close()
+  const server = await startServer(dbPath)
+  try {
+    const byId = await fetch(`${server.base}/api/v1/business/apps?workspaceId=ws_missing`)
+    const byIdPayload = await byId.json()
+    const byPath = await fetch(`${server.base}/api/v1/business/apps?workspaceCwd=/y-not-registered`)
+    const byPathPayload = await byPath.json()
+    assert.deepEqual({
+      byId: byId.status,
+      byIdCode: byIdPayload.error?.code,
+      byPath: byPath.status,
+      byPathCode: byPathPayload.error?.code,
+    }, {
+      byId: 404,
+      byIdCode: 'missing_workspace',
+      byPath: 404,
+      byPathCode: 'missing_workspace',
+    })
+  } finally {
+    await server.stop()
+    await rm(dbPath, { force: true })
+  }
+})
