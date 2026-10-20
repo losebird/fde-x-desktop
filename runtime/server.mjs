@@ -1914,7 +1914,10 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/usage') {
-      const result = await aiRuntime.semanticOs('/usage', { method: 'GET' })
+      const resolvedUsage = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedUsage) return
+      const cwd = resolvedUsage.cwd
+      const result = await aiRuntime.semanticOs('/usage', { method: 'GET', ...(cwd ? { cwd } : {}) })
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
       return
     }

@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { realpath } from 'node:fs/promises'
 import { join, resolve as resolvePath } from 'node:path'
 import { resolveBizCorpusOrigin } from '../biz/corpus-origin.mjs'
-import { readSessionUserOrigin } from '../biz/session-origin-text.mjs'
+import { readSessionUserOrigin, sessionLogCwd } from '../biz/session-origin-text.mjs'
 import { findActiveAppBySlug } from '../apps/repository.mjs'
 import { getRecord } from '../apps/records.mjs'
 import { FDE_AI_WORKSPACE } from '../config.mjs'
@@ -123,9 +123,12 @@ function resolveAppRecord(db, slug, entity, rid, workspaceCwd) {
   }
 }
 
-async function resolveSession(sessionKey) {
+async function resolveSession(sessionKey, workspaceCwd) {
   const sessionId = sessionIdOf(sessionKey.startsWith('session:') ? sessionKey : `session:${sessionKey}`)
   if (!sessionId) return null
+  const headerCwd = await sessionLogCwd(sessionId)
+  const requested = canonicalWorkspaceCwd(workspaceCwd)
+  if (headerCwd && !sameWorkspaceCwd(headerCwd, requested)) return null
   const text = await readSessionUserOrigin(sessionId)
   if (!text) {
     return {
@@ -250,7 +253,7 @@ export async function loadOrigin(deps, id) {
     return { ok: false, missing: true, message: '找不到该应用' }
   }
   if (id.startsWith('session:')) {
-    const resolved = await resolveSession(id)
+    const resolved = await resolveSession(id, cwd)
     if (!resolved) return { ok: false, missing: true, message: '找不到该会话' }
     if (resolved.unreadable) {
       return { ok: false, title: resolved.title, text: '', message: resolved.unreadable, href: resolved.href }

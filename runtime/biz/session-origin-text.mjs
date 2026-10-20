@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { zstdDecompress } from 'node:zlib'
 import { FDE_DSH_HOME } from '../config.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 
 const zstdDecompressAsync = promisify(zstdDecompress)
 const ZSTD_MAGIC = 4247762216
@@ -120,6 +121,64 @@ async function textsFromBuffer(name, buf) {
     }
   }
   return collectUserTexts(lines)
+}
+
+function cwdOfHeaderEvent(event) {
+  if (!event || event.type !== 'session/header') return ''
+  const data = event.data && typeof event.data === 'object' ? event.data : {}
+  const raw = data.cwd || data.header?.cwd || data.meta?.cwd || ''
+  return canonicalWorkspaceCwd(raw)
+}
+
+async function linesOfSessionFile(name, buf) {
+  if (name.endsWith('.jsonl') && !name.endsWith('.jsonl.zstd') && !name.endsWith('.zstd')) {
+    return buf.toString('utf8').split('\n')
+  }
+  if (!name.endsWith('.zstd')) return []
+  const frames = scanZstdFrames(buf)
+  const lines = []
+  for (let i = 0; i < frames.length; i += 1) {
+    const text = (await zstdDecompressAsync(buf.subarray(frames[i].start, frames[i].end))).toString('utf8')
+    for (const line of text.split('\n')) {
+      if (line.trim()) lines.push(line)
+    }
+  }
+  return lines
+}
+
+export async function sessionLogCwd(sessionId, opts = {}) {
+  const dir = await findSessionDir(sessionId, opts.sessionRoot)
+  if (!dir) return ''
+  let names = []
+  try {
+    names = await readdir(dir)
+  } catch {
+    return ''
+  }
+  for (const name of names) {
+    if (!name.endsWith('.jsonl') && !name.endsWith('.zstd')) continue
+    if (name.includes('..')) continue
+    let buf
+    try {
+      buf = await readFile(join(dir, name))
+    } catch {
+      continue
+    }
+    const lines = await linesOfSessionFile(name, buf)
+    for (const line of lines) {
+      const raw = String(line || '').trim()
+      if (!raw) continue
+      let event
+      try {
+        event = JSON.parse(raw)
+      } catch {
+        continue
+      }
+      const cwd = cwdOfHeaderEvent(event)
+      if (cwd) return cwd
+    }
+  }
+  return ''
 }
 
 async function findSessionDir(sessionId, sessionRoot) {
