@@ -187,3 +187,22 @@ test('pending events for an unregistered absolute path are missing_workspace', a
     await rm(dbPath, { force: true })
   }
 })
+
+test('catalog stream rejects an unregistered workspace path', async () => {
+  const dbPath = `/tmp/fde-ws-guard-stream-${process.pid}.sqlite`
+  await rm(dbPath, { force: true })
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  db.close()
+  const server = await startServer(dbPath)
+  try {
+    const response = await fetch(`${server.base}/api/v1/catalog/stream?kind=file&action=list&cwd=/y-not-registered`)
+    const status = response.status
+    const text = status === 200 ? '' : await response.text()
+    await response.body?.cancel().catch(() => {})
+    assert.equal(status, 404)
+    assert.equal(JSON.parse(text).error.code, 'missing_workspace')
+  } finally {
+    await server.stop()
+    await rm(dbPath, { force: true })
+  }
+})
