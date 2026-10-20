@@ -1,12 +1,13 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import * as zlib from 'node:zlib'
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { FDE_VENDOR_DIR } from '../../config.mjs'
-import { createCoreConnector } from '../../dsh-core.mjs'
+import { fileURLToPath } from 'node:url'
+import { createCoreConnector, parseHostRpcValue } from '../../dsh-core.mjs'
 import { PRODUCT_BUNDLE_IDS } from '../../product-bundles.mjs'
 
 const execFileAsync = promisify(execFile)
@@ -40,6 +41,13 @@ export async function ensureHostPin() {
 }
 
 export async function bootWorkflowHost(options = {}) {
+  if (options.withPlugins || process.env.FDE_WORKFLOW_HOST_CHILD === '1') {
+    return bootWorkflowHostHere(options)
+  }
+  return bootWorkflowHostChild(options)
+}
+
+async function bootWorkflowHostHere(options = {}) {
   if (typeof zlib.zstdDecompress !== 'function') {
     throw new Error(`真 Host 测试需要 node:zlib 的 zstdDecompress，当前是 ${process.version}`)
   }
@@ -101,11 +109,6 @@ export async function bootWorkflowHost(options = {}) {
     FDE_WORKFLOW_PROBE_EXTRA: process.env.FDE_WORKFLOW_PROBE_EXTRA,
     FDE_WORKFLOW_PROBE_CALL: process.env.FDE_WORKFLOW_PROBE_CALL,
     FDE_WORKFLOW_PROBE_PRESET_ONLY: process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY,
-    FDE_VENDOR_DIR: process.env.FDE_VENDOR_DIR,
-    FDE_IUI_ARTIFACT: process.env.FDE_IUI_ARTIFACT,
-  }
-  for (const key of Object.keys(process.env)) {
-    if (key.startsWith('FDE_PLUGIN_')) previous[key] = process.env[key]
   }
   process.env.FDE_DSH_HOME = home
   process.env.DSH_HOME = home
@@ -124,46 +127,24 @@ export async function bootWorkflowHost(options = {}) {
   if (options.presetOnly) process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY = '1'
   else delete process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY
 
-  let hiddenVendor = null
-  if (!options.withPlugins) {
-    for (const key of Object.keys(process.env)) {
-      if (key.startsWith('FDE_PLUGIN_')) delete process.env[key]
-    }
-    delete process.env.FDE_IUI_ARTIFACT
-    const emptyVendor = join(home, 'empty-vendor')
-    await mkdir(emptyVendor, { recursive: true })
-    process.env.FDE_VENDOR_DIR = emptyVendor
-    hiddenVendor = await hideFrozenVendor()
-  }
-
-  let core
-  let status
-  try {
-    core = createCoreConnector({
-      bin,
-      dshHome: home,
-      cwd,
-      patchFile,
-      profileName,
-      startTimeoutMs: 90_000,
-    })
-    status = await core.start()
-  } catch (error) {
-    await showFrozenVendor(hiddenVendor)
-    restoreEnv(previous)
-    throw error
-  }
+  const core = createCoreConnector({
+    bin,
+    dshHome: home,
+    cwd,
+    patchFile,
+    profileName,
+    startTimeoutMs: 90_000,
+  })
+  const status = await core.start()
   if (!status.connected || status.version !== PIN) {
     const detail = status.lastError || (status.recentLogs || []).slice(-12).join('\n')
     await core.stop().catch(() => {})
-    await showFrozenVendor(hiddenVendor)
     restoreEnv(previous)
     throw new Error(`真 Host 没有连上 ${PIN}：${detail}`)
   }
 
   async function stop() {
     await core.stop().catch(() => {})
-    await showFrozenVendor(hiddenVendor)
     restoreEnv(previous)
     await rm(home, { recursive: true, force: true })
   }
@@ -171,19 +152,173 @@ export async function bootWorkflowHost(options = {}) {
   return { core, cwd, probeDir, home, version: status.version, stop }
 }
 
-async function hideFrozenVendor() {
-  if (!existsSync(FDE_VENDOR_DIR)) return null
-  const hidden = `${FDE_VENDOR_DIR}.fde-workflow-hidden-${process.pid}`
-  await rename(FDE_VENDOR_DIR, hidden)
-  return hidden
-}
-
-async function showFrozenVendor(hidden) {
-  if (!hidden) return
-  if (existsSync(FDE_VENDOR_DIR)) {
-    throw new Error(`隔离结束时 ${FDE_VENDOR_DIR} 已经存在，不能把 ${hidden} 移回去`)
+async function bootWorkflowHostChild(options) {
+  const emptyVendor = await mkdtemp(join(tmpdir(), 'fde-empty-vendor-'))
+  const tempHome = await mkdtemp(join(tmpdir(), 'fde-child-home-'))
+  const env = { ...process.env }
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('FDE_PLUGIN_')) delete env[key]
   }
-  await rename(hidden, FDE_VENDOR_DIR)
+  delete env.FDE_IUI_ARTIFACT
+  env.FDE_VENDOR_DIR = emptyVendor
+  env.HOME = tempHome
+  env.USERPROFILE = tempHome
+  env.FDE_DSH_HOME = tempHome
+  env.DSH_HOME = tempHome
+  env.FDE_WORKFLOW_HOST_CHILD = '1'
+  env.FDE_WORKFLOW_HOST_OPTIONS = JSON.stringify({
+    leak: Boolean(options.leak),
+    extra: Boolean(options.extra),
+    callTool: options.callTool || '',
+    presetOnly: Boolean(options.presetOnly),
+    staleAllow: Boolean(options.staleAllow),
+  })
+  const childPath = fileURLToPath(new URL('./workflow-host-child.mjs', import.meta.url))
+  const child = spawn(process.execPath, [childPath], {
+    env,
+    stdio: ['pipe', 'inherit', 'inherit', 'pipe'],
+  })
+  const pending = new Map()
+  let readySettled = false
+  let readyResolve
+  let readyReject
+  const readyPromise = new Promise((resolve, reject) => {
+    readyResolve = resolve
+    readyReject = reject
+  })
+  let buffer = ''
+  const channel = child.stdio[3]
+  channel.setEncoding('utf8')
+  channel.on('data', (chunk) => {
+    buffer += chunk
+    let index = buffer.indexOf('\n')
+    while (index >= 0) {
+      const line = buffer.slice(0, index)
+      buffer = buffer.slice(index + 1)
+      index = buffer.indexOf('\n')
+      if (!line) continue
+      let msg
+      try {
+        msg = JSON.parse(line)
+      } catch (error) {
+        if (!readySettled) {
+          readySettled = true
+          readyReject(error)
+        }
+        continue
+      }
+      if (msg.type === 'ready') {
+        readySettled = true
+        readyResolve(msg)
+      } else if (msg.type === 'fatal' && !readySettled) {
+        readySettled = true
+        readyReject(new Error(msg.message))
+      } else {
+        const waiter = pending.get(msg.id)
+        if (!waiter) continue
+        pending.delete(msg.id)
+        if (msg.error) waiter.reject(new Error(msg.error))
+        else waiter.resolve(msg.value)
+      }
+    }
+  })
+  const closed = new Promise((resolve) => {
+    child.on('close', (code) => resolve(code))
+  })
+  closed.then((code) => {
+    const error = new Error(`workflow host child exited ${code}`)
+    if (!readySettled) {
+      readySettled = true
+      readyReject(error)
+    }
+    for (const waiter of pending.values()) waiter.reject(error)
+    pending.clear()
+  })
+  const timer = setTimeout(() => {
+    if (!readySettled) {
+      readySettled = true
+      readyReject(new Error('workflow host child did not become ready'))
+    }
+  }, 90_000)
+  let started
+  try {
+    started = await readyPromise
+  } catch (error) {
+    child.kill()
+    await closed
+    await rm(emptyVendor, { recursive: true, force: true })
+    await rm(tempHome, { recursive: true, force: true })
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+  const previousHome = {
+    FDE_DSH_HOME: process.env.FDE_DSH_HOME,
+    DSH_HOME: process.env.DSH_HOME,
+  }
+  process.env.FDE_DSH_HOME = started.home
+  process.env.DSH_HOME = started.home
+  let seq = 0
+  function request(message) {
+    const id = ++seq
+    const result = new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
+    child.stdin.write(`${JSON.stringify({ ...message, id })}\n`)
+    return result
+  }
+  const core = {
+    origin: started.origin,
+    cookie: started.cookie,
+    dshHome: started.home,
+    cwd: started.cwd,
+    logs: [],
+    status() {
+      return {
+        state: 'connected',
+        connected: Boolean(core.origin && core.cookie),
+        version: started.version,
+        origin: core.origin,
+        workspace: started.cwd,
+        dshHome: started.home,
+      }
+    },
+    async call(endpoint, args = {}, signal) {
+      if (!core.origin || !core.cookie) throw new Error('核心 AI 运行时尚未连接')
+      const rpcId = randomUUID()
+      const response = await fetch(new URL(`/api/${endpoint}`, core.origin), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: core.cookie,
+          origin: core.origin,
+        },
+        body: JSON.stringify({
+          type: 'client-request',
+          rpcId,
+          method: endpoint,
+          payload: { args },
+        }),
+        signal,
+      })
+      if (!response.ok) throw new Error(`AI 远程调用失败：HTTP ${response.status}`)
+      return parseHostRpcValue(response, rpcId, endpoint)
+    },
+    async *stream(endpoint, args = {}) {
+      const frames = await request({ type: 'stream', endpoint, args })
+      for (const frame of frames) yield frame
+    },
+  }
+  async function stop() {
+    try {
+      await request({ type: 'stop' })
+    } finally {
+      restoreEnv(previousHome)
+      if (child.exitCode === null) child.kill()
+      await closed
+      await rm(emptyVendor, { recursive: true, force: true })
+      await rm(tempHome, { recursive: true, force: true })
+    }
+  }
+  return { core, cwd: started.cwd, probeDir: started.probeDir, home: started.home, version: started.version, stop }
 }
 
 function restoreEnv(previous) {
