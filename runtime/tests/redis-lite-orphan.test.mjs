@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn, execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,8 +10,24 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const repoRoot = join(import.meta.dirname, '../..')
 const snapshot = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS || ''
-const REDISLITE_SPEC = 'redislite==6.2.912183'
-const PSUTIL_SPEC = 'psutil==7.2.2'
+const REQUIREMENTS = join(repoRoot, 'runtime/data/semantic-os/runtime/0.1.1/darwin-arm64/resolved-requirements.txt')
+
+function pinnedRequirement(name) {
+  const prefix = `${name}==`.toLowerCase()
+  const line = readFileSync(REQUIREMENTS, 'utf8')
+    .split('\n')
+    .map((item) => item.trim())
+    .find((item) => item.toLowerCase().startsWith(prefix))
+  assert.ok(line, `runtime pin missing: ${name}`)
+  return line
+}
+
+const INSTALL_SPECS = [
+  pinnedRequirement('falkordblite'),
+  pinnedRequirement('FalkorDB'),
+  pinnedRequirement('redis'),
+  pinnedRequirement('psutil'),
+]
 
 let suiteRoot = ''
 let python = ''
@@ -128,7 +144,7 @@ async function ensurePython() {
   suiteRoot = await mkdtemp(join(tmpdir(), 'fde-lite-orphan-'))
   const venv = join(suiteRoot, 'venv')
   await execFileAsync('python3', ['-m', 'venv', venv], { timeout: 60_000 })
-  await execFileAsync(join(venv, 'bin', 'pip'), ['install', '-q', REDISLITE_SPEC, PSUTIL_SPEC], { timeout: 180_000 })
+  await execFileAsync(join(venv, 'bin', 'pip'), ['install', '-q', ...INSTALL_SPECS], { timeout: 180_000 })
   python = join(venv, 'bin', 'python')
   const cli = join(suiteRoot, 'identity.py')
   await writeFile(cli, `import json, os, sys\n${pyPrelude}\nprint(json.dumps(identity(int(sys.argv[1]))))\n`)
