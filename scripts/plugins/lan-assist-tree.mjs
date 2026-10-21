@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, sep } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { diskFiles, readLock, verifyLockDocument } from './lock-check.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -160,6 +161,29 @@ export function buildTree(source, overlayDir) {
   return files
 }
 
+export function canonicalLanShape(plugin) {
+  const source = plugin.source && typeof plugin.source === 'object' ? plugin.source : {}
+  const overlay = plugin.overlay && typeof plugin.overlay === 'object' ? plugin.overlay : {}
+  const rawBlobs = plugin.blobs && typeof plugin.blobs === 'object' && !Array.isArray(plugin.blobs) ? plugin.blobs : {}
+  const blobs = {}
+  for (const name of Object.keys(VENDOR_BLOBS)) {
+    if (Object.hasOwn(rawBlobs, name)) blobs[name] = rawBlobs[name]
+  }
+  const natsIn = plugin.dependencies && typeof plugin.dependencies === 'object' ? plugin.dependencies.nats : undefined
+  const nats = natsIn && typeof natsIn === 'object' ? natsIn : {}
+  const rawFiles = plugin.files && typeof plugin.files === 'object' && !Array.isArray(plugin.files) ? plugin.files : {}
+  const files = {}
+  for (const rel of Object.keys(rawFiles).sort()) files[rel] = rawFiles[rel]
+  return {
+    source: { repo: source.repo, commit: source.commit, parent: source.parent },
+    overlay: { repo: overlay.repo, commit: overlay.commit, path: overlay.path },
+    blobs,
+    excluded: Array.isArray(plugin.excluded) ? plugin.excluded.slice() : plugin.excluded,
+    dependencies: { nats: { version: nats.version, integrity: nats.integrity } },
+    files,
+  }
+}
+
 function lockDocument(files) {
   const listed = {}
   for (const rel of [...files.keys()].sort()) listed[rel] = sha256(files.get(rel))
@@ -182,7 +206,122 @@ function lockDocument(files) {
   }
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function lockStyle(text) {
+  const newline = text.includes('\r\n') ? '\r\n' : '\n'
+  const indented = text.split(/\r?\n/u).find((line) => /^[ \t]+\S/u.test(line))
+  const indent = indented ? indented.match(/^[ \t]+/u)[0] : '  '
+  return { indent, newline, trailing: text.endsWith('\n') }
+}
+
+function endOfJsonValue(text, start) {
+  const open = text[start]
+  if (open !== '{' && open !== '[') {
+    if (open === '"') {
+      for (let i = start + 1; i < text.length; i += 1) {
+        if (text[i] === '\\') {
+          i += 1
+          continue
+        }
+        if (text[i] === '"') return i + 1
+      }
+      throw new Error('unterminated string')
+    }
+    const matched = text.slice(start).match(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|^true|^false|^null/u)
+    if (!matched) throw new Error(`bad json value at ${start}`)
+    return start + matched[0].length
+  }
+  const close = open === '{' ? '}' : ']'
+  let depth = 0
+  let inString = false
+  for (let i = start; i < text.length; i += 1) {
+    const c = text[i]
+    if (inString) {
+      if (c === '\\') {
+        i += 1
+        continue
+      }
+      if (c === '"') inString = false
+      continue
+    }
+    if (c === '"') {
+      inString = true
+      continue
+    }
+    if (c === open) depth += 1
+    else if (c === close) {
+      depth -= 1
+      if (depth === 0) return i + 1
+    }
+  }
+  throw new Error('unterminated json value')
+}
+
+function formatDocument(doc, style) {
+  let text = JSON.stringify(doc, null, style.indent)
+  if (style.newline === '\r\n') text = text.replace(/\n/g, '\r\n')
+  if (style.trailing) text += style.newline
+  return text
+}
+
+function replacePluginEntry(text, name, entry) {
+  const key = `"${name}"`
+  const start = text.indexOf(key)
+  if (start < 0) {
+    const doc = JSON.parse(text)
+    doc.plugins[name] = entry
+    return formatDocument(doc, lockStyle(text))
+  }
+  let i = start + key.length
+  while (i < text.length && (text[i] === ' ' || text[i] === '\t' || text[i] === '\n' || text[i] === '\r')) i += 1
+  if (text[i] !== ':') throw new Error(`missing entry ${name}`)
+  i += 1
+  while (i < text.length && (text[i] === ' ' || text[i] === '\t' || text[i] === '\n' || text[i] === '\r')) i += 1
+  const valueEnd = endOfJsonValue(text, i)
+  const old = JSON.parse(text.slice(i, valueEnd))
+  if (stableJson(old) === stableJson(entry)) return text
+  const style = lockStyle(text)
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1
+  const keyIndent = text.slice(lineStart, start).match(/^[ \t]*/u)[0]
+  let rendered = JSON.stringify(entry, null, style.indent).replace(/\n/g, `\n${keyIndent}`)
+  if (style.newline === '\r\n') rendered = rendered.replace(/\n/g, '\r\n')
+  return text.slice(0, i) + rendered + text.slice(valueEnd)
+}
+
+function isLockDocument(value) {
+  return Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && value.plugins
+    && typeof value.plugins === 'object'
+    && !Array.isArray(value.plugins)
+}
+
+function loadLock(root) {
+  const lockAbs = join(root, LOCK_PATH)
+  if (!existsSync(lockAbs)) throw new Error(`missing ${LOCK_PATH}`)
+  const text = readFileSync(lockAbs, 'utf8')
+  let existing
+  try {
+    existing = JSON.parse(text)
+  } catch (error) {
+    throw new Error(`unreadable ${LOCK_PATH}: ${error.message}`, { cause: error })
+  }
+  if (!isLockDocument(existing)) throw new Error(`unreadable ${LOCK_PATH}`)
+  return { lockAbs, text, existing }
+}
+
 function writeTree(root, files) {
+  const loaded = loadLock(root)
+  const nextEntry = lockDocument(files).plugins['dsh-lan-assist']
+  const nextText = replacePluginEntry(loaded.text, 'dsh-lan-assist', nextEntry)
   const dirs = [PLUGIN_DIR, DOCS_DIR, TOOLS_DIR]
   for (const dir of dirs) {
     const abs = join(root, dir)
@@ -193,36 +332,9 @@ function writeTree(root, files) {
     mkdirSync(dirname(abs), { recursive: true })
     writeFileSync(abs, bytes)
   }
-  const lockAbs = join(root, LOCK_PATH)
-  if (!existsSync(lockAbs)) throw new Error(`missing ${LOCK_PATH}`)
-  let existing
-  try {
-    existing = JSON.parse(readFileSync(lockAbs, 'utf8'))
-  } catch {
-    throw new Error(`unreadable ${LOCK_PATH}`)
-  }
-  if (!existing || typeof existing !== 'object' || Array.isArray(existing) || !existing.plugins || typeof existing.plugins !== 'object' || Array.isArray(existing.plugins)) {
-    throw new Error(`unreadable ${LOCK_PATH}`)
-  }
-  existing.plugins['dsh-lan-assist'] = lockDocument(files).plugins['dsh-lan-assist']
-  writeFileSync(lockAbs, jsonBytes(existing))
-  return existing
-}
-
-function diskFiles(root, dir) {
-  const abs = join(root, dir)
-  if (!existsSync(abs)) return []
-  const out = []
-  const walk = (current) => {
-    for (const name of readdirSync(current)) {
-      if (name === 'node_modules' || name === '.tmp-npm' || name === '.nsc-local' || name === '.git') continue
-      const path = join(current, name)
-      if (statSync(path).isDirectory()) walk(path)
-      else out.push(relative(root, path).split(sep).join('/'))
-    }
-  }
-  walk(abs)
-  return out
+  if (nextText !== loaded.text) writeFileSync(loaded.lockAbs, nextText)
+  loaded.existing.plugins['dsh-lan-assist'] = nextEntry
+  return loaded.existing
 }
 
 function fail(errors) {
@@ -253,13 +365,16 @@ function verify(root, source, overlayDir) {
     const disk = readFileSync(abs)
     if (!disk.equals(bytes)) errors.push(`bytes differ ${rel} disk=${sha256(disk)} expected=${sha256(bytes)}`)
   }
-  const lockAbs = join(root, LOCK_PATH)
-  if (!existsSync(lockAbs)) errors.push(`missing ${LOCK_PATH}`)
+  const read = readLock(root)
+  if (read.syntax) {
+    errors.push(read.error)
+    fail(errors)
+  }
+  if (read.error) errors.push(read.error)
   else {
-    const parsed = JSON.parse(readFileSync(lockAbs, 'utf8'))
-    const want = lock.plugins['dsh-lan-assist']
-    const got = parsed.plugins?.['dsh-lan-assist']
-    if (JSON.stringify(got) !== JSON.stringify(want)) errors.push('plugins.lock.json does not match the synthesized tree')
+    verifyLockDocument(root, read.lock, errors, {
+      'dsh-lan-assist': lock.plugins['dsh-lan-assist'],
+    })
   }
   const pluginPkg = JSON.parse(readFileSync(join(root, PLUGIN_DIR, 'package.json'), 'utf8'))
   if (pluginPkg.dependencies?.nats !== NATS_VERSION) errors.push('package.json dependencies.nats is not 2.29.3')

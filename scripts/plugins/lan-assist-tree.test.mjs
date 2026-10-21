@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const script = fileURLToPath(new URL('./lan-assist-tree.mjs', import.meta.url))
+const lockScript = fileURLToPath(new URL('./plugins-lock.mjs', import.meta.url))
 const LOCK_REL = 'runtime/plugins/plugins.lock.json'
 const PIN = '31d75468e0ffd58bb5bb214325c7517c7c42a8ab'
 
@@ -133,6 +134,25 @@ function run(command, root, source) {
   return spawnSync(process.execPath, [script, command, '--source', source, '--root', root], { encoding: 'utf8' })
 }
 
+function runLock(root) {
+  return spawnSync(process.execPath, [lockScript, '--root', root], { encoding: 'utf8' })
+}
+
+function plantOverlays(root) {
+  mkdirSync(join(root, 'runtime/vendor-overlays/dsh-lan-assist'), { recursive: true })
+  mkdirSync(join(root, 'runtime/vendor-overlays/dsh-semantic-os'), { recursive: true })
+}
+
+function prepareSynced(source) {
+  const root = mkdtempSync(join(tmpdir(), 'lan-lock-both-'))
+  writeLock(root, unifiedLock())
+  const synced = run('sync', root, source)
+  assert.equal(synced.status, 0, synced.stderr)
+  plantSemanticReadme(root)
+  plantOverlays(root)
+  return root
+}
+
 test('sync replaces only the dsh-lan-assist lock entry', () => {
   const source = sourceCheckout()
   const root = mkdtempSync(join(tmpdir(), 'lan-lock-keep-'))
@@ -180,6 +200,8 @@ test('sync restores a stale dsh-lan-assist entry', () => {
     for (const [rel, hash] of Object.entries(entry.files)) {
       assert.equal(sha256(readFileSync(join(root, rel))), hash, rel)
     }
+    plantSemanticReadme(root)
+    plantOverlays(root)
     const verified = run('verify', root, source)
     assert.equal(verified.status, 0, verified.stderr)
   } finally {
@@ -209,6 +231,248 @@ test('sync fails when plugins.lock.json is not json', () => {
     assert.notEqual(synced.status, 0)
     assert.match(synced.stderr, /plugins\.lock\.json/)
     assert.equal(readFileSync(abs, 'utf8'), '{')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+function plantSemanticReadme(root) {
+  const src = fileURLToPath(new URL('../../runtime/plugins/dsh-semantic-os/README.md', import.meta.url))
+  const dest = join(root, 'runtime/plugins/dsh-semantic-os/README.md')
+  mkdirSync(join(root, 'runtime/plugins/dsh-semantic-os'), { recursive: true })
+  writeFileSync(dest, readFileSync(src))
+}
+
+function lockStyle(text) {
+  const newline = text.includes('\r\n') ? '\r\n' : '\n'
+  const indented = text.split(/\r?\n/u).find((line) => /^[ \t]+\S/u.test(line))
+  const indent = indented ? indented.match(/^[ \t]+/u)[0] : '  '
+  return { indent, newline, trailing: text.endsWith('\n') }
+}
+
+function rewriteLock(root, mutate) {
+  const abs = join(root, LOCK_REL)
+  const text = readFileSync(abs, 'utf8')
+  const doc = JSON.parse(text)
+  mutate(doc)
+  const style = lockStyle(text)
+  let next = JSON.stringify(doc, null, style.indent)
+  if (style.newline === '\r\n') next = next.replace(/\n/g, '\r\n')
+  if (style.trailing) next += style.newline
+  writeFileSync(abs, next)
+}
+
+function pluginTreeDigest(root) {
+  const base = join(root, 'runtime', 'plugins')
+  if (!existsSync(base)) return 'absent'
+  const lines = []
+  const walk = (dir) => {
+    for (const name of readdirSync(dir).sort()) {
+      const abs = join(dir, name)
+      if (statSync(abs).isDirectory()) walk(abs)
+      else lines.push(`${relative(root, abs).split('\\').join('/')} ${sha256(readFileSync(abs))}`)
+    }
+  }
+  walk(base)
+  return lines.join('\n')
+}
+
+test('verify reports the lock entry when dsh-semantic-os is removed or corrupted', () => {
+  const source = sourceCheckout()
+  const mutations = [
+    (doc) => { delete doc.plugins['dsh-semantic-os'] },
+    (doc) => {
+      doc.plugins['dsh-semantic-os'].files['runtime/plugins/dsh-semantic-os/README.md'] = 'b'.repeat(64)
+    },
+  ]
+  for (const mutate of mutations) {
+    const root = mkdtempSync(join(tmpdir(), 'lan-lock-entry-'))
+    try {
+      writeLock(root, unifiedLock())
+      const synced = run('sync', root, source)
+      assert.equal(synced.status, 0, synced.stderr)
+      plantSemanticReadme(root)
+      plantOverlays(root)
+      const healthy = run('verify', root, source)
+      assert.equal(healthy.status, 0, healthy.stderr)
+      rewriteLock(root, mutate)
+      const verified = run('verify', root, source)
+      assert.notEqual(verified.status, 0)
+      assert.match(verified.stderr, /dsh-semantic-os/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('sync preserves lock indent and newline style', () => {
+  const source = sourceCheckout()
+  const cases = [
+    { indent: '  ', newline: '\n', trailing: true },
+    { indent: '    ', newline: '\n', trailing: true },
+    { indent: '\t', newline: '\n', trailing: true },
+    { indent: '  ', newline: '\r\n', trailing: true },
+    { indent: '  ', newline: '\n', trailing: false },
+  ]
+  for (const style of cases) {
+    const root = mkdtempSync(join(tmpdir(), 'lan-lock-style-'))
+    try {
+      const doc = JSON.parse(unifiedLock())
+      let text = JSON.stringify(doc, null, style.indent)
+      if (style.newline === '\r\n') text = text.replace(/\n/g, '\r\n')
+      if (style.trailing) text += style.newline
+      writeLock(root, text)
+      const synced = run('sync', root, source)
+      assert.equal(synced.status, 0, `${JSON.stringify(style)} ${synced.stderr}`)
+      const after = readFileSync(join(root, LOCK_REL), 'utf8')
+      if (style.newline === '\n') assert.equal(after.includes('\r'), false, JSON.stringify(style))
+      else {
+        assert.equal(after.includes('\r\n'), true, JSON.stringify(style))
+        assert.equal(after.replace(/\r\n/g, '').includes('\n'), false, JSON.stringify(style))
+      }
+      assert.equal(after.endsWith('\n'), style.trailing, JSON.stringify(style))
+      const logical = after.replace(/\r\n/g, '\n')
+      const line = logical.split('\n').find((item) => item.includes(`"commit": "${PIN}"`))
+      assert.ok(line, JSON.stringify(style))
+      assert.equal(line.match(/^[ \t]*/u)[0], style.indent.repeat(4), JSON.stringify(style))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('sync writes nothing when the lock is missing, unreadable, or structurally invalid', () => {
+  const source = sourceCheckout()
+  const cases = [
+    { name: 'missing', text: null },
+    { name: 'bad json', text: '{' },
+    { name: 'plugins array', text: '{"version":1,"plugins":[]}\n' },
+  ]
+  for (const item of cases) {
+    const root = mkdtempSync(join(tmpdir(), 'lan-lock-nowrite-'))
+    try {
+      const marker = join(root, 'runtime/plugins/dsh-lan-assist/marker.txt')
+      mkdirSync(join(root, 'runtime/plugins/dsh-lan-assist'), { recursive: true })
+      writeFileSync(marker, 'sentinel')
+      if (item.text !== null) writeLock(root, item.text)
+      const before = pluginTreeDigest(root)
+      const synced = run('sync', root, source)
+      assert.notEqual(synced.status, 0, item.name)
+      assert.match(synced.stderr, /plugins\.lock\.json/, item.name)
+      assert.equal(pluginTreeDigest(root), before, item.name)
+      if (item.text === null) assert.equal(existsSync(join(root, LOCK_REL)), false, item.name)
+      else assert.equal(readFileSync(join(root, LOCK_REL), 'utf8'), item.text, item.name)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('verify names dsh-lan-assist when that lock entry is null', () => {
+  const source = sourceCheckout()
+  const root = mkdtempSync(join(tmpdir(), 'lan-lock-null-'))
+  try {
+    writeLock(root, unifiedLock())
+    const synced = run('sync', root, source)
+    assert.equal(synced.status, 0, synced.stderr)
+    plantSemanticReadme(root)
+    rewriteLock(root, (doc) => { doc.plugins['dsh-lan-assist'] = null })
+    const verified = run('verify', root, source)
+    assert.notEqual(verified.status, 0)
+    assert.match(verified.stderr, /dsh-lan-assist/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('both lock checkers reject version 2', () => {
+  const source = sourceCheckout()
+  const root = prepareSynced(source)
+  try {
+    const healthyLan = run('verify', root, source)
+    const healthyLock = runLock(root)
+    assert.equal(healthyLan.status, 0, healthyLan.stderr)
+    assert.equal(healthyLock.status, 0, healthyLock.stderr)
+    rewriteLock(root, (doc) => { doc.version = 2 })
+    const lan = run('verify', root, source)
+    const lock = runLock(root)
+    assert.equal(lan.status, 1, lan.stderr)
+    assert.equal(lock.status, 1, lock.stderr)
+    assert.match(lan.stderr, /version must be 1/)
+    assert.match(lock.stderr, /version must be 1/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('both lock checkers reject a missing overlay path', () => {
+  const source = sourceCheckout()
+  const root = prepareSynced(source)
+  try {
+    const healthyLan = run('verify', root, source)
+    const healthyLock = runLock(root)
+    assert.equal(healthyLan.status, 0, healthyLan.stderr)
+    assert.equal(healthyLock.status, 0, healthyLock.stderr)
+    rewriteLock(root, (doc) => {
+      doc.plugins['dsh-semantic-os'].overlay.path = 'does/not/exist'
+    })
+    const lan = run('verify', root, source)
+    const lock = runLock(root)
+    assert.equal(lan.status, 1, lan.stderr)
+    assert.equal(lock.status, 1, lock.stderr)
+    assert.match(lan.stderr, /missing overlay does\/not\/exist/)
+    assert.match(lock.stderr, /missing overlay does\/not\/exist/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('both lock checkers reject an extra lan field or reordered lan keys', () => {
+  const source = sourceCheckout()
+  const mutations = [
+    (doc) => { doc.plugins['dsh-lan-assist'].note = 'extra' },
+    (doc) => {
+      const entry = doc.plugins['dsh-lan-assist']
+      const keys = Object.keys(entry)
+      const rotated = {}
+      for (const key of keys.slice(1)) rotated[key] = entry[key]
+      rotated[keys[0]] = entry[keys[0]]
+      doc.plugins['dsh-lan-assist'] = rotated
+    },
+  ]
+  for (const mutate of mutations) {
+    const root = prepareSynced(source)
+    try {
+      const healthyLan = run('verify', root, source)
+      const healthyLock = runLock(root)
+      assert.equal(healthyLan.status, 0, healthyLan.stderr)
+      assert.equal(healthyLock.status, 0, healthyLock.stderr)
+      rewriteLock(root, mutate)
+      const lan = run('verify', root, source)
+      const lock = runLock(root)
+      assert.equal(lan.status, 1, lan.stderr)
+      assert.equal(lock.status, 1, lock.stderr)
+      assert.match(lan.stderr, /does not match the synthesized tree/)
+      assert.match(lock.stderr, /does not match the synthesized tree/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('both lock checkers report bad json through fail', () => {
+  const source = sourceCheckout()
+  const root = mkdtempSync(join(tmpdir(), 'lan-lock-badjson-'))
+  try {
+    writeLock(root, '{')
+    const lan = run('verify', root, source)
+    const lock = runLock(root)
+    assert.equal(lan.status, 1, lan.stderr)
+    assert.equal(lock.status, 1, lock.stderr)
+    assert.match(lan.stderr, /lan-assist tree verify failed/)
+    assert.match(lock.stderr, /plugins\.lock verify failed/)
+    assert.match(lan.stderr, /plugins\.lock\.json/)
+    assert.match(lock.stderr, /plugins\.lock\.json/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
