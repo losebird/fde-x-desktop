@@ -431,6 +431,55 @@ describe('redis lite close', { concurrency: false }, () => {
     python = ''
   })
 
+  test('imported redislite belongs to the falkordblite install', { timeout: 180_000 }, async (t) => {
+    await ensurePython()
+    const home = await mkdtemp(join(suiteRoot, 'home-'))
+    const script = join(home, 'origin.py')
+    await writeFile(script, [
+      'import importlib.metadata as metadata',
+      'import json',
+      'from pathlib import Path',
+      'import redislite',
+      'def dist_version(name):',
+      '    try:',
+      '        return metadata.version(name)',
+      '    except metadata.PackageNotFoundError:',
+      '        return None',
+      'version = dist_version("falkordblite")',
+      'owned = False',
+      'try:',
+      '    dist = metadata.distribution("falkordblite")',
+      '    root = Path(dist.locate_file("")).resolve()',
+      '    files = [str(path) for path in (dist.files or [])]',
+      '    module = Path(redislite.__file__).resolve()',
+      '    owned = module.is_relative_to(root) and "redislite/__init__.py" in files',
+      'except metadata.PackageNotFoundError:',
+      '    owned = False',
+      'print(json.dumps({',
+      '    "falkordblite": version,',
+      '    "falkordb": dist_version("FalkorDB"),',
+      '    "redis": dist_version("redis"),',
+      '    "psutil": dist_version("psutil"),',
+      '    "redislite_file": redislite.__file__,',
+      '    "redislite_version": redislite.__version__,',
+      '    "owned_by_falkordblite": owned,',
+      '    "separate_redislite_dist": dist_version("redislite"),',
+      '}))',
+    ].join('\n'))
+    const ran = await runPython([script], { ...process.env })
+    assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+    const body = JSON.parse(ran.stdout.trim().split('\n').pop())
+    t.diagnostic(JSON.stringify(body))
+    console.log(`# falkordblite ${body.falkordblite}`)
+    console.log(`# redislite.__file__ ${body.redislite_file}`)
+    assert.equal(body.owned_by_falkordblite, true, JSON.stringify(body))
+    assert.equal(body.separate_redislite_dist, null, JSON.stringify(body))
+    assert.equal(body.falkordblite, '0.10.0', JSON.stringify(body))
+    assert.equal(body.falkordb, '1.7.1', JSON.stringify(body))
+    assert.equal(body.redis, '8.1.0', JSON.stringify(body))
+    assert.equal(body.psutil, '7.2.2', JSON.stringify(body))
+  })
+
   test('multi-connection close_lite stops the owned redis-server', { timeout: 180_000 }, async (t) => {
     const body = await runOwned(false)
     t.diagnostic(JSON.stringify(body))
