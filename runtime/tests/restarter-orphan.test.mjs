@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { closeSync, existsSync, openSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
@@ -68,6 +68,8 @@ async function waitFor(read, ms) {
 function spawnParent(mode, dir, port, withChild) {
   const metaPath = join(dir, 'meta.json')
   const childPath = join(dir, 'child.pid')
+  const errPath = join(dir, 'parent.err')
+  const errFd = openSync(errPath, 'a')
   const parent = spawn(process.execPath, [
     parentScript,
     mode,
@@ -77,12 +79,37 @@ function spawnParent(mode, dir, port, withChild) {
   ], {
     cwd: repoRoot,
     env: childEnv(dir, port),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'ignore', errFd],
   })
-  let logs = ''
-  parent.stdout.on('data', (chunk) => { logs += chunk })
-  parent.stderr.on('data', (chunk) => { logs += chunk })
-  return { parent, metaPath, childPath, logs: () => logs }
+  closeSync(errFd)
+  return {
+    parent,
+    metaPath,
+    childPath,
+    errPath,
+    logs: () => existsSync(errPath) ? readFileSync(errPath, 'utf8') : '',
+  }
+}
+
+async function killMarked(dir) {
+  let names = []
+  try {
+    names = await readdir('/proc')
+  } catch {
+    return
+  }
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue
+    const pid = Number(name)
+    if (pid === process.pid) continue
+    try {
+      const env = await readFile(join('/proc', name, 'environ'))
+      if (!env.includes(dir)) continue
+      killPid(pid)
+    } catch {
+      // already gone or not readable
+    }
+  }
 }
 
 async function readChildPid(childPath) {
@@ -141,6 +168,7 @@ test('parent SIGKILL reaps the restarter and its child within 5s', async () => {
     killGroup(restarter)
     killPid(child)
     killPid(handle.parent.pid)
+    await killMarked(dir)
     await rm(dir, { recursive: true, force: true })
   }
 })
@@ -168,6 +196,7 @@ test('a living parent does not reap the restarter for 30s', async () => {
     killGroup(restarter)
     killPid(child)
     killPid(handle.parent.pid)
+    await killMarked(dir)
     await rm(dir, { recursive: true, force: true })
   }
 })
@@ -194,6 +223,7 @@ test('a planned restart still brings the runtime back', async () => {
   } finally {
     killPid(listener)
     killPid(handle.parent.pid)
+    await killMarked(dir)
     await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
 })
