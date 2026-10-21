@@ -25,7 +25,7 @@ export function isPidAlive(pid) {
 }
 
 export function isRuntimeServerCommand(command) {
-  return /(?:^|[\\/\s])runtime\/server\.mjs(?:\s|$)/u.test(String(command || ''))
+  return /(?:^|[\\/\s])runtime\/(?:server|boot)\.mjs(?:\s|$)/u.test(String(command || ''))
 }
 
 function parsePidList(stdout) {
@@ -182,7 +182,10 @@ export async function pidsMatchingRuntimeServer({ runtimePort = FDE_RUNTIME_PORT
   const keepSet = new Set([...keep, process.pid].filter((pid) => Number.isInteger(pid) && pid > 1))
   const n = Number(runtimePort)
   const listeners = Number.isInteger(n) && n > 1 ? await pidsListeningOnPort(n, onWarn) : []
-  const candidates = await pgrepPattern('runtime/server.mjs', onWarn)
+  const candidates = [
+    ...await pgrepPattern('runtime/server.mjs', onWarn),
+    ...await pgrepPattern('runtime/boot.mjs', onWarn),
+  ]
   const out = new Set()
   for (const pid of listeners) {
     if (!keepSet.has(pid) && isPidAlive(pid)) out.add(pid)

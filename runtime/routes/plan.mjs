@@ -1,4 +1,5 @@
-import { createId } from '../db.mjs'
+import { appendAudit, createId } from '../db.mjs'
+import { verifyUiToken } from './bridge.mjs'
 import { emit } from '../events.mjs'
 import { collectBag, mutateBag } from '../catalog-collect.mjs'
 import {
@@ -10,13 +11,109 @@ import {
   mergeTaskRows,
   mutateHostGoal,
 } from '../host-catalog.mjs'
+import { decidePlanTask, listOpenPlanTaskProposals } from '../plan/task-proposals.mjs'
+import { hasIllegalSourceRef, readLatestRunCards, readWorkflowRuns, startWorkflowRun } from '../plan/workflow-run.mjs'
+import { listSelectableTools, listWorkflowCatalog } from '../plan/workflow-catalog.mjs'
+import { rejectPreset, rejectToolList, toolChangeAudit, withoutStepPersona } from '../plan/tool-risk.mjs'
+import {
+  TASK_PRIORITIES,
+  TASK_STATUSES,
+  deleteTask,
+  getTask,
+  insertTask,
+  listTasks,
+  updateTask,
+} from '../plan/task-store.mjs'
 
-const TASK_STATUSES = new Set(['todo', 'doing', 'done', 'archived'])
 const WORKFLOW_WRITE_STATUSES = new Set(['active', 'paused'])
-const PRIORITIES = new Set(['low', 'med', 'high', 'urgent'])
 const EVENT_KINDS = new Set(['meeting', 'focus', 'reminder', 'external'])
+const SCHEDULE_RECURRENCE = new Set(['once', 'daily'])
+
+function scheduleFieldsPresent(body) {
+  return Boolean(body && typeof body === 'object' && (Object.hasOwn(body, 'workflowId') || Object.hasOwn(body, 'recurrence')))
+}
+
+function resolveScheduleBinding(db, workspaceId, body) {
+  if (!scheduleFieldsPresent(body)) return { present: false, workflowId: null, recurrence: null }
+  if (body.workflowId === null && body.recurrence === null) return { present: true, workflowId: null, recurrence: null }
+  const workflowId = typeof body.workflowId === 'string' ? body.workflowId.trim() : ''
+  if (!workflowId || !SCHEDULE_RECURRENCE.has(body.recurrence)) {
+    return { present: true, error: '日程要同时绑定工作流和一次或每天' }
+  }
+  const workflow = db.prepare('SELECT id FROM workflows WHERE id = ? AND workspace_id = ?').get(workflowId, workspaceId)
+  if (!workflow) return { present: true, error: '工作流不存在' }
+  return { present: true, workflowId, recurrence: body.recurrence }
+}
+
+function confirmedDangerList(body) {
+  if (!Array.isArray(body.confirmDanger)) return []
+  return [...new Set(body.confirmDanger.filter((name) => typeof name === 'string'))].sort()
+}
+
+function rejectScheduleToken(request, response, correlationId, uiToken) {
+  if (verifyUiToken(request, uiToken)) return false
+  planError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', correlationId)
+  return true
+}
 
 const isoNow = () => new Date().toISOString()
+
+function rememberedSteps(definitionJson) {
+  try {
+    const definition = JSON.parse(definitionJson)
+    return Array.isArray(definition.steps) ? definition.steps : []
+  } catch {
+    return []
+  }
+}
+
+async function gateWorkflowTools(body, previousSteps, aiRuntime, cwd) {
+  if (!Array.isArray(body.steps)) return null
+  const needsCatalog = body.steps.some((step) => {
+    return step && step.kind === 'ai' && step.config && typeof step.config === 'object' && Object.hasOwn(step.config, 'tools')
+  })
+  if (!needsCatalog) return null
+  if (!cwd) return { error: '工作区没有可用目录' }
+  const needsPreset = body.steps.some((step) => {
+    return step && step.kind === 'ai' && step.config && typeof step.config === 'object' && Object.hasOwn(step.config, 'presetId')
+  })
+  const catalog = needsPreset ? await listWorkflowCatalog(aiRuntime, cwd) : await listSelectableTools(aiRuntime, cwd)
+  const message = rejectToolList(body.steps, body.confirmDanger, catalog)
+  if (message) return { error: message }
+  if (needsPreset) {
+    const presetMessage = rejectPreset(body.steps, catalog.presets)
+    if (presetMessage) return { error: presetMessage }
+  }
+  return toolChangeAudit(previousSteps, body.steps)
+}
+
+function writeToolAudit(db, correlationId, workspaceId, id, change) {
+  if (!change) return
+  appendAudit(db, {
+    workspaceId,
+    actorId: 'actor_local_user',
+    action: 'plan.workflow.tools',
+    targetRef: `fde://plan/workflows/${id}`,
+    outcome: 'succeeded',
+    riskLevel: change.danger.length ? 'high' : 'low',
+    correlationId,
+    details: change,
+  })
+}
+
+function planWrote(response, status, data, correlationId, db, audit) {
+  appendAudit(db, {
+    workspaceId: audit.workspaceId ?? null,
+    actorId: 'actor_local_user',
+    action: audit.action,
+    targetRef: audit.targetRef ?? null,
+    outcome: 'succeeded',
+    riskLevel: 'low',
+    correlationId,
+    details: audit.details ?? {},
+  })
+  planOk(response, status, data, correlationId)
+}
 
 function planError(response, status, error, message, correlationId) {
   const body = JSON.stringify({ ok: false, error, message, correlationId })
@@ -77,6 +174,8 @@ function mapEvent(row) {
     kind: row.event_kind,
     allDay: Boolean(row.all_day),
     sourceRef: row.source_ref ?? null,
+    workflowId: row.workflow_id ?? null,
+    recurrence: row.recurrence ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -189,7 +288,7 @@ function planWorkflowFromBag(row, workspaceId) {
   }
 }
 
-export async function handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime }, correlationId) {
+export async function handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime, uiToken }, correlationId) {
   if (!url.pathname.startsWith('/api/v1/plan/')) return false
 
   const method = request.method ?? 'GET'
@@ -200,18 +299,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     if (!workspaceId) return true
     const status = url.searchParams.get('status')
     const q = url.searchParams.get('q')
-    let sql = 'SELECT * FROM tasks WHERE workspace_id = ?'
-    const params = [workspaceId]
-    if (status) {
-      sql += ' AND status = ?'
-      params.push(status)
-    }
-    if (q) {
-      sql += ' AND title LIKE ?'
-      params.push(`%${q}%`)
-    }
-    sql += ' ORDER BY created_at DESC'
-    const rows = db.prepare(sql).all(...params).map(mapTask)
+    const rows = listTasks(db, { workspaceId, status, q }).map(mapTask)
     const cwd = workspaceCwdForEmit(db, workspaceId)
     let hostRows = []
     try {
@@ -242,24 +330,32 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'validation_error', '标题不能为空', correlationId)
       return true
     }
-    const priority = PRIORITIES.has(body.priority) ? body.priority : 'med'
+    const priority = TASK_PRIORITIES.has(body.priority) ? body.priority : 'med'
     const status = TASK_STATUSES.has(body.status) ? body.status : 'todo'
-    const now = isoNow()
     const id = createId('task')
     const tags = Array.isArray(body.tags) ? body.tags.map(String) : []
     const dueAt = typeof body.dueAt === 'string' ? body.dueAt : null
     const sourceRef = typeof body.sourceRef === 'string' && body.sourceRef.trim()
       ? body.sourceRef.trim()
       : `${ORIGIN_FDE_TASK}${id}`
-    const completedAt = status === 'done' ? now : null
-    db.prepare(`
-      INSERT INTO tasks
-        (id, workspace_id, title, notes, status, priority, due_at, completed_at, metadata_json, source_ref, tags_json, created_at, updated_at)
-      VALUES (?, ?, ?, '', ?, ?, ?, ?, '{}', ?, ?, ?, ?)
-    `).run(id, workspaceId, title, status, priority, dueAt, completedAt, sourceRef, JSON.stringify(tags), now, now)
-    const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
+    const row = insertTask(db, {
+      id,
+      workspaceId,
+      title,
+      notes: '',
+      status,
+      priority,
+      dueAt,
+      sourceRef,
+      tags,
+    })
     emitTaskChanged(db, { id, op: 'insert', workspaceId, status: row.status, title: row.title })
-    planOk(response, 201, mapTask(row), correlationId)
+    planWrote(response, 201, mapTask(row), correlationId, db, {
+      workspaceId,
+      action: 'plan.task.insert',
+      targetRef: `fde://plan/tasks/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -276,13 +372,18 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
           planError(response, 404, 'not_found', '任务不存在', correlationId)
           return true
         }
-        planOk(response, 200, updated, correlationId)
+        planWrote(response, 200, updated, correlationId, db, {
+          workspaceId: workspaceId || null,
+          action: 'plan.task.update',
+          targetRef: `fde://plan/tasks/${id}`,
+          details: { id },
+        })
       } catch (error) {
         planError(response, 502, 'host_goal_failed', error instanceof Error ? error.message : '改不了这条 goal', correlationId)
       }
       return true
     }
-    const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
+    const existing = getTask(db, id)
     if (!existing) {
       planError(response, 404, 'not_found', '任务不存在', correlationId)
       return true
@@ -291,32 +392,31 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'validation_error', 'workspaceId 不匹配', correlationId)
       return true
     }
-    const patch = {}
-    if (typeof body.title === 'string') patch.title = body.title.trim()
-    if (typeof body.notes === 'string') patch.notes = body.notes
-    if (body.priority && PRIORITIES.has(body.priority)) patch.priority = body.priority
-    if (typeof body.dueAt === 'string' || body.dueAt === null) patch.due_at = body.dueAt
-    if (Array.isArray(body.tags)) patch.tags_json = JSON.stringify(body.tags.map(String))
+    const fields = {}
+    if (typeof body.title === 'string') fields.title = body.title.trim()
+    if (typeof body.notes === 'string') fields.notes = body.notes
+    if (body.priority && TASK_PRIORITIES.has(body.priority)) fields.priority = body.priority
+    if (typeof body.dueAt === 'string' || body.dueAt === null) fields.dueAt = body.dueAt
+    if (Array.isArray(body.tags)) fields.tags = body.tags.map(String)
     if (body.status) {
       if (!TASK_STATUSES.has(body.status)) {
         planError(response, 422, 'invalid_status', '任务状态无效', correlationId)
         return true
       }
-      patch.status = body.status
-      if (body.status === 'done') patch.completed_at = isoNow()
-      else patch.completed_at = null
+      fields.status = body.status
     }
-    const keys = Object.keys(patch)
-    if (!keys.length) {
+    if (!Object.keys(fields).length) {
       planOk(response, 200, mapTask(existing), correlationId)
       return true
     }
-    const now = isoNow()
-    const sets = keys.map((k) => `${k} = ?`).join(', ')
-    db.prepare(`UPDATE tasks SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k]), now, id)
-    const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
+    const row = updateTask(db, id, fields)
     emitTaskChanged(db, { id, op: 'update', workspaceId: row.workspace_id, status: row.status, title: row.title })
-    planOk(response, 200, mapTask(row), correlationId)
+    planWrote(response, 200, mapTask(row), correlationId, db, {
+      workspaceId: row.workspace_id,
+      action: 'plan.task.update',
+      targetRef: `fde://plan/tasks/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -328,21 +428,80 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       const cwd = workspaceId ? workspaceCwdForEmit(db, workspaceId) : null
       try {
         await mutateHostGoal(aiRuntime, { id, status: 'archived', cwd })
-        planOk(response, 200, { id }, correlationId)
+        planWrote(response, 200, { id }, correlationId, db, {
+          workspaceId: workspaceId || null,
+          action: 'plan.task.delete',
+          targetRef: `fde://plan/tasks/${id}`,
+          details: { id },
+        })
       } catch (error) {
         planError(response, 502, 'host_goal_failed', error instanceof Error ? error.message : '清不了这条 goal', correlationId)
       }
       return true
     }
-    const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
+    const existing = deleteTask(db, id)
     if (!existing) {
       planError(response, 404, 'not_found', '任务不存在', correlationId)
       return true
     }
-    db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
     emitTaskChanged(db, { id, op: 'delete', workspaceId: existing.workspace_id, status: existing.status, title: existing.title })
-    planOk(response, 200, { id }, correlationId)
+    planWrote(response, 200, { id }, correlationId, db, {
+      workspaceId: existing.workspace_id,
+      action: 'plan.task.delete',
+      targetRef: `fde://plan/tasks/${id}`,
+      details: { id },
+    })
     return true
+  }
+
+  if (method === 'GET' && url.pathname === '/api/v1/plan/task-proposals') {
+    const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
+    if (!workspaceId) return true
+    planOk(response, 200, listOpenPlanTaskProposals(db, workspaceId), correlationId)
+    return true
+  }
+
+  const proposalMatch = method === 'POST'
+    && segments.length === 6
+    && segments[3] === 'task-proposals'
+    && (segments[5] === 'confirm' || segments[5] === 'reject')
+  if (proposalMatch) {
+    await readJson(request)
+    const operationId = planRowId(segments[4])
+    const decision = segments[5]
+    const result = decidePlanTask(db, operationId, decision, { correlationId })
+    if (result.kind === 'ok' && decision === 'confirm') {
+      const plan = result.operation.plan
+      const row = getTask(db, plan.taskId)
+      emitTaskChanged(db, {
+        id: plan.taskId,
+        op: plan.op,
+        workspaceId: plan.workspaceId,
+        status: row.status,
+        title: row.title,
+      })
+    }
+    if (result.kind === 'ok') {
+      planOk(response, 200, result.operation, correlationId)
+      return true
+    }
+    if (result.kind === 'not_found' || result.kind === 'not_proposal') {
+      planError(response, 404, 'not_found', '提案不存在', correlationId)
+      return true
+    }
+    if (result.kind === 'invalid_state') {
+      planError(response, 409, 'invalid_state', '提案已经确认或拒绝', correlationId)
+      return true
+    }
+    if (result.kind === 'stale' && result.reason === 'task_exists') {
+      planError(response, 409, 'task_exists', '这个 id 已经有任务', correlationId)
+      return true
+    }
+    if (result.kind === 'stale') {
+      planError(response, 409, 'stale_task', '任务在提案之后已变更', correlationId)
+      return true
+    }
+    throw new Error(`unknown proposal result: ${result.kind}`)
   }
 
   if (method === 'GET' && url.pathname === '/api/v1/plan/events') {
@@ -390,6 +549,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'validation_error', '标题与起止时间必填', correlationId)
       return true
     }
+    if (scheduleFieldsPresent(body) && rejectScheduleToken(request, response, correlationId, uiToken)) return true
+    const binding = resolveScheduleBinding(db, workspaceId, body)
+    if (binding.error) {
+      planError(response, 422, 'validation_error', binding.error, correlationId)
+      return true
+    }
     const kind = EVENT_KINDS.has(body.kind) ? body.kind : 'meeting'
     const now = isoNow()
     const id = createId('cevt')
@@ -399,11 +564,16 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const sourceRef = typeof body.sourceRef === 'string' ? body.sourceRef : null
     db.prepare(`
       INSERT INTO calendar_events
-        (id, workspace_id, title, start_at, end_at, timezone, location, event_kind, metadata_json, source_ref, all_day, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?)
-    `).run(id, workspaceId, title, startAt, endAt, timezone, location, kind, sourceRef, allDay, now, now)
+        (id, workspace_id, title, start_at, end_at, timezone, location, event_kind, metadata_json, source_ref, all_day, workflow_id, recurrence, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?, ?)
+    `).run(id, workspaceId, title, startAt, endAt, timezone, location, kind, sourceRef, allDay, binding.workflowId, binding.recurrence, now, now)
     const row = db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(id)
-    planOk(response, 201, mapEvent(row), correlationId)
+    planWrote(response, 201, mapEvent(row), correlationId, db, {
+      workspaceId,
+      action: 'plan.event.insert',
+      targetRef: `fde://plan/events/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -420,7 +590,17 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '日程不存在', correlationId)
       return true
     }
+    if ((existing.workflow_id || scheduleFieldsPresent(body)) && rejectScheduleToken(request, response, correlationId, uiToken)) return true
     const patch = {}
+    if (scheduleFieldsPresent(body)) {
+      const binding = resolveScheduleBinding(db, existing.workspace_id, body)
+      if (binding.error) {
+        planError(response, 422, 'validation_error', binding.error, correlationId)
+        return true
+      }
+      patch.workflow_id = binding.workflowId
+      patch.recurrence = binding.recurrence
+    }
     if (typeof body.title === 'string') patch.title = body.title.trim()
     if (typeof body.startAt === 'string') patch.start_at = body.startAt
     if (typeof body.endAt === 'string') patch.end_at = body.endAt
@@ -436,7 +616,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const sets = keys.map((k) => `${k} = ?`).join(', ')
     db.prepare(`UPDATE calendar_events SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k]), now, id)
     const row = db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(id)
-    planOk(response, 200, mapEvent(row), correlationId)
+    planWrote(response, 200, mapEvent(row), correlationId, db, {
+      workspaceId: row.workspace_id,
+      action: 'plan.event.update',
+      targetRef: `fde://plan/events/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -448,7 +633,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       const cwd = workspaceId ? workspaceCwdForEmit(db, workspaceId) : null
       try {
         await mutateBag(aiRuntime, { kind: 'schedule', action: 'delete', id, cwd, workspaceId })
-        planOk(response, 200, { id }, correlationId)
+        planWrote(response, 200, { id }, correlationId, db, {
+          workspaceId: workspaceId || null,
+          action: 'plan.event.delete',
+          targetRef: `fde://plan/events/${id}`,
+          details: { id },
+        })
       } catch (error) {
         planError(response, 502, 'host_schedule_failed', error instanceof Error ? error.message : '清不了这条日程', correlationId)
       }
@@ -459,8 +649,27 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 404, 'not_found', '日程不存在', correlationId)
       return true
     }
+    if (existing.workflow_id && rejectScheduleToken(request, response, correlationId, uiToken)) return true
     db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id)
-    planOk(response, 200, { id }, correlationId)
+    planWrote(response, 200, { id }, correlationId, db, {
+      workspaceId: existing.workspace_id,
+      action: 'plan.event.delete',
+      targetRef: `fde://plan/events/${id}`,
+      details: { id },
+    })
+    return true
+  }
+
+  if (method === 'GET' && url.pathname === '/api/v1/plan/workflow-tools') {
+    const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
+    if (!workspaceId) return true
+    const cwd = workspaceCwdForEmit(db, workspaceId)
+    if (!cwd) {
+      planError(response, 422, 'validation_error', '工作区没有可用目录', correlationId)
+      return true
+    }
+    const catalog = await listWorkflowCatalog(aiRuntime, cwd)
+    planOk(response, 200, catalog, correlationId)
     return true
   }
 
@@ -468,6 +677,15 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
     if (!workspaceId) return true
     const rows = db.prepare('SELECT * FROM workflows WHERE workspace_id = ? ORDER BY created_at DESC').all(workspaceId).map(mapWorkflow)
+    const cards = readLatestRunCards(db, rows.map((row) => row.id))
+    const runs = readWorkflowRuns(db, rows.map((row) => row.id))
+    for (const row of rows) {
+      row.runs = runs.get(row.id) || []
+      const card = cards.get(row.id)
+      if (!card) continue
+      row.lastRunAt = card.lastRunAt
+      row.lastRunStatus = card.lastRunStatus
+    }
     const cwd = workspaceCwdForEmit(db, workspaceId)
     const hostRows = (await hostBagFields(aiRuntime, 'job', workspaceId, cwd)).map((row) => planWorkflowFromBag(row, workspaceId))
     planOk(response, 200, mergeTaskRows(rows, hostRows), correlationId)
@@ -483,13 +701,24 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, 422, 'validation_error', '名称不能为空', correlationId)
       return true
     }
+    if (hasIllegalSourceRef(body.steps)) {
+      planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
+      return true
+    }
+    const cwd = workspaceCwdForEmit(db, workspaceId)
+    const toolChange = await gateWorkflowTools(body, null, aiRuntime, cwd)
+    if (toolChange && toolChange.error) {
+      planError(response, 422, 'validation_error', toolChange.error, correlationId)
+      return true
+    }
     const status = WORKFLOW_WRITE_STATUSES.has(body.status) ? body.status : 'paused'
     const trigger = body.trigger && typeof body.trigger === 'object' ? body.trigger : { kind: 'manual' }
     const definition = {
       description: typeof body.description === 'string' ? body.description : '',
       category: body.category ?? 'system',
       emoji: body.emoji ?? '🤖',
-      steps: Array.isArray(body.steps) ? body.steps : [],
+      steps: Array.isArray(body.steps) ? withoutStepPersona(body.steps) : [],
+      confirmedDanger: confirmedDangerList(body),
     }
     const now = isoNow()
     const id = createId('wf')
@@ -499,7 +728,13 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(id, workspaceId, name, status, JSON.stringify(trigger), JSON.stringify(definition), now, now)
     const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id)
-    planOk(response, 201, mapWorkflow(row), correlationId)
+    writeToolAudit(db, correlationId, workspaceId, id, toolChange)
+    planWrote(response, 201, mapWorkflow(row), correlationId, db, {
+      workspaceId,
+      action: 'plan.workflow.insert',
+      targetRef: `fde://plan/workflows/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -517,7 +752,13 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       try {
         const bag = await mutateBag(aiRuntime, { kind: 'job', action: 'kill', id, cwd, workspaceId })
         const updated = (bag.items || []).map((row) => planWorkflowFromBag(row.fields || row, workspaceId)).find((row) => row.id === id)
-        planOk(response, 200, updated || planWorkflowFromBag({ id, status: 'paused' }, workspaceId), correlationId)
+        const updatedRow = updated || planWorkflowFromBag({ id, status: 'paused' }, workspaceId)
+        planWrote(response, 200, updatedRow, correlationId, db, {
+          workspaceId: workspaceId || null,
+          action: 'plan.workflow.update',
+          targetRef: `fde://plan/workflows/${id}`,
+          details: { id },
+        })
       } catch (error) {
         planError(response, 502, 'host_job_failed', error instanceof Error ? error.message : '停不了这条 job', correlationId)
       }
@@ -526,6 +767,16 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const existing = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id)
     if (!existing) {
       planError(response, 404, 'not_found', '工作流不存在', correlationId)
+      return true
+    }
+    if (hasIllegalSourceRef(body.steps)) {
+      planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
+      return true
+    }
+    const cwd = workspaceCwdForEmit(db, existing.workspace_id)
+    const toolChange = await gateWorkflowTools(body, rememberedSteps(existing.definition_json), aiRuntime, cwd)
+    if (toolChange && toolChange.error) {
+      planError(response, 422, 'validation_error', toolChange.error, correlationId)
       return true
     }
     const patch = {}
@@ -546,7 +797,10 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       if (typeof body.description === 'string') definition.description = body.description
       if (body.category) definition.category = body.category
       if (body.emoji) definition.emoji = body.emoji
-      if (Array.isArray(body.steps)) definition.steps = body.steps
+      if (Array.isArray(body.steps)) {
+        definition.steps = withoutStepPersona(body.steps)
+        definition.confirmedDanger = confirmedDangerList(body)
+      }
       patch.definition_json = JSON.stringify(definition)
     }
     const keys = Object.keys(patch)
@@ -558,7 +812,13 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const sets = keys.map((k) => `${k} = ?`).join(', ')
     db.prepare(`UPDATE workflows SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k]), now, id)
     const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(id)
-    planOk(response, 200, mapWorkflow(row), correlationId)
+    writeToolAudit(db, correlationId, row.workspace_id, id, toolChange)
+    planWrote(response, 200, mapWorkflow(row), correlationId, db, {
+      workspaceId: row.workspace_id,
+      action: 'plan.workflow.update',
+      targetRef: `fde://plan/workflows/${id}`,
+      details: { id },
+    })
     return true
   }
 
@@ -570,7 +830,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       const cwd = workspaceId ? workspaceCwdForEmit(db, workspaceId) : null
       try {
         await mutateBag(aiRuntime, { kind: 'job', action: 'kill', id, cwd, workspaceId })
-        planOk(response, 200, { id }, correlationId)
+        planWrote(response, 200, { id }, correlationId, db, {
+          workspaceId: workspaceId || null,
+          action: 'plan.workflow.delete',
+          targetRef: `fde://plan/workflows/${id}`,
+          details: { id },
+        })
       } catch (error) {
         planError(response, 502, 'host_job_failed', error instanceof Error ? error.message : '停不了这条 job', correlationId)
       }
@@ -582,7 +847,33 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       return true
     }
     db.prepare('DELETE FROM workflows WHERE id = ?').run(id)
-    planOk(response, 200, { id }, correlationId)
+    planWrote(response, 200, { id }, correlationId, db, {
+      workspaceId: existing.workspace_id,
+      action: 'plan.workflow.delete',
+      targetRef: `fde://plan/workflows/${id}`,
+      details: { id },
+    })
+    return true
+  }
+
+  if (method === 'POST' && segments.length === 6 && segments[3] === 'workflows' && segments[5] === 'run') {
+    const workflowId = planRowId(segments[4])
+    const body = await readJson(request)
+    const workspaceId = body && typeof body.workspaceId === 'string' ? body.workspaceId : ''
+    try {
+      const ticket = startWorkflowRun({ db, aiRuntime }, {
+        workflowId,
+        workspaceId,
+        correlationId,
+        trigger: { kind: 'manual' },
+      })
+      planOk(response, 200, ticket, correlationId)
+    } catch (error) {
+      const status = Number.isInteger(error.status) ? error.status : 500
+      const code = typeof error.code === 'string' ? error.code : 'internal'
+      const message = error instanceof Error ? error.message : '运行失败'
+      planError(response, status, code, message, correlationId)
+    }
     return true
   }
 

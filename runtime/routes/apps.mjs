@@ -1,4 +1,5 @@
 import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE, FDE_RUNTIME_PORT } from '../config.mjs'
+import { verifyUiToken } from './bridge.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { emit } from '../events.mjs'
 import { workspaceIdForCwd } from '../briefing/workspace.mjs'
@@ -48,6 +49,7 @@ import { isWebAppSpec } from '../apps/spec.mjs'
 import { writeBundleFiles } from '../apps/bundle.mjs'
 import { serveWebAppAsset } from '../apps/web-host.mjs'
 import { getDocument, putDocument } from '../apps/documents.mjs'
+import { confirmRecordProposal, proposeRecordUpdate, rejectRecordProposal } from '../apps/record-proposals.mjs'
 
 function sharePayload(request, share) {
   if (!share) return null
@@ -181,10 +183,11 @@ function recordAppOperation(db, {
  *   sendError: Function,
  *   sendJson: Function,
  *   readJson: Function,
+ *   uiToken?: string,
  * }} deps
  */
 export async function handleAppsRoutes(request, response, url, deps) {
-  const { db, aiRuntime, allowedOrigins, correlationId, sendError, sendJson, readJson } = deps
+  const { db, aiRuntime, allowedOrigins, correlationId, sendError, sendJson, readJson, uiToken } = deps
   const pathname = url.pathname
   if (!pathname.startsWith('/api/v1/apps') && !pathname.startsWith('/api/v1/bridge/app-')) {
     return false
@@ -197,6 +200,42 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', correlationId)
       return true
     }
+  }
+
+  const proposalMatch = pathname.match(/^\/api\/v1\/apps\/record-proposals\/([^/]+)\/(confirm|reject)$/)
+  if (request.method === 'POST' && proposalMatch) {
+    if (!verifyUiToken(request, uiToken)) {
+      sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', correlationId)
+      return true
+    }
+    await readJson(request)
+    const operationId = decodeURIComponent(proposalMatch[1])
+    const decision = proposalMatch[2]
+    try {
+      const result = decision === 'confirm'
+        ? confirmRecordProposal(db, operationId, { correlationId })
+        : rejectRecordProposal(db, operationId, { correlationId })
+      if (result.kind === 'not_found' || result.kind === 'not_proposal') {
+        sendError(response, 404, 'not_found', '提案不存在', correlationId)
+        return true
+      }
+      if (result.kind === 'invalid_state') {
+        sendError(response, 409, 'invalid_state', '提案已经确认或拒绝', correlationId, { state: result.operation?.state })
+        return true
+      }
+      if (result.kind === 'stale') {
+        sendError(response, 409, 'stale_record', '记录在提案之后已变更', correlationId, { state: result.operation?.state })
+        return true
+      }
+      sendJson(response, 200, { ok: true, data: result.operation, correlationId })
+    } catch (error) {
+      if (error?.code === 'validation_error') {
+        sendJson(response, 422, { ok: false, errors: error.errors, correlationId })
+        return true
+      }
+      throw error
+    }
+    return true
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/apps') {
@@ -748,20 +787,35 @@ export async function handleAppsRoutes(request, response, url, deps) {
         }
         return true
       }
+      if (!verifyUiToken(request, uiToken)) {
+        sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', correlationId)
+        return true
+      }
       try {
         const row = patchRecord(db, app.spec, entity, workspaceCwd, rid, body)
         if (!row) {
           sendError(response, 404, 'not_found', '记录不存在', correlationId)
           return true
         }
+        const targetRef = `fde://workstation/app/${slug}/${entity}/${rid}`
         recordAppOperation(db, {
           workspaceId,
           appId: app.id,
-          targetRef: `fde://workstation/app/${slug}/${entity}/${rid}`,
+          targetRef,
           action: 'app.record.patch',
           input: body,
           plan: { diff: body },
           correlationId,
+        })
+        appendAudit(db, {
+          workspaceId,
+          actorId: 'actor_local_user',
+          action: 'app.record.patch',
+          targetRef,
+          outcome: 'succeeded',
+          riskLevel: 'low',
+          correlationId,
+          details: { slug, entity, rid },
         })
         emit('app.record.changed', recordChangePayload(app, {
           entity,
@@ -916,17 +970,28 @@ export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
     const app = findActiveAppBySlug(db, workspaceId, slug, workspaceCwd)
     if (!app) return { ok: false, error: 'app_not_active', message: '应用未激活' }
     const op = String(body.op || 'insert')
-    return {
-      ok: true,
-      proposal: {
-        kind: 'app.record',
-        slug,
-        entity,
-        op,
-        rows: body.rows,
-        note: '仅提案，不写库',
-      },
+    if (op !== 'update') {
+      return {
+        ok: true,
+        proposal: {
+          kind: 'app.record',
+          slug,
+          entity,
+          op,
+          rows: body.rows,
+          note: '仅提案，不写库',
+        },
+      }
     }
+    const proposed = proposeRecordUpdate(db, {
+      workspaceId,
+      app,
+      entity,
+      workspaceCwd,
+      rows: body.rows,
+    })
+    if (!proposed.ok) return proposed
+    return { ok: true, proposalId: proposed.proposalId, proposal: proposed.plan }
   }
   return null
 }

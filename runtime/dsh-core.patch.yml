@@ -39,7 +39,3 @@
 
 - id: ui-sidebar-documentpreview
   disabled: true
-
-- insert:
-    - id: fde-x-dsh-bridge
-      name: fde-x-dsh-bridge

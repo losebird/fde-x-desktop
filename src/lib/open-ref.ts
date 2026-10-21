@@ -26,6 +26,7 @@ export type OpenRefHref = {
   cardId?: string
   originId?: string
   workspaceAppId?: string | null
+  appRid?: string
   accessory?: string
 }
 

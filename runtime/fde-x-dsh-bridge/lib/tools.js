@@ -1,6 +1,8 @@
 const { readFile } = require('node:fs/promises')
 const { homedir } = require('node:os')
 const { join } = require('node:path')
+const { loadMcpServer } = require('./mcp-catalog.js')
+const { presetFromAgent } = require('../../mode-policy.cjs')
 
 function dshHome() {
   return process.env.FDE_DSH_HOME || process.env.DSH_HOME || join(homedir(), '.dsh-fde-x')
@@ -88,11 +90,13 @@ const FDE_TOOL_NAMES = [
   'fde_app_spec_submit',
   'fde_app_records_query',
   'fde_app_records_propose',
+  'fde_plan_task_propose',
   'fde_briefing_submit',
+  'fde_mcp_load',
   'fde_memory_draft',
 ]
 
-function registerTools(ctx, { defineTool }) {
+function registerTools(ctx, { defineTool, config }) {
   ctx.tools.register(defineTool({
     name: 'fde_submit_result',
     description: 'Submit structured result back to FDE-X. Use requestId from the [fde-request:<id>] marker in the prompt.',
@@ -199,6 +203,31 @@ function registerTools(ctx, { defineTool }) {
     },
   }))
 
+  ctx.tools.register(defineTool({
+    name: 'fde_plan_task_propose',
+    description: 'Propose a plan task insert or update. The task changes only after a person confirms. The session workspace identifies the task; do not pass a workspace id.',
+    parameters: {
+      op: { type: 'string', required: true, description: 'insert or update' },
+      taskId: { type: 'string' },
+      title: { type: 'string' },
+      notes: { type: 'string' },
+      status: { type: 'string' },
+      priority: { type: 'string' },
+      dueAt: { type: 'string' },
+      tags: { type: 'array', items: { type: 'string' } },
+    },
+    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
+    async execute(args, exec) {
+      const body = { ...args }
+      delete body.workspaceId
+      const result = await callBridge('plan-task-propose', body, exec)
+      return JSON.stringify(result)
+    },
+    presentCall() {
+      return { card: 'generic', title: 'fde_plan_task_propose', kind: 'write' }
+    },
+  }))
+
   // Spec 06 owns briefing submit.
   ctx.tools.register(defineTool({
     name: 'fde_briefing_submit',
@@ -214,6 +243,28 @@ function registerTools(ctx, { defineTool }) {
     },
     presentCall() {
       return { card: 'generic', title: 'fde_briefing_submit', kind: 'write' }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'fde_mcp_load',
+    description: 'Load one MCP server into the next request by its real tool names. Pass the server name from the MCP catalog.',
+    parameters: {
+      server: { type: 'string', required: true },
+    },
+    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
+    async execute(args, exec) {
+      const server = String(args.server).trim()
+      const names = await loadMcpServer({
+        sessionId: toolSessionId(exec),
+        server,
+        preset: presetFromAgent(exec.agent),
+        mount: config,
+      })
+      return `已加载 ${server}。下一步可用：${names.join('、')}`
+    },
+    presentCall() {
+      return { card: 'generic', title: 'fde_mcp_load', kind: 'read' }
     },
   }))
 

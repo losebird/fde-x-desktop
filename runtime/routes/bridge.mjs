@@ -1,12 +1,15 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { emit } from '../events.mjs'
 import { buildContextPack } from '../context-pack.mjs'
 import { draftMemoryFromBridge } from '../memory/writer.mjs'
 import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
+import { workspaceRowIdForCwd } from '../briefing/workspace.mjs'
+import { proposePlanTask } from '../plan/task-proposals.mjs'
+import { pathHasPrefix } from '../path-prefix.mjs'
 
 const READY_TTL_MS = 10 * 60 * 1000
 
@@ -18,10 +21,13 @@ export async function ensureBridgeToken(dshHome = FDE_DSH_HOME) {
   await mkdir(dir, { recursive: true })
   const tokenPath = join(dir, 'bridge.token')
   if (existsSync(tokenPath)) {
-    return String(await readFile(tokenPath, 'utf8')).trim()
+    const token = String(await readFile(tokenPath, 'utf8')).trim()
+    await chmod(tokenPath, 0o600)
+    return token
   }
   const token = randomBytes(32).toString('hex')
-  await writeFile(tokenPath, `${token}\n`, 'utf8')
+  await writeFile(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600 })
+  await chmod(tokenPath, 0o600)
   return token
 }
 
@@ -33,6 +39,29 @@ export function verifyBridgeToken(request, expected) {
   const raw = request.headers['x-fde-bridge-token']
   const value = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? String(raw[0] || '').trim() : ''
   return Boolean(value && expected && value === expected)
+}
+
+export function mintUiToken() {
+  return randomBytes(32).toString('hex')
+}
+
+function headerToken(request, name) {
+  const raw = request.headers[name]
+  if (typeof raw === 'string') return raw.trim()
+  if (Array.isArray(raw)) return String(raw[0] || '').trim()
+  return ''
+}
+
+export function verifyUiToken(request, expected) {
+  const value = headerToken(request, 'x-fde-ui-token')
+  const expectedText = typeof expected === 'string' ? expected : ''
+  const valueBytes = Buffer.from(value)
+  const expectedBytes = Buffer.from(expectedText)
+  const left = Buffer.alloc(64)
+  const right = Buffer.alloc(64)
+  valueBytes.copy(left)
+  expectedBytes.copy(right)
+  return timingSafeEqual(left, right) && valueBytes.length === 64 && expectedBytes.length === 64
 }
 
 function bridgeError(response, status, error, message, correlationId) {
@@ -78,12 +107,9 @@ function notImplemented(response, correlationId, owner) {
   )
 }
 
-/**
- * Bridge token routes (no Origin gate). Returns true when handled.
- */
 export async function handleBridgeRoutes(request, response, url, deps) {
   const { db, bridgeToken, correlationId, readJson, aiRuntime } = deps
-  if (!url.pathname.startsWith('/api/v1/bridge/')) return false
+  if (!pathHasPrefix(url.pathname, '/api/v1/bridge/')) return false
 
   if (!verifyBridgeToken(request, bridgeToken)) {
     bridgeError(response, 401, 'bridge_unauthorized', '桥接令牌无效或缺失', correlationId)
@@ -163,6 +189,25 @@ export async function handleBridgeRoutes(request, response, url, deps) {
       },
     )
     bridgeOk(response, 200, { ...pack, warnings }, correlationId)
+    return true
+  }
+
+  if (sub === 'plan-task-propose') {
+    const fromCwd = workspaceRowIdForCwd(db, workspaceCwd)
+    const fromBody = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
+    const result = proposePlanTask(db, { ...body, workspaceId: fromCwd || fromBody })
+    if (!result.ok) {
+      if (result.error === 'not_found') {
+        bridgeError(response, 404, 'not_found', result.message, correlationId)
+        return true
+      }
+      if (result.error === 'validation_error') {
+        bridgeError(response, 422, 'validation_error', result.message, correlationId)
+        return true
+      }
+      throw new Error(`plan task propose failed: ${result.error}`)
+    }
+    bridgeOk(response, 200, { ok: true, proposalId: result.proposalId, plan: result.plan }, correlationId)
     return true
   }
 

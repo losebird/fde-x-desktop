@@ -1,5 +1,12 @@
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { buildContextPack, renderContextForPrompt, type ContextPack, type ContextScope } from '@/lib/context-pack'
+import {
+  applyPromptPackChoice,
+  buildContextPack,
+  renderContextForPrompt,
+  type ContextPack,
+  type ContextScope,
+  type PromptPackChoice,
+} from '@/lib/context-pack'
 import { submitCurrentTurn } from '@/lib/current-turn'
 import { waitForFdeEvent } from '@/lib/events'
 import { validateJsonSchemaLite, type JsonSchemaLite } from '@/lib/json-schema-lite'
@@ -14,11 +21,9 @@ export type AskAiOptions = {
   preset?: string
   context?: ContextScope[]
   omit?: Set<string>
-  pack?: ContextPack
-  warnings?: string[]
   timeoutMs?: number
   title?: string
-}
+} & PromptPackChoice
 
 export type AskAiResult<T> =
   | { ok: true; data: T; sessionId: string; summary?: string; pack?: ContextPack; warnings?: string[] }
@@ -129,6 +134,7 @@ export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult
   const requestId = ulid()
   const timeoutMs = opts.timeoutMs ?? 120_000
   const scopes = opts.context?.length ? opts.context : (['workspace'] as ContextScope[])
+  const choice = applyPromptPackChoice(scopes, opts)
 
   const target = await resolveTarget(opts)
   if (!target.ok) {
@@ -139,14 +145,15 @@ export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult
     ? '\n完成后用 fde_submit_result 提交符合给定 JSON Schema 的 JSON（kind=json）。'
     : ''
   let contextBlock = ''
-  let pack: ContextPack | undefined = opts.pack
-  let warnings: string[] = opts.warnings || []
+  let pack: ContextPack | undefined = choice.pack
+  let warnings: string[] = choice.warnings
   try {
     if (!pack) {
       const packed = await buildContextPack({
-        scopes,
+        scopes: choice.scopes,
         query: opts.prompt,
         intentKind: 'lookup',
+        ...choice.taskIdInput,
       })
       pack = packed.pack
       warnings = packed.warnings || []

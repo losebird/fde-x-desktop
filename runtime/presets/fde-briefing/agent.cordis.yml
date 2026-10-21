@@ -83,6 +83,9 @@
 # carries whatever the deployment registered globally (repository plugins).
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    customSkillDirs:
+      - !!js "process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('fde-x-dsh-bridge/package.json')), '..', 'presets', 'fde-briefing', 'skills')"
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
@@ -219,8 +222,8 @@
         backgroundMode: one-shot
         maxDepth: provider-managed
 
-    - id: workflow-worker-thread
-      name: '@deepseek-ai/dsh-workflow-worker-thread'
+    - id: workflow-ptc
+      name: '@deepseek-ai/dsh-workflow-ptc'
       config:
         provider: spawn
 
@@ -253,9 +256,3 @@
 
 - id: present
   name: '@deepseek-ai/dsh-tool-present'
-
-- id: fde-briefing-skills
-  name: '@deepseek-ai/dsh-skill-filesystem'
-  config:
-    roots:
-      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"

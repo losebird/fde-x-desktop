@@ -591,6 +591,45 @@ export type MemoryDraftCard = {
   body: string
 }
 
+async function readUiToken() {
+  if (typeof window === 'undefined') return ''
+  const fromDesktop = window.fdeDesktop?.uiToken
+  if (fromDesktop) {
+    const value = String(await fromDesktop()).trim()
+    if (value) return value
+  }
+  const meta = document.querySelector('meta[name="fde-ui-token"]')
+  return meta?.getAttribute('content')?.trim() ?? ''
+}
+
+const PAGE_TOKEN_HEADER = 'x-fde-ui-token'
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+function requestPathname(path: string) {
+  const query = path.indexOf('?')
+  return query === -1 ? path : path.slice(0, query)
+}
+
+async function withPageToken(path: string, init?: RequestInit): Promise<RequestInit | undefined> {
+  const method = String(init?.method || 'GET').toUpperCase()
+  if (!WRITE_METHODS.has(method)) return init
+  const pathname = requestPathname(path)
+  if (!pathname.startsWith('/api/v1/') || pathname.startsWith('/api/v1/app-share/')) return init
+  const token = await readUiToken()
+  if (!token) return init
+  const headers = new Headers(init?.headers)
+  if (!headers.has(PAGE_TOKEN_HEADER)) headers.set(PAGE_TOKEN_HEADER, token)
+  return { ...init, headers }
+}
+
+export type PlanTaskProposal = {
+  id: string
+  workspaceId: string
+  op: 'insert' | 'update'
+  taskId: string
+  title: string
+}
+
 export class RuntimeApiError extends Error {
   status: number
   code: string
@@ -720,7 +759,7 @@ export class RuntimeApi {
   private async planRequest<T>(path: string, init?: RequestInit): Promise<T> {
     let response: Response
     try {
-      response = await fetch(this.planFetchUrl(path), init)
+      response = await fetch(this.planFetchUrl(path), await withPageToken(path, init))
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }
@@ -759,6 +798,8 @@ export class RuntimeApi {
       end: row.endAt,
       location: row.location ?? undefined,
       kind: row.kind,
+      workflowId: typeof row.workflowId === 'string' ? row.workflowId : undefined,
+      recurrence: row.recurrence === 'once' || row.recurrence === 'daily' ? row.recurrence : undefined,
     }
   }
 
@@ -774,6 +815,24 @@ export class RuntimeApi {
   private mapPlanWorkflow(row: Record<string, unknown>): Workflow {
     const trigger = this.normalizeWorkflowTrigger(row.trigger)
     const steps = Array.isArray(row.steps) ? row.steps as Workflow['steps'] : []
+    const lastRunAt = typeof row.lastRunAt === 'string' && row.lastRunAt !== '' ? row.lastRunAt : undefined
+    const lastRunStatus = row.lastRunStatus === 'success' || row.lastRunStatus === 'failed' || row.lastRunStatus === 'running'
+      ? row.lastRunStatus
+      : undefined
+    const runs = Array.isArray(row.runs)
+      ? row.runs.map((run) => {
+        const record = run as { id?: unknown; state?: unknown; message?: unknown; sessionId?: unknown }
+        const mapped: Workflow['runs'][number] = {
+          id: String(record.id),
+          state: typeof record.state === 'string' ? record.state : '',
+          message: typeof record.message === 'string' ? record.message : '',
+        }
+        if (typeof record.sessionId === 'string' && record.sessionId) {
+          Object.assign(mapped, { sessionId: record.sessionId })
+        }
+        return mapped
+      })
+      : []
     return {
       id: String(row.id),
       name: String(row.name),
@@ -781,6 +840,9 @@ export class RuntimeApi {
       status: row.status === 'active' ? 'active' : 'paused',
       trigger,
       steps,
+      lastRunAt,
+      lastRunStatus,
+      runs,
       category: (row.category as Workflow['category']) ?? 'system',
       emoji: typeof row.emoji === 'string' ? row.emoji : '🤖',
       createdAt: String(row.createdAt),
@@ -837,6 +899,23 @@ export class RuntimeApi {
     await this.planRequest(`/api/v1/plan/tasks/${encodeURIComponent(id)}${params}`, { method: 'DELETE', signal: opts?.signal })
   }
 
+  async listPlanTaskProposals(workspaceId: string, signal?: AbortSignal): Promise<PlanTaskProposal[]> {
+    const params = new URLSearchParams({ workspaceId })
+    return this.planRequest<PlanTaskProposal[]>(`/api/v1/plan/task-proposals?${params}`, { signal })
+  }
+
+  async decidePlanTaskProposal(proposalId: string, decision: 'confirm' | 'reject', signal?: AbortSignal): Promise<void> {
+    await this.planRequest(
+      `/api/v1/plan/task-proposals/${encodeURIComponent(proposalId)}/${decision}`,
+      {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+    )
+  }
+
   async listEvents(workspaceId: string, fromMs: number, toMs: number, signal?: AbortSignal): Promise<ScheduleEvent[]> {
     const params = new URLSearchParams({
       workspaceId,
@@ -855,6 +934,8 @@ export class RuntimeApi {
     kind?: ScheduleEvent['kind']
     location?: string
     allDay?: boolean
+    workflowId?: string
+    recurrence?: 'once' | 'daily'
   }, signal?: AbortSignal): Promise<ScheduleEvent> {
     const row = await this.planRequest<PlanEvent>('/api/v1/plan/events', {
       method: 'POST',
@@ -894,6 +975,22 @@ export class RuntimeApi {
     return rows.map((row) => this.mapPlanWorkflow(row))
   }
 
+  async listWorkflowTools(workspaceId: string, signal?: AbortSignal): Promise<{
+    tools: Array<{ name: string; tier: string; grantable?: boolean }>
+    defaults: string[]
+    presets?: Array<{
+      id: string
+      name: string
+      hasDanger: boolean
+      unavailable?: string
+      persona: { text: string; complete: boolean } | null
+      tools: Array<{ name: string; tier: string; selectable: boolean; reason?: string; blocksRun?: boolean }>
+    }>
+  }> {
+    const params = new URLSearchParams({ workspaceId })
+    return this.planRequest(`/api/v1/plan/workflow-tools?${params}`, { signal })
+  }
+
   async createWorkflow(input: {
     workspaceId: string
     name: string
@@ -903,6 +1000,7 @@ export class RuntimeApi {
     steps?: Workflow['steps']
     category?: Workflow['category']
     emoji?: string
+    confirmDanger?: string[]
   }, signal?: AbortSignal): Promise<Workflow> {
     const row = await this.planRequest<Record<string, unknown>>('/api/v1/plan/workflows', {
       method: 'POST',
@@ -937,6 +1035,15 @@ export class RuntimeApi {
     await this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}${params}`, { method: 'DELETE', signal: opts?.signal })
   }
 
+  async runWorkflow(id: string): Promise<{ id: string; workflowId: string; state: string; correlationId?: string }> {
+    const workspaceId = useApp.getState().activeWorkspaceId
+    return this.planRequest(`/api/v1/plan/workflows/${encodeURIComponent(id)}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId }),
+    })
+  }
+
   async aiStatus(signal?: AbortSignal): Promise<AiRuntimeStatus> {
     const result = await this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/status', { signal })
     return result.data
@@ -957,7 +1064,10 @@ export class RuntimeApi {
     const waitSec = Math.round(waitMs / 1000)
     try {
       if (typeof window !== 'undefined') {
-        const response = await fetch(this.uiFetchUrl('/api/v1/ai/reload'), { method: 'POST', signal })
+        const response = await fetch(
+          this.uiFetchUrl('/api/v1/ai/reload'),
+          await withPageToken('/api/v1/ai/reload', { method: 'POST', signal }),
+        )
         if (!response.ok && response.status < 500) {
           const payload = await response.json().catch(() => ({})) as {
             error?: string | { code?: string; message?: string }
@@ -1944,15 +2054,16 @@ export class RuntimeApi {
     entity?: Record<string, unknown>
     intentKind?: 'decision' | 'draft' | 'lookup'
     sessionId?: string
+    taskIds?: readonly string[]
   }, signal?: AbortSignal): Promise<{ pack: Record<string, unknown>; warnings: string[] }> {
     let response: Response
     try {
-      response = await fetch(this.uiFetchUrl('/api/v1/context/pack'), {
+      response = await fetch(this.uiFetchUrl('/api/v1/context/pack'), await withPageToken('/api/v1/context/pack', {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
-      })
+      }))
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }
@@ -2371,12 +2482,12 @@ export class RuntimeApi {
   async putDeclarativeAppSpec(appId: string, input: { spec: JsonValue; changeNote?: string }, signal?: AbortSignal) {
     let response: Response
     try {
-      response = await fetch(`${this.baseUrl}/api/v1/apps/${encodeURIComponent(appId)}/spec`, {
+      response = await fetch(`${this.baseUrl}/api/v1/apps/${encodeURIComponent(appId)}/spec`, await withPageToken(`/api/v1/apps/${encodeURIComponent(appId)}/spec`, {
         method: 'PUT',
         signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
-      })
+      }))
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }
@@ -2526,12 +2637,17 @@ export class RuntimeApi {
   async patchAppRecord(slug: string, entity: string, rid: string, workspaceCwd: string, body: Record<string, unknown>, signal?: AbortSignal) {
     const workspace = this.appWorkspaceQuery(workspaceCwd)
     const q = workspace ? `?${workspace}` : ''
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (!this.shareId) {
+      const token = await readUiToken()
+      if (token) headers['x-fde-ui-token'] = token
+    }
     return this.request<{ ok: boolean; data: Record<string, unknown>; errors?: { path: string; message: string }[] }>(
       `${this.appRecordsBase(slug)}/${encodeURIComponent(entity)}/${encodeURIComponent(rid)}${q}`,
       {
         method: 'PATCH',
         signal,
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(body),
       },
     )
@@ -2600,6 +2716,21 @@ export class RuntimeApi {
       body: JSON.stringify({ note }),
     })
     return result.data
+  }
+
+  async decideRecordProposal(operationId: string, decision: 'confirm' | 'reject', signal?: AbortSignal) {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const token = await readUiToken()
+    if (token) headers['x-fde-ui-token'] = token
+    return this.request<{ ok: boolean; data: RuntimeOperation }>(
+      `/api/v1/apps/record-proposals/${encodeURIComponent(operationId)}/${decision}`,
+      {
+        method: 'POST',
+        signal,
+        headers,
+        body: '{}',
+      },
+    )
   }
 
   async bizPreview(body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -2820,7 +2951,7 @@ export class RuntimeApi {
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     let response: Response
     try {
-      response = await fetch(`${this.baseUrl}${path}`, init)
+      response = await fetch(`${this.baseUrl}${path}`, await withPageToken(path, init))
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }

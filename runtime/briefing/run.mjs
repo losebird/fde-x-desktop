@@ -1,10 +1,12 @@
 import { emit } from '../events.mjs'
 import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
+import { resolveBriefingSession } from './session.mjs'
 import { collectInternalSection } from './collectors.mjs'
 import { runBriefingAgent } from './ask-ai.mjs'
 import { itemsFromToolResult } from './tool-official.mjs'
 import { digestBeats } from './item.mjs'
 import {
+  briefingInFlight,
   createBriefingRun,
   findBriefingByAgentRequest,
   findInFlightBriefing,
@@ -14,17 +16,34 @@ import {
   updateBriefingContent,
 } from './store.mjs'
 
-const fullLocks = new Set()
+const fullRuns = new Map()
+const INTERRUPTED = '生成中断'
 
-function beginFullLock(cwd) {
-  const key = String(cwd || '')
-  if (!key || fullLocks.has(key)) return false
-  fullLocks.add(key)
-  return true
+function interruptedSections(sections) {
+  return (Array.isArray(sections) ? sections : []).map((section) => {
+    if (!section.pendingAgent) return section
+    return { ...section, error: section.error || INTERRUPTED, pendingAgent: false }
+  })
 }
 
-function endFullLock(cwd) {
-  fullLocks.delete(String(cwd || ''))
+function closeInterrupted(db, briefingId) {
+  const row = getBriefing(db, briefingId)
+  if (!row || !briefingInFlight(row)) return row
+  return updateBriefingContent(db, briefingId, {
+    status: 'failed',
+    agentError: INTERRUPTED,
+    sections: interruptedSections(row.sections),
+  })
+}
+
+function arrivedAiSections(rows) {
+  return rows.filter((section) => section.type === 'ai' && section.pendingAgent !== true)
+}
+
+function explainMissingSubmit(agentError) {
+  if (agentError === 'timeout') return '超时'
+  if (agentError.trim()) return agentError.trim()
+  return '没有收到早报提交'
 }
 
 function mergeAgentSections(existing, submitted, pendingError = '超时') {
@@ -43,6 +62,7 @@ function mergeAgentSections(existing, submitted, pendingError = '超时') {
       ...section,
       ...patch,
       type: section.type || patch.type,
+      error: patch.error || undefined,
       pendingAgent: false,
       fetchedAt: patch.fetchedAt || new Date().toISOString(),
     }
@@ -63,158 +83,177 @@ function computeRunStatus(sections) {
  * @param {{ workspaceCwd: string, mode: 'full'|'internal-only', definitionId?: string, sessionId?: string, omit?: string[] }} input
  */
 export async function runBriefing(deps, input) {
-  const { db, aiRuntime } = deps
+  const { db } = deps
   const workspaceCwd = String(input.workspaceCwd || '').trim()
   if (!workspaceCwd.startsWith('/')) {
     throw Object.assign(new Error('需要工作区绝对路径 cwd'), { code: 'validation_error' })
   }
   const mode = input.mode === 'internal-only' ? 'internal-only' : 'full'
-  if (mode === 'full') {
-    const inflight = findInFlightBriefing(db, workspaceCwd)
-    if (inflight) return { briefingId: inflight.id, briefing: inflight, joined: true }
-    if (!beginFullLock(workspaceCwd)) {
-      for (let i = 0; i < 25; i += 1) {
-        const latest = findInFlightBriefing(db, workspaceCwd) || getLatestBriefing(db, workspaceCwd)
-        if (latest) return { briefingId: latest.id, briefing: latest, joined: true }
-        await new Promise((resolve) => setTimeout(resolve, 20))
-      }
-      const latest = getLatestBriefing(db, workspaceCwd)
-      return { briefingId: latest?.id || '', briefing: latest, joined: true }
-    }
+  if (mode !== 'full') return runBriefingUnlocked(deps, input, workspaceCwd, mode)
+  const live = fullRuns.get(workspaceCwd)
+  if (live) {
+    const result = await live.promise
+    return { ...result, joined: true }
   }
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const run = (async () => {
+    await gate
+    const orphan = findInFlightBriefing(db, workspaceCwd)
+    if (orphan) closeInterrupted(db, orphan.id)
+    return runBriefingUnlocked(deps, input, workspaceCwd, mode)
+  })()
+  fullRuns.set(workspaceCwd, { promise: run })
+  release()
   try {
-    return await runBriefingUnlocked(deps, input, workspaceCwd, mode)
+    return await run
   } finally {
-    if (mode === 'full') endFullLock(workspaceCwd)
+    if (fullRuns.get(workspaceCwd)?.promise === run) fullRuns.delete(workspaceCwd)
   }
 }
 
 async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
   const { db, aiRuntime } = deps
-  const definition = getOrCreateDefinition(db, workspaceCwd)
-  const defId = input.definitionId || definition.id
-  const enabled = definition.sections.filter((s) => s.enabled)
-  if (mode === 'full' && input.skipIfCanvas) {
-    const canvasId = String(input.canvasSessionId || '').trim()
-    if (canvasId) {
-      const primary = await resolvePrimarySessionForRuntime(aiRuntime, {
-        cwd: workspaceCwd,
-        sessionId: String(input.sessionId || '').trim(),
-      })
-      if (primary && primary === canvasId) {
-        const latest = getLatestBriefing(db, workspaceCwd)
-        return { briefingId: latest?.id || '', briefing: latest, skippedCanvas: true }
+  let briefingId = ''
+  try {
+    const definition = getOrCreateDefinition(db, workspaceCwd)
+    const defId = input.definitionId || definition.id
+    const enabled = definition.sections.filter((s) => s.enabled)
+    if (mode === 'full' && input.skipIfCanvas) {
+      const canvasId = String(input.canvasSessionId || '').trim()
+      if (canvasId) {
+        const primary = await resolvePrimarySessionForRuntime(aiRuntime, {
+          cwd: workspaceCwd,
+          sessionId: String(input.sessionId || '').trim(),
+        })
+        if (primary && primary === canvasId) {
+          const latest = getLatestBriefing(db, workspaceCwd)
+          return { briefingId: latest?.id || '', briefing: latest, skippedCanvas: true }
+        }
       }
     }
-  }
-  const { id: briefingId } = createBriefingRun(db, {
-    definitionId: defId,
-    workspaceCwd,
-    agentRequestId: '',
-  })
-
-  const internalDefs = enabled.filter((s) => s.type !== 'mcp' && s.type !== 'ai')
-  const sections = []
-  for (const def of internalDefs) {
-    const section = await collectInternalSection({ db, aiRuntime }, def, workspaceCwd)
-    sections.push({ ...section, type: def.type })
-  }
-
-  let sessionId = ''
-  let agentError = ''
-
-  const needAgent = mode === 'full'
-    && enabled.some((s) => (s.type === 'mcp' || s.type === 'ai'))
-    && aiRuntime?.status?.().connected
-
-  if (needAgent) {
-    for (const def of enabled.filter((s) => s.type === 'mcp' || s.type === 'ai')) {
-      sections.push({
-        id: def.id,
-        title: def.title,
-        render: def.render,
-        type: def.type,
-        items: [],
-        pendingAgent: true,
-      })
-    }
-    updateBriefingContent(db, briefingId, { status: 'running', sections })
-    sessionId = await resolvePrimarySessionForRuntime(aiRuntime, {
-      cwd: workspaceCwd,
-      sessionId: String(input.sessionId || '').trim(),
+    const created = createBriefingRun(db, {
+      definitionId: defId,
+      workspaceCwd,
+      agentRequestId: '',
     })
-    const agent = await runBriefingAgent(
-      { db, aiRuntime },
-      {
-        briefingId,
-        workspaceCwd,
-        sessionId,
-        sections: enabled,
-        internalSections: sections.filter((s) => s.type !== 'mcp' && s.type !== 'ai'),
-        omit: input.omit,
-      },
-    )
-    sessionId = agent.sessionId || sessionId
-    if (!agent.ok) agentError = agent.error || 'timeout'
-    for (const row of agent.blocked || []) {
-      const idx = sections.findIndex((section) => section.id === row.id)
-      if (idx < 0) continue
-      sections[idx] = { ...sections[idx], error: row.error, pendingAgent: false, items: [] }
+    briefingId = created.id
+
+    const internalDefs = enabled.filter((s) => s.type !== 'mcp' && s.type !== 'ai')
+    const sections = []
+    for (const def of internalDefs) {
+      const section = await collectInternalSection({ db, aiRuntime }, def, workspaceCwd)
+      sections.push({ ...section, type: def.type })
     }
-    const toolResults = agent.toolResults && typeof agent.toolResults === 'object' ? agent.toolResults : {}
-    for (const section of sections) {
-      if (section.type !== 'mcp' || !section.pendingAgent) continue
-      const def = enabled.find((row) => row.id === section.id)
-      const tool = String(def?.params?.tool || '').trim()
-      const hit = tool ? toolResults[tool] : null
-      if (!hit) {
-        section.error = tool ? `本轮未调用 ${tool}` : '缺少 tool'
-        section.pendingAgent = false
-        section.items = []
-        continue
+
+    let sessionId = ''
+    let agentError = ''
+
+    const needAgent = mode === 'full'
+      && enabled.some((s) => (s.type === 'mcp' || s.type === 'ai'))
+      && aiRuntime?.status?.().connected
+
+    if (needAgent) {
+      for (const def of enabled.filter((s) => s.type === 'mcp' || s.type === 'ai')) {
+        sections.push({
+          id: def.id,
+          title: def.title,
+          render: def.render,
+          type: def.type,
+          items: [],
+          pendingAgent: true,
+        })
       }
-      if (hit.error) {
-        section.error = '工具执行失败'
-        section.pendingAgent = false
-        section.items = []
-        continue
+      updateBriefingContent(db, briefingId, { status: 'running', sections })
+      sessionId = await resolveBriefingSession(aiRuntime, workspaceCwd)
+      const agent = await runBriefingAgent(
+        { db, aiRuntime },
+        {
+          briefingId,
+          workspaceCwd,
+          sessionId,
+          sections: enabled,
+          internalSections: sections.filter((s) => s.type !== 'mcp' && s.type !== 'ai'),
+          omit: input.omit,
+        },
+      )
+      sessionId = agent.sessionId || sessionId
+      if (!agent.ok) agentError = agent.error || '发送早报 prompt 失败'
+      for (const row of agent.blocked || []) {
+        const idx = sections.findIndex((section) => section.id === row.id)
+        if (idx < 0) continue
+        sections[idx] = { ...sections[idx], error: row.error, pendingAgent: false, items: [] }
       }
-      section.items = itemsFromToolResult(hit.text, { limit: Number(def?.params?.limit) || 8 })
-      section.pendingAgent = false
-      section.fetchedAt = new Date().toISOString()
+      const toolResults = agent.toolResults && typeof agent.toolResults === 'object' ? agent.toolResults : {}
+      for (const section of sections) {
+        if (section.type !== 'mcp' || !section.pendingAgent) continue
+        const def = enabled.find((row) => row.id === section.id)
+        const tool = String(def?.params?.tool || '').trim()
+        const hit = tool ? toolResults[tool] : null
+        if (!hit) {
+          section.error = tool ? `本轮未调用 ${tool}` : '缺少 tool'
+          section.pendingAgent = false
+          section.items = []
+          continue
+        }
+        if (hit.error) {
+          section.error = '工具执行失败'
+          section.pendingAgent = false
+          section.items = []
+          continue
+        }
+        section.items = itemsFromToolResult(hit.text, { limit: Number(def?.params?.limit) || 8 })
+        section.pendingAgent = false
+        section.fetchedAt = new Date().toISOString()
+      }
+      const latest = getBriefing(db, briefingId) || findBriefingByAgentRequest(db, agent.agentRequestId || '') || { sections: [] }
+      const merged = mergeAgentSections(
+        sections,
+        arrivedAiSections(latest.sections),
+        explainMissingSubmit(agentError),
+      )
+      sections.length = 0
+      sections.push(...merged)
+      if (agent.turnError) {
+        for (const section of sections) {
+          if (section.type !== 'ai' || (section.items || []).length) continue
+          section.error = agent.turnError
+          section.pendingAgent = false
+        }
+      }
+    } else if (enabled.some((s) => (s.type === 'mcp' || s.type === 'ai') && s.enabled)) {
+      for (const def of enabled.filter((s) => s.type === 'mcp' || s.type === 'ai')) {
+        sections.push({
+          id: def.id,
+          title: def.title,
+          render: def.render,
+          type: def.type,
+          items: [],
+          error: aiRuntime?.status?.().connected ? '当前工作区还没有可用的 AI 会话' : '核心未连接，仅内部信息',
+        })
+      }
     }
-    const latest = getBriefing(db, briefingId) || findBriefingByAgentRequest(db, agent.agentRequestId || '') || { sections: [] }
-    const pendingError = agentError === 'timeout' ? '超时' : (agentError || '超时')
-    const merged = mergeAgentSections(sections, latest.sections, pendingError)
-    sections.length = 0
-    sections.push(...merged)
-  } else if (enabled.some((s) => (s.type === 'mcp' || s.type === 'ai') && s.enabled)) {
-    for (const def of enabled.filter((s) => s.type === 'mcp' || s.type === 'ai')) {
-      sections.push({
-        id: def.id,
-        title: def.title,
-        render: def.render,
-        type: def.type,
-        items: [],
-        error: aiRuntime?.status?.().connected ? '当前工作区还没有可用的 AI 会话' : '核心未连接，仅内部信息',
-      })
-    }
+
+    const status = agentError === 'timeout' ? 'partial' : computeRunStatus(sections)
+    const aiSection = sections.find((s) => s.type === 'ai')
+    const summary = digestBeats(aiSection).join('；')
+
+    const final = updateBriefingContent(db, briefingId, {
+      status,
+      sections,
+      summary,
+      sessionId,
+      agentError: agentError || undefined,
+    })
+
+    emit('briefing.ready', { briefingId, workspaceCwd, status }, { workspaceCwd })
+    return { briefingId, briefing: final }
+  } catch (error) {
+    if (briefingId) closeInterrupted(db, briefingId)
+    throw error
   }
-
-  const status = agentError === 'timeout' ? 'partial' : computeRunStatus(sections)
-  const aiSection = sections.find((s) => s.type === 'ai')
-  const summary = digestBeats(aiSection).join('；')
-
-  const final = updateBriefingContent(db, briefingId, {
-    status,
-    sections,
-    summary,
-    sessionId,
-    agentError: agentError || undefined,
-  })
-
-  emit('briefing.ready', { briefingId, workspaceCwd, status }, { workspaceCwd })
-  return { briefingId, briefing: final }
 }
 
 export function mergeBriefingSubmit(db, requestId, submittedSections) {

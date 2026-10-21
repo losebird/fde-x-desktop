@@ -2,10 +2,12 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
-  Clock, MapPin, Calendar as CalIcon, Repeat, Zap, Play, Power, Sparkles, Bot,
+  Clock, MapPin, Calendar as CalIcon, Repeat, Play, Power, Sparkles, Bot,
 } from 'lucide-react'
 import { askAiForResult } from '@/lib/ask-ai'
 import { askOrigin } from '@/lib/ask-origin'
+import { openRef } from '@/lib/open-ref'
+import { planAppSource, planTaskAskFields } from '@/lib/plan-app-source'
 import type { JsonSchemaLite } from '@/lib/json-schema-lite'
 import clsx from 'clsx'
 import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
@@ -15,6 +17,11 @@ import { useEvents } from '@/lib/events'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 import { hostGoalStatusOnly, isHostGoalId, isHostJobId, isHostScheduleId } from '@/lib/plan-origin'
+import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
+import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
+import { runtimeApi } from '@/lib/runtime-api'
+import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
+import { PLAN_DAY_HOURS, planDayMarkerTop, planDayOffsetMinutes } from '../../runtime/plan/plan-day-hours.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -166,6 +173,28 @@ function formatAdvicePatch(patch: TaskAdvicePatch): string {
   return parts.length ? parts.join('；') : '（无字段变更）'
 }
 
+function planSourceButton(task: Task, selectTask: (id: Task['id']) => void) {
+  const handle = planAppSource(task.sourceRef || '')
+  if (!handle) return null
+  const row = handle.kind === 'row'
+  return (
+    <button
+      type="button"
+      className="text-xs text-ink-muted mt-0.5"
+      data-plan-source={row ? 'row' : 'app'}
+      data-plan-source-app={handle.ledgerId}
+      {...(row ? { 'data-plan-source-rid': handle.rid } : {})}
+      onClick={(event) => {
+        event.stopPropagation()
+        selectTask(task.id)
+        openRef(handle.href)
+      }}
+    >
+      {row ? '打开记录' : '打开应用'}
+    </button>
+  )
+}
+
 function TodoTab() {
   const tasks = useCurrentTasks()
   const addTask = useApp((s) => s.addTask)
@@ -275,8 +304,7 @@ function TodoTab() {
       schema: TaskAdviceSchema,
       context: ['tasks'],
       omit: ctxOmit,
-      pack: selectedTaskId ? undefined : (ctxPack || undefined),
-      warnings: selectedTaskId ? undefined : ctxWarnings,
+      taskIds: filtered.map((row) => row.id),
     })
     setOrganizeLoading(false)
     if (!result.ok) {
@@ -304,15 +332,15 @@ function TodoTab() {
     if (selectedTask.notes) fields.notes = selectedTask.notes
     if (selectedTask.due) fields.due = selectedTask.due
     if (selectedTask.tags.length) fields.tags = selectedTask.tags.join(', ')
+    const asked = await planTaskAskFields(selectedTask.sourceRef || '')
     const result = await askOrigin(`task:${selectedTask.id}`, {
       title: selectedTask.title,
       text: selectedTask.notes || selectedTask.title,
       status: selectedTask.status,
-      fields,
+      fields: { ...fields, ...asked },
       tail: '请结合上述来源实体推进这项待办。禁止过账。',
       omit: ctxOmit,
-      pack: ctxPack || undefined,
-      warnings: ctxWarnings,
+      taskIds: [selectedTask.id],
       revealAi: true,
     })
     setAskLoading(false)
@@ -415,6 +443,7 @@ function TodoTab() {
       </Card>
       {askError && <div className="text-xs text-accent-red mb-3">{askError}</div>}
 
+      <PlanTaskProposals />
       {filtered.length === 0 ? (
         <Empty title="这个筛选下没有任务" hint="可以新建一个,或切换其它 Tab" action={
           <button className="btn-primary" title="新建任务" onClick={() => setShowNew(true)}><Plus size={14} /> 新建任务</button>
@@ -448,6 +477,7 @@ function TodoTab() {
               </button>
               <div className="min-w-0 px-2 cursor-pointer" onClick={() => selectTask(t.id)}>
                 <div className="font-medium text-sm truncate">{t.title}</div>
+                {planSourceButton(t, selectTask)}
                 {t.notes && <div className="text-xs text-ink-muted mt-0.5 truncate">{t.notes}</div>}
               </div>
               <div className="hidden @md:block text-xs text-ink-muted truncate">{t.due ?? '—'}</div>
@@ -550,7 +580,7 @@ function TodoTab() {
 // =======================================================
 // Tab 2: 日程
 // =======================================================
-const HOURS = Array.from({ length: 14 }, (_, i) => 7 + i)
+const HOURS = PLAN_DAY_HOURS
 
 const KIND_TONE: Record<ScheduleEvent['kind'], { bg: string; tag: 'blue'|'green'|'amber'|'purple' }> = {
   meeting:  { bg: 'bg-blue-50 border-blue-200 text-accent-blue',     tag: 'blue' },
@@ -561,6 +591,7 @@ const KIND_TONE: Record<ScheduleEvent['kind'], { bg: string; tag: 'blue'|'green'
 
 function ScheduleTab() {
   const events = useApp((s) => s.events)
+  const workflows = useCurrentWorkflows()
   const addEvent = useApp((s) => s.addEvent)
   const removeEvent = useApp((s) => s.removeEvent)
   const [view, setView] = useState<'day' | 'week'>('day')
@@ -568,15 +599,12 @@ function ScheduleTab() {
   const [draft, setDraft] = useState({
     title: '', startH: 14, startM: 0, endH: 14, endM: 30,
     kind: 'focus' as ScheduleEvent['kind'], location: '',
+    workflowId: '', recurrence: 'once' as 'once' | 'daily',
   })
 
   const todayKey = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
   const todays = useMemo(() => events.filter((e) => todayKey(e.start)), [events])
 
-  function toPos(start: string) {
-    const d = new Date(start)
-    return d.getHours() * 60 + d.getMinutes()
-  }
   const weekStart = useMemo(() => {
     const d = new Date()
     const weekday = d.getDay()
@@ -611,9 +639,17 @@ function ScheduleTab() {
     base.setHours(draft.startH, draft.startM, 0, 0)
     const end = new Date(base)
     end.setHours(draft.endH, draft.endM, 0, 0)
-    void addEvent({ title: draft.title, start: base.toISOString(), end: end.toISOString(), kind: draft.kind, location: draft.location || undefined })
+    void addEvent({
+      title: draft.title,
+      start: base.toISOString(),
+      end: end.toISOString(),
+      kind: draft.kind,
+      location: draft.location || undefined,
+      workflowId: draft.workflowId || undefined,
+      recurrence: draft.workflowId ? draft.recurrence : undefined,
+    })
       .then(() => {
-        setDraft({ title: '', startH: 14, startM: 0, endH: 14, endM: 30, kind: 'focus', location: '' })
+        setDraft({ title: '', startH: 14, startM: 0, endH: 14, endM: 30, kind: 'focus', location: '', workflowId: '', recurrence: 'once' })
         setOpenNew(false)
       })
       .catch(() => undefined)
@@ -642,18 +678,25 @@ function ScheduleTab() {
               </div>
               <div className="relative">
                 {HOURS.map((h) => <div key={h} className="h-14 border-b border-line" />)}
-                <div className="absolute left-0 right-0" style={{ top: `${4.5 * 56 + 14}px` }}>
+                <div className="absolute left-0 right-0" style={{ top: `${planDayMarkerTop(11, 30)}px` }}>
                   <span className="absolute -left-1 -top-1.5 w-2 h-2 rounded-full bg-accent-red" />
                   <span className="block h-px bg-accent-red" />
                 </div>
                 {todays.map((e) => {
-                  const startMin = toPos(e.start) - 7 * 60
-                  const endMin = toPos(e.end) - 7 * 60
+                  const startMin = planDayOffsetMinutes(e.start)
+                  const endMin = planDayOffsetMinutes(e.end)
                   const top = (startMin / 60) * 56
                   const height = ((endMin - startMin) / 60) * 56
                   return (
                     <div key={e.id} className={clsx('absolute left-2 right-2 rounded border px-2 py-1.5 text-xs overflow-hidden', KIND_TONE[e.kind].bg)} style={{ top, height: Math.max(height, 24) }}>
                       <div className="font-medium truncate">{e.title}</div>
+                      {e.workflowId && (
+                        <div className="opacity-70 text-[11px] truncate">
+                          {workflowToolCopy.scheduleWorkflow} {workflows.find((row) => row.id === e.workflowId)?.name || e.workflowId}
+                          {' · '}
+                          {e.recurrence === 'daily' ? workflowToolCopy.scheduleDaily : workflowToolCopy.scheduleOnce}
+                        </div>
+                      )}
                       <div className="opacity-70 text-[11px]">
                         {new Date(e.start).getHours().toString().padStart(2, '0')}:{new Date(e.start).getMinutes().toString().padStart(2, '0')}–
                         {new Date(e.end).getHours().toString().padStart(2, '0')}:{new Date(e.end).getMinutes().toString().padStart(2, '0')}
@@ -736,7 +779,7 @@ function ScheduleTab() {
               <div className="flex gap-1 mt-1.5">
                 <select className="input flex-1" value={draft.startH} onChange={(e) => setDraft({ ...draft, startH: Number(e.target.value) })}>
                   {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-                  <option value={21}>21</option><option value={22}>22</option>
+                  <option value={22}>22</option>
                 </select>
                 <select className="input flex-1" value={draft.startM} onChange={(e) => setDraft({ ...draft, startM: Number(e.target.value) })}>
                   {[0,15,30,45].map((m) => <option key={m} value={m}>{m.toString().padStart(2,'0')}</option>)}
@@ -748,7 +791,7 @@ function ScheduleTab() {
               <div className="flex gap-1 mt-1.5">
                 <select className="input flex-1" value={draft.endH} onChange={(e) => setDraft({ ...draft, endH: Number(e.target.value) })}>
                   {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-                  <option value={21}>21</option><option value={22}>22</option>
+                  <option value={22}>22</option>
                 </select>
                 <select className="input flex-1" value={draft.endM} onChange={(e) => setDraft({ ...draft, endM: Number(e.target.value) })}>
                   {[0,15,30,45].map((m) => <option key={m} value={m}>{m.toString().padStart(2,'0')}</option>)}
@@ -756,6 +799,22 @@ function ScheduleTab() {
               </div>
             </div>
           </div>
+          <div>
+            <label className="text-xs text-ink-muted">{workflowToolCopy.scheduleWorkflow}</label>
+            <select className="input mt-1.5 w-full" value={draft.workflowId} onChange={(e) => setDraft({ ...draft, workflowId: e.target.value })}>
+              <option value="">{workflowToolCopy.scheduleNone}</option>
+              {workflows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+            </select>
+          </div>
+          {draft.workflowId && (
+            <div>
+              <label className="text-xs text-ink-muted">{workflowToolCopy.scheduleRecurrence}</label>
+              <select className="input mt-1.5 w-full" value={draft.recurrence} onChange={(e) => setDraft({ ...draft, recurrence: e.target.value === 'daily' ? 'daily' : 'once' })}>
+                <option value="once">{workflowToolCopy.scheduleOnce}</option>
+                <option value="daily">{workflowToolCopy.scheduleDaily}</option>
+              </select>
+            </div>
+          )}
           <div>
             <label className="text-xs text-ink-muted">类型</label>
             <select className="input mt-1.5 w-full" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as ScheduleEvent['kind'] })}>
@@ -784,24 +843,22 @@ function ScheduleTab() {
 // =======================================================
 const WORKFLOW_EMOJIS = ['🤖', '⚡', '🔁', '📬', '📝', '🗃️', '📊', '🔔']
 
-function WorkflowTab() {
-  const workflows = useCurrentWorkflows()
-  const toggleWorkflow = useApp((s) => s.toggleWorkflow)
-  const removeWorkflow = useApp((s) => s.removeWorkflow)
-  const addWorkflow = useApp((s) => s.addWorkflow)
-  const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<'all' | Workflow['status']>('all')
-  const [showNew, setShowNew] = useState(false)
-  const [draft, setDraft] = useState<{
-    name: string
-    description: string
-    category: Workflow['category']
-    triggerKind: Workflow['trigger']['kind']
-    triggerExpr: string
-    triggerPatterns: string
-    triggerOn: 'task.done' | 'file.save' | 'order.new' | 'im.received'
-    emoji: string
-  }>({
+const SAVED_ONLY = '本版仅保存，不自动执行'
+
+function emptyWorkflowDraft(): {
+  name: string
+  description: string
+  category: Workflow['category']
+  triggerKind: Workflow['trigger']['kind']
+  triggerExpr: string
+  triggerPatterns: string
+  triggerOn: 'task.done' | 'file.save' | 'order.new' | 'im.received'
+  emoji: string
+  stepKind: 'ai' | 'delay'
+  prompt: string
+  sourceRef: string
+} {
+  return {
     name: '',
     description: '',
     category: 'system',
@@ -810,7 +867,147 @@ function WorkflowTab() {
     triggerPatterns: '',
     triggerOn: 'task.done',
     emoji: '🤖',
-  })
+    stepKind: 'ai',
+    prompt: '',
+    sourceRef: '',
+  }
+}
+
+function workflowRunWords(workflow: Workflow): { hold: string; outcome: string } {
+  const hold = workflow.status === 'active' ? '已启用' : '已暂停'
+  const state = workflow.runs[0]?.state
+  if (state === 'queued') return { hold: '', outcome: '排队' }
+  if (state === 'running' || state === 'waiting') return { hold: '', outcome: '运行中' }
+  if (state === 'succeeded') return { hold, outcome: '成功' }
+  if (state === 'failed' || state === 'cancelled') return { hold, outcome: '失败' }
+  return { hold, outcome: '' }
+}
+
+function WorkflowTab() {
+  const workflows = useCurrentWorkflows()
+  const workspaceId = useApp((s) => s.activeWorkspaceId)
+  const planServiceError = useApp((s) => s.planServiceError)
+  const toggleWorkflow = useApp((s) => s.toggleWorkflow)
+  const runWorkflow = useApp((s) => s.runWorkflow)
+  const workflowRunSubmitIds = useApp((s) => s.workflowRunSubmitIds)
+  const removeWorkflow = useApp((s) => s.removeWorkflow)
+  const addWorkflow = useApp((s) => s.addWorkflow)
+  const [q, setQ] = useState('')
+  const [filter, setFilter] = useState<'all' | Workflow['status']>('all')
+  const [showNew, setShowNew] = useState(false)
+  const [draft, setDraft] = useState(emptyWorkflowDraft)
+  const [catalog, setCatalog] = useState<{
+    tools: Array<{ name: string; tier: string }>
+    defaults: string[]
+    presets: Array<{
+      id: string
+      name: string
+      hasDanger: boolean
+      unavailable?: string
+      tools: Array<{ name: string; tier: string; selectable: boolean; reason?: string; blocksRun?: boolean }>
+    }>
+  } | null>(null)
+  const [catalogNote, setCatalogNote] = useState('')
+  const [selectedTools, setSelectedTools] = useState<string[] | null>(null)
+  const [pendingDanger, setPendingDanger] = useState<string[]>([])
+  const [presetId, setPresetId] = useState('')
+  const [toolNote, setToolNote] = useState('')
+
+  useEffect(() => {
+    if (!workspaceId) return
+    let cancelled = false
+    setCatalog(null)
+    setCatalogNote(workflowToolCopy.loading)
+    void runtimeApi.listWorkflowTools(workspaceId).then((row) => {
+      if (cancelled) return
+      setCatalog({
+        tools: Array.isArray(row.tools) ? row.tools : [],
+        defaults: Array.isArray(row.defaults) ? row.defaults.filter((name) => typeof name === 'string' && name) : [],
+        presets: Array.isArray(row.presets) ? row.presets : [],
+      })
+      setCatalogNote('')
+    }).catch((error: unknown) => {
+      if (cancelled) return
+      setCatalog(null)
+      setCatalogNote(error instanceof Error && error.message ? error.message : workflowToolCopy.unavailable)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (!showNew || !catalog || selectedTools) return
+    const initial = catalog.defaults.filter((name) => workflowToolTier(catalog.tools.find((row) => row.name === name)?.tier || '') !== 'danger')
+    setSelectedTools(initial)
+  }, [showNew, catalog, selectedTools])
+
+  function openNew() {
+    setDraft(emptyWorkflowDraft())
+    setSelectedTools(null)
+    setPendingDanger([])
+    setPresetId('')
+    setToolNote('')
+    setShowNew(true)
+  }
+
+  function applyPreset(id: string) {
+    setPresetId(id)
+    if (!id || !catalog) {
+      setPendingDanger([])
+      return
+    }
+    const preset = catalog.presets.find((row) => row.id === id)
+    if (!preset) return
+    if (preset.unavailable) {
+      setPendingDanger([])
+      setToolNote(`${preset.name} ${preset.unavailable}`)
+      return
+    }
+    const selectable = preset.tools.filter((tool) => tool.selectable !== false && tool.blocksRun !== true)
+    const danger = selectable.filter((tool) => workflowToolTier(tool.tier) === 'danger').map((tool) => tool.name)
+    const safe = selectable.filter((tool) => workflowToolTier(tool.tier) !== 'danger').map((tool) => tool.name)
+    setSelectedTools(safe)
+    setPendingDanger(danger)
+    const excluded = preset.tools.filter((tool) => tool.selectable === false).map((tool) => tool.name)
+    const waiting = preset.tools.filter((tool) => tool.blocksRun === true).map((tool) => tool.name)
+    const notes = []
+    if (excluded.length > 0) notes.push(`${workflowToolCopy.excludedLabel} ${excluded.join('、')}`)
+    if (waiting.length > 0) notes.push(`${workflowToolCopy.waitSkipped} ${waiting.join('、')}`)
+    setToolNote(notes.join(' '))
+  }
+
+  function toggleTool(name: string, tier: 'read' | 'propose' | 'danger' | 'wait', checked: boolean) {
+    if (tier === 'danger' && checked) {
+      setPendingDanger([name])
+      return
+    }
+    setPendingDanger((current) => current.filter((item) => item !== name))
+    setSelectedTools((current) => {
+      const list = current ?? []
+      const next = checked ? (list.includes(name) ? list : [...list, name]) : list.filter((item) => item !== name)
+      if (next.length === 0) {
+        setToolNote(workflowToolCopy.emptyList)
+        return list
+      }
+      setToolNote('')
+      return next
+    })
+  }
+
+  function confirmDangerTool() {
+    if (pendingDanger.length === 0) return
+    const names = pendingDanger
+    setSelectedTools((current) => {
+      const next = [...(current ?? [])]
+      for (const name of names) {
+        if (!next.includes(name)) next.push(name)
+      }
+      return next
+    })
+    setPendingDanger([])
+    setToolNote('')
+  }
 
   const visible = workflows.filter((w) => {
     if (filter !== 'all' && w.status !== filter) return false
@@ -829,9 +1026,38 @@ function WorkflowTab() {
 
   function submit() {
     if (!draft.name.trim()) return
-    const steps: WorkflowStep[] = [
-      { id: uid('s'), kind: 'delay', label: '本版不自动跑 AI 或记忆', config: {} },
-    ]
+    const prompt = draft.prompt.trim()
+    const sourceRef = draft.sourceRef.trim()
+    if (draft.stepKind === 'ai' && !prompt) return
+    let confirmDanger: string[] | undefined
+    let step: WorkflowStep
+    if (draft.stepKind === 'ai') {
+      if (!catalog) {
+        setToolNote(catalogNote || workflowToolCopy.unavailable)
+        return
+      }
+      const tools = selectedTools ?? []
+      if (tools.length === 0) {
+        setToolNote(workflowToolCopy.emptyList)
+        return
+      }
+      const tiers = new Map(catalog.tools.map((row) => [row.name, workflowToolTier(row.tier)]))
+      if (tools.some((name) => !tiers.has(name))) {
+        setToolNote(workflowToolCopy.unavailable)
+        return
+      }
+      confirmDanger = tools.filter((name) => tiers.get(name) === 'danger').sort()
+      const config: WorkflowStep['config'] = presetId ? { prompt, tools, presetId } : { prompt, tools }
+      if (sourceRef) config.sourceRef = sourceRef
+      step = {
+        id: uid('s'),
+        kind: 'ai',
+        label: 'AI',
+        config,
+      }
+    } else {
+      step = { id: uid('s'), kind: 'delay', label: '等待', config: {} }
+    }
     void addWorkflow({
       name: draft.name.trim(),
       description: draft.description.trim() || '自动创建的工作流',
@@ -839,12 +1065,13 @@ function WorkflowTab() {
       trigger: buildTrigger(),
       emoji: draft.emoji,
       status: 'paused',
-      steps,
-    }).then(() => {
-      setDraft({
-        name: '', description: '', category: 'system', triggerKind: 'manual',
-        triggerExpr: '0 9 * * *', triggerPatterns: '', triggerOn: 'task.done', emoji: '🤖',
-      })
+      steps: [step],
+    }, confirmDanger).then(() => {
+      setDraft(emptyWorkflowDraft())
+      setSelectedTools(null)
+      setPendingDanger([])
+      setPresetId('')
+      setToolNote('')
       setShowNew(false)
     }).catch(() => undefined)
   }
@@ -856,7 +1083,7 @@ function WorkflowTab() {
           <div className="flex border border-line rounded overflow-hidden">
             {[
               { k: 'all', label: '全部', count: workflows.length },
-              { k: 'active', label: '运行中', count: workflows.filter((w) => w.status === 'active').length },
+              { k: 'active', label: '已启用', count: workflows.filter((w) => w.status === 'active').length },
               { k: 'paused', label: '已暂停', count: workflows.filter((w) => w.status === 'paused').length },
             ].map((t) => (
               <button
@@ -879,7 +1106,7 @@ function WorkflowTab() {
             <input className="input pl-8 h-8 w-full" placeholder="搜索工作流" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <div className="flex-1" />
-          <button className="btn-primary" title="新建工作流" onClick={() => setShowNew(true)}><Plus size={14} /> 新建</button>
+          <button className="btn-primary" title="新建工作流" onClick={openNew}><Plus size={14} /> 新建</button>
         </div>
       </Card>
 
@@ -887,21 +1114,25 @@ function WorkflowTab() {
         <Empty title="没有匹配的工作流" hint="试试清空筛选,或新建一条工作流" />
       ) : (
         <div className="space-y-3">
-          {visible.map((w) => (
+          {visible.map((w) => {
+            const words = workflowRunWords(w)
+            const submitting = workflowRunSubmitIds.includes(w.id)
+            return (
             <Card key={w.id}>
               <div className="flex items-start gap-3">
                 <div className="text-2xl shrink-0">{w.emoji}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="text-sm font-medium">{w.name}</div>
-                    <Tag kind={w.status === 'active' ? 'green' : 'default'}>{w.status === 'active' ? '运行中' : '已暂停'}</Tag>
+                    {words.hold ? (
+                      <Tag kind={w.status === 'active' ? 'green' : 'default'}>{words.hold}</Tag>
+                    ) : null}
                     <Tag kind="blue">{w.category}</Tag>
-                    {w.lastRunStatus && (
-                      <Tag kind={w.lastRunStatus === 'success' ? 'green' : w.lastRunStatus === 'failed' ? 'red' : 'amber'}>
-                        {w.lastRunStatus === 'running' && <Zap size={10} className="inline mr-0.5" />}
-                        {w.lastRunStatus}
+                    {words.outcome ? (
+                      <Tag kind={words.outcome === '成功' ? 'green' : words.outcome === '失败' ? 'red' : 'amber'}>
+                        {words.outcome}
                       </Tag>
-                    )}
+                    ) : null}
                   </div>
                   <div className="text-xs text-ink-muted mt-1">{w.description}</div>
                   {/* trigger 信息 */}
@@ -911,6 +1142,9 @@ function WorkflowTab() {
                     {w.trigger.kind === 'event' && <>⚡ on {w.trigger.on}</>}
                     {w.trigger.kind === 'manual' && <>👆 手动触发</>}
                   </div>
+                  {(w.trigger.kind === 'keyword' || w.trigger.kind === 'event') && (
+                    <div className="mt-2 text-xs text-ink-muted">{SAVED_ONLY}</div>
+                  )}
                   {/* 步骤时间线 */}
                   <div className="mt-3 flex items-center gap-1 flex-wrap">
                     {w.steps.map((s, i) => (
@@ -920,14 +1154,37 @@ function WorkflowTab() {
                       </span>
                     ))}
                   </div>
-                  <div className="mt-2 text-[11px] text-ink-muted flex items-center gap-3">
-                    {w.lastRunAt && (
+                  {w.steps.filter((s) => s.kind === 'ai').map((s) => {
+                    const explicit = readStepTools(s)
+                    const shown = explicit ?? (catalog?.defaults ?? [])
+                    const fromPreset = readStepPreset(s)
+                    const presetName = catalog?.presets.find((row) => row.id === fromPreset)?.name || fromPreset
+                    return (
+                      <div key={`${s.id}-tools`} className="mt-2 text-[11px] text-ink-muted">
+                        {fromPreset ? <div>{workflowToolCopy.presetFrom} {presetName}</div> : null}
+                        <div>
+                          {workflowToolCopy.allowedLabel}{' '}
+                          {shown.length === 0 ? workflowToolCopy.allowedUnknown : shown.join('、')}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {w.lastRunAt && (
+                    <div className="mt-2 text-[11px] text-ink-muted flex items-center gap-3 flex-wrap">
                       <span>上次运行: {new Date(w.lastRunAt).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
-                  <button type="button" className="btn" disabled title="本版不自动运行"><Play size={12} /> 运行</button>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={isHostJobId(w.id) || submitting}
+                    title={isHostJobId(w.id) ? '不运行 Host job' : '运行'}
+                    onClick={() => void runWorkflow(w.id)}
+                  >
+                    <Play size={12} /> {submitting ? '正在提交' : '运行'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => void toggleWorkflow(w.id)}
@@ -945,7 +1202,8 @@ function WorkflowTab() {
                 </div>
               </div>
             </Card>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -1004,6 +1262,52 @@ function WorkflowTab() {
             </div>
           )}
           <div>
+            <label className="text-xs text-ink-muted">步骤</label>
+            <select className="input mt-1.5 w-full" value={draft.stepKind} onChange={(e) => setDraft({ ...draft, stepKind: e.target.value === 'delay' ? 'delay' : 'ai' })}>
+              <option value="ai">AI</option>
+              <option value="delay">等待</option>
+            </select>
+          </div>
+          {draft.stepKind === 'ai' && (
+            <>
+              <div>
+                <label className="text-xs text-ink-muted">提示</label>
+                <textarea className="input mt-1.5 w-full" rows={3} value={draft.prompt} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} placeholder="这一步让 AI 做什么" />
+              </div>
+              <div>
+                <label className="text-xs text-ink-muted">来源引用 (可选)</label>
+                <input className="input mt-1.5 w-full" value={draft.sourceRef} onChange={(e) => setDraft({ ...draft, sourceRef: e.target.value })} placeholder="app:app_ 后接 32 位十六进制" />
+              </div>
+              {catalog ? (
+                <>
+                  <div>
+                    <label className="text-xs text-ink-muted">{workflowToolCopy.presetLabel}</label>
+                    <select className="input mt-1.5 w-full" value={presetId} onChange={(event) => applyPreset(event.target.value)}>
+                      <option value="">{workflowToolCopy.presetNone}</option>
+                      {catalog.presets.map((preset) => (
+                        <option key={preset.id} value={preset.id} disabled={Boolean(preset.unavailable)}>{preset.name}</option>
+                      ))}
+                    </select>
+                    {catalog.presets.filter((preset) => preset.unavailable).map((preset) => (
+                      <div key={`${preset.id}-unavailable`} className="mt-1 text-xs text-ink-muted">{preset.name} {preset.unavailable}</div>
+                    ))}
+                  </div>
+                  <WorkflowToolPicker
+                    tools={catalog.tools}
+                    selected={selectedTools ?? []}
+                    pendingDanger={pendingDanger.length > 0 ? pendingDanger.join('、') : null}
+                    note={toolNote}
+                    onToggle={toggleTool}
+                    onConfirmDanger={confirmDangerTool}
+                    onCancelDanger={() => setPendingDanger([])}
+                  />
+                </>
+              ) : (
+                <div className="text-xs text-ink-muted">{catalogNote || workflowToolCopy.loading}</div>
+              )}
+            </>
+          )}
+          <div>
             <label className="text-xs text-ink-muted">图标</label>
             <div className="flex flex-wrap gap-2 mt-1.5">
               {WORKFLOW_EMOJIS.map((emoji) => (
@@ -1018,11 +1322,14 @@ function WorkflowTab() {
             </div>
           </div>
           <div className="text-xs text-ink-muted p-3 rounded bg-surface-2 border border-line">
-            新建后默认 paused，可到列表点击「启用」。本版不自动运行。
+            新建后默认 paused，可到列表点击「启用」或「运行」。关键字和事件触发只保存。{SAVED_ONLY}
           </div>
+          {showNew && planServiceError && (
+            <div className="text-xs text-accent-red">{planServiceError}</div>
+          )}
           <div className="flex justify-end gap-2 pt-4 border-t border-line">
             <button className="btn" onClick={() => setShowNew(false)}>取消</button>
-            <button className="btn-primary" onClick={submit}>创建</button>
+            <button className="btn-primary" onClick={submit} disabled={draft.stepKind === 'ai' && pendingDanger.length > 0}>创建</button>
           </div>
         </div>
       </RightDrawer>

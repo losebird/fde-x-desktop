@@ -1,0 +1,134 @@
+name: IUI tar sha
+
+# Verification only. Prints the IUI artifact sha256 and fails if it misses the pin.
+# Does not stage, package, or release.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/iui-pack-pin-6fc8
+      - cursor/iui-runtime-status-6fc8
+      - cursor/iui-pin-dc475010-789b
+
+permissions:
+  contents: read
+
+jobs:
+  sha:
+    name: sha (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: ubuntu
+            user_env: '0'
+          - os: macos-latest
+            label: macos
+            user_env: '0'
+          - os: ubuntu-latest
+            label: home-user-locale-longpath
+            user_env: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install desktop dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Mirror registry lockfile packs to the pinned bytes
+        shell: bash
+        run: node --test scripts/pack/iui-registry-lock.test.mjs
+
+      - name: Probe system tar and gzip
+        shell: bash
+        run: |
+          set +e
+          echo "uname $(uname -srm)"
+          echo "node $(node -v)"
+          echo "pnpm $(pnpm --version)"
+          tar --version 2>&1 | head -n 2
+          gzip --version 2>&1 | head -n 2
+          node -e "const p=require('./node_modules/pako/package.json'); console.log('pako', p.version)"
+
+      - name: Build IUI artifact and require the pinned sha256
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$GITHUB_WORKSPACE"
+          if [ "${{ matrix.user_env }}" = "1" ]; then
+            work="$RUNNER_TEMP/zxz/WorkBuddy/2026-09-08-20-34-42/scene-39-personal-workstation"
+            mkdir -p "$(dirname "$work")"
+            cp -a "$GITHUB_WORKSPACE/." "$work"
+            mkdir -p \
+              "$work/.playwright-mcp" \
+              "$work/apps/desktop" \
+              "$work/output" \
+              "$work/promo-direct" \
+              "$work/runtime/vendor-overlays/dsh-semantic-os/python/__pycache__"
+            printf '%s\n' '{}' > "$work/apps/desktop/package-lock.json"
+            printf '%s\n' occupied > "$work/occupy-open.txt"
+            printf '%s\n' pyc > "$work/runtime/vendor-overlays/dsh-semantic-os/python/__pycache__/x.pyc"
+            export HOME="$RUNNER_TEMP/Users/zxz"
+            mkdir -p "$HOME"
+            printf '%s\n' 'registry=https://registry.npmmirror.com' > "$HOME/.npmrc"
+            export USER=zxz
+            export LANG=en_US.UTF-8
+            export LC_ALL=en_US.UTF-8
+            unset TZ || true
+            echo "HOME=$HOME"
+            echo "USER=$USER"
+            echo "LANG=$LANG"
+            echo "work=$work"
+            npm config get registry
+          fi
+          cd "$work"
+          node scripts/pack/build-iui.mjs --out "$RUNNER_TEMP/iui-out"
+          artifact=$(find "$RUNNER_TEMP/iui-out" -name 'iui-*.tar.gz' -print -quit)
+          test -n "$artifact"
+          ARTIFACT="$artifact" node --input-type=module << 'JS'
+          import { createHash } from 'node:crypto'
+          import { readFileSync } from 'node:fs'
+          import { IUI_PIN } from './runtime/iui-pin.mjs'
+          const sha = createHash('sha256').update(readFileSync(process.env.ARTIFACT)).digest('hex')
+          console.log(`sha256 ${sha}`)
+          console.log(`pinned ${IUI_PIN.artifact.sha256}`)
+          if (sha !== IUI_PIN.artifact.sha256) {
+            console.error('IUI artifact sha256 does not match pins.mjs')
+            process.exit(1)
+          }
+          JS
+
+      - name: Boot the local runtime and read /health
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          pnpm dev > "$RUNNER_TEMP/pnpm-dev.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/pnpm-dev.pid"
+          ok=0
+          for _ in $(seq 1 90); do
+            if curl -sf "http://127.0.0.1:4318/health"; then
+              echo
+              echo health_ok
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          kill "$(cat "$RUNNER_TEMP/pnpm-dev.pid")" >/dev/null 2>&1 || true
+          pkill -P "$(cat "$RUNNER_TEMP/pnpm-dev.pid")" >/dev/null 2>&1 || true
+          if [ "$ok" != 1 ]; then
+            echo 'pnpm dev did not serve /health'
+            tail -n 120 "$RUNNER_TEMP/pnpm-dev.log"
+            exit 1
+          fi

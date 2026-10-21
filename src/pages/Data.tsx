@@ -28,7 +28,7 @@ import { runDeclaredPlatformUse } from '@/lib/app-platform'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { RecordsPanel } from '@/components/biz/RecordsPanel'
 import { OperationControlPanel } from '@/components/biz/OperationControlPanel'
-import { dataLandView } from '@/lib/data-browse'
+import { clearAppRecordFocus, dataLandView } from '@/lib/data-browse'
 
 type Tone = 'default' | 'red' | 'amber' | 'blue' | 'purple' | 'teal' | 'green'
 
@@ -220,7 +220,7 @@ export default function Data() {
           onOpenOperations={() => setView('operations')}
         />
       )}
-      {view === 'records' && (
+      <div className={view === 'records' ? 'min-w-0' : 'hidden'}>
         <RecordsPanel
           connections={connections}
           apps={apps.filter((app) => !appIsTrashed(app))}
@@ -229,7 +229,7 @@ export default function Data() {
           onPlan={() => setView('operations')}
           onPlanWithTarget={() => setView('operations')}
         />
-      )}
+      </div>
       {view === 'operations' && (
         <OperationControlPanel runtimeReady={!error} vocab={vocab} />
       )}
@@ -466,6 +466,96 @@ function AppCatalogRow({
   )
 }
 
+function proposalView(operation: RuntimeOperation) {
+  if (operation.state !== 'awaiting_approval' || operation.action !== 'app.record.propose') return null
+  const plan = operation.plan
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan) || plan.kind !== 'app.record.propose') return null
+  const slug = typeof plan.slug === 'string' ? plan.slug : ''
+  const entity = typeof plan.entity === 'string' ? plan.entity : ''
+  const patches = Array.isArray(plan.patches) ? plan.patches.flatMap((patch) => {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return []
+    if (typeof patch.rid !== 'string' || !patch.rid) return []
+    const fields = patch.fields
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return []
+    const lines = Object.entries(fields).map(([key, value]) => `${key} = ${value == null ? '' : String(value)}`)
+    if (lines.length === 0) return []
+    return [{ rid: patch.rid, lines }]
+  }) : []
+  if (patches.length === 0) return null
+  return { slug, entity, patches }
+}
+
+function RecordProposalList({
+  operations,
+  onChanged,
+}: {
+  operations: RuntimeOperation[]
+  onChanged: () => Promise<void>
+}) {
+  const [busyId, setBusyId] = useState('')
+  const [error, setError] = useState('')
+  const items = operations.flatMap((operation) => {
+    const view = proposalView(operation)
+    return view ? [{ id: operation.id, view }] : []
+  })
+  if (items.length === 0) return null
+
+  const decide = async (operationId: string, decision: 'confirm' | 'reject') => {
+    setBusyId(operationId)
+    setError('')
+    try {
+      await runtimeApi.decideRecordProposal(operationId, decision)
+      await onChanged()
+    } catch (cause) {
+      setError(formatError(cause))
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  return (
+    <Card className="!p-0 overflow-hidden">
+      <div className="px-4 py-3 border-b border-line" data-record-proposals="true">
+        <div className="text-sm font-medium">待确认的记录修改</div>
+        <div className="text-xs text-ink-muted mt-0.5">确认后才按提案里的字段改记录。</div>
+      </div>
+      {error && <div className="px-4 py-2 text-xs text-accent-red">{error}</div>}
+      <div className="divide-y divide-line">
+        {items.map((item) => (
+          <div key={item.id} className="px-4 py-3 flex flex-wrap items-center gap-3" data-record-proposal={item.id}>
+            <div className="min-w-0 flex-1 text-xs">
+              <div className="font-medium">{item.view.slug} / {item.view.entity}</div>
+              {item.view.patches.map((patch) => (
+                <div key={patch.rid} className="text-ink-muted mt-1">
+                  {patch.rid} · {patch.lines.join('，')}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn h-7"
+              data-record-proposal-confirm={item.id}
+              disabled={busyId === item.id}
+              onClick={() => { void decide(item.id, 'confirm') }}
+            >
+              确认
+            </button>
+            <button
+              type="button"
+              className="btn h-7"
+              data-record-proposal-reject={item.id}
+              disabled={busyId === item.id}
+              onClick={() => { void decide(item.id, 'reject') }}
+            >
+              拒绝
+            </button>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
 function Overview({
   apps, connections, operations, pendingApproval, unresolved, workspaceId, onCreated, onOpenRecords, onOpenOperations,
 }: {
@@ -489,7 +579,7 @@ function Overview({
   const landSlug = useApp((state) => state.dataBrowse.slug)
   const dataLand = useApp((state) => state.dataBrowse.land)
   const setDataBrowse = useApp((state) => state.setDataBrowse)
-  const setWorkspaceAppId = (id: string) => setDataBrowse({ workspaceAppId: id || null })
+  const setWorkspaceAppId = (id: string) => setDataBrowse(clearAppRecordFocus(id || null))
   const [deleteTarget, setDeleteTarget] = useState<BusinessAppRecord | null>(null)
   const [purgeTarget, setPurgeTarget] = useState<BusinessAppRecord | null>(null)
   const [trashedOpen, setTrashedOpen] = useState(false)
@@ -701,6 +791,8 @@ function Overview({
         <Metric icon={FileClock} label="待审批" value={pendingApproval} hint="写入不会绕过确认" tone={pendingApproval ? 'amber' : 'default'} />
         <Metric icon={Activity} label="异常待处理" value={unresolved} hint={`${operations.length} 次操作留有记录`} tone={unresolved ? 'red' : 'default'} />
       </div>
+
+      <RecordProposalList operations={operations} onChanged={onCreated} />
 
       <div className="grid grid-cols-1 @3xl:grid-cols-[1.12fr_.88fr] gap-4">
         <Card className="!p-0 overflow-hidden">

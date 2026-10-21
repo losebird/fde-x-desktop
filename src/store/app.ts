@@ -10,7 +10,7 @@ import type {
 } from '@/lib/types'
 import { seedUser } from '@/data/seed'
 import { runtimeApi } from '@/lib/runtime-api'
-import { emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
+import { clearAppRecordFocus, emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
 import { imBrowseOccupancy } from '@/lib/im-letter-home'
 import {
   eventFromHostBagItem,
@@ -20,8 +20,14 @@ import {
   taskFromHostBagItem,
   workflowFromHostBagItem,
 } from '@/lib/plan-origin'
+import { RuntimeApiError } from '@/lib/runtime-api'
 
 const PLAN_UNAVAILABLE = '计划服务未就绪'
+
+function planFailure(error: unknown) {
+  if (error instanceof RuntimeApiError && error.message) return error.message
+  return PLAN_UNAVAILABLE
+}
 
 // =======================================================
 //                  Stage Manager 侧栏系统
@@ -224,7 +230,9 @@ interface State {
   removeAgent: (id: ID) => void
   // workflows
   toggleWorkflow: (id: ID) => Promise<void>
-  addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt'>) => Promise<void>
+  workflowRunSubmitIds: ID[]
+  runWorkflow: (id: ID) => Promise<void>
+  addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt' | 'runs'>, confirmDanger?: string[]) => Promise<void>
   removeWorkflow: (id: ID) => Promise<void>
   // im
   sendIM: (threadId: ID, text: string, opts?: { attachments?: IMAttachment[]; handoff?: IMHandoffPackage; topicId?: ID; replyToId?: ID; aiChatId?: ID }) => void
@@ -357,6 +365,55 @@ function withPanelFull(panels: SidePanelItem[], id: string): SidePanelItem[] {
     if (p.state === 'full' || p.state === 'half') return { ...p, state: 'tab' as const }
     return p
   })
+}
+
+const WORKFLOW_RUN_WATCH_MS = 30_000
+const WORKFLOW_RUN_WATCH_GAP_MS = 400
+const workflowRunLockRef: { current: Set<ID> } = { current: new Set() }
+
+function sessionIdOfRun(run: Workflow['runs'][number] | undefined): string {
+  const value = run && (run as { sessionId?: unknown }).sessionId
+  return typeof value === 'string' ? value : ''
+}
+
+async function refreshWorkflowListIgnoringError(
+  get: () => AppState,
+  set: (partial: (state: AppState) => Partial<AppState>) => void,
+) {
+  const workspaceId = get().activeWorkspaceId
+  if (!workspaceId) return
+  const rows = await runtimeApi.listWorkflows(workspaceId).catch(() => null)
+  if (!rows) return
+  set((state) => ({
+    workflows: state.workflows.map((row) => rows.find((next) => next.id === row.id) ?? row),
+  }))
+}
+
+async function followWorkflowRun(
+  get: () => AppState,
+  set: (partial: (state: AppState) => Partial<AppState>) => void,
+  workflowId: string,
+  runId: string,
+) {
+  const started = Date.now()
+  let revealed = false
+  while (true) {
+    const workflow = get().workflows.find((row) => row.id === workflowId)
+    const run = runId
+      ? workflow?.runs.find((row) => row.id === runId)
+      : workflow?.runs[0]
+    const sessionId = sessionIdOfRun(run)
+    if (sessionId && !revealed) {
+      revealed = true
+      const { revealAi } = await import('@/lib/reveal-ai')
+      revealAi(sessionId)
+    }
+    if (run && run.state !== 'queued') return
+    if (Date.now() - started >= WORKFLOW_RUN_WATCH_MS) return
+    await new Promise((resolve) => setTimeout(resolve, WORKFLOW_RUN_WATCH_GAP_MS))
+    if (!get().activeWorkspaceId) return
+    await refreshWorkflowListIgnoringError(get, set)
+  }
 }
 
 export const useApp = create<AppState>()(
@@ -546,7 +603,7 @@ export const useApp = create<AppState>()(
             const already = dataPanel?.state === 'full' || dataPanel?.state === 'half'
             return {
               floating,
-              dataBrowse: { ...s.dataBrowse, workspaceAppId: appId, view: 'overview' as const },
+              dataBrowse: { ...s.dataBrowse, ...clearAppRecordFocus(appId), view: 'overview' as const },
               ...(already ? {} : { panels: withPanelFull(s.panels, 'data') }),
             }
           }
@@ -676,6 +733,7 @@ export const useApp = create<AppState>()(
       },
 
       planServiceError: null,
+      workflowRunSubmitIds: [] as ID[],
       selectedTaskId: null,
       selectTask: (id) => set({ selectedTaskId: id }),
       hydratePlan: async (workspaceId) => {
@@ -784,6 +842,7 @@ export const useApp = create<AppState>()(
             endAt: e.end,
             kind: e.kind,
             location: e.location,
+            ...(e.workflowId && e.recurrence ? { workflowId: e.workflowId, recurrence: e.recurrence } : {}),
           })
           set((s) => ({ events: [...s.events, created], planServiceError: null }))
         } catch {
@@ -942,7 +1001,35 @@ export const useApp = create<AppState>()(
           throw new Error(PLAN_UNAVAILABLE)
         }
       },
-      addWorkflow: async (w) => {
+      runWorkflow: async (id) => {
+        if (workflowRunLockRef.current.has(id)) return
+        workflowRunLockRef.current.add(id)
+        set((s) => ({
+          workflowRunSubmitIds: s.workflowRunSubmitIds.includes(id)
+            ? s.workflowRunSubmitIds
+            : [...s.workflowRunSubmitIds, id],
+        }))
+        const clearSubmit = () => {
+          set((s) => ({
+            workflowRunSubmitIds: s.workflowRunSubmitIds.filter((item) => item !== id),
+          }))
+        }
+        try {
+          const ticket = await runtimeApi.runWorkflow(id)
+          const workspaceId = get().activeWorkspaceId
+          if (workspaceId) await get().hydratePlan(workspaceId)
+          clearSubmit()
+          workflowRunLockRef.current.delete(id)
+          await followWorkflowRun(get, set, id, typeof ticket?.id === 'string' ? ticket.id : '')
+        } catch (error) {
+          workflowRunLockRef.current.delete(id)
+          clearSubmit()
+          const message = planFailure(error)
+          set({ planServiceError: message })
+          throw new Error(message)
+        }
+      },
+      addWorkflow: async (w, confirmDanger) => {
         const workspaceId = get().activeWorkspaceId
         if (!workspaceId) return
         try {
@@ -955,11 +1042,13 @@ export const useApp = create<AppState>()(
             steps: w.steps,
             category: w.category,
             emoji: w.emoji,
+            ...(confirmDanger && confirmDanger.length > 0 ? { confirmDanger } : {}),
           })
           set((s) => ({ workflows: [created, ...s.workflows], planServiceError: null }))
-        } catch {
-          set({ planServiceError: PLAN_UNAVAILABLE })
-          throw new Error(PLAN_UNAVAILABLE)
+        } catch (error) {
+          const message = planFailure(error)
+          set({ planServiceError: message })
+          throw new Error(message)
         }
       },
       removeWorkflow: async (id) => {
@@ -1068,7 +1157,13 @@ export const useApp = create<AppState>()(
         set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })) })),
 
       resetDemo: () =>
-        set(() => ({ ...buildInitial(), panels: defaultPanels(), drawers: defaultDrawers(), activeAiSessionId: null })),
+        set(() => ({
+          ...buildInitial(),
+          panels: defaultPanels(),
+          drawers: defaultDrawers(),
+          activeAiSessionId: null,
+          workflowRunSubmitIds: [],
+        })),
     }),
     {
       name: 'scene-39-workstation',

@@ -1,6 +1,5 @@
-/** Packaged static owns FDE routes; only /dsh-app is the Host iframe mouth. */
-
 import { isViteDevAsset } from './apps/share.mjs'
+import { pathHasPrefix } from './path-prefix.mjs'
 
 export function shouldProxyDshPath(pathname, { hostOrigin, staticDir, livePath } = {}) {
   if (pathname === '/dsh-app' || pathname.startsWith('/dsh-app/')) return true
@@ -9,7 +8,7 @@ export function shouldProxyDshPath(pathname, { hostOrigin, staticDir, livePath }
   if (pathname.startsWith('/api/v1')) return false
   if (pathname === '/a' || pathname.startsWith('/a/')) return false
   if (isViteDevAsset(pathname)) return false
-  if (pathname === '/semantic-os' || pathname.startsWith('/semantic-os/')) return false
+  if (pathHasPrefix(pathname, '/semantic-os')) return false
   if (pathname === '/health' || pathname === livePath) return false
   if (pathname === '/' || pathname === '/favicon.ico') return false
   return true

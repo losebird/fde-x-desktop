@@ -1,6 +1,8 @@
 /** Locked versions for Electron resources staging (spec 09 §6). */
 import { HOST_GENERATION } from '../../runtime/generation.mjs'
 
+export { IUI_PIN } from '../../runtime/iui-pin.mjs'
+
 export const DSH_NPM_VERSION = HOST_GENERATION.pin
 
 export const SEMANTIC_RUNTIME = {

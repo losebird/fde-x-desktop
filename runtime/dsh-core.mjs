@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
-import { constants, existsSync, realpathSync, symlinkSync } from 'node:fs'
+import { constants, existsSync, readFileSync, realpathSync, symlinkSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
@@ -21,9 +21,14 @@ import {
 } from './config.mjs'
 import { hostChildEnv, resolveHostSpawn } from './host-spawn.mjs'
 import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
-import { mergeProfileManifest } from './profile-manifest.mjs'
+import { BUILTIN_PLUGINS, pluginEnvKey } from './builtin-plugins.mjs'
+import { readProfileManifestFile, writeMergedProfileManifest } from './profile-manifest.mjs'
+import { reconcilePinnedVendor } from './plugin-vendor.mjs'
+import { stageIuiArtifactIfAbsent, sweepStaleIuiPartials } from './iui-stage.mjs'
+import { iuiProfileDir, promoteInstalledIui } from './iui-status.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
+import { linkPackagedPeers } from './packaged-peer.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -202,6 +207,82 @@ export async function parseHostRpcValue(response, rpcId, endpoint) {
   return envelope.result.value
 }
 
+function hostGroupAlive(pgid) {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32' || !Number.isInteger(pgid) || pgid <= 1) {
+      resolve(false)
+      return
+    }
+    execFile('ps', ['-ax', '-o', 'pgid=,stat='], { timeout: 2000 }, (error, stdout) => {
+      if (error) {
+        resolve(false)
+        return
+      }
+      for (const line of String(stdout || '').split('\n')) {
+        const match = line.match(/^\s*(\d+)\s+(\S+)/u)
+        if (!match) continue
+        if (Number(match[1]) === pgid && !match[2].includes('Z')) {
+          resolve(true)
+          return
+        }
+      }
+      resolve(false)
+    })
+  })
+}
+
+const hostExitPaths = new WeakMap()
+const hostExitPhrases = new WeakMap()
+
+function discardHostExit(child) {
+  const path = hostExitPaths.get(child)
+  if (!path) return
+  hostExitPaths.delete(child)
+  try { unlinkSync(path) } catch { /* status file was never written */ }
+}
+
+function describeHostExit(child, code, signal) {
+  const leader = signal ? `signal ${signal}` : `code ${code}`
+  if (process.platform === 'win32') return leader
+  const cached = hostExitPhrases.get(child)
+  if (cached) return cached
+  let phrase = ''
+  const path = hostExitPaths.get(child)
+  if (path) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8'))
+      if (typeof parsed?.signal === 'string' && parsed.signal) phrase = `signal ${parsed.signal}`
+      else if (Number.isInteger(parsed?.code)) phrase = `code ${parsed.code}`
+    } catch {
+      phrase = ''
+    }
+    try { unlinkSync(path) } catch { /* no status file */ }
+    hostExitPaths.delete(child)
+  }
+  const resolved = phrase || `${leader}，真实退出状态未知`
+  hostExitPhrases.set(child, resolved)
+  return resolved
+}
+
+function signalHostGroup(child, signal) {
+  const pid = child?.pid
+  if (process.platform !== 'win32' && Number.isInteger(pid) && pid > 1) {
+    try {
+      process.kill(-pid, signal)
+      return
+    } catch (error) {
+      if (error?.code !== 'ESRCH') throw error
+    }
+  }
+  if (!child || child.exitCode != null || child.signalCode != null) return
+  try {
+    child.kill(signal)
+  } catch (error) {
+    if (error?.code === 'ESRCH') return
+    throw error
+  }
+}
+
 export class DshCoreConnector {
   constructor(options = {}) {
     this.bin = resolveDshBin(options.bin)
@@ -231,6 +312,9 @@ export class DshCoreConnector {
     this.pendingApprovals = new Map()
     this.eventAbort = null
     this.semanticRestarting = false
+    this.childStopExpected = false
+    this.iuiRetryPromise = null
+    this.iui = { state: 'absent' }
   }
 
   kickSemanticIfExited(snapshot) {
@@ -267,12 +351,75 @@ export class DshCoreConnector {
       lastError,
       bridgeTools,
       recentLogs: this.logs.slice(-MAX_LOG_LINES),
+      iui: this.iui,
+    }
+  }
+
+  iuiPackagePresent() {
+    return existsSync(join(iuiProfileDir(this.dshHome, this.profileName), 'package.json'))
+  }
+
+  publishIui(next) {
+    const previous = JSON.stringify(this.iui ?? null)
+    const encoded = JSON.stringify(next)
+    this.iui = next
+    if (previous === encoded) return
+    console.info(`iui-state ${encoded}`)
+  }
+
+  failCore(reason) {
+    const text = String(reason || '核心启动失败')
+    this.state = 'error'
+    this.lastError = text
+    if (this.iui && this.iui.state === 'verify_failed') return
+    this.publishIui({ state: 'failed', reason: text })
+  }
+
+  beginIuiInstall() {
+    if (this.iui && this.iui.state === 'installing') return
+    if (this.iuiPackagePresent()) return
+    this.publishIui({ state: 'installing', phase: 'stage', progress: { completed: 0, total: 4 } })
+  }
+
+  noteIuiPhase(phase, completed) {
+    if (!this.iui || this.iui.state !== 'installing') return
+    this.publishIui({ state: 'installing', phase, progress: { completed, total: 4 } })
+  }
+
+  bootMark(phase) {
+    if (!this.bootMarks) this.bootMarks = []
+    this.bootMarks.push({ phase, at: Date.now() })
+  }
+
+  bootSummary() {
+    const marks = this.bootMarks || []
+    if (marks.length < 2) return ''
+    const parts = []
+    for (let index = 1; index < marks.length; index += 1) {
+      parts.push(`${marks[index].phase}:${marks[index].at - marks[index - 1].at}`)
+    }
+    return `iui-boot ${parts.join(' ')} total:${marks[marks.length - 1].at - marks[0].at}`
+  }
+
+  async settleIuiEnabled(attempts = 8) {
+    let readError = ''
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (!this.iui || this.iui.state !== 'installing') return
+      if (this.state !== 'connected') return
+      const result = await promoteInstalledIui(this, this.dshHome, this.profileName)
+      readError = result.readError
+      if (!this.iui || this.iui.state !== 'installing') return
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    if (this.iui && this.iui.state === 'installing' && readError) {
+      console.warn('iui_enable_pending', readError)
     }
   }
 
   async start() {
     if (this.state === 'connected') return this.status()
     if (this.startPromise) return this.startPromise
+    this.beginIuiInstall()
     this.startPromise = this.startInternal().finally(() => {
       this.startPromise = null
     })
@@ -294,9 +441,13 @@ export class DshCoreConnector {
   }
 
   async startInternal() {
+    this.bootMarks = []
+    this.bootMark('start')
     this.state = 'starting'
     this.lastError = null
     this.logs = []
+    this.childStopExpected = false
+    try {
     if (!this.bin) {
       throw new Error('找不到 dsh。请安装 DeepSeek Harness，或设置 FDE_DSH_BIN 指向 dsh 可执行文件。')
     }
@@ -314,7 +465,9 @@ export class DshCoreConnector {
     await access(this.cwd, constants.R_OK)
     await access(this.patchFile, constants.R_OK)
     await this.prepareCredentialsCopy()
+    this.bootMark('credentials')
     await this.ensureIsolatedProfile()
+    this.bootMark('profile')
     try {
       const { ensureLocalMcpInProfile, ensureSkillProvidersInProfile } = await import('./mcp-archive.mjs')
       const { ensureSubagentAllowedModelsInProfile } = await import('./subagent-models.mjs')
@@ -324,6 +477,7 @@ export class DshCoreConnector {
     } catch (error) {
       console.warn('ensure_profile_archive_failed', error)
     }
+    this.bootMark('archives')
     let extraPresetPatch = ''
     try {
       const { ensurePresets, generatedAgentPresetPatchPath } = await import('./routes/presets.mjs')
@@ -332,8 +486,12 @@ export class DshCoreConnector {
     } catch (error) {
       console.warn('ensurePresets_failed', error)
     }
+    this.bootMark('presets')
     await this.reclaimStrayProcesses()
+    this.bootMark('reclaim')
     const semanticaPython = await this.ensureSharedSemanticRuntime()
+    this.bootMark('semantic')
+    this.noteIuiPhase('boot', 3)
     try {
       const { applyMcpBootHold } = await import('./mcp-archive.mjs')
       await applyMcpBootHold(this)
@@ -348,7 +506,7 @@ export class DshCoreConnector {
     }
 
     const host = resolveHostSpawn(this.bin)
-    const child = spawn(host.command, [
+    const hostArgs = [
       ...host.args,
       '--profile', this.profileName,
       '--patch', this.patchFile,
@@ -356,47 +514,55 @@ export class DshCoreConnector {
       '--host', '127.0.0.1',
       '--port', '0',
       '--no-open',
-    ], {
+    ]
+    const groupLeader = process.platform !== 'win32'
+    const exitStatusPath = groupLeader ? join(tmpdir(), 'fde-host-exit', `${randomUUID()}.json`) : ''
+    const child = spawn(host.command, groupLeader
+      ? [join(FDE_RUNTIME_DIR, 'host-group.mjs'), host.command, ...hostArgs]
+      : hostArgs, {
       cwd: this.cwd,
       env: hostChildEnv({
         DSH_HOME: this.dshHome,
         DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE || 'danger-full-access',
         DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT,
+        FDE_RUNTIME_DIR: this.runtimeDirectory,
         FDE_AI_WORKSPACE: this.cwd,
         FDE_DSH_CREDENTIALS_PATH: this.credentialsPath,
+        ...(exitStatusPath ? { FDE_HOST_EXIT_STATUS: exitStatusPath } : {}),
         ...(process.env.DSH_SEMANTICA_PYTHON || semanticaPython ? { DSH_SEMANTICA_PYTHON: process.env.DSH_SEMANTICA_PYTHON || semanticaPython } : {}),
         ...(process.env.FDE_DSH_SESSION_ROOT ? { FDE_DSH_SESSION_ROOT: process.env.FDE_DSH_SESSION_ROOT } : {}),
         ...(process.env.FDE_DSH_STORAGE_ROOT ? { FDE_DSH_STORAGE_ROOT: process.env.FDE_DSH_STORAGE_ROOT } : {}),
       }),
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [groupLeader ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      detached: groupLeader,
+    })
+    if (exitStatusPath) hostExitPaths.set(child, exitStatusPath)
+    child.stdin?.on('error', (error) => {
+      if (error?.code === 'EPIPE' || error?.code === 'ECONNRESET' || error?.code === 'ERR_STREAM_DESTROYED') return
+      throw error
     })
     this.child = child
-    if (child.pid) {
-      await writePidFile(this.runDirectory, this.corePidFile, child.pid)
-    }
-
     child.stdout?.setEncoding('utf8')
     child.stderr?.setEncoding('utf8')
     child.stdout?.on('data', (chunk) => this.captureLogs(chunk))
     child.stderr?.on('data', (chunk) => this.captureLogs(chunk))
-    child.once('exit', (code, signal) => {
-      const expected = this.state === 'stopping' || this.state === 'stopped'
-      this.closeStreams()
-      this.child = null
-      this.cookie = null
-      this.origin = null
-      if (expected) {
-        this.state = 'stopped'
-      } else {
-        this.state = 'error'
-        this.lastError = `AI 服务意外退出：${signal ? `signal ${signal}` : `code ${code}`}`
+    this.armChildFailure(child)
+    await new Promise((resolveTick) => setImmediate(resolveTick))
+    if (this.state === 'error' || child.exitCode != null || child.signalCode != null) {
+      if (this.state !== 'error') {
+        const how = describeHostExit(child, child.exitCode, child.signalCode)
+        const detail = this.logs.filter(Boolean).slice(-4).join(' | ')
+        this.failCore(detail ? `AI 服务意外退出：${how}：${detail}` : `AI 服务意外退出：${how}`)
       }
-      void this.cleanupCredentialsCopy()
-    })
+      throw new Error(this.lastError)
+    }
+    if (child.pid) {
+      await writePidFile(this.runDirectory, this.corePidFile, child.pid)
+    }
+    if (this.state === 'error') throw new Error(this.lastError)
 
-    try {
-      const launchUrl = await this.waitForAnnouncement(child)
+    const launchUrl = await this.waitForAnnouncement(child)
       const origin = publicOrigin(launchUrl)
       const first = await fetch(launchUrl, { redirect: 'manual', signal: AbortSignal.timeout(15_000) })
       if (first.status !== 303) throw new Error(`AI 服务认证交换失败：HTTP ${first.status}`)
@@ -415,6 +581,11 @@ export class DshCoreConnector {
       this.cookie = cookie
       this.state = 'connected'
       this.startedAt = new Date().toISOString()
+      this.noteIuiPhase('enable', 3)
+      this.bootMark('connected')
+      const summary = this.bootSummary()
+      if (summary) console.info(summary)
+      void this.settleIuiEnabled()
       void this.activateArchivedMcp()
       void import('./catalog-typert.mjs').then(({ ensureTypertVerbs }) => ensureTypertVerbs()).catch((error) => {
         console.warn('ensure_typert_verbs_failed', error)
@@ -425,12 +596,35 @@ export class DshCoreConnector {
       })
       return this.status()
     } catch (error) {
-      this.state = 'error'
-      this.lastError = errorMessage(error)
+      this.failCore(errorMessage(error))
       await this.releaseMcpBootHoldSafe()
       await this.stopChild()
       throw error
     }
+  }
+
+  armChildFailure(child) {
+    const onExit = (code, signal) => {
+      const expected = this.childStopExpected || this.state === 'stopping' || this.state === 'stopped'
+      this.closeStreams()
+      if (this.child === child) this.child = null
+      this.cookie = null
+      this.origin = null
+      if (!expected) {
+        const how = describeHostExit(child, code, signal)
+        const detail = this.logs.filter(Boolean).slice(-4).join(' | ')
+        this.failCore(detail ? `AI 服务意外退出：${how}：${detail}` : `AI 服务意外退出：${how}`)
+      } else {
+        discardHostExit(child)
+        if (this.state !== 'error') this.state = 'stopped'
+      }
+      void this.cleanupCredentialsCopy()
+    }
+    child.once('exit', onExit)
+    child.once('error', (error) => {
+      if (this.childStopExpected || this.state === 'stopping' || this.state === 'stopped') return
+      this.failCore(errorMessage(error))
+    })
   }
 
   async releaseMcpBootHoldSafe() {
@@ -461,13 +655,40 @@ export class DshCoreConnector {
     }
   }
 
-  pluginSourceCandidates(name) {
-    const envKey = `FDE_PLUGIN_${name.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()}`
-    const fromEnv = process.env[envKey]
-    const webLink = join(this.dshHome, 'profiles', 'web', 'node_modules', name)
+  pinnedArtifactPath(plugin) {
+    const override = process.env.FDE_IUI_ARTIFACT
+    if (override) return override
+    const fromEnv = process.env.FDE_VENDOR_DIR
+    const root = fromEnv
+      ? resolve(fromEnv === '~' ? homedir() : fromEnv.startsWith('~/') ? join(homedir(), fromEnv.slice(2)) : fromEnv)
+      : FDE_VENDOR_DIR
+    return join(root, plugin.dir, `iui-${plugin.source.commit}.tar.gz`)
+  }
+
+  pinnedInstallDir(plugin) {
+    const shared = join(this.dshHome, 'vendor', plugin.dir)
+    const artifactPath = this.pinnedArtifactPath(plugin)
+    if (!artifactPath || !existsSync(artifactPath) || !existsSync(shared)) return shared
+    try {
+      if (realpathSync(shared) !== realpathSync(dirname(artifactPath))) return shared
+    } catch {
+      return shared
+    }
+    if (existsSync(join(shared, 'package.json'))) return shared
+    return join(this.dshHome, 'pinned', plugin.dir)
+  }
+
+  pluginSourceCandidates(plugin) {
+    const fromEnv = process.env[pluginEnvKey(plugin.dir)]
+    const webLink = join(this.dshHome, 'profiles', 'web', 'node_modules', plugin.module)
     const candidates = []
     if (fromEnv) candidates.push(fromEnv)
-    candidates.push(join(FDE_VENDOR_DIR, name))
+    candidates.push(join(FDE_VENDOR_DIR, plugin.dir))
+    if (plugin.module !== plugin.dir) {
+      const moduleEnv = process.env[pluginEnvKey(plugin.module)]
+      if (moduleEnv && moduleEnv !== fromEnv) candidates.push(moduleEnv)
+      candidates.push(join(FDE_VENDOR_DIR, plugin.module))
+    }
     try {
       if (existsSync(webLink)) candidates.push(realpathSync(webLink))
     } catch {
@@ -486,51 +707,114 @@ export class DshCoreConnector {
     }
   }
 
-  async linkReadablePlugin(name, modulesDir) {
-    const vendor = join(this.dshHome, 'vendor', name)
-    const link = join(modulesDir, name)
-    if (process.env.FDE_REFRESH_PLUGINS === '1') {
-      await rm(vendor, { recursive: true, force: true })
-    }
-    if (!existsSync(vendor)) {
-      for (const source of this.pluginSourceCandidates(name)) {
-        try {
-          await access(source, constants.R_OK)
-          await mkdir(dirname(vendor), { recursive: true })
-          await cp(source, vendor, { recursive: true, dereference: true })
-          break
-        } catch {
-          /* try next candidate */
+  recordPluginFailure(plugin, detail) {
+    const text = `可选插件 ${plugin.module} 挂载失败：${detail}`
+    this.pluginLinkFailures.push(text)
+    console.warn('builtin_plugin_link_failed', text)
+  }
+
+  async linkBuiltinPlugin(plugin, modulesDir) {
+    try {
+      const vendor = plugin.source.kind === 'pinned'
+        ? this.pinnedInstallDir(plugin)
+        : join(this.dshHome, 'vendor', plugin.dir)
+      if (plugin.source.kind === 'pinned') {
+        const sha256 = plugin.source.sha256
+        if (!/^[a-f0-9]{64}$/u.test(String(sha256 || ''))) {
+          throw Object.assign(new Error(`pinned plugin ${plugin.module} is missing source.sha256`), {
+            code: 'FDE_IUI_SHA_MISMATCH',
+          })
+        }
+        this.noteIuiPhase('stage', 1)
+        const staged = await stageIuiArtifactIfAbsent({
+          dest: vendor,
+          pin: {
+            version: plugin.source.version,
+            commit: plugin.source.commit,
+            artifact: { url: '', sha256 },
+          },
+          artifactPath: this.pinnedArtifactPath(plugin),
+        })
+        if (staged.state === 'verify_failed') {
+          this.publishIui(staged)
+          return false
+        }
+        if (staged.state === 'installed') this.noteIuiPhase('link', 2)
+        const result = await reconcilePinnedVendor({
+          vendorDir: vendor,
+          pin: { version: plugin.source.version, commit: plugin.source.commit },
+          candidates: this.pluginSourceCandidates(plugin),
+        })
+        if (!result.ok) {
+          const detail = result.error ? `${result.action}：${result.error}` : result.action
+          this.publishIui({ state: 'failed', reason: detail })
+          this.recordPluginFailure(plugin, detail)
+          return false
+        }
+      } else {
+        if (process.env.FDE_REFRESH_PLUGINS === '1') {
+          await rm(vendor, { recursive: true, force: true })
+        }
+        if (!existsSync(vendor)) {
+          for (const source of this.pluginSourceCandidates(plugin)) {
+            try {
+              await access(source, constants.R_OK)
+              await mkdir(dirname(vendor), { recursive: true })
+              await cp(source, vendor, { recursive: true, dereference: true })
+              break
+            } catch {
+              continue
+            }
+          }
+        }
+        if (!existsSync(vendor)) {
+          this.recordPluginFailure(plugin, 'missing-source')
+          return false
         }
       }
+      await this.applyVendorOverlay(plugin.dir, vendor)
+      const link = join(modulesDir, plugin.module)
+      await mkdir(dirname(link), { recursive: true })
+      await linkPath(vendor, link)
+      return true
+    } catch (error) {
+      if (error && error.code === 'FDE_IUI_SHA_MISMATCH') throw error
+      const detail = error instanceof Error ? error.message : String(error)
+      if (plugin.source.kind === 'pinned') this.publishIui({ state: 'failed', reason: detail })
+      this.recordPluginFailure(plugin, detail)
+      return false
     }
-    if (!existsSync(vendor)) return false
-    await this.applyVendorOverlay(name, vendor)
-    await linkPath(vendor, link)
-    return true
   }
 
   async ensureIsolatedProfile() {
+    try {
+      await this.installIsolatedProfile()
+    } catch (error) {
+      this.state = 'error'
+      this.lastError = errorMessage(error)
+      await this.cleanupCredentialsCopy()
+      throw error
+    }
+  }
+
+  async installIsolatedProfile() {
     const dir = join(this.dshHome, 'profiles', this.profileName)
     const modules = join(dir, 'node_modules')
-    await mkdir(modules, { recursive: true })
-    const extras = []
-    for (const name of ['dsh-lan-assist', 'dsh-semantic-os']) {
-      if (await this.linkReadablePlugin(name, modules)) extras.push(name)
-    }
-    extras.push(...availableProductBundles())
+    await linkPackagedPeers({ dshHome: this.dshHome })
     const packagePath = join(dir, 'package.json')
-    let existing = null
-    try {
-      existing = JSON.parse(await readFile(packagePath, 'utf8'))
-    } catch {
-      existing = null
+    await readProfileManifestFile(packagePath)
+    await mkdir(modules, { recursive: true })
+    this.pluginLinkFailures = []
+    const extras = []
+    for (const plugin of BUILTIN_PLUGINS) {
+      if (await this.linkBuiltinPlugin(plugin, modules)) extras.push(plugin.module)
     }
-    const manifest = mergeProfileManifest(existing, {
+    this.lastError = this.pluginLinkFailures.length ? this.pluginLinkFailures.join('；') : null
+    extras.push(...availableProductBundles())
+    await writeMergedProfileManifest(packagePath, {
       profileName: this.profileName,
-      requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...extras],
+      requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...extras, 'fde-x-dsh-bridge'],
     })
-    await writeFile(packagePath, `${JSON.stringify(manifest, null, 2)}\n`)
     const cordisYml = join(dir, 'cordis.yml')
     try {
       await access(cordisYml)
@@ -733,7 +1017,7 @@ export class DshCoreConnector {
       const onExit = (code, signal) => {
         cleanup()
         const detail = redactSensitiveText(stderr.trim()).split(/\r?\n/u).filter(Boolean).slice(0, 6).join(' | ')
-        const reason = signal ? `signal ${signal}` : `code ${code}`
+        const reason = describeHostExit(child, code, signal)
         reject(new Error(detail ? `AI 服务启动前退出（${reason}）：${detail}` : `AI 服务启动前退出（${reason}）`))
       }
       const onError = (error) => {
@@ -1211,26 +1495,55 @@ export class DshCoreConnector {
   async stopChild() {
     const child = this.child
     if (!child) return
-    await new Promise((resolveStop) => {
-      const timer = setTimeout(() => {
-        try { child.kill('SIGKILL') } catch { /* already exited */ }
-      }, 5_000)
-      child.once('exit', () => {
-        clearTimeout(timer)
-        resolveStop()
-      })
-      try {
-        child.kill('SIGTERM')
-      } catch {
-        clearTimeout(timer)
-        resolveStop()
-      }
-    })
+    this.childStopExpected = true
+    if (child.exitCode != null || child.signalCode != null) {
+      signalHostGroup(child, 'SIGKILL')
+      await this.cleanupCredentialsCopy()
+      await removePidFile(this.runDirectory, this.corePidFile)
+      return
+    }
+    try {
+      signalHostGroup(child, 'SIGTERM')
+    } catch (error) {
+      if (child.exitCode == null && child.signalCode == null) throw error
+    }
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline && await hostGroupAlive(child.pid)) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+    }
+    signalHostGroup(child, 'SIGKILL')
     await this.cleanupCredentialsCopy()
     await removePidFile(this.runDirectory, this.corePidFile)
+  }
+
+  async retryIui() {
+    if (this.iuiRetryPromise) return this.iuiRetryPromise
+    this.iuiRetryPromise = this.retryIuiInternal().finally(() => {
+      this.iuiRetryPromise = null
+    })
+    return this.iuiRetryPromise
+  }
+
+  async retryIuiInternal() {
+    if (this.state === 'connected' && this.iui && this.iui.state === 'enabled') return this.status()
+    if (this.startPromise) await Promise.allSettled([this.startPromise])
+    const plugin = BUILTIN_PLUGINS.find((row) => row.module === '@losebird/iui')
+    this.publishIui({ state: 'installing', phase: 'stage', progress: { completed: 0, total: 4 } })
+    const modules = join(this.dshHome, 'profiles', this.profileName, 'node_modules')
+    await mkdir(modules, { recursive: true })
+    await this.linkBuiltinPlugin(plugin, modules)
+    if (this.iui && this.iui.state === 'verify_failed') return this.status()
+    if (this.state === 'connected') await this.reload()
+    else await this.start()
+    await this.settleIuiEnabled(40)
+    return this.status()
   }
 }
 
 export function createCoreConnector(options) {
-  return new DshCoreConnector(options)
+  const connector = new DshCoreConnector(options)
+  const plugin = BUILTIN_PLUGINS.find((row) => row.module === '@losebird/iui')
+  if (plugin) sweepStaleIuiPartials(dirname(connector.pinnedArtifactPath(plugin)))
+  connector.beginIuiInstall()
+  return connector
 }

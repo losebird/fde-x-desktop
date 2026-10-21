@@ -123,30 +123,65 @@ async function fillWorkspace(db, pack, workspaceCwd, sessionId) {
   }
 }
 
-async function fillTasks(db, pack, workspaceCwd) {
+function mapTaskRow(t) {
+  const row = { id: t.id, title: t.title, status: t.status }
+  if (t.due_at != null) row.dueAt = t.due_at
+  return row
+}
+
+function parseTaskList(taskIds) {
+  if (taskIds === undefined) {
+    return { query: { kind: 'window' } }
+  }
+  if (!Array.isArray(taskIds)) {
+    return { query: { kind: 'explicit', ids: [] }, warning: 'task_ids_invalid' }
+  }
+  const ids = []
+  const seen = new Set()
+  for (const item of taskIds) {
+    if (typeof item !== 'string') {
+      return { query: { kind: 'explicit', ids: [] }, warning: 'task_ids_invalid' }
+    }
+    if (item === '' || seen.has(item)) continue
+    seen.add(item)
+    ids.push(item)
+  }
+  return { query: { kind: 'explicit', ids } }
+}
+
+async function fillTasks(db, pack, workspaceCwd, taskList) {
   const row = workspaceRowForCwd(db, workspaceCwd)
   const workspaceId = row?.id || 'ws_personal'
-  const dayStart = isoDayStart()
-  const dayEnd = isoDayEnd()
   const now = new Date().toISOString()
-  const todayRows = db.prepare(`
-    SELECT id, title, status, due_at FROM tasks
-    WHERE workspace_id = ? AND status IN ('todo', 'doing')
-      AND due_at IS NOT NULL AND due_at >= ? AND due_at <= ?
-    ORDER BY due_at ASC LIMIT 20
-  `).all(workspaceId, dayStart, dayEnd)
   const overdue = db.prepare(`
     SELECT COUNT(*) AS n FROM tasks
     WHERE workspace_id = ? AND status IN ('todo', 'doing')
       AND due_at IS NOT NULL AND due_at < ?
   `).get(workspaceId, now)
+  let taskRows = []
+  if (taskList.kind === 'window') {
+    const dayStart = isoDayStart()
+    const dayEnd = isoDayEnd()
+    taskRows = db.prepare(`
+      SELECT id, title, status, due_at FROM tasks
+      WHERE workspace_id = ? AND status IN ('todo', 'doing')
+        AND due_at IS NOT NULL AND due_at >= ? AND due_at <= ?
+      ORDER BY due_at ASC LIMIT 20
+    `).all(workspaceId, dayStart, dayEnd)
+  } else if (taskList.ids.length > 0) {
+    const placeholders = taskList.ids.map(() => '?').join(', ')
+    const loaded = db.prepare(`
+      SELECT id, title, status, due_at FROM tasks
+      WHERE workspace_id = ? AND id IN (${placeholders})
+    `).all(workspaceId, ...taskList.ids)
+    const byId = new Map(loaded.map((t) => [t.id, t]))
+    for (const id of taskList.ids) {
+      const t = byId.get(id)
+      if (t) taskRows.push(t)
+    }
+  }
   pack.tasks = {
-    today: todayRows.map((t) => ({
-      id: t.id,
-      title: t.title,
-      status: t.status,
-      dueAt: t.due_at ?? undefined,
-    })),
+    today: taskRows.map(mapTaskRow),
     overdue: Number(overdue?.n || 0),
   }
 }
@@ -260,6 +295,7 @@ export async function buildContextPack(deps, input) {
     entity,
     intentKind,
     sessionId,
+    taskIds,
   } = input
   const warnings = []
   const pack = { generatedAt: Date.now() }
@@ -275,7 +311,11 @@ export async function buildContextPack(deps, input) {
     const result = await withBudget(deadline, async () => {
       try {
         if (scope === 'workspace') await fillWorkspace(deps.db, pack, cwd, sessionId)
-        else if (scope === 'tasks') await fillTasks(deps.db, pack, cwd)
+        else if (scope === 'tasks') {
+          const parsed = parseTaskList(taskIds)
+          if (parsed.warning) warnings.push(parsed.warning)
+          await fillTasks(deps.db, pack, cwd, parsed.query)
+        }
         else if (scope === 'im') await fillIm(deps.aiRuntime, pack)
         else if (scope === 'biz') await fillBiz(deps.db, pack, cwd)
         else if (scope === 'apps') await fillApps(deps.db, pack, cwd)

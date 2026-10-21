@@ -8,6 +8,9 @@
     "./package.json": "./package.json"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "inject": ["webServer", "tools"],
     "client": {
       "inject": [

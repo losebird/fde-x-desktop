@@ -72,6 +72,8 @@ import { LIVE_PATH, liveProbeBody, withProbeTimeout } from './live-probe.mjs'
 import { ENGINE_PROBE_MS, engineProbeKind } from './engine-probe.mjs'
 import { enrichReadyWithLlm, readDshDefaultLlm } from './dsh-default-llm.mjs'
 import { handlePlanRequest } from './routes/plan.mjs'
+import { failInterruptedRuns } from './plan/workflow-run.mjs'
+import { tickWorkflowSchedules } from './plan/workflow-schedule.mjs'
 import { handleCatalogRequest } from './routes/catalog.mjs'
 import { collectBag } from './catalog-collect.mjs'
 import { ensureTypertVerbs } from './catalog-typert.mjs'
@@ -91,7 +93,7 @@ import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
-import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes } from './routes/bridge.mjs'
+import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, mintUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
@@ -110,6 +112,7 @@ import {
 import { mergePageCors } from './proxy-cors.mjs'
 import { tryServeStatic } from './routes/static.mjs'
 import { shouldProxyDshPath } from './dsh-proxy-gate.mjs'
+import { pathHasPrefix } from './path-prefix.mjs'
 import {
   listWorkspaceDocumentVersions,
   rollbackWorkspaceDocument,
@@ -154,16 +157,22 @@ const databasePath = FDE_DATABASE_PATH
 const migrationsDirectory = resolve(runtimeDirectory, 'migrations')
 const port = FDE_RUNTIME_PORT
 const host = FDE_LISTEN_HOST
+let advertisedOrigin = ''
 const db = openDatabase(databasePath, migrationsDirectory)
+failInterruptedRuns(db)
+const workflowScheduleBootedAt = new Date()
 configureEventBus(db)
 const aiRuntime = createCoreConnector({
   cwd: FDE_AI_WORKSPACE,
 })
 startMemoryWriter({ db, aiRuntime })
 let bridgeToken = ''
+const uiToken = mintUiToken()
 void ensureBridgeToken(aiRuntime.dshHome || FDE_DSH_HOME).then((token) => {
   bridgeToken = token
 })
+
+const CORS_ALLOW_HEADERS = 'Content-Type, X-Correlation-Id, x-fde-ui-token'
 
 function normalizeBaseUrl(raw) {
   const text = String(raw || '').trim()
@@ -546,7 +555,7 @@ function sendJson(response, status, payload) {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
     'Cache-Control': 'no-store',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Correlation-Id',
+    'Access-Control-Allow-Headers': CORS_ALLOW_HEADERS,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     ...corsHeaders(response),
   })
@@ -761,7 +770,7 @@ function dshProxyPath(url) {
 }
 
 function isSemanticOsPath(pathname) {
-  return pathname === '/semantic-os' || pathname.startsWith('/semantic-os/')
+  return pathHasPrefix(pathname, '/semantic-os')
 }
 
 function requestSemanticOsRawPath(request) {
@@ -772,9 +781,9 @@ function requestSemanticOsRawPath(request) {
 
 function requestTouchesSemanticOs(request) {
   const raw = requestSemanticOsRawPath(request)
-  if (raw.includes('/semantic-os')) return true
+  if (pathHasPrefix(raw, '/semantic-os')) return true
   try {
-    return decodeURIComponent(raw).includes('/semantic-os')
+    return pathHasPrefix(decodeURIComponent(raw), '/semantic-os')
   } catch {
     return false
   }
@@ -1007,7 +1016,7 @@ const server = createServer(async (request, response) => {
       return
     }
     response.writeHead(204, {
-      'Access-Control-Allow-Headers': 'Content-Type, X-Correlation-Id',
+      'Access-Control-Allow-Headers': CORS_ALLOW_HEADERS,
       'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
       ...(typeof origin === 'string' ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
     })
@@ -1061,6 +1070,10 @@ const server = createServer(async (request, response) => {
       sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', currentCorrelationId)
       return
     }
+    if (url.pathname.startsWith('/api/v1/') && !verifyUiToken(request, uiToken)) {
+      sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', currentCorrelationId)
+      return
+    }
   }
 
   try {
@@ -1111,6 +1124,7 @@ const server = createServer(async (request, response) => {
       sendError,
       sendJson,
       readJson,
+      uiToken,
     })) return
 
     if (await handleBizRoutes(request, response, url, {
@@ -1264,16 +1278,29 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/v1/ai/status') {
       sendJson(response, 200, {
-        data: { ...aiRuntime.status(), bffOrigin: advertisedRuntimeOrigin(port) },
+        data: { ...aiRuntime.status(), bffOrigin: advertisedOrigin },
         correlationId: currentCorrelationId,
       })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/ai/iui/retry') {
+      let status
+      try {
+        status = { ...await aiRuntime.retryIui(), bffOrigin: advertisedRuntimeOrigin(port) }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        sendError(response, 502, 'ai/boot-failed', message || '核心启动失败', currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, { data: status, correlationId: currentCorrelationId })
       return
     }
 
     if (request.method === 'POST' && url.pathname === '/api/v1/ai/connect') {
       let status
       try {
-        status = { ...await aiRuntime.start(), bffOrigin: advertisedRuntimeOrigin(port) }
+        status = { ...await aiRuntime.start(), bffOrigin: advertisedOrigin }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         sendError(response, 502, 'ai/boot-failed', message || '核心启动失败', currentCorrelationId)
@@ -1315,7 +1342,7 @@ const server = createServer(async (request, response) => {
       const status = {
         ...aiRuntime.status(),
         restarting: true,
-        bffOrigin: advertisedRuntimeOrigin(port),
+        bffOrigin: advertisedOrigin,
       }
       try {
         appendAudit(db, {
@@ -3281,7 +3308,7 @@ const server = createServer(async (request, response) => {
     if (await handleCatalogRequest(request, response, url, { aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, currentCorrelationId)) {
       return
     }
-    if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime }, currentCorrelationId)) {
+    if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime, uiToken }, currentCorrelationId)) {
       return
     }
 
@@ -3385,11 +3412,19 @@ void ensureTypertVerbs().catch(() => undefined)
 server.listen(port, host, () => {
   const bound = server.address()
   const actualPort = typeof bound === 'object' && bound ? bound.port : port
+  advertisedOrigin = advertisedRuntimeOrigin(actualPort)
   allowedOrigins.add(`http://127.0.0.1:${actualPort}`)
   allowedOrigins.add(`http://localhost:${actualPort}`)
+  if (process.env.FDE_RUNTIME_SUPERVISED === '1') console.log(`FDE_UI_TOKEN ${uiToken}`)
   console.log(`FDE_LISTENING ${actualPort}`)
-  console.log(`FDE-X runtime listening on http://${host}:${actualPort}`)
+  console.log(`FDE-X runtime listening on ${advertisedOrigin}`)
   console.log(`SQLite authority: ${databasePath}`)
+  const workflowScheduleTimer = setInterval(() => {
+    void tickWorkflowSchedules({ db, aiRuntime }, { now: new Date(), bootedAt: workflowScheduleBootedAt }).catch((error) => {
+      console.error('workflow_schedule_tick_failed', error)
+    })
+  }, 15_000)
+  if (typeof workflowScheduleTimer.unref === 'function') workflowScheduleTimer.unref()
   void reclaimStrayRuntime({
     keep: [process.pid, process.ppid],
     runtimePort: actualPort,

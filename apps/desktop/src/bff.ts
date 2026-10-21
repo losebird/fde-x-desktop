@@ -17,7 +17,7 @@ export async function spawnBff(
   env: BffEnv,
   electronNode: string,
   options: { cwd?: string } = {},
-): Promise<{ child: ChildProcess; port: number }> {
+): Promise<{ child: ChildProcess; port: number; uiToken: string }> {
   const child = spawn(electronNode, [serverEntry], {
     env: desktopChildEnv(env),
     cwd: options.cwd,
@@ -25,9 +25,10 @@ export async function spawnBff(
     windowsHide: true,
   })
 
-  const port = await new Promise<number>((resolve, reject) => {
+  const announced = await new Promise<{ port: number; uiToken: string }>((resolve, reject) => {
     const rl = createInterface({ input: child.stdout })
     let stderr = ''
+    let uiToken = ''
     let settled = false
     child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
     const timeout = setTimeout(() => {
@@ -38,12 +39,14 @@ export async function spawnBff(
     }, 120_000)
 
     rl.on('line', (line) => {
+      const tokenMatch = /^FDE_UI_TOKEN\s+([0-9a-f]{64})$/u.exec(line.trim())
+      if (tokenMatch) uiToken = tokenMatch[1]
       const match = /^FDE_LISTENING\s+(\d+)/u.exec(line.trim())
       if (match && !settled) {
         settled = true
         clearTimeout(timeout)
         rl.close()
-        resolve(Number(match[1]))
+        resolve({ port: Number(match[1]), uiToken })
       }
     })
     child.once('exit', (code) => {
@@ -54,7 +57,7 @@ export async function spawnBff(
     })
   })
 
-  return { child, port }
+  return { child, port: announced.port, uiToken: announced.uiToken }
 }
 
 export function serverEntryForApp(appRoot: string): string {

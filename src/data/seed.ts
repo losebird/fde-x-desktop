@@ -303,7 +303,7 @@ export const seedWorkflows: Workflow[] = [
       { id: 'ws2', kind: 'memory.add',    label: '写入日记忆',         config: { scope: 'daily' } },
       { id: 'ws3', kind: 'im.send',       label: '发到 IM「产品群」', config: { threadId: 'im6' } },
     ],
-    lastRunAt: at(9, 0), lastRunStatus: 'success',
+    lastRunAt: at(9, 0), lastRunStatus: 'success', runs: [],
     category: 'im', emoji: '🌅', createdAt: at(7, 0),
   },
   {
@@ -316,7 +316,7 @@ export const seedWorkflows: Workflow[] = [
       { id: 'ws1', kind: 'data.query',  label: '扫描合同到期',         config: { table: 'customers', window: '30d' } },
       { id: 'ws2', kind: 'im.send',     label: '推送至我的 IM',       config: { threadId: 'im_self' } },
     ],
-    lastRunAt: at(8, 0), lastRunStatus: 'success',
+    lastRunAt: at(8, 0), lastRunStatus: 'success', runs: [],
     category: 'data', emoji: '📜', createdAt: at(7, 0),
   },
   {
@@ -329,7 +329,7 @@ export const seedWorkflows: Workflow[] = [
       { id: 'ws1', kind: 'im.send',     label: '回 IM 确认收到',     config: {} },
       { id: 'ws2', kind: 'tool.call',   label: '唤起 AI 助手',       config: { agentId: 'a_wri' } },
     ],
-    lastRunAt: at(10, 30), lastRunStatus: 'success',
+    lastRunAt: at(10, 30), lastRunStatus: 'success', runs: [],
     category: 'im', emoji: '✨', createdAt: at(7, 0),
   },
   {
@@ -343,7 +343,7 @@ export const seedWorkflows: Workflow[] = [
       { id: 'ws2', kind: 'tool.call',   label: 'AI 生成早报文本',     config: { agentId: 'a_main' } },
       { id: 'ws3', kind: 'memory.add',  label: '落入早报记忆',         config: { scope: 'daily', title: '早报' } },
     ],
-    lastRunAt: at(7, 30), lastRunStatus: 'success',
+    lastRunAt: at(7, 30), lastRunStatus: 'success', runs: [],
     category: 'memory', emoji: '📰', createdAt: at(7, 0),
   },
   {
@@ -355,7 +355,7 @@ export const seedWorkflows: Workflow[] = [
     steps: [
       { id: 'ws1', kind: 'file.write',  label: '归档到版本库',         config: { maxVersions: 20 } },
     ],
-    category: 'file', emoji: '🗂️', createdAt: at(7, 0), lastRunAt: at(11, 35), lastRunStatus: 'success',
+    category: 'file', emoji: '🗂️', createdAt: at(7, 0), lastRunAt: at(11, 35), lastRunStatus: 'success', runs: [],
   },
 ]
 
@@ -435,7 +435,7 @@ export const seedBizWorkflows: Workflow[] = [
       { id: 'wbs2', kind: 'tool.call',  label: 'AI 生成对账结论',   config: { agentId: 'a_biz_fin' } },
       { id: 'wbs3', kind: 'memory.add', label: '写入日记忆',         config: { scope: 'daily' } },
     ],
-    category: 'data', emoji: '💰', createdAt: at(7, 0), lastRunAt: at(22, 0), lastRunStatus: 'success', workspaceId: WS_BIZ,
+    category: 'data', emoji: '💰', createdAt: at(7, 0), lastRunAt: at(22, 0), lastRunStatus: 'success', runs: [], workspaceId: WS_BIZ,
   },
   {
     id: 'wf_biz_lowstock', name: '低库存自动预警', description: '任意 SKU 库存 < 5 时,推 IM + 写入待办',
@@ -444,7 +444,7 @@ export const seedBizWorkflows: Workflow[] = [
       { id: 'wbs4', kind: 'data.query', label: '扫描低库存 SKU',     config: { table: 'products', filter: 'stock<5' } },
       { id: 'wbs5', kind: 'im.send',    label: '推 IM 提醒',         config: { threadId: 'im_self' } },
     ],
-    category: 'data', emoji: '📦', createdAt: at(7, 0), workspaceId: WS_BIZ,
+    category: 'data', emoji: '📦', createdAt: at(7, 0), runs: [], workspaceId: WS_BIZ,
   },
   {
     id: 'wf_biz_aftercs', name: '客服自动跟进', description: '客户咨询后 30 分钟未回复,自动跟进 1 次',
@@ -453,6 +453,6 @@ export const seedBizWorkflows: Workflow[] = [
       { id: 'wbs6', kind: 'tool.call',  label: '检查 30 分钟无回复', config: { window: '30m' } },
       { id: 'wbs7', kind: 'im.send',    label: '发送跟进话术',       config: { template: 'biz_followup' } },
     ],
-    category: 'im', emoji: '💁', createdAt: at(7, 0), workspaceId: WS_BIZ,
+    category: 'im', emoji: '💁', createdAt: at(7, 0), runs: [], workspaceId: WS_BIZ,
   },
 ]

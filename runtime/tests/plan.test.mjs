@@ -14,10 +14,20 @@ const base = `http://127.0.0.1:${port}`
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 let child
+let pageToken = ''
+
+function writeHeaders() {
+  return {
+    Origin: origin,
+    'Content-Type': 'application/json',
+    'x-fde-ui-token': pageToken,
+  }
+}
 
 async function startServer() {
   await rm(dbPath, { force: true }).catch(() => undefined)
   await mkdir('/tmp/fde-x-plan-test-ws', { recursive: true })
+  pageToken = ''
   child = spawn(node, ['runtime/server.mjs'], {
     cwd: repoRoot,
     env: {
@@ -25,13 +35,20 @@ async function startServer() {
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: dbPath,
       FDE_AI_WORKSPACE: '/tmp/fde-x-plan-test-ws',
+      FDE_RUNTIME_SUPERVISED: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString()
+    const tokenMatch = /^FDE_UI_TOKEN\s+([0-9a-f]{64})$/m.exec(stdout)
+    if (tokenMatch) pageToken = tokenMatch[1]
   })
   for (let i = 0; i < 40; i += 1) {
     try {
       const res = await fetch(`${base}/health`)
-      if (res.ok) return
+      if (res.ok && pageToken) return
     } catch { /* retry */ }
     await delay(50)
   }
@@ -53,7 +70,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
   for (const ws of [wsA, wsB]) {
     const created = await fetch(`${base}/api/v1/workspaces`, {
       method: 'POST',
-      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      headers: writeHeaders(),
       body: JSON.stringify({ id: ws, name: ws, description: 'plan test' }),
     })
     assert.equal(created.status, 201)
@@ -67,7 +84,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
 
   const createA = await fetch(`${base}/api/v1/plan/tasks`, {
     method: 'POST',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({ workspaceId: wsA, title: '验收 A' }),
   })
   assert.equal(createA.status, 201)
@@ -77,7 +94,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
 
   const createB = await fetch(`${base}/api/v1/plan/tasks`, {
     method: 'POST',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({ workspaceId: wsB, title: '其它区' }),
   })
   assert.equal(createB.status, 201)
@@ -94,7 +111,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
 
   const badStatus = await fetch(`${base}/api/v1/plan/tasks/${taskA.id}`, {
     method: 'PATCH',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({ status: 'bogus' }),
   })
   assert.equal(badStatus.status, 422)
@@ -103,7 +120,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
 
   const done = await fetch(`${base}/api/v1/plan/tasks/${taskA.id}`, {
     method: 'PATCH',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({ status: 'done' }),
   })
   assert.equal(done.status, 200)
@@ -113,7 +130,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
 
   const del = await fetch(`${base}/api/v1/plan/tasks/${taskA.id}`, {
     method: 'DELETE',
-    headers: { Origin: origin },
+    headers: writeHeaders(),
   })
   assert.equal(del.status, 200)
   const after = await fetch(`${base}/api/v1/plan/tasks?workspaceId=${wsA}`)
@@ -122,7 +139,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
 
   const createEvent = await fetch(`${base}/api/v1/plan/events`, {
     method: 'POST',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({
       workspaceId: wsA,
       title: '本地会',
@@ -140,13 +157,13 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
   assert.equal(listEventsBody.data[0].title, '本地会')
   const delEvent = await fetch(`${base}/api/v1/plan/events/${eventA.id}?workspaceId=${wsA}`, {
     method: 'DELETE',
-    headers: { Origin: origin },
+    headers: writeHeaders(),
   })
   assert.equal(delEvent.status, 200)
 
   const hostDel = await fetch(`${base}/api/v1/plan/events/${encodeURIComponent('dsh-schedule:sch1')}?workspaceId=${wsA}`, {
     method: 'DELETE',
-    headers: { Origin: origin },
+    headers: writeHeaders(),
   })
   assert.equal(hostDel.status, 502)
   const hostDelBody = await hostDel.json()
@@ -154,7 +171,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
 
   const createWf = await fetch(`${base}/api/v1/plan/workflows`, {
     method: 'POST',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({ workspaceId: wsA, name: '本地流' }),
   })
   assert.equal(createWf.status, 201)
@@ -165,7 +182,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
 
   const hostKill = await fetch(`${base}/api/v1/plan/workflows/${encodeURIComponent('dsh-job:j1')}`, {
     method: 'PATCH',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({ status: 'active', workspaceId: wsA }),
   })
   assert.equal(hostKill.status, 502)

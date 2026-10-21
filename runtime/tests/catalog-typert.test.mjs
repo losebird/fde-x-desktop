@@ -323,49 +323,64 @@ test('MCP resource tool names come from this-install defineTool, not a hardcoded
   assert.ok(installed.includes('list_mcp_resources'))
 })
 
-test('collectBag mcp keeps servers and only live resource tools', async () => {
-  const installed = listMcpResourceToolNames()
-  const resourceName = installed[0] || 'list_mcp_resources'
-  const aiRuntime = {
-    patchFile: '/tmp/fde-x-mcp-bag-test.yml',
-    status: () => ({ connected: true }),
-    async call(endpoint) {
-      if (endpoint === 'session/list') return { sessions: [{ id: 'sess-1', cwd: '/tmp/ws' }] }
-      if (endpoint === 'pluginManager/listPlugins') return [{ entryId: 'mcp-alpha', fiberPhase: 'active', enabled: true }]
-      throw new Error(endpoint)
-    },
-    async *stream(endpoint) {
-      if (endpoint !== 'session/follow') return
-      yield {
-        type: 'snapshot',
-        header: {},
-        records: [{
-          type: 'event',
-          event: {
-            type: 'request/header',
-            data: {
-              header: {
-                tools: [
-                  { name: 'mcp__alpha__ping' },
-                  { name: resourceName },
-                ],
-              },
-            },
-          },
-        }],
-      }
-    },
-  }
-  const { writeFile, unlink } = await import('node:fs/promises')
-  await writeFile(aiRuntime.patchFile, `
+const MCP_ALPHA_ARCHIVE = `
 - id: mcp-alpha
   package: @deepseek-ai/dsh-mcp-client
   config:
     transport: stdio
     serverName: alpha
     command: "npx"
-`)
+`
+
+async function withExplicitMcpProfile(run) {
+  const { mkdtemp, mkdir, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'fde-mcp-bag-'))
+  await mkdir(join(home, 'profiles', 'fde-x'), { recursive: true })
+  await writeFile(join(home, 'profiles', 'fde-x', 'cordis.patch.yml'), MCP_ALPHA_ARCHIVE)
   try {
+    return await run(home)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+}
+
+test('collectBag mcp keeps servers and only live resource tools', async () => {
+  const installed = listMcpResourceToolNames()
+  const resourceName = installed[0] || 'list_mcp_resources'
+  await withExplicitMcpProfile(async (home) => {
+    const aiRuntime = {
+      dshHome: home,
+      profileName: 'fde-x',
+      status: () => ({ connected: true }),
+      async call(endpoint) {
+        if (endpoint === 'session/list') return { sessions: [{ id: 'sess-1', cwd: '/tmp/ws' }] }
+        if (endpoint === 'pluginManager/listPlugins') return [{ entryId: 'mcp-alpha', fiberPhase: 'active', enabled: true }]
+        throw new Error(endpoint)
+      },
+      async *stream(endpoint) {
+        if (endpoint !== 'session/follow') return
+        yield {
+          type: 'snapshot',
+          header: {},
+          records: [{
+            type: 'event',
+            event: {
+              type: 'request/header',
+              data: {
+                header: {
+                  tools: [
+                    { name: 'mcp__alpha__ping' },
+                    { name: resourceName },
+                  ],
+                },
+              },
+            },
+          }],
+        }
+      },
+    }
     const bag = await collectBag(aiRuntime, 'mcp', { project: true, sessionId: 'sess-1', cwd: '/tmp/ws' })
     assert.equal(bag.items.length, 1)
     assert.equal(bag.items[0].id, 'alpha')
@@ -376,9 +391,7 @@ test('collectBag mcp keeps servers and only live resource tools', async () => {
     } else {
       assert.deepEqual(bag.raw.resourceTools, [])
     }
-  } finally {
-    await unlink(aiRuntime.patchFile).catch(() => undefined)
-  }
+  })
 })
 
 test('collectBag mcp resource list stays empty without projected resource tools', async () => {
@@ -404,35 +417,25 @@ test('collectBag mcp resource list stays empty without projected resource tools'
 
 test('collectBag mcp first paint does not follow a session', async () => {
   let followed = false
-  const aiRuntime = {
-    patchFile: '/tmp/fde-x-mcp-bag-fast.yml',
-    status: () => ({ connected: true }),
-    async call(endpoint) {
-      if (endpoint === 'pluginManager/listPlugins') return []
-      throw new Error(`unexpected ${endpoint}`)
-    },
-    async *stream() {
-      followed = true
-      yield { type: 'snapshot', records: [] }
-    },
-  }
-  const { writeFile, unlink } = await import('node:fs/promises')
-  await writeFile(aiRuntime.patchFile, `
-- id: mcp-alpha
-  package: @deepseek-ai/dsh-mcp-client
-  config:
-    transport: stdio
-    serverName: alpha
-    command: "npx"
-`)
-  try {
+  await withExplicitMcpProfile(async (home) => {
+    const aiRuntime = {
+      dshHome: home,
+      profileName: 'fde-x',
+      status: () => ({ connected: true }),
+      async call(endpoint) {
+        if (endpoint === 'pluginManager/listPlugins') return []
+        throw new Error(`unexpected ${endpoint}`)
+      },
+      async *stream() {
+        followed = true
+        yield { type: 'snapshot', records: [] }
+      },
+    }
     const bag = await collectBag(aiRuntime, 'mcp')
     assert.equal(followed, false)
     assert.equal(bag.items[0].id, 'alpha')
     assert.deepEqual(bag.raw.resourceTools, [])
-  } finally {
-    await unlink(aiRuntime.patchFile).catch(() => undefined)
-  }
+  })
 })
 
 test('officeToPdf verbs land on the skill bag, not the file bag', async () => {
