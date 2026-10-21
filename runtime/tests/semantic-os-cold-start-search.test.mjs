@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'

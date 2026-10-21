@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { sheetBelongsToSession, sheetForLiveSession } from '../../src/lib/sheet-session.ts'

@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { COLLECTIONS_LIST_PATHS, createLookup } from '../vendor-overlays/dsh-lan-assist/lookup.js'

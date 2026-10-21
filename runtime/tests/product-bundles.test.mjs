@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import assert from 'node:assert/strict'
 import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'

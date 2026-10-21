@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'

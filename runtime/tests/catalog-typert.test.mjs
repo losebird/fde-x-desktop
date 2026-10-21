@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { kindOfNamespace, verbRole, verbsFromTypertText, verbsForKind, listTypertVerbs, ensureTypertVerbs, resolveDshModulesRoot, toolNamesFromDefineToolText, listMcpResourceToolNames } from '../catalog-typert.mjs'

@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import http from 'node:http'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'

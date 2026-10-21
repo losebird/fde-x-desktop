@@ -91,6 +91,10 @@ test('hard-exited redislite leaves no redis-server', () => {
   registerStrayRoot(home)
   try {
     hardExitRedislite(home)
+    const before = listStrays().filter((row) => row.args.includes('redis-server'))
+    assert.equal(before.length, 1, 'redislite did not leave a redis-server')
+    assert.equal(before[0].ppid, 1, formatStray(before[0]))
+    stopStrays([home])
     assertNoStrays()
   } finally {
     stopStrays([home])

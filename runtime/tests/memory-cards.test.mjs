@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { asDraftCard, attachCuesOnGroups, cardCue, cardFromOpenedNode, collapseCueCards, cueFromOriginDoc, cueIdOf, draftMemoryCardInsert, loadNamedCards, namedCardIds, nodeMayCite } from '../memory/cards.mjs'

@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
 import { generationDshBin, generationInstallRoot } from '../generation.mjs'
 import { createPageTokenClient } from './support/page-token-fetch.mjs'
+import { registerStrayRoot, stopStrays } from './support/no-stray-processes.mjs'
 
 const page = createPageTokenClient()
 
@@ -394,6 +395,7 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       return
     }
     const home = await mkdtemp(join(tmpdir(), 'fde-m1-home-'))
+    registerStrayRoot(home)
     const workspace = await mkdtemp(join(tmpdir(), 'fde-m1-ws-'))
     const dbPath = join(home, 'fde.sqlite')
     await writeFile(join(home, '.credentials.yaml'), '', { mode: 0o600 })
@@ -645,6 +647,7 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
           resolve()
         })
       })
+      stopStrays([home])
       await rm(home, { recursive: true, force: true })
       await rm(workspace, { recursive: true, force: true })
     }

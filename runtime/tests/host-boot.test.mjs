@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'

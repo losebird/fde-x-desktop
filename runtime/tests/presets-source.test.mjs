@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { classifyPresetSource, fdePresetIdsFromDisk, writeGeneratedAgentPresetPatch } from '../routes/presets.mjs'

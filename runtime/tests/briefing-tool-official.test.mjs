@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { harvestTurnToolResults, itemsFromToolResult } from '../briefing/tool-official.mjs'

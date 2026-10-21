@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { DatabaseSync } from 'node:sqlite'
