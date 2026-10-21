@@ -107,6 +107,22 @@ export function assertNoStrays() {
   assert.equal(rows.length, 0, rows.map(formatStray).join('\n'))
 }
 
+function stillLive(pid) {
+  return listProcesses().some((row) => row.pid === pid && !isZombie(row))
+}
+
+// Confirms SIGKILL landed. A live pid past the bound is a failure.
+// The census assertion does not wait for a process to exit on its own.
+function confirmKilled(pid) {
+  const deadline = Date.now() + 1000
+  while (stillLive(pid)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`pid ${pid} still alive after SIGKILL`)
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
+  }
+}
+
 export function stopStrays(paths = []) {
   for (const path of paths) registerStrayRoot(path)
   const rows = listStrays()
@@ -117,8 +133,26 @@ export function stopStrays(paths = []) {
     } catch (error) {
       if (error && error.code !== 'ESRCH') throw error
     }
+    confirmKilled(row.pid)
   }
   return rows
+}
+
+export function awaitChildExit(child, signal = 'SIGTERM') {
+  const exited = new Promise((resolve) => {
+    if (!child || child.exitCode !== null || child.signalCode !== null) {
+      resolve()
+      return
+    }
+    child.once('exit', resolve)
+    try {
+      child.kill(signal)
+    } catch (error) {
+      if (!error || error.code !== 'ESRCH') throw error
+      resolve()
+    }
+  })
+  return exited.then(() => stopStrays())
 }
 
 let censusError = null

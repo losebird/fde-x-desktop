@@ -1,4 +1,4 @@
-import './support/no-stray-processes.mjs'
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { describe, test } from 'node:test'
@@ -121,7 +121,7 @@ describe('bridge', () => {
     assert.equal(getBody.data.status, 'ready')
     assert.deepEqual(getBody.data.data, { hello: 'world' })
 
-    child.kill('SIGTERM')
+    await awaitChildExit(child)
   })
 
   test('expired results report expired status', () => {
