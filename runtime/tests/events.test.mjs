@@ -1,4 +1,4 @@
-import './support/no-stray-processes.mjs'
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { request as httpRequest } from 'node:http'
 import { mkdir } from 'node:fs/promises'
@@ -156,7 +156,6 @@ test('SSE origin 403 and connection limit 429', { timeout: 45_000 }, async () =>
     })
     assert.equal(overflowStatus, 429)
   } finally {
-    child.kill('SIGTERM')
     for (const conn of sockets) {
       try {
         conn.req.destroy()
@@ -165,7 +164,7 @@ test('SSE origin 403 and connection limit 429', { timeout: 45_000 }, async () =>
         // ignore
       }
     }
-    await delay(100)
+    await awaitChildExit(child)
   }
 })
 })

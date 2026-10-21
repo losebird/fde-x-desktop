@@ -1,4 +1,4 @@
-import './support/no-stray-processes.mjs'
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -32,8 +32,7 @@ test('a write without the page token is rejected', async (t) => {
   child.stdout.on('data', (chunk) => { stdout += chunk })
   child.stderr.on('data', (chunk) => { stderr += chunk })
   t.after(async () => {
-    if (child.exitCode === null) child.kill('SIGTERM')
-    await delay(150)
+    await awaitChildExit(child)
     await rm(home, { recursive: true, force: true })
   })
 

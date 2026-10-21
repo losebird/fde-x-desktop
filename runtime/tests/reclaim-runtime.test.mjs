@@ -1,4 +1,4 @@
-import './support/no-stray-processes.mjs'
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
 import { describe, test } from 'node:test'
@@ -56,11 +56,7 @@ describe('reclaim-runtime', () => {
       assert.equal(isPidAlive(dummy.pid), false)
     } finally {
       if (isPidAlive(dummy.pid)) {
-        try {
-          dummy.kill('SIGKILL')
-        } catch {
-          // gone
-        }
+        await awaitChildExit(dummy, 'SIGKILL')
       }
     }
   })
@@ -121,11 +117,7 @@ describe('reclaim-runtime', () => {
       assert.equal(gone, true)
     } finally {
       if (child.pid && isPidAlive(child.pid)) {
-        try {
-          child.kill('SIGKILL')
-        } catch {
-          // gone
-        }
+        await awaitChildExit(child, 'SIGKILL')
       }
     }
   })
@@ -150,7 +142,7 @@ describe('reclaim-runtime', () => {
       assert.equal(stray.includes(other.pid), false)
     } finally {
       if (isPidAlive(other.pid)) {
-        try { other.kill('SIGKILL') } catch { /* gone */ }
+        await awaitChildExit(other, 'SIGKILL')
       }
     }
   })

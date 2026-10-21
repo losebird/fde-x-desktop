@@ -1,4 +1,4 @@
-import './support/no-stray-processes.mjs'
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir, readFile, rm } from 'node:fs/promises'
@@ -137,13 +137,7 @@ async function startServer() {
 }
 
 async function stopServer() {
-  if (!child || child.exitCode != null) return
-  child.kill('SIGTERM')
-  for (let i = 0; i < 20; i += 1) {
-    if (child.exitCode != null) return
-    await delay(50)
-  }
-  child.kill('SIGKILL')
+  await awaitChildExit(child)
 }
 
 async function readJson(res) {

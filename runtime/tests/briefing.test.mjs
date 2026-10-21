@@ -1,4 +1,4 @@
-import './support/no-stray-processes.mjs'
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
@@ -64,9 +64,7 @@ async function startServer() {
 }
 
 async function stopServer() {
-  if (!child) return
-  child.kill('SIGTERM')
-  await delay(100)
+  await awaitChildExit(child)
 }
 
 test('validate sections closed set and default definition', () => {
