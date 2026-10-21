@@ -1,15 +1,3 @@
-"""FalkorDB is the primary graph book. graph.json is backup only.
-
-Explorer still reasons on an in-memory ContextGraph. We load that graph
-from FalkorDB when the store is up, and write it back on every save.
-
-TCP 127.0.0.1:6379 is tried first (Docker / already-running server).
-If TCP is down, a process-wide FalkorDBLite singleton opens
-~/.dsh/semantic-os/falkordb/graph.db (honors DSH_HOME). One lite file,
-many named graphs via graph_name(cwd). Default lite is a Unix socket,
-not 6379.
-"""
-
 from __future__ import annotations
 
 import atexit
@@ -78,11 +66,6 @@ _TCP_TTL_SECONDS = 30.0
 
 
 def _tcp_status() -> dict[str, Any] | None:
-    # A Docker redis on 127.0.0.1:6379 that is NOT a FalkorDB server makes the
-    # probe fail after a connection timeout. read_primary/_open_graph each call
-    # this on every search, so cache the result and avoid re-paying that probe
-    # on every request. Success is cached too (re-probing is cheap but pointless
-    # while the server is clearly up).
     global _TCP_CACHE, _TCP_CACHE_TS
     now = time.monotonic()
     if _TCP_CACHE is not None and (now - _TCP_CACHE_TS) < _TCP_TTL_SECONDS:
@@ -121,9 +104,6 @@ def _open_lite() -> Any:
         path = lite_db_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            # redislite speaks over a unix socket; forcing a TCP port made
-            # redis-server try to listen on 6379 and time out (~10s) on macOS.
-            # port '0' keeps it socket-only and starts in ~0.1s.
             db = Lite(str(path), serverconfig={"port": "0"})
             db.select_graph("dsh_ping").query("RETURN 1")
         except Exception as exc:
@@ -578,12 +558,6 @@ def forget_node_rows(cwd: str = "") -> None:
 
 
 def read_node_rows(cwd: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Read raw node rows for fast text search WITHOUT importing semantica.
-
-    Importing semantica.context pulls onnxruntime and costs ~12s on first use.
-    Text search only needs id/type/content/properties, so read them straight
-    from FalkorDB (or the graph.json backup) and skip the heavy import.
-    """
     cache_key = os.path.realpath(cwd or "")
     now = time.time()
     with _ROWS_LOCK:
@@ -642,7 +616,6 @@ def read_node_rows(cwd: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
 
 def read_memory_card_rows(cwd: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Inbox rows only. Avoids pulling every session body into the drawer."""
     st = primary_status()
     if st.get("ok"):
         try:
@@ -716,7 +689,6 @@ def read_nodes_by_id(cwd: str, ids: list[str]) -> dict[str, dict[str, Any]]:
 
 
 def patch_node_props(cwd: str, nid: str, extra: dict[str, Any]) -> dict[str, Any]:
-    """Merge leaf fields onto one node. No semantica import, no vector rebuild."""
     nid = str(nid or "").strip()
     if not nid:
         return {"error": "NO_PATH"}
@@ -796,7 +768,6 @@ def _patch_graph_json(cwd: str, nid: str, extra: dict[str, Any]) -> None:
 
 
 def insert_memory_card(cwd: str, nid: str, label: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Create one 记忆卡片. No semantica import, no vector rebuild."""
     nid = str(nid or "").strip()
     label = str(label or "").strip()
     extra = extra if isinstance(extra, dict) else {}
@@ -831,7 +802,6 @@ def insert_memory_card(cwd: str, nid: str, label: str, extra: dict[str, Any] | N
 
 
 def insert_edge(cwd: str, src: str, tgt: str, et: str) -> dict[str, Any]:
-    """Create one edge. No semantica import, no vector rebuild."""
     src = str(src or "").strip()
     tgt = str(tgt or "").strip()
     et = str(et or "").strip()
@@ -949,7 +919,6 @@ def _insert_graph_json(cwd: str, nid: str, label: str, extra: dict[str, Any]) ->
 
 
 def upsert_entity(cwd: str, nid: str, ntype: str, label: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Insert one entity without loading ContextGraph."""
     nid = str(nid or "").strip()
     ntype = str(ntype or "Entity").strip() or "Entity"
     label = str(label or nid).strip() or nid
@@ -976,7 +945,6 @@ def upsert_entity(cwd: str, nid: str, ntype: str, label: str, extra: dict[str, A
 
 
 def read_edge_rows(cwd: str) -> list[dict[str, Any]]:
-    """Read raw edge rows (source, target, type) without importing semantica."""
     st = primary_status()
     if st.get("ok"):
         try:
@@ -1162,7 +1130,6 @@ def _write_sparse_index(dest: Path, cwd: str, ids: list[str], texts: list[str], 
 
 
 def rebuild_vectors(cwd: str, graph: Any) -> dict[str, Any]:
-    """Same TF-IDF ruler as before, stored sparse. Never densify into FAISS."""
     ids, texts = _collect_vector_texts(graph)
     return _rebuild_from_texts(cwd, ids, texts)
 
@@ -1187,7 +1154,6 @@ def _vector_root(cwd: str) -> str:
 
 
 def schedule_rebuild_vectors(cwd: str, graph: Any) -> dict[str, Any]:
-    """Queue one rebuild per workspace. Later writes replace the pending snapshot."""
     root = _vector_root(cwd)
     ids, texts = _collect_vector_texts(graph)
     with _VECTOR_LOCK:
@@ -1228,7 +1194,6 @@ def wait_vector_rebuild(cwd: str, timeout: float = 15.0) -> bool:
 
 
 def vector_index_status(cwd: str) -> dict[str, Any]:
-    """Settings-facing complement state. Does not import faiss."""
     st = vector_status()
     dest = vector_dir(cwd)
     meta = _read_vector_meta(dest)
@@ -1267,7 +1232,6 @@ def vector_index_status(cwd: str) -> dict[str, Any]:
 
 
 def search_vectors(cwd: str, query: str, limit: int = 8) -> list[dict[str, Any]]:
-    """Complement hits only. Skip legacy dense FAISS; never early-stop at the caller."""
     if not str(query or "").strip():
         return []
     loaded = _load_sparse_vectors(cwd)

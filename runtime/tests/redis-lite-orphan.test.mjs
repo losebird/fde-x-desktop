@@ -100,7 +100,7 @@ async function ensurePython() {
 
 async function killPid(pid) {
   if (!Number.isInteger(pid) || pid <= 1) return
-  try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+  try { process.kill(pid, 'SIGKILL') } catch {}
 }
 
 async function startDecoy(home) {
@@ -161,7 +161,7 @@ describe('redis lite close', { concurrency: false }, () => {
         const pid = Number(line.trim().split(/\s+/)[0])
         await killPid(pid)
       }
-    } catch { /* ps failure still removes the temp root */ }
+    } catch {}
     await rm(suiteRoot, { recursive: true, force: true })
     suiteRoot = ''
     python = ''
@@ -213,7 +213,7 @@ describe('redis lite close', { concurrency: false }, () => {
       assert.equal(pgid, decoy.pgid, JSON.stringify(report))
       await killPid(body.pid)
     } finally {
-      try { decoy.child.kill('SIGKILL') } catch { /* holder already exited */ }
+      try { decoy.child.kill('SIGKILL') } catch {}
       await killPid(decoy.pid)
     }
   })
@@ -310,7 +310,7 @@ describe('redis lite close', { concurrency: false }, () => {
       try {
         pid = Number(await readFile(pidFile, 'utf8'))
         if (pid > 1) break
-      } catch { /* file not written yet */ }
+      } catch {}
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
     assert.ok(pid > 1, 'stubborn process did not write its pid')
@@ -353,7 +353,7 @@ describe('redis lite close', { concurrency: false }, () => {
       assert.equal(dead(body.state), true, JSON.stringify(body))
     } finally {
       await killPid(pid)
-      try { child.kill('SIGKILL') } catch { /* already stopped */ }
+      try { child.kill('SIGKILL') } catch {}
     }
   })
 
@@ -433,11 +433,11 @@ describe('redis lite close', { concurrency: false }, () => {
       assert.equal(live(decoyState), true, JSON.stringify(report))
       assert.equal(decoyPgid, decoy.pgid, JSON.stringify(report))
     } finally {
-      try { process.kill(-child.pid, 'SIGKILL') } catch { /* group already gone */ }
+      try { process.kill(-child.pid, 'SIGKILL') } catch {}
       await killPid(redisPid)
-      try { decoy.child.kill('SIGKILL') } catch { /* decoy holder already exited */ }
+      try { decoy.child.kill('SIGKILL') } catch {}
       await killPid(decoy.pid)
-      try { holder.kill('SIGKILL') } catch { /* connection holder already exited */ }
+      try { holder.kill('SIGKILL') } catch {}
       await killPid(heldPid)
     }
   })
