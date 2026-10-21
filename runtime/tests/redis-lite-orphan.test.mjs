@@ -647,4 +647,94 @@ describe('redis lite close', { concurrency: false }, () => {
     t.diagnostic(JSON.stringify(body))
     assert.equal(dead(body), true, JSON.stringify(body))
   })
+
+  test('without /proc, a shifted create_time stays up and the same identity is reaped', { timeout: 180_000 }, async (t) => {
+    await ensurePython()
+    const home = await mkdtemp(join(suiteRoot, 'home-'))
+    const pythonDir = await materializePlugin()
+    const script = join(home, 'create-time.py')
+    await writeFile(script, [
+      'import json, os, sys, time',
+      'sys.path.insert(0, sys.argv[1])',
+      'import stores',
+      pyPrelude,
+      'def spawn(ignore_term, ready):',
+      '    if ignore_term:',
+      '        code = "import signal, sys, time\\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\\nopen(sys.argv[1], \\"w\\").close()\\nwhile True:\\n    time.sleep(30)\\n"',
+      '    else:',
+      '        code = "import sys, time\\nopen(sys.argv[1], \\"w\\").close()\\nwhile True:\\n    time.sleep(30)\\n"',
+      '    return os.spawnv(os.P_NOWAIT, sys.executable, [sys.executable, "-c", code, ready])',
+      'def wait_ready(path):',
+      '    deadline = time.time() + 5',
+      '    while not os.path.exists(path):',
+      '        if time.time() > deadline:',
+      '            raise SystemExit("process did not become ready")',
+      '        time.sleep(0.01)',
+      'class Client:',
+      '    def __init__(self, pid):',
+      '        self.pid = pid',
+      '    def shutdown(self, **kwargs):',
+      '        raise OSError("no server")',
+      'class Db:',
+      '    def __init__(self, pid):',
+      '        self.client = Client(pid)',
+      '    def close(self):',
+      '        return None',
+      'shift_pid = spawn(False, sys.argv[2])',
+      'wait_ready(sys.argv[2])',
+      'before = identity(shift_pid)',
+      'import psutil',
+      'real_create_time = psutil.Process.create_time',
+      'calls = {"n": 0}',
+      'def shifted(self):',
+      '    calls["n"] += 1',
+      '    value = real_create_time(self)',
+      '    if calls["n"] == 1:',
+      '        return value',
+      '    return value + 100',
+      'psutil.Process.create_time = shifted',
+      'hide_proc()',
+      'if os.path.isdir("/proc"):',
+      '    raise SystemExit("proc was not hidden")',
+      'stores._LITE_DB = Db(shift_pid)',
+      'started = time.monotonic()',
+      'stores.close_lite()',
+      'shifted_elapsed = round(time.monotonic() - started, 3)',
+      'psutil.Process.create_time = real_create_time',
+      'after = identity(shift_pid)',
+      'control_pid = spawn(True, sys.argv[3])',
+      'wait_ready(sys.argv[3])',
+      'stores._LITE_DB = Db(control_pid)',
+      'cstarted = time.monotonic()',
+      'stores.close_lite()',
+      'control_elapsed = round(time.monotonic() - cstarted, 3)',
+      'control = identity(control_pid)',
+      'print(json.dumps({"shift_pid": shift_pid, "before": before, "after": after, "create_time_calls": calls["n"], "shifted_elapsed": shifted_elapsed, "control_pid": control_pid, "control": control, "control_elapsed": control_elapsed, "isdir_proc": os.path.isdir("/proc")}))',
+    ].join('\n'))
+    let shiftPid = 0
+    let controlPid = 0
+    try {
+      const ran = await runPython([script, pythonDir, join(home, 'shift.ready'), join(home, 'control.ready')], {
+        ...process.env,
+        PYTHONPATH: pythonDir,
+      })
+      assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+      const body = JSON.parse(ran.stdout.trim().split('\n').pop())
+      shiftPid = body.shift_pid
+      controlPid = body.control_pid
+      t.diagnostic(JSON.stringify(body))
+      assert.equal(body.isdir_proc, false, JSON.stringify(body))
+      assert.equal(live(body.before), true, JSON.stringify(body))
+      assert.equal(live(body.after), true, JSON.stringify(body))
+      assert.equal(JSON.stringify(body.after.cmdline), JSON.stringify(body.before.cmdline), JSON.stringify(body))
+      assert.equal(body.after.pgid, body.before.pgid, JSON.stringify(body))
+      assert.equal(body.after.create_time, body.before.create_time, JSON.stringify(body))
+      assert.ok(body.create_time_calls >= 2, JSON.stringify(body))
+      assert.equal(dead(body.control), true, JSON.stringify(body))
+      assert.ok(body.control_elapsed >= 2, JSON.stringify(body))
+    } finally {
+      await killPid(shiftPid)
+      await killPid(controlPid)
+    }
+  })
 })
