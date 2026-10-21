@@ -1,0 +1,60 @@
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dsh: <https://dsh.local/vocab/zh-ecom#> .
+
+dsh:scheme a skos:ConceptScheme ;
+  skos:prefLabel "电商分类" ;
+  skos:definition "插件自带的中文店铺和商品分类。" ;
+  skos:hasTopConcept dsh:store, dsh:product, dsh:person, dsh:category .
+
+dsh:store a skos:Concept ;
+  skos:prefLabel "店铺" ;
+  skos:inScheme dsh:scheme ;
+  skos:topConceptOf dsh:scheme ;
+  skos:narrower dsh:flagship .
+
+dsh:flagship a skos:Concept ;
+  skos:prefLabel "旗舰店" ;
+  skos:inScheme dsh:scheme ;
+  skos:broader dsh:store .
+
+dsh:product a skos:Concept ;
+  skos:prefLabel "商品" ;
+  skos:inScheme dsh:scheme ;
+  skos:topConceptOf dsh:scheme ;
+  skos:narrower dsh:phone, dsh:baijiu, dsh:snack .
+
+dsh:phone a skos:Concept ;
+  skos:prefLabel "手机" ;
+  skos:inScheme dsh:scheme ;
+  skos:broader dsh:product .
+
+dsh:baijiu a skos:Concept ;
+  skos:prefLabel "白酒" ;
+  skos:inScheme dsh:scheme ;
+  skos:broader dsh:product .
+
+dsh:snack a skos:Concept ;
+  skos:prefLabel "零食" ;
+  skos:inScheme dsh:scheme ;
+  skos:broader dsh:product .
+
+dsh:person a skos:Concept ;
+  skos:prefLabel "人" ;
+  skos:inScheme dsh:scheme ;
+  skos:topConceptOf dsh:scheme .
+
+dsh:category a skos:Concept ;
+  skos:prefLabel "类目" ;
+  skos:inScheme dsh:scheme ;
+  skos:topConceptOf dsh:scheme ;
+  skos:narrower dsh:digital, dsh:food .
+
+dsh:digital a skos:Concept ;
+  skos:prefLabel "手机数码" ;
+  skos:inScheme dsh:scheme ;
+  skos:broader dsh:category .
+
+dsh:food a skos:Concept ;
+  skos:prefLabel "食品酒水" ;
+  skos:inScheme dsh:scheme ;
+  skos:broader dsh:category .

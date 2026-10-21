@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 export const SOURCE_COMMIT = '31d75468e0ffd58bb5bb214325c7517c7c42a8ab'
+export const SOURCE_PARENT = 'ab6a03af83c65eb6238a254aa1ddf999f1be7515'
 export const OVERLAY_COMMIT = '6a79f383b951c7e13f424c4577dc06b85f64304e'
 export const NATS_VERSION = '2.29.3'
 export const NATS_INTEGRITY = 'sha512-tOQCRCwC74DgBTk4pWZ9V45sk4d7peoE2njVprMRCBXrhJ5q5cYM7i6W+Uvw2qUrcfOSnuisrX7bEx3b3Wx4QA=='
@@ -58,6 +59,10 @@ function gitFiles(source) {
 
 function gitHead(source) {
   return execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+}
+
+function gitParent(source) {
+  return execFileSync('git', ['-C', source, 'rev-parse', 'HEAD^'], { encoding: 'utf8' }).trim()
 }
 
 function gitBlob(source, rel) {
@@ -132,6 +137,8 @@ function walkOverlay(dir, prefix = '') {
 export function buildTree(source, overlayDir) {
   const head = gitHead(source)
   if (head !== SOURCE_COMMIT) throw new Error(`source HEAD ${head} != ${SOURCE_COMMIT}`)
+  const parent = gitParent(source)
+  if (parent !== SOURCE_PARENT) throw new Error(`source parent ${parent} != ${SOURCE_PARENT}`)
   const files = new Map()
   for (const rel of gitFiles(source)) {
     const dest = destFor(rel)
@@ -160,7 +167,7 @@ function lockDocument(files) {
     version: 1,
     plugins: {
       'dsh-lan-assist': {
-        source: { repo: 'losebird/dsh-lan-assist', commit: SOURCE_COMMIT },
+        source: { repo: 'losebird/dsh-lan-assist', commit: SOURCE_COMMIT, parent: SOURCE_PARENT },
         overlay: {
           repo: 'losebird/fde-x-desktop',
           commit: OVERLAY_COMMIT,

@@ -1,0 +1,119 @@
+{
+  "name": "dsh-semantic-os",
+  "version": "0.1.1",
+  "description": "Semantic OS for DeepSeek Harness: semantica==0.6.7 sidecar plus a product Semantic tab canvas.",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "peers.js",
+    "persist.js",
+    "sidecar.js",
+    "sidecar-client.js",
+    "ensure-deps.js",
+    "installer.js",
+    "runtime-bundle.js",
+    "runtime-install.js",
+    "workspace-authority.js",
+    "version.js",
+    "dsh-llm.js",
+    "http.js",
+    "tools.js",
+    "client.js",
+    "dist/explore",
+    "dist/analyze",
+    "dist/decisions",
+    "dist/admin",
+    "dist/ontology",
+    "dist/io",
+    "python/bootstrap.py",
+    "python/board.py",
+    "python/reference.py",
+    "python/sight.py",
+    "python/grade.py",
+    "python/intent.py",
+    "python/kind.py",
+    "python/ledger.py",
+    "python/stores.py",
+    "python/passages.py",
+    "python/align.py",
+    "python/onto_versions.py",
+    "python/extract_clean.py",
+    "src/locales/zh.json",
+    "src/locales/en.json",
+    "cordis.patch.yml",
+    "README.md",
+    "RELEASE.md",
+    "LICENSE",
+    "ingest.js",
+    "session-ingest.js",
+    "session-corpus.js",
+    "session-find.js",
+    "eyes-media.js",
+    "extract-llm.js",
+    "extract-clean.js",
+    "extract-queue.js",
+    "extract-jobs.js",
+    "usage-ledger.js",
+    "opening-brief.js",
+    "first-turn.js",
+    "gate.js",
+    "bridge.js",
+    "product.js",
+    "graph-label.js",
+    "annotations.js",
+    "people.js",
+    "people-sync.js",
+    "slips.js",
+    "python/agent_mem.py",
+    "python/policy/default/pack.yml",
+    "python/policy/default/README.md"
+  ],
+  "scripts": {
+    "build:ui": "npm run build:dsh --prefix ui",
+    "test": "node --test test/*.test.js",
+    "test:smoke": "node smoke-left-ids.js && node smoke-slips.js",
+    "test:package": "node scripts/test-package.js && node scripts/check-patch-yml.mjs",
+    "test:full": "node scripts/full-functionality.mjs \"$DSH_RUNTIME_PYTHON\" && node scripts/collab-retrieval.mjs \"$DSH_RUNTIME_PYTHON\"",
+    "prepublishOnly": "npm run build:ui && npm test && npm run test:smoke && npm run test:package"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "semantica",
+    "knowledge-graph"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-cordis-client-runner"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/losebird/dsh-semantic-os.git"
+  },
+  "homepage": "https://github.com/losebird/dsh-semantic-os"
+}
