@@ -10,6 +10,7 @@ import { openDatabase } from '../db.mjs'
 import { stageWorkflowAllow, sweepWorkflowAllow } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
 import { startWorkflowRun } from '../plan/workflow-run.mjs'
 import { bootWorkflowHost, waitForProbe } from './support/workflow-host.mjs'
+import { STANDARD_SESSION_TOOLS } from './support/standard-session-tools.mjs'
 
 const migrations = join(import.meta.dirname, '..', 'migrations')
 const QUERY = 'fde_app_records_query'
@@ -163,7 +164,7 @@ describe('真 Host 上的 allow 文件和会停住的工具', { concurrency: 1 }
           request: { cwd: host.cwd, agentPreset: 'standard' },
         })
         const standard = await waitForProbe(host.probeDir, 'standard')
-        assert.equal(standard.names.length, 44)
+        assert.deepEqual(standard.names, STANDARD_SESSION_TOOLS)
       } finally {
         db.close()
         await rm(dbPath, { force: true })

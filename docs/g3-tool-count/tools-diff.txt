@@ -1,0 +1,18 @@
+# real home vs clean home
+(identical, 45 names)
+
+# expected 44 vs measured actual
+--- docs/g3-tool-count/tools-expected.txt	2026-10-20 05:33:30.107633001 +0000
++++ docs/g3-tool-count/tools-actual.txt	2026-10-20 05:33:30.103632998 +0000
+@@ -8,6 +8,7 @@
+ fde_app_spec_submit
+ fde_briefing_submit
+ fde_context_get
++fde_mcp_load
+ fde_memory_draft
+ fde_plan_task_propose
+ fde_submit_result
+
+expected_count 44
+actual_count 45
+clean_count 45
