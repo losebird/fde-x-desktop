@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { closeSync, existsSync, openSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,16 +10,46 @@ import assert from 'node:assert/strict'
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
 const parentScript = join(repoRoot, 'runtime/tests/support/restarter-parent.mjs')
 const preload = pathToFileURL(join(repoRoot, 'runtime/tests/support/restarter-group-child.mjs')).href
+const runtimeArg = /(?:^|[\s/])runtime\/(?:boot|server)\.mjs(?:\s|$)/
 
-function procStat(pid) {
+function psRows() {
+  let text = ''
   try {
-    const text = readFileSync(`/proc/${pid}/stat`, 'utf8')
-    const rest = text.slice(text.lastIndexOf(')') + 2).trim().split(/\s+/)
+    text = execFileSync('ps', ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,stat=,args='], { encoding: 'utf8' })
+  } catch (error) {
+    throw new Error(`ps -A -ww -o pid=,ppid=,pgid=,stat=,args= failed: ${error.message}`)
+  }
+  const rows = []
+  for (const line of text.split('\n')) {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/)
+    if (!match) continue
+    rows.push({
+      pid: Number(match[1]),
+      ppid: Number(match[2]),
+      pgid: Number(match[3]),
+      state: match[4],
+      args: match[5],
+    })
+  }
+  return rows
+}
+
+function psOf(pid) {
+  if (!Number.isInteger(pid) || pid <= 1) return null
+  try {
+    const text = execFileSync(
+      'ps',
+      ['-p', String(pid), '-ww', '-o', 'pid=,ppid=,pgid=,stat=,args='],
+      { encoding: 'utf8' },
+    ).trim()
+    const match = text.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+([\s\S]*)$/)
+    if (!match) return null
     return {
-      state: rest[0],
-      ppid: Number(rest[1]),
-      pgid: Number(rest[2]),
-      sid: Number(rest[3]),
+      pid: Number(match[1]),
+      ppid: Number(match[2]),
+      pgid: Number(match[3]),
+      state: match[4],
+      args: match[5],
     }
   } catch {
     return null
@@ -27,18 +57,25 @@ function procStat(pid) {
 }
 
 function running(pid) {
-  const stat = procStat(pid)
-  if (!stat) return false
-  if (stat.state === 'Z') return false
-  return true
+  const row = psOf(pid)
+  if (!row) return false
+  return !row.state.startsWith('Z')
 }
 
 function commandOf(pid) {
-  try {
-    return execFileSync('ps', ['-o', 'pid=,ppid=,pgid=,stat=,args=', '-p', String(pid)], { encoding: 'utf8' }).trim()
-  } catch {
-    return ''
-  }
+  const row = psOf(pid)
+  if (!row) return ''
+  return `${row.pid} ${row.ppid} ${row.pgid} ${row.state} ${row.args}`
+}
+
+function runtimePids() {
+  return psRows()
+    .filter((row) => runtimeArg.test(row.args) && !row.state.startsWith('Z'))
+    .map((row) => row.pid)
+}
+
+function newRuntimes(before) {
+  return runtimePids().filter((pid) => !before.has(pid))
 }
 
 function childEnv(dir, port) {
@@ -58,7 +95,7 @@ function childEnv(dir, port) {
 async function waitFor(read, ms) {
   const start = Date.now()
   while (Date.now() - start < ms) {
-    const value = read()
+    const value = await read()
     if (value) return value
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
@@ -91,27 +128,6 @@ function spawnParent(mode, dir, port, withChild) {
   }
 }
 
-async function killMarked(dir) {
-  let names = []
-  try {
-    names = await readdir('/proc')
-  } catch {
-    return
-  }
-  for (const name of names) {
-    if (!/^\d+$/.test(name)) continue
-    const pid = Number(name)
-    if (pid === process.pid) continue
-    try {
-      const env = await readFile(join('/proc', name, 'environ'))
-      if (!env.includes(dir)) continue
-      killPid(pid)
-    } catch {
-      // already gone or not readable
-    }
-  }
-}
-
 async function readChildPid(childPath) {
   const text = await waitFor(() => {
     if (!existsSync(childPath)) return ''
@@ -132,9 +148,14 @@ function killGroup(pid) {
   killPid(pid)
 }
 
+function killPids(pids) {
+  for (const pid of pids) killPid(pid)
+}
+
 test('parent SIGKILL reaps the restarter and its child within 5s', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'fde-restarter-kill-'))
   const port = 22000 + Math.floor(Math.random() * 20000)
+  const before = new Set(runtimePids())
   const handle = spawnParent('hold', dir, port, true)
   let restarter = 0
   let child = 0
@@ -146,12 +167,12 @@ test('parent SIGKILL reaps the restarter and its child within 5s', async () => {
     assert.ok(meta?.restarter, 'precondition: restarter pid')
     restarter = meta.restarter
     child = await readChildPid(handle.childPath)
-    const restarterStat = procStat(restarter)
-    const childStat = procStat(child)
+    const restarterRow = psOf(restarter)
+    const childRow = psOf(child)
     assert.equal(running(restarter), true, `precondition: restarter running ${commandOf(restarter)}`)
     assert.equal(running(child), true, `precondition: restarter child running ${commandOf(child)}`)
-    assert.equal(restarterStat?.pgid, restarter, `precondition: restarter leads its group ${commandOf(restarter)}`)
-    assert.equal(childStat?.pgid, restarter, `precondition: child is in the restarter group ${commandOf(child)}`)
+    assert.equal(restarterRow?.pgid, restarter, `precondition: restarter leads its group ${commandOf(restarter)}`)
+    assert.equal(childRow?.pgid, restarter, `precondition: child is in the restarter group ${commandOf(child)}`)
     const started = Date.now()
     killPid(meta.parent)
     let goneAt = null
@@ -162,13 +183,20 @@ test('parent SIGKILL reaps the restarter and its child within 5s', async () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
-    assert.ok(goneAt != null, `restarter and child still running after 5s restarter=${commandOf(restarter)} child=${commandOf(child)}`)
-    assert.ok(goneAt <= 5000)
+    const successors = newRuntimes(before).map((pid) => commandOf(pid)).filter(Boolean)
+    const groupGone = goneAt != null
+    assert.equal(
+      groupGone && successors.length === 0,
+      true,
+      `restarter group must be gone within 5s and must not have spawned a successor`
+      + ` goneAt=${goneAt} successors=${successors.join(' | ') || 'none'}`
+      + ` restarter=${commandOf(restarter)} child=${commandOf(child)}`,
+    )
   } finally {
+    killPids(newRuntimes(before))
     killGroup(restarter)
     killPid(child)
     killPid(handle.parent.pid)
-    await killMarked(dir)
     await rm(dir, { recursive: true, force: true })
   }
 })
@@ -176,6 +204,7 @@ test('parent SIGKILL reaps the restarter and its child within 5s', async () => {
 test('a living parent does not reap the restarter for 30s', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'fde-restarter-hold-'))
   const port = 22000 + Math.floor(Math.random() * 20000)
+  const before = new Set(runtimePids())
   const handle = spawnParent('hold', dir, port, true)
   let restarter = 0
   let child = 0
@@ -189,14 +218,16 @@ test('a living parent does not reap the restarter for 30s', async () => {
     assert.equal(running(restarter), true, 'precondition: restarter running')
     assert.equal(running(child), true, 'precondition: restarter child running')
     await new Promise((resolve) => setTimeout(resolve, 30000))
+    const successors = newRuntimes(before).map((pid) => commandOf(pid)).filter(Boolean)
     assert.equal(running(meta.parent), true, 'parent still alive')
     assert.equal(running(restarter), true, `restarter was reaped while the parent lived ${commandOf(restarter)}`)
     assert.equal(running(child), true, `child was reaped while the parent lived ${commandOf(child)}`)
+    assert.deepEqual(successors, [], `living parent spawned a successor ${successors.join(' | ')}`)
   } finally {
+    killPids(newRuntimes(before))
     killGroup(restarter)
     killPid(child)
     killPid(handle.parent.pid)
-    await killMarked(dir)
     await rm(dir, { recursive: true, force: true })
   }
 })
@@ -204,26 +235,26 @@ test('a living parent does not reap the restarter for 30s', async () => {
 test('a planned restart still brings the runtime back', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'fde-restarter-restart-'))
   const port = 22000 + Math.floor(Math.random() * 20000)
+  const before = new Set(runtimePids())
   const handle = spawnParent('restart', dir, port, false)
   let listener = 0
   try {
-    const healthy = await waitFor(() => {
+    const healthy = await waitFor(async () => {
       try {
-        const out = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).trim()
-        const pid = Number(out.split('\n')[0])
-        return Number.isInteger(pid) && pid > 1 ? pid : 0
+        const response = await fetch(`http://127.0.0.1:${port}/health`)
+        return response.status === 200
       } catch {
-        return 0
+        return false
       }
     }, 20000)
-    listener = healthy || 0
-    assert.ok(listener > 1, `planned restart did not listen on ${port}\n${handle.logs().slice(-2000)}`)
-    const response = await fetch(`http://127.0.0.1:${port}/health`)
-    assert.equal(response.status, 200)
+    const successors = newRuntimes(before)
+    listener = successors[0] || 0
+    assert.equal(healthy, true, `planned restart did not serve /health on ${port}\n${handle.logs().slice(-2000)}`)
+    assert.ok(listener > 1, `planned restart did not start runtime/boot.mjs or runtime/server.mjs`)
   } finally {
     killPid(listener)
+    killPids(newRuntimes(before))
     killPid(handle.parent.pid)
-    await killMarked(dir)
     await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
 })
