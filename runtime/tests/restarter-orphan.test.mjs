@@ -148,14 +148,22 @@ function killGroup(pid) {
   killPid(pid)
 }
 
-function killPids(pids) {
-  for (const pid of pids) killPid(pid)
+function rememberGroups(before, groups) {
+  for (const pid of newRuntimes(before)) {
+    const row = psOf(pid)
+    if (row?.pgid) groups.add(row.pgid)
+  }
+}
+
+function killGroups(groups) {
+  for (const pgid of groups) killGroup(pgid)
 }
 
 test('parent SIGKILL reaps the restarter and its child within 5s', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'fde-restarter-kill-'))
   const port = 22000 + Math.floor(Math.random() * 20000)
   const before = new Set(runtimePids())
+  const groups = new Set()
   const handle = spawnParent('hold', dir, port, true)
   let restarter = 0
   let child = 0
@@ -183,6 +191,7 @@ test('parent SIGKILL reaps the restarter and its child within 5s', async () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
+    rememberGroups(before, groups)
     const successors = newRuntimes(before).map((pid) => commandOf(pid)).filter(Boolean)
     const groupGone = goneAt != null
     assert.equal(
@@ -193,7 +202,8 @@ test('parent SIGKILL reaps the restarter and its child within 5s', async () => {
       + ` restarter=${commandOf(restarter)} child=${commandOf(child)}`,
     )
   } finally {
-    killPids(newRuntimes(before))
+    rememberGroups(before, groups)
+    killGroups(groups)
     killGroup(restarter)
     killPid(child)
     killPid(handle.parent.pid)
@@ -205,6 +215,7 @@ test('a living parent does not reap the restarter for 30s', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'fde-restarter-hold-'))
   const port = 22000 + Math.floor(Math.random() * 20000)
   const before = new Set(runtimePids())
+  const groups = new Set()
   const handle = spawnParent('hold', dir, port, true)
   let restarter = 0
   let child = 0
@@ -218,13 +229,15 @@ test('a living parent does not reap the restarter for 30s', async () => {
     assert.equal(running(restarter), true, 'precondition: restarter running')
     assert.equal(running(child), true, 'precondition: restarter child running')
     await new Promise((resolve) => setTimeout(resolve, 30000))
+    rememberGroups(before, groups)
     const successors = newRuntimes(before).map((pid) => commandOf(pid)).filter(Boolean)
     assert.equal(running(meta.parent), true, 'parent still alive')
     assert.equal(running(restarter), true, `restarter was reaped while the parent lived ${commandOf(restarter)}`)
     assert.equal(running(child), true, `child was reaped while the parent lived ${commandOf(child)}`)
     assert.deepEqual(successors, [], `living parent spawned a successor ${successors.join(' | ')}`)
   } finally {
-    killPids(newRuntimes(before))
+    rememberGroups(before, groups)
+    killGroups(groups)
     killGroup(restarter)
     killPid(child)
     killPid(handle.parent.pid)
@@ -236,6 +249,7 @@ test('a planned restart still brings the runtime back', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'fde-restarter-restart-'))
   const port = 22000 + Math.floor(Math.random() * 20000)
   const before = new Set(runtimePids())
+  const groups = new Set()
   const handle = spawnParent('restart', dir, port, false)
   let listener = 0
   try {
@@ -247,13 +261,13 @@ test('a planned restart still brings the runtime back', async () => {
         return false
       }
     }, 20000)
+    rememberGroups(before, groups)
     const successors = newRuntimes(before)
     listener = successors[0] || 0
     assert.equal(healthy, true, `planned restart did not serve /health on ${port}\n${handle.logs().slice(-2000)}`)
     assert.ok(listener > 1, `planned restart did not start runtime/boot.mjs or runtime/server.mjs`)
   } finally {
-    killPid(listener)
-    killPids(newRuntimes(before))
+    killGroups(groups)
     killPid(handle.parent.pid)
     await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
