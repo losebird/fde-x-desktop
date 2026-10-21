@@ -9,6 +9,9 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
 import { generationDshBin, generationInstallRoot } from '../generation.mjs'
+import { createPageTokenClient } from './support/page-token-fetch.mjs'
+
+const page = createPageTokenClient()
 
 const repoRoot = join(import.meta.dirname, '../..')
 const SOURCE = 'losebird/dsh-semantic-os@42e228fa25ad757b933bf5ffe1e3fe83640b4ae7'
@@ -418,7 +421,10 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       env: hostEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    child.stdout.on('data', (chunk) => { output.text += chunk.toString() })
+    child.stdout.on('data', (chunk) => {
+      page.observe(chunk)
+      output.text += chunk.toString()
+    })
     child.stderr.on('data', (chunk) => { output.text += chunk.toString() })
     try {
       const started = Date.now()
@@ -437,7 +443,7 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       if (!port) throw new Error(`runtime did not listen\n${output.text.slice(-3000)}`)
       const base = `http://127.0.0.1:${port}`
       const origin = base
-      const request = (path, options = {}) => fetch(`${base}${path}`, {
+      const request = (path, options = {}) => page.fetch(`${base}${path}`, {
         ...options,
         headers: { origin, ...(options.headers || {}) },
       })
@@ -564,12 +570,16 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       })
       await reapHomeProcesses(home)
       output.text = ''
+      page.reset()
       child = spawn(process.execPath, ['runtime/server.mjs'], {
         cwd: repoRoot,
         env: hostEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
-      child.stdout.on('data', (chunk) => { output.text += chunk.toString() })
+      child.stdout.on('data', (chunk) => {
+        page.observe(chunk)
+        output.text += chunk.toString()
+      })
       child.stderr.on('data', (chunk) => { output.text += chunk.toString() })
       const restarted = Date.now()
       let port2 = 0
@@ -585,7 +595,7 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
         await new Promise((resolve) => setTimeout(resolve, 50))
       }
       if (!port2) throw new Error(`restart did not listen\n${output.text.slice(-3000)}`)
-      const request2 = (path, options = {}) => fetch(`http://127.0.0.1:${port2}${path}`, {
+      const request2 = (path, options = {}) => page.fetch(`http://127.0.0.1:${port2}${path}`, {
         ...options,
         headers: { origin: `http://127.0.0.1:${port2}`, ...(options.headers || {}) },
       })
