@@ -142,7 +142,10 @@ def _read_identity(pid: int):
         if len(fields) <= 19 or not cmdline:
             return _UNREAD
         return (cmdline, fields[19])
-    import psutil
+    try:
+        import psutil
+    except ImportError:
+        return _UNREAD
     try:
         proc = psutil.Process(int(pid))
         cmdline = tuple(proc.cmdline())
