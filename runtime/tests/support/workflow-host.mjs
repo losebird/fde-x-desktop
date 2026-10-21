@@ -283,37 +283,24 @@ async function bootWorkflowHostChild(options) {
     },
     async call(endpoint, args = {}, signal) {
       if (!core.origin || !core.cookie) throw new Error('核心 AI 运行时尚未连接')
-      const startedAt = Date.now()
-      for (;;) {
-        const rpcId = randomUUID()
-        const response = await fetch(new URL(`/api/${endpoint}`, core.origin), {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            cookie: core.cookie,
-            origin: core.origin,
-          },
-          body: JSON.stringify({
-            type: 'client-request',
-            rpcId,
-            method: endpoint,
-            payload: { args },
-          }),
-          signal,
-        })
-        if (!response.ok) throw new Error(`AI 远程调用失败：HTTP ${response.status}`)
-        try {
-          return await parseHostRpcValue(response, rpcId, endpoint)
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          const probeStillRunning = endpoint === 'workspace/archiveSession'
-            && message.includes('cannot archive session')
-            && message.includes('active')
-            && Date.now() - startedAt < 8000
-          if (!probeStillRunning) throw error
-          await new Promise((resolve) => setTimeout(resolve, 50))
-        }
-      }
+      const rpcId = randomUUID()
+      const response = await fetch(new URL(`/api/${endpoint}`, core.origin), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: core.cookie,
+          origin: core.origin,
+        },
+        body: JSON.stringify({
+          type: 'client-request',
+          rpcId,
+          method: endpoint,
+          payload: { args },
+        }),
+        signal,
+      })
+      if (!response.ok) throw new Error(`AI 远程调用失败：HTTP ${response.status}`)
+      return parseHostRpcValue(response, rpcId, endpoint)
     },
     async *stream(endpoint, args = {}) {
       const frames = await request({ type: 'stream', endpoint, args })
