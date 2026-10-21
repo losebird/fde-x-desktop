@@ -621,4 +621,28 @@ describe('redis lite close', { concurrency: false }, () => {
     t.diagnostic(JSON.stringify(reports))
     assert.deepEqual(failures, [], failures.join('\n'))
   })
+
+  test('identity reports exited when the process dies after Process()', { timeout: 180_000 }, async (t) => {
+    await ensurePython()
+    const home = await mkdtemp(join(suiteRoot, 'home-'))
+    const script = join(home, 'die-after-process.py')
+    await writeFile(script, [
+      'import json, os, signal, sys',
+      pyPrelude,
+      'pid = os.spawnv(os.P_NOWAIT, sys.executable, [sys.executable, "-c", "import time; time.sleep(120)"])',
+      'import psutil',
+      'real_init = psutil.Process.__init__',
+      'def init(self, pid=None):',
+      '    real_init(self, pid)',
+      '    os.kill(int(self.pid), signal.SIGKILL)',
+      '    os.waitpid(int(self.pid), 0)',
+      'psutil.Process.__init__ = init',
+      'print(json.dumps(identity(pid)))',
+    ].join('\n'))
+    const ran = await runPython([script], { ...process.env })
+    assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+    const body = JSON.parse(ran.stdout.trim().split('\n').pop())
+    t.diagnostic(JSON.stringify(body))
+    assert.equal(dead(body), true, JSON.stringify(body))
+  })
 })
