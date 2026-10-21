@@ -94,13 +94,21 @@ try:
     db = stores._open_lite()
     elapsed = time.monotonic() - started
     result = db.select_graph("dsh_ping").query("RETURN 1")
+    rows = getattr(result, "result_set", None)
     client = db.client
     pid = int(client.pid)
     daemonize = ""
-    for line in (client.redis_configuration or "").splitlines():
+    try:
+        config = client.redis_configuration or ""
+    except Exception:
+        config = ""
+    for line in config.splitlines():
         if line.startswith("daemonize "):
             daemonize = line.split(" ", 1)[1].strip()
-    log = client.redis_log or ""
+    try:
+        log = client.redis_log or ""
+    except Exception:
+        log = ""
     import psutil
     proc = psutil.Process(pid)
     owner = ""
@@ -116,7 +124,8 @@ try:
         "elapsed": elapsed,
         "daemonize": daemonize,
         "module_loaded": ("graph" in log.lower()),
-        "query": str(result),
+        "rows": rows,
+        "query_ok": json.dumps(rows, default=str).find("1") >= 0,
         "owner": owner,
     }), flush=True)
 except Exception:
@@ -125,13 +134,21 @@ except Exception:
 `.trim()
 
 const BYSTANDER_PY = `
-import json, os, sys, subprocess
+import atexit, json, os, sys, subprocess
 os.environ["DSH_HOME"] = sys.argv[1]
 sys.path.insert(0, sys.argv[2])
 import stores
 
+procs = []
 def spawn_sleeper():
-    return subprocess.Popen([sys.executable, "-c", "import signal\\nsignal.pause()\\n"])
+    proc = subprocess.Popen([sys.executable, "-c", "import signal\\nsignal.pause()\\n"])
+    procs.append(proc)
+    return proc
+def _stop_sleepers():
+    for proc in procs:
+        if proc.poll() is None:
+            proc.kill()
+atexit.register(_stop_sleepers)
 
 def record_for(pid, mark, exe, db_path, **over):
     cmdline, start = mark
@@ -192,11 +209,13 @@ write(db, record_for(
 stores._reap_owner(db)
 if proc.poll() is not None:
     raise SystemExit("live sidecar did not protect the recorded pid")
+write(db, record_for(proc.pid, mark, exe, db))
 saved_name = os.name
 os.name = "nt"
-write(db, record_for(proc.pid, mark, exe, db))
-stores._reap_owner(db)
-os.name = saved_name
+try:
+    stores._reap_owner(db)
+finally:
+    os.name = saved_name
 if proc.poll() is not None:
     raise SystemExit("windows reap killed the bystander")
 write(db, record_for(proc.pid, mark, exe, db))
@@ -351,6 +370,13 @@ function killGroup(pgid) {
   try { process.kill(-pgid, 'SIGKILL') } catch { /* already gone */ }
 }
 
+function releaseLeader(leader) {
+  leader.stdout?.destroy()
+  leader.stderr?.destroy()
+  leader.stdin?.destroy()
+  leader.unref()
+}
+
 async function startStack(home, pythonDir, spyPath) {
   const inner = join(home, 'inner-host.mjs')
   const sidecar = join(home, 'sidecar.py')
@@ -369,6 +395,7 @@ async function startStack(home, pythonDir, spyPath) {
     },
   })
   leader.stdin.on('error', () => {})
+  leader.unref()
   const found = await waitMatch(leader, /READY (\d+) (\d+) (\d+) (\d+) (\d+)/, 60_000)
   return {
     leader,
@@ -478,7 +505,7 @@ describe('host redis orphan', { concurrency: false }, () => {
     const body = await openLite(home, pythonDir)
     assert.equal(body.daemonize, 'no', JSON.stringify(body))
     assert.equal(body.module_loaded, true, JSON.stringify(body))
-    assert.match(body.query, /1/, JSON.stringify(body))
+    assert.equal(body.query_ok, true, JSON.stringify(body))
     assert.ok(body.elapsed < 15, JSON.stringify(body))
     assert.equal(body.pgid, body.pgrp, JSON.stringify(body))
     assert.equal(body.ppid, body.python, JSON.stringify(body))
@@ -513,7 +540,7 @@ describe('host redis orphan', { concurrency: false }, () => {
       const watched = await waitGone(stack.redisPid, before.start, SURVIVE_WINDOW_MS)
       assert.equal(watched.gone, true, JSON.stringify({ before, watched }))
       const opened = await openLite(home, pythonDir)
-      assert.match(opened.query, /1/, JSON.stringify(opened))
+      assert.equal(opened.query_ok, true, JSON.stringify(opened))
       assert.notEqual(opened.pid, stack.redisPid, JSON.stringify(opened))
       assert.equal(opened.pgid, opened.pgrp, JSON.stringify(opened))
       const old = readIdent(stack.redisPid)
@@ -524,6 +551,7 @@ describe('host redis orphan', { concurrency: false }, () => {
       killPid(stack.leader.pid)
       killPid(stack.hostPid)
       killPid(stack.pythonPid)
+      releaseLeader(stack.leader)
     }
   })
 
@@ -566,7 +594,7 @@ describe('host redis orphan', { concurrency: false }, () => {
       const saved = JSON.parse(await readFile(owner, 'utf8'))
       assert.equal(saved.pid, opened.pid, JSON.stringify(saved))
       assert.notEqual(saved.pid, redisPid)
-      assert.match(opened.query, /1/)
+      assert.equal(opened.query_ok, true, JSON.stringify(opened))
     } finally {
       killPid(redisPid)
       try { holder.kill('SIGKILL') } catch { /* already gone */ }
@@ -616,5 +644,6 @@ async function signalCase(signalName, target) {
     killPid(stack.leader.pid)
     killPid(stack.hostPid)
     killPid(stack.pythonPid)
+    releaseLeader(stack.leader)
   }
 }
