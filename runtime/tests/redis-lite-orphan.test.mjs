@@ -361,6 +361,20 @@ describe('redis lite close', { concurrency: false }, () => {
     await ensurePython()
     const home = await mkdtemp(join(suiteRoot, 'home-'))
     const pythonDir = await materializePlugin()
+    const ownedDb = join(home, 'owned.db')
+    const holderFile = join(home, 'holder.py')
+    await writeFile(holderFile, [
+      'import os, sys, time',
+      'from redislite import Redis',
+      'db = Redis(sys.argv[1])',
+      'pid = int(db.pid)',
+      'print(f"HOLD {pid} {os.getpgid(pid)}", flush=True)',
+      'while True:',
+      '    time.sleep(60)',
+    ].join('\n'))
+    const holder = spawn(python, [holderFile, ownedDb], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const held = await waitMatch(holder, /HOLD (\d+) (\d+)/, 20_000)
+    const heldPid = Number(held.match[1])
     const decoy = await startDecoy(home)
     const script = join(home, 'sidecar.py')
     await writeFile(script, [
@@ -370,7 +384,6 @@ describe('redis lite close', { concurrency: false }, () => {
       'from redislite import Redis',
       'import stores',
       'owned = Redis(sys.argv[3])',
-      'extra = Redis(sys.argv[3])',
       'count = int(owned._connection_count())',
       'pid = int(owned.pid)',
       'if count < 2:',
@@ -386,22 +399,21 @@ describe('redis lite close', { concurrency: false }, () => {
       '    raise SystemExit(0)',
       'signal.signal(signal.SIGTERM, _stop)',
       'print(f"READY {pid} {os.getpgid(pid)} {count}", flush=True)',
-      'keep = id(extra)',
       'while True:',
       '    time.sleep(30)',
-      '    keep = id(extra)',
     ].join('\n'))
-    const child = spawn(python, [script, home, pythonDir, join(home, 'owned.db')], {
+    const child = spawn(python, [script, home, pythonDir, ownedDb], {
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, DSH_HOME: home, PYTHONPATH: pythonDir },
     })
-    let redisPid = 0
+    let redisPid = heldPid
     try {
       const found = await waitMatch(child, /READY (\d+) (\d+) (\d+)/, 20_000)
       redisPid = Number(found.match[1])
       const redisPgid = Number(found.match[2])
       const count = Number(found.match[3])
+      assert.equal(redisPid, heldPid, 'sidecar joined the holder server')
       assert.ok(count >= 2, found.stdout)
       assert.notEqual(redisPid, decoy.pid)
       assert.equal(redisPgid, redisPid, 'daemonized redis pgid is its own pid')
@@ -423,8 +435,10 @@ describe('redis lite close', { concurrency: false }, () => {
     } finally {
       try { process.kill(-child.pid, 'SIGKILL') } catch { /* group already gone */ }
       await killPid(redisPid)
-      try { decoy.child.kill('SIGKILL') } catch { /* holder already exited */ }
+      try { decoy.child.kill('SIGKILL') } catch { /* decoy holder already exited */ }
       await killPid(decoy.pid)
+      try { holder.kill('SIGKILL') } catch { /* connection holder already exited */ }
+      await killPid(heldPid)
     }
   })
 })
