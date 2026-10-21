@@ -1112,7 +1112,7 @@ test('列表载荷里最新 state 仍是 queued，和 lastRunStatus 分开', asy
 
 function visibleDeltaSource(dbHref, runHref) {
   return `import http from 'node:http'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDatabase } from ${JSON.stringify(dbHref)}
 import { startWorkflowRun } from ${JSON.stringify(runHref)}
@@ -1127,6 +1127,7 @@ writeFileSync(join(home, 'run', 'bridge-tools.json'), JSON.stringify({
   tools: ['fde_app_records_query', 'fde_app_records_propose', 'fde_plan_task_propose'],
 }) + '\\n')
 
+const stepKey = mode === 'timeout' ? 'multi' : mode === 'timeout-ended' ? 'one' : mode
 const steps = {
   one: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总' } }],
   multi: [
@@ -1138,7 +1139,8 @@ const steps = {
     { id: 's2', kind: 'ai', label: 'AI', config: { prompt: '再提案', tools: ['fde_app_records_propose'] } },
   ],
   archive: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '汇总' } }],
-}[mode]
+}[stepKey]
+const isTimeoutMode = mode === 'timeout' || mode === 'timeout-ended'
 
 const db = openDatabase(join(home, 'run.sqlite'), migrations)
 const now = new Date().toISOString()
@@ -1183,6 +1185,30 @@ console.warn = (...args) => {
   warnings.push(args.map((item) => String(item)).join(' '))
 }
 const port = await listen(bridge)
+const armedMs = []
+const armedHandles = []
+let releaseHang = () => {}
+const hangGate = new Promise((resolve) => { releaseHang = resolve })
+const stepClock = {
+  arm(ms, fire) {
+    armedMs.push(ms)
+    const handle = { cleared: false, fired: false, fire }
+    armedHandles.push(handle)
+    return handle
+  },
+  clear(handle) {
+    if (handle) handle.cleared = true
+  },
+  fire() {
+    for (const handle of armedHandles) {
+      if (!handle.cleared && !handle.fired) {
+        handle.fired = true
+        handle.fire()
+      }
+    }
+  },
+}
+let streamCalls = 0
 const aiRuntime = {
   origin: 'http://127.0.0.1:' + port,
   cookie: 'sid=test',
@@ -1203,23 +1229,132 @@ const aiRuntime = {
     }
     return {}
   },
-  async *stream() {
+  async *stream(endpoint, args, signal) {
+    streamCalls += 1
+    if (isTimeoutMode && mode === 'timeout' && streamCalls === 2) {
+      await new Promise((resolve) => {
+        if (signal) {
+          signal.addEventListener('abort', resolve, { once: true })
+          if (signal.aborted) resolve()
+        }
+        hangGate.then(resolve)
+      })
+      return
+    }
     yield { type: 'event', event: { type: 'turn/end' } }
   },
 }
-
-const ticket = startWorkflowRun({ db, aiRuntime }, {
+const runDeps = { db, aiRuntime }
+if (isTimeoutMode) runDeps.stepClock = stepClock
+const ticket = startWorkflowRun(runDeps, {
   workflowId: 'wf_vis',
   workspaceId: 'ws_vis',
   correlationId: 'corr_vis',
   trigger: { kind: 'manual' },
 })
+const pollMs = isTimeoutMode ? 1000 : 4000
 const startedAt = Date.now()
 let row = null
-while (Date.now() - startedAt < 4000) {
+while (Date.now() - startedAt < pollMs) {
+  if (isTimeoutMode && mode === 'timeout') stepClock.fire()
   row = db.prepare('SELECT state, output_json FROM workflow_runs WHERE id = ?').get(ticket.id)
   if (row && row.state !== 'queued' && row.state !== 'running') break
+  if (isTimeoutMode && mode === 'timeout-ended' && row && row.state === 'succeeded') break
   await new Promise((resolve) => setImmediate(resolve))
+}
+let deadlineCleared = false
+let stateAfterLateFire = ''
+let archivesAfterLateFire = 0
+let visibleAfterLateFire = 0
+let secondBusy = false
+let secondAlready = false
+let secondId = ''
+let secondState = ''
+let secondFinal = ''
+let laterVisible = 0
+if (mode === 'timeout') {
+  const createsSnap = calls.filter((call) => call.endpoint === 'session/create')
+  const createIdsSnap = createsSnap.map((call) => call.sessionId)
+  const outputSnap = row && row.output_json ? JSON.parse(row.output_json) : null
+  const stepStates = db.prepare('SELECT state FROM workflow_run_steps ORDER BY sequence_no').all().map((step) => step.state)
+  const messagesSnap = db.prepare('SELECT error_json FROM workflow_run_steps ORDER BY sequence_no').all().map((step) => {
+    if (!step.error_json) return ''
+    return JSON.parse(step.error_json).message || ''
+  })
+  const sessionIdSnap = createIdsSnap[0] || ''
+  const allowLeft = sessionIdSnap ? existsSync(join(home, 'run', 'workflow-allow', sessionIdSnap + '.json')) : false
+  const openRuns = db.prepare(\`
+    SELECT COUNT(*) AS n FROM workflow_runs
+    WHERE workflow_id = 'wf_vis' AND state IN ('queued', 'running')
+  \`).get().n
+  const promptsSnap = calls.filter((call) => call.endpoint === 'session/prompt').length
+  const promptSessionsSnap = [...new Set(calls.filter((call) => call.endpoint === 'session/prompt').map((call) => call.sessionId))]
+  const armedMsSnap = [...armedMs]
+  const secondTicket = startWorkflowRun(runDeps, {
+    workflowId: 'wf_vis',
+    workspaceId: 'ws_vis',
+    correlationId: 'corr_vis_2',
+    trigger: { kind: 'schedule', eventId: 'ev_timeout', occurrence: '2026-10-19T00:00:00.000Z' },
+  })
+  secondBusy = secondTicket.busy === true
+  secondAlready = secondTicket.already === true
+  secondId = secondTicket.id || ''
+  secondState = secondTicket.state || ''
+  if (secondId) {
+    const secondStarted = Date.now()
+    let secondRow = null
+    while (Date.now() - secondStarted < 1000) {
+      stepClock.fire()
+      secondRow = db.prepare('SELECT state FROM workflow_runs WHERE id = ?').get(secondId)
+      if (secondRow && secondRow.state !== 'queued' && secondRow.state !== 'running') break
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    secondFinal = secondRow ? secondRow.state : ''
+    const archivedSet = new Set(calls.filter((call) => call.endpoint === 'workspace/archiveSession').map((call) => call.sessionId))
+    laterVisible = calls.filter((call) => call.endpoint === 'session/create' && !archivedSet.has(call.sessionId)).length
+  } else {
+    secondFinal = ''
+    laterVisible = 0
+    releaseHang()
+    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve))
+  }
+  console.warn = originalWarn
+  bridge.close()
+  db.close()
+  process.stdout.write(JSON.stringify({
+    state: row ? row.state : '',
+    stepStates,
+    creates: createIdsSnap.length,
+    createIds: createIdsSnap,
+    prompts: promptsSnap,
+    promptSessions: promptSessionsSnap,
+    visible: createIdsSnap.filter((id) => !archivedOk.includes(id)).length,
+    claimed: outputSnap && outputSnap.sessionId ? outputSnap.sessionId : '',
+    archives: calls.filter((call) => call.endpoint === 'workspace/archiveSession').length,
+    archivedId: archivedOk[0] || '',
+    allowLeft,
+    openRuns,
+    armedMs: armedMsSnap,
+    messages: messagesSnap,
+    runId: ticket.id,
+    secondBusy,
+    secondAlready,
+    secondId,
+    secondState,
+    secondFinal,
+    laterVisible,
+  }) + '\\n')
+  process.exit(0)
+}
+if (mode === 'timeout-ended') {
+  deadlineCleared = armedHandles.length === 1 && armedHandles[0].cleared === true
+  stepClock.fire()
+  for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve))
+  const lateRow = db.prepare('SELECT state FROM workflow_runs WHERE id = ?').get(ticket.id)
+  stateAfterLateFire = lateRow ? lateRow.state : ''
+  archivesAfterLateFire = calls.filter((call) => call.endpoint === 'workspace/archiveSession').length
+  const createIdsLate = calls.filter((call) => call.endpoint === 'session/create').map((call) => call.sessionId)
+  visibleAfterLateFire = createIdsLate.filter((id) => !archivedOk.includes(id)).length
 }
 const creates = calls.filter((call) => call.endpoint === 'session/create')
 const prompts = calls.filter((call) => call.endpoint === 'session/prompt')
@@ -1233,7 +1368,7 @@ const messages = db.prepare('SELECT error_json FROM workflow_run_steps ORDER BY 
 console.warn = originalWarn
 bridge.close()
 db.close()
-process.stdout.write(JSON.stringify({
+const baseResult = {
   state: row ? row.state : '',
   creates: createIds.length,
   createIds,
@@ -1246,7 +1381,15 @@ process.stdout.write(JSON.stringify({
   archives: calls.filter((call) => call.endpoint === 'workspace/archiveSession').length,
   warnings,
   messages,
-}) + '\\n')
+}
+if (mode === 'timeout-ended') {
+  baseResult.armedMs = [...armedMs]
+  baseResult.deadlineCleared = deadlineCleared
+  baseResult.stateAfterLateFire = stateAfterLateFire
+  baseResult.archivesAfterLateFire = archivesAfterLateFire
+  baseResult.visibleAfterLateFire = visibleAfterLateFire
+}
+process.stdout.write(JSON.stringify(baseResult) + '\\n')
 `
 }
 
@@ -1332,4 +1475,42 @@ test('归档会话失败时打出日志', async () => {
     result.warnings.some((line) => line.includes('workflow_session_archive_failed') && line.includes(result.createIds[0])),
     true,
   )
+})
+
+test('步骤卡住超过时限时运行失败并清掉会话，下一次启动不再 busy', async () => {
+  const result = await readVisibleDelta('timeout')
+  assert.equal(result.state, 'failed')
+  assert.deepEqual(result.stepStates, ['succeeded', 'failed'])
+  assert.deepEqual(result.messages, ['', '运行超时'])
+  assert.equal(result.creates, 1)
+  assert.equal(result.prompts, 2)
+  assert.deepEqual(result.promptSessions, result.createIds)
+  assert.equal(result.visible, 0)
+  assert.equal(result.archives, 1)
+  assert.equal(result.archivedId, result.createIds[0])
+  assert.equal(result.claimed, result.createIds[0])
+  assert.equal(result.allowLeft, false)
+  assert.equal(result.openRuns, 0)
+  assert.deepEqual(result.armedMs, [15 * 60 * 1000, 15 * 60 * 1000])
+  assert.equal(result.secondBusy, false)
+  assert.equal(result.secondAlready, false)
+  assert.equal(result.secondId.length > 0, true)
+  assert.notEqual(result.secondId, result.runId)
+  assert.equal(result.secondState, 'queued')
+  assert.equal(result.secondFinal, 'succeeded')
+  assert.equal(result.laterVisible, 1)
+})
+
+test('步骤在时限前结束时不归档会话，迟到的时限也不改结果', async () => {
+  const result = await readVisibleDelta('timeout-ended')
+  assert.equal(result.state, 'succeeded')
+  assert.equal(result.creates, 1)
+  assert.equal(result.prompts, 1)
+  assert.equal(result.visible, 1)
+  assert.equal(result.archives, 0)
+  assert.deepEqual(result.armedMs, [15 * 60 * 1000])
+  assert.equal(result.deadlineCleared, true)
+  assert.equal(result.stateAfterLateFire, 'succeeded')
+  assert.equal(result.archivesAfterLateFire, 0)
+  assert.equal(result.visibleAfterLateFire, 1)
 })
