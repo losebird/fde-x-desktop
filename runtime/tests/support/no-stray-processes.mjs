@@ -10,6 +10,8 @@ const REDISLITE_SETTINGS = join('semantic-os', 'falkordb', 'graph.db.settings')
 
 const roots = new Set()
 const seen = new Set()
+// pid -> { args, lstart } taken the first time that pid was observed.
+export const recordedIdentity = new Map()
 
 export function registerStrayRoot(dir) {
   if (dir) roots.add(dir)
@@ -76,13 +78,43 @@ function rememberRedislite(alive) {
 
 function isCensusPs(row) {
   return /(?:^|\/)ps -A -ww -o pid=,ppid=,state=,args=$/.test(row.args)
+    || /(?:^|\/)ps -p \d+ -ww -o lstart=,args=$/.test(row.args)
 }
 
 function isZombie(row) {
   return row.state.startsWith('Z')
 }
 
-export function listStrays() {
+function readIdentity(pid) {
+  let out = ''
+  try {
+    out = execFileSync('ps', ['-p', String(pid), '-ww', '-o', 'lstart=,args='], {
+      encoding: 'utf8',
+      env: { ...process.env, LC_ALL: 'C' },
+    })
+  } catch {
+    return null
+  }
+  const line = out.trim()
+  const match = /^([A-Za-z]{3} [A-Za-z]{3} [ 0-9]\d \d{2}:\d{2}:\d{2} \d{4}) (.*)$/.exec(line)
+  if (!match) return null
+  return { lstart: match[1], args: match[2] }
+}
+
+function noteIdentity(pid) {
+  if (recordedIdentity.has(pid)) return
+  const snap = readIdentity(pid)
+  if (snap) recordedIdentity.set(pid, snap)
+}
+
+function identityStillMatches(pid) {
+  const recorded = recordedIdentity.get(pid)
+  const now = readIdentity(pid)
+  if (!recorded || !now) return false
+  return recorded.args === now.args && recorded.lstart === now.lstart
+}
+
+function collectStrays() {
   const rows = listProcesses().filter((row) => !isCensusPs(row) && !isZombie(row))
   const alive = new Map(rows.map((row) => [row.pid, row]))
   rememberDescendants(rows)
@@ -91,10 +123,21 @@ export function listStrays() {
   for (const pid of seen) {
     if (pid === process.pid || pid <= 1) continue
     const row = alive.get(pid)
-    if (row) strays.push(row)
+    if (!row) continue
+    noteIdentity(pid)
+    strays.push(row)
   }
   strays.sort((a, b) => a.pid - b.pid)
   return strays
+}
+
+export function listStrays() {
+  try {
+    return collectStrays()
+  } catch (error) {
+    if (!censusError) censusError = error
+    throw error
+  }
 }
 
 export function formatStray(row) {
@@ -128,14 +171,27 @@ export function stopStrays(paths = []) {
   const rows = listStrays()
   for (const row of rows) {
     if (row.pid <= 1 || row.pid === process.pid) continue
+    if (!identityStillMatches(row.pid)) continue
     try {
       process.kill(row.pid, 'SIGKILL')
     } catch (error) {
       if (error && error.code !== 'ESRCH') throw error
+      continue
     }
     confirmKilled(row.pid)
   }
   return rows
+}
+
+export function assertThenStopStrays(paths = []) {
+  let missed = null
+  try {
+    assertNoStrays()
+  } catch (error) {
+    missed = error
+  }
+  stopStrays(paths)
+  if (missed) throw missed
 }
 
 export function awaitChildExit(child, signal = 'SIGTERM') {
@@ -152,16 +208,15 @@ export function awaitChildExit(child, signal = 'SIGTERM') {
       resolve()
     }
   })
-  return exited.then(() => stopStrays())
+  return exited.then(() => assertThenStopStrays())
 }
 
 let censusError = null
 const timer = setInterval(() => {
   try {
     listStrays()
-    censusError = null
-  } catch (error) {
-    censusError = error
+  } catch {
+    // listStrays keeps the first error for after(). A later success must not clear it.
   }
 }, 200)
 timer.unref()

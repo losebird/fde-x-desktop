@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
 import { generationDshBin, generationInstallRoot } from '../generation.mjs'
 import { createPageTokenClient } from './support/page-token-fetch.mjs'
-import { registerStrayRoot, stopStrays } from './support/no-stray-processes.mjs'
+import { assertThenStopStrays, registerStrayRoot } from './support/no-stray-processes.mjs'
 
 const page = createPageTokenClient()
 
@@ -647,9 +647,12 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
           resolve()
         })
       })
-      stopStrays([home])
-      await rm(home, { recursive: true, force: true })
-      await rm(workspace, { recursive: true, force: true })
+      try {
+        assertThenStopStrays([home])
+      } finally {
+        await rm(home, { recursive: true, force: true })
+        await rm(workspace, { recursive: true, force: true })
+      }
     }
   })
 })
