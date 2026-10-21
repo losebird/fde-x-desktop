@@ -8,6 +8,7 @@ import {
   insertTask,
   updateTask,
 } from './task-store.mjs'
+import { planChangeDetails, taskHistoryView } from './history.mjs'
 
 const ACTION = 'plan.task.propose'
 
@@ -61,8 +62,10 @@ function planDomain(opts) {
           sourceRef: plan.change.sourceRef,
           tags: plan.change.tags,
         })
-        return { applied: true, details: { op: plan.op, taskId: plan.taskId } }
+        const diff = planChangeDetails(null, {}, taskHistoryView(getTask(db, plan.taskId)))
+        return { applied: true, details: { op: plan.op, taskId: plan.taskId, before: diff.before, after: diff.after, fields: diff.fields } }
       }
+      const before = taskHistoryView(getTask(db, plan.taskId))
       const change = plan.change
       const fields = {}
       if (change.title !== undefined) fields.title = change.title
@@ -73,7 +76,19 @@ function planDomain(opts) {
       if (change.status !== undefined) fields.status = change.status
       const row = updateTask(db, plan.taskId, fields)
       if (!row) return { applied: false }
-      return { applied: true, details: { op: plan.op, taskId: plan.taskId } }
+      const diff = planChangeDetails(null, before, taskHistoryView(row))
+      return { applied: true, details: { op: plan.op, taskId: plan.taskId, before: diff.before, after: diff.after, fields: diff.fields } }
+    },
+    rejectedDetails(db, operation) {
+      const plan = operation.plan || {}
+      const current = plan.op === 'insert' ? {} : taskHistoryView(getTask(db, plan.taskId))
+      const proposed = { ...current }
+      const change = plan.change || {}
+      for (const field of ['title', 'notes', 'status', 'priority', 'dueAt', 'tags', 'sourceRef']) {
+        if (change[field] !== undefined) proposed[field] = change[field]
+      }
+      const diff = planChangeDetails(null, current, proposed)
+      return { before: diff.before, after: diff.after, fields: diff.fields }
     },
   }
 }

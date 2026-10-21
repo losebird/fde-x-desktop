@@ -295,6 +295,9 @@ describe('plan task proposals', { concurrency: 1 }, () => {
       operationId: row.id,
       op: 'update',
       taskId: task.id,
+      before: { title: '原来的标题' },
+      after: { title: '提案标题' },
+      fields: ['title'],
     })
     assert.equal(audits(workspaceId, 'plan.task.update').length, 0)
     const again = await decide(row.id, 'confirm', pageHeaders(), { title: '提案标题' })
@@ -331,7 +334,12 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     const rejectAudits = audits(workspaceId, 'plan.task.reject')
     assert.equal(rejectAudits.length, 1)
     assert.equal(rejectAudits[0].outcome, 'rejected')
-    assert.deepEqual(JSON.parse(rejectAudits[0].details_json), { operationId: row.id })
+    assert.deepEqual(JSON.parse(rejectAudits[0].details_json), {
+      operationId: row.id,
+      before: { title: '原来的标题' },
+      after: { title: '提案标题' },
+      fields: ['title'],
+    })
     const again = await decide(row.id, 'confirm', pageHeaders(), {})
     assert.equal(again.status, 409)
     assert.equal(again.payload.error, 'invalid_state')
@@ -420,6 +428,23 @@ describe('plan task proposals', { concurrency: 1 }, () => {
       operationId: row.id,
       op: 'insert',
       taskId: plan.taskId,
+      before: {
+        title: null,
+        notes: null,
+        status: null,
+        priority: null,
+        tags: null,
+        sourceRef: null,
+      },
+      after: {
+        title: '新任务',
+        notes: '',
+        status: 'todo',
+        priority: 'med',
+        tags: [],
+        sourceRef: `fde-task:${plan.taskId}`,
+      },
+      fields: ['title', 'notes', 'status', 'priority', 'tags', 'sourceRef'],
     })
   })
 
