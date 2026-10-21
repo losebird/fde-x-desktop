@@ -21,22 +21,24 @@ def identity(target):
     import psutil
     try:
         proc = psutil.Process(int(target))
-    except psutil.NoSuchProcess:
-        return {"status": "gone"}
-    status = proc.status()
-    if status == psutil.STATUS_ZOMBIE:
+        status = proc.status()
+        if status == psutil.STATUS_ZOMBIE:
+            return {"status": "zombie"}
+        if status == "dead":
+            return {"status": "dead"}
+        cmdline = list(proc.cmdline())
+        if not cmdline:
+            return {"status": "unreadable"}
+        return {
+            "status": status,
+            "cmdline": cmdline,
+            "create_time": repr(proc.create_time()),
+            "pgid": os.getpgid(int(target)),
+        }
+    except psutil.ZombieProcess:
         return {"status": "zombie"}
-    if status == "dead":
-        return {"status": "dead"}
-    cmdline = list(proc.cmdline())
-    if not cmdline:
-        return {"status": "unreadable"}
-    return {
-        "status": status,
-        "cmdline": cmdline,
-        "create_time": repr(proc.create_time()),
-        "pgid": os.getpgid(int(target)),
-    }
+    except (psutil.NoSuchProcess, ProcessLookupError):
+        return {"status": "gone"}
 
 def hide_proc():
     real = os.path.isdir
