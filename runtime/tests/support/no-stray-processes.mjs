@@ -17,19 +17,20 @@ export function registerStrayRoot(dir) {
 
 export function listProcesses() {
   // procps and BSD ps both accept this. No /proc. macOS is not run here.
-  const out = execFileSync('ps', ['-A', '-ww', '-o', 'pid=,ppid=,args='], {
+  const out = execFileSync('ps', ['-A', '-ww', '-o', 'pid=,ppid=,state=,args='], {
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
   })
   const rows = []
   for (const line of out.split('\n')) {
     if (!line.trim()) continue
-    const match = /^ *(\d+) +(\d+)(?: +(.*))?$/.exec(line)
+    const match = /^ *(\d+) +(\d+) +(\S+)(?: +(.*))?$/.exec(line)
     if (!match) continue
     rows.push({
       pid: Number(match[1]),
       ppid: Number(match[2]),
-      args: match[3] || '',
+      state: match[3],
+      args: match[4] || '',
     })
   }
   return rows
@@ -74,11 +75,15 @@ function rememberRedislite(alive) {
 }
 
 function isCensusPs(row) {
-  return /(?:^|\/)ps -A -ww -o pid=,ppid=,args=$/.test(row.args)
+  return /(?:^|\/)ps -A -ww -o pid=,ppid=,state=,args=$/.test(row.args)
+}
+
+function isZombie(row) {
+  return row.state.startsWith('Z')
 }
 
 export function listStrays() {
-  const rows = listProcesses().filter((row) => !isCensusPs(row))
+  const rows = listProcesses().filter((row) => !isCensusPs(row) && !isZombie(row))
   const alive = new Map(rows.map((row) => [row.pid, row]))
   rememberDescendants(rows)
   rememberRedislite(alive)
