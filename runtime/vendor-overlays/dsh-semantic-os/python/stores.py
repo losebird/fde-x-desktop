@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -103,15 +104,28 @@ def _open_lite() -> Any:
         Lite = _import_lite_cls()
         path = lite_db_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        _reap_owner(path)
+        _use_foreground_redis()
         try:
-            db = Lite(str(path), serverconfig={"port": "0"})
+            db = Lite(str(path), serverconfig={"port": "0", "daemonize": "no"})
             db.select_graph("dsh_ping").query("RETURN 1")
         except Exception as exc:
             _LITE_ERROR = _lite_fail_detail(exc)
             raise
+        finally:
+            _restore_redis_start()
         _LITE_DB = db
         _LITE_PATH = str(path)
         _LITE_ERROR = ""
+        client = getattr(db, "client", None)
+        pid = 0
+        if client is not None:
+            try:
+                pid = int(getattr(client, "pid", 0) or 0)
+            except (TypeError, ValueError):
+                pid = 0
+        if pid:
+            _write_owner(path, pid)
         _register_lite_shutdown()
         return _LITE_DB
 
@@ -207,6 +221,7 @@ def close_lite() -> None:
         _LITE_PATH = ""
     if db is None:
         return
+    _note_shutdown("close_lite")
     client = getattr(db, "client", None)
     pid = 0
     if client is not None:
@@ -250,6 +265,12 @@ def close_lite() -> None:
     except OSError:
         pass
     _wait_redis(pid, mark, 0.5)
+    proc = getattr(client, "_dsh_proc", None) if client is not None else None
+    if proc is not None and proc.poll() is not None:
+        try:
+            proc.wait(timeout=0)
+        except Exception:
+            pass
 
 
 def _register_lite_shutdown() -> None:
@@ -258,6 +279,242 @@ def _register_lite_shutdown() -> None:
         return
     atexit.register(close_lite)
     _LITE_ATEXIT = True
+
+
+def _note_shutdown(who: str) -> None:
+    spy = (os.environ.get("FDE_REDIS_SHUTDOWN_SPY") or "").strip()
+    if not spy:
+        return
+    try:
+        with open(spy, "a", encoding="utf-8") as handle:
+            handle.write(f"{who}\n")
+    except OSError:
+        return
+
+
+def _start_token(start: Any) -> str:
+    if isinstance(start, float):
+        return repr(start)
+    return str(start)
+
+
+def _exe_path(pid: int) -> str:
+    if os.name == "nt" or sys.platform == "win32":
+        return ""
+    if os.path.isdir("/proc"):
+        try:
+            return os.readlink(f"/proc/{int(pid)}/exe")
+        except OSError:
+            return ""
+    try:
+        import psutil
+    except ImportError:
+        return ""
+    try:
+        return str(psutil.Process(int(pid)).exe() or "")
+    except (psutil.Error, OSError, ValueError):
+        return ""
+
+
+def _owner_file(db_path: Path) -> Path:
+    path = Path(db_path)
+    return path.parent / f"{path.name}.owner.json"
+
+
+def _load_owner(db_path: Path) -> tuple[str, dict[str, Any] | None]:
+    path = _owner_file(db_path)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return "absent", None
+    except OSError:
+        return "corrupt", None
+    try:
+        body = json.loads(raw)
+    except json.JSONDecodeError:
+        return "corrupt", None
+    if not isinstance(body, dict):
+        return "corrupt", None
+    return "ok", body
+
+
+def _sidecar_alive(body: dict[str, Any]) -> bool:
+    pid = body.get("sidecar_pid")
+    start = body.get("sidecar_start")
+    cmdline = body.get("sidecar_cmdline")
+    if not isinstance(pid, int) or pid <= 1:
+        return True
+    if not isinstance(start, str) or not start:
+        return True
+    if not isinstance(cmdline, list) or not all(isinstance(part, str) and part for part in cmdline):
+        return True
+    ident = _read_identity(pid)
+    if ident is _UNREAD:
+        return True
+    if ident is None:
+        return False
+    live_cmd, live_start = ident
+    return list(live_cmd) == cmdline and _start_token(live_start) == start
+
+
+def _owner_decision(kind: str, body: dict[str, Any] | None, db_path: Path) -> str:
+    if os.name == "nt" or sys.platform == "win32":
+        return "windows"
+    if kind == "absent":
+        return "absent"
+    if kind != "ok" or not isinstance(body, dict):
+        return "corrupt"
+    pid = body.get("pid")
+    cmdline = body.get("cmdline")
+    start = body.get("start")
+    exe = body.get("exe")
+    recorded_db = body.get("db")
+    if not isinstance(pid, int) or pid <= 1:
+        return "corrupt"
+    if not isinstance(cmdline, list) or not all(isinstance(part, str) and part for part in cmdline):
+        return "corrupt"
+    if not isinstance(start, str) or not start:
+        return "corrupt"
+    if not isinstance(exe, str) or not exe:
+        return "corrupt"
+    if not isinstance(recorded_db, str) or not recorded_db:
+        return "corrupt"
+    if recorded_db != str(Path(db_path).resolve()):
+        return "foreign-db"
+    if _sidecar_alive(body):
+        return "sidecar-live"
+    ident = _read_identity(pid)
+    if ident is _UNREAD:
+        return "unread"
+    if ident is None:
+        return "gone"
+    live_cmd, live_start = ident
+    live_exe = _exe_path(pid)
+    if not live_exe or live_exe != exe:
+        return "mismatch"
+    if _start_token(live_start) != start:
+        return "mismatch"
+    live_list = list(live_cmd)
+    if live_list == cmdline:
+        return "claim"
+    # redis setproctitle drops --loadmodule. A snapshot taken before that
+    # rewrite still names the same binary and start time.
+    if "--loadmodule" in cmdline and live_list and live_list[0] == cmdline[0]:
+        return "claim"
+    return "mismatch"
+
+
+def _reap_owner(db_path: Path) -> str:
+    if os.name == "nt" or sys.platform == "win32":
+        return "windows"
+    kind, body = _load_owner(db_path)
+    decision = _owner_decision(kind, body, db_path)
+    if decision != "claim" or not isinstance(body, dict):
+        return decision
+    pid = int(body["pid"])
+    mark = _redis_mark(pid)
+    if mark is None:
+        return "gone"
+    _note_shutdown("reap")
+    try:
+        _signal_redis(pid, mark, signal.SIGTERM)
+    except OSError:
+        pass
+    if not _wait_redis(pid, mark, _LITE_STOP_BOUND_SECONDS):
+        try:
+            _signal_redis(pid, mark, signal.SIGKILL)
+        except OSError:
+            pass
+        _wait_redis(pid, mark, 0.5)
+    return "claim"
+
+
+def _write_owner(db_path: Path, pid: int) -> None:
+    if os.name == "nt" or sys.platform == "win32":
+        return
+    ident = _read_identity(pid)
+    if ident is None or ident is _UNREAD:
+        return
+    exe = _exe_path(pid)
+    if not exe:
+        return
+    side = _read_identity(os.getpid())
+    if side is None or side is _UNREAD:
+        return
+    cmdline, start = ident
+    side_cmd, side_start = side
+    body = {
+        "pid": int(pid),
+        "cmdline": list(cmdline),
+        "start": _start_token(start),
+        "exe": exe,
+        "db": str(Path(db_path).resolve()),
+        "sidecar_pid": os.getpid(),
+        "sidecar_start": _start_token(side_start),
+        "sidecar_cmdline": list(side_cmd),
+    }
+    path = _owner_file(db_path)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(body), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+_ORIGINAL_REDIS_START = None
+
+
+def _foreground_start_redis(self) -> None:
+    import redislite.client as client_mod
+
+    self.redis_configuration_filename = os.path.join(self.redis_dir, "redis.config")
+    kwargs = dict(self.server_config)
+    kwargs.update({
+        "pidfile": self.pidfile,
+        "logfile": kwargs.get("logfile", self.logfile),
+        "unixsocket": self.socket_file,
+        "dbdir": self.dbdir,
+        "dbfilename": self.dbfilename,
+    })
+    kwargs["daemonize"] = "no"
+    self.redis_configuration = client_mod.configuration.config(**kwargs)
+    with open(self.redis_configuration_filename, "w", encoding="utf-8") as handle:
+        handle.write(self.redis_configuration)
+    redis_executable = client_mod.__redis_executable__ or "redis-server"
+    command = [redis_executable, self.redis_configuration_filename]
+    module = client_mod.__falkordb_module__
+    if module and os.path.exists(module):
+        command.extend(["--loadmodule", module])
+    proc = subprocess.Popen(command)
+    self._dsh_proc = proc
+    deadline = time.monotonic() + float(self.start_timeout)
+    while not (self.socket_file and os.path.exists(self.socket_file)):
+        if proc.poll() not in (None, 0):
+            raise client_mod.RedisLiteException("The binary redis-server failed to start")
+        if time.monotonic() >= deadline:
+            raise client_mod.RedisLiteServerStartError("The redis-server process failed to start")
+        time.sleep(0.1)
+    self._save_setting_registry()
+    self.running = True
+
+
+def _use_foreground_redis() -> None:
+    global _ORIGINAL_REDIS_START
+    import redislite.client as client_mod
+
+    current = client_mod.RedisMixin._start_redis
+    if current is _foreground_start_redis:
+        return
+    _ORIGINAL_REDIS_START = current
+    client_mod.RedisMixin._start_redis = _foreground_start_redis
+
+
+def _restore_redis_start() -> None:
+    global _ORIGINAL_REDIS_START
+    if _ORIGINAL_REDIS_START is None:
+        return
+    import redislite.client as client_mod
+
+    client_mod.RedisMixin._start_redis = _ORIGINAL_REDIS_START
+    _ORIGINAL_REDIS_START = None
 
 
 def _lite_status() -> dict[str, Any]:
