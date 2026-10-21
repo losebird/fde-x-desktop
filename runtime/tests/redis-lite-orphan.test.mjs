@@ -15,7 +15,7 @@ let suiteRoot = ''
 let python = ''
 
 function dead(state) {
-  return state === 'gone' || state === 'Z'
+  return state === 'gone' || state === 'Z' || state === 'X'
 }
 
 function live(state) {

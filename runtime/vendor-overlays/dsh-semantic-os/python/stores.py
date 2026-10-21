@@ -137,32 +137,58 @@ def _open_lite() -> Any:
 
 
 _LITE_STOP_BOUND_SECONDS = 2.0
+_UNREAD = object()
 
 
-def _redis_mark(pid: int):
+def _read_identity(pid: int):
+    """(command line, start token), None if that pid is gone, or _UNREAD."""
+    if os.name == 'posix' and os.path.isdir('/proc'):
+        stat_path = f'/proc/{int(pid)}/stat'
+        cmd_path = f'/proc/{int(pid)}/cmdline'
+        try:
+            stat = open(stat_path, encoding='utf-8').read()
+            raw = open(cmd_path, 'rb').read()
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return _UNREAD
+        fields = stat[stat.rfind(')') + 2:].split()
+        if not fields:
+            return _UNREAD
+        if fields[0] in ('Z', 'X'):
+            return None
+        cmdline = tuple(part.decode('utf-8', 'replace') for part in raw.split(b'\0') if part)
+        # starttime is field 22, the 20th token after comm.
+        if len(fields) <= 19 or not cmdline:
+            return _UNREAD
+        return (cmdline, fields[19])
     import psutil
     try:
         proc = psutil.Process(int(pid))
         cmdline = tuple(proc.cmdline())
-        started = proc.create_time()
+        if proc.status() == psutil.STATUS_ZOMBIE or not cmdline:
+            return None if proc.status() == psutil.STATUS_ZOMBIE else _UNREAD
+        return (cmdline, proc.create_time())
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        return None
     except (psutil.Error, OSError, ValueError):
+        return _UNREAD
+
+
+def _redis_mark(pid: int):
+    mark = _read_identity(pid)
+    if mark is None or mark is _UNREAD:
         return None
-    if not cmdline:
-        return None
-    return (cmdline, started)
+    return mark
 
 
 def _same_redis(pid: int, mark) -> bool:
     if not pid or mark is None:
         return False
-    import psutil
-    try:
-        proc = psutil.Process(int(pid))
-        if proc.status() == psutil.STATUS_ZOMBIE or not proc.is_running():
-            return False
-        return (tuple(proc.cmdline()), proc.create_time()) == mark
-    except (psutil.Error, OSError, ValueError):
-        return False
+    current = _read_identity(pid)
+    if current is _UNREAD:
+        current = _read_identity(pid)
+    return current == mark
 
 
 def _signal_redis(pid: int, mark, sig: int) -> None:
@@ -173,11 +199,15 @@ def _signal_redis(pid: int, mark, sig: int) -> None:
 
 def _wait_redis(pid: int, mark, bound: float) -> bool:
     deadline = time.monotonic() + bound
-    while time.monotonic() < deadline:
-        if not _same_redis(pid, mark):
+    while True:
+        current = _read_identity(pid)
+        if current is None:
             return True
+        if current is not _UNREAD and current != mark:
+            return True
+        if time.monotonic() >= deadline:
+            return False
         time.sleep(0.05)
-    return not _same_redis(pid, mark)
 
 
 def close_lite() -> None:
