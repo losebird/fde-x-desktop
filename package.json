@@ -11,7 +11,10 @@
     "preview": "vite preview --host --port 4173",
     "runtime": "node runtime/boot.mjs",
     "runtime:check": "node runtime/check.mjs",
-    "runtime:smoke": "node runtime/smoke.mjs"
+    "runtime:smoke": "node runtime/smoke.mjs",
+    "test": "node --test --test-concurrency=1 runtime/tests/*.test.mjs",
+    "test:env": "node scripts/setup-test-env.mjs",
+    "test:strict": "node scripts/test-strict.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.10.0",
