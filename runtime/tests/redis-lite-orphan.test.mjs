@@ -10,31 +10,64 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const repoRoot = join(import.meta.dirname, '../..')
 const snapshot = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS || ''
+const REDISLITE_SPEC = 'redislite==6.2.912183'
+const PSUTIL_SPEC = 'psutil==7.2.2'
 
 let suiteRoot = ''
 let python = ''
 
-function dead(state) {
-  return state === 'gone' || state === 'Z' || state === 'X'
+const pyPrelude = `
+def identity(target):
+    import psutil
+    try:
+        proc = psutil.Process(int(target))
+    except psutil.NoSuchProcess:
+        return {"status": "gone"}
+    status = proc.status()
+    if status == psutil.STATUS_ZOMBIE:
+        return {"status": "zombie"}
+    if status == "dead":
+        return {"status": "dead"}
+    cmdline = list(proc.cmdline())
+    if not cmdline:
+        return {"status": "unreadable"}
+    return {
+        "status": status,
+        "cmdline": cmdline,
+        "create_time": repr(proc.create_time()),
+        "pgid": os.getpgid(int(target)),
+    }
+
+def hide_proc():
+    real = os.path.isdir
+    def _isdir(path):
+        try:
+            if os.fspath(path) == "/proc":
+                return False
+        except (TypeError, ValueError):
+            pass
+        return real(path)
+    os.path.isdir = _isdir
+`.trim()
+
+function dead(obs) {
+  return obs.status === 'gone' || obs.status === 'zombie' || obs.status === 'dead'
 }
 
-function live(state) {
-  return state === 'R' || state === 'S' || state === 'D' || state === 'I'
+function live(obs) {
+  return !dead(obs)
+    && Array.isArray(obs.cmdline)
+    && obs.cmdline.length > 0
+    && typeof obs.create_time === 'string'
+    && Number.isInteger(obs.pgid)
 }
 
-async function procState(pid) {
-  try {
-    const text = await readFile(`/proc/${pid}/stat`, 'utf8')
-    return text.slice(text.lastIndexOf(')') + 2).split(' ', 1)[0]
-  } catch {
-    return 'gone'
-  }
-}
-
-async function procPgid(pid) {
-  const text = await readFile(`/proc/${pid}/stat`, 'utf8')
-  const fields = text.slice(text.lastIndexOf(')') + 2).split(' ')
-  return Number(fields[2])
+function sameIdentity(before, after) {
+  return live(before)
+    && live(after)
+    && JSON.stringify(before.cmdline) === JSON.stringify(after.cmdline)
+    && before.create_time === after.create_time
+    && before.pgid === after.pgid
 }
 
 function waitMatch(child, pattern, timeoutMs) {
@@ -93,14 +126,36 @@ async function ensurePython() {
   suiteRoot = await mkdtemp(join(tmpdir(), 'fde-lite-orphan-'))
   const venv = join(suiteRoot, 'venv')
   await execFileAsync('python3', ['-m', 'venv', venv], { timeout: 60_000 })
-  await execFileAsync(join(venv, 'bin', 'pip'), ['install', '-q', 'redislite', 'psutil'], { timeout: 180_000 })
+  await execFileAsync(join(venv, 'bin', 'pip'), ['install', '-q', REDISLITE_SPEC, PSUTIL_SPEC], { timeout: 180_000 })
   python = join(venv, 'bin', 'python')
+  const cli = join(suiteRoot, 'identity.py')
+  await writeFile(cli, `import json, os, sys\n${pyPrelude}\nprint(json.dumps(identity(int(sys.argv[1]))))\n`)
   return python
+}
+
+async function observe(pid) {
+  const ran = await runPython([join(suiteRoot, 'identity.py'), String(pid)], { ...process.env })
+  assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+  return JSON.parse(ran.stdout.trim().split('\n').pop())
 }
 
 async function killPid(pid) {
   if (!Number.isInteger(pid) || pid <= 1) return
   try { process.kill(pid, 'SIGKILL') } catch {}
+}
+
+async function waitPidFile(pidFile) {
+  const started = Date.now()
+  let pid = 0
+  while (Date.now() - started < 5_000) {
+    try {
+      pid = Number(await readFile(pidFile, 'utf8'))
+      if (pid > 1) return pid
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  assert.ok(pid > 1, 'process did not write its pid')
+  return pid
 }
 
 async function startDecoy(home) {
@@ -124,32 +179,239 @@ async function startDecoy(home) {
   }
 }
 
-const multiScript = [
-  'import json, os, sys',
-  'os.environ["DSH_HOME"] = sys.argv[1]',
-  'sys.path.insert(0, sys.argv[2])',
-  'from redislite import Redis',
-  'import stores',
-  'owned = Redis(sys.argv[3])',
-  'extra = Redis(sys.argv[3])',
-  'count = int(owned._connection_count())',
-  'pid = int(owned.pid)',
-  'class Db:',
-  '    def __init__(self, client):',
-  '        self.client = client',
-  '    def close(self):',
-  '        self.client._cleanup()',
-  'stores._LITE_DB = Db(owned)',
-  'stores.close_lite()',
-  'def proc_state(target):',
-  '    try:',
-  '        text = open(f"/proc/{target}/stat", encoding="utf-8").read()',
-  '    except FileNotFoundError:',
-  '        return "gone"',
-  '    return text[text.rfind(")") + 2:].split(" ", 1)[0]',
-  'keep = id(extra)',
-  'print(json.dumps({"count": count, "pid": pid, "state": proc_state(pid), "keep": keep}))',
-].join('\n')
+function multiSource() {
+  return [
+    'import json, os, sys',
+    'os.environ["DSH_HOME"] = sys.argv[1]',
+    'sys.path.insert(0, sys.argv[2])',
+    'from redislite import Redis',
+    'import stores',
+    pyPrelude,
+    'owned = Redis(sys.argv[3])',
+    'extra = Redis(sys.argv[3])',
+    'count = int(owned._connection_count())',
+    'pid = int(owned.pid)',
+    'class Db:',
+    '    def __init__(self, client):',
+    '        self.client = client',
+    '    def close(self):',
+    '        self.client._cleanup()',
+    'stores._LITE_DB = Db(owned)',
+    'if sys.argv[4] == "hide":',
+    '    hide_proc()',
+    '    if os.path.isdir("/proc"):',
+    '        raise SystemExit("proc was not hidden")',
+    'stores.close_lite()',
+    'keep = id(extra)',
+    'print(json.dumps({"count": count, "pid": pid, "identity": identity(pid), "keep": keep, "isdir_proc": os.path.isdir("/proc")}))',
+  ].join('\n')
+}
+
+function reuseSource() {
+  return [
+    'import json, os, sys, time',
+    'sys.path.insert(0, sys.argv[1])',
+    'import stores',
+    pyPrelude,
+    'ready, go, waiter = sys.argv[2], sys.argv[3], sys.argv[4]',
+    'hide = sys.argv[5] == "hide"',
+    'pid = os.spawnv(os.P_NOWAIT, sys.executable, [sys.executable, waiter, ready, go])',
+    'deadline = time.time() + 5',
+    'while not os.path.exists(ready):',
+    '    if time.time() > deadline:',
+    '        raise SystemExit("waiter did not start")',
+    '    time.sleep(0.01)',
+    'before = identity(pid)',
+    'class Client:',
+    '    def __init__(self, pid):',
+    '        self.pid = pid',
+    '    def shutdown(self, **kwargs):',
+    '        raise OSError("no server")',
+    'class Db:',
+    '    def __init__(self, pid):',
+    '        self.client = Client(pid)',
+    '    def close(self):',
+    '        open(go, "w").close()',
+    '        limit = time.time() + 5',
+    '        while time.time() < limit:',
+    '            found = identity(pid)',
+    '            if found.get("status") == "gone":',
+    '                raise SystemExit("pid disappeared during exec")',
+    '            cmd = " ".join(found.get("cmdline") or [])',
+    '            if "sleep(120)" in cmd:',
+    '                return',
+    '            time.sleep(0.01)',
+    '        raise SystemExit("exec did not replace the command line")',
+    'stores._LITE_DB = Db(pid)',
+    'if hide:',
+    '    hide_proc()',
+    '    if os.path.isdir("/proc"):',
+    '        raise SystemExit("proc was not hidden")',
+    'stores.close_lite()',
+    'after = identity(pid)',
+    'print(json.dumps({"pid": pid, "before": before, "after": after, "isdir_proc": os.path.isdir("/proc")}))',
+  ].join('\n')
+}
+
+function stubbornSource() {
+  return [
+    'import json, os, sys, time',
+    'sys.path.insert(0, sys.argv[1])',
+    'import stores',
+    pyPrelude,
+    'pid = int(sys.argv[2])',
+    'hide = sys.argv[3] == "hide"',
+    'class Client:',
+    '    def __init__(self, pid):',
+    '        self.pid = pid',
+    '    def shutdown(self, **kwargs):',
+    '        raise OSError("no server")',
+    'class Db:',
+    '    def __init__(self, pid):',
+    '        self.client = Client(pid)',
+    '    def close(self):',
+    '        return None',
+    'stores._LITE_DB = Db(pid)',
+    'if hide:',
+    '    hide_proc()',
+    '    if os.path.isdir("/proc"):',
+    '        raise SystemExit("proc was not hidden")',
+    'started = time.monotonic()',
+    'stores.close_lite()',
+    'elapsed = time.monotonic() - started',
+    'print(json.dumps({"pid": pid, "identity": identity(pid), "elapsed": round(elapsed, 3), "isdir_proc": os.path.isdir("/proc")}))',
+  ].join('\n')
+}
+
+async function runOwned(hide) {
+  await ensurePython()
+  const home = await mkdtemp(join(suiteRoot, 'home-'))
+  const pythonDir = await materializePlugin()
+  const script = join(home, 'multi.py')
+  await writeFile(script, multiSource())
+  const ran = await runPython([script, home, pythonDir, join(home, 'owned.db'), hide ? 'hide' : 'show'], {
+    ...process.env,
+    DSH_HOME: home,
+    PYTHONPATH: pythonDir,
+  })
+  assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+  const body = JSON.parse(ran.stdout.trim().split('\n').pop())
+  try {
+    assert.ok(body.count >= 2, JSON.stringify(body))
+    assert.equal(dead(body.identity), true, JSON.stringify(body))
+    if (hide) assert.equal(body.isdir_proc, false, JSON.stringify(body))
+  } finally {
+    await killPid(body.pid)
+  }
+  return body
+}
+
+async function runDecoy(hide) {
+  await ensurePython()
+  const home = await mkdtemp(join(suiteRoot, 'home-'))
+  const pythonDir = await materializePlugin()
+  const decoy = await startDecoy(home)
+  const before = await observe(decoy.pid)
+  const script = join(home, 'multi.py')
+  await writeFile(script, multiSource())
+  try {
+    const ran = await runPython([script, home, pythonDir, join(home, 'owned.db'), hide ? 'hide' : 'show'], {
+      ...process.env,
+      DSH_HOME: home,
+      PYTHONPATH: pythonDir,
+    })
+    assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+    const body = JSON.parse(ran.stdout.trim().split('\n').pop())
+    const after = await observe(decoy.pid)
+    const report = { owned: body, decoy: { pid: decoy.pid, pgidBefore: decoy.pgid, before, after } }
+    assert.ok(body.count >= 2, JSON.stringify(report))
+    assert.equal(dead(body.identity), true, JSON.stringify(report))
+    assert.equal(sameIdentity(before, after), true, JSON.stringify(report))
+    assert.equal(after.pgid, decoy.pgid, JSON.stringify(report))
+    if (hide) assert.equal(body.isdir_proc, false, JSON.stringify(report))
+    await killPid(body.pid)
+    return report
+  } finally {
+    try { decoy.child.kill('SIGKILL') } catch {}
+    await killPid(decoy.pid)
+  }
+}
+
+async function runReuse(hide) {
+  await ensurePython()
+  const home = await mkdtemp(join(suiteRoot, 'home-'))
+  const pythonDir = await materializePlugin()
+  const waiter = join(home, 'waiter.py')
+  await writeFile(waiter, [
+    'import os, sys, time',
+    'open(sys.argv[1], "w").close()',
+    'while not os.path.exists(sys.argv[2]):',
+    '    time.sleep(0.01)',
+    'os.execv(sys.executable, [sys.executable, "-c", "import time; time.sleep(120)"])',
+  ].join('\n'))
+  const script = join(home, 'reuse.py')
+  await writeFile(script, reuseSource())
+  const ran = await runPython([
+    script,
+    pythonDir,
+    join(home, 'ready'),
+    join(home, 'go'),
+    waiter,
+    hide ? 'hide' : 'show',
+  ], {
+    ...process.env,
+    PYTHONPATH: pythonDir,
+  })
+  assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+  const body = JSON.parse(ran.stdout.trim().split('\n').pop())
+  try {
+    const beforeCmd = (body.before.cmdline || []).join(' ')
+    const afterCmd = (body.after.cmdline || []).join(' ')
+    assert.equal(live(body.before), true, JSON.stringify(body))
+    assert.equal(live(body.after), true, JSON.stringify(body))
+    assert.equal(body.after.pgid, body.before.pgid, JSON.stringify(body))
+    assert.equal(body.after.create_time, body.before.create_time, JSON.stringify(body))
+    assert.equal(beforeCmd.includes('sleep(120)'), false, JSON.stringify(body))
+    assert.equal(afterCmd.includes('sleep(120)'), true, JSON.stringify(body))
+    if (hide) assert.equal(body.isdir_proc, false, JSON.stringify(body))
+  } finally {
+    await killPid(body.pid)
+  }
+  return body
+}
+
+async function runStubborn(hide) {
+  await ensurePython()
+  const home = await mkdtemp(join(suiteRoot, 'home-'))
+  const pythonDir = await materializePlugin()
+  const stubborn = join(home, 'stubborn.py')
+  await writeFile(stubborn, [
+    'import os, signal, sys, time',
+    'signal.signal(signal.SIGTERM, signal.SIG_IGN)',
+    'open(sys.argv[1], "w").write(str(os.getpid()))',
+    'while True:',
+    '    time.sleep(30)',
+  ].join('\n'))
+  const pidFile = join(home, 'stubborn.pid')
+  const child = spawn(python, [stubborn, pidFile], { stdio: 'ignore' })
+  const pid = await waitPidFile(pidFile)
+  const script = join(home, 'kill.py')
+  await writeFile(script, stubbornSource())
+  try {
+    const ran = await runPython([script, pythonDir, String(pid), hide ? 'hide' : 'show'], {
+      ...process.env,
+      PYTHONPATH: pythonDir,
+    })
+    assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+    const body = JSON.parse(ran.stdout.trim().split('\n').pop())
+    assert.equal(dead(body.identity), true, JSON.stringify(body))
+    if (hide) assert.equal(body.isdir_proc, false, JSON.stringify(body))
+    return body
+  } finally {
+    await killPid(pid)
+    try { child.kill('SIGKILL') } catch {}
+  }
+}
 
 describe('redis lite close', { concurrency: false }, () => {
   after(async () => {
@@ -168,193 +430,23 @@ describe('redis lite close', { concurrency: false }, () => {
   })
 
   test('multi-connection close_lite stops the owned redis-server', { timeout: 180_000 }, async (t) => {
-    await ensurePython()
-    const home = await mkdtemp(join(suiteRoot, 'home-'))
-    const pythonDir = await materializePlugin()
-    const script = join(home, 'multi.py')
-    await writeFile(script, multiScript)
-    const ran = await runPython([script, home, pythonDir, join(home, 'owned.db')], {
-      ...process.env,
-      DSH_HOME: home,
-      PYTHONPATH: pythonDir,
-    })
-    assert.equal(ran.code, 0, ran.stderr || ran.stdout)
-    const body = JSON.parse(ran.stdout.trim().split('\n').pop())
+    const body = await runOwned(false)
     t.diagnostic(JSON.stringify(body))
-    assert.ok(body.count >= 2, JSON.stringify(body))
-    try {
-      assert.equal(dead(body.state), true, JSON.stringify(body))
-    } finally {
-      await killPid(body.pid)
-    }
   })
 
   test('foreign redis-server stays up with the same pgid', { timeout: 180_000 }, async (t) => {
-    await ensurePython()
-    const home = await mkdtemp(join(suiteRoot, 'home-'))
-    const pythonDir = await materializePlugin()
-    const decoy = await startDecoy(home)
-    const script = join(home, 'multi.py')
-    await writeFile(script, multiScript)
-    try {
-      const ran = await runPython([script, home, pythonDir, join(home, 'owned.db')], {
-        ...process.env,
-        DSH_HOME: home,
-        PYTHONPATH: pythonDir,
-      })
-      assert.equal(ran.code, 0, ran.stderr || ran.stdout)
-      const body = JSON.parse(ran.stdout.trim().split('\n').pop())
-      const state = await procState(decoy.pid)
-      const pgid = state === 'gone' ? null : await procPgid(decoy.pid)
-      const report = { owned: body, decoy: { pid: decoy.pid, state, pgid, pgidBefore: decoy.pgid } }
-      t.diagnostic(JSON.stringify(report))
-      assert.ok(body.count >= 2, JSON.stringify(report))
-      assert.equal(live(state), true, JSON.stringify(report))
-      assert.equal(pgid, decoy.pgid, JSON.stringify(report))
-      await killPid(body.pid)
-    } finally {
-      try { decoy.child.kill('SIGKILL') } catch {}
-      await killPid(decoy.pid)
-    }
+    const report = await runDecoy(false)
+    t.diagnostic(JSON.stringify(report))
   })
 
   test('a recycled pid with a different command line is not signaled', { timeout: 180_000 }, async (t) => {
-    await ensurePython()
-    const home = await mkdtemp(join(suiteRoot, 'home-'))
-    const pythonDir = await materializePlugin()
-    const waiter = join(home, 'waiter.py')
-    await writeFile(waiter, [
-      'import os, sys, time',
-      'open(sys.argv[1], "w").close()',
-      'while not os.path.exists(sys.argv[2]):',
-      '    time.sleep(0.01)',
-      'os.execv(sys.executable, [sys.executable, "-c", "import time; time.sleep(120)"])',
-    ].join('\n'))
-    const script = join(home, 'reuse.py')
-    await writeFile(script, [
-      'import json, os, sys, time',
-      'sys.path.insert(0, sys.argv[1])',
-      'import stores',
-      'ready, go, waiter = sys.argv[2], sys.argv[3], sys.argv[4]',
-      'pid = os.spawnv(os.P_NOWAIT, sys.executable, [sys.executable, waiter, ready, go])',
-      'deadline = time.time() + 5',
-      'while not os.path.exists(ready):',
-      '    if time.time() > deadline:',
-      '        raise SystemExit("waiter did not start")',
-      '    time.sleep(0.01)',
-      'pgid_before = os.getpgid(pid)',
-      'class Client:',
-      '    def __init__(self, pid):',
-      '        self.pid = pid',
-      '    def shutdown(self, **kwargs):',
-      '        raise OSError("no server")',
-      'class Db:',
-      '    def __init__(self, pid):',
-      '        self.client = Client(pid)',
-      '    def close(self):',
-      '        open(go, "w").close()',
-      '        limit = time.time() + 5',
-      '        while time.time() < limit:',
-      '            try:',
-      '                cmd = open(f"/proc/{pid}/cmdline", "rb").read()',
-      '            except FileNotFoundError:',
-      '                raise SystemExit("pid disappeared during exec")',
-      '            if b"sleep(120)" in cmd:',
-      '                return',
-      '            time.sleep(0.01)',
-      '        raise SystemExit("exec did not replace the command line")',
-      'stores._LITE_DB = Db(pid)',
-      'stores.close_lite()',
-      'def proc_state(target):',
-      '    try:',
-      '        text = open(f"/proc/{target}/stat", encoding="utf-8").read()',
-      '    except FileNotFoundError:',
-      '        return "gone"',
-      '    return text[text.rfind(")") + 2:].split(" ", 1)[0]',
-      'state = proc_state(pid)',
-      'pgid_after = os.getpgid(pid) if state != "gone" else None',
-      'print(json.dumps({"pid": pid, "state": state, "pgidBefore": pgid_before, "pgidAfter": pgid_after}))',
-    ].join('\n'))
-    const ran = await runPython([script, pythonDir, join(home, 'ready'), join(home, 'go'), waiter], {
-      ...process.env,
-      PYTHONPATH: pythonDir,
-    })
-    assert.equal(ran.code, 0, ran.stderr || ran.stdout)
-    const body = JSON.parse(ran.stdout.trim().split('\n').pop())
+    const body = await runReuse(false)
     t.diagnostic(JSON.stringify(body))
-    try {
-      assert.equal(live(body.state), true, JSON.stringify(body))
-      assert.equal(body.pgidAfter, body.pgidBefore, JSON.stringify(body))
-    } finally {
-      await killPid(body.pid)
-    }
   })
 
   test('close_lite stops a process that ignores SIGTERM', { timeout: 180_000 }, async (t) => {
-    await ensurePython()
-    const home = await mkdtemp(join(suiteRoot, 'home-'))
-    const pythonDir = await materializePlugin()
-    const stubborn = join(home, 'stubborn.py')
-    await writeFile(stubborn, [
-      'import os, signal, sys, time',
-      'signal.signal(signal.SIGTERM, signal.SIG_IGN)',
-      'open(sys.argv[1], "w").write(str(os.getpid()))',
-      'while True:',
-      '    time.sleep(30)',
-    ].join('\n'))
-    const pidFile = join(home, 'stubborn.pid')
-    const child = spawn(python, [stubborn, pidFile], { stdio: 'ignore' })
-    const started = Date.now()
-    let pid = 0
-    while (Date.now() - started < 5_000) {
-      try {
-        pid = Number(await readFile(pidFile, 'utf8'))
-        if (pid > 1) break
-      } catch {}
-      await new Promise((resolve) => setTimeout(resolve, 20))
-    }
-    assert.ok(pid > 1, 'stubborn process did not write its pid')
-    const script = join(home, 'kill.py')
-    await writeFile(script, [
-      'import json, sys, time',
-      'sys.path.insert(0, sys.argv[1])',
-      'import stores',
-      'pid = int(sys.argv[2])',
-      'class Client:',
-      '    def __init__(self, pid):',
-      '        self.pid = pid',
-      '    def shutdown(self, **kwargs):',
-      '        raise OSError("no server")',
-      'class Db:',
-      '    def __init__(self, pid):',
-      '        self.client = Client(pid)',
-      '    def close(self):',
-      '        return None',
-      'stores._LITE_DB = Db(pid)',
-      'started = time.monotonic()',
-      'stores.close_lite()',
-      'elapsed = time.monotonic() - started',
-      'def proc_state(target):',
-      '    try:',
-      '        text = open(f"/proc/{target}/stat", encoding="utf-8").read()',
-      '    except FileNotFoundError:',
-      '        return "gone"',
-      '    return text[text.rfind(")") + 2:].split(" ", 1)[0]',
-      'print(json.dumps({"pid": pid, "state": proc_state(pid), "elapsed": round(elapsed, 3)}))',
-    ].join('\n'))
-    try {
-      const ran = await runPython([script, pythonDir, String(pid)], {
-        ...process.env,
-        PYTHONPATH: pythonDir,
-      })
-      assert.equal(ran.code, 0, ran.stderr || ran.stdout)
-      const body = JSON.parse(ran.stdout.trim().split('\n').pop())
-      t.diagnostic(JSON.stringify(body))
-      assert.equal(dead(body.state), true, JSON.stringify(body))
-    } finally {
-      await killPid(pid)
-      try { child.kill('SIGKILL') } catch {}
-    }
+    const body = await runStubborn(false)
+    t.diagnostic(JSON.stringify(body))
   })
 
   test('Host stopChild SIGTERM stops the owned redis-server', { timeout: 180_000 }, async (t) => {
@@ -376,6 +468,7 @@ describe('redis lite close', { concurrency: false }, () => {
     const held = await waitMatch(holder, /HOLD (\d+) (\d+)/, 20_000)
     const heldPid = Number(held.match[1])
     const decoy = await startDecoy(home)
+    const decoyBefore = await observe(decoy.pid)
     const script = join(home, 'sidecar.py')
     await writeFile(script, [
       'import os, signal, sys, time',
@@ -421,17 +514,16 @@ describe('redis lite close', { concurrency: false }, () => {
       const core = new DshCoreConnector({ dshHome: home })
       core.child = child
       await core.stopChild()
-      const ownedState = await procState(redisPid)
-      const decoyState = await procState(decoy.pid)
-      const decoyPgid = decoyState === 'gone' ? null : await procPgid(decoy.pid)
+      const ownedAfter = await observe(redisPid)
+      const decoyAfter = await observe(decoy.pid)
       const report = {
-        owned: { pid: redisPid, state: ownedState },
-        decoy: { pid: decoy.pid, state: decoyState, pgid: decoyPgid, pgidBefore: decoy.pgid },
+        owned: { pid: redisPid, identity: ownedAfter },
+        decoy: { pid: decoy.pid, pgidBefore: decoy.pgid, before: decoyBefore, after: decoyAfter },
       }
       t.diagnostic(JSON.stringify(report))
-      assert.equal(dead(ownedState), true, JSON.stringify(report))
-      assert.equal(live(decoyState), true, JSON.stringify(report))
-      assert.equal(decoyPgid, decoy.pgid, JSON.stringify(report))
+      assert.equal(dead(ownedAfter), true, JSON.stringify(report))
+      assert.equal(sameIdentity(decoyBefore, decoyAfter), true, JSON.stringify(report))
+      assert.equal(decoyAfter.pgid, decoy.pgid, JSON.stringify(report))
     } finally {
       try { process.kill(-child.pid, 'SIGKILL') } catch {}
       await killPid(redisPid)
@@ -440,5 +532,93 @@ describe('redis lite close', { concurrency: false }, () => {
       try { holder.kill('SIGKILL') } catch {}
       await killPid(heldPid)
     }
+  })
+
+  test('without /proc and without psutil, close_lite still closes', { timeout: 180_000 }, async (t) => {
+    await ensurePython()
+    const home = await mkdtemp(join(suiteRoot, 'home-'))
+    const pythonDir = await materializePlugin()
+    const sleeper = join(home, 'sleeper.py')
+    await writeFile(sleeper, [
+      'import os, sys, time',
+      'open(sys.argv[1], "w").write(str(os.getpid()))',
+      'while True:',
+      '    time.sleep(30)',
+    ].join('\n'))
+    const pidFile = join(home, 'sleeper.pid')
+    const child = spawn(python, [sleeper, pidFile], { stdio: 'ignore' })
+    const pid = await waitPidFile(pidFile)
+    const before = await observe(pid)
+    const script = join(home, 'missing.py')
+    await writeFile(script, [
+      'import json, os, sys',
+      'sys.path.insert(0, sys.argv[1])',
+      'pid = int(sys.argv[2])',
+      'import stores',
+      pyPrelude,
+      'class Client:',
+      '    def __init__(self, pid):',
+      '        self.pid = pid',
+      '    def shutdown(self, **kwargs):',
+      '        raise OSError("no server")',
+      'class Db:',
+      '    def __init__(self, pid):',
+      '        self.client = Client(pid)',
+      '        self.closed = 0',
+      '    def close(self):',
+      '        self.closed += 1',
+      'db = Db(pid)',
+      'stores._LITE_DB = db',
+      'pgid_before = os.getpgid(pid)',
+      'sys.modules["psutil"] = None',
+      'hide_proc()',
+      'if os.path.isdir("/proc"):',
+      '    raise SystemExit("proc was not hidden")',
+      'error = None',
+      'try:',
+      '    stores.close_lite()',
+      'except Exception as exc:',
+      '    error = type(exc).__name__ + ": " + str(exc)',
+      'print(json.dumps({"closed": db.closed, "error": error, "pgid_before": pgid_before, "isdir_proc": os.path.isdir("/proc")}))',
+    ].join('\n'))
+    try {
+      const ran = await runPython([script, pythonDir, String(pid)], {
+        ...process.env,
+        PYTHONPATH: pythonDir,
+      })
+      assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+      const body = JSON.parse(ran.stdout.trim().split('\n').pop())
+      const after = await observe(pid)
+      const report = { body, before, after }
+      t.diagnostic(JSON.stringify(report))
+      assert.equal(body.closed, 1, JSON.stringify(report))
+      assert.equal(body.error, null, JSON.stringify(report))
+      assert.equal(body.isdir_proc, false, JSON.stringify(report))
+      assert.equal(sameIdentity(before, after), true, JSON.stringify(report))
+      assert.equal(after.pgid, body.pgid_before, JSON.stringify(report))
+    } finally {
+      await killPid(pid)
+      try { child.kill('SIGKILL') } catch {}
+    }
+  })
+
+  test('without /proc, psutil identity covers multi, stubborn, decoy, and pid reuse', { timeout: 180_000 }, async (t) => {
+    const failures = []
+    const reports = {}
+    const cases = [
+      ['multi', () => runOwned(true)],
+      ['stubborn', () => runStubborn(true)],
+      ['decoy', () => runDecoy(true)],
+      ['pid reuse', () => runReuse(true)],
+    ]
+    for (const [name, fn] of cases) {
+      try {
+        reports[name] = await fn()
+      } catch (error) {
+        failures.push(`${name}: ${error && error.message ? error.message : error}`)
+      }
+    }
+    t.diagnostic(JSON.stringify(reports))
+    assert.deepEqual(failures, [], failures.join('\n'))
   })
 })
