@@ -14,7 +14,7 @@ import { createPageTokenClient } from './support/page-token-fetch.mjs'
 const page = createPageTokenClient()
 
 const repoRoot = join(import.meta.dirname, '../..')
-const SOURCE = 'losebird/dsh-semantic-os@42e228fa25ad757b933bf5ffe1e3fe83640b4ae7'
+const SOURCE = 'losebird/dsh-semantic-os@a13e45390a860162042ddbcdd5b6eee3b92651d8'
 const SNAPSHOT = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS || ''
 
 function snapshotMounted() {
@@ -215,15 +215,18 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
     const mod = await import(pathToFileURL(join(SNAPSHOT, 'session-ingest.js')).href)
     assert.deepEqual(Object.keys(mod).sort(), [
       'DEFAULT_SESSION_INGEST_INTERVAL_MIN',
+      'adaptSessionPersistence',
       'createSessionIngest',
       'eventText',
       'eventTime',
       'headerCwd',
       'headerId',
+      'headerOf',
       'mayLook',
       'toolNameOf',
     ])
-    assert.equal('adaptSessionPersistence' in mod, false)
+    assert.equal(typeof mod.adaptSessionPersistence, 'function')
+    assert.equal(typeof mod.headerOf, 'function')
     assert.equal(mod.DEFAULT_SESSION_INGEST_INTERVAL_MIN, 30)
 
     const cwd = await mkdtemp(join(tmpdir(), 'fde-m1-cwd-'))
@@ -231,8 +234,9 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
     assert.equal(mod.headerId({ meta: { id: 'meta-only' } }), 'meta-only')
     assert.equal(mod.headerCwd({ cwd, meta: { cwd: '/elsewhere' } }), cwd)
     assert.equal(mod.headerCwd({ meta: { cwd } }), cwd)
-    assert.equal(mod.headerId({ header: { id: 'nested', cwd }, revision: 1 }), '')
-    assert.equal(mod.headerCwd({ header: { id: 'nested', cwd } }), '')
+    assert.equal(mod.headerOf({ header: { id: 'nested', cwd }, revision: 1 }).id, 'nested')
+    assert.equal(mod.headerId({ header: { id: 'nested', cwd }, revision: 1 }), 'nested')
+    assert.equal(mod.headerCwd({ header: { id: 'nested', cwd } }), cwd)
 
     const keyword = 'm1kw-42e228fa-session-ingest'
     assert.equal(mod.eventText({
@@ -330,7 +334,7 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
       const result = await ingest.tick()
       assert.equal(result.error, '', JSON.stringify(result))
       assert.deepEqual(calls, ['list', ['readFrom', 's1', 0]])
-      assert.deepEqual([...new Set(seen)].sort(), ['list', 'readFrom'])
+      assert.deepEqual([...new Set(seen)].sort(), ['list', 'open', 'readFrom'])
       const arrived = await until(() => bodies.length > 0, 2000)
       assert.equal(arrived, true, 'index_passages was not called')
       const rows = bodies[0]?.args?.rows || []
@@ -366,7 +370,7 @@ describe('semantic-os session ingest', { concurrency: false }, () => {
         getConfig: () => ({ sessionIngestIntervalMin: 30 }),
       })
       const skipped = await nested.tick()
-      assert.equal(read, false)
+      assert.equal(read, true)
       assert.equal(skipped.skipped, 1)
       nested.stop()
     } finally {

@@ -86,6 +86,10 @@ export async function writeGeneratedAgentPresetPatch(root = fdePresetRoot()) {
       "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))",
       `process.env.FDE_RUNTIME_DIR + '/presets/${id}/skills'`,
     )
+    plugins = plugins.replaceAll(
+      `process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('fde-x-dsh-bridge/package.json')), '..', 'presets', '${id}', 'skills')`,
+      `process.env.FDE_RUNTIME_DIR + '/presets/${id}/skills'`,
+    )
     const order = Number.parseInt(String(meta.order || ''), 10)
     inserts.push([
       `    - id: preset-${id}`,
