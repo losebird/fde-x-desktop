@@ -9,7 +9,6 @@ if (!command) process.exit(1)
 let killed = false
 let reaper = null
 let child = null
-// #73 samples the group for 2000ms after the host dies. Stay inside that window.
 const REAP_BOUND_MS = 1200
 
 function publishHostExit(code, signal) {
@@ -27,7 +26,7 @@ function publishHostExit(code, signal) {
 function noteShutdown(who) {
   const spy = process.env.FDE_REDIS_SHUTDOWN_SPY
   if (!spy) return
-  try { appendFileSync(spy, `${who}\n`) } catch { /* diagnostic only */ }
+  try { appendFileSync(spy, `${who}\n`) } catch {}
 }
 
 function armLeaderDeathReaper() {
@@ -73,7 +72,7 @@ function sameGroupPids() {
         const rest = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/)
         if (rest[0] === 'Z' || rest[0] === 'X') continue
         if (Number(rest[2]) === pgid) live.push(pid)
-      } catch { /* process left while we read */ }
+      } catch {}
     }
     return live
   }
@@ -104,7 +103,7 @@ function killGroup() {
   killed = true
   noteShutdown('host-group')
   if (process.platform === 'win32') {
-    try { child?.kill('SIGKILL') } catch { /* already gone */ }
+    try { child?.kill('SIGKILL') } catch {}
     try {
       process.kill(-process.pid, 'SIGKILL')
     } catch (error) {
