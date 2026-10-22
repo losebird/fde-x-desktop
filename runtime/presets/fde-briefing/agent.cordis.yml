@@ -229,11 +229,9 @@
 
     - id: tool-workflow
       name: '@deepseek-ai/dsh-tool-workflow'
-      disabled: true
 
     - id: tool-ralph
       name: '@deepseek-ai/dsh-tool-ralph'
-      disabled: true
       config:
         subagentProvider: spawn
         maxRounds: 64

@@ -18,6 +18,8 @@ import { useEvents } from '@/lib/events'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 import { hostGoalStatusOnly, isHostGoalId, isHostJobId, isHostScheduleId } from '@/lib/plan-origin'
+import { PlanEditDrawer } from '@/components/plan/PlanEditDrawer'
+import { PlanHistoryDrawer } from '@/components/plan/PlanHistoryDrawer'
 import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
@@ -51,6 +53,15 @@ function RightDrawer({ open, onClose, title, children }: { open: boolean; onClos
 }
 
 type Tab = 'todo' | 'schedule' | 'workflow'
+
+function reloadPlanEditor(setEpoch: (update: (value: number) => number) => void) {
+  const workspaceId = useApp.getState().activeWorkspaceId
+  if (!workspaceId) {
+    setEpoch((value) => value + 1)
+    return
+  }
+  void useApp.getState().hydratePlan(workspaceId).finally(() => setEpoch((value) => value + 1))
+}
 
 export default function Plan() {
   const active = useApp((s) => s.activePlanTab)
@@ -225,6 +236,9 @@ function TodoTab() {
   const [draft, setDraft] = useState<Pick<Task, 'title'|'priority'|'due'|'tags'>>({
     title: '', priority: 'med', due: '', tags: [],
   })
+  const [editTask, setEditTask] = useState<Task | null>(null)
+  const [historyTask, setHistoryTask] = useState<Task | null>(null)
+  const [editEpoch, setEditEpoch] = useState(0)
   const [ctxPack, setCtxPack] = useState<ContextPack | null>(null)
   const [ctxWarnings, setCtxWarnings] = useState<string[]>([])
   const [ctxOmit, setCtxOmit] = useState<Set<string>>(() => new Set())
@@ -402,7 +416,7 @@ function TodoTab() {
     setOrganizeError('')
     try {
       const workspaceId = useApp.getState().activeWorkspaceId
-      await updateTask(suggestion.taskId, { ...nextPatch, workspaceId } as TaskAdvicePatch)
+      await updateTask(suggestion.taskId, { ...nextPatch, workspaceId } as TaskAdvicePatch, { via: 'organize' })
       setAppliedKeys((prev) => new Set(prev).add(key))
     } catch (cause) {
       setOrganizeError(cause instanceof Error ? cause.message : '应用建议失败')
@@ -514,6 +528,10 @@ function TodoTab() {
                 <div className="font-medium text-sm truncate">{t.title}</div>
                 {planSourceButton(t, selectTask)}
                 {t.notes && <div className="text-xs text-ink-muted mt-0.5 truncate">{t.notes}</div>}
+                <div className="mt-1 flex gap-1" onClick={(event) => event.stopPropagation()}>
+                  <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-edit="task" data-plan-edit-id={t.id} onClick={() => setEditTask(t)}>编辑</button>
+                  <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-history="task" data-plan-history-id={t.id} onClick={() => setHistoryTask(t)}>历史记录</button>
+                </div>
               </div>
               <div className="hidden @md:block text-xs text-ink-muted truncate">{t.due ?? '—'}</div>
               <div className="hidden @md:block"><Tag kind={PRIORITY_TAG[t.priority].kind}>{PRIORITY_TAG[t.priority].label}</Tag></div>
@@ -630,6 +648,21 @@ function TodoTab() {
           </details>
         )}
       </RightDrawer>
+      <PlanEditDrawer
+        target={editTask ? { kind: 'task', row: editTask } : null}
+        epoch={editEpoch}
+        onClose={() => setEditTask(null)}
+        onOpenHistory={() => {
+          if (editTask) setHistoryTask(editTask)
+        }}
+        onReload={() => reloadPlanEditor(setEditEpoch)}
+      />
+      <PlanHistoryDrawer
+        open={Boolean(historyTask)}
+        title={historyTask?.title || ''}
+        targetRef={historyTask ? `fde://plan/tasks/${historyTask.id}` : ''}
+        onClose={() => setHistoryTask(null)}
+      />
     </div>
   )
 }
@@ -658,6 +691,9 @@ function ScheduleTab() {
     kind: 'focus' as ScheduleEvent['kind'], location: '',
     workflowId: '', recurrence: 'once' as 'once' | 'daily',
   })
+  const [editEvent, setEditEvent] = useState<ScheduleEvent | null>(null)
+  const [historyEvent, setHistoryEvent] = useState<ScheduleEvent | null>(null)
+  const [editEpoch, setEditEpoch] = useState(0)
 
   const todayKey = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
   const todays = useMemo(() => events.filter((e) => todayKey(e.start)), [events])
@@ -779,6 +815,10 @@ function ScheduleTab() {
                         {e.location && <><MapPin size={10} /> {e.location}</>}
                       </div>
                     </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-edit="event" data-plan-edit-id={e.id} onClick={() => setEditEvent(e)}>编辑</button>
+                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-history="event" data-plan-history-id={e.id} onClick={() => setHistoryEvent(e)}>历史记录</button>
+                    </div>
                     <button
                       className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100"
                       onClick={() => void removeEvent(e.id)}
@@ -814,6 +854,10 @@ function ScheduleTab() {
                       <div className="font-medium truncate">{e.title}</div>
                       <div className="opacity-70">
                         {new Date(e.start).getHours().toString().padStart(2, '0')}:{new Date(e.start).getMinutes().toString().padStart(2, '0')}
+                      </div>
+                      <div className="mt-1 flex gap-1">
+                        <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-edit="event" data-plan-edit-id={e.id} onClick={() => setEditEvent(e)}>编辑</button>
+                        <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-history="event" data-plan-history-id={e.id} onClick={() => setHistoryEvent(e)}>历史记录</button>
                       </div>
                     </div>
                   ))}
@@ -891,6 +935,21 @@ function ScheduleTab() {
           </div>
         </div>
       </RightDrawer>
+      <PlanEditDrawer
+        target={editEvent ? { kind: 'event', row: editEvent } : null}
+        epoch={editEpoch}
+        onClose={() => setEditEvent(null)}
+        onOpenHistory={() => {
+          if (editEvent) setHistoryEvent(editEvent)
+        }}
+        onReload={() => reloadPlanEditor(setEditEpoch)}
+      />
+      <PlanHistoryDrawer
+        open={Boolean(historyEvent)}
+        title={historyEvent?.title || ''}
+        targetRef={historyEvent ? `fde://plan/events/${historyEvent.id}` : ''}
+        onClose={() => setHistoryEvent(null)}
+      />
     </div>
   )
 }
@@ -969,6 +1028,9 @@ function WorkflowTab() {
   const [pendingDanger, setPendingDanger] = useState<string[]>([])
   const [presetId, setPresetId] = useState('')
   const [toolNote, setToolNote] = useState('')
+  const [editWorkflow, setEditWorkflow] = useState<Workflow | null>(null)
+  const [historyWorkflow, setHistoryWorkflow] = useState<Workflow | null>(null)
+  const [editEpoch, setEditEpoch] = useState(0)
 
   useEffect(() => {
     if (!workspaceId) return
@@ -1233,6 +1295,8 @@ function WorkflowTab() {
                   )}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
+                  <button type="button" className="btn" data-plan-edit="workflow" data-plan-edit-id={w.id} onClick={() => setEditWorkflow(w)}>编辑</button>
+                  <button type="button" className="btn" data-plan-history="workflow" data-plan-history-id={w.id} onClick={() => setHistoryWorkflow(w)}>历史记录</button>
                   <button
                     type="button"
                     className="btn"
@@ -1390,6 +1454,21 @@ function WorkflowTab() {
           </div>
         </div>
       </RightDrawer>
+      <PlanEditDrawer
+        target={editWorkflow ? { kind: 'workflow', row: editWorkflow } : null}
+        epoch={editEpoch}
+        onClose={() => setEditWorkflow(null)}
+        onOpenHistory={() => {
+          if (editWorkflow) setHistoryWorkflow(editWorkflow)
+        }}
+        onReload={() => reloadPlanEditor(setEditEpoch)}
+      />
+      <PlanHistoryDrawer
+        open={Boolean(historyWorkflow)}
+        title={historyWorkflow?.name || ''}
+        targetRef={historyWorkflow ? `fde://plan/workflows/${historyWorkflow.id}` : ''}
+        onClose={() => setHistoryWorkflow(null)}
+      />
     </div>
   )
 }

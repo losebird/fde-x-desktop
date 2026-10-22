@@ -1,0 +1,14 @@
+node_modules
+__pycache__
+*.pyc
+*.tgz
+*.log
+runtime-dist
+release-dist
+.DS_Store
+.idea
+.vscode
+.dsh/
+.npm-cache/
+:memory:.ses
+**/:memory:.ses

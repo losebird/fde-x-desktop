@@ -1,0 +1,58 @@
+# measured standard session with lan-assist 31d75468, semantic-os a13e4539, and IUI 77c23c7c
+# count 53
+# semantic-os is in the profile bundles and adds 0 names versus lan+IUI
+# iui-only count 47
+
+ask_colleague	dsh-lan-assist
+ask_user_question	host+bridge
+bash	host+bridge
+biz_describe	dsh-lan-assist
+biz_preview	dsh-lan-assist
+biz_traces	dsh-lan-assist
+biz_write	dsh-lan-assist
+create_goal	host+bridge
+edit	host+bridge
+exit_plan_mode	host+bridge
+fde_app_records_propose	host+bridge
+fde_app_records_query	host+bridge
+fde_app_spec_submit	host+bridge
+fde_briefing_submit	host+bridge
+fde_context_get	host+bridge
+fde_mcp_load	host+bridge
+fde_memory_draft	host+bridge
+fde_plan_task_propose	host+bridge
+fde_submit_result	host+bridge
+get_goal	host+bridge
+get_place_images	@losebird/iui
+get_trip_stop_images	@losebird/iui
+glob	host+bridge
+grep	host+bridge
+interrupt_agent	host+bridge
+job_kill	host+bridge
+job_list	host+bridge
+job_output	host+bridge
+list_agents	host+bridge
+list_visible	dsh-lan-assist
+present	host+bridge
+read	host+bridge
+read_image	host+bridge
+schedule_create	host+bridge
+schedule_delete	host+bridge
+schedule_list	host+bridge
+schedule_update	host+bridge
+send_message	host+bridge
+skill	host+bridge
+spawn_teammate	host+bridge
+subagent	host+bridge
+subagent_fork	host+bridge
+team_task_create	host+bridge
+team_task_get	host+bridge
+team_task_list	host+bridge
+team_task_update	host+bridge
+todo_write	host+bridge
+update_goal	host+bridge
+wait_agent	host+bridge
+web_fetch	host+bridge
+web_search	host+bridge
+workflow	host+bridge
+write	host+bridge

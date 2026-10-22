@@ -1,0 +1,74 @@
+name: Unit
+
+# Not a required check. A later packaging change is what turns this into a merge gate.
+# Until dsh-lan-assist and dsh-semantic-os live in this repo, a runner that cannot
+# fetch the pinned commits fails in setup-test-env. It does not skip the suite.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm 9 rejects this repo's pnpm-workspace.yaml. It has allowBuilds and no packages field.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Check GitHub fetch auth builder
+        run: node --test scripts/test-env/github-auth.test.mjs
+
+      - name: Install lsof
+        run: sudo apt-get update && sudo apt-get install -y lsof
+
+      - name: Install workspace dependencies
+        env:
+          COREPACK_HOME: ${{ runner.temp }}/corepack
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: pnpm install --frozen-lockfile
+
+      - name: Assemble the test environment
+        env:
+          COREPACK_HOME: ${{ runner.temp }}/corepack
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+          FDE_PLUGIN_READ_TOKEN: ${{ secrets.FDE_PLUGIN_READ_TOKEN }}
+        run: pnpm test:env
+
+      - name: Run unit tests, failing on any skip
+        env:
+          COREPACK_HOME: ${{ runner.temp }}/corepack
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: pnpm test:strict
+
+      # upload-artifact skips dotfiles, and *.log is gitignored.
+      - name: Collect test env logs
+        if: always()
+        run: |
+          mkdir -p test-env-logs
+          if [ -f .test-env.log ]; then cp .test-env.log test-env-logs/setup.txt; fi
+          if [ -f .test-strict.log ]; then cp .test-strict.log test-env-logs/strict.txt; fi
+          find test-env-logs -type f -print
+
+      - name: Upload test env logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-env-logs
+          path: test-env-logs/
+          if-no-files-found: error

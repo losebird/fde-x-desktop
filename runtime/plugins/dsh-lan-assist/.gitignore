@@ -1,0 +1,10 @@
+.DS_Store
+.dsh/
+node_modules/
+*.log
+dist/*
+!dist/dsh-lan-assist-0.1.0.tgz
+*.tgz
+!dist/dsh-lan-assist-0.1.0.tgz
+.tmp-npm/
+.nsc-local/

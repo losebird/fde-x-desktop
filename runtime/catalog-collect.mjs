@@ -495,7 +495,7 @@ export async function collectBag(aiRuntime, kind, input = {}, verbs) {
         bag.raw = await aiRuntime.call(list.endpoint, argsFromFace(list, input))
         bag.items = pluginRows(bag.raw).map((row) => {
           const id = String(row?.entryId || row?.id || row?.name || row?.moduleName || '')
-          if (!id || id === 'include') return null
+          if (!id || id === 'include' || id.startsWith('include:')) return null
           const title = localizedText(row?.meta?.title) || String(row?.moduleName || row?.name || id)
           return {
             kind: 'plugin',

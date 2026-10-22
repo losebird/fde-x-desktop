@@ -8,6 +8,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ensureGenerationHost } from '../generation.mjs'
+import { createPageTokenClient } from './support/page-token-fetch.mjs'
+
+const page = createPageTokenClient()
 
 await ensureGenerationHost()
 
@@ -179,6 +182,7 @@ test('a standard session sends the skill catalog on the first model request', { 
         FDE_DSH_HOME: home,
         GROK2API_API_KEY: 'static-intercept',
         FDE_DATABASE_PATH: join(home, 'fde.sqlite'),
+        FDE_RUNTIME_SUPERVISED: '1',
         FDE_AI_WORKSPACE: workspace,
         FDE_RUNTIME_PORT: String(port),
         FDE_LISTEN_HOST: '127.0.0.1',
@@ -190,7 +194,10 @@ test('a standard session sends the skill catalog on the first model request', { 
     })
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk) => { logs.stdout += chunk })
+    child.stdout.on('data', (chunk) => {
+      page.observe(chunk)
+      logs.stdout += chunk
+    })
     child.stderr.on('data', (chunk) => { logs.stderr += chunk })
     child.once('exit', (code, signal) => {
       childState.gone = `code=${code ?? ''} signal=${signal ?? ''}`
@@ -198,7 +205,7 @@ test('a standard session sends the skill catalog on the first model request', { 
     const abortChild = () => (childState.gone ? `${childState.gone}\n${logs.stderr.slice(-800)}` : '')
     const origin = `http://127.0.0.1:${port}`
     await waitFor(() => logs.stdout.includes('FDE_LISTENING') || logs.stderr.includes('FDE_LISTENING'), 60000, 'FDE_LISTENING', abortChild)
-    const connected = await fetch(new URL('/api/v1/ai/connect', origin), {
+    const connected = await page.fetch(new URL('/api/v1/ai/connect', origin), {
       method: 'POST',
       headers: { origin, 'content-type': 'application/json' },
       body: '{}',
@@ -207,7 +214,7 @@ test('a standard session sends the skill catalog on the first model request', { 
     const connectText = await connected.text()
     assert.equal(connected.ok, true, connectText.slice(0, 500))
     await waitForSettingsImport(origin, home, model.origin, abortChild)
-    const createdResponse = await fetch(new URL('/api/v1/ai/sessions', origin), {
+    const createdResponse = await page.fetch(new URL('/api/v1/ai/sessions', origin), {
       method: 'POST',
       headers: { origin, 'content-type': 'application/json' },
       body: JSON.stringify({ cwd: workspace, agentPreset: 'standard' }),
@@ -218,7 +225,7 @@ test('a standard session sends the skill catalog on the first model request', { 
     const created = JSON.parse(createdText)
     const sessionId = created.data && (created.data.sessionId || created.data.id)
     assert.ok(sessionId, createdText.slice(0, 300))
-    const prompted = await fetch(new URL(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/prompt`, origin), {
+    const prompted = await page.fetch(new URL(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/prompt`, origin), {
       method: 'POST',
       headers: { origin, 'content-type': 'application/json' },
       body: JSON.stringify({ text: '用一句话打个招呼' }),
@@ -273,7 +280,7 @@ async function waitForSettingsImport(origin, _home, _modelOrigin, abortChild) {
   while (Date.now() < deadline) {
     const reason = abortChild()
     if (reason) throw new Error(`settings import aborted: ${reason}`)
-    const status = await fetch(new URL('/api/v1/ai/models-settings', origin), { headers: { origin } })
+    const status = await page.fetch(new URL('/api/v1/ai/models-settings', origin), { headers: { origin } })
     const text = await status.text()
     last = text.slice(0, 500)
     if (status.ok && settingsImportSettled(text)) return

@@ -8,6 +8,7 @@ import { openDatabase } from '../db.mjs'
 import { handlePlanRequest } from '../routes/plan.mjs'
 import { startWorkflowRun } from '../plan/workflow-run.mjs'
 import { bootWorkflowHost, waitForProbe } from './support/workflow-host.mjs'
+import { STANDARD_SESSION_TOOLS } from './support/standard-session-tools.mjs'
 
 const migrations = join(import.meta.dirname, '..', 'migrations')
 const THREE = ['fde_app_records_propose', 'fde_app_records_query', 'fde_plan_task_propose']
@@ -69,7 +70,7 @@ function stubRuntime(host, calls) {
 }
 
 describe('真 Host 上按步骤放行工具', { concurrency: 1 }, () => {
-  test('选一个只读工具后可见工具就是这一个，未选中的调用被拒绝，普通会话仍是 44 个', async () => {
+  test('选一个只读工具后可见工具就是这一个，未选中的调用被拒绝，普通会话仍是标准工具清单', async () => {
     const host = await bootWorkflowHost({ callTool: 'fde_plan_task_propose' })
     const dbPath = join(tmpdir(), `fde-x-tool-pick-${process.pid}.sqlite`)
     const db = openDatabase(dbPath, migrations)
@@ -78,7 +79,7 @@ describe('真 Host 上按步骤放行工具', { concurrency: 1 }, () => {
         request: { cwd: host.cwd, agentPreset: 'standard' },
       })
       const standard = await waitForProbe(host.probeDir, 'standard')
-      assert.equal(standard.names.length, 44)
+      assert.deepEqual(standard.names, STANDARD_SESSION_TOOLS)
       assert.equal(standard.preset, 'danger-full-access')
       assert.equal(standard.approvalPolicy, 'never')
       assert.equal(standard.bashWithAgent.isError, false)

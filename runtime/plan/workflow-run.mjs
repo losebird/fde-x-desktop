@@ -7,6 +7,18 @@ import { listWorkflowCatalog } from './workflow-catalog.mjs'
 import { isHostJobId } from '../host-catalog.mjs'
 import { toolTier, waitsForBackground, waitsForPerson } from './tool-risk.mjs'
 
+const STEP_TIMEOUT_MS = 15 * 60 * 1000
+const STEP_TIMED_OUT = '运行超时'
+
+const systemStepClock = {
+  arm(ms, fire) {
+    return setTimeout(fire, ms)
+  },
+  clear(handle) {
+    clearTimeout(handle)
+  },
+}
+
 const MANUAL_TRIGGER_JSON = '{"kind":"manual"}'
 const AI_DOWN = '核心 AI 运行时尚未连接'
 const MEMORY_ONLY = '没有记忆 M1，这一步只留提案'
@@ -269,8 +281,66 @@ async function renameSession(aiRuntime, sessionId, title) {
   }
 }
 
+function readStepWait(deps) {
+  const rawMs = deps && Object.hasOwn(deps, 'stepTimeoutMs') ? deps.stepTimeoutMs : STEP_TIMEOUT_MS
+  if (typeof rawMs !== 'number' || !Number.isFinite(rawMs) || rawMs < 0) {
+    throw new Error('stepTimeoutMs 无效')
+  }
+  const clock = deps && deps.stepClock ? deps.stepClock : systemStepClock
+  if (!clock || typeof clock.arm !== 'function' || typeof clock.clear !== 'function') {
+    throw new Error('stepClock 无效')
+  }
+  return { ms: rawMs, clock }
+}
+
+function armStepDeadline(wait) {
+  const abort = new AbortController()
+  let kind = 'open'
+  const handle = wait.clock.arm(wait.ms, () => {
+    if (kind !== 'open') return
+    kind = 'timed_out'
+    abort.abort()
+  })
+  return {
+    signal: abort.signal,
+    timedOut() {
+      return kind === 'timed_out'
+    },
+    cancel() {
+      if (kind === 'open') {
+        kind = 'ended'
+        wait.clock.clear(handle)
+      }
+      if (!abort.signal.aborted) abort.abort()
+    },
+  }
+}
+
+async function runAiStep(wait, aiRuntime, sessionId, step) {
+  const deadline = armStepDeadline(wait)
+  try {
+    await aiRuntime.call('session/prompt', {
+      request: {
+        requestId: createId('req'),
+        sessionId,
+        mode: 'queue',
+        content: [{ type: 'text', text: stepText(step) }],
+      },
+    }, deadline.signal)
+    await followTurn(aiRuntime, sessionId, deadline.signal)
+    if (deadline.timedOut()) return { kind: 'timeout' }
+    return { kind: 'ended' }
+  } catch (error) {
+    if (deadline.timedOut()) return { kind: 'timeout' }
+    throw error
+  } finally {
+    deadline.cancel()
+  }
+}
+
 async function performRun(deps, ctx) {
   const { db, aiRuntime } = deps
+  const wait = readStepWait(deps)
   const now = isoNow()
   const aiSteps = ctx.steps.filter((step) => step.kind === 'ai')
   const memorySteps = ctx.steps.filter((step) => step.kind === 'memory.add')
@@ -393,15 +463,11 @@ async function performRun(deps, ctx) {
     throw error
   }
   for (const item of shapes) {
-    await aiRuntime.call('session/prompt', {
-      request: {
-        requestId: createId('req'),
-        sessionId: session.sessionId,
-        mode: 'queue',
-        content: [{ type: 'text', text: stepText(item.step) }],
-      },
-    })
-    await followTurn(aiRuntime, session.sessionId)
+    const outcome = await runAiStep(wait, aiRuntime, session.sessionId, item.step)
+    if (outcome.kind === 'timeout') {
+      await failPrepared(STEP_TIMED_OUT)
+      return
+    }
     markStepSucceeded(db, item.step.id, isoNow())
   }
   const finished = isoNow()
@@ -461,14 +527,14 @@ function markRunSucceeded(db, runId, now) {
   if (updated.changes !== 1) throw new Error('运行没能完成')
 }
 
-async function followTurn(aiRuntime, sessionId) {
+async function followTurn(aiRuntime, sessionId, signal) {
   if (!aiRuntime || typeof aiRuntime.stream !== 'function') throw new Error('会话没有结束这一轮')
   const stream = aiRuntime.stream('session/follow', {
     request: {
       address: { kind: 'session', sessionId },
       maxMessages: 80,
     },
-  })
+  }, signal)
   for await (const frame of stream) {
     const event = frame && frame.type === 'event' ? frame.event : null
     if (event && event.type === 'turn/end') return
