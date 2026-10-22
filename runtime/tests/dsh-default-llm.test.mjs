@@ -5,7 +5,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { llmFingerprint, llmFromDescribe, llmPublicView, writeLlmOccupancy } from '../dsh-default-llm.mjs'
-import { readDshLlm, llmFromDescribe as overlayFromDescribe } from '../vendor-overlays/dsh-semantic-os/dsh-llm.js'
+import { readDshLlm, llmFromDescribe as overlayFromDescribe } from '../plugins/dsh-semantic-os/dsh-llm.js'
 
 test('llmFromDescribe uses Host namespaces and credential configured flag', () => {
   const llm = llmFromDescribe(

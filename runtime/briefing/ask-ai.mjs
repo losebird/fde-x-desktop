@@ -53,7 +53,7 @@ export async function runBriefingAgent(deps, {
   }
 
   const agentRequestId = briefingRequestId()
-  db.prepare('UPDATE briefings SET agent_request_id = ? WHERE id = ?').run(agentRequestId, briefingId)
+  db.prepare('UPDATE briefings SET agent_request_id = ? WHERE workspace_cwd = ? AND id = ?').run(agentRequestId, workspaceCwd, briefingId)
 
   const blocked = []
   const toolResults = {}

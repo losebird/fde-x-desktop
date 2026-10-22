@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { includeRuntimePath } from './stage.mjs'
+import { includeRuntimePath, stagePackagedRuntime } from './stage.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const runtimeSrc = join(repoRoot, 'runtime')
@@ -20,7 +20,7 @@ test('pack runtime excludes user sqlite and semantic-os cache', () => {
   assert.equal(includeRuntimePath(join(root, 'data', 'fde-workstation.sqlite-wal'), root), false)
   assert.equal(includeRuntimePath(join(root, 'data', 'semantic-os', 'runtime', 'current.json'), root), false)
   assert.equal(includeRuntimePath(join(root, 'native-workspaces', 'ws_personal'), root), false)
-  assert.equal(includeRuntimePath(join(root, 'vendor-overlays', 'dsh-semantic-os', 'python', '__pycache__', 'x.pyc'), root), false)
+  assert.equal(includeRuntimePath(join(root, 'plugins', 'dsh-semantic-os', 'python', '__pycache__', 'x.pyc'), root), false)
   assert.equal(
     includeRuntimePath(join(root, '.host-generation', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'), root),
     false,
@@ -43,57 +43,121 @@ test('copying runtime drops .host-generation from the staged tree', async () => 
   assert.equal(existsSync(join(dest, '.host-generation')), false)
 })
 
-function outsideRuntimeImports(runtimeRoot) {
-  const found = []
-  function walk(dir) {
-    for (const name of readdirSync(dir)) {
-      const full = join(dir, name)
-      if (!includeRuntimePath(full, runtimeRoot)) continue
-      if (statSync(full).isDirectory()) {
-        walk(full)
-        continue
-      }
-      const relFile = relative(runtimeRoot, full)
-      // Test files import src/ on purpose. server.mjs does not load them.
-      if (relFile === 'tests' || relFile.startsWith('tests/') || relFile.startsWith('tests\\')) continue
-      if (!/\.(mjs|cjs|js)$/u.test(name)) continue
-      const text = readFileSync(full, 'utf8')
-      const specs = [
-        ...text.matchAll(/\bfrom\s+['"](\.[^'"]+)['"]/gu),
-        ...text.matchAll(/\bimport\s*\(\s*['"](\.[^'"]+)['"]/gu),
-      ]
-      for (const match of specs) {
-        const target = resolve(dirname(full), match[1])
-        const rel = relative(runtimeRoot, target)
-        if (rel === '..' || rel.startsWith('../') || rel.startsWith('..\\')) {
-          found.push(`${relative(runtimeRoot, full)} → ${match[1]}`)
-        }
-      }
-    }
-  }
-  walk(runtimeRoot)
-  return found
-}
-
-test('a runtime-only stage can import the server chain through builtin plugins', async () => {
+test('staged runtime keeps migrations, presets, and imports that leave runtime', async () => {
   const appRoot = await mkdtemp(join(tmpdir(), 'fde-runtime-stage-'))
-  const runtimeDest = join(appRoot, 'runtime')
-  await cp(runtimeSrc, runtimeDest, {
-    recursive: true,
-    filter: (src) => includeRuntimePath(src, runtimeSrc),
-  })
   try {
+    await stagePackagedRuntime({ repoRoot, appRoot })
+    const runtimeDest = join(appRoot, 'runtime')
     const server = readFileSync(join(runtimeDest, 'server.mjs'), 'utf8')
     const core = readFileSync(join(runtimeDest, 'dsh-core.mjs'), 'utf8')
     assert.match(server, /from '\.\/dsh-core\.mjs'/)
+    assert.match(server, /from '\.\.\/scripts\/runtime-respawn\.mjs'/)
     assert.match(core, /from '\.\/builtin-plugins\.mjs'/)
     await import(pathToFileURL(join(runtimeDest, 'dsh-core.mjs')).href)
     const { BUILTIN_PLUGINS } = await import(pathToFileURL(join(runtimeDest, 'builtin-plugins.mjs')).href)
     const iui = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'iui')
     assert.equal(typeof iui.source.commit, 'string')
     assert.equal(iui.source.commit.length > 0, true)
-    assert.deepEqual(outsideRuntimeImports(runtimeDest), [])
+    assert.deepEqual(
+      readdirSync(join(runtimeDest, 'migrations')).filter((name) => name.endsWith('.sql')).sort(),
+      readdirSync(join(runtimeSrc, 'migrations')).filter((name) => name.endsWith('.sql')).sort(),
+    )
+    assert.deepEqual(
+      readdirSync(join(runtimeDest, 'presets')).sort(),
+      readdirSync(join(runtimeSrc, 'presets')).sort(),
+    )
+    assert.equal(existsSync(join(runtimeDest, 'migrations', '016_workspace_file_revisions.sql')), true)
+    assert.equal(existsSync(join(runtimeDest, 'presets', 'fde-briefing', 'preset.yml')), true)
+    assert.deepEqual(
+      readdirSync(join(appRoot, 'scripts')).sort(),
+      ['runtime-port.mjs', 'runtime-respawn.mjs'],
+    )
+    const respawn = readFileSync(join(appRoot, 'scripts', 'runtime-respawn.mjs'), 'utf8')
+    assert.match(respawn, /from '\.\/runtime-port\.mjs'/)
   } finally {
     await rm(appRoot, { recursive: true, force: true })
+  }
+})
+
+test('pack fails when a static import leaves runtime and the file is missing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-stage-missing-'))
+  const appRoot = join(root, 'app')
+  await mkdir(join(root, 'runtime'), { recursive: true })
+  await writeFile(join(root, 'runtime', 'server.mjs'), "import '../scripts/not-in-repo.mjs'\n")
+  try {
+    await assert.rejects(
+      () => stagePackagedRuntime({ repoRoot: root, appRoot }),
+      (error) => {
+        assert.equal(error.code, 'ERR_STAGE_UNRESOLVED_IMPORT')
+        assert.match(error.message, /not-in-repo\.mjs/)
+        return true
+      },
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a missing import that leaves runtime still fails from an overlay file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-stage-overlay-escape-'))
+  const overlay = join(root, 'runtime', 'vendor-overlays', 'dsh-lan-assist')
+  await mkdir(overlay, { recursive: true })
+  await writeFile(
+    join(root, 'runtime', 'server.mjs'),
+    "import './vendor-overlays/dsh-lan-assist/letter-home.js'\n",
+  )
+  await writeFile(join(overlay, 'letter-home.js'), "import '../../../scripts/not-in-repo.mjs'\n")
+  const appRoot = join(root, 'app')
+  try {
+    await assert.rejects(
+      () => stagePackagedRuntime({ repoRoot: root, appRoot }),
+      (error) => {
+        assert.equal(error.code, 'ERR_STAGE_UNRESOLVED_IMPORT')
+        assert.match(error.message, /not-in-repo\.mjs/)
+        return true
+      },
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('an overlay file the server chain does not import can name a missing plugin sibling', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-stage-overlay-'))
+  const overlay = join(root, 'runtime', 'vendor-overlays', 'dsh-lan-assist')
+  await mkdir(overlay, { recursive: true })
+  await writeFile(join(root, 'runtime', 'server.mjs'), 'export {}\n')
+  await writeFile(join(overlay, 'write.js'), "import { createTraceLog } from './traces.js'\n")
+  const appRoot = join(root, 'app')
+  try {
+    await stagePackagedRuntime({ repoRoot: root, appRoot })
+    assert.equal(existsSync(join(appRoot, 'runtime', 'vendor-overlays', 'dsh-lan-assist', 'write.js')), true)
+    assert.equal(existsSync(join(appRoot, 'runtime', 'vendor-overlays', 'dsh-lan-assist', 'traces.js')), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a missing plugin sibling on the server chain fails the pack', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-stage-overlay-chain-'))
+  const overlay = join(root, 'runtime', 'vendor-overlays', 'dsh-lan-assist')
+  await mkdir(overlay, { recursive: true })
+  await writeFile(
+    join(root, 'runtime', 'server.mjs'),
+    "import './vendor-overlays/dsh-lan-assist/letter-home.js'\n",
+  )
+  await writeFile(join(overlay, 'letter-home.js'), "import { createTraceLog } from './traces.js'\nexport {}\n")
+  const appRoot = join(root, 'app')
+  try {
+    await assert.rejects(
+      () => stagePackagedRuntime({ repoRoot: root, appRoot }),
+      (error) => {
+        assert.equal(error.code, 'ERR_STAGE_UNRESOLVED_IMPORT')
+        assert.match(error.message, /traces\.js/)
+        return true
+      },
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 })

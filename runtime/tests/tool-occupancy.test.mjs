@@ -39,7 +39,7 @@ test('waitMcpOccupancy freezes after fibers settle', async () => {
 })
 
 test('semantic-os system prompt does not advertise project-memory or greeting search', () => {
-  const text = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'vendor-overlays', 'dsh-semantic-os', 'index.js'), 'utf8')
+  const text = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'plugins', 'dsh-semantic-os', 'index.js'), 'utf8')
   assert.match(text, /route_intent names which graph tool/)
   assert.doesNotMatch(text, /project-memory/)
   assert.doesNotMatch(text, /Ask about prior project facts with search_text/)

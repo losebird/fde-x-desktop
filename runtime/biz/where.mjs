@@ -3,7 +3,7 @@
  * Alias → gate-native terms; field label → schema key binding happens in lan-assist where-pass.
  */
 
-import { normalizeAliasWhere } from '../vendor-overlays/dsh-lan-assist/where-pass.js'
+import { normalizeAliasWhere } from '../plugins/dsh-lan-assist/where-pass.js'
 
 /**
  * @param {unknown} raw

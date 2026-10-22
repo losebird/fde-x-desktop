@@ -1,7 +1,7 @@
 import './support/no-stray-processes.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { COLLECTIONS_LIST_PATHS, createLookup } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { COLLECTIONS_LIST_PATHS, createLookup } from '../plugins/dsh-lan-assist/lookup.js'
 
 test('collections list loads nested fields via appends, not a column selector', async () => {
   const urls = []

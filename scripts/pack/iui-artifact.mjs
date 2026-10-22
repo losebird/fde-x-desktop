@@ -4,6 +4,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from '
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { gzip } from 'pako'
+import { pluginTreeHash } from '../plugins/lock-check.mjs'
 export { assertIuiTree, stageIuiArtifact, stageIuiArtifactIfAbsent } from '../../runtime/iui-stage.mjs'
 
 export function iuiArtifactName(commit) {
@@ -199,7 +200,7 @@ export function explainPinDrift(tree, manifestFiles) {
   return lines.join('\n')
 }
 
-export function bundledPluginVersions(plugins, pluginsRoot) {
+export function bundledPluginVersions(plugins, pluginsRoot, lockPlugins = {}) {
   const versions = {}
   for (const plugin of plugins) {
     const present = existsSync(join(pluginsRoot, plugin.dir, 'package.json'))
@@ -208,6 +209,12 @@ export function bundledPluginVersions(plugins, pluginsRoot) {
         staged: present,
         version: plugin.source.version,
         commit: plugin.source.commit,
+      }
+    } else if (plugin.source && plugin.source.kind === 'repo') {
+      const files = lockPlugins[plugin.dir] && lockPlugins[plugin.dir].files
+      versions[plugin.dir] = {
+        staged: present,
+        treeHash: files ? pluginTreeHash(files) : '',
       }
     } else {
       versions[plugin.dir] = present

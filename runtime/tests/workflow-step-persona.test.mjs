@@ -77,6 +77,7 @@ test('保存工作流时丢掉没人读的 config.persona', async () => {
       method: 'PATCH',
       headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        workspaceId: 'ws_persona',
         steps: [{ id: 's1', kind: 'ai', label: 'AI', config: { prompt: '改', persona: { text: 'still' } } }],
       }),
     })

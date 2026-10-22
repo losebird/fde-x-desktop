@@ -1,4 +1,6 @@
 import { resolveAllowedRequestOrigin } from '../config.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
+import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 import {
   configureEventBus,
   emit,
@@ -10,6 +12,19 @@ import {
 
 const MAX_SSE_CONNECTIONS = 32
 const PING_INTERVAL_MS = 25_000
+
+function workspaceFilter(db, url) {
+  const resolved = resolveHttpWorkspace({
+    url,
+    slots: [['query', 'workspace'], ['query', 'cwd']],
+    whenAbsent: 'omit',
+  })
+  if (resolved.error) return resolved
+  if (resolved.omitted) return { cwd: undefined }
+  const ident = resolveWorkspaceIdOrFail(db, resolved)
+  if (ident.error) return ident
+  return { cwd: ident.cwd || resolved.cwd }
+}
 
 /** @type {Set<import('node:http').ServerResponse>} */
 const activeSse = new Set()
@@ -41,10 +56,15 @@ export async function handleEventsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/events/recent') {
-    const workspace = String(url.searchParams.get('workspace') || '').trim()
+    const filter = workspaceFilter(db, url)
+    if (filter.error) {
+      const failure = httpStatusForWorkspaceError(filter.error)
+      sendError(response, failure.status, failure.code, failure.message, correlationId)
+      return true
+    }
     const type = String(url.searchParams.get('type') || '').trim()
     const limit = Number(url.searchParams.get('limit') ?? 50)
-    const workspaceCwd = workspace.startsWith('/') ? workspace : undefined
+    const workspaceCwd = filter.cwd
     const items = listRecentEvents(db, {
       workspaceCwd,
       type: type || undefined,
@@ -55,13 +75,18 @@ export async function handleEventsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/events') {
+    const filter = workspaceFilter(db, url)
+    if (filter.error) {
+      const failure = httpStatusForWorkspaceError(filter.error)
+      sendError(response, failure.status, failure.code, failure.message, correlationId)
+      return true
+    }
     if (activeSse.size >= MAX_SSE_CONNECTIONS) {
       sendError(response, 429, 'too_many_connections', '事件流连接过多，请稍后重试', correlationId)
       return true
     }
 
-    const workspace = String(url.searchParams.get('workspace') || '').trim()
-    const workspaceCwd = workspace.startsWith('/') ? workspace : undefined
+    const workspaceCwd = filter.cwd
     const since = String(url.searchParams.get('since') || '').trim()
 
     response.writeHead(200, {

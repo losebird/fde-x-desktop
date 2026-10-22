@@ -10,6 +10,7 @@ import type {
 } from '@/lib/types'
 import { seedUser } from '@/data/seed'
 import { runtimeApi } from '@/lib/runtime-api'
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 import { clearAppRecordFocus, emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
 import { imBrowseOccupancy } from '@/lib/im-letter-home'
 import {
@@ -23,6 +24,19 @@ import {
 import { RuntimeApiError } from '@/lib/runtime-api'
 
 const PLAN_UNAVAILABLE = '计划服务未就绪'
+
+type PlanWriteOptions = {
+  expectedUpdatedAt?: string
+  via?: string
+  confirmDanger?: string[]
+}
+
+type PlanEventPatch = Partial<Omit<ScheduleEvent, 'workflowId' | 'recurrence'>> & {
+  workflowId?: string | null
+  recurrence?: 'once' | 'daily' | null
+}
+
+type PlanWorkflowPatch = Partial<Pick<Workflow, 'name' | 'description' | 'status' | 'trigger' | 'steps' | 'category' | 'emoji'>>
 
 function planFailure(error: unknown) {
   if (error instanceof RuntimeApiError && error.message) return error.message
@@ -206,12 +220,12 @@ interface State {
 
   // tasks
   addTask: (t: Omit<Task, 'id' | 'createdAt'> & { sourceRef?: string }) => Promise<Task | undefined>
-  updateTask: (id: ID, patch: Partial<Task>) => Promise<void>
+  updateTask: (id: ID, patch: Partial<Task>, opts?: PlanWriteOptions) => Promise<void>
   removeTask: (id: ID) => Promise<void>
   cycleTaskStatus: (id: ID) => Promise<void>
   // events
   addEvent: (e: Omit<ScheduleEvent, 'id'>) => Promise<void>
-  updateEvent: (id: ID, patch: Partial<ScheduleEvent>) => Promise<void>
+  updateEvent: (id: ID, patch: PlanEventPatch, opts?: PlanWriteOptions) => Promise<void>
   removeEvent: (id: ID) => Promise<void>
   // files
   addFile: (f: Omit<FileNode, 'id' | 'updatedAt'>) => void
@@ -233,6 +247,7 @@ interface State {
   workflowRunSubmitIds: ID[]
   runWorkflow: (id: ID) => Promise<void>
   addWorkflow: (w: Omit<Workflow, 'id' | 'createdAt' | 'runs'>, confirmDanger?: string[]) => Promise<void>
+  updateWorkflow: (id: ID, patch: PlanWorkflowPatch, opts?: PlanWriteOptions) => Promise<void>
   removeWorkflow: (id: ID) => Promise<void>
   // im
   sendIM: (threadId: ID, text: string, opts?: { attachments?: IMAttachment[]; handoff?: IMHandoffPackage; topicId?: ID; replyToId?: ID; aiChatId?: ID }) => void
@@ -743,7 +758,7 @@ export const useApp = create<AppState>()(
           await runtimeApi.ensureWorkspace({ id: workspaceId, name: ws.name, description: ws.desc, cwd: ws.cwd })
           const from = Date.now() - 366 * 24 * 60 * 60 * 1000
           const to = Date.now() + 366 * 24 * 60 * 60 * 1000
-          const cwd = typeof ws.cwd === 'string' && ws.cwd.startsWith('/') ? ws.cwd : ''
+          const cwd = canonicalWorkspaceCwd(ws.cwd)
           const bagInput = cwd ? { workspaceId, cwd } : null
           const emptyBag = { items: [] as Array<{ kind: string; id: string; title: string; href?: unknown; fields?: unknown }> }
           const [tasks, events, workflows, goalBag, scheduleBag, jobBag] = await Promise.all([
@@ -790,12 +805,13 @@ export const useApp = create<AppState>()(
           })
           set((s) => ({ tasks: [created, ...s.tasks], planServiceError: null }))
           return created
-        } catch {
-          set({ planServiceError: PLAN_UNAVAILABLE })
-          throw new Error(PLAN_UNAVAILABLE)
+        } catch (error) {
+          const message = error instanceof Error && error.message ? error.message : PLAN_UNAVAILABLE
+          set({ planServiceError: message })
+          throw new Error(message)
         }
       },
-      updateTask: async (id, patch) => {
+      updateTask: async (id, patch, opts) => {
         try {
           const next = isHostGoalId(id) ? hostGoalStatusOnly(patch as Record<string, unknown>) : patch
           if (isHostGoalId(id) && !Object.keys(next).length) return
@@ -807,9 +823,12 @@ export const useApp = create<AppState>()(
             dueAt: isHostGoalId(id) ? undefined : (patch.due === undefined ? undefined : patch.due || null),
             tags: isHostGoalId(id) ? undefined : patch.tags,
             workspaceId: get().activeWorkspaceId || undefined,
+            expectedUpdatedAt: opts?.expectedUpdatedAt,
+            via: opts?.via,
           })
           set((s) => ({ tasks: s.tasks.map((x) => (x.id === id ? updated : x)), planServiceError: null }))
-        } catch {
+        } catch (error) {
+          if (error instanceof RuntimeApiError && error.status === 409) throw error
           set({ planServiceError: PLAN_UNAVAILABLE })
           throw new Error(PLAN_UNAVAILABLE)
         }
@@ -828,7 +847,8 @@ export const useApp = create<AppState>()(
         if (!task) return
         const order: Task['status'][] = ['todo', 'doing', 'done', 'archived']
         const next = order[(order.indexOf(task.status) + 1) % order.length]
-        await get().updateTask(id, { status: next })
+        const workspaceId = get().activeWorkspaceId
+        await get().updateTask(id, { status: next, workspaceId })
       },
 
       addEvent: async (e) => {
@@ -850,8 +870,10 @@ export const useApp = create<AppState>()(
           throw new Error(PLAN_UNAVAILABLE)
         }
       },
-      updateEvent: async (id, patch) => {
+      updateEvent: async (id, patch, opts) => {
         try {
+          const binding = Object.prototype.hasOwnProperty.call(patch, 'workflowId')
+            || Object.prototype.hasOwnProperty.call(patch, 'recurrence')
           const updated = await runtimeApi.updateEvent(id, {
             title: patch.title,
             startAt: patch.start,
@@ -859,9 +881,15 @@ export const useApp = create<AppState>()(
             kind: patch.kind,
             location: patch.location === undefined ? undefined : patch.location || null,
             workspaceId: get().activeWorkspaceId || undefined,
+            expectedUpdatedAt: opts?.expectedUpdatedAt,
+            ...(binding ? {
+              workflowId: patch.workflowId ?? null,
+              recurrence: patch.recurrence ?? null,
+            } : {}),
           })
           set((s) => ({ events: s.events.map((x) => (x.id === id ? updated : x)), planServiceError: null }))
-        } catch {
+        } catch (error) {
+          if (error instanceof RuntimeApiError && error.status === 409) throw error
           set({ planServiceError: PLAN_UNAVAILABLE })
           throw new Error(PLAN_UNAVAILABLE)
         }
@@ -1024,6 +1052,33 @@ export const useApp = create<AppState>()(
         } catch (error) {
           workflowRunLockRef.current.delete(id)
           clearSubmit()
+          const message = planFailure(error)
+          set({ planServiceError: message })
+          throw new Error(message)
+        }
+      },
+      updateWorkflow: async (id, patch, opts) => {
+        try {
+          const updated = await runtimeApi.updateWorkflow(id, {
+            name: patch.name,
+            status: patch.status,
+            description: patch.description,
+            trigger: patch.trigger,
+            steps: patch.steps,
+            category: patch.category,
+            emoji: patch.emoji,
+            workspaceId: get().activeWorkspaceId || undefined,
+            expectedUpdatedAt: opts?.expectedUpdatedAt,
+            ...(opts && Object.prototype.hasOwnProperty.call(opts, 'confirmDanger')
+              ? { confirmDanger: opts.confirmDanger ?? [] }
+              : {}),
+          })
+          set((s) => ({
+            workflows: s.workflows.map((w) => (w.id === id ? updated : w)),
+            planServiceError: null,
+          }))
+        } catch (error) {
+          if (error instanceof RuntimeApiError && error.status === 409) throw error
           const message = planFailure(error)
           set({ planServiceError: message })
           throw new Error(message)
@@ -1271,8 +1326,7 @@ export function activeWorkspaceFromState(state: { workspaces: Workspace[]; activ
 
 export function activeWorkspaceCwdFromState(state: { workspaces: Workspace[]; activeWorkspaceId: ID }): string {
   const row = activeWorkspaceFromState(state)
-  const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
-  return cwd.startsWith('/') ? cwd : ''
+  return canonicalWorkspaceCwd(row?.cwd)
 }
 
 export function useCurrentWorkspace() {

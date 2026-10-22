@@ -36,6 +36,89 @@ export function planAppSource(sourceRef) {
   return null
 }
 
+function sourceToken(value) {
+  const text = String(value || '')
+  if (!text || /\s/.test(text)) return ''
+  return text
+}
+
+function bizTaskSource(rest) {
+  if (rest.startsWith('trace_')) {
+    const traceId = sourceToken(rest)
+    if (!traceId || traceId.includes(':') || traceId.includes('/')) return null
+    return {
+      kind: 'biz-trace',
+      label: `操作记录 ${traceId}`,
+      href: { panel: 'data', tab: 'operations', traceId },
+    }
+  }
+  const slash = rest.indexOf('/')
+  const colon = rest.indexOf(':')
+  if (slash > 0 && (colon === -1 || slash < colon)) {
+    const connection = sourceToken(rest.slice(0, slash))
+    const after = rest.slice(slash + 1)
+    const split = after.indexOf(':')
+    if (!connection || split <= 0) return null
+    const kind = sourceToken(after.slice(0, split))
+    const rowId = sourceToken(after.slice(split + 1))
+    if (!kind || !rowId) return null
+    return {
+      kind: 'biz-record',
+      label: `${connection} · ${kind} ${rowId}`,
+      href: { panel: 'data', tab: 'records', kind, rowId, connection },
+    }
+  }
+  if (colon <= 0) return null
+  const kind = sourceToken(rest.slice(0, colon))
+  const rowId = sourceToken(rest.slice(colon + 1))
+  if (!kind || !rowId) return null
+  return {
+    kind: 'biz-record',
+    label: `${kind} ${rowId}`,
+    href: { panel: 'data', tab: 'records', kind, rowId },
+  }
+}
+
+function classifyTaskSource(raw) {
+  if (raw.startsWith('app:')) {
+    const handle = planAppSource(raw)
+    if (!handle) return { legal: false, open: null }
+    const label = handle.kind === 'row' ? `应用记录 ${handle.rid}` : `应用 ${handle.ledgerId}`
+    return { legal: true, open: { ...handle, label } }
+  }
+  if (raw.startsWith('fde-task:')) {
+    return { legal: Boolean(sourceToken(raw.slice('fde-task:'.length))), open: null }
+  }
+  if (raw.startsWith('dsh-goal:')) {
+    return { legal: Boolean(sourceToken(raw.slice('dsh-goal:'.length))), open: null }
+  }
+  if (raw.startsWith('im:')) {
+    const requestId = sourceToken(raw.slice(3))
+    if (!requestId) return { legal: false, open: null }
+    return {
+      legal: true,
+      open: { kind: 'im', label: `IM ${requestId}`, href: { panel: 'im', requestId } },
+    }
+  }
+  if (raw.startsWith('biz:')) {
+    const open = bizTaskSource(raw.slice(4))
+    return open ? { legal: true, open } : { legal: false, open: null }
+  }
+  return { legal: false, open: null }
+}
+
+export function planTaskSource(sourceRef) {
+  const raw = String(sourceRef ?? '').trim()
+  if (!raw) return null
+  return classifyTaskSource(raw).open
+}
+
+export function taskSourceProblem(sourceRef) {
+  const raw = String(sourceRef ?? '').trim()
+  if (!raw) return null
+  return classifyTaskSource(raw).legal ? null : 'invalid_source_ref'
+}
+
 function specOf(loaded) {
   if (!loaded || typeof loaded !== 'object') return null
   const spec = loaded.spec
@@ -76,6 +159,14 @@ export async function focusEntityFor(spec, rid, probeRow) {
 }
 
 export async function planAskFields(sourceRef, deps) {
+  const open = planTaskSource(sourceRef)
+  if (open && open.kind === 'biz-record') {
+    const fields = { kind: open.href.kind, rowId: open.href.rowId }
+    if (open.href.connection) fields.connection = open.href.connection
+    return fields
+  }
+  if (open && open.kind === 'biz-trace') return { traceId: open.href.traceId }
+  if (open && open.kind === 'im') return { requestId: open.href.requestId }
   const handle = planAppSource(sourceRef)
   if (!handle) return {}
   const spec = specOf(await deps.loadApp(handle.ledgerId))

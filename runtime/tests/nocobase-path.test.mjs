@@ -1,7 +1,7 @@
 import './support/no-stray-processes.mjs'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { captureWriteIdentity, createLookup, identityFilterKeys, nocobasePath } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { captureWriteIdentity, createLookup, identityFilterKeys, nocobasePath } from '../plugins/dsh-lan-assist/lookup.js'
 
 const spec = {
   resource: 'biz_rows',

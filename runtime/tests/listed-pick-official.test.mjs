@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { FDE_DSH_HOME } from '../config.mjs'
 
-const overlayDir = join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist')
+const overlayDir = join(import.meta.dirname, '..', 'plugins', 'dsh-lan-assist')
 const vendorDir = join(FDE_DSH_HOME, 'vendor', 'dsh-lan-assist')
 const staged = mkdtempSync(join(tmpdir(), 'listed-pick-official-'))
 cpSync(vendorDir, staged, { recursive: true })
@@ -116,19 +116,19 @@ test('waiting listed pick executes official action patch to, not the button è¿‡å
 })
 
 test('workstation pick publishes official; listed waiting uses pending action', () => {
-  const index = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/index.js'), 'utf8')
+  const index = readFileSync(join(repoRoot, 'runtime/plugins/dsh-lan-assist/index.js'), 'utf8')
   assert.match(index, /spec\.workstation === true/)
   assert.match(index, /isConfirmableWritePreview/)
   assert.match(index, /QUERY_SETTLED/)
   assert.match(index, /officialSheet:/)
-  const http = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/http.js'), 'utf8')
+  const http = readFileSync(join(repoRoot, 'runtime/plugins/dsh-lan-assist/http.js'), 'utf8')
   assert.match(http, /workstation: true/)
-  const write = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/write.js'), 'utf8')
+  const write = readFileSync(join(repoRoot, 'runtime/plugins/dsh-lan-assist/write.js'), 'utf8')
   assert.match(write, /rereadWrittenIdentity/)
   assert.match(write, /withIdentityReread/)
   assert.doesNotMatch(write, /rereadListedAfterWrite/)
   assert.doesNotMatch(write, /withListedReread/)
-  const gate = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/gate.js'), 'utf8')
+  const gate = readFileSync(join(repoRoot, 'runtime/plugins/dsh-lan-assist/gate.js'), 'utf8')
   assert.match(gate, /isWaitingListedWrite/)
   assert.match(gate, /pendingAction/)
   assert.match(gate, /opts\.officialSheet/)

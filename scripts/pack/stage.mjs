@@ -10,14 +10,16 @@ import { execFile as execFileCb } from 'node:child_process'
 import { cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DSH_NPM_VERSION, IUI_PIN, SEMANTIC_RUNTIME } from './pins.mjs'
 import { NODE_DIST_VERSION, nodeDistArchiveName, nodeDistPresent, nodeDistUrls } from './node-dist.mjs'
 import { stagePluginTree } from './plugin-stage.mjs'
+import { REQUIRED_PLUGINS, readLock } from '../plugins/lock-check.mjs'
 import { BUILTIN_PLUGINS } from '../../runtime/builtin-plugins.mjs'
 import { bundledPluginVersions, defaultIuiArtifactPath, stageIuiArtifact } from './iui-artifact.mjs'
+import { escapedRuntimeImports } from './runtime-closure.mjs'
 
 const execFile = promisify(execFileCb)
 
@@ -472,6 +474,28 @@ async function stageSemantic() {
   return { complete: false, digest: 'stub' }
 }
 
+export async function stagePackagedRuntime({ repoRoot: root, appRoot: dest }) {
+  const runtimeSrc = join(root, 'runtime')
+  const extra = escapedRuntimeImports(root)
+  const runtimeDest = join(dest, 'runtime')
+  await mkdir(dest, { recursive: true })
+  await rm(runtimeDest, { recursive: true, force: true })
+  await cp(runtimeSrc, runtimeDest, {
+    recursive: true,
+    filter: (src) => includeRuntimePath(src, runtimeSrc),
+  })
+  for (const file of extra) {
+    const rel = relative(root, file)
+    const target = join(dest, rel)
+    await mkdir(dirname(target), { recursive: true })
+    await cp(file, target, { dereference: true })
+  }
+  console.log(`[stage] runtime → ${runtimeDest}`)
+  if (extra.length > 0) {
+    console.log(`[stage] runtime closure ${extra.map((file) => relative(root, file)).join(', ')}`)
+  }
+}
+
 export function includeRuntimePath(src, runtimeRoot) {
   const root = String(runtimeRoot || '').replace(/\/+$/u, '')
   const full = String(src || '')
@@ -517,18 +541,59 @@ async function stageBffPackages(dest) {
   )
 }
 
+export function allowMissingPlugins() {
+  return process.env.FDE_ALLOW_MISSING_PLUGINS === '1'
+}
+
+export async function stageLanAssist(source, dest, options = {}) {
+  await execFile(
+    'npm',
+    ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'],
+    { cwd: source, maxBuffer: 64 * 1024 * 1024 },
+  )
+  const staged = await stagePluginTree(source, dest, {
+    strict: options.strict !== false,
+    keepNodeModules: true,
+  })
+  if (!staged) throw new Error(`[stage] missing plugin dsh-lan-assist: ${source}`)
+  return true
+}
+
+export function missingLockedPluginFiles(root) {
+  const read = readLock(root)
+  if (read.error) return [read.error]
+  const plugins = read.lock.plugins
+  const missing = []
+  for (const name of REQUIRED_PLUGINS) {
+    const files = plugins && plugins[name] && plugins[name].files
+    if (!files || typeof files !== 'object' || Array.isArray(files)) {
+      missing.push(`missing plugin ${name}`)
+      continue
+    }
+    for (const rel of Object.keys(files)) {
+      if (!existsSync(join(root, rel))) missing.push(rel)
+    }
+  }
+  return missing
+}
+
 async function main() {
+  const missingPlugins = missingLockedPluginFiles(repoRoot)
+  const allowMissing = allowMissingPlugins()
+  if (missingPlugins.length && !allowMissing) {
+    console.error('[stage] missing plugin files:')
+    for (const rel of missingPlugins) console.error(`missing ${rel}`)
+    process.exit(1)
+  }
+  if (missingPlugins.length) {
+    console.warn('[stage] FDE_ALLOW_MISSING_PLUGINS=1')
+    for (const rel of missingPlugins) console.warn(`missing ${rel}`)
+  }
+
   console.log(`[stage] resources root: ${resourcesRoot}`)
   await mkdir(appRoot, { recursive: true })
 
-  const runtimeSrc = join(repoRoot, 'runtime')
-  const runtimeDest = join(appRoot, 'runtime')
-  await rm(runtimeDest, { recursive: true, force: true })
-  await cp(runtimeSrc, runtimeDest, {
-    recursive: true,
-    filter: (src) => includeRuntimePath(src, runtimeSrc),
-  })
-  console.log(`[stage] runtime → ${runtimeDest}`)
+  await stagePackagedRuntime({ repoRoot, appRoot })
 
   if (existsSync(join(repoRoot, 'dist'))) {
     await rm(join(appRoot, 'dist'), { recursive: true, force: true })
@@ -542,14 +607,28 @@ async function main() {
 
   const pluginsRoot = join(resourcesRoot, 'plugins')
   for (const plugin of BUILTIN_PLUGINS) {
+    if (plugin.source.kind === 'repo') {
+      const from = join(repoRoot, plugin.source.path)
+      const to = join(pluginsRoot, plugin.dir)
+      if (plugin.dir === 'dsh-lan-assist') await stageLanAssist(from, to, { strict: !allowMissing })
+      else {
+        const staged = await stagePluginTree(from, to, { strict: !allowMissing })
+        if (!staged) {
+          console.error(`[stage] missing plugin ${plugin.dir}: ${plugin.source.path}`)
+          process.exit(1)
+        }
+      }
+      console.log(`[stage] plugin ${plugin.dir} ← ${plugin.source.path}`)
+      continue
+    }
     if (plugin.source.kind === 'vendor') {
       const from = join(vendorDir, plugin.dir)
       const to = join(pluginsRoot, plugin.dir)
       if (!existsSync(from)) {
-        console.warn(`[stage] skip ${plugin.dir}: missing ${from}`)
-        continue
+        console.error(`[stage] missing plugin ${plugin.dir}: ${from}`)
+        process.exit(1)
       }
-      await stagePluginTree(from, to)
+      await stagePluginTree(from, to, { strict: true })
       console.log(`[stage] plugin ${plugin.dir} → ${to}`)
       continue
     }
@@ -568,12 +647,13 @@ async function main() {
 
   const semantic = await stageSemantic()
 
+  const locked = readLock(repoRoot)
   const versions = {
     stagedAt: new Date().toISOString(),
     platformKey: runtimeKey,
     dsh: { version: DSH_NPM_VERSION, staged: dshStaged },
     node: { version: NODE_DIST_VERSION, staged: nodeStaged },
-    plugins: bundledPluginVersions(BUILTIN_PLUGINS, pluginsRoot),
+    plugins: bundledPluginVersions(BUILTIN_PLUGINS, pluginsRoot, locked.lock && locked.lock.plugins),
     semanticRuntime: {
       runtimeVersion: SEMANTIC_RUNTIME.runtimeVersion,
       key: runtimeKey,

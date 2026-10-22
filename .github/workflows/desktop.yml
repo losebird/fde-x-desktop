@@ -58,11 +58,14 @@ jobs:
       - name: Build IUI plugin artifact
         run: node scripts/pack/build-iui.mjs
 
-      - name: Stage bundled resources (dsh npm tree + semantic runtime)
+      - name: Stage bundled resources from runtime/plugins
         env:
           FDE_DOWNLOAD_SEMANTIC_RUNTIME: '1'
           FDE_STAGE_DSH_FROM_NPM: '1'
-        run: node scripts/pack/stage.mjs
+        run: |
+          test -f runtime/plugins/dsh-lan-assist/package.json
+          test -f runtime/plugins/dsh-semantic-os/package.json
+          node scripts/pack/stage.mjs
 
       - name: Verify resources layout
         run: node scripts/pack/verify.mjs

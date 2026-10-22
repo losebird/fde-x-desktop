@@ -3,7 +3,8 @@ import { createReadStream, existsSync, readFileSync, writeFileSync } from 'node:
 import { appendFile, cp, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
-import { execFile, spawn } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { releaseRuntimeRestarter, spawnRuntimeRestarter } from '../scripts/runtime-respawn.mjs'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
@@ -12,13 +13,16 @@ const execFileAsync = promisify(execFile)
 function scheduleRuntimeRestart() {
   const delayMs = 200
   if (process.env.FDE_RUNTIME_SUPERVISED !== '1') {
-    const restarter = spawn(process.execPath, ['scripts/runtime-respawn.mjs'], {
+    const restarter = spawnRuntimeRestarter({
       cwd: process.cwd(),
-      env: { ...process.env, FDE_RUNTIME_REPLACE_PID: String(process.pid) },
-      detached: true,
-      stdio: 'inherit',
+      env: process.env,
+      pid: process.pid,
     })
-    restarter.unref()
+    setTimeout(() => {
+      releaseRuntimeRestarter(restarter)
+      void close()
+    }, delayMs)
+    return
   }
   setTimeout(() => { void close() }, delayMs)
 }
@@ -29,14 +33,15 @@ async function pickLocalDirectory() {
   }
   try {
     const { stdout } = await execFileAsync('osascript', ['-e', 'POSIX path of (choose folder with prompt "选择工作区目录")'], { timeout: 120000 })
-    const path = String(stdout || '').trim().replace(/\/$/, '')
-    if (path.startsWith('/')) return { path }
+    const path = pickedDirectory(stdout)
+    if (path) return { path }
   } catch (error) {
     if (error && (error.code === '1' || error.code === 1)) return { path: null }
   }
   try {
     const picked = await aiRuntime.call('directoryPicker/pick', {})
-    if (typeof picked === 'string' && picked.startsWith('/')) return { path: picked.replace(/\/$/, '') }
+    const path = pickedDirectory(picked)
+    if (path) return { path }
   } catch { /* 没有原生选择器就放弃 */ }
   return { path: null }
 }
@@ -50,6 +55,8 @@ import {
   databaseHealth,
   enqueueEvent,
   ensureWorkspace,
+  getWorkspace,
+  patchWorkspaceMetadata,
   executeDryRun,
   executeOperationLive,
   getOperation,
@@ -84,7 +91,7 @@ import { migrateBoundWorkspaceSources, readBizSystems } from './biz/systems-stor
 import { startSemanticReadyWatch } from './semantic-ready-watch.mjs'
 import { refreshLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
-import { handleAppsRoutes } from './routes/apps.mjs'
+import { handleAppsRoutes, requestAppWorkspace } from './routes/apps.mjs'
 import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.mjs'
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
@@ -129,6 +136,8 @@ import {
   validateApiKeyInput,
 } from './models-settings.mjs'
 import { startBriefingScheduler } from './briefing/scheduler.mjs'
+import { discardBriefingSessionAllow, stageBriefingSessionAllow } from './briefing/session.mjs'
+import { readDefinitionSections } from './briefing/store.mjs'
 import { startMemoryWriter } from './memory/writer.mjs'
 import { asDraftCard, attachCuesOnCards, attachCuesOnGroups, collapseCueCards, loadNamedCards, validateMemoryCardLabel } from './memory/cards.mjs'
 import { attachCardOrigin, draftCard } from './memory/draft.mjs'
@@ -147,6 +156,10 @@ import {
   FDE_STATIC_DIR,
   FDE_WEB_PORT,
 } from './config.mjs'
+import { canonicalWorkspaceCwd, pickedDirectory } from './cwd.mjs'
+import { resolveWorkspaceIdOrFail, workspaceCwdForId } from './briefing/workspace.mjs'
+import { findSessionForWorkspace, sessionCwdOf, sessionsForWorkspace } from './ai/session-scope.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from './http-workspace.mjs'
 
 const runtimeDirectory = FDE_RUNTIME_DIR
 const databasePath = FDE_DATABASE_PATH
@@ -158,9 +171,16 @@ const db = openDatabase(databasePath, migrationsDirectory)
 failInterruptedRuns(db)
 const workflowScheduleBootedAt = new Date()
 configureEventBus(db)
+const testDshBin = String(process.env.FDE_TEST_DSH_BIN || '').trim()
 const aiRuntime = createCoreConnector({
-  cwd: FDE_AI_WORKSPACE,
+  cwd: canonicalWorkspaceCwd(process.env.FDE_AI_WORKSPACE) || FDE_AI_WORKSPACE,
+  ...(testDshBin ? { bin: testDshBin } : {}),
 })
+const personalWorkspace = getWorkspace(db, 'ws_personal')
+const personalMeta = personalWorkspace?.metadata && typeof personalWorkspace.metadata === 'object' ? personalWorkspace.metadata : {}
+const personalStored = canonicalWorkspaceCwd(personalMeta.cwd) || canonicalWorkspaceCwd(personalMeta.path)
+const runtimeWorkspaceCwd = canonicalWorkspaceCwd(aiRuntime.cwd) || canonicalWorkspaceCwd(FDE_AI_WORKSPACE)
+if (!personalStored && runtimeWorkspaceCwd) patchWorkspaceMetadata(db, 'ws_personal', { cwd: runtimeWorkspaceCwd })
 startMemoryWriter({ db, aiRuntime })
 let bridgeToken = ''
 const uiToken = mintUiToken()
@@ -177,11 +197,19 @@ function normalizeBaseUrl(raw) {
   return withScheme.replace(/\/+$/u, '')
 }
 
-function requestMemoryCwd(url, body) {
-  const fromBody = body && typeof body.cwd === 'string' ? body.cwd.trim() : ''
-  const fromQuery = String(url.searchParams.get('cwd') || '').trim()
-  const cwd = fromBody || fromQuery
-  return cwd.startsWith('/') ? cwd : ''
+function requireHttpWorkspace(url, body, response, correlationId, extra = {}) {
+  const resolved = resolveHttpWorkspace({
+    url,
+    body,
+    runtimeCwd: aiRuntime?.cwd,
+    fallbackCwd: FDE_AI_WORKSPACE,
+    ...extra,
+  })
+  if (resolved.error) {
+    sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+    return null
+  }
+  return resolved
 }
 
 function workspaceCwdOf(operation) {
@@ -190,7 +218,8 @@ function workspaceCwdOf(operation) {
     const wsRow = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(operation.workspaceId)
     const meta = JSON.parse(wsRow?.metadata_json || '{}')
     const raw = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-    if (raw.startsWith('/')) workspaceCwd = raw
+    const canonical = canonicalWorkspaceCwd(raw)
+    if (canonical) workspaceCwd = canonical
   } catch { /* default cwd */ }
   return workspaceCwd
 }
@@ -636,10 +665,32 @@ function toAiSessionSummary(item) {
     ...(typeof item.parentSessionId === 'string' ? { parentSessionId: item.parentSessionId } : {}),
     ...(item.origin === 'subagent' ? { origin: 'subagent' } : {}),
     ...(typeof item.cwd === 'string' ? { cwd: item.cwd } : {}),
+    archived: Boolean(item.archived),
     ...(typeof values.agentPreset === 'string' ? { agentPreset: values.agentPreset } : {}),
     ...(selection.lastUsed && typeof selection.lastUsed === 'object' ? { lastUsedModel: selection.lastUsed } : {}),
     ...(selection.next && typeof selection.next === 'object' ? { nextModel: selection.next } : {}),
   }
+}
+
+function rejectWorkspaceIdent(ident, response, correlationId) {
+  const failure = httpStatusForWorkspaceError(ident?.error)
+  if (!failure) return false
+  sendError(response, failure.status, failure.code, failure.message, correlationId)
+  return true
+}
+
+async function scopedSession(url, body, sessionId, response, correlationId) {
+  const ident = requestAppWorkspace(db, url, body)
+  if (rejectWorkspaceIdent(ident, response, correlationId)) return null
+  const workspaceCwd = ident.hint || workspaceCwdForId(db, ident.workspaceId) || ''
+  const sessions = await aiRuntime.call('session/list', { _request: {} })
+  const items = Array.isArray(sessions?.items) ? sessions.items : []
+  const item = findSessionForWorkspace(items, sessionId, workspaceCwd, ident.workspaceId)
+  if (!item) {
+    sendError(response, 404, 'not_found', '会话不存在', correlationId)
+    return null
+  }
+  return { ident, workspaceCwd, item }
 }
 
 const FDE_DSH_OCCUPANCY_PATCH = (() => {
@@ -881,13 +932,23 @@ function proxySemanticOs(request, response, url) {
     sendError(response, 400, 'validation_error', '语义路径不合法')
     return
   }
+  const proxyUrl = new URL(path, 'http://dsh.local')
+  const resolvedProxy = resolveHttpWorkspace({
+    url: proxyUrl,
+    slots: [['query', 'cwd']],
+    whenAbsent: 'omit',
+  })
+  if (resolvedProxy.error) {
+    sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径')
+    return
+  }
   if (!aiRuntime.origin || !aiRuntime.cookie) {
     sendError(response, 503, 'ai/not-connected', '核心未接通，无法打开语义系统')
     return
   }
   const target = new URL(aiRuntime.origin)
-  const queryCwd = String(new URL(path, 'http://dsh.local').searchParams.get('cwd') || '')
-  const asciiCwd = queryCwd.startsWith('/') && !/[^\u0000-\u007F]/u.test(queryCwd) ? queryCwd : ''
+  const queryCwd = resolvedProxy.cwd || ''
+  const asciiCwd = queryCwd && !/[^\u0000-\u007F]/u.test(queryCwd) ? queryCwd : ''
   const headers = latin1RequestHeaders(request.headers, {
     host: target.host,
     cookie: aiRuntime.cookie,
@@ -925,7 +986,7 @@ function proxySemanticOs(request, response, url) {
     request.on('data', (chunk) => chunks.push(chunk))
     request.on('end', () => {
       let buf = Buffer.concat(chunks)
-      if (queryCwd.startsWith('/')) {
+      if (queryCwd) {
         try {
           const json = JSON.parse(buf.toString('utf8'))
           if (json && typeof json === 'object' && !Array.isArray(json) && json.cwd == null) {
@@ -1133,7 +1194,6 @@ const server = createServer(async (request, response) => {
       stripSecrets,
       normalizeBaseUrl,
       exchangeNocoBaseToken,
-      requestMemoryCwd,
     })) return
 
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/favicon.ico')) {
@@ -1851,14 +1911,19 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/deps') {
-      const cwd = url.searchParams.get('cwd') || ''
-      const result = await aiRuntime.semanticOs('/deps', { method: 'GET', ...(cwd.startsWith('/') ? { cwd } : {}) })
+      const resolvedDeps = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedDeps) return
+      const cwd = resolvedDeps.cwd
+      const result = await aiRuntime.semanticOs('/deps', { method: 'GET', ...(cwd ? { cwd } : {}) })
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
       return
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/usage') {
-      const result = await aiRuntime.semanticOs('/usage', { method: 'GET' })
+      const resolvedUsage = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedUsage) return
+      const cwd = resolvedUsage.cwd
+      const result = await aiRuntime.semanticOs('/usage', { method: 'GET', ...(cwd ? { cwd } : {}) })
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
       return
     }
@@ -1921,12 +1986,17 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/ai/workspaces') {
       const body = await readJson(request)
-      const path = String(body.path || '').trim()
       const title = String(body.title || '').trim()
-      if (!path || !path.startsWith('/')) {
-        sendError(response, 400, 'validation_error', '需要本机绝对路径，例如 /home/你/项目 或 C:\\Users\\你\\项目', currentCorrelationId)
+      const resolvedPath = resolveHttpWorkspace({
+        body,
+        slots: [['body', 'path']],
+        whenAbsent: 'omit',
+      })
+      if (resolvedPath.error || !resolvedPath.cwd) {
+        sendError(response, 400, 'workspace_invalid', '需要本机绝对路径，例如 /home/你/项目 或 C:\\Users\\你\\项目', currentCorrelationId)
         return
       }
+      const path = resolvedPath.cwd
       const created = await aiRuntime.call('workspace/create', { request: { path } })
       const workspace = created?.workspace || created
       const workspaceId = String(workspace?.workspaceId || '')
@@ -1948,6 +2018,9 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/ai/sessions') {
+      const listIdent = requestAppWorkspace(db, url, null)
+      if (rejectWorkspaceIdent(listIdent, response, currentCorrelationId)) return
+      const workspaceCwd = listIdent.hint || workspaceCwdForId(db, listIdent.workspaceId) || ''
       const cursor = url.searchParams.get('cursor') ?? undefined
       const includeBlank = url.searchParams.get('includeBlank') === 'true'
       const includeSubagents = url.searchParams.get('includeSubagents') === 'true'
@@ -1957,14 +2030,13 @@ const server = createServer(async (request, response) => {
         readWorkspaceBaseline(),
       ])
       const archived = new Set(baseline.archivedSessionIds)
-      const items = Array.isArray(sessions?.items)
-        ? sessions.items
-          .map((row) => ({
-            ...toAiSessionSummary(row),
-            ...(archived.has(row.sessionId) ? { archived: true } : {}),
-          }))
-          .filter((item) => (includeArchived ? item.archived : !archived.has(item.sessionId)) && (includeBlank || !item.blank) && (includeSubagents || !isSubagentSession(item)))
-        : []
+      const visible = sessionsForWorkspace(Array.isArray(sessions?.items) ? sessions.items : [], workspaceCwd, listIdent.workspaceId)
+      const items = visible
+        .map((row) => ({
+          ...toAiSessionSummary(row),
+          ...(archived.has(row.sessionId) ? { archived: true } : {}),
+        }))
+        .filter((item) => (includeArchived ? item.archived : !archived.has(item.sessionId) && !item.archived) && (includeBlank || !item.blank) && (includeSubagents || !isSubagentSession(item)))
       sendJson(response, 200, { data: { items }, correlationId: currentCorrelationId })
       return
     }
@@ -1972,14 +2044,9 @@ const server = createServer(async (request, response) => {
     const aiSessionGetMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)$/)
     if (request.method === 'GET' && aiSessionGetMatch) {
       const sessionId = decodeURIComponent(aiSessionGetMatch[1])
-      const sessions = await aiRuntime.call('session/list', { _request: {} })
-      const items = Array.isArray(sessions?.items) ? sessions.items : []
-      const item = items.find((row) => row.sessionId === sessionId)
-      if (!item) {
-        sendError(response, 404, 'not_found', '会话不存在', currentCorrelationId)
-        return
-      }
-      sendJson(response, 200, { data: toAiSessionSummary(item), correlationId: currentCorrelationId })
+      const scoped = await scopedSession(url, null, sessionId, response, currentCorrelationId)
+      if (!scoped) return
+      sendJson(response, 200, { data: toAiSessionSummary(scoped.item), correlationId: currentCorrelationId })
       return
     }
 
@@ -1999,6 +2066,9 @@ const server = createServer(async (request, response) => {
         ...(typeof body.agentPreset === 'string' && body.agentPreset ? { agentPreset: body.agentPreset } : {}),
       }
       const session = await aiRuntime.call('session/create', { request: requestBody })
+      if (requestBody.agentPreset === 'fde-briefing' && session?.sessionId) {
+        stageBriefingSessionAllow(aiRuntime, session.sessionId, cwd ? readDefinitionSections(db, cwd) : [])
+      }
       if (workspaceId && session?.sessionId) {
         try {
           await aiRuntime.call('workspace/insertSessionBefore', { request: { workspaceId, sessionId: session.sessionId } })
@@ -2110,6 +2180,8 @@ const server = createServer(async (request, response) => {
     const aiExportMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/export$/)
     if (request.method === 'GET' && aiExportMatch) {
       const sessionId = decodeURIComponent(aiExportMatch[1])
+      const scopedExport = await scopedSession(url, null, sessionId, response, currentCorrelationId)
+      if (!scopedExport) return
       try {
         const bundle = await readSessionTree(sessionRootOf(), sessionId)
         sendJson(response, 200, { data: bundle, correlationId: currentCorrelationId })
@@ -2123,9 +2195,16 @@ const server = createServer(async (request, response) => {
     const aiArchiveMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/archive$/)
     if (request.method === 'POST' && aiArchiveMatch) {
       const archivedId = decodeURIComponent(aiArchiveMatch[1])
+      const scopedArchive = await scopedSession(url, null, archivedId, response, currentCorrelationId)
+      if (!scopedArchive) return
       const archived = await aiRuntime.call('workspace/archiveSession', {
         request: { sessionId: archivedId },
       })
+      try {
+        discardBriefingSessionAllow(aiRuntime, archivedId)
+      } catch (error) {
+        console.warn('briefing_allow_discard_failed', error instanceof Error ? error.message : error)
+      }
       emit('ai.session.changed', { sessionId: archivedId, kind: 'deleted' }, { sessionId: archivedId })
       sendJson(response, 200, { data: archived, correlationId: currentCorrelationId })
       return
@@ -2133,12 +2212,32 @@ const server = createServer(async (request, response) => {
 
     const aiForkMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/fork$/)
     if (request.method === 'POST' && aiForkMatch) {
-      sendError(response, 409, 'session_owned_by_ui', '会话写锁由工作台 DSH 页占用，请在会话列表里分叉', currentCorrelationId)
+      const forkedFrom = decodeURIComponent(aiForkMatch[1])
+      const scopedFork = await scopedSession(url, null, forkedFrom, response, currentCorrelationId)
+      if (!scopedFork) return
+      const workspaceCwd = sessionCwdOf(scopedFork.item) || scopedFork.workspaceCwd
+      const created = await aiRuntime.call('session/create', {
+        request: {
+          ...(workspaceCwd ? { cwd: workspaceCwd } : {}),
+        },
+      })
+      if (created?.sessionId) {
+        emit('ai.session.changed', { sessionId: created.sessionId, kind: 'created' }, {
+          workspaceCwd: workspaceCwd || null,
+          sessionId: created.sessionId,
+        })
+      }
+      sendJson(response, 201, {
+        data: { sessionId: created?.sessionId, cwd: workspaceCwd },
+        correlationId: currentCorrelationId,
+      })
       return
     }
 
     const aiFollowMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/follow$/)
     if (request.method === 'GET' && aiFollowMatch) {
+      const scopedFollow = await scopedSession(url, null, decodeURIComponent(aiFollowMatch[1]), response, currentCorrelationId)
+      if (!scopedFollow) return
       sendError(response, 409, 'session_owned_by_ui', '会话写锁由工作台 DSH 页占用，禁止 4318 再 follow', currentCorrelationId)
       return
     }
@@ -2146,11 +2245,13 @@ const server = createServer(async (request, response) => {
     const aiRenameMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/rename$/)
     if (request.method === 'POST' && aiRenameMatch) {
       const body = await readJson(request)
+      const renamedId = decodeURIComponent(aiRenameMatch[1])
+      const scopedRename = await scopedSession(url, body, renamedId, response, currentCorrelationId)
+      if (!scopedRename) return
       if (typeof body.title !== 'string' || body.title.trim().length === 0) {
         sendError(response, 400, 'validation_error', '会话名称不能为空', currentCorrelationId)
         return
       }
-      const renamedId = decodeURIComponent(aiRenameMatch[1])
       const renamed = await aiRuntime.call('session/rename', {
         request: { sessionId: renamedId, title: body.title.trim() },
       })
@@ -2161,6 +2262,9 @@ const server = createServer(async (request, response) => {
 
     const aiModelMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/model$/)
     if (request.method === 'POST' && aiModelMatch) {
+      const body = await readJson(request)
+      const scopedModel = await scopedSession(url, body, decodeURIComponent(aiModelMatch[1]), response, currentCorrelationId)
+      if (!scopedModel) return
       sendError(response, 409, 'session_owned_by_ui', '会话写锁由工作台 DSH 页占用，请在 DSH 里改模型', currentCorrelationId)
       return
     }
@@ -2168,6 +2272,8 @@ const server = createServer(async (request, response) => {
     const aiAttachMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/attachments$/)
     if (request.method === 'POST' && aiAttachMatch) {
       const body = await readJson(request)
+      const scopedAttach = await scopedSession(url, body, decodeURIComponent(aiAttachMatch[1]), response, currentCorrelationId)
+      if (!scopedAttach) return
       if (typeof body.data !== 'string' || !body.data) {
         sendError(response, 400, 'validation_error', '附件内容不能为空', currentCorrelationId)
         return
@@ -2186,6 +2292,8 @@ const server = createServer(async (request, response) => {
     const aiPromptMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/prompt$/)
     if (request.method === 'POST' && aiPromptMatch) {
       const body = await readJson(request)
+      const scopedPrompt = await scopedSession(url, body, decodeURIComponent(aiPromptMatch[1]), response, currentCorrelationId)
+      if (!scopedPrompt) return
       const text = typeof body.text === 'string' ? body.text.trim() : ''
       if (!text) {
         sendError(response, 400, 'validation_error', 'prompt 不能为空', currentCorrelationId)
@@ -2215,6 +2323,8 @@ const server = createServer(async (request, response) => {
     const aiPresetMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/preset$/)
     if (request.method === 'POST' && aiPresetMatch) {
       const body = await readJson(request)
+      const scopedPreset = await scopedSession(url, body, decodeURIComponent(aiPresetMatch[1]), response, currentCorrelationId)
+      if (!scopedPreset) return
       if (typeof body.agentPreset !== 'string' || !body.agentPreset.trim()) {
         sendError(response, 400, 'validation_error', 'agentPreset 不能为空', currentCorrelationId)
         return
@@ -2229,12 +2339,16 @@ const server = createServer(async (request, response) => {
 
     const aiCommandsMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/commands$/)
     if (request.method === 'GET' && aiCommandsMatch) {
+      const scopedCommands = await scopedSession(url, null, decodeURIComponent(aiCommandsMatch[1]), response, currentCorrelationId)
+      if (!scopedCommands) return
       const commands = await aiRuntime.call('commands/list', { agentId: decodeURIComponent(aiCommandsMatch[1]) })
       sendJson(response, 200, { data: commands, correlationId: currentCorrelationId })
       return
     }
     if (request.method === 'POST' && aiCommandsMatch) {
       const body = await readJson(request)
+      const scopedCommand = await scopedSession(url, body, decodeURIComponent(aiCommandsMatch[1]), response, currentCorrelationId)
+      if (!scopedCommand) return
       const line = typeof body.line === 'string' ? body.line.trim() : ''
       if (!line) {
         sendError(response, 400, 'validation_error', '命令不能为空', currentCorrelationId)
@@ -2252,6 +2366,8 @@ const server = createServer(async (request, response) => {
     const aiPermissionMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/permission$/)
     if (request.method === 'POST' && aiPermissionMatch) {
       const body = await readJson(request)
+      const scopedPermission = await scopedSession(url, body, decodeURIComponent(aiPermissionMatch[1]), response, currentCorrelationId)
+      if (!scopedPermission) return
       if (typeof body.preset !== 'string' || !body.preset.trim()) {
         sendError(response, 400, 'validation_error', '权限档不能为空', currentCorrelationId)
         return
@@ -2273,6 +2389,8 @@ const server = createServer(async (request, response) => {
 
     const aiSkillsMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/skills$/)
     if (request.method === 'GET' && aiSkillsMatch) {
+      const scopedSkills = await scopedSession(url, null, decodeURIComponent(aiSkillsMatch[1]), response, currentCorrelationId)
+      if (!scopedSkills) return
       const bag = await collectBag(aiRuntime, 'skill', { sessionId: decodeURIComponent(aiSkillsMatch[1]) })
       sendJson(response, 200, { data: bag.raw || { items: bag.items }, correlationId: currentCorrelationId })
       return
@@ -2281,6 +2399,8 @@ const server = createServer(async (request, response) => {
     const aiApprovalMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/approval$/)
     if (request.method === 'POST' && aiApprovalMatch) {
       const body = await readJson(request)
+      const scopedApproval = await scopedSession(url, body, decodeURIComponent(aiApprovalMatch[1]), response, currentCorrelationId)
+      if (!scopedApproval) return
       const decided = await aiRuntime.decideApproval(decodeURIComponent(aiApprovalMatch[1]), body.outcome)
       sendJson(response, 200, { data: decided, correlationId: currentCorrelationId })
       return
@@ -2289,6 +2409,8 @@ const server = createServer(async (request, response) => {
     const aiCancelMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/cancel$/)
     if (request.method === 'POST' && aiCancelMatch) {
       const cancelBody = await readJson(request).catch(() => ({}))
+      const scopedCancel = await scopedSession(url, cancelBody, decodeURIComponent(aiCancelMatch[1]), response, currentCorrelationId)
+      if (!scopedCancel) return
       const cancelKind = String(cancelBody?.kind || cancelBody?.reason || '').trim()
       const receipt = await aiRuntime.call('session/cancel', {
         request: {
@@ -2301,15 +2423,19 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/search') {
+      const resolvedSearch = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedSearch) return
       const query = url.searchParams.get('q') || ''
-      const cwd = requestMemoryCwd(url)
+      const cwd = resolvedSearch.cwd
       const result = await aiRuntime.semanticOs('/find', { query, ...(cwd ? { cwd } : {}) })
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
       return
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/health') {
-      const cwd = requestMemoryCwd(url)
+      const resolvedHealth = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedHealth) return
+      const cwd = resolvedHealth.cwd
       const offset = Math.max(0, Number(url.searchParams.get('offset') || 0) || 0)
       const dupOffset = Math.max(0, Number(url.searchParams.get('dup_offset') || 0) || 0)
       const health = await aiRuntime.semanticOs('/python', {
@@ -2350,7 +2476,9 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/memory/health/act') {
       const body = await readJson(request)
-      const cwd = requestMemoryCwd(url, body)
+      const resolvedAct = requireHttpWorkspace(url, body, response, currentCorrelationId)
+      if (!resolvedAct) return
+      const cwd = resolvedAct.cwd
       const plan = healthWritePlan(body)
       if (plan.error === 'nodded') {
         sendError(response, 400, 'validation_error', '梳理需要 nodded=true', currentCorrelationId)
@@ -2409,7 +2537,9 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/cards') {
-      const cwd = requestMemoryCwd(url)
+      const resolvedCards = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedCards) return
+      const cwd = resolvedCards.cwd
       const includeFiled = url.searchParams.get('include_filed') === 'true'
       const result = await aiRuntime.semanticOs('/python', {
         op: 'list_memory_cards',
@@ -2434,7 +2564,9 @@ const server = createServer(async (request, response) => {
         return
       }
       const cardId = decodeURIComponent(memoryCardNodMatch[1])
-      const cwd = requestMemoryCwd(url, body)
+      const resolvedNod = requireHttpWorkspace(url, body, response, currentCorrelationId)
+      if (!resolvedNod) return
+      const cwd = resolvedNod.cwd
       const result = await aiRuntime.semanticOs('/python', {
         op: 'nod_memory_card',
         args: { id: cardId, nodded: true },
@@ -2460,7 +2592,9 @@ const server = createServer(async (request, response) => {
         sendError(response, 400, 'validation_error', '记忆正文至少 8 个有效字符', currentCorrelationId)
         return
       }
-      const cwd = requestMemoryCwd(url, body)
+      const resolvedDraft = requireHttpWorkspace(url, body, response, currentCorrelationId)
+      if (!resolvedDraft) return
+      const cwd = resolvedDraft.cwd
       const drafted = await draftCard({ db, aiRuntime }, {
         cwd,
         origin,
@@ -2747,10 +2881,9 @@ const server = createServer(async (request, response) => {
           return
         }
       }
-      const cwdParam = url.searchParams.get('cwd')
-      const root = cwdParam && cwdParam.startsWith('/')
-        ? resolve(cwdParam)
-        : resolve(aiRuntime.cwd)
+      const resolvedFiles = requireHttpWorkspace(url, null, response, currentCorrelationId)
+      if (!resolvedFiles) return
+      const root = resolve(resolvedFiles.cwd)
       const runtimeRoot = resolve(aiRuntime.cwd)
       if (root !== runtimeRoot && !root.startsWith(runtimeRoot + sep)) {
         sendError(response, 403, 'path_forbidden', '该工作区目录 4318 读不了（系统权限）。请先在这个工作区开一条 AI 会话，再打开文件页。', currentCorrelationId)
@@ -2992,13 +3125,51 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/v1/events/pending') {
       const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 50)))
-      sendJson(response, 200, { items: listPendingEvents(db, limit), correlationId: currentCorrelationId })
+      const resolvedPending = resolveHttpWorkspace({
+        url,
+        slots: [['query', 'workspace'], ['query', 'cwd']],
+        whenAbsent: 'omit',
+      })
+      if (resolvedPending.error) {
+        sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+        return
+      }
+      if (!resolvedPending.omitted) {
+        const pendingIdent = resolveWorkspaceIdOrFail(db, resolvedPending)
+        const pendingFailure = httpStatusForWorkspaceError(pendingIdent.error)
+        if (pendingFailure) {
+          sendError(response, pendingFailure.status, pendingFailure.code, pendingFailure.message, currentCorrelationId)
+          return
+        }
+      }
+      sendJson(response, 200, {
+        items: listPendingEvents(db, {
+          limit,
+          workspaceCwd: resolvedPending.omitted ? undefined : resolvedPending.cwd,
+        }),
+        correlationId: currentCorrelationId,
+      })
       return
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/business/connections') {
-      const workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
-      await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options))
+      const rawId = url.searchParams.get('workspaceId')
+      const resolvedConnections = resolveHttpWorkspace({
+        url,
+        slots: [['query', 'workspaceCwd'], ['query', 'cwd']],
+        whenAbsent: 'omit',
+      })
+      const connectionIdent = resolveWorkspaceIdOrFail(db, {
+        ...resolvedConnections,
+        id: typeof rawId === 'string' ? rawId.trim() : '',
+      })
+      const connectionFailure = httpStatusForWorkspaceError(connectionIdent.error)
+      if (connectionFailure) {
+        sendError(response, connectionFailure.status, connectionFailure.code, connectionFailure.message, currentCorrelationId)
+        return
+      }
+      const workspaceId = connectionIdent.workspaceId
+      await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options), { workspaceId })
       await migrateBoundWorkspaceSources(db, aiRuntime).catch(() => ({ migrated: 0 }))
       const listed = await readBizSystems(aiRuntime)
       const mcpItems = (listed.systems || []).map((row) => ({
@@ -3020,10 +3191,36 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/business/apps') {
-      const workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
-      const workspaceCwd = url.searchParams.get('workspaceCwd') ?? ''
+      const rawId = url.searchParams.get('workspaceId')
+      const resolvedApps = resolveHttpWorkspace({
+        url,
+        slots: [
+          ['query', 'workspaceCwd'],
+          ['query', 'cwd'],
+          ['query', 'workspacePath'],
+          ['query', 'workingDirectory'],
+        ],
+        whenAbsent: 'omit',
+      })
+      if (resolvedApps.error) {
+        sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+        return
+      }
+      const suppliedId = typeof rawId === 'string' ? rawId.trim() : ''
+      const ident = resolveWorkspaceIdOrFail(db, {
+        ...resolvedApps,
+        id: suppliedId,
+      })
+      const appsFailure = httpStatusForWorkspaceError(ident.error)
+      if (appsFailure) {
+        sendError(response, appsFailure.status, appsFailure.code, appsFailure.message, currentCorrelationId)
+        return
+      }
       const shares = liveShareIdsByApp(db)
-      const items = listBusinessApps(db, { workspaceId, workspaceCwd }).map((row) => ({
+      const items = listBusinessApps(db, {
+        workspaceId: ident.workspaceId,
+        workspaceCwd: ident.cwd || '',
+      }).map((row) => ({
         ...row,
         shareId: shares.get(row.id) || '',
       }))
@@ -3033,12 +3230,18 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/business/apps') {
       const body = await readJson(request)
+      const createIdent = requestAppWorkspace(db, url, body)
+      const createFailure = httpStatusForWorkspaceError(createIdent.error)
+      if (createFailure) {
+        sendError(response, createFailure.status, createFailure.code, createFailure.message, currentCorrelationId)
+        return
+      }
       if (typeof body.name !== 'string' || body.name.trim().length === 0) {
         sendError(response, 400, 'validation_error', '应用名称不能为空', currentCorrelationId)
         return
       }
       const app = createBusinessApp(db, {
-        workspaceId: body.workspaceId ?? 'ws_personal',
+        workspaceId: createIdent.workspaceId,
         name: body.name.trim(),
         definition: body.definition && typeof body.definition === 'object' ? body.definition : {},
         changeNote: typeof body.changeNote === 'string' ? body.changeNote : undefined,
@@ -3057,7 +3260,14 @@ const server = createServer(async (request, response) => {
         return
       }
       const body = await readJson(request)
+      const putIdent = requestAppWorkspace(db, url, body)
+      const putFailure = httpStatusForWorkspaceError(putIdent.error)
+      if (putFailure) {
+        sendError(response, putFailure.status, putFailure.code, putFailure.message, currentCorrelationId)
+        return
+      }
       const app = updateBusinessApp(db, appId, {
+        workspaceId: putIdent.workspaceId,
         name: body.name,
         definition: body.definition && typeof body.definition === 'object' ? body.definition : undefined,
         changeNote: typeof body.changeNote === 'string' ? body.changeNote : undefined,
@@ -3074,14 +3284,25 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/v1/operations') {
       const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 100)))
-      const workspaceId = url.searchParams.get('workspaceId') ?? undefined
-      sendJson(response, 200, { items: listOperations(db, { workspaceId, limit }), correlationId: currentCorrelationId })
+      const listIdent = requestAppWorkspace(db, url, null)
+      const listFailure = httpStatusForWorkspaceError(listIdent.error)
+      if (listFailure) {
+        sendError(response, listFailure.status, listFailure.code, listFailure.message, currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, { items: listOperations(db, { workspaceId: listIdent.workspaceId, limit }), correlationId: currentCorrelationId })
       return
     }
 
     const operationMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)$/)
     if (request.method === 'GET' && operationMatch) {
-      const operation = getOperation(db, operationMatch[1])
+      const readIdent = requestAppWorkspace(db, url, null)
+      const readFailure = httpStatusForWorkspaceError(readIdent.error)
+      if (readFailure) {
+        sendError(response, readFailure.status, readFailure.code, readFailure.message, currentCorrelationId)
+        return
+      }
+      const operation = getOperation(db, operationMatch[1], readIdent.workspaceId)
       if (!operation) {
         sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
         return
@@ -3092,7 +3313,13 @@ const server = createServer(async (request, response) => {
 
     const traceMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)\/trace$/)
     if (request.method === 'GET' && traceMatch) {
-      const trace = getOperationTrace(db, traceMatch[1])
+      const traceIdent = requestAppWorkspace(db, url, null)
+      const traceFailure = httpStatusForWorkspaceError(traceIdent.error)
+      if (traceFailure) {
+        sendError(response, traceFailure.status, traceFailure.code, traceFailure.message, currentCorrelationId)
+        return
+      }
+      const trace = getOperationTrace(db, traceMatch[1], traceIdent.workspaceId)
       if (!trace) {
         sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
         return
@@ -3104,10 +3331,22 @@ const server = createServer(async (request, response) => {
     const approveMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)\/approve$/)
     if (request.method === 'POST' && approveMatch) {
       const body = await readJson(request)
+      const approveIdent = requestAppWorkspace(db, url, body)
+      const approveFailure = httpStatusForWorkspaceError(approveIdent.error)
+      if (approveFailure) {
+        sendError(response, approveFailure.status, approveFailure.code, approveFailure.message, currentCorrelationId)
+        return
+      }
+      const operation = getOperation(db, approveMatch[1], approveIdent.workspaceId)
+      if (!operation) {
+        sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
+        return
+      }
       const result = approveOperation(db, approveMatch[1], {
         actorId: 'actor_local_user',
         note: typeof body.note === 'string' ? body.note : '',
         correlationId: currentCorrelationId,
+        workspaceId: approveIdent.workspaceId,
       })
       if (result.kind === 'not_found') {
         sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
@@ -3123,7 +3362,14 @@ const server = createServer(async (request, response) => {
 
     const executeMatch = url.pathname.match(/^\/api\/v1\/operations\/([^/]+)\/execute$/)
     if (request.method === 'POST' && executeMatch) {
-      const operationBefore = getOperation(db, executeMatch[1])
+      const body = await readJson(request)
+      const executeIdent = requestAppWorkspace(db, url, body)
+      const executeFailure = httpStatusForWorkspaceError(executeIdent.error)
+      if (executeFailure) {
+        sendError(response, executeFailure.status, executeFailure.code, executeFailure.message, currentCorrelationId)
+        return
+      }
+      const operationBefore = getOperation(db, executeMatch[1], executeIdent.workspaceId)
       if (!operationBefore) {
         sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
         return
@@ -3132,6 +3378,7 @@ const server = createServer(async (request, response) => {
         const result = await executeOperationLive(db, executeMatch[1], {
           actorId: 'actor_local_user',
           correlationId: currentCorrelationId,
+          workspaceId: executeIdent.workspaceId,
           writePreview: async (previewId) => aiRuntime.lanAssist('/write', {
             method: 'POST',
             body: { preview_id: previewId, trace_id: currentCorrelationId, source: 'workstation' },
@@ -3167,6 +3414,7 @@ const server = createServer(async (request, response) => {
       const result = executeDryRun(db, executeMatch[1], {
         actorId: 'actor_local_user',
         correlationId: currentCorrelationId,
+        workspaceId: executeIdent.workspaceId,
       })
       if (result.kind === 'not_found') {
         sendError(response, 404, 'not_found', '操作不存在', currentCorrelationId)
@@ -3192,6 +3440,13 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/operations') {
       const body = await readJson(request)
+      const opIdent = requestAppWorkspace(db, url, body)
+      const opFailure = httpStatusForWorkspaceError(opIdent.error)
+      if (opFailure) {
+        sendError(response, opFailure.status, opFailure.code, opFailure.message, currentCorrelationId)
+        return
+      }
+      const workspaceId = opIdent.workspaceId
       const required = ['targetRef', 'action', 'operationKind', 'riskLevel', 'input']
       const missing = required.filter((key) => body[key] === undefined || body[key] === '')
       if (missing.length > 0) {
@@ -3227,7 +3482,7 @@ const server = createServer(async (request, response) => {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           id,
-          body.workspaceId ?? 'ws_personal',
+          workspaceId,
           body.connectionId ?? null,
           body.appId ?? null,
           'actor_local_user',
@@ -3247,7 +3502,7 @@ const server = createServer(async (request, response) => {
           now,
         )
         if (body.plan && typeof body.plan === 'object' && typeof body.plan.previewId === 'string' && body.plan.previewId) {
-          insertOperationStep(db, id, 0, 'preview', 'succeeded', { previewId: body.plan.previewId }, body.plan)
+          insertOperationStep(db, id, 0, 'preview', 'succeeded', { previewId: body.plan.previewId }, body.plan, null, workspaceId)
         }
         if (writeNeedsApproval) {
           db.prepare(`
@@ -3257,7 +3512,7 @@ const server = createServer(async (request, response) => {
           `).run(createId('approval'), id, JSON.stringify({ reason: 'write_risk_gate', riskLevel: body.riskLevel }), now)
         }
         appendAudit(db, {
-          workspaceId: body.workspaceId ?? 'ws_personal',
+          workspaceId,
           actorId: 'actor_local_user',
           action: 'operation.plan',
           targetRef: `fde://workstation/operation/${id}`,
@@ -3281,7 +3536,7 @@ const server = createServer(async (request, response) => {
       }
 
       sendJson(response, 201, {
-        data: getOperation(db, id),
+        data: getOperation(db, id, opIdent.workspaceId),
         note: '本端点只创建可审计的操作计划，不直接调用外部业务系统。',
         correlationId: currentCorrelationId,
       })
@@ -3301,7 +3556,7 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    if (await handleCatalogRequest(request, response, url, { aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, currentCorrelationId)) {
+    if (await handleCatalogRequest(request, response, url, { db, aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, currentCorrelationId)) {
       return
     }
     if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime, uiToken }, currentCorrelationId)) {
@@ -3453,11 +3708,12 @@ server.listen(port, host, () => {
         onDown: hooks && hooks.onDown,
       }),
     } : {}),
-    cwd: FDE_AI_WORKSPACE,
+    cwd: canonicalWorkspaceCwd(aiRuntime.cwd) || canonicalWorkspaceCwd(FDE_AI_WORKSPACE) || FDE_AI_WORKSPACE,
     prepareSurface: (sheet, sessionId) => {
-      const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
-        ? sheet.workspace
-        : FDE_AI_WORKSPACE
+      const workspaceCwd = canonicalWorkspaceCwd(sheet.workspace)
+        || canonicalWorkspaceCwd(aiRuntime.cwd)
+        || canonicalWorkspaceCwd(FDE_AI_WORKSPACE)
+        || FDE_AI_WORKSPACE
       return recordSurfaceFromPreview(db, workspaceCwd, {
         kind: sheet.kind,
         action: sheet.action,

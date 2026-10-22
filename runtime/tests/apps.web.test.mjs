@@ -49,17 +49,18 @@ describe('hosted web app occupancy', () => {
       path: 'index.html',
       content: '<!doctype html><html><head><title>plan</title></head><body><div id="plan">ok</div></body></html>',
     }])
-    const activated = activateApp(sqlite, created.data.appId)
+    const activated = activateApp(sqlite, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(activated.kind, 'ok', JSON.stringify(activated))
 
     putDocument(sqlite, {
+      workspaceId: 'ws_personal',
       appId: created.data.appId,
       slug: spec.slug,
       workspaceCwd: CWD,
       key: 'localStorage',
       value: { wall: '1200' },
     })
-    assert.equal(getDocument(sqlite, { appId: created.data.appId, workspaceCwd: CWD, key: 'localStorage' }).wall, '1200')
+    assert.equal(getDocument(sqlite, { appId: created.data.appId, workspaceCwd: CWD, key: 'localStorage', workspaceId: 'ws_personal' }).wall, '1200')
 
     const env = { status: 0, body: null, headers: {} }
     const response = {
@@ -94,13 +95,14 @@ describe('hosted web app occupancy', () => {
     const cwd = `/tmp/fde-web-pub-${Date.now()}`
     mkdirSync(cwd, { recursive: true })
     const sqlite = db()
+    sqlite.prepare(`UPDATE workspaces SET metadata_json = ? WHERE id = 'ws_personal'`).run(JSON.stringify({ cwd }))
     const spec = webSpec(`pub-${Date.now().toString(36)}`)
     const submitted = await handleAppsBridge('app-spec-submit', {
       spec,
       files: [{ path: 'index.html', content: '<html><body>WEBAPP</body></html>' }],
     }, sqlite, cwd)
     assert.equal(submitted.ok, true, JSON.stringify(submitted))
-    const activated = activateApp(sqlite, submitted.appId)
+    const activated = activateApp(sqlite, submitted.appId, { workspaceId: 'ws_personal' })
     assert.equal(activated.kind, 'ok', JSON.stringify(activated))
     const share = mintShare(sqlite, { appId: submitted.appId, slug: spec.slug, workspaceCwd: cwd })
     const vite = createServer((_req, res) => {

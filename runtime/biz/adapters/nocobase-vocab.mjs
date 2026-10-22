@@ -5,7 +5,7 @@
  * Dialect type/interface only choose hop direction; they never gate whether to publish.
  */
 
-import { COLLECTIONS_LIST_PATHS } from '../../vendor-overlays/dsh-lan-assist/lookup.js'
+import { COLLECTIONS_LIST_PATHS } from '../../plugins/dsh-lan-assist/lookup.js'
 
 const REL_THIS_IS_CHILD = /^(m2o|o2o|obo|belongsTo|belongsToArray|linkTo)$/i
 const REL_THIS_IS_PARENT = /^(o2m|oho|hasMany|hasOne|m2m|belongsToMany)$/i

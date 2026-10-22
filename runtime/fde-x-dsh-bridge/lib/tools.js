@@ -215,6 +215,10 @@ function registerTools(ctx, { defineTool, config }) {
       priority: { type: 'string' },
       dueAt: { type: 'string' },
       tags: { type: 'array', items: { type: 'string' } },
+      sourceRef: {
+        type: 'string',
+        description: '来源引用。合法前缀 app:、fde-task:、im:、biz:、dsh-goal:。业务记录用 biz:<kind>:<no>，带连接名用 biz:<conn>/<kind>:<no>，操作记录用 biz:trace_<id>。',
+      },
     },
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
     async execute(args, exec) {

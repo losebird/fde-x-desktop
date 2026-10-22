@@ -7,7 +7,7 @@ import {
   speechHoldsWorkstationWrite,
   rememberUserSpeech,
   recalledUserSpeech,
-} from '../vendor-overlays/dsh-lan-assist/slots.js'
+} from '../plugins/dsh-lan-assist/slots.js'
 
 const intersectionVocab = [
   {

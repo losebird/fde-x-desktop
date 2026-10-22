@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { canonicalWorkspaceCwd, canonicalWorkspaceCwdSql, workspaceCwdEqual } from './cwd.mjs'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -203,8 +204,8 @@ export function patchWorkspaceMetadata(db, id, patch) {
 export function ensureWorkspace(db, input) {
   const existing = getWorkspace(db, input.id)
   if (!existing) return createWorkspace(db, input)
-  const cwd = typeof input.metadata?.cwd === 'string' ? input.metadata.cwd.trim() : ''
-  if (cwd.startsWith('/')) return patchWorkspaceMetadata(db, input.id, { cwd })
+  const cwd = canonicalWorkspaceCwd(input.metadata?.cwd)
+  if (cwd) return patchWorkspaceMetadata(db, input.id, { cwd })
   return existing
 }
 
@@ -235,15 +236,23 @@ function mapWorkspace(row) {
   }
 }
 
-export function listPendingEvents(db, limit = 50) {
+export function listPendingEvents(db, { limit = 50, workspaceCwd } = {}) {
+  const params = [isoNow()]
+  let workspaceSql = ''
+  if (workspaceCwd) {
+    const fn = canonicalWorkspaceCwdSql(db)
+    workspaceSql = ` AND ${fn}(workspace_cwd) = ?`
+    params.push(canonicalWorkspaceCwd(workspaceCwd))
+  }
+  params.push(limit)
   return db.prepare(`
     SELECT id, event_type, schema_version, source_ref, subject_ref, correlation_id,
            causation_id, payload_json, occurred_at, available_at, attempt_count, last_error
     FROM outbox_events
-    WHERE published_at IS NULL AND available_at <= ?
+    WHERE published_at IS NULL AND available_at <= ?${workspaceSql}
     ORDER BY occurred_at ASC
     LIMIT ?
-  `).all(isoNow(), limit).map((row) => ({
+  `).all(...params).map((row) => ({
     id: row.id,
     type: row.event_type,
     schemaVersion: row.schema_version,
@@ -276,7 +285,12 @@ export function listBusinessConnections(db, { workspaceId = 'ws_personal' } = {}
                credential_ref, capabilities_json, last_health_json, created_at, updated_at
         FROM business_connections
         WHERE workspace_id = ?
-           OR (workspace_id = 'ws_personal' AND provider IN (${SHARED_BUSINESS_CONNECTION_PROVIDERS.map(() => '?').join(', ')}))
+           OR (
+             workspace_id = 'ws_personal'
+             AND provider IN (${SHARED_BUSINESS_CONNECTION_PROVIDERS.map(() => '?').join(', ')})
+             AND credential_ref IS NOT NULL
+             AND credential_ref != ''
+           )
         ORDER BY name ASC
       `).all(workspaceId, ...SHARED_BUSINESS_CONNECTION_PROVIDERS)
 
@@ -301,23 +315,23 @@ export function listBusinessConnections(db, { workspaceId = 'ws_personal' } = {}
   }))
 }
 
-export function updateBusinessConnectionStatusByProvider(db, provider, status, lastHealth = null) {
+export function updateBusinessConnectionStatusByProvider(db, provider, status, lastHealth = null, workspaceId) {
   const wantProvider = String(provider || '').trim()
   const wantStatus = String(status || '').trim()
   if (!wantProvider || !wantStatus) return { changed: 0 }
   const now = isoNow()
   const healthJson = lastHealth && typeof lastHealth === 'object' ? JSON.stringify(lastHealth) : null
   const rows = db.prepare(`
-    SELECT id, status FROM business_connections WHERE provider = ?
-  `).all(wantProvider)
+    SELECT id, status FROM business_connections WHERE workspace_id = ? AND provider = ?
+  `).all(workspaceId, wantProvider)
   let changed = 0
   for (const row of rows) {
     if (row.status === wantStatus && !healthJson) continue
     db.prepare(`
       UPDATE business_connections
       SET status = ?, updated_at = ?, last_health_json = COALESCE(?, last_health_json)
-      WHERE id = ?
-    `).run(wantStatus, now, healthJson, row.id)
+      WHERE workspace_id = ? AND id = ?
+    `).run(wantStatus, now, healthJson, workspaceId, row.id)
     changed += 1
   }
   return { changed }
@@ -325,15 +339,22 @@ export function updateBusinessConnectionStatusByProvider(db, provider, status, l
 
 export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd = '' } = {}) {
   const cwd = String(workspaceCwd || '').trim()
+  const canonical = canonicalWorkspaceCwd(cwd)
+  const cwdSql = cwd ? canonicalWorkspaceCwdSql(db) : ''
   const rows = cwd
     ? db.prepare(`
         SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
                created_by, created_at, updated_at, deleted_at
         FROM business_apps
         WHERE workspace_id = ?
-           OR json_extract(definition_json, '$._workspaceCwd') = ?
+          AND (
+            json_extract(definition_json, '$._workspaceCwd') IS NULL
+            OR json_extract(definition_json, '$._workspaceCwd') = ''
+            OR json_extract(definition_json, '$._workspaceCwd') = ?
+            OR (? != '' AND ${cwdSql}(json_extract(definition_json, '$._workspaceCwd')) = ?)
+          )
         ORDER BY updated_at DESC
-      `).all(workspaceId, cwd)
+      `).all(workspaceId, cwd, canonical, canonical)
     : db.prepare(`
         SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
                created_by, created_at, updated_at, deleted_at
@@ -408,10 +429,12 @@ export function createBusinessApp(db, input) {
 export function updateBusinessApp(db, id, input) {
   const existing = db.prepare(`
     SELECT id, workspace_id, name, current_revision, definition_json, deleted_at
-    FROM business_apps WHERE id = ?
-  `).get(id)
+    FROM business_apps WHERE workspace_id = ? AND id = ?
+  `).get(input.workspaceId, id)
   if (!existing) return null
   if (String(existing.deleted_at || '').trim()) return null
+  const expectedWorkspaceId = typeof input.workspaceId === 'string' ? input.workspaceId.trim() : ''
+  if (!expectedWorkspaceId || existing.workspace_id !== expectedWorkspaceId) return null
   const definition = input.definition && typeof input.definition === 'object' ? input.definition : JSON.parse(existing.definition_json)
   const name = typeof input.name === 'string' && input.name.trim() ? input.name.trim() : existing.name
   const nextRevision = Number(existing.current_revision || 1) + 1
@@ -423,8 +446,8 @@ export function updateBusinessApp(db, id, input) {
     db.prepare(`
       UPDATE business_apps
       SET name = ?, current_revision = ?, definition_json = ?, updated_at = ?
-      WHERE id = ?
-    `).run(name, nextRevision, JSON.stringify(definition), now, id)
+      WHERE workspace_id = ? AND id = ?
+    `).run(name, nextRevision, JSON.stringify(definition), now, expectedWorkspaceId, id)
     db.prepare(`
       INSERT INTO business_app_revisions
         (id, app_id, revision, definition_json, change_note, created_by, created_at)
@@ -447,8 +470,8 @@ export function updateBusinessApp(db, id, input) {
   return listBusinessApps(db, { workspaceId: existing.workspace_id }).find((app) => app.id === id)
 }
 
-export function getOperationTrace(db, id) {
-  const operation = getOperation(db, id)
+export function getOperationTrace(db, id, workspaceId) {
+  const operation = getOperation(db, id, workspaceId)
   if (!operation) return null
   const steps = db.prepare(`
     SELECT id, sequence_no, step_kind, state, tool_ref, input_json, output_json, error_json, started_at, finished_at
@@ -520,30 +543,23 @@ export function getOperationTrace(db, id) {
 }
 
 export function listOperations(db, { workspaceId, limit = 100 } = {}) {
-  const rows = workspaceId
-    ? db.prepare(`
-        SELECT id, workspace_id, connection_id, app_id, requested_by, target_ref, action,
-               operation_kind, risk_level, execution_mode, state, idempotency_key, expected_version,
-               input_json, plan_json, correlation_id, causation_id, created_at, updated_at, started_at, finished_at
-        FROM operations WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?
-      `).all(workspaceId, limit)
-    : db.prepare(`
-        SELECT id, workspace_id, connection_id, app_id, requested_by, target_ref, action,
-               operation_kind, risk_level, execution_mode, state, idempotency_key, expected_version,
-               input_json, plan_json, correlation_id, causation_id, created_at, updated_at, started_at, finished_at
-        FROM operations ORDER BY created_at DESC LIMIT ?
-      `).all(limit)
+  const rows = db.prepare(`
+    SELECT id, workspace_id, connection_id, app_id, requested_by, target_ref, action,
+           operation_kind, risk_level, execution_mode, state, idempotency_key, expected_version,
+           input_json, plan_json, correlation_id, causation_id, created_at, updated_at, started_at, finished_at
+    FROM operations WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?
+  `).all(workspaceId, limit)
 
   return rows.map(mapOperation)
 }
 
-export function getOperation(db, id) {
+export function getOperation(db, id, workspaceId) {
   const row = db.prepare(`
     SELECT id, workspace_id, connection_id, app_id, requested_by, target_ref, action,
            operation_kind, risk_level, execution_mode, state, idempotency_key, expected_version,
            input_json, plan_json, correlation_id, causation_id, created_at, updated_at, started_at, finished_at
-    FROM operations WHERE id = ?
-  `).get(id)
+    FROM operations WHERE workspace_id = ? AND id = ?
+  `).get(workspaceId, id)
   return row ? mapOperation(row) : null
 }
 
@@ -573,8 +589,8 @@ function mapOperation(row) {
   }
 }
 
-export function approveOperation(db, id, { actorId = 'actor_local_user', note = '', correlationId }) {
-  const operation = getOperation(db, id)
+export function approveOperation(db, id, { actorId = 'actor_local_user', note = '', correlationId, workspaceId }) {
+  const operation = getOperation(db, id, workspaceId)
   if (!operation) return { kind: 'not_found' }
   if (operation.state !== 'awaiting_approval') return { kind: 'invalid_state', operation }
   const now = isoNow()
@@ -586,8 +602,8 @@ export function approveOperation(db, id, { actorId = 'actor_local_user', note = 
       SET decision = 'approved', decision_note = ?, decided_at = ?
       WHERE operation_id = ? AND decision = 'pending'
     `).run(note, now, id)
-    db.prepare(`UPDATE operations SET state = 'approved', updated_at = ? WHERE id = ?`).run(now, id)
-    insertOperationStep(db, id, 1, 'approve', 'succeeded', { note })
+    db.prepare(`UPDATE operations SET state = 'approved', updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, workspaceId, id)
+    insertOperationStep(db, id, 1, 'approve', 'succeeded', { note }, null, null, workspaceId)
     appendAudit(db, {
       workspaceId: operation.workspaceId,
       actorId,
@@ -610,11 +626,11 @@ export function approveOperation(db, id, { actorId = 'actor_local_user', note = 
     db.exec('ROLLBACK;')
     throw error
   }
-  return { kind: 'ok', operation: getOperation(db, id) }
+  return { kind: 'ok', operation: getOperation(db, id, workspaceId) }
 }
 
-export function executeDryRun(db, id, { actorId = 'actor_local_user', correlationId }) {
-  const operation = getOperation(db, id)
+export function executeDryRun(db, id, { actorId = 'actor_local_user', correlationId, workspaceId }) {
+  const operation = getOperation(db, id, workspaceId)
   if (!operation) return { kind: 'not_found' }
   if (operation.executionMode !== 'dry_run') return { kind: 'live_not_supported', operation }
   if (!['draft', 'approved'].includes(operation.state)) return { kind: 'invalid_state', operation }
@@ -630,8 +646,8 @@ export function executeDryRun(db, id, { actorId = 'actor_local_user', correlatio
   db.exec('BEGIN IMMEDIATE;')
   try {
     db.prepare(`
-      UPDATE operations SET state = 'uncertain', started_at = ?, finished_at = ?, updated_at = ? WHERE id = ?
-    `).run(now, now, now, id)
+      UPDATE operations SET state = 'uncertain', started_at = ?, finished_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?
+    `).run(now, now, now, workspaceId, id)
     db.prepare(`
       INSERT INTO operation_receipts
         (id, operation_id, receipt_kind, result_json, received_at)
@@ -659,10 +675,12 @@ export function executeDryRun(db, id, { actorId = 'actor_local_user', correlatio
     db.exec('ROLLBACK;')
     throw error
   }
-  return { kind: 'ok', operation: getOperation(db, id), receipt: result }
+  return { kind: 'ok', operation: getOperation(db, id, workspaceId), receipt: result }
 }
 
-export function insertOperationStep(db, operationId, sequenceNo, stepKind, state, input = {}, output = null, error = null) {
+export function insertOperationStep(db, operationId, sequenceNo, stepKind, state, input = {}, output = null, error = null, workspaceId) {
+  const owned = db.prepare('SELECT 1 FROM operations WHERE workspace_id = ? AND id = ?').get(workspaceId, operationId)
+  if (!owned) return
   const now = isoNow()
   db.prepare(`
     INSERT INTO operation_steps
@@ -704,13 +722,14 @@ export function insertBizSurface(db, row) {
 }
 
 export function listBizSurfaces(db, workspaceCwd, limit = 20) {
+  const match = workspaceCwdEqual(db, 'workspace_cwd', workspaceCwd)
   const rows = db.prepare(`
     SELECT id, workspace_cwd, connection_id, kind, action, preview_id, session_id, row_count, columns_json, created_at
     FROM biz_surfaces
-    WHERE workspace_cwd = ?
+    WHERE ${match.sql}
     ORDER BY created_at DESC
     LIMIT ?
-  `).all(workspaceCwd, Math.max(1, Math.min(100, limit)))
+  `).all(...match.params, Math.max(1, Math.min(100, limit)))
   return rows.map((row) => ({
     id: row.id,
     workspaceCwd: row.workspace_cwd,
@@ -826,32 +845,37 @@ export function memoryWriteCardByOrigins(db, origins) {
   return map
 }
 
-export function getBizWriteAuditByTraceId(db, traceId) {
+export function getBizWriteAuditByTraceId(db, traceId, workspaceCwd) {
+  const fn = canonicalWorkspaceCwdSql(db)
+  const wanted = canonicalWorkspaceCwd(workspaceCwd) || String(workspaceCwd || '')
   const row = db.prepare(`
     SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, lookup_bind_json, written_at, rollback_state
-    FROM biz_write_audit WHERE trace_id = ?
-  `).get(String(traceId || '').trim())
+    FROM biz_write_audit WHERE ${fn}(workspace_cwd) = ? AND trace_id = ?
+  `).get(wanted, String(traceId || '').trim())
   return mapBizWriteAuditRow(row)
 }
 
-export function setBizWriteAuditRollbackState(db, traceId, rollbackState) {
+export function setBizWriteAuditRollbackState(db, traceId, rollbackState, workspaceCwd) {
   const id = String(traceId || '').trim()
   const state = String(rollbackState || 'none').trim()
   if (!id || !state || state === 'none') return false
+  const fn = canonicalWorkspaceCwdSql(db)
+  const wanted = canonicalWorkspaceCwd(workspaceCwd) || String(workspaceCwd || '')
   const result = db.prepare(`
-    UPDATE biz_write_audit SET rollback_state = ? WHERE trace_id = ?
-  `).run(state, id)
+    UPDATE biz_write_audit SET rollback_state = ? WHERE ${fn}(workspace_cwd) = ? AND trace_id = ?
+  `).run(state, wanted, id)
   return result.changes > 0
 }
 
 export function listBizWriteAudits(db, workspaceCwd, limit = 50) {
+  const match = workspaceCwdEqual(db, 'workspace_cwd', workspaceCwd)
   const rows = db.prepare(`
     SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, lookup_bind_json, written_at, rollback_state
     FROM biz_write_audit
-    WHERE workspace_cwd = ?
+    WHERE ${match.sql}
     ORDER BY written_at DESC
     LIMIT ?
-  `).all(workspaceCwd, Math.max(1, Math.min(200, limit)))
+  `).all(...match.params, Math.max(1, Math.min(200, limit)))
   return rows.map((row) => ({
     id: row.id,
     workspaceCwd: row.workspace_cwd,
@@ -875,8 +899,8 @@ export function listBizWriteAudits(db, workspaceCwd, limit = 50) {
  * @param {string} id
  * @param {{ actorId?: string, correlationId?: string, writePreview: (previewId: string) => Promise<Record<string, unknown>> }} deps
  */
-export async function executeOperationLive(db, id, { actorId = 'actor_local_user', correlationId, writePreview }) {
-  const operation = getOperation(db, id)
+export async function executeOperationLive(db, id, { actorId = 'actor_local_user', correlationId, writePreview, workspaceId }) {
+  const operation = getOperation(db, id, workspaceId)
   if (!operation) return { kind: 'not_found' }
   if (operation.executionMode !== 'live') return { kind: 'live_not_supported', operation }
   if (operation.state !== 'approved') return { kind: 'invalid_state', operation }
@@ -888,8 +912,8 @@ export async function executeOperationLive(db, id, { actorId = 'actor_local_user
   const now = isoNow()
   db.exec('BEGIN IMMEDIATE;')
   try {
-    db.prepare(`UPDATE operations SET state = 'executing', started_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
-    insertOperationStep(db, id, 2, 'write', 'running', { previewId })
+    db.prepare(`UPDATE operations SET state = 'executing', started_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, now, workspaceId, id)
+    insertOperationStep(db, id, 2, 'write', 'running', { previewId }, null, null, workspaceId)
     db.exec('COMMIT;')
   } catch (error) {
     db.exec('ROLLBACK;')
@@ -909,14 +933,14 @@ export async function executeOperationLive(db, id, { actorId = 'actor_local_user
         UPDATE operation_steps SET state = 'failed', error_json = ?, finished_at = ?
         WHERE operation_id = ? AND sequence_no = 2 AND step_kind = 'write'
       `).run(JSON.stringify({ message }), now, id)
-      db.prepare(`UPDATE operations SET state = 'failed', finished_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
+      db.prepare(`UPDATE operations SET state = 'failed', finished_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, now, workspaceId, id)
       db.exec('COMMIT;')
     } catch (inner) {
       db.exec('ROLLBACK;')
       throw inner
     }
-    if (expired) return { kind: 'preview_expired', operation: getOperation(db, id), message }
-    return { kind: 'write_failed', operation: getOperation(db, id), message }
+    if (expired) return { kind: 'preview_expired', operation: getOperation(db, id, workspaceId), message }
+    return { kind: 'write_failed', operation: getOperation(db, id, workspaceId), message }
   }
 
   const receipt = {
@@ -932,8 +956,8 @@ export async function executeOperationLive(db, id, { actorId = 'actor_local_user
       UPDATE operation_steps SET state = 'succeeded', output_json = ?, finished_at = ?
       WHERE operation_id = ? AND sequence_no = 2 AND step_kind = 'write'
     `).run(JSON.stringify(written), now, id)
-    insertOperationStep(db, id, 3, 'receipt', 'succeeded', {}, receipt)
-    db.prepare(`UPDATE operations SET state = 'succeeded', finished_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
+    insertOperationStep(db, id, 3, 'receipt', 'succeeded', {}, receipt, null, workspaceId)
+    db.prepare(`UPDATE operations SET state = 'succeeded', finished_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(now, now, workspaceId, id)
     db.prepare(`
       INSERT INTO operation_receipts (id, operation_id, receipt_kind, result_json, received_at)
       VALUES (?, ?, 'executed', ?, ?)
@@ -960,7 +984,7 @@ export async function executeOperationLive(db, id, { actorId = 'actor_local_user
     db.exec('ROLLBACK;')
     throw error
   }
-  return { kind: 'ok', operation: getOperation(db, id), receipt }
+  return { kind: 'ok', operation: getOperation(db, id, workspaceId), receipt }
 }
 
 export function databaseHealth(db, databasePath) {

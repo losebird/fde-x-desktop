@@ -1,7 +1,7 @@
 import './support/no-stray-processes.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { lookupHitsFingerprint } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { lookupHitsFingerprint } from '../plugins/dsh-lan-assist/lookup.js'
 
 test('one hop hit and one ticket hit share 单号:状态:更新时间', () => {
   const row = { no: 'TK-1', status: '已解决', updatedAt: '2026-09-03T21:22:00.000Z' }

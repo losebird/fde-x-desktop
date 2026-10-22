@@ -19,7 +19,9 @@ let dbSeq = 0
 
 function openFresh() {
   dbSeq += 1
-  return openDatabase(`/tmp/fde-s2-propose-${process.pid}-${Date.now()}-${dbSeq}.sqlite`, join(repoRoot, 'runtime/migrations'))
+  const db = openDatabase(`/tmp/fde-s2-propose-${process.pid}-${Date.now()}-${dbSeq}.sqlite`, join(repoRoot, 'runtime/migrations'))
+  db.prepare(`UPDATE workspaces SET metadata_json = ? WHERE id = 'ws_personal'`).run(JSON.stringify({ cwd: CWD }))
+  return db
 }
 
 describe('app record propose', () => {
@@ -31,7 +33,7 @@ describe('app record propose', () => {
       spec: SUPPLIER_VISITS_SPEC,
     })
     assert.equal(created.ok, true)
-    const activated = activateApp(db, created.data.appId)
+    const activated = activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(activated.kind, 'ok')
     const row = insertRecord(db, SUPPLIER_VISITS_SPEC, 'visit', CWD, {
       supplier: 'ACME',
@@ -192,7 +194,7 @@ async function readyVisit(db) {
     spec: SUPPLIER_VISITS_SPEC,
   })
   assert.equal(created.ok, true)
-  const activated = activateApp(db, created.data.appId)
+  const activated = activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
   assert.equal(activated.kind, 'ok')
   const row = insertRecord(db, SUPPLIER_VISITS_SPEC, 'visit', CWD, {
     supplier: 'ACME',

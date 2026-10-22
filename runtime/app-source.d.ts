@@ -23,6 +23,16 @@ export function formatPlanAppSource(input: {
 
 export function planAppSource(sourceRef: string): PlanAppHandle | null
 
+export function planTaskSource(sourceRef: string): {
+  kind: string
+  label: string
+  href: Record<string, string>
+  ledgerId?: string
+  rid?: string
+} | null
+
+export function taskSourceProblem(sourceRef: string | null | undefined): 'invalid_source_ref' | null
+
 export function planAskFields(
   sourceRef: string,
   deps: {

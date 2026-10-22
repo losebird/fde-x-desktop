@@ -10,7 +10,7 @@ import {
   resolveShapeKey,
   rowsMatchingWhere,
   termFilterPart,
-} from '../vendor-overlays/dsh-lan-assist/where-pass.js'
+} from '../plugins/dsh-lan-assist/where-pass.js'
 
 describe('where-pass field label binding', () => {
   const vocab = [{

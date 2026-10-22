@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setTimeout as delay } from 'node:timers/promises'
 import { validateSections, validateSchedule } from '../briefing/validate.mjs'
-import { defaultSections, prepareDefinitionSections, sourcesFromMcpSections } from '../briefing/defaults.mjs'
+import { briefingAllowServerNames, defaultSections, mcpSectionFromConnectedPick, prepareDefinitionSections, sourcesFromMcpSections } from '../briefing/defaults.mjs'
 import { setBriefingClock, startBriefingScheduler } from '../briefing/scheduler.mjs'
 import { mergeBriefingSubmit } from '../briefing/run.mjs'
 import { openDatabase } from '../db.mjs'
@@ -73,6 +73,16 @@ test('validate sections closed set and default definition', () => {
   assert.ok(defaults.some((s) => s.id === 'events-today' && s.enabled))
   assert.ok(!defaults.some((s) => s.params && (s.params.server === 'imap' || s.params.server === 'rss')))
   assert.deepEqual(sourcesFromMcpSections(defaults), [])
+  assert.deepEqual(briefingAllowServerNames(defaults), [])
+  assert.equal(mcpSectionFromConnectedPick('mail', ''), null)
+  assert.equal(mcpSectionFromConnectedPick('playwright', 'click'), null)
+  assert.equal(mcpSectionFromConnectedPick('mail', 'imap_search')?.enabled, true)
+  assert.deepEqual(briefingAllowServerNames([
+    { type: 'mcp', enabled: true, params: { server: 'mail', tool: 'imap_search' } },
+    { type: 'mcp', enabled: false, params: { server: 'rss', tool: 'fetch' } },
+    { type: 'mcp', enabled: true, params: { server: 'playwright', tool: 'click' } },
+    { type: 'mcp', enabled: true, params: { server: 'news' } },
+  ]), ['mail'])
   const biz = defaults.find((s) => s.type === 'biz')
   assert.equal(biz?.enabled, false)
   assert.ok(!(biz?.params && biz.params.filter && biz.params.filter.状态))

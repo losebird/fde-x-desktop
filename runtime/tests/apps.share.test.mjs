@@ -42,7 +42,7 @@ function dbWithActive(spec = uniqueSpec()) {
     spec,
   })
   assert.equal(created.ok, true, JSON.stringify(created.errors || created))
-  const activated = activateApp(db, created.data.appId)
+  const activated = activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
   assert.equal(activated.kind, 'ok')
   return { db, spec, appId: created.data.appId }
 }
@@ -165,7 +165,7 @@ describe('app live share occupancy', () => {
       },
     )
     assert.equal(env.statusOf(), 409)
-    activateApp(db, created.data.appId)
+    activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     const minted = envelope()
     await handleAppsRoutes(
       fakeRequest({ method: 'POST', url: `/api/v1/apps/${created.data.appId}/share`, origin: 'http://127.0.0.1:5174' }),
@@ -185,7 +185,7 @@ describe('app live share occupancy', () => {
     assert.ok((minted.bodyOf().data.urls || []).some((row) => row.kind === 'loopback' && String(row.url).includes('127.0.0.1')))
     assert.equal(liveShareIdsByApp(db).get(created.data.appId), minted.bodyOf().data.shareId)
     const shareId = minted.bodyOf().data.shareId
-    trashApp(db, created.data.appId)
+    trashApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(resolveLiveShare(db, shareId), null)
     db.close()
   })

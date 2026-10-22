@@ -1,13 +1,14 @@
 import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import * as zlib from 'node:zlib'
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { createCoreConnector, parseHostRpcValue } from '../../dsh-core.mjs'
+import { firstMissingClosure } from '../../plugin-repo-source.mjs'
 import { PRODUCT_BUNDLE_IDS } from '../../product-bundles.mjs'
 
 const execFileAsync = promisify(execFile)
@@ -38,6 +39,63 @@ export async function ensureHostPin() {
     maxBuffer: 128 * 1024 * 1024,
   })
   return bin
+}
+
+function repoClosureFile(repo, name) {
+  const hits = []
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules' || entry === '.git') continue
+      const path = join(dir, entry)
+      if (statSync(path).isDirectory()) walk(path)
+      else if (entry === name) hits.push(path)
+    }
+  }
+  walk(repo)
+  hits.sort((a, b) => a.length - b.length)
+  return hits[0] || ''
+}
+
+async function closePinBody(body, dir) {
+  const repo = join(import.meta.dirname, '..', '..', 'plugins', dir)
+  if (!existsSync(repo)) return
+  for (let i = 0; i < 8; i += 1) {
+    const missing = await firstMissingClosure(body)
+    if (!missing) break
+    const source = repoClosureFile(repo, missing)
+    if (!source) break
+    const rel = source.slice(repo.length + 1)
+    await mkdir(dirname(join(body, rel)), { recursive: true })
+    await cp(source, join(body, rel))
+  }
+  const skillMd = join(body, 'skills', 'project-memory', 'SKILL.md')
+  const repoMd = join(repo, 'skills', 'project-memory', 'SKILL.md')
+  if (!existsSync(skillMd) && existsSync(repoMd)) {
+    await mkdir(dirname(skillMd), { recursive: true })
+    await cp(repoMd, skillMd)
+  }
+}
+
+async function useStandardBundleBodies(bodies) {
+  process.env.FDE_REPO_PLUGINS = '0'
+  for (const key of ['FDE_PLUGIN_DSH_LAN_ASSIST', 'FDE_PLUGIN_DSH_SEMANTIC_OS']) {
+    const source = String(process.env[key] || '').trim()
+    if (!source || !existsSync(join(source, '.git'))) continue
+    const body = await mkdtemp(join(tmpdir(), 'fde-bundle-body-'))
+    bodies.push(body)
+    await cp(source, body, {
+      recursive: true,
+      dereference: true,
+      filter: (src) => src.split('/').pop() !== '.git',
+    })
+    const dir = key === 'FDE_PLUGIN_DSH_SEMANTIC_OS' ? 'dsh-semantic-os' : 'dsh-lan-assist'
+    await closePinBody(body, dir)
+    process.env[key] = body
+  }
+}
+
+async function rmBundleBodies(bodies) {
+  for (const body of bodies) await rm(body, { recursive: true, force: true })
 }
 
 export async function bootWorkflowHost(options = {}) {
@@ -96,6 +154,7 @@ async function bootWorkflowHostHere(options = {}) {
   const patchFile = join(home, 'probe.patch.yml')
   await writeFile(patchFile, `${productPatch}\n- insert:\n    - id: fde-workflow-host-probe\n      name: fde-workflow-host-probe\n`)
 
+  const bundleBodies = []
   const previous = {
     FDE_DSH_HOME: process.env.FDE_DSH_HOME,
     DSH_HOME: process.env.DSH_HOME,
@@ -109,6 +168,16 @@ async function bootWorkflowHostHere(options = {}) {
     FDE_WORKFLOW_PROBE_EXTRA: process.env.FDE_WORKFLOW_PROBE_EXTRA,
     FDE_WORKFLOW_PROBE_CALL: process.env.FDE_WORKFLOW_PROBE_CALL,
     FDE_WORKFLOW_PROBE_PRESET_ONLY: process.env.FDE_WORKFLOW_PROBE_PRESET_ONLY,
+    FDE_REPO_PLUGINS: process.env.FDE_REPO_PLUGINS,
+    FDE_PLUGIN_DSH_LAN_ASSIST: process.env.FDE_PLUGIN_DSH_LAN_ASSIST,
+    FDE_PLUGIN_DSH_SEMANTIC_OS: process.env.FDE_PLUGIN_DSH_SEMANTIC_OS,
+  }
+  try {
+    if (options.withPlugins) await useStandardBundleBodies(bundleBodies)
+  } catch (error) {
+    restoreEnv(previous)
+    await rmBundleBodies(bundleBodies)
+    throw error
   }
   process.env.FDE_DSH_HOME = home
   process.env.DSH_HOME = home
@@ -140,13 +209,16 @@ async function bootWorkflowHostHere(options = {}) {
     const detail = status.lastError || (status.recentLogs || []).slice(-12).join('\n')
     await core.stop().catch(() => {})
     restoreEnv(previous)
+    await rmBundleBodies(bundleBodies)
     throw new Error(`真 Host 没有连上 ${PIN}：${detail}`)
   }
 
   async function stop() {
     await core.stop().catch(() => {})
     restoreEnv(previous)
-    await rm(home, { recursive: true, force: true })
+    await rmBundleBodies(bundleBodies)
+    // semantic-os can still write bytecode into this home while rm walks it
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
   }
 
   return { core, cwd, probeDir, home, version: status.version, stop }
@@ -161,6 +233,7 @@ async function bootWorkflowHostChild(options) {
   }
   delete env.FDE_IUI_ARTIFACT
   env.FDE_VENDOR_DIR = emptyVendor
+  env.FDE_REPO_PLUGINS = '0'
   env.HOME = tempHome
   env.USERPROFILE = tempHome
   env.FDE_DSH_HOME = tempHome

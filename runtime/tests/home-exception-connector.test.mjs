@@ -79,16 +79,16 @@ test('reconcileLanAssistConnectionLamp updates provider rows in sqlite', () => {
     ok: true,
     lookup: { configured: true, baseUrl: 'http://127.0.0.1:13000' },
     capabilities: { connector: true },
-  })
+  }, { workspaceId: 'ws_personal' })
   const after = db.prepare(`SELECT status FROM business_connections WHERE provider = 'lan-assist'`).get()
   assert.equal(after.status, 'connected')
   reconcileLanAssistConnectionLamp(db, {
     ok: true,
     lookup: { configured: true, baseUrl: 'http://127.0.0.1:13000' },
-  }, { vocab: { kinds: [{ kind: 'KindA' }] } })
+  }, { vocab: { kinds: [{ kind: 'KindA' }] }, workspaceId: 'ws_personal' })
   const withVocab = db.prepare(`SELECT status FROM business_connections WHERE provider = 'lan-assist'`).get()
   assert.equal(withVocab.status, 'connected')
-  reconcileLanAssistConnectionLamp(db, null)
+  reconcileLanAssistConnectionLamp(db, null, { workspaceId: 'ws_personal' })
   const offline = db.prepare(`SELECT status FROM business_connections WHERE provider = 'lan-assist'`).get()
   assert.equal(offline.status, 'pending')
   db.close()

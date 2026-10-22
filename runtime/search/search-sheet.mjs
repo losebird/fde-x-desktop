@@ -4,7 +4,8 @@
  */
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { letterHome, localCwdSet, normalizeCwd } from '../vendor-overlays/dsh-lan-assist/letter-home.js'
+import { sameWorkspaceCwd } from '../cwd.mjs'
+import { letterHome, localCwdSet, normalizeCwd } from '../plugins/dsh-lan-assist/letter-home.js'
 import { listWorkspaces, memoryWriteOriginByCardIds } from '../db.mjs'
 import { attachCuesOnCards, cardCue } from '../memory/cards.mjs'
 import { attachCardOrigin } from '../memory/draft.mjs'
@@ -43,7 +44,7 @@ export function scoreText(text, query, base = 0) {
 }
 
 function sameCwd(left, right) {
-  return normalizeCwd(left) === normalizeCwd(right)
+  return sameWorkspaceCwd(left, right)
 }
 
 function isPrimarySession(row) {

@@ -9,10 +9,10 @@ import { FDE_DSH_HOME } from '../config.mjs'
 import { openDatabase } from '../db.mjs'
 import { rollbackPreviewBody, rollbackPreviewRequest } from '../biz/audit-lookup.mjs'
 import { resolveBizCorpusOrigin } from '../biz/corpus-origin.mjs'
-import { nocobasePath } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { nocobasePath } from '../plugins/dsh-lan-assist/lookup.js'
 import { historyOptionLabel } from '../../src/lib/biz-list-query.ts'
 
-const overlayDir = join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist')
+const overlayDir = join(import.meta.dirname, '..', 'plugins', 'dsh-lan-assist')
 const vendorDir = join(FDE_DSH_HOME, 'vendor', 'dsh-lan-assist')
 const staged = mkdtempSync(join(tmpdir(), 'lan-assist-rollback-pk-'))
 cpSync(vendorDir, staged, { recursive: true })

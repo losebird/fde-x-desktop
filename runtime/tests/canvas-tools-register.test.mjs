@@ -4,10 +4,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CANVAS_TOOL_NAMES } from '../vendor-overlays/dsh-semantic-os/search-excerpt.js'
+import { CANVAS_TOOL_NAMES } from '../plugins/dsh-semantic-os/search-excerpt.js'
 
 test('registerTools keeps route_intent and omits canvas ingest/export tools', () => {
-  const tools = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'vendor-overlays', 'dsh-semantic-os', 'tools.js'), 'utf8')
+  const tools = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'plugins', 'dsh-semantic-os', 'tools.js'), 'utf8')
   assert.match(tools, /name: 'route_intent'/)
   assert.match(tools, /CANVAS_TOOL_NAMES.has\(spec.name\)/)
   assert.ok(CANVAS_TOOL_NAMES.has('extract_entities'))

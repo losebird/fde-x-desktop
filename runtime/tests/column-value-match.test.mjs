@@ -5,8 +5,8 @@ import { cpSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { termFilterPart } from '../vendor-overlays/dsh-lan-assist/where-pass.js'
-import { rowMatchesAll } from '../vendor-overlays/dsh-lan-assist/resolve.js'
+import { termFilterPart } from '../plugins/dsh-lan-assist/where-pass.js'
+import { rowMatchesAll } from '../plugins/dsh-lan-assist/resolve.js'
 import { FDE_DSH_HOME } from '../config.mjs'
 
 const QUOTE = '客户胡文今天12点电脑故障紧急保修，现在已处理完成'
@@ -23,7 +23,7 @@ test('text column filter is exact first, then contains', () => {
   assert.equal(rowMatchesAll({ description: QUOTE }, [term], 'and', 'exact'), true)
 })
 
-const overlayDir = join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist')
+const overlayDir = join(import.meta.dirname, '..', 'plugins', 'dsh-lan-assist')
 const vendorDir = join(FDE_DSH_HOME, 'vendor', 'dsh-lan-assist')
 const staged = mkdtempSync(join(tmpdir(), 'lan-assist-column-'))
 cpSync(vendorDir, staged, { recursive: true })

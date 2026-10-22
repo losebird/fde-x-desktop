@@ -628,7 +628,7 @@ async function main() {
   }
   const breakdown = {
     tokenizer: TOKENIZER_NAME,
-    lanAssist: await inventoryFile(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/tools.js')),
+    lanAssist: await inventoryFile(join(repoRoot, 'runtime/plugins/dsh-lan-assist/tools.js')),
     runs: publicRuns.map((row) => ({ group: row.group, index: row.index, steps: row.steps, metas: row.metas })),
   }
   await writeFile(join(outDir, 'breakdown.json'), `${JSON.stringify(breakdown, null, 2)}\n`)

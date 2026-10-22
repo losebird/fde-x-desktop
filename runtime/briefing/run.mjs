@@ -1,3 +1,4 @@
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { emit } from '../events.mjs'
 import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
 import { resolveBriefingSession } from './session.mjs'
@@ -26,14 +27,14 @@ function interruptedSections(sections) {
   })
 }
 
-function closeInterrupted(db, briefingId) {
-  const row = getBriefing(db, briefingId)
+function closeInterrupted(db, briefingId, workspaceCwd) {
+  const row = getBriefing(db, briefingId, workspaceCwd)
   if (!row || !briefingInFlight(row)) return row
   return updateBriefingContent(db, briefingId, {
     status: 'failed',
     agentError: INTERRUPTED,
     sections: interruptedSections(row.sections),
-  })
+  }, workspaceCwd)
 }
 
 function arrivedAiSections(rows) {
@@ -84,8 +85,8 @@ function computeRunStatus(sections) {
  */
 export async function runBriefing(deps, input) {
   const { db } = deps
-  const workspaceCwd = String(input.workspaceCwd || '').trim()
-  if (!workspaceCwd.startsWith('/')) {
+  const workspaceCwd = canonicalWorkspaceCwd(input.workspaceCwd)
+  if (!workspaceCwd) {
     throw Object.assign(new Error('需要工作区绝对路径 cwd'), { code: 'validation_error' })
   }
   const mode = input.mode === 'internal-only' ? 'internal-only' : 'full'
@@ -102,7 +103,7 @@ export async function runBriefing(deps, input) {
   const run = (async () => {
     await gate
     const orphan = findInFlightBriefing(db, workspaceCwd)
-    if (orphan) closeInterrupted(db, orphan.id)
+    if (orphan) closeInterrupted(db, orphan.id, workspaceCwd)
     return runBriefingUnlocked(deps, input, workspaceCwd, mode)
   })()
   fullRuns.set(workspaceCwd, { promise: run })
@@ -166,8 +167,8 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
           pendingAgent: true,
         })
       }
-      updateBriefingContent(db, briefingId, { status: 'running', sections })
-      sessionId = await resolveBriefingSession(aiRuntime, workspaceCwd)
+      updateBriefingContent(db, briefingId, { status: 'running', sections }, workspaceCwd)
+      sessionId = await resolveBriefingSession(aiRuntime, workspaceCwd, definition.sections)
       const agent = await runBriefingAgent(
         { db, aiRuntime },
         {
@@ -208,7 +209,7 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
         section.pendingAgent = false
         section.fetchedAt = new Date().toISOString()
       }
-      const latest = getBriefing(db, briefingId) || findBriefingByAgentRequest(db, agent.agentRequestId || '') || { sections: [] }
+      const latest = getBriefing(db, briefingId, workspaceCwd) || findBriefingByAgentRequest(db, agent.agentRequestId || '') || { sections: [] }
       const merged = mergeAgentSections(
         sections,
         arrivedAiSections(latest.sections),
@@ -246,12 +247,12 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
       summary,
       sessionId,
       agentError: agentError || undefined,
-    })
+    }, workspaceCwd)
 
     emit('briefing.ready', { briefingId, workspaceCwd, status }, { workspaceCwd })
     return { briefingId, briefing: final }
   } catch (error) {
-    if (briefingId) closeInterrupted(db, briefingId)
+    if (briefingId) closeInterrupted(db, briefingId, workspaceCwd)
     throw error
   }
 }
@@ -272,7 +273,7 @@ export function mergeBriefingSubmit(db, requestId, submittedSections) {
     status,
     sections: merged,
     summary,
-  })
+  }, briefing.workspaceCwd)
   emit('briefing.ready', { briefingId: briefing.id, workspaceCwd: briefing.workspaceCwd, status }, { workspaceCwd: briefing.workspaceCwd })
   return { ok: true, briefingId: briefing.id }
 }

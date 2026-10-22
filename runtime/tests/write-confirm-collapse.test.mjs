@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { FDE_DSH_HOME } from '../config.mjs'
-import { createSessionRoundStore } from '../vendor-overlays/dsh-lan-assist/session-round.js'
+import { createSessionRoundStore } from '../plugins/dsh-lan-assist/session-round.js'
 import {
   previewTokenIndex,
   projectWriteConfirm,
@@ -23,7 +23,7 @@ import {
   writeTokenStatus as sheetWriteTokenStatus,
 } from '../../src/lib/write-confirm.ts'
 
-const overlayDir = join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist')
+const overlayDir = join(import.meta.dirname, '..', 'plugins', 'dsh-lan-assist')
 const vendorDir = join(FDE_DSH_HOME, 'vendor', 'dsh-lan-assist')
 let createGate
 let createOpening

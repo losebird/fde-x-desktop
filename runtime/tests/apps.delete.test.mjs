@@ -38,9 +38,9 @@ describe('apps trash restore purge', () => {
       spec: specWith({ name: '同名草稿', slug: 'del-a' }),
     })
     assert.equal(created.ok, true)
-    const result = trashApp(db, created.data.appId)
+    const result = trashApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(result.kind, 'ok')
-    const app = getAppById(db, created.data.appId)
+    const app = getAppById(db, created.data.appId, 'ws_personal')
     assert.ok(app)
     assert.equal(app.status, 'draft')
     assert.ok(appIsTrashed(app))
@@ -63,10 +63,10 @@ describe('apps trash restore purge', () => {
       workspaceCwd: CWD,
       spec: specWith({ name: '同名草稿', slug: 'del-two' }),
     })
-    const gone = trashApp(db, one.data.appId)
+    const gone = trashApp(db, one.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(gone.kind, 'ok')
-    assert.ok(appIsTrashed(getAppById(db, one.data.appId)))
-    const kept = getAppById(db, two.data.appId)
+    assert.ok(appIsTrashed(getAppById(db, one.data.appId, 'ws_personal')))
+    const kept = getAppById(db, two.data.appId, 'ws_personal')
     assert.ok(kept)
     assert.equal(kept.name, '同名草稿')
     assert.equal(kept.status, 'draft')
@@ -82,15 +82,15 @@ describe('apps trash restore purge', () => {
       workspaceCwd: CWD,
       spec,
     })
-    assert.equal(activateApp(db, created.data.appId).kind, 'ok')
+    assert.equal(activateApp(db, created.data.appId, { workspaceId: 'ws_personal' }).kind, 'ok')
     insertRecord(db, spec, 'visit', CWD, {
       supplier: '留表',
       visit_date: '2026-09-19',
       status: '计划',
     })
-    const result = trashApp(db, created.data.appId)
+    const result = trashApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(result.kind, 'ok')
-    const app = getAppById(db, created.data.appId)
+    const app = getAppById(db, created.data.appId, 'ws_personal')
     assert.equal(app.status, 'active')
     assert.ok(appIsTrashed(app))
     assert.equal(findActiveAppBySlug(db, 'ws_personal', 'del-live', CWD), null)
@@ -105,8 +105,8 @@ describe('apps trash restore purge', () => {
       workspaceCwd: CWD,
       spec: specWith({ name: '再删', slug: 'del-again' }),
     })
-    const first = trashApp(db, created.data.appId)
-    const second = trashApp(db, created.data.appId)
+    const first = trashApp(db, created.data.appId, { workspaceId: 'ws_personal' })
+    const second = trashApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(first.kind, 'ok')
     assert.equal(second.kind, 'ok')
     assert.equal(second.data.deletedAt, first.data.deletedAt)
@@ -120,11 +120,11 @@ describe('apps trash restore purge', () => {
       workspaceCwd: CWD,
       spec: specWith({ name: '草稿', slug: 'del-restore' }),
     })
-    trashApp(db, created.data.appId)
-    const result = restoreApp(db, created.data.appId)
+    trashApp(db, created.data.appId, { workspaceId: 'ws_personal' })
+    const result = restoreApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(result.kind, 'ok')
     assert.equal(result.data.status, 'draft')
-    const app = getAppById(db, created.data.appId)
+    const app = getAppById(db, created.data.appId, 'ws_personal')
     assert.equal(app.status, 'draft')
     assert.equal(appIsTrashed(app), false)
     db.close()
@@ -137,7 +137,7 @@ describe('apps trash restore purge', () => {
       workspaceCwd: CWD,
       spec: specWith({ name: '在用', slug: 'del-not-trash' }),
     })
-    const result = restoreApp(db, created.data.appId)
+    const result = restoreApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(result.kind, 'not_trashed')
     db.close()
   })
@@ -154,11 +154,11 @@ describe('apps trash restore purge', () => {
       workspaceCwd: CWD,
       spec: specWith({ name: '还在用', slug: 'del-slug' }),
     })
-    trashApp(db, one.data.appId)
-    assert.equal(activateApp(db, two.data.appId).kind, 'ok')
-    const result = restoreApp(db, one.data.appId)
+    trashApp(db, one.data.appId, { workspaceId: 'ws_personal' })
+    assert.equal(activateApp(db, two.data.appId, { workspaceId: 'ws_personal' }).kind, 'ok')
+    const result = restoreApp(db, one.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(result.kind, 'slug_taken')
-    assert.ok(appIsTrashed(getAppById(db, one.data.appId)))
+    assert.ok(appIsTrashed(getAppById(db, one.data.appId, 'ws_personal')))
     db.close()
   })
 
@@ -169,9 +169,9 @@ describe('apps trash restore purge', () => {
       workspaceCwd: CWD,
       spec: specWith({ name: '进桶', slug: 'del-write' }),
     })
-    trashApp(db, created.data.appId)
-    assert.equal(putAppSpec(db, created.data.appId, { spec: specWith({ name: '进桶', slug: 'del-write' }) }).kind, 'trashed')
-    assert.equal(activateApp(db, created.data.appId).kind, 'trashed')
+    trashApp(db, created.data.appId, { workspaceId: 'ws_personal' })
+    assert.equal(putAppSpec(db, created.data.appId, { spec: specWith({ name: '进桶', slug: 'del-write' }), workspaceId: 'ws_personal' }).kind, 'trashed')
+    assert.equal(activateApp(db, created.data.appId, { workspaceId: 'ws_personal' }).kind, 'trashed')
     db.close()
   })
 
@@ -183,20 +183,20 @@ describe('apps trash restore purge', () => {
       workspaceCwd: CWD,
       spec,
     })
-    activateApp(db, created.data.appId)
+    activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     insertRecord(db, spec, 'visit', CWD, {
       supplier: '要删',
       visit_date: '2026-09-19',
       status: '计划',
     })
-    const live = purgeApp(db, created.data.appId)
+    const live = purgeApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(live.kind, 'not_trashed')
-    assert.ok(getAppById(db, created.data.appId))
-    assert.equal(trashApp(db, created.data.appId).kind, 'ok')
-    const result = purgeApp(db, created.data.appId)
+    assert.ok(getAppById(db, created.data.appId, 'ws_personal'))
+    assert.equal(trashApp(db, created.data.appId, { workspaceId: 'ws_personal' }).kind, 'ok')
+    const result = purgeApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(result.kind, 'ok')
     assert.ok(result.data.dropped.includes('app_del-purge__visit'))
-    assert.equal(getAppById(db, created.data.appId), null)
+    assert.equal(getAppById(db, created.data.appId, 'ws_personal'), null)
     const table = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
     ).get('app_del-purge__visit')
@@ -218,7 +218,7 @@ describe('apps trash restore purge', () => {
       WHERE status = 'archived'
         AND (deleted_at IS NULL OR deleted_at = '')
     `)
-    const app = getAppById(db, 'app_legacy_arch')
+    const app = getAppById(db, 'app_legacy_arch', 'ws_personal')
     assert.equal(app.status, 'active')
     assert.ok(appIsTrashed(app))
     db.close()
