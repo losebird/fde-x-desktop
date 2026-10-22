@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import * as zlib from 'node:zlib'
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
@@ -78,9 +78,14 @@ async function closePinBody(body, dir) {
 
 async function useStandardBundleBodies(bodies) {
   process.env.FDE_REPO_PLUGINS = '0'
-  for (const key of ['FDE_PLUGIN_DSH_LAN_ASSIST', 'FDE_PLUGIN_DSH_SEMANTIC_OS']) {
-    const source = String(process.env[key] || '').trim()
-    if (!source || !existsSync(join(source, '.git'))) continue
+  const dirs = {
+    FDE_PLUGIN_DSH_LAN_ASSIST: 'dsh-lan-assist',
+    FDE_PLUGIN_DSH_SEMANTIC_OS: 'dsh-semantic-os',
+  }
+  for (const [key, dir] of Object.entries(dirs)) {
+    const fromEnv = String(process.env[key] || '').trim()
+    const source = fromEnv || join(homedir(), '.dsh', 'vendor', dir)
+    if (!existsSync(join(source, '.git'))) continue
     const body = await mkdtemp(join(tmpdir(), 'fde-bundle-body-'))
     bodies.push(body)
     await cp(source, body, {
@@ -88,7 +93,6 @@ async function useStandardBundleBodies(bodies) {
       dereference: true,
       filter: (src) => src.split('/').pop() !== '.git',
     })
-    const dir = key === 'FDE_PLUGIN_DSH_SEMANTIC_OS' ? 'dsh-semantic-os' : 'dsh-lan-assist'
     await closePinBody(body, dir)
     process.env[key] = body
   }
