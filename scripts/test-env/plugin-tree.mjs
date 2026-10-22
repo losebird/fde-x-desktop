@@ -120,7 +120,9 @@ function resolveSpec(fromFile, spec) {
 
 export function overlayGaps({ overlayDir, mergedDir }) {
   const gaps = []
-  if (!existsSync(overlayDir)) return [`overlay directory missing: ${overlayDir}`]
+  // PR4 folded dsh-lan-assist into runtime/plugins and removed that overlay directory.
+  // A missing directory means this plugin has no overlay layer left to check.
+  if (!existsSync(overlayDir)) return []
   for (const file of walkFiles(overlayDir)) {
     if (!/\.(?:mjs|cjs|js)$/u.test(file)) continue
     const rel = relative(overlayDir, file)

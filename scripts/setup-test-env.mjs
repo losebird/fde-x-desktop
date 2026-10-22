@@ -278,7 +278,10 @@ async function linkPlugins(dshHome, iuiTar) {
     const dest = join(dshHome, 'vendor', plugin.dir)
     const pinnedMissing = plugin.source.kind === 'pinned' && !existsSync(join(dest, 'package.json'))
     if (!ok || pinnedMissing) {
-      const detail = Array.isArray(connector.pluginLinkFailures) ? connector.pluginLinkFailures.join('; ') : ''
+      const detail = [
+        Array.isArray(connector.pluginLinkFailures) ? connector.pluginLinkFailures.join('; ') : '',
+        connector.lastError || '',
+      ].filter(Boolean).join('; ')
       throw new Error(`linkBuiltinPlugin failed for ${plugin.dir}. ${detail}`.trim())
     }
     if (!existsSync(dest)) {
@@ -341,7 +344,12 @@ async function main() {
   for (const plugin of pins.plugins) {
     const dest = join(vendorDir, plugin.dir)
     await ensureCheckout(dest, plugin)
-    if (plugin.dir === pins.nats.plugin) await ensureNats(dest, pins.nats)
+    if (plugin.dir === pins.nats.plugin) {
+      await ensureNats(dest, pins.nats)
+      // linkRepoPlugin copies runtime/plugins and ignores the FDE_VENDOR_DIR checkout.
+      const repoPlugin = join(repoRoot, 'runtime', 'plugins', plugin.dir)
+      if (existsSync(join(repoPlugin, 'package.json'))) await ensureNats(repoPlugin, pins.nats)
+    }
   }
   // semantic-os ships a separate ~1.8GB CPython runtime. This setup does not download it.
   const iuiTar = await ensureIuiTar()
