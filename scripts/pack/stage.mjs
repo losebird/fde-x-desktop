@@ -10,7 +10,7 @@ import { execFile as execFileCb } from 'node:child_process'
 import { cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DSH_NPM_VERSION, IUI_PIN, SEMANTIC_RUNTIME } from './pins.mjs'
@@ -18,6 +18,7 @@ import { NODE_DIST_VERSION, nodeDistArchiveName, nodeDistPresent, nodeDistUrls }
 import { stagePluginTree } from './plugin-stage.mjs'
 import { BUILTIN_PLUGINS } from '../../runtime/builtin-plugins.mjs'
 import { bundledPluginVersions, defaultIuiArtifactPath, stageIuiArtifact } from './iui-artifact.mjs'
+import { escapedRuntimeImports } from './runtime-closure.mjs'
 
 const execFile = promisify(execFileCb)
 
@@ -474,6 +475,7 @@ async function stageSemantic() {
 
 export async function stagePackagedRuntime({ repoRoot: root, appRoot: dest }) {
   const runtimeSrc = join(root, 'runtime')
+  const extra = escapedRuntimeImports(root)
   const runtimeDest = join(dest, 'runtime')
   await mkdir(dest, { recursive: true })
   await rm(runtimeDest, { recursive: true, force: true })
@@ -481,7 +483,16 @@ export async function stagePackagedRuntime({ repoRoot: root, appRoot: dest }) {
     recursive: true,
     filter: (src) => includeRuntimePath(src, runtimeSrc),
   })
+  for (const file of extra) {
+    const rel = relative(root, file)
+    const target = join(dest, rel)
+    await mkdir(dirname(target), { recursive: true })
+    await cp(file, target, { dereference: true })
+  }
   console.log(`[stage] runtime → ${runtimeDest}`)
+  if (extra.length > 0) {
+    console.log(`[stage] runtime closure ${extra.map((file) => relative(root, file)).join(', ')}`)
+  }
 }
 
 export function includeRuntimePath(src, runtimeRoot) {

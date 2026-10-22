@@ -98,8 +98,48 @@ test('pack fails when a static import leaves runtime and the file is missing', a
   }
 })
 
-test('a missing plugin sibling inside vendor-overlays does not fail the pack', async () => {
+test('a missing import that leaves runtime still fails from an overlay file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-stage-overlay-escape-'))
+  const overlay = join(root, 'runtime', 'vendor-overlays', 'dsh-lan-assist')
+  await mkdir(overlay, { recursive: true })
+  await writeFile(
+    join(root, 'runtime', 'server.mjs'),
+    "import './vendor-overlays/dsh-lan-assist/letter-home.js'\n",
+  )
+  await writeFile(join(overlay, 'letter-home.js'), "import '../../../scripts/not-in-repo.mjs'\n")
+  const appRoot = join(root, 'app')
+  try {
+    await assert.rejects(
+      () => stagePackagedRuntime({ repoRoot: root, appRoot }),
+      (error) => {
+        assert.equal(error.code, 'ERR_STAGE_UNRESOLVED_IMPORT')
+        assert.match(error.message, /not-in-repo\.mjs/)
+        return true
+      },
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('an overlay file the server chain does not import can name a missing plugin sibling', async () => {
   const root = await mkdtemp(join(tmpdir(), 'fde-stage-overlay-'))
+  const overlay = join(root, 'runtime', 'vendor-overlays', 'dsh-lan-assist')
+  await mkdir(overlay, { recursive: true })
+  await writeFile(join(root, 'runtime', 'server.mjs'), 'export {}\n')
+  await writeFile(join(overlay, 'write.js'), "import { createTraceLog } from './traces.js'\n")
+  const appRoot = join(root, 'app')
+  try {
+    await stagePackagedRuntime({ repoRoot: root, appRoot })
+    assert.equal(existsSync(join(appRoot, 'runtime', 'vendor-overlays', 'dsh-lan-assist', 'write.js')), true)
+    assert.equal(existsSync(join(appRoot, 'runtime', 'vendor-overlays', 'dsh-lan-assist', 'traces.js')), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a missing plugin sibling on the server chain fails the pack', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-stage-overlay-chain-'))
   const overlay = join(root, 'runtime', 'vendor-overlays', 'dsh-lan-assist')
   await mkdir(overlay, { recursive: true })
   await writeFile(
@@ -109,9 +149,14 @@ test('a missing plugin sibling inside vendor-overlays does not fail the pack', a
   await writeFile(join(overlay, 'letter-home.js'), "import { createTraceLog } from './traces.js'\nexport {}\n")
   const appRoot = join(root, 'app')
   try {
-    await stagePackagedRuntime({ repoRoot: root, appRoot })
-    assert.equal(existsSync(join(appRoot, 'runtime', 'vendor-overlays', 'dsh-lan-assist', 'letter-home.js')), true)
-    assert.equal(existsSync(join(appRoot, 'runtime', 'vendor-overlays', 'dsh-lan-assist', 'traces.js')), false)
+    await assert.rejects(
+      () => stagePackagedRuntime({ repoRoot: root, appRoot }),
+      (error) => {
+        assert.equal(error.code, 'ERR_STAGE_UNRESOLVED_IMPORT')
+        assert.match(error.message, /traces\.js/)
+        return true
+      },
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }
