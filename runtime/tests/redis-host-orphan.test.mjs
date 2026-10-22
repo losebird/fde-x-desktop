@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFile, execFileSync, spawn } from 'node:child_process'
-import { existsSync, readFileSync, readlinkSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readlinkSync, readdirSync, realpathSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -82,6 +82,18 @@ client = db.client
 pid = int(client.pid)
 print(f"READY {pid} {os.getpgid(pid)} {os.getpgrp()} {os.getpid()} {os.getppid()}", flush=True)
 signal.pause()
+`.trim()
+
+const HOLD_OPEN = `
+import json, os, sys
+os.environ["DSH_HOME"] = sys.argv[1]
+sys.path.insert(0, sys.argv[2])
+import stores
+
+db = stores._open_lite()
+pid = int(db.client.pid)
+print(json.dumps({"pid": pid}), flush=True)
+sys.stdin.readline()
 `.trim()
 
 const OPEN_PY = `
@@ -427,6 +439,80 @@ function dbPaths(home) {
   return { db, owner: `${db}.owner.json` }
 }
 
+function dbHolders(dbPath) {
+  let real = ''
+  try { real = realpathSync(dbPath) } catch { return [] }
+  const hits = []
+  let names = []
+  try { names = readdirSync('/proc') } catch { return hits }
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue
+    const pid = Number(name)
+    let exe = ''
+    try { exe = readlinkSync(`/proc/${pid}/exe`) } catch { continue }
+    if (!exe.includes('redis-server')) continue
+    let fds = []
+    try { fds = readdirSync(`/proc/${pid}/fd`) } catch { continue }
+    for (const fd of fds) {
+      let target = ''
+      try { target = readlinkSync(`/proc/${pid}/fd/${fd}`) } catch { continue }
+      if (target === real) hits.push({ pid, fd })
+    }
+  }
+  return hits
+}
+
+function psAlive(fragment) {
+  const text = execFileSync('ps', ['-eo', 'pid=,stat=,args='], { encoding: 'utf8' })
+  const rows = []
+  for (const line of text.split('\n')) {
+    const match = line.match(/^\s*(\d+)\s+(\S+)\s+(.*)$/)
+    if (!match || match[2].includes('Z') || !match[3].includes(fragment)) continue
+    rows.push(`${match[1]} ${match[2]} ${match[3]}`)
+  }
+  return rows
+}
+
+function redisRelated(home, newPid) {
+  const rows = []
+  let names = []
+  try { names = readdirSync('/proc') } catch { return rows }
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue
+    const pid = Number(name)
+    let exe = ''
+    try { exe = readlinkSync(`/proc/${pid}/exe`) } catch { continue }
+    if (!exe.includes('redis-server')) continue
+    let cwd = ''
+    let cmdline = ''
+    try { cwd = readlinkSync(`/proc/${pid}/cwd`) } catch { cwd = '' }
+    try { cmdline = readFileSync(`/proc/${pid}/cmdline`).toString().replaceAll('\0', ' ') } catch { cmdline = '' }
+    const fds = []
+    try {
+      for (const fd of readdirSync(`/proc/${pid}/fd`)) {
+        try { fds.push(readlinkSync(`/proc/${pid}/fd/${fd}`)) } catch { /* raced */ }
+      }
+    } catch { /* already gone */ }
+    const blob = `${cwd}\n${cmdline}\n${fds.join('\n')}`
+    if (pid === newPid || blob.includes(home)) rows.push({ pid, cwd, cmdline, fds })
+  }
+  return rows
+}
+
+function liveRedisUnder(root) {
+  const pids = []
+  let names = []
+  try { names = readdirSync('/proc') } catch { return pids }
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue
+    try {
+      const exe = readlinkSync(`/proc/${name}/exe`)
+      if (exe.startsWith(root) && exe.includes('redis-server')) pids.push(Number(name))
+    } catch { /* raced */ }
+  }
+  return pids
+}
+
 async function killSuiteRedis() {
   if (!suiteRoot) return
   let names = []
@@ -614,6 +700,82 @@ describe('host redis orphan', { concurrency: false }, () => {
     })
     assert.equal(ran.code, 0, ran.stderr || ran.stdout)
     assert.match(ran.stdout, /SAFE ok/)
+  })
+
+  test('a pipe break leaves the new lite as the only graph.db holder', { timeout: 120_000 }, async () => {
+    await ensurePython()
+    const pythonDir = await materializePlugin()
+    const home = await mkdtemp(join(suiteRoot, 'home-'))
+    const spyPath = join(home, 'spy.txt')
+    await writeFile(spyPath, '')
+    const stack = await startStack(home, pythonDir, spyPath)
+    const before = readIdent(stack.redisPid)
+    const holderPath = join(home, 'hold-open.py')
+    await writeFile(holderPath, `${HOLD_OPEN}\n`)
+    let holder = null
+    let newPid = 0
+    try {
+      assert.ok(before && before !== 'unread', JSON.stringify(before))
+      stack.leader.stdin.end()
+      const watched = await waitGone(stack.redisPid, before.start, SURVIVE_WINDOW_MS)
+      assert.equal(watched.gone, true, JSON.stringify({ before, watched, spy: readFileSync(spyPath, 'utf8') }))
+      const leaderBefore = readIdent(stack.leader.pid)
+      const hostBefore = readIdent(stack.hostPid)
+      const leaderStart = leaderBefore && leaderBefore !== 'unread' ? leaderBefore.start : ''
+      const hostStart = hostBefore && hostBefore !== 'unread' ? hostBefore.start : ''
+      const leaderGone = await waitGone(stack.leader.pid, leaderStart, SURVIVE_WINDOW_MS)
+      const hostGone = await waitGone(stack.hostPid, hostStart, SURVIVE_WINDOW_MS)
+      assert.equal(leaderGone.gone, true, JSON.stringify(leaderGone))
+      assert.equal(hostGone.gone, true, JSON.stringify(hostGone))
+      holder = spawn(python, [holderPath, home, pythonDir], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, DSH_HOME: home, PYTHONPATH: pythonDir },
+      })
+      holder.stdin.on('error', () => {})
+      const found = await waitMatch(holder, /"pid":\s*(\d+)/, 60_000)
+      newPid = Number(found.match[1])
+      const { db, owner } = dbPaths(home)
+      const hits = dbHolders(db)
+      const related = redisRelated(home, newPid)
+      console.log(`# graph.db fd holders ${JSON.stringify(hits)}`)
+      console.log(`# redis related ${JSON.stringify(related)}`)
+      assert.deepEqual([...new Set(hits.map((hit) => hit.pid))], hits.length ? [newPid] : [], JSON.stringify(hits))
+      assert.deepEqual(related.map((row) => row.pid), [newPid], JSON.stringify(related))
+      assert.equal(related[0].cwd, join(home, 'semantic-os', 'falkordb'), JSON.stringify(related[0]))
+      const saved = JSON.parse(await readFile(owner, 'utf8'))
+      assert.equal(saved.pid, newPid, JSON.stringify(saved))
+      assert.equal(saved.db, resolve(db), JSON.stringify(saved))
+      assert.equal(readIdent(stack.redisPid), null, 'old redis still alive')
+      const redisStart = related[0] && related[0].pid === newPid ? readIdent(newPid) : null
+      killPid(newPid)
+      try { holder.kill('SIGKILL') } catch { /* already gone */ }
+      const redisGone = await waitGone(newPid, redisStart && redisStart !== 'unread' ? redisStart.start : '', SURVIVE_WINDOW_MS)
+      assert.equal(redisGone.gone, true, JSON.stringify(redisGone))
+      const redisLeft = liveRedisUnder(suiteRoot)
+      const hostLeft = [
+        ...psAlive('host-group.mjs'),
+        ...psAlive('inner-host.mjs'),
+        ...psAlive('hold-open.py'),
+      ].filter((line) => line.includes(home))
+      console.log(`# ps redis ${JSON.stringify(redisLeft)}`)
+      console.log(`# ps host ${JSON.stringify(hostLeft)}`)
+      assert.deepEqual(redisLeft, [])
+      assert.deepEqual(hostLeft, [])
+    } finally {
+      if (holder) {
+        try { holder.kill('SIGKILL') } catch { /* already gone */ }
+      }
+      killPid(newPid)
+      killPid(stack.redisPid)
+      killGroup(stack.leader.pid)
+      killPid(stack.leader.pid)
+      killPid(stack.hostPid)
+      killPid(stack.pythonPid)
+      holder?.stdout?.destroy()
+      holder?.stderr?.destroy()
+      holder?.unref()
+      releaseLeader(stack.leader)
+    }
   })
 })
 
