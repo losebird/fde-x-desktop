@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { activeWorkspaceCwdFromState, useApp } from '@/store/app'
+import { sameWorkspaceCwd } from '../../runtime/cwd.mjs'
 
 export type FdeEvent<T = unknown> = {
   id: string
@@ -25,6 +26,7 @@ export const FDE_EVENT_TYPES_V1 = [
   'app.activated',
   'app.record.changed',
   'task.changed',
+  'task.proposal.changed',
   'briefing.ready',
   'memory.card.drafted',
   'memory.engine.changed',
@@ -76,7 +78,7 @@ function dispatchEvent(event: FdeEvent) {
     }
   }
   for (const listener of listeners) {
-    if (listener.workspace && event.workspaceCwd != null && event.workspaceCwd !== listener.workspace) {
+    if (listener.workspace && event.workspaceCwd != null && !sameWorkspaceCwd(event.workspaceCwd, listener.workspace)) {
       continue
     }
     if (listener.types !== '*' && !listener.types.includes(event.type)) continue

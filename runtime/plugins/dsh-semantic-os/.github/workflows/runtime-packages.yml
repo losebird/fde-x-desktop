@@ -1,0 +1,81 @@
+name: Build platform runtimes
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['runtime-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: darwin-arm64
+          - os: macos-13
+            target: darwin-x64
+          - os: ubuntu-24.04
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: windows-2022
+            target: win32-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.9.27'
+      - name: Stage target-native relocatable Python runtime
+        id: stage_python
+        shell: bash
+        run: node scripts/stage-python-runtime.js "runtime-dist/${{ matrix.target }}/python" 3.12.10
+      - uses: actions/cache@v4
+        with:
+          path: runtime-dist/.pip-cache/${{ matrix.target }}
+          key: semantic-os-wheelhouse-${{ matrix.target }}-${{ hashFiles('runtime/requirements.txt', 'runtime/constraints.txt') }}
+      - name: Build and verify runtime package
+        shell: bash
+        env:
+          DSH_RUNTIME_PYTHON: ${{ steps.stage_python.outputs.python }}
+          PIP_CACHE_DIR: ${{ github.workspace }}/runtime-dist/.pip-cache/${{ matrix.target }}
+          PIP_DEFAULT_TIMEOUT: '600'
+          DSH_RUNTIME_DOWNLOAD_ATTEMPTS: '5'
+        run: node scripts/build-runtime-package.js "${{ matrix.target }}"
+      - name: Verify relocated runtime
+        shell: bash
+        run: node scripts/verify-runtime-relocation.js "runtime-dist/${{ matrix.target }}"
+      - name: Build installer media
+        shell: bash
+        run: node scripts/build-release-media.js "${{ matrix.target }}"
+      - name: Verify installer media from clean DSH_HOME
+        shell: bash
+        run: |
+          VER=$(node -e "import { PLUGIN_VERSION } from './version.js'; console.log(PLUGIN_VERSION)")
+          node scripts/verify-release-media.js "release-dist/dsh-semantic-os-${VER}-${{ matrix.target }}"
+      - name: Archive installer media
+        shell: bash
+        run: node scripts/archive-release-media.js "${{ matrix.target }}"
+      - name: Attach installer to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER=$(node -e "import { PLUGIN_VERSION } from './version.js'; console.log(PLUGIN_VERSION)")
+          gh release view "v${VER}" >/dev/null 2>&1 || gh release create "v${VER}" --title "Semantic OS ${VER}" --generate-notes
+          gh release upload "v${VER}" "release-dist/dsh-semantic-os-${VER}-${{ matrix.target }}.tar.gz" "release-dist/dsh-semantic-os-${VER}-${{ matrix.target }}.tar.gz.sha256" --clobber
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: dsh-semantic-os-${{ matrix.target }}
+          path: |
+            release-dist/*.tar.gz
+            release-dist/*.sha256

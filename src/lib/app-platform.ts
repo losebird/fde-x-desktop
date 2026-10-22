@@ -202,7 +202,7 @@ export async function runDeclaredPlatformUse(
     if (!cwd.ok) throw new Error(cwd.error)
     const created = await runtimeApi.createAiSession({ cwd: cwd.cwd })
     const title = `${spec.name} · 问`
-    await runtimeApi.renameAiSession(created.sessionId, title).catch(() => undefined)
+    await runtimeApi.renameAiSession(created.sessionId, title, undefined, cwd.workspaceId).catch(() => undefined)
     state.setActiveAiSessionId(created.sessionId)
     if (state.sidebarCollapsed) state.toggleSidebar()
     window.dispatchEvent(new CustomEvent('fde-x-ai-open', {

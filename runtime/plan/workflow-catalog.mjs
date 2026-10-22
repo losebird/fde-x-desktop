@@ -18,6 +18,15 @@ async function fetchCatalog(origin, cookie, sessionId) {
   return payload
 }
 
+async function archiveSessionBestEffort(aiRuntime, sessionId) {
+  try {
+    await aiRuntime.call('workspace/archiveSession', { request: { sessionId } })
+  } catch (error) {
+    const message = error instanceof Error && error.message ? error.message : String(error)
+    console.warn('workflow_session_archive_failed', sessionId, message)
+  }
+}
+
 async function readThroughProbe(aiRuntime, cwd, agentPreset, missingMessage, read) {
   const created = await aiRuntime.call('session/create', {
     request: { cwd, agentPreset },
@@ -31,7 +40,7 @@ async function readThroughProbe(aiRuntime, cwd, agentPreset, missingMessage, rea
   } catch (error) {
     readError = error
   }
-  await aiRuntime.call('workspace/archiveSession', { request: { sessionId } })
+  await archiveSessionBestEffort(aiRuntime, sessionId)
   if (readError) throw readError
   return { sessionId, payload }
 }

@@ -101,6 +101,7 @@ export function serveWebAppAsset(request, response, {
   storePrefix,
   db,
   appId,
+  workspaceId,
 }) {
   if (!isWebAppSpec(spec)) return false
   const method = request.method || 'GET'
@@ -116,7 +117,7 @@ export function serveWebAppAsset(request, response, {
   let bytes = hit.bytes
   let mime = hit.mime
   if (mime.startsWith('text/html')) {
-    const ls = db && appId ? getDocument(db, { appId, workspaceCwd, key: 'localStorage' }) : null
+    const ls = db && appId ? getDocument(db, { appId, workspaceCwd, key: 'localStorage', workspaceId }) : null
     const html = bytes.toString('utf8')
     const injected = injectWebBridgeWithBoot(html, { localStorage: ls && typeof ls === 'object' ? ls : {} }, {
       livePrefix,

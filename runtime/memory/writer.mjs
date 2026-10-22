@@ -1,3 +1,4 @@
+import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 import { getOperation, memoryWriteCardByOrigins } from '../db.mjs'
 import { subscribe } from '../events.mjs'
 import { cardFromOpenedNode, nodeMayCite, nodeWasOpened } from './cards.mjs'
@@ -203,7 +204,9 @@ async function onOperationExecuted(deps, envelope) {
   const cwd = envelope.workspaceCwd
   const operationId = String(envelope.payload?.operationId || '')
   if (!cwd || !operationId) return
-  const op = getOperation(deps.db, operationId)
+  const ident = resolveWorkspaceIdOrFail(deps.db, { cwd, source: 'request' })
+  if (ident.error) return
+  const op = getOperation(deps.db, operationId, ident.workspaceId)
   if (!op) return
   await recordDecisionFromChoice(deps, {
     workspaceCwd: cwd,

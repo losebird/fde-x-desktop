@@ -5,6 +5,8 @@ import { constants } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { listBusinessConnections } from '../db.mjs'
 import { FDE_AI_WORKSPACE, FDE_RESOURCES } from '../config.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { desktopProcessPath } from '../desktop-process-path.mjs'
 import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
 import { collectBag } from '../catalog-collect.mjs'
@@ -185,9 +187,7 @@ export async function buildConnectors(db, aiRuntime) {
     console.warn('mcp connectors state failed', error)
   }
   const lookup = state?.lookup && typeof state.lookup === 'object' ? state.lookup : {}
-  const cwd = typeof aiRuntime.cwd === 'string' && aiRuntime.cwd.startsWith('/')
-    ? aiRuntime.cwd
-    : FDE_AI_WORKSPACE
+  const cwd = canonicalWorkspaceCwd(aiRuntime?.cwd) || canonicalWorkspaceCwd(FDE_AI_WORKSPACE) || FDE_AI_WORKSPACE
   let catalogVersion = ''
   try {
     const vocab = await loadBizVocab(aiRuntime, cwd)
@@ -575,10 +575,20 @@ export async function handleMcpRoutes(request, response, url, ctx) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/v1/mcp/projection') {
+    const resolvedMcp = resolveHttpWorkspace({
+      url,
+      slots: [['query', 'cwd'], ['query', 'workspace']],
+      runtimeCwd: aiRuntime?.cwd,
+      fallbackCwd: FDE_AI_WORKSPACE,
+    })
+    if (resolvedMcp.error) {
+      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+      return true
+    }
     const bag = await collectBag(aiRuntime, 'mcp', {
       project: true,
       sessionId: url.searchParams.get('sessionId') || '',
-      cwd: url.searchParams.get('cwd') || url.searchParams.get('workspace') || '',
+      cwd: resolvedMcp.cwd,
     })
     const mcp = Array.isArray(bag.raw?.mcp) ? bag.raw.mcp : bag.items.map((row) => row.fields)
     const resourceTools = Array.isArray(bag.raw?.resourceTools) ? bag.raw.resourceTools : []
@@ -629,15 +639,29 @@ export async function handleMcpRoutes(request, response, url, ctx) {
       const headers = body.headers && typeof body.headers === 'object' && !Array.isArray(body.headers) ? body.headers : undefined
       entry = { serverName, transport, url: urlValue, headers }
     } else {
+      const args = Array.isArray(body.args) ? body.args.map((item) => String(item)) : []
+      const env = body.env && typeof body.env === 'object' && !Array.isArray(body.env) ? body.env : undefined
+      const suppliedCwd = Object.prototype.hasOwnProperty.call(body, 'cwd') ? body.cwd : null
+      let cwd = ''
+      if (typeof suppliedCwd === 'string' && suppliedCwd.trim()) {
+        const resolvedCwd = resolveHttpWorkspace({
+          body,
+          slots: [['body', 'cwd']],
+          whenAbsent: 'omit',
+        })
+        if (resolvedCwd.error || !resolvedCwd.cwd) {
+          sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+          return true
+        }
+        cwd = resolvedCwd.cwd
+      } else {
+        cwd = resolveStdioCwd(current?.cwd, aiRuntime)
+      }
       const command = typeof body.command === 'string' ? body.command.trim() : ''
       if (!command) {
         sendError(response, 400, 'validation_error', 'stdio 需要 command', currentCorrelationId)
         return true
       }
-      const args = Array.isArray(body.args) ? body.args.map((item) => String(item)) : []
-      const env = body.env && typeof body.env === 'object' && !Array.isArray(body.env) ? body.env : undefined
-      const cwdSource = Object.prototype.hasOwnProperty.call(body, 'cwd') ? body.cwd : current?.cwd
-      const cwd = resolveStdioCwd(cwdSource, aiRuntime)
       entry = { serverName, transport, command, args, env, ...(cwd ? { cwd } : {}) }
     }
     const next = upsertMcpPatchEntry(text, entry)

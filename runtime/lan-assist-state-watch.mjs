@@ -1,3 +1,4 @@
+import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { emit } from './events.mjs'
 import { emitBizSheetPending } from './routes/biz.mjs'
 import { pendingSheetWatchFingerprint } from './biz/sheet-fingerprint.mjs'
@@ -108,9 +109,7 @@ function officialFromState(state) {
 }
 
 function emitOfficialSheet(sheet, deps, source = 'round-end', surfaceId, writePreview) {
-  const workspaceCwd = typeof sheet.workspace === 'string' && sheet.workspace.startsWith('/')
-    ? sheet.workspace
-    : deps.cwd
+  const workspaceCwd = canonicalWorkspaceCwd(sheet.workspace) || canonicalWorkspaceCwd(deps.cwd) || deps.cwd
   const sessionId = typeof sheet.sessionId === 'string' ? sheet.sessionId : undefined
   const emitted = emitBizSheetPending(sheet, {
     sessionId,
@@ -197,7 +196,7 @@ export function startLanAssistStateWatch(deps) {
   const tick = async () => {
     try {
       const state = await lanAssist('/state', { search: { sessionId: '' } })
-      if (db) reconcileLanAssistConnectionLamp(db, state && state.ok !== false ? state : null)
+      if (db) reconcileLanAssistConnectionLamp(db, state && state.ok !== false ? state : null, { workspaceId: 'ws_personal' })
       if (!state || state.ok === false) return
       await lanAssist('/sleep', { method: 'POST', body: { on: false } }).catch(() => undefined)
 
@@ -229,7 +228,7 @@ export function startLanAssistStateWatch(deps) {
         }
       }
     } catch {
-      if (db) reconcileLanAssistConnectionLamp(db, null)
+      if (db) reconcileLanAssistConnectionLamp(db, null, { workspaceId: 'ws_personal' })
       // lan-assist offline: no events, no error (spec §7)
     }
   }

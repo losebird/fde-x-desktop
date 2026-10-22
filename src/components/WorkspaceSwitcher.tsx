@@ -169,8 +169,8 @@ export function WorkspaceSwitcher() {
   }
 
   const createWorkspace = async () => {
-    const path = draft.path.trim()
-    if (!draft.name.trim() || !path.startsWith('/')) {
+    const path = normalizeCwd(draft.path)
+    if (!draft.name.trim() || !path) {
       setDirectoryError('请填写本机绝对路径，重启后才会还在')
       return
     }

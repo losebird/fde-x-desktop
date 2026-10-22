@@ -96,7 +96,7 @@ test('没有页面令牌时不能修改已绑定工作流的日程', async () =>
   insertBoundEvent(db, 'cevt_tok')
   try {
     const before = counts(db)
-    const patched = await call(db, 'PATCH', '/api/v1/plan/events/cevt_tok', { title: '改过' }, { uiToken: mintUiToken() })
+    const patched = await call(db, 'PATCH', '/api/v1/plan/events/cevt_tok', { title: '改过', workspaceId: 'ws_tok' }, { uiToken: mintUiToken() })
     const after = counts(db)
     const title = db.prepare('SELECT title FROM calendar_events WHERE id = ?').get('cevt_tok').title
     assert.equal(patched.status, 401)
@@ -116,7 +116,7 @@ test('没有页面令牌时不能删除已绑定工作流的日程', async () =>
   insertBoundEvent(db, 'cevt_tok')
   try {
     const before = counts(db)
-    const removed = await call(db, 'DELETE', '/api/v1/plan/events/cevt_tok', {}, { uiToken: mintUiToken() })
+    const removed = await call(db, 'DELETE', '/api/v1/plan/events/cevt_tok?workspaceId=ws_tok', {}, { uiToken: mintUiToken() })
     const after = counts(db)
     const left = db.prepare('SELECT COUNT(*) AS n FROM calendar_events WHERE id = ?').get('cevt_tok').n
     assert.equal(removed.status, 401)
@@ -156,6 +156,7 @@ test('带页面令牌时创建、修改、删除绑定都会写入并留下审�
     assert.equal(db.prepare(`SELECT action FROM audit_entries WHERE target_ref = ? AND action = 'plan.event.insert'`).get(`fde://plan/events/${id}`).action, 'plan.event.insert')
 
     const patched = await call(db, 'PATCH', `/api/v1/plan/events/${id}`, {
+      workspaceId: 'ws_tok',
       workflowId: 'wf_tok',
       recurrence: 'daily',
     }, token)
@@ -164,7 +165,7 @@ test('带页面令牌时创建、修改、删除绑定都会写入并留下审�
     assert.equal(db.prepare('SELECT recurrence FROM calendar_events WHERE id = ?').get(id).recurrence, 'daily')
     assert.equal(db.prepare(`SELECT action FROM audit_entries WHERE target_ref = ? AND action = 'plan.event.update'`).get(`fde://plan/events/${id}`).action, 'plan.event.update')
 
-    const removed = await call(db, 'DELETE', `/api/v1/plan/events/${id}`, {}, token)
+    const removed = await call(db, 'DELETE', `/api/v1/plan/events/${id}?workspaceId=${encodeURIComponent('ws_tok')}`, {}, token)
     assert.equal(removed.status, 200)
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM calendar_events WHERE id = ?').get(id).n, 0)
     assert.equal(db.prepare(`SELECT action FROM audit_entries WHERE target_ref = ? AND action = 'plan.event.delete'`).get(`fde://plan/events/${id}`).action, 'plan.event.delete')

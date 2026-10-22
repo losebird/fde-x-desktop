@@ -1,0 +1,120 @@
+{
+  "name": "dsh-lan-assist",
+  "version": "0.1.0",
+  "description": "DSH 局域网协助：人与人在聊天窗；问本机 / 拟回 / 采纳才叫醒本机模型。人点发送才发出。",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "peers.js",
+    "home.js",
+    "crypto.js",
+    "store.js",
+    "disk.js",
+    "files.js",
+    "attach.js",
+    "dock.js",
+    "pair.js",
+    "envelope.js",
+    "adopt.js",
+    "group.js",
+    "nudge.js",
+    "conn.js",
+    "gate.js",
+    "draft.js",
+    "draft-state.js",
+    "advice.js",
+    "hear.js",
+    "hint.js",
+    "tick.js",
+    "shout.js",
+    "seat.js",
+    "see.js",
+    "eyes-bridge.js",
+    "view.js",
+    "ask.js",
+    "hall.js",
+    "handoff.js",
+    "secretary.js",
+    "lan.js",
+    "transport.js",
+    "nats-relay.js",
+    "mail-proj.js",
+    "listen.js",
+    "semantic.js",
+    "slips.js",
+    "ref.js",
+    "catalog.js",
+    "write.js",
+    "plan.js",
+    "traces.js",
+    "sqlite.js",
+    "univer-open.js",
+    "conversation.js",
+    "duty.js",
+    "miss.js",
+    "probe.js",
+    "lookup.js",
+    "translate.js",
+    "resolve.js",
+    "vocab/spoken.js",
+    "http.js",
+    "tools.js",
+    "commands.js",
+    "client.js",
+    "vendor/office",
+    "cordis.patch.yml",
+    "README.md",
+    "scripts/install.sh",
+    "scripts/install.cmd",
+    "scripts/pack.sh"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "pack": "sh scripts/pack.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/losebird/dsh-lan-assist.git"
+  },
+  "homepage": "https://github.com/losebird/dsh-lan-assist",
+  "bugs": {
+    "url": "https://github.com/losebird/dsh-lan-assist/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "lan",
+    "secretary"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-cordis-client-runner"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "dependencies": {
+    "nats": "2.29.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  }
+}
