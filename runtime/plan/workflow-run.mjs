@@ -563,7 +563,7 @@ export function readWorkflowRuns(db, workflowIds, workspaceId) {
   if (ids.length === 0) return new Map()
   const placeholders = ids.map(() => '?').join(', ')
   const rows = db.prepare(`
-    SELECT r.id, r.workflow_id, r.state, r.output_json
+    SELECT r.id, r.workflow_id, r.state, r.output_json, r.trigger_json
     FROM workflow_runs r
     JOIN workflows w ON w.id = r.workflow_id AND w.workspace_id = ?
     WHERE r.workflow_id IN (${placeholders})
@@ -578,8 +578,14 @@ export function readWorkflowRuns(db, workflowIds, workspaceId) {
       message = typeof output.message === 'string' ? output.message : ''
       sessionId = typeof output.sessionId === 'string' ? output.sessionId : ''
     }
+    let eventId = ''
+    if (row.trigger_json) {
+      const trigger = JSON.parse(row.trigger_json)
+      if (trigger && trigger.kind === 'schedule' && typeof trigger.eventId === 'string') eventId = trigger.eventId
+    }
     const list = grouped.get(row.workflow_id) || []
     const run = { id: row.id, state: row.state, message }
+    if (eventId) run.eventId = eventId
     if (sessionId) run.sessionId = sessionId
     list.push(run)
     grouped.set(row.workflow_id, list)
