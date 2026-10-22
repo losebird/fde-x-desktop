@@ -198,6 +198,55 @@ test('explicit taskIds control tasks in prompt', async () => {
   assert.ok(invalid.warnings.includes('task_ids_invalid'))
 })
 
+test('tasks stay listed when workspace cwd trailing slashes differ', async () => {
+  const dbPath = `/tmp/fde-x-context-pack-slash-${Date.now()}.sqlite`
+  await rm(dbPath, { force: true }).catch(() => undefined)
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  const now = new Date().toISOString()
+  const pairs = [
+    ['/tmp/fde-x-cwd-slash-a', '/tmp/fde-x-cwd-slash-a'],
+    ['/tmp/fde-x-cwd-slash-b', '/tmp/fde-x-cwd-slash-b/'],
+    ['/tmp/fde-x-cwd-slash-c/', '/tmp/fde-x-cwd-slash-c'],
+    ['/tmp/fde-x-cwd-slash-d/', '/tmp/fde-x-cwd-slash-d/'],
+  ]
+  const aiRuntime = {
+    status: () => ({ connected: false }),
+    lanAssist: async () => ({ unreadTotal: 0, requests: [] }),
+    semanticOs: async () => {
+      throw new Error('down')
+    },
+  }
+  db.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_other', 'other', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd: '/tmp/fde-x-cwd-other' }), now, now)
+  db.prepare(`
+    INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+    VALUES ('task_other', 'ws_other', '别的工作区待办', '', 'todo', 'med', NULL, ?, ?)
+  `).run(now, now)
+  for (const [index, [metadataCwd, queryCwd]] of pairs.entries()) {
+    const workspaceId = `ws_slash_${index}`
+    const taskId = `task_slash_${index}`
+    const title = `斜杠待办${index}`
+    db.prepare(`
+      INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+      VALUES (?, 'slash', '', 'active', ?, ?, ?)
+    `).run(workspaceId, JSON.stringify({ cwd: metadataCwd }), now, now)
+    db.prepare(`
+      INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+      VALUES (?, ?, ?, '', 'todo', 'med', NULL, ?, ?)
+    `).run(taskId, workspaceId, title, now, now)
+    const { pack } = await buildContextPack(
+      { db, aiRuntime },
+      { workspaceCwd: queryCwd, scopes: ['tasks'], taskIds: [taskId] },
+    )
+    const text = renderContextForPrompt(pack, new Set(), { taskIds: true })
+    assert.match(text, new RegExp(title))
+    assert.equal(text.includes('别的工作区待办'), false)
+  }
+  db.close()
+})
+
 test('scope timeout is reported in warnings', async () => {
   const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
   const aiRuntime = {

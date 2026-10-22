@@ -1,3 +1,4 @@
+import { sameWorkspaceCwd } from '../cwd.mjs'
 import { appendAudit, createId, enqueueEvent } from '../db.mjs'
 import { emit } from '../events.mjs'
 import { applyMaterialize } from './materialize.mjs'
@@ -401,7 +402,7 @@ export function findActiveAppBySlug(db, workspaceId, slug, workspaceCwd) {
     WHERE status = 'active' AND ${LIVE_APP}
   `).all().map(mapApp).filter((row) => row.slug === slug)
   if (cwd) {
-    const byCwd = rows.find((row) => row.spec && row.spec._workspaceCwd === cwd)
+    const byCwd = rows.find((row) => row.spec && sameWorkspaceCwd(row.spec._workspaceCwd, cwd))
     if (byCwd) return byCwd
   }
   return rows.find((row) => row.workspaceId === workspaceId) || null

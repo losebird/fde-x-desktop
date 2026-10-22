@@ -65,6 +65,33 @@ test('since replay order and workspace filter', () => {
   db.close()
 })
 
+test('listEventsAfter keeps a workspace event when trailing slashes differ', () => {
+  const dbPath = `/tmp/fde-events-slash-${Date.now()}.sqlite`
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  configureEventBus(db)
+  const stored = '/tmp/fde-events-slash'
+  const pairs = [
+    [stored, stored],
+    [stored, `${stored}/`],
+    [`${stored}/`, stored],
+    [`${stored}/`, `${stored}/`],
+    ['C:\\fde\\events', 'C:/fde/events'],
+    ['C:\\fde\\events\\', 'C:/fde/events'],
+    ['C:/fde/events/', 'C:\\fde\\events'],
+    ['/', '/'],
+  ]
+  const ids = pairs.map(([emitted], index) => emit('task.changed', { id: `t${index}` }, { workspaceCwd: emitted }))
+  const rootId = ids[ids.length - 1]
+  for (const [index, [, filtered]] of pairs.entries()) {
+    const found = listEventsAfter(db, { workspaceCwd: filtered }).map((item) => item.id)
+    assert.equal(found.includes(ids[index]), true, `${pairs[index][0]} vs ${filtered}`)
+  }
+  const rootOnly = listEventsAfter(db, { workspaceCwd: '/' }).map((item) => item.id)
+  assert.deepEqual(rootOnly.filter((id) => id === rootId), [rootId])
+  assert.equal(rootOnly.includes(ids[0]), false)
+  db.close()
+})
+
 test('SSE origin 403 and connection limit 429', { timeout: 45_000 }, async () => {
   const port = 4480 + (process.pid % 80)
   const dbPath = `/tmp/fde-events-http-${Date.now()}.sqlite`

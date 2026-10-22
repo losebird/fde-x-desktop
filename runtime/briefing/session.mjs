@@ -1,3 +1,4 @@
+import { sameWorkspaceCwd } from '../cwd.mjs'
 import { listedSessions } from '../session-primary.mjs'
 
 const BRIEFING_PRESET = 'fde-briefing'
@@ -26,7 +27,7 @@ export async function resolveBriefingSession(aiRuntime, cwd) {
   const listed = await aiRuntime.call('session/list', { _request: { includeBlank: true } })
   const existing = listedSessions(listed).find((row) => {
     if (rowPreset(row) !== BRIEFING_PRESET) return false
-    return rowCwd(row) === workspaceCwd
+    return sameWorkspaceCwd(rowCwd(row), workspaceCwd)
   })
   const existingId = existing ? String(existing.sessionId || existing.id || '') : ''
   if (existingId) return existingId

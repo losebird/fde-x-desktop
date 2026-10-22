@@ -1,8 +1,13 @@
 export function canonicalWorkspaceCwd(value) {
-  const raw = String(value ?? '').trim()
-  if (!raw.startsWith('/')) return ''
-  if (raw === '/') return '/'
-  return raw.replace(/\/+$/u, '')
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  const absolute = text.startsWith('/')
+    || text.startsWith('\\\\')
+    || /^[A-Za-z]:[\\/]/.test(text)
+  if (!absolute) return ''
+  const slashed = text.replace(/\\/g, '/')
+  if (slashed === '/') return '/'
+  return slashed.replace(/\/+$/u, '')
 }
 
 export function sameWorkspaceCwd(left, right) {
