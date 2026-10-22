@@ -3,7 +3,8 @@ import { createReadStream, existsSync, readFileSync, writeFileSync } from 'node:
 import { appendFile, cp, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
-import { execFile, spawn } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { releaseRuntimeRestarter, spawnRuntimeRestarter } from '../scripts/runtime-respawn.mjs'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
@@ -12,13 +13,16 @@ const execFileAsync = promisify(execFile)
 function scheduleRuntimeRestart() {
   const delayMs = 200
   if (process.env.FDE_RUNTIME_SUPERVISED !== '1') {
-    const restarter = spawn(process.execPath, ['scripts/runtime-respawn.mjs'], {
+    const restarter = spawnRuntimeRestarter({
       cwd: process.cwd(),
-      env: { ...process.env, FDE_RUNTIME_REPLACE_PID: String(process.pid) },
-      detached: true,
-      stdio: 'inherit',
+      env: process.env,
+      pid: process.pid,
     })
-    restarter.unref()
+    setTimeout(() => {
+      releaseRuntimeRestarter(restarter)
+      void close()
+    }, delayMs)
+    return
   }
   setTimeout(() => { void close() }, delayMs)
 }
