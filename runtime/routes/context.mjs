@@ -1,4 +1,6 @@
 import { buildContextPack } from '../context-pack.mjs'
+import { FDE_AI_WORKSPACE } from '../config.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 
 function sendJson(response, status, body) {
   const raw = JSON.stringify(body)
@@ -23,15 +25,20 @@ export async function handleContextPackRoute(request, response, url, deps) {
     sendError(response, 400, 'invalid_json', '请求体不是合法 JSON', correlationId)
     return true
   }
-  const workspaceCwd = typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-    ? body.workspaceCwd
-    : ''
-  if (!workspaceCwd) {
-    sendError(response, 400, 'validation_error', '需要工作区 cwd', correlationId)
+  const resolvedPack = resolveHttpWorkspace({
+    url,
+    body,
+    slots: [['body', 'workspaceCwd'], ['body', 'cwd']],
+    runtimeCwd: aiRuntime?.cwd,
+    fallbackCwd: FDE_AI_WORKSPACE,
+  })
+  if (resolvedPack.error) {
+    sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
     return true
   }
+  const workspaceCwd = resolvedPack.cwd
   const scopes = Array.isArray(body.scopes) ? body.scopes.map(String) : []
-  const { pack, warnings } = await buildContextPack(
+  const { pack, warnings, error } = await buildContextPack(
     { db, aiRuntime },
     {
       workspaceCwd,
@@ -41,8 +48,13 @@ export async function handleContextPackRoute(request, response, url, deps) {
       intentKind: body.intentKind,
       sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
       taskIds: body.taskIds,
+      cwdSource: resolvedPack.source,
     },
   )
+  if (error === 'missing_workspace') {
+    sendError(response, 404, 'not_found', '工作区未登记', correlationId)
+    return true
+  }
   sendJson(response, 200, { ok: true, data: pack, warnings, correlationId })
   return true
 }

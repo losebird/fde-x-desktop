@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useApp } from '@/store/app'
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 import { Card, PageTitle, Tag } from '@/components/ui'
 import {
   RuntimeApiError,
@@ -141,7 +142,7 @@ export default function Data() {
         description: workspace?.desc ?? '',
         cwd: workspace?.cwd,
       })
-      const cwd = workspace?.cwd && workspace.cwd.startsWith('/') ? workspace.cwd : undefined
+      const cwd = canonicalWorkspaceCwd(workspace?.cwd) || undefined
       const [nextHealth, nextConnections, nextApps, nextOperations, vocabResult] = await Promise.all([
         runtimeApi.health(),
         runtimeApi.listBusinessConnections(activeWorkspaceId),

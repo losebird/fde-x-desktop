@@ -30,18 +30,20 @@ export function workspaceRowIdForCwd(db, workspaceCwd) {
   return row?.id || ''
 }
 
-export function workspaceIdForCwd(db, workspaceCwd) {
-  return workspaceRowIdForCwd(db, workspaceCwd) || 'ws_personal'
+export function resolveWorkspaceIdOrFail(db, resolved) {
+  if (resolved?.error) return { error: resolved.error }
+  const suppliedId = typeof resolved?.id === 'string' ? resolved.id.trim() : ''
+  const requestPath = resolved?.source === 'request' ? canonicalWorkspaceCwd(resolved.cwd) : ''
+  if (requestPath) {
+    const row = workspaceRowForCwd(db, requestPath)
+    if (!row) return { error: 'missing_workspace' }
+    if (suppliedId && suppliedId !== row.id) return { error: 'workspace_mismatch' }
+    return { workspaceId: row.id, cwd: requestPath }
+  }
+  if (suppliedId) return { workspaceId: suppliedId }
+  if (!resolved?.cwd) return { workspaceId: 'ws_personal' }
+  const row = workspaceRowForCwd(db, resolved.cwd)
+  if (row) return { workspaceId: row.id, cwd: resolved.cwd }
+  return { workspaceId: 'ws_personal', cwd: resolved.cwd }
 }
 
-export function resolveWorkspaceCwd(db, queryWorkspace, fallbackCwd) {
-  const raw = String(queryWorkspace || '').trim()
-  if (raw.startsWith('/')) return raw
-  const row = workspaceRowForCwd(db, fallbackCwd)
-  if (row) {
-    const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
-    const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-    if (path.startsWith('/')) return path
-  }
-  return typeof fallbackCwd === 'string' && fallbackCwd.startsWith('/') ? fallbackCwd : ''
-}

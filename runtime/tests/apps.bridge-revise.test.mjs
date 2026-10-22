@@ -11,6 +11,10 @@ import { handleAppsBridge } from '../routes/apps.mjs'
 const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)), '..')
 const CWD = '/tmp/fde-app-bridge-revise-cwd'
 
+function registerCwd(db) {
+  db.prepare(`UPDATE workspaces SET metadata_json = ? WHERE id = 'ws_personal'`).run(JSON.stringify({ cwd: CWD }))
+}
+
 function uniqueSpec() {
   return {
     ...SUPPLIER_VISITS_SPEC,
@@ -21,6 +25,7 @@ function uniqueSpec() {
 describe('bridge app-spec-submit revise', () => {
   test('submit without appId still creates a draft', async () => {
     const db = openDatabase(`/tmp/fde-bridge-rev-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
+    registerCwd(db)
     const spec = uniqueSpec()
     const before = listBusinessApps(db, { workspaceId: 'ws_personal', workspaceCwd: CWD }).length
     const result = await handleAppsBridge('app-spec-submit', { spec }, db, CWD)
@@ -34,6 +39,7 @@ describe('bridge app-spec-submit revise', () => {
 
   test('create+activate then submit with appId → revision 2, same appId', async () => {
     const db = openDatabase(`/tmp/fde-bridge-rev2-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
+    registerCwd(db)
     const spec = uniqueSpec()
     const created = await handleAppsBridge('app-spec-submit', { spec }, db, CWD)
     assert.equal(created.ok, true)
@@ -59,6 +65,7 @@ describe('bridge app-spec-submit revise', () => {
 
   test('submit with unknown appId → ok false', async () => {
     const db = openDatabase(`/tmp/fde-bridge-rev3-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
+    registerCwd(db)
     const spec = uniqueSpec()
     const result = await handleAppsBridge('app-spec-submit', { spec, appId: 'app_nonexistent' }, db, CWD)
     assert.equal(result.ok, false)

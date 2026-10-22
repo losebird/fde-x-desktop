@@ -10,6 +10,7 @@ import type {
 } from '@/lib/types'
 import { seedUser } from '@/data/seed'
 import { runtimeApi } from '@/lib/runtime-api'
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 import { clearAppRecordFocus, emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
 import { imBrowseOccupancy } from '@/lib/im-letter-home'
 import {
@@ -757,7 +758,7 @@ export const useApp = create<AppState>()(
           await runtimeApi.ensureWorkspace({ id: workspaceId, name: ws.name, description: ws.desc, cwd: ws.cwd })
           const from = Date.now() - 366 * 24 * 60 * 60 * 1000
           const to = Date.now() + 366 * 24 * 60 * 60 * 1000
-          const cwd = typeof ws.cwd === 'string' && ws.cwd.startsWith('/') ? ws.cwd : ''
+          const cwd = canonicalWorkspaceCwd(ws.cwd)
           const bagInput = cwd ? { workspaceId, cwd } : null
           const emptyBag = { items: [] as Array<{ kind: string; id: string; title: string; href?: unknown; fields?: unknown }> }
           const [tasks, events, workflows, goalBag, scheduleBag, jobBag] = await Promise.all([
@@ -1323,8 +1324,7 @@ export function activeWorkspaceFromState(state: { workspaces: Workspace[]; activ
 
 export function activeWorkspaceCwdFromState(state: { workspaces: Workspace[]; activeWorkspaceId: ID }): string {
   const row = activeWorkspaceFromState(state)
-  const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
-  return cwd.startsWith('/') ? cwd : ''
+  return canonicalWorkspaceCwd(row?.cwd)
 }
 
 export function useCurrentWorkspace() {

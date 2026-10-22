@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
 import { ArrowLeft, Bot, CircleAlert, Plus, Search } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Empty } from '@/components/ui'
@@ -473,8 +474,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
   const landRowId = useApp((state) => state.dataBrowse.rowId)
   const activeWorkspaceCwd = useApp((state) => {
     const row = state.workspaces.find((item) => item.id === state.activeWorkspaceId)
-    const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
-    return cwd.startsWith('/') ? cwd : ''
+    return canonicalWorkspaceCwd(row?.cwd)
   })
   const [workspaceCwd, setWorkspaceCwd] = useState('')
   const [lanReady, setLanReady] = useState(true)

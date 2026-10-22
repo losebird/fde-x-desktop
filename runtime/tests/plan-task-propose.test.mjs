@@ -545,7 +545,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     assert.equal(proposals(workspaceId).length, 0)
   })
 
-  test('a matching session cwd selects the workspace and ignores a forged workspaceId', async () => {
+  test('a matching session cwd selects the workspace and a different id mismatches', async () => {
     const bound = join(root, 'bound')
     await mkdir(bound, { recursive: true })
     const workspaceId = await createWorkspace({ cwd: bound })
@@ -558,12 +558,10 @@ describe('plan task proposals', { concurrency: 1 }, () => {
       taskId: task.id,
       title: '按 cwd 写入',
     })
-    assert.equal(proposed.status, 200, JSON.stringify(proposed.payload))
-    const row = assertAwaiting(workspaceId)
+    assert.equal(proposed.status, 400, JSON.stringify(proposed.payload))
+    assert.equal(proposed.payload.error, 'workspace_mismatch')
+    assert.equal(proposals(workspaceId).length, 0)
     assert.equal(proposals(otherId).length, 0)
-    const plan = JSON.parse(row.plan_json)
-    assert.equal(plan.workspaceId, workspaceId)
-    assert.equal(plan.change.title, '按 cwd 写入')
     assert.equal(taskById(task.id).title, '原来的标题')
     const inserted = await bridgePropose({
       workspaceCwd: bound,
@@ -572,7 +570,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     })
     assert.equal(inserted.status, 200, JSON.stringify(inserted.payload))
     const rows = proposals(workspaceId)
-    assert.equal(rows.length, 2)
+    assert.equal(rows.length, 1)
     assert.equal(proposals(otherId).length, 0)
     const created = rows.map((row) => JSON.parse(row.plan_json)).find((plan) => plan.op === 'insert')
     assert.equal(created.workspaceId, workspaceId)

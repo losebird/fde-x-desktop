@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
-import { canonicalWorkspaceCwd } from './cwd.mjs'
+import { canonicalWorkspaceCwd, canonicalWorkspaceCwdSql, workspaceCwdEqual } from './cwd.mjs'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -204,8 +204,8 @@ export function patchWorkspaceMetadata(db, id, patch) {
 export function ensureWorkspace(db, input) {
   const existing = getWorkspace(db, input.id)
   if (!existing) return createWorkspace(db, input)
-  const cwd = typeof input.metadata?.cwd === 'string' ? input.metadata.cwd.trim() : ''
-  if (cwd.startsWith('/')) return patchWorkspaceMetadata(db, input.id, { cwd })
+  const cwd = canonicalWorkspaceCwd(input.metadata?.cwd)
+  if (cwd) return patchWorkspaceMetadata(db, input.id, { cwd })
   return existing
 }
 
@@ -327,6 +327,7 @@ export function updateBusinessConnectionStatusByProvider(db, provider, status, l
 export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd = '' } = {}) {
   const cwd = String(workspaceCwd || '').trim()
   const canonical = canonicalWorkspaceCwd(cwd)
+  const cwdSql = cwd ? canonicalWorkspaceCwdSql(db) : ''
   const rows = cwd
     ? db.prepare(`
         SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
@@ -334,9 +335,9 @@ export function listBusinessApps(db, { workspaceId = 'ws_personal', workspaceCwd
         FROM business_apps
         WHERE workspace_id = ?
            OR json_extract(definition_json, '$._workspaceCwd') = ?
-           OR (? != '' AND rtrim(replace(json_extract(definition_json, '$._workspaceCwd'), ?, '/'), '/') = ?)
+           OR (? != '' AND ${cwdSql}(json_extract(definition_json, '$._workspaceCwd')) = ?)
         ORDER BY updated_at DESC
-      `).all(workspaceId, cwd, canonical, '\\', canonical)
+      `).all(workspaceId, cwd, canonical, canonical)
     : db.prepare(`
         SELECT id, workspace_id, name, app_kind, status, current_revision, definition_json,
                created_by, created_at, updated_at, deleted_at
@@ -707,13 +708,14 @@ export function insertBizSurface(db, row) {
 }
 
 export function listBizSurfaces(db, workspaceCwd, limit = 20) {
+  const match = workspaceCwdEqual(db, 'workspace_cwd', workspaceCwd)
   const rows = db.prepare(`
     SELECT id, workspace_cwd, connection_id, kind, action, preview_id, session_id, row_count, columns_json, created_at
     FROM biz_surfaces
-    WHERE workspace_cwd = ?
+    WHERE ${match.sql}
     ORDER BY created_at DESC
     LIMIT ?
-  `).all(workspaceCwd, Math.max(1, Math.min(100, limit)))
+  `).all(...match.params, Math.max(1, Math.min(100, limit)))
   return rows.map((row) => ({
     id: row.id,
     workspaceCwd: row.workspace_cwd,
@@ -848,13 +850,14 @@ export function setBizWriteAuditRollbackState(db, traceId, rollbackState) {
 }
 
 export function listBizWriteAudits(db, workspaceCwd, limit = 50) {
+  const match = workspaceCwdEqual(db, 'workspace_cwd', workspaceCwd)
   const rows = db.prepare(`
     SELECT id, workspace_cwd, trace_id, kind, action, record_no, receipt_id, session_id, source, changes_json, columns_json, lookup_bind_json, written_at, rollback_state
     FROM biz_write_audit
-    WHERE workspace_cwd = ?
+    WHERE ${match.sql}
     ORDER BY written_at DESC
     LIMIT ?
-  `).all(workspaceCwd, Math.max(1, Math.min(200, limit)))
+  `).all(...match.params, Math.max(1, Math.min(200, limit)))
   return rows.map((row) => ({
     id: row.id,
     workspaceCwd: row.workspace_cwd,

@@ -45,7 +45,7 @@ describe('biz surfaces and live execute', () => {
     assert.doesNotMatch(previewBlock, /emitEvent/)
     assert.match(previewBlock, /recordSurfaceFromPreview\(/)
     const recorder = source.slice(source.indexOf('function recordSurfaceFromPreview'))
-    const recorderBlock = recorder.slice(0, recorder.indexOf('function resolveBizWorkspace'))
+    const recorderBlock = recorder.slice(0, recorder.indexOf('function bizWorkspace'))
     assert.doesNotMatch(recorderBlock, /emitBizSheetPending/)
     assert.doesNotMatch(recorderBlock, /emitEvent/)
   })

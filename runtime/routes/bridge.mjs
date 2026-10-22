@@ -7,8 +7,9 @@ import { buildContextPack } from '../context-pack.mjs'
 import { draftMemoryFromBridge } from '../memory/writer.mjs'
 import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
-import { workspaceCwdForId, workspaceRowIdForCwd } from '../briefing/workspace.mjs'
+import { resolveWorkspaceIdOrFail, workspaceCwdForId } from '../briefing/workspace.mjs'
 import { proposePlanTask } from '../plan/task-proposals.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { pathHasPrefix } from '../path-prefix.mjs'
 
 const READY_TTL_MS = 10 * 60 * 1000
@@ -130,9 +131,17 @@ export async function handleBridgeRoutes(request, response, url, deps) {
     return true
   }
 
-  const workspaceCwd = typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-    ? body.workspaceCwd
-    : ''
+  const resolvedBridge = resolveHttpWorkspace({
+    url,
+    body,
+    slots: [['body', 'workspaceCwd'], ['body', 'cwd']],
+    whenAbsent: 'omit',
+  })
+  if (resolvedBridge.error) {
+    bridgeError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+    return true
+  }
+  const workspaceCwd = resolvedBridge.cwd || ''
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
 
   if (sub === 'submit-result') {
@@ -178,7 +187,7 @@ export async function handleBridgeRoutes(request, response, url, deps) {
       bridgeError(response, 400, 'validation_error', 'scope 不能为空', correlationId)
       return true
     }
-    const { pack, warnings } = await buildContextPack(
+    const { pack, warnings, error } = await buildContextPack(
       { db, aiRuntime },
       {
         workspaceCwd,
@@ -186,16 +195,33 @@ export async function handleBridgeRoutes(request, response, url, deps) {
         sessionId,
         query: typeof body.query === 'string' ? body.query : undefined,
         intentKind: body.intentKind,
+        cwdSource: resolvedBridge.source,
       },
     )
+    if (error === 'missing_workspace') {
+      bridgeError(response, 404, 'not_found', '工作区未登记', correlationId)
+      return true
+    }
     bridgeOk(response, 200, { ...pack, warnings }, correlationId)
     return true
   }
 
   if (sub === 'plan-task-propose') {
-    const fromCwd = workspaceRowIdForCwd(db, workspaceCwd)
     const fromBody = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
-    const result = proposePlanTask(db, { ...body, workspaceId: fromCwd || fromBody })
+    let workspaceId = fromBody
+    if (workspaceCwd) {
+      const ident = resolveWorkspaceIdOrFail(db, { cwd: workspaceCwd, source: 'request', id: fromBody })
+      if (ident.error === 'missing_workspace') {
+        bridgeError(response, 404, 'not_found', '工作区未登记', correlationId)
+        return true
+      }
+      if (ident.error === 'workspace_mismatch') {
+        bridgeError(response, 400, 'workspace_mismatch', '工作区 id 与路径不一致', correlationId)
+        return true
+      }
+      workspaceId = ident.workspaceId
+    }
+    const result = proposePlanTask(db, { ...body, workspaceId })
     if (!result.ok) {
       if (result.error === 'not_found') {
         bridgeError(response, 404, 'not_found', result.message, correlationId)
@@ -244,6 +270,11 @@ export async function handleBridgeRoutes(request, response, url, deps) {
           )
           emit('ai.result.ready', { requestId }, { workspaceCwd, sessionId: sessionId || undefined })
         }
+      }
+      if (bridgeResult.ok === false && (bridgeResult.status === 404 || bridgeResult.status === 400)) {
+        const code = bridgeResult.status === 400 ? (bridgeResult.error || 'workspace_mismatch') : 'not_found'
+        bridgeError(response, bridgeResult.status, code, bridgeResult.errors[0].message, correlationId)
+        return true
       }
       bridgeOk(response, bridgeResult.ok === false ? 422 : 200, bridgeResult, correlationId)
       return true

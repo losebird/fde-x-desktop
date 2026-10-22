@@ -8,6 +8,11 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const dbPath = '/tmp/fde-x-context-pack-test.sqlite'
+const packCwd = '/tmp/fde-x-context-pack-ws'
+
+function bindPersonalCwd(db, cwd) {
+  db.prepare(`UPDATE workspaces SET metadata_json = ? WHERE id = 'ws_personal'`).run(JSON.stringify({ cwd }))
+}
 
 test('renderContextForPrompt omits one hit by id', () => {
   const pack = {
@@ -48,6 +53,7 @@ test('memory scope without explicit query uses workspace folder name', async () 
   await rm(dbPath, { force: true }).catch(() => undefined)
   await mkdir('/tmp/fde-x-context-pack-ws', { recursive: true })
   const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  bindPersonalCwd(db, packCwd)
   let findQuery = ''
   const aiRuntime = {
     status: () => ({ connected: true }),
@@ -78,6 +84,7 @@ test('memory scope failure does not break other scopes', async () => {
   await rm(dbPath, { force: true }).catch(() => undefined)
   await mkdir('/tmp/fde-x-context-pack-ws', { recursive: true })
   const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  bindPersonalCwd(db, packCwd)
   const aiRuntime = {
     status: () => ({ connected: false }),
     lanAssist: async () => ({ unreadTotal: 0, requests: [] }),
@@ -102,6 +109,7 @@ test('explicit taskIds control tasks in prompt', async () => {
   await rm(taskIdsDbPath, { force: true }).catch(() => undefined)
   await mkdir('/tmp/fde-x-context-pack-ws', { recursive: true })
   const db = openDatabase(taskIdsDbPath, join(repoRoot, 'runtime/migrations'))
+  bindPersonalCwd(db, packCwd)
   const now = new Date().toISOString()
   const undatedId = 'task_undated_p1_test'
   const overdueId = 'task_overdue_p1_test'
@@ -249,6 +257,7 @@ test('tasks stay listed when workspace cwd trailing slashes differ', async () =>
 
 test('scope timeout is reported in warnings', async () => {
   const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  bindPersonalCwd(db, packCwd)
   const aiRuntime = {
     status: () => ({ connected: true }),
     lanAssist: async () => new Promise(() => {}),

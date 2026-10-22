@@ -1,13 +1,19 @@
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { getBizWriteAuditByTraceId } from '../db.mjs'
 import { originHref } from '../memory/origin-href.mjs'
 import { parseLookupBind } from './audit-lookup.mjs'
 import { looksLikeJsonDump, readSessionUserOrigin } from './session-origin-text.mjs'
 
 function workspaceOf(url, audit) {
-  const fromQuery = String(url?.searchParams?.get('cwd') || url?.searchParams?.get('workspace') || '').trim()
-  if (fromQuery.startsWith('/')) return fromQuery
-  const fromAudit = String(audit?.workspaceCwd || '').trim()
-  return fromAudit.startsWith('/') ? fromAudit : ''
+  const resolved = resolveHttpWorkspace({
+    url,
+    slots: [['query', 'cwd'], ['query', 'workspace']],
+    whenAbsent: 'omit',
+  })
+  if (resolved.error) return ''
+  if (resolved.cwd) return resolved.cwd
+  return canonicalWorkspaceCwd(audit?.workspaceCwd)
 }
 
 function notedSpeech(audit) {

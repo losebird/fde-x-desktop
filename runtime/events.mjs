@@ -1,6 +1,12 @@
-import { canonicalWorkspaceCwd, sameWorkspaceCwd } from './cwd.mjs'
+import { canonicalWorkspaceCwd, canonicalWorkspaceCwdSql, sameWorkspaceCwd } from './cwd.mjs'
 
-/** Monotonic event ids (time + sequence) so same-ms rows sort in emit order. */
+function storedEventCwd(workspaceCwd) {
+  if (workspaceCwd == null) return null
+  const text = String(workspaceCwd)
+  if (!text) return text
+  return canonicalWorkspaceCwd(text) || text
+}
+
 let eventOrdinal = 0n
 
 function createEventId(ts) {
@@ -87,11 +93,12 @@ export function emit(type, payload, { workspaceCwd = null, sessionId, source = '
   const ts = Date.now()
   const id = createEventId(ts)
   const occurredAt = new Date(ts).toISOString()
+  const cwd = storedEventCwd(workspaceCwd)
   const envelope = {
     id,
     ts,
     type,
-    workspaceCwd: workspaceCwd ?? null,
+    workspaceCwd: cwd,
     sessionId,
     source,
     payload: payload ?? {},
@@ -107,14 +114,14 @@ export function emit(type, payload, { workspaceCwd = null, sessionId, source = '
       `).run(
         id,
         type,
-        workspaceCwd ? `fde://workspace${workspaceCwd}` : 'fde://global',
+        cwd ? `fde://workspace${cwd}` : 'fde://global',
         sessionId ?? null,
         id,
         JSON.stringify(envelope.payload),
         occurredAt,
         occurredAt,
         ts,
-        workspaceCwd,
+        cwd,
         sessionId ?? null,
         source,
       )
@@ -199,8 +206,9 @@ export function listRecentEvents(db, { workspaceCwd, type, limit = 50 } = {}) {
   if (workspaceCwd) {
     const canonical = canonicalWorkspaceCwd(workspaceCwd)
     if (canonical) {
-      clauses.push("(workspace_cwd IS NULL OR rtrim(replace(workspace_cwd, ?, '/'), ?) = ?)")
-      params.push('\\', '/', canonical)
+      const fn = canonicalWorkspaceCwdSql(db)
+      clauses.push(`(workspace_cwd IS NULL OR ${fn}(workspace_cwd) = ?)`)
+      params.push(canonical)
     }
   }
   const rows = db.prepare(`

@@ -1,4 +1,6 @@
 import { collectBag, mutateBag, streamBag } from '../catalog-collect.mjs'
+import { FDE_AI_WORKSPACE } from '../config.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 
 export async function handleCatalogRequest(request, response, url, { aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, correlationId) {
   if (!url.pathname.startsWith('/api/v1/catalog')) return false
@@ -44,9 +46,20 @@ export async function handleCatalogRequest(request, response, url, { aiRuntime, 
       sendError(response, 400, 'validation_error', '缺少 kind', correlationId)
       return true
     }
+    const resolved = resolveHttpWorkspace({
+      url,
+      slots: [['query', 'cwd']],
+      runtimeCwd: aiRuntime?.cwd,
+      fallbackCwd: FDE_AI_WORKSPACE,
+    })
+    if (resolved.error) {
+      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+      return true
+    }
+    const cwd = resolved.cwd
     const input = {
       sessionId: url.searchParams.get('sessionId') || '',
-      cwd: url.searchParams.get('cwd') || '',
+      cwd,
       path: url.searchParams.get('path') || '.',
       workspaceId: url.searchParams.get('workspaceId') || '',
     }
@@ -67,12 +80,24 @@ export async function handleCatalogRequest(request, response, url, { aiRuntime, 
       sendError(response, 400, 'validation_error', '缺少 kind 或 action', correlationId)
       return true
     }
+    const resolved = resolveHttpWorkspace({
+      url,
+      body,
+      slots: [['body', 'cwd'], ['query', 'cwd']],
+      runtimeCwd: aiRuntime?.cwd,
+      fallbackCwd: FDE_AI_WORKSPACE,
+    })
+    if (resolved.error) {
+      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+      return true
+    }
+    const cwd = resolved.cwd
     try {
       const bag = await mutateBag(aiRuntime, {
         kind,
         action,
         sessionId: body.sessionId,
-        cwd: body.cwd,
+        cwd,
         path: body.path,
         id: body.id,
         status: body.status,

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { planAppSource } from '../app-source.mjs'
 import { appendAudit, createId } from '../db.mjs'
 import { WORKFLOW_PRESET, WORKFLOW_TOOLS, discardWorkflowAllow, stageWorkflowAllow, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
@@ -481,8 +482,7 @@ function workspaceCwd(db, workspaceId) {
   if (!row) return ''
   const meta = JSON.parse(row.metadata_json ?? '{}')
   const raw = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-  const cwd = String(raw).trim()
-  return cwd.startsWith('/') ? cwd : ''
+  return canonicalWorkspaceCwd(raw)
 }
 
 function stepText(step) {

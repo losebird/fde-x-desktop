@@ -5,6 +5,7 @@ import {
   Clock, MapPin, Calendar as CalIcon, Repeat, Play, Power, Sparkles, Bot,
 } from 'lucide-react'
 import { askAiForResult } from '@/lib/ask-ai'
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 import { askOrigin } from '@/lib/ask-origin'
 import { openRef } from '@/lib/open-ref'
 import { planAppSource, planTaskAskFields } from '@/lib/plan-app-source'
@@ -72,8 +73,7 @@ export default function Plan() {
 
   const workspaceCwd = useMemo(() => {
     const row = workspaces.find((w) => w.id === activeWorkspaceId)
-    const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
-    return cwd.startsWith('/') ? cwd : undefined
+    return canonicalWorkspaceCwd(row?.cwd) || undefined
   }, [workspaces, activeWorkspaceId])
 
   useEffect(() => {
