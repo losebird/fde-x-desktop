@@ -8,9 +8,9 @@
 import { createHash } from 'node:crypto'
 import { execFile as execFileCb } from 'node:child_process'
 import { cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DSH_NPM_VERSION, IUI_PIN, SEMANTIC_RUNTIME } from './pins.mjs'
@@ -489,6 +489,115 @@ export function includeRuntimePath(src, runtimeRoot) {
   return true
 }
 
+function relativeSpecifierList(sourceText) {
+  return [
+    ...sourceText.matchAll(/\bfrom\s+['"](\.[^'"]+)['"]/gu),
+    ...sourceText.matchAll(/\bimport\s*\(\s*['"](\.[^'"]+)['"]/gu),
+  ].map((match) => match[1])
+}
+
+function pathEscapes(root, target) {
+  const rel = relative(root, target)
+  return rel === '..' || rel.startsWith('../') || rel.startsWith('..\\')
+}
+
+function isScriptFile(filePath) {
+  return /\.(mjs|cjs|js)$/u.test(filePath)
+}
+
+function listRuntimeScripts(runtimeRoot) {
+  const files = []
+  function walk(dir) {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name)
+      const info = statSync(full)
+      if (info.isDirectory()) {
+        if (!includeRuntimePath(full, runtimeRoot)) continue
+        walk(full)
+        continue
+      }
+      const relFile = relative(runtimeRoot, full)
+      if (relFile === 'tests' || relFile.startsWith('tests/') || relFile.startsWith('tests\\')) continue
+      if (!isScriptFile(name)) continue
+      files.push(full)
+    }
+  }
+  if (existsSync(runtimeRoot)) walk(runtimeRoot)
+  return files
+}
+
+export function packagedRuntimeImportHoles(appRoot) {
+  const runtimeRoot = join(appRoot, 'runtime')
+  const holes = []
+  const seen = new Set()
+  const queue = listRuntimeScripts(runtimeRoot)
+  while (queue.length > 0) {
+    const full = queue.pop()
+    if (seen.has(full)) continue
+    seen.add(full)
+    if (!existsSync(full) || !statSync(full).isFile() || !isScriptFile(full)) continue
+    const text = readFileSync(full, 'utf8')
+    for (const spec of relativeSpecifierList(text)) {
+      const target = resolve(dirname(full), spec)
+      const outsideRuntime = pathEscapes(runtimeRoot, target)
+      const outsideApp = pathEscapes(appRoot, target)
+      if (!outsideRuntime && !outsideApp) {
+        if (existsSync(target) && statSync(target).isFile() && isScriptFile(target)) queue.push(target)
+        continue
+      }
+      if (!outsideApp && existsSync(target) && statSync(target).isFile()) {
+        if (isScriptFile(target)) queue.push(target)
+        continue
+      }
+      holes.push(`${relative(appRoot, full)} → ${spec}`)
+    }
+  }
+  return holes
+}
+
+export async function stageRuntimeTree(repoRoot, appRoot) {
+  const runtimeSrc = join(repoRoot, 'runtime')
+  const runtimeDest = join(appRoot, 'runtime')
+  await rm(runtimeDest, { recursive: true, force: true })
+  await mkdir(appRoot, { recursive: true })
+  await cp(runtimeSrc, runtimeDest, {
+    recursive: true,
+    filter: (src) => includeRuntimePath(src, runtimeSrc),
+  })
+  const seen = new Set()
+  const queue = listRuntimeScripts(runtimeDest)
+  while (queue.length > 0) {
+    const full = queue.pop()
+    if (seen.has(full)) continue
+    seen.add(full)
+    if (!existsSync(full) || !statSync(full).isFile() || !isScriptFile(full)) continue
+    const text = readFileSync(full, 'utf8')
+    const importerRel = relative(appRoot, full)
+    for (const spec of relativeSpecifierList(text)) {
+      const target = resolve(dirname(full), spec)
+      if (!pathEscapes(appRoot, target) && existsSync(target) && statSync(target).isFile()) {
+        if (isScriptFile(target)) queue.push(target)
+        continue
+      }
+      if (!pathEscapes(runtimeDest, target)) continue
+      const sourceTarget = resolve(dirname(join(repoRoot, importerRel)), spec)
+      const sourceRel = relative(repoRoot, sourceTarget)
+      if (pathEscapes(repoRoot, sourceTarget)) continue
+      if (sourceRel === 'node_modules' || sourceRel.startsWith('node_modules/') || sourceRel.startsWith('node_modules\\')) continue
+      if (!existsSync(sourceTarget) || !statSync(sourceTarget).isFile()) continue
+      const dest = join(appRoot, sourceRel)
+      await mkdir(dirname(dest), { recursive: true })
+      await rm(dest, { force: true })
+      await cp(sourceTarget, dest)
+      if (isScriptFile(dest)) queue.push(dest)
+    }
+  }
+  const holes = packagedRuntimeImportHoles(appRoot)
+  if (holes.length > 0) {
+    throw new Error(`runtime static imports missing from the package:\n${holes.join('\n')}`)
+  }
+}
+
 async function stageBffPackages(dest) {
   const rootPkg = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8'))
   const htmlToDocx = rootPkg.dependencies?.['html-to-docx']
@@ -521,14 +630,8 @@ async function main() {
   console.log(`[stage] resources root: ${resourcesRoot}`)
   await mkdir(appRoot, { recursive: true })
 
-  const runtimeSrc = join(repoRoot, 'runtime')
-  const runtimeDest = join(appRoot, 'runtime')
-  await rm(runtimeDest, { recursive: true, force: true })
-  await cp(runtimeSrc, runtimeDest, {
-    recursive: true,
-    filter: (src) => includeRuntimePath(src, runtimeSrc),
-  })
-  console.log(`[stage] runtime → ${runtimeDest}`)
+  await stageRuntimeTree(repoRoot, appRoot)
+  console.log(`[stage] runtime → ${join(appRoot, 'runtime')}`)
 
   if (existsSync(join(repoRoot, 'dist'))) {
     await rm(join(appRoot, 'dist'), { recursive: true, force: true })

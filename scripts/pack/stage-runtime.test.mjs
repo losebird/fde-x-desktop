@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { includeRuntimePath } from './stage.mjs'
+import { includeRuntimePath, packagedRuntimeImportHoles, stageRuntimeTree } from './stage.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const runtimeSrc = join(repoRoot, 'runtime')
@@ -43,46 +43,15 @@ test('copying runtime drops .host-generation from the staged tree', async () => 
   assert.equal(existsSync(join(dest, '.host-generation')), false)
 })
 
-function outsideRuntimeImports(runtimeRoot) {
-  const found = []
-  function walk(dir) {
-    for (const name of readdirSync(dir)) {
-      const full = join(dir, name)
-      if (!includeRuntimePath(full, runtimeRoot)) continue
-      if (statSync(full).isDirectory()) {
-        walk(full)
-        continue
-      }
-      const relFile = relative(runtimeRoot, full)
-      // Test files import src/ on purpose. server.mjs does not load them.
-      if (relFile === 'tests' || relFile.startsWith('tests/') || relFile.startsWith('tests\\')) continue
-      if (!/\.(mjs|cjs|js)$/u.test(name)) continue
-      const text = readFileSync(full, 'utf8')
-      const specs = [
-        ...text.matchAll(/\bfrom\s+['"](\.[^'"]+)['"]/gu),
-        ...text.matchAll(/\bimport\s*\(\s*['"](\.[^'"]+)['"]/gu),
-      ]
-      for (const match of specs) {
-        const target = resolve(dirname(full), match[1])
-        const rel = relative(runtimeRoot, target)
-        if (rel === '..' || rel.startsWith('../') || rel.startsWith('..\\')) {
-          found.push(`${relative(runtimeRoot, full)} → ${match[1]}`)
-        }
-      }
-    }
-  }
-  walk(runtimeRoot)
-  return found
-}
-
 test('a runtime-only stage can import the server chain through builtin plugins', async () => {
   const appRoot = await mkdtemp(join(tmpdir(), 'fde-runtime-stage-'))
-  const runtimeDest = join(appRoot, 'runtime')
-  await cp(runtimeSrc, runtimeDest, {
-    recursive: true,
-    filter: (src) => includeRuntimePath(src, runtimeSrc),
-  })
   try {
+    await stageRuntimeTree(repoRoot, appRoot)
+    const runtimeDest = join(appRoot, 'runtime')
+    assert.deepEqual(packagedRuntimeImportHoles(appRoot), [])
+    assert.equal(existsSync(join(appRoot, 'scripts', 'runtime-respawn.mjs')), true)
+    assert.equal(existsSync(join(appRoot, 'scripts', 'runtime-port.mjs')), true)
+    await import(pathToFileURL(join(appRoot, 'scripts', 'runtime-respawn.mjs')).href)
     const server = readFileSync(join(runtimeDest, 'server.mjs'), 'utf8')
     const core = readFileSync(join(runtimeDest, 'dsh-core.mjs'), 'utf8')
     assert.match(server, /from '\.\/dsh-core\.mjs'/)
@@ -92,8 +61,60 @@ test('a runtime-only stage can import the server chain through builtin plugins',
     const iui = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'iui')
     assert.equal(typeof iui.source.commit, 'string')
     assert.equal(iui.source.commit.length > 0, true)
-    assert.deepEqual(outsideRuntimeImports(runtimeDest), [])
   } finally {
     await rm(appRoot, { recursive: true, force: true })
+  }
+})
+
+test('stageRuntimeTree rejects missing escaped import from runtime/server.mjs', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fde-runtime-fixture-'))
+  const fakeRepo = join(dir, 'repo')
+  const appRoot = join(dir, 'app')
+  await mkdir(join(fakeRepo, 'runtime'), { recursive: true })
+  await writeFile(join(fakeRepo, 'runtime', 'server.mjs'), "import {} from '../scripts/missing.mjs'\n")
+  try {
+    await assert.rejects(
+      () => stageRuntimeTree(fakeRepo, appRoot),
+      (error) => error.message.includes('runtime/server.mjs → ../scripts/missing.mjs'),
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('stageRuntimeTree copies transitive scripts closure', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fde-runtime-fixture-'))
+  const fakeRepo = join(dir, 'repo')
+  const appRoot = join(dir, 'app')
+  await mkdir(join(fakeRepo, 'runtime'), { recursive: true })
+  await mkdir(join(fakeRepo, 'scripts'), { recursive: true })
+  await writeFile(join(fakeRepo, 'runtime', 'server.mjs'), "import {} from '../scripts/a.mjs'\n")
+  await writeFile(join(fakeRepo, 'scripts', 'a.mjs'), "import {} from './b.mjs'\n")
+  await writeFile(join(fakeRepo, 'scripts', 'b.mjs'), 'export {}\n')
+  try {
+    await stageRuntimeTree(fakeRepo, appRoot)
+    assert.equal(existsSync(join(appRoot, 'scripts', 'a.mjs')), true)
+    assert.equal(existsSync(join(appRoot, 'scripts', 'b.mjs')), true)
+    assert.deepEqual(packagedRuntimeImportHoles(appRoot), [])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('stageRuntimeTree rejects missing transitive script', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fde-runtime-fixture-'))
+  const fakeRepo = join(dir, 'repo')
+  const appRoot = join(dir, 'app')
+  await mkdir(join(fakeRepo, 'runtime'), { recursive: true })
+  await mkdir(join(fakeRepo, 'scripts'), { recursive: true })
+  await writeFile(join(fakeRepo, 'runtime', 'server.mjs'), "import {} from '../scripts/a.mjs'\n")
+  await writeFile(join(fakeRepo, 'scripts', 'a.mjs'), "import {} from './b.mjs'\n")
+  try {
+    await assert.rejects(
+      () => stageRuntimeTree(fakeRepo, appRoot),
+      (error) => error.message.includes('scripts/a.mjs → ./b.mjs'),
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
   }
 })
