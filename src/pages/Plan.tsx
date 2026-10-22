@@ -392,7 +392,9 @@ function TodoTab() {
     void Promise.all(ids.map(async (id) => {
       if (isHostGoalId(id)) return [id, []] as [string, Array<{ id: string; sessionId: string; state: string }>]
       try {
-        const runs = await runtimeApi.listTaskAiRuns(id)
+        const workspaceId = useApp.getState().activeWorkspaceId
+        if (!workspaceId) return [id, []] as [string, Array<{ id: string; sessionId: string; state: string }>]
+        const runs = await runtimeApi.listTaskAiRuns(id, workspaceId)
         return [id, runs] as [string, Array<{ id: string; sessionId: string; state: string }>]
       } catch {
         return [id, []] as [string, Array<{ id: string; sessionId: string; state: string }>]
@@ -434,7 +436,10 @@ function TodoTab() {
         updateStatus: (taskId, status) => updateTask(taskId, { status }),
         createSession: (input) => runtimeApi.createAiSession(input),
         rename: (sessionId, title) => runtimeApi.renameAiSession(sessionId, title).catch(() => undefined),
-        startRun: (taskId, input) => runtimeApi.startTaskAiRun(taskId, input),
+        startRun: (taskId, input) => runtimeApi.startTaskAiRun(taskId, {
+          ...input,
+          workspaceId: useApp.getState().activeWorkspaceId || '',
+        }),
         prompt: (sessionId, input) => runtimeApi.promptAi(sessionId, input),
       }, {
         taskId: task.id,
@@ -475,7 +480,7 @@ function TodoTab() {
   async function cancelHandoff(task: Task) {
     setAskError('')
     try {
-      await runtimeApi.cancelTaskAiRun(task.id)
+      await runtimeApi.cancelTaskAiRun(task.id, useApp.getState().activeWorkspaceId || '')
       setAiRuns((prev) => {
         const next = new Map(prev)
         const rows = (next.get(task.id) || []).map((row) => (

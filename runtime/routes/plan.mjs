@@ -518,7 +518,14 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
   const taskAiRunMatch = segments.length === 6 && segments[3] === 'tasks' && segments[5] === 'ai-runs'
   if (taskAiRunMatch && (method === 'GET' || method === 'POST')) {
     const id = planRowId(segments[4])
-    const existing = getTask(db, id)
+    const body = method === 'POST' ? await readJson(request) : null
+    const ident = requestAppWorkspace(db, url, body)
+    const failure = httpStatusForWorkspaceError(ident.error)
+    if (failure) {
+      planError(response, failure.status, failure.code, failure.message, correlationId)
+      return true
+    }
+    const existing = getTask(db, id, ident.workspaceId)
     if (!existing) {
       planError(response, 404, 'not_found', '任务不存在', correlationId)
       return true
@@ -527,7 +534,6 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planOk(response, 200, { runs: listTaskAiRuns(db, id) }, correlationId)
       return true
     }
-    const body = await readJson(request)
     const result = body && body.op === 'cancel'
       ? cancelTaskAiRun(db, id)
       : startTaskAiRun(db, {

@@ -133,7 +133,7 @@ test('task writes reject a bad sourceRef and an ai run is one row that survives 
     const patched = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}`, {
       method: 'PATCH',
       headers: pageHeaders(),
-      body: JSON.stringify({ sourceRef: 'im:req_1' }),
+      body: JSON.stringify({ workspaceId: 'ws_ai_run', sourceRef: 'im:req_1' }),
     })
     const patchedBody = await readJson(patched)
     assert.equal(patched.status, 200, JSON.stringify(patchedBody))
@@ -142,7 +142,7 @@ test('task writes reject a bad sourceRef and an ai run is one row that survives 
     const rejected = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}`, {
       method: 'PATCH',
       headers: pageHeaders(),
-      body: JSON.stringify({ sourceRef: 'app:orders' }),
+      body: JSON.stringify({ workspaceId: 'ws_ai_run', sourceRef: 'app:orders' }),
     })
     const rejectedBody = await readJson(rejected)
     assert.equal(rejected.status, 422, JSON.stringify(rejectedBody))
@@ -176,7 +176,7 @@ test('task writes reject a bad sourceRef and an ai run is one row that survives 
     const started = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`, {
       method: 'POST',
       headers: pageHeaders(),
-      body: JSON.stringify({ sessionId: 'sess_1', requestId: 'req_1' }),
+      body: JSON.stringify({ sessionId: 'sess_1', requestId: 'req_1', workspaceId: 'ws_ai_run' }),
     })
     const startedBody = await readJson(started)
     assert.equal(started.status, 201, JSON.stringify(startedBody))
@@ -186,7 +186,7 @@ test('task writes reject a bad sourceRef and an ai run is one row that survives 
     const again = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`, {
       method: 'POST',
       headers: pageHeaders(),
-      body: JSON.stringify({ sessionId: 'sess_2', requestId: 'req_2' }),
+      body: JSON.stringify({ sessionId: 'sess_2', requestId: 'req_2', workspaceId: 'ws_ai_run' }),
     })
     const againBody = await readJson(again)
     assert.equal(again.status, 409, JSON.stringify(againBody))
@@ -195,7 +195,7 @@ test('task writes reject a bad sourceRef and an ai run is one row that survives 
     await stopServer()
     await startServer()
 
-    const listed = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`)
+    const listed = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs?workspaceId=ws_ai_run`)
     const listedBody = await readJson(listed)
     assert.equal(listed.status, 200, JSON.stringify(listedBody))
     const runs = listedBody.data.runs || listedBody.data
@@ -205,7 +205,7 @@ test('task writes reject a bad sourceRef and an ai run is one row that survives 
     const cancelled = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`, {
       method: 'POST',
       headers: pageHeaders(),
-      body: JSON.stringify({ op: 'cancel' }),
+      body: JSON.stringify({ op: 'cancel', workspaceId: 'ws_ai_run' }),
     })
     const cancelledBody = await readJson(cancelled)
     assert.equal(cancelled.status, 200, JSON.stringify(cancelledBody))
@@ -214,7 +214,7 @@ test('task writes reject a bad sourceRef and an ai run is one row that survives 
     const restarted = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`, {
       method: 'POST',
       headers: pageHeaders(),
-      body: JSON.stringify({ sessionId: 'sess_3', requestId: 'req_3' }),
+      body: JSON.stringify({ sessionId: 'sess_3', requestId: 'req_3', workspaceId: 'ws_ai_run' }),
     })
     const restartedBody = await readJson(restarted)
     assert.equal(restarted.status, 201, JSON.stringify(restartedBody))

@@ -122,7 +122,7 @@ test('a handoff with no model key gets 503 and the row stays doing and cancellab
         const res = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(id)}`, {
           method: 'PATCH',
           headers: pageHeaders(),
-          body: JSON.stringify({ status }),
+          body: JSON.stringify({ status, workspaceId: 'ws_nokey' }),
         })
         const body = await readJson(res)
         if (!res.ok) throw httpError(res.status, body)
@@ -144,7 +144,7 @@ test('a handoff with no model key gets 503 and the row stays doing and cancellab
         const res = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(id)}/ai-runs`, {
           method: 'POST',
           headers: pageHeaders(),
-          body: JSON.stringify(input),
+          body: JSON.stringify({ ...input, workspaceId: 'ws_nokey' }),
         })
         const body = await readJson(res)
         if (!res.ok) throw httpError(res.status, body)
@@ -167,7 +167,7 @@ test('a handoff with no model key gets 503 and the row stays doing and cancellab
     assert.equal(outcome.sessionStatus, 503)
     assert.notEqual(outcome.sessionId, requestId)
     assert.equal(outcome.sessionId || '', '')
-    const runs = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`, { headers: pageHeaders() })
+    const runs = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs?workspaceId=ws_nokey`, { headers: pageHeaders() })
     const runsBody = await readJson(runs)
     const stored = (runsBody.data?.runs || []).find((item) => item.state === 'running')
     assert.ok(stored, JSON.stringify(runsBody))
@@ -180,7 +180,7 @@ test('a handoff with no model key gets 503 and the row stays doing and cancellab
     const cancelled = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`, {
       method: 'POST',
       headers: pageHeaders(),
-      body: JSON.stringify({ op: 'cancel' }),
+      body: JSON.stringify({ op: 'cancel', workspaceId: 'ws_nokey' }),
     })
     const cancelledBody = await readJson(cancelled)
     assert.equal(cancelled.status, 200, JSON.stringify(cancelledBody))
@@ -192,7 +192,7 @@ test('a handoff with no model key gets 503 and the row stays doing and cancellab
     const retried = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(taskId)}/ai-runs`, {
       method: 'POST',
       headers: pageHeaders(),
-      body: JSON.stringify({ sessionId: 'sess_after_cancel', requestId: 'req_after_cancel' }),
+      body: JSON.stringify({ sessionId: 'sess_after_cancel', requestId: 'req_after_cancel', workspaceId: 'ws_nokey' }),
     })
     const retriedBody = await readJson(retried)
     assert.equal(retried.status, 201, JSON.stringify(retriedBody))
