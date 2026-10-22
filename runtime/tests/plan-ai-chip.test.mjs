@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

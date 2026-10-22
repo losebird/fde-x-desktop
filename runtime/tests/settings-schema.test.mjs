@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { dictInnerUid, objectFieldEntries, rootObjectUid, schemaNode, unionConstOptions } from '../settings-schema.mjs'

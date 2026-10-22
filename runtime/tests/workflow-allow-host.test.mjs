@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'

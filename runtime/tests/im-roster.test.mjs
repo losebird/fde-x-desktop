@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { destOf, isRoster, upsertGroup, visibleMembers } from '../plugins/dsh-lan-assist/roster.js'

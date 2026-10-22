@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { readFile, mkdir, rm } from 'node:fs/promises'

@@ -1,3 +1,4 @@
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import http from 'node:http'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
@@ -782,7 +783,7 @@ test('启动时把上次留下的 queued 和 running 标成失败', async (t) =>
     stderr += chunk.toString()
   })
   t.after(async () => {
-    if (child.exitCode == null) child.kill('SIGTERM')
+    await awaitChildExit(child)
     await rm(root, { recursive: true, force: true })
   })
   let listening = false
@@ -864,7 +865,7 @@ test('不带页面令牌的 run 返回 401，workflow_runs 仍是 0 行', async 
     stderr += chunk.toString()
   })
   t.after(async () => {
-    if (child.exitCode == null) child.kill('SIGTERM')
+    await awaitChildExit(child)
     await rm(root, { recursive: true, force: true })
   })
   for (let i = 0; i < 100; i += 1) {

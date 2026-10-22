@@ -1,3 +1,4 @@
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -48,7 +49,7 @@ test('boot listens when the host generation starts out missing', async () => {
     })
     assert.equal(heard, true, output)
   } finally {
-    child.kill('SIGKILL')
+    await awaitChildExit(child, 'SIGKILL')
     await rm(home, { recursive: true, force: true })
   }
 })

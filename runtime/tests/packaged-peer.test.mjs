@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { mkdtemp, mkdir, cp, readFile, readlink, rm, writeFile } from 'node:fs/promises'
 import { existsSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'

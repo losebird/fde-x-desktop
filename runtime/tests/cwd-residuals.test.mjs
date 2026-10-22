@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { register } from 'node:module'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

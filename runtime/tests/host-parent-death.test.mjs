@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { PARENT_DEATH_DEADLINE_MS, judgeHostCrash, judgeHostGroupWindow, runParentDeath } from './support/parent-death-repro.mjs'

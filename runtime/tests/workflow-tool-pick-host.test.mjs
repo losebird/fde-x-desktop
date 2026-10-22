@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { describe, test } from 'node:test'

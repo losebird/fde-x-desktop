@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'

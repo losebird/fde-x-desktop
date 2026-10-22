@@ -1,3 +1,4 @@
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -42,8 +43,7 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
   })
   child.stderr.on('data', (buf) => { log += buf })
   t.after(async () => {
-    if (child.exitCode === null) child.kill('SIGTERM')
-    await delay(150)
+    await awaitChildExit(child)
     await rm(home, { recursive: true, force: true })
     await rm(ws, { recursive: true, force: true })
   })

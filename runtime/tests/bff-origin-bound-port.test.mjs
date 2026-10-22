@@ -1,3 +1,4 @@
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { mkdir, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -34,7 +35,7 @@ test('status bffOrigin uses the port from server.address() when FDE_RUNTIME_PORT
   child.stdout.on('data', (chunk) => { output += chunk.toString() })
   child.stderr.on('data', (chunk) => { output += chunk.toString() })
   t.after(async () => {
-    if (child.exitCode == null) child.kill('SIGKILL')
+    await awaitChildExit(child, 'SIGKILL')
     await rm(root, { recursive: true, force: true })
   })
   let boundPort = 0

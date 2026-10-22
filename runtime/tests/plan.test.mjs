@@ -1,3 +1,4 @@
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { mkdir, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -56,9 +57,7 @@ async function startServer() {
 }
 
 async function stopServer() {
-  if (!child) return
-  child.kill('SIGTERM')
-  await delay(100)
+  await awaitChildExit(child)
 }
 
 test('plan CRUD, workspace isolation, status validation', async (t) => {

@@ -1,3 +1,4 @@
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir, rm } from 'node:fs/promises'
@@ -72,7 +73,7 @@ test('保存工具清单时没有页面令牌返回 401，并且不写库', asyn
       db.close()
     }
   } finally {
-    child.kill('SIGTERM')
+    await awaitChildExit(child)
     await rm(root, { recursive: true, force: true })
   }
 })

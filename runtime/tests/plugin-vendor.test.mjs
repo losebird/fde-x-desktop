@@ -1,3 +1,4 @@
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -179,7 +180,7 @@ test('pin cleanup keeps another live pid staging and a dead bak', async () => {
     assert.equal(existsSync(deadBak), true)
     assert.equal(await readFile(join(vendor, 'marker.txt'), 'utf8'), 'stay')
   } finally {
-    child.kill()
+    await awaitChildExit(child)
     await rm(root, { recursive: true, force: true })
   }
 })
