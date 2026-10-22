@@ -12,6 +12,8 @@ import {
 import { LIVE_PATH, LIVE_PROBE_MS, combineAbortSignal, probeRuntimeLive } from '../../runtime/live-probe.mjs'
 // @ts-expect-error runtime ESM helper
 import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
+// @ts-expect-error runtime ESM helper
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 
 const CONNECT_ATTEMPT_MS = 5_000
 
@@ -38,6 +40,17 @@ export type SearchHit = {
 
 function currentWorkspaceCwd(): string {
   return activeWorkspaceCwdFromState(useApp.getState())
+}
+
+function currentWorkspaceId(): string {
+  const id = useApp.getState().activeWorkspaceId
+  return typeof id === 'string' ? id.trim() : ''
+}
+
+function withWorkspaceId(path: string, workspaceId?: string): string {
+  const id = String(workspaceId || currentWorkspaceId() || '').trim()
+  if (!id || /[?&]workspaceId=/.test(path)) return path
+  return `${path}${path.includes('?') ? '&' : '?'}workspaceId=${encodeURIComponent(id)}`
 }
 
 function withWorkspaceCwd(path: string): string {
@@ -628,6 +641,38 @@ export type PlanTaskProposal = {
   op: 'insert' | 'update'
   taskId: string
   title: string
+  before?: Record<string, unknown> | null
+  change?: Record<string, unknown> | null
+}
+
+export type PlanHistoryChange = {
+  field: string
+  before: unknown
+  after: unknown
+}
+
+export type PlanHistoryEntry = {
+  at: string
+  kind: 'change' | 'run'
+  action: string
+  actor: 'you' | 'ai' | 'system'
+  legacy: boolean
+  changes: PlanHistoryChange[] | null
+  label: string
+  via?: string
+  run?: {
+    id: string
+    state: string
+    message: string
+    trigger: 'manual' | 'schedule'
+    sessionId?: string
+  }
+}
+
+export type PlanHistory = {
+  hostManaged: boolean
+  note?: string
+  entries: PlanHistoryEntry[]
 }
 
 export class RuntimeApiError extends Error {
@@ -690,7 +735,7 @@ export class RuntimeApi {
   }
 
   async semanticCoverage(cwd?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const dir = cwd && cwd.startsWith('/') ? cwd : currentWorkspaceCwd()
+    const dir = canonicalWorkspaceCwd(cwd) || currentWorkspaceCwd()
     if (!dir) return { ok: false, error: 'NO_CWD' }
     try {
       return await this.request<Record<string, unknown>>(`/semantic-os/api/coverage?cwd=${encodeURIComponent(dir)}`, { signal })
@@ -701,7 +746,7 @@ export class RuntimeApi {
   }
 
   async semanticPython(op: string, args: Record<string, unknown> = {}, cwd?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const dir = cwd && cwd.startsWith('/') ? cwd : currentWorkspaceCwd()
+    const dir = canonicalWorkspaceCwd(cwd) || currentWorkspaceCwd()
     return this.request<Record<string, unknown>>('/semantic-os/python', {
       method: 'POST',
       signal,
@@ -731,7 +776,7 @@ export class RuntimeApi {
   }
 
   async ensureWorkspace(input: { id: string; name: string; description?: string; cwd?: string }, signal?: AbortSignal): Promise<void> {
-    const cwd = typeof input.cwd === 'string' && input.cwd.startsWith('/') ? input.cwd : ''
+    const cwd = canonicalWorkspaceCwd(input.cwd)
     await this.request('/api/v1/workspaces', {
       method: 'POST',
       signal,
@@ -787,6 +832,7 @@ export class RuntimeApi {
       workspaceId: typeof row.workspaceId === 'string' ? row.workspaceId : undefined,
       sourceRef: typeof row.sourceRef === 'string' ? row.sourceRef : undefined,
       completedAt: typeof row.completedAt === 'string' ? row.completedAt : undefined,
+      updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : undefined,
     }
   }
 
@@ -800,6 +846,7 @@ export class RuntimeApi {
       kind: row.kind,
       workflowId: typeof row.workflowId === 'string' ? row.workflowId : undefined,
       recurrence: row.recurrence === 'once' || row.recurrence === 'daily' ? row.recurrence : undefined,
+      updatedAt: row.updatedAt,
     }
   }
 
@@ -846,6 +893,7 @@ export class RuntimeApi {
       category: (row.category as Workflow['category']) ?? 'system',
       emoji: typeof row.emoji === 'string' ? row.emoji : '🤖',
       createdAt: String(row.createdAt),
+      updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : undefined,
       workspaceId: typeof row.workspaceId === 'string' ? row.workspaceId : undefined,
     }
   }
@@ -884,6 +932,8 @@ export class RuntimeApi {
     dueAt: string | null
     tags: string[]
     workspaceId: string
+    expectedUpdatedAt: string
+    via: string
   }>, signal?: AbortSignal): Promise<Task> {
     const row = await this.planRequest<Record<string, unknown>>(`/api/v1/plan/tasks/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -995,6 +1045,9 @@ export class RuntimeApi {
     location: string | null
     allDay: boolean
     workspaceId: string
+    workflowId: string | null
+    recurrence: 'once' | 'daily' | null
+    expectedUpdatedAt: string
   }>, signal?: AbortSignal): Promise<ScheduleEvent> {
     const row = await this.planRequest<PlanEvent>(`/api/v1/plan/events/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -1061,6 +1114,8 @@ export class RuntimeApi {
     category: Workflow['category']
     emoji: string
     workspaceId: string
+    expectedUpdatedAt: string
+    confirmDanger: string[]
   }>, signal?: AbortSignal): Promise<Workflow> {
     const row = await this.planRequest<Record<string, unknown>>(`/api/v1/plan/workflows/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -1069,6 +1124,11 @@ export class RuntimeApi {
       body: JSON.stringify(patch),
     })
     return this.mapPlanWorkflow(row)
+  }
+
+  async listPlanHistory(workspaceId: string, targetRef: string, signal?: AbortSignal): Promise<PlanHistory> {
+    const params = new URLSearchParams({ workspaceId, targetRef })
+    return this.planRequest<PlanHistory>(`/api/v1/plan/history?${params}`, { signal })
   }
 
   async deleteWorkflow(id: string, opts?: { workspaceId?: string; signal?: AbortSignal }): Promise<void> {
@@ -1423,7 +1483,7 @@ export class RuntimeApi {
   }
 
   async memoryDeps(cwd?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const dir = cwd && cwd.startsWith('/') ? cwd : currentWorkspaceCwd()
+    const dir = canonicalWorkspaceCwd(cwd) || currentWorkspaceCwd()
     const query = dir ? `?cwd=${encodeURIComponent(dir)}` : ''
     const result = await this.request<{ data: Record<string, unknown> }>(`/api/v1/memory/deps${query}`, { signal })
     return result.data
@@ -1464,8 +1524,8 @@ export class RuntimeApi {
     return result.data
   }
 
-  async selectAiPreset(sessionId: string, agentPreset: string, signal?: AbortSignal): Promise<string> {
-    const result = await this.request<{ data: { agentPreset: string } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/preset`, {
+  async selectAiPreset(sessionId: string, agentPreset: string, signal?: AbortSignal, workspaceId?: string): Promise<string> {
+    const result = await this.request<{ data: { agentPreset: string } }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/preset`, workspaceId), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1474,8 +1534,8 @@ export class RuntimeApi {
     return result.data.agentPreset
   }
 
-  async executeAiCommand(sessionId: string, line: string, signal?: AbortSignal): Promise<unknown> {
-    const result = await this.request<{ data: unknown }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/commands`, {
+  async executeAiCommand(sessionId: string, line: string, signal?: AbortSignal, workspaceId?: string): Promise<unknown> {
+    const result = await this.request<{ data: unknown }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/commands`, workspaceId), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1484,15 +1544,15 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listAiCommands(sessionId: string, signal?: AbortSignal): Promise<Array<{ name: string; description?: string }>> {
-    const result = await this.request<{ data: Array<{ name: string; description?: string }> | { items?: Array<{ name: string; description?: string }> } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/commands`, { signal })
+  async listAiCommands(sessionId: string, signal?: AbortSignal, workspaceId?: string): Promise<Array<{ name: string; description?: string }>> {
+    const result = await this.request<{ data: Array<{ name: string; description?: string }> | { items?: Array<{ name: string; description?: string }> } }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/commands`, workspaceId), { signal })
     const payload = result.data
     if (Array.isArray(payload)) return payload
     return Array.isArray(payload.items) ? payload.items : []
   }
 
-  async setAiPermission(sessionId: string, preset: string, signal?: AbortSignal): Promise<unknown> {
-    const result = await this.request<{ data: unknown }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/permission`, {
+  async setAiPermission(sessionId: string, preset: string, signal?: AbortSignal, workspaceId?: string): Promise<unknown> {
+    const result = await this.request<{ data: unknown }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/permission`, workspaceId), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1569,9 +1629,9 @@ export class RuntimeApi {
     await this.request(`/api/v1/skills/bundle?${params}`, { method: 'DELETE', signal })
   }
 
-  async listAiSkills(sessionId?: string, signal?: AbortSignal): Promise<{ items: SkillBagItem[] }> {
+  async listAiSkills(sessionId?: string, signal?: AbortSignal, workspaceId?: string): Promise<{ items: SkillBagItem[] }> {
     const path = sessionId
-      ? `/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/skills`
+      ? withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/skills`, workspaceId)
       : '/api/v1/ai/skills'
     const result = await this.request<{ data: unknown }>(path, { signal })
     return { items: skillItemsFromBag(result.data) }
@@ -1601,20 +1661,20 @@ export class RuntimeApi {
     return result.data
   }
 
-  async listAiSessions(options: { includeBlank?: boolean; includeSubagents?: boolean; includeArchived?: boolean; cursor?: string } = {}, signal?: AbortSignal): Promise<AiSessionSummary[]> {
+  async listAiSessions(options: { includeBlank?: boolean; includeSubagents?: boolean; includeArchived?: boolean; cursor?: string; workspaceId?: string } = {}, signal?: AbortSignal): Promise<AiSessionSummary[]> {
     const query = new URLSearchParams()
     if (options.includeBlank) query.set('includeBlank', 'true')
     if (options.includeSubagents) query.set('includeSubagents', 'true')
     if (options.includeArchived) query.set('includeArchived', 'true')
     if (options.cursor) query.set('cursor', options.cursor)
     const suffix = query.size > 0 ? `?${query.toString()}` : ''
-    const result = await this.request<{ data: { items: AiSessionSummary[] } }>(`/api/v1/ai/sessions${suffix}`, { signal })
+    const result = await this.request<{ data: { items: AiSessionSummary[] } }>(withWorkspaceId(`/api/v1/ai/sessions${suffix}`, options.workspaceId), { signal })
     return result.data.items
   }
 
-  async exportAiSession(sessionId: string, signal?: AbortSignal): Promise<AiSessionTree> {
+  async exportAiSession(sessionId: string, signal?: AbortSignal, workspaceId?: string): Promise<AiSessionTree> {
     const result = await this.request<{ data: AiSessionTree }>(
-      `/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/export`,
+      withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/export`, workspaceId),
       { signal },
     )
     return result.data
@@ -1645,24 +1705,24 @@ export class RuntimeApi {
     return result.data
   }
 
-  async archiveAiSession(sessionId: string, signal?: AbortSignal): Promise<unknown> {
-    const result = await this.request<{ data: unknown }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/archive`, {
+  async archiveAiSession(sessionId: string, signal?: AbortSignal, workspaceId?: string): Promise<unknown> {
+    const result = await this.request<{ data: unknown }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/archive`, workspaceId), {
       method: 'POST',
       signal,
     })
     return result.data
   }
 
-  async forkAiSession(sessionId: string, signal?: AbortSignal): Promise<{ sessionId: string }> {
-    const result = await this.request<{ data: { sessionId: string } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/fork`, {
+  async forkAiSession(sessionId: string, signal?: AbortSignal, workspaceId?: string): Promise<{ sessionId: string }> {
+    const result = await this.request<{ data: { sessionId: string } }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/fork`, workspaceId), {
       method: 'POST',
       signal,
     })
     return result.data
   }
 
-  async renameAiSession(sessionId: string, title: string, signal?: AbortSignal): Promise<{ title: string; seq: number }> {
-    const result = await this.request<{ data: { title: string; seq: number } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/rename`, {
+  async renameAiSession(sessionId: string, title: string, signal?: AbortSignal, workspaceId?: string): Promise<{ title: string; seq: number }> {
+    const result = await this.request<{ data: { title: string; seq: number } }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/rename`, workspaceId), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1671,8 +1731,8 @@ export class RuntimeApi {
     return result.data
   }
 
-  async selectAiModel(sessionId: string, selection: AiModelSelection, signal?: AbortSignal): Promise<AiModelSelection> {
-    const result = await this.request<{ data: { selected: AiModelSelection } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/model`, {
+  async selectAiModel(sessionId: string, selection: AiModelSelection, signal?: AbortSignal, workspaceId?: string): Promise<AiModelSelection> {
+    const result = await this.request<{ data: { selected: AiModelSelection } }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/model`, workspaceId), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1681,8 +1741,8 @@ export class RuntimeApi {
     return result.data.selected
   }
 
-  async uploadAiAttachment(sessionId: string, input: { data: string; name?: string }, signal?: AbortSignal): Promise<{ receiptId: string; file?: { name?: string; bytes?: number } }> {
-    const result = await this.request<{ data: { receiptId: string; file?: { name?: string; bytes?: number } } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/attachments`, {
+  async uploadAiAttachment(sessionId: string, input: { data: string; name?: string }, signal?: AbortSignal, workspaceId?: string): Promise<{ receiptId: string; file?: { name?: string; bytes?: number } }> {
+    const result = await this.request<{ data: { receiptId: string; file?: { name?: string; bytes?: number } } }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/attachments`, workspaceId), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1692,7 +1752,7 @@ export class RuntimeApi {
   }
 
   async promptAi(sessionId: string, input: { text: string; receiptIds?: string[]; requestId?: string; mode?: 'queue' | 'steer'; workspaceId?: string; clientTimeZone?: string }, signal?: AbortSignal): Promise<{ accepted: true; requestId: string }> {
-    const result = await this.request<{ data: { accepted: true; requestId: string } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/prompt`, {
+    const result = await this.request<{ data: { accepted: true; requestId: string } }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/prompt`, input.workspaceId), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1720,8 +1780,8 @@ export class RuntimeApi {
     return result.data
   }
 
-  async decideAiApproval(sessionId: string, outcome: 'allowed-once' | 'rejected', signal?: AbortSignal): Promise<{ eventId: string; outcome: string }> {
-    const result = await this.request<{ data: { eventId: string; outcome: string } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/approval`, {
+  async decideAiApproval(sessionId: string, outcome: 'allowed-once' | 'rejected', signal?: AbortSignal, workspaceId?: string): Promise<{ eventId: string; outcome: string }> {
+    const result = await this.request<{ data: { eventId: string; outcome: string } }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/approval`, workspaceId), {
       method: 'POST',
       signal,
       headers: { 'Content-Type': 'application/json' },
@@ -1732,10 +1792,10 @@ export class RuntimeApi {
 
   async cancelAi(
     sessionId: string,
-    options: { kind?: string; signal?: AbortSignal } = {},
+    options: { kind?: string; signal?: AbortSignal; workspaceId?: string } = {},
   ): Promise<{ accepted: true }> {
     const kind = String(options.kind || '').trim()
-    const result = await this.request<{ data: { accepted: true } }>(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/cancel`, {
+    const result = await this.request<{ data: { accepted: true } }>(withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/cancel`, options.workspaceId), {
       method: 'POST',
       signal: options.signal,
       headers: kind ? { 'Content-Type': 'application/json' } : undefined,
@@ -1744,8 +1804,10 @@ export class RuntimeApi {
     return result.data
   }
 
-  async followAiSession(sessionId: string, onFrame: (frame: AiFollowFrame) => void, options: { maxMessages?: number; signal?: AbortSignal } = {}): Promise<void> {
+  async followAiSession(sessionId: string, onFrame: (frame: AiFollowFrame) => void, options: { maxMessages?: number; signal?: AbortSignal; workspaceId?: string } = {}): Promise<void> {
     const query = new URLSearchParams({ maxMessages: String(options.maxMessages ?? 100) })
+    const followWorkspaceId = String(options.workspaceId || currentWorkspaceId() || '').trim()
+    if (followWorkspaceId) query.set('workspaceId', followWorkspaceId)
     let response: Response
     try {
       response = await fetch(`${this.baseUrl}/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/follow?${query.toString()}`, {
@@ -1999,16 +2061,14 @@ export class RuntimeApi {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...body,
-        workspaceCwd: typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-          ? body.workspaceCwd
-          : currentWorkspaceCwd(),
+        workspaceCwd: canonicalWorkspaceCwd(body.workspaceCwd) || currentWorkspaceCwd(),
       }),
     })
     return result.data
   }
 
   async runBriefing(mode: 'full' | 'internal-only' = 'full', opts?: { sessionId?: string; workspaceCwd?: string; omit?: string[]; signal?: AbortSignal }): Promise<{ briefingId: string; briefing: BriefingSnapshot }> {
-    const workspaceCwd = opts?.workspaceCwd && opts.workspaceCwd.startsWith('/') ? opts.workspaceCwd : currentWorkspaceCwd()
+    const workspaceCwd = canonicalWorkspaceCwd(opts?.workspaceCwd) || currentWorkspaceCwd()
     const omit = Array.isArray(opts?.omit) ? opts.omit.filter((key) => typeof key === 'string' && key) : []
     const result = await this.request<{ ok: true; data: { briefingId: string; briefing: BriefingSnapshot } }>('/api/v1/briefing/run', {
       method: 'POST',
@@ -2469,7 +2529,7 @@ export class RuntimeApi {
     return result.data
   }
 
-  async updateBusinessApp(id: string, input: { name?: string; definition?: JsonValue; changeNote?: string }, signal?: AbortSignal): Promise<BusinessAppRecord> {
+  async updateBusinessApp(id: string, input: { name?: string; definition?: JsonValue; changeNote?: string; workspaceId?: string }, signal?: AbortSignal): Promise<BusinessAppRecord> {
     const result = await this.request<{ data: BusinessAppRecord }>(`/api/v1/business/apps/${encodeURIComponent(id)}`, {
       method: 'PUT',
       signal,
@@ -2899,7 +2959,7 @@ export class RuntimeApi {
   }
 
   async listBizKinds(signal?: AbortSignal, workspaceCwd?: string): Promise<BizVocabSheet> {
-    const cwd = workspaceCwd?.trim().startsWith('/') ? workspaceCwd.trim() : currentWorkspaceCwd()
+    const cwd = canonicalWorkspaceCwd(workspaceCwd) || currentWorkspaceCwd()
     const path = cwd
       ? `/api/v1/biz/kinds?cwd=${encodeURIComponent(cwd)}`
       : withWorkspaceCwd('/api/v1/biz/kinds')

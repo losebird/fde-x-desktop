@@ -1,6 +1,6 @@
-import { findInFlightBriefing, getOrCreateDefinition, listScheduledDefinitions } from './store.mjs'
+import { findInFlightBriefing, getLatestBriefing, getOrCreateDefinition, listScheduledDefinitions } from './store.mjs'
 import { runBriefing } from './run.mjs'
-import { listWorkspaces } from '../db.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 
 const TICK_MS = 60_000
 const firedToday = new Map()
@@ -16,23 +16,21 @@ function scheduleKey(definitionId, dayKey, at) {
   return `${definitionId}:${dayKey}:${at}`
 }
 
-function workspaceCwdForDefinition(db, workspaceId) {
-  const row = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(workspaceId)
-  if (row) {
-    try {
-      const meta = JSON.parse(row.metadata_json || '{}')
-      const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-      if (path.startsWith('/')) return path
-    } catch { /* fall through */ }
-  }
-  for (const ws of listWorkspaces(db)) {
-    if (ws.id === workspaceId) {
-      const meta = ws.metadata && typeof ws.metadata === 'object' ? ws.metadata : {}
-      const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-      if (path.startsWith('/')) return path
-    }
-  }
+function rawWorkspacePath(meta) {
+  if (!meta || typeof meta !== 'object') return ''
+  if (typeof meta.cwd === 'string' && meta.cwd.trim()) return meta.cwd
+  if (typeof meta.path === 'string' && meta.path.trim()) return meta.path
   return ''
+}
+
+function storedWorkspaceCwd(db, workspaceId) {
+  const row = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(workspaceId)
+  if (!row) return { cwd: '' }
+  const raw = rawWorkspacePath(JSON.parse(row.metadata_json || '{}'))
+  if (!raw) return { cwd: '' }
+  const cwd = canonicalWorkspaceCwd(raw)
+  if (!cwd) return { illegal: true, raw }
+  return { cwd }
 }
 
 function shouldFireSchedule(schedule, now) {
@@ -49,13 +47,9 @@ function shouldFireSchedule(schedule, now) {
 }
 
 function latestBriefingToday(db, workspaceCwd) {
-  const row = db.prepare(`
-    SELECT generated_at, created_at FROM briefings
-    WHERE workspace_cwd = ?
-    ORDER BY COALESCE(generated_at, created_at) DESC LIMIT 1
-  `).get(workspaceCwd)
+  const row = getLatestBriefing(db, workspaceCwd)
   if (!row) return null
-  const ts = new Date(row.generated_at || row.created_at)
+  const ts = new Date(row.generatedAt)
   const now = clock()
   if (ts.toDateString() === now.toDateString()) return row
   return null
@@ -76,42 +70,48 @@ export function shouldRunOnOpen(db, workspaceCwd) {
 /**
  * @param {{ db: import('node:sqlite').DatabaseSync, aiRuntime: object, defaultCwd: string }} deps
  */
-export function startBriefingScheduler(deps) {
-  const tick = async () => {
-    const now = clock()
-    const dayKey = now.toDateString()
-    for (const row of listScheduledDefinitions(deps.db)) {
-      let schedule = {}
-      try {
-        schedule = JSON.parse(row.schedule_json || '{}')
-      } catch { continue }
-      if (!shouldFireSchedule(schedule, now)) continue
-      const at = schedule.at || '08:30'
-      const key = scheduleKey(row.id, dayKey, at)
-      if (firedToday.has(key)) continue
-      firedToday.set(key, true)
-      const workspaceCwd = workspaceCwdForDefinition(deps.db, row.workspace_id) || deps.defaultCwd
-      if (!workspaceCwd.startsWith('/')) continue
-      try {
-        if (findInFlightBriefing(deps.db, workspaceCwd)) continue
-        const connected = deps.aiRuntime?.status?.().connected
-        await runBriefing(deps, {
-          workspaceCwd,
-          mode: connected ? 'full' : 'internal-only',
-        })
-      } catch (error) {
-        console.warn('briefing_scheduled_run_failed', row.id, error)
-      }
+export async function tickBriefingScheduler(deps) {
+  const now = clock()
+  const dayKey = now.toDateString()
+  const execute = typeof deps.runBriefing === 'function' ? deps.runBriefing : runBriefing
+  for (const row of listScheduledDefinitions(deps.db)) {
+    let schedule = {}
+    try {
+      schedule = JSON.parse(row.schedule_json || '{}')
+    } catch { continue }
+    if (!shouldFireSchedule(schedule, now)) continue
+    const at = schedule.at || '08:30'
+    const key = scheduleKey(row.id, dayKey, at)
+    const stored = storedWorkspaceCwd(deps.db, row.workspace_id)
+    if (stored.illegal) {
+      console.warn('briefing_schedule_skipped', row.id, stored.raw)
+      continue
     }
-    if (firedToday.size > 500) {
-      for (const k of firedToday.keys()) {
-        if (!k.includes(dayKey)) firedToday.delete(k)
-      }
+    const workspaceCwd = stored.cwd || canonicalWorkspaceCwd(deps.defaultCwd)
+    if (!workspaceCwd) continue
+    if (firedToday.has(key)) continue
+    firedToday.set(key, true)
+    try {
+      if (findInFlightBriefing(deps.db, workspaceCwd)) continue
+      const connected = deps.aiRuntime?.status?.().connected
+      await execute(deps, {
+        workspaceCwd,
+        mode: connected ? 'full' : 'internal-only',
+      })
+    } catch (error) {
+      console.warn('briefing_scheduled_run_failed', row.id, error)
     }
   }
+  if (firedToday.size > 500) {
+    for (const k of firedToday.keys()) {
+      if (!k.includes(dayKey)) firedToday.delete(k)
+    }
+  }
+}
 
+export function startBriefingScheduler(deps) {
   const timer = setInterval(() => {
-    void tick()
+    void tickBriefingScheduler(deps)
   }, TICK_MS)
   timer.unref?.()
   return timer

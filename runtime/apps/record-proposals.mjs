@@ -44,10 +44,11 @@ function recordDomain(opts) {
     rejectAction: 'app.record.reject',
     actorId: opts.actorId,
     correlationId: opts.correlationId,
+    workspaceId: opts.workspaceId,
     // A null base on a live record used to close as stale_record.
     reasons: { missing: 'record_missing', moved: 'stale_record', appeared: 'stale_record' },
     load(db, plan) {
-      const app = getAppById(db, plan.appId)
+      const app = getAppById(db, plan.appId, opts.workspaceId)
       if (!app || app.status !== 'active' || appIsTrashed(app)) return { hold: true }
       const versions = []
       for (const patch of plan.patches) {
@@ -57,7 +58,7 @@ function recordDomain(opts) {
       return { versions }
     },
     apply(db, plan) {
-      const app = getAppById(db, plan.appId)
+      const app = getAppById(db, plan.appId, opts.workspaceId)
       for (const patch of plan.patches) {
         const row = patchRecord(db, app.spec, plan.entity, plan.workspaceCwd, patch.rid, patch.fields)
         if (!row) return { applied: false }

@@ -1,5 +1,8 @@
+import { resolveWorkspaceIdOrFail } from './briefing/workspace.mjs'
+import { canonicalWorkspaceCwd, sameWorkspaceCwd } from './cwd.mjs'
 import { listBusinessApps, listBusinessConnections, listOperations, listWorkspaces } from './db.mjs'
 import { memoryLandHref } from './memory/identity.mjs'
+import { formatTaskLine } from './plan/task-advice.mjs'
 
 const PACK_BUDGET_MS = 3000
 
@@ -15,7 +18,7 @@ function workspaceRowForCwd(db, workspaceCwd) {
   for (const row of rows) {
     const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
     const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-    if (path === workspaceCwd) return row
+    if (sameWorkspaceCwd(path, workspaceCwd)) return row
   }
   return null
 }
@@ -125,6 +128,7 @@ async function fillWorkspace(db, pack, workspaceCwd, sessionId) {
 
 function mapTaskRow(t) {
   const row = { id: t.id, title: t.title, status: t.status }
+  if (t.priority != null) row.priority = t.priority
   if (t.due_at != null) row.dueAt = t.due_at
   return row
 }
@@ -149,9 +153,7 @@ function parseTaskList(taskIds) {
   return { query: { kind: 'explicit', ids } }
 }
 
-async function fillTasks(db, pack, workspaceCwd, taskList) {
-  const row = workspaceRowForCwd(db, workspaceCwd)
-  const workspaceId = row?.id || 'ws_personal'
+async function fillTasks(db, pack, workspaceId, taskList) {
   const now = new Date().toISOString()
   const overdue = db.prepare(`
     SELECT COUNT(*) AS n FROM tasks
@@ -163,7 +165,7 @@ async function fillTasks(db, pack, workspaceCwd, taskList) {
     const dayStart = isoDayStart()
     const dayEnd = isoDayEnd()
     taskRows = db.prepare(`
-      SELECT id, title, status, due_at FROM tasks
+      SELECT id, title, status, priority, due_at FROM tasks
       WHERE workspace_id = ? AND status IN ('todo', 'doing')
         AND due_at IS NOT NULL AND due_at >= ? AND due_at <= ?
       ORDER BY due_at ASC LIMIT 20
@@ -171,7 +173,7 @@ async function fillTasks(db, pack, workspaceCwd, taskList) {
   } else if (taskList.ids.length > 0) {
     const placeholders = taskList.ids.map(() => '?').join(', ')
     const loaded = db.prepare(`
-      SELECT id, title, status, due_at FROM tasks
+      SELECT id, title, status, priority, due_at FROM tasks
       WHERE workspace_id = ? AND id IN (${placeholders})
     `).all(workspaceId, ...taskList.ids)
     const byId = new Map(loaded.map((t) => [t.id, t]))
@@ -198,9 +200,7 @@ async function fillIm(aiRuntime, pack) {
   pack.im = { unread, recent }
 }
 
-async function fillBiz(db, pack, workspaceCwd) {
-  const row = workspaceRowForCwd(db, workspaceCwd)
-  const workspaceId = row?.id || 'ws_personal'
+async function fillBiz(db, pack, workspaceId) {
   const connections = listBusinessConnections(db, { workspaceId }).slice(0, 6).map((c) => ({
     id: c.id,
     name: c.name,
@@ -217,9 +217,7 @@ async function fillBiz(db, pack, workspaceCwd) {
   }
 }
 
-async function fillApps(db, pack, workspaceCwd) {
-  const row = workspaceRowForCwd(db, workspaceCwd)
-  const workspaceId = row?.id || 'ws_personal'
+async function fillApps(db, pack, workspaceId) {
   const apps = listBusinessApps(db, { workspaceId }).filter((app) => !String(app.deletedAt || '').trim()).slice(0, 8).map((app) => {
     let entities = []
     try {
@@ -296,16 +294,25 @@ export async function buildContextPack(deps, input) {
     intentKind,
     sessionId,
     taskIds,
+    workspaceId: suppliedWorkspaceId,
+    cwdSource,
   } = input
   const warnings = []
   const pack = { generatedAt: Date.now() }
-  const cwd = typeof workspaceCwd === 'string' && workspaceCwd.startsWith('/') ? workspaceCwd : ''
+  const cwd = canonicalWorkspaceCwd(workspaceCwd)
   const scopeList = scopes.filter((s) => ALLOWED_SCOPES.has(s))
   const deadline = Date.now() + PACK_BUDGET_MS
 
   if (!cwd) {
     return { pack, warnings: ['workspace_cwd_missing'] }
   }
+  const ident = resolveWorkspaceIdOrFail(deps.db, {
+    cwd,
+    source: cwdSource || 'request',
+    id: typeof suppliedWorkspaceId === 'string' ? suppliedWorkspaceId.trim() : '',
+  })
+  if (ident.error) return { pack, warnings, error: ident.error }
+  const workspaceId = ident.workspaceId
 
   for (const scope of scopeList) {
     const result = await withBudget(deadline, async () => {
@@ -314,11 +321,11 @@ export async function buildContextPack(deps, input) {
         else if (scope === 'tasks') {
           const parsed = parseTaskList(taskIds)
           if (parsed.warning) warnings.push(parsed.warning)
-          await fillTasks(deps.db, pack, cwd, parsed.query)
+          await fillTasks(deps.db, pack, workspaceId, parsed.query)
         }
         else if (scope === 'im') await fillIm(deps.aiRuntime, pack)
-        else if (scope === 'biz') await fillBiz(deps.db, pack, cwd)
-        else if (scope === 'apps') await fillApps(deps.db, pack, cwd)
+        else if (scope === 'biz') await fillBiz(deps.db, pack, workspaceId)
+        else if (scope === 'apps') await fillApps(deps.db, pack, workspaceId)
         else if (scope === 'memory') await fillMemory(deps.aiRuntime, pack, { workspaceCwd: cwd, query, entity, intentKind }, warnings)
         return { ok: true }
       } catch (error) {
@@ -342,8 +349,8 @@ export async function buildContextPack(deps, input) {
   return { pack, warnings }
 }
 
-/** @param {Record<string, unknown>} pack @param {Set<string>} omit */
-export function renderContextForPrompt(pack, omit = new Set()) {
+/** @param {Record<string, unknown>} pack @param {Set<string>} omit @param {{ taskIds?: boolean }} [options] */
+export function renderContextForPrompt(pack, omit = new Set(), options = {}) {
   const lines = []
   const w = pack.workspace && typeof pack.workspace === 'object' ? pack.workspace : null
   if (w && !omit.has('workspace')) {
@@ -353,7 +360,8 @@ export function renderContextForPrompt(pack, omit = new Set()) {
   if (pack.tasks && !omit.has('tasks')) {
     const t = pack.tasks
     const today = (Array.isArray(t.today) ? t.today : []).filter((row) => !omit.has(`tasks:${row.id}`))
-    lines.push('【今日待办】', today.length ? today.map((row) => `- ${row.title}（${row.status}）`).join('\n') : '（无）')
+    const lineFor = options.taskIds ? (row) => formatTaskLine(row) : (row) => `- ${row.title}（${row.status}）`
+    lines.push('【今日待办】', today.length ? today.map(lineFor).join('\n') : '（无）')
     if (typeof t.overdue === 'number' && t.overdue > 0) lines.push(`逾期 ${t.overdue} 条`)
   }
   if (pack.im && !omit.has('im')) {

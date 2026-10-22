@@ -1,11 +1,12 @@
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { runtimeApi } from '@/lib/runtime-api'
+import { formatTaskLine } from '../../runtime/plan/task-advice.mjs'
 
 export type ContextScope = 'workspace' | 'tasks' | 'im' | 'biz' | 'apps' | 'memory'
 
 export type ContextPack = {
   workspace: { cwd: string; name: string; activeSessionId?: string; activeSessionTitle?: string }
-  tasks?: { today: { id: string; title: string; status: string; dueAt?: string }[]; overdue: number }
+  tasks?: { today: { id: string; title: string; status: string; priority?: string; dueAt?: string }[]; overdue: number }
   im?: { unread: number; recent: { peer: string; excerpt: string; requestId: string }[] }
   biz?: { connections: { id: string; name: string; online: boolean }[]; recentOps: { kind: string; action: string; at: string }[] }
   apps?: { slug: string; name: string; entities: string[] }[]
@@ -72,7 +73,11 @@ export async function buildContextPack(opts: {
   return { pack: result.pack as ContextPack, warnings: result.warnings }
 }
 
-export function renderContextForPrompt(pack: ContextPack, omit: Set<string> = new Set()): string {
+export function renderContextForPrompt(
+  pack: ContextPack,
+  omit: Set<string> = new Set(),
+  options?: { taskIds?: boolean },
+): string {
   const lines: string[] = []
   const w = pack.workspace
   if (w && !omit.has('workspace')) {
@@ -81,7 +86,10 @@ export function renderContextForPrompt(pack: ContextPack, omit: Set<string> = ne
   }
   if (pack.tasks && !omit.has('tasks')) {
     const today = (pack.tasks.today ?? []).filter((row) => !omit.has(`tasks:${row.id}`))
-    lines.push('【今日待办】', today.length ? today.map((row) => `- ${row.title}（${row.status}）`).join('\n') : '（无）')
+    const lineFor = options?.taskIds
+      ? (row: { id: string; title: string; status: string; priority?: string; dueAt?: string }) => formatTaskLine(row)
+      : (row: { title: string; status: string }) => `- ${row.title}（${row.status}）`
+    lines.push('【今日待办】', today.length ? today.map(lineFor).join('\n') : '（无）')
     if (pack.tasks.overdue > 0) lines.push(`逾期 ${pack.tasks.overdue} 条`)
   }
   if (pack.im && !omit.has('im')) {

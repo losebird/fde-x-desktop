@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
 import { ArrowLeft, Bot, CircleAlert, Plus, Search } from 'lucide-react'
 import clsx from 'clsx'
 import { Card, Empty } from '@/components/ui'
@@ -476,8 +477,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
   const connectionLand = useApp((state) => state.dataBrowse.connectionLand || 0)
   const activeWorkspaceCwd = useApp((state) => {
     const row = state.workspaces.find((item) => item.id === state.activeWorkspaceId)
-    const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
-    return cwd.startsWith('/') ? cwd : ''
+    return canonicalWorkspaceCwd(row?.cwd)
   })
   const [workspaceCwd, setWorkspaceCwd] = useState('')
   const [lanReady, setLanReady] = useState(true)
@@ -1128,7 +1128,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     })
     if (!cancelSessionId) return
     cancelledWritePreviewRef.current = previewId
-    void runtimeApi.cancelAi(cancelSessionId, { kind: 'records-cancel' }).catch(() => undefined)
+    void runtimeApi.cancelAi(cancelSessionId, { kind: 'records-cancel', workspaceId: useApp.getState().activeWorkspaceId }).catch(() => undefined)
   }
 
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {

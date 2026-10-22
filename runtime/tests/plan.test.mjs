@@ -112,7 +112,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
   const badStatus = await fetch(`${base}/api/v1/plan/tasks/${taskA.id}`, {
     method: 'PATCH',
     headers: writeHeaders(),
-    body: JSON.stringify({ status: 'bogus' }),
+    body: JSON.stringify({ workspaceId: wsA, status: 'bogus' }),
   })
   assert.equal(badStatus.status, 422)
   const badBody = await badStatus.json()
@@ -121,14 +121,14 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
   const done = await fetch(`${base}/api/v1/plan/tasks/${taskA.id}`, {
     method: 'PATCH',
     headers: writeHeaders(),
-    body: JSON.stringify({ status: 'done' }),
+    body: JSON.stringify({ workspaceId: wsA, status: 'done' }),
   })
   assert.equal(done.status, 200)
   const doneBody = await done.json()
   assert.equal(doneBody.data.status, 'done')
   assert.ok(doneBody.data.completedAt)
 
-  const del = await fetch(`${base}/api/v1/plan/tasks/${taskA.id}`, {
+  const del = await fetch(`${base}/api/v1/plan/tasks/${taskA.id}?workspaceId=${wsA}`, {
     method: 'DELETE',
     headers: writeHeaders(),
   })

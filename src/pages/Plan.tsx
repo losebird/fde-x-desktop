@@ -1,5 +1,5 @@
 // 计划模块:三 Tab 合并 —— 待办 / 日程 / 工作流
-import { useState, useMemo, useEffect, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { askAiForResult } from '@/lib/ask-ai'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 import { openRef } from '@/lib/open-ref'
 import { planTaskSource } from '@/lib/plan-app-source'
 import type { JsonSchemaLite } from '@/lib/json-schema-lite'
@@ -18,6 +19,8 @@ import { useEvents } from '@/lib/events'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 import { hostGoalStatusOnly, isHostGoalId, isHostJobId, isHostScheduleId } from '@/lib/plan-origin'
+import { PlanEditDrawer } from '@/components/plan/PlanEditDrawer'
+import { PlanHistoryDrawer } from '@/components/plan/PlanHistoryDrawer'
 import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
@@ -27,6 +30,14 @@ import { planTaskMenu } from '../../runtime/plan/task-menu.mjs'
 import { taskHandoffPrompt } from '../../runtime/plan/task-handoff.mjs'
 import { handoffTask as runTaskHandoff } from '../../runtime/plan/handoff-run.mjs'
 import { planAiRunOpen } from '../../runtime/plan/plan-ai-chip.mjs'
+import { createAskFlight } from '../../runtime/plan/ask-flight.mjs'
+import { organizeSessionTitle } from '../../runtime/plan/organize-session.mjs'
+import {
+  describeAdvice,
+  organizeAdvicePrompt,
+  parseTaskAdvice,
+  taskAdviceSchema,
+} from '../../runtime/plan/task-advice.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -48,6 +59,15 @@ function RightDrawer({ open, onClose, title, children }: { open: boolean; onClos
 
 type Tab = 'todo' | 'schedule' | 'workflow'
 
+function reloadPlanEditor(setEpoch: (update: (value: number) => number) => void) {
+  const workspaceId = useApp.getState().activeWorkspaceId
+  if (!workspaceId) {
+    setEpoch((value) => value + 1)
+    return
+  }
+  void useApp.getState().hydratePlan(workspaceId).finally(() => setEpoch((value) => value + 1))
+}
+
 export default function Plan() {
   const active = useApp((s) => s.activePlanTab)
   const setActive = useApp((s) => s.setActivePlanTab)
@@ -58,8 +78,7 @@ export default function Plan() {
 
   const workspaceCwd = useMemo(() => {
     const row = workspaces.find((w) => w.id === activeWorkspaceId)
-    const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
-    return cwd.startsWith('/') ? cwd : undefined
+    return canonicalWorkspaceCwd(row?.cwd) || undefined
   }, [workspaces, activeWorkspaceId])
 
   useEffect(() => {
@@ -134,48 +153,33 @@ const PRIORITY_TAG: Record<Task['priority'], { kind: 'red'|'amber'|'blue'|'defau
 }
 
 type TaskAdvicePatch = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'priority' | 'due' | 'tags'>>
-type TaskAdviceSuggestion = { taskId: string; reason: string; patch: TaskAdvicePatch }
-type TaskAdviceResult = { summary?: string; suggestions: TaskAdviceSuggestion[] }
-
-const TaskAdviceSchema: JsonSchemaLite = {
-  type: 'object',
-  required: ['suggestions'],
-  properties: {
-    summary: { type: 'string' },
-    suggestions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['taskId', 'reason', 'patch'],
-        properties: {
-          taskId: { type: 'string' },
-          reason: { type: 'string' },
-          patch: {
-            type: 'object',
-            properties: {
-              title: { type: 'string' },
-              notes: { type: 'string' },
-              status: { enum: ['todo', 'doing', 'done', 'archived'] },
-              priority: { enum: ['urgent', 'high', 'med', 'low'] },
-              due: { type: 'string' },
-              tags: { type: 'array', items: { type: 'string' } },
-            },
-          },
-        },
-      },
-    },
-  },
+type AcceptedAdvice = {
+  op: 'update' | 'archive' | 'merge'
+  taskId: string
+  mergeInto?: string
+  reason: string
+  patch?: {
+    title?: string
+    notes?: string
+    status?: Task['status']
+    priority?: Task['priority']
+    dueAt?: string | null
+    tags?: string[]
+  }
 }
 
-function formatAdvicePatch(patch: TaskAdvicePatch): string {
-  const parts: string[] = []
-  if (patch.title !== undefined) parts.push(`标题 → ${patch.title}`)
-  if (patch.notes !== undefined) parts.push(`备注 → ${patch.notes}`)
-  if (patch.status !== undefined) parts.push(`状态 → ${patch.status}`)
-  if (patch.priority !== undefined) parts.push(`优先级 → ${patch.priority}`)
-  if (patch.due !== undefined) parts.push(`截止 → ${patch.due || '—'}`)
-  if (patch.tags !== undefined) parts.push(`标签 → ${patch.tags.join(', ') || '—'}`)
-  return parts.length ? parts.join('；') : '（无字段变更）'
+function adviceToTaskPatch(suggestion: AcceptedAdvice): TaskAdvicePatch {
+  if (suggestion.op === 'archive' || suggestion.op === 'merge') return { status: 'archived' }
+  const patch = suggestion.patch
+  if (!patch) return {}
+  const next: TaskAdvicePatch = {}
+  if (patch.title !== undefined) next.title = patch.title
+  if (patch.notes !== undefined) next.notes = patch.notes
+  if (patch.status !== undefined) next.status = patch.status
+  if (patch.priority !== undefined) next.priority = patch.priority
+  if (patch.dueAt !== undefined) next.due = patch.dueAt ?? ''
+  if (patch.tags !== undefined) next.tags = patch.tags
+  return next
 }
 
 function planSourceButton(task: Task, selectTask: (id: Task['id']) => void) {
@@ -209,10 +213,17 @@ function TodoTab() {
   const selectedTaskId = useApp((s) => s.selectedTaskId)
   const selectTask = useApp((s) => s.selectTask)
 
+  const organizeFlight = useRef(createAskFlight())
+
   useEffect(() => {
     if (!selectedTaskId) return
     document.querySelector('[data-plan-task-selected]')?.scrollIntoView({ block: 'nearest' })
   }, [selectedTaskId])
+
+  useEffect(() => {
+    const flight = organizeFlight.current
+    return () => { flight.cancelActive() }
+  }, [])
 
   const [tab, setTab] = useState<Task['status']>('todo')
   const [q, setQ] = useState('')
@@ -221,12 +232,18 @@ function TodoTab() {
   const [organizeOpen, setOrganizeOpen] = useState(false)
   const [organizeLoading, setOrganizeLoading] = useState(false)
   const [organizeError, setOrganizeError] = useState('')
-  const [organizeAdvice, setOrganizeAdvice] = useState<TaskAdviceResult | null>(null)
+  const [organizeSummary, setOrganizeSummary] = useState('')
+  const [acceptedAdvice, setAcceptedAdvice] = useState<AcceptedAdvice[]>([])
+  const [rejectedAdvice, setRejectedAdvice] = useState<{ index: number; reason: string }[]>([])
+  const [organizeRaw, setOrganizeRaw] = useState('')
   const [appliedKeys, setAppliedKeys] = useState<Set<string>>(() => new Set())
   const [applyingKey, setApplyingKey] = useState<string | null>(null)
   const [draft, setDraft] = useState<{ title: string; priority: Task['priority']; due: string; tags: string[]; sourceRef: string }>({
     title: '', priority: 'med', due: '', tags: [], sourceRef: '',
   })
+  const [editTask, setEditTask] = useState<Task | null>(null)
+  const [historyTask, setHistoryTask] = useState<Task | null>(null)
+  const [editEpoch, setEditEpoch] = useState(0)
   const [ctxPack, setCtxPack] = useState<ContextPack | null>(null)
   const [ctxWarnings, setCtxWarnings] = useState<string[]>([])
   const [ctxOmit, setCtxOmit] = useState<Set<string>>(() => new Set())
@@ -309,33 +326,62 @@ function TodoTab() {
     })
   }
 
+  function cancelOrganize() {
+    organizeFlight.current.cancelActive()
+    setOrganizeLoading(false)
+  }
+
   async function runOrganizeTodos() {
+    const ticket = organizeFlight.current.begin()
     setOrganizeOpen(true)
     setOrganizeLoading(true)
     setOrganizeError('')
-    setOrganizeAdvice(null)
+    setOrganizeSummary('')
+    setAcceptedAdvice([])
+    setRejectedAdvice([])
+    setOrganizeRaw('')
     setAppliedKeys(new Set())
-    const result = await askAiForResult<TaskAdviceResult>({
+    const result = await askAiForResult<unknown>({
       intent: '整理待办',
-      prompt: '根据以下待办给出去重/合并/优先级建议，用 fde_submit_result 提交',
-      schema: TaskAdviceSchema,
+      prompt: organizeAdvicePrompt(),
+      schema: taskAdviceSchema as JsonSchemaLite,
       context: ['tasks'],
       omit: ctxOmit,
       taskIds: filtered.map((row) => row.id),
+      preset: 'standard',
+      title: organizeSessionTitle(),
+      reuseTitlePrefix: '整理待办',
+      reveal: false,
+      adopt: false,
+      signal: ticket.signal,
     })
+    const settled = organizeFlight.current.accept(ticket.generation, result)
+    if (!settled.ok && settled.error === 'stale') return
+    if (!settled.ok && settled.error === 'cancelled') {
+      setOrganizeLoading(false)
+      return
+    }
     setOrganizeLoading(false)
-    if (!result.ok) {
+    if (!result.ok && result.error !== 'schema_mismatch') {
       if (result.error === 'timeout') {
         setOrganizeError('AI 没有提交结构化结果，可在 AI 页查看它说了什么')
-      } else if (result.error === 'schema_mismatch' && result.raw && typeof result.raw === 'object') {
-        setOrganizeAdvice(result.raw as TaskAdviceResult)
-        setOrganizeError('返回结构与约定不完全一致，请谨慎应用')
       } else {
         setOrganizeError(result.error === '核心未连接' ? result.error : `整理失败：${result.error}`)
       }
       return
     }
-    setOrganizeAdvice(result.data)
+    const raw = result.ok ? result.data : result.raw
+    const parsed = parseTaskAdvice(raw, tasks)
+    setOrganizeSummary(parsed.summary)
+    setAcceptedAdvice(parsed.accepted)
+    setRejectedAdvice(parsed.rejected)
+    try {
+      setOrganizeRaw(raw === undefined ? '' : JSON.stringify(raw, null, 2))
+    } catch {
+      setOrganizeRaw('')
+    }
+    if (parsed.rejected.length) setOrganizeError(`${parsed.rejected.length} 条建议不合约定`)
+    else if (!result.ok) setOrganizeError('返回结构与约定不完全一致，请谨慎应用')
   }
 
   const filteredIds = filtered.map((row) => row.id).join('|')
@@ -444,10 +490,13 @@ function TodoTab() {
     }
   }
 
-  async function applySuggestion(suggestion: TaskAdviceSuggestion, key: string) {
+  async function applySuggestion(suggestion: AcceptedAdvice, key: string) {
     if (appliedKeys.has(key) || applyingKey) return
-    const patch = suggestion.patch
-    if (!patch || !Object.keys(patch).length) return
+    const patch = adviceToTaskPatch(suggestion)
+    if (!Object.keys(patch).length) {
+      setOrganizeError('这条建议没有可应用的字段')
+      return
+    }
     const task = tasks.find((t) => t.id === suggestion.taskId)
     if (!task) {
       setOrganizeError('任务已不存在，请刷新列表后重试')
@@ -463,7 +512,8 @@ function TodoTab() {
     setApplyingKey(key)
     setOrganizeError('')
     try {
-      await updateTask(suggestion.taskId, nextPatch as TaskAdvicePatch)
+      const workspaceId = useApp.getState().activeWorkspaceId
+      await updateTask(suggestion.taskId, { ...nextPatch, workspaceId } as TaskAdvicePatch, { via: 'organize' })
       setAppliedKeys((prev) => new Set(prev).add(key))
     } catch (cause) {
       setOrganizeError(cause instanceof Error ? cause.message : '应用建议失败')
@@ -509,7 +559,6 @@ function TodoTab() {
             <button
               type="button"
               className="btn h-8"
-              disabled={organizeLoading}
               title="整理待办"
               onClick={() => void runOrganizeTodos()}
             >
@@ -612,6 +661,10 @@ function TodoTab() {
                   )
                 })()}
                 {t.notes && <div className="text-xs text-ink-muted mt-0.5 truncate">{t.notes}</div>}
+                <div className="mt-1 flex gap-1" onClick={(event) => event.stopPropagation()}>
+                  <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-edit="task" data-plan-edit-id={t.id} onClick={() => setEditTask(t)}>编辑</button>
+                  <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-history="task" data-plan-history-id={t.id} onClick={() => setHistoryTask(t)}>历史记录</button>
+                </div>
               </div>
               <div className="hidden @md:block text-xs text-ink-muted truncate">{t.due ?? '—'}</div>
               <div className="hidden @md:block"><Tag kind={PRIORITY_TAG[t.priority].kind}>{PRIORITY_TAG[t.priority].label}</Tag></div>
@@ -750,22 +803,38 @@ function TodoTab() {
       <RightDrawer
         open={organizeOpen}
         onClose={() => {
-          if (!organizeLoading) setOrganizeOpen(false)
+          cancelOrganize()
+          setOrganizeOpen(false)
         }}
         title="整理建议"
       >
         {organizeLoading && (
-          <p className="text-sm text-ink-muted">已向当前 AI 会话发送整理请求，等待结构化结果…</p>
+          <div className="mb-4">
+            <p className="text-sm text-ink-muted">已向整理待办会话发送请求，等待结构化结果…</p>
+            <button type="button" className="btn mt-3" onClick={() => { cancelOrganize(); setOrganizeOpen(false) }}>取消等待</button>
+          </div>
         )}
         {!organizeLoading && organizeError && (
           <div className="text-sm text-amber-900 bg-amber-50 border border-amber-100 rounded px-3 py-2 mb-4">{organizeError}</div>
         )}
-        {!organizeLoading && organizeAdvice?.summary && (
-          <p className="text-sm text-ink-muted mb-4">{organizeAdvice.summary}</p>
+        {!organizeLoading && organizeSummary && (
+          <p className="text-sm text-ink-muted mb-4">{organizeSummary}</p>
         )}
-        {!organizeLoading && organizeAdvice?.suggestions?.length ? (
+        {!organizeLoading && rejectedAdvice.length > 0 && (
+          <div className="mb-4">
+            <ul className="space-y-1">
+              {rejectedAdvice.map((row) => (
+                <li key={`${row.index}:${row.reason}`} className="text-xs text-ink-muted">
+                  {row.index >= 0 ? `第 ${row.index + 1} 条：` : ''}{row.reason}
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="btn mt-3" onClick={() => void runOrganizeTodos()}>请 AI 按约定重交</button>
+          </div>
+        )}
+        {!organizeLoading && acceptedAdvice.length > 0 ? (
           <ul className="space-y-3">
-            {organizeAdvice.suggestions.map((suggestion, index) => {
+            {acceptedAdvice.map((suggestion, index) => {
               const key = `${suggestion.taskId}:${index}`
               const task = tasks.find((t) => t.id === suggestion.taskId)
               const applied = appliedKeys.has(key)
@@ -774,12 +843,12 @@ function TodoTab() {
                 <li key={key} className="border border-line rounded-lg p-3 bg-surface-2/30">
                   <div className="text-sm font-medium truncate">{task?.title ?? `任务 ${suggestion.taskId}`}</div>
                   <p className="text-xs text-ink-muted mt-1">{suggestion.reason}</p>
-                  <p className="text-xs text-ink-subtle mt-2">{formatAdvicePatch(suggestion.patch)}</p>
+                  <p className="text-xs text-ink-subtle mt-2">{describeAdvice(suggestion)}</p>
                   <div className="mt-3 flex justify-end">
                     <button
                       type="button"
                       className="btn-primary"
-                      disabled={applied || busy || !task || !Object.keys(suggestion.patch || {}).length}
+                      disabled={applied || busy || !task}
                       onClick={() => void applySuggestion(suggestion, key)}
                     >
                       {applied ? '已应用' : busy ? '应用中…' : '应用'}
@@ -792,7 +861,28 @@ function TodoTab() {
         ) : (
           !organizeLoading && !organizeError && <p className="text-sm text-ink-muted">暂无建议</p>
         )}
+        {!organizeLoading && organizeRaw && (
+          <details className="mt-4">
+            <summary className="text-xs text-ink-muted">原文</summary>
+            <pre className="text-xs mt-2 whitespace-pre-wrap break-all">{organizeRaw}</pre>
+          </details>
+        )}
       </RightDrawer>
+      <PlanEditDrawer
+        target={editTask ? { kind: 'task', row: editTask } : null}
+        epoch={editEpoch}
+        onClose={() => setEditTask(null)}
+        onOpenHistory={() => {
+          if (editTask) setHistoryTask(editTask)
+        }}
+        onReload={() => reloadPlanEditor(setEditEpoch)}
+      />
+      <PlanHistoryDrawer
+        open={Boolean(historyTask)}
+        title={historyTask?.title || ''}
+        targetRef={historyTask ? `fde://plan/tasks/${historyTask.id}` : ''}
+        onClose={() => setHistoryTask(null)}
+      />
     </div>
   )
 }
@@ -821,6 +911,9 @@ function ScheduleTab() {
     kind: 'focus' as ScheduleEvent['kind'], location: '',
     workflowId: '', recurrence: 'once' as 'once' | 'daily',
   })
+  const [editEvent, setEditEvent] = useState<ScheduleEvent | null>(null)
+  const [historyEvent, setHistoryEvent] = useState<ScheduleEvent | null>(null)
+  const [editEpoch, setEditEpoch] = useState(0)
 
   const todayKey = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
   const todays = useMemo(() => events.filter((e) => todayKey(e.start)), [events])
@@ -942,6 +1035,10 @@ function ScheduleTab() {
                         {e.location && <><MapPin size={10} /> {e.location}</>}
                       </div>
                     </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-edit="event" data-plan-edit-id={e.id} onClick={() => setEditEvent(e)}>编辑</button>
+                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-history="event" data-plan-history-id={e.id} onClick={() => setHistoryEvent(e)}>历史记录</button>
+                    </div>
                     <button
                       className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100"
                       onClick={() => void removeEvent(e.id)}
@@ -977,6 +1074,10 @@ function ScheduleTab() {
                       <div className="font-medium truncate">{e.title}</div>
                       <div className="opacity-70">
                         {new Date(e.start).getHours().toString().padStart(2, '0')}:{new Date(e.start).getMinutes().toString().padStart(2, '0')}
+                      </div>
+                      <div className="mt-1 flex gap-1">
+                        <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-edit="event" data-plan-edit-id={e.id} onClick={() => setEditEvent(e)}>编辑</button>
+                        <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-history="event" data-plan-history-id={e.id} onClick={() => setHistoryEvent(e)}>历史记录</button>
                       </div>
                     </div>
                   ))}
@@ -1054,6 +1155,21 @@ function ScheduleTab() {
           </div>
         </div>
       </RightDrawer>
+      <PlanEditDrawer
+        target={editEvent ? { kind: 'event', row: editEvent } : null}
+        epoch={editEpoch}
+        onClose={() => setEditEvent(null)}
+        onOpenHistory={() => {
+          if (editEvent) setHistoryEvent(editEvent)
+        }}
+        onReload={() => reloadPlanEditor(setEditEpoch)}
+      />
+      <PlanHistoryDrawer
+        open={Boolean(historyEvent)}
+        title={historyEvent?.title || ''}
+        targetRef={historyEvent ? `fde://plan/events/${historyEvent.id}` : ''}
+        onClose={() => setHistoryEvent(null)}
+      />
     </div>
   )
 }
@@ -1132,6 +1248,9 @@ function WorkflowTab() {
   const [pendingDanger, setPendingDanger] = useState<string[]>([])
   const [presetId, setPresetId] = useState('')
   const [toolNote, setToolNote] = useState('')
+  const [editWorkflow, setEditWorkflow] = useState<Workflow | null>(null)
+  const [historyWorkflow, setHistoryWorkflow] = useState<Workflow | null>(null)
+  const [editEpoch, setEditEpoch] = useState(0)
 
   useEffect(() => {
     if (!workspaceId) return
@@ -1396,6 +1515,8 @@ function WorkflowTab() {
                   )}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
+                  <button type="button" className="btn" data-plan-edit="workflow" data-plan-edit-id={w.id} onClick={() => setEditWorkflow(w)}>编辑</button>
+                  <button type="button" className="btn" data-plan-history="workflow" data-plan-history-id={w.id} onClick={() => setHistoryWorkflow(w)}>历史记录</button>
                   <button
                     type="button"
                     className="btn"
@@ -1553,6 +1674,21 @@ function WorkflowTab() {
           </div>
         </div>
       </RightDrawer>
+      <PlanEditDrawer
+        target={editWorkflow ? { kind: 'workflow', row: editWorkflow } : null}
+        epoch={editEpoch}
+        onClose={() => setEditWorkflow(null)}
+        onOpenHistory={() => {
+          if (editWorkflow) setHistoryWorkflow(editWorkflow)
+        }}
+        onReload={() => reloadPlanEditor(setEditEpoch)}
+      />
+      <PlanHistoryDrawer
+        open={Boolean(historyWorkflow)}
+        title={historyWorkflow?.name || ''}
+        targetRef={historyWorkflow ? `fde://plan/workflows/${historyWorkflow.id}` : ''}
+        onClose={() => setHistoryWorkflow(null)}
+      />
     </div>
   )
 }

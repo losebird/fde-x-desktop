@@ -3,12 +3,14 @@ import { Brain, RefreshCw } from 'lucide-react'
 import { Card, Tag } from '@/components/ui'
 import { runtimeApi } from '@/lib/runtime-api'
 import { useCurrentWorkspace } from '@/store/app'
+import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
 
 const GRAPH_BACKUP = '.dsh/semantic-os/graph.json'
 
 function graphBackupPath(cwd?: string) {
-  if (!cwd || !cwd.startsWith('/')) return ''
-  return `${cwd.replace(/\/+$/u, '')}/${GRAPH_BACKUP}`
+  const absolute = canonicalWorkspaceCwd(cwd)
+  if (!absolute) return ''
+  return `${absolute}/${GRAPH_BACKUP}`
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {

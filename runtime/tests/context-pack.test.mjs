@@ -8,6 +8,11 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const dbPath = '/tmp/fde-x-context-pack-test.sqlite'
+const packCwd = '/tmp/fde-x-context-pack-ws'
+
+function bindPersonalCwd(db, cwd) {
+  db.prepare(`UPDATE workspaces SET metadata_json = ? WHERE id = 'ws_personal'`).run(JSON.stringify({ cwd }))
+}
 
 test('renderContextForPrompt omits one hit by id', () => {
   const pack = {
@@ -48,6 +53,7 @@ test('memory scope without explicit query uses workspace folder name', async () 
   await rm(dbPath, { force: true }).catch(() => undefined)
   await mkdir('/tmp/fde-x-context-pack-ws', { recursive: true })
   const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  bindPersonalCwd(db, packCwd)
   let findQuery = ''
   const aiRuntime = {
     status: () => ({ connected: true }),
@@ -78,6 +84,7 @@ test('memory scope failure does not break other scopes', async () => {
   await rm(dbPath, { force: true }).catch(() => undefined)
   await mkdir('/tmp/fde-x-context-pack-ws', { recursive: true })
   const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  bindPersonalCwd(db, packCwd)
   const aiRuntime = {
     status: () => ({ connected: false }),
     lanAssist: async () => ({ unreadTotal: 0, requests: [] }),
@@ -102,6 +109,7 @@ test('explicit taskIds control tasks in prompt', async () => {
   await rm(taskIdsDbPath, { force: true }).catch(() => undefined)
   await mkdir('/tmp/fde-x-context-pack-ws', { recursive: true })
   const db = openDatabase(taskIdsDbPath, join(repoRoot, 'runtime/migrations'))
+  bindPersonalCwd(db, packCwd)
   const now = new Date().toISOString()
   const undatedId = 'task_undated_p1_test'
   const overdueId = 'task_overdue_p1_test'
@@ -198,8 +206,58 @@ test('explicit taskIds control tasks in prompt', async () => {
   assert.ok(invalid.warnings.includes('task_ids_invalid'))
 })
 
+test('tasks stay listed when workspace cwd trailing slashes differ', async () => {
+  const dbPath = `/tmp/fde-x-context-pack-slash-${Date.now()}.sqlite`
+  await rm(dbPath, { force: true }).catch(() => undefined)
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  const now = new Date().toISOString()
+  const pairs = [
+    ['/tmp/fde-x-cwd-slash-a', '/tmp/fde-x-cwd-slash-a'],
+    ['/tmp/fde-x-cwd-slash-b', '/tmp/fde-x-cwd-slash-b/'],
+    ['/tmp/fde-x-cwd-slash-c/', '/tmp/fde-x-cwd-slash-c'],
+    ['/tmp/fde-x-cwd-slash-d/', '/tmp/fde-x-cwd-slash-d/'],
+  ]
+  const aiRuntime = {
+    status: () => ({ connected: false }),
+    lanAssist: async () => ({ unreadTotal: 0, requests: [] }),
+    semanticOs: async () => {
+      throw new Error('down')
+    },
+  }
+  db.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_other', 'other', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd: '/tmp/fde-x-cwd-other' }), now, now)
+  db.prepare(`
+    INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+    VALUES ('task_other', 'ws_other', '别的工作区待办', '', 'todo', 'med', NULL, ?, ?)
+  `).run(now, now)
+  for (const [index, [metadataCwd, queryCwd]] of pairs.entries()) {
+    const workspaceId = `ws_slash_${index}`
+    const taskId = `task_slash_${index}`
+    const title = `斜杠待办${index}`
+    db.prepare(`
+      INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+      VALUES (?, 'slash', '', 'active', ?, ?, ?)
+    `).run(workspaceId, JSON.stringify({ cwd: metadataCwd }), now, now)
+    db.prepare(`
+      INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+      VALUES (?, ?, ?, '', 'todo', 'med', NULL, ?, ?)
+    `).run(taskId, workspaceId, title, now, now)
+    const { pack } = await buildContextPack(
+      { db, aiRuntime },
+      { workspaceCwd: queryCwd, scopes: ['tasks'], taskIds: [taskId] },
+    )
+    const text = renderContextForPrompt(pack, new Set(), { taskIds: true })
+    assert.match(text, new RegExp(title))
+    assert.equal(text.includes('别的工作区待办'), false)
+  }
+  db.close()
+})
+
 test('scope timeout is reported in warnings', async () => {
   const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  bindPersonalCwd(db, packCwd)
   const aiRuntime = {
     status: () => ({ connected: true }),
     lanAssist: async () => new Promise(() => {}),
@@ -214,4 +272,36 @@ test('scope timeout is reported in warnings', async () => {
     },
   )
   assert.ok(warnings.some((w) => w.endsWith('_timeout')))
+})
+
+test('context pack uses the supplied workspace id and rejects a mismatch', async () => {
+  const db = openDatabase(`/tmp/fde-pack-id-${process.pid}.sqlite`, join(repoRoot, 'runtime/migrations'))
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_pack_b', 'b', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd: '/tmp/pack-b' }), now, now)
+  bindPersonalCwd(db, '/tmp/pack-a')
+  db.prepare(`
+    INSERT INTO tasks (id, workspace_id, title, notes, status, priority, due_at, created_at, updated_at)
+    VALUES ('task_pack_b', 'ws_pack_b', 'pack-b-task', '', 'todo', 'med', ?, ?, ?)
+  `).run(now, now, now)
+  const aiRuntime = { status: () => ({ connected: false }) }
+  const mismatched = await buildContextPack({ db, aiRuntime }, {
+    workspaceCwd: '/tmp/pack-a',
+    workspaceId: 'ws_pack_b',
+    scopes: ['tasks'],
+    cwdSource: 'request',
+  })
+  const byId = await buildContextPack({ db, aiRuntime }, {
+    workspaceCwd: '/tmp/pack-a',
+    workspaceId: 'ws_pack_b',
+    scopes: ['tasks'],
+    cwdSource: 'runtime',
+  })
+  assert.equal(mismatched.error, 'workspace_mismatch')
+  assert.equal(JSON.stringify(mismatched.pack).includes('pack-b-task'), false)
+  assert.equal(byId.error, undefined)
+  assert.equal(JSON.stringify(byId.pack).includes('pack-b-task'), true)
+  db.close()
 })

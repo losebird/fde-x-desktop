@@ -1,0 +1,5 @@
+semantica[explorer]==0.6.7
+pyshacl
+faiss-cpu
+falkordb
+falkordblite; platform_system != "Windows"

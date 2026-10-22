@@ -58,10 +58,37 @@ test('since replay order and workspace filter', () => {
   const mailbox = emit('im.unread.changed', { total: 0, byPeer: {} }, { workspaceCwd: null, source: 'lan-assist' })
   const mailboxRow = envelopeFromRow(db.prepare('SELECT * FROM outbox_events WHERE id = ?').get(mailbox))
   assert.equal(mailboxRow.workspaceCwd, null)
-  assert.ok(matchesWorkspaceFilter(mailboxRow, '/a'))
-  assert.ok(matchesWorkspaceFilter(mailboxRow, '/Users/zxz/Documents/ai-project/kimi-project/Agent_FDE_Dev/工作台宣传图'))
+  assert.ok(!matchesWorkspaceFilter(mailboxRow, '/a'))
+  assert.ok(!matchesWorkspaceFilter(mailboxRow, '/Users/zxz/Documents/ai-project/kimi-project/Agent_FDE_Dev/工作台宣传图'))
   assert.ok(!matchesWorkspaceFilter({ workspaceCwd: '/Users/zxz/WorkBuddy/scene-39' }, '/a'))
   assert.equal(b, listRecentEvents(db, { type: 'im.unread.changed', limit: 10 }).find((item) => item.id === b)?.id)
+  db.close()
+})
+
+test('listEventsAfter keeps a workspace event when trailing slashes differ', () => {
+  const dbPath = `/tmp/fde-events-slash-${Date.now()}.sqlite`
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  configureEventBus(db)
+  const stored = '/tmp/fde-events-slash'
+  const pairs = [
+    [stored, stored],
+    [stored, `${stored}/`],
+    [`${stored}/`, stored],
+    [`${stored}/`, `${stored}/`],
+    ['C:\\fde\\events', 'C:/fde/events'],
+    ['C:\\fde\\events\\', 'C:/fde/events'],
+    ['C:/fde/events/', 'C:\\fde\\events'],
+    ['/', '/'],
+  ]
+  const ids = pairs.map(([emitted], index) => emit('task.changed', { id: `t${index}` }, { workspaceCwd: emitted }))
+  const rootId = ids[ids.length - 1]
+  for (const [index, [, filtered]] of pairs.entries()) {
+    const found = listEventsAfter(db, { workspaceCwd: filtered }).map((item) => item.id)
+    assert.equal(found.includes(ids[index]), true, `${pairs[index][0]} vs ${filtered}`)
+  }
+  const rootOnly = listEventsAfter(db, { workspaceCwd: '/' }).map((item) => item.id)
+  assert.deepEqual(rootOnly.filter((id) => id === rootId), [rootId])
+  assert.equal(rootOnly.includes(ids[0]), false)
   db.close()
 })
 
@@ -69,6 +96,13 @@ test('SSE origin 403 and connection limit 429', { timeout: 45_000 }, async () =>
   const port = 4480 + (process.pid % 80)
   const dbPath = `/tmp/fde-events-http-${Date.now()}.sqlite`
   await mkdir('/tmp/fde-x-files-smoke', { recursive: true })
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_events_sse', 'cwd', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd: '/tmp/ws' }), now, now)
+  db.close()
   const child = spawn(process.execPath, ['runtime/server.mjs'], {
     cwd: repoRoot,
     env: {

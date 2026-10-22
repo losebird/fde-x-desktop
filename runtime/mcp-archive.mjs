@@ -9,6 +9,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { access, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { FDE_RESOURCES } from './config.mjs'
+import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { generationInstallRoot } from './generation.mjs'
 
 const require = createRequire(import.meta.url)
@@ -54,18 +55,13 @@ export function mcpBootHoldSidecarPath(aiRuntime) {
   return home ? join(home, 'run', 'mcp-boot-hold.json') : ''
 }
 
-function isAbsolutePath(value) {
-  const text = String(value || '').trim()
-  return text.startsWith('/') || /^[A-Za-z]:[\\/]/.test(text)
-}
-
 export function resolveStdioCwd(cwd, aiRuntime) {
-  if (isAbsolutePath(cwd)) return String(cwd).trim()
-  if (isAbsolutePath(aiRuntime?.cwd)) return String(aiRuntime.cwd).trim()
-  if (isAbsolutePath(process.env.FDE_AI_WORKSPACE)) return String(process.env.FDE_AI_WORKSPACE).trim()
-  if (isAbsolutePath(aiRuntime?.dshHome)) return String(aiRuntime.dshHome).trim()
-  if (isAbsolutePath(process.env.FDE_DSH_HOME)) return String(process.env.FDE_DSH_HOME).trim()
-  return ''
+  return canonicalWorkspaceCwd(cwd)
+    || canonicalWorkspaceCwd(aiRuntime?.cwd)
+    || canonicalWorkspaceCwd(process.env.FDE_AI_WORKSPACE)
+    || canonicalWorkspaceCwd(aiRuntime?.dshHome)
+    || canonicalWorkspaceCwd(process.env.FDE_DSH_HOME)
+    || ''
 }
 
 export function mcpArchivePaths(aiRuntime) {
