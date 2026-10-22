@@ -1,3 +1,4 @@
+import { taskSourceProblem } from '../app-source.mjs'
 import { createId } from '../db.mjs'
 import { ORIGIN_FDE_TASK, isHostGoalId } from '../host-catalog.mjs'
 import { decideProposal, openProposal } from '../proposals/commit.mjs'
@@ -8,6 +9,7 @@ import {
   insertTask,
   updateTask,
 } from './task-store.mjs'
+import { planChangeDetails, taskHistoryView } from './history.mjs'
 
 const ACTION = 'plan.task.propose'
 
@@ -23,6 +25,7 @@ function changeFrom(input) {
   if (typeof input.dueAt === 'string' || input.dueAt === null) change.dueAt = input.dueAt
   if (Array.isArray(input.tags)) change.tags = input.tags.map(String)
   if (typeof input.status === 'string') change.status = input.status
+  if (typeof input.sourceRef === 'string' && input.sourceRef.trim()) change.sourceRef = input.sourceRef.trim()
   return change
 }
 
@@ -36,6 +39,24 @@ function invalidShape(input) {
   return null
 }
 
+function snapshotTask(row) {
+  let tags = []
+  try {
+    const parsed = JSON.parse(row.tags_json || '[]')
+    tags = Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    tags = []
+  }
+  return {
+    title: row.title,
+    notes: row.notes ?? '',
+    status: row.status,
+    priority: row.priority,
+    dueAt: row.due_at ?? null,
+    tags,
+  }
+}
+
 function planDomain(opts) {
   return {
     action: ACTION,
@@ -44,8 +65,9 @@ function planDomain(opts) {
     actorId: opts.actorId,
     correlationId: opts.correlationId,
     reasons: { missing: 'task_missing', moved: 'stale_task', appeared: 'task_exists' },
+    workspaceId: opts.workspaceId,
     load(db, plan) {
-      const row = getTask(db, plan.taskId)
+      const row = getTask(db, plan.taskId, plan.workspaceId)
       return { versions: [{ current: row ? row.updated_at : null, base: plan.change.base }] }
     },
     apply(db, plan) {
@@ -61,8 +83,10 @@ function planDomain(opts) {
           sourceRef: plan.change.sourceRef,
           tags: plan.change.tags,
         })
-        return { applied: true, details: { op: plan.op, taskId: plan.taskId } }
+        const diff = planChangeDetails(null, {}, taskHistoryView(getTask(db, plan.taskId, plan.workspaceId)))
+        return { applied: true, details: { op: plan.op, taskId: plan.taskId, before: diff.before, after: diff.after, fields: diff.fields } }
       }
+      const before = taskHistoryView(getTask(db, plan.taskId, plan.workspaceId))
       const change = plan.change
       const fields = {}
       if (change.title !== undefined) fields.title = change.title
@@ -71,9 +95,22 @@ function planDomain(opts) {
       if (change.dueAt !== undefined) fields.dueAt = change.dueAt
       if (change.tags !== undefined) fields.tags = change.tags
       if (change.status !== undefined) fields.status = change.status
-      const row = updateTask(db, plan.taskId, fields)
+      if (change.sourceRef !== undefined) fields.sourceRef = change.sourceRef
+      const row = updateTask(db, plan.taskId, fields, plan.workspaceId)
       if (!row) return { applied: false }
-      return { applied: true, details: { op: plan.op, taskId: plan.taskId } }
+      const diff = planChangeDetails(null, before, taskHistoryView(row))
+      return { applied: true, details: { op: plan.op, taskId: plan.taskId, before: diff.before, after: diff.after, fields: diff.fields } }
+    },
+    rejectedDetails(db, operation) {
+      const plan = operation.plan || {}
+      const current = plan.op === 'insert' ? {} : taskHistoryView(getTask(db, plan.taskId, plan.workspaceId))
+      const proposed = { ...current }
+      const change = plan.change || {}
+      for (const field of ['title', 'notes', 'status', 'priority', 'dueAt', 'tags', 'sourceRef']) {
+        if (change[field] !== undefined) proposed[field] = change[field]
+      }
+      const diff = planChangeDetails(null, current, proposed)
+      return { before: diff.before, after: diff.after, fields: diff.fields }
     },
   }
 }
@@ -94,6 +131,9 @@ export function proposePlanTask(db, input) {
     }
     const shape = invalidShape(input)
     if (shape) return shape
+    if (taskSourceProblem(input.sourceRef)) {
+      return { ok: false, error: 'invalid_source_ref', message: '来源引用不合法' }
+    }
     const taskId = createId('task')
     const sourceRef = typeof input.sourceRef === 'string' && input.sourceRef.trim()
       ? input.sourceRef.trim()
@@ -128,9 +168,12 @@ export function proposePlanTask(db, input) {
   const taskId = typeof input.taskId === 'string' ? input.taskId.trim() : ''
   if (isHostGoalId(taskId)) return { ok: false, error: 'validation_error', message: 'Host goal 只能改状态' }
   if (!taskId) return { ok: false, error: 'not_found', message: '任务不存在' }
-  const existing = getTask(db, taskId)
+  const existing = getTask(db, taskId, workspaceId)
   if (!existing || existing.workspace_id !== workspaceId) {
     return { ok: false, error: 'not_found', message: '任务不存在' }
+  }
+  if (taskSourceProblem(input.sourceRef)) {
+    return { ok: false, error: 'invalid_source_ref', message: '来源引用不合法' }
   }
   const change = changeFrom(input)
   if (change.status !== undefined && !TASK_STATUSES.has(change.status)) {
@@ -146,7 +189,7 @@ export function proposePlanTask(db, input) {
     op,
     workspaceId,
     taskId,
-    before: { status: existing.status, title: existing.title },
+    before: snapshotTask(existing),
     change: { ...change, base: { updated_at: existing.updated_at } },
   }
   return openProposal(db, {
@@ -180,7 +223,9 @@ export function listOpenPlanTaskProposals(db, workspaceId) {
       workspaceId: row.workspace_id,
       op: plan.op,
       taskId: plan.taskId,
-      title: proposedTitle || plan.before.title,
+      title: proposedTitle || plan.before?.title || '',
+      before: plan.before ?? null,
+      change: plan.change ?? {},
     }
   })
 }

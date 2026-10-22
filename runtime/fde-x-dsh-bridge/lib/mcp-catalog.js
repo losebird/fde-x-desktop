@@ -152,7 +152,7 @@ async function applyMcpCatalog(assembly, sessionId) {
 async function loadMcpServer({ sessionId, server, preset, mount }) {
   const name = String(server || '').trim()
   if (!sessionId) throw new Error('fde_mcp_load 没有会话')
-  const denied = deniedServer(name, preset, mount)
+  const denied = deniedServer(name, preset, mount, sessionId)
   if (denied) throw new Error(`MCP 服务 ${denied} 未挂到预设 ${preset}`)
   const loaded = await sessionLoaded(sessionId)
   if (!name || !knownServers.has(name)) throw new Error(`MCP 服务 ${name} 不在目录里`)

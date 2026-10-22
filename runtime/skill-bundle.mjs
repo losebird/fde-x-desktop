@@ -5,6 +5,7 @@
 import { access, cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { profileCordisPatchPath } from './mcp-archive.mjs'
 
 export const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -65,7 +66,8 @@ export function parseSkillCustomDirs(text) {
     const item = line.match(/^\s+-\s+(.+)$/)
     if (item) {
       const path = item[1].trim().replace(/^['"]|['"]$/g, '')
-      if (path.startsWith('/')) dirs.push(path)
+      const canonical = canonicalWorkspaceCwd(path)
+      if (canonical) dirs.push(canonical)
       continue
     }
     break
@@ -75,8 +77,8 @@ export function parseSkillCustomDirs(text) {
 
 export async function skillRootsForCwd(aiRuntime, cwd) {
   const roots = []
-  const absCwd = String(cwd || '').trim()
-  if (absCwd.startsWith('/')) {
+  const absCwd = canonicalWorkspaceCwd(cwd)
+  if (absCwd) {
     const projectRoot = await findProjectRoot(absCwd)
     roots.push(
       { path: join(projectRoot, '.dsh', 'skills'), source: 'project-dsh' },

@@ -3,10 +3,11 @@ import { AppRuntime } from '@/components/apps/AppRuntime'
 import { isHostedAppSpec, type FdeAppDetail } from '@/lib/app-spec'
 import { runtimeApi } from '@/lib/runtime-api'
 import { useApp } from '@/store/app'
+import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
 
 export function AppFloatSurface({ appId }: { appId: string }) {
   const workspace = useApp((s) => s.workspaces.find((row) => row.id === s.activeWorkspaceId))
-  const cwd = workspace?.cwd && workspace.cwd.startsWith('/') ? workspace.cwd : ''
+  const cwd = canonicalWorkspaceCwd(workspace?.cwd)
   const [app, setApp] = useState<FdeAppDetail | null>(null)
   const [error, setError] = useState('')
 

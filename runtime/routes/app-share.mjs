@@ -83,6 +83,7 @@ export function handlePublicWebBundle(request, response, url, { db }) {
     storePrefix: `/api/v1/app-share/${encodeURIComponent(shareId)}/store`,
     db,
     appId: resolved.app.id,
+    workspaceId: resolved.app.workspaceId,
   })
   if (!served) {
     response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' })
@@ -121,7 +122,7 @@ export async function handleAppShareRoutes(request, response, url, deps) {
     const key = parts[2]
     const slug = String(resolved.app.spec?.slug || resolved.share.slug || '')
     if (request.method === 'GET') {
-      const value = getDocument(db, { appId: resolved.app.id, workspaceCwd: resolved.workspaceCwd, key })
+      const value = getDocument(db, { appId: resolved.app.id, workspaceCwd: resolved.workspaceCwd, key, workspaceId: resolved.app.workspaceId })
       sendJson(response, 200, { ok: true, data: value, correlationId })
       return true
     }
@@ -133,6 +134,7 @@ export async function handleAppShareRoutes(request, response, url, deps) {
           slug,
           workspaceCwd: resolved.workspaceCwd,
           key,
+          workspaceId: resolved.app.workspaceId,
           value: body && Object.prototype.hasOwnProperty.call(body, 'value') ? body.value : body,
         })
         sendJson(response, 200, { ok: true, data: saved, correlationId })

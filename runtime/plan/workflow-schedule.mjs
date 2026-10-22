@@ -1,7 +1,8 @@
 import { createId } from '../db.mjs'
 import { startWorkflowRun } from './workflow-run.mjs'
+import { SCHEDULE_BUSY_MESSAGE, SCHEDULE_MISSED_MESSAGE, SCHEDULE_PAUSED_MESSAGE } from './schedule-outcome.mjs'
 
-const MISSED_MESSAGE = '错过'
+const BUSY_GRACE_MS = 30_000
 
 function civilParts(instant, timeZone) {
   const fmt = new Intl.DateTimeFormat('en-US', {
@@ -88,7 +89,7 @@ export function occurrenceInstants(event, untilMs) {
   return points
 }
 
-function recordMissed(db, row, occurrence) {
+function recordScheduleResult(db, row, occurrence, state, message) {
   const scheduleKey = `${row.id}@${occurrence}`
   const now = new Date().toISOString()
   const runId = createId('wfr')
@@ -97,13 +98,14 @@ function recordMissed(db, row, occurrence) {
     db.prepare(`
       INSERT INTO workflow_runs
         (id, workflow_id, state, trigger_json, input_json, output_json, correlation_id, started_at, finished_at, created_at, schedule_key)
-      SELECT ?, ?, 'cancelled', ?, '{}', ?, ?, NULL, ?, ?, ?
+      SELECT ?, ?, ?, ?, '{}', ?, ?, NULL, ?, ?, ?
       WHERE NOT EXISTS (SELECT 1 FROM workflow_runs WHERE schedule_key = ?)
     `).run(
       runId,
       row.workflow_id,
+      state,
       JSON.stringify({ kind: 'schedule', eventId: row.id, occurrence }),
-      JSON.stringify({ message: MISSED_MESSAGE }),
+      JSON.stringify({ message }),
       `schedule:${row.id}:${occurrence}`,
       now,
       now,
@@ -114,11 +116,49 @@ function recordMissed(db, row, occurrence) {
   } catch (error) {
     try {
       db.exec('ROLLBACK;')
-    } catch {
-      /* transaction already finished */
-    }
+    } catch {}
     throw error
   }
+}
+
+function hasScheduleRun(db, scheduleKey) {
+  return Boolean(db.prepare('SELECT 1 AS hit FROM workflow_runs WHERE schedule_key = ?').get(scheduleKey))
+}
+
+function businessFailureMessage(error) {
+  const status = error && typeof error === 'object' && typeof error.status === 'number' ? error.status : 0
+  const message = error instanceof Error ? error.message : ''
+  if (status < 400 || status >= 500 || !message) return ''
+  return message
+}
+
+function fireOccurrence(deps, row, occurrence, now, bootedAt, started) {
+  const at = Date.parse(occurrence)
+  if (at > now.getTime()) return
+  const scheduleKey = `${row.id}@${occurrence}`
+  if (hasScheduleRun(deps.db, scheduleKey)) return
+  if (row.workflow_status !== 'active') {
+    recordScheduleResult(deps.db, row, occurrence, 'cancelled', SCHEDULE_PAUSED_MESSAGE)
+    return
+  }
+  if (at < bootedAt.getTime()) {
+    recordScheduleResult(deps.db, row, occurrence, 'cancelled', SCHEDULE_MISSED_MESSAGE)
+    return
+  }
+  const ticket = startWorkflowRun(deps, {
+    workflowId: row.workflow_id,
+    workspaceId: row.workspace_id,
+    correlationId: `schedule:${row.id}:${occurrence}`,
+    trigger: { kind: 'schedule', eventId: row.id, occurrence },
+  })
+  if (ticket.already) return
+  if (ticket.busy) {
+    if (now.getTime() - at >= BUSY_GRACE_MS) {
+      recordScheduleResult(deps.db, row, occurrence, 'cancelled', SCHEDULE_BUSY_MESSAGE)
+    }
+    return
+  }
+  started.push(ticket)
 }
 
 export async function tickWorkflowSchedules(deps, clock) {
@@ -131,27 +171,33 @@ export async function tickWorkflowSchedules(deps, clock) {
     JOIN workflows w ON w.id = e.workflow_id
     WHERE e.workflow_id IS NOT NULL
       AND e.recurrence IN ('once', 'daily')
-      AND w.status = 'active'
+      AND w.status IN ('active', 'paused')
       AND w.workspace_id = e.workspace_id
   `).all()
   const started = []
   for (const row of rows) {
-    const points = occurrenceInstants(row, now.getTime())
+    let points = []
+    try {
+      points = occurrenceInstants(row, now.getTime())
+    } catch (error) {
+      console.error('workflow_schedule_tick_failed', error)
+      continue
+    }
     for (const occurrence of points) {
-      const at = Date.parse(occurrence)
-      if (at > now.getTime()) continue
-      if (at < bootedAt.getTime()) {
-        recordMissed(deps.db, row, occurrence)
-        continue
+      try {
+        fireOccurrence(deps, row, occurrence, now, bootedAt, started)
+      } catch (error) {
+        const message = businessFailureMessage(error)
+        if (message) {
+          try {
+            recordScheduleResult(deps.db, row, occurrence, 'failed', message)
+          } catch (writeError) {
+            console.error('workflow_schedule_tick_failed', writeError)
+          }
+          continue
+        }
+        console.error('workflow_schedule_tick_failed', error)
       }
-      const ticket = startWorkflowRun(deps, {
-        workflowId: row.workflow_id,
-        workspaceId: row.workspace_id,
-        correlationId: `schedule:${row.id}:${occurrence}`,
-        trigger: { kind: 'schedule', eventId: row.id, occurrence },
-      })
-      if (ticket.already || ticket.busy) continue
-      started.push(ticket)
     }
   }
   return { started }

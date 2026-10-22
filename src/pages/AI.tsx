@@ -8,6 +8,7 @@ import {
 import clsx from 'clsx'
 import { openFilesAtPath } from '@/lib/app-platform'
 import { landRef } from '@/lib/open-ref'
+import { sessionListWorkspaceId } from '@/lib/ai-session-list'
 import { currentAiTarget, isPrimarySession, resolvePrimarySessionId } from '@/lib/ai-target'
 import { useApp } from '@/store/app'
 import { clearAskAiNotice, getAskAiNotice, subscribeAskAiNotice } from '@/lib/ask-ai'
@@ -229,7 +230,9 @@ export default function AI() {
   }, [activeId, dropStoppedTerminal])
 
   async function reloadRemoteSessions(signal?: AbortSignal) {
-    const sessions = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true, includeArchived: sessionLane === 'archived' }, signal)
+    const state = useApp.getState()
+    const workspaceId = sessionListWorkspaceId(state.activeWorkspaceId, state.workspaces)
+    const sessions = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true, includeArchived: sessionLane === 'archived', workspaceId }, signal)
     setRemoteSessions(sessions)
     return sessions
   }
@@ -237,7 +240,7 @@ export default function AI() {
   useEffect(() => {
     if (!runtimeConnected) return
     void reloadRemoteSessions().catch(() => undefined)
-  }, [sessionLane])
+  }, [sessionLane, activeWorkspaceId, liveWorkspaces])
 
   function tellDsh(op: string, extra: Record<string, unknown> = {}) {
     const origin = runtimeOrigin(bffOriginRef.current || runtimeStatus?.bffOrigin)
@@ -305,7 +308,8 @@ export default function AI() {
         let found: AiSessionSummary | undefined
         let listed: AiSessionSummary[] = []
         while (Date.now() < deadline) {
-          listed = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true }).catch(() => [])
+          const listState = useApp.getState()
+          listed = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true, workspaceId: sessionListWorkspaceId(listState.activeWorkspaceId, listState.workspaces) }).catch(() => [])
           found = listed.find((row) => row.sessionId === sid)
           if (found) {
             setRemoteSessions(listed.map((row) => (titles.get(row.sessionId) ? { ...row, title: titles.get(row.sessionId)! } : row)))
@@ -422,14 +426,12 @@ export default function AI() {
         if (!status.connected) status = await runtimeApi.connectAi(abort.signal)
         if (!active) return
         setRuntimeStatus(status)
-        const [sessions, roster, dshWorkspaces, workspaceBag] = await Promise.all([
-          runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true }, abort.signal),
+        const [roster, dshWorkspaces, workspaceBag] = await Promise.all([
           runtimeApi.listAiPresets(abort.signal).catch(() => ({ presets: [] as Array<{ id: string }> })),
           runtimeApi.listAiWorkspaces(abort.signal).catch(() => []),
           runtimeApi.catalogBag('workspace', {}, abort.signal).catch(() => ({ actions: [] as string[] })),
         ])
         if (!active) return
-        setRemoteSessions(sessions)
         setPresetRoster(Array.isArray(roster.presets) ? roster.presets : [])
         setWorkspaceActions(Array.isArray(workspaceBag.actions) ? workspaceBag.actions : [])
         setPinnedSessionIds(pinnedIdsFromBag(workspaceBag))
@@ -448,6 +450,15 @@ export default function AI() {
             void runtimeApi.ensureWorkspace({ id: current.id, name: current.name, description: current.desc, cwd: current.cwd }).catch(() => undefined)
           }
         }
+        if (!active) return
+        const listState = useApp.getState()
+        const sessions = await runtimeApi.listAiSessions({
+          includeBlank: true,
+          includeSubagents: true,
+          workspaceId: sessionListWorkspaceId(listState.activeWorkspaceId, listState.workspaces),
+        }, abort.signal)
+        if (!active) return
+        setRemoteSessions(sessions)
       } catch (error) {
         if (!active || abort.signal.aborted) return
         setRuntimeError(displayError(error))

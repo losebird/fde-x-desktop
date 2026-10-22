@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
-import { constants, existsSync, lstatSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { constants, existsSync, lstatSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -19,6 +19,7 @@ import {
   resolveDshBin,
   vendorSemanticRuntimeDist,
 } from './config.mjs'
+import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { hostChildEnv, resolveHostSpawn } from './host-spawn.mjs'
 import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import { BUILTIN_PLUGINS, pluginEnvKey } from './builtin-plugins.mjs'
@@ -137,9 +138,9 @@ function errorMessage(error) {
 }
 
 function semanticCwd(options, fallback) {
-  const cwd = typeof options?.cwd === 'string' && options.cwd.startsWith('/') ? options.cwd : fallback
-  const ascii = typeof cwd === 'string' && cwd.startsWith('/') && !/[^\u0000-\u007F]/u.test(cwd) ? cwd : ''
-  return { cwd: cwd || '', ascii }
+  const cwd = canonicalWorkspaceCwd(options?.cwd) || canonicalWorkspaceCwd(fallback) || ''
+  const ascii = cwd && !/[^\u0000-\u007F]/u.test(cwd) ? cwd : ''
+  return { cwd, ascii }
 }
 
 function normalizeLogChunk(chunk) {
@@ -216,6 +217,82 @@ export async function parseHostRpcValue(response, rpcId, endpoint) {
     throw new AiRemoteError(remote.code ?? 'ai/remote-error', remote.message ?? 'AI 远程调用失败', remote.details ?? {})
   }
   return envelope.result.value
+}
+
+function hostGroupAlive(pgid) {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32' || !Number.isInteger(pgid) || pgid <= 1) {
+      resolve(false)
+      return
+    }
+    execFile('ps', ['-ax', '-o', 'pgid=,stat='], { timeout: 2000 }, (error, stdout) => {
+      if (error) {
+        resolve(false)
+        return
+      }
+      for (const line of String(stdout || '').split('\n')) {
+        const match = line.match(/^\s*(\d+)\s+(\S+)/u)
+        if (!match) continue
+        if (Number(match[1]) === pgid && !match[2].includes('Z')) {
+          resolve(true)
+          return
+        }
+      }
+      resolve(false)
+    })
+  })
+}
+
+const hostExitPaths = new WeakMap()
+const hostExitPhrases = new WeakMap()
+
+function discardHostExit(child) {
+  const path = hostExitPaths.get(child)
+  if (!path) return
+  hostExitPaths.delete(child)
+  try { unlinkSync(path) } catch { /* status file was never written */ }
+}
+
+function describeHostExit(child, code, signal) {
+  const leader = signal ? `signal ${signal}` : `code ${code}`
+  if (process.platform === 'win32') return leader
+  const cached = hostExitPhrases.get(child)
+  if (cached) return cached
+  let phrase = ''
+  const path = hostExitPaths.get(child)
+  if (path) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8'))
+      if (typeof parsed?.signal === 'string' && parsed.signal) phrase = `signal ${parsed.signal}`
+      else if (Number.isInteger(parsed?.code)) phrase = `code ${parsed.code}`
+    } catch {
+      phrase = ''
+    }
+    try { unlinkSync(path) } catch { /* no status file */ }
+    hostExitPaths.delete(child)
+  }
+  const resolved = phrase || `${leader}，真实退出状态未知`
+  hostExitPhrases.set(child, resolved)
+  return resolved
+}
+
+function signalHostGroup(child, signal) {
+  const pid = child?.pid
+  if (process.platform !== 'win32' && Number.isInteger(pid) && pid > 1) {
+    try {
+      process.kill(-pid, signal)
+      return
+    } catch (error) {
+      if (error?.code !== 'ESRCH') throw error
+    }
+  }
+  if (!child || child.exitCode != null || child.signalCode != null) return
+  try {
+    child.kill(signal)
+  } catch (error) {
+    if (error?.code === 'ESRCH') return
+    throw error
+  }
 }
 
 export class DshCoreConnector {
@@ -441,7 +518,7 @@ export class DshCoreConnector {
     }
 
     const host = resolveHostSpawn(this.bin)
-    const child = spawn(host.command, [
+    const hostArgs = [
       ...host.args,
       '--profile', this.profileName,
       '--patch', this.patchFile,
@@ -449,7 +526,12 @@ export class DshCoreConnector {
       '--host', '127.0.0.1',
       '--port', '0',
       '--no-open',
-    ], {
+    ]
+    const groupLeader = process.platform !== 'win32'
+    const exitStatusPath = groupLeader ? join(tmpdir(), 'fde-host-exit', `${randomUUID()}.json`) : ''
+    const child = spawn(host.command, groupLeader
+      ? [join(FDE_RUNTIME_DIR, 'host-group.mjs'), host.command, ...hostArgs]
+      : hostArgs, {
       cwd: this.cwd,
       env: hostChildEnv({
         DSH_HOME: this.dshHome,
@@ -458,12 +540,19 @@ export class DshCoreConnector {
         FDE_RUNTIME_DIR: this.runtimeDirectory,
         FDE_AI_WORKSPACE: this.cwd,
         FDE_DSH_CREDENTIALS_PATH: this.credentialsPath,
+        ...(exitStatusPath ? { FDE_HOST_EXIT_STATUS: exitStatusPath } : {}),
         ...(process.env.DSH_SEMANTICA_PYTHON || semanticaPython ? { DSH_SEMANTICA_PYTHON: process.env.DSH_SEMANTICA_PYTHON || semanticaPython } : {}),
         ...(process.env.FDE_DSH_SESSION_ROOT ? { FDE_DSH_SESSION_ROOT: process.env.FDE_DSH_SESSION_ROOT } : {}),
         ...(process.env.FDE_DSH_STORAGE_ROOT ? { FDE_DSH_STORAGE_ROOT: process.env.FDE_DSH_STORAGE_ROOT } : {}),
       }),
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [groupLeader ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      detached: groupLeader,
+    })
+    if (exitStatusPath) hostExitPaths.set(child, exitStatusPath)
+    child.stdin?.on('error', (error) => {
+      if (error?.code === 'EPIPE' || error?.code === 'ECONNRESET' || error?.code === 'ERR_STREAM_DESTROYED') return
+      throw error
     })
     this.child = child
     child.stdout?.setEncoding('utf8')
@@ -474,7 +563,7 @@ export class DshCoreConnector {
     await new Promise((resolveTick) => setImmediate(resolveTick))
     if (this.state === 'error' || child.exitCode != null || child.signalCode != null) {
       if (this.state !== 'error') {
-        const how = child.signalCode ? `signal ${child.signalCode}` : `code ${child.exitCode}`
+        const how = describeHostExit(child, child.exitCode, child.signalCode)
         const detail = this.logs.filter(Boolean).slice(-4).join(' | ')
         this.failCore(detail ? `AI 服务意外退出：${how}：${detail}` : `AI 服务意外退出：${how}`)
       }
@@ -534,11 +623,12 @@ export class DshCoreConnector {
       this.cookie = null
       this.origin = null
       if (!expected) {
-        const how = signal ? `signal ${signal}` : `code ${code}`
+        const how = describeHostExit(child, code, signal)
         const detail = this.logs.filter(Boolean).slice(-4).join(' | ')
         this.failCore(detail ? `AI 服务意外退出：${how}：${detail}` : `AI 服务意外退出：${how}`)
-      } else if (this.state !== 'error') {
-        this.state = 'stopped'
+      } else {
+        discardHostExit(child)
+        if (this.state !== 'error') this.state = 'stopped'
       }
       void this.cleanupCredentialsCopy()
     }
@@ -1089,7 +1179,7 @@ export class DshCoreConnector {
       const onExit = (code, signal) => {
         cleanup()
         const detail = redactSensitiveText(stderr.trim()).split(/\r?\n/u).filter(Boolean).slice(0, 6).join(' | ')
-        const reason = signal ? `signal ${signal}` : `code ${code}`
+        const reason = describeHostExit(child, code, signal)
         reject(new Error(detail ? `AI 服务启动前退出（${reason}）：${detail}` : `AI 服务启动前退出（${reason}）`))
       }
       const onError = (error) => {
@@ -1255,7 +1345,7 @@ export class DshCoreConnector {
   /** Persist workspace SKOS concepts (same path as Memory vocabulary UI). */
   async patchWorkspaceVocab(cwd, body) {
     this.assertConnected()
-    const workspace = typeof cwd === 'string' && cwd.startsWith('/') ? cwd : this.cwd
+    const workspace = canonicalWorkspaceCwd(cwd) || canonicalWorkspaceCwd(this.cwd) || this.cwd
     const { cwd: requestCwd, ascii } = semanticCwd({ cwd: workspace }, this.cwd)
     if (!requestCwd) throw new AiRemoteError('ai/forbidden', '工作区路径无效')
     const url = new URL('/semantic-os/api/vocabulary/concepts', this.origin)
@@ -1569,34 +1659,21 @@ export class DshCoreConnector {
     if (!child) return
     this.childStopExpected = true
     if (child.exitCode != null || child.signalCode != null) {
+      signalHostGroup(child, 'SIGKILL')
       await this.cleanupCredentialsCopy()
       await removePidFile(this.runDirectory, this.corePidFile)
       return
     }
-    await new Promise((resolveStop, rejectStop) => {
-      const timer = setTimeout(() => {
-        if (child.exitCode != null || child.signalCode != null) return
-        try {
-          child.kill('SIGKILL')
-        } catch (error) {
-          if (child.exitCode == null && child.signalCode == null) {
-            clearTimeout(timer)
-            rejectStop(error)
-          }
-        }
-      }, 5_000)
-      child.once('exit', () => {
-        clearTimeout(timer)
-        resolveStop()
-      })
-      try {
-        child.kill('SIGTERM')
-      } catch (error) {
-        clearTimeout(timer)
-        if (child.exitCode == null && child.signalCode == null) rejectStop(error)
-        else resolveStop()
-      }
-    })
+    try {
+      signalHostGroup(child, 'SIGTERM')
+    } catch (error) {
+      if (child.exitCode == null && child.signalCode == null) throw error
+    }
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline && await hostGroupAlive(child.pid)) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+    }
+    signalHostGroup(child, 'SIGKILL')
     await this.cleanupCredentialsCopy()
     await removePidFile(this.runDirectory, this.corePidFile)
   }
