@@ -13,7 +13,7 @@ import {
   roundBlocksChatAsk,
   stampWroteLookup,
   wroteLookupLocksSpec,
-} from '../vendor-overlays/dsh-lan-assist/session-round.js'
+} from '../plugins/dsh-lan-assist/session-round.js'
 import { isNewOfficialRound } from '../biz/connected-kind.mjs'
 
 function hopSheet(kind = 'KindLeaf') {
@@ -177,7 +177,7 @@ test('confirmable write preview is the round candidate; leftover 现查 does not
   const lookup = lookupRound.noteToolSheet('sess-l', hopSheet())
   assert.equal(lookup.cancel, false)
   assert.equal(lookup.process, true)
-  const tools = readFileSync(join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist', 'tools.js'), 'utf8')
+  const tools = readFileSync(join(import.meta.dirname, '..', 'plugins', 'dsh-lan-assist', 'tools.js'), 'utf8')
   assert.doesNotMatch(tools, /concludeChatTurn/)
   assert.doesNotMatch(tools, /concludeTurn/)
   assert.doesNotMatch(tools, /endTurnAfterWritePreview/)
@@ -186,7 +186,7 @@ test('confirmable write preview is the round candidate; leftover 现查 does not
   assert.match(execute, /planReceipt/)
   assert.doesNotMatch(execute, /endTurn/)
   assert.doesNotMatch(execute, /\.cancel\(/)
-  const index = readFileSync(join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist', 'index.js'), 'utf8')
+  const index = readFileSync(join(import.meta.dirname, '..', 'plugins', 'dsh-lan-assist', 'index.js'), 'utf8')
   assert.match(index, /ask_user_question/)
   assert.match(index, /roundBlocksChatAsk/)
   assert.match(index, /speechHoldsWorkstationWrite/)

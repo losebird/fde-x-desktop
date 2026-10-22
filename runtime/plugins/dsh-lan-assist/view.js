@@ -219,12 +219,14 @@ export function createView(bag) {
     const url = envUrl || relayUrl() || String((state && state.relayUrl) || '').trim()
     const configured = row && typeof row === 'object' ? !!row.configured : !!url
     const connected = row && typeof row === 'object' ? !!row.connected : false
+    const error = row && typeof row.error === 'string' ? row.error : ''
     return {
       configured,
       connected,
       url,
       credsSet: !!relayCredsPath(),
       env: !!envUrl,
+      error,
     }
   }
 
@@ -316,6 +318,7 @@ export function createView(bag) {
       relayUrl: relayPublic(safe).url,
       relayCredsSet: relayPublic(safe).credsSet,
       relayEnv: relayPublic(safe).env,
+      relay: relayPublic(safe),
     }
   }
 
@@ -356,6 +359,7 @@ export function createView(bag) {
       relayUrl: relayPublic(safe).url,
       relayCredsSet: relayPublic(safe).credsSet,
       relayEnv: relayPublic(safe).env,
+      relay: relayPublic(safe),
     }
   }
 

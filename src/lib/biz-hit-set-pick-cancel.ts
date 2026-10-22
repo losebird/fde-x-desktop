@@ -3,7 +3,7 @@ import {
   isRoundWriteResult,
   isWorkstationHeldWrite,
   shouldCancelDshAfterWritePreview,
-} from '../../runtime/vendor-overlays/dsh-lan-assist/session-round.js'
+} from '../../runtime/plugins/dsh-lan-assist/session-round.js'
 
 export {
   isConfirmableWritePreview,

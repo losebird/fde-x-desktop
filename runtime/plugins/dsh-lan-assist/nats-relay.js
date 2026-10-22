@@ -156,6 +156,7 @@ async function publishFrame(nc, subject, frame, extra) {
 export function createNatsTransport(opts = {}) {
   const connect = opts.connect
   const objects = opts.objects
+  let dependencyError = ''
   function urlNow() {
     if (typeof opts.url === 'function') return String(opts.url() || '').trim()
     if (opts.url != null && String(opts.url).trim()) return String(opts.url).trim()
@@ -225,13 +226,16 @@ export function createNatsTransport(opts = {}) {
         try {
           mod = await import('nats')
         } catch {
+          dependencyError = 'NATS_DEPENDENCY_MISSING'
           connected = false
           return null
         }
         if (!mod || typeof mod.connect !== 'function') {
+          dependencyError = 'NATS_DEPENDENCY_MISSING'
           connected = false
           return null
         }
+        dependencyError = ''
         if (conf.creds && typeof mod.credsAuthenticator === 'function') {
           conf.authenticator = mod.credsAuthenticator(conf.creds)
           delete conf.creds
@@ -253,14 +257,16 @@ export function createNatsTransport(opts = {}) {
     status() {
       liveClient()
       const configured = !!(urlNow() || typeof connect === 'function')
-      return { configured, connected: !!(configured && connected) }
+      const row = { configured, connected: !!(configured && connected) }
+      if (dependencyError) row.error = dependencyError
+      return row
     },
     async send(_door, frame) {
       if (!frame || frame.type === 'hello') return { ok: false, error: 'NO_RELAY_PAIR' }
       const subject = inboxSubject(frame.to || (String(frame.type || '').startsWith('pair.') ? frame.to : ''))
       if (!subject) return { ok: false, error: 'NO_PEER' }
       const nc = await ensure()
-      if (!nc) return { ok: false, error: 'NO_NATS' }
+      if (!nc) return { ok: false, error: dependencyError || 'NO_NATS' }
       try {
         await publishFrame(nc, subject, frame, async () => {
           const store = typeof objects === 'function' ? await objects() : await objectsOf(nc)

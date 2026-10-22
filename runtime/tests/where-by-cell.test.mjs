@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
 
-const root = join(import.meta.dirname, '..', 'vendor-overlays', 'dsh-lan-assist')
+const root = join(import.meta.dirname, '..', 'plugins', 'dsh-lan-assist')
 const { bindWhereRelationTerms } = await import(pathToFileURL(join(root, 'relation-bind.js')).href)
 const { createLookup } = await import(pathToFileURL(join(root, 'lookup.js')).href)
 

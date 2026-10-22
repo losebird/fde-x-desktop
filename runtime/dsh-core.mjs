@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
-import { constants, existsSync, readFileSync, realpathSync, symlinkSync, unlinkSync } from 'node:fs'
+import { constants, existsSync, lstatSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -30,6 +30,7 @@ import { iuiProfileDir, promoteInstalledIui } from './iui-status.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 import { linkPackagedPeers } from './packaged-peer.mjs'
+import { firstMissingClosure, natsContentDigest, natsDependencyError, natsStampFields, sourceStamp, syncRepoCache } from './plugin-repo-source.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -58,6 +59,16 @@ async function writePidFile(runDir, name, pid) {
 
 async function removePidFile(runDir, name) {
   await rm(join(runDir, name), { force: true })
+}
+
+function fileIdentity(path) {
+  try {
+    const st = lstatSync(path, { bigint: true })
+    if (st.isSymbolicLink()) return ''
+    return `${st.size}:${st.mtimeNs}:${st.ino}`
+  } catch {
+    return ''
+  }
 }
 
 async function linkPath(target, linkPath) {
@@ -282,6 +293,19 @@ function signalHostGroup(child, signal) {
     if (error?.code === 'ESRCH') return
     throw error
   }
+}
+
+function ignoredRepoInject(plugin, injected) {
+  if (!injected) return true
+  if (resolve(injected) === resolve(FDE_VENDOR_DIR, plugin.dir)) return true
+  return existsSync(join(injected, '.git'))
+}
+
+function repoPluginSkipped(plugin) {
+  if (process.env.FDE_REPO_PLUGINS !== '0') return false
+  if (!plugin.source || plugin.source.kind !== 'repo') return false
+  const injected = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
+  return ignoredRepoInject(plugin, injected)
 }
 
 export class DshCoreConnector {
@@ -683,7 +707,15 @@ export class DshCoreConnector {
     const fromEnv = process.env[pluginEnvKey(plugin.dir)]
     const webLink = join(this.dshHome, 'profiles', 'web', 'node_modules', plugin.module)
     const candidates = []
-    if (fromEnv) candidates.push(fromEnv)
+    if (fromEnv && !(plugin.source && plugin.source.kind === 'repo' && resolve(fromEnv) === resolve(FDE_VENDOR_DIR, plugin.dir))) {
+      candidates.push(fromEnv)
+    }
+    if (plugin.source && plugin.source.kind === 'repo') {
+      const rel = String(plugin.source.path || `runtime/plugins/${plugin.dir}`)
+      const underRuntime = rel.startsWith('runtime/') ? rel.slice('runtime/'.length) : rel
+      candidates.push(join(this.runtimeDirectory, underRuntime))
+      return candidates
+    }
     candidates.push(join(FDE_VENDOR_DIR, plugin.dir))
     if (plugin.module !== plugin.dir) {
       const moduleEnv = process.env[pluginEnvKey(plugin.module)]
@@ -698,14 +730,157 @@ export class DshCoreConnector {
     return candidates
   }
 
-  async applyVendorOverlay(name, vendorDir) {
-    const overlay = join(this.runtimeDirectory, 'vendor-overlays', name)
+  repoPluginSource(plugin) {
+    const injected = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
+    if (ignoredRepoInject(plugin, injected)) return join(this.runtimeDirectory, 'plugins', plugin.dir)
+    return injected
+  }
+
+  profileStampPath() {
+    return join(this.dshHome, `.fde-profile-stamp-${this.profileName}.json`)
+  }
+
+  readProfileStamp() {
     try {
-      await access(overlay, constants.R_OK)
-      await cp(overlay, vendorDir, { recursive: true, force: true })
+      return JSON.parse(readFileSync(this.profileStampPath(), 'utf8'))
     } catch {
-      /* no overlay for this plugin */
+      return null
     }
+  }
+
+  reuseStampedProfile() {
+    if (process.env.FDE_REFRESH_PLUGINS === '1') return 'miss'
+    const saved = this.readProfileStamp()
+    if (!saved || !saved.plugins) return 'miss'
+    const lockId = fileIdentity(join(this.runtimeDirectory, 'plugins', 'plugins.lock.json'))
+    if ((saved.lock || '') !== lockId) return 'miss'
+    const dir = join(this.dshHome, 'profiles', this.profileName)
+    const modules = join(dir, 'node_modules')
+    if ((saved.manifest || '') !== fileIdentity(join(dir, 'package.json'))) return 'miss'
+    if ((saved.cordis || '') !== fileIdentity(join(dir, 'cordis.yml'))) return 'miss'
+    if ((saved.patch || '') !== fileIdentity(join(dir, 'cordis.patch.yml'))) return 'miss'
+    for (const plugin of BUILTIN_PLUGINS) {
+      if (!plugin.source || plugin.source.kind !== 'repo') continue
+      const row = saved.plugins[plugin.dir]
+      if (!row) return 'miss'
+      const source = resolve(this.repoPluginSource(plugin))
+      if (source !== row.source) return 'miss'
+      let tree = ''
+      try {
+        tree = sourceStamp(source)
+      } catch {
+        return 'miss'
+      }
+      if (tree !== row.tree) return 'miss'
+      const link = join(modules, plugin.module)
+      if (!existsSync(link)) return 'miss'
+      let dest = ''
+      try {
+        dest = realpathSync(link)
+      } catch {
+        return 'miss'
+      }
+      if (row.needsNats) {
+        const natsDir = join(dest, 'node_modules', 'nats')
+        const natsPkg = join(natsDir, 'package.json')
+        if (!existsSync(natsPkg)) {
+          this.state = 'error'
+          this.lastError = 'NATS_DEPENDENCY_MISSING'
+          return 'error'
+        }
+        const version = String(JSON.parse(readFileSync(natsPkg, 'utf8')).version || '')
+        const content = natsContentDigest(natsDir)
+        if (!row.natsIntegrity || version !== row.natsVersion || content !== row.natsContent) return 'miss'
+      }
+    }
+    const iui = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'iui')
+    if (iui && !existsSync(join(modules, iui.module))) return 'miss'
+    if (!existsSync(join(modules, 'fde-x-dsh-bridge'))) return 'miss'
+    return 'ready'
+  }
+
+  writeProfileStamp() {
+    const dir = join(this.dshHome, 'profiles', this.profileName)
+    const modules = join(dir, 'node_modules')
+    const plugins = {}
+    for (const plugin of BUILTIN_PLUGINS) {
+      if (!plugin.source || plugin.source.kind !== 'repo') continue
+      if (repoPluginSkipped(plugin)) continue
+      const source = resolve(this.repoPluginSource(plugin))
+      const dest = realpathSync(join(modules, plugin.module))
+      let pkg = {}
+      try {
+        pkg = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
+      } catch {
+        /* a plugin without package.json does not declare nats */
+      }
+      const needsNats = Boolean(pkg.dependencies && pkg.dependencies.nats)
+      const nats = needsNats ? natsStampFields(dest) : null
+      if (needsNats && (!nats || nats.problem)) return
+      plugins[plugin.dir] = {
+        source,
+        tree: sourceStamp(source),
+        needsNats,
+        natsVersion: nats ? nats.version : '',
+        natsIntegrity: nats ? nats.integrity : '',
+        natsContent: nats ? nats.content : '',
+      }
+    }
+    writeFileSync(this.profileStampPath(), `${JSON.stringify({
+      lock: fileIdentity(join(this.runtimeDirectory, 'plugins', 'plugins.lock.json')),
+      manifest: fileIdentity(join(dir, 'package.json')),
+      cordis: fileIdentity(join(dir, 'cordis.yml')),
+      patch: fileIdentity(join(dir, 'cordis.patch.yml')),
+      plugins,
+    })}\n`)
+  }
+
+  async linkRepoPlugin(plugin) {
+    const source = this.repoPluginSource(plugin)
+    const injectedEnv = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
+    const injected = !ignoredRepoInject(plugin, injectedEnv)
+    try {
+      await access(source, constants.R_OK)
+    } catch {
+      this.state = 'error'
+      this.lastError = `missing-source ${plugin.dir}`
+      return false
+    }
+    const missing = await firstMissingClosure(source)
+    if (missing) {
+      this.state = 'error'
+      this.lastError = `missing ${missing}`
+      return false
+    }
+    let lockText = ''
+    if (!injected) {
+      try {
+        lockText = await readFile(join(this.runtimeDirectory, 'plugins', 'plugins.lock.json'), 'utf8')
+      } catch (error) {
+        this.state = 'error'
+        this.lastError = errorMessage(error)
+        return false
+      }
+    }
+    const synced = await syncRepoCache({
+      dshHome: this.dshHome,
+      pluginDir: plugin.dir,
+      source,
+      refresh: process.env.FDE_REFRESH_PLUGINS === '1',
+      lockText,
+    })
+    if (!synced.ok) {
+      this.state = 'error'
+      this.lastError = synced.error
+      return false
+    }
+    const natsError = await natsDependencyError(synced.linkDir)
+    if (natsError) {
+      this.state = 'error'
+      this.lastError = natsError
+      return false
+    }
+    return synced.linkDir
   }
 
   recordPluginFailure(plugin, detail) {
@@ -716,7 +891,7 @@ export class DshCoreConnector {
 
   async linkBuiltinPlugin(plugin, modulesDir) {
     try {
-      const vendor = plugin.source.kind === 'pinned'
+      let vendor = plugin.source.kind === 'pinned'
         ? this.pinnedInstallDir(plugin)
         : join(this.dshHome, 'vendor', plugin.dir)
       if (plugin.source.kind === 'pinned') {
@@ -752,28 +927,15 @@ export class DshCoreConnector {
           this.recordPluginFailure(plugin, detail)
           return false
         }
+      } else if (plugin.source && plugin.source.kind === 'repo') {
+        const linked = await this.linkRepoPlugin(plugin)
+        if (!linked) return false
+        vendor = linked
       } else {
-        if (process.env.FDE_REFRESH_PLUGINS === '1') {
-          await rm(vendor, { recursive: true, force: true })
-        }
-        if (!existsSync(vendor)) {
-          for (const source of this.pluginSourceCandidates(plugin)) {
-            try {
-              await access(source, constants.R_OK)
-              await mkdir(dirname(vendor), { recursive: true })
-              await cp(source, vendor, { recursive: true, dereference: true })
-              break
-            } catch {
-              continue
-            }
-          }
-        }
-        if (!existsSync(vendor)) {
-          this.recordPluginFailure(plugin, 'missing-source')
-          return false
-        }
+        this.state = 'error'
+        this.lastError = `missing-source ${plugin.dir}`
+        return false
       }
-      await this.applyVendorOverlay(plugin.dir, vendor)
       const link = join(modulesDir, plugin.module)
       await mkdir(dirname(link), { recursive: true })
       await linkPath(vendor, link)
@@ -799,6 +961,12 @@ export class DshCoreConnector {
   }
 
   async installIsolatedProfile() {
+    const reused = this.reuseStampedProfile()
+    if (reused === 'ready') {
+      if (this.state === 'idle') this.lastError = null
+      return
+    }
+    if (reused === 'error') return
     const dir = join(this.dshHome, 'profiles', this.profileName)
     const modules = join(dir, 'node_modules')
     await linkPackagedPeers({ dshHome: this.dshHome })
@@ -808,9 +976,15 @@ export class DshCoreConnector {
     this.pluginLinkFailures = []
     const extras = []
     for (const plugin of BUILTIN_PLUGINS) {
+      if (repoPluginSkipped(plugin)) continue
       if (await this.linkBuiltinPlugin(plugin, modules)) extras.push(plugin.module)
     }
-    this.lastError = this.pluginLinkFailures.length ? this.pluginLinkFailures.join('；') : null
+    const optional = this.pluginLinkFailures.length ? this.pluginLinkFailures.join('；') : ''
+    if (this.state === 'error' && this.lastError) {
+      this.lastError = optional ? `${this.lastError}；${optional}` : this.lastError
+    } else {
+      this.lastError = optional || null
+    }
     extras.push(...availableProductBundles())
     await writeMergedProfileManifest(packagePath, {
       profileName: this.profileName,
@@ -839,6 +1013,7 @@ export class DshCoreConnector {
     const bridgeSource = resolve(this.runtimeDirectory, 'fde-x-dsh-bridge')
     const bridgeLink = join(modules, 'fde-x-dsh-bridge')
     await linkPath(bridgeSource, bridgeLink)
+    if (this.state !== 'error' && !this.lastError) this.writeProfileStamp()
   }
 
   async ensureSharedSemanticRuntime() {

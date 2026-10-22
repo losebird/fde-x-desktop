@@ -62,7 +62,6 @@ function checkPlugin(root, name, plugin, errors) {
   if (!overlay || typeof overlay.repo !== 'string' || !overlay.repo) errors.push(`${name} overlay.repo`)
   if (!overlay || !SHA40.test(overlay.commit || '')) errors.push(`${name} overlay.commit`)
   if (!overlay || typeof overlay.path !== 'string' || !overlay.path) errors.push(`${name} overlay.path`)
-  else if (!existsSync(join(root, overlay.path))) errors.push(`${name} missing overlay ${overlay.path}`)
   const files = plugin && plugin.files
   if (!files || typeof files !== 'object' || Array.isArray(files)) {
     errors.push(`${name} files`)

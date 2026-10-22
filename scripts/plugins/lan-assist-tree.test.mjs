@@ -405,23 +405,19 @@ test('both lock checkers reject version 2', () => {
   }
 })
 
-test('both lock checkers reject a missing overlay path', () => {
+test('lock checkers accept an overlay path whose directory is absent', () => {
   const source = sourceCheckout()
   const root = prepareSynced(source)
   try {
-    const healthyLan = run('verify', root, source)
-    const healthyLock = runLock(root)
-    assert.equal(healthyLan.status, 0, healthyLan.stderr)
-    assert.equal(healthyLock.status, 0, healthyLock.stderr)
-    rewriteLock(root, (doc) => {
-      doc.plugins['dsh-semantic-os'].overlay.path = 'does/not/exist'
-    })
+    rmSync(join(root, 'runtime/vendor-overlays'), { recursive: true, force: true })
     const lan = run('verify', root, source)
     const lock = runLock(root)
-    assert.equal(lan.status, 1, lan.stderr)
-    assert.equal(lock.status, 1, lock.stderr)
-    assert.match(lan.stderr, /missing overlay does\/not\/exist/)
-    assert.match(lock.stderr, /missing overlay does\/not\/exist/)
+    assert.equal(lan.status, 0, lan.stderr)
+    assert.equal(lock.status, 0, lock.stderr)
+    const entry = JSON.parse(readFileSync(join(root, LOCK_REL), 'utf8')).plugins['dsh-lan-assist']
+    assert.equal(entry.overlay.commit, '6a79f383b951c7e13f424c4577dc06b85f64304e')
+    assert.equal(entry.overlay.path, 'runtime/vendor-overlays/dsh-lan-assist')
+    assert.equal(existsSync(join(root, 'runtime/vendor-overlays/dsh-lan-assist')), false)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

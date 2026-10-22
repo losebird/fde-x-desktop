@@ -76,7 +76,7 @@ describe('biz surfaces and live execute', () => {
   })
 
   test('commitWrite rejects model path without workstation source', () => {
-    const gate = readFileSync(join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist/gate.js'), 'utf8')
+    const gate = readFileSync(join(repoRoot, 'runtime/plugins/dsh-lan-assist/gate.js'), 'utf8')
     assert.match(gate, /source !== 'workstation'/)
     assert.match(gate, /WORKSTATION_CONFIRM_HINT/)
   })

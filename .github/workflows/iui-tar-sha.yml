@@ -75,10 +75,10 @@ jobs:
               "$work/apps/desktop" \
               "$work/output" \
               "$work/promo-direct" \
-              "$work/runtime/vendor-overlays/dsh-semantic-os/python/__pycache__"
+              "$work/runtime/plugins/dsh-semantic-os/python/__pycache__"
             printf '%s\n' '{}' > "$work/apps/desktop/package-lock.json"
             printf '%s\n' occupied > "$work/occupy-open.txt"
-            printf '%s\n' pyc > "$work/runtime/vendor-overlays/dsh-semantic-os/python/__pycache__/x.pyc"
+            printf '%s\n' pyc > "$work/runtime/plugins/dsh-semantic-os/python/__pycache__/x.pyc"
             export HOME="$RUNNER_TEMP/Users/zxz"
             mkdir -p "$HOME"
             printf '%s\n' 'registry=https://registry.npmmirror.com' > "$HOME/.npmrc"

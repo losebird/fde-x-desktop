@@ -3,4 +3,4 @@
  * @module runtime/biz/gate-action-codes
  */
 
-export { collectGateActionCodes, isGateActionCode } from '../vendor-overlays/dsh-lan-assist/gate-action-codes.mjs'
+export { collectGateActionCodes, isGateActionCode } from '../plugins/dsh-lan-assist/gate-action-codes.mjs'

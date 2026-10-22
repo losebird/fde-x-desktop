@@ -9,7 +9,7 @@ import {
   peerMap,
   peerOut,
   shouldAttemptPeer,
-} from '../vendor-overlays/dsh-lan-assist/delivery.js'
+} from '../plugins/dsh-lan-assist/delivery.js'
 
 const dead = 'pk_dead'
 const live = 'pk_live'

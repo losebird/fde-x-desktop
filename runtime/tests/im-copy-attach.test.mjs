@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { attachCopyJobs, copyLetterAttach, destRel } from '../vendor-overlays/dsh-lan-assist/copy-attach.js'
+import { attachCopyJobs, copyLetterAttach, destRel } from '../plugins/dsh-lan-assist/copy-attach.js'
 
 describe('copy letter attach dest', () => {
   test('destRel keeps a workspace-relative file identity', () => {

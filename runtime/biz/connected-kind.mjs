@@ -3,7 +3,7 @@
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const spokenSeed = require('../vendor-overlays/dsh-lan-assist/vocab/spoken.json')
+const spokenSeed = require('../plugins/dsh-lan-assist/vocab/spoken.json')
 
 const FILLER_ROLES = new Set(['动作', '列举', '助词', '问句', '焦点', '改写', '连接', '标点'])
 const WRITE_ACTIONS = new Set(['删除', '过审', '新建', '改行'])

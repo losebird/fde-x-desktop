@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { diskFiles, readLock, verifyLockDocument } from './lock-check.mjs'
 
@@ -21,6 +22,7 @@ export const VENDOR_BLOBS = {
 }
 
 const KEEP_SOURCE = new Set(['pair.js', 'seat.js', 'shout.js'])
+const OVERLAY_SKIP = new Set(['node_modules', '.git', 'runtime-dist', '__pycache__', '.nsc-local', '.tmp-npm'])
 
 const PLUGIN_DIR = 'runtime/plugins/dsh-lan-assist'
 const DOCS_DIR = 'docs/plugins/dsh-lan-assist'
@@ -127,12 +129,27 @@ function jsonBytes(value) {
 function walkOverlay(dir, prefix = '') {
   const out = []
   for (const name of readdirSync(dir)) {
+    if (OVERLAY_SKIP.has(name)) continue
     const abs = join(dir, name)
     const rel = prefix ? `${prefix}/${name}` : name
     if (statSync(abs).isDirectory()) out.push(...walkOverlay(abs, rel))
     else out.push(rel)
   }
   return out
+}
+
+function materializeOverlay(overlayDir, root) {
+  if (resolve(overlayDir) !== resolve(root, PLUGIN_DIR)) return overlayDir
+  const snap = mkdtempSync(join(tmpdir(), 'lan-overlay-'))
+  cpSync(overlayDir, snap, {
+    recursive: true,
+    filter: (src) => {
+      const rel = src.slice(overlayDir.length).replace(/^[/\\]/, '')
+      if (!rel) return true
+      return !rel.split(/[/\\]/).some((part) => OVERLAY_SKIP.has(part))
+    },
+  })
+  return snap
 }
 
 export function buildTree(source, overlayDir) {
@@ -411,7 +428,7 @@ if (isMain) {
   if (command !== 'sync' && command !== 'verify') usage()
   const source = arg('--source', '')
   if (!source) usage()
-  const overlayDir = arg('--overlay', join(repoRoot, 'runtime/vendor-overlays/dsh-lan-assist'))
+  const overlayDir = materializeOverlay(arg('--overlay', join(repoRoot, PLUGIN_DIR)), arg('--root', repoRoot))
   const root = arg('--root', repoRoot)
   const files = buildTree(source, overlayDir)
   if (command === 'sync') {

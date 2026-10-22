@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   DSH_LAN_ASSIST_PORT,
@@ -10,7 +10,6 @@ import {
   FDE_OFFICIAL_DSH_HOME,
   FDE_RUNTIME_HOST,
   FDE_RUNTIME_PORT,
-  FDE_VENDOR_DIR,
   FDE_WEB_PORT,
   resolveDshBin,
 } from '../runtime/config.mjs'
@@ -32,25 +31,9 @@ const webPort = FDE_WEB_PORT
 const fdeHome = FDE_DSH_HOME
 const officialHome = FDE_OFFICIAL_DSH_HOME
 
-function linkVendorTarget(target, linkPath) {
-  if (process.platform === 'win32') {
-    try {
-      symlinkSync(target, linkPath, 'junction')
-      return
-    } catch {
-      // dev 启动阶段不拷贝整棵 vendor；失败时留给 runtime 插件逻辑处理
-      return
-    }
-  }
-  symlinkSync(target, linkPath)
-}
-
 function prepareFdeHome() {
   mkdirSync(fdeHome, { recursive: true })
   seedDshCredentialsSync(fdeHome, { officialHome, fdeHome })
-  const vendor = join(fdeHome, 'vendor')
-  const shared = existsSync(FDE_VENDOR_DIR) ? FDE_VENDOR_DIR : join(officialHome, 'vendor')
-  if (existsSync(shared) && !existsSync(vendor)) linkVendorTarget(shared, vendor)
 }
 
 function portOpen(port, timeoutMs = 400) {

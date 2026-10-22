@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizePlan } from '../vendor-overlays/dsh-lan-assist/plan.js'
-import { createLookup, hopLinkParentIds, kindLabelsMatch, relatedField, relatedHopId, relatedIdBatches, relationColumn } from '../vendor-overlays/dsh-lan-assist/lookup.js'
+import { normalizePlan } from '../plugins/dsh-lan-assist/plan.js'
+import { createLookup, hopLinkParentIds, kindLabelsMatch, relatedField, relatedHopId, relatedIdBatches, relationColumn } from '../plugins/dsh-lan-assist/lookup.js'
 
 test('kindLabelsMatch neutralizes i18n template object names', () => {
   assert.equal(kindLabelsMatch('{{t("Users")}}', 'Users'), true)

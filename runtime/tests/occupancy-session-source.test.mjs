@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { occupancyLiftSource, occupancyWriteSource } from '../vendor-overlays/dsh-lan-assist/session-source.js'
+import { occupancyLiftSource, occupancyWriteSource } from '../plugins/dsh-lan-assist/session-source.js'
 
 test('occupancyWriteSource is producer-owned and refuses plugin wrappers', () => {
   assert.deepEqual(occupancyWriteSource('dsh-lan-assist'), { kind: 'dsh-lan-assist' })

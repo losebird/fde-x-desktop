@@ -19,6 +19,7 @@ const SURVIVE_WINDOW_MS = 4000
 const CLOSE_LITE_BOUND_S = 2
 
 function sha256File(path) {
+  if (!existsSync(path)) return 'missing'
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 

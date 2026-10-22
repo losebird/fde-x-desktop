@@ -2,15 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
-import { planReceipt } from '../vendor-overlays/dsh-lan-assist/plan-receipt.mjs'
+import { planReceipt } from '../plugins/dsh-lan-assist/plan-receipt.mjs'
 import {
   bindWhereKeys,
   rowsMatchingWhere,
   termFilterPart,
-} from '../vendor-overlays/dsh-lan-assist/where-pass.js'
-import { createLookup, termFitsCollection } from '../vendor-overlays/dsh-lan-assist/lookup.js'
-import { rowMatchesAll } from '../vendor-overlays/dsh-lan-assist/resolve.js'
-import { unboundWhereSpeak } from '../vendor-overlays/dsh-lan-assist/relation-bind.js'
+} from '../plugins/dsh-lan-assist/where-pass.js'
+import { createLookup, termFitsCollection } from '../plugins/dsh-lan-assist/lookup.js'
+import { rowMatchesAll } from '../plugins/dsh-lan-assist/resolve.js'
+import { unboundWhereSpeak } from '../plugins/dsh-lan-assist/relation-bind.js'
 
 const kind = '工单'
 const vocab = [{

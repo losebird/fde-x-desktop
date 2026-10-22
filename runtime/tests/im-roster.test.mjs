@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { destOf, isRoster, upsertGroup, visibleMembers } from '../vendor-overlays/dsh-lan-assist/roster.js'
+import { destOf, isRoster, upsertGroup, visibleMembers } from '../plugins/dsh-lan-assist/roster.js'
 
 const self = 'pk_self'
 const a = 'pk_a'

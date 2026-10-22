@@ -8,14 +8,14 @@ import {
   loadSpokenSeed,
   speechHasConnectorWrite,
   writeActionSaysFromSpoken,
-} from '../vendor-overlays/dsh-lan-assist/live-write-intent.mjs'
+} from '../plugins/dsh-lan-assist/live-write-intent.mjs'
 import {
   flipFirstTurn,
   needsSearch,
   routeIntent,
-} from '../vendor-overlays/dsh-semantic-os/first-turn.js'
+} from '../plugins/dsh-semantic-os/first-turn.js'
 
-const overlayRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'vendor-overlays')
+const overlayRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'plugins')
 
 test('spoken seed write says exclude 现查 and include connector writes', () => {
   const spoken = loadSpokenSeed()
