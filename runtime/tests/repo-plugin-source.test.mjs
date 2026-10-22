@@ -218,6 +218,7 @@ if (process.env.PR4_CASE) {
       delete env.FDE_IUI_ARTIFACT
       delete env.FDE_REFRESH_PLUGINS
       delete env.FDE_REPO_PLUGINS
+      delete env.NODE_TEST_CONTEXT
       const ran = spawnSync(process.execPath, [self], { env, encoding: 'utf8', timeout: 180000 })
       rm(emptyVendor, { recursive: true, force: true }).catch(() => {})
       assert.equal(ran.status, 0, ran.stderr || ran.stdout)

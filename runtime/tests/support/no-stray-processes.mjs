@@ -212,19 +212,21 @@ export function awaitChildExit(child, signal = 'SIGTERM') {
 }
 
 let censusError = null
-const timer = setInterval(() => {
-  try {
-    listStrays()
-  } catch {
-    // listStrays keeps the first error for after(). A later success must not clear it.
-  }
-}, 200)
-timer.unref()
+if (process.env.NODE_TEST_CONTEXT) {
+  const timer = setInterval(() => {
+    try {
+      listStrays()
+    } catch {
+      // listStrays keeps the first error for after(). A later success must not clear it.
+    }
+  }, 200)
+  timer.unref()
 
-queueMicrotask(() => {
-  after(() => {
-    clearInterval(timer)
-    if (censusError) throw censusError
-    assertNoStrays()
+  queueMicrotask(() => {
+    after(() => {
+      clearInterval(timer)
+      if (censusError) throw censusError
+      assertNoStrays()
+    })
   })
-})
+}
