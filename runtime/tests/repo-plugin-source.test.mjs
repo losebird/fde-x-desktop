@@ -223,6 +223,25 @@ if (process.env.PR4_CASE) {
     })
   }
 
+  test('a git checkout passed in FDE_PLUGIN_* is not the install body', () => {
+    const checkout = mkdtempSync(join(tmpdir(), 'fde-pin-checkout-'))
+    writeFileSync(join(checkout, '.git'), 'gitdir: fake\n')
+    const saved = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+    process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = checkout
+    try {
+      const connector = new DshCoreConnector({ dshHome: checkout, cwd: checkout })
+      const sem = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-semantic-os')
+      assert.equal(
+        connector.repoPluginSource(sem),
+        join(repoRoot, 'runtime', 'plugins', 'dsh-semantic-os'),
+      )
+    } finally {
+      if (saved === undefined) delete process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+      else process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = saved
+      rmSync(checkout, { recursive: true, force: true })
+    }
+  })
+
   test('repo kind points at runtime/plugins', () => {
     const lan = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-lan-assist')
     const sem = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-semantic-os')
