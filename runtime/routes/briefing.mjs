@@ -102,7 +102,7 @@ function recordBriefingOpenFailure(db, workspaceCwd, error) {
       workspaceCwd,
       agentRequestId: '',
     }).id
-  updateBriefingContent(db, briefingId, patch)
+  updateBriefingContent(db, briefingId, patch, workspaceCwd)
   emit('briefing.ready', { briefingId, workspaceCwd, status: 'failed' }, { workspaceCwd })
 }
 
@@ -286,7 +286,9 @@ export async function handleBriefingRoutes(request, response, url, deps) {
 
   const idMatch = pathname.match(/^\/api\/v1\/briefing\/([^/]+)$/)
   if (request.method === 'GET' && idMatch && idMatch[1] !== 'definition' && idMatch[1] !== 'latest' && idMatch[1] !== 'run' && !idMatch[1].startsWith('sources')) {
-    const row = getBriefing(db, decodeURIComponent(idMatch[1]))
+    const workspaceCwd = requireWorkspaceQuery(url, response, correlationId, aiRuntime?.cwd, cors)
+    if (!workspaceCwd) return true
+    const row = getBriefing(db, decodeURIComponent(idMatch[1]), workspaceCwd)
     if (!row) {
       briefingError(response, 404, 'not_found', '早报不存在', correlationId, cors)
       return true

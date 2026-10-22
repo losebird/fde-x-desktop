@@ -330,7 +330,9 @@ function AppDraftEditor({
     setSaving(true)
     setNote('')
     try {
+      const workspaceId = app.workspaceId
       await runtimeApi.updateBusinessApp(app.id, {
+        workspaceId,
         definition: {
           ...def,
           kind: 'ai-generated-draft',

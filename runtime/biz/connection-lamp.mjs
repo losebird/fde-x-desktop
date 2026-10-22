@@ -63,7 +63,7 @@ export function reconcileLanAssistConnectionLamp(db, state, opts = {}) {
     : reachable
       ? { state: 'detected', at: new Date().toISOString() }
       : { state: 'offline', at: new Date().toISOString() }
-  return updateBusinessConnectionStatusByProvider(db, LAN_ASSIST_CONNECTION_PROVIDER, status, lastHealth)
+  return updateBusinessConnectionStatusByProvider(db, LAN_ASSIST_CONNECTION_PROVIDER, status, lastHealth, opts.workspaceId)
 }
 
 export async function refreshLanAssistConnectionLamp(db, lanAssist, opts = {}) {

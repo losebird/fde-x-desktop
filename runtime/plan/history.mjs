@@ -108,10 +108,14 @@ function hostKind(kind, id) {
   return false
 }
 
-function ownedRow(db, kind, id) {
-  if (kind === 'tasks') return db.prepare('SELECT workspace_id FROM tasks WHERE id = ?').get(id) || null
-  if (kind === 'events') return db.prepare('SELECT workspace_id, workflow_id FROM calendar_events WHERE id = ?').get(id) || null
-  return db.prepare('SELECT workspace_id FROM workflows WHERE id = ?').get(id) || null
+function ownedRow(db, kind, id, workspaceId) {
+  if (kind === 'tasks') {
+    return db.prepare('SELECT workspace_id FROM tasks WHERE workspace_id = ? AND id = ?').get(workspaceId, id) || null
+  }
+  if (kind === 'events') {
+    return db.prepare('SELECT workspace_id, workflow_id FROM calendar_events WHERE workspace_id = ? AND id = ?').get(workspaceId, id) || null
+  }
+  return db.prepare('SELECT workspace_id FROM workflows WHERE workspace_id = ? AND id = ?').get(workspaceId, id) || null
 }
 
 function actorFor(action) {
@@ -233,8 +237,8 @@ export function readPlanHistory(db, { workspaceId, targetRef }) {
   const kind = match[1]
   const id = match[2]
   const hostManaged = hostKind(kind, id)
-  const owned = ownedRow(db, kind, id)
-  if (!hostManaged && (!owned || owned.workspace_id !== workspaceId)) {
+  const owned = ownedRow(db, kind, id, workspaceId)
+  if (!hostManaged && !owned) {
     return { error: 'not_found', message: '记录不存在' }
   }
   const entries = auditEntries(db, workspaceId, `fde://plan/${kind}/${id}`)

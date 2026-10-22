@@ -68,7 +68,9 @@ export async function resolveBizCorpusOrigin(spec) {
   if (!traceId) {
     return { ok: false, message: '缺少操作记录 id，读不出当时原文。', href: { panel: 'data', tab: 'records' } }
   }
-  const audit = getBizWriteAuditByTraceId(spec.db, traceId)
+  const fromRequest = workspaceOf(spec.url, null)
+  const workspaceCwd = fromRequest || canonicalWorkspaceCwd(spec.workspaceCwd) || String(spec.workspaceCwd || '')
+  const audit = getBizWriteAuditByTraceId(spec.db, traceId, workspaceCwd)
   const href = originHref(`biz:${traceId.startsWith('trace_') ? traceId : `trace_${traceId}`}`, {
     db: spec.db,
     audit,

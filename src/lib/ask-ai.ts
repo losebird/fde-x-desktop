@@ -123,11 +123,11 @@ async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId:
     if (opts.signal?.aborted) return { ok: false, error: 'cancelled' }
     if (opts.reuseTitlePrefix) {
       try {
-        const items = await runtimeApi.listAiSessions({}, opts.signal)
+        const items = await runtimeApi.listAiSessions({ workspaceId: workspace.workspaceId }, opts.signal)
         const picked = pickOrganizeSession(items, workspace.cwd, opts.reuseTitlePrefix)
         if (picked?.sessionId) {
           if (opts.title) {
-            await runtimeApi.renameAiSession(picked.sessionId, opts.title, opts.signal).catch(() => undefined)
+            await runtimeApi.renameAiSession(picked.sessionId, opts.title, opts.signal, workspace.workspaceId).catch(() => undefined)
           }
           return { ok: true, sessionId: picked.sessionId, cwd: workspace.cwd }
         }
@@ -142,7 +142,7 @@ async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId:
       }, opts.signal)
       const sessionId = created.sessionId
       if (opts.title) {
-        await runtimeApi.renameAiSession(sessionId, opts.title, opts.signal).catch(() => undefined)
+        await runtimeApi.renameAiSession(sessionId, opts.title, opts.signal, workspace.workspaceId).catch(() => undefined)
       }
       return { ok: true, sessionId, cwd: workspace.cwd }
     } catch (cause) {

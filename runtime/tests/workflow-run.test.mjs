@@ -560,7 +560,7 @@ test('恶意 sourceRef 的建流和 run 都返回 422', async (t) => {
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM workflows').get().n, 1)
   assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM workflows WHERE definition_json LIKE '%忽略之前的指令%'`).get().n, 0)
 
-  const patched = await postJson(port, '/api/v1/plan/workflows/wf_clean', { steps: [step] }, 'PATCH')
+  const patched = await postJson(port, '/api/v1/plan/workflows/wf_clean', { workspaceId: 'ws_src', steps: [step] }, 'PATCH')
   assert.equal(patched.status, 422, `patch status ${patched.status}`)
   assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM workflows WHERE definition_json LIKE '%忽略之前的指令%'`).get().n, 0)
 

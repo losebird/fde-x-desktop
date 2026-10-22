@@ -63,8 +63,9 @@ function planDomain(opts) {
     actorId: opts.actorId,
     correlationId: opts.correlationId,
     reasons: { missing: 'task_missing', moved: 'stale_task', appeared: 'task_exists' },
+    workspaceId: opts.workspaceId,
     load(db, plan) {
-      const row = getTask(db, plan.taskId)
+      const row = getTask(db, plan.taskId, plan.workspaceId)
       return { versions: [{ current: row ? row.updated_at : null, base: plan.change.base }] }
     },
     apply(db, plan) {
@@ -80,10 +81,10 @@ function planDomain(opts) {
           sourceRef: plan.change.sourceRef,
           tags: plan.change.tags,
         })
-        const diff = planChangeDetails(null, {}, taskHistoryView(getTask(db, plan.taskId)))
+        const diff = planChangeDetails(null, {}, taskHistoryView(getTask(db, plan.taskId, plan.workspaceId)))
         return { applied: true, details: { op: plan.op, taskId: plan.taskId, before: diff.before, after: diff.after, fields: diff.fields } }
       }
-      const before = taskHistoryView(getTask(db, plan.taskId))
+      const before = taskHistoryView(getTask(db, plan.taskId, plan.workspaceId))
       const change = plan.change
       const fields = {}
       if (change.title !== undefined) fields.title = change.title
@@ -92,14 +93,14 @@ function planDomain(opts) {
       if (change.dueAt !== undefined) fields.dueAt = change.dueAt
       if (change.tags !== undefined) fields.tags = change.tags
       if (change.status !== undefined) fields.status = change.status
-      const row = updateTask(db, plan.taskId, fields)
+      const row = updateTask(db, plan.taskId, fields, plan.workspaceId)
       if (!row) return { applied: false }
       const diff = planChangeDetails(null, before, taskHistoryView(row))
       return { applied: true, details: { op: plan.op, taskId: plan.taskId, before: diff.before, after: diff.after, fields: diff.fields } }
     },
     rejectedDetails(db, operation) {
       const plan = operation.plan || {}
-      const current = plan.op === 'insert' ? {} : taskHistoryView(getTask(db, plan.taskId))
+      const current = plan.op === 'insert' ? {} : taskHistoryView(getTask(db, plan.taskId, plan.workspaceId))
       const proposed = { ...current }
       const change = plan.change || {}
       for (const field of ['title', 'notes', 'status', 'priority', 'dueAt', 'tags', 'sourceRef']) {
@@ -161,7 +162,7 @@ export function proposePlanTask(db, input) {
   const taskId = typeof input.taskId === 'string' ? input.taskId.trim() : ''
   if (isHostGoalId(taskId)) return { ok: false, error: 'validation_error', message: 'Host goal 只能改状态' }
   if (!taskId) return { ok: false, error: 'not_found', message: '任务不存在' }
-  const existing = getTask(db, taskId)
+  const existing = getTask(db, taskId, workspaceId)
   if (!existing || existing.workspace_id !== workspaceId) {
     return { ok: false, error: 'not_found', message: '任务不存在' }
   }

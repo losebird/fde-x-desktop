@@ -1,5 +1,6 @@
 import { resolveAllowedRequestOrigin } from '../config.mjs'
-import { resolveHttpWorkspace } from '../http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
+import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 import {
   configureEventBus,
   emit,
@@ -12,7 +13,7 @@ import {
 const MAX_SSE_CONNECTIONS = 32
 const PING_INTERVAL_MS = 25_000
 
-function workspaceFilter(url) {
+function workspaceFilter(db, url) {
   const resolved = resolveHttpWorkspace({
     url,
     slots: [['query', 'workspace'], ['query', 'cwd']],
@@ -20,7 +21,9 @@ function workspaceFilter(url) {
   })
   if (resolved.error) return resolved
   if (resolved.omitted) return { cwd: undefined }
-  return { cwd: resolved.cwd }
+  const ident = resolveWorkspaceIdOrFail(db, resolved)
+  if (ident.error) return ident
+  return { cwd: ident.cwd || resolved.cwd }
 }
 
 /** @type {Set<import('node:http').ServerResponse>} */
@@ -53,9 +56,10 @@ export async function handleEventsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/events/recent') {
-    const filter = workspaceFilter(url)
+    const filter = workspaceFilter(db, url)
     if (filter.error) {
-      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+      const failure = httpStatusForWorkspaceError(filter.error)
+      sendError(response, failure.status, failure.code, failure.message, correlationId)
       return true
     }
     const type = String(url.searchParams.get('type') || '').trim()
@@ -71,9 +75,10 @@ export async function handleEventsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/events') {
-    const filter = workspaceFilter(url)
+    const filter = workspaceFilter(db, url)
     if (filter.error) {
-      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+      const failure = httpStatusForWorkspaceError(filter.error)
+      sendError(response, failure.status, failure.code, failure.message, correlationId)
       return true
     }
     if (activeSse.size >= MAX_SSE_CONNECTIONS) {

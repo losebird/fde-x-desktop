@@ -104,6 +104,15 @@ test('HTTP /api/v1/events routes filter a Windows workspace query', { timeout: 3
   const seededMine = emit('task.changed', { mark: 'mine' }, { workspaceCwd: 'C:\\proj\\' })
   const seededOther = emit('task.changed', { mark: 'other' }, { workspaceCwd: '/other/ws' })
   seed.prepare('UPDATE outbox_events SET workspace_cwd = ? WHERE id = ?').run('C:\\proj\\', seededMine)
+  const now = new Date().toISOString()
+  seed.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_win_proj', 'cwd', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd: 'C:/proj' }), now, now)
+  seed.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_other', 'cwd', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd: '/other/ws' }), now, now)
   seed.close()
 
   const child = spawn(process.execPath, ['runtime/server.mjs'], {

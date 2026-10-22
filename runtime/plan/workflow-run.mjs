@@ -551,7 +551,7 @@ function continueRun(deps, ctx) {
   })
 }
 
-export function readWorkflowRuns(db, workflowIds) {
+export function readWorkflowRuns(db, workflowIds, workspaceId) {
   if (!Array.isArray(workflowIds) || workflowIds.length === 0) return new Map()
   const ids = []
   const seen = new Set()
@@ -563,11 +563,12 @@ export function readWorkflowRuns(db, workflowIds) {
   if (ids.length === 0) return new Map()
   const placeholders = ids.map(() => '?').join(', ')
   const rows = db.prepare(`
-    SELECT id, workflow_id, state, output_json
-    FROM workflow_runs
-    WHERE workflow_id IN (${placeholders})
-    ORDER BY created_at DESC, rowid DESC
-  `).all(...ids)
+    SELECT r.id, r.workflow_id, r.state, r.output_json
+    FROM workflow_runs r
+    JOIN workflows w ON w.id = r.workflow_id AND w.workspace_id = ?
+    WHERE r.workflow_id IN (${placeholders})
+    ORDER BY r.created_at DESC, r.rowid DESC
+  `).all(workspaceId, ...ids)
   const grouped = new Map()
   for (const row of rows) {
     let message = ''
@@ -586,7 +587,7 @@ export function readWorkflowRuns(db, workflowIds) {
   return grouped
 }
 
-export function readLatestRunCards(db, workflowIds) {
+export function readLatestRunCards(db, workflowIds, workspaceId) {
   if (!Array.isArray(workflowIds) || workflowIds.length === 0) return new Map()
   const ids = []
   const seen = new Set()
@@ -598,11 +599,12 @@ export function readLatestRunCards(db, workflowIds) {
   if (ids.length === 0) return new Map()
   const placeholders = ids.map(() => '?').join(', ')
   const rows = db.prepare(`
-    SELECT workflow_id, state, finished_at, started_at, created_at
-    FROM workflow_runs
-    WHERE workflow_id IN (${placeholders})
-    ORDER BY created_at DESC, rowid DESC
-  `).all(...ids)
+    SELECT r.workflow_id, r.state, r.finished_at, r.started_at, r.created_at
+    FROM workflow_runs r
+    JOIN workflows w ON w.id = r.workflow_id AND w.workspace_id = ?
+    WHERE r.workflow_id IN (${placeholders})
+    ORDER BY r.created_at DESC, r.rowid DESC
+  `).all(workspaceId, ...ids)
   const cards = new Map()
   for (const row of rows) {
     if (cards.has(row.workflow_id)) continue
@@ -719,8 +721,8 @@ export function startWorkflowRun(deps, command) {
   const trigger = acceptedTrigger(command)
   if (!workspaceId) throw rejectRun(400, 'missing_workspace_id', '缺少 workspaceId')
   if (!workflowId || isHostJobId(workflowId)) throw rejectRun(404, 'not_found', '工作流不存在')
-  const workflow = db.prepare('SELECT id, workspace_id, name, definition_json FROM workflows WHERE id = ?').get(workflowId)
-  if (!workflow || workflow.workspace_id !== workspaceId) throw rejectRun(404, 'not_found', '工作流不存在')
+  const workflow = db.prepare('SELECT id, workspace_id, name, definition_json FROM workflows WHERE workspace_id = ? AND id = ?').get(workspaceId, workflowId)
+  if (!workflow) throw rejectRun(404, 'not_found', '工作流不存在')
   const steps = parseSteps(workflow.definition_json)
   if (hasIllegalSourceRef(steps)) throw rejectRun(422, 'invalid_source_ref', '来源引用不合法')
   assertAiPrompts(steps)

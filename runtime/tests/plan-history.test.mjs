@@ -174,25 +174,26 @@ describe('plan history', { concurrency: 1 }, () => {
     const task = created.payload.data
     const targetRef = ref('tasks', task.id)
 
-    const toV2 = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { title: 'v2' })
+    const toV2 = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { workspaceId, title: 'v2' })
     assert.equal(toV2.status, 200, JSON.stringify(toV2.payload))
-    const toV3 = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { title: 'v3' })
+    const toV3 = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { workspaceId, title: 'v3' })
     assert.equal(toV3.status, 200, JSON.stringify(toV3.payload))
-    const toV4 = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { title: 'v4' })
+    const toV4 = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { workspaceId, title: 'v4' })
     assert.equal(toV4.status, 200, JSON.stringify(toV4.payload))
     assert.equal(toV4.payload.data.title, 'v4')
 
     const noted = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, {
+      workspaceId,
       notes: longNotes,
       via: 'organize',
     })
     assert.equal(noted.status, 200, JSON.stringify(noted.payload))
     assert.equal(noted.payload.data.notes, longNotes)
-    const doing = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { status: 'doing' })
+    const doing = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { workspaceId, status: 'doing' })
     assert.equal(doing.status, 200, JSON.stringify(doing.payload))
-    const bogus = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { status: 'bogus' })
+    const bogus = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { workspaceId, status: 'bogus' })
     assert.equal(bogus.status, 422)
-    const empty = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, {})
+    const empty = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, { workspaceId })
     assert.equal(empty.status, 200, JSON.stringify(empty.payload))
     assert.equal(empty.payload.data.title, 'v4')
     assert.equal(empty.payload.data.status, 'doing')
@@ -250,6 +251,7 @@ describe('plan history', { concurrency: 1 }, () => {
     assert.match(JSON.stringify(host.payload.data), /Host 管理/)
 
     const stale = await send('PATCH', `/api/v1/plan/tasks/${encodeURIComponent(task.id)}`, {
+      workspaceId,
       title: 'nope',
       expectedUpdatedAt: task.updatedAt,
     })
@@ -282,13 +284,13 @@ describe('plan history', { concurrency: 1 }, () => {
     const createdWf = await send('POST', '/api/v1/plan/workflows', { workspaceId, name: '流' })
     assert.equal(createdWf.status, 201, JSON.stringify(createdWf.payload))
     const workflow = createdWf.payload.data
-    const renamed = await send('PATCH', `/api/v1/plan/workflows/${encodeURIComponent(workflow.id)}`, { name: '流 v2' })
+    const renamed = await send('PATCH', `/api/v1/plan/workflows/${encodeURIComponent(workflow.id)}`, { workspaceId, name: '流 v2' })
     assert.equal(renamed.status, 200, JSON.stringify(renamed.payload))
-    const renamedAgain = await send('PATCH', `/api/v1/plan/workflows/${encodeURIComponent(workflow.id)}`, { name: '流 v3' })
+    const renamedAgain = await send('PATCH', `/api/v1/plan/workflows/${encodeURIComponent(workflow.id)}`, { workspaceId, name: '流 v3' })
     assert.equal(renamedAgain.status, 200, JSON.stringify(renamedAgain.payload))
-    const stepped = await send('PATCH', `/api/v1/plan/workflows/${encodeURIComponent(workflow.id)}`, { steps: [step] })
+    const stepped = await send('PATCH', `/api/v1/plan/workflows/${encodeURIComponent(workflow.id)}`, { workspaceId, steps: [step] })
     assert.equal(stepped.status, 200, JSON.stringify(stepped.payload))
-    const activated = await send('PATCH', `/api/v1/plan/workflows/${encodeURIComponent(workflow.id)}`, { status: 'active' })
+    const activated = await send('PATCH', `/api/v1/plan/workflows/${encodeURIComponent(workflow.id)}`, { workspaceId, status: 'active' })
     assert.equal(activated.status, 200, JSON.stringify(activated.payload))
 
     const createdEvent = await send('POST', '/api/v1/plan/events', {
@@ -301,9 +303,9 @@ describe('plan history', { concurrency: 1 }, () => {
     })
     assert.equal(createdEvent.status, 201, JSON.stringify(createdEvent.payload))
     const event = createdEvent.payload.data
-    const eventV2 = await send('PATCH', `/api/v1/plan/events/${encodeURIComponent(event.id)}`, { title: '会 v2' })
+    const eventV2 = await send('PATCH', `/api/v1/plan/events/${encodeURIComponent(event.id)}`, { workspaceId, title: '会 v2' })
     assert.equal(eventV2.status, 200, JSON.stringify(eventV2.payload))
-    const eventV3 = await send('PATCH', `/api/v1/plan/events/${encodeURIComponent(event.id)}`, { title: '会 v3' })
+    const eventV3 = await send('PATCH', `/api/v1/plan/events/${encodeURIComponent(event.id)}`, { workspaceId, title: '会 v3' })
     assert.equal(eventV3.status, 200, JSON.stringify(eventV3.payload))
     const unbound = await send('POST', '/api/v1/plan/events', {
       workspaceId,
@@ -315,7 +317,7 @@ describe('plan history', { concurrency: 1 }, () => {
     const noToken = await fetch(`${base}/api/v1/plan/events/${encodeURIComponent(unbound.payload.data.id)}`, {
       method: 'PATCH',
       headers: { Origin: origin, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workflowId: workflow.id, recurrence: 'daily' }),
+      body: JSON.stringify({ workspaceId, workflowId: workflow.id, recurrence: 'daily' }),
     })
     assert.equal(noToken.status, 401)
 
@@ -405,12 +407,14 @@ describe('plan history', { concurrency: 1 }, () => {
     assert.equal(unboundEntries.some((entry) => change(entry, 'workflowId')), false)
 
     const staleName = await send('PATCH', `/api/v1/plan/workflows/${encodeURIComponent(workflow.id)}`, {
+      workspaceId,
       name: '流 nope',
       expectedUpdatedAt: workflow.updatedAt,
     })
     assert.equal(staleName.status, 409, JSON.stringify(staleName.payload))
     assert.equal(staleName.payload.error, 'conflict')
     const staleEvent = await send('PATCH', `/api/v1/plan/events/${encodeURIComponent(event.id)}`, {
+      workspaceId,
       title: '会 nope',
       expectedUpdatedAt: event.updatedAt,
     })
@@ -451,6 +455,7 @@ describe('plan history', { concurrency: 1 }, () => {
     assert.equal(bridged.status, 200, JSON.stringify(bridgedBody))
     const proposalId = bridgedBody.data.proposalId
     const confirmed = await send('POST', `/api/v1/plan/task-proposals/${encodeURIComponent(proposalId)}/confirm`, {
+      workspaceId,
       title: '请求体标题',
     })
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.payload))
@@ -474,7 +479,7 @@ describe('plan history', { concurrency: 1 }, () => {
     })
     const rejectedBody = await readJson(rejectedProposal)
     assert.equal(rejectedProposal.status, 200, JSON.stringify(rejectedBody))
-    const rejected = await send('POST', `/api/v1/plan/task-proposals/${encodeURIComponent(rejectedBody.data.proposalId)}/reject`, {})
+    const rejected = await send('POST', `/api/v1/plan/task-proposals/${encodeURIComponent(rejectedBody.data.proposalId)}/reject`, { workspaceId })
     assert.equal(rejected.status, 200, JSON.stringify(rejected.payload))
 
     const seen = entriesOf(await history(workspaceId, ref('tasks', task.id)))

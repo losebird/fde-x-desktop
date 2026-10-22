@@ -1,8 +1,8 @@
 import { canonicalWorkspaceCwd } from '../cwd.mjs'
-import { resolveHttpWorkspace } from '../http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
 import { resolveAllowedRequestOrigin, FDE_AI_WORKSPACE, FDE_RUNTIME_PORT } from '../config.mjs'
 import { verifyUiToken } from './bridge.mjs'
-import { appendAudit, createId, enqueueEvent } from '../db.mjs'
+import { appendAudit, createId, enqueueEvent, getOperation } from '../db.mjs'
 import { emit } from '../events.mjs'
 import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 import {
@@ -74,16 +74,9 @@ function specWorkspaceCwd(spec) {
 }
 
 function rejectAppWorkspace(resolved, response, correlationId, sendError) {
-  if (resolved?.error === 'missing_workspace') {
-    sendError(response, 404, 'not_found', '工作区未登记', correlationId)
-    return true
-  }
-  if (resolved?.error === 'workspace_mismatch') {
-    sendError(response, 400, 'workspace_mismatch', '工作区 id 与路径不一致', correlationId)
-    return true
-  }
-  if (!resolved?.error) return false
-  sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+  const failure = httpStatusForWorkspaceError(resolved?.error)
+  if (!failure) return false
+  sendError(response, failure.status, failure.code, failure.message, correlationId)
   return true
 }
 
@@ -91,7 +84,7 @@ function appIdentity(db, url, body, slots) {
   let pathHit = null
   let suppliedId = ''
   for (const [from, key] of slots) {
-    const role = key === 'cwd' || key === 'workspaceCwd' ? 'path' : 'id-or-path'
+    const role = key === 'workspace' || key === 'workspaceId' ? 'id-or-path' : 'path'
     const one = resolveHttpWorkspace({
       url,
       body,
@@ -105,6 +98,10 @@ function appIdentity(db, url, body, slots) {
   }
   if (!suppliedId && body && typeof body.workspaceId === 'string' && body.workspaceId.trim()) {
     suppliedId = body.workspaceId.trim()
+  }
+  if (!suppliedId && url?.searchParams?.has('workspaceId')) {
+    const fromQuery = String(url.searchParams.get('workspaceId') || '').trim()
+    if (fromQuery) suppliedId = fromQuery
   }
   const ident = resolveWorkspaceIdOrFail(db, {
     ...(pathHit || {}),
@@ -143,6 +140,32 @@ function appRecordCwd(url, body, spec, aiRuntime, place) {
     fallbackCwd: FDE_AI_WORKSPACE,
     slots: [],
   })
+}
+
+const APP_WORKSPACE_SLOTS = [
+  ['query', 'workspaceId'],
+  ['body', 'workspaceId'],
+  ['query', 'workspace'],
+  ['body', 'workspace'],
+  ['query', 'cwd'],
+  ['body', 'cwd'],
+  ['query', 'workspaceCwd'],
+  ['body', 'workspaceCwd'],
+]
+
+export function requestAppWorkspace(db, url, body) {
+  return appIdentity(db, url, body, APP_WORKSPACE_SLOTS)
+}
+
+function requireOwnedApp(db, url, body, appId, response, correlationId, sendError) {
+  const ident = requestAppWorkspace(db, url, body)
+  if (rejectAppWorkspace(ident, response, correlationId, sendError)) return null
+  const app = getAppById(db, appId, ident.workspaceId)
+  if (!app || app.workspaceId !== ident.workspaceId) {
+    sendError(response, 404, 'not_found', '应用不存在', correlationId)
+    return null
+  }
+  return app
 }
 
 function sendInvokeError(sendError, response, error, correlationId) {
@@ -263,13 +286,20 @@ export async function handleAppsRoutes(request, response, url, deps) {
       sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', correlationId)
       return true
     }
-    await readJson(request)
+    const body = await readJson(request)
     const operationId = decodeURIComponent(proposalMatch[1])
     const decision = proposalMatch[2]
+    const ident = requestAppWorkspace(db, url, body)
+    if (rejectAppWorkspace(ident, response, correlationId, sendError)) return true
+    const peeked = getOperation(db, operationId, ident.workspaceId)
+    if (!peeked) {
+      sendError(response, 404, 'not_found', '提案不存在', correlationId)
+      return true
+    }
     try {
       const result = decision === 'confirm'
-        ? confirmRecordProposal(db, operationId, { correlationId })
-        : rejectRecordProposal(db, operationId, { correlationId })
+        ? confirmRecordProposal(db, operationId, { correlationId, workspaceId: ident.workspaceId })
+        : rejectRecordProposal(db, operationId, { correlationId, workspaceId: ident.workspaceId })
       if (result.kind === 'not_found' || result.kind === 'not_proposal') {
         sendError(response, 404, 'not_found', '提案不存在', correlationId)
         return true
@@ -294,7 +324,13 @@ export async function handleAppsRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/apps') {
-    const identity = appIdentity(db, url, null, [['query', 'workspace'], ['query', 'cwd']])
+    const identity = appIdentity(db, url, null, [
+      ['query', 'workspace'],
+      ['query', 'cwd'],
+      ['query', 'workspaceCwd'],
+      ['query', 'workspacePath'],
+      ['query', 'workingDirectory'],
+    ])
     if (rejectAppWorkspace(identity, response, correlationId, sendError)) return true
     const workspaceId = identity.workspaceId
     const items = listApps(db, workspaceId)
@@ -365,7 +401,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
       return true
     }
     if (Array.isArray(body.files)) {
-      const created = getAppById(db, result.data.appId)
+      const created = getAppById(db, result.data.appId, workspaceId)
       if (created && isWebAppSpec(created.spec)) {
         try {
           writeBundleFiles(workspaceCwd, created.spec, body.files)
@@ -385,8 +421,9 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
   const liveMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/live(?:\/(.*))?$/)
   if (liveMatch && (request.method === 'GET' || request.method === 'HEAD')) {
-    const app = getAppById(db, decodeURIComponent(liveMatch[1]))
-    if (!app || appIsTrashed(app)) {
+    const app = requireOwnedApp(db, url, null, decodeURIComponent(liveMatch[1]), response, correlationId, sendError)
+    if (!app) return true
+    if (appIsTrashed(app)) {
       sendError(response, 404, 'not_found', '应用不存在', correlationId)
       return true
     }
@@ -404,6 +441,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
       storePrefix: `/api/v1/apps/${encodeURIComponent(app.id)}/store`,
       db,
       appId: app.id,
+      workspaceId: app.workspaceId,
     })
     if (!served) sendError(response, 404, 'not_found', '文件不存在', correlationId)
     return true
@@ -411,8 +449,9 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
   const storeMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/store\/([^/]+)$/)
   if (storeMatch) {
-    const app = getAppById(db, decodeURIComponent(storeMatch[1]))
-    if (!app || appIsTrashed(app)) {
+    const app = requireOwnedApp(db, url, null, decodeURIComponent(storeMatch[1]), response, correlationId, sendError)
+    if (!app) return true
+    if (appIsTrashed(app)) {
       sendError(response, 404, 'not_found', '应用不存在', correlationId)
       return true
     }
@@ -424,18 +463,20 @@ export async function handleAppsRoutes(request, response, url, deps) {
     const key = decodeURIComponent(storeMatch[2])
     const slug = String(app.spec.slug || app.slug || '')
     if (request.method === 'GET') {
-      const value = getDocument(db, { appId: app.id, workspaceCwd: cwd, key })
+      const value = getDocument(db, { appId: app.id, workspaceCwd: cwd, key, workspaceId: app.workspaceId })
       sendJson(response, 200, { ok: true, data: value, correlationId })
       return true
     }
     if (request.method === 'PUT' || request.method === 'POST') {
       const body = await readJson(request)
+      if (!requireOwnedApp(db, url, body, app.id, response, correlationId, sendError)) return true
       try {
         const saved = putDocument(db, {
           appId: app.id,
           slug,
           workspaceCwd: cwd,
           key,
+          workspaceId: app.workspaceId,
           value: body && Object.prototype.hasOwnProperty.call(body, 'value') ? body.value : body,
         })
         sendJson(response, 200, { ok: true, data: saved, correlationId })
@@ -450,16 +491,15 @@ export async function handleAppsRoutes(request, response, url, deps) {
   if (appIdMatch && !pathname.includes('/', `/api/v1/apps/${appIdMatch[1]}`.length)) {
     const appId = decodeURIComponent(appIdMatch[1])
     if (request.method === 'GET') {
-      const app = getAppById(db, appId)
-      if (!app) {
-        sendError(response, 404, 'not_found', '应用不存在', correlationId)
-        return true
-      }
+      const app = requireOwnedApp(db, url, null, appId, response, correlationId, sendError)
+      if (!app) return true
       sendJson(response, 200, { ok: true, data: app, correlationId })
       return true
     }
     if (request.method === 'DELETE') {
-      const result = trashApp(db, appId, { correlationId })
+      const owned = requireOwnedApp(db, url, null, appId, response, correlationId, sendError)
+      if (!owned) return true
+      const result = trashApp(db, appId, { correlationId, workspaceId: owned.workspaceId })
       if (result.kind === 'not_found') {
         sendError(response, 404, 'not_found', '应用不存在', correlationId)
         return true
@@ -472,10 +512,14 @@ export async function handleAppsRoutes(request, response, url, deps) {
   const specMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/spec$/)
   if (request.method === 'PUT' && specMatch) {
     const body = await readJson(request)
-    const result = putAppSpec(db, decodeURIComponent(specMatch[1]), {
+    const specAppId = decodeURIComponent(specMatch[1])
+    const owned = requireOwnedApp(db, url, body, specAppId, response, correlationId, sendError)
+    if (!owned) return true
+    const result = putAppSpec(db, specAppId, {
       spec: body.spec,
       changeNote: body.changeNote,
       correlationId,
+      workspaceId: owned.workspaceId,
     })
     if (result.kind === 'not_found') {
       sendError(response, 404, 'not_found', '应用不存在', correlationId)
@@ -500,7 +544,10 @@ export async function handleAppsRoutes(request, response, url, deps) {
   const activateMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/activate$/)
   if (request.method === 'POST' && activateMatch) {
     const appId = decodeURIComponent(activateMatch[1])
-    const result = activateApp(db, appId, { correlationId })
+    const body = await readJson(request)
+    const owned = requireOwnedApp(db, url, body, appId, response, correlationId, sendError)
+    if (!owned) return true
+    const result = activateApp(db, appId, { correlationId, workspaceId: owned.workspaceId })
     if (result.kind === 'not_found') {
       sendError(response, 404, 'not_found', '应用不存在', correlationId)
       return true
@@ -523,7 +570,11 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
   const restoreMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/restore$/)
   if (request.method === 'POST' && restoreMatch) {
-    const result = restoreApp(db, decodeURIComponent(restoreMatch[1]), { correlationId })
+    const body = await readJson(request)
+    const restoreId = decodeURIComponent(restoreMatch[1])
+    const owned = requireOwnedApp(db, url, body, restoreId, response, correlationId, sendError)
+    if (!owned) return true
+    const result = restoreApp(db, restoreId, { correlationId, workspaceId: owned.workspaceId })
     if (result.kind === 'not_found') {
       sendError(response, 404, 'not_found', '应用不存在', correlationId)
       return true
@@ -542,7 +593,11 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
   const purgeMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/purge$/)
   if (request.method === 'POST' && purgeMatch) {
-    const result = purgeApp(db, decodeURIComponent(purgeMatch[1]), { correlationId })
+    const body = await readJson(request)
+    const purgeId = decodeURIComponent(purgeMatch[1])
+    const owned = requireOwnedApp(db, url, body, purgeId, response, correlationId, sendError)
+    if (!owned) return true
+    const result = purgeApp(db, purgeId, { correlationId, workspaceId: owned.workspaceId })
     if (result.kind === 'not_found') {
       sendError(response, 404, 'not_found', '应用不存在', correlationId)
       return true
@@ -558,16 +613,16 @@ export async function handleAppsRoutes(request, response, url, deps) {
   const shareMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/share$/)
   if (shareMatch) {
     const appId = decodeURIComponent(shareMatch[1])
-    const app = getAppById(db, appId)
-    if (!app) {
-      sendError(response, 404, 'not_found', '应用不存在', correlationId)
-      return true
-    }
     if (request.method === 'GET') {
+      const app = requireOwnedApp(db, url, null, appId, response, correlationId, sendError)
+      if (!app) return true
       sendJson(response, 200, { ok: true, data: sharePayload(request, liveShareForApp(db, appId)), correlationId })
       return true
     }
     if (request.method === 'POST') {
+      const body = await readJson(request)
+      const app = requireOwnedApp(db, url, body, appId, response, correlationId, sendError)
+      if (!app) return true
       if (app.status !== 'active' || appIsTrashed(app)) {
         sendError(response, 409, 'not_active', '只有运行中的应用可以分享', correlationId)
         return true
@@ -583,6 +638,8 @@ export async function handleAppsRoutes(request, response, url, deps) {
       return true
     }
     if (request.method === 'DELETE') {
+      const app = requireOwnedApp(db, url, null, appId, response, correlationId, sendError)
+      if (!app) return true
       const result = revokeLiveSharesForApp(db, appId)
       sendJson(response, 200, { ok: true, data: result, correlationId })
       return true
@@ -592,8 +649,11 @@ export async function handleAppsRoutes(request, response, url, deps) {
   const rollbackMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/rollback$/)
   if (request.method === 'POST' && rollbackMatch) {
     const body = await readJson(request)
+    const rollbackId = decodeURIComponent(rollbackMatch[1])
+    const owned = requireOwnedApp(db, url, body, rollbackId, response, correlationId, sendError)
+    if (!owned) return true
     const revision = Number(body.revision)
-    const result = rollbackApp(db, decodeURIComponent(rollbackMatch[1]), revision)
+    const result = rollbackApp(db, rollbackId, revision, owned.workspaceId)
     if (!result) {
       sendError(response, 404, 'not_found', '修订不存在', correlationId)
       return true
@@ -981,14 +1041,23 @@ export async function handleAppsRoutes(request, response, url, deps) {
  * @param {string} workspaceCwd
  */
 export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
-  const suppliedId = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
-  const found = resolveWorkspaceIdOrFail(db, workspaceCwd
-    ? { cwd: workspaceCwd, source: 'request', id: suppliedId }
-    : {})
-  if (found.error === 'workspace_mismatch') {
-    return { ok: false, status: 400, error: 'workspace_mismatch', errors: [{ path: 'workspaceId', message: '工作区 id 与路径不一致' }] }
+  const shaped = { ...body }
+  delete shaped.cwd
+  delete shaped.workspace
+  delete shaped.workspacePath
+  delete shaped.workingDirectory
+  if (workspaceCwd) shaped.workspaceCwd = workspaceCwd
+  else delete shaped.workspaceCwd
+  const found = requestAppWorkspace(db, new URL('http://127.0.0.1/api/v1/bridge/app-spec-submit'), shaped)
+  const failure = httpStatusForWorkspaceError(found.error)
+  if (failure) {
+    return {
+      ok: false,
+      status: failure.status,
+      error: failure.code,
+      errors: [{ path: failure.code === 'workspace_mismatch' ? 'workspaceId' : 'workspaceCwd', message: failure.message }],
+    }
   }
-  if (found.error) return { ok: false, status: 404, errors: [{ path: 'workspaceCwd', message: '工作区未登记' }] }
   const workspaceId = found.workspaceId
   if (sub === 'app-spec-submit') {
     const spec = body.spec
@@ -997,9 +1066,13 @@ export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
     }
     const appId = typeof body.appId === 'string' ? body.appId.trim() : ''
     if (appId) {
+      const existing = getAppById(db, appId, workspaceId)
+      if (!existing || existing.workspaceId !== workspaceId) {
+        return { ok: false, errors: [{ path: 'appId', message: '应用不存在' }] }
+      }
       let result
       try {
-        result = putAppSpec(db, appId, { spec, changeNote: 'builder 修订' })
+        result = putAppSpec(db, appId, { spec, changeNote: 'builder 修订', workspaceId })
       } catch (error) {
         return { ok: false, errors: [{ path: 'spec', message: error instanceof Error ? error.message : '修订失败' }] }
       }
@@ -1016,7 +1089,7 @@ export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
         return { ok: false, errors: result.errors, error: 'breaking_change' }
       }
       if (Array.isArray(body.files) && workspaceCwd) {
-        const app = getAppById(db, appId)
+        const app = getAppById(db, appId, workspaceId)
         if (app && isWebAppSpec(app.spec)) {
           try {
             writeBundleFiles(workspaceCwd, app.spec, body.files)
@@ -1034,7 +1107,7 @@ export async function handleAppsBridge(sub, body, db, workspaceCwd, aiRuntime) {
     })
     if (!result.ok) return { ok: false, errors: result.errors }
     if (Array.isArray(body.files) && workspaceCwd) {
-      const app = getAppById(db, result.data.appId)
+      const app = getAppById(db, result.data.appId, workspaceId)
       if (app && isWebAppSpec(app.spec)) {
         try {
           writeBundleFiles(workspaceCwd, app.spec, body.files)

@@ -46,7 +46,7 @@ describe('apps workspace identity', () => {
       workspaceCwd: CWD,
       spec,
     })
-    const activated = activateApp(db, created.data.appId)
+    const activated = activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(activated.kind, 'ok')
     const foreign = findActiveAppBySlug(db, 'ws_other', spec.slug, CWD)
     assert.equal(foreign, null)
@@ -76,7 +76,7 @@ describe('apps workspace identity', () => {
       workspaceCwd: CWD,
       spec,
     })
-    activateApp(db, created.data.appId)
+    activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     insertRecord(db, { ...spec, _workspaceCwd: CWD }, 'visit', CWD, {
       supplier: '北郊仓',
       visit_date: '2026-09-19',

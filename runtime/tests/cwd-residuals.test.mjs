@@ -86,7 +86,7 @@ test('records documents briefings and biz surfaces match stored cwd spellings wi
     INSERT INTO app_documents (id, app_id, slug, workspace_cwd, doc_key, json, updated_at)
     VALUES ('adoc_slash', 'app_cwd_residual', 'cwd', ?, 'note', ?, ?)
   `).run(slash, JSON.stringify({ v: 1 }), now)
-  assert.deepEqual(getDocument(db, { appId: 'app_cwd_residual', workspaceCwd: bare, key: 'note' }), { v: 1 })
+  assert.deepEqual(getDocument(db, { appId: 'app_cwd_residual', workspaceCwd: bare, key: 'note', workspaceId: 'ws_personal' }), { v: 1 })
   assert.equal(
     db.prepare('SELECT workspace_cwd FROM app_documents WHERE id = ?').get('adoc_slash').workspace_cwd,
     slash,
@@ -96,6 +96,7 @@ test('records documents briefings and biz surfaces match stored cwd spellings wi
     slug: 'cwd',
     workspaceCwd: bare,
     key: 'note',
+    workspaceId: 'ws_personal',
     value: { v: 3 },
   })
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM app_documents').get().n, 1)
@@ -103,18 +104,19 @@ test('records documents briefings and biz surfaces match stored cwd spellings wi
     db.prepare('SELECT workspace_cwd FROM app_documents WHERE id = ?').get('adoc_slash').workspace_cwd,
     slash,
   )
-  assert.deepEqual(getDocument(db, { appId: 'app_cwd_residual', workspaceCwd: slash, key: 'note' }), { v: 3 })
+  assert.deepEqual(getDocument(db, { appId: 'app_cwd_residual', workspaceCwd: slash, key: 'note', workspaceId: 'ws_personal' }), { v: 3 })
   db.prepare(`
     INSERT INTO app_documents (id, app_id, slug, workspace_cwd, doc_key, json, updated_at)
     VALUES ('adoc_bare', 'app_cwd_residual', 'cwd', ?, 'note', ?, ?)
   `).run(bare, JSON.stringify({ v: 2 }), now)
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM app_documents WHERE doc_key = ?').get('note').n, 2)
-  assert.deepEqual(getDocument(db, { appId: 'app_cwd_residual', workspaceCwd: slash, key: 'note' }), { v: 2 })
+  assert.deepEqual(getDocument(db, { appId: 'app_cwd_residual', workspaceCwd: slash, key: 'note', workspaceId: 'ws_personal' }), { v: 2 })
   putDocument(db, {
     appId: 'app_cwd_residual',
     slug: 'cwd',
     workspaceCwd: slash,
     key: 'note',
+    workspaceId: 'ws_personal',
     value: { v: 4 },
   })
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM app_documents WHERE doc_key = ?').get('note').n, 2)

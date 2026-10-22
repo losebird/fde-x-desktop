@@ -177,6 +177,7 @@ test('operation.executed with ghost refs does not record a decision', async () =
       VALUES ('op_mem_1', 'ws_personal', NULL, NULL, 'actor_local_user', 'fde://external/x/table/y', 'record.update', 'write',
         'high', 'live', 'approved', 'idem_mem_1', NULL, '{}', '{}', 'corr', NULL, ?, ?)
     `).run(now, now)
+    db.prepare('UPDATE workspaces SET metadata_json = ? WHERE id = ?').run(JSON.stringify({ cwd: '/tmp/ws' }), 'ws_personal')
     emit('operation.executed', { operationId: 'op_mem_1' }, { workspaceCwd: '/tmp/ws' })
     await new Promise((r) => setTimeout(r, 80))
     assert.equal(calls.some((c) => c.op === 'add_node'), false)
@@ -196,6 +197,7 @@ test('operation.executed records from write-log filed card on receipt trace', as
       VALUES ('op_mem_2', 'ws_personal', NULL, NULL, 'actor_local_user', 'fde://external/x/table/y', 'record.update', 'write',
         'high', 'live', 'approved', 'idem_mem_2', NULL, '{}', '{}', 'corr', NULL, ?, ?)
     `).run(now, now)
+    db.prepare('UPDATE workspaces SET metadata_json = ? WHERE id = ?').run(JSON.stringify({ cwd: '/tmp/ws' }), 'ws_personal')
     upsertMemoryWriteLog(db, { origin: 'biz:trace_live', cardId: 'memory:filed' })
     aiRuntime.semanticOs = async (path, options) => {
       calls.push({ path, ...options })

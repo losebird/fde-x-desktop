@@ -170,8 +170,9 @@ function TaskEdit({
   function submit(force: boolean) {
     const body = patch()
     if (!Object.keys(body).length) return
+    const workspaceId = useApp.getState().activeWorkspaceId || undefined
     void save.run(async () => {
-      await updateTask(base.id, body, force || !base.updatedAt ? undefined : { expectedUpdatedAt: base.updatedAt })
+      await updateTask(base.id, { ...body, workspaceId }, force || !base.updatedAt ? undefined : { expectedUpdatedAt: base.updatedAt })
     }, force)
   }
 

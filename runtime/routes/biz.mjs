@@ -429,10 +429,10 @@ function canRollbackAudit(action, changes) {
   return normalized === '改行' && Array.isArray(changes) && changes.length > 0
 }
 
-function markRollbackBlockedIfPermanent(db, traceId, code, status) {
+function markRollbackBlockedIfPermanent(db, traceId, code, status, workspaceCwd) {
   if (!traceId) return
   if (isPermanentRollbackError(code, status)) {
-    setBizWriteAuditRollbackState(db, traceId, ROLLBACK_STATE_BLOCKED)
+    setBizWriteAuditRollbackState(db, traceId, ROLLBACK_STATE_BLOCKED, workspaceCwd)
   }
 }
 
@@ -516,13 +516,14 @@ function enrichTraceRows(db, workspace, traceRows, limit) {
 }
 
 async function enrichTraceRowsAsync(db, aiRuntime, workspace, traceRows, limit) {
+  const workspaceCwd = workspace
   const enriched = enrichTraceRows(db, workspace, traceRows, limit)
   if (!enriched.some((row) => isSpokenMetaKind(row.kind))) return enriched
   const kinds = await loadWorkspaceKinds(aiRuntime, workspace)
   if (!kinds.length) return enriched
   return enriched.map((row) => {
     if (!isSpokenMetaKind(row.kind)) return row
-    const audit = getBizWriteAuditByTraceId(db, row.traceId)
+    const audit = getBizWriteAuditByTraceId(db, row.traceId, workspaceCwd)
     const inferred = inferKindFromCatalog(audit || { columns: row.columns }, kinds)
     return inferred ? { ...row, kind: inferred } : row
   })
@@ -744,10 +745,11 @@ export async function handleBizRoutes(request, response, url, deps) {
     const resolvedWorkspace = bizWorkspace(url, null, aiRuntime)
     if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
     const workspace = resolvedWorkspace.cwd
+    const workspaceCwd = workspace
     const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 50)))
     const traceId = String(url.searchParams.get('id') || url.searchParams.get('traceId') || '').trim()
     if (traceId) {
-      const audit = getBizWriteAuditByTraceId(db, traceId)
+      const audit = getBizWriteAuditByTraceId(db, traceId, workspaceCwd)
       if (audit) {
         const resolvedKind = await resolveAuditBizKind(aiRuntime, workspace, audit, null, db)
         const action = enrichAuditAction(audit.action)
@@ -812,21 +814,22 @@ export async function handleBizRoutes(request, response, url, deps) {
     const resolvedWorkspace = bizWorkspace(url, body, aiRuntime)
     if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
     const workspace = resolvedWorkspace.cwd
-    const audit = getBizWriteAuditByTraceId(db, traceId)
+    const workspaceCwd = workspace
+    const audit = getBizWriteAuditByTraceId(db, traceId, workspaceCwd)
     if (!audit || !Array.isArray(audit.changes) || !audit.changes.length) {
-      markRollbackBlockedIfPermanent(db, traceId, 'not_found', 404)
+      markRollbackBlockedIfPermanent(db, traceId, 'not_found', 404, workspaceCwd)
       sendError(response, 404, 'not_found', '找不到可回退的字段记录', correlationId)
       return true
     }
     const auditAction = enrichAuditAction(audit.action)
     if (!canRollbackAudit(auditAction, audit.changes)) {
-      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400)
+      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400, workspaceCwd)
       sendError(response, 400, 'rollback_unsupported', '当前仅支持带字段差异的改行回退', correlationId)
       return true
     }
     const patch = patchFromRollbackChanges(audit.changes)
     if (!Object.keys(patch).length) {
-      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400)
+      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400, workspaceCwd)
       sendError(response, 400, 'rollback_unsupported', '没有可恢复的字段值', correlationId)
       return true
     }
@@ -837,13 +840,13 @@ export async function handleBizRoutes(request, response, url, deps) {
     } catch { /* trace optional */ }
     const rollbackKind = await resolveAuditBizKind(aiRuntime, workspace, audit, traceRow, db)
     if (!rollbackKind || isSpokenMetaKind(rollbackKind)) {
-      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400)
+      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400, workspaceCwd)
       sendError(response, 400, 'rollback_unsupported', '回退需要词表里的业务型；请确认该型已在词表与连接器登记', correlationId)
       return true
     }
     const requested = rollbackPreviewRequest(audit, rollbackKind, patch, workspace)
     if (!requested.ok) {
-      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400)
+      markRollbackBlockedIfPermanent(db, traceId, 'rollback_unsupported', 400, workspaceCwd)
       sendError(response, 400, 'rollback_unsupported', requested.hint, correlationId)
       return true
     }
@@ -859,7 +862,7 @@ export async function handleBizRoutes(request, response, url, deps) {
         const hint = previewCode === 'NOT_FOUND'
           ? `按当时写入的对象「${rollbackKind}」和行主键「${rowKey}」在源系统没有找到同一条。`
           : (speak || '回退预览失败')
-        markRollbackBlockedIfPermanent(db, traceId, previewCode, 400)
+        markRollbackBlockedIfPermanent(db, traceId, previewCode, 400, workspaceCwd)
         sendError(response, 400, previewCode, hint, correlationId)
         return true
       }
@@ -1002,7 +1005,7 @@ export async function handleBizRoutes(request, response, url, deps) {
     } catch {
       vocab = null
     }
-    reconcileLanAssistConnectionLamp(db, state, { vocab })
+    reconcileLanAssistConnectionLamp(db, state, { vocab, workspaceId })
     const items = listBusinessConnections(db, { workspaceId })
     const mcpListed = await readBizSystems(aiRuntime)
     const mcpItems = (mcpListed.systems || []).map((row) => ({
@@ -1141,7 +1144,8 @@ export async function handleBizRoutes(request, response, url, deps) {
     if (preview && preview.ok !== false && previewAction === '现查') {
       try {
         const gateState = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
-        reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true })
+        const lampIdent = resolveWorkspaceIdOrFail(db, { cwd: requestedCwd, source: 'request' })
+        if (!lampIdent.error) reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true, workspaceId: lampIdent.workspaceId })
       } catch { /* lamp is best-effort */ }
     }
     const previewOut = preview && typeof preview === 'object'
@@ -1310,6 +1314,7 @@ export async function handleBizRoutes(request, response, url, deps) {
     const resolvedWorkspace = bizWorkspace(url, body, aiRuntime)
     if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
     const requestedCwd = resolvedWorkspace.cwd
+    const workspaceCwd = requestedCwd
     const writeSource = String(body.source || '').trim()
     if (writeSource !== 'workstation') {
       sendError(response, 403, 'biz_write_forbidden', '请在右侧确认过账', correlationId)
@@ -1337,7 +1342,7 @@ export async function handleBizRoutes(request, response, url, deps) {
         const written = mapped.receipt
         const traceId = String(body.trace_id || createId('trace'))
         const sheet = boundHeld.sheet && typeof boundHeld.sheet === 'object' ? boundHeld.sheet : {}
-        const original = rollbackOfTraceId ? getBizWriteAuditByTraceId(db, rollbackOfTraceId) : null
+        const original = rollbackOfTraceId ? getBizWriteAuditByTraceId(db, rollbackOfTraceId, workspaceCwd) : null
         const audit = writeAuditFields(sheet, body, written, original, Boolean(rollbackOfTraceId))
         try {
           insertBizWriteAudit(db, {
@@ -1388,7 +1393,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       })
     } catch (error) {
       const code = error instanceof AiRemoteError ? (error.code || 'biz_write_failed') : 'biz_write_failed'
-      markRollbackBlockedIfPermanent(db, rollbackOfTraceId, code, 400)
+      markRollbackBlockedIfPermanent(db, rollbackOfTraceId, code, 400, workspaceCwd)
       sendError(
         response,
         400,
@@ -1409,7 +1414,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       : (Array.isArray(sheet?.changes) ? sheet.changes : [])
     const traceId = String(body.trace_id || written?.trace_id || written?.traceId || createId('trace'))
     const isRollbackWrite = Boolean(rollbackOfTraceId)
-    const original = isRollbackWrite ? getBizWriteAuditByTraceId(db, rollbackOfTraceId) : null
+    const original = isRollbackWrite ? getBizWriteAuditByTraceId(db, rollbackOfTraceId, workspaceCwd) : null
     const lookupBind = captureLookupBind(sheet, body)
     if (written && written.verified === false) lookupBind.verified = false
     if (isRollbackWrite) {
@@ -1439,7 +1444,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       })
     } catch { /* audit must not block write */ }
     if (rollbackOfTraceId) {
-      setBizWriteAuditRollbackState(db, rollbackOfTraceId, ROLLBACK_STATE_ROLLED_BACK)
+      setBizWriteAuditRollbackState(db, rollbackOfTraceId, ROLLBACK_STATE_ROLLED_BACK, workspaceCwd)
     }
     const listed = written && written.sheet && typeof written.sheet === 'object' ? written.sheet : null
     if (listed) {
@@ -1456,7 +1461,8 @@ export async function handleBizRoutes(request, response, url, deps) {
     }, { workspaceCwd: bizCwd, source: 'bff' })
     try {
       const gateState = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
-      reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true })
+      const lampIdent = resolveWorkspaceIdOrFail(db, { cwd: bizCwd, source: 'request' })
+      if (!lampIdent.error) reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true, workspaceId: lampIdent.workspaceId })
     } catch { /* lamp is best-effort */ }
     sendJson(response, 200, { data: { ...written, trace_id: traceId, traceId }, correlationId })
     return true

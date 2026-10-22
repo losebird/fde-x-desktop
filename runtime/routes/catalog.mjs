@@ -3,12 +3,19 @@ import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
 import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 
-function rejectCatalogWorkspace(db, resolved, response, correlationId, sendError) {
-  const failure = httpStatusForWorkspaceError(resolved?.error)
-    || httpStatusForWorkspaceError(resolveWorkspaceIdOrFail(db, resolved).error)
-  if (!failure) return false
+function settleCatalogWorkspace(db, resolved, suppliedId, response, correlationId, sendError) {
+  const ident = resolved?.error
+    ? resolved
+    : resolveWorkspaceIdOrFail(db, { ...resolved, id: suppliedId })
+  const failure = httpStatusForWorkspaceError(ident.error)
+  if (!failure) return ident
   sendError(response, failure.status, failure.code, failure.message, correlationId)
-  return true
+  return null
+}
+
+function catalogWorkspaceId(url, body) {
+  if (body && typeof body.workspaceId === 'string' && body.workspaceId.trim()) return body.workspaceId.trim()
+  return String(url?.searchParams?.get('workspaceId') || '').trim()
 }
 
 export async function handleCatalogRequest(request, response, url, { db, aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, correlationId) {
@@ -21,6 +28,14 @@ export async function handleCatalogRequest(request, response, url, { db, aiRunti
       sendError(response, 400, 'validation_error', '缺少 kind 或 action', correlationId)
       return true
     }
+    const resolved = resolveHttpWorkspace({
+      url,
+      slots: [['query', 'cwd'], ['query', 'workspace']],
+      runtimeCwd: aiRuntime?.cwd,
+      fallbackCwd: FDE_AI_WORKSPACE,
+    })
+    const ident = settleCatalogWorkspace(db, resolved, catalogWorkspaceId(url, null), response, correlationId, sendError)
+    if (!ident) return true
     const abort = new AbortController()
     request.on('close', () => abort.abort())
     try {
@@ -29,6 +44,8 @@ export async function handleCatalogRequest(request, response, url, { db, aiRunti
       for await (const frame of streamBag(aiRuntime, {
         kind,
         action,
+        cwd: ident.cwd || resolved.cwd,
+        workspaceId: ident.workspaceId,
         sessionId: url.searchParams.get('sessionId') || '',
         id: url.searchParams.get('id') || '',
         path: url.searchParams.get('path') || '.',
@@ -61,13 +78,14 @@ export async function handleCatalogRequest(request, response, url, { db, aiRunti
       runtimeCwd: aiRuntime?.cwd,
       fallbackCwd: FDE_AI_WORKSPACE,
     })
-    if (rejectCatalogWorkspace(db, resolved, response, correlationId, sendError)) return true
-    const cwd = resolved.cwd
+    const ident = settleCatalogWorkspace(db, resolved, catalogWorkspaceId(url, null), response, correlationId, sendError)
+    if (!ident) return true
+    const cwd = ident.cwd || resolved.cwd
     const input = {
       sessionId: url.searchParams.get('sessionId') || '',
       cwd,
       path: url.searchParams.get('path') || '.',
-      workspaceId: url.searchParams.get('workspaceId') || '',
+      workspaceId: ident.workspaceId,
     }
     try {
       const bag = await collectBag(aiRuntime, kind, input)
@@ -93,8 +111,9 @@ export async function handleCatalogRequest(request, response, url, { db, aiRunti
       runtimeCwd: aiRuntime?.cwd,
       fallbackCwd: FDE_AI_WORKSPACE,
     })
-    if (rejectCatalogWorkspace(db, resolved, response, correlationId, sendError)) return true
-    const cwd = resolved.cwd
+    const ident = settleCatalogWorkspace(db, resolved, catalogWorkspaceId(url, body), response, correlationId, sendError)
+    if (!ident) return true
+    const cwd = ident.cwd || resolved.cwd
     try {
       const bag = await mutateBag(aiRuntime, {
         kind,
@@ -104,7 +123,7 @@ export async function handleCatalogRequest(request, response, url, { db, aiRunti
         path: body.path,
         id: body.id,
         status: body.status,
-        workspaceId: body.workspaceId,
+        workspaceId: ident.workspaceId,
         params: body.params,
       })
       sendJson(response, 200, { data: bag, correlationId })

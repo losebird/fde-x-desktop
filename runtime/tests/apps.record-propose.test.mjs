@@ -32,7 +32,7 @@ describe('app record propose', () => {
       spec: SUPPLIER_VISITS_SPEC,
     })
     assert.equal(created.ok, true)
-    const activated = activateApp(db, created.data.appId)
+    const activated = activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(activated.kind, 'ok')
     const row = insertRecord(db, SUPPLIER_VISITS_SPEC, 'visit', CWD, {
       supplier: 'ACME',
@@ -193,7 +193,7 @@ async function readyVisit(db) {
     spec: SUPPLIER_VISITS_SPEC,
   })
   assert.equal(created.ok, true)
-  const activated = activateApp(db, created.data.appId)
+  const activated = activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
   assert.equal(activated.kind, 'ok')
   const row = insertRecord(db, SUPPLIER_VISITS_SPEC, 'visit', CWD, {
     supplier: 'ACME',

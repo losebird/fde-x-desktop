@@ -1125,7 +1125,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     })
     if (!cancelSessionId) return
     cancelledWritePreviewRef.current = previewId
-    void runtimeApi.cancelAi(cancelSessionId, { kind: 'records-cancel' }).catch(() => undefined)
+    void runtimeApi.cancelAi(cancelSessionId, { kind: 'records-cancel', workspaceId: useApp.getState().activeWorkspaceId }).catch(() => undefined)
   }
 
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {

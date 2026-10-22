@@ -121,7 +121,7 @@ test('a finished turn without fde_briefing_submit closes the run in Chinese', as
   assert.equal(ai?.error, '没有收到早报提交')
   assert.notEqual(briefing.status, 'running')
   assert.match(failureLine(briefing.sections), /AI 早报失败/)
-  const stored = getBriefing(db, first.body.data.briefingId)
+  const stored = getBriefing(db, first.body.data.briefingId, cwd)
   assert.notEqual(stored.status, 'running')
   assert.equal(stored.sections.some((section) => section.pendingAgent), false)
 

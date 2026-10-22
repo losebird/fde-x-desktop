@@ -3,8 +3,8 @@ export const TASK_PRIORITIES = new Set(['low', 'med', 'high', 'urgent'])
 
 const isoNow = () => new Date().toISOString()
 
-export function getTask(db, id) {
-  return db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) || null
+export function getTask(db, id, workspaceId) {
+  return db.prepare('SELECT * FROM tasks WHERE workspace_id = ? AND id = ?').get(workspaceId, id) || null
 }
 
 export function listTasks(db, { workspaceId, status, q }) {
@@ -43,11 +43,11 @@ export function insertTask(db, input) {
     now,
     now,
   )
-  return getTask(db, input.id)
+  return getTask(db, input.id, input.workspaceId)
 }
 
-export function updateTask(db, id, fields) {
-  const existing = getTask(db, id)
+export function updateTask(db, id, fields, workspaceId) {
+  const existing = getTask(db, id, workspaceId)
   if (!existing) return null
   const sets = []
   const params = []
@@ -78,14 +78,14 @@ export function updateTask(db, id, fields) {
     params.push(fields.status === 'done' ? isoNow() : null)
   }
   if (!sets.length) return existing
-  params.push(isoNow(), id)
-  db.prepare(`UPDATE tasks SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).run(...params)
-  return getTask(db, id)
+  params.push(isoNow(), workspaceId, id)
+  db.prepare(`UPDATE tasks SET ${sets.join(', ')}, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(...params)
+  return getTask(db, id, workspaceId)
 }
 
-export function deleteTask(db, id) {
-  const existing = getTask(db, id)
+export function deleteTask(db, id, workspaceId) {
+  const existing = getTask(db, id, workspaceId)
   if (!existing) return null
-  db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
+  db.prepare('DELETE FROM tasks WHERE workspace_id = ? AND id = ?').run(workspaceId, id)
   return existing
 }

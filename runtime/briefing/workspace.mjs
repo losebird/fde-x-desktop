@@ -40,7 +40,12 @@ export function resolveWorkspaceIdOrFail(db, resolved) {
     if (suppliedId && suppliedId !== row.id) return { error: 'workspace_mismatch' }
     return { workspaceId: row.id, cwd: requestPath }
   }
-  if (suppliedId) return { workspaceId: suppliedId }
+  if (suppliedId) {
+    const row = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(suppliedId)
+    if (!row) return { error: 'missing_workspace' }
+    const cwd = workspaceCwdForId(db, suppliedId)
+    return cwd ? { workspaceId: suppliedId, cwd } : { workspaceId: suppliedId }
+  }
   if (!resolved?.cwd) return { workspaceId: 'ws_personal' }
   const row = workspaceRowForCwd(db, resolved.cwd)
   if (row) return { workspaceId: row.id, cwd: resolved.cwd }

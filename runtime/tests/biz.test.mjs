@@ -87,14 +87,30 @@ describe('biz surfaces and live execute', () => {
     assert.match(core, /line0\.hint/)
   })
 
-  test('listBusinessConnections merges ws_personal lan-assist into active workspace', () => {
+  test('listBusinessConnections keeps an empty lan-assist adapter in the personal workspace', () => {
     const db = openDatabase(`/tmp/fde-biz-conn-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const wsId = '1985293d-03bb-496f-ad69-5c7f2ac23149'
     const personal = listBusinessConnections(db, { workspaceId: 'ws_personal' })
     const scoped = listBusinessConnections(db, { workspaceId: wsId })
     assert.ok(personal.some((c) => c.id === 'conn_lan_assist'))
-    assert.equal(scoped.filter((c) => c.id === 'conn_lan_assist').length, 1)
+    assert.equal(scoped.filter((c) => c.id === 'conn_lan_assist').length, 0)
     db.close()
+  })
+
+  test('an empty-credential lan-assist adapter stays in the personal workspace', () => {
+    const db = openDatabase(`/tmp/fde-biz-conn-empty-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
+    const wsId = 'ws_other_guard'
+    const before = listBusinessConnections(db, { workspaceId: wsId })
+    db.prepare(`UPDATE business_connections SET credential_ref = ? WHERE id = ?`).run('cred_lan', 'conn_lan_assist')
+    const after = listBusinessConnections(db, { workspaceId: wsId })
+    db.close()
+    assert.deepEqual({
+      before: before.some((row) => row.id === 'conn_lan_assist'),
+      after: after.some((row) => row.id === 'conn_lan_assist'),
+    }, {
+      before: false,
+      after: true,
+    })
   })
 
   test('biz_surfaces insert and list', () => {
@@ -124,8 +140,9 @@ describe('biz surfaces and live execute', () => {
       VALUES (?, 'ws_personal', NULL, NULL, 'actor_local_user', 'fde://external/x/table/y', 'record.update', 'write',
         'high', 'live', 'approved', 'idem_live_1', NULL, '{}', '{}', 'corr', NULL, ?, ?)
     `).run(id, now, now)
-    insertOperationStep(db, id, 1, 'approve', 'succeeded', {})
+    insertOperationStep(db, id, 1, 'approve', 'succeeded', {}, null, null, 'ws_personal')
     const result = await executeOperationLive(db, id, {
+      workspaceId: 'ws_personal',
       writePreview: async () => ({}),
     })
     assert.equal(result.kind, 'preview_expired')
@@ -144,7 +161,7 @@ describe('biz surfaces and live execute', () => {
       VALUES (?, 'ws_personal', NULL, NULL, 'actor_local_user', 'fde://external/x/table/y', 'record.update', 'write',
         'high', 'live', 'awaiting_approval', 'idem_live_2', NULL, '{}', '{"previewId":"pv_1"}', 'corr', NULL, ?, ?)
     `).run(id, now, now)
-    const result = await executeOperationLive(db, id, { writePreview: async () => ({ ok: true }) })
+    const result = await executeOperationLive(db, id, { workspaceId: 'ws_personal', writePreview: async () => ({ ok: true }) })
     assert.equal(result.kind, 'invalid_state')
     db.close()
   })
@@ -161,10 +178,11 @@ describe('biz surfaces and live execute', () => {
       VALUES (?, 'ws_personal', NULL, NULL, 'actor_local_user', 'fde://external/x/table/y', 'record.update', 'write',
         'high', 'live', 'approved', 'idem_live_3', NULL, '{}', '{"previewId":"pv_ok","kind":"采购单","action":"改行"}', 'corr', NULL, ?, ?)
     `).run(id, now, now)
-    insertOperationStep(db, id, 0, 'preview', 'succeeded', { previewId: 'pv_ok' })
-    insertOperationStep(db, id, 1, 'approve', 'succeeded', {})
+    insertOperationStep(db, id, 0, 'preview', 'succeeded', { previewId: 'pv_ok' }, null, null, 'ws_personal')
+    insertOperationStep(db, id, 1, 'approve', 'succeeded', {}, null, null, 'ws_personal')
     const result = await executeOperationLive(db, id, {
       correlationId: 'corr_live_ok',
+      workspaceId: 'ws_personal',
       writePreview: async () => ({ receipt_id: 'rcpt_1', kind: '采购单', action: '改行' }),
     })
     assert.equal(result.kind, 'ok')
@@ -191,7 +209,7 @@ describe('biz surfaces and live execute', () => {
       INSERT INTO approvals (id, operation_id, requested_from, decision, policy_json, requested_at)
       VALUES ('appr_1', ?, 'actor_local_user', 'pending', '{}', ?)
     `).run(id, now)
-    const out = approveOperation(db, id, { note: 'ok', correlationId: 'corr_appr' })
+    const out = approveOperation(db, id, { note: 'ok', correlationId: 'corr_appr', workspaceId: 'ws_personal' })
     assert.equal(out.kind, 'ok')
     const step = db.prepare('SELECT step_kind FROM operation_steps WHERE operation_id = ? AND step_kind = ?').get(id, 'approve')
     assert.ok(step)

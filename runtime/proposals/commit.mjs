@@ -12,13 +12,13 @@ function judgeSnapshot(current, base) {
   return 'ready'
 }
 
-function markState(db, operationId, state) {
+function markState(db, operationId, state, workspaceId) {
   const now = new Date().toISOString()
   return db.prepare(`
     UPDATE operations
     SET state = ?, updated_at = ?, finished_at = ?
-    WHERE id = ? AND state = 'awaiting_approval'
-  `).run(state, now, now, operationId)
+    WHERE workspace_id = ? AND id = ? AND state = 'awaiting_approval'
+  `).run(state, now, now, workspaceId, operationId)
 }
 
 function auditProposal(db, operation, { actorId, action, outcome, correlationId, details }) {
@@ -83,9 +83,10 @@ export function openProposal(db, spec) {
 
 export function decideProposal(db, operationId, decision, domain) {
   const actorId = domain.actorId ?? 'actor_local_user'
+  const workspaceId = domain.workspaceId
   db.exec('BEGIN IMMEDIATE;')
   try {
-    const operation = getOperation(db, operationId)
+    const operation = getOperation(db, operationId, workspaceId)
     if (!operation) {
       db.exec('ROLLBACK;')
       return { kind: 'not_found' }
@@ -100,10 +101,10 @@ export function decideProposal(db, operationId, decision, domain) {
     }
     const correlationId = domain.correlationId || operation.correlationId
     if (decision === 'reject') {
-      const updated = markState(db, operationId, 'cancelled')
+      const updated = markState(db, operationId, 'cancelled', workspaceId)
       if (updated.changes !== 1) {
         db.exec('ROLLBACK;')
-        return { kind: 'invalid_state', operation: getOperation(db, operationId) }
+        return { kind: 'invalid_state', operation: getOperation(db, operationId, workspaceId) }
       }
       const rejected = typeof domain.rejectedDetails === 'function' ? domain.rejectedDetails(db, operation) : {}
       auditProposal(db, operation, {
@@ -114,7 +115,7 @@ export function decideProposal(db, operationId, decision, domain) {
         details: { operationId, ...rejected },
       })
       db.exec('COMMIT;')
-      return { kind: 'ok', operation: getOperation(db, operationId) }
+      return { kind: 'ok', operation: getOperation(db, operationId, workspaceId) }
     }
     if (decision !== 'confirm') throw new Error(`unknown proposal decision: ${decision}`)
     const loaded = domain.load(db, operation.plan)
@@ -139,10 +140,10 @@ export function decideProposal(db, operationId, decision, domain) {
       }
     }
     if (closing) {
-      const updated = markState(db, operationId, 'failed')
+      const updated = markState(db, operationId, 'failed', workspaceId)
       if (updated.changes !== 1) {
         db.exec('ROLLBACK;')
-        return { kind: 'invalid_state', operation: getOperation(db, operationId) }
+        return { kind: 'invalid_state', operation: getOperation(db, operationId, workspaceId) }
       }
       auditProposal(db, operation, {
         actorId,
@@ -152,17 +153,17 @@ export function decideProposal(db, operationId, decision, domain) {
         details: { operationId, reason: closing.reason },
       })
       db.exec('COMMIT;')
-      return { kind: closing.kind, reason: closing.reason, operation: getOperation(db, operationId) }
+      return { kind: closing.kind, reason: closing.reason, operation: getOperation(db, operationId, workspaceId) }
     }
     const applied = domain.apply(db, operation.plan)
     if (applied.applied !== true) {
       db.exec('ROLLBACK;')
       return { kind: 'not_found' }
     }
-    const updated = markState(db, operationId, 'succeeded')
+    const updated = markState(db, operationId, 'succeeded', workspaceId)
     if (updated.changes !== 1) {
       db.exec('ROLLBACK;')
-      return { kind: 'invalid_state', operation: getOperation(db, operationId) }
+      return { kind: 'invalid_state', operation: getOperation(db, operationId, workspaceId) }
     }
     auditProposal(db, operation, {
       actorId,
@@ -172,7 +173,7 @@ export function decideProposal(db, operationId, decision, domain) {
       details: { operationId, ...applied.details },
     })
     db.exec('COMMIT;')
-    return { kind: 'ok', operation: getOperation(db, operationId) }
+    return { kind: 'ok', operation: getOperation(db, operationId, workspaceId) }
   } catch (error) {
     db.exec('ROLLBACK;')
     throw error

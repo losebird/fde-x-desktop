@@ -182,8 +182,9 @@ async function patchTask(id, body) {
   return { status: res.status, payload }
 }
 
-async function deleteTask(id) {
-  const res = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(id)}`, {
+async function deleteTask(id, workspaceId) {
+  const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''
+  const res = await fetch(`${base}/api/v1/plan/tasks/${encodeURIComponent(id)}${query}`, {
     method: 'DELETE',
     headers: pageHeaders(),
   })
@@ -212,7 +213,7 @@ async function bridgePropose(body, headers = { 'x-fde-bridge-token': bridgeToken
   return { status: res.status, payload }
 }
 
-async function decide(proposalId, decision, headers, body) {
+async function decide(proposalId, decision, headers, workspaceId, body) {
   const res = await fetch(`${base}/api/v1/plan/task-proposals/${encodeURIComponent(proposalId)}/${decision}`, {
     method: 'POST',
     headers: {
@@ -220,7 +221,7 @@ async function decide(proposalId, decision, headers, body) {
       'Content-Type': 'application/json',
       ...headers,
     },
-    body: JSON.stringify(body ?? {}),
+    body: JSON.stringify({ workspaceId, ...(body ?? {}) }),
   })
   const payload = await readJson(res)
   return { status: res.status, payload }
@@ -282,7 +283,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     const task = await createTask(workspaceId, '原来的标题')
     await bridgePropose({ workspaceId, op: 'update', taskId: task.id, title: '提案标题' })
     const row = assertAwaiting(workspaceId)
-    const confirmed = await decide(row.id, 'confirm', pageHeaders(), { title: '请求体标题' })
+    const confirmed = await decide(row.id, 'confirm', pageHeaders(), workspaceId, { title: '请求体标题' })
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.payload))
     assert.equal(taskById(task.id).title, '提案标题')
     const op = proposals(workspaceId)[0]
@@ -300,7 +301,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
       fields: ['title'],
     })
     assert.equal(audits(workspaceId, 'plan.task.update').length, 0)
-    const again = await decide(row.id, 'confirm', pageHeaders(), { title: '提案标题' })
+    const again = await decide(row.id, 'confirm', pageHeaders(), workspaceId, { title: '提案标题' })
     assert.equal(again.status, 409)
     assert.equal(again.payload.error, 'invalid_state')
     assert.equal(again.payload.message, '提案已经确认或拒绝')
@@ -313,9 +314,9 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     const task = await createTask(workspaceId, '原来的标题')
     await bridgePropose({ workspaceId, op: 'update', taskId: task.id, title: '提案标题' })
     const row = assertAwaiting(workspaceId)
-    const missing = await decide(row.id, 'confirm', {}, { title: '提案标题' })
+    const missing = await decide(row.id, 'confirm', {}, workspaceId, { title: '提案标题' })
     assert.equal(missing.status, 401)
-    const bridged = await decide(row.id, 'confirm', { 'x-fde-ui-token': bridgeToken }, { title: '提案标题' })
+    const bridged = await decide(row.id, 'confirm', { 'x-fde-ui-token': bridgeToken }, workspaceId, { title: '提案标题' })
     assert.equal(bridged.status, 401)
     assert.equal(taskById(task.id).title, '原来的标题')
     assert.equal(proposals(workspaceId)[0].state, 'awaiting_approval')
@@ -327,7 +328,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     const task = await createTask(workspaceId, '原来的标题')
     await bridgePropose({ workspaceId, op: 'update', taskId: task.id, title: '提案标题' })
     const row = assertAwaiting(workspaceId)
-    const rejected = await decide(row.id, 'reject', pageHeaders(), { title: '提案标题' })
+    const rejected = await decide(row.id, 'reject', pageHeaders(), workspaceId, { title: '提案标题' })
     assert.equal(rejected.status, 200, JSON.stringify(rejected.payload))
     assert.equal(taskById(task.id).title, '原来的标题')
     assert.equal(proposals(workspaceId)[0].state, 'cancelled')
@@ -340,7 +341,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
       after: { title: '提案标题' },
       fields: ['title'],
     })
-    const again = await decide(row.id, 'confirm', pageHeaders(), {})
+    const again = await decide(row.id, 'confirm', pageHeaders(), workspaceId, {})
     assert.equal(again.status, 409)
     assert.equal(again.payload.error, 'invalid_state')
     assert.equal(again.payload.message, '提案已经确认或拒绝')
@@ -355,9 +356,9 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     const task = await createTask(workspaceId, '原来的标题')
     await bridgePropose({ workspaceId, op: 'update', taskId: task.id, title: '提案标题' })
     const row = assertAwaiting(workspaceId)
-    const patched = await patchTask(task.id, { title: '人手改过' })
+    const patched = await patchTask(task.id, { workspaceId, title: '人手改过' })
     assert.equal(patched.status, 200, JSON.stringify(patched.payload))
-    const confirmed = await decide(row.id, 'confirm', pageHeaders(), { title: '提案标题' })
+    const confirmed = await decide(row.id, 'confirm', pageHeaders(), workspaceId, { title: '提案标题' })
     assert.equal(confirmed.status, 409)
     assert.equal(confirmed.payload.error, 'stale_task')
     assert.equal(confirmed.payload.message, '任务在提案之后已变更')
@@ -370,7 +371,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
       operationId: row.id,
       reason: 'stale_task',
     })
-    const again = await decide(row.id, 'confirm', pageHeaders(), { title: '提案标题' })
+    const again = await decide(row.id, 'confirm', pageHeaders(), workspaceId, { title: '提案标题' })
     assert.equal(again.status, 409)
     assert.equal(again.payload.error, 'invalid_state')
     assert.equal(audits(workspaceId, 'plan.task.confirm').length, 1)
@@ -382,9 +383,9 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     const task = await createTask(workspaceId, '原来的标题')
     await bridgePropose({ workspaceId, op: 'update', taskId: task.id, title: '提案标题' })
     const row = assertAwaiting(workspaceId)
-    const removed = await deleteTask(task.id)
+    const removed = await deleteTask(task.id, workspaceId)
     assert.equal(removed.status, 200, JSON.stringify(removed.payload))
-    const confirmed = await decide(row.id, 'confirm', pageHeaders(), {})
+    const confirmed = await decide(row.id, 'confirm', pageHeaders(), workspaceId, {})
     assert.equal(confirmed.status, 404)
     assert.equal(confirmed.payload.error, 'not_found')
     assert.equal(confirmed.payload.message, '提案不存在')
@@ -396,7 +397,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
       operationId: row.id,
       reason: 'task_missing',
     })
-    const again = await decide(row.id, 'confirm', pageHeaders(), {})
+    const again = await decide(row.id, 'confirm', pageHeaders(), workspaceId, {})
     assert.equal(again.status, 409)
     assert.equal(again.payload.error, 'invalid_state')
     assert.equal(proposals(workspaceId)[0].state, 'failed')
@@ -414,7 +415,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     assert.equal(plan.change.base, null)
     assert.equal(row.expected_version, null)
     assert.equal(taskById(plan.taskId), null)
-    const confirmed = await decide(row.id, 'confirm', pageHeaders(), { title: '请求体标题' })
+    const confirmed = await decide(row.id, 'confirm', pageHeaders(), workspaceId, { title: '请求体标题' })
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.payload))
     const created = taskById(plan.taskId)
     assert.equal(created.title, '新任务')
@@ -454,7 +455,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     const row = assertAwaiting(workspaceId)
     const plan = JSON.parse(row.plan_json)
     insertExistingTask(plan.taskId, workspaceId, '别人先写了')
-    const confirmed = await decide(row.id, 'confirm', pageHeaders(), { title: '提案标题' })
+    const confirmed = await decide(row.id, 'confirm', pageHeaders(), workspaceId, { title: '提案标题' })
     assert.equal(confirmed.status, 409)
     assert.equal(confirmed.payload.error, 'task_exists')
     assert.equal(confirmed.payload.message, '这个 id 已经有任务')
@@ -478,10 +479,10 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     assert.equal(rows.length, 2, '同一任务可以同时有两条 awaiting_approval 提案')
     assert.equal(rows[0].state, 'awaiting_approval')
     assert.equal(rows[1].state, 'awaiting_approval')
-    const first = await decide(rows[0].id, 'confirm', pageHeaders(), { title: '请求体标题' })
+    const first = await decide(rows[0].id, 'confirm', pageHeaders(), workspaceId, { title: '请求体标题' })
     assert.equal(first.status, 200, JSON.stringify(first.payload))
     assert.equal(taskById(task.id).title, '第一份')
-    const second = await decide(rows[1].id, 'confirm', pageHeaders(), { title: '第二份' })
+    const second = await decide(rows[1].id, 'confirm', pageHeaders(), workspaceId, { title: '第二份' })
     assert.equal(second.status, 409)
     assert.equal(second.payload.error, 'stale_task')
     assert.equal(second.payload.message, '任务在提案之后已变更')
@@ -509,7 +510,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     assert.equal(hit.op, 'update')
     assert.equal(hit.taskId, task.id)
     assert.equal(hit.title, '提案标题')
-    const confirmed = await decide(row.id, 'confirm', pageHeaders(), { title: '请求体标题' })
+    const confirmed = await decide(row.id, 'confirm', pageHeaders(), workspaceId, { title: '请求体标题' })
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.payload))
     const again = await fetch(`${base}/api/v1/plan/task-proposals?workspaceId=${encodeURIComponent(workspaceId)}`)
     const againPayload = await readJson(again)
@@ -692,7 +693,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     assert.equal(plain[0].payload.op, 'update')
     assert.equal((await recentEvents('task.changed', bound)).length, changedBefore)
 
-    const confirmed = await decide(row.id, 'confirm', pageHeaders(), {})
+    const confirmed = await decide(row.id, 'confirm', pageHeaders(), workspaceId, {})
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.payload))
     assert.equal(eventsFor(await recentEvents('task.proposal.changed', `${bound}/`), row.id).length, 2)
     assert.equal((await recentEvents('task.changed', bound)).length, changedBefore + 1)
@@ -710,7 +711,7 @@ describe('plan task proposals', { concurrency: 1 }, () => {
     const afterProposeReject = eventsFor(await recentEvents('task.proposal.changed', bound), open.id)
     assert.equal(afterProposeReject.length, 1)
     const changedBeforeReject = (await recentEvents('task.changed', bound)).length
-    const rejected = await decide(open.id, 'reject', pageHeaders(), {})
+    const rejected = await decide(open.id, 'reject', pageHeaders(), workspaceId, {})
     assert.equal(rejected.status, 200, JSON.stringify(rejected.payload))
     assert.equal(eventsFor(await recentEvents('task.proposal.changed', `${bound}/`), open.id).length, 2)
     assert.equal((await recentEvents('task.changed', bound)).length, changedBeforeReject)

@@ -96,6 +96,13 @@ test('SSE origin 403 and connection limit 429', { timeout: 45_000 }, async () =>
   const port = 4480 + (process.pid % 80)
   const dbPath = `/tmp/fde-events-http-${Date.now()}.sqlite`
   await mkdir('/tmp/fde-x-files-smoke', { recursive: true })
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_events_sse', 'cwd', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd: '/tmp/ws' }), now, now)
+  db.close()
   const child = spawn(process.execPath, ['runtime/server.mjs'], {
     cwd: repoRoot,
     env: {

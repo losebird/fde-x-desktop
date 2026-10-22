@@ -50,7 +50,7 @@ export function resolveHttpWorkspace({
 }
 
 export function httpStatusForWorkspaceError(error) {
-  if (error === 'missing_workspace') return { status: 404, code: 'not_found', message: '工作区未登记' }
+  if (error === 'missing_workspace') return { status: 404, code: 'missing_workspace', message: '工作区未登记' }
   if (error === 'workspace_mismatch') return { status: 400, code: 'workspace_mismatch', message: '工作区 id 与路径不一致' }
   if (error === 'workspace_invalid') return { status: 400, code: 'workspace_invalid', message: '工作区必须是绝对路径' }
   return null
@@ -68,6 +68,7 @@ export const httpWorkspaceRoutes = [
   { id: 'biz-lookup', file: 'runtime/routes/biz.mjs', method: 'POST', path: '/api/v1/biz/lookup', place: 'body', param: 'workspace', proof: 'status', absent: 'runtime' },
   { id: 'biz-preview-dismiss', file: 'runtime/routes/biz.mjs', method: 'POST', path: '/api/v1/biz/preview/dismiss', place: 'body', param: 'workspace', proof: 'status', absent: 'runtime' },
   { id: 'biz-write', file: 'runtime/routes/biz.mjs', method: 'POST', path: '/api/v1/biz/write', place: 'body', param: 'workspace', proof: 'status', absent: 'runtime', extra: { preview_id: 'matrix-preview' } },
+  { id: 'biz-vocab-generate', file: 'runtime/routes/biz.mjs', method: 'POST', path: '/api/v1/biz/vocab/generate', place: 'body', param: 'workspace', proof: 'status', absent: 'runtime' },
   { id: 'files', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/files', place: 'query', param: 'cwd', proof: 'files', absent: 'runtime' },
   { id: 'briefing-latest', file: 'runtime/routes/briefing.mjs', method: 'GET', path: '/api/v1/briefing/latest', place: 'query', param: 'workspace', proof: 'briefing', absent: 'runtime' },
   { id: 'briefing-definition', file: 'runtime/routes/briefing.mjs', method: 'GET', path: '/api/v1/briefing/definition', place: 'query', param: 'workspace', proof: 'briefing', absent: 'runtime' },
@@ -85,6 +86,7 @@ export const httpWorkspaceRoutes = [
   { id: 'memory-cards-post', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/memory/cards', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { label: 'matrix marker label', origin: 'note:matrix' } },
   { id: 'memory-nod', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/memory/cards/matrix/nod', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { nodded: true } },
   { id: 'catalog', file: 'runtime/routes/catalog.mjs', method: 'GET', path: '/api/v1/catalog', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime', extra: { kind: 'file' } },
+  { id: 'catalog-stream', file: 'runtime/routes/catalog.mjs', method: 'GET', path: '/api/v1/catalog/stream', place: 'query', param: 'cwd', proof: 'catalog-sse', absent: 'runtime', extra: { kind: 'file', action: 'matrix' } },
   { id: 'catalog-post', file: 'runtime/routes/catalog.mjs', method: 'POST', path: '/api/v1/catalog', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { kind: 'file', action: 'matrix' } },
   { id: 'business-connections', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/business/connections', place: 'query', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
   { id: 'biz-connections', file: 'runtime/routes/biz.mjs', method: 'GET', path: '/api/v1/biz/connections', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
@@ -100,11 +102,15 @@ export const httpWorkspaceRoutes = [
   { id: 'skills-install', file: 'runtime/routes/skills.mjs', method: 'POST', path: '/api/v1/skills/install', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-bundle-delete', file: 'runtime/routes/skills.mjs', method: 'DELETE', path: '/api/v1/skills/bundle', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'business-apps', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/business/apps', place: 'query', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
+  { id: 'business-apps-create', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/business/apps', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },
+  { id: 'operations-create', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/operations', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'apps', file: 'runtime/routes/apps.mjs', method: 'GET', path: '/api/v1/apps', place: 'query', param: 'workspace', proof: 'apps', absent: 'apps-default', illegal: 'unmatched' },
   { id: 'apps-create', file: 'runtime/routes/apps.mjs', method: 'POST', path: '/api/v1/apps', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
   { id: 'apps-entity', file: 'runtime/routes/apps.mjs', method: 'GET', path: '/api/v1/apps/matrix-slug/visit', place: 'query', param: 'workspace', proof: 'status', absent: 'runtime', illegal: 'unmatched' },
   { id: 'context-pack', file: 'runtime/routes/context.mjs', method: 'POST', path: '/api/v1/context/pack', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime', extra: { scopes: ['apps', 'tasks'] } },
+  { id: 'bridge-dispatch', file: 'runtime/routes/bridge.mjs', method: 'POST', path: '/api/v1/bridge/', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
   { id: 'bridge-context', file: 'runtime/routes/bridge.mjs', method: 'POST', path: '/api/v1/bridge/context', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime', extra: { scope: ['apps', 'tasks'] } },
+  { id: 'bridge-plan-task', file: 'runtime/routes/bridge.mjs', method: 'POST', path: '/api/v1/bridge/plan-task-propose', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
   { id: 'semantic-coverage', file: 'runtime/server.mjs', method: 'GET', path: '/semantic-os/api/coverage', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'ai-workspaces', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/ai/workspaces', place: 'body', param: 'path', proof: 'status', absent: 'required' },
   { id: 'presets-import-dir', file: 'runtime/routes/presets.mjs', method: 'POST', path: '/api/v1/ai/presets/import-dir', place: 'body', param: 'path', proof: 'status', absent: 'required' },

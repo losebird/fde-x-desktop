@@ -102,7 +102,7 @@ test('a running briefing with no live owner is abandoned and the next generate s
   )
   assert.notEqual(next.briefingId, stuck.id)
   assert.notEqual(next.joined, true)
-  const old = getBriefing(db, stuck.id)
+  const old = getBriefing(db, stuck.id, wsCwd)
   assert.equal(old.status, 'failed')
   assert.equal(old.agentError, '生成中断')
   db.close()
