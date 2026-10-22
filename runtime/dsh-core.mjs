@@ -301,6 +301,13 @@ function ignoredRepoInject(plugin, injected) {
   return existsSync(join(injected, '.git'))
 }
 
+function repoPluginSkipped(plugin) {
+  if (process.env.FDE_REPO_PLUGINS !== '0') return false
+  if (!plugin.source || plugin.source.kind !== 'repo') return false
+  const injected = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
+  return ignoredRepoInject(plugin, injected)
+}
+
 export class DshCoreConnector {
   constructor(options = {}) {
     this.bin = resolveDshBin(options.bin)
@@ -798,6 +805,7 @@ export class DshCoreConnector {
     const plugins = {}
     for (const plugin of BUILTIN_PLUGINS) {
       if (!plugin.source || plugin.source.kind !== 'repo') continue
+      if (repoPluginSkipped(plugin)) continue
       const source = resolve(this.repoPluginSource(plugin))
       const dest = realpathSync(join(modules, plugin.module))
       let pkg = {}
@@ -967,9 +975,8 @@ export class DshCoreConnector {
     await mkdir(modules, { recursive: true })
     this.pluginLinkFailures = []
     const extras = []
-    const skipRepo = process.env.FDE_REPO_PLUGINS === '0'
     for (const plugin of BUILTIN_PLUGINS) {
-      if (skipRepo && plugin.source && plugin.source.kind === 'repo') continue
+      if (repoPluginSkipped(plugin)) continue
       if (await this.linkBuiltinPlugin(plugin, modules)) extras.push(plugin.module)
     }
     const optional = this.pluginLinkFailures.length ? this.pluginLinkFailures.join('；') : ''
