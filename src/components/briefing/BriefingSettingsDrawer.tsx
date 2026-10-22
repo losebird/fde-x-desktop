@@ -8,8 +8,15 @@ import {
   type BizVocabKind,
   type McpServerV2,
 } from '@/lib/runtime-api'
-import { TASK_STATUSES } from '../../../runtime/briefing/defaults.mjs'
+import { briefingConnectedServerNames, mcpSectionFromConnectedPick, TASK_STATUSES } from '../../../runtime/briefing/defaults.mjs'
 import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
+
+function serverChoices(servers: McpServerV2[], savedServer: string): string[] {
+  const saved = String(savedServer || '').trim()
+  const names = briefingConnectedServerNames(servers.map((row) => row.serverName)) as string[]
+  if (saved && !names.includes(saved)) return [saved, ...names]
+  return names
+}
 
 function mcpToolOptions(servers: McpServerV2[], serverName: string, savedTool: string) {
   const row = servers.find((item) => item.serverName === serverName)
@@ -83,6 +90,8 @@ export function BriefingSettingsDrawer({
   const [apps, setApps] = useState<FdeAppRow[]>([])
   const [statViews, setStatViews] = useState<Record<string, StatView[]>>({})
   const [bizKinds, setBizKinds] = useState<BizVocabKind[]>([])
+  const [pickServer, setPickServer] = useState('')
+  const [pickTool, setPickTool] = useState('')
 
   useEffect(() => {
     if (!open || !definition) return
@@ -185,6 +194,16 @@ export function BriefingSettingsDrawer({
     setSections(next)
   }
 
+  const replaceArgsWhenJsonParses = (index: number, raw: string) => {
+    let args: unknown
+    try {
+      args = JSON.parse(raw || '{}')
+    } catch {
+      return
+    }
+    patchParams(index, { args })
+  }
+
   const save = () => {
     if (!definition) return
     setSaving(true)
@@ -203,6 +222,15 @@ export function BriefingSettingsDrawer({
   }
 
   const days = Array.isArray(schedule.days) ? schedule.days : [1, 2, 3, 4, 5]
+  const connectedServers = briefingConnectedServerNames(mcpServers.map((row) => row.serverName)) as string[]
+  const picked = mcpSectionFromConnectedPick(pickServer, pickTool)
+  const mcpEnabled = sections.some((section) => section.type === 'mcp' && section.enabled)
+  const enablePicked = () => {
+    if (!picked) return
+    setSections([...sections, { ...picked, id: `mcp-${Date.now().toString(36)}` }])
+    setPickServer('')
+    setPickTool('')
+  }
 
   if (!open || !definition) return null
 
@@ -427,8 +455,8 @@ export function BriefingSettingsDrawer({
                     }}
                   >
                     <option value="">选择 MCP 服务器</option>
-                    {mcpServers.map((row) => (
-                      <option key={row.serverName} value={row.serverName}>{row.serverName}</option>
+                    {serverChoices(mcpServers, String(section.params?.server || '')).map((name) => (
+                      <option key={name} value={name}>{name}</option>
                     ))}
                   </select>
                   {!section.params?.server && (
@@ -454,13 +482,7 @@ export function BriefingSettingsDrawer({
                     rows={2}
                     placeholder="args JSON"
                     value={JSON.stringify(section.params?.args || {})}
-                    onChange={(e) => {
-                      try {
-                        patchParams(index, { args: JSON.parse(e.target.value || '{}') })
-                      } catch {
-                        /* keep typing */
-                      }
-                    }}
+                    onChange={(e) => replaceArgsWhenJsonParses(index, e.target.value)}
                   />
                   <label className="flex items-center gap-2 text-xs text-ink-muted">
                     <input
@@ -474,6 +496,42 @@ export function BriefingSettingsDrawer({
               )}
             </div>
           ))}
+          <div className="rounded-lg border border-line p-3 space-y-1.5">
+            <div className="text-xs text-ink-muted">从已连接 MCP 选</div>
+            {!mcpEnabled && (
+              <div className="text-xs text-accent-amber">默认不会自动挂邮件或资讯。选好服务器和工具并保存后，这一台才会在早报会话里放行。</div>
+            )}
+            {connectedServers.length === 0 && (
+              <div className="text-xs text-accent-amber">先在 MCP 页添加服务器并重载核心</div>
+            )}
+            <select
+              className="input text-sm w-full"
+              value={pickServer}
+              onChange={(e) => {
+                setPickServer(e.target.value)
+                setPickTool('')
+              }}
+            >
+              <option value="">服务器</option>
+              {connectedServers.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <select
+              className="input text-sm w-full"
+              value={pickTool}
+              disabled={!pickServer}
+              onChange={(e) => setPickTool(e.target.value)}
+            >
+              <option value="">工具</option>
+              {mcpToolOptions(mcpServers, pickServer, '').map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <button type="button" className="btn-ghost text-xs" disabled={!picked} onClick={enablePicked}>
+              启用这一台
+            </button>
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {SECTION_TYPES.map((row) => (
               <button key={row.type} type="button" className="btn-ghost text-xs" onClick={() => addSection(row.type, row.render, row.label)}>

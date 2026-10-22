@@ -26,6 +26,14 @@ export function defaultDelivery() {
   return { peerId: '' }
 }
 
+export function readDefinitionSections(db, workspaceCwd) {
+  const workspaceId = workspaceRowIdForCwd(db, workspaceCwd)
+  if (!workspaceId) return []
+  const existing = db.prepare('SELECT sections_json FROM briefing_definitions WHERE id = ?').get(definitionIdForWorkspace(workspaceId))
+  if (!existing) return []
+  return prepareDefinitionSections(parseJson(existing.sections_json, []))
+}
+
 export function getOrCreateDefinition(db, workspaceCwd) {
   const workspaceId = workspaceRowIdForCwd(db, workspaceCwd)
   if (!workspaceId) {
