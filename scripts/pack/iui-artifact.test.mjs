@@ -64,8 +64,8 @@ test('bundledPluginVersions records the IUI pin and vendor presence', () => {
   writeFileSync(join(root, 'dsh-lan-assist', 'package.json'), '{}')
   try {
     const versions = bundledPluginVersions(BUILTIN_PLUGINS, root)
-    assert.equal(versions['dsh-lan-assist'], true)
-    assert.equal(versions['dsh-semantic-os'], false)
+    assert.deepEqual(versions['dsh-lan-assist'], { staged: true, treeHash: '' })
+    assert.deepEqual(versions['dsh-semantic-os'], { staged: false, treeHash: '' })
     assert.deepEqual(versions.iui, {
       staged: false,
       version: IUI_PIN.version,

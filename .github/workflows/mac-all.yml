@@ -28,6 +28,14 @@ jobs:
       - name: Clean checkout
         uses: actions/checkout@v4
 
+      - name: Plugins come from runtime/plugins
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f runtime/plugins/dsh-lan-assist/package.json
+          test -f runtime/plugins/dsh-semantic-os/package.json
+          echo "ASSERT ok: plugins from runtime/plugins"
+
       - name: Node 26.7.0 without corepack
         uses: actions/setup-node@v4
         with:
