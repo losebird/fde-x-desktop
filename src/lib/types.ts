@@ -36,6 +36,7 @@ export interface Task {
   workspaceId?: ID
   sourceRef?: string
   completedAt?: string
+  updatedAt?: string
 }
 
 /** BFF /api/v1/plan/events 与 store 日程缓存 */
@@ -66,6 +67,7 @@ export interface ScheduleEvent {
   kind: 'meeting' | 'focus' | 'reminder' | 'external'
   workflowId?: string
   recurrence?: 'once' | 'daily'
+  updatedAt?: string
 }
 
 export interface FileNode {
@@ -101,6 +103,8 @@ export interface WorkflowRunRecord {
   id: ID
   state: string
   message: string
+  eventId?: string
+  sessionId?: string
 }
 
 export interface Workflow {
@@ -124,6 +128,7 @@ export interface Workflow {
   category: 'data' | 'im' | 'file' | 'memory' | 'system'
   emoji: string
   createdAt: string
+  updatedAt?: string
   // 工作区隔离
   workspaceId?: ID
 }

@@ -88,6 +88,8 @@ export const FDE_SEMANTIC_RUNTIME_MODE = process.env.FDE_SEMANTIC_RUNTIME_MODE =
 const MAC_DSH_FALLBACKS = ['/opt/homebrew/bin/dsh', '/usr/local/bin/dsh']
 
 export function resolveDshBin(explicit) {
+  if (explicit && existsSync(explicit)) return explicit
+
   const generation = generationDshBin()
   if (generation) return generation
 

@@ -2,9 +2,13 @@ import { readFile } from 'node:fs/promises'
 import { realpath } from 'node:fs/promises'
 import { join, resolve as resolvePath } from 'node:path'
 import { resolveBizCorpusOrigin } from '../biz/corpus-origin.mjs'
-import { readSessionUserOrigin } from '../biz/session-origin-text.mjs'
+import { readSessionUserOrigin, sessionLogCwd } from '../biz/session-origin-text.mjs'
 import { findActiveAppBySlug } from '../apps/repository.mjs'
 import { getRecord } from '../apps/records.mjs'
+import { FDE_AI_WORKSPACE } from '../config.mjs'
+import { canonicalWorkspaceCwd, sameWorkspaceCwd } from '../cwd.mjs'
+import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
+import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { listWorkspaces } from '../db.mjs'
 import { filePathOf, originOfCard, sessionIdOf } from '../memory/identity.mjs'
 import { bizTraceIdOf, originHref } from '../memory/origin-href.mjs'
@@ -36,8 +40,8 @@ async function resolveImMessage(aiRuntime, requestId) {
   }
 }
 
-function resolveTask(db, taskId) {
-  const row = db.prepare('SELECT id, title, notes, status FROM tasks WHERE id = ?').get(taskId)
+function resolveTask(db, taskId, workspaceId) {
+  const row = db.prepare('SELECT id, title, notes, status FROM tasks WHERE workspace_id = ? AND id = ?').get(workspaceId, taskId)
   if (!row) return null
   return {
     title: row.title,
@@ -46,8 +50,8 @@ function resolveTask(db, taskId) {
   }
 }
 
-function resolveBriefing(db, briefingId) {
-  const row = db.prepare('SELECT id, content_json, generated_at FROM briefings WHERE id = ?').get(briefingId)
+function resolveBriefing(db, briefingId, workspaceCwd) {
+  const row = db.prepare('SELECT id, content_json, generated_at FROM briefings WHERE workspace_cwd = ? AND id = ?').get(workspaceCwd, briefingId)
   if (!row) return null
   let content = {}
   try {
@@ -78,7 +82,7 @@ function workspaceRowForCwd(db, workspaceCwd) {
   for (const row of rows) {
     const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
     const path = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-    if (path === workspaceCwd) return row
+    if (sameWorkspaceCwd(path, workspaceCwd)) return row
   }
   return null
 }
@@ -119,9 +123,12 @@ function resolveAppRecord(db, slug, entity, rid, workspaceCwd) {
   }
 }
 
-async function resolveSession(sessionKey) {
+async function resolveSession(sessionKey, workspaceCwd) {
   const sessionId = sessionIdOf(sessionKey.startsWith('session:') ? sessionKey : `session:${sessionKey}`)
   if (!sessionId) return null
+  const headerCwd = await sessionLogCwd(sessionId)
+  const requested = canonicalWorkspaceCwd(workspaceCwd)
+  if (headerCwd && !sameWorkspaceCwd(headerCwd, requested)) return null
   const text = await readSessionUserOrigin(sessionId)
   if (!text) {
     return {
@@ -140,7 +147,7 @@ async function resolveSession(sessionKey) {
 
 async function resolveFile(cwd, fileId) {
   const rel = filePathOf(fileId)
-  if (!rel || !cwd || !cwd.startsWith('/')) return null
+  if (!rel || !canonicalWorkspaceCwd(cwd)) return null
   const root = await realpath(cwd).catch(() => '')
   if (!root) return null
   const abs = rel.startsWith('/') ? rel : join(cwd, rel)
@@ -178,9 +185,14 @@ async function resolveMemoryCard(aiRuntime, cwd, cardId) {
   }
 }
 
-function cwdOf(url) {
-  const raw = String(url?.searchParams?.get('cwd') || url?.searchParams?.get('workspace') || '').trim()
-  return raw.startsWith('/') ? raw : ''
+function cwdOf(url, runtimeCwd) {
+  const resolved = resolveHttpWorkspace({
+    url,
+    slots: [['query', 'cwd'], ['query', 'workspace']],
+    runtimeCwd,
+    fallbackCwd: FDE_AI_WORKSPACE,
+  })
+  return resolved
 }
 
 /**
@@ -189,7 +201,7 @@ function cwdOf(url) {
  */
 export async function loadOrigin(deps, id) {
   const { db, aiRuntime, url } = deps
-  const cwd = cwdOf(url) || String(deps.cwd || '')
+  const cwd = canonicalWorkspaceCwd(deps.cwd) || String(deps.cwd || '')
   if (id.startsWith('biz:')) {
     const traceId = bizTraceIdOf(id)
     if (!traceId) return { ok: false, missing: true, message: '不支持的 corpus id' }
@@ -198,6 +210,7 @@ export async function loadOrigin(deps, id) {
       aiRuntime,
       traceId,
       url,
+      workspaceCwd: cwd,
     })
     if (resolved.ok) return { ok: true, title: resolved.title, text: resolved.text, href: resolved.href }
     return { ok: false, title: '当时原文', text: '', message: resolved.message || '暂时读不出原文', href: resolved.href }
@@ -208,12 +221,15 @@ export async function loadOrigin(deps, id) {
     return { ok: true, ...resolved }
   }
   if (id.startsWith('task:')) {
-    const resolved = resolveTask(db, id.slice(5))
+    const ident = resolveWorkspaceIdOrFail(db, { cwd, source: 'request' })
+    if (ident.error) return { ok: false, missing: true, message: '找不到该任务' }
+    const resolved = resolveTask(db, id.slice(5), ident.workspaceId)
     if (!resolved) return { ok: false, missing: true, message: '找不到该任务' }
     return { ok: true, ...resolved }
   }
   if (id.startsWith('briefing:')) {
-    const resolved = resolveBriefing(db, id.slice(9))
+    const workspaceCwd = cwd
+    const resolved = resolveBriefing(db, id.slice(9), workspaceCwd)
     if (!resolved) return { ok: false, missing: true, message: '找不到该早报' }
     if (resolved.unreadable) {
       return { ok: false, title: resolved.title, text: '', message: resolved.unreadable, href: resolved.href }
@@ -237,7 +253,7 @@ export async function loadOrigin(deps, id) {
     return { ok: false, missing: true, message: '找不到该应用' }
   }
   if (id.startsWith('session:')) {
-    const resolved = await resolveSession(id)
+    const resolved = await resolveSession(id, cwd)
     if (!resolved) return { ok: false, missing: true, message: '找不到该会话' }
     if (resolved.unreadable) {
       return { ok: false, title: resolved.title, text: '', message: resolved.unreadable, href: resolved.href }
@@ -272,9 +288,16 @@ export async function handleCorpusRoute(request, response, url, deps) {
     correlationId,
   })
   const id = decodeURIComponent(match[1])
+  const resolvedCwd = cwdOf(url, aiRuntime?.cwd)
+  if (resolvedCwd.error) {
+    const sendError = typeof deps.sendError === 'function' ? deps.sendError : null
+    if (sendError) sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId)
+    else sendJson(response, 400, { ok: false, error: { code: 'workspace_invalid', message: '工作区必须是绝对路径' }, correlationId })
+    return true
+  }
 
   try {
-    const resolved = await loadOrigin({ db, aiRuntime, url, cwd: cwdOf(url) }, id)
+    const resolved = await loadOrigin({ db, aiRuntime, url, cwd: resolvedCwd.cwd }, id)
     if (resolved.missing) {
       notFound(resolved.message || '找不到原文')
       return true

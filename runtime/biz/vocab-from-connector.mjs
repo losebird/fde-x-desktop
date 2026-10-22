@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import {
   buildVocabFromNocoCollections,
   fetchNocoBaseCollections,
@@ -29,8 +30,8 @@ function catalogVersionFrom(collections) {
  * }} spec
  */
 export async function generateWorkspaceVocabFromConnector(spec) {
-  const workspace = String(spec.workspace || '').trim()
-  if (!workspace.startsWith('/')) {
+  const workspace = canonicalWorkspaceCwd(spec.workspace)
+  if (!workspace) {
     return { ok: false, error: 'NO_CWD', hint: '工作区路径无效。' }
   }
   const dialect = String(spec.dialect || 'nocobase').trim() || 'nocobase'
@@ -92,8 +93,8 @@ export async function generateWorkspaceVocabFromConnector(spec) {
 }
 
 export async function generateWorkspaceVocabFromKinds(spec) {
-  const workspace = String(spec.workspace || '').trim()
-  if (!workspace.startsWith('/')) {
+  const workspace = canonicalWorkspaceCwd(spec.workspace)
+  if (!workspace) {
     return { ok: false, error: 'NO_CWD', hint: '工作区路径无效。' }
   }
   if (typeof spec.persistBatch !== 'function') {

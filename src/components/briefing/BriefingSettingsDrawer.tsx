@@ -9,6 +9,7 @@ import {
   type McpServerV2,
 } from '@/lib/runtime-api'
 import { briefingConnectedServerNames, mcpSectionFromConnectedPick, TASK_STATUSES } from '../../../runtime/briefing/defaults.mjs'
+import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
 
 function serverChoices(servers: McpServerV2[], savedServer: string): string[] {
   const saved = String(savedServer || '').trim()
@@ -107,9 +108,7 @@ export function BriefingSettingsDrawer({
     void runtimeApi.listFdeApps().then((rows) => {
       setApps(Array.isArray(rows) ? rows.filter((row) => row.slug) : [])
     }).catch(() => setApps([]))
-    const cwd = definition?.workspaceCwd && definition.workspaceCwd.startsWith('/')
-      ? definition.workspaceCwd
-      : ''
+    const cwd = canonicalWorkspaceCwd(definition?.workspaceCwd)
     void runtimeApi.listBizKinds(undefined, cwd || undefined).then((sheet) => {
       setBizKinds(Array.isArray(sheet?.kinds) ? sheet.kinds : [])
     }).catch(() => setBizKinds([]))

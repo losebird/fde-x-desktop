@@ -2,15 +2,18 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
 import { generationDshBin } from '../generation.mjs'
+import { createPageTokenClient } from './support/page-token-fetch.mjs'
+import { goodIuiTar, writeFakeDshCredentials } from './support/iui-home-fixture.mjs'
 
+const page = createPageTokenClient()
 const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.module === '@losebird/iui')
-const goodTar = join(homedir(), '.dsh', 'vendor', 'iui', `iui-${IUI.source.commit}.tar.gz`)
+const goodTar = goodIuiTar(IUI.source.commit)
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const realBin = join(root, 'runtime', '.host-generation', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
@@ -42,16 +45,19 @@ async function waitForHealth(base, child, logs) {
 }
 
 function spawnServer(home, port, artifact) {
+  page.reset()
   const logs = []
   const env = { ...process.env }
   delete env.FDE_PLUGIN_IUI
   delete env.FDE_VENDOR_DIR
   delete env.FDE_DSH_BIN
+  delete env.FDE_IUI_ARTIFACT
   const child = spawn(process.execPath, ['runtime/server.mjs'], {
     cwd: root,
     env: {
       ...env,
       FDE_DSH_HOME: home,
+      FDE_RUNTIME_SUPERVISED: '1',
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: join(home, 'data', 'fde-workstation.sqlite'),
       FDE_LISTEN_HOST: '127.0.0.1',
@@ -63,7 +69,10 @@ function spawnServer(home, port, artifact) {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
-  child.stdout.on('data', (chunk) => logs.push(String(chunk)))
+  child.stdout.on('data', (chunk) => {
+    page.observe(chunk)
+    logs.push(String(chunk))
+  })
   child.stderr.on('data', (chunk) => logs.push(String(chunk)))
   return { child, logs }
 }
@@ -84,7 +93,7 @@ async function stopServer(child) {
 }
 
 async function readStatus(base) {
-  const response = await fetch(`${base}/api/v1/ai/status`)
+  const response = await page.fetch(`${base}/api/v1/ai/status`)
   assert.equal(response.status, 200)
   const body = await response.json()
   return body.data
@@ -93,7 +102,7 @@ async function readStatus(base) {
 async function assertTerminalFailure(base, child, logs, deadlineMs, reasonPattern) {
   const deadline = Date.now() + deadlineMs
   let latest = null
-  const connect = fetch(`${base}/api/v1/ai/connect`, {
+  const connect = page.fetch(`${base}/api/v1/ai/connect`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -135,7 +144,7 @@ test('a core entry that exits on launch becomes error and IUI failed', { timeout
   const home = await mkdtemp(join(tmpdir(), 'fde-core-exit-'))
   const port = await freePort()
   await mkdir(home, { recursive: true })
-  await writeFile(join(home, '.credentials.yaml'), 'version: 1\nrefs: {}\n', { mode: 0o600 })
+  await writeFakeDshCredentials(home)
   await writeFile(realBin, "import 'fde-iui-missing-module'\n")
   const { child, logs } = spawnServer(home, port, goodTar)
   const base = `http://127.0.0.1:${port}`
@@ -154,6 +163,7 @@ test('an unreadable core entry becomes error and IUI failed', { timeout: 60_000 
   const original = await readFile(realBin)
   const home = await mkdtemp(join(tmpdir(), 'fde-core-mode-'))
   const port = await freePort()
+  await writeFakeDshCredentials(home)
   await chmod(realBin, 0o000)
   const { child, logs } = spawnServer(home, port, join(home, 'missing-iui.tar.gz'))
   const base = `http://127.0.0.1:${port}`

@@ -19,6 +19,7 @@ import {
   resolveDshBin,
   vendorSemanticRuntimeDist,
 } from './config.mjs'
+import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { hostChildEnv, resolveHostSpawn } from './host-spawn.mjs'
 import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import { BUILTIN_PLUGINS, pluginEnvKey } from './builtin-plugins.mjs'
@@ -126,9 +127,9 @@ function errorMessage(error) {
 }
 
 function semanticCwd(options, fallback) {
-  const cwd = typeof options?.cwd === 'string' && options.cwd.startsWith('/') ? options.cwd : fallback
-  const ascii = typeof cwd === 'string' && cwd.startsWith('/') && !/[^\u0000-\u007F]/u.test(cwd) ? cwd : ''
-  return { cwd: cwd || '', ascii }
+  const cwd = canonicalWorkspaceCwd(options?.cwd) || canonicalWorkspaceCwd(fallback) || ''
+  const ascii = cwd && !/[^\u0000-\u007F]/u.test(cwd) ? cwd : ''
+  return { cwd, ascii }
 }
 
 function normalizeLogChunk(chunk) {
@@ -1094,7 +1095,7 @@ export class DshCoreConnector {
   /** Persist workspace SKOS concepts (same path as Memory vocabulary UI). */
   async patchWorkspaceVocab(cwd, body) {
     this.assertConnected()
-    const workspace = typeof cwd === 'string' && cwd.startsWith('/') ? cwd : this.cwd
+    const workspace = canonicalWorkspaceCwd(cwd) || canonicalWorkspaceCwd(this.cwd) || this.cwd
     const { cwd: requestCwd, ascii } = semanticCwd({ cwd: workspace }, this.cwd)
     if (!requestCwd) throw new AiRemoteError('ai/forbidden', '工作区路径无效')
     const url = new URL('/semantic-os/api/vocabulary/concepts', this.origin)

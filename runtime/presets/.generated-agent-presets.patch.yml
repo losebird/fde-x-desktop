@@ -111,7 +111,7 @@
             name: '@deepseek-ai/dsh-skill-filesystem'
             config:
               customSkillDirs:
-                - !!js "process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('fde-x-dsh-bridge/package.json')), '..', 'presets', 'fde-app-builder', 'skills')"
+                - !!js "process.env.FDE_RUNTIME_DIR + '/presets/fde-app-builder/skills'"
 
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
@@ -255,11 +255,9 @@
 
               - id: tool-workflow
                 name: '@deepseek-ai/dsh-tool-workflow'
-                disabled: true
 
               - id: tool-ralph
                 name: '@deepseek-ai/dsh-tool-ralph'
-                disabled: true
                 config:
                   subagentProvider: spawn
                   maxRounds: 64
@@ -379,7 +377,7 @@
             name: '@deepseek-ai/dsh-skill-filesystem'
             config:
               customSkillDirs:
-                - !!js "process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('fde-x-dsh-bridge/package.json')), '..', 'presets', 'fde-briefing', 'skills')"
+                - !!js "process.env.FDE_RUNTIME_DIR + '/presets/fde-briefing/skills'"
 
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
@@ -523,11 +521,9 @@
 
               - id: tool-workflow
                 name: '@deepseek-ai/dsh-tool-workflow'
-                disabled: true
 
               - id: tool-ralph
                 name: '@deepseek-ai/dsh-tool-ralph'
-                disabled: true
                 config:
                   subagentProvider: spawn
                   maxRounds: 64

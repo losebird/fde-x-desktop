@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setTimeout as delay } from 'node:timers/promises'
+import { createPageTokenClient } from './support/page-token-fetch.mjs'
+
+const page = createPageTokenClient()
 
 const node = process.execPath
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -24,6 +27,7 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
     env: {
       ...process.env,
       FDE_BRIEFING_CRASH_PROBE: '1',
+      FDE_RUNTIME_SUPERVISED: '1',
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: dbPath,
       FDE_DSH_HOME: dshHome,
@@ -32,7 +36,10 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let log = ''
-  child.stdout.on('data', (buf) => { log += buf })
+  child.stdout.on('data', (buf) => {
+    page.observe(buf)
+    log += buf
+  })
   child.stderr.on('data', (buf) => { log += buf })
   t.after(async () => {
     if (child.exitCode === null) child.kill('SIGTERM')
@@ -44,14 +51,14 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
   for (let i = 0; i < 80; i += 1) {
     if (child.exitCode !== null) break
     try {
-      const res = await fetch(`${base}/health`)
+      const res = await page.fetch(`${base}/health`)
       if (res.ok) break
     } catch {}
     await delay(50)
   }
   assert.equal(child.exitCode, null, `core exited before listen ${child.exitCode}\n${log.slice(-1500)}`)
 
-  const created = await fetch(`${base}/api/v1/ai/workspaces`, {
+  const created = await page.fetch(`${base}/api/v1/ai/workspaces`, {
     method: 'POST',
     headers: { Origin: origin, 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: ws, title: 'probe' }),
@@ -62,7 +69,7 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
   assert.equal(typeof cwd, 'string')
   assert.ok(cwd.startsWith('/'))
 
-  const registered = await fetch(`${base}/api/v1/workspaces`, {
+  const registered = await page.fetch(`${base}/api/v1/workspaces`, {
     method: 'POST',
     headers: { Origin: origin, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -74,7 +81,7 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
   })
   assert.equal(registered.status, 201)
 
-  const opened = await fetch(`${base}/api/v1/briefing/latest?onOpen=1&cwd=${encodeURIComponent(cwd)}`, {
+  const opened = await page.fetch(`${base}/api/v1/briefing/latest?onOpen=1&cwd=${encodeURIComponent(cwd)}`, {
     headers: { Origin: origin },
   })
   assert.equal(opened.status, 200)
@@ -84,7 +91,7 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
   const deadline = Date.now() + 2500
   while (Date.now() < deadline && child.exitCode === null) {
     try {
-      const res = await fetch(`${base}/api/v1/briefing/latest?cwd=${encodeURIComponent(cwd)}`, {
+      const res = await page.fetch(`${base}/api/v1/briefing/latest?cwd=${encodeURIComponent(cwd)}`, {
         headers: { Origin: origin },
       })
       followStatus = res.status
@@ -100,12 +107,12 @@ test('onOpen full-run rejection keeps the core up and records the failure', asyn
   }
 
   assert.equal(child.exitCode, null, `core exited ${child.exitCode}\n${log.slice(-1500)}`)
-  const health = await fetch(`${base}/health`)
+  const health = await page.fetch(`${base}/health`)
   assert.equal(health.status, 200)
   assert.equal(followStatus, 200)
   assert.match(aiError, /briefing generation failed/)
 
-  const recent = await fetch(
+  const recent = await page.fetch(
     `${base}/api/v1/events/recent?type=briefing.ready&workspace=${encodeURIComponent(cwd)}`,
     { headers: { Origin: origin } },
   )

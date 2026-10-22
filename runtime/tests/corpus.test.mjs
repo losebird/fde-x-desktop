@@ -4,6 +4,7 @@ import { createServer } from 'node:http'
 import { mkdir, rm } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { openDatabase, createId } from '../db.mjs'
 import { handleCorpusRoute } from '../routes/corpus.mjs'
 
@@ -31,6 +32,7 @@ test('task prefix resolves from sqlite', async () => {
     INSERT INTO tasks (id, workspace_id, title, notes, status, priority, created_at, updated_at)
     VALUES (?, 'ws_personal', '写完规格', '备注', 'done', 'med', ?, ?)
   `).run(taskId, now, now)
+  db.prepare('UPDATE workspaces SET metadata_json = ? WHERE id = ?').run(JSON.stringify({ cwd: FDE_AI_WORKSPACE }), 'ws_personal')
   const aiRuntime = { lanAssist: async () => ({}) }
   const { base, close } = await withServer(async (request, response) => {
     const url = new URL(request.url, base)
@@ -89,7 +91,7 @@ test('biz corpus returns noted original speech, never JSON dump', async () => {
     const url = new URL(request.url, base)
     await handleCorpusRoute(request, response, url, { db, aiRuntime, correlationId: 'corr' })
   })
-  const res = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('biz:trace_origin_speech')}`)
+  const res = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('biz:trace_origin_speech')}?cwd=${encodeURIComponent('/tmp/ws-corpus')}`)
   const body = await res.json()
   await close()
   assert.equal(res.status, 200)
@@ -125,7 +127,7 @@ test('biz corpus explains when there is no session or noted speech', async () =>
     const url = new URL(request.url, base)
     await handleCorpusRoute(request, response, url, { db, aiRuntime, correlationId: 'corr' })
   })
-  const res = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('biz:trace_no_origin')}`)
+  const res = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('biz:trace_no_origin')}?cwd=${encodeURIComponent('/tmp/ws-corpus')}`)
   const body = await res.json()
   await close()
   assert.equal(res.status, 200)
@@ -154,7 +156,7 @@ test('biz corpus does not treat rollback marker speech as original text', async 
     const url = new URL(request.url, base)
     await handleCorpusRoute(request, response, url, { db, aiRuntime, correlationId: 'corr' })
   })
-  const res = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('biz:trace_rollback_marker')}`)
+  const res = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('biz:trace_rollback_marker')}?cwd=${encodeURIComponent('/tmp/ws-corpus')}`)
   const body = await res.json()
   await close()
   assert.equal(res.status, 200)
@@ -197,7 +199,7 @@ test('biz corpus reads session user turns and skips JSON dumps', async () => {
     await handleCorpusRoute(request, response, url, { db, aiRuntime, correlationId: 'corr' })
   })
   try {
-    const res = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('biz:trace_session_origin')}`)
+    const res = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('biz:trace_session_origin')}?cwd=${encodeURIComponent('/tmp/ws-corpus')}`)
     const body = await res.json()
     assert.equal(res.status, 200)
     assert.equal(body.ok, true)
@@ -256,7 +258,7 @@ test('briefing, app slug, file, and memory card share one corpus mouth', async (
     await handleCorpusRoute(request, response, url, { db, aiRuntime, correlationId: 'corr' })
   })
   try {
-    const briefing = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('briefing:brf_o')}`).then((r) => r.json())
+    const briefing = await fetch(`${base}/api/v1/corpus/${encodeURIComponent('briefing:brf_o')}?cwd=${encodeURIComponent(cwd)}`).then((r) => r.json())
     assert.equal(briefing.ok, true)
     assert.match(String(briefing.text || ''), /早报正文/)
     assert.equal(briefing.href.panel, 'briefing')

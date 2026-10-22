@@ -71,7 +71,7 @@ export async function currentAiTarget(signal?: AbortSignal): Promise<AiTargetRes
   const state = useApp.getState()
   let sessions: AiSessionSummary[]
   try {
-    sessions = await runtimeApi.listAiSessions({ includeBlank: true }, signal)
+    sessions = await runtimeApi.listAiSessions({ includeBlank: true, workspaceId }, signal)
   } catch (cause) {
     return { ok: false, error: cause instanceof Error ? cause.message : '列会话失败' }
   }

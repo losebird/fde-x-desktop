@@ -8,6 +8,7 @@ import { openDatabase } from '../db.mjs'
 import { handlePlanRequest } from '../routes/plan.mjs'
 import { startWorkflowRun } from '../plan/workflow-run.mjs'
 import { bootWorkflowHost, waitForProbe } from './support/workflow-host.mjs'
+import { STANDARD_SESSION_TOOLS } from './support/standard-session-tools.mjs'
 
 const migrations = join(import.meta.dirname, '..', 'migrations')
 const QUERY = 'fde_app_records_query'
@@ -96,7 +97,7 @@ describe('真 Host 上从预设带入工具', { concurrency: 1 }, () => {
       const standard = presets.find((row) => row.id === 'standard')
       assert.ok(standard)
       const standardSeen = await waitForProbe(host.probeDir, 'standard')
-      assert.equal(standardSeen.names.length, 44)
+      assert.deepEqual(standardSeen.names, STANDARD_SESSION_TOOLS)
       assert.equal(standardSeen.names.includes(EXCLUDED), false)
       assert.deepEqual(standard.tools.map((tool) => tool.name), standardSeen.names)
       assert.equal(standard.hasDanger, true)

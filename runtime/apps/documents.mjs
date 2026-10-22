@@ -1,4 +1,6 @@
 import { createId } from '../db.mjs'
+import { canonicalWorkspaceCwd, workspaceCwdEqual } from '../cwd.mjs'
+import { getAppById } from './repository.mjs'
 
 const KEY_RE = /^[A-Za-z0-9._-]{1,80}$/
 const MAX_JSON = 2 * 1024 * 1024
@@ -13,12 +15,20 @@ export function assertDocKey(key) {
   return value
 }
 
-export function getDocument(db, { appId, workspaceCwd, key }) {
+function findDocumentRow(db, { appId, workspaceCwd, key }) {
   const docKey = assertDocKey(key)
-  const row = db.prepare(`
-    SELECT json FROM app_documents
-    WHERE app_id = ? AND workspace_cwd = ? AND doc_key = ?
-  `).get(appId, workspaceCwd, docKey)
+  const match = workspaceCwdEqual(db, 'workspace_cwd', workspaceCwd)
+  return db.prepare(`
+    SELECT id, json, workspace_cwd FROM app_documents
+    WHERE app_id = ? AND ${match.sql} AND doc_key = ?
+    ORDER BY CASE WHEN workspace_cwd = ? THEN 0 ELSE 1 END, updated_at DESC
+    LIMIT 1
+  `).get(appId, ...match.params, docKey, canonicalWorkspaceCwd(workspaceCwd))
+}
+
+export function getDocument(db, { appId, workspaceCwd, key, workspaceId }) {
+  if (!getAppById(db, appId, workspaceId)) return null
+  const row = findDocumentRow(db, { appId, workspaceCwd, key })
   if (!row) return null
   try {
     return JSON.parse(row.json)
@@ -27,7 +37,8 @@ export function getDocument(db, { appId, workspaceCwd, key }) {
   }
 }
 
-export function putDocument(db, { appId, slug, workspaceCwd, key, value }) {
+export function putDocument(db, { appId, slug, workspaceCwd, key, value, workspaceId }) {
+  if (!getAppById(db, appId, workspaceId)) return null
   const docKey = assertDocKey(key)
   const json = JSON.stringify(value === undefined ? null : value)
   if (Buffer.byteLength(json, 'utf8') > MAX_JSON) {
@@ -36,10 +47,7 @@ export function putDocument(db, { appId, slug, workspaceCwd, key, value }) {
     throw err
   }
   const now = new Date().toISOString()
-  const existing = db.prepare(`
-    SELECT id FROM app_documents
-    WHERE app_id = ? AND workspace_cwd = ? AND doc_key = ?
-  `).get(appId, workspaceCwd, docKey)
+  const existing = findDocumentRow(db, { appId, workspaceCwd, key: docKey })
   if (existing) {
     db.prepare(`
       UPDATE app_documents SET json = ?, updated_at = ?, slug = ? WHERE id = ?

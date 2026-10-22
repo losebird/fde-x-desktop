@@ -110,3 +110,41 @@ test('resolveBriefingSession stages enabled mcp servers for a reused session and
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+const missingSessionBodies = [
+  { name: 'empty object', created: {} },
+  { name: 'empty sessionId', created: { sessionId: '' } },
+  { name: 'null sessionId', created: { sessionId: null } },
+  { name: 'missing sessionId field', created: { agentPreset: 'fde-briefing' } },
+  { name: 'id only', created: { id: 'x' } },
+  { name: 'session_id only', created: { session_id: 'x' } },
+]
+
+for (const row of missingSessionBodies) {
+  test(`resolveBriefingSession rejects session/create ${row.name} with briefing_session_missing`, async () => {
+    const calls = []
+    await assert.rejects(
+      () => resolveBriefingSession({
+        call: async (endpoint) => {
+          calls.push(endpoint)
+          if (endpoint === 'session/list') return { items: [] }
+          if (endpoint === 'session/create') return row.created
+          throw new Error(endpoint)
+        },
+      }, '/ws/a'),
+      (error) => error.code === 'briefing_session_missing',
+    )
+    assert.deepEqual(calls, ['session/list', 'session/create'])
+  })
+}
+
+test('resolveBriefingSession returns sess-ok when session/create returns a sessionId', async () => {
+  const sessionId = await resolveBriefingSession({
+    call: async (endpoint) => {
+      if (endpoint === 'session/list') return { items: [] }
+      if (endpoint === 'session/create') return { sessionId: 'sess-ok' }
+      throw new Error(endpoint)
+    },
+  }, '/ws/a')
+  assert.equal(sessionId, 'sess-ok')
+})
