@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { test } from 'node:test'

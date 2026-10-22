@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

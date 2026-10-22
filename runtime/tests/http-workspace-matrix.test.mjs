@@ -1,3 +1,4 @@
+import './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { test } from 'node:test'
