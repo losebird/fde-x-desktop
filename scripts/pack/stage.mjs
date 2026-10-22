@@ -472,6 +472,18 @@ async function stageSemantic() {
   return { complete: false, digest: 'stub' }
 }
 
+export async function stagePackagedRuntime({ repoRoot: root, appRoot: dest }) {
+  const runtimeSrc = join(root, 'runtime')
+  const runtimeDest = join(dest, 'runtime')
+  await mkdir(dest, { recursive: true })
+  await rm(runtimeDest, { recursive: true, force: true })
+  await cp(runtimeSrc, runtimeDest, {
+    recursive: true,
+    filter: (src) => includeRuntimePath(src, runtimeSrc),
+  })
+  console.log(`[stage] runtime → ${runtimeDest}`)
+}
+
 export function includeRuntimePath(src, runtimeRoot) {
   const root = String(runtimeRoot || '').replace(/\/+$/u, '')
   const full = String(src || '')
@@ -521,14 +533,7 @@ async function main() {
   console.log(`[stage] resources root: ${resourcesRoot}`)
   await mkdir(appRoot, { recursive: true })
 
-  const runtimeSrc = join(repoRoot, 'runtime')
-  const runtimeDest = join(appRoot, 'runtime')
-  await rm(runtimeDest, { recursive: true, force: true })
-  await cp(runtimeSrc, runtimeDest, {
-    recursive: true,
-    filter: (src) => includeRuntimePath(src, runtimeSrc),
-  })
-  console.log(`[stage] runtime → ${runtimeDest}`)
+  await stagePackagedRuntime({ repoRoot, appRoot })
 
   if (existsSync(join(repoRoot, 'dist'))) {
     await rm(join(appRoot, 'dist'), { recursive: true, force: true })
