@@ -59,8 +59,9 @@ function childEnv(envFile) {
   delete env.FDE_DSH_HOME
   delete env.FDE_IUI_ARTIFACT
   delete env.FDE_REFRESH_PLUGINS
+  delete env.FDE_REPO_PLUGINS
   delete env.FDE_TEST_DSH_HOME
-  const forward = ['FDE_VENDOR_DIR', 'FDE_PLUGIN_DSH_SEMANTIC_OS', 'FDE_PLUGIN_IUI', 'COREPACK_HOME']
+  const forward = ['FDE_VENDOR_DIR', 'FDE_PLUGIN_DSH_LAN_ASSIST', 'FDE_PLUGIN_DSH_SEMANTIC_OS', 'FDE_PLUGIN_IUI', 'COREPACK_HOME']
   for (const key of forward) {
     if (envFile[key]) env[key] = envFile[key]
   }

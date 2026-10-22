@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { cp, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { IUI_PIN } from '../iui-pin.mjs'
 import { DshCoreConnector } from '../dsh-core.mjs'
@@ -99,11 +99,37 @@ function fixtureSafe(path) {
   return path
 }
 
+function filesContaining(root, needle) {
+  const hits = []
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name === '.git') continue
+      const full = join(dir, name)
+      let st
+      try {
+        st = statSync(full)
+      } catch {
+        continue
+      }
+      if (st.isDirectory()) {
+        walk(full)
+        continue
+      }
+      if (!st.isFile()) continue
+      let text = ''
+      try {
+        text = readFileSync(full, 'utf8')
+      } catch {
+        continue
+      }
+      if (text.includes(needle)) hits.push(relative(repoRoot, full))
+    }
+  }
+  walk(root)
+  return hits
+}
+
 test('the tree has no INDEX_OK symbol', () => {
-  const ran = spawnSync('rg', ['-l', 'INDEX_OK', 'runtime', 'scripts', 'src'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  })
-  const files = ran.stdout.split('\n').map((line) => line.trim()).filter(Boolean)
+  const files = ['runtime', 'scripts', 'src'].flatMap((dir) => filesContaining(join(repoRoot, dir), 'INDEX_OK')).sort()
   assert.deepEqual(files, ['runtime/tests/plugin-closure.test.mjs'])
 })

@@ -8,8 +8,8 @@
 2. `FDE_PLUGIN_SOURCES` 目录里的 `<dir>-<sha 前 8 位>.bundle`、`<dir>.bundle` 或 `<dir>/`。
 3. `https://github.com/<repo>.git` 的该 sha。私有仓库用只读令牌 `FDE_PLUGIN_READ_TOKEN`。令牌只需要 `losebird/dsh-lan-assist` 和 `losebird/dsh-semantic-os` 的 Contents Read。脚本先 trim 令牌，再放进一次性的 `x-access-token` URL。fetch 结束后把 origin 改回不带令牌的地址。日志不保留令牌。拿不到提交就退出 1，不跳过测试。
 
-脚本不改全局 git 配置。检出放在仓库里的 `.vendor`。链接后的插件树放在 `.dsh-fde-x-test`。`~/.dsh-fde-x` 只在缺失，或已经指向这棵树时，被建成符号链接。如果那里已经是别的路径，脚本退出，不覆盖。`dsh-lan-assist` 会装 `nats@2.29.3`，并核对 `vendor-pins.json` 里的 integrity。semantic-os 自带的 CPython 运行时不在这里下载。
+脚本不改全局 git 配置。检出放在仓库里的 `.vendor`。链接后的插件树放在 `.dsh-fde-x-test`。`~/.dsh-fde-x` 只在缺失，或已经指向这棵树时，被建成符号链接。如果那里已经是别的路径，脚本退出，不覆盖。`dsh-lan-assist` 会装 `nats@2.29.3`，并核对 `vendor-pins.json` 里的 integrity。`runtime/plugins/dsh-lan-assist` 只装这一个包，并删掉 `node_modules/.bin`。semantic-os 自带的 CPython 运行时不在这里下载。
 
 IUI 归档写到 `~/.dsh/vendor/iui/iui-<commit>.tar.gz`。`iui-retry` 和 `iui-core-failure` 写死了这个路径。解包后的树在 `.dsh-fde-x-test/vendor/iui`。`FDE_PLUGIN_IUI` 指向它。
 
-装好的变量在 `.test-env`。`test:strict` 只把 `FDE_VENDOR_DIR`、`FDE_PLUGIN_DSH_SEMANTIC_OS`、`FDE_PLUGIN_IUI`、`COREPACK_HOME` 传给测试进程，并清掉 `FDE_DSH_HOME`。`mcpArchivePaths` 看见 `FDE_DSH_HOME` 就会改用 profile 里的 patch，测试自己准备的文件就读不到了。`runtime/config.mjs` 的默认家目录是 `~/.dsh-fde-x`，所以上面的符号链接让测试找到已挂上的插件。
+装好的变量在 `.test-env`。`test:strict` 只把 `FDE_VENDOR_DIR`、`FDE_PLUGIN_DSH_LAN_ASSIST`、`FDE_PLUGIN_DSH_SEMANTIC_OS`、`FDE_PLUGIN_IUI`、`COREPACK_HOME` 传给测试进程，并清掉 `FDE_DSH_HOME` 和 `FDE_REPO_PLUGINS`。`mcpArchivePaths` 看见 `FDE_DSH_HOME` 就会改用 profile 里的 patch，测试自己准备的文件就读不到了。`runtime/config.mjs` 的默认家目录是 `~/.dsh-fde-x`，所以上面的符号链接让测试找到已挂上的插件。

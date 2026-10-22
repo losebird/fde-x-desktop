@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { execFile as execFileCb } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createWriteStream, existsSync, lstatSync, readFileSync, readlinkSync, symlinkSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync } from 'node:fs'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { IUI_PIN } from '../runtime/iui-pin.mjs'
@@ -245,6 +245,37 @@ async function ensureNats(dir, nats) {
   }
 }
 
+async function ensureRepoNats(dir, nats) {
+  const bin = join(dir, 'node_modules', '.bin')
+  const found = installedNats(dir)
+  if (found && found.version === nats.version && found.integrity === nats.integrity && !existsSync(bin)) {
+    log(`keep nats@${nats.version} in ${dir} without package bins`)
+    return
+  }
+  const stage = await mkdtemp(join(tmpdir(), 'fde-nats-'))
+  try {
+    await writeFile(join(stage, 'package.json'), `${JSON.stringify({ private: true, dependencies: { nats: nats.version } })}\n`)
+    log(`install nats@${nats.version} for repo plugin ${dir}`)
+    await run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: stage })
+    const staged = installedNats(stage)
+    if (!staged || staged.version !== nats.version || staged.integrity !== nats.integrity) {
+      throw new Error(
+        `nats stage is ${staged ? `${staged.version} ${staged.integrity}` : 'missing'}, `
+        + `expected ${nats.version} ${nats.integrity}`,
+      )
+    }
+    await rm(join(dir, 'node_modules'), { recursive: true, force: true })
+    await cp(join(stage, 'node_modules'), join(dir, 'node_modules'), { recursive: true, dereference: true })
+    await rm(join(dir, 'node_modules', '.bin'), { recursive: true, force: true })
+  } finally {
+    await rm(stage, { recursive: true, force: true })
+  }
+  const after = installedNats(dir)
+  if (!after || after.version !== nats.version || after.integrity !== nats.integrity || existsSync(bin)) {
+    throw new Error(`repo nats install in ${dir} left a package bin or the wrong nats`)
+  }
+}
+
 function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
@@ -289,6 +320,19 @@ async function linkPlugins(dshHome, iuiTar) {
     }
     log(`linked ${plugin.dir} -> ${dest}`)
   }
+}
+
+function exposeHomeCheckout(target) {
+  const link = join(homedir(), '.dsh', 'vendor', basename(target))
+  try {
+    lstatSync(link)
+    return
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error
+  }
+  mkdirSync(dirname(link), { recursive: true })
+  symlinkSync(target, link)
+  log(`symlink ${link} -> ${target}`)
 }
 
 function ensureDefaultHomeLink(dshHome) {
@@ -346,9 +390,8 @@ async function main() {
     await ensureCheckout(dest, plugin)
     if (plugin.dir === pins.nats.plugin) {
       await ensureNats(dest, pins.nats)
-      // linkRepoPlugin copies runtime/plugins and ignores the FDE_VENDOR_DIR checkout.
       const repoPlugin = join(repoRoot, 'runtime', 'plugins', plugin.dir)
-      if (existsSync(join(repoPlugin, 'package.json'))) await ensureNats(repoPlugin, pins.nats)
+      if (existsSync(join(repoPlugin, 'package.json'))) await ensureRepoNats(repoPlugin, pins.nats)
     }
   }
   // semantic-os ships a separate ~1.8GB CPython runtime. This setup does not download it.
@@ -367,9 +410,13 @@ async function main() {
   }
   ensureDefaultHomeLink(dshHome)
   const semanticSource = join(vendorDir, 'dsh-semantic-os')
+  const lanSource = join(vendorDir, 'dsh-lan-assist')
+  exposeHomeCheckout(lanSource)
+  exposeHomeCheckout(semanticSource)
   await writeEnvFile({
     FDE_TEST_DSH_HOME: dshHome,
     FDE_VENDOR_DIR: vendorDir,
+    FDE_PLUGIN_DSH_LAN_ASSIST: lanSource,
     FDE_PLUGIN_DSH_SEMANTIC_OS: semanticSource,
     FDE_PLUGIN_IUI: iuiTree,
     COREPACK_HOME: process.env.COREPACK_HOME,

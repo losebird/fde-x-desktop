@@ -295,6 +295,12 @@ function signalHostGroup(child, signal) {
   }
 }
 
+function ignoredRepoInject(plugin, injected) {
+  if (!injected) return true
+  if (resolve(injected) === resolve(FDE_VENDOR_DIR, plugin.dir)) return true
+  return existsSync(join(injected, '.git'))
+}
+
 export class DshCoreConnector {
   constructor(options = {}) {
     this.bin = resolveDshBin(options.bin)
@@ -718,10 +724,9 @@ export class DshCoreConnector {
   }
 
   repoPluginSource(plugin) {
-    let injected = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
-    // The suite mount under FDE_VENDOR_DIR is a checkout, not the install body.
-    if (injected && resolve(injected) === resolve(FDE_VENDOR_DIR, plugin.dir)) injected = ''
-    return injected || join(this.runtimeDirectory, 'plugins', plugin.dir)
+    const injected = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
+    if (ignoredRepoInject(plugin, injected)) return join(this.runtimeDirectory, 'plugins', plugin.dir)
+    return injected
   }
 
   profileStampPath() {
@@ -825,7 +830,7 @@ export class DshCoreConnector {
   async linkRepoPlugin(plugin) {
     const source = this.repoPluginSource(plugin)
     const injectedEnv = String(process.env[pluginEnvKey(plugin.dir)] || '').trim()
-    const injected = Boolean(injectedEnv) && resolve(injectedEnv) !== resolve(FDE_VENDOR_DIR, plugin.dir)
+    const injected = !ignoredRepoInject(plugin, injectedEnv)
     try {
       await access(source, constants.R_OK)
     } catch {
@@ -962,7 +967,9 @@ export class DshCoreConnector {
     await mkdir(modules, { recursive: true })
     this.pluginLinkFailures = []
     const extras = []
+    const skipRepo = process.env.FDE_REPO_PLUGINS === '0'
     for (const plugin of BUILTIN_PLUGINS) {
+      if (skipRepo && plugin.source && plugin.source.kind === 'repo') continue
       if (await this.linkBuiltinPlugin(plugin, modules)) extras.push(plugin.module)
     }
     const optional = this.pluginLinkFailures.length ? this.pluginLinkFailures.join('；') : ''

@@ -162,6 +162,7 @@ async function bootWorkflowHostChild(options) {
   }
   delete env.FDE_IUI_ARTIFACT
   env.FDE_VENDOR_DIR = emptyVendor
+  env.FDE_REPO_PLUGINS = '0'
   env.HOME = tempHome
   env.USERPROFILE = tempHome
   env.FDE_DSH_HOME = tempHome
