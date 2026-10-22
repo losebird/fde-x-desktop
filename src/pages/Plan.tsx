@@ -1,13 +1,15 @@
 // 计划模块:三 Tab 合并 —— 待办 / 日程 / 工作流
-import { useState, useMemo, useEffect, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
-  Clock, MapPin, Calendar as CalIcon, Repeat, Play, Power, Sparkles, Bot,
+  Clock, MapPin, Calendar as CalIcon, Repeat, Play, Power, Sparkles, MoreHorizontal,
 } from 'lucide-react'
 import { askAiForResult } from '@/lib/ask-ai'
-import { askOrigin } from '@/lib/ask-origin'
+import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 import { openRef } from '@/lib/open-ref'
-import { planAppSource, planTaskAskFields } from '@/lib/plan-app-source'
+import { planTaskSource } from '@/lib/plan-app-source'
 import type { JsonSchemaLite } from '@/lib/json-schema-lite'
 import clsx from 'clsx'
 import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
@@ -17,11 +19,26 @@ import { useEvents } from '@/lib/events'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
 import { hostGoalStatusOnly, isHostGoalId, isHostJobId, isHostScheduleId } from '@/lib/plan-origin'
+import { PlanEditDrawer } from '@/components/plan/PlanEditDrawer'
+import { PlanHistoryDrawer } from '@/components/plan/PlanHistoryDrawer'
 import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
 import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
-import { PLAN_DAY_HOURS, planDayMarkerTop, planDayOffsetMinutes } from '../../runtime/plan/plan-day-hours.mjs'
+import { PLAN_DAY_HOURS, planDayOffsetMinutes, planNowMarker, scheduleInstants } from '../../runtime/plan/plan-day-hours.mjs'
+import { scheduleTriggerLabel } from '../../runtime/plan/schedule-outcome.mjs'
+import { planTaskMenu } from '../../runtime/plan/task-menu.mjs'
+import { taskHandoffPrompt } from '../../runtime/plan/task-handoff.mjs'
+import { handoffTask as runTaskHandoff } from '../../runtime/plan/handoff-run.mjs'
+import { planAiRunOpen } from '../../runtime/plan/plan-ai-chip.mjs'
+import { createAskFlight } from '../../runtime/plan/ask-flight.mjs'
+import { organizeSessionTitle } from '../../runtime/plan/organize-session.mjs'
+import {
+  describeAdvice,
+  organizeAdvicePrompt,
+  parseTaskAdvice,
+  taskAdviceSchema,
+} from '../../runtime/plan/task-advice.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -43,6 +60,15 @@ function RightDrawer({ open, onClose, title, children }: { open: boolean; onClos
 
 type Tab = 'todo' | 'schedule' | 'workflow'
 
+function reloadPlanEditor(setEpoch: (update: (value: number) => number) => void) {
+  const workspaceId = useApp.getState().activeWorkspaceId
+  if (!workspaceId) {
+    setEpoch((value) => value + 1)
+    return
+  }
+  void useApp.getState().hydratePlan(workspaceId).finally(() => setEpoch((value) => value + 1))
+}
+
 export default function Plan() {
   const active = useApp((s) => s.activePlanTab)
   const setActive = useApp((s) => s.setActivePlanTab)
@@ -53,8 +79,7 @@ export default function Plan() {
 
   const workspaceCwd = useMemo(() => {
     const row = workspaces.find((w) => w.id === activeWorkspaceId)
-    const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
-    return cwd.startsWith('/') ? cwd : undefined
+    return canonicalWorkspaceCwd(row?.cwd) || undefined
   }, [workspaces, activeWorkspaceId])
 
   useEffect(() => {
@@ -129,68 +154,53 @@ const PRIORITY_TAG: Record<Task['priority'], { kind: 'red'|'amber'|'blue'|'defau
 }
 
 type TaskAdvicePatch = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'priority' | 'due' | 'tags'>>
-type TaskAdviceSuggestion = { taskId: string; reason: string; patch: TaskAdvicePatch }
-type TaskAdviceResult = { summary?: string; suggestions: TaskAdviceSuggestion[] }
-
-const TaskAdviceSchema: JsonSchemaLite = {
-  type: 'object',
-  required: ['suggestions'],
-  properties: {
-    summary: { type: 'string' },
-    suggestions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['taskId', 'reason', 'patch'],
-        properties: {
-          taskId: { type: 'string' },
-          reason: { type: 'string' },
-          patch: {
-            type: 'object',
-            properties: {
-              title: { type: 'string' },
-              notes: { type: 'string' },
-              status: { enum: ['todo', 'doing', 'done', 'archived'] },
-              priority: { enum: ['urgent', 'high', 'med', 'low'] },
-              due: { type: 'string' },
-              tags: { type: 'array', items: { type: 'string' } },
-            },
-          },
-        },
-      },
-    },
-  },
+type AcceptedAdvice = {
+  op: 'update' | 'archive' | 'merge'
+  taskId: string
+  mergeInto?: string
+  reason: string
+  patch?: {
+    title?: string
+    notes?: string
+    status?: Task['status']
+    priority?: Task['priority']
+    dueAt?: string | null
+    tags?: string[]
+  }
 }
 
-function formatAdvicePatch(patch: TaskAdvicePatch): string {
-  const parts: string[] = []
-  if (patch.title !== undefined) parts.push(`标题 → ${patch.title}`)
-  if (patch.notes !== undefined) parts.push(`备注 → ${patch.notes}`)
-  if (patch.status !== undefined) parts.push(`状态 → ${patch.status}`)
-  if (patch.priority !== undefined) parts.push(`优先级 → ${patch.priority}`)
-  if (patch.due !== undefined) parts.push(`截止 → ${patch.due || '—'}`)
-  if (patch.tags !== undefined) parts.push(`标签 → ${patch.tags.join(', ') || '—'}`)
-  return parts.length ? parts.join('；') : '（无字段变更）'
+function adviceToTaskPatch(suggestion: AcceptedAdvice): TaskAdvicePatch {
+  if (suggestion.op === 'archive' || suggestion.op === 'merge') return { status: 'archived' }
+  const patch = suggestion.patch
+  if (!patch) return {}
+  const next: TaskAdvicePatch = {}
+  if (patch.title !== undefined) next.title = patch.title
+  if (patch.notes !== undefined) next.notes = patch.notes
+  if (patch.status !== undefined) next.status = patch.status
+  if (patch.priority !== undefined) next.priority = patch.priority
+  if (patch.dueAt !== undefined) next.due = patch.dueAt ?? ''
+  if (patch.tags !== undefined) next.tags = patch.tags
+  return next
 }
 
 function planSourceButton(task: Task, selectTask: (id: Task['id']) => void) {
-  const handle = planAppSource(task.sourceRef || '')
-  if (!handle) return null
+  const handle = planTaskSource(task.sourceRef || '')
+  if (!handle?.href) return null
   const row = handle.kind === 'row'
   return (
     <button
       type="button"
       className="text-xs text-ink-muted mt-0.5"
-      data-plan-source={row ? 'row' : 'app'}
-      data-plan-source-app={handle.ledgerId}
-      {...(row ? { 'data-plan-source-rid': handle.rid } : {})}
+      data-plan-source={handle.kind}
+      {...(handle.ledgerId ? { 'data-plan-source-app': handle.ledgerId } : {})}
+      {...(row && handle.rid ? { 'data-plan-source-rid': handle.rid } : {})}
       onClick={(event) => {
         event.stopPropagation()
         selectTask(task.id)
         openRef(handle.href)
       }}
     >
-      {row ? '打开记录' : '打开应用'}
+      来源：{handle.label} ↗
     </button>
   )
 }
@@ -204,10 +214,17 @@ function TodoTab() {
   const selectedTaskId = useApp((s) => s.selectedTaskId)
   const selectTask = useApp((s) => s.selectTask)
 
+  const organizeFlight = useRef(createAskFlight())
+
   useEffect(() => {
     if (!selectedTaskId) return
     document.querySelector('[data-plan-task-selected]')?.scrollIntoView({ block: 'nearest' })
   }, [selectedTaskId])
+
+  useEffect(() => {
+    const flight = organizeFlight.current
+    return () => { flight.cancelActive() }
+  }, [])
 
   const [tab, setTab] = useState<Task['status']>('todo')
   const [q, setQ] = useState('')
@@ -216,17 +233,30 @@ function TodoTab() {
   const [organizeOpen, setOrganizeOpen] = useState(false)
   const [organizeLoading, setOrganizeLoading] = useState(false)
   const [organizeError, setOrganizeError] = useState('')
-  const [organizeAdvice, setOrganizeAdvice] = useState<TaskAdviceResult | null>(null)
+  const [organizeSummary, setOrganizeSummary] = useState('')
+  const [acceptedAdvice, setAcceptedAdvice] = useState<AcceptedAdvice[]>([])
+  const [rejectedAdvice, setRejectedAdvice] = useState<{ index: number; reason: string }[]>([])
+  const [organizeRaw, setOrganizeRaw] = useState('')
   const [appliedKeys, setAppliedKeys] = useState<Set<string>>(() => new Set())
   const [applyingKey, setApplyingKey] = useState<string | null>(null)
-  const [draft, setDraft] = useState<Pick<Task, 'title'|'priority'|'due'|'tags'>>({
-    title: '', priority: 'med', due: '', tags: [],
+  const [draft, setDraft] = useState<{ title: string; priority: Task['priority']; due: string; tags: string[]; sourceRef: string }>({
+    title: '', priority: 'med', due: '', tags: [], sourceRef: '',
   })
+  const [editTask, setEditTask] = useState<Task | null>(null)
+  const [historyTask, setHistoryTask] = useState<Task | null>(null)
+  const [editEpoch, setEditEpoch] = useState(0)
   const [ctxPack, setCtxPack] = useState<ContextPack | null>(null)
   const [ctxWarnings, setCtxWarnings] = useState<string[]>([])
   const [ctxOmit, setCtxOmit] = useState<Set<string>>(() => new Set())
   const [askError, setAskError] = useState('')
   const [askLoading, setAskLoading] = useState(false)
+  const [menuTaskId, setMenuTaskId] = useState<string | null>(null)
+  const [menuBox, setMenuBox] = useState<{ top: number; left: number } | null>(null)
+  const [handoffTask, setHandoffTask] = useState<Task | null>(null)
+  const [handoffNote, setHandoffNote] = useState('')
+  const [markDoing, setMarkDoing] = useState(true)
+  const [newError, setNewError] = useState('')
+  const [aiRuns, setAiRuns] = useState<Map<string, Array<{ id: string; sessionId: string; state: string }>>>(() => new Map())
   const selectedTask = tasks.find((row) => row.id === selectedTaskId) || null
   const taskPackKey = tasks.map((row) => `${row.id}:${row.status}`).join('|')
 
@@ -280,77 +310,202 @@ function TodoTab() {
 
   function submit() {
     if (!draft.title.trim()) return
+    setNewError('')
+    const sourceRef = draft.sourceRef.trim()
     void addTask({
       title: draft.title,
       priority: draft.priority,
       due: draft.due || undefined,
       tags: draft.tags,
       status: 'todo',
+      ...(sourceRef ? { sourceRef } : {}),
     }).then(() => {
-      setDraft({ title: '', priority: 'med', due: '', tags: [] })
+      setDraft({ title: '', priority: 'med', due: '', tags: [], sourceRef: '' })
       setShowNew(false)
-    }).catch(() => undefined)
+    }).catch((error) => {
+      setNewError(error instanceof Error ? error.message : '创建失败')
+    })
+  }
+
+  function cancelOrganize() {
+    organizeFlight.current.cancelActive()
+    setOrganizeLoading(false)
   }
 
   async function runOrganizeTodos() {
+    const ticket = organizeFlight.current.begin()
     setOrganizeOpen(true)
     setOrganizeLoading(true)
     setOrganizeError('')
-    setOrganizeAdvice(null)
+    setOrganizeSummary('')
+    setAcceptedAdvice([])
+    setRejectedAdvice([])
+    setOrganizeRaw('')
     setAppliedKeys(new Set())
-    const result = await askAiForResult<TaskAdviceResult>({
+    const result = await askAiForResult<unknown>({
       intent: '整理待办',
-      prompt: '根据以下待办给出去重/合并/优先级建议，用 fde_submit_result 提交',
-      schema: TaskAdviceSchema,
+      prompt: organizeAdvicePrompt(),
+      schema: taskAdviceSchema as JsonSchemaLite,
       context: ['tasks'],
       omit: ctxOmit,
       taskIds: filtered.map((row) => row.id),
+      preset: 'standard',
+      title: organizeSessionTitle(),
+      reuseTitlePrefix: '整理待办',
+      reveal: false,
+      adopt: false,
+      signal: ticket.signal,
     })
+    const settled = organizeFlight.current.accept(ticket.generation, result)
+    if (!settled.ok && settled.error === 'stale') return
+    if (!settled.ok && settled.error === 'cancelled') {
+      setOrganizeLoading(false)
+      return
+    }
     setOrganizeLoading(false)
-    if (!result.ok) {
+    if (!result.ok && result.error !== 'schema_mismatch') {
       if (result.error === 'timeout') {
         setOrganizeError('AI 没有提交结构化结果，可在 AI 页查看它说了什么')
-      } else if (result.error === 'schema_mismatch' && result.raw && typeof result.raw === 'object') {
-        setOrganizeAdvice(result.raw as TaskAdviceResult)
-        setOrganizeError('返回结构与约定不完全一致，请谨慎应用')
       } else {
         setOrganizeError(result.error === '核心未连接' ? result.error : `整理失败：${result.error}`)
       }
       return
     }
-    setOrganizeAdvice(result.data)
+    const raw = result.ok ? result.data : result.raw
+    const parsed = parseTaskAdvice(raw, tasks)
+    setOrganizeSummary(parsed.summary)
+    setAcceptedAdvice(parsed.accepted)
+    setRejectedAdvice(parsed.rejected)
+    try {
+      setOrganizeRaw(raw === undefined ? '' : JSON.stringify(raw, null, 2))
+    } catch {
+      setOrganizeRaw('')
+    }
+    if (parsed.rejected.length) setOrganizeError(`${parsed.rejected.length} 条建议不合约定`)
+    else if (!result.ok) setOrganizeError('返回结构与约定不完全一致，请谨慎应用')
   }
 
-  async function runAskSelected() {
-    if (!selectedTask) return
+  const filteredIds = filtered.map((row) => row.id).join('|')
+
+  useEffect(() => {
+    let cancelled = false
+    const ids = filteredIds ? filteredIds.split('|') : []
+    void Promise.all(ids.map(async (id) => {
+      if (isHostGoalId(id)) return [id, []] as [string, Array<{ id: string; sessionId: string; state: string }>]
+      try {
+        const workspaceId = useApp.getState().activeWorkspaceId
+        if (!workspaceId) return [id, []] as [string, Array<{ id: string; sessionId: string; state: string }>]
+        const runs = await runtimeApi.listTaskAiRuns(id, workspaceId)
+        return [id, runs] as [string, Array<{ id: string; sessionId: string; state: string }>]
+      } catch {
+        return [id, []] as [string, Array<{ id: string; sessionId: string; state: string }>]
+      }
+    })).then((rows) => {
+      if (!cancelled) setAiRuns(new Map(rows))
+    })
+    return () => { cancelled = true }
+  }, [filteredIds])
+
+  useEffect(() => {
+    if (!menuTaskId) return
+    function close(event: MouseEvent) {
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-plan-task-menu]')) return
+      setMenuTaskId(null)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [menuTaskId])
+
+  async function startHandoff() {
+    if (!handoffTask) return
+    const task = handoffTask
+    if (!planTaskMenu(task).handoff.enabled) return
     setAskLoading(true)
     setAskError('')
-    const fields: Record<string, unknown> = {
-      status: selectedTask.status,
-      priority: selectedTask.priority,
+    try {
+      const workspace = loadCurrentWorkspaceCwd()
+      if (!workspace.ok) throw new Error(workspace.error)
+      const built = taskHandoffPrompt({
+        id: task.id,
+        title: task.title,
+        sourceRef: task.sourceRef || '',
+        notes: task.notes,
+      }, handoffNote)
+      const requestId = crypto.randomUUID()
+      const outcome = await runTaskHandoff({
+        updateStatus: (taskId, status) => updateTask(taskId, {
+          status,
+          workspaceId: useApp.getState().activeWorkspaceId,
+        }),
+        createSession: (input) => runtimeApi.createAiSession(input),
+        rename: (sessionId, title) => runtimeApi.renameAiSession(sessionId, title).catch(() => undefined),
+        startRun: (taskId, input) => runtimeApi.startTaskAiRun(taskId, {
+          ...input,
+          workspaceId: useApp.getState().activeWorkspaceId || '',
+        }),
+        prompt: (sessionId, input) => runtimeApi.promptAi(sessionId, input),
+      }, {
+        taskId: task.id,
+        cwd: workspace.cwd,
+        preset: built.preset,
+        sessionTitle: built.sessionTitle,
+        prompt: built.prompt,
+        requestId,
+        markDoing,
+      })
+      if (outcome.sessionStatus === 201 || outcome.sessionStatus === 503) {
+        setAiRuns((prev) => {
+          const next = new Map(prev)
+          const rows = next.get(task.id) || []
+          next.set(task.id, [...rows, {
+            id: requestId,
+            sessionId: outcome.sessionId || '',
+            state: 'running',
+          }])
+          return next
+        })
+      }
+      if (outcome.sessionStatus === 201) {
+        setHandoffTask(null)
+        setHandoffNote('')
+      }
+      if (!outcome.ok) {
+        const error = outcome.promptError || outcome.error
+        setAskError(error instanceof Error ? error.message : '交给 AI 失败')
+      }
+    } catch (error) {
+      setAskError(error instanceof Error ? error.message : '交给 AI 失败')
+    } finally {
+      setAskLoading(false)
     }
-    if (selectedTask.notes) fields.notes = selectedTask.notes
-    if (selectedTask.due) fields.due = selectedTask.due
-    if (selectedTask.tags.length) fields.tags = selectedTask.tags.join(', ')
-    const asked = await planTaskAskFields(selectedTask.sourceRef || '')
-    const result = await askOrigin(`task:${selectedTask.id}`, {
-      title: selectedTask.title,
-      text: selectedTask.notes || selectedTask.title,
-      status: selectedTask.status,
-      fields: { ...fields, ...asked },
-      tail: '请结合上述来源实体推进这项待办。禁止过账。',
-      omit: ctxOmit,
-      taskIds: [selectedTask.id],
-      revealAi: true,
-    })
-    setAskLoading(false)
-    if (!result.ok) setAskError(result.error)
   }
 
-  async function applySuggestion(suggestion: TaskAdviceSuggestion, key: string) {
+  async function cancelHandoff(task: Task) {
+    setAskError('')
+    try {
+      await runtimeApi.cancelTaskAiRun(task.id, useApp.getState().activeWorkspaceId || '')
+      setAiRuns((prev) => {
+        const next = new Map(prev)
+        const rows = (next.get(task.id) || []).map((row) => (
+          row.state === 'running' ? { ...row, state: 'cancelled' } : row
+        ))
+        next.set(task.id, rows)
+        return next
+      })
+      setMenuTaskId(null)
+    } catch (error) {
+      setAskError(error instanceof Error ? error.message : '取消失败')
+    }
+  }
+
+  async function applySuggestion(suggestion: AcceptedAdvice, key: string) {
     if (appliedKeys.has(key) || applyingKey) return
-    const patch = suggestion.patch
-    if (!patch || !Object.keys(patch).length) return
+    const patch = adviceToTaskPatch(suggestion)
+    if (!Object.keys(patch).length) {
+      setOrganizeError('这条建议没有可应用的字段')
+      return
+    }
     const task = tasks.find((t) => t.id === suggestion.taskId)
     if (!task) {
       setOrganizeError('任务已不存在，请刷新列表后重试')
@@ -366,7 +521,8 @@ function TodoTab() {
     setApplyingKey(key)
     setOrganizeError('')
     try {
-      await updateTask(suggestion.taskId, nextPatch as TaskAdvicePatch)
+      const workspaceId = useApp.getState().activeWorkspaceId
+      await updateTask(suggestion.taskId, { ...nextPatch, workspaceId } as TaskAdvicePatch, { via: 'organize' })
       setAppliedKeys((prev) => new Set(prev).add(key))
     } catch (cause) {
       setOrganizeError(cause instanceof Error ? cause.message : '应用建议失败')
@@ -412,20 +568,10 @@ function TodoTab() {
             <button
               type="button"
               className="btn h-8"
-              disabled={organizeLoading}
               title="整理待办"
               onClick={() => void runOrganizeTodos()}
             >
               <Sparkles size={14} /> {organizeLoading ? '整理中…' : '整理待办'}
-            </button>
-            <button
-              type="button"
-              className="btn h-8"
-              disabled={!selectedTask || askLoading}
-              title="交给当前 AI"
-              onClick={() => void runAskSelected()}
-            >
-              <Bot size={14} /> {askLoading ? '交给中…' : '交给当前 AI'}
             </button>
             <ContextChips
               pack={ctxPack}
@@ -441,7 +587,27 @@ function TodoTab() {
           </div>
         </div>
       </Card>
-      {askError && <div className="text-xs text-accent-red mb-3">{askError}</div>}
+      {askError && !handoffTask && <div className="text-xs text-accent-red mb-3">{askError}</div>}
+      {handoffTask && (
+        <div className="fixed inset-0 z-40 bg-ink/20 flex items-center justify-center" onClick={() => { if (!askLoading) setHandoffTask(null) }}>
+          <div className="bg-white border border-line rounded-lg shadow-xl w-[28rem] max-w-[calc(100%-2rem)] p-4" onClick={(event) => event.stopPropagation()}>
+            <div className="text-sm font-medium">只把「{handoffTask.title}」这 1 条交给 AI。</div>
+            <div className="text-xs text-ink-muted mt-2">新会话：待办 · {handoffTask.title}</div>
+            <div className="text-xs text-ink-muted mt-1">AI 可以查询记录、提出修改。改待办或业务都要你确认才落库。</div>
+            <label className="block text-xs text-ink-muted mt-3">补充说明（可选）</label>
+            <input className="input mt-1.5 w-full" value={handoffNote} onChange={(event) => setHandoffNote(event.target.value)} />
+            <label className="mt-3 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={markDoing} onChange={(event) => setMarkDoing(event.target.checked)} />
+              开始时标为进行中
+            </label>
+            {askError && <div className="text-xs text-accent-red mt-3">{askError}</div>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" className="btn" disabled={askLoading} onClick={() => setHandoffTask(null)}>取消</button>
+              <button type="button" className="btn-primary" disabled={askLoading} onClick={() => void startHandoff()}>{askLoading ? '处理中…' : '开始处理'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <PlanTaskProposals />
       {filtered.length === 0 ? (
@@ -475,17 +641,128 @@ function TodoTab() {
                 {t.status === 'todo'  && <Circle size={16} />}
                 {t.status === 'archived' && <Archive size={16} className="text-ink-subtle" />}
               </button>
-              <div className="min-w-0 px-2 cursor-pointer" onClick={() => selectTask(t.id)}>
+              <div
+                className="min-w-0 px-2 cursor-pointer"
+                onClick={() => selectTask(t.id)}
+                onDoubleClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  selectTask(t.id)
+                }}
+              >
                 <div className="font-medium text-sm truncate">{t.title}</div>
                 {planSourceButton(t, selectTask)}
+                {(() => {
+                  const running = (aiRuns.get(t.id) || []).find((row) => row.state === 'running')
+                  const open = planAiRunOpen(running)
+                  if (!open) return null
+                  return (
+                    <button
+                      type="button"
+                      className="text-xs text-ink-muted mt-0.5"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openRef({ panel: 'ai', sessionId: open.sessionId })
+                      }}
+                    >
+                      {open.label}
+                    </button>
+                  )
+                })()}
                 {t.notes && <div className="text-xs text-ink-muted mt-0.5 truncate">{t.notes}</div>}
+                <div className="mt-1 flex gap-1" onClick={(event) => event.stopPropagation()}>
+                  <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-edit="task" data-plan-edit-id={t.id} onClick={() => setEditTask(t)}>编辑</button>
+                  <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-history="task" data-plan-history-id={t.id} onClick={() => setHistoryTask(t)}>历史记录</button>
+                </div>
               </div>
               <div className="hidden @md:block text-xs text-ink-muted truncate">{t.due ?? '—'}</div>
               <div className="hidden @md:block"><Tag kind={PRIORITY_TAG[t.priority].kind}>{PRIORITY_TAG[t.priority].label}</Tag></div>
               <div className="hidden @xl:flex gap-1 flex-wrap min-w-0 overflow-hidden"><div className="flex gap-1 flex-wrap">{t.tags.slice(0, 2).map((g) => <Tag key={g}>#{g}</Tag>)}{t.tags.length > 2 && <Tag>+{t.tags.length - 2}</Tag>}</div></div>
-              <button onClick={() => void removeTask(t.id)} className="btn-ghost p-1 text-ink-subtle hover:text-accent-red flex items-center justify-center" title={isHostGoalId(t.id) ? '归档 Host goal' : '删除'}>
-                <Trash2 size={14} />
-              </button>
+              <div className="relative flex items-center justify-center" data-plan-task-menu>
+                <button
+                  type="button"
+                  className="btn-ghost p-1 text-ink-subtle flex items-center justify-center"
+                  title="更多"
+                  aria-label="更多"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    const opening = menuTaskId !== t.id
+                    if (!opening) {
+                      setMenuTaskId(null)
+                      setMenuBox(null)
+                      return
+                    }
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    const height = 148
+                    const top = rect.bottom + height > window.innerHeight - 8
+                      ? Math.max(8, rect.top - height - 4)
+                      : rect.bottom + 4
+                    setMenuBox({ top, left: Math.max(8, rect.right - 176) })
+                    setMenuTaskId(t.id)
+                  }}
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+                {menuTaskId === t.id && menuBox && createPortal(
+                  <div
+                    data-plan-task-menu
+                    className="fixed z-50 w-44 bg-white border border-line rounded-lg shadow-xl py-1"
+                    style={{ top: menuBox.top, left: menuBox.left }}
+                    onClick={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-40"
+                      disabled={!planTaskMenu(t).handoff.enabled || Boolean((aiRuns.get(t.id) || []).find((row) => row.state === 'running'))}
+                      title={planTaskMenu(t).handoff.reason || undefined}
+                      onClick={() => {
+                        setHandoffTask(t)
+                        setHandoffNote('')
+                        setMarkDoing(true)
+                        setMenuTaskId(null)
+                      }}
+                    >
+                      交给 AI
+                    </button>
+                    {(aiRuns.get(t.id) || []).some((row) => row.state === 'running') && (
+                      <button
+                        type="button"
+                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2"
+                        onClick={() => void cancelHandoff(t)}
+                      >
+                        取消 AI 处理
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-40"
+                      disabled={!planTaskMenu(t).openSource.enabled}
+                      title={planTaskMenu(t).openSource.enabled ? undefined : planTaskMenu(t).openSource.reason}
+                      onClick={() => {
+                        const href = planTaskMenu(t).openSource.href
+                        if (!href) return
+                        selectTask(t.id)
+                        openRef(href)
+                        setMenuTaskId(null)
+                      }}
+                    >
+                      打开来源记录
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 text-accent-red"
+                      onClick={() => {
+                        setMenuTaskId(null)
+                        void removeTask(t.id)
+                      }}
+                    >
+                      删除
+                    </button>
+                  </div>,
+                  document.body,
+                )}
+              </div>
             </div>
           ))}
         </Card>
@@ -520,6 +797,11 @@ function TodoTab() {
             <label className="text-xs text-ink-muted">标签 (逗号分隔)</label>
             <input className="input mt-1.5 w-full" placeholder="例如: scene, prototype" value={draft.tags.join(', ')} onChange={(e) => setDraft({ ...draft, tags: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} />
           </div>
+          <div>
+            <label className="text-xs text-ink-muted">来源</label>
+            <input className="input mt-1.5 w-full" value={draft.sourceRef} onChange={(e) => setDraft({ ...draft, sourceRef: e.target.value })} placeholder="biz:种类:编号，im:消息，或 app:台账" />
+          </div>
+          {newError && <div className="text-xs text-accent-red">{newError}</div>}
           <div className="flex justify-end gap-2 pt-4 border-t border-line">
             <button className="btn" onClick={() => setShowNew(false)}>取消</button>
             <button className="btn-primary" onClick={submit}>创建</button>
@@ -530,22 +812,38 @@ function TodoTab() {
       <RightDrawer
         open={organizeOpen}
         onClose={() => {
-          if (!organizeLoading) setOrganizeOpen(false)
+          cancelOrganize()
+          setOrganizeOpen(false)
         }}
         title="整理建议"
       >
         {organizeLoading && (
-          <p className="text-sm text-ink-muted">已向当前 AI 会话发送整理请求，等待结构化结果…</p>
+          <div className="mb-4">
+            <p className="text-sm text-ink-muted">已向整理待办会话发送请求，等待结构化结果…</p>
+            <button type="button" className="btn mt-3" onClick={() => { cancelOrganize(); setOrganizeOpen(false) }}>取消等待</button>
+          </div>
         )}
         {!organizeLoading && organizeError && (
           <div className="text-sm text-amber-900 bg-amber-50 border border-amber-100 rounded px-3 py-2 mb-4">{organizeError}</div>
         )}
-        {!organizeLoading && organizeAdvice?.summary && (
-          <p className="text-sm text-ink-muted mb-4">{organizeAdvice.summary}</p>
+        {!organizeLoading && organizeSummary && (
+          <p className="text-sm text-ink-muted mb-4">{organizeSummary}</p>
         )}
-        {!organizeLoading && organizeAdvice?.suggestions?.length ? (
+        {!organizeLoading && rejectedAdvice.length > 0 && (
+          <div className="mb-4">
+            <ul className="space-y-1">
+              {rejectedAdvice.map((row) => (
+                <li key={`${row.index}:${row.reason}`} className="text-xs text-ink-muted">
+                  {row.index >= 0 ? `第 ${row.index + 1} 条：` : ''}{row.reason}
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="btn mt-3" onClick={() => void runOrganizeTodos()}>请 AI 按约定重交</button>
+          </div>
+        )}
+        {!organizeLoading && acceptedAdvice.length > 0 ? (
           <ul className="space-y-3">
-            {organizeAdvice.suggestions.map((suggestion, index) => {
+            {acceptedAdvice.map((suggestion, index) => {
               const key = `${suggestion.taskId}:${index}`
               const task = tasks.find((t) => t.id === suggestion.taskId)
               const applied = appliedKeys.has(key)
@@ -554,12 +852,12 @@ function TodoTab() {
                 <li key={key} className="border border-line rounded-lg p-3 bg-surface-2/30">
                   <div className="text-sm font-medium truncate">{task?.title ?? `任务 ${suggestion.taskId}`}</div>
                   <p className="text-xs text-ink-muted mt-1">{suggestion.reason}</p>
-                  <p className="text-xs text-ink-subtle mt-2">{formatAdvicePatch(suggestion.patch)}</p>
+                  <p className="text-xs text-ink-subtle mt-2">{describeAdvice(suggestion)}</p>
                   <div className="mt-3 flex justify-end">
                     <button
                       type="button"
                       className="btn-primary"
-                      disabled={applied || busy || !task || !Object.keys(suggestion.patch || {}).length}
+                      disabled={applied || busy || !task}
                       onClick={() => void applySuggestion(suggestion, key)}
                     >
                       {applied ? '已应用' : busy ? '应用中…' : '应用'}
@@ -572,7 +870,28 @@ function TodoTab() {
         ) : (
           !organizeLoading && !organizeError && <p className="text-sm text-ink-muted">暂无建议</p>
         )}
+        {!organizeLoading && organizeRaw && (
+          <details className="mt-4">
+            <summary className="text-xs text-ink-muted">原文</summary>
+            <pre className="text-xs mt-2 whitespace-pre-wrap break-all">{organizeRaw}</pre>
+          </details>
+        )}
       </RightDrawer>
+      <PlanEditDrawer
+        target={editTask ? { kind: 'task', row: editTask } : null}
+        epoch={editEpoch}
+        onClose={() => setEditTask(null)}
+        onOpenHistory={() => {
+          if (editTask) setHistoryTask(editTask)
+        }}
+        onReload={() => reloadPlanEditor(setEditEpoch)}
+      />
+      <PlanHistoryDrawer
+        open={Boolean(historyTask)}
+        title={historyTask?.title || ''}
+        targetRef={historyTask ? `fde://plan/tasks/${historyTask.id}` : ''}
+        onClose={() => setHistoryTask(null)}
+      />
     </div>
   )
 }
@@ -589,18 +908,68 @@ const KIND_TONE: Record<ScheduleEvent['kind'], { bg: string; tag: 'blue'|'green'
   external: { bg: 'bg-purple-50 border-purple-200 text-accent-purple', tag: 'purple' },
 }
 
+function localDateValue(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+function emptyEventDraft() {
+  return {
+    title: '',
+    date: localDateValue(new Date()),
+    start: '14:00',
+    end: '14:30',
+    kind: 'focus' as ScheduleEvent['kind'],
+    location: '',
+    workflowId: '',
+    recurrence: 'once' as 'once' | 'daily',
+  }
+}
+
+function eventTriggerRun(event: ScheduleEvent, workflows: Workflow[]) {
+  if (!event.workflowId) return null
+  const workflow = workflows.find((row) => row.id === event.workflowId)
+  if (!workflow) return null
+  return workflow.runs.find((run) => run.eventId === event.id) || null
+}
+
+function TriggerStatus({ event, workflows }: { event: ScheduleEvent; workflows: Workflow[] }) {
+  const run = eventTriggerRun(event, workflows)
+  if (!run) return null
+  const label = scheduleTriggerLabel(run)
+  if (!label) return null
+  if (run.sessionId) {
+    return (
+      <button
+        type="button"
+        className="opacity-80 text-[11px] underline truncate text-left"
+        onClick={(click) => {
+          click.stopPropagation()
+          openRef({ panel: 'ai', sessionId: run.sessionId })
+        }}
+      >
+        {label}
+      </button>
+    )
+  }
+  return <div className="opacity-80 text-[11px] truncate">{label}</div>
+}
+
 function ScheduleTab() {
   const events = useApp((s) => s.events)
   const workflows = useCurrentWorkflows()
   const addEvent = useApp((s) => s.addEvent)
   const removeEvent = useApp((s) => s.removeEvent)
+  const toggleWorkflow = useApp((s) => s.toggleWorkflow)
   const [view, setView] = useState<'day' | 'week'>('day')
   const [openNew, setOpenNew] = useState(false)
-  const [draft, setDraft] = useState({
-    title: '', startH: 14, startM: 0, endH: 14, endM: 30,
-    kind: 'focus' as ScheduleEvent['kind'], location: '',
-    workflowId: '', recurrence: 'once' as 'once' | 'daily',
-  })
+  const [saving, setSaving] = useState(false)
+  const [clock, setClock] = useState(() => new Date())
+  const [draft, setDraft] = useState(emptyEventDraft)
+  const [editEvent, setEditEvent] = useState<ScheduleEvent | null>(null)
+  const [historyEvent, setHistoryEvent] = useState<ScheduleEvent | null>(null)
+  const [editEpoch, setEditEpoch] = useState(0)
 
   const todayKey = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
   const todays = useMemo(() => events.filter((e) => todayKey(e.start)), [events])
@@ -632,27 +1001,37 @@ function ScheduleTab() {
       && start.getDate() === d.getDate()
   })
 
-  function submit() {
-    if (!draft.title.trim()) return
-    const base = new Date()
-    base.setHours(0, 0, 0, 0)
-    base.setHours(draft.startH, draft.startM, 0, 0)
-    const end = new Date(base)
-    end.setHours(draft.endH, draft.endM, 0, 0)
-    void addEvent({
-      title: draft.title,
-      start: base.toISOString(),
-      end: end.toISOString(),
-      kind: draft.kind,
-      location: draft.location || undefined,
-      workflowId: draft.workflowId || undefined,
-      recurrence: draft.workflowId ? draft.recurrence : undefined,
-    })
-      .then(() => {
-        setDraft({ title: '', startH: 14, startM: 0, endH: 14, endM: 30, kind: 'focus', location: '', workflowId: '', recurrence: 'once' })
-        setOpenNew(false)
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const nowMarker = planNowMarker(clock)
+  const selectedWorkflow = workflows.find((row) => row.id === draft.workflowId)
+  const bindPaused = Boolean(draft.workflowId && selectedWorkflow?.status === 'paused')
+
+  async function submit() {
+    if (saving || !draft.title.trim() || !draft.date || !draft.start || !draft.end) return
+    const range = scheduleInstants(draft.date, draft.start, draft.end)
+    setSaving(true)
+    try {
+      if (bindPaused) await toggleWorkflow(draft.workflowId)
+      await addEvent({
+        title: draft.title,
+        start: range.start,
+        end: range.end,
+        kind: draft.kind,
+        location: draft.location || undefined,
+        workflowId: draft.workflowId || undefined,
+        recurrence: draft.workflowId ? draft.recurrence : undefined,
       })
-      .catch(() => undefined)
+      setDraft(emptyEventDraft())
+      setOpenNew(false)
+    } catch {
+      return
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -678,17 +1057,20 @@ function ScheduleTab() {
               </div>
               <div className="relative">
                 {HOURS.map((h) => <div key={h} className="h-14 border-b border-line" />)}
-                <div className="absolute left-0 right-0" style={{ top: `${planDayMarkerTop(11, 30)}px` }}>
-                  <span className="absolute -left-1 -top-1.5 w-2 h-2 rounded-full bg-accent-red" />
-                  <span className="block h-px bg-accent-red" />
-                </div>
+                {nowMarker != null && (
+                  <div className="absolute left-0 right-0" style={{ top: `${nowMarker}px` }} data-now-marker="">
+                    <span className="absolute -left-1 -top-1.5 w-2 h-2 rounded-full bg-accent-red" />
+                    <span className="block h-px bg-accent-red" />
+                  </div>
+                )}
                 {todays.map((e) => {
                   const startMin = planDayOffsetMinutes(e.start)
                   const endMin = planDayOffsetMinutes(e.end)
                   const top = (startMin / 60) * 56
                   const height = ((endMin - startMin) / 60) * 56
+                  const triggerLabel = scheduleTriggerLabel(eventTriggerRun(e, workflows))
                   return (
-                    <div key={e.id} className={clsx('absolute left-2 right-2 rounded border px-2 py-1.5 text-xs overflow-hidden', KIND_TONE[e.kind].bg)} style={{ top, height: Math.max(height, 24) }}>
+                    <div key={e.id} className={clsx('absolute left-2 right-2 rounded border px-2 py-1.5 text-xs overflow-hidden', KIND_TONE[e.kind].bg)} style={{ top, height: Math.max(height, triggerLabel ? 52 : 24) }}>
                       <div className="font-medium truncate">{e.title}</div>
                       {e.workflowId && (
                         <div className="opacity-70 text-[11px] truncate">
@@ -697,6 +1079,7 @@ function ScheduleTab() {
                           {e.recurrence === 'daily' ? workflowToolCopy.scheduleDaily : workflowToolCopy.scheduleOnce}
                         </div>
                       )}
+                      <TriggerStatus event={e} workflows={workflows} />
                       <div className="opacity-70 text-[11px]">
                         {new Date(e.start).getHours().toString().padStart(2, '0')}:{new Date(e.start).getMinutes().toString().padStart(2, '0')}–
                         {new Date(e.end).getHours().toString().padStart(2, '0')}:{new Date(e.end).getMinutes().toString().padStart(2, '0')}
@@ -721,6 +1104,11 @@ function ScheduleTab() {
                         <Tag kind={KIND_TONE[e.kind].tag}>{e.kind}</Tag>
                         {e.location && <><MapPin size={10} /> {e.location}</>}
                       </div>
+                      <TriggerStatus event={e} workflows={workflows} />
+                    </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-edit="event" data-plan-edit-id={e.id} onClick={() => setEditEvent(e)}>编辑</button>
+                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-history="event" data-plan-history-id={e.id} onClick={() => setHistoryEvent(e)}>历史记录</button>
                     </div>
                     <button
                       className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100"
@@ -758,6 +1146,11 @@ function ScheduleTab() {
                       <div className="opacity-70">
                         {new Date(e.start).getHours().toString().padStart(2, '0')}:{new Date(e.start).getMinutes().toString().padStart(2, '0')}
                       </div>
+                      <TriggerStatus event={e} workflows={workflows} />
+                      <div className="mt-1 flex gap-1">
+                        <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-edit="event" data-plan-edit-id={e.id} onClick={() => setEditEvent(e)}>编辑</button>
+                        <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-history="event" data-plan-history-id={e.id} onClick={() => setHistoryEvent(e)}>历史记录</button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -773,30 +1166,18 @@ function ScheduleTab() {
             <label className="text-xs text-ink-muted">标题</label>
             <input className="input mt-1.5 w-full" autoFocus value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="例如:产品评审" />
           </div>
+          <div>
+            <label className="text-xs text-ink-muted">日期</label>
+            <input type="date" className="input mt-1.5 w-full" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-ink-muted">开始</label>
-              <div className="flex gap-1 mt-1.5">
-                <select className="input flex-1" value={draft.startH} onChange={(e) => setDraft({ ...draft, startH: Number(e.target.value) })}>
-                  {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-                  <option value={22}>22</option>
-                </select>
-                <select className="input flex-1" value={draft.startM} onChange={(e) => setDraft({ ...draft, startM: Number(e.target.value) })}>
-                  {[0,15,30,45].map((m) => <option key={m} value={m}>{m.toString().padStart(2,'0')}</option>)}
-                </select>
-              </div>
+              <input type="time" className="input mt-1.5 w-full" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} />
             </div>
             <div>
               <label className="text-xs text-ink-muted">结束</label>
-              <div className="flex gap-1 mt-1.5">
-                <select className="input flex-1" value={draft.endH} onChange={(e) => setDraft({ ...draft, endH: Number(e.target.value) })}>
-                  {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
-                  <option value={22}>22</option>
-                </select>
-                <select className="input flex-1" value={draft.endM} onChange={(e) => setDraft({ ...draft, endM: Number(e.target.value) })}>
-                  {[0,15,30,45].map((m) => <option key={m} value={m}>{m.toString().padStart(2,'0')}</option>)}
-                </select>
-              </div>
+              <input type="time" className="input mt-1.5 w-full" value={draft.end} onChange={(e) => setDraft({ ...draft, end: e.target.value })} />
             </div>
           </div>
           <div>
@@ -805,6 +1186,9 @@ function ScheduleTab() {
               <option value="">{workflowToolCopy.scheduleNone}</option>
               {workflows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
             </select>
+            {bindPaused && (
+              <p className="mt-1.5 text-xs text-accent-amber">该工作流已暂停，到点不会运行</p>
+            )}
           </div>
           {draft.workflowId && (
             <div>
@@ -830,10 +1214,25 @@ function ScheduleTab() {
           </div>
           <div className="flex justify-end gap-2 pt-4 border-t border-line">
             <button className="btn" onClick={() => setOpenNew(false)}>取消</button>
-            <button className="btn-primary" onClick={submit}>创建</button>
+            <button className="btn-primary" onClick={() => void submit()} disabled={saving}>{bindPaused ? '绑定并启用' : '创建'}</button>
           </div>
         </div>
       </RightDrawer>
+      <PlanEditDrawer
+        target={editEvent ? { kind: 'event', row: editEvent } : null}
+        epoch={editEpoch}
+        onClose={() => setEditEvent(null)}
+        onOpenHistory={() => {
+          if (editEvent) setHistoryEvent(editEvent)
+        }}
+        onReload={() => reloadPlanEditor(setEditEpoch)}
+      />
+      <PlanHistoryDrawer
+        open={Boolean(historyEvent)}
+        title={historyEvent?.title || ''}
+        targetRef={historyEvent ? `fde://plan/events/${historyEvent.id}` : ''}
+        onClose={() => setHistoryEvent(null)}
+      />
     </div>
   )
 }
@@ -912,6 +1311,9 @@ function WorkflowTab() {
   const [pendingDanger, setPendingDanger] = useState<string[]>([])
   const [presetId, setPresetId] = useState('')
   const [toolNote, setToolNote] = useState('')
+  const [editWorkflow, setEditWorkflow] = useState<Workflow | null>(null)
+  const [historyWorkflow, setHistoryWorkflow] = useState<Workflow | null>(null)
+  const [editEpoch, setEditEpoch] = useState(0)
 
   useEffect(() => {
     if (!workspaceId) return
@@ -1176,6 +1578,8 @@ function WorkflowTab() {
                   )}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
+                  <button type="button" className="btn" data-plan-edit="workflow" data-plan-edit-id={w.id} onClick={() => setEditWorkflow(w)}>编辑</button>
+                  <button type="button" className="btn" data-plan-history="workflow" data-plan-history-id={w.id} onClick={() => setHistoryWorkflow(w)}>历史记录</button>
                   <button
                     type="button"
                     className="btn"
@@ -1333,6 +1737,21 @@ function WorkflowTab() {
           </div>
         </div>
       </RightDrawer>
+      <PlanEditDrawer
+        target={editWorkflow ? { kind: 'workflow', row: editWorkflow } : null}
+        epoch={editEpoch}
+        onClose={() => setEditWorkflow(null)}
+        onOpenHistory={() => {
+          if (editWorkflow) setHistoryWorkflow(editWorkflow)
+        }}
+        onReload={() => reloadPlanEditor(setEditEpoch)}
+      />
+      <PlanHistoryDrawer
+        open={Boolean(historyWorkflow)}
+        title={historyWorkflow?.name || ''}
+        targetRef={historyWorkflow ? `fde://plan/workflows/${historyWorkflow.id}` : ''}
+        onClose={() => setHistoryWorkflow(null)}
+      />
     </div>
   )
 }

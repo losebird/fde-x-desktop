@@ -54,3 +54,42 @@ export function prepareDefinitionSections(sections) {
 export function defaultSources() {
   return sourcesFromMcpSections(defaultSections())
 }
+
+const BRIEFING_BROWSER_MCP = new Set(['cua-driver', 'chrome-devtools', 'playwright'])
+const BRIEFING_SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/u
+
+export function briefingAllowServerNames(sections) {
+  const prepared = prepareDefinitionSections(sections).filter((row) => row && row.enabled)
+  const names = []
+  for (const source of sourcesFromMcpSections(prepared)) {
+    const name = source.server
+    if (!BRIEFING_SERVER_NAME_RE.test(name) || BRIEFING_BROWSER_MCP.has(name)) continue
+    names.push(name)
+  }
+  return names
+}
+
+export function briefingConnectedServerNames(names) {
+  const out = []
+  const seen = new Set()
+  for (const item of Array.isArray(names) ? names : []) {
+    const name = String(item || '').trim()
+    if (!BRIEFING_SERVER_NAME_RE.test(name) || BRIEFING_BROWSER_MCP.has(name) || seen.has(name)) continue
+    seen.add(name)
+    out.push(name)
+  }
+  return out
+}
+
+export function mcpSectionFromConnectedPick(server, tool) {
+  const serverName = String(server || '').trim()
+  const toolName = String(tool || '').trim()
+  if (!briefingConnectedServerNames([serverName]).includes(serverName) || !toolName) return null
+  return {
+    type: 'mcp',
+    title: serverName,
+    enabled: true,
+    render: 'digest',
+    params: { server: serverName, tool: toolName, summarize: true },
+  }
+}

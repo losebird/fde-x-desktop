@@ -20,6 +20,8 @@ export type DataBrowse = {
   traceId: string
   appRid: string
   land: number
+  connection?: string
+  connectionLand?: number
 }
 
 export type DataLandHref = {
@@ -31,6 +33,7 @@ export type DataLandHref = {
   slug?: string
   workspaceAppId?: string | null
   appRid?: string
+  connection?: string
 }
 
 export function emptyDataBrowse(): DataBrowse {
@@ -85,6 +88,10 @@ export function applyDataLand(browse: DataBrowse | null | undefined, href: DataL
     next.rowId = String(href?.rowId || '')
     next.entity = String(href?.entity || '')
     if (href?.slug) next.slug = String(href.slug)
+    if (typeof href?.connection === 'string' && href.connection) {
+      next.connection = href.connection
+      next.connectionLand = land
+    }
     return next
   }
   next.slug = String(href?.slug || '')

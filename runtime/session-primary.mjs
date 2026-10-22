@@ -1,4 +1,4 @@
-import { normalizeCwd } from './plugins/dsh-lan-assist/letter-home.js'
+import { canonicalWorkspaceCwd, sameWorkspaceCwd } from './cwd.mjs'
 
 export function isPrimarySession(session) {
   return Boolean(session) && session.origin !== 'subagent' && !session.parentSessionId
@@ -40,9 +40,9 @@ export function pickPrimarySessionId(sessions, input = {}) {
     const resolved = resolvePrimarySessionId(hinted, rows)
     if (resolved) return resolved
   }
-  const cwd = normalizeCwd((input && (input.cwd || input.workspace)) || '')
+  const cwd = (input && (input.cwd || input.workspace)) || ''
   const primary = rows.filter(isPrimarySession)
-  const pool = cwd ? primary.filter((row) => normalizeCwd(row.cwd) === cwd) : []
+  const pool = canonicalWorkspaceCwd(cwd) ? primary.filter((row) => sameWorkspaceCwd(row.cwd, cwd)) : []
   const ranked = [...pool].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
   return ranked[0] ? ranked[0].sessionId : ''
 }

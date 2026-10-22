@@ -1,4 +1,5 @@
 import type { BizSurfaceRecord } from '@/lib/runtime-api'
+import { sameWorkspaceCacheKey, workspaceCacheKey } from '../../runtime/cwd.mjs'
 
 const STORAGE_KEY = 'fde:biz:surface-sheet-cache'
 const MAX_ENTRIES = 40
@@ -36,10 +37,11 @@ export function rememberBizSurfaceSheet(
   sheet: Record<string, unknown>,
   connName = '连接器',
 ) {
-  if (!workspaceCwd || !surfaceId || !sheet || typeof sheet !== 'object') return
-  const entries = readAll().filter((row) => !(row.workspaceCwd === workspaceCwd && row.surfaceId === surfaceId))
+  const key = workspaceCacheKey(workspaceCwd)
+  if (!key || !surfaceId || !sheet || typeof sheet !== 'object') return
+  const entries = readAll().filter((row) => !(sameWorkspaceCacheKey(row.workspaceCwd, key) && row.surfaceId === surfaceId))
   entries.push({
-    workspaceCwd,
+    workspaceCwd: key,
     surfaceId,
     sheet,
     connName,
@@ -49,16 +51,16 @@ export function rememberBizSurfaceSheet(
 }
 
 export function listRememberedSurfaceSheets(workspaceCwd: string): SurfaceSheetEntry[] {
-  if (!workspaceCwd) return []
-  return readAll().filter((row) => row.workspaceCwd === workspaceCwd)
+  if (!workspaceCacheKey(workspaceCwd)) return []
+  return readAll().filter((row) => sameWorkspaceCacheKey(row.workspaceCwd, workspaceCwd))
 }
 
 export function peekBizSurfaceSheet(
   workspaceCwd: string,
   surfaceId: string,
 ): { sheet: Record<string, unknown>; connName: string } | null {
-  if (!workspaceCwd || !surfaceId) return null
-  const hit = readAll().find((row) => row.workspaceCwd === workspaceCwd && row.surfaceId === surfaceId)
+  if (!workspaceCacheKey(workspaceCwd) || !surfaceId) return null
+  const hit = readAll().find((row) => sameWorkspaceCacheKey(row.workspaceCwd, workspaceCwd) && row.surfaceId === surfaceId)
   if (!hit) return null
   return { sheet: hit.sheet, connName: hit.connName }
 }

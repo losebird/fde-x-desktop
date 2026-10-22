@@ -1,4 +1,12 @@
-/** Monotonic event ids (time + sequence) so same-ms rows sort in emit order. */
+import { canonicalWorkspaceCwd, canonicalWorkspaceCwdSql, sameWorkspaceCwd } from './cwd.mjs'
+
+function storedEventCwd(workspaceCwd) {
+  if (workspaceCwd == null) return null
+  const text = String(workspaceCwd)
+  if (!text) return text
+  return canonicalWorkspaceCwd(text) || text
+}
+
 let eventOrdinal = 0n
 
 function createEventId(ts) {
@@ -85,11 +93,12 @@ export function emit(type, payload, { workspaceCwd = null, sessionId, source = '
   const ts = Date.now()
   const id = createEventId(ts)
   const occurredAt = new Date(ts).toISOString()
+  const cwd = storedEventCwd(workspaceCwd)
   const envelope = {
     id,
     ts,
     type,
-    workspaceCwd: workspaceCwd ?? null,
+    workspaceCwd: cwd,
     sessionId,
     source,
     payload: payload ?? {},
@@ -105,14 +114,14 @@ export function emit(type, payload, { workspaceCwd = null, sessionId, source = '
       `).run(
         id,
         type,
-        workspaceCwd ? `fde://workspace${workspaceCwd}` : 'fde://global',
+        cwd ? `fde://workspace${cwd}` : 'fde://global',
         sessionId ?? null,
         id,
         JSON.stringify(envelope.payload),
         occurredAt,
         occurredAt,
         ts,
-        workspaceCwd,
+        cwd,
         sessionId ?? null,
         source,
       )
@@ -179,7 +188,7 @@ export function listEventsAfter(db, { sinceId, workspaceCwd, limit = 500 } = {})
 
   const envelopes = rows.map((row) => envelopeFromRow(row))
   if (!workspaceCwd) return envelopes
-  return envelopes.filter((item) => item.workspaceCwd == null || item.workspaceCwd === workspaceCwd)
+  return envelopes.filter((item) => sameWorkspaceCwd(item.workspaceCwd, workspaceCwd))
 }
 
 /**
@@ -195,8 +204,12 @@ export function listRecentEvents(db, { workspaceCwd, type, limit = 50 } = {}) {
     params.push(type)
   }
   if (workspaceCwd) {
-    clauses.push('(workspace_cwd IS NULL OR workspace_cwd = ?)')
-    params.push(workspaceCwd)
+    const canonical = canonicalWorkspaceCwd(workspaceCwd)
+    if (canonical) {
+      const fn = canonicalWorkspaceCwdSql(db)
+      clauses.push(`${fn}(workspace_cwd) = ?`)
+      params.push(canonical)
+    }
   }
   const rows = db.prepare(`
     SELECT id, event_type, payload_json, occurred_at, ts, workspace_cwd, session_id, source
@@ -214,5 +227,5 @@ export function listRecentEvents(db, { workspaceCwd, type, limit = 50 } = {}) {
  */
 export function matchesWorkspaceFilter(envelope, workspaceCwd) {
   if (!workspaceCwd) return true
-  return envelope.workspaceCwd == null || envelope.workspaceCwd === workspaceCwd
+  return sameWorkspaceCwd(envelope.workspaceCwd, workspaceCwd)
 }

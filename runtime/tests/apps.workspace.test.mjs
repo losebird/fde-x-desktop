@@ -29,14 +29,16 @@ describe('apps workspace identity', () => {
       spec,
     })
     assert.equal(created.ok, true)
-    const listed = listBusinessApps(db, { workspaceId: 'ws_other', workspaceCwd: CWD })
-    assert.ok(listed.some((row) => row.id === created.data.appId))
+    const own = listBusinessApps(db, { workspaceId: 'ws_personal', workspaceCwd: CWD })
+    assert.ok(own.some((row) => row.id === created.data.appId))
+    const foreign = listBusinessApps(db, { workspaceId: 'ws_other', workspaceCwd: CWD })
+    assert.equal(foreign.some((row) => row.id === created.data.appId), false)
     const miss = listBusinessApps(db, { workspaceId: 'ws_other', workspaceCwd: '/tmp/other' })
     assert.equal(miss.some((row) => row.id === created.data.appId), false)
     db.close()
   })
 
-  test('activate then find by slug+cwd even if workspaceId differs', () => {
+  test('activate then find by slug stays inside the workspace id', () => {
     const db = openDatabase(`/tmp/fde-apps-ws2-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const spec = uniqueSpec()
     const created = createAppDraft(db, {
@@ -44,17 +46,19 @@ describe('apps workspace identity', () => {
       workspaceCwd: CWD,
       spec,
     })
-    const activated = activateApp(db, created.data.appId)
+    const activated = activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     assert.equal(activated.kind, 'ok')
-    const found = findActiveAppBySlug(db, 'ws_other', spec.slug, CWD)
-    assert.ok(found)
-    assert.equal(found.id, created.data.appId)
+    const foreign = findActiveAppBySlug(db, 'ws_other', spec.slug, CWD)
+    assert.equal(foreign, null)
+    const own = findActiveAppBySlug(db, 'ws_personal', spec.slug, CWD)
+    assert.equal(own?.id, created.data.appId)
     db.close()
   })
 
   test('bridge submit returns appId and stores cwd on spec', async () => {
     const db = openDatabase(`/tmp/fde-apps-ws3-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const spec = uniqueSpec()
+    db.prepare(`UPDATE workspaces SET metadata_json = ? WHERE id = 'ws_personal'`).run(JSON.stringify({ cwd: CWD }))
     const result = await handleAppsBridge('app-spec-submit', { spec }, db, CWD)
     assert.equal(result.ok, true)
     assert.ok(result.appId)
@@ -72,7 +76,7 @@ describe('apps workspace identity', () => {
       workspaceCwd: CWD,
       spec,
     })
-    activateApp(db, created.data.appId)
+    activateApp(db, created.data.appId, { workspaceId: 'ws_personal' })
     insertRecord(db, { ...spec, _workspaceCwd: CWD }, 'visit', CWD, {
       supplier: '北郊仓',
       visit_date: '2026-09-19',

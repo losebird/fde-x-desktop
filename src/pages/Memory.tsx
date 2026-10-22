@@ -8,6 +8,7 @@ import { runtimeApi } from '@/lib/runtime-api'
 import { citableBecause, packDecisionBrief, type PackedDecisionBrief } from '@/lib/decision-brief'
 import { installSemanticOsHttp } from '@/lib/semantic-http'
 import { useApp, useCurrentWorkspace, useWorkspaces } from '@/store/app'
+import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 import { useEvents } from '@/lib/events'
 
 function openOriginLand(id: string, onMiss: (msg: string) => void) {
@@ -115,7 +116,7 @@ function downloadText(name: string, text: string, type: string) {
 
 export default function Memory() {
   const workspace = useCurrentWorkspace()
-  const cwd = workspace?.cwd && workspace.cwd.startsWith('/') ? workspace.cwd : ''
+  const cwd = canonicalWorkspaceCwd(workspace?.cwd)
   const nav = useNavigate()
   const openSettings = () => {
     useApp.getState().togglePanel('settings', 'full')
@@ -1043,9 +1044,9 @@ function BridgePanel({ cwd }: { cwd: string }) {
   }
   useEffect(() => { load() }, [cwd])
   const create = (target: string) => {
-    const dest = target.trim()
+    const dest = canonicalWorkspaceCwd(target)
     setErr('')
-    if (!dest.startsWith('/') || dest === cwd) {
+    if (!dest || dest === cwd) {
       setErr('请选另一个工作区目录')
       return
     }
@@ -1065,7 +1066,7 @@ function BridgePanel({ cwd }: { cwd: string }) {
       body: JSON.stringify({ id, cwd }),
     }).then(() => load()).catch(() => undefined)
   }
-  const others = peers.filter((row) => row.cwd && row.cwd.startsWith('/') && row.cwd !== cwd)
+  const others = peers.filter((row) => canonicalWorkspaceCwd(row.cwd) && canonicalWorkspaceCwd(row.cwd) !== cwd)
   return (
     <div className="space-y-3 text-sm min-w-0">
       <p className="text-xs text-ink-muted">把两个工作区的图连起来，搜索可以跟着桥走到对面。</p>

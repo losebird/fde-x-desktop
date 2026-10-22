@@ -2655,7 +2655,7 @@ function HandoffDialog({
         return
       }
       if (alive && target.cwd) setWorkspacePath(target.cwd)
-      const rows = (await runtimeApi.listAiSessions({ includeBlank: true }))
+      const rows = (await runtimeApi.listAiSessions({ includeBlank: true, workspaceId: target.workspaceId }))
         .filter((row) => isPrimarySession(row) && sessionMatchesCwd(row, target.cwd))
         .map((row) => ({ sessionId: row.sessionId, title: row.title || row.sessionId }))
       if (!alive) return
@@ -2711,7 +2711,7 @@ function HandoffDialog({
     setPackHint('')
     void Promise.all([
       Promise.all(chatIds.map(async (id) => {
-        const bundle = await runtimeApi.exportAiSession(id)
+        const bundle = await runtimeApi.exportAiSession(id, undefined, useApp.getState().activeWorkspaceId)
         const title = sessions.find((row) => row.sessionId === id)?.title || id
         if (!bundle.files?.length) throw new Error(`「${title}」没有可交接的会话文件`)
         return {
@@ -2784,7 +2784,7 @@ function HandoffDialog({
               setPackHint('')
               setSessionPreview('正在读取会话文件…')
               void Promise.all(chatIds.map(async (id) => {
-                const bundle = await runtimeApi.exportAiSession(id)
+                const bundle = await runtimeApi.exportAiSession(id, undefined, useApp.getState().activeWorkspaceId)
                 const title = sessions.find((row) => row.sessionId === id)?.title || id
                 const lines = (bundle.files || []).map((file) => `${file.name} · ${Math.max(1, Math.round(Number(file.size || 0) / 1024))} KB`)
                 const members = (bundle.members || []).map((member) => {

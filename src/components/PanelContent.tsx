@@ -1,4 +1,5 @@
 // 根据 view 渲染对应 page 组件。在 StageModal 内显示,带 .stage-content class 触发 PageTitle 隐藏 CSS。
+import { Component, Fragment, type ReactNode } from 'react'
 import { useApp } from '@/store/app'
 import type { SidePanelItem } from '@/store/app'
 import Briefing from '@/pages/Briefing'
@@ -11,6 +12,32 @@ import Skills from '@/pages/Skills'
 import Memory from '@/pages/Memory'
 import Settings from '@/pages/Settings'
 import clsx from 'clsx'
+
+class PanelErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null; nonce: number }> {
+  state = { error: null as Error | null, nonce: 0 }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="px-6 py-5">
+          <p className="text-sm text-ink">本面板出错，点此重载</p>
+          <button
+            type="button"
+            className="btn mt-3"
+            onClick={() => this.setState((prev) => ({ error: null, nonce: prev.nonce + 1 }))}
+          >
+            重载
+          </button>
+        </div>
+      )
+    }
+    return <Fragment key={this.state.nonce}>{this.props.children}</Fragment>
+  }
+}
 
 export function PanelContent({
   item,
@@ -27,7 +54,9 @@ export function PanelContent({
       <div className={clsx(
         immersive ? 'h-full min-h-0 overflow-hidden' : 'px-6 py-5 min-h-full overflow-auto',
       )}>
-        <ViewSwitch view={item.view} />
+        <PanelErrorBoundary>
+          <ViewSwitch view={item.view} />
+        </PanelErrorBoundary>
       </div>
     </div>
   )

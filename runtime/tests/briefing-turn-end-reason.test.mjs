@@ -30,6 +30,7 @@ function runtime(reason, cwd) {
       if (endpoint === 'session/list') {
         return { items: [{ sessionId: 'sess-brief', cwd, running: false }] }
       }
+      if (endpoint === 'session/create') return { sessionId: 'sess-brief' }
       if (endpoint === 'session/prompt') return {}
       return {}
     },

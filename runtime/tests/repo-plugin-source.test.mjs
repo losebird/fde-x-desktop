@@ -216,12 +216,78 @@ if (process.env.PR4_CASE) {
       delete env.FDE_PLUGIN_IUI
       delete env.FDE_IUI_ARTIFACT
       delete env.FDE_REFRESH_PLUGINS
+      delete env.FDE_REPO_PLUGINS
       const ran = spawnSync(process.execPath, [self], { env, encoding: 'utf8', timeout: 180000 })
       rm(emptyVendor, { recursive: true, force: true }).catch(() => {})
       assert.equal(ran.status, 0, ran.stderr || ran.stdout)
       return JSON.parse(ran.stdout)
     })
   }
+
+  test('a git checkout passed in FDE_PLUGIN_* is not the install body', () => {
+    const checkout = mkdtempSync(join(tmpdir(), 'fde-pin-checkout-'))
+    writeFileSync(join(checkout, '.git'), 'gitdir: fake\n')
+    const saved = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+    process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = checkout
+    try {
+      const connector = new DshCoreConnector({ dshHome: checkout, cwd: checkout })
+      const sem = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-semantic-os')
+      assert.equal(
+        connector.repoPluginSource(sem),
+        join(repoRoot, 'runtime', 'plugins', 'dsh-semantic-os'),
+      )
+    } finally {
+      if (saved === undefined) delete process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
+      else process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = saved
+      rmSync(checkout, { recursive: true, force: true })
+    }
+  })
+
+  test('FDE_REPO_PLUGINS=0 keeps an explicit install body and skips a git checkout', async () => exclusive(async () => {
+    const home = mkdtempSync(join(tmpdir(), 'fde-repo-switch-'))
+    const emptyVendor = mkdtempSync(join(tmpdir(), 'fde-empty-vendor-'))
+    const body = mkdtempSync(join(tmpdir(), 'fde-lan-body-'))
+    const checkout = mkdtempSync(join(tmpdir(), 'fde-sem-checkout-'))
+    writeFileSync(join(body, 'package.json'), `${JSON.stringify({ name: 'dsh-lan-assist' })}\n`)
+    writeFileSync(join(body, 'index.js'), 'export {}\n')
+    writeFileSync(join(checkout, '.git'), 'gitdir: fake\n')
+    writeFileSync(join(checkout, 'package.json'), `${JSON.stringify({ name: 'dsh-semantic-os' })}\n`)
+    writeFileSync(join(checkout, 'index.js'), 'export {}\n')
+    const saved = {
+      FDE_VENDOR_DIR: process.env.FDE_VENDOR_DIR,
+      FDE_PLUGIN_IUI: process.env.FDE_PLUGIN_IUI,
+      FDE_PLUGIN_DSH_LAN_ASSIST: process.env.FDE_PLUGIN_DSH_LAN_ASSIST,
+      FDE_PLUGIN_DSH_SEMANTIC_OS: process.env.FDE_PLUGIN_DSH_SEMANTIC_OS,
+      FDE_IUI_ARTIFACT: process.env.FDE_IUI_ARTIFACT,
+      FDE_REFRESH_PLUGINS: process.env.FDE_REFRESH_PLUGINS,
+      FDE_REPO_PLUGINS: process.env.FDE_REPO_PLUGINS,
+    }
+    process.env.FDE_VENDOR_DIR = emptyVendor
+    process.env.FDE_PLUGIN_IUI = await writeIui(home)
+    process.env.FDE_PLUGIN_DSH_LAN_ASSIST = body
+    process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = checkout
+    process.env.FDE_REPO_PLUGINS = '0'
+    delete process.env.FDE_IUI_ARTIFACT
+    delete process.env.FDE_REFRESH_PLUGINS
+    try {
+      const connector = new DshCoreConnector({ dshHome: home, cwd: home })
+      await connector.ensureIsolatedProfile()
+      const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'fde-x', 'package.json'), 'utf8'))
+      assert.equal(connector.state, 'idle', connector.lastError || '')
+      assert.equal(manifest.dsh.profile.bundles.includes('dsh-lan-assist'), true)
+      assert.equal(manifest.dsh.profile.bundles.includes('dsh-semantic-os'), false)
+      assert.equal(readFileSync(join(home, 'vendor', 'dsh-lan-assist', 'index.js'), 'utf8'), 'export {}\n')
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      rmSync(home, { recursive: true, force: true })
+      rmSync(emptyVendor, { recursive: true, force: true })
+      rmSync(body, { recursive: true, force: true })
+      rmSync(checkout, { recursive: true, force: true })
+    }
+  }))
 
   test('repo kind points at runtime/plugins', () => {
     const lan = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-lan-assist')

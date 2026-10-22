@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { FDE_DSH_HOME } from '../config.mjs'
+import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { collapseKindsToConnectedTables } from './connected-kind.mjs'
 
 const require = createRequire(import.meta.url)
@@ -16,8 +17,8 @@ function kindsFromGraphNodes(nodes) {
  * @param {string} workspaceCwd
  */
 export async function loadMemoryWorkspaceVocab(aiRuntime, workspaceCwd) {
-  const cwd = String(workspaceCwd || '').trim()
-  if (!cwd.startsWith('/')) {
+  const cwd = canonicalWorkspaceCwd(workspaceCwd)
+  if (!cwd) {
     return { kinds: [], relations: [], catalogVersion: null, source: 'memory-graph', empty: true }
   }
   const found = await aiRuntime.semanticOs('/python', {

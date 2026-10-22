@@ -186,6 +186,7 @@ test('错过写在 workflow_runs 里，列表直接读出这条历史', async ()
       id: stored.id,
       state: 'cancelled',
       message: '错过',
+      eventId: 'cevt_hist',
     }])
   } finally {
     db.close()

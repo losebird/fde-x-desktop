@@ -15,7 +15,7 @@ import {
 } from 'node:fs'
 import { cp, lstat, mkdir, mkdtemp, readFile, rename, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, extname, join, relative, sep } from 'node:path'
+import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path'
 
 const MARKER = '.fde-plugin-installed.json'
 const SKIP_WALK = new Set(['node_modules', '.git', 'runtime-dist', '__pycache__', '.nsc-local', '.tmp-npm'])
@@ -151,6 +151,12 @@ function resolvePy(fromFile, spec) {
   return null
 }
 
+function leavesPluginRoot(root, target) {
+  const base = resolve(root)
+  const path = resolve(target)
+  return path !== base && !path.startsWith(base + sep)
+}
+
 export async function firstMissingClosure(root) {
   if (existsSync(join(root, 'package.json')) && !existsSync(join(root, 'index.js'))) {
     const files = walk(root)
@@ -163,6 +169,7 @@ export async function firstMissingClosure(root) {
       for (const spec of jsSpecifiers(text)) {
         const hit = resolveJs(file, spec)
         if (hit === 'bare' || hit) continue
+        if (spec.startsWith('.') && leavesPluginRoot(root, join(dirname(file), spec))) continue
         const name = spec.split('/').filter(Boolean).pop() || spec
         return name
       }

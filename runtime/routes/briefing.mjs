@@ -13,7 +13,7 @@ import {
 import { validateSchedule, validateSections, validateSources, validateDelivery } from '../briefing/validate.mjs'
 import { runBriefing } from '../briefing/run.mjs'
 import { rescheduleBriefingForWorkspace, shouldRunOnOpen } from '../briefing/scheduler.mjs'
-import { resolveWorkspaceCwd } from '../briefing/workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 
 function briefingCors(request, allowedOrigins) {
@@ -25,6 +25,11 @@ function briefingCors(request, allowedOrigins) {
     'Access-Control-Allow-Headers': 'Content-Type, X-Correlation-Id',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   }
+}
+
+function briefingMissing(response, correlationId, cors) {
+  const failure = httpStatusForWorkspaceError('missing_workspace')
+  briefingError(response, failure.status, failure.code, failure.message, correlationId, cors)
 }
 
 function briefingError(response, status, error, message, correlationId, cors = {}) {
@@ -47,10 +52,6 @@ function briefingOk(response, status, data, correlationId, cors = {}) {
     ...cors,
   })
   response.end(body)
-}
-
-function queryWorkspace(url) {
-  return url.searchParams.get('cwd') || url.searchParams.get('workspace')
 }
 
 function omitFromBody(body) {
@@ -101,17 +102,30 @@ function recordBriefingOpenFailure(db, workspaceCwd, error) {
       workspaceCwd,
       agentRequestId: '',
     }).id
-  updateBriefingContent(db, briefingId, patch)
+  updateBriefingContent(db, briefingId, patch, workspaceCwd)
   emit('briefing.ready', { briefingId, workspaceCwd, status: 'failed' }, { workspaceCwd })
 }
 
-function requireWorkspaceQuery(db, url, response, correlationId, fallbackCwd, cors) {
-  const cwd = resolveWorkspaceCwd(db, queryWorkspace(url), fallbackCwd)
-  if (!cwd.startsWith('/')) {
-    briefingError(response, 400, 'missing_workspace', '需要 workspace 绝对路径', correlationId, cors)
+function requireWorkspaceQuery(url, response, correlationId, runtimeCwd, cors) {
+  const resolved = resolveHttpWorkspace({
+    url,
+    runtimeCwd,
+    fallbackCwd: FDE_AI_WORKSPACE,
+  })
+  if (resolved.error || !resolved.cwd) {
+    briefingError(response, 400, resolved.error || 'workspace_invalid', '工作区必须是绝对路径', correlationId, cors)
     return ''
   }
-  return cwd
+  return resolved.cwd
+}
+
+function briefingCwdFromBody(body, url, runtimeCwd) {
+  return resolveHttpWorkspace({
+    url,
+    body,
+    runtimeCwd,
+    fallbackCwd: FDE_AI_WORKSPACE,
+  })
 }
 
 /**
@@ -127,7 +141,6 @@ export async function handleBriefingRoutes(request, response, url, deps) {
     correlationId,
     sendError,
     readJson,
-    defaultWorkspaceCwd = FDE_AI_WORKSPACE,
     runBriefingDeps,
   } = deps
 
@@ -145,14 +158,14 @@ export async function handleBriefingRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/briefing/definition') {
-    const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd, cors)
+    const cwd = requireWorkspaceQuery(url, response, correlationId, aiRuntime?.cwd, cors)
     if (!cwd) return true
     try {
       const def = getOrCreateDefinition(db, cwd)
       briefingOk(response, 200, def, correlationId, cors)
     } catch (error) {
       if (error && error.code === 'missing_workspace') {
-        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        briefingMissing(response, correlationId, cors)
         return true
       }
       throw error
@@ -162,13 +175,12 @@ export async function handleBriefingRoutes(request, response, url, deps) {
 
   if (request.method === 'PUT' && pathname === '/api/v1/briefing/definition') {
     const body = await readJson(request)
-    const cwd = typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-      ? body.workspaceCwd
-      : resolveWorkspaceCwd(db, body.workspace, defaultWorkspaceCwd)
-    if (!cwd.startsWith('/')) {
-      briefingError(response, 400, 'missing_workspace', '需要 workspaceCwd', correlationId, cors)
+    const resolvedBody = briefingCwdFromBody(body, url, aiRuntime?.cwd)
+    if (resolvedBody.error || !resolvedBody.cwd) {
+      briefingError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId, cors)
       return true
     }
+    const cwd = resolvedBody.cwd
     const errors = [
       ...validateSections(body.sections),
       ...validateSchedule(body.schedule),
@@ -189,7 +201,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       briefingOk(response, 200, saved, correlationId, cors)
     } catch (error) {
       if (error && error.code === 'missing_workspace') {
-        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        briefingMissing(response, correlationId, cors)
         return true
       }
       throw error
@@ -199,13 +211,12 @@ export async function handleBriefingRoutes(request, response, url, deps) {
 
   if (request.method === 'POST' && pathname === '/api/v1/briefing/run') {
     const body = await readJson(request)
-    const cwd = typeof body.workspaceCwd === 'string' && body.workspaceCwd.startsWith('/')
-      ? body.workspaceCwd
-      : resolveWorkspaceCwd(db, body.workspace, defaultWorkspaceCwd)
-    if (!cwd.startsWith('/')) {
-      briefingError(response, 400, 'missing_workspace', '需要 workspaceCwd', correlationId, cors)
+    const resolvedBody = briefingCwdFromBody(body, url, aiRuntime?.cwd)
+    if (resolvedBody.error || !resolvedBody.cwd) {
+      briefingError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId, cors)
       return true
     }
+    const cwd = resolvedBody.cwd
     const mode = body.mode === 'internal-only' ? 'internal-only' : 'full'
     try {
       const result = await runBriefing(runBriefingDeps || { db, aiRuntime }, {
@@ -218,7 +229,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       briefingOk(response, 200, { briefingId: result.briefingId, briefing: result.briefing }, correlationId, cors)
     } catch (error) {
       if (error && error.code === 'missing_workspace') {
-        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        briefingMissing(response, correlationId, cors)
         return true
       }
       briefingError(response, 500, 'briefing_run_failed', error instanceof Error ? error.message : '生成失败', correlationId, cors)
@@ -227,7 +238,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/briefing/latest') {
-    const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd, cors)
+    const cwd = requireWorkspaceQuery(url, response, correlationId, aiRuntime?.cwd, cors)
     if (!cwd) return true
     const onOpen = url.searchParams.get('onOpen') === '1'
     if (onOpen && shouldRunOnOpen(db, cwd)) {
@@ -260,7 +271,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
       def = getOrCreateDefinition(db, cwd)
     } catch (error) {
       if (error && error.code === 'missing_workspace') {
-        briefingError(response, 400, 'missing_workspace', error.message, correlationId, cors)
+        briefingMissing(response, correlationId, cors)
         return true
       }
       throw error
@@ -275,7 +286,9 @@ export async function handleBriefingRoutes(request, response, url, deps) {
 
   const idMatch = pathname.match(/^\/api\/v1\/briefing\/([^/]+)$/)
   if (request.method === 'GET' && idMatch && idMatch[1] !== 'definition' && idMatch[1] !== 'latest' && idMatch[1] !== 'run' && !idMatch[1].startsWith('sources')) {
-    const row = getBriefing(db, decodeURIComponent(idMatch[1]))
+    const workspaceCwd = requireWorkspaceQuery(url, response, correlationId, aiRuntime?.cwd, cors)
+    if (!workspaceCwd) return true
+    const row = getBriefing(db, decodeURIComponent(idMatch[1]), workspaceCwd)
     if (!row) {
       briefingError(response, 404, 'not_found', '早报不存在', correlationId, cors)
       return true
@@ -285,7 +298,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
   }
 
   if (request.method === 'GET' && pathname === '/api/v1/briefing/sources/mcp') {
-    const cwd = requireWorkspaceQuery(db, url, response, correlationId, defaultWorkspaceCwd, cors)
+    const cwd = requireWorkspaceQuery(url, response, correlationId, aiRuntime?.cwd, cors)
     if (!cwd) return true
     const bag = await collectBag(aiRuntime, 'mcp', { project: true, cwd })
     const servers = Array.isArray(bag.raw?.mcp) ? bag.raw.mcp : []

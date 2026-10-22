@@ -11,6 +11,8 @@ import { submitCurrentTurn } from '@/lib/current-turn'
 import { waitForFdeEvent } from '@/lib/events'
 import { validateJsonSchemaLite, type JsonSchemaLite } from '@/lib/json-schema-lite'
 import { runtimeApi } from '@/lib/runtime-api'
+import { settleAskWait } from '../../runtime/plan/ask-flight.mjs'
+import { pickOrganizeSession } from '../../runtime/plan/organize-session.mjs'
 
 export type { ContextScope }
 
@@ -23,6 +25,10 @@ export type AskAiOptions = {
   omit?: Set<string>
   timeoutMs?: number
   title?: string
+  signal?: AbortSignal
+  reveal?: boolean
+  adopt?: boolean
+  reuseTitlePrefix?: string
 } & PromptPackChoice
 
 export type AskAiResult<T> =
@@ -75,9 +81,11 @@ export function clearAskAiNotice() {
   setAskAiNotice(null)
 }
 
-async function waitForAiResultReady(requestId: string, timeoutMs: number): Promise<boolean> {
+async function waitForAiResultReady(requestId: string, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return false
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
+    if (signal?.aborted) return false
     const remaining = deadline - Date.now()
     const slice = Math.min(remaining, 2000)
     const event = await waitForFdeEvent(
@@ -100,6 +108,7 @@ async function waitForAiResultReady(requestId: string, timeoutMs: number): Promi
 }
 
 async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId: string; cwd: string } | { ok: false; error: string }> {
+  if (opts.signal?.aborted) return { ok: false, error: 'cancelled' }
   if (opts.preset) {
     const workspace = loadCurrentWorkspaceCwd()
     if (!workspace.ok) return workspace
@@ -111,17 +120,33 @@ async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId:
     } catch {
       return { ok: false, error: '核心未连接' }
     }
+    if (opts.signal?.aborted) return { ok: false, error: 'cancelled' }
+    if (opts.reuseTitlePrefix) {
+      try {
+        const items = await runtimeApi.listAiSessions({ workspaceId: workspace.workspaceId }, opts.signal)
+        const picked = pickOrganizeSession(items, workspace.cwd, opts.reuseTitlePrefix)
+        if (picked?.sessionId) {
+          if (opts.title) {
+            await runtimeApi.renameAiSession(picked.sessionId, opts.title, opts.signal, workspace.workspaceId).catch(() => undefined)
+          }
+          return { ok: true, sessionId: picked.sessionId, cwd: workspace.cwd }
+        }
+      } catch {
+        if (opts.signal?.aborted) return { ok: false, error: 'cancelled' }
+      }
+    }
     try {
       const created = await runtimeApi.createAiSession({
         cwd: workspace.cwd,
         agentPreset: opts.preset,
-      })
+      }, opts.signal)
       const sessionId = created.sessionId
       if (opts.title) {
-        await runtimeApi.renameAiSession(sessionId, opts.title).catch(() => undefined)
+        await runtimeApi.renameAiSession(sessionId, opts.title, opts.signal, workspace.workspaceId).catch(() => undefined)
       }
       return { ok: true, sessionId, cwd: workspace.cwd }
     } catch (cause) {
+      if (opts.signal?.aborted) return { ok: false, error: 'cancelled' }
       return { ok: false, error: cause instanceof Error ? cause.message : '新建会话失败' }
     }
   }
@@ -131,6 +156,7 @@ async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId:
 }
 
 export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult<T>> {
+  if (opts.signal?.aborted) return { ok: false, error: 'cancelled' }
   const requestId = ulid()
   const timeoutMs = opts.timeoutMs ?? 120_000
   const scopes = opts.context?.length ? opts.context : (['workspace'] as ContextScope[])
@@ -158,7 +184,8 @@ export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult
       pack = packed.pack
       warnings = packed.warnings || []
     }
-    contextBlock = renderContextForPrompt(pack, opts.omit)
+    const identifyTasks = Array.isArray(choice.taskIdInput.taskIds)
+    contextBlock = renderContextForPrompt(pack, opts.omit, identifyTasks ? { taskIds: true } : undefined)
   } catch (cause) {
     console.warn('ask_ai_context_pack_failed', cause)
   }
@@ -170,12 +197,27 @@ export async function askAiForResult<T>(opts: AskAiOptions): Promise<AskAiResult
     `完成后调用 fde_submit_result(requestId="${requestId}", kind="json", data=…)。${schemaHint}`,
   ].filter(Boolean).join('\n')
 
-  const sent = await submitCurrentTurn({ text: prompt, sessionId: target.sessionId })
+  if (opts.signal?.aborted) {
+    return { ok: false, error: 'cancelled', sessionId: target.sessionId, pack, warnings }
+  }
+  const sent = await submitCurrentTurn({
+    text: prompt,
+    sessionId: target.sessionId,
+    reveal: opts.reveal !== false,
+    adopt: opts.adopt !== false,
+  })
   if (!sent.ok) {
     return { ok: false, error: sent.error, sessionId: target.sessionId, pack, warnings }
   }
+  if (opts.signal?.aborted) {
+    return { ok: false, error: 'cancelled', sessionId: target.sessionId, pack, warnings }
+  }
 
-  const ready = await waitForAiResultReady(requestId, timeoutMs)
+  const waited = await settleAskWait(opts.signal, () => waitForAiResultReady(requestId, timeoutMs, opts.signal))
+  if (!waited.ok) {
+    return { ok: false, error: waited.error, sessionId: target.sessionId, pack, warnings }
+  }
+  const ready = waited.value
   if (!ready) {
     setAskAiNotice({
       kind: 'warn',

@@ -29,8 +29,9 @@ export function originHref(id, ctx = {}) {
   if (raw.startsWith('biz:')) {
     const traceId = bizTraceIdOf(raw)
     if (!traceId) return null
+    const workspaceCwd = typeof ctx.workspaceCwd === 'string' ? ctx.workspaceCwd : ''
     const audit = ctx.audit
-      || (ctx.db ? getBizWriteAuditByTraceId(ctx.db, traceId) : null)
+      || (ctx.db && workspaceCwd ? getBizWriteAuditByTraceId(ctx.db, traceId, workspaceCwd) : null)
     const kind = String(ctx.kind || audit?.kind || '').trim()
     const rowId = String(ctx.rowId || audit?.recordNo || '').trim()
     const href = { panel: 'data', tab: 'records', traceId }

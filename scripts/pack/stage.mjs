@@ -10,7 +10,7 @@ import { execFile as execFileCb } from 'node:child_process'
 import { cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DSH_NPM_VERSION, IUI_PIN, SEMANTIC_RUNTIME } from './pins.mjs'
@@ -19,6 +19,7 @@ import { stagePluginTree } from './plugin-stage.mjs'
 import { REQUIRED_PLUGINS, readLock } from '../plugins/lock-check.mjs'
 import { BUILTIN_PLUGINS } from '../../runtime/builtin-plugins.mjs'
 import { bundledPluginVersions, defaultIuiArtifactPath, stageIuiArtifact } from './iui-artifact.mjs'
+import { escapedRuntimeImports } from './runtime-closure.mjs'
 
 const execFile = promisify(execFileCb)
 
@@ -473,6 +474,28 @@ async function stageSemantic() {
   return { complete: false, digest: 'stub' }
 }
 
+export async function stagePackagedRuntime({ repoRoot: root, appRoot: dest }) {
+  const runtimeSrc = join(root, 'runtime')
+  const extra = escapedRuntimeImports(root)
+  const runtimeDest = join(dest, 'runtime')
+  await mkdir(dest, { recursive: true })
+  await rm(runtimeDest, { recursive: true, force: true })
+  await cp(runtimeSrc, runtimeDest, {
+    recursive: true,
+    filter: (src) => includeRuntimePath(src, runtimeSrc),
+  })
+  for (const file of extra) {
+    const rel = relative(root, file)
+    const target = join(dest, rel)
+    await mkdir(dirname(target), { recursive: true })
+    await cp(file, target, { dereference: true })
+  }
+  console.log(`[stage] runtime → ${runtimeDest}`)
+  if (extra.length > 0) {
+    console.log(`[stage] runtime closure ${extra.map((file) => relative(root, file)).join(', ')}`)
+  }
+}
+
 export function includeRuntimePath(src, runtimeRoot) {
   const root = String(runtimeRoot || '').replace(/\/+$/u, '')
   const full = String(src || '')
@@ -570,14 +593,7 @@ async function main() {
   console.log(`[stage] resources root: ${resourcesRoot}`)
   await mkdir(appRoot, { recursive: true })
 
-  const runtimeSrc = join(repoRoot, 'runtime')
-  const runtimeDest = join(appRoot, 'runtime')
-  await rm(runtimeDest, { recursive: true, force: true })
-  await cp(runtimeSrc, runtimeDest, {
-    recursive: true,
-    filter: (src) => includeRuntimePath(src, runtimeSrc),
-  })
-  console.log(`[stage] runtime → ${runtimeDest}`)
+  await stagePackagedRuntime({ repoRoot, appRoot })
 
   if (existsSync(join(repoRoot, 'dist'))) {
     await rm(join(appRoot, 'dist'), { recursive: true, force: true })

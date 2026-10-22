@@ -7,4 +7,6 @@ export {
   formatPlanAppSource,
   planAppSource,
   planAskFields,
+  planTaskSource,
+  taskSourceProblem,
 } from './app-source.d.ts'
