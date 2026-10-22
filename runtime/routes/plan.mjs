@@ -1,6 +1,7 @@
 import { appendAudit, createId } from '../db.mjs'
 import { verifyUiToken } from './bridge.mjs'
 import { emit } from '../events.mjs'
+import { workspaceCwdForId } from '../briefing/workspace.mjs'
 import { collectBag, mutateBag } from '../catalog-collect.mjs'
 import {
   ORIGIN_FDE_TASK,
@@ -242,16 +243,7 @@ function requireWorkspaceId(workspaceId, response, correlationId) {
 }
 
 function workspaceCwdForEmit(db, workspaceId) {
-  const row = db.prepare('SELECT metadata_json FROM workspaces WHERE id = ?').get(workspaceId)
-  if (!row) return null
-  try {
-    const meta = JSON.parse(row.metadata_json ?? '{}')
-    const raw = typeof meta.cwd === 'string' ? meta.cwd : typeof meta.path === 'string' ? meta.path : ''
-    const cwd = String(raw).trim()
-    return cwd.startsWith('/') ? cwd : null
-  } catch {
-    return null
-  }
+  return workspaceCwdForId(db, workspaceId)
 }
 
 function emitTaskChanged(db, { id, op, workspaceId, status, title }) {
@@ -529,6 +521,12 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       })
     }
     if (result.kind === 'ok') {
+      const plan = result.operation.plan
+      emit('task.proposal.changed', {
+        proposalId: operationId,
+        taskId: plan.taskId,
+        op: plan.op,
+      }, { workspaceCwd: workspaceCwdForEmit(db, plan.workspaceId) })
       planOk(response, 200, result.operation, correlationId)
       return true
     }

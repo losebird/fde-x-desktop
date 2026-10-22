@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card } from '@/components/ui'
+import { useEvents } from '@/lib/events'
 import { RuntimeApiError, runtimeApi, type PlanTaskProposal } from '@/lib/runtime-api'
 import { useApp } from '@/store/app'
 
@@ -8,18 +9,84 @@ const OP_LABEL: Record<PlanTaskProposal['op'], string> = {
   update: '修改',
 }
 
+const FIELD_LABEL: Record<string, string> = {
+  title: '标题',
+  notes: '备注',
+  status: '状态',
+  priority: '优先级',
+  dueAt: '截止',
+  tags: '标签',
+}
+
+const PRIORITY_LABEL: Record<string, string> = {
+  urgent: '紧急',
+  high: '高',
+  med: '中',
+  low: '低',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  todo: '待办',
+  doing: '进行中',
+  done: '已完成',
+  archived: '已归档',
+}
+
 function messageOf(cause: unknown) {
   if (cause instanceof RuntimeApiError) return cause.message
   if (cause instanceof Error) return cause.message
   return ''
 }
 
+function showValue(key: string, value: unknown) {
+  if (value == null || value === '') return '—'
+  if (key === 'priority' && typeof value === 'string') return PRIORITY_LABEL[value] || value
+  if (key === 'status' && typeof value === 'string') return STATUS_LABEL[value] || value
+  if (key === 'tags' && Array.isArray(value)) return value.map(String).join(', ') || '—'
+  if (key === 'dueAt' && typeof value === 'string') {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+    if (match) return `${Number(match[2])}/${Number(match[3])}`
+  }
+  return String(value)
+}
+
+function diffLines(item: PlanTaskProposal) {
+  const before = item.before && typeof item.before === 'object' ? item.before : {}
+  const change = item.change && typeof item.change === 'object' ? item.change : {}
+  const lines: string[] = []
+  for (const key of ['title', 'notes', 'status', 'priority', 'dueAt', 'tags']) {
+    if (!Object.prototype.hasOwnProperty.call(change, key)) continue
+    const from = before[key]
+    const to = change[key]
+    lines.push(item.op === 'insert'
+      ? `${FIELD_LABEL[key]} ${showValue(key, to)}`
+      : `${FIELD_LABEL[key]} ${showValue(key, from)} → ${showValue(key, to)}`)
+  }
+  return lines
+}
+
 export function PlanTaskProposals() {
   const workspaceId = useApp((s) => s.activeWorkspaceId)
+  const workspaces = useApp((s) => s.workspaces)
   const hydratePlan = useApp((s) => s.hydratePlan)
   const [items, setItems] = useState<PlanTaskProposal[]>([])
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState('')
+  const workspaceCwd = useMemo(() => {
+    const row = workspaces.find((item) => item.id === workspaceId)
+    const cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
+    return cwd.startsWith('/') ? cwd : undefined
+  }, [workspaces, workspaceId])
+
+  const reload = useCallback(async () => {
+    if (!workspaceId) return
+    try {
+      setItems(await runtimeApi.listPlanTaskProposals(workspaceId))
+      setError('')
+    } catch (cause) {
+      setError(messageOf(cause))
+    }
+  }, [workspaceId])
 
   useEffect(() => {
     if (!workspaceId) {
@@ -37,6 +104,21 @@ export function PlanTaskProposals() {
     })
     return () => { cancelled = true }
   }, [workspaceId])
+
+  useEvents(
+    ['task.proposal.changed'],
+    () => { void reload() },
+    workspaceCwd ? { workspace: workspaceCwd } : undefined,
+  )
+
+  useEffect(() => {
+    if (!workspaceId) return
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void reload()
+    }, 15_000)
+    return () => window.clearInterval(id)
+  }, [workspaceId, reload])
 
   async function decide(id: string, decision: 'confirm' | 'reject') {
     if (!workspaceId) return
@@ -72,6 +154,9 @@ export function PlanTaskProposals() {
               <div className="min-w-0 flex-1 text-xs">
                 <div className="font-medium">{OP_LABEL[item.op]}</div>
                 <div className="text-ink-muted mt-1">{item.title}</div>
+                {diffLines(item).map((line) => (
+                  <div key={line} className="text-ink-muted mt-1">{line}</div>
+                ))}
               </div>
               <button
                 type="button"

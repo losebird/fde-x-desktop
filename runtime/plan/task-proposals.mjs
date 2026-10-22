@@ -37,6 +37,24 @@ function invalidShape(input) {
   return null
 }
 
+function snapshotTask(row) {
+  let tags = []
+  try {
+    const parsed = JSON.parse(row.tags_json || '[]')
+    tags = Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    tags = []
+  }
+  return {
+    title: row.title,
+    notes: row.notes ?? '',
+    status: row.status,
+    priority: row.priority,
+    dueAt: row.due_at ?? null,
+    tags,
+  }
+}
+
 function planDomain(opts) {
   return {
     action: ACTION,
@@ -161,7 +179,7 @@ export function proposePlanTask(db, input) {
     op,
     workspaceId,
     taskId,
-    before: { status: existing.status, title: existing.title },
+    before: snapshotTask(existing),
     change: { ...change, base: { updated_at: existing.updated_at } },
   }
   return openProposal(db, {
@@ -195,7 +213,9 @@ export function listOpenPlanTaskProposals(db, workspaceId) {
       workspaceId: row.workspace_id,
       op: plan.op,
       taskId: plan.taskId,
-      title: proposedTitle || plan.before.title,
+      title: proposedTitle || plan.before?.title || '',
+      before: plan.before ?? null,
+      change: plan.change ?? {},
     }
   })
 }

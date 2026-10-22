@@ -1,5 +1,5 @@
 // 计划模块:三 Tab 合并 —— 待办 / 日程 / 工作流
-import { useState, useMemo, useEffect, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
   Clock, MapPin, Calendar as CalIcon, Repeat, Play, Power, Sparkles, Bot,
@@ -24,6 +24,14 @@ import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
 import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
 import { PLAN_DAY_HOURS, planDayMarkerTop, planDayOffsetMinutes } from '../../runtime/plan/plan-day-hours.mjs'
+import { createAskFlight } from '../../runtime/plan/ask-flight.mjs'
+import { organizeSessionTitle } from '../../runtime/plan/organize-session.mjs'
+import {
+  describeAdvice,
+  organizeAdvicePrompt,
+  parseTaskAdvice,
+  taskAdviceSchema,
+} from '../../runtime/plan/task-advice.mjs'
 
 function RightDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!open) return null
@@ -140,48 +148,33 @@ const PRIORITY_TAG: Record<Task['priority'], { kind: 'red'|'amber'|'blue'|'defau
 }
 
 type TaskAdvicePatch = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'priority' | 'due' | 'tags'>>
-type TaskAdviceSuggestion = { taskId: string; reason: string; patch: TaskAdvicePatch }
-type TaskAdviceResult = { summary?: string; suggestions: TaskAdviceSuggestion[] }
-
-const TaskAdviceSchema: JsonSchemaLite = {
-  type: 'object',
-  required: ['suggestions'],
-  properties: {
-    summary: { type: 'string' },
-    suggestions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['taskId', 'reason', 'patch'],
-        properties: {
-          taskId: { type: 'string' },
-          reason: { type: 'string' },
-          patch: {
-            type: 'object',
-            properties: {
-              title: { type: 'string' },
-              notes: { type: 'string' },
-              status: { enum: ['todo', 'doing', 'done', 'archived'] },
-              priority: { enum: ['urgent', 'high', 'med', 'low'] },
-              due: { type: 'string' },
-              tags: { type: 'array', items: { type: 'string' } },
-            },
-          },
-        },
-      },
-    },
-  },
+type AcceptedAdvice = {
+  op: 'update' | 'archive' | 'merge'
+  taskId: string
+  mergeInto?: string
+  reason: string
+  patch?: {
+    title?: string
+    notes?: string
+    status?: Task['status']
+    priority?: Task['priority']
+    dueAt?: string | null
+    tags?: string[]
+  }
 }
 
-function formatAdvicePatch(patch: TaskAdvicePatch): string {
-  const parts: string[] = []
-  if (patch.title !== undefined) parts.push(`标题 → ${patch.title}`)
-  if (patch.notes !== undefined) parts.push(`备注 → ${patch.notes}`)
-  if (patch.status !== undefined) parts.push(`状态 → ${patch.status}`)
-  if (patch.priority !== undefined) parts.push(`优先级 → ${patch.priority}`)
-  if (patch.due !== undefined) parts.push(`截止 → ${patch.due || '—'}`)
-  if (patch.tags !== undefined) parts.push(`标签 → ${patch.tags.join(', ') || '—'}`)
-  return parts.length ? parts.join('；') : '（无字段变更）'
+function adviceToTaskPatch(suggestion: AcceptedAdvice): TaskAdvicePatch {
+  if (suggestion.op === 'archive' || suggestion.op === 'merge') return { status: 'archived' }
+  const patch = suggestion.patch
+  if (!patch) return {}
+  const next: TaskAdvicePatch = {}
+  if (patch.title !== undefined) next.title = patch.title
+  if (patch.notes !== undefined) next.notes = patch.notes
+  if (patch.status !== undefined) next.status = patch.status
+  if (patch.priority !== undefined) next.priority = patch.priority
+  if (patch.dueAt !== undefined) next.due = patch.dueAt ?? ''
+  if (patch.tags !== undefined) next.tags = patch.tags
+  return next
 }
 
 function planSourceButton(task: Task, selectTask: (id: Task['id']) => void) {
@@ -215,10 +208,17 @@ function TodoTab() {
   const selectedTaskId = useApp((s) => s.selectedTaskId)
   const selectTask = useApp((s) => s.selectTask)
 
+  const organizeFlight = useRef(createAskFlight())
+
   useEffect(() => {
     if (!selectedTaskId) return
     document.querySelector('[data-plan-task-selected]')?.scrollIntoView({ block: 'nearest' })
   }, [selectedTaskId])
+
+  useEffect(() => {
+    const flight = organizeFlight.current
+    return () => { flight.cancelActive() }
+  }, [])
 
   const [tab, setTab] = useState<Task['status']>('todo')
   const [q, setQ] = useState('')
@@ -227,7 +227,10 @@ function TodoTab() {
   const [organizeOpen, setOrganizeOpen] = useState(false)
   const [organizeLoading, setOrganizeLoading] = useState(false)
   const [organizeError, setOrganizeError] = useState('')
-  const [organizeAdvice, setOrganizeAdvice] = useState<TaskAdviceResult | null>(null)
+  const [organizeSummary, setOrganizeSummary] = useState('')
+  const [acceptedAdvice, setAcceptedAdvice] = useState<AcceptedAdvice[]>([])
+  const [rejectedAdvice, setRejectedAdvice] = useState<{ index: number; reason: string }[]>([])
+  const [organizeRaw, setOrganizeRaw] = useState('')
   const [appliedKeys, setAppliedKeys] = useState<Set<string>>(() => new Set())
   const [applyingKey, setApplyingKey] = useState<string | null>(null)
   const [draft, setDraft] = useState<Pick<Task, 'title'|'priority'|'due'|'tags'>>({
@@ -306,33 +309,62 @@ function TodoTab() {
     }).catch(() => undefined)
   }
 
+  function cancelOrganize() {
+    organizeFlight.current.cancelActive()
+    setOrganizeLoading(false)
+  }
+
   async function runOrganizeTodos() {
+    const ticket = organizeFlight.current.begin()
     setOrganizeOpen(true)
     setOrganizeLoading(true)
     setOrganizeError('')
-    setOrganizeAdvice(null)
+    setOrganizeSummary('')
+    setAcceptedAdvice([])
+    setRejectedAdvice([])
+    setOrganizeRaw('')
     setAppliedKeys(new Set())
-    const result = await askAiForResult<TaskAdviceResult>({
+    const result = await askAiForResult<unknown>({
       intent: '整理待办',
-      prompt: '根据以下待办给出去重/合并/优先级建议，用 fde_submit_result 提交',
-      schema: TaskAdviceSchema,
+      prompt: organizeAdvicePrompt(),
+      schema: taskAdviceSchema as JsonSchemaLite,
       context: ['tasks'],
       omit: ctxOmit,
       taskIds: filtered.map((row) => row.id),
+      preset: 'standard',
+      title: organizeSessionTitle(),
+      reuseTitlePrefix: '整理待办',
+      reveal: false,
+      adopt: false,
+      signal: ticket.signal,
     })
+    const settled = organizeFlight.current.accept(ticket.generation, result)
+    if (!settled.ok && settled.error === 'stale') return
+    if (!settled.ok && settled.error === 'cancelled') {
+      setOrganizeLoading(false)
+      return
+    }
     setOrganizeLoading(false)
-    if (!result.ok) {
+    if (!result.ok && result.error !== 'schema_mismatch') {
       if (result.error === 'timeout') {
         setOrganizeError('AI 没有提交结构化结果，可在 AI 页查看它说了什么')
-      } else if (result.error === 'schema_mismatch' && result.raw && typeof result.raw === 'object') {
-        setOrganizeAdvice(result.raw as TaskAdviceResult)
-        setOrganizeError('返回结构与约定不完全一致，请谨慎应用')
       } else {
         setOrganizeError(result.error === '核心未连接' ? result.error : `整理失败：${result.error}`)
       }
       return
     }
-    setOrganizeAdvice(result.data)
+    const raw = result.ok ? result.data : result.raw
+    const parsed = parseTaskAdvice(raw, tasks)
+    setOrganizeSummary(parsed.summary)
+    setAcceptedAdvice(parsed.accepted)
+    setRejectedAdvice(parsed.rejected)
+    try {
+      setOrganizeRaw(raw === undefined ? '' : JSON.stringify(raw, null, 2))
+    } catch {
+      setOrganizeRaw('')
+    }
+    if (parsed.rejected.length) setOrganizeError(`${parsed.rejected.length} 条建议不合约定`)
+    else if (!result.ok) setOrganizeError('返回结构与约定不完全一致，请谨慎应用')
   }
 
   async function runAskSelected() {
@@ -361,10 +393,13 @@ function TodoTab() {
     if (!result.ok) setAskError(result.error)
   }
 
-  async function applySuggestion(suggestion: TaskAdviceSuggestion, key: string) {
+  async function applySuggestion(suggestion: AcceptedAdvice, key: string) {
     if (appliedKeys.has(key) || applyingKey) return
-    const patch = suggestion.patch
-    if (!patch || !Object.keys(patch).length) return
+    const patch = adviceToTaskPatch(suggestion)
+    if (!Object.keys(patch).length) {
+      setOrganizeError('这条建议没有可应用的字段')
+      return
+    }
     const task = tasks.find((t) => t.id === suggestion.taskId)
     if (!task) {
       setOrganizeError('任务已不存在，请刷新列表后重试')
@@ -426,7 +461,6 @@ function TodoTab() {
             <button
               type="button"
               className="btn h-8"
-              disabled={organizeLoading}
               title="整理待办"
               onClick={() => void runOrganizeTodos()}
             >
@@ -548,22 +582,38 @@ function TodoTab() {
       <RightDrawer
         open={organizeOpen}
         onClose={() => {
-          if (!organizeLoading) setOrganizeOpen(false)
+          cancelOrganize()
+          setOrganizeOpen(false)
         }}
         title="整理建议"
       >
         {organizeLoading && (
-          <p className="text-sm text-ink-muted">已向当前 AI 会话发送整理请求，等待结构化结果…</p>
+          <div className="mb-4">
+            <p className="text-sm text-ink-muted">已向整理待办会话发送请求，等待结构化结果…</p>
+            <button type="button" className="btn mt-3" onClick={() => { cancelOrganize(); setOrganizeOpen(false) }}>取消等待</button>
+          </div>
         )}
         {!organizeLoading && organizeError && (
           <div className="text-sm text-amber-900 bg-amber-50 border border-amber-100 rounded px-3 py-2 mb-4">{organizeError}</div>
         )}
-        {!organizeLoading && organizeAdvice?.summary && (
-          <p className="text-sm text-ink-muted mb-4">{organizeAdvice.summary}</p>
+        {!organizeLoading && organizeSummary && (
+          <p className="text-sm text-ink-muted mb-4">{organizeSummary}</p>
         )}
-        {!organizeLoading && organizeAdvice?.suggestions?.length ? (
+        {!organizeLoading && rejectedAdvice.length > 0 && (
+          <div className="mb-4">
+            <ul className="space-y-1">
+              {rejectedAdvice.map((row) => (
+                <li key={`${row.index}:${row.reason}`} className="text-xs text-ink-muted">
+                  {row.index >= 0 ? `第 ${row.index + 1} 条：` : ''}{row.reason}
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="btn mt-3" onClick={() => void runOrganizeTodos()}>请 AI 按约定重交</button>
+          </div>
+        )}
+        {!organizeLoading && acceptedAdvice.length > 0 ? (
           <ul className="space-y-3">
-            {organizeAdvice.suggestions.map((suggestion, index) => {
+            {acceptedAdvice.map((suggestion, index) => {
               const key = `${suggestion.taskId}:${index}`
               const task = tasks.find((t) => t.id === suggestion.taskId)
               const applied = appliedKeys.has(key)
@@ -572,12 +622,12 @@ function TodoTab() {
                 <li key={key} className="border border-line rounded-lg p-3 bg-surface-2/30">
                   <div className="text-sm font-medium truncate">{task?.title ?? `任务 ${suggestion.taskId}`}</div>
                   <p className="text-xs text-ink-muted mt-1">{suggestion.reason}</p>
-                  <p className="text-xs text-ink-subtle mt-2">{formatAdvicePatch(suggestion.patch)}</p>
+                  <p className="text-xs text-ink-subtle mt-2">{describeAdvice(suggestion)}</p>
                   <div className="mt-3 flex justify-end">
                     <button
                       type="button"
                       className="btn-primary"
-                      disabled={applied || busy || !task || !Object.keys(suggestion.patch || {}).length}
+                      disabled={applied || busy || !task}
                       onClick={() => void applySuggestion(suggestion, key)}
                     >
                       {applied ? '已应用' : busy ? '应用中…' : '应用'}
@@ -589,6 +639,12 @@ function TodoTab() {
           </ul>
         ) : (
           !organizeLoading && !organizeError && <p className="text-sm text-ink-muted">暂无建议</p>
+        )}
+        {!organizeLoading && organizeRaw && (
+          <details className="mt-4">
+            <summary className="text-xs text-ink-muted">原文</summary>
+            <pre className="text-xs mt-2 whitespace-pre-wrap break-all">{organizeRaw}</pre>
+          </details>
         )}
       </RightDrawer>
       <PlanEditDrawer

@@ -628,6 +628,8 @@ export type PlanTaskProposal = {
   op: 'insert' | 'update'
   taskId: string
   title: string
+  before?: Record<string, unknown> | null
+  change?: Record<string, unknown> | null
 }
 
 export type PlanHistoryChange = {
