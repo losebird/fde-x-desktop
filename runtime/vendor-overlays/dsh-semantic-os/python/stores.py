@@ -207,6 +207,62 @@ def _wait_redis(pid: int, mark, bound: float) -> bool:
         time.sleep(0.05)
 
 
+def _reap_foreground_proc(client) -> None:
+    proc = getattr(client, "_dsh_proc", None)
+    if proc is None:
+        return
+    try:
+        exited = proc.poll()
+    except Exception:
+        return
+    if exited is None:
+        return
+    try:
+        proc.wait(timeout=0)
+    except Exception:
+        pass
+
+
+def _arm_close_shutdown(client) -> None:
+    # redis-py retries the ConnectionError that means SHUTDOWN worked, and
+    # redislite then treats an unreaped foreground child as still running.
+    # Both have to be undone before that is_running loop, on this Popen only.
+    if client is None or getattr(client, "_dsh_shutdown_orig", None) is not None:
+        return
+    original = client.shutdown
+
+    def shutdown_once(*args, **kwargs):
+        from redis.backoff import NoBackoff
+        from redis.retry import Retry
+
+        previous = client.get_retry()
+        changed = previous is not None
+        if changed:
+            client.set_retry(Retry(NoBackoff(), 0))
+        try:
+            return original(*args, **kwargs)
+        finally:
+            try:
+                if changed:
+                    client.set_retry(previous)
+            finally:
+                _reap_foreground_proc(client)
+
+    client.shutdown = shutdown_once
+    client._dsh_shutdown_orig = original
+
+
+def _disarm_close_shutdown(client) -> None:
+    original = getattr(client, "_dsh_shutdown_orig", None) if client is not None else None
+    if original is None:
+        return
+    client.shutdown = original
+    try:
+        del client._dsh_shutdown_orig
+    except Exception:
+        pass
+
+
 def close_lite() -> None:
     """Stop the embedded redis-server before the sidecar exits.
 
@@ -230,47 +286,51 @@ def close_lite() -> None:
         except (TypeError, ValueError):
             pid = 0
     mark = _redis_mark(pid) if pid else None
-    closed = False
-    closer = getattr(db, "close", None)
-    if callable(closer):
-        try:
-            closer()
-            closed = True
-        except Exception:
-            closed = False
-    if not closed and client is not None:
-        cleanup = getattr(client, "_cleanup", None)
-        if callable(cleanup):
+    _arm_close_shutdown(client)
+    try:
+        closed = False
+        closer = getattr(db, "close", None)
+        if callable(closer):
             try:
-                cleanup()
+                closer()
+                closed = True
+            except Exception:
+                closed = False
+        if not closed and client is not None:
+            cleanup = getattr(client, "_cleanup", None)
+            if callable(cleanup):
+                try:
+                    cleanup()
+                except Exception:
+                    pass
+        if not _same_redis(pid, mark):
+            return
+        shutdown = getattr(client, "shutdown", None) if client is not None else None
+        if callable(shutdown):
+            try:
+                shutdown(nosave=True, now=True, force=True)
             except Exception:
                 pass
-    if not _same_redis(pid, mark):
-        return
-    shutdown = getattr(client, "shutdown", None) if client is not None else None
-    if callable(shutdown):
+        if _same_redis(pid, mark):
+            try:
+                _signal_redis(pid, mark, signal.SIGTERM)
+            except OSError:
+                pass
+        if _wait_redis(pid, mark, _LITE_STOP_BOUND_SECONDS):
+            return
         try:
-            shutdown(nosave=True, now=True, force=True)
-        except Exception:
-            pass
-    if _same_redis(pid, mark):
-        try:
-            _signal_redis(pid, mark, signal.SIGTERM)
+            _signal_redis(pid, mark, signal.SIGKILL)
         except OSError:
             pass
-    if _wait_redis(pid, mark, _LITE_STOP_BOUND_SECONDS):
-        return
-    try:
-        _signal_redis(pid, mark, signal.SIGKILL)
-    except OSError:
-        pass
-    _wait_redis(pid, mark, 0.5)
-    proc = getattr(client, "_dsh_proc", None) if client is not None else None
-    if proc is not None and proc.poll() is not None:
-        try:
-            proc.wait(timeout=0)
-        except Exception:
-            pass
+        _wait_redis(pid, mark, 0.5)
+        proc = getattr(client, "_dsh_proc", None) if client is not None else None
+        if proc is not None and proc.poll() is not None:
+            try:
+                proc.wait(timeout=0)
+            except Exception:
+                pass
+    finally:
+        _disarm_close_shutdown(client)
 
 
 def _register_lite_shutdown() -> None:

@@ -16,15 +16,18 @@ const bundleDir = process.env.FDE_STD_BUNDLE || '/cursor/stores/bot/std-bundle-2
 const snapshot = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS || ''
 const REQUIREMENTS = join(repoRoot, 'runtime/data/semantic-os/runtime/0.1.1/darwin-arm64/resolved-requirements.txt')
 const SURVIVE_WINDOW_MS = 4000
+const CLOSE_LITE_BOUND_S = 2
 
 function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
-function semanticSha() {
-  if (!snapshot) return ''
+const lanSnapshot = process.env.FDE_PLUGIN_DSH_LAN_ASSIST || ''
+
+function gitHead(dir) {
+  if (!dir) return ''
   try {
-    return execFileSync('git', ['-C', snapshot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    return execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
   } catch {
     return ''
   }
@@ -32,7 +35,8 @@ function semanticSha() {
 
 console.log(`# plugin-sources ${sha256File(join(bundleDir, 'plugin-sources-2026-10-19.tar.gz'))}`)
 console.log(`# iui ${sha256File(join(bundleDir, 'iui-77c23c7c3e9cfc991e0bed9fb44b0a4ea66fd57c.tar.gz'))}`)
-console.log(`# semantic-os ${snapshot} ${semanticSha()}`)
+console.log(`# semantic-os ${snapshot} ${gitHead(snapshot)}`)
+console.log(`# lan-assist ${lanSnapshot} ${gitHead(lanSnapshot)}`)
 
 function pinnedRequirement(name) {
   const prefix = `${name}==`.toLowerCase()
@@ -82,6 +86,65 @@ client = db.client
 pid = int(client.pid)
 print(f"READY {pid} {os.getpgid(pid)} {os.getpgrp()} {os.getpid()} {os.getppid()}", flush=True)
 signal.pause()
+`.trim()
+
+const SOCKET_HOLDER = `
+import sys
+import redis
+client = redis.Redis(unix_socket_path=sys.argv[1])
+client.ping()
+print("held", flush=True)
+sys.stdin.readline()
+`.trim()
+
+const CLOSE_LITE = `
+import json, os, sys, time
+os.environ.pop("FDE_DSH_HOME", None)
+os.environ["DSH_HOME"] = sys.argv[1]
+sys.path.insert(0, sys.argv[2])
+mode = sys.argv[3]
+import stores
+db = stores._open_lite()
+graph = db.select_graph("dsh_ping")
+graph.query("CREATE (:Probe {n: 7})")
+rows = graph.query("MATCH (p:Probe) RETURN p.n").result_set
+client = db.client
+retry = client.get_retry()
+before = None if retry is None else retry.get_retries()
+backoff = None if retry is None else type(retry._backoff).__name__
+pid = int(client.pid)
+holder = None
+held = ""
+if mode == "holder":
+    import subprocess
+    holder = subprocess.Popen(
+        [sys.executable, sys.argv[4], client.socket_file],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    held = holder.stdout.readline().strip()
+started = time.perf_counter()
+stores.close_lite()
+elapsed = time.perf_counter() - started
+again = client.get_retry()
+after = None if again is None else again.get_retries()
+backoff_after = None if again is None else type(again._backoff).__name__
+alive = os.path.exists(f"/proc/{pid}")
+if holder is not None:
+    holder.kill()
+    holder.wait(timeout=2)
+print(json.dumps({
+    "elapsed_s": elapsed,
+    "retries_before": before,
+    "retries_after": after,
+    "backoff_before": backoff,
+    "backoff_after": backoff_after,
+    "rows": rows,
+    "pid": pid,
+    "alive": alive,
+    "held": held,
+}))
 `.trim()
 
 const HOLD_OPEN = `
@@ -700,6 +763,56 @@ describe('host redis orphan', { concurrency: false }, () => {
     })
     assert.equal(ran.code, 0, ran.stderr || ran.stdout)
     assert.match(ran.stdout, /SAFE ok/)
+  })
+
+  test('close_lite returns before the retry budget with the default retry intact', { timeout: 60_000 }, async () => {
+    await ensurePython()
+    const pythonDir = await materializePlugin()
+    const home = await mkdtemp(join(suiteRoot, 'home-'))
+    const script = join(home, 'close-lite.py')
+    await writeFile(script, `${CLOSE_LITE}\n`)
+    const ran = await runPython([script, home, pythonDir, 'none'], {
+      ...process.env,
+      DSH_HOME: home,
+      PYTHONPATH: pythonDir,
+    })
+    assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+    const payload = JSON.parse(ran.stdout)
+    console.log(`# close_lite none ${JSON.stringify(payload)}`)
+    assert.deepEqual(payload.rows, [[7]])
+    assert.equal(payload.retries_before, 10)
+    assert.equal(payload.retries_after, 10)
+    assert.equal(payload.backoff_before, 'ExponentialWithJitterBackoff')
+    assert.equal(payload.backoff_after, 'ExponentialWithJitterBackoff')
+    assert.equal(payload.alive, false, JSON.stringify(payload))
+    assert.ok(payload.elapsed_s < CLOSE_LITE_BOUND_S, `close_lite took ${payload.elapsed_s}s`)
+    assert.deepEqual(liveRedisUnder(suiteRoot), [])
+  })
+
+  test('close_lite with a second client returns before the retry budget', { timeout: 60_000 }, async () => {
+    await ensurePython()
+    const pythonDir = await materializePlugin()
+    const home = await mkdtemp(join(suiteRoot, 'home-'))
+    const script = join(home, 'close-lite.py')
+    const holderPath = join(home, 'holder.py')
+    await writeFile(script, `${CLOSE_LITE}\n`)
+    await writeFile(holderPath, `${SOCKET_HOLDER}\n`)
+    const ran = await runPython([script, home, pythonDir, 'holder', holderPath], {
+      ...process.env,
+      DSH_HOME: home,
+      PYTHONPATH: pythonDir,
+    })
+    assert.equal(ran.code, 0, ran.stderr || ran.stdout)
+    const payload = JSON.parse(ran.stdout)
+    console.log(`# close_lite holder ${JSON.stringify(payload)}`)
+    assert.equal(payload.held, 'held')
+    assert.deepEqual(payload.rows, [[7]])
+    assert.equal(payload.retries_before, 10)
+    assert.equal(payload.retries_after, 10)
+    assert.equal(payload.backoff_after, 'ExponentialWithJitterBackoff')
+    assert.equal(payload.alive, false, JSON.stringify(payload))
+    assert.ok(payload.elapsed_s < CLOSE_LITE_BOUND_S, `close_lite took ${payload.elapsed_s}s`)
+    assert.deepEqual(liveRedisUnder(suiteRoot), [])
   })
 
   test('a pipe break leaves the new lite as the only graph.db holder', { timeout: 120_000 }, async () => {
