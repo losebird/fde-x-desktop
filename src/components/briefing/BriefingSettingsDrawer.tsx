@@ -194,6 +194,16 @@ export function BriefingSettingsDrawer({
     setSections(next)
   }
 
+  const replaceArgsWhenJsonParses = (index: number, raw: string) => {
+    let args: unknown
+    try {
+      args = JSON.parse(raw || '{}')
+    } catch {
+      return
+    }
+    patchParams(index, { args })
+  }
+
   const save = () => {
     if (!definition) return
     setSaving(true)
@@ -472,13 +482,7 @@ export function BriefingSettingsDrawer({
                     rows={2}
                     placeholder="args JSON"
                     value={JSON.stringify(section.params?.args || {})}
-                    onChange={(e) => {
-                      try {
-                        patchParams(index, { args: JSON.parse(e.target.value || '{}') })
-                      } catch {
-                        /* keep typing */
-                      }
-                    }}
+                    onChange={(e) => replaceArgsWhenJsonParses(index, e.target.value)}
                   />
                   <label className="flex items-center gap-2 text-xs text-ink-muted">
                     <input

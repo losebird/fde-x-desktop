@@ -27,7 +27,6 @@ export function stageBriefingSessionAllow(aiRuntime, sessionId, sections) {
       aiRuntime && aiRuntime.dshHome,
     )
   } catch (error) {
-    // A missing allow file denies every user MCP. Generating the briefing still continues.
     console.warn('briefing_allow_stage_failed', error instanceof Error ? error.message : error)
   }
 }
