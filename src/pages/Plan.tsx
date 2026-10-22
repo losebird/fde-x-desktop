@@ -433,7 +433,10 @@ function TodoTab() {
       }, handoffNote)
       const requestId = crypto.randomUUID()
       const outcome = await runTaskHandoff({
-        updateStatus: (taskId, status) => updateTask(taskId, { status }),
+        updateStatus: (taskId, status) => updateTask(taskId, {
+          status,
+          workspaceId: useApp.getState().activeWorkspaceId,
+        }),
         createSession: (input) => runtimeApi.createAiSession(input),
         rename: (sessionId, title) => runtimeApi.renameAiSession(sessionId, title).catch(() => undefined),
         startRun: (taskId, input) => runtimeApi.startTaskAiRun(taskId, {
