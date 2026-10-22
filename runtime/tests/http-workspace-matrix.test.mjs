@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { join, relative } from 'node:path'
 import { insertBizSurface, openDatabase } from '../db.mjs'
 import { getOrCreateDefinition } from '../briefing/store.mjs'
+import { listEventsAfter, listRecentEvents, matchesWorkspaceFilter } from '../events.mjs'
 import { httpWorkspaceExemptions, httpWorkspaceRoutes } from '../http-workspace.mjs'
 
 const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)), '..')
@@ -20,8 +21,10 @@ const WIN_MARK = 'matrix-win-marker'
 const SLASH_MARK = 'matrix-slash-marker'
 const DEFAULT_MARK = 'matrix-default-marker'
 
-const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context', 'business-apps'])
-const READ_RE = /searchParams\.(?:get|has)\(\s*['"`](?:cwd|workspace)['"`]|body\??\.(?:cwd|workspaceCwd|workspace)\b|body\??\[['"`](?:cwd|workspace)['"`]\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\s*\(/
+const APPS_UNREGISTERED = new Set(['apps', 'apps-create', 'apps-entity', 'context-pack', 'bridge-context', 'business-apps', 'catalog', 'catalog-post', 'business-connections', 'biz-connections', 'briefing-latest', 'briefing-definition', 'briefing-run'])
+const WS_KEY = 'cwd|workspace|workspaceCwd|workspacePath|workingDirectory'
+const PATH_KEY = 'cwd|workspaceCwd|workspacePath|workingDirectory'
+const READ_RE = new RegExp(String.raw`searchParams\.(?:get|has)\(\s*['"\`](?:${WS_KEY})['"\`]|(?:[A-Za-z_][A-Za-z0-9_]*)\.(?:get|has)\(\s*['"\`](?:${PATH_KEY})['"\`]|body\??\.(?:${WS_KEY})\b|body\??\[['\"\`](?:${WS_KEY})['\"\`]\]|(?:resolveHttpWorkspace|bizWorkspace|requireHttpWorkspace|cwdFrom|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd)\s*\(`)
 
 function registerWorkspace(db, id, cwd) {
   const now = new Date().toISOString()
@@ -183,6 +186,9 @@ function checkCase(route, mode, status, text) {
     for (const marker of personalMarkers()) {
       if (text.includes(marker)) problems.push(`${label} leaked ${marker}`)
     }
+    if (route.proof === 'events' && text.includes('matrix-null-marker')) {
+      problems.push(`${label} kept a null workspace event`)
+    }
     if (APPS_UNREGISTERED.has(route.id) && (status !== 404 || !text.includes('工作区未登记'))) {
       problems.push(`${label} status ${status} ${text.slice(0, 180)}`)
     }
@@ -232,6 +238,12 @@ function checkCase(route, mode, status, text) {
   if (route.proof === 'events' && mode === 'absent' && (!text.includes(WIN_MARK) || !text.includes(DEFAULT_MARK))) {
     problems.push(`${label} dropped an unfiltered event`)
   }
+  if (route.proof === 'events' && mode !== 'absent' && mode !== 'illegal' && text.includes('matrix-null-marker')) {
+    problems.push(`${label} kept a null workspace event`)
+  }
+  if (route.proof === 'events' && mode === 'absent' && !text.includes('matrix-null-marker')) {
+    problems.push(`${label} dropped an unfiltered null event`)
+  }
   if (route.proof === 'events-sse' && mode === 'win' && status === 200 && !text.includes(WIN_MARK)) problems.push(`${label} missed win event`)
   if (route.proof === 'events-sse' && mode === 'slash' && status === 200 && !text.includes(SLASH_MARK)) problems.push(`${label} missed slash event`)
   if (route.proof === 'apps' && mode === 'win' && (!text.includes('matrix-win-app') || text.includes('matrix-default-app') || text.includes('matrix-slash-app'))) {
@@ -245,6 +257,13 @@ function checkCase(route, mode, status, text) {
   }
   if (route.proof === 'apps' && mode === 'illegal' && (text.includes('matrix-default-app') || text.includes('matrix-win-app'))) {
     problems.push(`${label} crossed workspace`)
+  }
+  if (route.id === 'business-apps' && (mode === 'win' || mode === 'slash')) {
+    const own = mode === 'win' ? 'matrix-win-app' : 'matrix-slash-app'
+    const other = mode === 'win' ? 'matrix-slash-app' : 'matrix-win-app'
+    if (!text.includes(own) || text.includes('matrix-default-app') || text.includes(other)) {
+      problems.push(`${label} mixed business apps`)
+    }
   }
   return problems
 }
@@ -271,6 +290,7 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
   insertMarkerEvent(server.db, 'evt_matrix_win', WIN, WIN_MARK)
   insertMarkerEvent(server.db, 'evt_matrix_slash', SLASH, SLASH_MARK)
   insertMarkerEvent(server.db, 'evt_matrix_default', repoRoot, DEFAULT_MARK)
+  insertMarkerEvent(server.db, 'evt_matrix_null', null, 'matrix-null-marker')
   insertMarkerApp(server.db, 'app_matrix_win', 'ws_matrix_win', 'matrix-win-app')
   insertMarkerApp(server.db, 'app_matrix_slash', 'ws_matrix_slash', 'matrix-slash-app')
   insertMarkerApp(server.db, 'app_matrix_default', 'ws_personal', 'matrix-default-app')
@@ -317,6 +337,7 @@ test('http workspace matrix', { timeout: 180_000 }, async () => {
       { id: 'plan-task', method: 'POST', path: '/api/v1/bridge/plan-task-propose', bridge: true, body: { workspaceId: 'ws_personal', workspaceCwd: UNREG_WIN, op: 'insert', title: 'matrix bypass' } },
       { id: 'business-apps-mismatch', method: 'GET', path: '/api/v1/business/apps', query: { workspaceId: 'ws_personal', workspaceCwd: WIN }, expect: 'mismatch' },
       { id: 'apps-mismatch', method: 'GET', path: '/api/v1/apps', query: { workspace: 'ws_personal', cwd: WIN }, expect: 'mismatch' },
+      { id: 'context-pack-mismatch', method: 'POST', path: '/api/v1/context/pack', body: { workspaceId: 'ws_personal', workspaceCwd: WIN, scopes: ['tasks'] }, expect: 'mismatch' },
     ]
     for (const row of bypasses) {
       const url = new URL(row.path, server.base)
@@ -359,11 +380,21 @@ function pathExempt(rel, found) {
   })
 }
 
-function pathRegistered(found) {
-  return httpWorkspaceRoutes.some((route) => {
-    if (found === route.path || found.startsWith(`${route.path}/`)) return true
-    return route.path.startsWith(found.endsWith('/') ? found : `${found}/`)
-  })
+function pathRegistered(found, method, rel) {
+  const sameFile = (route) => !rel || route.file === rel
+  const matches = (route) => {
+    if (method && route.method !== method) return false
+    return found === route.path || found.startsWith(`${route.path}/`)
+  }
+  if (httpWorkspaceRoutes.some((route) => sameFile(route) && matches(route))) return true
+  const prefix = found.endsWith('/') ? found : `${found}/`
+  if (prefix.split('/').filter(Boolean).length < 3) return false
+  return httpWorkspaceRoutes.some((route) => sameFile(route) && route.path.startsWith(prefix) && (!method || route.method === method))
+}
+
+function methodIn(window) {
+  const matches = [...window.matchAll(/method === ['"](GET|POST|PUT|PATCH|DELETE)['"]/g)]
+  return matches.length ? matches[matches.length - 1][1] : ''
 }
 
 function discoveredPaths(window) {
@@ -373,14 +404,28 @@ function discoveredPaths(window) {
   return found
 }
 
-function helperOwns(lines, index) {
-  for (let cursor = index; cursor >= Math.max(0, index - 50); cursor -= 1) {
-    if (/pathname === |pathname\.match\(|pathHasPrefix\(url\.pathname/.test(lines[cursor]) && cursor !== index) return false
-    if (/function (requireHttpWorkspace|bizWorkspace|cwdFrom|cwdOf|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd|workspaceFilter|workspaceOf|specWorkspaceCwd)\b/.test(lines[cursor])) {
-      return true
+const HELPER_RE = /^function (requireHttpWorkspace|bizWorkspace|cwdFrom|cwdOf|requireWorkspaceQuery|briefingCwdFromBody|appIdentity|appRecordCwd|workspaceFilter|workspaceOf|specWorkspaceCwd)\b/
+
+function helperRanges(lines) {
+  const ranges = []
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!HELPER_RE.test(lines[i].trim())) continue
+    let depth = 0
+    let started = false
+    for (let j = i; j < lines.length; j += 1) {
+      for (const ch of lines[j]) {
+        if (ch === '{') {
+          depth += 1
+          started = true
+        } else if (ch === '}') depth -= 1
+      }
+      if (started && depth <= 0) {
+        ranges.push([i, j])
+        break
+      }
     }
   }
-  return false
+  return ranges
 }
 
 async function runtimeSources() {
@@ -397,6 +442,50 @@ async function runtimeSources() {
   return files
 }
 
+test('a workspace filter drops events whose cwd is null', () => {
+  const dbPath = `/tmp/fde-null-cwd-${process.pid}.sqlite`
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  insertMarkerEvent(db, 'evt_null', null, 'matrix-null-marker')
+  insertMarkerEvent(db, 'evt_slash', SLASH, SLASH_MARK)
+  const recent = listRecentEvents(db, { workspaceCwd: SLASH })
+  const replay = listEventsAfter(db, { workspaceCwd: SLASH })
+  assert.equal(recent.some((item) => item.id === 'evt_null'), false)
+  assert.equal(recent.some((item) => item.id === 'evt_slash'), true)
+  assert.equal(replay.some((item) => item.id === 'evt_null'), false)
+  assert.equal(matchesWorkspaceFilter({ workspaceCwd: null }, SLASH), false)
+  assert.equal(listRecentEvents(db, {}).some((item) => item.id === 'evt_null'), true)
+  db.close()
+})
+
+function workspaceReadProblems(rel, text) {
+  const problems = []
+  const lines = text.split('\n')
+  const ranges = helperRanges(lines)
+  lines.forEach((line, index) => {
+    if (!READ_RE.test(line)) return
+    if (/^\s*(export\s+)?(async\s+)?function\s/.test(line)) return
+    if (ranges.some(([start, end]) => index > start && index <= end)) return
+    const window = lines.slice(Math.max(0, index - 80), index + 1).join('\n')
+    if (window.includes('safeSemanticOsUpstreamPath')) {
+      if (!httpWorkspaceRoutes.some((route) => route.path.startsWith('/semantic-os'))) {
+        problems.push(`${rel}:${index + 1} semantic proxy is not registered`)
+      }
+      return
+    }
+    const found = discoveredPaths(window)
+    if (found.length === 0) {
+      problems.push(`${rel}:${index + 1} reads workspace/cwd without a route path`)
+      return
+    }
+    const method = methodIn(window)
+    const registered = found.filter((path) => pathRegistered(path, method, rel))
+    const chosen = registered.length ? registered[registered.length - 1] : found[found.length - 1]
+    if (pathExempt(rel, chosen) || pathRegistered(chosen, method, rel)) return
+    problems.push(`${rel}:${index + 1} ${chosen} is not registered`)
+  })
+  return problems
+}
+
 test('http workspace readers are registered', async () => {
   const problems = []
   const seen = new Set(httpWorkspaceRoutes.map((route) => route.id))
@@ -404,30 +493,25 @@ test('http workspace readers are registered', async () => {
   for (const file of await runtimeSources()) {
     const rel = relative(repoRoot, file)
     if (wholeFileExempt(rel)) continue
-    const text = await readFile(file, 'utf8')
-    const lines = text.split('\n')
-    lines.forEach((line, index) => {
-      if (!READ_RE.test(line)) return
-      if (/^\s*(export\s+)?(async\s+)?function\s/.test(line)) return
-      if (helperOwns(lines, index)) return
-      const window = lines.slice(Math.max(0, index - 80), index + 1).join('\n')
-      if (window.includes('safeSemanticOsUpstreamPath')) {
-        if (!httpWorkspaceRoutes.some((route) => route.path.startsWith('/semantic-os'))) {
-          problems.push(`${rel}:${index + 1} semantic proxy is not registered`)
-        }
-        return
-      }
-      const found = discoveredPaths(window)
-      if (found.length === 0) {
-        problems.push(`${rel}:${index + 1} reads workspace/cwd without a route path`)
-        return
-      }
-      const routePath = found[found.length - 1]
-      if (pathExempt(rel, routePath) || pathRegistered(routePath)) return
-      problems.push(`${rel}:${index + 1} ${routePath} is not registered`)
-    })
+    problems.push(...workspaceReadProblems(rel, await readFile(file, 'utf8')))
   }
   assert.deepEqual(problems, [])
+})
+
+test('guard bypasses are reported', () => {
+  const bypasses = {
+    alias: "if (url.pathname === '/api/v1/not-a-workspace-route') {\n  const cwd = url.searchParams.get('workspacePath')\n}\n",
+    directory: "if (url.pathname === '/api/v1/not-a-workspace-route') {\n  const cwd = body.workingDirectory\n}\n",
+    prefix: "if (url.pathname.startsWith('/api/v1/')) {\n  const cwd = url.searchParams.get('cwd')\n}\n",
+    hidden: "if (url.pathname === '/api/v1/not-a-workspace-route') {\n  const picked = url.searchParams\n  const cwd = picked.get('cwd')\n}\n",
+    helper: 'function workspaceOf(input) {\n  return input\n}\nconst cwd = url.searchParams.get(\'cwd\')\n',
+    method: "if (request.method === 'POST' && url.pathname === '/api/v1/events/recent') {\n  const cwd = url.searchParams.get('cwd')\n}\n",
+  }
+  const open = []
+  for (const [name, source] of Object.entries(bypasses)) {
+    if (workspaceReadProblems('runtime/routes/ghost.mjs', source).length === 0) open.push(name)
+  }
+  assert.deepEqual(open, [])
 })
 
 test('template and bracket workspace reads are scanned', () => {
@@ -440,6 +524,7 @@ test('template and bracket workspace reads are scanned', () => {
   for (const sample of samples) {
     assert.match(sample, READ_RE, sample)
   }
-  assert.equal(READ_RE.test('searchParams.get("workspacePath")'), false)
-  assert.equal(READ_RE.test("body['workingDirectory']"), false)
+  assert.match('searchParams.get("workspacePath")', READ_RE)
+  assert.match("body['workingDirectory']", READ_RE)
+  assert.match("picked.get('cwd')", READ_RE)
 })

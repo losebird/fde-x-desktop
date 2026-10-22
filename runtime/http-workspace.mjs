@@ -49,6 +49,13 @@ export function resolveHttpWorkspace({
   return { error: 'workspace_invalid' }
 }
 
+export function httpStatusForWorkspaceError(error) {
+  if (error === 'missing_workspace') return { status: 404, code: 'not_found', message: '工作区未登记' }
+  if (error === 'workspace_mismatch') return { status: 400, code: 'workspace_mismatch', message: '工作区 id 与路径不一致' }
+  if (error === 'workspace_invalid') return { status: 400, code: 'workspace_invalid', message: '工作区必须是绝对路径' }
+  return null
+}
+
 export const httpWorkspaceRoutes = [
   { id: 'biz-surfaces', file: 'runtime/routes/biz.mjs', method: 'GET', path: '/api/v1/biz/surfaces', place: 'query', param: 'workspace', proof: 'surfaces', absent: 'runtime' },
   { id: 'biz-kinds', file: 'runtime/routes/biz.mjs', method: 'GET', path: '/api/v1/biz/kinds', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
@@ -64,9 +71,11 @@ export const httpWorkspaceRoutes = [
   { id: 'files', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/files', place: 'query', param: 'cwd', proof: 'files', absent: 'runtime' },
   { id: 'briefing-latest', file: 'runtime/routes/briefing.mjs', method: 'GET', path: '/api/v1/briefing/latest', place: 'query', param: 'workspace', proof: 'briefing', absent: 'runtime' },
   { id: 'briefing-definition', file: 'runtime/routes/briefing.mjs', method: 'GET', path: '/api/v1/briefing/definition', place: 'query', param: 'workspace', proof: 'briefing', absent: 'runtime' },
+  { id: 'briefing-definition-put', file: 'runtime/routes/briefing.mjs', method: 'PUT', path: '/api/v1/briefing/definition', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
   { id: 'briefing-run', file: 'runtime/routes/briefing.mjs', method: 'POST', path: '/api/v1/briefing/run', place: 'body', param: 'workspaceCwd', proof: 'status', absent: 'runtime', extra: { mode: 'internal-only' } },
   { id: 'events-recent', file: 'runtime/routes/events.mjs', method: 'GET', path: '/api/v1/events/recent', place: 'query', param: 'workspace', proof: 'events', absent: 'unfiltered' },
   { id: 'events-sse', file: 'runtime/routes/events.mjs', method: 'GET', path: '/api/v1/events', place: 'query', param: 'workspace', proof: 'events-sse', absent: 'unfiltered' },
+  { id: 'events-pending', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/events/pending', place: 'query', param: 'workspace', proof: 'events', absent: 'unfiltered' },
   { id: 'search', file: 'runtime/routes/search.mjs', method: 'GET', path: '/api/v1/search', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'memory-search', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/memory/search', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime', extra: { q: 'x' } },
   { id: 'memory-deps', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/memory/deps', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
@@ -76,6 +85,9 @@ export const httpWorkspaceRoutes = [
   { id: 'memory-cards-post', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/memory/cards', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { label: 'matrix marker label', origin: 'note:matrix' } },
   { id: 'memory-nod', file: 'runtime/server.mjs', method: 'POST', path: '/api/v1/memory/cards/matrix/nod', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { nodded: true } },
   { id: 'catalog', file: 'runtime/routes/catalog.mjs', method: 'GET', path: '/api/v1/catalog', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime', extra: { kind: 'file' } },
+  { id: 'catalog-post', file: 'runtime/routes/catalog.mjs', method: 'POST', path: '/api/v1/catalog', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { kind: 'file', action: 'matrix' } },
+  { id: 'business-connections', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/business/connections', place: 'query', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
+  { id: 'biz-connections', file: 'runtime/routes/biz.mjs', method: 'GET', path: '/api/v1/biz/connections', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'corpus', file: 'runtime/routes/corpus.mjs', method: 'GET', path: '/api/v1/corpus/file:note.md', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'mcp-projection', file: 'runtime/routes/mcp.mjs', method: 'GET', path: '/api/v1/mcp/projection', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'mcp-servers', file: 'runtime/routes/mcp.mjs', method: 'POST', path: '/api/v1/mcp/servers', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { serverName: 'matrix-mcp' } },
@@ -102,7 +114,6 @@ export const httpWorkspaceRoutes = [
 ]
 
 export const httpWorkspaceExemptions = [
-  { file: 'runtime/server.mjs', path: '/api/v1/events/pending', reason: 'GET /api/v1/events/pending 不读 workspace，也不按工作区过滤' },
   { file: 'runtime/session-bind.mjs', reason: '创建会话的 cwd 与 workspaceId 二选一。路径手用 canonicalWorkspaceCwd。缺省不是运行时 cwd' },
   { file: 'runtime/routes/plan.mjs', reason: 'workspaceId 是工作区 id' },
   { file: 'runtime/routes/biz.mjs', path: '/api/v1/biz/connections', reason: 'GET /api/v1/biz/connections 的 workspace 查询是连接 id。同文件的路径参数走 resolveHttpWorkspace' },

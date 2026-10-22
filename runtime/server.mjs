@@ -29,14 +29,15 @@ async function pickLocalDirectory() {
   }
   try {
     const { stdout } = await execFileAsync('osascript', ['-e', 'POSIX path of (choose folder with prompt "选择工作区目录")'], { timeout: 120000 })
-    const path = String(stdout || '').trim().replace(/\/$/, '')
-    if (path.startsWith('/')) return { path }
+    const path = pickedDirectory(stdout)
+    if (path) return { path }
   } catch (error) {
     if (error && (error.code === '1' || error.code === 1)) return { path: null }
   }
   try {
     const picked = await aiRuntime.call('directoryPicker/pick', {})
-    if (typeof picked === 'string' && picked.startsWith('/')) return { path: picked.replace(/\/$/, '') }
+    const path = pickedDirectory(picked)
+    if (path) return { path }
   } catch { /* 没有原生选择器就放弃 */ }
   return { path: null }
 }
@@ -149,9 +150,9 @@ import {
   FDE_STATIC_DIR,
   FDE_WEB_PORT,
 } from './config.mjs'
-import { canonicalWorkspaceCwd } from './cwd.mjs'
+import { canonicalWorkspaceCwd, pickedDirectory } from './cwd.mjs'
 import { resolveWorkspaceIdOrFail } from './briefing/workspace.mjs'
-import { resolveHttpWorkspace } from './http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from './http-workspace.mjs'
 
 const runtimeDirectory = FDE_RUNTIME_DIR
 const databasePath = FDE_DATABASE_PATH
@@ -3038,12 +3039,42 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/v1/events/pending') {
       const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') ?? 50)))
-      sendJson(response, 200, { items: listPendingEvents(db, limit), correlationId: currentCorrelationId })
+      const resolvedPending = resolveHttpWorkspace({
+        url,
+        slots: [['query', 'workspace'], ['query', 'cwd']],
+        whenAbsent: 'omit',
+      })
+      if (resolvedPending.error) {
+        sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, {
+        items: listPendingEvents(db, {
+          limit,
+          workspaceCwd: resolvedPending.omitted ? undefined : resolvedPending.cwd,
+        }),
+        correlationId: currentCorrelationId,
+      })
       return
     }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/business/connections') {
-      const workspaceId = url.searchParams.get('workspaceId') ?? 'ws_personal'
+      const rawId = url.searchParams.get('workspaceId')
+      const resolvedConnections = resolveHttpWorkspace({
+        url,
+        slots: [['query', 'workspaceCwd'], ['query', 'cwd']],
+        whenAbsent: 'omit',
+      })
+      const connectionIdent = resolveWorkspaceIdOrFail(db, {
+        ...resolvedConnections,
+        id: typeof rawId === 'string' ? rawId.trim() : '',
+      })
+      const connectionFailure = httpStatusForWorkspaceError(connectionIdent.error)
+      if (connectionFailure) {
+        sendError(response, connectionFailure.status, connectionFailure.code, connectionFailure.message, currentCorrelationId)
+        return
+      }
+      const workspaceId = connectionIdent.workspaceId
       await refreshLanAssistConnectionLamp(db, (path, options) => aiRuntime.lanAssist(path, options))
       await migrateBoundWorkspaceSources(db, aiRuntime).catch(() => ({ migrated: 0 }))
       const listed = await readBizSystems(aiRuntime)
@@ -3094,10 +3125,10 @@ const server = createServer(async (request, response) => {
         return
       }
       const shares = liveShareIdsByApp(db)
-      const pathOnly = resolvedApps.source === 'request' && !suppliedId
-      const items = listBusinessApps(db, pathOnly
-        ? { workspaceId: 'ws_personal', workspaceCwd: resolvedApps.cwd || '' }
-        : { workspaceId: ident.workspaceId, workspaceCwd: ident.cwd || '' }).map((row) => ({
+      const items = listBusinessApps(db, {
+        workspaceId: ident.workspaceId,
+        workspaceCwd: ident.cwd || '',
+      }).map((row) => ({
         ...row,
         shareId: shares.get(row.id) || '',
       }))
@@ -3375,7 +3406,7 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    if (await handleCatalogRequest(request, response, url, { aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, currentCorrelationId)) {
+    if (await handleCatalogRequest(request, response, url, { db, aiRuntime, readJson, sendJson, sendError, openEventStream, writeEvent }, currentCorrelationId)) {
       return
     }
     if (await handlePlanRequest(request, response, url, { db, enqueueEvent, readJson, aiRuntime, uiToken }, currentCorrelationId)) {

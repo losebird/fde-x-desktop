@@ -149,7 +149,7 @@ test('HTTP /api/v1/events routes filter a Windows workspace query', { timeout: 3
     const pendingJson = await pending.json()
     const pendingIds = pendingJson.items.map((item) => item.id)
     assert.equal(pendingIds.includes(seededMine), true)
-    assert.equal(pendingIds.includes(seededOther), true)
+    assert.equal(pendingIds.includes(seededOther), false)
 
     const misses = []
     for (const workspace of ['C:/proj', 'C:\\proj', 'c:/proj']) {

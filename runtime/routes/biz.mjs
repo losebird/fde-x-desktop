@@ -1,6 +1,7 @@
 import { FDE_AI_WORKSPACE } from '../config.mjs'
 import { canonicalWorkspaceCwd } from '../cwd.mjs'
-import { resolveHttpWorkspace } from '../http-workspace.mjs'
+import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
+import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 import { loadMemoryWorkspaceVocab } from '../biz/memory-vocab.mjs'
 import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
 import { invokeBizSlot } from '../biz/invoke.mjs'
@@ -977,6 +978,13 @@ export async function handleBizRoutes(request, response, url, deps) {
     cwdUrl.searchParams.delete('workspace')
     const resolvedWorkspace = bizWorkspace(cwdUrl, null, aiRuntime)
     if (rejectWorkspace(resolvedWorkspace, response, correlationId, sendError)) return true
+    if (resolvedWorkspace.source === 'request') {
+      const failure = httpStatusForWorkspaceError(resolveWorkspaceIdOrFail(db, resolvedWorkspace).error)
+      if (failure) {
+        sendError(response, failure.status, failure.code, failure.message, correlationId)
+        return true
+      }
+    }
     const workspace = resolvedWorkspace.cwd
     let online = false
     let catalogVersion = null

@@ -1,6 +1,10 @@
 const SQL_FN = 'fde_canonical_workspace_cwd'
 const installed = new WeakSet()
 
+export function pickedDirectory(value) {
+  return canonicalWorkspaceCwd(value)
+}
+
 export function canonicalWorkspaceCwd(value) {
   const text = String(value ?? '').trim()
   if (!text) return ''
