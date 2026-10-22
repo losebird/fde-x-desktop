@@ -6,10 +6,11 @@ import {
   formatPlanAppSource,
   planAppSource,
   planAskFields,
+  planTaskSource,
   type PlanAppHandle,
 } from '../../runtime/app-source.mjs'
 
-export { formatPlanAppSource, planAppSource, type PlanAppHandle }
+export { formatPlanAppSource, planAppSource, planTaskSource, type PlanAppHandle }
 
 async function loadApp(ledgerId: string) {
   try {

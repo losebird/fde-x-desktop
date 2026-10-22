@@ -805,9 +805,10 @@ export const useApp = create<AppState>()(
           })
           set((s) => ({ tasks: [created, ...s.tasks], planServiceError: null }))
           return created
-        } catch {
-          set({ planServiceError: PLAN_UNAVAILABLE })
-          throw new Error(PLAN_UNAVAILABLE)
+        } catch (error) {
+          const message = error instanceof Error && error.message ? error.message : PLAN_UNAVAILABLE
+          set({ planServiceError: message })
+          throw new Error(message)
         }
       },
       updateTask: async (id, patch, opts) => {

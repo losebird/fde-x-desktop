@@ -1,3 +1,4 @@
+import { taskSourceProblem } from '../app-source.mjs'
 import { createId } from '../db.mjs'
 import { ORIGIN_FDE_TASK, isHostGoalId } from '../host-catalog.mjs'
 import { decideProposal, openProposal } from '../proposals/commit.mjs'
@@ -24,6 +25,7 @@ function changeFrom(input) {
   if (typeof input.dueAt === 'string' || input.dueAt === null) change.dueAt = input.dueAt
   if (Array.isArray(input.tags)) change.tags = input.tags.map(String)
   if (typeof input.status === 'string') change.status = input.status
+  if (typeof input.sourceRef === 'string' && input.sourceRef.trim()) change.sourceRef = input.sourceRef.trim()
   return change
 }
 
@@ -93,6 +95,7 @@ function planDomain(opts) {
       if (change.dueAt !== undefined) fields.dueAt = change.dueAt
       if (change.tags !== undefined) fields.tags = change.tags
       if (change.status !== undefined) fields.status = change.status
+      if (change.sourceRef !== undefined) fields.sourceRef = change.sourceRef
       const row = updateTask(db, plan.taskId, fields, plan.workspaceId)
       if (!row) return { applied: false }
       const diff = planChangeDetails(null, before, taskHistoryView(row))
@@ -128,6 +131,9 @@ export function proposePlanTask(db, input) {
     }
     const shape = invalidShape(input)
     if (shape) return shape
+    if (taskSourceProblem(input.sourceRef)) {
+      return { ok: false, error: 'invalid_source_ref', message: '来源引用不合法' }
+    }
     const taskId = createId('task')
     const sourceRef = typeof input.sourceRef === 'string' && input.sourceRef.trim()
       ? input.sourceRef.trim()
@@ -165,6 +171,9 @@ export function proposePlanTask(db, input) {
   const existing = getTask(db, taskId, workspaceId)
   if (!existing || existing.workspace_id !== workspaceId) {
     return { ok: false, error: 'not_found', message: '任务不存在' }
+  }
+  if (taskSourceProblem(input.sourceRef)) {
+    return { ok: false, error: 'invalid_source_ref', message: '来源引用不合法' }
   }
   const change = changeFrom(input)
   if (change.status !== undefined && !TASK_STATUSES.has(change.status)) {

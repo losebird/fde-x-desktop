@@ -60,6 +60,10 @@ export function applyDataLand(browse, href) {
     next.rowId = String(href?.rowId || '')
     next.entity = String(href?.entity || '')
     if (href?.slug) next.slug = String(href.slug)
+    if (typeof href?.connection === 'string' && href.connection) {
+      next.connection = href.connection
+      next.connectionLand = land
+    }
     return next
   }
   next.slug = String(href?.slug || '')

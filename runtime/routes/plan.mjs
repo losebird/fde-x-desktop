@@ -1,3 +1,4 @@
+import { taskSourceProblem } from '../app-source.mjs'
 import { appendAudit, createId } from '../db.mjs'
 import { httpStatusForWorkspaceError } from '../http-workspace.mjs'
 import { requestAppWorkspace } from './apps.mjs'
@@ -34,6 +35,7 @@ import {
   listTasks,
   updateTask,
 } from '../plan/task-store.mjs'
+import { cancelTaskAiRun, listTaskAiRuns, startTaskAiRun } from '../plan/task-ai-runs.mjs'
 
 const WORKFLOW_WRITE_STATUSES = new Set(['active', 'paused'])
 const EVENT_KINDS = new Set(['meeting', 'focus', 'reminder', 'external'])
@@ -374,6 +376,10 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     const id = createId('task')
     const tags = Array.isArray(body.tags) ? body.tags.map(String) : []
     const dueAt = typeof body.dueAt === 'string' ? body.dueAt : null
+    if (taskSourceProblem(body.sourceRef)) {
+      planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
+      return true
+    }
     const sourceRef = typeof body.sourceRef === 'string' && body.sourceRef.trim()
       ? body.sourceRef.trim()
       : `${ORIGIN_FDE_TASK}${id}`
@@ -447,6 +453,11 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       }
       fields.status = body.status
     }
+    if (taskSourceProblem(body.sourceRef)) {
+      planError(response, 422, 'invalid_source_ref', '来源引用不合法', correlationId)
+      return true
+    }
+    if (typeof body.sourceRef === 'string' && body.sourceRef.trim()) fields.sourceRef = body.sourceRef.trim()
     if (!Object.keys(fields).length) {
       planOk(response, 200, mapTask(existing), correlationId)
       return true
@@ -501,6 +512,40 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       targetRef: `fde://plan/tasks/${id}`,
       details: planChangeDetails(id, taskHistoryView(existing), {}),
     })
+    return true
+  }
+
+  const taskAiRunMatch = segments.length === 6 && segments[3] === 'tasks' && segments[5] === 'ai-runs'
+  if (taskAiRunMatch && (method === 'GET' || method === 'POST')) {
+    const id = planRowId(segments[4])
+    const body = method === 'POST' ? await readJson(request) : null
+    const ident = requestAppWorkspace(db, url, body)
+    const failure = httpStatusForWorkspaceError(ident.error)
+    if (failure) {
+      planError(response, failure.status, failure.code, failure.message, correlationId)
+      return true
+    }
+    const existing = getTask(db, id, ident.workspaceId)
+    if (!existing) {
+      planError(response, 404, 'not_found', '任务不存在', correlationId)
+      return true
+    }
+    if (method === 'GET') {
+      planOk(response, 200, { runs: listTaskAiRuns(db, id) }, correlationId)
+      return true
+    }
+    const result = body && body.op === 'cancel'
+      ? cancelTaskAiRun(db, id)
+      : startTaskAiRun(db, {
+        taskId: id,
+        sessionId: body && body.sessionId,
+        requestId: body && body.requestId,
+      })
+    if (!result.ok) {
+      planError(response, result.status, result.error, result.message, correlationId)
+      return true
+    }
+    planOk(response, result.status, result.data, correlationId)
     return true
   }
 
