@@ -137,9 +137,9 @@ function hitMetaChanged(
 ) {
   const a = hitFooterView(prev)
   const b = hitFooterView(next)
-  if (String(a?.hitTotalState || '') !== String(b.hitTotalState || '')) return true
+  if (String(a?.hitTotalState || '') !== String(b?.hitTotalState || '')) return true
   const at = a?.hitTotal
-  const bt = b.hitTotal
+  const bt = b?.hitTotal
   if (at == null && bt == null) return false
   return Number(at) !== Number(bt)
 }
@@ -1423,7 +1423,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         && !isBizListQueryAction(action)
         && !instanceNo,
       )
-      const previewAction = waitingPick
+      const previewAction = waitingPick && bindSheet
         ? (String(bindSheet.action || '').trim() || action)
         : action
       const liveSid = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
@@ -1474,7 +1474,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         action: previewAction,
         system,
         connectionId,
-        speech: waitingPick
+        speech: waitingPick && bindSheet
           ? String(bindSheet.speech || hopBind.speech || `${previewAction}${previewKind}`)
           : `${previewAction}${previewKind}`,
         ...(liveSid ? { sessionId: liveSid } : {}),
@@ -1587,7 +1587,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
           action: surface.action,
           preview_id: surface.previewId || '',
           rows: [],
-        }, { sessionId: surface.sessionId, at: surface.createdAt, tokenIndex: writePreviewRef.current }),
+        }, { sessionId: surface.sessionId || undefined, at: surface.createdAt, tokenIndex: writePreviewRef.current }),
         source: 'ai',
         at: surface.createdAt,
       })

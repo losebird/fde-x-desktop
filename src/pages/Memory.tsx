@@ -931,7 +931,7 @@ function HealthPanel({ cwd, ready, onRetry }: { cwd: string; ready: Record<strin
                 </div>
               )
             })}
-            {group.has_more && next && (
+            {group.has_more === true && next ? (
               <button
                 type="button"
                 className="btn h-7 px-2 mt-1"
@@ -940,7 +940,7 @@ function HealthPanel({ cwd, ready, onRetry }: { cwd: string; ready: Record<strin
                   dup_offset: Number(next.dup_offset || 0),
                 }, true)}
               >更多</button>
-            )}
+            ) : null}
           </div>
         )
       })}

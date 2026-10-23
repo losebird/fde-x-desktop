@@ -1649,7 +1649,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       const listed = packedApps.length ? await runtimeApi.listFdeApps().catch(() => []) : []
       for (const row of packedApps) {
         const spec = { ...row.spec, _workspaceCwd: workspace.cwd }
-        const slug = String(row.slug || spec.slug || '').trim()
+        const slug = String(row.slug || row.spec.slug || '').trim()
         if (!slug) {
           warnings.push('有应用缺 slug，跳过')
           continue

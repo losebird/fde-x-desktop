@@ -8,6 +8,7 @@ import {
   type BizVocabKind,
   type McpServerV2,
 } from '@/lib/runtime-api'
+import { isFdeAppSpec } from '@/lib/app-spec'
 import { briefingConnectedServerNames, mcpSectionFromConnectedPick, TASK_STATUSES } from '../../../runtime/briefing/defaults.mjs'
 import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
 
@@ -140,7 +141,8 @@ export function BriefingSettingsDrawer({
         if (!app) continue
         try {
           const detail = await runtimeApi.getDeclarativeApp(app.id)
-          const views = Array.isArray(detail?.spec?.views) ? detail.spec.views : []
+          const spec = detail?.spec
+          const views = spec && isFdeAppSpec(spec) ? spec.views : []
           const stats = views
             .filter((view) => view && view.type === 'stat' && view.id)
             .map((view) => ({ id: String(view.id), label: String(view.label || view.id) }))

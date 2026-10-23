@@ -11,6 +11,7 @@ import {
   specHasUse,
   type FdeAppSpec,
   type FdePlatformUse,
+  type FdeWebSpec,
 } from '@/lib/app-spec'
 import { submitCurrentTurn } from '@/lib/current-turn'
 import { runtimeApi, type MemoryDraftCard } from '@/lib/runtime-api'
@@ -132,7 +133,7 @@ function openFilesModule(selectedId?: string, workspaceId?: string) {
   state.togglePanel('files', 'full')
 }
 
-async function draftImReply(spec: FdeAppSpec): Promise<string> {
+async function draftImReply(spec: FdeAppSpec | FdeWebSpec): Promise<string> {
   const text = [
     `${spec.name}`,
     spec.description || '',
@@ -192,7 +193,7 @@ export function isMemoryDraftCard(value: DeclaredPlatformUseResult): value is Me
 
 export async function runDeclaredPlatformUse(
   use: FdePlatformUse,
-  spec: FdeAppSpec,
+  spec: FdeAppSpec | FdeWebSpec,
   appId?: string,
   context?: { title?: string; rowId?: string; entity?: string; blurb?: string },
 ): Promise<DeclaredPlatformUseResult> {

@@ -512,7 +512,7 @@ function TodoTab() {
       return
     }
     const nextPatch = isHostGoalId(suggestion.taskId)
-      ? hostGoalStatusOnly(patch as Record<string, unknown>)
+      ? hostGoalStatusOnly(patch)
       : patch
     if (!Object.keys(nextPatch).length) {
       setOrganizeError('Host goal 只能改状态')
@@ -522,7 +522,7 @@ function TodoTab() {
     setOrganizeError('')
     try {
       const workspaceId = useApp.getState().activeWorkspaceId
-      await updateTask(suggestion.taskId, { ...nextPatch, workspaceId } as TaskAdvicePatch, { via: 'organize' })
+      await updateTask(suggestion.taskId, { ...nextPatch, workspaceId }, { via: 'organize' })
       setAppliedKeys((prev) => new Set(prev).add(key))
     } catch (cause) {
       setOrganizeError(cause instanceof Error ? cause.message : '应用建议失败')

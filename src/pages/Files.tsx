@@ -317,27 +317,6 @@ function renderPreview(
       </div>
     )
   }
-  if (file.kind === 'sheet') {
-    // 把 csv 简单渲染成表格
-    const rows = (file.content || '').split('\n').filter(Boolean).map((l) => l.split(','))
-    if (rows.length === 0) return <Empty title="空表格" />
-    return (
-      <div className="overflow-auto border border-line rounded">
-        <table className="w-full text-sm">
-          <thead className="bg-surface-2">
-            <tr>{rows[0].map((c, i) => <th key={i} className="text-left px-3 py-2 font-medium">{c}</th>)}</tr>
-          </thead>
-          <tbody>
-            {rows.slice(1).map((r, i) => (
-              <tr key={i} className="border-t border-line">
-                {r.map((c, j) => <td key={j} className="px-3 py-2">{c}</td>)}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
-  }
   return (
     <div className="bg-surface border border-line rounded p-6 text-sm whitespace-pre-wrap">
       {file.content || '(此类型暂无内嵌预览)'}
