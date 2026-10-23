@@ -2142,7 +2142,49 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     </label>
   ) : null
 
+  const previewDrawer = drawer ? (
+    <BizPreviewDrawer
+      sheet={drawer.sheet}
+      canWrite={drawer.canWrite}
+      loading={loading}
+      gateReason={drawer.gateReason}
+      originalRow={drawer.originalRow}
+      patch={drawer.patch}
+      columns={columns}
+      allowRebind={Boolean(draftPatchForSheet(drawer.sheet, draftEdits, columns))}
+      onClose={dismissPreviewDrawer}
+      onConfirm={() => void confirmWrite()}
+      onPick={(field, id) => {
+        const action = String(drawer.sheet.action || '')
+        const input = spokenCellInput(drawer.sheet, { [field]: id })
+        const no = writeTargetNo(drawer.sheet, selectedRow)
+        const primary = writeTargetRow(drawer.sheet, selectedRow)
+        if (!no || !primary) {
+          setError('先点一行再点格')
+          return
+        }
+        if (action === '改行') {
+          void runPreview(action, {
+            no,
+            input: { ...primary, ...input },
+            originalRow: primary,
+          })
+          return
+        }
+        void runPreview(action || '新建', { input, no })
+      }}
+    />
+  ) : null
+
   if (!connectorOptions.length) {
+    if (previewDrawer) {
+      return (
+        <div className="space-y-3">
+          {previewDrawer}
+          <Empty title="先在设置登记业务连接器" hint="登记后可在此对 AI 浮现的业务行做过账" />
+        </div>
+      )
+    }
     return <Empty title="先在设置登记业务连接器" hint="登记后可在此对 AI 浮现的业务行做过账" />
   }
 
@@ -2176,6 +2218,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
             <span>{gateHint}。等底座恢复后，AI 在会话里的现查/改行会浮现到这里。</span>
           </div>
         )}
+        {previewDrawer}
         <Empty
           title="还没有 AI 查过或改过的业务记录"
           hint="在左侧 AI 会话里现查、改行、新建或过账后，对应行会出现在这里；本页不会列出全部型芯片，也不会整表倾倒源系统。"
@@ -2497,39 +2540,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         )}
       </div>
 
-      {drawer && (
-        <BizPreviewDrawer
-          sheet={drawer.sheet}
-          canWrite={drawer.canWrite}
-          loading={loading}
-          gateReason={drawer.gateReason}
-          originalRow={drawer.originalRow}
-          patch={drawer.patch}
-          columns={columns}
-          allowRebind={Boolean(draftPatchForSheet(drawer.sheet, draftEdits, columns))}
-          onClose={dismissPreviewDrawer}
-          onConfirm={() => void confirmWrite()}
-          onPick={(field, id) => {
-            const action = String(drawer.sheet.action || '')
-            const input = spokenCellInput(drawer.sheet, { [field]: id })
-            const no = writeTargetNo(drawer.sheet, selectedRow)
-            const primary = writeTargetRow(drawer.sheet, selectedRow)
-            if (!no || !primary) {
-              setError('先点一行再点格')
-              return
-            }
-            if (action === '改行') {
-              void runPreview(action, {
-                no,
-                input: { ...primary, ...input },
-                originalRow: primary,
-              })
-              return
-            }
-            void runPreview(action || '新建', { input, no })
-          }}
-        />
-      )}
+      {previewDrawer}
     </div>
   )
 }
