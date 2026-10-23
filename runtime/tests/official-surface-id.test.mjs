@@ -1,7 +1,9 @@
 import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { subscribe } from '../events.mjs'
+import { sameWorkspaceCwd } from '../cwd.mjs'
+import { matchesWorkspaceFilter, subscribe } from '../events.mjs'
+import { emitBizSheetPending } from '../routes/biz.mjs'
 import { startLanAssistStateWatch } from '../lan-assist-state-watch.mjs'
 
 test('a new official sheet is emitted with the surface id prepared for it', async () => {
@@ -35,6 +37,34 @@ test('a new official sheet is emitted with the surface id prepared for it', asyn
   assert.equal(events.length, 1)
   assert.equal(events[0].payload.surfaceId, 'bsurf_new')
   assert.equal(events[0].payload.sheet.rows.length, 4)
+  assert.equal(sameWorkspaceCwd(events[0].workspaceCwd, '/tmp/ws-surf'), true)
+  assert.equal(matchesWorkspaceFilter(events[0], '/tmp/ws-surf'), true)
+})
+
+test('biz.sheet.pending keeps a canonical envelope cwd and drops when the caller has none', () => {
+  const events = []
+  const stop = subscribe((envelope) => {
+    if (envelope.type === 'biz.sheet.pending') events.push(envelope)
+  })
+  const sheet = {
+    kind: 'KindTicket',
+    action: '现查',
+    rows: [{ no: 'T-1' }],
+  }
+  const stamped = emitBizSheetPending(sheet, { workspaceCwd: '/tmp/ws-surf/', sessionId: 'sess-cwd' })
+  const missing = emitBizSheetPending(sheet, { sessionId: 'sess-none' })
+  stop()
+  assert.equal(stamped, true)
+  assert.equal(missing, true)
+  assert.equal(events.length, 2)
+  assert.equal(events[0].workspaceCwd, '/tmp/ws-surf')
+  assert.equal(sameWorkspaceCwd(events[0].workspaceCwd, '/tmp/ws-surf'), true)
+  assert.equal(matchesWorkspaceFilter(events[0], '/tmp/ws-surf'), true)
+  assert.equal(matchesWorkspaceFilter(events[0], '/tmp/ws-other'), false)
+  assert.equal(events[0].payload.workspaceCwd, '/tmp/ws-surf/')
+  assert.equal(events[1].workspaceCwd, null)
+  assert.equal(matchesWorkspaceFilter(events[1], '/tmp/ws-surf'), false)
+  assert.equal(matchesWorkspaceFilter({ type: 'biz.sheet.pending', workspaceCwd: null }, '/tmp/ws-surf'), false)
 })
 
 test('official-sheet mailbox flushes the served sheet without polling', async () => {
