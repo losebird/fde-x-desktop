@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
-import { gzipSync } from 'node:zlib'
 import {
   cpSync,
   existsSync,
@@ -342,13 +341,8 @@ async function vendorIsSymlink(dshHome) {
   }
 }
 
-const NPM_PACK_MTIME = 499162500
-const natsProofs = new Map()
-
-function padOctal(num, size) {
-  const str = Math.floor(num).toString(8)
-  const body = str.length === size - 1 ? str : `${'0'.repeat(size - str.length - 2)}${str} `
-  return `${body}\0`
+const NATS_PUBLISHED_CONTENT = {
+  '2.29.3': 'd5e431d28c29ff3d0bfbb51d2b699e13d76ee1d0ffe9322277fcdb0d40dd1b16',
 }
 
 function readJsonFile(path) {
@@ -413,45 +407,6 @@ export function natsContentDigest(natsDir) {
   return hash.digest('hex')
 }
 
-function tarHeader(name, size, mode) {
-  const buf = Buffer.alloc(512)
-  buf.write(name, 0, 'utf8')
-  buf.write(padOctal(mode, 8), 100, 'ascii')
-  buf.write(padOctal(size, 12), 124, 'ascii')
-  buf.write(padOctal(NPM_PACK_MTIME, 12), 136, 'ascii')
-  buf[156] = 0x30
-  buf.write('ustar\0' + '00', 257, 'ascii')
-  buf.write(padOctal(0, 8), 329, 'ascii')
-  buf.write(padOctal(0, 8), 337, 'ascii')
-  let sum = 8 * 0x20
-  for (let i = 0; i < 148; i += 1) sum += buf[i]
-  for (let i = 156; i < 512; i += 1) sum += buf[i]
-  buf.write(padOctal(sum, 8), 148, 'ascii')
-  return buf
-}
-
-function natsPackIntegrity(natsDir) {
-  const chunks = []
-  for (const rel of natsPackNames(natsDir)) {
-    const path = join(natsDir, rel)
-    const data = readFileSync(path)
-    chunks.push(tarHeader(`package/${rel}`, data.length, natsFileMode(path)))
-    chunks.push(data)
-    const pad = (512 - (data.length % 512)) % 512
-    if (pad) chunks.push(Buffer.alloc(pad))
-  }
-  chunks.push(Buffer.alloc(1024))
-  // npm portable pack. sha512 of this gzip is the lock integrity.
-  const gz = gzipSync(Buffer.concat(chunks), { level: 9, memLevel: 8 })
-  gz[4] = 0
-  gz[5] = 0
-  gz[6] = 0
-  gz[7] = 0
-  gz[8] = 2
-  gz[9] = 0xff
-  return `sha512-${createHash('sha512').update(gz).digest('base64')}`
-}
-
 export function natsInstallFact(pluginDir) {
   if (!pluginDeclaresNats(pluginDir)) return { needed: false }
   const pkgPath = join(pluginDir, 'node_modules', 'nats', 'package.json')
@@ -471,13 +426,8 @@ export function natsIntegrityProblem(pluginDir) {
   if (fact.missing) return 'NATS_DEPENDENCY_MISSING'
   const lock = natsLockSpec(pluginDir)
   if (!lock || fact.version !== lock.version) return 'nats integrity mismatch'
-  const key = `${lock.integrity}\0${lock.version}\0${fact.content}`
-  const cached = natsProofs.get(key)
-  if (cached === true) return null
-  if (cached === false) return 'nats integrity mismatch'
-  const ok = natsPackIntegrity(join(pluginDir, 'node_modules', 'nats')) === lock.integrity
-  natsProofs.set(key, ok)
-  return ok ? null : 'nats integrity mismatch'
+  if (fact.content !== NATS_PUBLISHED_CONTENT[lock.version]) return 'nats integrity mismatch'
+  return null
 }
 
 export function natsStampFields(pluginDir) {
