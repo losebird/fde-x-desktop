@@ -505,6 +505,11 @@ export default function AI() {
     if (row.probe === 'failed' || typeof row.ready !== 'boolean') return
     setMemoryReady(row)
   })
+  useEvents(
+    ['ai.session.changed'],
+    () => { void reloadRemoteSessions().catch(() => undefined) },
+    workspaceCwd ? { workspace: workspaceCwd } : undefined,
+  )
 
   useEffect(() => {
     if (runtimeConnected) connectedAtRef.current = Date.now()
