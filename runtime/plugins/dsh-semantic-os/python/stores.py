@@ -1,15 +1,3 @@
-"""FalkorDB is the primary graph book. graph.json is backup only.
-
-Explorer still reasons on an in-memory ContextGraph. We load that graph
-from FalkorDB when the store is up, and write it back on every save.
-
-TCP 127.0.0.1:6379 is tried first (Docker / already-running server).
-If TCP is down, a process-wide FalkorDBLite singleton opens
-~/.dsh/semantic-os/falkordb/graph.db (honors DSH_HOME). One lite file,
-many named graphs via graph_name(cwd). Default lite is a Unix socket,
-not 6379.
-"""
-
 from __future__ import annotations
 
 import atexit
@@ -17,6 +5,7 @@ import hashlib
 import json
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -78,11 +67,6 @@ _TCP_TTL_SECONDS = 30.0
 
 
 def _tcp_status() -> dict[str, Any] | None:
-    # A Docker redis on 127.0.0.1:6379 that is NOT a FalkorDB server makes the
-    # probe fail after a connection timeout. read_primary/_open_graph each call
-    # this on every search, so cache the result and avoid re-paying that probe
-    # on every request. Success is cached too (re-probing is cheap but pointless
-    # while the server is clearly up).
     global _TCP_CACHE, _TCP_CACHE_TS
     now = time.monotonic()
     if _TCP_CACHE is not None and (now - _TCP_CACHE_TS) < _TCP_TTL_SECONDS:
@@ -120,24 +104,172 @@ def _open_lite() -> Any:
         Lite = _import_lite_cls()
         path = lite_db_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        _reap_owner(path)
+        _use_foreground_redis()
         try:
-            # redislite speaks over a unix socket; forcing a TCP port made
-            # redis-server try to listen on 6379 and time out (~10s) on macOS.
-            # port '0' keeps it socket-only and starts in ~0.1s.
-            db = Lite(str(path), serverconfig={"port": "0"})
+            db = Lite(str(path), serverconfig={"port": "0", "daemonize": "no"})
             db.select_graph("dsh_ping").query("RETURN 1")
         except Exception as exc:
             _LITE_ERROR = _lite_fail_detail(exc)
             raise
+        finally:
+            _restore_redis_start()
         _LITE_DB = db
         _LITE_PATH = str(path)
         _LITE_ERROR = ""
+        client = getattr(db, "client", None)
+        pid = 0
+        if client is not None:
+            try:
+                pid = int(getattr(client, "pid", 0) or 0)
+            except (TypeError, ValueError):
+                pid = 0
+        if pid:
+            _write_owner(path, pid)
         _register_lite_shutdown()
         return _LITE_DB
 
 
+_LITE_STOP_BOUND_SECONDS = 2.0
+_UNREAD = object()
+
+
+def _read_identity(pid: int):
+    """(command line, start token), None if that pid is gone, or _UNREAD."""
+    if os.name == 'posix' and os.path.isdir('/proc'):
+        stat_path = f'/proc/{int(pid)}/stat'
+        cmd_path = f'/proc/{int(pid)}/cmdline'
+        try:
+            stat = open(stat_path, encoding='utf-8').read()
+            raw = open(cmd_path, 'rb').read()
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return _UNREAD
+        fields = stat[stat.rfind(')') + 2:].split()
+        if not fields:
+            return _UNREAD
+        if fields[0] in ('Z', 'X'):
+            return None
+        cmdline = tuple(part.decode('utf-8', 'replace') for part in raw.split(b'\0') if part)
+        # starttime is field 22, the 20th token after comm.
+        if len(fields) <= 19 or not cmdline:
+            return _UNREAD
+        return (cmdline, fields[19])
+    try:
+        import psutil
+    except ImportError:
+        return _UNREAD
+    try:
+        proc = psutil.Process(int(pid))
+        cmdline = tuple(proc.cmdline())
+        if proc.status() == psutil.STATUS_ZOMBIE or not cmdline:
+            return None if proc.status() == psutil.STATUS_ZOMBIE else _UNREAD
+        return (cmdline, proc.create_time())
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        return None
+    except (psutil.Error, OSError, ValueError):
+        return _UNREAD
+
+
+def _redis_mark(pid: int):
+    mark = _read_identity(pid)
+    if mark is None or mark is _UNREAD:
+        return None
+    return mark
+
+
+def _same_redis(pid: int, mark) -> bool:
+    if not pid or mark is None:
+        return False
+    current = _read_identity(pid)
+    if current is _UNREAD:
+        current = _read_identity(pid)
+    return current == mark
+
+
+def _signal_redis(pid: int, mark, sig: int) -> None:
+    if not _same_redis(pid, mark):
+        return
+    os.kill(int(pid), sig)
+
+
+def _wait_redis(pid: int, mark, bound: float) -> bool:
+    deadline = time.monotonic() + bound
+    while True:
+        current = _read_identity(pid)
+        if current is None:
+            return True
+        if current is not _UNREAD and current != mark:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def _reap_foreground_proc(client) -> None:
+    proc = getattr(client, "_dsh_proc", None)
+    if proc is None:
+        return
+    try:
+        exited = proc.poll()
+    except Exception:
+        return
+    if exited is None:
+        return
+    try:
+        proc.wait(timeout=0)
+    except Exception:
+        pass
+
+
+def _arm_close_shutdown(client) -> None:
+    # redis-py retries the ConnectionError that means SHUTDOWN worked, and
+    # redislite then treats an unreaped foreground child as still running.
+    # Both have to be undone before that is_running loop, on this Popen only.
+    if client is None or getattr(client, "_dsh_shutdown_orig", None) is not None:
+        return
+    original = client.shutdown
+
+    def shutdown_once(*args, **kwargs):
+        from redis.backoff import NoBackoff
+        from redis.retry import Retry
+
+        previous = client.get_retry()
+        changed = previous is not None
+        if changed:
+            client.set_retry(Retry(NoBackoff(), 0))
+        try:
+            return original(*args, **kwargs)
+        finally:
+            try:
+                if changed:
+                    client.set_retry(previous)
+            finally:
+                _reap_foreground_proc(client)
+
+    client.shutdown = shutdown_once
+    client._dsh_shutdown_orig = original
+
+
+def _disarm_close_shutdown(client) -> None:
+    original = getattr(client, "_dsh_shutdown_orig", None) if client is not None else None
+    if original is None:
+        return
+    client.shutdown = original
+    try:
+        del client._dsh_shutdown_orig
+    except Exception:
+        pass
+
+
 def close_lite() -> None:
-    """Stop the embedded redis-server. Sidecar exit must not leave orphans."""
+    """Stop the embedded redis-server before the sidecar exits.
+
+    db.close() drops the pidfile when another connection is open, and the
+    daemonized server stays up. The pid, command line, and start time taken
+    before close are the only identity a later signal is allowed to match.
+    """
     global _LITE_DB, _LITE_PATH
     with _LITE_LOCK:
         db = _LITE_DB
@@ -145,27 +277,60 @@ def close_lite() -> None:
         _LITE_PATH = ""
     if db is None:
         return
+    _note_shutdown("close_lite")
     client = getattr(db, "client", None)
-    pid = getattr(client, "pid", None) if client is not None else None
-    closer = getattr(db, "close", None)
-    if callable(closer):
+    pid = 0
+    if client is not None:
         try:
-            closer()
+            pid = int(getattr(client, "pid", 0) or 0)
+        except (TypeError, ValueError):
+            pid = 0
+    mark = _redis_mark(pid) if pid else None
+    _arm_close_shutdown(client)
+    try:
+        closed = False
+        closer = getattr(db, "close", None)
+        if callable(closer):
+            try:
+                closer()
+                closed = True
+            except Exception:
+                closed = False
+        if not closed and client is not None:
+            cleanup = getattr(client, "_cleanup", None)
+            if callable(cleanup):
+                try:
+                    cleanup()
+                except Exception:
+                    pass
+        if not _same_redis(pid, mark):
             return
-        except Exception:
-            pass
-    cleanup = getattr(client, "_cleanup", None) if client is not None else None
-    if callable(cleanup):
-        try:
-            cleanup()
+        shutdown = getattr(client, "shutdown", None) if client is not None else None
+        if callable(shutdown):
+            try:
+                shutdown(nosave=True, now=True, force=True)
+            except Exception:
+                pass
+        if _same_redis(pid, mark):
+            try:
+                _signal_redis(pid, mark, signal.SIGTERM)
+            except OSError:
+                pass
+        if _wait_redis(pid, mark, _LITE_STOP_BOUND_SECONDS):
             return
-        except Exception:
-            pass
-    if pid:
         try:
-            os.kill(int(pid), signal.SIGTERM)
-        except Exception:
+            _signal_redis(pid, mark, signal.SIGKILL)
+        except OSError:
             pass
+        _wait_redis(pid, mark, 0.5)
+        proc = getattr(client, "_dsh_proc", None) if client is not None else None
+        if proc is not None and proc.poll() is not None:
+            try:
+                proc.wait(timeout=0)
+            except Exception:
+                pass
+    finally:
+        _disarm_close_shutdown(client)
 
 
 def _register_lite_shutdown() -> None:
@@ -174,6 +339,242 @@ def _register_lite_shutdown() -> None:
         return
     atexit.register(close_lite)
     _LITE_ATEXIT = True
+
+
+def _note_shutdown(who: str) -> None:
+    spy = (os.environ.get("FDE_REDIS_SHUTDOWN_SPY") or "").strip()
+    if not spy:
+        return
+    try:
+        with open(spy, "a", encoding="utf-8") as handle:
+            handle.write(f"{who}\n")
+    except OSError:
+        return
+
+
+def _start_token(start: Any) -> str:
+    if isinstance(start, float):
+        return repr(start)
+    return str(start)
+
+
+def _exe_path(pid: int) -> str:
+    if os.name == "nt" or sys.platform == "win32":
+        return ""
+    if os.path.isdir("/proc"):
+        try:
+            return os.readlink(f"/proc/{int(pid)}/exe")
+        except OSError:
+            return ""
+    try:
+        import psutil
+    except ImportError:
+        return ""
+    try:
+        return str(psutil.Process(int(pid)).exe() or "")
+    except (psutil.Error, OSError, ValueError):
+        return ""
+
+
+def _owner_file(db_path: Path) -> Path:
+    path = Path(db_path)
+    return path.parent / f"{path.name}.owner.json"
+
+
+def _load_owner(db_path: Path) -> tuple[str, dict[str, Any] | None]:
+    path = _owner_file(db_path)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return "absent", None
+    except OSError:
+        return "corrupt", None
+    try:
+        body = json.loads(raw)
+    except json.JSONDecodeError:
+        return "corrupt", None
+    if not isinstance(body, dict):
+        return "corrupt", None
+    return "ok", body
+
+
+def _sidecar_alive(body: dict[str, Any]) -> bool:
+    pid = body.get("sidecar_pid")
+    start = body.get("sidecar_start")
+    cmdline = body.get("sidecar_cmdline")
+    if not isinstance(pid, int) or pid <= 1:
+        return True
+    if not isinstance(start, str) or not start:
+        return True
+    if not isinstance(cmdline, list) or not all(isinstance(part, str) and part for part in cmdline):
+        return True
+    ident = _read_identity(pid)
+    if ident is _UNREAD:
+        return True
+    if ident is None:
+        return False
+    live_cmd, live_start = ident
+    return list(live_cmd) == cmdline and _start_token(live_start) == start
+
+
+def _owner_decision(kind: str, body: dict[str, Any] | None, db_path: Path) -> str:
+    if os.name == "nt" or sys.platform == "win32":
+        return "windows"
+    if kind == "absent":
+        return "absent"
+    if kind != "ok" or not isinstance(body, dict):
+        return "corrupt"
+    pid = body.get("pid")
+    cmdline = body.get("cmdline")
+    start = body.get("start")
+    exe = body.get("exe")
+    recorded_db = body.get("db")
+    if not isinstance(pid, int) or pid <= 1:
+        return "corrupt"
+    if not isinstance(cmdline, list) or not all(isinstance(part, str) and part for part in cmdline):
+        return "corrupt"
+    if not isinstance(start, str) or not start:
+        return "corrupt"
+    if not isinstance(exe, str) or not exe:
+        return "corrupt"
+    if not isinstance(recorded_db, str) or not recorded_db:
+        return "corrupt"
+    if recorded_db != str(Path(db_path).resolve()):
+        return "foreign-db"
+    if _sidecar_alive(body):
+        return "sidecar-live"
+    ident = _read_identity(pid)
+    if ident is _UNREAD:
+        return "unread"
+    if ident is None:
+        return "gone"
+    live_cmd, live_start = ident
+    live_exe = _exe_path(pid)
+    if not live_exe or live_exe != exe:
+        return "mismatch"
+    if _start_token(live_start) != start:
+        return "mismatch"
+    live_list = list(live_cmd)
+    if live_list == cmdline:
+        return "claim"
+    # redis setproctitle drops --loadmodule. A snapshot taken before that
+    # rewrite still names the same binary and start time.
+    if "--loadmodule" in cmdline and live_list and live_list[0] == cmdline[0]:
+        return "claim"
+    return "mismatch"
+
+
+def _reap_owner(db_path: Path) -> str:
+    if os.name == "nt" or sys.platform == "win32":
+        return "windows"
+    kind, body = _load_owner(db_path)
+    decision = _owner_decision(kind, body, db_path)
+    if decision != "claim" or not isinstance(body, dict):
+        return decision
+    pid = int(body["pid"])
+    mark = _redis_mark(pid)
+    if mark is None:
+        return "gone"
+    _note_shutdown("reap")
+    try:
+        _signal_redis(pid, mark, signal.SIGTERM)
+    except OSError:
+        pass
+    if not _wait_redis(pid, mark, _LITE_STOP_BOUND_SECONDS):
+        try:
+            _signal_redis(pid, mark, signal.SIGKILL)
+        except OSError:
+            pass
+        _wait_redis(pid, mark, 0.5)
+    return "claim"
+
+
+def _write_owner(db_path: Path, pid: int) -> None:
+    if os.name == "nt" or sys.platform == "win32":
+        return
+    ident = _read_identity(pid)
+    if ident is None or ident is _UNREAD:
+        return
+    exe = _exe_path(pid)
+    if not exe:
+        return
+    side = _read_identity(os.getpid())
+    if side is None or side is _UNREAD:
+        return
+    cmdline, start = ident
+    side_cmd, side_start = side
+    body = {
+        "pid": int(pid),
+        "cmdline": list(cmdline),
+        "start": _start_token(start),
+        "exe": exe,
+        "db": str(Path(db_path).resolve()),
+        "sidecar_pid": os.getpid(),
+        "sidecar_start": _start_token(side_start),
+        "sidecar_cmdline": list(side_cmd),
+    }
+    path = _owner_file(db_path)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(body), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+_ORIGINAL_REDIS_START = None
+
+
+def _foreground_start_redis(self) -> None:
+    import redislite.client as client_mod
+
+    self.redis_configuration_filename = os.path.join(self.redis_dir, "redis.config")
+    kwargs = dict(self.server_config)
+    kwargs.update({
+        "pidfile": self.pidfile,
+        "logfile": kwargs.get("logfile", self.logfile),
+        "unixsocket": self.socket_file,
+        "dbdir": self.dbdir,
+        "dbfilename": self.dbfilename,
+    })
+    kwargs["daemonize"] = "no"
+    self.redis_configuration = client_mod.configuration.config(**kwargs)
+    with open(self.redis_configuration_filename, "w", encoding="utf-8") as handle:
+        handle.write(self.redis_configuration)
+    redis_executable = client_mod.__redis_executable__ or "redis-server"
+    command = [redis_executable, self.redis_configuration_filename]
+    module = client_mod.__falkordb_module__
+    if module and os.path.exists(module):
+        command.extend(["--loadmodule", module])
+    proc = subprocess.Popen(command)
+    self._dsh_proc = proc
+    deadline = time.monotonic() + float(self.start_timeout)
+    while not (self.socket_file and os.path.exists(self.socket_file)):
+        if proc.poll() not in (None, 0):
+            raise client_mod.RedisLiteException("The binary redis-server failed to start")
+        if time.monotonic() >= deadline:
+            raise client_mod.RedisLiteServerStartError("The redis-server process failed to start")
+        time.sleep(0.1)
+    self._save_setting_registry()
+    self.running = True
+
+
+def _use_foreground_redis() -> None:
+    global _ORIGINAL_REDIS_START
+    import redislite.client as client_mod
+
+    current = client_mod.RedisMixin._start_redis
+    if current is _foreground_start_redis:
+        return
+    _ORIGINAL_REDIS_START = current
+    client_mod.RedisMixin._start_redis = _foreground_start_redis
+
+
+def _restore_redis_start() -> None:
+    global _ORIGINAL_REDIS_START
+    if _ORIGINAL_REDIS_START is None:
+        return
+    import redislite.client as client_mod
+
+    client_mod.RedisMixin._start_redis = _ORIGINAL_REDIS_START
+    _ORIGINAL_REDIS_START = None
 
 
 def _lite_status() -> dict[str, Any]:
@@ -477,12 +878,6 @@ def forget_node_rows(cwd: str = "") -> None:
 
 
 def read_node_rows(cwd: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Read raw node rows for fast text search WITHOUT importing semantica.
-
-    Importing semantica.context pulls onnxruntime and costs ~12s on first use.
-    Text search only needs id/type/content/properties, so read them straight
-    from FalkorDB (or the graph.json backup) and skip the heavy import.
-    """
     cache_key = os.path.realpath(cwd or "")
     now = time.time()
     with _ROWS_LOCK:
@@ -541,7 +936,6 @@ def read_node_rows(cwd: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
 
 def read_memory_card_rows(cwd: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Inbox rows only. Avoids pulling every session body into the drawer."""
     st = primary_status()
     if st.get("ok"):
         try:
@@ -615,7 +1009,6 @@ def read_nodes_by_id(cwd: str, ids: list[str]) -> dict[str, dict[str, Any]]:
 
 
 def patch_node_props(cwd: str, nid: str, extra: dict[str, Any]) -> dict[str, Any]:
-    """Merge leaf fields onto one node. No semantica import, no vector rebuild."""
     nid = str(nid or "").strip()
     if not nid:
         return {"error": "NO_PATH"}
@@ -695,7 +1088,6 @@ def _patch_graph_json(cwd: str, nid: str, extra: dict[str, Any]) -> None:
 
 
 def insert_memory_card(cwd: str, nid: str, label: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Create one 记忆卡片. No semantica import, no vector rebuild."""
     nid = str(nid or "").strip()
     label = str(label or "").strip()
     extra = extra if isinstance(extra, dict) else {}
@@ -730,7 +1122,6 @@ def insert_memory_card(cwd: str, nid: str, label: str, extra: dict[str, Any] | N
 
 
 def insert_edge(cwd: str, src: str, tgt: str, et: str) -> dict[str, Any]:
-    """Create one edge. No semantica import, no vector rebuild."""
     src = str(src or "").strip()
     tgt = str(tgt or "").strip()
     et = str(et or "").strip()
@@ -848,7 +1239,6 @@ def _insert_graph_json(cwd: str, nid: str, label: str, extra: dict[str, Any]) ->
 
 
 def upsert_entity(cwd: str, nid: str, ntype: str, label: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Insert one entity without loading ContextGraph."""
     nid = str(nid or "").strip()
     ntype = str(ntype or "Entity").strip() or "Entity"
     label = str(label or nid).strip() or nid
@@ -875,7 +1265,6 @@ def upsert_entity(cwd: str, nid: str, ntype: str, label: str, extra: dict[str, A
 
 
 def read_edge_rows(cwd: str) -> list[dict[str, Any]]:
-    """Read raw edge rows (source, target, type) without importing semantica."""
     st = primary_status()
     if st.get("ok"):
         try:
@@ -1061,7 +1450,6 @@ def _write_sparse_index(dest: Path, cwd: str, ids: list[str], texts: list[str], 
 
 
 def rebuild_vectors(cwd: str, graph: Any) -> dict[str, Any]:
-    """Same TF-IDF ruler as before, stored sparse. Never densify into FAISS."""
     ids, texts = _collect_vector_texts(graph)
     return _rebuild_from_texts(cwd, ids, texts)
 
@@ -1086,7 +1474,6 @@ def _vector_root(cwd: str) -> str:
 
 
 def schedule_rebuild_vectors(cwd: str, graph: Any) -> dict[str, Any]:
-    """Queue one rebuild per workspace. Later writes replace the pending snapshot."""
     root = _vector_root(cwd)
     ids, texts = _collect_vector_texts(graph)
     with _VECTOR_LOCK:
@@ -1127,7 +1514,6 @@ def wait_vector_rebuild(cwd: str, timeout: float = 15.0) -> bool:
 
 
 def vector_index_status(cwd: str) -> dict[str, Any]:
-    """Settings-facing complement state. Does not import faiss."""
     st = vector_status()
     dest = vector_dir(cwd)
     meta = _read_vector_meta(dest)
@@ -1166,7 +1552,6 @@ def vector_index_status(cwd: str) -> dict[str, Any]:
 
 
 def search_vectors(cwd: str, query: str, limit: int = 8) -> list[dict[str, Any]]:
-    """Complement hits only. Skip legacy dense FAISS; never early-stop at the caller."""
     if not str(query or "").strip():
         return []
     loaded = _load_sparse_vectors(cwd)
