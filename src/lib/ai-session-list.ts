@@ -22,17 +22,23 @@ export async function takeSessionList<T>(
   return list(id)
 }
 
-export type SessionListGate = {
+export type SessionListGate<T = unknown> = {
   generation: number
+  applied?: T
 }
 
 export async function reloadSessionList<T>(
-  gate: SessionListGate,
+  gate: SessionListGate<T>,
   load: () => Promise<T>,
   apply: (value: T) => void,
 ): Promise<T> {
-  gate.generation += 1
+  const issued = ++gate.generation
   const value = await load()
+  if (issued !== gate.generation) {
+    if (gate.applied !== undefined) return gate.applied
+    return value
+  }
+  gate.applied = value
   apply(value)
   return value
 }

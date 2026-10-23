@@ -32,9 +32,15 @@ test('a later-issued session list keeps the renamed title when an earlier respon
   console.log(JSON.stringify({ phase: 'rename response landed', title: shown[0]?.title ?? null }))
   assert.equal(shown[0]?.title, '整理待办 · 10/19 14:05')
   created.release()
-  await createdLoad
-  console.log(JSON.stringify({ phase: 'earlier create response landed', title: shown[0]?.title ?? null }))
+  const earlierRows = await createdLoad
+  console.log(JSON.stringify({
+    phase: 'earlier create response landed',
+    published: shown[0]?.title ?? null,
+    returned: earlierRows[0]?.title ?? null,
+  }))
   assert.equal(shown[0]?.title, '整理待办 · 10/19 14:05', 'sidebar keeps the renamed title after the earlier list returns')
+  shown = earlierRows
+  assert.equal(shown[0]?.title, '整理待办 · 10/19 14:05', 'publishing the earlier reload return keeps the renamed title')
 })
 
 test('one session list reload publishes that list', async () => {
