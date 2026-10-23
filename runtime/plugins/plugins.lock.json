@@ -276,7 +276,7 @@
         "runtime/plugins/dsh-semantic-os/python/policy/default/pack.yml": "57cdab053a219bc7c1e92379ca98da40e5794e6c2a3831d720baebea70f0722b",
         "runtime/plugins/dsh-semantic-os/python/reference.py": "1189b92529feb482ecb91d5bdfaf38835c93cecc2e53e6e0f48029daea4fc0b1",
         "runtime/plugins/dsh-semantic-os/python/sight.py": "2f7c3c649e1150abacab80d7a61006a2fa8cee5639220ca3fff641a38c6f1eff",
-        "runtime/plugins/dsh-semantic-os/python/stores.py": "f09c2995994b1e311a39b0bbc0daf7db2059bbfb3d745d11386ca6d097beea6d",
+        "runtime/plugins/dsh-semantic-os/python/stores.py": "f295e80f0d11fd928f71da8db3fcc14f370bee69823ef3e721d75358262dee48",
         "runtime/plugins/dsh-semantic-os/python/world.py": "8683dc8ff8fc372971ba57c7764d6e837fd5a658f64b08241dc66a445167a906",
         "runtime/plugins/dsh-semantic-os/runtime-bundle.js": "8c06506d17c4b20820337db63bd4925700578dffcb137d6a7862d3a46a191c20",
         "runtime/plugins/dsh-semantic-os/runtime-install.js": "818b8e5f8f7afc690be36e1707b76f61fd2c6c0a72ac75ed9819ccd55785485f",

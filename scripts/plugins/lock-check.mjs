@@ -104,6 +104,47 @@ function checkPlugin(root, name, plugin, errors) {
   return { name, files: Object.keys(files).length, mismatch }
 }
 
+function compareOverlayFile(name, sealedAbs, overlayAbs, sealedRel, errors) {
+  if (!existsSync(sealedAbs) || !existsSync(overlayAbs)) {
+    errors.push(`${name} overlay drift missing ${sealedRel}`)
+    return
+  }
+  const sealedHash = sha256(readFileSync(sealedAbs))
+  const overlayHash = sha256(readFileSync(overlayAbs))
+  if (sealedHash !== overlayHash) {
+    errors.push(`${name} overlay drift ${sealedRel} sealed=${sealedHash} overlay=${overlayHash}`)
+  }
+}
+
+function checkSemanticOverlay(root, plugin, errors) {
+  const name = 'dsh-semantic-os'
+  const sealedRoot = `runtime/plugins/${name}`
+  const storesRel = `${sealedRoot}/python/stores.py`
+  const files = plugin && plugin.files
+  const listed = Boolean(files && typeof files === 'object' && !Array.isArray(files) && Object.hasOwn(files, storesRel))
+  const overlayPath = plugin && plugin.overlay && typeof plugin.overlay.path === 'string'
+    ? plugin.overlay.path.replace(/\/+$/u, '')
+    : ''
+  if (listed && !overlayPath) {
+    errors.push(`${name} overlay path`)
+    return
+  }
+  const seen = new Set()
+  if (listed) {
+    seen.add('python/stores.py')
+    compareOverlayFile(name, join(root, storesRel), join(root, overlayPath, 'python/stores.py'), storesRel, errors)
+  }
+  if (!overlayPath || !existsSync(join(root, overlayPath))) return
+  const prefix = `${overlayPath}/`
+  for (const rel of diskFiles(root, overlayPath)) {
+    if (!rel.startsWith(prefix)) continue
+    const suffix = rel.slice(prefix.length)
+    if (!suffix || seen.has(suffix)) continue
+    const sealedRel = `${sealedRoot}/${suffix}`
+    compareOverlayFile(name, join(root, sealedRel), join(root, rel), sealedRel, errors)
+  }
+}
+
 export function verifyLockDocument(root, lock, errors, expectedByName = {}) {
   if (!lock || lock.version !== 1) errors.push('version must be 1')
   const plugins = lock && lock.plugins
@@ -118,6 +159,7 @@ export function verifyLockDocument(root, lock, errors, expectedByName = {}) {
   for (const [name, plugin] of Object.entries(plugins)) {
     const stat = checkPlugin(root, name, plugin, errors)
     if (stat) stats.push(stat)
+    if (name === 'dsh-semantic-os') checkSemanticOverlay(root, plugin, errors)
     const expected = expectedByName[name]
     if (expected !== undefined && JSON.stringify(plugin) !== JSON.stringify(expected)) {
       errors.push(`plugins.lock.json entry ${name} does not match the synthesized tree`)

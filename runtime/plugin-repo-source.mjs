@@ -32,7 +32,7 @@ const PY_EXTERNAL = new Set([
   'tokenize', 'tomllib', 'traceback', 'types', 'typing', 'unittest', 'urllib', 'uuid',
   'warnings', 'weakref', 'xml', 'zipfile', 'zlib', 'zoneinfo',
   'semantica', 'PIL', 'rdflib', 'fastapi', 'pytesseract', 'uvicorn', 'faiss', 'numpy',
-  'falkordblite', 'falkordb', 'atexit', 'pickle',
+  'falkordblite', 'falkordb', 'psutil', 'atexit', 'pickle',
 ])
 
 function sha256(buf) {
