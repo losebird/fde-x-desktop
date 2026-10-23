@@ -17,9 +17,7 @@ import { extractComposerBody } from '@/lib/im-ai'
 import { proposeTerminalGrid } from '@/lib/terminal-fit'
 import { terminalCloseAction } from '@/lib/terminal-occupancy'
 import { useEvents } from '@/lib/events'
-// @ts-expect-error runtime ESM helper
 import { combineAbortSignal } from '../../runtime/live-probe.mjs'
-// @ts-expect-error runtime ESM helper
 import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
 import {
   runtimeApi,

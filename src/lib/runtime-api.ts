@@ -1,3 +1,4 @@
+import type { FdeAppSkillBind, FdeAppSource, FdeAppSpec, FdeWebSpec } from './app-spec'
 import type { JsonValue, OperationIntent, OperationRecord } from './contracts'
 import type { Task, PlanEvent, Workflow, ScheduleEvent } from './types'
 import { activeWorkspaceCwdFromState, useApp } from '@/store/app'
@@ -7,12 +8,8 @@ import {
   type SessionCreateInput,
   type SessionRestoreInput,
 } from '@/lib/session-bind'
-// live-probe.mjs is the shared BFF/browser helper; Vite bundles it, tsc does not resolve its types from src/.
-// @ts-expect-error runtime ESM helper
 import { LIVE_PATH, LIVE_PROBE_MS, combineAbortSignal, probeRuntimeLive } from '../../runtime/live-probe.mjs'
-// @ts-expect-error runtime ESM helper
 import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
-// @ts-expect-error runtime ESM helper
 import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 
 const CONNECT_ATTEMPT_MS = 5_000
@@ -572,6 +569,7 @@ export type BriefingSectionResult = {
   fetchedAt?: string
   body?: string
   overdue?: BriefingItem[]
+  pendingAgent?: boolean
 }
 
 export type BriefingDefinition = {
@@ -2580,7 +2578,10 @@ export class RuntimeApi {
     return result
   }
 
-  async putDeclarativeAppSpec(appId: string, input: { spec: JsonValue; changeNote?: string }, signal?: AbortSignal) {
+  async putDeclarativeAppSpec(appId: string, input: {
+    spec: FdeAppSpec | (FdeWebSpec & { source?: FdeAppSource; skills?: FdeAppSkillBind[] }) | JsonValue
+    changeNote?: string
+  }, signal?: AbortSignal) {
     let response: Response
     try {
       response = await fetch(`${this.baseUrl}/api/v1/apps/${encodeURIComponent(appId)}/spec`, await withPageToken(`/api/v1/apps/${encodeURIComponent(appId)}/spec`, {
