@@ -7,7 +7,9 @@ import assert from 'node:assert/strict'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+import { sameWorkspaceCwd } from '../cwd.mjs'
 import { openDatabase } from '../db.mjs'
+import { listRecentEvents } from '../events.mjs'
 
 const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)), '..')
 const hostDouble = join(repoRoot, 'runtime/tests/fixtures/session-host-double.mjs')
@@ -95,6 +97,11 @@ function idsOf(payload) {
   return Array.isArray(items) ? items.map((item) => item.sessionId) : []
 }
 
+function renamedEvents(db, workspaceCwd, sessionId) {
+  return listRecentEvents(db, { workspaceCwd, type: 'ai.session.changed' })
+    .filter((event) => event.sessionId === sessionId && event.payload?.kind === 'renamed')
+}
+
 let server
 let sessionRoot
 let dbPath
@@ -133,6 +140,22 @@ after(async () => {
   if (server) await server.stop()
   if (dbPath) await rm(dbPath, { force: true })
   if (sessionRoot) await rm(sessionRoot, { recursive: true, force: true })
+})
+
+test('a rename is visible only in that session workspace event stream', async () => {
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  try {
+    const own = renamedEvents(db, '/ws-guard-a', sessionA)
+    assert.equal(own.length > 0, true)
+    assert.equal(sameWorkspaceCwd(own.at(-1).workspaceCwd, '/ws-guard-a'), true)
+    assert.equal(renamedEvents(db, '/ws-guard-b', sessionA).length, 0)
+    const other = renamedEvents(db, '/ws-guard-b', sessionB)
+    assert.equal(other.length > 0, true)
+    assert.equal(sameWorkspaceCwd(other.at(-1).workspaceCwd, '/ws-guard-b'), true)
+    assert.equal(renamedEvents(db, '/ws-guard-a', sessionB).length, 0)
+  } finally {
+    db.close()
+  }
 })
 
 test('a workspace list does not contain another workspace session', async () => {
