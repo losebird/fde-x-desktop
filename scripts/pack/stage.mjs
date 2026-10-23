@@ -556,6 +556,11 @@ export async function stageLanAssist(source, dest, options = {}) {
     keepNodeModules: true,
   })
   if (!staged) throw new Error(`[stage] missing plugin dsh-lan-assist: ${source}`)
+  // stagePackagedRuntime copies this plugin before npm ci. Replace that tree or connect reads a copy with no nats.
+  const runtimeDest = join(dirname(dirname(dest)), 'app', 'runtime', 'plugins', basename(dest))
+  await rm(runtimeDest, { recursive: true, force: true })
+  await mkdir(dirname(runtimeDest), { recursive: true })
+  await cp(source, runtimeDest, { recursive: true, dereference: true })
   return true
 }
 
