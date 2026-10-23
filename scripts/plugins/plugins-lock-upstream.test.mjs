@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
@@ -84,4 +84,79 @@ test('a matching disk still fails when --upstream-sha differs from the lock comm
   assert.match(stale.stderr, new RegExp(SEM))
   assert.match(stale.stderr, new RegExp(LAN))
   assert.equal(stale.stderr.includes('stale dsh-lan-assist'), false)
+})
+
+function writeRel(root, rel, body) {
+  const abs = join(root, rel)
+  mkdirSync(dirname(abs), { recursive: true })
+  writeFileSync(abs, body)
+  return { rel, hash: sha256(body) }
+}
+
+function semanticLock(root, sealedBody, overlayBody, extra) {
+  const lan = writePlugin(root, 'dsh-lan-assist', '{"name":"dsh-lan-assist"}\n')
+  const semPkg = writeRel(root, 'runtime/plugins/dsh-semantic-os/package.json', '{"name":"dsh-semantic-os"}\n')
+  const stores = writeRel(root, 'runtime/plugins/dsh-semantic-os/python/stores.py', sealedBody)
+  writeRel(root, 'runtime/vendor-overlays/dsh-semantic-os/python/stores.py', overlayBody)
+  const sem = lockEntry('dsh-semantic-os', SEM, semPkg)
+  sem.files[stores.rel] = stores.hash
+  if (extra) {
+    const file = writeRel(root, extra.sealedRel, extra.sealedBody)
+    writeRel(root, extra.overlayRel, extra.overlayBody)
+    sem.files[file.rel] = file.hash
+  }
+  const doc = {
+    version: 1,
+    plugins: {
+      'dsh-lan-assist': lockEntry('dsh-lan-assist', LAN, lan),
+      'dsh-semantic-os': sem,
+    },
+  }
+  const lockAbs = join(root, 'runtime/plugins/plugins.lock.json')
+  mkdirSync(dirname(lockAbs), { recursive: true })
+  writeFileSync(lockAbs, `${JSON.stringify(doc, null, 2)}\n`)
+  return root
+}
+
+function withSemanticRoot(sealedBody, overlayBody, extra) {
+  return semanticLock(mkdtempSync(join(tmpdir(), 'sem-overlay-')), sealedBody, overlayBody, extra)
+}
+
+test('plugins-lock exits 1 when sealed stores.py matches the lock and differs from the overlay', () => {
+  const root = withSemanticRoot('sealed\n', 'overlay\n')
+  try {
+    const result = spawnSync(process.execPath, [script, 'verify', '--root', root], { encoding: 'utf8' })
+    assert.equal(result.status, 1, result.stderr)
+    assert.match(result.stderr, /dsh-semantic-os overlay drift runtime\/plugins\/dsh-semantic-os\/python\/stores\.py/)
+    assert.match(result.stderr, /plugins\.lock verify failed/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('plugins-lock exits 1 when another semantic overlay file matches the lock and differs on disk', () => {
+  const root = withSemanticRoot('same\n', 'same\n', {
+    sealedRel: 'runtime/plugins/dsh-semantic-os/python/extra.py',
+    overlayRel: 'runtime/vendor-overlays/dsh-semantic-os/python/extra.py',
+    sealedBody: 'sealed-extra\n',
+    overlayBody: 'overlay-extra\n',
+  })
+  try {
+    const result = spawnSync(process.execPath, [script, 'verify', '--root', root], { encoding: 'utf8' })
+    assert.equal(result.status, 1, result.stderr)
+    assert.match(result.stderr, /dsh-semantic-os overlay drift runtime\/plugins\/dsh-semantic-os\/python\/extra\.py/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('plugins-lock exits 0 when sealed stores.py matches the overlay', () => {
+  const root = withSemanticRoot('same\n', 'same\n')
+  try {
+    const result = spawnSync(process.execPath, [script, 'verify', '--root', root], { encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /plugins\.lock verify ok/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
