@@ -2205,7 +2205,11 @@ const server = createServer(async (request, response) => {
       } catch (error) {
         console.warn('briefing_allow_discard_failed', error instanceof Error ? error.message : error)
       }
-      emit('ai.session.changed', { sessionId: archivedId, kind: 'deleted' }, { sessionId: archivedId })
+      const workspaceCwd = sessionCwdOf(scopedArchive.item) || scopedArchive.workspaceCwd
+      emit('ai.session.changed', { sessionId: archivedId, kind: 'deleted' }, {
+        workspaceCwd: workspaceCwd || null,
+        sessionId: archivedId,
+      })
       sendJson(response, 200, { data: archived, correlationId: currentCorrelationId })
       return
     }
@@ -2255,7 +2259,11 @@ const server = createServer(async (request, response) => {
       const renamed = await aiRuntime.call('session/rename', {
         request: { sessionId: renamedId, title: body.title.trim() },
       })
-      emit('ai.session.changed', { sessionId: renamedId, title: body.title.trim(), kind: 'renamed' }, { sessionId: renamedId })
+      const workspaceCwd = sessionCwdOf(scopedRename.item) || scopedRename.workspaceCwd
+      emit('ai.session.changed', { sessionId: renamedId, title: body.title.trim(), kind: 'renamed' }, {
+        workspaceCwd: workspaceCwd || null,
+        sessionId: renamedId,
+      })
       sendJson(response, 200, { data: renamed, correlationId: currentCorrelationId })
       return
     }
