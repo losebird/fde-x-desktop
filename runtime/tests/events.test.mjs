@@ -93,6 +93,40 @@ test('listEventsAfter keeps a workspace event when trailing slashes differ', () 
   db.close()
 })
 
+test('workspace filter keeps an empty-cwd engine event and still drops other empty-cwd events', () => {
+  const dbPath = `/tmp/fde-events-engine-${Date.now()}.sqlite`
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  configureEventBus(db)
+  const absDir = '/tmp/fde-engine-ws'
+  const other = '/tmp/fde-engine-other'
+  const engine = emit('memory.engine.changed', { ready: true }, { workspaceCwd: null, source: 'bff' })
+  const engineBlank = emit('memory.engine.changed', { ready: true }, { workspaceCwd: '', source: 'bff' })
+  const engineHere = emit('memory.engine.changed', { ready: true }, { workspaceCwd: `${absDir}/`, source: 'bff' })
+  const engineElsewhere = emit('memory.engine.changed', { ready: true }, { workspaceCwd: other, source: 'bff' })
+  const mailbox = emit('im.unread.changed', { total: 0, byPeer: {} }, { workspaceCwd: null, source: 'lan-assist' })
+  assert.equal(matchesWorkspaceFilter({ type: 'memory.engine.changed', workspaceCwd: null }, absDir), true)
+  assert.equal(matchesWorkspaceFilter({ type: 'memory.engine.changed', workspaceCwd: '' }, absDir), true)
+  assert.equal(matchesWorkspaceFilter({ type: 'memory.engine.changed', workspaceCwd: other }, absDir), false)
+  assert.equal(matchesWorkspaceFilter({ type: 'memory.engine.changed', workspaceCwd: absDir }, absDir), true)
+  assert.equal(matchesWorkspaceFilter({ type: 'im.unread.changed', workspaceCwd: null }, absDir), false)
+  const recent = listRecentEvents(db, { workspaceCwd: absDir })
+  const replay = listEventsAfter(db, { workspaceCwd: absDir })
+  for (const rows of [recent, replay]) {
+    assert.equal(rows.some((item) => item.id === engine), true)
+    assert.equal(rows.some((item) => item.id === engineBlank), true)
+    assert.equal(rows.some((item) => item.id === engineHere), true)
+    assert.equal(rows.some((item) => item.id === engineElsewhere), false)
+    assert.equal(rows.some((item) => item.id === mailbox), false)
+  }
+  const openRecent = listRecentEvents(db, {})
+  const openReplay = listEventsAfter(db, {})
+  assert.equal(openRecent.some((item) => item.id === engine), true)
+  assert.equal(openRecent.some((item) => item.id === mailbox), true)
+  assert.equal(openReplay.some((item) => item.id === engine), true)
+  assert.equal(openReplay.some((item) => item.id === mailbox), true)
+  db.close()
+})
+
 test('SSE origin 403 and connection limit 429', { timeout: 45_000 }, async () => {
   const port = 4480 + (process.pid % 80)
   const dbPath = `/tmp/fde-events-http-${Date.now()}.sqlite`

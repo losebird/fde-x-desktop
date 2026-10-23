@@ -25,6 +25,7 @@ let cleanupDone = false
 
 const MAX_RETAINED = 10_000
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+const PROCESS_LEVEL_EVENT_TYPES = new Set(['memory.engine.changed'])
 
 /**
  * @param {import('node:sqlite').DatabaseSync} db
@@ -188,7 +189,7 @@ export function listEventsAfter(db, { sinceId, workspaceCwd, limit = 500 } = {})
 
   const envelopes = rows.map((row) => envelopeFromRow(row))
   if (!workspaceCwd) return envelopes
-  return envelopes.filter((item) => sameWorkspaceCwd(item.workspaceCwd, workspaceCwd))
+  return envelopes.filter((item) => matchesWorkspaceFilter(item, workspaceCwd))
 }
 
 /**
@@ -207,8 +208,10 @@ export function listRecentEvents(db, { workspaceCwd, type, limit = 50 } = {}) {
     const canonical = canonicalWorkspaceCwd(workspaceCwd)
     if (canonical) {
       const fn = canonicalWorkspaceCwdSql(db)
-      clauses.push(`${fn}(workspace_cwd) = ?`)
-      params.push(canonical)
+      const processTypes = [...PROCESS_LEVEL_EVENT_TYPES]
+      const typeSql = processTypes.map(() => '?').join(', ')
+      clauses.push(`((event_type IN (${typeSql}) AND (workspace_cwd IS NULL OR workspace_cwd = '')) OR ${fn}(workspace_cwd) = ?)`)
+      params.push(...processTypes, canonical)
     }
   }
   const rows = db.prepare(`
@@ -227,5 +230,7 @@ export function listRecentEvents(db, { workspaceCwd, type, limit = 50 } = {}) {
  */
 export function matchesWorkspaceFilter(envelope, workspaceCwd) {
   if (!workspaceCwd) return true
-  return sameWorkspaceCwd(envelope.workspaceCwd, workspaceCwd)
+  const cwd = envelope.workspaceCwd
+  if (PROCESS_LEVEL_EVENT_TYPES.has(envelope.type) && (cwd == null || cwd === '')) return true
+  return sameWorkspaceCwd(cwd, workspaceCwd)
 }
