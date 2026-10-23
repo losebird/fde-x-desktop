@@ -1,0 +1,119 @@
+TAP version 13
+# (node:3249) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: plan card confirm and reject use the workspace that listed the proposal
+not ok 1 - plan card confirm and reject use the workspace that listed the proposal
+  ---
+  duration_ms: 333.083163
+  type: 'test'
+  location: '/workspace/runtime/tests/ws-guard-r3.test.mjs:278:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    ... Skipped lines
+    
+      {
+        bareCode: 'not_found',
+        bareMessage: '提案不存在',
+        bareState: 'awaiting_approval',
+        bareStatus: 404,
+    ...
+        bizWriteStaysOnPreview: true,
+    +   bodySendsWorkspace: false,
+    +   cardSendsWorkspace: false,
+    +   confirmState: 'awaiting_approval',
+    +   confirmStatus: 404,
+    +   confirmStillOpen: true,
+    +   confirmTitle: '原任务',
+    +   hardEmpty: true,
+    -   bodySendsWorkspace: true,
+    -   cardSendsWorkspace: true,
+    -   confirmState: 'succeeded',
+    -   confirmStatus: 200,
+    -   confirmStillOpen: false,
+    -   confirmTitle: '被串改',
+    -   hardEmpty: false,
+        listStatus: 200,
+    +   rejectState: 'awaiting_approval',
+    +   rejectStatus: 404,
+    +   rejectStillOpen: true,
+    -   rejectState: 'cancelled',
+    -   rejectStatus: 200,
+    -   rejectStillOpen: false,
+        rejectTitle: '原任务',
+        wrongCode: 'not_found',
+        wrongMessage: '提案不存在',
+        wrongState: 'awaiting_approval',
+        wrongStatus: 404,
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    cardSendsWorkspace: true
+    bodySendsWorkspace: true
+    hardEmpty: false
+    bizWriteStaysOnPreview: true
+    confirmStatus: 200
+    confirmTitle: '被串改'
+    confirmState: 'succeeded'
+    rejectStatus: 200
+    rejectTitle: '原任务'
+    rejectState: 'cancelled'
+    bareStatus: 404
+    bareCode: 'not_found'
+    bareMessage: '提案不存在'
+    bareTitle: '原任务'
+    bareState: 'awaiting_approval'
+    wrongStatus: 404
+    wrongCode: 'not_found'
+    wrongMessage: '提案不存在'
+    wrongTitle: '原任务'
+    wrongState: 'awaiting_approval'
+    listStatus: 200
+    confirmStillOpen: false
+    rejectStillOpen: false
+    bareStillOpen: true
+    wrongStillOpen: true
+  actual:
+    cardSendsWorkspace: false
+    bodySendsWorkspace: false
+    hardEmpty: true
+    bizWriteStaysOnPreview: true
+    confirmStatus: 404
+    confirmTitle: '原任务'
+    confirmState: 'awaiting_approval'
+    rejectStatus: 404
+    rejectTitle: '原任务'
+    rejectState: 'awaiting_approval'
+    bareStatus: 404
+    bareCode: 'not_found'
+    bareMessage: '提案不存在'
+    bareTitle: '原任务'
+    bareState: 'awaiting_approval'
+    wrongStatus: 404
+    wrongCode: 'not_found'
+    wrongMessage: '提案不存在'
+    wrongTitle: '原任务'
+    wrongState: 'awaiting_approval'
+    listStatus: 200
+    confirmStillOpen: true
+    rejectStillOpen: true
+    bareStillOpen: true
+    wrongStillOpen: true
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///workspace/runtime/tests/ws-guard-r3.test.mjs:348:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 389.134758
