@@ -491,7 +491,10 @@ export default function AI() {
     void runtimeApi.memoryReady(combineAbortSignal(ac.signal, 5000)).then((row) => {
       if (!alive) return
       if (!row || row.probe === 'failed' || typeof row.ready !== 'boolean') return
-      setMemoryReady(row)
+      setMemoryReady((previous) => {
+        if (previous?.ready === true && row.ready === false) return previous
+        return row
+      })
     }).catch(() => undefined)
     return () => {
       alive = false
