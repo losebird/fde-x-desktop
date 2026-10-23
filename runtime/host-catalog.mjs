@@ -4,6 +4,22 @@
  */
 import { occupancyAction, landKindFromTab } from './canvas-occupancy.mjs'
 import { isPrimarySession } from './session-primary.mjs'
+import {
+  ORIGIN_DSH_GOAL,
+  ORIGIN_DSH_JOB,
+  ORIGIN_DSH_SCHEDULE,
+  ORIGIN_FDE_TASK,
+} from './plan/origin.mjs'
+
+export {
+  ORIGIN_DSH_GOAL,
+  ORIGIN_DSH_JOB,
+  ORIGIN_DSH_SCHEDULE,
+  ORIGIN_FDE_TASK,
+  isHostGoalId,
+  isHostJobId,
+  isHostScheduleId,
+} from './plan/origin.mjs'
 
 export { occupancyAction, landKindFromTab }
 
@@ -66,11 +82,6 @@ export const SURFACES = {
   terminal: { seam: SEAM_SESSION, href: { panel: 'ai', accessory: 'terminal' } },
 }
 
-export const ORIGIN_FDE_TASK = 'fde-task:'
-export const ORIGIN_DSH_GOAL = 'dsh-goal:'
-export const ORIGIN_DSH_SCHEDULE = 'dsh-schedule:'
-export const ORIGIN_DSH_JOB = 'dsh-job:'
-
 export function surfaceOfKind(kind) {
   const key = String(kind || '').trim()
   if (!key) return OVERFLOW
@@ -88,18 +99,6 @@ export function originOfTask(row) {
   if (id.startsWith(ORIGIN_DSH_GOAL)) return id
   if (id) return `${ORIGIN_FDE_TASK}${id}`
   return ''
-}
-
-export function isHostGoalId(id) {
-  return String(id || '').startsWith(ORIGIN_DSH_GOAL)
-}
-
-export function isHostScheduleId(id) {
-  return String(id || '').startsWith(ORIGIN_DSH_SCHEDULE)
-}
-
-export function isHostJobId(id) {
-  return String(id || '').startsWith(ORIGIN_DSH_JOB)
 }
 
 export function hostGoalId(goalId) {

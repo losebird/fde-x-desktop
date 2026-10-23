@@ -1,5 +1,5 @@
 import { planTaskSource } from '../app-source.mjs'
-import { isHostGoalId } from '../host-catalog.mjs'
+import { isHostGoalId } from './origin.mjs'
 
 export function planTaskMenu(task) {
   const source = planTaskSource(task?.sourceRef || '')
