@@ -181,6 +181,26 @@ function proposeUpdate(db, taskId) {
   return result.proposalId
 }
 
+function planCardDecideShape(apiSource, cardSource) {
+  const methodAt = apiSource.indexOf('async decidePlanTaskProposal')
+  const methodEnd = methodAt >= 0 ? apiSource.indexOf('\n  async ', methodAt + 1) : -1
+  const method = methodAt >= 0 ? apiSource.slice(methodAt, methodEnd > methodAt ? methodEnd : methodAt + 700) : ''
+  const decideAt = cardSource.indexOf('async function decide')
+  const decideEnd = decideAt >= 0 ? cardSource.indexOf('\n  if (items.length', decideAt) : -1
+  const decide = decideAt >= 0 ? cardSource.slice(decideAt, decideEnd > decideAt ? decideEnd : decideAt + 500) : ''
+  return {
+    cardSendsWorkspace: /decidePlanTaskProposal\(\s*id\s*,\s*decision\s*,\s*workspaceId\s*\)/.test(decide),
+    bodySendsWorkspace: /body:\s*JSON\.stringify\(\s*\{[^}]*\bworkspaceId\b/.test(method),
+    hardEmpty: /body:\s*['"]\{\}['"]/.test(method),
+    planAvoidsBizWrite: !/bizWrite|\/api\/v1\/biz\/write/.test(method),
+  }
+}
+
+function bodyFromPlanCard(shape, workspaceId) {
+  if (shape.cardSendsWorkspace && shape.bodySendsWorkspace && !shape.hardEmpty) return { workspaceId }
+  return {}
+}
+
 test('task proposal confirm and reject stay inside the proposal workspace', async () => {
   const dbPath = `/tmp/fde-ws-r3-prop-${process.pid}.sqlite`
   await rm(dbPath, { force: true })
@@ -248,6 +268,109 @@ test('task proposal confirm and reject stay inside the proposal workspace', asyn
       own: 200,
       ownTitle: '被串改',
       ownState: 'succeeded',
+    })
+  } finally {
+    await server.stop()
+    await rm(dbPath, { force: true })
+  }
+})
+
+test('plan card confirm and reject use the workspace that listed the proposal', async () => {
+  const apiSource = await readFile(join(repoRoot, 'src/lib/runtime-api.ts'), 'utf8')
+  const cardSource = await readFile(join(repoRoot, 'src/components/plan/PlanTaskProposals.tsx'), 'utf8')
+  const recordsSource = await readFile(join(repoRoot, 'src/components/biz/RecordsPanel.tsx'), 'utf8')
+  const shape = planCardDecideShape(apiSource, cardSource)
+  const dbPath = `/tmp/fde-ws-r3-card-${process.pid}.sqlite`
+  await rm(dbPath, { force: true })
+  const db = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+  registerWorkspace(db, 'ws_a', '/ws-guard-a')
+  registerWorkspace(db, 'ws_b', '/ws-guard-b')
+  const ids = ['task_card_confirm', 'task_card_reject', 'task_card_bare', 'task_card_wrong']
+  for (const id of ids) {
+    insertTask(db, {
+      id,
+      workspaceId: 'ws_b',
+      title: '原任务',
+      notes: '',
+      status: 'todo',
+      priority: 'med',
+      sourceRef: `fde://plan/tasks/${id}`,
+      tags: [],
+    })
+  }
+  const confirmId = proposeUpdate(db, 'task_card_confirm')
+  const rejectId = proposeUpdate(db, 'task_card_reject')
+  const bareId = proposeUpdate(db, 'task_card_bare')
+  const wrongId = proposeUpdate(db, 'task_card_wrong')
+  db.close()
+  const server = await startServer(dbPath)
+  try {
+    const posted = bodyFromPlanCard(shape, 'ws_b')
+    const confirm = await call(server, 'POST', `/api/v1/plan/task-proposals/${confirmId}/confirm`, posted)
+    const reject = await call(server, 'POST', `/api/v1/plan/task-proposals/${rejectId}/reject`, posted)
+    const bare = await call(server, 'POST', `/api/v1/plan/task-proposals/${bareId}/confirm`, {})
+    const wrong = await call(server, 'POST', `/api/v1/plan/task-proposals/${wrongId}/reject`, { workspaceId: 'ws_a' })
+    const listed = await call(server, 'GET', '/api/v1/plan/task-proposals?workspaceId=ws_b')
+    const openIds = Array.isArray(listed.payload.data) ? listed.payload.data.map((row) => row.id) : []
+    const check = openDatabase(dbPath, join(repoRoot, 'runtime/migrations'))
+    const title = (id) => check.prepare('SELECT title FROM tasks WHERE id = ?').get(id).title
+    const state = (id) => check.prepare('SELECT state FROM operations WHERE id = ?').get(id).state
+    const seen = {
+      cardSendsWorkspace: shape.cardSendsWorkspace,
+      bodySendsWorkspace: shape.bodySendsWorkspace,
+      hardEmpty: shape.hardEmpty,
+      bizWriteStaysOnPreview: /runtimeApi\.bizWrite\(previewId/.test(recordsSource)
+        && /withWorkspaceCwd\('\/api\/v1\/biz\/write'\)/.test(apiSource)
+        && shape.planAvoidsBizWrite,
+      confirmStatus: confirm.status,
+      confirmTitle: title('task_card_confirm'),
+      confirmState: state(confirmId),
+      rejectStatus: reject.status,
+      rejectTitle: title('task_card_reject'),
+      rejectState: state(rejectId),
+      bareStatus: bare.status,
+      bareCode: codeOf(bare.payload),
+      bareMessage: bare.payload.message,
+      bareTitle: title('task_card_bare'),
+      bareState: state(bareId),
+      wrongStatus: wrong.status,
+      wrongCode: codeOf(wrong.payload),
+      wrongMessage: wrong.payload.message,
+      wrongTitle: title('task_card_wrong'),
+      wrongState: state(wrongId),
+      listStatus: listed.status,
+      confirmStillOpen: openIds.includes(confirmId),
+      rejectStillOpen: openIds.includes(rejectId),
+      bareStillOpen: openIds.includes(bareId),
+      wrongStillOpen: openIds.includes(wrongId),
+    }
+    check.close()
+    assert.deepEqual(seen, {
+      cardSendsWorkspace: true,
+      bodySendsWorkspace: true,
+      hardEmpty: false,
+      bizWriteStaysOnPreview: true,
+      confirmStatus: 200,
+      confirmTitle: '被串改',
+      confirmState: 'succeeded',
+      rejectStatus: 200,
+      rejectTitle: '原任务',
+      rejectState: 'cancelled',
+      bareStatus: 404,
+      bareCode: 'not_found',
+      bareMessage: '提案不存在',
+      bareTitle: '原任务',
+      bareState: 'awaiting_approval',
+      wrongStatus: 404,
+      wrongCode: 'not_found',
+      wrongMessage: '提案不存在',
+      wrongTitle: '原任务',
+      wrongState: 'awaiting_approval',
+      listStatus: 200,
+      confirmStillOpen: false,
+      rejectStillOpen: false,
+      bareStillOpen: true,
+      wrongStillOpen: true,
     })
   } finally {
     await server.stop()
