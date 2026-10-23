@@ -213,8 +213,16 @@ function TodoTab() {
   const cycleStatus = useApp((s) => s.cycleTaskStatus)
   const selectedTaskId = useApp((s) => s.selectedTaskId)
   const selectTask = useApp((s) => s.selectTask)
+  const activeWorkspaceId = useApp((s) => s.activeWorkspaceId)
+  const workspaces = useApp((s) => s.workspaces)
+  const workspaceCwd = useMemo(() => {
+    const row = workspaces.find((item) => item.id === activeWorkspaceId)
+    return canonicalWorkspaceCwd(row?.cwd) || undefined
+  }, [workspaces, activeWorkspaceId])
 
   const organizeFlight = useRef(createAskFlight())
+  const filteredIdsRef = useRef('')
+  const aiRunLoad = useRef(0)
 
   useEffect(() => {
     if (!selectedTaskId) return
@@ -386,11 +394,12 @@ function TodoTab() {
   }
 
   const filteredIds = filtered.map((row) => row.id).join('|')
+  filteredIdsRef.current = filteredIds
 
-  useEffect(() => {
-    let cancelled = false
-    const ids = filteredIds ? filteredIds.split('|') : []
-    void Promise.all(ids.map(async (id) => {
+  async function loadAiRuns(idsText: string) {
+    const ticket = ++aiRunLoad.current
+    const ids = idsText ? idsText.split('|') : []
+    const rows = await Promise.all(ids.map(async (id) => {
       if (isHostGoalId(id)) return [id, []] as [string, Array<{ id: string; sessionId: string; state: string }>]
       try {
         const workspaceId = useApp.getState().activeWorkspaceId
@@ -400,11 +409,23 @@ function TodoTab() {
       } catch {
         return [id, []] as [string, Array<{ id: string; sessionId: string; state: string }>]
       }
-    })).then((rows) => {
-      if (!cancelled) setAiRuns(new Map(rows))
-    })
-    return () => { cancelled = true }
+    }))
+    if (ticket !== aiRunLoad.current) return
+    setAiRuns(new Map(rows))
+  }
+
+  useEffect(() => {
+    void loadAiRuns(filteredIds)
+    return () => { aiRunLoad.current += 1 }
   }, [filteredIds])
+
+  useEvents(
+    ['task.proposal.changed', 'biz.write.done'],
+    () => {
+      void loadAiRuns(filteredIdsRef.current)
+    },
+    workspaceCwd ? { workspace: workspaceCwd } : undefined,
+  )
 
   useEffect(() => {
     if (!menuTaskId) return
@@ -609,7 +630,9 @@ function TodoTab() {
         </div>
       )}
 
-      <PlanTaskProposals />
+      <PlanTaskProposals onDecided={() => {
+        void loadAiRuns(filteredIdsRef.current)
+      }} />
       {filtered.length === 0 ? (
         <Empty title="这个筛选下没有任务" hint="可以新建一个,或切换其它 Tab" action={
           <button className="btn-primary" title="新建任务" onClick={() => setShowNew(true)}><Plus size={14} /> 新建任务</button>

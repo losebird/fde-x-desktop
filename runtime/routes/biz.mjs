@@ -20,6 +20,7 @@ import {
 } from '../biz/systems-store.mjs'
 
 
+import { finishWorkstationHandoff } from '../plan/task-ai-runs.mjs'
 import { isGateActionCode } from '../biz/gate-action-codes.mjs'
 import { normalizePreviewWhere } from '../biz/where.mjs'
 import {
@@ -1358,6 +1359,12 @@ export async function handleBizRoutes(request, response, url, deps) {
             lookupBind: captureLookupBind(sheet, body),
           })
         } catch { /* audit must not block write */ }
+        finishWorkstationHandoff(db, {
+          ok: true,
+          rollback: Boolean(rollbackOfTraceId),
+          sessionId: String((sheet && sheet.sessionId) || body.sessionId || body.session_id || ''),
+          previewId: body.preview_id,
+        })
         emit('biz.write.done', {
           kind: audit.kind,
           action: audit.action,
@@ -1449,6 +1456,14 @@ export async function handleBizRoutes(request, response, url, deps) {
     if (listed) {
       const listedSid = String(listed.sessionId || body.sessionId || body.session_id || '').trim()
       emitBizSheetPending(listed, { sessionId: listedSid, source: 'round-end', workspaceCwd: bizCwd })
+    }
+    if (written && written.ok !== false) {
+      finishWorkstationHandoff(db, {
+        ok: true,
+        rollback: Boolean(rollbackOfTraceId),
+        sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || lookupBind.sessionId || ''),
+        previewId: body.preview_id,
+      })
     }
     emit('biz.write.done', {
       kind: audit.kind,

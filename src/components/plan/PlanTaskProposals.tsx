@@ -66,7 +66,7 @@ function diffLines(item: PlanTaskProposal) {
   return lines
 }
 
-export function PlanTaskProposals() {
+export function PlanTaskProposals({ onDecided }: { onDecided?: (taskId: string) => void }) {
   const workspaceId = useApp((s) => s.activeWorkspaceId)
   const workspaces = useApp((s) => s.workspaces)
   const hydratePlan = useApp((s) => s.hydratePlan)
@@ -122,10 +122,12 @@ export function PlanTaskProposals() {
 
   async function decide(id: string, decision: 'confirm' | 'reject') {
     if (!workspaceId) return
+    const taskId = items.find((item) => item.id === id)?.taskId || ''
     setBusyId(id)
     setError('')
     try {
       await runtimeApi.decidePlanTaskProposal(id, decision, workspaceId)
+      if (taskId) onDecided?.(taskId)
       if (decision === 'confirm') await hydratePlan(workspaceId)
     } catch (cause) {
       setError(messageOf(cause))

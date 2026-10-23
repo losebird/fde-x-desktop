@@ -1,6 +1,5 @@
 import './support/no-stray-processes.mjs'
-import { readFileSync } from 'node:fs'
-import { rmSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -248,6 +247,32 @@ function excludes(source, needle) {
   assert.equal(source.includes(needle), false, `unexpected ${needle}`)
 }
 
+test('an existing running row can be marked completed after the migration', () => {
+  const root = `/tmp/fde-ai-run-mig-${process.pid}`
+  rmSync(root, { recursive: true, force: true })
+  const partial = join(root, 'partial')
+  mkdirSync(partial, { recursive: true })
+  for (const name of readdirSync(migrations)) {
+    if (name.startsWith('021_')) continue
+    cpSync(join(migrations, name), join(partial, name))
+  }
+  const dbPath = join(root, 't.sqlite')
+  const opened = openDatabase(dbPath, partial)
+  registerWorkspace(opened, 'ws_chip', '/ws-chip')
+  addTask(opened, 'task_old')
+  startRun(opened, 'task_old', 'sess_old')
+  opened.close()
+  const db = openDatabase(dbPath, migrations)
+  assert.equal(listTaskAiRuns(db, 'task_old')[0].state, 'running')
+  assert.equal(chipLabel(db, 'task_old'), 'AI 处理中 · 打开会话')
+  const done = aiRuns.completeTaskAiRun(db, 'task_old')
+  assert.equal(done.completed, true)
+  assert.deepEqual(listTaskAiRuns(db, 'task_old').map((row) => row.state), ['completed'])
+  assert.equal(chipLabel(db, 'task_old'), null)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('plan confirm and biz post stay on separate buttons', () => {
   const card = readFileSync(new URL('../../src/components/plan/PlanTaskProposals.tsx', import.meta.url), 'utf8')
   const drawer = readFileSync(new URL('../../src/components/biz/BizPreviewDrawer.tsx', import.meta.url), 'utf8')
@@ -264,6 +289,7 @@ test('plan confirm and biz post stay on separate buttons', () => {
   excludes(planRoute, '/api/v1/biz/write')
   excludes(planRoute, 'finishWorkstationHandoff')
   includes(bizRoute, 'finishWorkstationHandoff(')
+  assert.equal(bizRoute.split('finishWorkstationHandoff(').length - 1, 2)
   excludes(bizRoute, 'decidePlanTask')
   excludes(bizRoute, 'task-proposals')
 })
