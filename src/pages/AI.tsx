@@ -455,13 +455,13 @@ export default function AI() {
         }
         if (!active) return
         const listState = useApp.getState()
-        const sessions = await runtimeApi.listAiSessions({
+        await reloadSessionList(sessionListGate.current, () => runtimeApi.listAiSessions({
           includeBlank: true,
           includeSubagents: true,
           workspaceId: sessionListWorkspaceId(listState.activeWorkspaceId, listState.workspaces),
-        }, abort.signal)
-        if (!active) return
-        setRemoteSessions(sessions)
+        }, abort.signal), (rows) => {
+          if (active) setRemoteSessions(rows)
+        })
       } catch (error) {
         if (!active || abort.signal.aborted) return
         setRuntimeError(displayError(error))
