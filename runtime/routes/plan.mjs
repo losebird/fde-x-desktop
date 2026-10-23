@@ -35,7 +35,7 @@ import {
   listTasks,
   updateTask,
 } from '../plan/task-store.mjs'
-import { cancelTaskAiRun, listTaskAiRuns, startTaskAiRun } from '../plan/task-ai-runs.mjs'
+import { cancelTaskAiRun, completeTaskAiRun, listTaskAiRuns, startTaskAiRun } from '../plan/task-ai-runs.mjs'
 
 const WORKFLOW_WRITE_STATUSES = new Set(['active', 'paused'])
 const EVENT_KINDS = new Set(['meeting', 'focus', 'reminder', 'external'])
@@ -584,6 +584,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     }
     if (result.kind === 'ok') {
       const plan = result.operation.plan
+      completeTaskAiRun(db, plan && plan.taskId)
       emit('task.proposal.changed', {
         proposalId: operationId,
         taskId: plan.taskId,
