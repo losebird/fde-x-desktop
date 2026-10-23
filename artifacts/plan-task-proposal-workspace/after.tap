@@ -1,0 +1,48 @@
+TAP version 13
+# (node:3617) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: task proposal confirm and reject stay inside the proposal workspace
+ok 1 - task proposal confirm and reject stay inside the proposal workspace
+  ---
+  duration_ms: 338.555349
+  type: 'test'
+  ...
+# Subtest: plan card confirm and reject use the workspace that listed the proposal
+ok 2 - plan card confirm and reject use the workspace that listed the proposal
+  ---
+  duration_ms: 318.360712
+  type: 'test'
+  ...
+# Subtest: a workspace cannot read another workspace row by id
+ok 3 - a workspace cannot read another workspace row by id
+  ---
+  duration_ms: 300.6079
+  type: 'test'
+  ...
+# Subtest: an unregistered plan workflow is missing_workspace
+ok 4 - an unregistered plan workflow is missing_workspace
+  ---
+  duration_ms: 295.471065
+  type: 'test'
+  ...
+# Subtest: catalog stream is a registered workspace route
+ok 5 - catalog stream is a registered workspace route
+  ---
+  duration_ms: 0.257872
+  type: 'test'
+  ...
+# Subtest: primary key access passes workspaceId
+ok 6 - primary key access passes workspaceId
+  ---
+  duration_ms: 979.003472
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2294.768044

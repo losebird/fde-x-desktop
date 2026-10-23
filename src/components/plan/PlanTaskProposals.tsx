@@ -125,7 +125,7 @@ export function PlanTaskProposals() {
     setBusyId(id)
     setError('')
     try {
-      await runtimeApi.decidePlanTaskProposal(id, decision)
+      await runtimeApi.decidePlanTaskProposal(id, decision, workspaceId)
       if (decision === 'confirm') await hydratePlan(workspaceId)
     } catch (cause) {
       setError(messageOf(cause))

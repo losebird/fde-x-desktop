@@ -993,14 +993,19 @@ export class RuntimeApi {
     return this.planRequest<PlanTaskProposal[]>(`/api/v1/plan/task-proposals?${params}`, { signal })
   }
 
-  async decidePlanTaskProposal(proposalId: string, decision: 'confirm' | 'reject', signal?: AbortSignal): Promise<void> {
+  async decidePlanTaskProposal(
+    proposalId: string,
+    decision: 'confirm' | 'reject',
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     await this.planRequest(
       `/api/v1/plan/task-proposals/${encodeURIComponent(proposalId)}/${decision}`,
       {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },
-        body: '{}',
+        body: JSON.stringify({ workspaceId }),
       },
     )
   }
