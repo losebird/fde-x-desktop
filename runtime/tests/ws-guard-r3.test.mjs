@@ -1,4 +1,4 @@
-import './support/no-stray-processes.mjs'
+import { awaitChildExit } from './support/no-stray-processes.mjs'
 import { spawn } from 'node:child_process'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -128,15 +128,14 @@ async function startServer(dbPath) {
     await delay(100)
   }
   if (!base) {
-    child.kill('SIGTERM')
+    await awaitChildExit(child)
     throw new Error(`runtime did not start: ${stderr.slice(0, 500)}\n${stdout.slice(0, 500)}`)
   }
   return {
     base,
     uiToken,
     stop: async () => {
-      child.kill('SIGTERM')
-      await delay(50)
+      await awaitChildExit(child)
       await rm(dshHome, { recursive: true, force: true })
     },
   }
