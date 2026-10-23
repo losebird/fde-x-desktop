@@ -169,14 +169,14 @@ export function collapseKindsToConnectedTables(
 }
 
 function rawCatalogKindNames(
-  index: ConnectedKindIndex | ConnectedKindRow[] | null | undefined,
+  index: ConnectedKindIndex | Array<ConnectedKindRow | string> | null | undefined,
 ): Set<string> {
   const names = new Set<string>()
   if (!Array.isArray(index)) return names
   for (const raw of index) {
     const row = typeof raw === 'string'
       ? { kind: raw.trim() }
-      : { kind: kindName(raw) } as ConnectedKindRow
+      : { kind: kindName(raw) }
     if (row.kind) names.add(row.kind)
   }
   return names
@@ -217,7 +217,7 @@ export function unresolvedKindBlocksOfficial(
   if (resolveConnectedKind(kind, catalog)) return false
   const previewId = String((sheet && (sheet.preview_id || sheet.previewId)) || '').trim()
   const action = String((sheet && sheet.action) || '').trim()
-  const count = Array.isArray(sheet && sheet.rows) ? sheet.rows.length : 0
+  const count = sheet && Array.isArray(sheet.rows) ? sheet.rows.length : 0
   if (previewId && action !== '现查' && count > 0) return false
   return true
 }

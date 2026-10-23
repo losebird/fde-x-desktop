@@ -22,7 +22,7 @@ import {
   viewById,
   visibleWorkSurfaceBlocks,
   workSurfacePages,
-  type FdeAppDetail,
+  type LedgerAppDetail,
   type FdeAppPage,
   type FdeAppSpec,
   type FdeAppView,
@@ -31,7 +31,7 @@ import {
 } from '@/lib/app-spec'
 
 type Props = {
-  app: FdeAppDetail
+  app: LedgerAppDetail
   workspaceCwd: string
   onRefresh: () => void
   focusEntity?: string
@@ -195,7 +195,7 @@ function renderBlocks(
 function ProductBlock({
   app, workspaceCwd, preview, reloadToken, onRefresh, surface, view, statViews, kind, capabilityUses, focusEntity, focusRid,
 }: {
-  app: FdeAppDetail
+  app: LedgerAppDetail
   workspaceCwd: string
   preview: boolean
   reloadToken: number

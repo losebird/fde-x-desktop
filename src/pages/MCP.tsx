@@ -197,6 +197,7 @@ export default function MCP() {
     }
     setEditing(row.serverName)
     setDraft({
+      ...emptyDraft(),
       name: row.serverName,
       transport: row.transport,
       command: row.command || '',

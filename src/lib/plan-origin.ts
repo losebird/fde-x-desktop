@@ -19,9 +19,8 @@ export function isHostJobId(id: string) {
   return String(id || '').startsWith(ORIGIN_DSH_JOB)
 }
 
-export function hostGoalStatusOnly(patch: Record<string, unknown> | null | undefined) {
-  if (!patch || typeof patch !== 'object') return {}
-  if (patch.status === undefined) return {}
+export function hostGoalStatusOnly<S>(patch: { status?: S } | null | undefined): { status?: S } {
+  if (!patch || typeof patch !== 'object' || patch.status === undefined) return {}
   return { status: patch.status }
 }
 

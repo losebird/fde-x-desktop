@@ -187,11 +187,12 @@ export default function Skills() {
 
   const addBundleFile = () => {
     const rel = newRel.trim()
-    if (!rel || !active?.path) return
+    const path = active?.path
+    if (!rel || !path) return
     setBusy(true)
-    void runtimeApi.writeSkillBundleFile({ path: active.path, rel, text: '', cwd: workspaceCwd(), sessionId }).then(() => {
+    void runtimeApi.writeSkillBundleFile({ path, rel, text: '', cwd: workspaceCwd(), sessionId }).then(() => {
       setNewRel('')
-      return runtimeApi.listSkillBundleFiles(active.path, workspaceCwd(), sessionId)
+      return runtimeApi.listSkillBundleFiles(path, workspaceCwd(), sessionId)
     }).then((data) => {
       if (data) setFiles(Array.isArray(data.files) ? data.files : [])
     }).catch((cause) => {
@@ -200,11 +201,12 @@ export default function Skills() {
   }
 
   const removeBundleFile = (rel: string) => {
-    if (!active?.path) return
+    const path = active?.path
+    if (!path) return
     setBusy(true)
-    void runtimeApi.removeSkillBundleFile(active.path, rel, workspaceCwd(), sessionId).then(() => {
+    void runtimeApi.removeSkillBundleFile(path, rel, workspaceCwd(), sessionId).then(() => {
       if (editor?.rel === rel) setEditor(null)
-      return runtimeApi.listSkillBundleFiles(active.path, workspaceCwd(), sessionId)
+      return runtimeApi.listSkillBundleFiles(path, workspaceCwd(), sessionId)
     }).then((data) => {
       if (data) setFiles(Array.isArray(data.files) ? data.files : [])
     }).catch((cause) => {

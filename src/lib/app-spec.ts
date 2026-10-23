@@ -204,6 +204,8 @@ export interface FdeAppDetail {
   deletedAt?: string
 }
 
+export type LedgerAppDetail = FdeAppDetail & { spec: FdeAppSpec }
+
 export function appIsTrashed(app: { deletedAt?: string | null }): boolean {
   return Boolean(String(app.deletedAt || '').trim())
 }
@@ -246,8 +248,8 @@ export function visibleTableColumns(spec: FdeAppSpec, view: FdeAppView): string[
   return [...listed, ...extra]
 }
 
-export function hasProductPages(spec: { pages?: FdeAppPage[] }): boolean {
-  return Array.isArray(spec.pages) && spec.pages.length > 0
+export function hasProductPages(spec: FdeAppSpec | FdeWebSpec): boolean {
+  return isFdeAppSpec(spec) && Array.isArray(spec.pages) && spec.pages.length > 0
 }
 
 export function viewById(spec: FdeAppSpec, id: string | undefined, extraViews: FdeAppView[] = []): FdeAppView | undefined {

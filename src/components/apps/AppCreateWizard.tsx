@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { AppRuntime } from '@/components/apps/AppRuntime'
 import { askAiForResult } from '@/lib/ask-ai'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import { isHostedAppSpec, type FdeAppDetail, type FdeAppSkillBind } from '@/lib/app-spec'
+import { isFdeAppSpec, isHostedAppSpec, type FdeAppDetail, type FdeAppSkillBind, type FdeAppSpec, type FdeWebSpec } from '@/lib/app-spec'
 import { appBuilderPrompt } from '@/lib/app-builder-prompt'
 import { currentAiTarget } from '@/lib/ai-target'
 import type { JsonSchemaLite } from '@/lib/json-schema-lite'
@@ -265,12 +265,18 @@ export function AppCreateWizard({ workspaceId, connections = [], onDraftReady, o
         : bizTarget === 'lookup'
           ? { type: 'lookup' as const }
           : { type: 'system' as const, systemId: bizTarget }
-      const next = {
-        ...data.spec,
-        source,
-        ...(pickedSkills.length ? { skills: pickedSkills } : {}),
+      const skills = pickedSkills.length ? pickedSkills : undefined
+      if (isFdeAppSpec(data.spec)) {
+        const next: FdeAppSpec = { ...data.spec, source, ...(skills ? { skills } : {}) }
+        await runtimeApi.putDeclarativeAppSpec(data.id, { spec: next, changeNote: '绑定业务源与 skills' }).catch(() => undefined)
+      } else {
+        const next: FdeWebSpec & { source: typeof source; skills?: FdeAppSkillBind[] } = {
+          ...data.spec,
+          source,
+          ...(skills ? { skills } : {}),
+        }
+        await runtimeApi.putDeclarativeAppSpec(data.id, { spec: next, changeNote: '绑定业务源与 skills' }).catch(() => undefined)
       }
-      await runtimeApi.putDeclarativeAppSpec(data.id, { spec: next, changeNote: '绑定业务源与 skills' }).catch(() => undefined)
       const fresh = await loadApp(appId)
       onDraftReady?.(fresh.id)
       return

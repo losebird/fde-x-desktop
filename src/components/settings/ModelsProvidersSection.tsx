@@ -656,7 +656,7 @@ function ProviderEditorCard({
       ns,
       provider: row.provider,
       settingsPath,
-      draft: layout === 'unknown' ? {} : nextDraft,
+      draft: nextDraft,
       committedOriginal,
       expectedRevision,
       apiKey: keyDraft,

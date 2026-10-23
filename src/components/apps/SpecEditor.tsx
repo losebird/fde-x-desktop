@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { type FdeAppDetail, type FdeAppSkillBind, type FdeAppSource } from '@/lib/app-spec'
+import { type FdeAppSkillBind, type FdeAppSource, type LedgerAppDetail } from '@/lib/app-spec'
 import { RuntimeApiError, runtimeApi, type SkillBagItem } from '@/lib/runtime-api'
 import type { JsonValue } from '@/lib/contracts'
 import { currentAiTarget } from '@/lib/ai-target'
 import { SkillBagPicker } from '@/components/biz/SkillBagPicker'
 
 type Props = {
-  app: FdeAppDetail
+  app: LedgerAppDetail
   onSaved: () => void
 }
 

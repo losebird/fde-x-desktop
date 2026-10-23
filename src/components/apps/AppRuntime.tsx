@@ -9,7 +9,7 @@ import { SpecTable } from '@/components/apps/SpecTable'
 import { SpecForm } from '@/components/apps/SpecForm'
 import { SpecEditor } from '@/components/apps/SpecEditor'
 import { AppWebRuntime } from '@/components/apps/AppWebRuntime'
-import { appIsTrashed, hasProductPages, isCurrentRevisionPending, isFdeAppSpec, isFdeWebSpec, mockRowsForEntity, type FdeAppDetail } from '@/lib/app-spec'
+import { appIsTrashed, hasProductPages, isCurrentRevisionPending, isFdeAppSpec, isFdeWebSpec, mockRowsForEntity, type FdeAppDetail, type LedgerAppDetail } from '@/lib/app-spec'
 import { focusOpenEntity } from '@/lib/plan-app-source'
 import { runtimeApi } from '@/lib/runtime-api'
 import { AppPublicSurface } from '@/lib/app-public-surface'
@@ -208,6 +208,8 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
     return <div className="px-4 py-3 text-xs text-ink-muted">不是可托管的应用</div>
   }
 
+  const ledgerApp: LedgerAppDetail = { ...app, spec }
+
   const builderControls = (
     <div className="flex flex-wrap gap-2">
       {pendingMaterialize && !trashed && (
@@ -345,16 +347,16 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
                 生成修订
               </button>
             </div>
-            <SpecEditor app={app} onSaved={onChanged} />
+            <SpecEditor app={ledgerApp} onSaved={onChanged} />
           </div>
         </div>
       )}
-      {!publicSurface && showBuilder && !daily && <SpecEditor app={app} onSaved={onChanged} />}
+      {!publicSurface && showBuilder && !daily && <SpecEditor app={ledgerApp} onSaved={onChanged} />}
       {product ? (
         <div className="px-4 py-3">
           <AppProductPage
             key={`${app.id}-${app.currentRevision}-${app.spec.surface?.density || ''}-${app.spec.surface?.cards?.hero || ''}-${app.spec.surface?.cards?.columns || ''}`}
-            app={app}
+            app={ledgerApp}
             workspaceCwd={workspaceCwd}
             onRefresh={onChanged}
             focusEntity={focusEntity}
@@ -365,7 +367,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
       <div className="px-4 py-3">
         {current?.type === 'table' && (
           <SpecTable
-            app={app}
+            app={ledgerApp}
             view={current}
             workspaceCwd={workspaceCwd}
             previewRows={previewRows}
@@ -374,18 +376,18 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
           />
         )}
         {current?.type === 'form' && (
-          <SpecForm app={app} entity={current.entity} workspaceCwd={workspaceCwd} readOnly={!live} onDone={onChanged} />
+          <SpecForm app={ledgerApp} entity={current.entity} workspaceCwd={workspaceCwd} readOnly={!live} onDone={onChanged} />
         )}
         {current?.type === 'kanban' && (
-          <SpecKanban app={app} view={current} workspaceCwd={workspaceCwd} previewRows={previewRows} />
+          <SpecKanban app={ledgerApp} view={current} workspaceCwd={workspaceCwd} previewRows={previewRows} />
         )}
         {current?.type === 'stat' && (
-          <SpecStat app={app} view={current} workspaceCwd={workspaceCwd} />
+          <SpecStat app={ledgerApp} view={current} workspaceCwd={workspaceCwd} />
         )}
         {detailRid && current?.type === 'table' && (
           <div className="mt-4 border-t border-line pt-3">
             <SpecForm
-              app={app}
+              app={ledgerApp}
               entity={current.entity}
               workspaceCwd={workspaceCwd}
               rid={detailRid}

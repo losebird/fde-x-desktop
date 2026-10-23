@@ -155,7 +155,7 @@ export function handoffPackLine(pkg: {
       ...(Array.isArray(row.files) ? row.files : []),
       ...(Array.isArray(row.members) ? row.members.flatMap((member) => Array.isArray(member.files) ? member.files : []) : []),
     ])
-    const kb = files.reduce((sum, file) => {
+    const kb = files.reduce((sum: number, file) => {
       const rec = file && typeof file === 'object' ? file as { size?: number } : {}
       return sum + Number(rec.size || 0)
     }, 0)
