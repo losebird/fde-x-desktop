@@ -29,18 +29,26 @@ function copyCleanLan(dest) {
   })
 }
 
-test('a clean lan-assist tree stages nats 2.29.3 with the lock integrity', { timeout: 180000 }, async () => {
+test('a clean lan-assist tree stages nats 2.29.3 into resources and app/runtime', { timeout: 180000 }, async () => {
   const root = join(tmpdir(), `fde-nats-stage-${process.pid}`)
   const source = join(root, 'src')
   const dest = join(root, 'resources', 'plugins', 'dsh-lan-assist')
+  const runtimePlugin = join(root, 'resources', 'app', 'runtime', 'plugins', 'dsh-lan-assist')
   rmSync(root, { recursive: true, force: true })
   copyCleanLan(source)
   assert.equal(existsSync(join(source, 'node_modules')), false)
+  mkdirSync(runtimePlugin, { recursive: true })
+  writeFileSync(join(runtimePlugin, 'package.json'), '{"name":"staged-without-nats"}\n')
   const { stageLanAssist } = await import('./stage.mjs')
   await stageLanAssist(source, dest)
   const pkg = JSON.parse(readFileSync(join(dest, 'node_modules', 'nats', 'package.json'), 'utf8'))
   assert.equal(pkg.version, '2.29.3')
   assert.equal(natsIntegrityProblem(dest), null)
+  const runtimeNats = join(runtimePlugin, 'node_modules', 'nats', 'package.json')
+  assert.equal(existsSync(runtimeNats), true)
+  const runtimePkg = JSON.parse(readFileSync(runtimeNats, 'utf8'))
+  assert.equal(runtimePkg.version, '2.29.3')
+  assert.equal(natsIntegrityProblem(runtimePlugin), null)
   const lock = JSON.parse(readFileSync(join(repo, 'runtime', 'plugins', 'plugins.lock.json'), 'utf8'))
   assert.equal(lock.plugins['dsh-lan-assist'].dependencies.nats.version, '2.29.3')
   assert.equal(lock.plugins['dsh-lan-assist'].dependencies.nats.integrity, NATS_INTEGRITY)
