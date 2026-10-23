@@ -1,0 +1,36 @@
+TAP version 13
+# {"phase":"rename response landed","title":"整理待办 · 10/19 14:05"}
+# {"phase":"earlier create response landed","published":"整理待办 · 10/19 14:05","returned":"整理待办 · 10/19 14:05"}
+# Subtest: a later-issued session list keeps the renamed title when an earlier response lands after
+ok 1 - a later-issued session list keeps the renamed title when an earlier response lands after
+  ---
+  duration_ms: 25.717332
+  type: 'test'
+  ...
+# Subtest: one session list reload publishes that list
+ok 2 - one session list reload publishes that list
+  ---
+  duration_ms: 0.219369
+  type: 'test'
+  ...
+# Subtest: a finished reload still publishes the next list
+ok 3 - a finished reload still publishes the next list
+  ---
+  duration_ms: 0.170514
+  type: 'test'
+  ...
+# Subtest: session list responses that return in issue order still end on the renamed title
+ok 4 - session list responses that return in issue order still end on the renamed title
+  ---
+  duration_ms: 0.168215
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 74.875762

@@ -21,3 +21,24 @@ export async function takeSessionList<T>(
   if (!id) throw new Error('session list workspace is empty')
   return list(id)
 }
+
+export type SessionListGate<T = unknown> = {
+  generation: number
+  applied?: T
+}
+
+export async function reloadSessionList<T>(
+  gate: SessionListGate<T>,
+  load: () => Promise<T>,
+  apply: (value: T) => void,
+): Promise<T> {
+  const issued = ++gate.generation
+  const value = await load()
+  if (issued !== gate.generation) {
+    if (gate.applied !== undefined) return gate.applied
+    return value
+  }
+  gate.applied = value
+  apply(value)
+  return value
+}

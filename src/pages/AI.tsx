@@ -8,7 +8,7 @@ import {
 import clsx from 'clsx'
 import { openFilesAtPath } from '@/lib/app-platform'
 import { landRef } from '@/lib/open-ref'
-import { sessionListWorkspaceId } from '@/lib/ai-session-list'
+import { reloadSessionList, sessionListWorkspaceId } from '@/lib/ai-session-list'
 import { currentAiTarget, isPrimarySession, resolvePrimarySessionId } from '@/lib/ai-target'
 import { useApp } from '@/store/app'
 import { clearAskAiNotice, getAskAiNotice, subscribeAskAiNotice } from '@/lib/ask-ai'
@@ -227,12 +227,17 @@ export default function AI() {
     }).catch(() => undefined)
   }, [activeId, dropStoppedTerminal])
 
+  const sessionListGate = useRef({ generation: 0 })
+
   async function reloadRemoteSessions(signal?: AbortSignal) {
     const state = useApp.getState()
     const workspaceId = sessionListWorkspaceId(state.activeWorkspaceId, state.workspaces)
-    const sessions = await runtimeApi.listAiSessions({ includeBlank: true, includeSubagents: true, includeArchived: sessionLane === 'archived', workspaceId }, signal)
-    setRemoteSessions(sessions)
-    return sessions
+    return reloadSessionList(sessionListGate.current, () => runtimeApi.listAiSessions({
+      includeBlank: true,
+      includeSubagents: true,
+      includeArchived: sessionLane === 'archived',
+      workspaceId,
+    }, signal), setRemoteSessions)
   }
 
   useEffect(() => {
