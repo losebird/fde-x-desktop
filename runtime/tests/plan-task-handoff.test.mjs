@@ -37,6 +37,19 @@ function assertPlanToolsOnly(prompt, sourceRef) {
   assert.equal(prompt.includes('fde_app_records_propose'), false, sourceRef)
 }
 
+test('handoff prompt for an app ledger keeps app record tools', () => {
+  const ledger = `app_${'a'.repeat(32)}`
+  const built = taskHandoffPrompt({
+    id: 'task_app',
+    title: '应用账',
+    sourceRef: `app:${ledger}`,
+  })
+  assert.match(built.prompt, /fde_app_records_query/)
+  assert.match(built.prompt, /fde_app_records_propose/)
+  assert.equal(built.prompt.includes('biz_preview'), false)
+  assert.equal(built.prompt.includes('请到计划页确认并过账'), false)
+})
+
 test('handoff prompt for a hand-built task omits app record tools', () => {
   const built = taskHandoffPrompt({
     id: 'task_two',

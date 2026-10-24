@@ -43,3 +43,21 @@ export function planPageSpeech(speak) {
   if (text.includes(PLAN_PAGE_HINT)) return text
   return `${text}\n${PLAN_PAGE_HINT}`
 }
+
+export function handoffRoundAsksPlanPage(...parts) {
+  return parts.some((part) => String(part || '').includes(PLAN_PAGE_HINT))
+}
+
+export function rewritePlanHandoffSpeech(result, wanted) {
+  if (!wanted || !result || typeof result !== 'object') return result
+  const next = { ...result }
+  if (typeof next.speak === 'string') next.speak = planPageSpeech(next.speak)
+  if (typeof next.hint === 'string') next.hint = planPageSpeech(next.hint)
+  if (next.sheet && typeof next.sheet === 'object') {
+    const sheet = { ...next.sheet }
+    if (typeof sheet.speak === 'string') sheet.speak = planPageSpeech(sheet.speak)
+    if (typeof sheet.hint === 'string') sheet.hint = planPageSpeech(sheet.hint)
+    next.sheet = sheet
+  }
+  return next
+}

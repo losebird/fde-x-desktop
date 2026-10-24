@@ -18,6 +18,7 @@ import {
 } from '../host-catalog.mjs'
 import { decidePlanTask } from '../plan/task-proposals.mjs'
 import {
+  awaitingPreviewIds,
   bindAwaitingProposal,
   listPlanTaskCards,
   mintDiffFrom,
@@ -602,13 +603,15 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       previewState = await readLanPreviewState(aiRuntime)
       if (!previewId) {
         const openMints = openHandoffMintsForTask(previewState, db, taskId)
+        const heldElsewhere = awaitingPreviewIds(db, taskId, operationId)
+        const freeMints = openMints.filter((mint) => !heldElsewhere.has(mint.previewId))
         if (decision === 'confirm') {
-          if (openMints.length > 1) {
+          if (freeMints.length > 1) {
             planError(response, 409, 'preview_ambiguous', '有多份业务预览未绑定，请重新交给 AI', correlationId)
             return true
           }
-          if (openMints.length === 1) {
-            const diff = mintDiffFrom(openMints[0])
+          if (freeMints.length === 1) {
+            const diff = mintDiffFrom(freeMints[0])
             const bound = diff && bindAwaitingProposal(db, operationId, diff)
             const fresh = getOperation(db, operationId, ident.workspaceId)
             previewId = fresh && fresh.plan
@@ -620,7 +623,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
             }
           }
         } else if (decision === 'reject') {
-          for (const mint of openMints) {
+          for (const mint of freeMints) {
             await cancelPreview(mint.previewId)
           }
         }
@@ -688,9 +691,11 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       const plan = result.operation.plan
       if (previewState && (decision === 'confirm' || decision === 'reject')) {
         const keep = decision === 'confirm' ? previewId : null
+        const stillHeld = awaitingPreviewIds(db, plan.taskId)
         const openMints = openHandoffMintsForTask(previewState, db, plan.taskId)
         for (const mint of openMints) {
           if (mint.previewId === keep) continue
+          if (stillHeld.has(mint.previewId)) continue
           await cancelPreview(mint.previewId)
         }
       }

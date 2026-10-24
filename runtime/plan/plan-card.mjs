@@ -241,6 +241,17 @@ export function mintDiffFrom(mint) {
   }
 }
 
+export function awaitingPreviewIds(db, taskId, exceptProposalId = '') {
+  const skip = String(exceptProposalId || '').trim()
+  const ids = new Set()
+  for (const row of awaitingForTask(db, taskId)) {
+    if (skip && row.id === skip) continue
+    const id = previewOn(row.plan)
+    if (id) ids.add(id)
+  }
+  return ids
+}
+
 function sheetChangesOf(change) {
   const stored = change && change.previewChanges
   if (!stored || typeof stored !== 'object') return { action: '', changes: [] }

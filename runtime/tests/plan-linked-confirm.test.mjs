@@ -698,6 +698,116 @@ test('sheetPayloadFromRaw keeps confirmMouth plan', () => {
   assert.equal(payload.confirmMouth, 'plan')
 })
 
+test('confirm leaves a preview that another awaiting proposal already holds', async () => {
+  const { db, dbPath } = openFixture('bind-held')
+  addTask(db, 'task_held')
+  startTaskAiRun(db, { taskId: 'task_held', sessionId: 'sess_one', requestId: 'req_held' })
+  const firstId = propose(db, 'task_held', '先提案')
+  const secondId = propose(db, 'task_held', '后提案')
+  attachPreview(db, firstId, PREVIEW)
+  const { aiRuntime, writes, cancels } = runtimeFor(PREVIEW, 'open', {
+    handoffMints: [{
+      previewId: PREVIEW,
+      sessionId: 'sess_one',
+      workstation: false,
+      action: DIFF.action,
+      changes: DIFF.changes,
+    }],
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${secondId}/confirm`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.equal(response.status, 200, response.body)
+  assert.equal(writes.length, 0)
+  assert.deepEqual(cancels, [])
+  assert.equal(planOf(proposalRow(db, firstId)).change.previewId, PREVIEW)
+  assert.equal(proposalRow(db, firstId).state, 'awaiting_approval')
+  assert.equal(parseLive(planOf(proposalRow(db, secondId))), null)
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+function parseLive(plan) {
+  const id = plan && plan.change && plan.change.previewId
+  return id || null
+}
+
+test('reject does not cancel a preview another awaiting proposal holds', async () => {
+  const { db, dbPath } = openFixture('reject-held')
+  addTask(db, 'task_reject_held')
+  startTaskAiRun(db, { taskId: 'task_reject_held', sessionId: 'sess_one', requestId: 'req_reject_held' })
+  const firstId = propose(db, 'task_reject_held', '先提案')
+  const secondId = propose(db, 'task_reject_held', '后提案')
+  attachPreview(db, firstId, PREVIEW)
+  const { aiRuntime, writes, cancels } = runtimeFor(PREVIEW, 'open', {
+    handoffMints: [{
+      previewId: PREVIEW,
+      sessionId: 'sess_one',
+      workstation: false,
+      action: DIFF.action,
+      changes: DIFF.changes,
+    }],
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${secondId}/reject`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.equal(response.status, 200, response.body)
+  assert.equal(writes.length, 0)
+  assert.deepEqual(cancels, [])
+  assert.equal(proposalRow(db, secondId).state, 'cancelled')
+  assert.equal(planOf(proposalRow(db, firstId)).change.previewId, PREVIEW)
+  assert.equal(proposalRow(db, firstId).state, 'awaiting_approval')
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+test('confirm cancels an unbound extra mint and keeps the posted preview', async () => {
+  const { db, dbPath } = openFixture('cancel-extra')
+  addTask(db, 'task_extra')
+  startTaskAiRun(db, { taskId: 'task_extra', sessionId: 'sess_one', requestId: 'req_extra' })
+  const proposalId = propose(db, 'task_extra', '已绑定')
+  attachPreview(db, proposalId, PREVIEW)
+  const { aiRuntime, writes, cancels } = runtimeFor(PREVIEW, 'open', {
+    handoffMints: [
+      {
+        previewId: PREVIEW,
+        sessionId: 'sess_one',
+        workstation: false,
+        action: DIFF.action,
+        changes: DIFF.changes,
+      },
+      {
+        previewId: PREVIEW_NEXT,
+        sessionId: 'sess_one',
+        workstation: false,
+        action: DIFF.action,
+        changes: DIFF.changes,
+      },
+    ],
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${proposalId}/confirm`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.equal(response.status, 200, response.body)
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].preview_id, PREVIEW)
+  assert.deepEqual(cancels, [PREVIEW_NEXT])
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
 test('reject without a stored preview id cancels the open mint and proposal', async () => {
   const { db, dbPath } = openFixture('bind-reject')
   addTask(db, 'task_bind_reject')

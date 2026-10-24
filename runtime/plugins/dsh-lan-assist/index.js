@@ -27,7 +27,7 @@ import { createLookup, collapseKindsToConnectedTables } from './lookup.js'
 import { translateQuote } from './translate.js'
 import { createEyesSee, hasEyes } from './eyes-bridge.js'
 import { createGate, createNocoWrite, WORKSTATION_CONFIRM_HINT } from './write.js'
-import { markHandoffToken, openHandoffMints, planPageSpeech } from './handoff-mints.js'
+import { handoffRoundAsksPlanPage, markHandoffToken, openHandoffMints, rewritePlanHandoffSpeech } from './handoff-mints.js'
 import { rememberUserSpeech, speechHoldsWorkstationWrite } from './slots.js'
 import { createTraceLog } from './traces.js'
 import {
@@ -323,10 +323,12 @@ export async function apply(ctx, config) {
         : null
       markHandoffToken(token, handoffEvent)
       if (result && typeof result === 'object') {
-        const next = { ...result, published: false }
-        if (typeof next.speak === 'string') next.speak = planPageSpeech(next.speak)
-        if (typeof next.hint === 'string') next.hint = planPageSpeech(next.hint)
-        return next
+        const wanted = handoffRoundAsksPlanPage(
+          sessionRounds.roundSpeech(publishSid),
+          spec && spec.userSpeech,
+          spec && spec.speech,
+        )
+        return { ...rewritePlanHandoffSpeech(result, wanted), published: false }
       }
       return result
     }

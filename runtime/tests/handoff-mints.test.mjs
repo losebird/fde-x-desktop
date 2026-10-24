@@ -3,9 +3,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   PLAN_PAGE_HINT,
+  handoffRoundAsksPlanPage,
   markHandoffToken,
   openHandoffMints,
   planPageSpeech,
+  rewritePlanHandoffSpeech,
 } from '../plugins/dsh-lan-assist/handoff-mints.js'
 
 test('markHandoffToken sets planHandoff and copies session from the mint event', () => {
@@ -77,4 +79,21 @@ test('planPageSpeech replaces right-side confirm copy with the plan page hint', 
   assert.equal(planPageSpeech('先预览，请在右侧确认'), `先预览，\n${PLAN_PAGE_HINT}`)
   assert.equal(planPageSpeech('已生成预览'), `已生成预览\n${PLAN_PAGE_HINT}`)
   assert.equal(PLAN_PAGE_HINT, '请到计划页确认并过账')
+})
+
+test('plan page speech is rewritten only when the round already asks for the plan page', () => {
+  const result = {
+    speak: '已生成预览 请在右侧确认过账',
+    hint: '请在右侧确认过账',
+    sheet: { speak: '请在右侧确认过账', hint: '请在右侧确认' },
+  }
+  assert.equal(handoffRoundAsksPlanPage('把等级改成 A'), false)
+  assert.equal(rewritePlanHandoffSpeech(result, false), result)
+  assert.equal(handoffRoundAsksPlanPage(`用 biz_preview 改业务。\n${PLAN_PAGE_HINT}`), true)
+  const next = rewritePlanHandoffSpeech(result, true)
+  assert.equal(next.speak, `已生成预览\n${PLAN_PAGE_HINT}`)
+  assert.equal(next.hint, PLAN_PAGE_HINT)
+  assert.equal(next.sheet.speak, PLAN_PAGE_HINT)
+  assert.equal(next.sheet.hint, PLAN_PAGE_HINT)
+  assert.equal(result.speak.includes('请在右侧确认'), true)
 })
