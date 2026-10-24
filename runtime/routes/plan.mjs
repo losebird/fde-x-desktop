@@ -18,9 +18,14 @@ import {
 } from '../host-catalog.mjs'
 import { decidePlanTask } from '../plan/task-proposals.mjs'
 import {
+  awaitingPreviewIds,
+  bindAwaitingProposal,
   listPlanTaskCards,
+  mintDiffFrom,
+  openHandoffMintsForTask,
   planConfirmStep,
   postedPreviewAudit,
+  readLanPreviewState,
   readPreviewIndex,
 } from '../plan/plan-card.mjs'
 import { postWorkstationBizWrite } from './biz.mjs'
@@ -580,18 +585,58 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       return true
     }
     const operation = getOperation(db, operationId, ident.workspaceId)
-    const previewId = operation && operation.state === 'awaiting_approval'
+    let previewId = operation && operation.state === 'awaiting_approval'
       ? parseLivePreviewId(operation.plan && operation.plan.change && operation.plan.change.previewId)
       : null
     let confirmStep = null
+    let previewState = null
+    const cancelledPreviews = new Set()
+    const cancelPreview = async (id) => {
+      const wanted = parseLivePreviewId(id)
+      if (!wanted || cancelledPreviews.has(wanted)) return
+      if (!aiRuntime || typeof aiRuntime.lanAssist !== 'function') return
+      cancelledPreviews.add(wanted)
+      await aiRuntime.lanAssist('/write/cancel', { method: 'POST', body: { preview_id: wanted } })
+    }
+    const taskId = operation && operation.plan && operation.plan.taskId
+    if (operation && operation.state === 'awaiting_approval' && aiRuntime && typeof aiRuntime.lanAssist === 'function') {
+      previewState = await readLanPreviewState(aiRuntime)
+      if (!previewId) {
+        const openMints = openHandoffMintsForTask(previewState, db, taskId)
+        const heldElsewhere = awaitingPreviewIds(db, taskId, operationId)
+        const freeMints = openMints.filter((mint) => !heldElsewhere.has(mint.previewId))
+        if (decision === 'confirm') {
+          if (freeMints.length > 1) {
+            planError(response, 409, 'preview_ambiguous', '有多份业务预览未绑定，请重新交给 AI', correlationId)
+            return true
+          }
+          if (freeMints.length === 1) {
+            const diff = mintDiffFrom(freeMints[0])
+            const bound = diff && bindAwaitingProposal(db, operationId, diff)
+            const fresh = getOperation(db, operationId, ident.workspaceId)
+            previewId = fresh && fresh.plan
+              ? parseLivePreviewId(fresh.plan.change && fresh.plan.change.previewId)
+              : null
+            if (!bound || !previewId) {
+              planError(response, 409, 'preview_unbound', '业务预览没有绑上，请重新交给 AI', correlationId)
+              return true
+            }
+          }
+        } else if (decision === 'reject') {
+          for (const mint of freeMints) {
+            await cancelPreview(mint.previewId)
+          }
+        }
+      }
+    }
     if (previewId) {
-      const index = await readPreviewIndex(aiRuntime)
+      const index = previewState ? previewState.index : await readPreviewIndex(aiRuntime)
       const raw = index[previewId]
       const status = raw === 'open' || raw === 'used' || raw === 'expired' ? raw : 'absent'
       const audit = postedPreviewAudit(db, previewId)
       confirmStep = planConfirmStep({ previewId, status, audit })
-      if (decision === 'reject' && confirmStep.voidOnReject && aiRuntime && typeof aiRuntime.lanAssist === 'function') {
-        await aiRuntime.lanAssist('/write/cancel', { method: 'POST', body: { preview_id: previewId } })
+      if (decision === 'reject' && confirmStep.voidOnReject) {
+        await cancelPreview(previewId)
       }
       if (decision === 'confirm' && confirmStep.step === 'refuse') {
         planError(response, 409, 'preview_unavailable', confirmStep.message, correlationId)
@@ -644,6 +689,16 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     }
     if (result.kind === 'ok') {
       const plan = result.operation.plan
+      if (previewState && (decision === 'confirm' || decision === 'reject')) {
+        const keep = decision === 'confirm' ? previewId : null
+        const stillHeld = awaitingPreviewIds(db, plan.taskId)
+        const openMints = openHandoffMintsForTask(previewState, db, plan.taskId)
+        for (const mint of openMints) {
+          if (mint.previewId === keep) continue
+          if (stillHeld.has(mint.previewId)) continue
+          await cancelPreview(mint.previewId)
+        }
+      }
       completeTaskAiRun(db, plan && plan.taskId)
       emit('task.proposal.changed', {
         proposalId: operationId,
