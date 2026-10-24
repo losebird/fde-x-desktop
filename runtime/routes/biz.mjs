@@ -22,6 +22,7 @@ import {
 
 import { parseLivePreviewId } from '../biz/confirm-mouth.mjs'
 import { stampPlanConfirmMouth } from '../biz/plan-mouth-stamp.mjs'
+import { projectWriteConfirm } from '../biz/write-confirm.mjs'
 import { finishWorkstationHandoff } from '../plan/task-ai-runs.mjs'
 import { isGateActionCode } from '../biz/gate-action-codes.mjs'
 import { normalizePreviewWhere } from '../biz/where.mjs'
@@ -331,12 +332,12 @@ export function emitBizSheetPending(sheet, { sessionId, source = 'bff', workspac
   const columns = Array.isArray(normalized.columns) ? normalized.columns : []
   if (!kind || !action) return false
 
-  const payloadSheet = {
+  const tokenIndex = writePreview && typeof writePreview === 'object' ? writePreview : undefined
+  const payloadSheet = projectWriteConfirm({
     ...normalized,
     sessionId,
     ...(typeof sheet.speech === 'string' && sheet.speech ? { speech: sheet.speech } : {}),
-  }
-  const tokenIndex = writePreview && typeof writePreview === 'object' ? writePreview : undefined
+  }, tokenIndex)
 
   emit('biz.sheet.pending', {
     kind,
@@ -1057,9 +1058,10 @@ export async function handleBizRoutes(request, response, url, deps) {
       }
       const served = sheetForOfficialGet(handed, querySessionId)
       const mouthed = served ? stampPlanConfirmMouth(db, served) : null
+      const projected = mouthed ? projectWriteConfirm(mouthed, writePreview) : null
       sendJson(response, 200, {
         data: {
-          sheet: mouthed ? stripSecrets(mouthed) : null,
+          sheet: projected ? stripSecrets(projected) : null,
           writePreview: writePreview || null,
         },
         correlationId,
