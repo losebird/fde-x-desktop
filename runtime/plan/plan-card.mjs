@@ -154,14 +154,90 @@ export function previewOfferCtx(index, voidPreview) {
   }
 }
 
-export async function readPreviewIndex(aiRuntime) {
-  if (!aiRuntime || typeof aiRuntime.lanAssist !== 'function') return {}
+export async function readLanPreviewState(aiRuntime) {
+  if (!aiRuntime || typeof aiRuntime.lanAssist !== 'function') {
+    return { index: {}, mints: [] }
+  }
   try {
     const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
-    const index = state && state.writePreview
-    return index && typeof index === 'object' ? index : {}
+    const index = state && state.writePreview && typeof state.writePreview === 'object' ? state.writePreview : {}
+    const mints = Array.isArray(state.handoffMints) ? state.handoffMints : []
+    return { index, mints }
   } catch {
-    return {}
+    return { index: {}, mints: [] }
+  }
+}
+
+export async function readPreviewIndex(aiRuntime) {
+  const { index } = await readLanPreviewState(aiRuntime)
+  return index
+}
+
+export function bindAwaitingProposal(db, proposalId, diff) {
+  const row = db.prepare('SELECT state, plan_json FROM operations WHERE id = ?').get(proposalId)
+  if (!row || row.state !== 'awaiting_approval') return false
+  const plan = JSON.parse(row.plan_json)
+  const existing = parseLivePreviewId(plan.change && plan.change.previewId)
+  if (existing === diff.previewId) return true
+  if (existing) return false
+  return writeBoundPreview(db, proposalId, diff)
+}
+
+export function offerOpenHandoffMints(db, state, voidPreview) {
+  const mints = state && Array.isArray(state.handoffMints) ? state.handoffMints : []
+  const index = state && state.writePreview && typeof state.writePreview === 'object' ? state.writePreview : {}
+  const ctx = previewOfferCtx(index, voidPreview)
+  for (const mint of mints) {
+    const id = parseLivePreviewId(mint && mint.previewId)
+    if (!id) continue
+    const status = index[id]
+    if (status != null && status !== 'open') continue
+    offerHandoffPreview(db, {
+      type: 'mint',
+      sessionId: mint.sessionId,
+      previewId: id,
+      workstation: false,
+      action: typeof mint.action === 'string' ? mint.action : '',
+      changes: Array.isArray(mint.changes) ? mint.changes : [],
+    }, ctx)
+  }
+}
+
+export function taskSessionIds(db, taskId) {
+  const tid = String(taskId || '').trim()
+  if (!tid) return []
+  const rows = db.prepare(`
+    SELECT DISTINCT session_id FROM task_ai_runs WHERE task_id = ?
+  `).all(tid)
+  return rows.map((row) => String(row.session_id || '').trim()).filter(Boolean)
+}
+
+export function openHandoffMintsForTask(previewState, db, taskId) {
+  const sessions = new Set(taskSessionIds(db, taskId))
+  const index = previewState && previewState.index && typeof previewState.index === 'object'
+    ? previewState.index
+    : {}
+  const mints = previewState && Array.isArray(previewState.mints) ? previewState.mints : []
+  const open = []
+  for (const mint of mints) {
+    const previewId = parseLivePreviewId(mint && mint.previewId)
+    if (!previewId) continue
+    const sessionId = String(mint.sessionId || '').trim()
+    if (!sessions.has(sessionId)) continue
+    const status = index[previewId]
+    if (status != null && status !== 'open') continue
+    open.push({ ...mint, previewId })
+  }
+  return open
+}
+
+export function mintDiffFrom(mint) {
+  const previewId = parseLivePreviewId(mint && mint.previewId)
+  if (!previewId) return null
+  return {
+    previewId,
+    action: typeof mint.action === 'string' ? mint.action : '',
+    changes: Array.isArray(mint.changes) ? mint.changes : [],
   }
 }
 

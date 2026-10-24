@@ -74,7 +74,7 @@ test('openHandoffMints keeps only open handoff tokens with a session', () => {
 
 test('planPageSpeech replaces right-side confirm copy with the plan page hint', () => {
   assert.equal(planPageSpeech('请在右侧确认过账'), PLAN_PAGE_HINT)
-  assert.equal(planPageSpeech('先预览，请在右侧确认'), PLAN_PAGE_HINT)
+  assert.equal(planPageSpeech('先预览，请在右侧确认'), `先预览，\n${PLAN_PAGE_HINT}`)
   assert.equal(planPageSpeech('已生成预览'), `已生成预览\n${PLAN_PAGE_HINT}`)
   assert.equal(PLAN_PAGE_HINT, '请到计划页确认并过账')
 })

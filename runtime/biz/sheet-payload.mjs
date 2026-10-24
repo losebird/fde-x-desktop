@@ -89,5 +89,6 @@ export function sheetPayloadFromRaw(raw) {
     ...(Number(raw.pageSize) > 0 ? { pageSize: Math.floor(Number(raw.pageSize)) } : {}),
     ...(raw.pageFull === true ? { pageFull: true } : {}),
     ...(peers.length ? { peers } : {}),
+    ...(raw.confirmMouth === 'plan' ? { confirmMouth: 'plan' } : {}),
   }
 }
