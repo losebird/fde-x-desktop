@@ -1,3 +1,5 @@
+import { noteHandoffTokenIndex, notifyHandoffPreviewMint } from './biz/handoff-preview-hook.mjs'
+import { stampPlanConfirmMouth } from './biz/plan-mouth-stamp.mjs'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { emit } from './events.mjs'
 import { emitBizSheetPending } from './routes/biz.mjs'
@@ -190,7 +192,7 @@ export function startLanAssistStateWatch(deps) {
       const prepared = deps.prepareSurface(sheet, sessionId)
       if (typeof prepared === 'string' && prepared.trim()) surfaceId = prepared.trim()
     }
-    return emitOfficialSheet(sheet, deps, 'round-end', surfaceId, writePreview)
+    return emitOfficialSheet(stampPlanConfirmMouth(db, sheet), deps, 'round-end', surfaceId, writePreview)
   }
 
   const tick = async () => {
@@ -198,6 +200,7 @@ export function startLanAssistStateWatch(deps) {
       const state = await lanAssist('/state', { search: { sessionId: '' } })
       if (db) reconcileLanAssistConnectionLamp(db, state && state.ok !== false ? state : null, { workspaceId: 'ws_personal' })
       if (!state || state.ok === false) return
+      if (state.writePreview && typeof state.writePreview === 'object') noteHandoffTokenIndex(state.writePreview)
       await lanAssist('/sleep', { method: 'POST', body: { on: false } }).catch(() => undefined)
 
       const sheet = officialFromState(state)
@@ -262,6 +265,28 @@ export function startLanAssistStateWatch(deps) {
   if (typeof deps.subscribeLanMailbox === 'function') {
     startPoll()
     stopMailbox = deps.subscribeLanMailbox((payload) => {
+      if (payload && String(payload.type || '') === 'handoff-preview') {
+        void (async () => {
+          let index = {}
+          try {
+            const state = await lanAssist('/state', { search: { sessionId: '' } })
+            index = state && state.writePreview && typeof state.writePreview === 'object' ? state.writePreview : {}
+          } catch {
+            index = {}
+          }
+          noteHandoffTokenIndex(index)
+          if (!db) return
+          notifyHandoffPreviewMint({
+            type: 'mint',
+            sessionId: payload.sessionId,
+            previewId: payload.previewId,
+            workstation: payload.workstation === true,
+            action: typeof payload.action === 'string' ? payload.action : '',
+            changes: Array.isArray(payload.changes) ? payload.changes : [],
+          })
+        })()
+        return
+      }
       if (payload && String(payload.type || '') === 'official-sheet') {
         void flushPendingSheet(payload.sessionId).then((ok) => {
           if (!ok) startPoll()

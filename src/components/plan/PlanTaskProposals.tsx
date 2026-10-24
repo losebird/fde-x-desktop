@@ -159,15 +159,26 @@ export function PlanTaskProposals({ onDecided }: { onDecided?: (taskId: string) 
                 {diffLines(item).map((line) => (
                   <div key={line} className="text-ink-muted mt-1">{line}</div>
                 ))}
+                {item.card?.notice ? (
+                  <div className="text-xs text-ink-muted mt-1">{item.card.notice}</div>
+                ) : null}
+                {item.card?.business ? (
+                  <div className="text-xs text-ink-muted mt-1">
+                    <div>{item.card.business.headline}</div>
+                    {item.card.business.lines.map((line, index) => (
+                      <div key={`${line}-${index}`}>{line}</div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"
                 className="btn h-7"
                 data-plan-task-proposal-confirm={item.id}
-                disabled={busyId === item.id}
+                disabled={busyId === item.id || item.card?.confirm.enabled === false}
                 onClick={() => { void decide(item.id, 'confirm') }}
               >
-                确认
+                {item.card?.confirm.label || '确认'}
               </button>
               <button
                 type="button"

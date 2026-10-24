@@ -641,6 +641,12 @@ export type PlanTaskProposal = {
   title: string
   before?: Record<string, unknown> | null
   change?: Record<string, unknown> | null
+  card?: {
+    confirm: { enabled: boolean, label: string }
+    reject: { enabled: boolean, label: string }
+    notice: string | null
+    business: null | { headline: string, lines: string[] }
+  }
 }
 
 export type PlanHistoryChange = {

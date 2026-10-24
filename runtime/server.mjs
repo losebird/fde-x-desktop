@@ -86,7 +86,9 @@ import { handleSkillRoutes } from './routes/skills.mjs'
 import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
 import { configureEventBus, emit } from './events.mjs'
+import { handoffPreviewCtx, registerHandoffPreviewOffer } from './biz/handoff-preview-hook.mjs'
 import { startLanAssistStateWatch, subscribeLanAssistMailbox } from './lan-assist-state-watch.mjs'
+import { offerHandoffPreview } from './plan/plan-card.mjs'
 import { migrateBoundWorkspaceSources, readBizSystems } from './biz/systems-store.mjs'
 import { startSemanticReadyWatch } from './semantic-ready-watch.mjs'
 import { refreshLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
@@ -176,6 +178,7 @@ const aiRuntime = createCoreConnector({
   cwd: canonicalWorkspaceCwd(process.env.FDE_AI_WORKSPACE) || FDE_AI_WORKSPACE,
   ...(testDshBin ? { bin: testDshBin } : {}),
 })
+registerHandoffPreviewOffer((event) => offerHandoffPreview(db, event, handoffPreviewCtx(aiRuntime)))
 const personalWorkspace = getWorkspace(db, 'ws_personal')
 const personalMeta = personalWorkspace?.metadata && typeof personalWorkspace.metadata === 'object' ? personalWorkspace.metadata : {}
 const personalStored = canonicalWorkspaceCwd(personalMeta.cwd) || canonicalWorkspaceCwd(personalMeta.path)

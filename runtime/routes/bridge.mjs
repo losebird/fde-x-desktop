@@ -8,6 +8,8 @@ import { draftMemoryFromBridge } from '../memory/writer.mjs'
 import { fdeRunDirectory, FDE_DSH_HOME } from '../config.mjs'
 import { handleAppsBridge } from './apps.mjs'
 import { resolveWorkspaceIdOrFail, workspaceCwdForId } from '../briefing/workspace.mjs'
+import { handoffPreviewCtx } from '../biz/handoff-preview-hook.mjs'
+import { offerHandoffPreview } from '../plan/plan-card.mjs'
 import { proposePlanTask } from '../plan/task-proposals.mjs'
 import { httpStatusForWorkspaceError, resolveHttpWorkspace } from '../http-workspace.mjs'
 import { pathHasPrefix } from '../path-prefix.mjs'
@@ -231,6 +233,13 @@ export async function handleBridgeRoutes(request, response, url, deps) {
       workspaceId = ident.workspaceId
     }
     const result = proposePlanTask(db, { ...body, workspaceId })
+    if (result.ok) {
+      offerHandoffPreview(db, {
+        type: 'propose',
+        taskId: result.plan.taskId,
+        proposalId: result.proposalId,
+      }, handoffPreviewCtx(aiRuntime))
+    }
     if (!result.ok) {
       if (result.error === 'not_found') {
         bridgeError(response, 404, 'not_found', result.message, correlationId)

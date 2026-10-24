@@ -225,6 +225,51 @@ export async function apply(ctx, config) {
     const writePreview = typeof gate.previewTokenIndex === 'function' ? gate.previewTokenIndex() : {}
     return { ...view, officialRoundSheet: sessionRounds.servedSheet(sid), writePreview }
   }
+  function planHandoffMintEvent(spec, result, sessionId) {
+    if (spec && spec.workstation === true) return null
+    const sheet = result && result.sheet && typeof result.sheet === 'object'
+      ? result.sheet
+      : (result && typeof result === 'object' ? result : null)
+    if (!sheet || (result && result.ok === false)) return null
+    const previewId = String(
+      sheet.preview_id || sheet.previewId || (result && (result.preview_id || result.previewId)) || '',
+    ).trim()
+    if (!previewId) return null
+    const changes = []
+    for (const row of Array.isArray(sheet.changes) ? sheet.changes : []) {
+      if (!row || typeof row !== 'object') continue
+      const field = String(row.field || '').trim()
+      if (!field) continue
+      changes.push({
+        field,
+        label: String(row.label || field),
+        from: row.from == null ? '' : String(row.from),
+        to: row.to == null ? '' : String(row.to),
+      })
+    }
+    return {
+      type: 'mint',
+      sessionId: String(sessionId || sheet.sessionId || (spec && spec.sessionId) || '').trim(),
+      previewId,
+      workstation: false,
+      action: String(sheet.action || (spec && spec.action) || '').trim(),
+      changes,
+    }
+  }
+  function emitPlanHandoffMint(event) {
+    if (!event) return
+    sse.emit('mailbox', {
+      type: 'handoff-preview',
+      sessionId: event.sessionId,
+      previewId: event.previewId,
+      workstation: false,
+      action: event.action,
+      changes: event.changes,
+    })
+    void import('../../biz/handoff-preview-hook.mjs').then((mod) => {
+      if (mod && typeof mod.notifyHandoffPreviewMint === 'function') mod.notifyHandoffPreviewMint(event)
+    }).catch(() => undefined)
+  }
   const origPreviewBiz = secretary.previewBiz.bind(secretary)
   secretary.previewBiz = async (spec = {}) => {
     const sid = String((spec && spec.sessionId) || '').trim()
@@ -271,6 +316,7 @@ export async function apply(ctx, config) {
       if (result && typeof result === 'object') return { ...result, published: true }
       return result
     }
+    emitPlanHandoffMint(planHandoffMintEvent(spec, result, publishSid))
     if (result && typeof result === 'object') return { ...result, published: false }
     return result
   }

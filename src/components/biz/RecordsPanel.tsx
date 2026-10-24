@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { sheetConfirmsOnPlanCard } from '../../../runtime/biz/confirm-mouth.mjs'
 import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
 import { ArrowLeft, Bot, CircleAlert, Plus, Search } from 'lucide-react'
 import clsx from 'clsx'
@@ -1132,6 +1133,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
   }
 
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
+    if (sheetConfirmsOnPlanCard(sheet)) return true
     if (!shouldStageRoundEndPending(sheet)) return false
     const connected = kindCatalog
     let next = sheet
@@ -1361,6 +1363,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       }
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (liveSid && !sheetBelongsToSession(stamped, liveSid)) return
+      if (sheetConfirmsOnPlanCard(stamped)) return
       if (shouldFocusBizRecordsForPending(stamped)) {
         useApp.getState().focusBizRecordsPanel()
       }
@@ -1407,94 +1410,36 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     setStaleHint('')
     try {
       const conn = connections.find((c) => c.id === connectionId)
-      const system = conn?.provider || 'NocoBase'
-      const pendingSheet = peekActivePending()
-      const bindSheet = (listSheetMeta && pendingSheet)
-        ? { ...pendingSheet, ...listSheetMeta }
-        : (listSheetMeta || pendingSheet)
-      const instanceNo = String(payloadExtra.no || '').trim()
-      const waitingPick = Boolean(
-        bindSheet
-        && (bindSheet.ambiguous === true || bindSheet.listed === true)
-        && bindSheet.blockConfirm !== true
-        && !sheetPreviewId(bindSheet)
-        && !isBizListQueryAction(String(bindSheet.action || ''))
-        && action !== '新建'
-        && !isBizListQueryAction(action)
-        && !instanceNo,
-      )
-      const previewAction = waitingPick && bindSheet
-        ? (String(bindSheet.action || '').trim() || action)
-        : action
-      const liveSid = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
-      let previewBody: Record<string, unknown> = { ...payloadExtra }
-      if (waitingPick) previewBody.picked = true
-      if (previewAction === '改行' && originalRow) {
-        const draft = (payloadExtra.input && typeof payloadExtra.input === 'object')
-          ? payloadExtra.input as SheetRow
-          : originalRow
-        const patch = pickSheetRowPatch(originalRow, draft, columns)
-        if (!Object.keys(patch).length) {
-          if (waitingPick) {
-            const rest = { ...payloadExtra }
-            delete rest.input
-            previewBody = { ...rest, no: sheetRowBusinessNo(originalRow), picked: true }
-          } else {
-            setError('请先修改至少一个字段后再预览改行')
-            return
-          }
-        } else {
-          previewBody = { ...payloadExtra, input: patch, ...(waitingPick ? { picked: true } : {}) }
-        }
+      const prepared = prepareDirectPreview(action, originalRow, payloadExtra, previewKind)
+      if (prepared.error) {
+        setError(prepared.error)
+        return
       }
-      if (previewAction === '新建') {
-        previewBody = { ...payloadExtra, input: pickFilledSheetInput((payloadExtra.input || {}) as Record<string, unknown>) }
-      }
-      const hopBind: Record<string, unknown> = {}
-      if (bindSheet && typeof bindSheet === 'object' && !instanceNo) {
-        const boundSpeech = String(bindSheet.speech || '').trim()
-        if (boundSpeech) hopBind.speech = boundSpeech
-        if (bindSheet.from && typeof bindSheet.from === 'object' && !Array.isArray(bindSheet.from)) {
-          hopBind.from = bindSheet.from
-        }
-        if (Array.isArray(bindSheet.where) && bindSheet.where.length) hopBind.where = bindSheet.where
-        if (Array.isArray(bindSheet.hopWhere) && bindSheet.hopWhere.length) hopBind.hopWhere = bindSheet.hopWhere
-        if (Array.isArray(bindSheet.steps) && bindSheet.steps.length) hopBind.steps = bindSheet.steps
-        if (waitingPick) {
-          if (bindSheet.patch && typeof bindSheet.patch === 'object' && !Array.isArray(bindSheet.patch)
-            && Object.keys(bindSheet.patch as object).length) {
-            hopBind.input = bindSheet.patch
-          }
-          const boundTo = String(bindSheet.to || '').trim()
-          if (boundTo) hopBind.to = boundTo
-        }
-      }
+      const liveSid = prepared.liveSid
       const data = await runtimeApi.bizPreview({
         kind: previewKind,
-        action: previewAction,
-        system,
+        action: prepared.previewAction,
+        system: conn?.provider || 'NocoBase',
         connectionId,
-        speech: waitingPick && bindSheet
-          ? String(bindSheet.speech || hopBind.speech || `${previewAction}${previewKind}`)
-          : `${previewAction}${previewKind}`,
+        speech: prepared.speech,
         ...(liveSid ? { sessionId: liveSid } : {}),
-        ...hopBind,
-        ...previewBody,
+        ...prepared.hopBind,
+        ...prepared.previewBody,
       })
       const rawSheet = (data.sheet && typeof data.sheet === 'object' ? data.sheet : data) as Record<string, unknown>
       if (rawSheet.ok === false || String(rawSheet.error || '') === 'TOO_MANY') {
         setError(typeof data.hint === 'string' && data.hint.trim() ? data.hint : '预览失败')
         return
       }
-      const sheet = (waitingPick || previewBody.picked === true)
+      const sheet = (prepared.waitingPick || prepared.previewBody.picked === true)
         ? { ...rawSheet, picked: true }
         : rawSheet
       const previewId = sheetPreviewId(sheet)
       const canWrite = Boolean(sheet.canWrite ?? sheet.can_write ?? data.canWrite)
-      if (!isBizListQueryAction(previewAction) && previewId) ensureListRestoreBeforeWritePreview(sheet)
+      if (!isBizListQueryAction(prepared.previewAction) && previewId) ensureListRestoreBeforeWritePreview(sheet)
       maybeSaveListRestore(sheet)
       applySheet(sheet, conn?.name || '连接器')
-      if (!isBizListQueryAction(previewAction) && previewId) {
+      if (!isBizListQueryAction(prepared.previewAction) && previewId) {
         clearBizPreviewDismissed(previewId)
         setDrawer({
           previewId,
@@ -1502,13 +1447,13 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
           canWrite,
           gateReason: typeof data.hint === 'string' ? data.hint : undefined,
           originalRow,
-          patch: previewAction === '改行' && previewBody.input && typeof previewBody.input === 'object'
-            ? previewBody.input as Record<string, unknown>
+          patch: prepared.previewAction === '改行' && prepared.previewBody.input && typeof prepared.previewBody.input === 'object'
+            ? prepared.previewBody.input as Record<string, unknown>
             : undefined,
         })
       }
       abortLeftoverAskTurn(sheet)
-      if (previewAction === '新建') setCreateDraft(null)
+      if (prepared.previewAction === '新建') setCreateDraft(null)
       void loadSurfaces()
     } catch (cause) {
       setError(cause instanceof RuntimeApiError ? cause.message : cause instanceof Error ? cause.message : '预览失败')
@@ -1516,6 +1461,86 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       setLoading(false)
     }
   }, [activeAiSessionId, applySheet, columns, connectionId, connections, ensureListRestoreBeforeWritePreview, kind, lanReady, listSheetMeta, loadSurfaces, maybeSaveListRestore])
+
+  function prepareDirectPreview(
+    action: string,
+    originalRow: SheetRow | undefined,
+    payloadExtra: Record<string, unknown>,
+    previewKind: string,
+  ) {
+    const pendingSheet = peekActivePending()
+    const bindSheet = (listSheetMeta && pendingSheet)
+      ? { ...pendingSheet, ...listSheetMeta }
+      : (listSheetMeta || pendingSheet)
+    const instanceNo = String(payloadExtra.no || '').trim()
+    const waitingPick = Boolean(
+      bindSheet
+      && (bindSheet.ambiguous === true || bindSheet.listed === true)
+      && bindSheet.blockConfirm !== true
+      && !sheetPreviewId(bindSheet)
+      && !isBizListQueryAction(String(bindSheet.action || ''))
+      && action !== '新建'
+      && !isBizListQueryAction(action)
+      && !instanceNo,
+    )
+    const previewAction = waitingPick && bindSheet
+      ? (String(bindSheet.action || '').trim() || action)
+      : action
+    const liveSid = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
+    let previewBody: Record<string, unknown> = { ...payloadExtra }
+    if (waitingPick) previewBody.picked = true
+    if (previewAction === '改行' && originalRow) {
+      const draft = (payloadExtra.input && typeof payloadExtra.input === 'object')
+        ? payloadExtra.input as SheetRow
+        : originalRow
+      const patch = pickSheetRowPatch(originalRow, draft, columns)
+      if (!Object.keys(patch).length) {
+        if (waitingPick) {
+          const rest = { ...payloadExtra }
+          delete rest.input
+          previewBody = { ...rest, no: sheetRowBusinessNo(originalRow), picked: true }
+        } else {
+          return {
+            error: '请先修改至少一个字段后再预览改行',
+            previewAction,
+            previewBody,
+            hopBind: {} as Record<string, unknown>,
+            waitingPick,
+            speech: '',
+            liveSid,
+          }
+        }
+      } else {
+        previewBody = { ...payloadExtra, input: patch, ...(waitingPick ? { picked: true } : {}) }
+      }
+    }
+    if (previewAction === '新建') {
+      previewBody = { ...payloadExtra, input: pickFilledSheetInput((payloadExtra.input || {}) as Record<string, unknown>) }
+    }
+    const hopBind: Record<string, unknown> = {}
+    if (bindSheet && typeof bindSheet === 'object' && !instanceNo) {
+      const boundSpeech = String(bindSheet.speech || '').trim()
+      if (boundSpeech) hopBind.speech = boundSpeech
+      if (bindSheet.from && typeof bindSheet.from === 'object' && !Array.isArray(bindSheet.from)) {
+        hopBind.from = bindSheet.from
+      }
+      if (Array.isArray(bindSheet.where) && bindSheet.where.length) hopBind.where = bindSheet.where
+      if (Array.isArray(bindSheet.hopWhere) && bindSheet.hopWhere.length) hopBind.hopWhere = bindSheet.hopWhere
+      if (Array.isArray(bindSheet.steps) && bindSheet.steps.length) hopBind.steps = bindSheet.steps
+      if (waitingPick) {
+        if (bindSheet.patch && typeof bindSheet.patch === 'object' && !Array.isArray(bindSheet.patch)
+          && Object.keys(bindSheet.patch as object).length) {
+          hopBind.input = bindSheet.patch
+        }
+        const boundTo = String(bindSheet.to || '').trim()
+        if (boundTo) hopBind.to = boundTo
+      }
+    }
+    const speech = waitingPick && bindSheet
+      ? String(bindSheet.speech || hopBind.speech || `${previewAction}${previewKind}`)
+      : `${previewAction}${previewKind}`
+    return { error: '', previewAction, previewBody, hopBind, waitingPick, speech, liveSid }
+  }
 
   const resolveSurfaceSheet = useCallback((surface: BizSurfaceRecord): SheetSnapshot | null => {
     const mem = sheetSnapshots.current.get(`surface:${surface.id}`)
