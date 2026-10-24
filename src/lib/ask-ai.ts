@@ -1,3 +1,4 @@
+import { publishSuccessfulRename } from '@/lib/ai-session-list'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import {
   applyPromptPackChoice,
@@ -127,7 +128,8 @@ async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId:
         const picked = pickOrganizeSession(items, workspace.cwd, opts.reuseTitlePrefix)
         if (picked?.sessionId) {
           if (opts.title) {
-            await runtimeApi.renameAiSession(picked.sessionId, opts.title, opts.signal, workspace.workspaceId).catch(() => undefined)
+            const renamed = await runtimeApi.renameAiSession(picked.sessionId, opts.title, opts.signal, workspace.workspaceId).catch(() => undefined)
+            publishSuccessfulRename(renamed, { sessionId: picked.sessionId, title: opts.title, cwd: workspace.cwd })
           }
           return { ok: true, sessionId: picked.sessionId, cwd: workspace.cwd }
         }
@@ -142,7 +144,8 @@ async function resolveTarget(opts: AskAiOptions): Promise<{ ok: true; sessionId:
       }, opts.signal)
       const sessionId = created.sessionId
       if (opts.title) {
-        await runtimeApi.renameAiSession(sessionId, opts.title, opts.signal, workspace.workspaceId).catch(() => undefined)
+        const renamed = await runtimeApi.renameAiSession(sessionId, opts.title, opts.signal, workspace.workspaceId).catch(() => undefined)
+        publishSuccessfulRename(renamed, { sessionId, title: opts.title, cwd: workspace.cwd })
       }
       return { ok: true, sessionId, cwd: workspace.cwd }
     } catch (cause) {

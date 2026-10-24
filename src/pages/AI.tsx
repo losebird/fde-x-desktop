@@ -8,7 +8,14 @@ import {
 import clsx from 'clsx'
 import { openFilesAtPath } from '@/lib/app-platform'
 import { landRef } from '@/lib/open-ref'
-import { reloadSessionList, sessionListWorkspaceId } from '@/lib/ai-session-list'
+import {
+  applySessionList,
+  reloadSessionList,
+  renamedNoticeFromEvent,
+  sessionListWorkspaceId,
+  subscribeRenamedSessionTitle,
+  type SessionTitleNotice,
+} from '@/lib/ai-session-list'
 import { currentAiTarget, isPrimarySession, resolvePrimarySessionId } from '@/lib/ai-target'
 import { useApp } from '@/store/app'
 import { clearAskAiNotice, getAskAiNotice, subscribeAskAiNotice } from '@/lib/ask-ai'
@@ -229,7 +236,7 @@ export default function AI() {
 
   const sessionListGate = useRef({ generation: 0 })
 
-  async function reloadRemoteSessions(signal?: AbortSignal) {
+  async function reloadRemoteSessions(signal?: AbortSignal, notice?: SessionTitleNotice | null) {
     const state = useApp.getState()
     const workspaceId = sessionListWorkspaceId(state.activeWorkspaceId, state.workspaces)
     return reloadSessionList(sessionListGate.current, () => runtimeApi.listAiSessions({
@@ -237,7 +244,9 @@ export default function AI() {
       includeSubagents: true,
       includeArchived: sessionLane === 'archived',
       workspaceId,
-    }, signal), setRemoteSessions)
+    }, signal), (rows) => {
+      setRemoteSessions(applySessionList(rows, notice ?? null, { appendMissing: sessionLane !== 'archived' }))
+    })
   }
 
   useEffect(() => {
@@ -460,7 +469,7 @@ export default function AI() {
           includeSubagents: true,
           workspaceId: sessionListWorkspaceId(listState.activeWorkspaceId, listState.workspaces),
         }, abort.signal), (rows) => {
-          if (active) setRemoteSessions(rows)
+          if (active) setRemoteSessions(applySessionList(rows, null))
         })
       } catch (error) {
         if (!active || abort.signal.aborted) return
@@ -515,9 +524,16 @@ export default function AI() {
   })
   useEvents(
     ['ai.session.changed'],
-    () => { void reloadRemoteSessions().catch(() => undefined) },
+    (event) => {
+      void reloadRemoteSessions(undefined, renamedNoticeFromEvent(event)).catch(() => undefined)
+    },
     workspaceCwd ? { workspace: workspaceCwd } : undefined,
   )
+  useEffect(() => {
+    return subscribeRenamedSessionTitle((notice) => {
+      setRemoteSessions((current) => applySessionList(current, notice, { appendMissing: sessionLane !== 'archived' }))
+    })
+  }, [sessionLane])
 
   useEffect(() => {
     if (runtimeConnected) connectedAtRef.current = Date.now()
