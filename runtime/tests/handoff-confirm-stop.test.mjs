@@ -82,11 +82,28 @@ test('after confirm, playwright and search_text are refused and propose and subm
   assert.equal(handoffConfirmToolDeny({}, 'search_text'), '')
 })
 
+test('the confirm window closes when the next human line arrives', async () => {
+  const {
+    armHandoffConfirmWindow,
+    clearHandoffConfirmWindow,
+    handoffConfirmWindowActive,
+  } = await import('../plugins/dsh-lan-assist/handoff-mints.js')
+  clearHandoffConfirmWindow('sess_window')
+  assert.equal(handoffConfirmWindowActive('sess_window'), false)
+  armHandoffConfirmWindow('sess_window')
+  assert.equal(handoffConfirmWindowActive('sess_window'), true)
+  armHandoffConfirmWindow('')
+  assert.equal(handoffConfirmWindowActive(''), false)
+  clearHandoffConfirmWindow('sess_window')
+  assert.equal(handoffConfirmWindowActive('sess_window'), false)
+})
+
 test('the mint path arms the confirm window and no longer gates the rewrite on the hint', () => {
   const index = readFileSync(join(pluginDir, 'index.js'), 'utf8')
   assert.equal(index.includes('speechForPlanHandoffMint(result, handoffEvent)'), true)
   assert.equal(index.includes('armHandoffConfirmWindow(handoffEvent.sessionId)'), true)
   assert.equal(index.includes('handoffConfirmToolDeny('), true)
+  assert.equal(index.includes('clearHandoffConfirmWindow(sessionId)'), true)
   assert.equal(index.includes('handoffRoundAsksPlanPage('), false)
   const tools = readFileSync(join(pluginDir, 'tools.js'), 'utf8')
   const execute = tools.slice(tools.indexOf("name: 'biz_preview'"), tools.indexOf("name: 'biz_write'"))

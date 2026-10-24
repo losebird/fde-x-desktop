@@ -389,7 +389,7 @@ export function briefFollowup(spec) {
     lines.push('出处走 `.dsh/lan-assist/traces.projection.md` 与 `mail.projection.md`。进图要点头 ingest，不要 POST 语义引擎，图里的是当时不是现在。')
   }
   if (catalog.some((row) => row && (row.name === 'biz_preview' || row.name === 'biz.preview'))) {
-    lines.push('查、改、删、建、过审都走 biz_preview，人到右边业务页看。写才 biz_write。现查不发令牌。无令牌、过期、已用过都拒。不要用通用允许跑这个工具代替预览。')
+    lines.push('查、改、删、建、过审都走 biz_preview。现查到业务页看表。写令牌确认面由工作台指定（计划页或业务页）。对话里禁止 biz_write，不要代点。现查不发令牌。无令牌、过期、已用过都拒。不要用通用允许跑这个工具代替预览。')
     lines.push('禁止用 bash、nb CLI、curl、MCP 去查或改业务库。查到的行必须出现在业务页上，不要只写在气泡里。')
     lines.push('模型只填槽。kind=最终要看或要改的型；action=现查/改行/删除/新建/过审；where 只收当前型自己的列（keys/values），不要把父名写在子表关系列上；关联型放 from 或 steps，沿图把话里提到的相关型一次走完，不限两个；改值放 patch；过审落到哪一档放 patch 或 to（该型状态列的枚举 code 或标签），闸不从词表猜。speech 放用户整句原话，闸按你写的 from/steps hop，不从 speech 补节点、不从口令猜名字、不从上一张表补槽。某一格对不上整句停。拿不准就 action=现查并开口问。对不上停在业务页，不要把剩余字当名称，不要倒出上一张页。跳不过去就空着最终那一型。批量改行/删除/过审把这一次的 where/from/steps 写全。和闸不一致听闸。')
     lines.push('绑定集合且 batch=true：一次确认套到整个集合，发一张集合令牌。无 batch 时多条只出 listed，人在右边点选一行再确认。')
