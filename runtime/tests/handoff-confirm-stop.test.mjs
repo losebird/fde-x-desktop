@@ -98,6 +98,71 @@ test('the confirm window closes when the next human line arrives', async () => {
   assert.equal(handoffConfirmWindowActive('sess_window'), false)
 })
 
+function confirmGuard(mints, sessionId, toolName) {
+  const active = mints.handoffConfirmWindowActive(sessionId)
+  return mints.handoffConfirmToolDeny({
+    runningRun: active,
+    mintMarked: active,
+    nextConfirm: active,
+  }, toolName)
+}
+
+test('a wrote followup drops the confirm window before receipt tools run', async () => {
+  const mints = await import('../plugins/dsh-lan-assist/handoff-mints.js')
+  const sid = 'sess_wrote_receipt'
+  const other = 'sess_still_minted'
+  mints.clearHandoffConfirmWindow(sid)
+  mints.clearHandoffConfirmWindow(other)
+  mints.armHandoffConfirmWindow(sid)
+  assert.equal(confirmGuard(mints, sid, 'biz_preview'), DENY)
+  assert.equal(confirmGuard(mints, sid, 'search_text'), DENY)
+  assert.equal(confirmGuard(mints, sid, 'mcp__playwright__browser_click'), DENY)
+  assert.equal(confirmGuard(mints, sid, 'mcp__chrome-devtools__click'), DENY)
+  assert.equal(confirmGuard(mints, sid, 'mcp__cua-driver__click'), DENY)
+  assert.equal(confirmGuard(mints, sid, 'fde_plan_task_propose'), '')
+
+  const index = readFileSync(join(pluginDir, 'index.js'), 'utf8')
+  const start = index.indexOf('async function deliverFollowup')
+  const end = index.indexOf('\n  const semantic = createSemanticBridge', start)
+  const body = index.slice(start, end)
+  const releaseAt = body.indexOf('clearHandoffConfirmOnWrote(followup)')
+  const followAt = body.indexOf('return tryFollowup(')
+  assert.ok(
+    releaseAt >= 0 && followAt > releaseAt,
+    'wrote followup must clear the handoff confirm window before tryFollowup',
+  )
+
+  const release = mints.clearHandoffConfirmOnWrote
+  assert.equal(typeof release, 'function')
+  assert.equal(release({
+    sessionId: sid,
+    roundClose: 'wrote',
+    text: '库里已改上。回信要用现在的值，不要沿用预览前的旧号。',
+  }), true)
+  assert.equal(mints.handoffConfirmWindowActive(sid), false)
+  assert.equal(confirmGuard(mints, sid, 'biz_preview'), '')
+  assert.equal(confirmGuard(mints, sid, 'search_text'), '')
+
+  mints.armHandoffConfirmWindow(sid)
+  mints.armHandoffConfirmWindow(other)
+  assert.equal(release({ sessionId: sid, roundClose: 'ask' }), false)
+  assert.equal(release(null), false)
+  assert.equal(release({ sessionId: '', roundClose: 'wrote' }), false)
+  assert.equal(mints.handoffConfirmWindowActive(sid), true)
+  assert.equal(mints.handoffConfirmWindowActive(other), true)
+  assert.equal(confirmGuard(mints, sid, 'mcp__playwright__browser_click'), DENY)
+  assert.equal(confirmGuard(mints, sid, 'mcp__chrome-devtools__click'), DENY)
+  assert.equal(confirmGuard(mints, sid, 'mcp__cua-driver__click'), DENY)
+  assert.equal(confirmGuard(mints, other, 'search_text'), DENY)
+
+  assert.equal(release({ sessionId: sid, roundClose: 'wrote' }), true)
+  assert.equal(mints.handoffConfirmWindowActive(sid), false)
+  assert.equal(mints.handoffConfirmWindowActive(other), true)
+  assert.equal(confirmGuard(mints, other, 'mcp__playwright__browser_click'), DENY)
+  mints.clearHandoffConfirmWindow(sid)
+  mints.clearHandoffConfirmWindow(other)
+})
+
 test('the mint path arms the confirm window and no longer gates the rewrite on the hint', () => {
   const index = readFileSync(join(pluginDir, 'index.js'), 'utf8')
   assert.equal(index.includes('speechForPlanHandoffMint(result, handoffEvent)'), true)

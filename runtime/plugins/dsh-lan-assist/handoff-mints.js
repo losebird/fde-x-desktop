@@ -81,6 +81,14 @@ export function clearHandoffConfirmWindow(sessionId) {
   armedConfirmSessions.delete(String(sessionId || '').trim())
 }
 
+export function clearHandoffConfirmOnWrote(followup) {
+  if (!followup || followup.roundClose !== 'wrote') return false
+  const sid = String(followup.sessionId || '').trim()
+  if (!sid) return false
+  clearHandoffConfirmWindow(sid)
+  return true
+}
+
 export function handoffConfirmWindowActive(sessionId) {
   return armedConfirmSessions.has(String(sessionId || '').trim())
 }
