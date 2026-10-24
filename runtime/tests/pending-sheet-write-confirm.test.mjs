@@ -84,9 +84,10 @@ test('GET pending-sheet embeds a used token so hydrate does not open confirm', a
 test('GET pending-sheet leaves an open token confirmable', async () => {
   const sheet = await getPending({
     ok: true,
-    officialRoundSheet: picture(OPEN),
+    officialRoundSheet: picture(OPEN, { confirmMouth: 'plan' }),
     writePreview: { [OPEN]: 'open' },
   })
+  assert.equal(sheet.confirmMouth, 'plan')
   assert.equal(entersConfirm(sheet), true)
 })
 
