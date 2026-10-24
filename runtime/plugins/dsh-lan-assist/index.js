@@ -29,6 +29,7 @@ import { createEyesSee, hasEyes } from './eyes-bridge.js'
 import { createGate, createNocoWrite, WORKSTATION_CONFIRM_HINT } from './write.js'
 import {
   armHandoffConfirmWindow,
+  clearHandoffConfirmOnWrote,
   clearHandoffConfirmWindow,
   handoffConfirmToolDeny,
   handoffConfirmWindowActive,
@@ -87,6 +88,7 @@ export async function apply(ctx, config) {
   let agentsCtx = ctx
 
   async function deliverFollowup(followup) {
+    clearHandoffConfirmOnWrote(followup)
     const sid = String(followup && followup.sessionId || '').trim()
     const close = followup && followup.roundClose
     if (sid && close) sessionRounds.closeRound(sid, close, { identity: followup.wroteIdentity })
