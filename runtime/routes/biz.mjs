@@ -20,6 +20,8 @@ import {
 } from '../biz/systems-store.mjs'
 
 
+import { parseLivePreviewId } from '../biz/confirm-mouth.mjs'
+import { stampPlanConfirmMouth } from '../biz/plan-mouth-stamp.mjs'
 import { finishWorkstationHandoff } from '../plan/task-ai-runs.mjs'
 import { isGateActionCode } from '../biz/gate-action-codes.mjs'
 import { normalizePreviewWhere } from '../biz/where.mjs'
@@ -458,6 +460,98 @@ async function capturePendingSheet(aiRuntime, previewId) {
   } catch {
     return null
   }
+}
+
+export async function postWorkstationBizWrite({ db, aiRuntime }, body) {
+  const writeSource = String(body?.source || '').trim()
+  const requestedCwd = canonicalWorkspaceCwd(body?.workspace || body?.workspaceCwd || '') || ''
+  const rollbackOfTraceId = String(body?.rollback_of_trace_id || body?.rollbackOfTraceId || '').trim()
+  const workspaceCwd = requestedCwd
+  const pendingSheet = await capturePendingSheet(aiRuntime, body?.preview_id)
+  const written = await aiRuntime.lanAssist('/write', {
+    method: 'POST',
+    body: {
+      preview_id: body?.preview_id,
+      trace_id: body?.trace_id,
+      source: writeSource,
+      ...(requestedCwd ? { workspace: requestedCwd } : {}),
+    },
+  })
+  if (written && written.ok === false) {
+    return { written, traceId: '' }
+  }
+  const bizCwd = requestedCwd
+  const sheet = pendingSheet && typeof pendingSheet === 'object' ? pendingSheet : null
+  const auditChanges = Array.isArray(body?.changes)
+    ? body.changes
+    : (Array.isArray(sheet?.changes) ? sheet.changes : [])
+  const traceId = String(body?.trace_id || written?.trace_id || written?.traceId || createId('trace'))
+  const isRollbackWrite = Boolean(rollbackOfTraceId)
+  const original = isRollbackWrite ? getBizWriteAuditByTraceId(db, rollbackOfTraceId, workspaceCwd) : null
+  const lookupBind = captureLookupBind(sheet, body)
+  if (written && written.verified === false) lookupBind.verified = false
+  if (isRollbackWrite) {
+    const originalBind = parseLookupBind(original)
+    const rollbackMarker = String(lookupBind.speech || '').trim()
+    const originalSpeech = String(originalBind.speech || '').trim()
+    if ((!rollbackMarker || rollbackMarker === '回退') && originalSpeech && originalSpeech !== '回退') {
+      lookupBind.speech = originalSpeech
+    }
+    if (!lookupBind.sessionId && originalBind.sessionId) lookupBind.sessionId = originalBind.sessionId
+    if (!lookupBind.sessionId && original?.sessionId) lookupBind.sessionId = original.sessionId
+  }
+  const livePreviewId = parseLivePreviewId(body?.preview_id)
+  if (livePreviewId) lookupBind.previewId = livePreviewId
+  const audit = writeAuditFields(sheet, body, written, original, isRollbackWrite)
+  try {
+    insertBizWriteAudit(db, {
+      workspaceCwd: bizCwd,
+      traceId,
+      kind: audit.kind,
+      action: audit.action,
+      recordNo: audit.recordNo,
+      receiptId: String(written?.receipt_id || written?.receiptId || ''),
+      sessionId: String(sheet?.sessionId || body?.session_id || body?.sessionId || lookupBind.sessionId || ''),
+      source: writeSource,
+      changes: auditChanges,
+      columns: Array.isArray(sheet?.columns) ? sheet.columns : (Array.isArray(body?.columns) ? body.columns : []),
+      lookupBind,
+    })
+  } catch {}
+  if (rollbackOfTraceId) {
+    setBizWriteAuditRollbackState(db, rollbackOfTraceId, ROLLBACK_STATE_ROLLED_BACK, workspaceCwd)
+  }
+  const listed = written && written.sheet && typeof written.sheet === 'object' ? written.sheet : null
+  if (listed) {
+    const listedSid = String(listed.sessionId || body?.sessionId || body?.session_id || '').trim()
+    const stamped = stampPlanConfirmMouth(
+      db,
+      listedSid && !String(listed.sessionId || '').trim() ? { ...listed, sessionId: listedSid } : listed,
+    )
+    emitBizSheetPending(stamped, { sessionId: listedSid, source: 'round-end', workspaceCwd: bizCwd })
+  }
+  if (written && written.ok !== false) {
+    finishWorkstationHandoff(db, {
+      ok: true,
+      rollback: Boolean(rollbackOfTraceId),
+      sessionId: String(sheet?.sessionId || body?.session_id || body?.sessionId || lookupBind.sessionId || ''),
+      previewId: body?.preview_id,
+    })
+  }
+  emit('biz.write.done', {
+    kind: audit.kind,
+    action: audit.action,
+    traceId,
+    receiptId: String(written?.receipt_id || written?.receiptId || ''),
+    recordNo: audit.recordNo,
+    operationId: typeof body?.operationId === 'string' ? body.operationId : undefined,
+  }, { workspaceCwd: bizCwd, source: 'bff' })
+  try {
+    const gateState = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+    const lampIdent = resolveWorkspaceIdOrFail(db, { cwd: bizCwd, source: 'request' })
+    if (!lampIdent.error) reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true, workspaceId: lampIdent.workspaceId })
+  } catch {}
+  return { written, traceId }
 }
 
 function enrichTraceRows(db, workspace, traceRows, limit) {
@@ -962,9 +1056,10 @@ export async function handleBizRoutes(request, response, url, deps) {
         } catch { /* keep official sheet */ }
       }
       const served = sheetForOfficialGet(handed, querySessionId)
+      const mouthed = served ? stampPlanConfirmMouth(db, served) : null
       sendJson(response, 200, {
         data: {
-          sheet: served ? stripSecrets(served) : null,
+          sheet: mouthed ? stripSecrets(mouthed) : null,
           writePreview: writePreview || null,
         },
         correlationId,
@@ -1385,18 +1480,16 @@ export async function handleBizRoutes(request, response, url, deps) {
         return true
       }
     }
-    const pendingSheet = await capturePendingSheet(aiRuntime, body.preview_id)
     let written
+    let traceId = ''
     try {
-      written = await aiRuntime.lanAssist('/write', {
-        method: 'POST',
-        body: {
-          preview_id: body.preview_id,
-          trace_id: body.trace_id,
-          source: writeSource,
-          ...(requestedCwd ? { workspace: requestedCwd } : {}),
-        },
+      const posted = await postWorkstationBizWrite({ db, aiRuntime }, {
+        ...body,
+        source: writeSource,
+        workspace: requestedCwd,
       })
+      written = posted.written
+      traceId = posted.traceId
     } catch (error) {
       const code = error instanceof AiRemoteError ? (error.code || 'biz_write_failed') : 'biz_write_failed'
       markRollbackBlockedIfPermanent(db, rollbackOfTraceId, code, 400, workspaceCwd)
@@ -1413,71 +1506,6 @@ export async function handleBizRoutes(request, response, url, deps) {
       sendJson(response, 200, { data: written, correlationId })
       return true
     }
-    const bizCwd = requestedCwd
-    const sheet = pendingSheet && typeof pendingSheet === 'object' ? pendingSheet : null
-    const auditChanges = Array.isArray(body.changes)
-      ? body.changes
-      : (Array.isArray(sheet?.changes) ? sheet.changes : [])
-    const traceId = String(body.trace_id || written?.trace_id || written?.traceId || createId('trace'))
-    const isRollbackWrite = Boolean(rollbackOfTraceId)
-    const original = isRollbackWrite ? getBizWriteAuditByTraceId(db, rollbackOfTraceId, workspaceCwd) : null
-    const lookupBind = captureLookupBind(sheet, body)
-    if (written && written.verified === false) lookupBind.verified = false
-    if (isRollbackWrite) {
-      const originalBind = parseLookupBind(original)
-      const rollbackMarker = String(lookupBind.speech || '').trim()
-      const originalSpeech = String(originalBind.speech || '').trim()
-      if ((!rollbackMarker || rollbackMarker === '回退') && originalSpeech && originalSpeech !== '回退') {
-        lookupBind.speech = originalSpeech
-      }
-      if (!lookupBind.sessionId && originalBind.sessionId) lookupBind.sessionId = originalBind.sessionId
-      if (!lookupBind.sessionId && original?.sessionId) lookupBind.sessionId = original.sessionId
-    }
-    const audit = writeAuditFields(sheet, body, written, original, isRollbackWrite)
-    try {
-      insertBizWriteAudit(db, {
-        workspaceCwd: bizCwd,
-        traceId,
-        kind: audit.kind,
-        action: audit.action,
-        recordNo: audit.recordNo,
-        receiptId: String(written?.receipt_id || written?.receiptId || ''),
-        sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || lookupBind.sessionId || ''),
-        source: writeSource,
-        changes: auditChanges,
-        columns: Array.isArray(sheet?.columns) ? sheet.columns : (Array.isArray(body.columns) ? body.columns : []),
-        lookupBind,
-      })
-    } catch { /* audit must not block write */ }
-    if (rollbackOfTraceId) {
-      setBizWriteAuditRollbackState(db, rollbackOfTraceId, ROLLBACK_STATE_ROLLED_BACK, workspaceCwd)
-    }
-    const listed = written && written.sheet && typeof written.sheet === 'object' ? written.sheet : null
-    if (listed) {
-      const listedSid = String(listed.sessionId || body.sessionId || body.session_id || '').trim()
-      emitBizSheetPending(listed, { sessionId: listedSid, source: 'round-end', workspaceCwd: bizCwd })
-    }
-    if (written && written.ok !== false) {
-      finishWorkstationHandoff(db, {
-        ok: true,
-        rollback: Boolean(rollbackOfTraceId),
-        sessionId: String(sheet?.sessionId || body.session_id || body.sessionId || lookupBind.sessionId || ''),
-        previewId: body.preview_id,
-      })
-    }
-    emit('biz.write.done', {
-      kind: audit.kind,
-      action: audit.action,
-      traceId,
-      receiptId: String(written?.receipt_id || written?.receiptId || ''),
-      recordNo: audit.recordNo,
-      operationId: typeof body.operationId === 'string' ? body.operationId : undefined,
-    }, { workspaceCwd: bizCwd, source: 'bff' })
-    try {
-      const gateState = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
-      const lampIdent = resolveWorkspaceIdOrFail(db, { cwd: bizCwd, source: 'request' })
-      if (!lampIdent.error) reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true, workspaceId: lampIdent.workspaceId })
-    } catch { /* lamp is best-effort */ }
     sendJson(response, 200, { data: { ...written, trace_id: traceId, traceId }, correlationId })
     return true
   }

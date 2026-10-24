@@ -1,3 +1,5 @@
+import { stampPlanConfirmMouth } from './biz/plan-mouth-stamp.mjs'
+import { offerHandoffPreview, previewOfferCtx } from './plan/plan-card.mjs'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { emit } from './events.mjs'
 import { emitBizSheetPending } from './routes/biz.mjs'
@@ -190,7 +192,7 @@ export function startLanAssistStateWatch(deps) {
       const prepared = deps.prepareSurface(sheet, sessionId)
       if (typeof prepared === 'string' && prepared.trim()) surfaceId = prepared.trim()
     }
-    return emitOfficialSheet(sheet, deps, 'round-end', surfaceId, writePreview)
+    return emitOfficialSheet(stampPlanConfirmMouth(db, sheet), deps, 'round-end', surfaceId, writePreview)
   }
 
   const tick = async () => {
@@ -262,6 +264,32 @@ export function startLanAssistStateWatch(deps) {
   if (typeof deps.subscribeLanMailbox === 'function') {
     startPoll()
     stopMailbox = deps.subscribeLanMailbox((payload) => {
+      if (payload && String(payload.type || '') === 'handoff-preview') {
+        void (async () => {
+          if (!db) return
+          let index = {}
+          try {
+            const state = await lanAssist('/state', { search: { sessionId: '' } })
+            index = state && state.writePreview && typeof state.writePreview === 'object' ? state.writePreview : {}
+          } catch {
+            index = {}
+          }
+          offerHandoffPreview(db, {
+            type: 'mint',
+            sessionId: payload.sessionId,
+            previewId: payload.previewId,
+            workstation: payload.workstation === true,
+            action: typeof payload.action === 'string' ? payload.action : '',
+            changes: Array.isArray(payload.changes) ? payload.changes : [],
+          }, previewOfferCtx(index, (id) => {
+            void lanAssist('/write/cancel', {
+              method: 'POST',
+              body: { preview_id: id },
+            }).catch(() => undefined)
+          }))
+        })()
+        return
+      }
       if (payload && String(payload.type || '') === 'official-sheet') {
         void flushPendingSheet(payload.sessionId).then((ok) => {
           if (!ok) startPoll()

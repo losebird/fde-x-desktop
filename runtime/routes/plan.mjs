@@ -1,5 +1,6 @@
 import { taskSourceProblem } from '../app-source.mjs'
-import { appendAudit, createId } from '../db.mjs'
+import { parseLivePreviewId } from '../biz/confirm-mouth.mjs'
+import { appendAudit, createId, getOperation } from '../db.mjs'
 import { httpStatusForWorkspaceError } from '../http-workspace.mjs'
 import { requestAppWorkspace } from './apps.mjs'
 import { verifyUiToken } from './bridge.mjs'
@@ -15,7 +16,14 @@ import {
   mergeTaskRows,
   mutateHostGoal,
 } from '../host-catalog.mjs'
-import { decidePlanTask, listOpenPlanTaskProposals } from '../plan/task-proposals.mjs'
+import { decidePlanTask } from '../plan/task-proposals.mjs'
+import {
+  listPlanTaskCards,
+  planConfirmStep,
+  postedPreviewAudit,
+  readPreviewIndex,
+} from '../plan/plan-card.mjs'
+import { postWorkstationBizWrite } from './biz.mjs'
 import {
   eventHistoryView,
   planChangeDetails,
@@ -552,7 +560,8 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
   if (method === 'GET' && url.pathname === '/api/v1/plan/task-proposals') {
     const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
     if (!workspaceId) return true
-    planOk(response, 200, listOpenPlanTaskProposals(db, workspaceId), correlationId)
+    const index = await readPreviewIndex(aiRuntime)
+    planOk(response, 200, listPlanTaskCards(db, workspaceId, index), correlationId)
     return true
   }
 
@@ -570,7 +579,58 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       planError(response, failure.status, failure.code, failure.message, correlationId)
       return true
     }
+    const operation = getOperation(db, operationId, ident.workspaceId)
+    const previewId = operation && operation.state === 'awaiting_approval'
+      ? parseLivePreviewId(operation.plan && operation.plan.change && operation.plan.change.previewId)
+      : null
+    let confirmStep = null
+    if (previewId) {
+      const index = await readPreviewIndex(aiRuntime)
+      const raw = index[previewId]
+      const status = raw === 'open' || raw === 'used' || raw === 'expired' ? raw : 'absent'
+      const audit = postedPreviewAudit(db, previewId)
+      confirmStep = planConfirmStep({ previewId, status, audit })
+      if (decision === 'reject' && confirmStep.voidOnReject && aiRuntime && typeof aiRuntime.lanAssist === 'function') {
+        await aiRuntime.lanAssist('/write/cancel', { method: 'POST', body: { preview_id: previewId } })
+      }
+      if (decision === 'confirm' && confirmStep.step === 'refuse') {
+        planError(response, 409, 'preview_unavailable', confirmStep.message, correlationId)
+        return true
+      }
+      if (decision === 'confirm' && confirmStep.step === 'write') {
+        const cwd = workspaceCwdForEmit(db, ident.workspaceId) || ''
+        try {
+          const posted = await postWorkstationBizWrite({ db, aiRuntime }, {
+            preview_id: previewId,
+            source: 'workstation',
+            workspace: cwd,
+          })
+          if (!posted || !posted.written || posted.written.ok === false) {
+            planError(response, 409, 'biz_write_failed', '过账失败，请重新预览后再试', correlationId)
+            return true
+          }
+        } catch {
+          planError(response, 409, 'biz_write_failed', '过账失败，请重新预览后再试', correlationId)
+          return true
+        }
+      }
+    }
     const result = decidePlanTask(db, operationId, decision, { correlationId, workspaceId: ident.workspaceId })
+    if (
+      confirmStep
+      && confirmStep.restore
+      && decision === 'confirm'
+      && result.kind !== 'ok'
+      && result.kind !== 'invalid_state'
+    ) {
+      db.prepare(`
+        UPDATE operations
+        SET state = 'awaiting_approval', finished_at = NULL
+        WHERE workspace_id = ? AND id = ? AND state = 'failed'
+      `).run(ident.workspaceId, operationId)
+      planError(response, 409, 'plan_confirm_failed', '业务已写入，待办确认失败', correlationId)
+      return true
+    }
     if (result.kind === 'ok' && decision === 'confirm') {
       const plan = result.operation.plan
       const row = getTask(db, plan.taskId, plan.workspaceId)
