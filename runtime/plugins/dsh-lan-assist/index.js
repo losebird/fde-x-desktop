@@ -27,6 +27,7 @@ import { createLookup, collapseKindsToConnectedTables } from './lookup.js'
 import { translateQuote } from './translate.js'
 import { createEyesSee, hasEyes } from './eyes-bridge.js'
 import { createGate, createNocoWrite, WORKSTATION_CONFIRM_HINT } from './write.js'
+import { handoffRoundAsksPlanPage, markHandoffToken, openHandoffMints, rewritePlanHandoffSpeech } from './handoff-mints.js'
 import { rememberUserSpeech, speechHoldsWorkstationWrite } from './slots.js'
 import { createTraceLog } from './traces.js'
 import {
@@ -223,7 +224,8 @@ export async function apply(ctx, config) {
     if (!view || typeof view !== 'object') return view
     const sid = String(sessionId || (view.pendingSheet && view.pendingSheet.sessionId) || '').trim()
     const writePreview = typeof gate.previewTokenIndex === 'function' ? gate.previewTokenIndex() : {}
-    return { ...view, officialRoundSheet: sessionRounds.servedSheet(sid), writePreview }
+    const handoffMints = openHandoffMints(gate.tokens)
+    return { ...view, officialRoundSheet: sessionRounds.servedSheet(sid), writePreview, handoffMints }
   }
   function planHandoffMintEvent(spec, result, sessionId) {
     if (spec && spec.workstation === true) return null
@@ -313,7 +315,23 @@ export async function apply(ctx, config) {
       if (result && typeof result === 'object') return { ...result, published: true }
       return result
     }
-    emitPlanHandoffMint(planHandoffMintEvent(spec, result, publishSid))
+    const handoffEvent = planHandoffMintEvent(spec, result, publishSid)
+    if (handoffEvent) {
+      emitPlanHandoffMint(handoffEvent)
+      const token = gate.tokens && typeof gate.tokens.get === 'function'
+        ? gate.tokens.get(handoffEvent.previewId)
+        : null
+      markHandoffToken(token, handoffEvent)
+      if (result && typeof result === 'object') {
+        const wanted = handoffRoundAsksPlanPage(
+          sessionRounds.roundSpeech(publishSid),
+          spec && spec.userSpeech,
+          spec && spec.speech,
+        )
+        return { ...rewritePlanHandoffSpeech(result, wanted), published: false }
+      }
+      return result
+    }
     if (result && typeof result === 'object') return { ...result, published: false }
     return result
   }

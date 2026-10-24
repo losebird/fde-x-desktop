@@ -1,5 +1,5 @@
 import { stampPlanConfirmMouth } from './biz/plan-mouth-stamp.mjs'
-import { offerHandoffPreview, previewOfferCtx } from './plan/plan-card.mjs'
+import { offerHandoffPreview, offerOpenHandoffMints, previewOfferCtx } from './plan/plan-card.mjs'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { emit } from './events.mjs'
 import { emitBizSheetPending } from './routes/biz.mjs'
@@ -201,6 +201,15 @@ export function startLanAssistStateWatch(deps) {
       if (db) reconcileLanAssistConnectionLamp(db, state && state.ok !== false ? state : null, { workspaceId: 'ws_personal' })
       if (!state || state.ok === false) return
       await lanAssist('/sleep', { method: 'POST', body: { on: false } }).catch(() => undefined)
+
+      if (db) {
+        offerOpenHandoffMints(db, state, (id) => {
+          void lanAssist('/write/cancel', {
+            method: 'POST',
+            body: { preview_id: id },
+          }).catch(() => undefined)
+        })
+      }
 
       const sheet = officialFromState(state)
       if (sheet) processOfficialSheet(sheet, { writePreview: state.writePreview })

@@ -9,6 +9,10 @@ import { getTask, insertTask } from '../plan/task-store.mjs'
 import { proposePlanTask } from '../plan/task-proposals.mjs'
 import { startTaskAiRun } from '../plan/task-ai-runs.mjs'
 import { handlePlanRequest } from '../routes/plan.mjs'
+import { startLanAssistStateWatch } from '../lan-assist-state-watch.mjs'
+import { stampPlanConfirmMouth } from '../biz/plan-mouth-stamp.mjs'
+import { sheetPayloadFromRaw } from '../biz/sheet-payload.mjs'
+import { completeTaskAiRun } from '../plan/task-ai-runs.mjs'
 
 const migrations = join(import.meta.dirname, '..', 'migrations')
 const PREVIEW = 'pv_0123456789abcdef'
@@ -89,12 +93,14 @@ function captureResponse() {
 function runtimeFor(previewId, indexValue, hooks = {}) {
   const writes = []
   const cancels = []
+  const handoffMints = Array.isArray(hooks.handoffMints) ? hooks.handoffMints : []
   const aiRuntime = {
     async lanAssist(path, opts = {}) {
       if (path === '/state') {
         return {
           ok: true,
           writePreview: previewId ? { [previewId]: indexValue } : {},
+          handoffMints,
           officialRoundSheet: null,
         }
       }
@@ -520,6 +526,313 @@ test('mint writes one primary preview id and a later empty proposal can take a f
   }, ctx)
   assert.equal(direct.mouth, 'drawer')
   assert.equal(voided.includes('pv_8899aabbccddeeff'), false)
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+test('state poll binds open handoff mints onto awaiting proposals', async () => {
+  const { db, dbPath } = openFixture('poll-bind')
+  addTask(db, 'task_poll')
+  startTaskAiRun(db, { taskId: 'task_poll', sessionId: 'sess_poll', requestId: 'req_poll' })
+  const proposalId = propose(db, 'task_poll', '轮询绑定')
+  const cancels = []
+  const handle = startLanAssistStateWatch({
+    cwd: '/ws-chip',
+    db,
+    lanAssist: async (path, opts = {}) => {
+      if (path === '/state') {
+        return {
+          ok: true,
+          writePreview: { [PREVIEW]: 'open' },
+          handoffMints: [{
+            previewId: PREVIEW,
+            sessionId: 'sess_poll',
+            workstation: false,
+            action: DIFF.action,
+            changes: DIFF.changes,
+          }],
+          officialRoundSheet: null,
+        }
+      }
+      if (path === '/write/cancel') {
+        cancels.push(String((opts.body && opts.body.preview_id) || ''))
+        return { ok: true }
+      }
+      if (path === '/sleep') return { ok: true }
+      return { ok: true }
+    },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 40))
+  handle.stop()
+  const change = planOf(proposalRow(db, proposalId)).change
+  assert.equal(change.previewId, PREVIEW)
+  assert.equal(change.previewChanges.action, DIFF.action)
+  assert.deepEqual(cancels, [])
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+test('confirm without a stored preview id binds one open mint then posts and decides', async () => {
+  const { db, dbPath } = openFixture('bind-confirm')
+  addTask(db, 'task_one')
+  startTaskAiRun(db, { taskId: 'task_one', sessionId: 'sess_one', requestId: 'req_one' })
+  const proposalId = propose(db, 'task_one', '绑定确认')
+  const { aiRuntime, writes } = runtimeFor(PREVIEW, 'open', {
+    handoffMints: [{
+      previewId: PREVIEW,
+      sessionId: 'sess_one',
+      workstation: false,
+      action: DIFF.action,
+      changes: DIFF.changes,
+    }],
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${proposalId}/confirm`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.equal(response.status, 200, response.body)
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].preview_id, PREVIEW)
+  assert.equal(writes[0].source, 'workstation')
+  assert.equal(getTask(db, 'task_one', 'ws_chip').title, '绑定确认')
+  assert.equal(planOf(proposalRow(db, proposalId)).change.previewId, PREVIEW)
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+test('a failed bind confirm write leaves the proposal awaiting with the preview id', async () => {
+  const { db, dbPath } = openFixture('bind-write-fail')
+  addTask(db, 'task_bind_fail')
+  startTaskAiRun(db, { taskId: 'task_bind_fail', sessionId: 'sess_one', requestId: 'req_bind_fail' })
+  const proposalId = propose(db, 'task_bind_fail', '绑定失败')
+  const { aiRuntime } = runtimeFor(PREVIEW, 'open', {
+    handoffMints: [{
+      previewId: PREVIEW,
+      sessionId: 'sess_one',
+      workstation: false,
+      action: DIFF.action,
+      changes: DIFF.changes,
+    }],
+    onWrite() {
+      return { ok: false, error: 'STALE' }
+    },
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${proposalId}/confirm`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.notEqual(response.status, 200, response.body)
+  assert.equal(getTask(db, 'task_bind_fail', 'ws_chip').title, '原任务')
+  assert.equal(proposalRow(db, proposalId).state, 'awaiting_approval')
+  assert.equal(planOf(proposalRow(db, proposalId)).change.previewId, PREVIEW)
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+test('two open handoff mints refuse confirm without writing', async () => {
+  const { db, dbPath } = openFixture('bind-ambiguous')
+  addTask(db, 'task_amb')
+  startTaskAiRun(db, { taskId: 'task_amb', sessionId: 'sess_one', requestId: 'req_amb' })
+  const proposalId = propose(db, 'task_amb', '多份预览')
+  const { aiRuntime, writes } = runtimeFor(PREVIEW, 'open', {
+    handoffMints: [
+      {
+        previewId: PREVIEW,
+        sessionId: 'sess_one',
+        workstation: false,
+        action: DIFF.action,
+        changes: DIFF.changes,
+      },
+      {
+        previewId: PREVIEW_NEXT,
+        sessionId: 'sess_one',
+        workstation: false,
+        action: DIFF.action,
+        changes: DIFF.changes,
+      },
+    ],
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${proposalId}/confirm`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.equal(response.status, 409, response.body)
+  assert.equal(response.json().error, 'preview_ambiguous')
+  assert.equal(writes.length, 0)
+  assert.equal(getTask(db, 'task_amb', 'ws_chip').title, '原任务')
+  assert.equal(proposalRow(db, proposalId).state, 'awaiting_approval')
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+test('stampPlanConfirmMouth stamps completed runs with awaiting plan proposals', () => {
+  const { db, dbPath } = openFixture('mouth-stamp')
+  addTask(db, 'task_mouth')
+  startTaskAiRun(db, { taskId: 'task_mouth', sessionId: 'sess_mouth', requestId: 'req_mouth' })
+  propose(db, 'task_mouth', '待确认')
+  completeTaskAiRun(db, 'task_mouth')
+  const stamped = stampPlanConfirmMouth(db, { sessionId: 'sess_mouth', kind: '客户' })
+  assert.equal(stamped.confirmMouth, 'plan')
+  const other = stampPlanConfirmMouth(db, { sessionId: 'sess_other', kind: '客户' })
+  assert.equal(other.confirmMouth, undefined)
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+test('sheetPayloadFromRaw keeps confirmMouth plan', () => {
+  const payload = sheetPayloadFromRaw({
+    kind: '客户',
+    action: '改行',
+    confirmMouth: 'plan',
+    preview_id: PREVIEW,
+  })
+  assert.equal(payload.confirmMouth, 'plan')
+})
+
+test('confirm leaves a preview that another awaiting proposal already holds', async () => {
+  const { db, dbPath } = openFixture('bind-held')
+  addTask(db, 'task_held')
+  startTaskAiRun(db, { taskId: 'task_held', sessionId: 'sess_one', requestId: 'req_held' })
+  const firstId = propose(db, 'task_held', '先提案')
+  const secondId = propose(db, 'task_held', '后提案')
+  attachPreview(db, firstId, PREVIEW)
+  const { aiRuntime, writes, cancels } = runtimeFor(PREVIEW, 'open', {
+    handoffMints: [{
+      previewId: PREVIEW,
+      sessionId: 'sess_one',
+      workstation: false,
+      action: DIFF.action,
+      changes: DIFF.changes,
+    }],
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${secondId}/confirm`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.equal(response.status, 200, response.body)
+  assert.equal(writes.length, 0)
+  assert.deepEqual(cancels, [])
+  assert.equal(planOf(proposalRow(db, firstId)).change.previewId, PREVIEW)
+  assert.equal(proposalRow(db, firstId).state, 'awaiting_approval')
+  assert.equal(parseLive(planOf(proposalRow(db, secondId))), null)
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+function parseLive(plan) {
+  const id = plan && plan.change && plan.change.previewId
+  return id || null
+}
+
+test('reject does not cancel a preview another awaiting proposal holds', async () => {
+  const { db, dbPath } = openFixture('reject-held')
+  addTask(db, 'task_reject_held')
+  startTaskAiRun(db, { taskId: 'task_reject_held', sessionId: 'sess_one', requestId: 'req_reject_held' })
+  const firstId = propose(db, 'task_reject_held', '先提案')
+  const secondId = propose(db, 'task_reject_held', '后提案')
+  attachPreview(db, firstId, PREVIEW)
+  const { aiRuntime, writes, cancels } = runtimeFor(PREVIEW, 'open', {
+    handoffMints: [{
+      previewId: PREVIEW,
+      sessionId: 'sess_one',
+      workstation: false,
+      action: DIFF.action,
+      changes: DIFF.changes,
+    }],
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${secondId}/reject`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.equal(response.status, 200, response.body)
+  assert.equal(writes.length, 0)
+  assert.deepEqual(cancels, [])
+  assert.equal(proposalRow(db, secondId).state, 'cancelled')
+  assert.equal(planOf(proposalRow(db, firstId)).change.previewId, PREVIEW)
+  assert.equal(proposalRow(db, firstId).state, 'awaiting_approval')
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+test('confirm cancels an unbound extra mint and keeps the posted preview', async () => {
+  const { db, dbPath } = openFixture('cancel-extra')
+  addTask(db, 'task_extra')
+  startTaskAiRun(db, { taskId: 'task_extra', sessionId: 'sess_one', requestId: 'req_extra' })
+  const proposalId = propose(db, 'task_extra', '已绑定')
+  attachPreview(db, proposalId, PREVIEW)
+  const { aiRuntime, writes, cancels } = runtimeFor(PREVIEW, 'open', {
+    handoffMints: [
+      {
+        previewId: PREVIEW,
+        sessionId: 'sess_one',
+        workstation: false,
+        action: DIFF.action,
+        changes: DIFF.changes,
+      },
+      {
+        previewId: PREVIEW_NEXT,
+        sessionId: 'sess_one',
+        workstation: false,
+        action: DIFF.action,
+        changes: DIFF.changes,
+      },
+    ],
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${proposalId}/confirm`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.equal(response.status, 200, response.body)
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].preview_id, PREVIEW)
+  assert.deepEqual(cancels, [PREVIEW_NEXT])
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+test('reject without a stored preview id cancels the open mint and proposal', async () => {
+  const { db, dbPath } = openFixture('bind-reject')
+  addTask(db, 'task_bind_reject')
+  startTaskAiRun(db, { taskId: 'task_bind_reject', sessionId: 'sess_one', requestId: 'req_bind_reject' })
+  const proposalId = propose(db, 'task_bind_reject', '拒绝绑定')
+  const { aiRuntime, writes, cancels } = runtimeFor(PREVIEW, 'open', {
+    handoffMints: [{
+      previewId: PREVIEW,
+      sessionId: 'sess_one',
+      workstation: false,
+      action: DIFF.action,
+      changes: DIFF.changes,
+    }],
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${proposalId}/reject`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.equal(response.status, 200, response.body)
+  assert.deepEqual(cancels, [PREVIEW])
+  assert.equal(writes.length, 0)
+  assert.equal(proposalRow(db, proposalId).state, 'cancelled')
   db.close()
   rmSync(dbPath, { force: true })
 })
