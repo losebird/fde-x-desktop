@@ -27,7 +27,15 @@ import { createLookup, collapseKindsToConnectedTables } from './lookup.js'
 import { translateQuote } from './translate.js'
 import { createEyesSee, hasEyes } from './eyes-bridge.js'
 import { createGate, createNocoWrite, WORKSTATION_CONFIRM_HINT } from './write.js'
-import { handoffRoundAsksPlanPage, markHandoffToken, openHandoffMints, rewritePlanHandoffSpeech } from './handoff-mints.js'
+import {
+  armHandoffConfirmWindow,
+  clearHandoffConfirmWindow,
+  handoffConfirmToolDeny,
+  handoffConfirmWindowActive,
+  markHandoffToken,
+  openHandoffMints,
+  speechForPlanHandoffMint,
+} from './handoff-mints.js'
 import { rememberUserSpeech, speechHoldsWorkstationWrite } from './slots.js'
 import { createTraceLog } from './traces.js'
 import {
@@ -322,13 +330,9 @@ export async function apply(ctx, config) {
         ? gate.tokens.get(handoffEvent.previewId)
         : null
       markHandoffToken(token, handoffEvent)
+      armHandoffConfirmWindow(handoffEvent.sessionId)
       if (result && typeof result === 'object') {
-        const wanted = handoffRoundAsksPlanPage(
-          sessionRounds.roundSpeech(publishSid),
-          spec && spec.userSpeech,
-          spec && spec.speech,
-        )
-        return { ...rewritePlanHandoffSpeech(result, wanted), published: false }
+        return { ...speechForPlanHandoffMint(result, handoffEvent), published: false }
       }
       return result
     }
@@ -496,6 +500,7 @@ export async function apply(ctx, config) {
         const speech = extractUserSpeech(event)
         if (!speech) return
         sessionRounds.noteHumanUtterance(sessionId)
+        clearHandoffConfirmWindow(sessionId)
         const prevRound = sessionRounds.peek(sessionId)
         if (prevRound && prevRound.open) {
           const closed = sessionRounds.closeRound(sessionId, 'turn')
@@ -596,8 +601,17 @@ export async function apply(ctx, config) {
       notePostSettledHopTool: (sessionId, toolName) => sessionRounds.notePostSettledHopTool(sessionId, toolName),
     })
     ctx.tools.guard((exec) => {
-      if (!exec || String(exec.name || '') !== 'ask_user_question') return
-      const round = sessionRounds.peek(toolSessionId(exec))
+      const name = String((exec && exec.name) || '')
+      const sid = toolSessionId(exec)
+      const active = handoffConfirmWindowActive(sid)
+      const deny = handoffConfirmToolDeny({
+        runningRun: active,
+        mintMarked: active,
+        nextConfirm: active,
+      }, name)
+      if (deny) return deny
+      if (name !== 'ask_user_question') return
+      const round = sessionRounds.peek(sid)
       const writeSpeech = Boolean(round && speechHoldsWorkstationWrite(round.userSpeech))
       if (roundBlocksChatAsk(round, writeSpeech)) return WORKSTATION_CONFIRM_HINT
     })

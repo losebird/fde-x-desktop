@@ -4,6 +4,7 @@
  */
 
 import { messageIdOf, requestIdOf } from './conversation.js'
+import { armHandoffConfirmWindow } from './handoff-mints.js'
 import { planReceipt } from './plan-receipt.mjs'
 import { extractUserSpeech } from './semantic.js'
 import { recalledUserSpeech, rememberUserSpeech } from './slots.js'
@@ -193,7 +194,7 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
 
   ctx.tools.register(defineTool({
     name: 'biz_preview',
-    description: '查、改、删、建、过审都走这里，结果出现在右边业务页。工具回执只有槽结果和 next（pick-rows / confirm / continue / stop），不含行体。next=continue 时改槽再调；pick-rows 或 confirm 后不要再调、不要提问、不要调用 biz_write；过账只在右侧确认。不要用 bash 查库。闸只验证槽，不理解原话。where 只收当前型自己的列，关联沿图放 from 或 steps（把话里提到的相关型一次走完，不限两个；不要把父名写在子表关系列上），改值放 patch，过审落到哪一档放 patch 或 to（该型状态列的枚举 code 或标签）。某一格对不上整句停。speech 放用户整句原话，闸按你写的 from/steps hop，不从 speech 补节点、不从口令猜名字、不从上一张表补槽。批量改行/删除/过审把这一次的 where/from/steps 写全并带 batch=true，发一张集合令牌一次确认。没连上 / 不在名下 / 未登记型不发令牌。',
+    description: '查、改、删、建、过审都走这里，预览出现在业务页。工具回执只有槽结果和 next（pick-rows / confirm / continue / stop），不含行体。next=continue 时改槽再调；pick-rows 或 confirm 后不要再调、不要提问、不要调用 biz_write、不要代点。写令牌确认面由工作台指定（计划页或业务页）。对话里禁止 biz_write。不要用 bash 查库。闸只验证槽，不理解原话。where 只收当前型自己的列，关联沿图放 from 或 steps（把话里提到的相关型一次走完，不限两个；不要把父名写在子表关系列上），改值放 patch，过审落到哪一档放 patch 或 to（该型状态列的枚举 code 或标签）。某一格对不上整句停。speech 放用户整句原话，闸按你写的 from/steps hop，不从 speech 补节点、不从口令猜名字、不从上一张表补槽。批量改行/删除/过审把这一次的 where/from/steps 写全并带 batch=true，发一张集合令牌一次确认。没连上 / 不在名下 / 未登记型不发令牌。',
     parameters: {
       system: { type: 'string', description: '系统' },
       env: { type: 'string', description: '环境' },
@@ -207,7 +208,7 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
       steps: { type: 'json', description: '多跳计划，沿图把提到的相关型按顺序走完。有则优先生效。不限两跳。' },
       patch: { type: 'json', description: '改行、新建或过审时的字段对象。键必须是表上能改的列，值要对上枚举。过审有 patch 就用 patch。' },
       to: { type: 'string', description: '过审落到哪一档。填该型状态列的枚举 code 或标签。闸不从词表猜。有 patch 时以 patch 为准。' },
-      batch: { type: 'boolean', description: 'true 表示这次的 patch/to 套到整个绑定集合，发一张集合令牌，人在右边一次确认。无 batch 时 n≥2 只出 listed 待点选。' },
+      batch: { type: 'boolean', description: 'true 表示这次的 patch/to 套到整个绑定集合，发一张集合令牌，人在工作台指定的确认面一次确认。无 batch 时 n≥2 只出 listed 待点选。' },
     },
     output: {
       schema: { type: 'string' },
@@ -239,9 +240,13 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
           settledFrom
           || (result && (result.error === 'QUERY_SETTLED' || result.querySettledRepeat === true)),
         )
-        return JSON.stringify(planReceipt(source, { settledRepeat }))
+        const receipt = planReceipt(source, { settledRepeat })
+        if (receipt && receipt.next === 'confirm') armHandoffConfirmWindow(sessionId)
+        return JSON.stringify(receipt)
       }
-      return JSON.stringify(planReceipt(result))
+      const receipt = planReceipt(result)
+      if (receipt && receipt.next === 'confirm') armHandoffConfirmWindow(sessionId)
+      return JSON.stringify(receipt)
     },
     presentCall(args) {
       const kind = args && args.kind ? String(args.kind) : '单'
@@ -252,7 +257,7 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
 
   ctx.tools.register(defineTool({
     name: 'biz_write',
-    description: '过账只在右侧业务页确认。对话里不要调用。无令牌 / 过期 / 已用过都拒。',
+    description: '写令牌确认面由工作台指定（计划页或业务页）。对话里不要调用，不要代点。无令牌 / 过期 / 已用过都拒。',
     parameters: {
       preview_id: { type: 'string', required: true, description: '刚才预览发的令牌' },
       trace_id: { type: 'string', description: '同一笔只许成功一次' },

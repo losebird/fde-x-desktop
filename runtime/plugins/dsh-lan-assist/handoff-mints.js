@@ -61,3 +61,34 @@ export function rewritePlanHandoffSpeech(result, wanted) {
   }
   return next
 }
+
+export function speechForPlanHandoffMint(result, event) {
+  if (!event || !result || typeof result !== 'object') return result
+  return rewritePlanHandoffSpeech(result, true)
+}
+
+const armedConfirmSessions = new Set()
+const HANDOFF_CONFIRM_ALLOW = new Set(['fde_plan_task_propose', 'fde_submit_result'])
+
+export const HANDOFF_CONFIRM_DENY = '预览已出，请到计划页确认并过账；不要代点。'
+
+export function armHandoffConfirmWindow(sessionId) {
+  const sid = String(sessionId || '').trim()
+  if (sid) armedConfirmSessions.add(sid)
+}
+
+export function clearHandoffConfirmWindow(sessionId) {
+  armedConfirmSessions.delete(String(sessionId || '').trim())
+}
+
+export function handoffConfirmWindowActive(sessionId) {
+  return armedConfirmSessions.has(String(sessionId || '').trim())
+}
+
+export function handoffConfirmToolDeny(state, toolName) {
+  const handoff = Boolean(state && (state.runningRun || state.mintMarked))
+  const armed = Boolean(state && (state.nextConfirm || state.mintMarked))
+  if (!handoff || !armed) return ''
+  if (HANDOFF_CONFIRM_ALLOW.has(String(toolName || ''))) return ''
+  return HANDOFF_CONFIRM_DENY
+}
