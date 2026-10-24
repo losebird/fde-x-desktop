@@ -266,9 +266,6 @@ export async function apply(ctx, config) {
       action: event.action,
       changes: event.changes,
     })
-    void import('../../biz/handoff-preview-hook.mjs').then((mod) => {
-      if (mod && typeof mod.notifyHandoffPreviewMint === 'function') mod.notifyHandoffPreviewMint(event)
-    }).catch(() => undefined)
   }
   const origPreviewBiz = secretary.previewBiz.bind(secretary)
   secretary.previewBiz = async (spec = {}) => {

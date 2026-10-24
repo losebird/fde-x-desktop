@@ -40,7 +40,7 @@ const FACE = {
     headline: '预览已过期',
     step: 'refuse',
     restore: false,
-    voidOnReject: false,
+    voidOnReject: true,
   },
   'linked-voided': {
     label: '确认并过账',
@@ -100,11 +100,13 @@ function changeLines(changes) {
 export function planCardView(facts) {
   const face = FACE[classify(facts)]
   const lines = changeLines(facts && facts.sheetChanges)
+  const action = facts && typeof facts.action === 'string' ? facts.action.trim() : ''
+  const headline = face.headline == null ? null : (action ? `${action} · ${face.headline}` : face.headline)
   return {
     confirm: { enabled: face.enabled, label: face.label },
     reject: { enabled: true, label: '拒绝' },
     notice: face.notice,
-    business: face.headline == null ? null : { headline: face.headline, lines },
+    business: headline == null ? null : { headline, lines },
   }
 }
 
@@ -135,6 +137,21 @@ export function postedPreviewAudit(db, previewId) {
   `).get(id)
   if (!row || !row.trace_id) return null
   return { traceId: String(row.trace_id) }
+}
+
+export function previewOfferCtx(index, voidPreview) {
+  const table = index && typeof index === 'object' ? index : {}
+  return {
+    now: Date.now(),
+    tokenStatus(id) {
+      const value = table[id]
+      if (value === 'open' || value === 'used' || value === 'expired') return value
+      return 'absent'
+    },
+    voidPreview(id) {
+      if (typeof voidPreview === 'function') voidPreview(id)
+    },
+  }
 }
 
 export async function readPreviewIndex(aiRuntime) {
@@ -250,27 +267,31 @@ function assignUnbound(db, event) {
   return { mouth: 'plan' }
 }
 
+function voidPreview(ctx, previewId) {
+  if (ctx && typeof ctx.voidPreview === 'function') ctx.voidPreview(previewId)
+}
+
 function mintOntoTask(db, taskId, previewId, event, ctx) {
   const proposals = awaitingForTask(db, taskId)
   const primaries = proposals.filter((row) => previewOn(row.plan))
   if (primaries.some((row) => previewOn(row.plan) === previewId)) return { mouth: 'plan' }
-  const held = unboundFor(db).get(taskId)
-  if (held && held.previewId === previewId) return { mouth: 'plan' }
   const diff = diffFrom(event, previewId)
+  const held = unboundFor(db).get(taskId)
+  if (primaries.some((row) => primaryHolds(db, previewOn(row.plan), ctx))) {
+    if (held && held.previewId === previewId) unboundFor(db).delete(taskId)
+    voidPreview(ctx, previewId)
+    return { mouth: 'plan', discardedPreviewId: previewId }
+  }
   if (primaries.length === 0) {
     const empty = proposals.find((row) => !previewOn(row.plan))
     if (empty) {
+      if (held && held.previewId !== previewId) voidPreview(ctx, held.previewId)
       writeBoundPreview(db, empty.id, diff)
       unboundFor(db).delete(taskId)
-      return { mouth: 'plan' }
+      return { mouth: 'plan', boundProposalId: empty.id }
     }
-    unboundFor(db).set(taskId, diff)
-    return { mouth: 'plan' }
   }
-  if (primaries.some((row) => primaryHolds(db, previewOn(row.plan), ctx))) {
-    if (ctx && typeof ctx.voidPreview === 'function') ctx.voidPreview(previewId)
-    return { mouth: 'plan', discardedPreviewId: previewId }
-  }
+  if (held && held.previewId !== previewId) voidPreview(ctx, held.previewId)
   unboundFor(db).set(taskId, diff)
   return { mouth: 'plan' }
 }

@@ -517,7 +517,7 @@ export async function postWorkstationBizWrite({ db, aiRuntime }, body) {
       columns: Array.isArray(sheet?.columns) ? sheet.columns : (Array.isArray(body?.columns) ? body.columns : []),
       lookupBind,
     })
-  } catch { /* audit must not block write */ }
+  } catch {}
   if (rollbackOfTraceId) {
     setBizWriteAuditRollbackState(db, rollbackOfTraceId, ROLLBACK_STATE_ROLLED_BACK, workspaceCwd)
   }
@@ -550,7 +550,7 @@ export async function postWorkstationBizWrite({ db, aiRuntime }, body) {
     const gateState = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
     const lampIdent = resolveWorkspaceIdOrFail(db, { cwd: bizCwd, source: 'request' })
     if (!lampIdent.error) reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true, workspaceId: lampIdent.workspaceId })
-  } catch { /* lamp is best-effort */ }
+  } catch {}
   return { written, traceId }
 }
 

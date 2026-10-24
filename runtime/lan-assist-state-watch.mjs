@@ -1,5 +1,5 @@
-import { noteHandoffTokenIndex, notifyHandoffPreviewMint } from './biz/handoff-preview-hook.mjs'
 import { stampPlanConfirmMouth } from './biz/plan-mouth-stamp.mjs'
+import { offerHandoffPreview, previewOfferCtx } from './plan/plan-card.mjs'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { emit } from './events.mjs'
 import { emitBizSheetPending } from './routes/biz.mjs'
@@ -200,7 +200,6 @@ export function startLanAssistStateWatch(deps) {
       const state = await lanAssist('/state', { search: { sessionId: '' } })
       if (db) reconcileLanAssistConnectionLamp(db, state && state.ok !== false ? state : null, { workspaceId: 'ws_personal' })
       if (!state || state.ok === false) return
-      if (state.writePreview && typeof state.writePreview === 'object') noteHandoffTokenIndex(state.writePreview)
       await lanAssist('/sleep', { method: 'POST', body: { on: false } }).catch(() => undefined)
 
       const sheet = officialFromState(state)
@@ -267,6 +266,7 @@ export function startLanAssistStateWatch(deps) {
     stopMailbox = deps.subscribeLanMailbox((payload) => {
       if (payload && String(payload.type || '') === 'handoff-preview') {
         void (async () => {
+          if (!db) return
           let index = {}
           try {
             const state = await lanAssist('/state', { search: { sessionId: '' } })
@@ -274,16 +274,19 @@ export function startLanAssistStateWatch(deps) {
           } catch {
             index = {}
           }
-          noteHandoffTokenIndex(index)
-          if (!db) return
-          notifyHandoffPreviewMint({
+          offerHandoffPreview(db, {
             type: 'mint',
             sessionId: payload.sessionId,
             previewId: payload.previewId,
             workstation: payload.workstation === true,
             action: typeof payload.action === 'string' ? payload.action : '',
             changes: Array.isArray(payload.changes) ? payload.changes : [],
-          })
+          }, previewOfferCtx(index, (id) => {
+            void lanAssist('/write/cancel', {
+              method: 'POST',
+              body: { preview_id: id },
+            }).catch(() => undefined)
+          }))
         })()
         return
       }
