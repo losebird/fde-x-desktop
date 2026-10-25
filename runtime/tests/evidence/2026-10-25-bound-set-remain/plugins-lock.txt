@@ -1,0 +1,4 @@
+dsh-lan-assist files 152 mismatch 0
+dsh-semantic-os files 310 mismatch 0
+mismatch 0
+plugins.lock verify ok
