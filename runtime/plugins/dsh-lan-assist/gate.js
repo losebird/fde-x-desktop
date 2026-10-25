@@ -7,7 +7,7 @@
 
 import { OPENING_TTL_MS, PLUGIN } from './home.js'
 import { randomHex } from './crypto.js'
-import { packSheet, speakBundlePreview, speakBundleReceipt, WORKSTATION_CONFIRM_HINT } from './write.js'
+import { packSheet, speakBundlePreview, speakBundleReceipt, WORKSTATION_CONFIRM_HINT, writtenIdentityNos } from './write.js'
 import { relatedFilterField, relatedHopId } from './lookup.js'
 import { briefFollowup } from './catalog.js'
 
@@ -588,7 +588,7 @@ export function createGate(bag) {
         s.pendingWrite = null
         const sheet = s.pendingSheet
         const writtenKind = String((results.find((row) => row && row.ok && !row.failed) || {}).kind || sheet && sheet.kind || '')
-        const writtenNos = new Set(results.filter((row) => row && row.ok && !row.failed).map((row) => String(row.no || '')))
+        const writtenNos = new Set(results.filter((row) => row && row.ok && !row.failed).flatMap((row) => writtenIdentityNos(row)))
         const pool = (sheet && String(sheet.kind || '') === writtenKind && Array.isArray(sheet.remainRows) && sheet.remainRows.length)
           ? sheet.remainRows
           : ((sheet && String(sheet.kind || '') === writtenKind && Array.isArray(sheet.rows) && sheet.rows.length > 1) ? sheet.rows : [])
@@ -615,7 +615,7 @@ export function createGate(bag) {
     })
     const sid = ok && !failed && String(pending.sessionId || spec.sessionId || '').trim()
     const wroteRows = results.filter((row) => row && row.ok && !row.failed)
-    const wroteNos = wroteRows.map((row) => String(row.no || '').trim()).filter(Boolean)
+    const wroteNos = wroteRows.flatMap((row) => writtenIdentityNos(row))
     sid && await reopenReplyDraft(sid) && (result.followup = {
       sessionId: sid,
       plugin: PLUGIN,

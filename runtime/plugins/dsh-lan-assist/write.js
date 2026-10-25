@@ -818,11 +818,42 @@ export function previewStillHolds(preview, next) {
 }
 
 /**
- * @param {{ kind?: string, no?: string } | null | undefined} ref
+ * @param {{ no?: string, nos?: string[] } | null | undefined} result
+ */
+export function writtenIdentityNos(result) {
+  const nos = []
+  const push = (value) => {
+    const no = String(value ?? '').trim()
+    if (!no || nos.includes(no)) return
+    nos.push(no)
+  }
+  if (result && Array.isArray(result.nos)) {
+    for (const item of result.nos) push(item)
+  }
+  if (result && result.no != null) push(result.no)
+  return nos
+}
+
+/**
+ * @param {{ kind?: string, no?: string, nos?: string[] } | null | undefined} ref
+ */
+function writtenReceiptLabel(ref) {
+  const nos = writtenIdentityNos(ref)
+  const kind = ref && ref.kind && ref.kind !== '单据' ? String(ref.kind).trim() : ''
+  if (nos.length > 1) {
+    const head = kind ? `已写 ${nos.length} 张 ${kind}` : `已写 ${nos.length} 张`
+    return `${head}：${nos.join('、')}`
+  }
+  if (nos.length === 1) return kind ? `${kind} ${nos[0]}` : nos[0]
+  return kind
+}
+
+/**
+ * @param {{ kind?: string, no?: string, nos?: string[] } | null | undefined} ref
  * @param {{ receiptId?: string, ok?: boolean, failed?: boolean } | null | undefined} result
  */
 export function speakReceipt(ref, result) {
-  const label = refLabel(ref) || '这张单'
+  const label = writtenReceiptLabel(ref) || '这张单'
   if (result && result.failed) {
     return {
       kind: 'compensate',
@@ -857,7 +888,7 @@ export function speakBundleReceipt(results) {
   if (!rows.length) return '没有可写的行。'
   const lines = rows.map((row) => {
     if (!row) return ''
-    const label = [row.kind, row.no].filter(Boolean).join(' ') || '这张单'
+    const label = writtenReceiptLabel(row) || '这张单'
     const change = patchChange(row.patch, null)
     if (row.failed || row.ok === false) {
       return row.speak || (change && change.speak
@@ -2354,7 +2385,7 @@ export function createGate(opts = {}) {
     if (traceId) await traces.remember(traceId, spec.workspace || token.workspace, {
       kind: token.kind, no: written.join(','), action: token.action, receiptId, sessionId: spec.sessionId || token.sessionId,
     })
-    const spoken = speakReceipt({ kind: token.kind, no: written[0] || '' }, { receiptId, ok: true })
+    const spoken = speakReceipt({ kind: token.kind, no: written[0] || '', nos: written }, { receiptId, ok: true })
     const hint = verified ? undefined : '业务已收，回读对不上。'
     return withIdentityReread({
       ok: true,
