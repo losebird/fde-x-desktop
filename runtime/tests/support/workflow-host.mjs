@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { createCoreConnector, parseHostRpcValue } from '../../dsh-core.mjs'
 import { firstMissingClosure } from '../../plugin-repo-source.mjs'
 import { PRODUCT_BUNDLE_IDS } from '../../product-bundles.mjs'
+import { applyCancelProvenance } from '../../host-pin/cancel-provenance.mjs'
 
 const execFileAsync = promisify(execFile)
 const PIN = '0.2.0-rc.2'
@@ -24,7 +25,10 @@ export async function ensureHostPin() {
   const stamp = join(pinDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
   if (existsSync(stamp)) {
     const pkg = JSON.parse(readFileSync(stamp, 'utf8'))
-    if (pkg.version === PIN && existsSync(bin)) return bin
+    if (pkg.version === PIN && existsSync(bin)) {
+      applyCancelProvenance(pinDir)
+      return bin
+    }
   }
   const cache = join(tmpdir(), 'fde-x-host-pin-npm-cache')
   await mkdir(cache, { recursive: true })
@@ -38,6 +42,7 @@ export async function ensureHostPin() {
     },
     maxBuffer: 128 * 1024 * 1024,
   })
+  applyCancelProvenance(pinDir)
   return bin
 }
 
