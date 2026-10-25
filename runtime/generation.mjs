@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile as execFileCb } from 'node:child_process'
 import { promisify } from 'node:util'
+import { applyCancelProvenance } from './host-pin/cancel-provenance.mjs'
 
 const execFile = promisify(execFileCb)
 const runtimeDir = dirname(fileURLToPath(import.meta.url))
@@ -79,8 +80,12 @@ export async function ensureGenerationHost() {
   if (existsSync(existing) && existsSync(yamlPkg)) {
     try {
       const pkg = JSON.parse(await readFile(existing, 'utf8'))
-      if (pkg.version === HOST_GENERATION.pin && generationDshBin()) return generationDshBin()
-    } catch {
+      if (pkg.version === HOST_GENERATION.pin && generationDshBin()) {
+        applyCancelProvenance(root)
+        return generationDshBin()
+      }
+    } catch (error) {
+      if (error && error.code === 'CANCEL_PROVENANCE') throw error
       /* reinstall */
     }
   }
@@ -103,5 +108,6 @@ export async function ensureGenerationHost() {
   if (!(await ensureDshShim(root))) {
     throw new Error(`世代 Host 缺少 dsh 入口：${root}`)
   }
+  applyCancelProvenance(root)
   return generationDshBin()
 }

@@ -1,0 +1,43 @@
+TAP version 13
+# Subtest: a successful bound set drops every written no from the sheet and names them all
+not ok 1 - a successful bound set drops every written no from the sheet and names them all
+  ---
+  duration_ms: 15.4216
+  type: 'test'
+  location: '/workspace/runtime/tests/bound-set-remain.test.mjs:33:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      [
+    +   'EXP20260629627',
+    +   'EXP20250805461',
+    +   'EXP20240226276',
+        'EXP-KEEP'
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 'EXP-KEEP'
+  actual:
+    0: 'EXP20260629627'
+    1: 'EXP20250805461'
+    2: 'EXP20240226276'
+    3: 'EXP-KEEP'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///workspace/runtime/tests/bound-set-remain.test.mjs:154:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 90.501903

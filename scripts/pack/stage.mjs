@@ -20,6 +20,7 @@ import { REQUIRED_PLUGINS, readLock } from '../plugins/lock-check.mjs'
 import { BUILTIN_PLUGINS } from '../../runtime/builtin-plugins.mjs'
 import { bundledPluginVersions, defaultIuiArtifactPath, stageIuiArtifact } from './iui-artifact.mjs'
 import { escapedRuntimeImports } from './runtime-closure.mjs'
+import { applyCancelProvenance } from '../../runtime/host-pin/cancel-provenance.mjs'
 
 const execFile = promisify(execFileCb)
 
@@ -123,12 +124,14 @@ async function stageDshFromNpm(dest, version) {
   if (!existsSync(join(dest, 'node_modules', '@deepseek-ai', 'dsh'))) {
     throw new Error(`DSH npm tree missing node_modules/@deepseek-ai/dsh under ${dest}`)
   }
+  applyCancelProvenance(dest)
   return true
 }
 
 async function stageDsh(dest) {
   if (process.env.FDE_RESTAGE_DSH !== '1' && dshBinPresent(dest) && dshModuleEntry(dest)) {
     console.log(`[stage] dsh already present ${dest}`)
+    applyCancelProvenance(dest)
     return true
   }
   const override = process.env.FDE_DSH_NPM_TREE
@@ -136,7 +139,9 @@ async function stageDsh(dest) {
     await rm(dest, { recursive: true, force: true })
     await copyIfExists(override, dest, 'dsh npm tree (FDE_DSH_NPM_TREE)')
     await ensureDshBinShim(dest)
-    return dshBinPresent(dest) && Boolean(dshModuleEntry(dest))
+    const ok = dshBinPresent(dest) && Boolean(dshModuleEntry(dest))
+    if (ok) applyCancelProvenance(dest)
+    return ok
   }
 
   const fromNpm = process.env.FDE_STAGE_DSH_FROM_NPM !== '0'
@@ -178,7 +183,10 @@ async function stageDsh(dest) {
       })
     }
     await ensureDshBinShim(dest)
-    if (dshBinPresent(dest) && dshModuleEntry(dest)) return true
+    if (dshBinPresent(dest) && dshModuleEntry(dest)) {
+      applyCancelProvenance(dest)
+      return true
+    }
   }
 
   await mkdir(dest, { recursive: true })

@@ -1,0 +1,36 @@
+pin @deepseek-ai/*@0.2.0-rc.2
+before @deepseek-ai/dsh-api-session-controller/lib/index.js prev=1 next=0
+before @deepseek-ai/dsh-api-session-controller/lib/types/commands.js prev=1 next=0
+before @deepseek-ai/dsh-agent/lib/index.js prev=1 next=0
+before @deepseek-ai/dsh-agent/lib/types/archive-admission.js prev=1 next=0
+before @deepseek-ai/dsh-acp/lib/index.js prev=1 next=0
+before @deepseek-ai/dsh-acp/lib/index.js prev=1 next=0
+before @deepseek-ai/dsh-acp/lib/index.js prev=1 next=0
+before @deepseek-ai/dsh-goal-round-driver/lib/index.js prev=1 next=0
+before @deepseek-ai/dsh-agent-loop/lib/index.js prev=1 next=0
+first patched @deepseek-ai/dsh-api-session-controller/lib/index.js
+first patched @deepseek-ai/dsh-api-session-controller/lib/types/commands.js
+first patched @deepseek-ai/dsh-agent/lib/index.js
+first patched @deepseek-ai/dsh-agent/lib/types/archive-admission.js
+first patched @deepseek-ai/dsh-acp/lib/index.js
+first patched @deepseek-ai/dsh-acp/lib/index.js
+first patched @deepseek-ai/dsh-acp/lib/index.js
+first patched @deepseek-ai/dsh-goal-round-driver/lib/index.js
+first patched @deepseek-ai/dsh-agent-loop/lib/index.js
+check 0 @deepseek-ai/dsh-api-session-controller/lib/index.js
+check 0 @deepseek-ai/dsh-api-session-controller/lib/types/commands.js
+check 0 @deepseek-ai/dsh-agent/lib/index.js
+check 0 @deepseek-ai/dsh-agent/lib/types/archive-admission.js
+check 0 @deepseek-ai/dsh-acp/lib/index.js
+check 0 @deepseek-ai/dsh-goal-round-driver/lib/index.js
+check 0 @deepseek-ai/dsh-agent-loop/lib/index.js
+second already @deepseek-ai/dsh-api-session-controller/lib/index.js
+second already @deepseek-ai/dsh-api-session-controller/lib/types/commands.js
+second already @deepseek-ai/dsh-agent/lib/index.js
+second already @deepseek-ai/dsh-agent/lib/types/archive-admission.js
+second already @deepseek-ai/dsh-acp/lib/index.js
+second already @deepseek-ai/dsh-acp/lib/index.js
+second already @deepseek-ai/dsh-acp/lib/index.js
+second already @deepseek-ai/dsh-goal-round-driver/lib/index.js
+second already @deepseek-ai/dsh-agent-loop/lib/index.js
+goal kind parent count 1
