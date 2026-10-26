@@ -1,12 +1,15 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { createConnection } from 'node:net'
 import { fileURLToPath, URL } from 'node:url'
 import { runtimePortOpen } from './scripts/runtime-port.mjs'
 import {
   FDE_ALLOWED_ORIGINS,
+  FDE_DSH_HOME,
   FDE_RUNTIME_HOST,
   FDE_RUNTIME_PORT,
   FDE_RUNTIME_RELOAD_WAIT_MS,
@@ -101,9 +104,19 @@ function fdeRuntimePlugin(): Plugin {
   return {
     name: 'fde-x-runtime',
     transformIndexHtml(html) {
-      if (!/^[0-9a-f]{64}$/u.test(uiToken)) return html
-      if (html.includes('name="fde-ui-token"')) return html
-      return html.replace('</head>', `<meta name="fde-ui-token" content="${uiToken}" />\n</head>`)
+      let token = uiToken
+      try {
+        const fromFile = readFileSync(join(FDE_DSH_HOME, '.ui-token'), 'utf8').trim()
+        if (/^[0-9a-f]{64}$/u.test(fromFile)) token = fromFile
+      } catch {
+        /* BFF has not minted yet */
+      }
+      if (!/^[0-9a-f]{64}$/u.test(token)) return html
+      const meta = `<meta name="fde-ui-token" content="${token}" />`
+      if (html.includes('name="fde-ui-token"')) {
+        return html.replace(/<meta name="fde-ui-token" content="[^"]*"\s*\/?>/, meta)
+      }
+      return html.replace('</head>', `${meta}\n</head>`)
     },
     async configureServer(server) {
       const host = FDE_RUNTIME_HOST

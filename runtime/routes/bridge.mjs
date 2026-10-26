@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { emit } from '../events.mjs'
@@ -45,6 +45,24 @@ export function verifyBridgeToken(request, expected) {
 
 export function mintUiToken() {
   return randomBytes(32).toString('hex')
+}
+
+export function persistUiToken(home, token) {
+  const dir = String(home || '').trim()
+  const value = String(token || '').trim()
+  if (!dir || !/^[0-9a-f]{64}$/u.test(value)) return
+  writeFileSync(join(dir, '.ui-token'), value, { encoding: 'utf8', mode: 0o600 })
+}
+
+export function readPersistedUiToken(home) {
+  const dir = String(home || '').trim()
+  if (!dir) return ''
+  try {
+    const value = readFileSync(join(dir, '.ui-token'), 'utf8').trim()
+    return /^[0-9a-f]{64}$/u.test(value) ? value : ''
+  } catch {
+    return ''
+  }
 }
 
 function headerToken(request, name) {

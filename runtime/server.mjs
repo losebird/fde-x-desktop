@@ -96,7 +96,7 @@ import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
-import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, mintUiToken, verifyUiToken } from './routes/bridge.mjs'
+import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, mintUiToken, persistUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
@@ -184,6 +184,7 @@ if (!personalStored && runtimeWorkspaceCwd) patchWorkspaceMetadata(db, 'ws_perso
 startMemoryWriter({ db, aiRuntime })
 let bridgeToken = ''
 const uiToken = mintUiToken()
+persistUiToken(aiRuntime.dshHome || FDE_DSH_HOME, uiToken)
 void ensureBridgeToken(aiRuntime.dshHome || FDE_DSH_HOME).then((token) => {
   bridgeToken = token
 })
