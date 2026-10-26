@@ -61,7 +61,7 @@ function noConnectorSection(def) {
 }
 
 export async function collectInternalSection(deps, def, workspaceCwd) {
-  const { db, aiRuntime } = deps
+  const { db, aiRuntime, sessionId } = deps
   const workspaceId = workspaceRowIdForCwd(db, workspaceCwd)
   const params = def.params && typeof def.params === 'object' ? def.params : {}
   try {
@@ -165,6 +165,7 @@ export async function collectInternalSection(deps, def, workspaceCwd) {
             slot: 'list',
             args: { kind: resolved, action, filter, cwd: workspaceCwd },
             cwd: workspaceCwd,
+            sessionId,
           })
           const mapped = sheetFromListPayload(raw, { kind, action, workspace: workspaceCwd })
           if (mapped.error) return baseSection(def, { error: mapped.error })

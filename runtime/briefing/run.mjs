@@ -149,9 +149,13 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
     briefingId = created.id
 
     const internalDefs = enabled.filter((s) => s.type !== 'mcp' && s.type !== 'ai')
+    const collectSessionId = await resolvePrimarySessionForRuntime(aiRuntime, {
+      sessionId: input.sessionId,
+      cwd: workspaceCwd,
+    })
     const sections = []
     for (const def of internalDefs) {
-      const section = await collectInternalSection({ db, aiRuntime }, def, workspaceCwd)
+      const section = await collectInternalSection({ db, aiRuntime, sessionId: collectSessionId }, def, workspaceCwd)
       sections.push({ ...section, type: def.type })
     }
 
