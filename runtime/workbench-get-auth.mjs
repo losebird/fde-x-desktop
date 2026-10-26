@@ -8,3 +8,11 @@ export function workbenchGetNeedsToken(pathname) {
   if (path === '/api/v1/events' || path === '/api/v1/events/recent') return false
   return true
 }
+
+export function pageTokenRequired(pathname, method = 'GET') {
+  const path = String(pathname || '')
+  const verb = String(method || 'GET').toUpperCase()
+  if (!path.startsWith('/api/v1/') || pathHasPrefix(path, '/api/v1/app-share/')) return false
+  if (verb !== 'GET' && verb !== 'HEAD') return true
+  return workbenchGetNeedsToken(path)
+}

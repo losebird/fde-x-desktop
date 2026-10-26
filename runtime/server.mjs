@@ -105,7 +105,7 @@ import { publicImRelay } from './im-relay.mjs'
 import { readJsonFromRequest } from './http-json.mjs'
 import { assertSqliteBackupPath, backupPublicRow, listSqliteBackups, restoreSqliteBackup, takeSqliteBackup } from './db-backup.mjs'
 import { workbenchApiHeaders } from './security-headers.mjs'
-import { workbenchGetNeedsToken } from './workbench-get-auth.mjs'
+import { pageTokenRequired } from './workbench-get-auth.mjs'
 import { findSessionDir, readSessionTree, writeSessionTree } from './session-tree.mjs'
 import { invalidateHostSessionList, listHostSessions, resolvePrimarySessionForRuntime } from './session-primary.mjs'
 import { decodeWorkspaceFileText, readWorkspaceFileBytes } from './files-bytes.mjs'
@@ -1136,7 +1136,7 @@ const server = createServer(async (request, response) => {
       return
     }
   }
-  if (url.pathname.startsWith('/api/v1/') && (writeMethod || workbenchGetNeedsToken(url.pathname))) {
+  if (pageTokenRequired(url.pathname, request.method)) {
     if (!verifyUiToken(request, uiToken, uiTokenHome)) {
       sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', currentCorrelationId)
       return

@@ -1,7 +1,7 @@
 import './support/no-stray-processes.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { workbenchGetNeedsToken } from '../workbench-get-auth.mjs'
+import { pageTokenRequired, workbenchGetNeedsToken } from '../workbench-get-auth.mjs'
 
 test('workbench GET token gate covers sessions and briefing, not status events or share', () => {
   assert.equal(workbenchGetNeedsToken('/api/v1/ai/sessions'), true)
@@ -11,4 +11,7 @@ test('workbench GET token gate covers sessions and briefing, not status events o
   assert.equal(workbenchGetNeedsToken('/api/v1/events/recent'), false)
   assert.equal(workbenchGetNeedsToken('/api/v1/app-share/abc'), false)
   assert.equal(workbenchGetNeedsToken('/live'), false)
+  assert.equal(pageTokenRequired('/api/v1/ai/sessions', 'GET'), true)
+  assert.equal(pageTokenRequired('/api/v1/ai/status', 'GET'), false)
+  assert.equal(pageTokenRequired('/api/v1/ai/status', 'POST'), true)
 })

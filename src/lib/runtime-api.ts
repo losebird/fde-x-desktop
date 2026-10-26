@@ -9,6 +9,7 @@ import {
   type SessionRestoreInput,
 } from '@/lib/session-bind'
 import { LIVE_PATH, LIVE_PROBE_MS, combineAbortSignal, probeRuntimeLive } from '../../runtime/live-probe.mjs'
+import { pageTokenRequired } from '../../runtime/workbench-get-auth.mjs'
 import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
 import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
 
@@ -617,8 +618,6 @@ async function readUiToken() {
 }
 
 const PAGE_TOKEN_HEADER = 'x-fde-ui-token'
-const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-
 function requestPathname(path: string) {
   const query = path.indexOf('?')
   return query === -1 ? path : path.slice(0, query)
@@ -626,9 +625,8 @@ function requestPathname(path: string) {
 
 async function withPageToken(path: string, init?: RequestInit): Promise<RequestInit | undefined> {
   const method = String(init?.method || 'GET').toUpperCase()
-  if (!WRITE_METHODS.has(method)) return init
   const pathname = requestPathname(path)
-  if (!pathname.startsWith('/api/v1/') || pathname.startsWith('/api/v1/app-share/')) return init
+  if (!pageTokenRequired(pathname, method)) return init
   const token = await readUiToken()
   if (!token) return init
   const headers = new Headers(init?.headers)
