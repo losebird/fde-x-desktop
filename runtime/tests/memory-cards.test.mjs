@@ -59,6 +59,7 @@ test('asDraftCard stays 起草 not 已入档', () => {
 })
 
 test('instance origin arity is structural', () => {
+  assert.equal(instanceOriginOf('session:'), '')
   assert.equal(instanceOriginOf('session:s1'), 'session:s1')
   assert.equal(instanceOriginOf('file:docs/a.md'), 'file:docs/a.md')
   assert.equal(instanceOriginOf('im:r1'), 'im:r1')

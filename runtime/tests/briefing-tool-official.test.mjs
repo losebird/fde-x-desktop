@@ -74,6 +74,12 @@ test('presentBriefingItem unwraps markdown links', () => {
   assert.equal(item.sub, 'The Decoder')
 })
 
+test('presentBriefingItem drops an empty session: origin sub', () => {
+  const item = presentBriefingItem({ text: '已取消的资产领用归还', sub: 'session:' })
+  assert.equal(item.text, '已取消的资产领用归还')
+  assert.equal(item.sub, undefined)
+})
+
 test('presentBriefingItem folds title body url', () => {
   const item = presentBriefingItem({
     title: 'Anthropic 提交 S-1，拟以 ANT 登陆纳斯达克',

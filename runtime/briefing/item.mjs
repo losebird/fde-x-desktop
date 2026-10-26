@@ -9,6 +9,13 @@ function firstString(...values) {
   return ''
 }
 
+function dropEmptyOriginSub(value) {
+  const sub = String(value || '').trim()
+  if (!sub) return ''
+  if (/^(biz|im|task|briefing|app|session|file|memory):$/u.test(sub)) return ''
+  return sub
+}
+
 function hrefOf(value) {
   if (isRecord(value) && value.panel) return value
   if (typeof value === 'string' && value.trim()) return value.trim()
@@ -49,8 +56,10 @@ export function presentBriefingItem(item) {
   const text = unwrapped.text
   if (!text) return null
   const href = hrefOf(item.href) || hrefOf(item.url) || hrefOf(item.link) || unwrapped.href
-  const sub = firstString(item.sub, item.from, item.source, item.author)
-    || (titleish && bodyish && bodyish !== text ? bodyish : '')
+  const sub = dropEmptyOriginSub(
+    firstString(item.sub, item.from, item.source, item.author)
+      || (titleish && bodyish && bodyish !== text ? bodyish : ''),
+  )
   return {
     text,
     ...(sub ? { sub } : {}),
