@@ -91,7 +91,6 @@ export const httpWorkspaceRoutes = [
   { id: 'business-connections', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/business/connections', place: 'query', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },
   { id: 'biz-connections', file: 'runtime/routes/biz.mjs', method: 'GET', path: '/api/v1/biz/connections', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'corpus', file: 'runtime/routes/corpus.mjs', method: 'GET', path: '/api/v1/corpus/file:note.md', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
-  { id: 'mcp-projection', file: 'runtime/routes/mcp.mjs', method: 'GET', path: '/api/v1/mcp/projection', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'mcp-servers', file: 'runtime/routes/mcp.mjs', method: 'POST', path: '/api/v1/mcp/servers', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { serverName: 'matrix-mcp' } },
   { id: 'skills-roots', file: 'runtime/routes/skills.mjs', method: 'GET', path: '/api/v1/skills/roots', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-bundle-files', file: 'runtime/routes/skills.mjs', method: 'GET', path: '/api/v1/skills/bundle/files', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },

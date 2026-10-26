@@ -756,28 +756,6 @@ export async function handleMcpRoutes(request, response, url, ctx) {
     return true
   }
 
-  if (request.method === 'GET' && url.pathname === '/api/v1/mcp/projection') {
-    const resolvedMcp = resolveHttpWorkspace({
-      url,
-      slots: [['query', 'cwd'], ['query', 'workspace']],
-      runtimeCwd: aiRuntime?.cwd,
-      fallbackCwd: FDE_AI_WORKSPACE,
-    })
-    if (resolvedMcp.error) {
-      sendError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', currentCorrelationId)
-      return true
-    }
-    const bag = await collectBag(aiRuntime, 'mcp', {
-      project: true,
-      sessionId: url.searchParams.get('sessionId') || '',
-      cwd: resolvedMcp.cwd,
-    })
-    const mcp = Array.isArray(bag.raw?.mcp) ? bag.raw.mcp : bag.items.map((row) => row.fields)
-    const resourceTools = Array.isArray(bag.raw?.resourceTools) ? bag.raw.resourceTools : []
-    sendJson(response, 200, { data: { mcp, resourceTools, actions: bag.actions }, correlationId: currentCorrelationId })
-    return true
-  }
-
   if (request.method === 'POST' && url.pathname === '/api/v1/mcp/probe') {
     const origin = resolveAllowedRequestOrigin(request, ctx.allowedOrigins || [])
     if (!origin) {

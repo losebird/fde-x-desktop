@@ -203,14 +203,6 @@ export interface McpServerV2 {
   tools: string[]
 }
 
-export function mergeMcpProjection(servers: McpServerV2[], projected: McpServerV2[]): McpServerV2[] {
-  const toolsByName = new Map((Array.isArray(projected) ? projected : []).map((row) => [row.serverName, Array.isArray(row.tools) ? row.tools : []]))
-  return (Array.isArray(servers) ? servers : []).map((row) => ({
-    ...row,
-    tools: toolsByName.get(row.serverName) || row.tools || [],
-  }))
-}
-
 export type WorkspaceFileVersion = {
   id: string
   versionNo: number
@@ -2510,15 +2502,6 @@ export class RuntimeApi {
     return { mcp: data.mcp || [], connectors: data.connectors || [], resourceTools: Array.isArray(data.resourceTools) ? data.resourceTools : [] }
   }
 
-  async listMcpProjection(input?: { sessionId?: string; cwd?: string }, signal?: AbortSignal): Promise<{ mcp: McpServerV2[]; resourceTools: string[] }> {
-    const params = new URLSearchParams()
-    if (input?.sessionId) params.set('sessionId', input.sessionId)
-    if (input?.cwd) params.set('cwd', input.cwd)
-    const query = params.toString()
-    const result = await this.request<{ data: { mcp: McpServerV2[]; resourceTools?: string[] } }>(`/api/v1/mcp/projection${query ? `?${query}` : ''}`, { signal })
-    const data = result.data
-    return { mcp: data.mcp || [], resourceTools: Array.isArray(data.resourceTools) ? data.resourceTools : [] }
-  }
 
   async addMcpServer(
     input: {
