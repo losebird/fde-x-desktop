@@ -3,7 +3,6 @@
  * discovered by skill-filesystem. Writes stay inside that bundle.
  */
 import { access, cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { profileCordisPatchPath } from './mcp-archive.mjs'
@@ -94,9 +93,7 @@ export async function skillRootsForCwd(aiRuntime, cwd) {
     roots.push({ path: resolve(dir), source: 'custom' })
   }
   const dshHome = String((aiRuntime && aiRuntime.dshHome) || process.env.FDE_DSH_HOME || '').trim()
-  const agentsHome = String(process.env.DSH_AGENTS_HOME || join(homedir(), '.agents')).trim()
   if (dshHome) roots.push({ path: join(dshHome, 'skills'), source: 'user-dsh' })
-  if (agentsHome) roots.push({ path: join(agentsHome, 'skills'), source: 'user-agents' })
   const seen = new Set()
   return roots.filter((row) => {
     const key = resolve(row.path)

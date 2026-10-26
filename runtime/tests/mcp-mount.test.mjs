@@ -157,7 +157,7 @@ test('standard request catalogs mail and drops the denied MCP servers', async ()
   const names = assembled.tools.map((row) => row.name)
   assert.deepEqual(names, ['read'])
   const text = catalogText(assembled)
-  assert.match(text, /mail \/ imap_search \//)
+  assert.match(text, /mail \//)
   assert.equal(text.includes('cua-driver'), false)
   assert.equal(text.includes('chrome-devtools'), false)
   assert.equal(text.includes('playwright'), false)
@@ -212,10 +212,26 @@ test('pre-execute denies the same servers and still allows a mounted one', async
   assert.equal(briefing.kind, 'deny')
   assert.match(briefing.reason, /mail/)
 
+  const idle = await bus.waterfall('tools/pre-execute', {
+    name: 'mcp__mail__imap_search',
+    arguments: {},
+    agent: agent('standard', 'pre-exec-mail'),
+  })
+  assert.equal(idle.kind, 'deny')
+  assert.match(idle.reason, /未加载/)
+
+  await bus.waterfall('system-prompt/assemble', null, { agent: agent('standard', 'pre-exec-mail') })
+  const registered = []
+  tools.registerTools({
+    get config() { throw new Error('cannot get property "config" without inject') },
+    tools: { register(spec) { registered.push(spec) } },
+  }, { defineTool: (spec) => spec, config: bus.config })
+  const load = registered.find((spec) => spec.name === 'fde_mcp_load')
+  await load.execute({ server: 'mail' }, { agent: agent('standard', 'pre-exec-mail') })
   const allowed = await bus.waterfall('tools/pre-execute', {
     name: 'mcp__mail__imap_search',
     arguments: {},
-    agent: agent('standard'),
+    agent: agent('standard', 'pre-exec-mail'),
   })
   assert.deepEqual(allowed, { kind: 'allow' })
   assert.equal(later, 1)
@@ -224,7 +240,8 @@ test('pre-execute denies the same servers and still allows a mounted one', async
     name: 'mcp__mail__imap_search',
     arguments: {},
   })
-  assert.deepEqual(direct, { kind: 'allow' })
+  assert.equal(direct.kind, 'deny')
+  assert.match(direct.reason, /未加载/)
 })
 
 test('an empty standard deny list puts those servers back in the catalog', async () => {
@@ -318,8 +335,8 @@ test('a staged briefing prompt catalogs the allow list and keeps full MCP schema
   const briefing = await bus.waterfall('system-prompt/assemble', null, { agent: agent('fde-briefing', sessionA) })
   assert.deepEqual(briefing.tools.map((row) => row.name), ['read'])
   const text = catalogText(briefing)
-  assert.match(text, /mail \/ imap_search \//)
-  assert.match(text, /rss \/ fetch \//)
+  assert.match(text, /mail \//)
+  assert.match(text, /rss \//)
   assert.equal(text.includes('playwright'), false)
   assert.equal(text.includes('cua-driver'), false)
   assert.equal(text.includes('chrome-devtools'), false)
@@ -358,8 +375,9 @@ test('pre-execute and fde_mcp_load use the same briefing allow file', async (t) 
     arguments: {},
     agent: agent('fde-briefing', sessionA),
   })
-  assert.deepEqual(opened, { kind: 'allow' })
-  assert.equal(later, 1)
+  assert.equal(opened.kind, 'deny')
+  assert.match(opened.reason, /未加载/)
+  assert.equal(later, 0)
   const closed = await bus.waterfall('tools/pre-execute', {
     name: 'mcp__mail__imap_search',
     arguments: {},
@@ -375,7 +393,7 @@ test('pre-execute and fde_mcp_load use the same briefing allow file', async (t) 
   })
   assert.equal(browser.kind, 'deny')
   assert.match(browser.reason, /playwright/)
-  assert.equal(later, 1)
+  assert.equal(later, 0)
   const registered = []
   tools.registerTools({
     get config() { throw new Error('cannot get property "config" without inject') },
@@ -384,6 +402,13 @@ test('pre-execute and fde_mcp_load use the same briefing allow file', async (t) 
   const load = registered.find((spec) => spec.name === 'fde_mcp_load')
   const loaded = await load.execute({ server: 'mail' }, { agent: agent('fde-briefing', sessionA) })
   assert.match(loaded, /mcp__mail__imap_search/)
+  const running = await bus.waterfall('tools/pre-execute', {
+    name: 'mcp__mail__imap_search',
+    arguments: {},
+    agent: agent('fde-briefing', sessionA),
+  })
+  assert.deepEqual(running, { kind: 'allow' })
+  assert.equal(later, 1)
   await assert.rejects(
     () => load.execute({ server: 'playwright' }, { agent: agent('fde-briefing', sessionA) }),
     /playwright/,

@@ -377,13 +377,14 @@ function installIuiModeGate(ctx, config) {
     gatePreStepDecision,
     resumePastIuiHtmlDeny,
     deniedMcpServer,
+    mcpServerName,
     resolveMcpMount,
   } = require('../../mode-policy.cjs')
   if (!ctx || typeof ctx.on !== 'function') {
     throw new Error('IUI mode gate requires ctx.on')
   }
   const mountOf = () => resolveMcpMount(config)
-  const { applyMcpCatalog } = require('./mcp-catalog.js')
+  const { applyMcpCatalog, sessionLoaded, unloadSessionMcp } = require('./mcp-catalog.js')
   const { toolSessionId } = require('./tools.js')
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembled = await next()
@@ -399,12 +400,23 @@ function installIuiModeGate(ctx, config) {
   }, true)
   ctx.on('tools/pre-execute', async (exec, next) => {
     const preset = presetFromAgent(exec && exec.agent)
-    const server = deniedMcpServer(exec && exec.name, preset, mountOf(), toolSessionId(exec))
-    if (server) return { kind: 'deny', reason: `MCP 服务 ${server} 未挂到预设 ${preset}` }
+    const sessionId = toolSessionId(exec)
+    const denied = deniedMcpServer(exec && exec.name, preset, mountOf(), sessionId)
+    if (denied) return { kind: 'deny', reason: `MCP 服务 ${denied} 未挂到预设 ${preset}` }
+    const server = mcpServerName(exec && exec.name)
+    if (server) {
+      const loaded = await sessionLoaded(sessionId)
+      if (!loaded.has(server)) return { kind: 'deny', reason: `MCP 服务 ${server} 未加载` }
+    }
     const decision = await next()
     if (resumePastIuiHtmlDeny(decision, preset)) return next()
     return decision
   }, true)
+  ctx.on('session/event', (session, event) => {
+    if (!event || event.type !== 'turn/end') return
+    const id = session && (session.id || session.sessionId || (session.header && (session.header.id || session.header.sessionId)))
+    unloadSessionMcp(id)
+  })
 }
 
 function apply(ctx, config) {

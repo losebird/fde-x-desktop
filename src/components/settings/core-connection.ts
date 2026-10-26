@@ -127,16 +127,16 @@ function timedOut(status: AiRuntimeStatus | null | undefined) {
 
 /** Starting is not a core failure. An installing IUI record replaces that sentence. */
 function isTerminalStatus(status: AiRuntimeStatus) {
-  return status.state === 'error' || status.iui?.state === 'failed' || status.iui?.state === 'verify_failed'
+  return status.state === 'error' || status.iui?.state === 'verify_failed'
 }
 
 export function coreBootGuidance(status: AiRuntimeStatus | null | undefined): CoreBootGuidance {
   const iui = status?.iui
   if (iui?.state === 'installing') return { kind: 'installing', text: iuiStatusLine(iui) }
   if (iui?.state === 'verify_failed') return { kind: 'verify_failed', text: iuiStatusLine(iui) }
+  if (status?.connected || status?.state === 'connected') return { kind: 'ready', text: '' }
   if (status?.state === 'error') return { kind: 'failed', text: coreDownCopy(status) }
   if (iui?.state === 'failed') return { kind: 'iui-failed', text: iuiStatusLine(iui) }
-  if (status?.connected || status?.state === 'connected') return { kind: 'ready', text: '' }
   const state = String(status?.state || '')
   const failed = state === 'error' || state === 'failed'
     || (timedOut(status) && processGone(status))

@@ -510,6 +510,10 @@ test('ensureSkillProvidersInProfile disables host tool-skill and keeps the files
   const runtime = { dshHome: home, profileName: 'fde-x' }
   try {
     await ensureSkillProvidersInProfile(runtime)
+    const { lstat } = await import('node:fs/promises')
+    const skills = await lstat(join(home, 'skills'))
+    assert.equal(skills.isDirectory(), true)
+    assert.equal(skills.isSymbolicLink(), false)
     const text = await readFile(file, 'utf8')
     const toolSkill = blockForId(text, 'tool-skill')
     const filesystem = blockForId(text, 'skill-filesystem')
@@ -523,6 +527,23 @@ test('ensureSkillProvidersInProfile disables host tool-skill and keeps the files
     assert.equal(topLevelBlocks(text).filter((part) => /^- id: tool-skill\b/m.test(part)).length, 1)
     await ensureSkillProvidersInProfile(runtime)
     assert.equal(await readFile(file, 'utf8'), text)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('ensureSkillProvidersInProfile does not inherit ~/.agents/skills', async () => {
+  const { mkdtemp, mkdir, lstat, rm, symlink } = await import('node:fs/promises')
+  const { homedir, tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'fde-skill-ledger-'))
+  await mkdir(join(home, 'profiles', 'fde-x'), { recursive: true })
+  await symlink(join(homedir(), '.agents', 'skills'), join(home, 'skills'))
+  try {
+    await ensureSkillProvidersInProfile({ dshHome: home, profileName: 'fde-x' })
+    const skills = await lstat(join(home, 'skills'))
+    assert.equal(skills.isSymbolicLink(), false)
+    assert.equal(skills.isDirectory(), true)
   } finally {
     await rm(home, { recursive: true, force: true })
   }

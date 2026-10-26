@@ -6,8 +6,8 @@
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { access, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
+import { access, lstat, mkdir, readFile, readlink, rm, writeFile } from 'node:fs/promises'
 import { FDE_RESOURCES } from './config.mjs'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { generationInstallRoot } from './generation.mjs'
@@ -734,18 +734,22 @@ export async function ensureSkillProvidersInProfile(aiRuntime) {
   if (next !== text) await writeFile(file, next)
   const home = aiRuntime?.dshHome || process.env.FDE_DSH_HOME
   if (!home) return
+  await ensureFdeSkillLedger(home)
+}
+
+async function ensureFdeSkillLedger(home) {
   const dest = join(home, 'skills')
+  const agentsSkills = resolve(join(homedir(), '.agents', 'skills'))
   try {
-    await access(dest)
+    const st = await lstat(dest)
+    if (!st.isSymbolicLink()) return
+    const target = resolve(dirname(dest), await readlink(dest))
+    if (target !== agentsSkills) return
+    await rm(dest)
   } catch {
-    const agents = join(homedir(), '.agents', 'skills')
-    try {
-      await access(agents)
-      await symlink(agents, dest)
-    } catch {
-      await mkdir(dest, { recursive: true })
-    }
+    /* missing */
   }
+  await mkdir(dest, { recursive: true })
 }
 
 export async function ensureLocalMcpInProfile(aiRuntime) {

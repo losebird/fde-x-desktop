@@ -31,6 +31,7 @@ export function resolveHostSpawn(bin, env = process.env, versions = process.vers
 
 export function hostChildEnv(extra = {}, env = process.env) {
   const merged = { ...env, ...extra }
+  if (!merged.DSH_AGENTS_HOME && merged.DSH_HOME) merged.DSH_AGENTS_HOME = merged.DSH_HOME
   delete merged.ELECTRON_RUN_AS_NODE
   delete merged.ALL_PROXY
   delete merged.all_proxy

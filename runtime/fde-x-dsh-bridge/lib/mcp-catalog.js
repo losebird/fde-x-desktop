@@ -51,13 +51,23 @@ function serversFromEvent(event) {
   return servers
 }
 
-function serversFromLog(text) {
-  const servers = []
+function unwrapLogEvent(rec) {
+  if (rec && rec.type === 'event' && rec.event && typeof rec.event === 'object') return rec.event
+  return rec
+}
+
+function loadedServersFromLog(text) {
+  const loaded = new Set()
   for (const line of String(text).split('\n')) {
     if (!line.trim()) continue
-    servers.push(...serversFromEvent(JSON.parse(line)))
+    const event = unwrapLogEvent(JSON.parse(line))
+    if (event && event.type === 'turn/end') {
+      loaded.clear()
+      continue
+    }
+    for (const server of serversFromEvent(event)) loaded.add(server)
   }
-  return servers
+  return [...loaded]
 }
 
 async function textFromZstd(buf) {
@@ -82,9 +92,16 @@ async function readLoadedServers(sessionId) {
   for (const name of names) {
     const buf = await readFile(join(dir, name))
     const text = name.endsWith('.zstd') ? await textFromZstd(buf) : buf.toString('utf8')
-    servers.push(...serversFromLog(text))
+    for (const server of loadedServersFromLog(text)) servers.push(server)
   }
-  return servers
+  return [...new Set(servers)]
+}
+
+function unloadSessionMcp(sessionId) {
+  const id = String(sessionId || '').trim()
+  if (!id) return
+  const set = loadedBySession.get(id)
+  if (set) set.clear()
 }
 
 async function sessionLoaded(sessionId) {
@@ -113,14 +130,26 @@ async function sessionLoaded(sessionId) {
 }
 
 function catalogText(tools) {
-  const lines = ['MCP 目录。调用 fde_mcp_load({server}) 后，下一步才能用真名。']
+  const blurb = new Map()
   for (const tool of tools) {
-    const server = mcpServerName(tool.name)
-    const local = String(tool.name).slice(`mcp__${server}__`.length)
-    const description = String(tool.description || '').split('\n')[0].trim().slice(0, 120)
-    lines.push(`${server} / ${local} / ${description}`)
+    const server = mcpServerName(tool && tool.name)
+    if (!server || blurb.has(server)) continue
+    const description = String(tool.description || '').split('\n')[0].trim().slice(0, 80)
+    blurb.set(server, description)
+  }
+  const lines = ['MCP 目录。调用 fde_mcp_load({server}) 后，下一步才能用真名。']
+  for (const server of [...blurb.keys()].sort()) {
+    const description = blurb.get(server)
+    lines.push(description ? `${server} / ${description}` : server)
   }
   return lines.join('\n')
+}
+
+function isUnloadedMcpInstruction(section, loaded) {
+  const name = String(section && section.name || '')
+  if (name === 'mcp-resource-servers') return true
+  if (!name.startsWith('mcp:')) return false
+  return !loaded.has(name.slice(4))
 }
 
 async function applyMcpCatalog(assembly, sessionId) {
@@ -140,13 +169,21 @@ async function applyMcpCatalog(assembly, sessionId) {
     else catalog.push(tool)
   }
   const tools = rest.concat(kept)
-  if (catalog.length === 0) return { ...assembly, tools }
-  const sections = (Array.isArray(assembly.sections) ? assembly.sections : []).concat({
-    name: 'fde:mcp-catalog',
-    text: catalogText(catalog),
-    interpolate: false,
-  })
-  return { ...assembly, tools, sections }
+  const baseSections = Array.isArray(assembly.sections) ? assembly.sections : []
+  const sections = baseSections.filter((section) => !isUnloadedMcpInstruction(section, loaded))
+  if (catalog.length === 0) {
+    if (sections.length === baseSections.length) return { ...assembly, tools }
+    return { ...assembly, tools, sections }
+  }
+  return {
+    ...assembly,
+    tools,
+    sections: sections.concat({
+      name: 'fde:mcp-catalog',
+      text: catalogText(catalog),
+      interpolate: false,
+    }),
+  }
 }
 
 async function loadMcpServer({ sessionId, server, preset, mount }) {
@@ -163,4 +200,6 @@ async function loadMcpServer({ sessionId, server, preset, mount }) {
 module.exports = {
   applyMcpCatalog,
   loadMcpServer,
+  sessionLoaded,
+  unloadSessionMcp,
 }

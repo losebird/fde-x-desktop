@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useWhenCoreConnects } from '@/components/settings/core-connection'
+import { subscribeCoreStatus, useWhenCoreConnects } from '@/components/settings/core-connection'
 import { Bot, ChevronDown, ChevronRight, Copy, Trash2, Upload } from 'lucide-react'
 import { Card, Tag } from '@/components/ui'
 import { runtimeApi, type AiPresetRecord } from '@/lib/runtime-api'
@@ -57,7 +57,16 @@ export function CoreSettings() {
     })
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    return subscribeCoreStatus((status) => {
+      const next = Boolean(status.connected || status.state === 'connected')
+      setConnected((prev) => {
+        if (next && !prev) load()
+        return next
+      })
+    })
+  }, [])
   useWhenCoreConnects(load, !connected)
 
   return (

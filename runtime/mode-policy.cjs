@@ -88,18 +88,15 @@ function stripDeniedMcpTools(assembly, preset, mount, sessionId) {
 
 function gatePromptAssembly(assembly, preset, mount, sessionId) {
   const table = resolveMcpMount(mount)
-  const stripped = !assembly || typeof assembly !== 'object' || iuiAllowedForPreset(preset)
-    ? assembly
-    : {
-      ...assembly,
-      sections: Array.isArray(assembly.sections)
-        ? assembly.sections.filter((section) => !section || section.name !== IUI_SECTION_NAME)
-        : assembly.sections,
-      tools: Array.isArray(assembly.tools)
-        ? assembly.tools.filter((tool) => !tool || !IUI_TOOL_NAMES.includes(tool.name))
-        : assembly.tools,
-    }
-  return stripDeniedMcpTools(stripped, preset, table, sessionId)
+  if (!assembly || typeof assembly !== 'object') return stripDeniedMcpTools(assembly, preset, table, sessionId)
+  const allowed = iuiAllowedForPreset(preset)
+  const sections = Array.isArray(assembly.sections)
+    ? assembly.sections.filter((section) => !section || section.name !== IUI_SECTION_NAME)
+    : assembly.sections
+  const tools = allowed || !Array.isArray(assembly.tools)
+    ? assembly.tools
+    : assembly.tools.filter((tool) => !tool || !IUI_TOOL_NAMES.includes(tool.name))
+  return stripDeniedMcpTools({ ...assembly, sections, tools }, preset, table, sessionId)
 }
 
 function stripIuiSkillLine(text) {

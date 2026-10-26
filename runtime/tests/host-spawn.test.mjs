@@ -33,7 +33,16 @@ test('electron spawn uses FDE_HOST_NODE and strips ELECTRON_RUN_AS_NODE', () => 
   assert.equal(childEnv.ELECTRON_RUN_AS_NODE, undefined)
   assert.equal(childEnv.ALL_PROXY, undefined)
   assert.equal(childEnv.DSH_HOME, '/tmp/x')
+  assert.equal(childEnv.DSH_AGENTS_HOME, '/tmp/x')
   assert.equal(typeof childEnv.PATH, 'string')
+})
+
+test('host child env keeps an explicit agents home', () => {
+  const childEnv = hostChildEnv({
+    DSH_HOME: '/tmp/x',
+    DSH_AGENTS_HOME: '/tmp/agents',
+  }, {})
+  assert.equal(childEnv.DSH_AGENTS_HOME, '/tmp/agents')
 })
 
 test('electron without host node throws', () => {

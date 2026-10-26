@@ -14,6 +14,7 @@ const require = createRequire(import.meta.url)
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const bridge = require(join(root, 'runtime', 'fde-x-dsh-bridge', 'lib', 'index.js'))
 const tools = require(join(root, 'runtime', 'fde-x-dsh-bridge', 'lib', 'tools.js'))
+const catalog = require(join(root, 'runtime', 'fde-x-dsh-bridge', 'lib', 'mcp-catalog.js'))
 const compress = promisify(zstdCompress)
 const ZSTD_CHECKSUM = { params: { [zlibConstants.ZSTD_c_checksumFlag]: 1 } }
 
@@ -45,7 +46,7 @@ function fixtureTools() {
   ]
 }
 
-function createBus(source = fixtureTools) {
+function createBus(source = fixtureTools, extraSections = []) {
   const rows = typeof source === 'function' ? source : () => source
   const hooks = new Map()
   return {
@@ -65,7 +66,10 @@ function createBus(source = fixtureTools) {
         const listener = cbs.shift()
         if (!listener) {
           if (name === 'system-prompt/assemble') {
-            return { sections: [{ name: 'persona', text: 'hi' }], tools: rows().map((row) => ({ ...row, parameters: row.parameters })) }
+            return {
+              sections: [{ name: 'persona', text: 'hi' }, ...extraSections],
+              tools: rows().map((row) => ({ ...row, parameters: row.parameters })),
+            }
           }
           return { kind: 'allow' }
         }
@@ -74,6 +78,9 @@ function createBus(source = fixtureTools) {
       }
       return call()
     },
+    emit(name, ...args) {
+      for (const listener of hooks.get(name) || []) listener(...args)
+    },
   }
 }
 
@@ -81,7 +88,7 @@ function agent(sessionId) {
   return { session: { id: sessionId, header: { agentPreset: 'standard' } } }
 }
 
-async function writeLoadLog(sessionRoot, sessionId, servers) {
+async function writeLoadLog(sessionRoot, sessionId, servers, extraEvents = []) {
   const dir = join(sessionRoot, sessionId)
   await mkdir(dir, { recursive: true })
   const events = servers.map((server, index) => ({
@@ -95,6 +102,7 @@ async function writeLoadLog(sessionRoot, sessionId, servers) {
       arguments: JSON.stringify({ server }),
     },
   }))
+  events.push(...extraEvents)
   const header = `${JSON.stringify({ type: 'session', version: 3, id: sessionId })}\n`
   const body = `${events.map((event) => JSON.stringify(event)).join('\n')}\n`
   const frames = [
@@ -122,8 +130,9 @@ test('the first request keeps a catalog and drops mcp schemas', async () => {
   assert.ok(section, JSON.stringify(assembled.sections))
   assert.match(section.text, /MCP 目录/)
   assert.match(section.text, /fde_mcp_load\(\{server\}\)/)
-  assert.match(section.text, /mail \/ imap_search \/ Read the inbox\./)
-  assert.match(section.text, /ai-hot \/ aihot_get_latest \/ Latest industry notes\./)
+  assert.match(section.text, /mail \/ Read the inbox\./)
+  assert.match(section.text, /ai-hot \/ Latest industry notes\./)
+  assert.equal(section.text.includes('imap_search'), false)
   assert.equal(section.text.includes('playwright'), false)
   const after = schemaTokens(assembled.tools)
   assert.equal(after, schemaTokens(fixtureTools().filter((row) => names.includes(row.name))))
@@ -156,7 +165,7 @@ test('fde_mcp_load puts the real name on the next request and that name runs', a
   assert.equal(names.includes('mcp__ai-hot__aihot_get_latest'), false)
   assert.equal(names.includes('mcp__playwright__click'), false)
   const catalog = assembled.sections.find((row) => row && row.name === 'fde:mcp-catalog')
-  assert.match(catalog.text, /ai-hot \/ aihot_get_latest/)
+  assert.match(catalog.text, /ai-hot \/ Latest industry notes/)
   assert.equal(catalog.text.includes('mail /'), false)
   const ran = await executeMounted(assembled, 'mcp__mail__imap_search', { mailbox: 'INBOX' })
   assert.equal(ran.text, 'fake-mail-item')
@@ -187,6 +196,45 @@ test('loading a second server keeps the first server on the next request', async
   assert.equal(names.includes('mcp__playwright__click'), false)
 })
 
+test('turn end unloads MCP so the next request is catalog-only', async () => {
+  const bus = createBus()
+  bridge.installIuiModeGate(bus, bus.config)
+  const sessionId = 'sess-unload'
+  await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+  const registered = []
+  tools.registerTools({
+    get config() { throw new Error('cannot get property "config" without inject') },
+    tools: { register(spec) { registered.push(spec) } },
+  }, { defineTool: (spec) => spec, config: bus.config })
+  const load = registered.find((spec) => spec.name === 'fde_mcp_load')
+  await load.execute({ server: 'mail' }, { agent: agent(sessionId) })
+  const loaded = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+  assert.equal(loaded.tools.some((row) => row.name === 'mcp__mail__imap_search'), true)
+  catalog.unloadSessionMcp(sessionId)
+  const after = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+  assert.equal(after.tools.some((row) => row.name === 'mcp__mail__imap_search'), false)
+  assert.equal(after.tools.some((row) => row.name === 'fde_mcp_load'), true)
+  const text = after.sections.find((row) => row && row.name === 'fde:mcp-catalog').text
+  assert.match(text, /mail \//)
+})
+
+test('session turn/end unloads MCP through the Host event', async () => {
+  const bus = createBus()
+  bridge.installIuiModeGate(bus, bus.config)
+  const sessionId = 'sess-turn-event'
+  await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+  const registered = []
+  tools.registerTools({
+    get config() { throw new Error('cannot get property "config" without inject') },
+    tools: { register(spec) { registered.push(spec) } },
+  }, { defineTool: (spec) => spec, config: bus.config })
+  const load = registered.find((spec) => spec.name === 'fde_mcp_load')
+  await load.execute({ server: 'mail' }, { agent: agent(sessionId) })
+  bus.emit('session/event', { id: sessionId }, { type: 'turn/end', data: { turn: 1 } })
+  const after = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+  assert.equal(after.tools.some((row) => row.name === 'mcp__mail__imap_search'), false)
+})
+
 test('a host restart restores every loaded server from the session log', async () => {
   const home = await mkdtemp(join(tmpdir(), 'fde-mcp-log-'))
   const previous = process.env.FDE_DSH_SESSION_ROOT
@@ -214,9 +262,37 @@ test('a host restart restores every loaded server from the session log', async (
     assert.equal(names.includes('mcp__news__latest'), false)
     assert.equal(names.includes('mcp__playwright__click'), false)
     const catalog = assembled.sections.find((row) => row && row.name === 'fde:mcp-catalog')
-    assert.match(catalog.text, /news \/ latest \/ Fresh wire item\./)
+    assert.match(catalog.text, /news \/ Fresh wire item\./)
     assert.equal(catalog.text.includes('mail /'), false)
     assert.equal(catalog.text.includes('ai-hot /'), false)
+  } finally {
+    if (previous == null) delete process.env.FDE_DSH_SESSION_ROOT
+    else process.env.FDE_DSH_SESSION_ROOT = previous
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('a host restart after turn/end does not restore loaded MCP', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'fde-mcp-unload-log-'))
+  const previous = process.env.FDE_DSH_SESSION_ROOT
+  process.env.FDE_DSH_SESSION_ROOT = home
+  const sessionId = 'sess-restart-unloaded'
+  try {
+    await writeLoadLog(home, sessionId, ['mail', 'ai-hot'], [{ seq: 99, type: 'turn/end', data: { turn: 1 } }])
+    const rows = [
+      tool('fde_mcp_load', 'Load one MCP server by name.'),
+      tool('read', 'Read a file.'),
+      tool('mcp__mail__imap_search', 'Read the inbox.', 80),
+      tool('mcp__ai-hot__aihot_get_latest', 'Latest industry notes.', 80),
+    ]
+    const bus = createBus(() => rows)
+    bridge.installIuiModeGate(bus, bus.config)
+    const assembled = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+    assert.equal(assembled.tools.some((row) => row.name === 'mcp__mail__imap_search'), false)
+    assert.equal(assembled.tools.some((row) => row.name === 'mcp__ai-hot__aihot_get_latest'), false)
+    const catalogText = assembled.sections.find((row) => row && row.name === 'fde:mcp-catalog').text
+    assert.match(catalogText, /mail \//)
+    assert.match(catalogText, /ai-hot \//)
   } finally {
     if (previous == null) delete process.env.FDE_DSH_SESSION_ROOT
     else process.env.FDE_DSH_SESSION_ROOT = previous
@@ -234,7 +310,7 @@ test('a catalog line keeps literal prompt braces', async () => {
   const rendered = section.interpolate === false
     ? section.text
     : (() => { throw new Error(`unknown prompt variable in section "${section.name}"`) })()
-  assert.match(rendered, /news \/ latest \/ Wire \{\{not_a_variable\}\} item\./)
+  assert.match(rendered, /news \/ Wire \{\{not_a_variable\}\} item\./)
 })
 
 test('a server that was not in the table appears in the catalog', async () => {
@@ -248,5 +324,37 @@ test('a server that was not in the table appears in the catalog', async () => {
   rows.push(tool('mcp__news__latest', 'Fresh wire item.'))
   const second = await bus.waterfall('system-prompt/assemble', null, { agent: agent('sess-new-2') })
   const catalog = second.sections.find((row) => row && row.name === 'fde:mcp-catalog')
-  assert.match(catalog.text, /news \/ latest \/ Fresh wire item\./)
+  assert.match(catalog.text, /news \/ Fresh wire item\./)
+})
+
+test('unused Host MCP instructions stay off the first request and return after load', async () => {
+  const extra = [
+    { name: 'mcp:mail', text: '### MCP server: mail\n\ninbox docs' },
+    { name: 'mcp:ai-hot', text: '### MCP server: ai-hot\n\nhot docs' },
+    { name: 'mcp-resource-servers', text: 'resource names' },
+  ]
+  const bus = createBus(fixtureTools, extra)
+  bridge.installIuiModeGate(bus, bus.config)
+  const sessionId = 'sess-instructions'
+  const first = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+  assert.equal(first.sections.some((row) => row.name === 'mcp:mail'), false)
+  assert.equal(first.sections.some((row) => row.name === 'mcp:ai-hot'), false)
+  assert.equal(first.sections.some((row) => row.name === 'mcp-resource-servers'), false)
+  assert.equal(first.tools.some((row) => row.name === 'mcp__mail__imap_search'), false)
+  const registered = []
+  tools.registerTools({
+    get config() { throw new Error('cannot get property "config" without inject') },
+    tools: { register(spec) { registered.push(spec) } },
+  }, { defineTool: (spec) => spec, config: bus.config })
+  const load = registered.find((spec) => spec.name === 'fde_mcp_load')
+  const loaded = await load.execute({ server: 'mail' }, { agent: agent(sessionId) })
+  assert.match(loaded, /mcp__mail__imap_search/)
+  const second = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
+  assert.equal(second.sections.some((row) => row.name === 'mcp:mail'), true)
+  assert.equal(second.sections.some((row) => row.name === 'mcp:ai-hot'), false)
+  assert.equal(second.sections.some((row) => row.name === 'mcp-resource-servers'), false)
+  assert.equal(second.tools.some((row) => row.name === 'mcp__mail__imap_search'), true)
+  const catalog = second.sections.find((row) => row && row.name === 'fde:mcp-catalog')
+  assert.equal(catalog.text.includes('mail /'), false)
+  assert.match(catalog.text, /ai-hot \//)
 })

@@ -14,6 +14,7 @@ import {
   sanitizeSkillName,
   setFrontmatterFlag,
   setSkillModelInvocable,
+  skillRootsForCwd,
   SKILL_NAME_RE,
 } from '../skill-bundle.mjs'
 
@@ -66,4 +67,23 @@ test('sanitizeSkillName matches Host kebab names', () => {
 test('parseSkillCustomDirs reads filesystem provider dirs', () => {
   const text = `- id: llm-pi-ai\n  name: x\n- id: skill-filesystem\n  name: "@deepseek-ai/dsh-skill-filesystem"\n  config:\n    customSkillDirs:\n      - /tmp/extra-skills\n- id: tool-skill\n  name: y\n`
   assert.deepEqual(parseSkillCustomDirs(text), ['/tmp/extra-skills'])
+})
+
+test('skillRootsForCwd stays on the FDE ledger and the project', async () => {
+  const previous = process.env.FDE_DSH_HOME
+  const home = await mkdtemp(join(tmpdir(), 'fde-skill-roots-'))
+  const cwd = join(home, 'ws')
+  await mkdir(join(cwd, '.git'), { recursive: true })
+  process.env.FDE_DSH_HOME = home
+  try {
+    const roots = await skillRootsForCwd({ dshHome: home }, cwd)
+    const sources = roots.map((row) => row.source)
+    assert.deepEqual(sources.sort(), ['project-agents', 'project-dsh', 'user-dsh'].sort())
+    assert.equal(roots.some((row) => row.source === 'user-agents'), false)
+    assert.equal(roots.find((row) => row.source === 'user-dsh').path, join(home, 'skills'))
+  } finally {
+    if (previous == null) delete process.env.FDE_DSH_HOME
+    else process.env.FDE_DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
 })

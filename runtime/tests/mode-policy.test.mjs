@@ -12,12 +12,12 @@ function agent(preset) {
   return { session: { header: { agentPreset: preset } } }
 }
 
-test('standard keeps the IUI section, tools, and skill catalog', () => {
+test('standard drops the IUI fence and keeps the tools and skill catalog', () => {
   const assembly = policy.gatePromptAssembly({
     sections: [{ name: 'iui:fence', text: 'fence' }, { name: 'persona', text: 'hi' }],
     tools: [{ name: 'get_trip_stop_images' }, { name: 'read' }],
   }, 'standard')
-  assert.deepEqual(assembly.sections.map((section) => section.name), ['iui:fence', 'persona'])
+  assert.deepEqual(assembly.sections.map((section) => section.name), ['persona'])
   assert.deepEqual(assembly.tools.map((tool) => tool.name), ['get_trip_stop_images', 'read'])
   const decision = policy.gatePreStepDecision({
     kind: 'continue',
