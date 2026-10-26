@@ -12,7 +12,7 @@ import remarkGfm from 'remark-gfm'
 import { useApp } from '@/store/app'
 import type { FileNode } from '@/lib/types'
 import { PageTitle, Card, Tag, Empty } from '@/components/ui'
-import { runtimeApi, type WorkspaceFileVersion } from '@/lib/runtime-api'
+import { fetchWithPageToken, runtimeApi, type WorkspaceFileVersion } from '@/lib/runtime-api'
 import { sanitizeOfficeHtml } from '../../runtime/office-html.mjs'
 import { DocxPackage, type DocxBlockView, type DocxRunView } from '@/lib/office-docx'
 import { currentAiTarget } from '@/lib/ai-target'
@@ -93,7 +93,7 @@ function DocxPackageEditor({
   const packRef = useRef<DocxPackage | null>(null)
   useEffect(() => {
     let alive = true
-    void fetch(url).then((res) => res.arrayBuffer()).then((buf) => DocxPackage.fromArrayBuffer(buf)).then((pack) => {
+    void fetchWithPageToken(url).then((res) => res.arrayBuffer()).then((buf) => DocxPackage.fromArrayBuffer(buf)).then((pack) => {
       if (!alive) return
       packRef.current = pack
       onPack?.(pack)
@@ -147,6 +147,47 @@ function rawFileUrl(path: string, sessionId?: string | null, epoch?: number) {
   if (sessionId) query.set('sessionId', sessionId)
   if (epoch) query.set('v', String(epoch))
   return `/api/v1/files/raw?${query.toString()}`
+}
+
+function AuthedFileMedia({
+  url,
+  title,
+  kind,
+  className,
+  alt,
+  sandbox,
+}: {
+  url: string
+  title: string
+  kind: 'img' | 'frame'
+  className?: string
+  alt?: string
+  sandbox?: string
+}) {
+  const [src, setSrc] = useState('')
+  useEffect(() => {
+    let gone = false
+    let objectUrl = ''
+    void fetchWithPageToken(url).then((res) => {
+      if (!res.ok) throw new Error('read_failed')
+      return res.blob()
+    }).then((blob) => {
+      if (gone) return
+      objectUrl = URL.createObjectURL(blob)
+      setSrc(objectUrl)
+    }).catch(() => {
+      if (!gone) setSrc('')
+    })
+    return () => {
+      gone = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [url])
+  if (!src) return <Empty title="正在加载…" />
+  if (kind === 'img') {
+    return <img src={src} alt={alt || title} className={className} />
+  }
+  return <iframe title={title} src={src} className={className} sandbox={sandbox} />
 }
 
 
@@ -256,18 +297,18 @@ function renderPreview(
   if (file.kind === 'image') {
     return (
       <div className="flex items-center justify-center bg-surface-2 rounded p-6 min-h-[280px]">
-        <img src={raw} alt={file.name} className="max-w-full max-h-[480px] rounded shadow-card" />
+        <AuthedFileMedia url={raw} title={file.name} kind="img" alt={file.name} className="max-w-full max-h-[480px] rounded shadow-card" />
       </div>
     )
   }
   if (file.kind === 'web') {
     return (
-      <iframe title={file.name} src={raw} className="w-full min-h-[520px] rounded border border-line bg-white" />
+      <AuthedFileMedia url={raw} title={file.name} kind="frame" sandbox="" className="w-full min-h-[520px] rounded border border-line bg-white" />
     )
   }
   if (file.kind === 'pdf') {
     return (
-      <iframe title={file.name} src={raw} className="w-full min-h-[560px] rounded border border-line bg-white" />
+      <AuthedFileMedia url={raw} title={file.name} kind="frame" className="w-full min-h-[560px] rounded border border-line bg-white" />
     )
   }
   if (file.kind === 'audio') {
@@ -379,7 +420,7 @@ function OfficeDocPreview({ url, editing, onHtml }: { url: string; editing?: boo
   const [html, setHtml] = useState('正在预览 Word…')
   useEffect(() => {
     let alive = true
-    void fetch(url).then((res) => res.arrayBuffer()).then(async (buffer) => {
+    void fetchWithPageToken(url).then((res) => res.arrayBuffer()).then(async (buffer) => {
       const mammoth = await import('mammoth')
       const result = await mammoth.convertToHtml(
         { arrayBuffer: buffer },
@@ -447,7 +488,7 @@ function OfficeSheetPreview({
   const aoaRef = useRef<Array<{ name: string; rows: string[][] }>>([])
   useEffect(() => {
     let alive = true
-    void fetch(url).then((res) => res.arrayBuffer()).then(async (buffer) => {
+    void fetchWithPageToken(url).then((res) => res.arrayBuffer()).then(async (buffer) => {
       if (sheetKeepsBook(name)) {
         const { XlsxPackage } = await import('@/lib/office-xlsx')
         const pack = await XlsxPackage.fromArrayBuffer(buffer)
@@ -1128,10 +1169,14 @@ export default function Files() {
                 type="button"
                 className="btn"
                 onClick={() => {
-                  const link = document.createElement('a')
-                  link.href = rawFileUrl(current.id, sessionId, previewEpoch)
-                  link.download = current.name
-                  link.click()
+                  void fetchWithPageToken(rawFileUrl(current.id, sessionId, previewEpoch)).then((res) => res.blob()).then((blob) => {
+                    const href = URL.createObjectURL(blob)
+                    const link = document.createElement('a')
+                    link.href = href
+                    link.download = current.name
+                    link.click()
+                    URL.revokeObjectURL(href)
+                  })
                 }}
               ><Download size={14} /> 下载</button>
               <button

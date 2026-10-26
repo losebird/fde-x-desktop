@@ -634,6 +634,11 @@ async function withPageToken(path: string, init?: RequestInit): Promise<RequestI
   return { ...init, headers }
 }
 
+export async function fetchWithPageToken(url: string, init?: RequestInit): Promise<Response> {
+  const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1')
+  return fetch(url, await withPageToken(`${parsed.pathname}${parsed.search}`, init))
+}
+
 export type PlanTaskProposal = {
   id: string
   workspaceId: string
@@ -1859,10 +1864,10 @@ export class RuntimeApi {
     if (followWorkspaceId) query.set('workspaceId', followWorkspaceId)
     let response: Response
     try {
-      response = await fetch(`${this.baseUrl}/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/follow?${query.toString()}`, {
+      response = await fetch(`${this.baseUrl}/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/follow?${query.toString()}`, await withPageToken(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/follow`, {
         signal: options.signal,
         headers: { Accept: 'text/event-stream' },
-      })
+      }))
     } catch (error) {
       if (options.signal?.aborted) return
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : 'AI 会话流不可访问')
@@ -1941,7 +1946,7 @@ export class RuntimeApi {
     if (opts.path) query.set('path', opts.path)
     if (opts.attachmentId) query.set('attachmentId', opts.attachmentId)
     try {
-      const response = await fetch(this.uiFetchUrl(`/api/v1/catalog/stream?${query.toString()}`), { signal })
+      const response = await fetch(this.uiFetchUrl(`/api/v1/catalog/stream?${query.toString()}`), await withPageToken(`/api/v1/catalog/stream?${query.toString()}`, { signal }))
       if (!response.ok || !response.body) {
         throw new RuntimeApiError(response.status, 'catalog_stream_failed', `跟不了这个流 (${response.status})`)
       }
@@ -2029,7 +2034,7 @@ export class RuntimeApi {
     if (sessionId) query.set('sessionId', sessionId)
     let response: Response
     try {
-      response = await fetch(`${this.baseUrl}/api/v1/files/raw?${query.toString()}`, { signal })
+      response = await fetch(`${this.baseUrl}/api/v1/files/raw?${query.toString()}`, await withPageToken(`/api/v1/files/raw?${query.toString()}`, { signal }))
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }
@@ -2238,7 +2243,7 @@ export class RuntimeApi {
     const path = withWorkspaceCwd(`/api/v1/corpus/${encodeURIComponent(String(id || ''))}`)
     let response: Response
     try {
-      response = await fetch(this.uiFetchUrl(path), { signal })
+      response = await fetch(this.uiFetchUrl(path), await withPageToken(path, { signal }))
     } catch (error) {
       throw new RuntimeApiError(0, 'runtime_unreachable', error instanceof Error ? error.message : '本地运行时不可访问')
     }

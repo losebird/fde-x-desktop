@@ -1,6 +1,6 @@
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { revealAi } from '@/lib/reveal-ai'
-import { runtimeApi } from '@/lib/runtime-api'
+import { fetchWithPageToken, runtimeApi } from '@/lib/runtime-api'
 import { useApp } from '@/store/app'
 
 export type CurrentTurnAttachFile = {
@@ -161,7 +161,7 @@ export async function attachToCurrentAi(input: AttachCurrentAiInput): Promise<At
   const query = new URLSearchParams({ path, sessionId: target.sessionId })
   let response: Response
   try {
-    response = await fetch(`/api/v1/files/raw?${query.toString()}`)
+    response = await fetchWithPageToken(`/api/v1/files/raw?${query.toString()}`)
   } catch (cause) {
     return { ok: false, error: cause instanceof Error ? cause.message : '无法读取该文件' }
   }

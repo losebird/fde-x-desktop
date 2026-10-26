@@ -9,7 +9,7 @@ import {
 import clsx from 'clsx'
 import { useParams } from 'react-router-dom'
 import { useApp } from '@/store/app'
-import { runtimeApi } from '@/lib/runtime-api'
+import { fetchWithPageToken, runtimeApi } from '@/lib/runtime-api'
 import { openRef, revealAi, type OpenRefHref } from '@/lib/open-ref'
 import { mentionRowsFromSheets, mentionsInText, uniqueMentions, type MentionRow } from '@/lib/origin-href'
 import { listBizKindListSnapshots } from '@/lib/biz-kind-list-cache'
@@ -1214,11 +1214,14 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
         }
         if (att.kind === 'image') {
           const query = new URLSearchParams({ path: att.fileId, sessionId: target.sessionId })
+          const res = await fetchWithPageToken(`/api/v1/files/raw?${query.toString()}`)
+          if (!res.ok) throw new Error('打不开这张图')
+          const blob = await res.blob()
           setPreview({
             title: att.name,
             body: '',
             path: att.fileId,
-            image: `/api/v1/files/raw?${query.toString()}`,
+            image: URL.createObjectURL(blob),
           })
           return
         }
