@@ -68,7 +68,13 @@ function buildImComposeBody(briefing: BriefingSnapshot | null, sections: Briefin
       continue
     }
     for (const item of items.slice(0, 5)) {
-      lines.push(`· ${item.text}${item.href && typeof item.href === 'object' && 'url' in item.href ? ` ${String((item.href as { url?: string }).url || '')}` : ''}`)
+      const presented = presentBriefingItem(item)
+      if (!presented) continue
+      const href = presented.href
+      const hrefText = typeof href === 'string'
+        ? href
+        : (href && typeof href === 'object' && 'url' in href ? String((href as { url?: string }).url || '') : '')
+      lines.push(`· ${presented.text}${hrefText ? ` ${hrefText}` : ''}`)
     }
   }
   return lines.join('\n').trim()
@@ -380,10 +386,10 @@ export default function Briefing() {
                   ).map((item, index) => (
                     <li key={`${index}:${item.text}`} className="py-2.5 first:pt-0 last:pb-0 flex items-start gap-3">
                       <Sparkles size={14} className={clsx('mt-0.5 shrink-0', sectionMarkClass('ai'))} />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm">{item.text}</div>
-                        {item.sub ? <div className="text-xs text-ink-muted mt-0.5">{item.sub}</div> : null}
-                      </div>
+                      <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openItem(item.href)}>
+                        <div className="truncate text-sm">{item.text}</div>
+                        {item.sub ? <div className="text-xs text-ink-muted mt-0.5 truncate">{item.sub}</div> : null}
+                      </button>
                     </li>
                   ))}
                 </ul>

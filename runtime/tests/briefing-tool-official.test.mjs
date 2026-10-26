@@ -74,6 +74,34 @@ test('presentBriefingItem unwraps markdown links', () => {
   assert.equal(item.sub, 'The Decoder')
 })
 
+test('presentBriefingItem folds title body url', () => {
+  const item = presentBriefingItem({
+    title: 'Anthropic 提交 S-1，拟以 ANT 登陆纳斯达克',
+    body: 'Anthropic 向美国 SEC 提交 S-1。',
+    url: 'https://aihot.news/items/xywgx35ocbe6mzl2pnajw8ruu',
+  })
+  assert.equal(item.text, 'Anthropic 提交 S-1，拟以 ANT 登陆纳斯达克')
+  assert.equal(item.sub, 'Anthropic 向美国 SEC 提交 S-1。')
+  assert.equal(item.href, 'https://aihot.news/items/xywgx35ocbe6mzl2pnajw8ruu')
+})
+
+test('digestItems keeps title/body/url rows', () => {
+  const items = digestItems({
+    items: [
+      { title: '甲', body: '甲文', url: 'https://a.example/1' },
+      { title: '乙', body: '乙文', url: 'https://b.example/2' },
+    ],
+  })
+  assert.equal(items.length, 2)
+  assert.equal(items[0].text, '甲')
+  assert.equal(items[0].sub, '甲文')
+  assert.equal(items[0].href, 'https://a.example/1')
+  assert.deepEqual(
+    digestBeats({ items: [{ title: '甲', body: '乙' }] }),
+    ['甲：乙'],
+  )
+})
+
 test('digestBeats splits a wall and keeps multiple items', () => {
   assert.deepEqual(
     digestBeats({ items: [{ text: '今日无待办；邮箱有两封未读。' }] }),

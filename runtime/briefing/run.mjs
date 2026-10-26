@@ -5,7 +5,7 @@ import { stageBriefingSessionAllow } from './session.mjs'
 import { collectInternalSection } from './collectors.mjs'
 import { runBriefingAgent } from './ask-ai.mjs'
 import { itemsFromToolResult } from './tool-official.mjs'
-import { digestBeats } from './item.mjs'
+import { digestBeats, presentBriefingItem } from './item.mjs'
 import {
   briefingInFlight,
   createBriefingRun,
@@ -47,6 +47,11 @@ function explainMissingSubmit(agentError) {
   return '没有收到早报提交'
 }
 
+function presentItems(items) {
+  if (!Array.isArray(items)) return items
+  return items.map((row) => presentBriefingItem(row)).filter(Boolean)
+}
+
 function mergeAgentSections(existing, submitted, pendingError = '超时') {
   const byId = new Map((submitted || []).map((s) => [s.id, s]))
   return existing.map((section) => {
@@ -63,6 +68,7 @@ function mergeAgentSections(existing, submitted, pendingError = '超时') {
       ...section,
       ...patch,
       type: section.type || patch.type,
+      items: presentItems(patch.items) ?? section.items,
       error: patch.error || undefined,
       pendingAgent: false,
       fetchedAt: patch.fetchedAt || new Date().toISOString(),

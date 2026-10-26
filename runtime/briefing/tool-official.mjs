@@ -51,12 +51,6 @@ function collectionRows(parsed) {
   return null
 }
 
-function hrefOf(value) {
-  if (typeof value === 'string' && /^https?:\/\//i.test(value.trim())) return value.trim()
-  if (isRecord(value) && value.panel) return value
-  return ''
-}
-
 function firstUrl(text) {
   const match = String(text || '').match(/https?:\/\/[^\s)>\]]+/i)
   return match ? match[0] : ''
@@ -111,15 +105,7 @@ function foldBlob(text) {
 function rowToItem(row) {
   if (typeof row === 'string') return itemFromBlock(row)
   if (!isRecord(row)) return null
-  const text = String(row.text || row.title || row.subject || row.summary || row.headline || row.body || row.cue || row.name || '').trim()
-  const sub = String(row.sub || row.from || row.source || row.author || '').trim()
-  const href = hrefOf(row.href) || hrefOf(row.url) || hrefOf(row.link) || firstUrl(text)
-  if (!text) return null
-  return presentBriefingItem({
-    text,
-    ...(sub ? { sub } : {}),
-    ...(href ? { href } : {}),
-  })
+  return presentBriefingItem(row)
 }
 
 export function itemsFromToolResult(raw, opts = {}) {

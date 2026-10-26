@@ -177,7 +177,7 @@ test('briefing-submit merge', async () => {
   }), now, now, wsCwd, 'brq_test')
   const result = mergeBriefingSubmit(db, 'brq_test', [
     { id: 'news', type: 'mcp', title: '资讯', items: [{ text: '模型编的' }] },
-    { id: 'ai-digest', type: 'ai', title: '摘要', items: [{ text: '总览' }] },
+    { id: 'ai-digest', type: 'ai', title: '摘要', items: [{ title: '总览', body: '细节', url: 'https://news.example/x' }] },
   ])
   assert.equal(result.ok, true)
   const row = db.prepare('SELECT content_json FROM briefings WHERE id = ?').get('brf_1')
@@ -186,6 +186,8 @@ test('briefing-submit merge', async () => {
   const ai = content.sections.find((s) => s.id === 'ai-digest')
   assert.equal(news.items[0].text, '工具条目')
   assert.equal(ai.items[0].text, '总览')
+  assert.equal(ai.items[0].sub, '细节')
+  assert.equal(ai.items[0].href, 'https://news.example/x')
   db.close()
 })
 

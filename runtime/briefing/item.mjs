@@ -2,6 +2,19 @@ function isRecord(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
+function hrefOf(value) {
+  if (isRecord(value) && value.panel) return value
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  return ''
+}
+
 export function unwrapMarkdownLink(text) {
   const raw = String(text || '').trim()
   if (!raw) return { text: '', href: '' }
@@ -22,13 +35,22 @@ export function presentBriefingItem(item) {
     }
   }
   if (!isRecord(item)) return null
-  const unwrapped = unwrapMarkdownLink(item.text)
+  const titleish = firstString(
+    item.text,
+    item.title,
+    item.subject,
+    item.summary,
+    item.headline,
+    item.cue,
+    item.name,
+  )
+  const bodyish = firstString(item.body)
+  const unwrapped = unwrapMarkdownLink(titleish || bodyish)
   const text = unwrapped.text
   if (!text) return null
-  const href = (isRecord(item.href) && item.href.panel ? item.href : '')
-    || (typeof item.href === 'string' && item.href.trim())
-    || unwrapped.href
-  const sub = String(item.sub || '').trim()
+  const href = hrefOf(item.href) || hrefOf(item.url) || hrefOf(item.link) || unwrapped.href
+  const sub = firstString(item.sub, item.from, item.source, item.author)
+    || (titleish && bodyish && bodyish !== text ? bodyish : '')
   return {
     text,
     ...(sub ? { sub } : {}),
