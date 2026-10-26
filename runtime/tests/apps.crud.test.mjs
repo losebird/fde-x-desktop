@@ -93,6 +93,26 @@ describe('apps crud', () => {
     db.close()
   })
 
+  test('listRecords ignores injected filter and sort keys', () => {
+    const db = dbWithApp()
+    insertRecord(db, SUPPLIER_VISITS_SPEC, 'visit', CWD_A, {
+      supplier: '甲',
+      visit_date: '2026-09-01',
+      status: '计划',
+    })
+    const poisoned = listRecords(db, SUPPLIER_VISITS_SPEC, 'visit', CWD_A, {
+      filter: { 'id" = 1 OR 1=1 --': 'x', status: '计划' },
+      sort: { field: 'updated_at; DROP TABLE x', dir: 'asc' },
+    })
+    assert.equal(poisoned.total, 1)
+    assert.equal(poisoned.rows[0].status, '计划')
+    const byStatus = listRecords(db, SUPPLIER_VISITS_SPEC, 'visit', CWD_A, {
+      filter: { status: '已拜访' },
+    })
+    assert.equal(byStatus.total, 0)
+    db.close()
+  })
+
   test('pagination', () => {
     const db = dbWithApp()
     for (let i = 0; i < 3; i++) {

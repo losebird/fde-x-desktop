@@ -6,6 +6,18 @@ function cwdMatch(db, cwd) {
   return workspaceCwdEqual(db, 'workspace_cwd', cwd)
 }
 
+const SYSTEM_COLUMNS = ['id', 'workspace_cwd', 'created_at', 'updated_at', 'deleted_at']
+const COLUMN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+export function recordQueryColumn(spec, entityName, key) {
+  const name = String(key || '')
+  if (!COLUMN_NAME.test(name)) return ''
+  if (SYSTEM_COLUMNS.includes(name)) return name
+  const ent = Array.isArray(spec?.entities) ? spec.entities.find((row) => row && row.name === entityName) : null
+  const fields = Array.isArray(ent?.fields) ? ent.fields : []
+  return fields.some((field) => field && field.name === name) ? name : ''
+}
+
 /**
  * @param {Record<string, unknown>} spec
  * @param {string} entityName
@@ -109,7 +121,9 @@ export function listRecords(db, spec, entityName, workspaceCwd, opts = {}) {
   if (opts.filter && typeof opts.filter === 'object') {
     for (const [key, val] of Object.entries(opts.filter)) {
       if (val === undefined || val === '') continue
-      where.push(`"${key}" = ?`)
+      const column = recordQueryColumn(spec, entityName, key)
+      if (!column) continue
+      where.push(`${quoteTable(column)} = ?`)
       params.push(val)
     }
   }
@@ -118,9 +132,10 @@ export function listRecords(db, spec, entityName, workspaceCwd, opts = {}) {
   const total = Number(totalRow?.c ?? 0)
 
   let orderSql = 'ORDER BY updated_at DESC'
-  if (opts.sort?.field) {
+  const sortField = recordQueryColumn(spec, entityName, opts.sort?.field)
+  if (sortField) {
     const dir = opts.sort.dir === 'asc' ? 'ASC' : 'DESC'
-    orderSql = `ORDER BY "${opts.sort.field}" ${dir}`
+    orderSql = `ORDER BY ${quoteTable(sortField)} ${dir}`
   }
   const page = Math.max(1, Number(opts.page ?? 1))
   const size = Math.max(1, Math.min(100, Number(opts.size ?? 20)))
