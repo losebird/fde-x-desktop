@@ -10,6 +10,7 @@ import {
   patchRecord,
 } from '../apps/records.mjs'
 import { resolveLiveShare } from '../apps/share.mjs'
+import { PUBLIC_SHARE_JSON_MAX, shareWriteLimited } from '../apps/share-write-limit.mjs'
 import { isWebAppSpec } from '../apps/spec.mjs'
 import { serveWebAppAsset } from '../apps/web-host.mjs'
 import { getDocument, putDocument } from '../apps/documents.mjs'
@@ -45,6 +46,18 @@ function requireShare(db, shareId, sendError, response, correlationId) {
     return null
   }
   return resolved
+}
+
+async function readShareJson(readJson, request, sendError, response, correlationId) {
+  try {
+    return await readJson(request, { maxBytes: PUBLIC_SHARE_JSON_MAX })
+  } catch (error) {
+    if (String(error?.message) === 'request_too_large') {
+      sendError(response, 413, 'request_too_large', '公开写入体积过大', correlationId)
+      return null
+    }
+    throw error
+  }
 }
 
 function refuseBoundLedger(app, sendError, response, correlationId) {
@@ -105,6 +118,15 @@ export async function handleAppShareRoutes(request, response, url, deps) {
     return true
   }
 
+  const write = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method || '')
+  if (write) {
+    const remote = String(request.socket?.remoteAddress || 'unknown')
+    if (shareWriteLimited(`${remote}:${shareId}`)) {
+      sendError(response, 429, 'too_many_requests', '公开写入太频繁', correlationId)
+      return true
+    }
+  }
+
   if (request.method === 'GET' && parts.length === 1) {
     const resolved = requireShare(db, shareId, sendError, response, correlationId)
     if (!resolved) return true
@@ -127,7 +149,8 @@ export async function handleAppShareRoutes(request, response, url, deps) {
       return true
     }
     if (request.method === 'PUT' || request.method === 'POST') {
-      const body = await readJson(request)
+      const body = await readShareJson(readJson, request, sendError, response, correlationId)
+      if (body === null) return true
       try {
         const saved = putDocument(db, {
           appId: resolved.app.id,
@@ -176,7 +199,8 @@ export async function handleAppShareRoutes(request, response, url, deps) {
       return true
     }
     if (refuseBoundLedger(app, sendError, response, correlationId)) return true
-    const body = await readJson(request)
+    const body = await readShareJson(readJson, request, sendError, response, correlationId)
+    if (body === null) return true
     const rids = Array.isArray(body.rids) ? body.rids.map(String) : []
     if (action.approval === 'required') {
       sendError(response, 403, 'owner_only', '过账和问 AI 留在工作台', correlationId)
@@ -225,7 +249,8 @@ export async function handleAppShareRoutes(request, response, url, deps) {
       return true
     }
     if (request.method === 'POST') {
-      const body = await readJson(request)
+      const body = await readShareJson(readJson, request, sendError, response, correlationId)
+      if (body === null) return true
       try {
         const row = insertRecord(db, app.spec, entity, workspaceCwd, body)
         emit('app.record.changed', {
@@ -261,7 +286,8 @@ export async function handleAppShareRoutes(request, response, url, deps) {
       return true
     }
     if (request.method === 'PATCH') {
-      const body = await readJson(request)
+      const body = await readShareJson(readJson, request, sendError, response, correlationId)
+      if (body === null) return true
       try {
         const row = patchRecord(db, app.spec, entity, workspaceCwd, rid, body)
         if (!row) {

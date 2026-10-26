@@ -258,6 +258,56 @@ describe('app live share occupancy', () => {
     await rm(cwd, { recursive: true, force: true })
   })
 
+  test('share write limiter trips after the window budget', async () => {
+    const { shareWriteLimited, resetShareWriteLimits } = await import('../apps/share-write-limit.mjs')
+    resetShareWriteLimits()
+    let blocked = 0
+    for (let i = 0; i < 61; i++) {
+      if (shareWriteLimited('127.0.0.1:share-x')) blocked += 1
+    }
+    assert.equal(blocked, 1)
+    resetShareWriteLimits()
+  })
+
+  test('shipped JSON reader rejects bodies over the public share cap', async () => {
+    const { Readable } = await import('node:stream')
+    const { readJsonFromRequest } = await import('../http-json.mjs')
+    const { PUBLIC_SHARE_JSON_MAX } = await import('../apps/share-write-limit.mjs')
+    const stream = Readable.from([Buffer.alloc(PUBLIC_SHARE_JSON_MAX + 1, 0x61)])
+    await assert.rejects(
+      () => readJsonFromRequest(stream, { maxBytes: PUBLIC_SHARE_JSON_MAX }),
+      /request_too_large/,
+    )
+  })
+
+  test('public share POST returns 413 when the shipped cap throws', async () => {
+    const { PUBLIC_SHARE_JSON_MAX } = await import('../apps/share-write-limit.mjs')
+    const { db, spec, appId } = dbWithActive()
+    const share = mintShare(db, { appId, slug: spec.slug, workspaceCwd: CWD })
+    const env = envelope()
+    let seenMax = 0
+    await handleAppShareRoutes(
+      fakeRequest({ method: 'POST', url: `/api/v1/app-share/${share.id}/visit` }),
+      {},
+      new URL(`http://127.0.0.1/api/v1/app-share/${share.id}/visit`),
+      {
+        db,
+        correlationId: 'corr_413',
+        sendJson: env.sendJson,
+        sendError: env.sendError,
+        readJson: async (_req, opts = {}) => {
+          seenMax = Number(opts.maxBytes) || 0
+          if (seenMax !== PUBLIC_SHARE_JSON_MAX) throw new Error(`cap ${seenMax}`)
+          throw new Error('request_too_large')
+        },
+      },
+    )
+    assert.equal(seenMax, PUBLIC_SHARE_JSON_MAX)
+    assert.equal(env.statusOf(), 413)
+    assert.equal(env.bodyOf().error.code, 'request_too_large')
+    db.close()
+  })
+
   test('hosted web HTML is sandboxed without same-origin', () => {
     assert.equal(WEB_APP_IFRAME_SANDBOX.includes('allow-same-origin'), false)
     assert.match(WEB_APP_CSP_SANDBOX, /^sandbox /)

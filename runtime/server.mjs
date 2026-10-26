@@ -102,6 +102,7 @@ import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { publicImRelay } from './im-relay.mjs'
+import { readJsonFromRequest } from './http-json.mjs'
 import { findSessionDir, readSessionTree, writeSessionTree } from './session-tree.mjs'
 import { invalidateHostSessionList, listHostSessions, resolvePrimarySessionForRuntime } from './session-primary.mjs'
 import { decodeWorkspaceFileText, readWorkspaceFileBytes } from './files-bytes.mjs'
@@ -622,16 +623,8 @@ function writeEvent(response, event, data) {
   response.write(`data: ${JSON.stringify(data)}\n\n`)
 }
 
-async function readJson(request) {
-  const chunks = []
-  let length = 0
-  for await (const chunk of request) {
-    length += chunk.length
-    if (length > 32 * 1024 * 1024) throw new Error('request_too_large')
-    chunks.push(chunk)
-  }
-  if (chunks.length === 0) return {}
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+async function readJson(request, opts = {}) {
+  return readJsonFromRequest(request, opts)
 }
 
 function correlationId(request) {
