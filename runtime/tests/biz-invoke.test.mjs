@@ -78,11 +78,13 @@ test('invokeBizSlot calls a stdio MCP tool on the host', async () => {
       slot: 'describe',
       args: { mailbox: 'INBOX' },
       cwd: '/tmp/ws',
+      sessionId: 'sess',
     })
     assert.equal(text, 'fake-mail-item')
     assert.equal(fetches.length, 1)
     assert.equal(fetches[0].url, 'http://127.0.0.1:9/fde-session/mcp/call')
     assert.equal(fetches[0].body.name, 'mcp__mail__imap_search')
+    assert.equal(fetches[0].body.sessionId, 'sess')
     assert.deepEqual(fetches[0].body.args, { mailbox: 'INBOX' })
     assert.equal(fetches[0].headers['x-fde-bridge-token'], 'bridge-token')
     assert.equal(fetches[0].headers.cookie, 'dsh=abc')

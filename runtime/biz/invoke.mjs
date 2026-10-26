@@ -17,7 +17,7 @@ async function archiveEntry(aiRuntime, serverName) {
   return entries.find((row) => row.serverName === serverName) || null
 }
 
-async function invokeStdioMcp(aiRuntime, handle, args) {
+async function invokeStdioMcp(aiRuntime, handle, args, sessionId) {
   const named = mcpPublicName(handle.serverName, handle.tool)
   if (named.error) throw invokeError(named.error)
   const status = typeof aiRuntime.status === 'function' ? aiRuntime.status() : {}
@@ -27,6 +27,7 @@ async function invokeStdioMcp(aiRuntime, handle, args) {
     dshHome: aiRuntime.dshHome || status.dshHome,
     name: named.name,
     args,
+    sessionId,
   })
   if (!called.ok) throw invokeError(called.error || 'tools/call 失败')
   return called.text
@@ -50,7 +51,7 @@ export async function invokeBizSlot(deps, { source, slot, args, cwd, sessionId }
       if (!called.ok) throw invokeError(called.error || 'tools/call 失败')
       return called.result
     }
-    return invokeStdioMcp(aiRuntime, handle, payload)
+    return invokeStdioMcp(aiRuntime, handle, payload, sessionId)
   }
   throw invokeError('句柄 via 无效', 'bad_handle')
 }
