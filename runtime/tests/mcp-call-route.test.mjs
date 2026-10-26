@@ -118,6 +118,8 @@ test('POST /fde-session/mcp/call requires the bridge token and an mcp__ tool', a
     })
     assert.equal(ok.status, 200)
     assert.equal(ok.body.ok, true)
+    assert.equal(executed[0].fdeBridge, true)
+    assert.match(executed[0].callId, /^mcp_bridge_/)
     assert.equal(ok.body.text, 'fake-mail-item')
     assert.equal(executed.length, 1)
     assert.equal(executed[0].name, 'mcp__mail__imap_search')

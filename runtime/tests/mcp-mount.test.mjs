@@ -236,12 +236,14 @@ test('pre-execute denies the same servers and still allows a mounted one', async
   assert.deepEqual(allowed, { kind: 'allow' })
   assert.equal(later, 1)
 
-  const direct = await bus.waterfall('tools/pre-execute', {
+  const official = await bus.waterfall('tools/pre-execute', {
     name: 'mcp__mail__imap_search',
     arguments: {},
+    callId: 'mcp_bridge_test',
+    agent: agent('standard', 'pre-exec-mail'),
   })
-  assert.equal(direct.kind, 'deny')
-  assert.match(direct.reason, /未加载/)
+  assert.deepEqual(official, { kind: 'allow' })
+  assert.equal(later, 2)
 })
 
 test('an empty standard deny list puts those servers back in the catalog', async () => {

@@ -13,7 +13,7 @@ function blockParams(block) {
   return params
 }
 
-async function callBlock(aiRuntime, block) {
+async function callBlock(aiRuntime, block, sessionId) {
   const params = blockParams(block)
   const named = mcpPublicName(params.server, params.tool)
   if (named.error) return { error: named.error }
@@ -25,6 +25,7 @@ async function callBlock(aiRuntime, block) {
       dshHome: aiRuntime.dshHome || status.dshHome,
       name: named.name,
       args: params.args,
+      sessionId,
     })
     if (!called.ok) return { error: called.error }
     return { text: called.text }
@@ -58,7 +59,7 @@ export async function runBriefingAgent(deps, {
   const blocked = []
   const toolResults = {}
   for (const block of sections.filter((row) => row.enabled && row.type === 'mcp')) {
-    const called = await callBlock(aiRuntime, block)
+    const called = await callBlock(aiRuntime, block, sessionId)
     if (called.error) {
       blocked.push({ id: block.id, error: called.error })
       continue

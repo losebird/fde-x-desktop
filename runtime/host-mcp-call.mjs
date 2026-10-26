@@ -21,7 +21,7 @@ function failureText(payload) {
   return JSON.stringify(payload ?? null)
 }
 
-export async function callHostMcp({ origin, cookie, dshHome, name, args }) {
+export async function callHostMcp({ origin, cookie, dshHome, name, args, sessionId }) {
   const home = dshHome || process.env.FDE_DSH_HOME || process.env.DSH_HOME
   const token = String(await readFile(join(home, 'run', 'bridge.token'), 'utf8')).trim()
   const response = await fetch(new URL('/fde-session/mcp/call', origin), {
@@ -34,6 +34,7 @@ export async function callHostMcp({ origin, cookie, dshHome, name, args }) {
     body: JSON.stringify({
       name,
       args: args && typeof args === 'object' && !Array.isArray(args) ? args : {},
+      ...(sessionId ? { sessionId: String(sessionId) } : {}),
     }),
   })
   const payload = await response.json()

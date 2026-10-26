@@ -375,6 +375,8 @@ function limitWorkflowAgent(ctx, agent) {
 function installWorkflowToolLimit(ctx) {
   sweepWorkflowAllow()
   ctx.tools.guard((exec) => {
+    if (exec && exec.fdeBridge) return
+    if (exec && String(exec.name || '').startsWith('mcp__')) return
     if (exec && exec.agent) return
     return DENY
   })

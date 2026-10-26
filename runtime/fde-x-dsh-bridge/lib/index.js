@@ -219,17 +219,21 @@ function createFdeSessionHandler(ctx) {
           json(res, 403, { ok: false, error: 'tool_not_allowed' })
           return
         }
-        const tool = ctx.tools.get(name)
+        const viewer = sessions.get(String(body.sessionId || '').trim())
+          || [...sessions.values()].find(Boolean)
+        const tool = (viewer && ctx.tools.get(name, viewer)) || ctx.tools.get(name)
         if (!tool) {
           json(res, 403, { ok: false, error: 'tool_not_registered' })
           return
         }
         const args = body.args && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {}
         const result = await ctx.tools.execute({
-          callId: `mcp_${randomBytes(8).toString('hex')}`,
+          callId: `mcp_bridge_${randomBytes(8).toString('hex')}`,
           name,
           arguments: args,
           signal: new AbortController().signal,
+          fdeBridge: true,
+          ...(viewer ? { agent: viewer } : {}),
         })
         if (result.isError) {
           json(res, 200, { ok: false, error: result.error.message })
@@ -404,7 +408,9 @@ function installIuiModeGate(ctx, config) {
     const denied = deniedMcpServer(exec && exec.name, preset, mountOf(), sessionId)
     if (denied) return { kind: 'deny', reason: `MCP 服务 ${denied} 未挂到预设 ${preset}` }
     const server = mcpServerName(exec && exec.name)
-    if (server) {
+    const official = Boolean(exec && exec.fdeBridge)
+      || String(exec && exec.callId || '').startsWith('mcp_bridge_')
+    if (server && sessionId && !official) {
       const loaded = await sessionLoaded(sessionId)
       if (!loaded.has(server)) return { kind: 'deny', reason: `MCP 服务 ${server} 未加载` }
     }
