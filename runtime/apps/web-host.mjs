@@ -1,5 +1,8 @@
 import { bundleEntryName, isWebAppSpec, readBundleBytes } from './bundle.mjs'
 import { getDocument } from './documents.mjs'
+import { WEB_APP_CSP_SANDBOX, WEB_APP_IFRAME_SANDBOX } from './web-sandbox.mjs'
+
+export { WEB_APP_CSP_SANDBOX, WEB_APP_IFRAME_SANDBOX }
 
 const BRIDGE_SRC = `(() => {
   const script = document.currentScript
@@ -61,10 +64,6 @@ const BRIDGE_SRC = `(() => {
   window.addEventListener('pagehide', flush)
   window.fdeApp = api
 })();`
-
-/** Opaque origin: scripts run, they cannot read the workbench same-origin GET APIs. */
-export const WEB_APP_IFRAME_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals'
-export const WEB_APP_CSP_SANDBOX = `sandbox ${WEB_APP_IFRAME_SANDBOX}`
 
 export function webAppHtmlHeaders(mime = 'text/html; charset=utf-8') {
   return {

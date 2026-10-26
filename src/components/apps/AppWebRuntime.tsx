@@ -1,6 +1,6 @@
 import { runtimeApi } from '@/lib/runtime-api'
 import { appIsTrashed, type FdeAppDetail } from '@/lib/app-spec'
-import { WEB_APP_IFRAME_SANDBOX } from '../../../runtime/apps/web-host.mjs'
+import { WEB_APP_IFRAME_SANDBOX } from '../../../runtime/apps/web-sandbox.mjs'
 
 type Props = {
   app: FdeAppDetail
