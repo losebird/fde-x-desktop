@@ -85,7 +85,7 @@ import { handleMcpRoutes } from './routes/mcp.mjs'
 import { handleSkillRoutes } from './routes/skills.mjs'
 import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
-import { configureEventBus, emit } from './events.mjs'
+import { configureEventBus, emit, emitSessionCreated } from './events.mjs'
 import { startLanAssistStateWatch, subscribeLanAssistMailbox } from './lan-assist-state-watch.mjs'
 import { migrateBoundWorkspaceSources, readBizSystems } from './biz/systems-store.mjs'
 import { startSemanticReadyWatch } from './semantic-ready-watch.mjs'
@@ -2088,10 +2088,7 @@ const server = createServer(async (request, response) => {
         })
       } catch { /* 审计失败不能把已创建的会话打成失败 */ }
       if (session?.sessionId) {
-        emit('ai.session.changed', { sessionId: session.sessionId, kind: 'created' }, {
-          workspaceCwd: cwd || null,
-          sessionId: session.sessionId,
-        })
+        emitSessionCreated(emit, { sessionId: session.sessionId, workspaceCwd: cwd || null })
       }
       sendJson(response, 201, { data: session, correlationId: currentCorrelationId })
       return

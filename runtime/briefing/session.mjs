@@ -1,5 +1,6 @@
 import { sameWorkspaceCwd } from '../cwd.mjs'
 import { discardBriefingAllow, stageBriefingAllow } from '../fde-x-dsh-bridge/lib/briefing-allow.js'
+import { emitSessionCreated } from '../events.mjs'
 import { listedSessions } from '../session-primary.mjs'
 import { briefingAllowServerNames } from './defaults.mjs'
 
@@ -35,7 +36,7 @@ export function discardBriefingSessionAllow(aiRuntime, sessionId) {
   discardBriefingAllow(String(sessionId || ''), aiRuntime && aiRuntime.dshHome)
 }
 
-export async function resolveBriefingSession(aiRuntime, cwd, sections) {
+export async function resolveBriefingSession(aiRuntime, cwd, sections, emit) {
   const workspaceCwd = String(cwd || '')
   if (!workspaceCwd) {
     const error = new Error('早报会话缺少工作区')
@@ -62,5 +63,6 @@ export async function resolveBriefingSession(aiRuntime, cwd, sections) {
     throw error
   }
   if (Array.isArray(sections)) stageBriefingSessionAllow(aiRuntime, sessionId, sections)
+  emitSessionCreated(emit, { sessionId, workspaceCwd })
   return sessionId
 }
