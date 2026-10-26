@@ -100,24 +100,26 @@ export async function runBriefingAgent(deps, {
     return { ok: false, error: '会话仍在处理上一轮', sessionId, agentRequestId, blocked, toolResults }
   }
 
+  const internalLine = internalSummary.map((row) => {
+    if (row.error) return `${row.title}失败`
+    const n = Array.isArray(row.items) ? row.items.length : 0
+    return n ? `${row.title}${n}条` : `${row.title}空`
+  }).join('；')
+  const aiLine = aiBlocks.map((block) => block.title || block.id).join('、')
+  const mcpLine = Object.keys(toolResults).length
+    ? `已采 mcp：${Object.entries(toolResults).map(([name, row]) => {
+      const text = row && typeof row === 'object' ? String(row.text || row.error || '') : ''
+      const clip = text.replace(/\s+/g, ' ').trim().slice(0, 80)
+      return clip ? `${name} ${clip}` : name
+    }).join('；')}`
+    : ''
   const prompt = [
-    `[fde-briefing:${agentRequestId}]`,
-    '对 ai 区块提交 items，每条一两句中文，不要一整段。不得编造 mcp 条目。',
-    `完成后调用 fde_briefing_submit(requestId="${agentRequestId}", sections=[...])，sections 仅包含 ai 类型区块。`,
-    '',
-    '内部源摘要（只读参考）：',
-    JSON.stringify(internalSummary, null, 2),
-    '',
-    '待处理 ai 区块：',
-    JSON.stringify(aiBlocks.map((b) => ({
-      id: b.id,
-      type: b.type,
-      title: b.title,
-      params: b.params || {},
-    })), null, 2),
-    Object.keys(toolResults).length ? `\n已取得的 mcp 结果：\n${JSON.stringify(toolResults, null, 2)}` : '',
-    contextText ? `\n工作区上下文：\n${contextText}` : '',
-  ].filter(Boolean).join('\n')
+    `生成早报。完成后调用 fde_briefing_submit(requestId="${agentRequestId}", sections=[...])，sections 仅含 ai。每条一两句中文，不得编造。`,
+    internalLine ? `内部：${internalLine}。` : '',
+    aiLine ? `待处理：${aiLine}。` : '',
+    mcpLine,
+    contextText ? `工作区：${contextText.replace(/\s+/g, ' ').trim()}` : '',
+  ].filter(Boolean).join('')
 
   try {
     await aiRuntime.call('session/prompt', {
