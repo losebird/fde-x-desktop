@@ -69,21 +69,26 @@ test('parseSkillCustomDirs reads filesystem provider dirs', () => {
   assert.deepEqual(parseSkillCustomDirs(text), ['/tmp/extra-skills'])
 })
 
-test('skillRootsForCwd stays on the FDE ledger and the project', async () => {
+test('skillRootsForCwd includes the FDE ledger, the project, and ~/.agents/skills', async () => {
   const previous = process.env.FDE_DSH_HOME
+  const previousAgents = process.env.DSH_AGENTS_HOME
   const home = await mkdtemp(join(tmpdir(), 'fde-skill-roots-'))
   const cwd = join(home, 'ws')
   await mkdir(join(cwd, '.git'), { recursive: true })
   process.env.FDE_DSH_HOME = home
+  delete process.env.DSH_AGENTS_HOME
   try {
+    const { homedir } = await import('node:os')
     const roots = await skillRootsForCwd({ dshHome: home }, cwd)
     const sources = roots.map((row) => row.source)
-    assert.deepEqual(sources.sort(), ['project-agents', 'project-dsh', 'user-dsh'].sort())
-    assert.equal(roots.some((row) => row.source === 'user-agents'), false)
+    assert.deepEqual(sources.sort(), ['project-agents', 'project-dsh', 'user-agents', 'user-dsh'].sort())
     assert.equal(roots.find((row) => row.source === 'user-dsh').path, join(home, 'skills'))
+    assert.equal(roots.find((row) => row.source === 'user-agents').path, join(homedir(), '.agents', 'skills'))
   } finally {
     if (previous == null) delete process.env.FDE_DSH_HOME
     else process.env.FDE_DSH_HOME = previous
+    if (previousAgents == null) delete process.env.DSH_AGENTS_HOME
+    else process.env.DSH_AGENTS_HOME = previousAgents
     await rm(home, { recursive: true, force: true })
   }
 })

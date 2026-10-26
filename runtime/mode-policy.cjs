@@ -103,6 +103,36 @@ function stripIuiSkillLine(text) {
   return String(text).split('\n').filter((line) => !/^- `iui`:/u.test(line)).join('\n')
 }
 
+function clipSkillDescription(value) {
+  return String(value || '').split('\n')[0].trim().slice(0, 80)
+}
+
+function compactSkillCatalog(message) {
+  const source = message && message.source
+  if (!source || source.kind !== 'skill-catalog' || !Array.isArray(source.entries)) return message
+  const entries = source.entries.map((entry) => {
+    if (!entry || typeof entry !== 'object' || typeof entry.description !== 'string') return entry
+    return { ...entry, description: clipSkillDescription(entry.description) }
+  })
+  const byName = new Map()
+  for (const entry of entries) {
+    if (entry && entry.name && typeof entry.description === 'string' && entry.description) {
+      byName.set(String(entry.name), entry.description)
+    }
+  }
+  const content = Array.isArray(message.content)
+    ? message.content.map((part) => {
+      if (!part || part.type !== 'text' || typeof part.text !== 'string') return part
+      const text = part.text.replace(/^- `([^`]+)`: .+$/gm, (line, name) => {
+        if (!byName.has(name)) return line
+        return `- \`${name}\`: ${byName.get(name)}`
+      })
+      return { ...part, text }
+    })
+    : message.content
+  return { ...message, content, source: { ...source, entries } }
+}
+
 function gateSkillMessage(message) {
   const source = message && message.source
   if (!source || typeof source !== 'object') return message
@@ -121,12 +151,13 @@ function gateSkillMessage(message) {
 }
 
 function gatePreStepDecision(decision, preset) {
-  if (!decision || typeof decision !== 'object' || iuiAllowedForPreset(preset)) return decision
-  if (decision.kind === 'reject' || !Array.isArray(decision.messages)) return decision
-  return {
-    ...decision,
-    messages: decision.messages.map(gateSkillMessage).filter(Boolean),
+  if (!decision || typeof decision !== 'object' || !Array.isArray(decision.messages)) return decision
+  if (decision.kind === 'reject') return decision
+  let messages = decision.messages.map(compactSkillCatalog)
+  if (!iuiAllowedForPreset(preset)) {
+    messages = messages.map(gateSkillMessage).filter(Boolean)
   }
+  return { ...decision, messages }
 }
 
 function isIuiHtmlDeny(decision) {

@@ -29,6 +29,22 @@ test('standard drops the IUI fence and keeps the tools and skill catalog', () =>
   assert.equal(decision.messages[0].content[0].text.includes('`iui`'), true)
 })
 
+test('standard skill catalog keeps every name and clips the description', () => {
+  const long = `${'token '.repeat(40)}end`
+  const decision = policy.gatePreStepDecision({
+    kind: 'continue',
+    messages: [{
+      source: { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'sales-call-prep', description: long }] },
+      content: [{ type: 'text', text: `- \`sales-call-prep\`: ${long}` }],
+    }],
+  }, 'standard')
+  const entry = decision.messages[0].source.entries[0]
+  assert.equal(entry.name, 'sales-call-prep')
+  assert.equal(entry.description.length, 80)
+  assert.equal(decision.messages[0].content[0].text.includes('sales-call-prep'), true)
+  assert.equal(decision.messages[0].content[0].text.includes('end'), false)
+})
+
 test('app-build and briefing drop the IUI section, tools, and skill line', () => {
   for (const preset of ['fde-app-builder', 'fde-briefing', '']) {
     const assembly = policy.gatePromptAssembly({
