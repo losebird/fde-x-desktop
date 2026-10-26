@@ -102,7 +102,7 @@ import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { findSessionDir, readSessionTree, writeSessionTree } from './session-tree.mjs'
-import { resolvePrimarySessionForRuntime } from './session-primary.mjs'
+import { invalidateHostSessionList, listHostSessions, resolvePrimarySessionForRuntime } from './session-primary.mjs'
 import { decodeWorkspaceFileText, readWorkspaceFileBytes } from './files-bytes.mjs'
 import {
   SESSION_BIND_BOTH,
@@ -288,8 +288,7 @@ function safeWorkspaceRel(name) {
 async function resolveFileRoot(sessionId) {
   if (sessionId) {
     try {
-      const listed = await aiRuntime.call('session/list', { _request: { includeBlank: true } })
-      const items = Array.isArray(listed?.items) ? listed.items : []
+      const items = await listHostSessions(aiRuntime)
       const row = items.find((item) => item.sessionId === sessionId)
       if (row?.cwd) return resolve(row.cwd)
     } catch {
@@ -683,8 +682,7 @@ async function scopedSession(url, body, sessionId, response, correlationId) {
   const ident = requestAppWorkspace(db, url, body)
   if (rejectWorkspaceIdent(ident, response, correlationId)) return null
   const workspaceCwd = ident.hint || workspaceCwdForId(db, ident.workspaceId) || ''
-  const sessions = await aiRuntime.call('session/list', { _request: {} })
-  const items = Array.isArray(sessions?.items) ? sessions.items : []
+  const items = await listHostSessions(aiRuntime)
   const item = findSessionForWorkspace(items, sessionId, workspaceCwd, ident.workspaceId)
   if (!item) {
     sendError(response, 404, 'not_found', '会话不存在', correlationId)
@@ -2025,12 +2023,12 @@ const server = createServer(async (request, response) => {
       const includeBlank = url.searchParams.get('includeBlank') === 'true'
       const includeSubagents = url.searchParams.get('includeSubagents') === 'true'
       const includeArchived = url.searchParams.get('includeArchived') === 'true'
-      const [sessions, baseline] = await Promise.all([
-        aiRuntime.call('session/list', { _request: cursor ? { cursor } : {} }),
+      const [listed, baseline] = await Promise.all([
+        listHostSessions(aiRuntime),
         readWorkspaceBaseline(),
       ])
       const archived = new Set(baseline.archivedSessionIds)
-      const visible = sessionsForWorkspace(Array.isArray(sessions?.items) ? sessions.items : [], workspaceCwd, listIdent.workspaceId)
+      const visible = sessionsForWorkspace(listed, workspaceCwd, listIdent.workspaceId)
       const items = visible
         .map((row) => ({
           ...toAiSessionSummary(row),
@@ -2066,6 +2064,7 @@ const server = createServer(async (request, response) => {
         ...(typeof body.agentPreset === 'string' && body.agentPreset ? { agentPreset: body.agentPreset } : {}),
       }
       const session = await aiRuntime.call('session/create', { request: requestBody })
+      invalidateHostSessionList()
       if (requestBody.agentPreset === 'fde-briefing' && session?.sessionId) {
         stageBriefingSessionAllow(aiRuntime, session.sessionId, cwd ? readDefinitionSections(db, cwd) : [])
       }
@@ -2119,6 +2118,7 @@ const server = createServer(async (request, response) => {
             ...(cwd ? { cwd } : {}),
           },
         })
+        invalidateHostSessionList()
         const sid = String(created?.sessionId || '')
         if (!sid) throw new Error('没建成可复原的会话')
         if (workspaceId) {
@@ -2197,6 +2197,7 @@ const server = createServer(async (request, response) => {
       const archived = await aiRuntime.call('workspace/archiveSession', {
         request: { sessionId: archivedId },
       })
+      invalidateHostSessionList()
       try {
         discardBriefingSessionAllow(aiRuntime, archivedId)
       } catch (error) {
@@ -2222,6 +2223,7 @@ const server = createServer(async (request, response) => {
           ...(workspaceCwd ? { cwd: workspaceCwd } : {}),
         },
       })
+      invalidateHostSessionList()
       if (created?.sessionId) {
         emit('ai.session.changed', { sessionId: created.sessionId, kind: 'created' }, {
           workspaceCwd: workspaceCwd || null,
@@ -2256,6 +2258,7 @@ const server = createServer(async (request, response) => {
       const renamed = await aiRuntime.call('session/rename', {
         request: { sessionId: renamedId, title: body.title.trim() },
       })
+      invalidateHostSessionList()
       const workspaceCwd = sessionCwdOf(scopedRename.item) || scopedRename.workspaceCwd
       emit('ai.session.changed', { sessionId: renamedId, title: body.title.trim(), kind: 'renamed' }, {
         workspaceCwd: workspaceCwd || null,

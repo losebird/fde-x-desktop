@@ -51,6 +51,30 @@ function waitMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+const LIST_HOLD_MS = 2000
+let hostListHold = { at: 0, items: null, inflight: null }
+
+export function invalidateHostSessionList() {
+  hostListHold = { at: 0, items: null, inflight: null }
+}
+
+export async function listHostSessions(aiRuntime, { force = false } = {}) {
+  if (!aiRuntime || typeof aiRuntime.call !== 'function') return []
+  const now = Date.now()
+  if (!force && hostListHold.items && now - hostListHold.at < LIST_HOLD_MS) return hostListHold.items
+  if (!force && hostListHold.inflight) return hostListHold.inflight
+  const job = Promise.resolve(aiRuntime.call('session/list', { _request: {} })).then((listed) => {
+    const items = listedSessions(listed)
+    hostListHold = { at: Date.now(), items, inflight: null }
+    return items
+  }).catch((error) => {
+    hostListHold.inflight = null
+    throw error
+  })
+  hostListHold.inflight = job
+  return job
+}
+
 export function sessionIsRunning(row) {
   if (!row || typeof row !== 'object') return false
   if (row.running === true) return true
