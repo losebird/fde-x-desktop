@@ -316,6 +316,12 @@ describe('remaining writes require the page token', { concurrency: 1 }, () => {
     assert.equal(drafted.status, 401, JSON.stringify(drafted.payload))
   })
 
+  test('forged allowlisted Origin cannot take a runtime backup', async (t) => {
+    await boot(t)
+    const saved = await send('/api/v1/runtime/backup', { body: {} })
+    assert.equal(saved.status, 401, JSON.stringify(saved.payload))
+  })
+
   test('forged allowlisted Origin cannot write IM relay config', async (t) => {
     await boot(t)
     const saved = await send('/api/v1/im/relay', { body: { url: 'nats://127.0.0.1:4222' } })

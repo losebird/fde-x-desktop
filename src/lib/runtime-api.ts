@@ -2283,6 +2283,25 @@ export class RuntimeApi {
     return result.data
   }
 
+  async listRuntimeBackups(signal?: AbortSignal): Promise<{ items: Array<{ file: string; name: string }> }> {
+    const result = await this.request<{ data: { items?: Array<{ file: string; name: string }> } }>('/api/v1/runtime/backups', { signal })
+    return { items: Array.isArray(result.data?.items) ? result.data.items : [] }
+  }
+
+  async takeRuntimeBackup(signal?: AbortSignal): Promise<{ file: string; name: string }> {
+    const result = await this.request<{ data: { file?: string; name?: string } }>('/api/v1/runtime/backup', { method: 'POST', signal })
+    return { file: String(result.data?.file || ''), name: String(result.data?.name || '') }
+  }
+
+  async restoreRuntimeBackup(file: string, signal?: AbortSignal): Promise<void> {
+    await this.request('/api/v1/runtime/restore', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file }),
+    })
+  }
+
   async imRelay(signal?: AbortSignal): Promise<{ configured: boolean; connected: boolean; url: string; credsSet: boolean; env: boolean; error: string }> {
     const result = await this.request<{ data: { configured?: boolean; connected?: boolean; url?: string; credsSet?: boolean; env?: boolean; error?: string } }>('/api/v1/im/relay', { signal })
     const data = result.data || {}

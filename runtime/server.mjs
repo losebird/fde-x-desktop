@@ -103,6 +103,7 @@ import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { publicImRelay } from './im-relay.mjs'
 import { readJsonFromRequest } from './http-json.mjs'
+import { assertSqliteBackupPath, backupPublicRow, listSqliteBackups, restoreSqliteBackup, takeSqliteBackup } from './db-backup.mjs'
 import { findSessionDir, readSessionTree, writeSessionTree } from './session-tree.mjs'
 import { invalidateHostSessionList, listHostSessions, resolvePrimarySessionForRuntime } from './session-primary.mjs'
 import { decodeWorkspaceFileText, readWorkspaceFileBytes } from './files-bytes.mjs'
@@ -1417,6 +1418,38 @@ const server = createServer(async (request, response) => {
         })
       } catch { /* 审计失败仍要重启 */ }
       sendJson(response, 200, { data: status, correlationId: currentCorrelationId })
+      scheduleRuntimeRestart()
+      return
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/v1/runtime/backups') {
+      const files = listSqliteBackups(databasePath).map(backupPublicRow)
+      sendJson(response, 200, { data: { items: files }, correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/runtime/backup') {
+      const file = takeSqliteBackup(db, databasePath)
+      sendJson(response, 200, { data: backupPublicRow(file), correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/runtime/restore') {
+      const body = await readJson(request)
+      let file
+      try {
+        file = assertSqliteBackupPath(databasePath, body.file)
+      } catch {
+        sendError(response, 400, 'backup_path_invalid', '只能还原本机 backups 目录里的库', currentCorrelationId)
+        return
+      }
+      try {
+        restoreSqliteBackup(file, databasePath)
+      } catch (error) {
+        sendError(response, 400, error?.code || 'restore_failed', error instanceof Error ? error.message : '还原失败', currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, { data: { file, restarting: true }, correlationId: currentCorrelationId })
       scheduleRuntimeRestart()
       return
     }

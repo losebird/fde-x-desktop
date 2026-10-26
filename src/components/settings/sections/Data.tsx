@@ -12,6 +12,59 @@ import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import type { FdeAppSkillBind } from '@/lib/app-spec'
 import { useApp } from '@/store/app'
 
+function SqliteBackupCard() {
+  const [items, setItems] = useState<Array<{ file: string; name: string }>>([])
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(() => {
+    void runtimeApi.listRuntimeBackups().then((data) => {
+      setItems(data.items)
+    }).catch((cause) => setNote(surfaceNote(cause, '读不到备份。')))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+  useWhenCoreConnects(load, true)
+
+  return (
+    <section className="rounded-kit-lg border border-kit-line bg-kit-card p-4 shadow-kit">
+      <h3 className="text-kit-title font-medium text-kit-ink">工作台库备份</h3>
+      <p className="mt-1 text-kit-sm text-kit-secondary">快照在本机 data/backups。还原后核心会重载。</p>
+      {note ? <div className="mt-2"><SurfaceBanner tone="quiet">{note}</SurfaceBanner></div> : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <SurfaceButton
+          disabled={busy}
+          onClick={() => {
+            setBusy(true)
+            void runtimeApi.takeRuntimeBackup().then((row) => {
+              setNote(`已备份 ${row.name}`)
+              load()
+            }).catch((cause) => setNote(surfaceNote(cause, '备份失败')))
+              .finally(() => setBusy(false))
+          }}
+        >
+          备份
+        </SurfaceButton>
+        <SurfaceButton
+          disabled={busy || !items[0]}
+          onClick={() => {
+            const latest = items[0]
+            if (!latest) return
+            setBusy(true)
+            void runtimeApi.restoreRuntimeBackup(latest.file).then(() => {
+              setNote('已还原最近一份，正在重载核心。')
+            }).catch((cause) => setNote(surfaceNote(cause, '还原失败')))
+              .finally(() => setBusy(false))
+          }}
+        >
+          还原最近一份
+        </SurfaceButton>
+      </div>
+      {items[0] ? <div className="mt-2 text-kit-sm text-kit-secondary">{items[0].name}</div> : null}
+    </section>
+  )
+}
+
 function skillsFromOperate(raw: unknown): FdeAppSkillBind[] {
   const operate = raw && typeof raw === 'object' ? (raw as { operate?: { skills?: FdeAppSkillBind[] } }).operate : null
   return Array.isArray(operate?.skills) ? operate.skills : []
@@ -85,6 +138,7 @@ export function DataSection() {
 
   return (
     <div className="space-y-4">
+      <SqliteBackupCard />
       <section className="rounded-kit-lg border border-kit-line bg-kit-card p-4 shadow-kit">
         <h3 className="text-kit-title font-medium text-kit-ink">业务连接器</h3>
         <p className="mb-3 mt-1 text-kit-sm text-kit-secondary">连接登记在本机。现查和过账还要当前工作区里有对应的词表。</p>
