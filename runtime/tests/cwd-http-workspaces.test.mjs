@@ -31,6 +31,7 @@ async function startServer(label, env) {
       ...process.env,
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: dbPath,
+      FDE_DSH_HOME: `/tmp/fde-cwd-http-ws-dsh-${label}-${process.pid}`,
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],

@@ -65,6 +65,10 @@ export function readPersistedUiToken(home) {
   }
 }
 
+export function resolveUiToken(home) {
+  return readPersistedUiToken(home) || mintUiToken()
+}
+
 function headerToken(request, name) {
   const raw = request.headers[name]
   if (typeof raw === 'string') return raw.trim()
@@ -72,8 +76,7 @@ function headerToken(request, name) {
   return ''
 }
 
-export function verifyUiToken(request, expected) {
-  const value = headerToken(request, 'x-fde-ui-token')
+function tokenEquals(value, expected) {
   const expectedText = typeof expected === 'string' ? expected : ''
   const valueBytes = Buffer.from(value)
   const expectedBytes = Buffer.from(expectedText)
@@ -82,6 +85,12 @@ export function verifyUiToken(request, expected) {
   valueBytes.copy(left)
   expectedBytes.copy(right)
   return timingSafeEqual(left, right) && valueBytes.length === 64 && expectedBytes.length === 64
+}
+
+export function verifyUiToken(request, expected, home = FDE_DSH_HOME) {
+  const value = headerToken(request, 'x-fde-ui-token')
+  if (tokenEquals(value, expected)) return true
+  return tokenEquals(value, readPersistedUiToken(home))
 }
 
 function bridgeError(response, status, error, message, correlationId) {

@@ -145,6 +145,7 @@ test('SSE origin 403 and connection limit 429', { timeout: 45_000 }, async () =>
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: dbPath,
       FDE_AI_WORKSPACE: '/tmp/fde-x-files-smoke',
+      FDE_DSH_HOME: `/tmp/fde-events-dsh-${process.pid}`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

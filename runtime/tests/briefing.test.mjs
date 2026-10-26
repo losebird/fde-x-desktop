@@ -20,6 +20,7 @@ const port = 4396
 const base = `http://127.0.0.1:${port}`
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const wsCwd = '/tmp/fde-x-briefing-test-ws'
+const dshHome = '/tmp/fde-x-briefing-test-dsh'
 
 let child
 let pageToken = ''
@@ -35,6 +36,7 @@ function writeHeaders() {
 async function startServer() {
   await rm(dbPath, { force: true }).catch(() => undefined)
   await mkdir(wsCwd, { recursive: true })
+  await mkdir(dshHome, { recursive: true })
   pageToken = ''
   child = spawn(node, ['runtime/server.mjs'], {
     cwd: repoRoot,
@@ -43,6 +45,7 @@ async function startServer() {
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: dbPath,
       FDE_AI_WORKSPACE: wsCwd,
+      FDE_DSH_HOME: dshHome,
       FDE_RUNTIME_SUPERVISED: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],

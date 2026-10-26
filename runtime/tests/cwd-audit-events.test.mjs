@@ -123,6 +123,7 @@ test('HTTP /api/v1/events routes filter a Windows workspace query', { timeout: 3
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: dbPath,
       FDE_AI_WORKSPACE: '/tmp/fde-x-files-smoke',
+      FDE_DSH_HOME: `/tmp/fde-cwd-audit-dsh-${process.pid}`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -244,6 +245,7 @@ async function startWorkspaceServer(label) {
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: dbPath,
       FDE_AI_WORKSPACE: defaultWorkspace,
+      FDE_DSH_HOME: `/tmp/fde-cwd-audit-dsh-${process.pid}`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

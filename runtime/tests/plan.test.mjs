@@ -28,6 +28,7 @@ function writeHeaders() {
 async function startServer() {
   await rm(dbPath, { force: true }).catch(() => undefined)
   await mkdir('/tmp/fde-x-plan-test-ws', { recursive: true })
+  await mkdir('/tmp/fde-x-plan-test-dsh', { recursive: true })
   pageToken = ''
   child = spawn(node, ['runtime/server.mjs'], {
     cwd: repoRoot,
@@ -36,6 +37,7 @@ async function startServer() {
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: dbPath,
       FDE_AI_WORKSPACE: '/tmp/fde-x-plan-test-ws',
+      FDE_DSH_HOME: '/tmp/fde-x-plan-test-dsh',
       FDE_RUNTIME_SUPERVISED: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],

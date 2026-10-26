@@ -78,6 +78,7 @@ async function startServer(env) {
       ...process.env,
       FDE_RUNTIME_PORT: String(port),
       FDE_DATABASE_PATH: dbPath,
+      FDE_DSH_HOME: `/tmp/fde-http-ws-matrix-dsh-${process.pid}`,
       FDE_RUNTIME_SUPERVISED: '1',
       ...env,
     },

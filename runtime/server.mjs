@@ -96,7 +96,7 @@ import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
-import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, mintUiToken, persistUiToken, verifyUiToken } from './routes/bridge.mjs'
+import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, persistUiToken, resolveUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
@@ -183,8 +183,9 @@ const runtimeWorkspaceCwd = canonicalWorkspaceCwd(aiRuntime.cwd) || canonicalWor
 if (!personalStored && runtimeWorkspaceCwd) patchWorkspaceMetadata(db, 'ws_personal', { cwd: runtimeWorkspaceCwd })
 startMemoryWriter({ db, aiRuntime })
 let bridgeToken = ''
-const uiToken = mintUiToken()
-persistUiToken(aiRuntime.dshHome || FDE_DSH_HOME, uiToken)
+const uiTokenHome = aiRuntime.dshHome || FDE_DSH_HOME
+const uiToken = resolveUiToken(uiTokenHome)
+persistUiToken(uiTokenHome, uiToken)
 void ensureBridgeToken(aiRuntime.dshHome || FDE_DSH_HOME).then((token) => {
   bridgeToken = token
 })
@@ -1126,7 +1127,7 @@ const server = createServer(async (request, response) => {
       sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', currentCorrelationId)
       return
     }
-    if (url.pathname.startsWith('/api/v1/') && !verifyUiToken(request, uiToken)) {
+    if (url.pathname.startsWith('/api/v1/') && !verifyUiToken(request, uiToken, uiTokenHome)) {
       sendError(response, 401, 'ui_token_invalid', '缺少或无效的页面令牌', currentCorrelationId)
       return
     }
