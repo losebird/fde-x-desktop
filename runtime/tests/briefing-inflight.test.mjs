@@ -39,12 +39,11 @@ test('a second full run joins the in-flight briefing and does not prompt again',
         return { items: [{ sessionId: 'sess-a', cwd: wsCwd, origin: 'user', updatedAt: 2, running: false }] }
       }
       if (endpoint === 'session/create') {
-        assert.equal(args.request.agentPreset, 'fde-briefing')
-        return { sessionId: 'sess-briefing' }
+        assert.fail('briefing must not create an fde-briefing session')
       }
       if (endpoint === 'session/prompt') {
         prompts += 1
-        assert.equal(args.request.sessionId, 'sess-briefing')
+        assert.equal(args.request.sessionId, 'sess-a')
         return {}
       }
       return {}
@@ -109,33 +108,36 @@ test('a running briefing with no live owner is abandoned and the next generate s
   db.close()
 })
 
-test('a throw after the row is running closes it and the next generate starts fresh', async () => {
+test('a generate without a live AI session fails closed and the next generate starts fresh', async () => {
   const path = '/tmp/fde-x-briefing-throw.sqlite'
   await rm(path, { force: true }).catch(() => undefined)
   const db = makeDb(path)
   registerWorkspace(db, wsCwd)
   getOrCreateDefinition(db, wsCwd)
-  let failCreate = true
   let prompts = 0
-  const aiRuntime = connectedRuntime({
-    onCreate() {
-      if (failCreate) throw new Error('session create down')
-      return { sessionId: 'sess-briefing' }
+  let listed = []
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    call: async (endpoint, args) => {
+      if (endpoint === 'session/list') return { items: listed }
+      if (endpoint === 'session/create') assert.fail('briefing must not create an fde-briefing session')
+      if (endpoint === 'session/prompt') {
+        prompts += 1
+        assert.equal(args.request.sessionId, 'sess-briefing')
+        return {}
+      }
+      return {}
     },
-    onPrompt() {
-      prompts += 1
+    async *stream() {
+      yield { type: 'event', event: { type: 'turn/start', data: {} } }
+      yield { type: 'event', event: { type: 'turn/end', data: {} } }
     },
-  })
-  await assert.rejects(
-    () => runBriefing({ db, aiRuntime }, { workspaceCwd: wsCwd, mode: 'full' }),
-    /session create down/,
-  )
-  const stuck = getLatestBriefing(db, wsCwd)
-  assert.equal(stuck.status, 'failed')
-  assert.equal(stuck.agentError, '生成中断')
-  assert.equal(stuck.sections.some((section) => section.pendingAgent), false)
-  assert.ok(stuck.sections.some((section) => section.error === '生成中断'))
-  failCreate = false
+  }
+  const stuckRun = await runBriefing({ db, aiRuntime }, { workspaceCwd: wsCwd, mode: 'full' })
+  const stuck = getBriefing(db, stuckRun.briefingId, wsCwd)
+  assert.equal(stuck.status, 'partial')
+  assert.equal(stuck.agentError, '当前工作区还没有可用的 AI 会话')
+  listed = [{ sessionId: 'sess-briefing', cwd: wsCwd, origin: 'user', updatedAt: 2, running: false }]
   const next = await runBriefing({ db, aiRuntime }, { workspaceCwd: wsCwd, mode: 'full' })
   assert.notEqual(next.briefingId, stuck.id)
   assert.notEqual(next.joined, true)

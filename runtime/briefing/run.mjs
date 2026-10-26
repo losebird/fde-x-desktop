@@ -1,7 +1,7 @@
 import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { emit } from '../events.mjs'
 import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
-import { resolveBriefingSession } from './session.mjs'
+import { stageBriefingSessionAllow } from './session.mjs'
 import { collectInternalSection } from './collectors.mjs'
 import { runBriefingAgent } from './ask-ai.mjs'
 import { itemsFromToolResult } from './tool-official.mjs'
@@ -168,20 +168,29 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
         })
       }
       updateBriefingContent(db, briefingId, { status: 'running', sections }, workspaceCwd)
-      sessionId = await resolveBriefingSession(aiRuntime, workspaceCwd, definition.sections)
-      const agent = await runBriefingAgent(
-        { db, aiRuntime },
-        {
-          briefingId,
-          workspaceCwd,
-          sessionId,
-          sections: enabled,
-          internalSections: sections.filter((s) => s.type !== 'mcp' && s.type !== 'ai'),
-          omit: input.omit,
-        },
-      )
-      sessionId = agent.sessionId || sessionId
-      if (!agent.ok) agentError = agent.error || '发送早报 prompt 失败'
+      sessionId = String(input.sessionId || '').trim()
+      if (!sessionId) {
+        sessionId = await resolvePrimarySessionForRuntime(aiRuntime, { cwd: workspaceCwd })
+      }
+      let agent = { ok: false, blocked: [], toolResults: {} }
+      if (!sessionId) {
+        agentError = '当前工作区还没有可用的 AI 会话'
+      } else {
+        stageBriefingSessionAllow(aiRuntime, sessionId, definition.sections)
+        agent = await runBriefingAgent(
+          { db, aiRuntime },
+          {
+            briefingId,
+            workspaceCwd,
+            sessionId,
+            sections: enabled,
+            internalSections: sections.filter((s) => s.type !== 'mcp' && s.type !== 'ai'),
+            omit: input.omit,
+          },
+        )
+        sessionId = agent.sessionId || sessionId
+        if (!agent.ok) agentError = agent.error || '发送早报 prompt 失败'
+      }
       for (const row of agent.blocked || []) {
         const idx = sections.findIndex((section) => section.id === row.id)
         if (idx < 0) continue

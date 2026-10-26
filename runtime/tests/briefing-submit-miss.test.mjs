@@ -42,13 +42,18 @@ function registerWorkspace(db, cwd) {
   `).run(JSON.stringify({ cwd }), now, now)
 }
 
-function runtime({ onPrompt } = {}) {
+function runtime({ onPrompt, cwd } = {}) {
+  const sessionCwd = cwd || '/tmp/fde-x-briefing-submit-miss-ws'
   return {
     status: () => ({ connected: true }),
     lanAssist: async () => ({ requests: [] }),
     call: async (endpoint) => {
-      if (endpoint === 'session/list') return { items: [] }
-      if (endpoint === 'session/create') return { sessionId: 'sess-briefing' }
+      if (endpoint === 'session/list') {
+        return { items: [{ sessionId: 'sess-briefing', cwd: sessionCwd, origin: 'user', updatedAt: 2, running: false }] }
+      }
+      if (endpoint === 'session/create') {
+        throw new Error('briefing must not create an fde-briefing session')
+      }
       if (endpoint === 'session/prompt') {
         if (onPrompt) return onPrompt()
         return {}
@@ -112,7 +117,7 @@ test('a finished turn without fde_briefing_submit closes the run in Chinese', as
   const page = readFileSync(join(repoRoot, 'src/pages/Briefing.tsx'), 'utf8')
   assert.match(page, /\$\{s\.title\}失败/)
 
-  const aiRuntime = runtime()
+  const aiRuntime = runtime({ cwd })
   const first = await postRun(db, aiRuntime, cwd)
   assert.equal(first.status, 200, JSON.stringify(first.body))
   const briefing = first.body.data?.briefing
@@ -140,6 +145,7 @@ test('a rejected briefing prompt is the Chinese section error and does not stay 
   registerWorkspace(db, cwd)
   getOrCreateDefinition(db, cwd)
   const aiRuntime = runtime({
+    cwd,
     onPrompt() {
       throw new Error('会话拒绝了这次 prompt')
     },
@@ -153,7 +159,7 @@ test('a rejected briefing prompt is the Chinese section error and does not stay 
   assert.notEqual(briefing.status, 'running')
   assert.match(failureLine(briefing.sections), /AI 早报失败/)
 
-  const second = await postRun(db, runtime(), cwd)
+  const second = await postRun(db, runtime({ cwd }), cwd)
   assert.equal(second.status, 200, JSON.stringify(second.body))
   assert.notEqual(second.body.data.briefingId, first.body.data.briefingId)
   db.close()
@@ -168,6 +174,7 @@ test('an English host error is copied onto the AI section', async () => {
   getOrCreateDefinition(db, cwd)
   const hostError = 'Host rejected the briefing prompt'
   const aiRuntime = runtime({
+    cwd,
     onPrompt() {
       throw new Error(hostError)
     },
@@ -181,7 +188,7 @@ test('an English host error is copied onto the AI section', async () => {
   assert.notEqual(briefing.status, 'running')
   assert.match(failureLine(briefing.sections), /AI 早报失败/)
 
-  const second = await postRun(db, runtime(), cwd)
+  const second = await postRun(db, runtime({ cwd }), cwd)
   assert.equal(second.status, 200, JSON.stringify(second.body))
   assert.notEqual(second.body.data.briefingId, first.body.data.briefingId)
   db.close()
@@ -195,6 +202,7 @@ test('a submit that lands stays on the section when the turn ends', async () => 
   registerWorkspace(db, cwd)
   getOrCreateDefinition(db, cwd)
   const aiRuntime = runtime({
+    cwd,
     onPrompt() {
       const row = db.prepare(`
         SELECT agent_request_id FROM briefings ORDER BY created_at DESC LIMIT 1
