@@ -520,6 +520,8 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
   const [liveContacts, setLiveContacts] = useState<IMContact[] | null>(() => imMailboxSnap?.contacts ?? null)
   const [liveMessages, setLiveMessages] = useState<IMMessage[] | null>(() => imMailboxSnap?.messages ?? null)
   const [doorPort, setDoorPort] = useState('')
+  const [relayConfigured, setRelayConfigured] = useState(false)
+  const [relayConnected, setRelayConnected] = useState(false)
   const [pairCode, setPairCode] = useState('')
   const [pairHint, setPairHint] = useState('')
   const [pairAsk, setPairAsk] = useState<{ fromName: string; door: string } | null>(null)
@@ -834,6 +836,8 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
       setPairWait(wait && wait.displayName ? String(wait.displayName) : '')
       if (data.doorPort != null) setDoorPort(String(data.doorPort))
     }
+    if ('relayConfigured' in data) setRelayConfigured(Boolean(data.relayConfigured))
+    if ('relayConnected' in data) setRelayConnected(Boolean(data.relayConnected))
     return mapped
   }
 
@@ -2255,6 +2259,8 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
           contacts={contacts}
           messages={messages}
           doorPort={doorPort}
+          relayConfigured={relayConfigured}
+          relayConnected={relayConnected}
           selfName={selfName}
           selfAvatar={selfAvatar}
           onRefresh={() => { void pullImMailbox() }}
@@ -2346,11 +2352,13 @@ function HistoryDialog({ contact, messages, contacts, onPreview, onClose }: { co
 }
 
 function ContactManager({
-  contacts, messages, doorPort, selfName, selfAvatar, initialPanel, initialId, onRefresh, onSelect, onClose,
+  contacts, messages, doorPort, relayConfigured, relayConnected, selfName, selfAvatar, initialPanel, initialId, onRefresh, onSelect, onClose,
 }: {
   contacts: IMContact[]
   messages: IMMessage[]
   doorPort: string
+  relayConfigured: boolean
+  relayConnected: boolean
   selfName: string
   selfAvatar: string
   initialPanel?: 'me' | 'add' | 'group' | 'detail'
@@ -2448,7 +2456,14 @@ function ContactManager({
           {panel === 'add' && (
             <div>
               <div className="text-sm font-medium mb-1">添加同事</div>
-              <div className="text-xs text-ink-muted mb-4">在这边开码或填码，不用去设置。本机门牌 <span className="font-mono">{doorPort ? `127.0.0.1:${doorPort}` : '连接后显示'}</span></div>
+              <div className="text-xs text-ink-muted mb-2">在这边开码或填码。本机门牌 <span className="font-mono">{doorPort ? `127.0.0.1:${doorPort}` : '连接后显示'}</span></div>
+              <button
+                type="button"
+                className="text-xs text-ink-muted mb-4 hover:text-ink"
+                onClick={() => openRef({ panel: 'settings', section: 'runtime' })}
+              >
+                {relayConnected ? '本机中继已接通。' : relayConfigured ? '本机中继已配置，还没连上。' : '本机中继未接通。跨网投递去设置 → 运行环境。'}
+              </button>
               <div className="flex flex-wrap gap-2 mb-4">
                 <button type="button" className="btn" disabled={busy} onClick={() => void run(async () => {
                   const data = await runtimeApi.imPairMint()

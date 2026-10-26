@@ -101,6 +101,7 @@ import { handleContextPackRoute } from './routes/context.mjs'
 import { handleSearchRoute } from './routes/search.mjs'
 import { handleCorpusRoute, loadOrigin } from './routes/corpus.mjs'
 import { handleBriefingRoutes } from './routes/briefing.mjs'
+import { publicImRelay } from './im-relay.mjs'
 import { findSessionDir, readSessionTree, writeSessionTree } from './session-tree.mjs'
 import { invalidateHostSessionList, listHostSessions, resolvePrimarySessionForRuntime } from './session-primary.mjs'
 import { decodeWorkspaceFileText, readWorkspaceFileBytes } from './files-bytes.mjs'
@@ -2629,6 +2630,23 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && url.pathname === '/api/v1/im/state') {
       const state = await aiRuntime.lanAssist('/state', { search: { sessionId: url.searchParams.get('sessionId') || '' } })
       sendJson(response, 200, { data: state, correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/v1/im/relay') {
+      const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
+      sendJson(response, 200, { data: publicImRelay(state), correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/im/relay') {
+      const body = await readJson(request)
+      const result = await aiRuntime.lanAssist('/relay/config', { method: 'POST', body: { url: body.url, credsPath: body.credsPath } })
+      if (result && result.ok === false) {
+        sendError(response, 400, String(result.error || 'relay_invalid'), String(result.hint || result.error || '中继地址无效'), currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, { data: publicImRelay(result), correlationId: currentCorrelationId })
       return
     }
 

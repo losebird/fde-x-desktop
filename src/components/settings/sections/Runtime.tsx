@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { Tag } from '@/components/ui'
 import { SurfaceBanner } from '@/components/surface/Banner'
 import { SurfaceButton } from '@/components/surface/Button'
+import { kitControl } from '@/components/surface/classes'
 import { useCoreBoot, useWhenCoreConnects } from '@/components/settings/core-connection'
 import { IuiRetryButton } from '@/components/settings/IuiRetryButton'
 import { surfaceNote } from '@/components/settings/surface-note'
@@ -75,6 +76,7 @@ export function RuntimeSection() {
           </div>
         )}
       </section>
+      <ImRelayCard />
       <section className="rounded-kit-lg border border-kit-line bg-kit-card p-4 shadow-kit">
         <h3 className="mb-3 text-kit-title font-medium text-kit-ink">权威边界</h3>
         <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-3">
@@ -115,5 +117,98 @@ function AuthorityCard({ title, authority, detail }: { title: string; authority:
       <div className="mt-1 text-kit font-medium text-kit-ink">{authority}</div>
       <div className="mt-2 text-kit-sm leading-5 text-kit-secondary">{detail}</div>
     </div>
+  )
+}
+
+function ImRelayCard() {
+  const [url, setUrl] = useState('')
+  const [credsPath, setCredsPath] = useState('')
+  const [credsSet, setCredsSet] = useState(false)
+  const [envLocked, setEnvLocked] = useState(false)
+  const [connected, setConnected] = useState(false)
+  const [configured, setConfigured] = useState(false)
+  const [error, setError] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  const apply = (row: { configured: boolean; connected: boolean; url: string; credsSet: boolean; env: boolean; error: string }) => {
+    setConfigured(row.configured)
+    setConnected(row.connected)
+    setUrl(row.url)
+    setCredsSet(row.credsSet)
+    setEnvLocked(row.env)
+    setError(row.error)
+  }
+
+  const load = useCallback(() => {
+    void runtimeApi.imRelay().then((row) => {
+      apply(row)
+      setLoaded(true)
+      setNote('')
+    }).catch((cause) => {
+      setLoaded(false)
+      setNote(surfaceNote(cause, '读不到 IM 中继。'))
+    })
+  }, [])
+
+  useEffect(() => { load() }, [load])
+  useWhenCoreConnects(load, true)
+
+  const save = async () => {
+    setBusy(true)
+    setNote('')
+    try {
+      const row = await runtimeApi.saveImRelay({
+        url: url.trim(),
+        ...(credsPath.trim() ? { credsPath: credsPath.trim() } : {}),
+      })
+      apply(row)
+      setCredsPath('')
+      setNote(row.configured ? (row.connected ? '中继已接通。' : '中继已保存，正在连接。') : '中继已关闭。只走局域网配对。')
+    } catch (cause) {
+      setNote(surfaceNote(cause, '中继没保存。'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const status = !loaded
+    ? (note || '正在读取')
+    : connected
+      ? '已接通'
+      : configured
+        ? (error || '已配置，未连上')
+        : '未接通'
+
+  return (
+    <section className="rounded-kit-lg border border-kit-line bg-kit-card p-4 shadow-kit">
+      <h3 className="text-kit-title font-medium text-kit-ink">IM 跨网中继</h3>
+      <p className="mt-1 text-kit-sm text-kit-secondary">本机投递底座。同事配对仍在 IM「添加同事」。空地址即关闭中继，只走局域网。</p>
+      <div className="mt-3 text-kit-sm text-kit-ink">{status}</div>
+      {envLocked ? (
+        <SurfaceBanner tone="warn">环境变量 DSH_LAN_ASSIST_NATS 已接管地址，这里改不了。</SurfaceBanner>
+      ) : null}
+      <label className="mt-3 block text-kit-meta text-kit-secondary">中继地址</label>
+      <input
+        className={`${kitControl} mt-1 h-8 w-full font-mono`}
+        value={url}
+        disabled={busy || envLocked}
+        onChange={(event) => setUrl(event.target.value)}
+        placeholder="wss://relay.example/nats"
+      />
+      <label className="mt-3 block text-kit-meta text-kit-secondary">设备令牌文件{credsSet ? ' · 已设置' : ''}</label>
+      <input
+        className={`${kitControl} mt-1 h-8 w-full font-mono`}
+        value={credsPath}
+        disabled={busy || envLocked}
+        onChange={(event) => setCredsPath(event.target.value)}
+        placeholder="/绝对路径/device.creds"
+      />
+      {note ? <div className="mt-2 text-kit-sm text-kit-secondary">{note}</div> : null}
+      <div className="mt-3">
+        <SurfaceButton disabled={busy || envLocked} onClick={() => void save()}>保存中继</SurfaceButton>
+      </div>
+    </section>
   )
 }

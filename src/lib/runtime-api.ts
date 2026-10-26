@@ -2283,6 +2283,37 @@ export class RuntimeApi {
     return result.data
   }
 
+  async imRelay(signal?: AbortSignal): Promise<{ configured: boolean; connected: boolean; url: string; credsSet: boolean; env: boolean; error: string }> {
+    const result = await this.request<{ data: { configured?: boolean; connected?: boolean; url?: string; credsSet?: boolean; env?: boolean; error?: string } }>('/api/v1/im/relay', { signal })
+    const data = result.data || {}
+    return {
+      configured: Boolean(data.configured),
+      connected: Boolean(data.connected),
+      url: String(data.url || ''),
+      credsSet: Boolean(data.credsSet),
+      env: Boolean(data.env),
+      error: String(data.error || ''),
+    }
+  }
+
+  async saveImRelay(body: { url: string; credsPath?: string }, signal?: AbortSignal): Promise<{ configured: boolean; connected: boolean; url: string; credsSet: boolean; env: boolean; error: string }> {
+    const result = await this.request<{ data: { configured?: boolean; connected?: boolean; url?: string; credsSet?: boolean; env?: boolean; error?: string } }>('/api/v1/im/relay', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = result.data || {}
+    return {
+      configured: Boolean(data.configured),
+      connected: Boolean(data.connected),
+      url: String(data.url || ''),
+      credsSet: Boolean(data.credsSet),
+      env: Boolean(data.env),
+      error: String(data.error || ''),
+    }
+  }
+
   async imCopyAttach(body: { requestId: string; index?: number; workspace?: string; path?: string; dests?: string[] }, signal?: AbortSignal): Promise<Record<string, unknown>> {
     return this.lanAssist('/attach/copy', { method: 'POST', signal, body })
   }
