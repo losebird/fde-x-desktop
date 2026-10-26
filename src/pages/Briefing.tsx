@@ -304,6 +304,9 @@ export default function Briefing() {
                       <div className="text-sm text-accent-red mb-2">{section.error}</div>
                     )}
                     <ul className="divide-y divide-line">
+                      {(section.items || []).length === 0 && !section.error && (
+                        <li className="text-sm text-ink-muted py-2.5 first:pt-0 last:pb-0">暂无内容</li>
+                      )}
                       {(section.items || []).map((t) => (
                         <li key={t.ref || t.text} className="py-2.5 first:pt-0 last:pb-0 flex items-center gap-3">
                           <span className={clsx('w-2 h-2 rounded-full shrink-0', priorityDot.med)} />
