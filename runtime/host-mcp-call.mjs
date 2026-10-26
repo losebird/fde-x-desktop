@@ -43,3 +43,22 @@ export async function callHostMcp({ origin, cookie, dshHome, name, args, session
   }
   return { ok: true, text: typeof payload.text === 'string' ? payload.text : '', error: '' }
 }
+
+export async function listHostRegisteredTools({ origin, cookie, sessionId }) {
+  const id = String(sessionId || '').trim()
+  const base = String(origin || '').trim()
+  if (!id || !base) return []
+  try {
+    const url = new URL('/fde-session/visible-tools', base)
+    url.searchParams.set('sessionId', id)
+    const response = await fetch(url, {
+      headers: cookie ? { cookie } : {},
+    })
+    if (!response.ok) return []
+    const payload = await response.json()
+    const tools = Array.isArray(payload.tools) ? payload.tools : []
+    return tools.filter((name) => typeof name === 'string' && name.trim()).map((name) => name.trim())
+  } catch {
+    return []
+  }
+}

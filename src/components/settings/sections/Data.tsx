@@ -7,7 +7,7 @@ import { SurfaceBanner } from '@/components/surface/Banner'
 import { surfaceNote } from '@/components/settings/surface-note'
 import { BizHandleSlots } from '@/components/biz/BizHandleSlots'
 import { SkillBagPicker } from '@/components/biz/SkillBagPicker'
-import { runtimeApi, mergeMcpProjection, type McpServerV2, type SkillBagItem } from '@/lib/runtime-api'
+import { runtimeApi, type McpServerV2, type SkillBagItem } from '@/lib/runtime-api'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import type { FdeAppSkillBind } from '@/lib/app-spec'
 import { useApp } from '@/store/app'
@@ -68,14 +68,14 @@ export function DataSection() {
     void (async () => {
       const cwd = loadCurrentWorkspaceCwd()
       const target = await currentAiTarget().catch(() => ({ ok: false as const, error: '' }))
-      const [servers, projected, skills] = await Promise.all([
-        runtimeApi.listMcpServers().catch(() => ({ mcp: [] as McpServerV2[] })),
-        cwd.ok
-          ? runtimeApi.listMcpProjection({ cwd: cwd.cwd, sessionId: target.ok ? target.sessionId : undefined }).catch(() => ({ mcp: [] as McpServerV2[] }))
-          : Promise.resolve({ mcp: [] as McpServerV2[] }),
+      const [servers, skills] = await Promise.all([
+        runtimeApi.listMcpServers({
+          sessionId: target.ok ? target.sessionId : '',
+          cwd: target.ok ? target.cwd : (cwd.ok ? cwd.cwd : ''),
+        }).catch(() => ({ mcp: [] as McpServerV2[] })),
         runtimeApi.listAiSkills(target.ok ? target.sessionId : undefined).catch(() => ({ items: [] as SkillBagItem[] })),
       ])
-      setMcpBag(mergeMcpProjection(servers.mcp, projected.mcp))
+      setMcpBag(servers.mcp)
       setSkillBag(skills.items)
     })()
   }, [])

@@ -2498,8 +2498,14 @@ export class RuntimeApi {
     return Array.isArray(result.data?.items) ? result.data.items : []
   }
 
-  async listMcpServers(signal?: AbortSignal): Promise<{ mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }> {
-    const result = await this.request<{ data: { mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools?: string[] } }>('/api/v1/mcp/servers', { signal })
+  async listMcpServers(input?: { sessionId?: string; cwd?: string } | AbortSignal, signal?: AbortSignal): Promise<{ mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }> {
+    const queryInput = input && typeof input === 'object' && !('aborted' in input) ? input as { sessionId?: string; cwd?: string } : undefined
+    const abort = queryInput ? signal : (input as AbortSignal | undefined)
+    const params = new URLSearchParams()
+    if (queryInput?.sessionId) params.set('sessionId', queryInput.sessionId)
+    if (queryInput?.cwd) params.set('cwd', queryInput.cwd)
+    const query = params.toString()
+    const result = await this.request<{ data: { mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools?: string[] } }>(`/api/v1/mcp/servers${query ? `?${query}` : ''}`, { signal: abort })
     const data = result.data
     return { mcp: data.mcp || [], connectors: data.connectors || [], resourceTools: Array.isArray(data.resourceTools) ? data.resourceTools : [] }
   }

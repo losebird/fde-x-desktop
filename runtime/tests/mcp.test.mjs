@@ -100,7 +100,7 @@ test('groupMcpToolsByServer assigns mcp__ prefixes', () => {
   assert.deepEqual(grouped.get('beta'), ['mcp__beta__fetch'])
 })
 
-test('buildMcpServersV2 projects live tools from session follow', async () => {
+test('buildMcpServersV2 groups Host-registered tools onto archive servers', async () => {
   const aiRuntime = {
     status: () => ({ connected: true }),
     call: async (endpoint) => {
@@ -141,6 +141,27 @@ test('buildMcpServersV2 reuses a projected tool snapshot when given one', async 
   assert.equal(followed, 0)
   assert.deepEqual(mcp[0].tools, ['mcp__alpha__search'])
   assert.equal(mcp[0].status, 'loading')
+})
+
+test('listHostRegisteredTools reads Host visible-tools, not session follow', async () => {
+  const { listHostRegisteredTools } = await import('../host-mcp-call.mjs')
+  const original = globalThis.fetch
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /\/fde-session\/visible-tools\?sessionId=sess-1/)
+    return {
+      ok: true,
+      json: async () => ({ ok: true, tools: ['mcp__mail__imap_search', 'bash'] }),
+    }
+  }
+  try {
+    const names = await listHostRegisteredTools({
+      origin: 'http://127.0.0.1:9',
+      sessionId: 'sess-1',
+    })
+    assert.deepEqual(names, ['mcp__mail__imap_search', 'bash'])
+  } finally {
+    globalThis.fetch = original
+  }
 })
 
 test('MCP discover is a list mouth not a connect insert', async () => {

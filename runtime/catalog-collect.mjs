@@ -539,17 +539,21 @@ export async function collectBag(aiRuntime, kind, input = {}, verbs) {
   if (key === 'mcp') {
     const {
       buildMcpServersV2,
-      listSessionProjectedToolNames,
       readMcpArchiveText,
       resolveMcpProjectionSession,
     } = await import('./routes/mcp.mjs')
+    const { listHostRegisteredTools } = await import('./host-mcp-call.mjs')
     const text = await readMcpArchiveText(aiRuntime)
-    const project = Boolean(input && input.project)
-    const sessionId = project ? await resolveMcpProjectionSession(aiRuntime, input) : ''
-    const projected = (project && sessionId)
-      ? await listSessionProjectedToolNames(aiRuntime, sessionId)
+    const sessionId = await resolveMcpProjectionSession(aiRuntime, input)
+    const status = typeof aiRuntime?.status === 'function' ? aiRuntime.status() : {}
+    const registered = sessionId
+      ? await listHostRegisteredTools({
+        origin: status.origin || aiRuntime?.origin,
+        cookie: aiRuntime?.cookie || status.cookie || '',
+        sessionId,
+      })
       : []
-    const mcp = await buildMcpServersV2(aiRuntime, text, projected)
+    const mcp = await buildMcpServersV2(aiRuntime, text, registered)
     bag.items = (Array.isArray(mcp) ? mcp : []).map((row) => ({
       kind: 'mcp',
       id: String(row?.serverName || row?.id || ''),
@@ -557,7 +561,7 @@ export async function collectBag(aiRuntime, kind, input = {}, verbs) {
       href: { panel: 'mcp' },
       fields: row && typeof row === 'object' ? row : {},
     })).filter((row) => row.id)
-    const resourceTools = listMcpResourceToolNames().filter((name) => projected.includes(name))
+    const resourceTools = listMcpResourceToolNames().filter((name) => registered.includes(name))
     bag.actions = unique([...bag.actions, ...resourceTools])
     bag.raw = {
       mcp: bag.items.map((row) => row.fields),

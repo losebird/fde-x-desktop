@@ -739,7 +739,16 @@ export async function handleMcpRoutes(request, response, url, ctx) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/v1/mcp/servers') {
-    const bag = await collectBag(aiRuntime, 'mcp')
+    const resolvedServers = resolveHttpWorkspace({
+      url,
+      slots: [['query', 'cwd'], ['query', 'workspace']],
+      runtimeCwd: aiRuntime?.cwd,
+      fallbackCwd: FDE_AI_WORKSPACE,
+    })
+    const bag = await collectBag(aiRuntime, 'mcp', {
+      sessionId: url.searchParams.get('sessionId') || '',
+      cwd: resolvedServers.error ? '' : resolvedServers.cwd,
+    })
     const mcp = Array.isArray(bag.raw?.mcp) ? bag.raw.mcp : bag.items.map((row) => row.fields)
     const resourceTools = Array.isArray(bag.raw?.resourceTools) ? bag.raw.resourceTools : []
     const connectors = await buildConnectors(db, aiRuntime)

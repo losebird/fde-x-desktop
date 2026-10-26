@@ -31,7 +31,6 @@ import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
 import {
   runtimeApi,
-  mergeMcpProjection,
   type McpConnectorCard,
   type McpDiscoverRow,
   type McpRecipe,
@@ -86,7 +85,12 @@ export default function MCP() {
     void (async () => {
       try {
         const status = await runtimeApi.aiStatus()
-        const data = await runtimeApi.listMcpServers()
+        const folder = loadCurrentWorkspaceCwd()
+        const target = await currentAiTarget().catch(() => ({ ok: false as const, error: '' }))
+        const data = await runtimeApi.listMcpServers({
+          sessionId: target.ok ? target.sessionId : '',
+          cwd: target.ok ? target.cwd : (folder.ok ? folder.cwd : ''),
+        })
         const first: McpBag = {
           mcp: data.mcp || [],
           connectors: data.connectors || [],
@@ -97,21 +101,6 @@ export default function MCP() {
         setConnected(Boolean(status.connected))
         setPhase('ready')
         setFailure('')
-        const folder = loadCurrentWorkspaceCwd()
-        const target = await currentAiTarget()
-        const proj = await runtimeApi.listMcpProjection({
-          sessionId: target.ok ? target.sessionId : '',
-          cwd: target.ok ? target.cwd : (folder.ok ? folder.cwd : ''),
-        })
-        const servers = lastModuleBag<McpBag>('mcp')
-        const merged = mergeMcpProjection(servers?.mcp || first.mcp, proj.mcp || [])
-        const next: McpBag = {
-          mcp: merged,
-          connectors: servers?.connectors || first.connectors,
-          resourceTools: Array.isArray(proj.resourceTools) ? proj.resourceTools : [],
-        }
-        rememberModuleBag('mcp', next)
-        showBag(next)
       } catch (cause) {
         const failed = classifySurfaceFailure(cause, '连接器列表没有读出来。')
         if (lastModuleBag<McpBag>('mcp')) {

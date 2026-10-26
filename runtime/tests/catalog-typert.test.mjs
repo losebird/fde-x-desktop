@@ -354,35 +354,27 @@ test('collectBag mcp keeps servers and only live resource tools', async () => {
     const aiRuntime = {
       dshHome: home,
       profileName: 'fde-x',
-      status: () => ({ connected: true }),
+      status: () => ({ connected: true, origin: 'http://127.0.0.1:9' }),
       async call(endpoint) {
         if (endpoint === 'session/list') return { sessions: [{ id: 'sess-1', cwd: '/tmp/ws' }] }
         if (endpoint === 'pluginManager/listPlugins') return [{ entryId: 'mcp-alpha', fiberPhase: 'active', enabled: true }]
         throw new Error(endpoint)
       },
-      async *stream(endpoint) {
-        if (endpoint !== 'session/follow') return
-        yield {
-          type: 'snapshot',
-          header: {},
-          records: [{
-            type: 'event',
-            event: {
-              type: 'request/header',
-              data: {
-                header: {
-                  tools: [
-                    { name: 'mcp__alpha__ping' },
-                    { name: resourceName },
-                  ],
-                },
-              },
-            },
-          }],
-        }
-      },
     }
-    const bag = await collectBag(aiRuntime, 'mcp', { project: true, sessionId: 'sess-1', cwd: '/tmp/ws' })
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (url) => {
+      assert.match(String(url), /\/fde-session\/visible-tools/)
+      return {
+        ok: true,
+        json: async () => ({ ok: true, tools: ['mcp__alpha__ping', resourceName] }),
+      }
+    }
+    let bag
+    try {
+      bag = await collectBag(aiRuntime, 'mcp', { project: true, sessionId: 'sess-1', cwd: '/tmp/ws' })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
     assert.equal(bag.items.length, 1)
     assert.equal(bag.items[0].id, 'alpha')
     assert.equal(bag.raw.mcp[0].serverName, 'alpha')
