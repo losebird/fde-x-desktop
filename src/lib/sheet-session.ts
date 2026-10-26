@@ -8,6 +8,16 @@ export function sheetBelongsToSession(
   return String(sheet.sessionId || '').trim() === sid
 }
 
+/** Overlay/global official sheets must not paint until this tab has a live session. */
+export function sheetBelongsToLiveSession(
+  sheet: Record<string, unknown> | null | undefined,
+  sessionId?: string | null,
+): boolean {
+  const sid = String(sessionId || '').trim()
+  if (!sid) return false
+  return sheetBelongsToSession(sheet, sid)
+}
+
 export function sheetForLiveSession(
   sheet: Record<string, unknown> | null | undefined,
   liveSid?: string | null,

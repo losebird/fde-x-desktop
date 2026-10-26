@@ -88,6 +88,7 @@ import {
   isBizPreviewDismissed,
   peekBizPendingSheet,
   rememberBizPendingSheet,
+  sheetBelongsToLiveSession,
   sheetBelongsToSession,
   sheetForLiveSession,
 } from '@/lib/biz-session-sheet'
@@ -1221,16 +1222,18 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
   peekActivePendingRef.current = peekActivePending
   useEffect(() => {
     if (!kindCatalog.length) return
+    const sid = String(activeAiSessionId || '').trim()
+    if (!sid) return
     const pending = peekActivePendingRef.current()
-    if (pending) applyPendingSheetRef.current(pending)
-  }, [kindCatalog])
+    if (pending && sheetBelongsToLiveSession(pending, sid)) applyPendingSheetRef.current(pending)
+  }, [activeAiSessionId, kindCatalog])
 
   const hydrateFromPending = useCallback(async (surfaceId?: string) => {
     const sid = String(liveSessionIdRef.current || historySessionIdRef.current || '').trim()
     const tryApply = (sheet: Record<string, unknown>) => {
       if (isBizPreviewDismissed(sheet)) return false
       if (!shouldStageRoundEndPending(sheet)) return false
-      if (!sheetBelongsToSession(sheet, sid)) return false
+      if (!sheetBelongsToLiveSession(sheet, sid)) return false
       return applyPendingSheet(sheet, surfaceId)
     }
     try {
@@ -1238,7 +1241,10 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       if (writePreview) writePreviewRef.current = mergeWriteTokenIndex(writePreview, writePreviewRef.current)
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (liveSid && sid && liveSid !== sid) return false
-      if (!sheet || typeof sheet !== 'object') return false
+      if (!sheet || typeof sheet !== 'object') {
+        if (sid) clearBizPendingSheet(sid)
+        return false
+      }
       if (tryApply(sheet)) return true
       if (
         sheetBelongsToSession(sheet, sid)
@@ -1296,6 +1302,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         }
         return
       }
+      if (sid) clearBizPendingSheet(sid)
       const painted = displayedSheetRef.current
       if (
         painted
@@ -1362,7 +1369,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         writePreviewRef.current = mergeWriteTokenIndex(payload.writePreview, writePreviewRef.current)
       }
       const liveSid = String(liveSessionIdRef.current || '').trim()
-      if (liveSid && !sheetBelongsToSession(stamped, liveSid)) return
+      if (!sheetBelongsToLiveSession(stamped, liveSid)) return
       if (sheetConfirmsOnPlanCard(stamped)) return
       if (shouldFocusBizRecordsForPending(stamped)) {
         useApp.getState().focusBizRecordsPanel()

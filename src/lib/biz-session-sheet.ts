@@ -46,7 +46,7 @@ function sheetSessionKey(sheet: Record<string, unknown>): string {
   return sid || GLOBAL_PENDING_KEY
 }
 
-export { sheetBelongsToSession, sheetForLiveSession } from './sheet-session.ts'
+export { sheetBelongsToLiveSession, sheetBelongsToSession, sheetForLiveSession } from './sheet-session.ts'
 
 export function sheetPreviewIdFromRecord(sheet: Record<string, unknown>) {
   const id = sheet.preview_id ?? sheet.previewId

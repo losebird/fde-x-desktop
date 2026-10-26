@@ -390,17 +390,25 @@ window.__ModuleLoader__.load({
             if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: "当前页无法连接工作区" }, "*")
             return
           }
-          Promise.resolve(ui.connectWorkspace(data.workspaceId)).then(function (sid) {
-            var id = typeof sid === "string" ? sid : ""
-            if (!id) {
-              if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: "工作区没有打开会话" }, "*")
-              return
-            }
-            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", op: "connectWorkspace", sessionId: id }, "*")
-          }).catch(function (err) {
-            var msg = err && err.message ? String(err.message) : "连接工作区失败"
-            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: msg }, "*")
-          })
+          var connectTries = 0
+          var connect = function () {
+            Promise.resolve(ui.connectWorkspace(data.workspaceId)).then(function (sid) {
+              var id = typeof sid === "string" ? sid : ""
+              if (!id) {
+                if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: "工作区没有打开会话" }, "*")
+                return
+              }
+              if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", op: "connectWorkspace", sessionId: id }, "*")
+            }).catch(function (err) {
+              var msg = err && err.message ? String(err.message) : "连接工作区失败"
+              if (/unknown workspace/i.test(msg) && connectTries++ < 50) {
+                setTimeout(connect, 200)
+                return
+              }
+              if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: msg }, "*")
+            })
+          }
+          connect()
           return
         }
         if (data.op === "select" && data.sessionId) {

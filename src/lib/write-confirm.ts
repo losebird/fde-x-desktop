@@ -13,12 +13,14 @@ export function writeTokenStatus(
   const id = String(sheet.preview_id ?? sheet.previewId ?? '').trim()
   if (!id) return 'none'
   const onSheet = String(sheet.writeToken || sheet.write_token || '').trim()
+  if (onSheet === 'open' || onSheet === 'live') return 'live'
   if (CLOSED_TOKEN.has(onSheet)) return onSheet as WriteTokenStatus
   if (index && Object.prototype.hasOwnProperty.call(index, id)) {
     const fromIndex = String(index[id] || '').trim()
+    if (fromIndex === 'open' || fromIndex === 'live') return 'live'
     if (CLOSED_TOKEN.has(fromIndex)) return fromIndex as WriteTokenStatus
   }
-  return 'live'
+  return 'absent'
 }
 
 export function writeTokenLive(

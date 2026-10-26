@@ -55,6 +55,7 @@ function openSheet(extra = {}) {
     kind,
     action: '新建',
     preview_id: 'pv-open',
+    writeToken: 'open',
     canWrite: true,
     rows: [{ no: '新单', fields: { title: '甲' } }],
     changes: [{ field: 'title', to: '甲' }],
@@ -84,6 +85,15 @@ test('drawer opens only while the write token is unused', () => {
     true,
   )
   assert.equal(sheetWriteTokenStatus(live), 'live')
+  assert.equal(sheetWriteTokenStatus({ ...live, writeToken: undefined, write_token: undefined }), 'absent')
+  assert.equal(
+    shouldOpenWriteConfirm({ ...live, writeToken: undefined, write_token: undefined }, {
+      dismissed: false,
+      hasChanges: true,
+      alreadyAtTarget: false,
+    }),
+    false,
+  )
   assert.equal(writeTokenLive(live, { 'pv-open': 'used' }), false)
   assert.equal(
     shouldOpenWriteConfirm(live, { dismissed: false, hasChanges: true, alreadyAtTarget: false, tokenIndex: { 'pv-open': 'used' } }),
