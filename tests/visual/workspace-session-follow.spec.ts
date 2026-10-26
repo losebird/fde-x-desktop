@@ -125,9 +125,7 @@ test('switching workspace follows that workspace latest session without a reload
   await expect.poll(() => page.url(), {
     message: 'address stayed on the previous workspace session',
   }).toContain(`/ai/${expected}`)
-  await expect.poll(async () => page.locator('iframe[title="DSH 会话"]').getAttribute('src')).toContain(
-    `fde-session=${encodeURIComponent(expected)}`,
-  )
+  await expect.poll(async () => page.locator('iframe[title="DSH 会话"]').getAttribute('src')).toContain('/dsh-app/')
   await expect(page.locator('aside ul li').filter({ hasText: expectedTitle }).locator('.font-medium')).toBeVisible()
   expect(loads).toBe(loadsAtRest)
 })

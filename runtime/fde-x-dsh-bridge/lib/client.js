@@ -234,18 +234,29 @@ window.__ModuleLoader__.load({
         var archived = (spaces && spaces.archivedSessionIds) || []
         if (pendingSelectId && listed.byId[pendingSelectId] && archived.indexOf(pendingSelectId) < 0) return pendingSelectId
         var workspace = spaces && spaces.items && spaces.items.find(function (item) { return item.workspaceId === workspaceId })
-        if (!workspace) return ""
         var latestId = ""
         var latestTime = -Infinity
-        for (var i = 0; i < (workspace.sessionIds || []).length; i++) {
-          var sid = workspace.sessionIds[i]
-          if (archived.indexOf(sid) >= 0) continue
+        function consider(sid) {
+          if (!sid || archived.indexOf(sid) >= 0) return
           var row = listed.byId[sid]
-          if (!row) continue
+          if (!row) return
+          if (row.origin === "subagent" || row.parentSessionId) return
           var t = Number(row.updatedAt) || 0
           if (t >= latestTime) {
             latestTime = t
             latestId = sid
+          }
+        }
+        if (workspace) {
+          for (var i = 0; i < (workspace.sessionIds || []).length; i++) consider(workspace.sessionIds[i])
+        }
+        if (latestId) return latestId
+        var path = workspace && (workspace.path || workspace.cwd)
+        if (path) {
+          var ids = Object.keys(listed.byId)
+          for (var j = 0; j < ids.length; j++) {
+            var row = listed.byId[ids[j]]
+            if (row && row.cwd === path) consider(ids[j])
           }
         }
         return latestId

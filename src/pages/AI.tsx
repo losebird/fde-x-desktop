@@ -222,16 +222,8 @@ export default function AI() {
     ? (resolvePrimarySessionId(wantedSessionId, remoteSessions) || undefined)
     : undefined
   const frameBase = dshAppSrc(runtimeStatus?.bffOrigin)
-  const workspaceFrameKey = hostWorkspaceId(activeWorkspaceId) || workspaceCwd || ''
-  const computedFrameSrc = !runtimeConnected || loadingRuntime
-    ? ''
-    : activeId
-      ? `${frameBase}#fde-session=${encodeURIComponent(activeId)}`
-      : workspaceFrameKey
-        ? `${frameBase}?fde-workspace=${encodeURIComponent(workspaceFrameKey)}`
-        : ''
+  const computedFrameSrc = runtimeConnected ? frameBase : ''
   const restoreMatches = Boolean(activeId && restoreFrameSrc.includes(`fde-session=${encodeURIComponent(activeId)}`))
-  if (restoreFrameSrc && !restoreMatches) setRestoreFrameSrc('')
   const dshFrameSrc = restoreMatches ? restoreFrameSrc : computedFrameSrc
 
   useEffect(() => {
@@ -319,24 +311,28 @@ export default function AI() {
   }, [activeId, dropStoppedTerminal])
 
   const sessionListGate = useRef({ generation: 0 })
+  const sessionListCacheRef = useRef(new Map<string, AiSessionSummary[]>())
 
   async function reloadRemoteSessions(signal?: AbortSignal, notice?: SessionTitleNotice | null) {
     const state = useApp.getState()
     const workspaceId = sessionListWorkspaceId(state.activeWorkspaceId, state.workspaces)
     return reloadSessionList(sessionListGate.current, () => runtimeApi.listAiSessions({
       includeBlank: true,
-      includeSubagents: true,
       includeArchived: sessionLane === 'archived',
       workspaceId,
     }, signal), (rows) => {
+      sessionListCacheRef.current.set(`${workspaceId}:${sessionLane}`, rows)
       setRemoteSessions(applySessionList(rows, notice ?? null, { appendMissing: sessionLane !== 'archived' }))
     })
   }
 
   useEffect(() => {
     if (!runtimeConnected) return
+    const workspaceId = sessionListWorkspaceId(activeWorkspaceId, liveWorkspaces)
+    const cached = sessionListCacheRef.current.get(`${workspaceId}:${sessionLane}`)
+    if (cached) setRemoteSessions(applySessionList(cached, null, { appendMissing: sessionLane !== 'archived' }))
     void reloadRemoteSessions().catch(() => undefined)
-  }, [sessionLane, activeWorkspaceId, liveWorkspaces])
+  }, [sessionLane, activeWorkspaceId])
 
   function postPendingDsh() {
     const pending = pendingDshRef.current
@@ -556,10 +552,12 @@ export default function AI() {
         const listState = useApp.getState()
         await reloadSessionList(sessionListGate.current, () => runtimeApi.listAiSessions({
           includeBlank: true,
-          includeSubagents: true,
           workspaceId: sessionListWorkspaceId(listState.activeWorkspaceId, listState.workspaces),
         }, abort.signal), (rows) => {
-          if (active) setRemoteSessions(applySessionList(rows, null))
+          if (!active) return
+          const workspaceId = sessionListWorkspaceId(listState.activeWorkspaceId, listState.workspaces)
+          sessionListCacheRef.current.set(`${workspaceId}:live`, rows)
+          setRemoteSessions(applySessionList(rows, null))
         })
       } catch (error) {
         if (!active || abort.signal.aborted) return
@@ -637,7 +635,11 @@ export default function AI() {
   }, [sessionLane])
 
   useEffect(() => {
-    const path = dshFrameSrc.split('#')[0]
+    if (restoreFrameSrc && !restoreMatches) setRestoreFrameSrc('')
+  }, [restoreFrameSrc, restoreMatches])
+
+  useEffect(() => {
+    const path = dshFrameSrc.split('#')[0].split('?')[0]
     if (dshFramePathRef.current === path) return
     dshFramePathRef.current = path
     bridgeReadyRef.current = false
@@ -647,8 +649,9 @@ export default function AI() {
     if (loadingRuntime || !runtimeConnected || activeId) return
     const workspaceId = hostWorkspaceId(activeWorkspace?.id)
     if (!workspaceCwd || !workspaceId) return
+    if (workspaceSessions.some((session) => session.cwd === workspaceCwd)) return
     tellDsh('connectWorkspace', { workspaceId })
-  }, [loadingRuntime, runtimeConnected, activeId, activeWorkspaceId, workspaceCwd])
+  }, [loadingRuntime, runtimeConnected, activeId, activeWorkspaceId, workspaceCwd, workspaceSessions])
 
   const flushInboxDraft = () => {
     const text = useApp.getState().aiInboxDraft.trim()
