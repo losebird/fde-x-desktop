@@ -36,8 +36,7 @@ export function isPublicAppFace(pathname, { staticDir } = {}) {
   if (pathHasPrefix(path, '/api/v1/app-share/')) return true
   if (path.startsWith('/assets/')) return true
   if (path.startsWith('/brand/')) return true
-  if (path === '/favicon.ico' || path === '/index.html') return true
-  if (!staticDir && isViteDevAsset(path)) return true
+  if (path === '/favicon.ico') return true
   return false
 }
 

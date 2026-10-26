@@ -227,8 +227,11 @@ describe('app live share occupancy', () => {
     assert.equal(lanFaceForbidden({ socket: { remoteAddress: '127.0.0.1' } }, '/api/v1/apps'), false)
     assert.equal(isPublicAppFace('/assets/index.js'), true)
     assert.equal(isPublicAppFace('/ai'), false)
-    assert.equal(isPublicAppFace('/src/main.tsx', { staticDir: '' }), true)
+    assert.equal(isPublicAppFace('/index.html'), false)
+    assert.equal(isPublicAppFace('/src/main.tsx', { staticDir: '' }), false)
     assert.equal(isPublicAppFace('/src/main.tsx', { staticDir: '/pack/dist' }), false)
+    assert.equal(lanFaceForbidden(lan, '/index.html'), true)
+    assert.equal(lanFaceForbidden(lan, '/src/main.tsx'), true)
   })
 
   test('serveWebAppAsset puts CSP sandbox on HTML', async () => {

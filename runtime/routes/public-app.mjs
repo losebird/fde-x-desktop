@@ -1,5 +1,5 @@
 import { request as httpRequest } from 'node:http'
-import { isPublicAppFace, isViteDevAsset } from '../apps/share.mjs'
+import { isViteDevAsset } from '../apps/share.mjs'
 import { tryServeStatic } from './static.mjs'
 
 /**
@@ -26,7 +26,6 @@ export function handlePublicAppDocument(request, response, url, opts = {}) {
 
   const webPort = Number(opts.webPort)
   if (!Number.isInteger(webPort) || webPort <= 0) return false
-  if (!isPublicAppFace(pathname, { staticDir: '' })) return false
 
   const up = httpRequest({
     hostname: '127.0.0.1',
