@@ -104,6 +104,7 @@ import { handleBriefingRoutes } from './routes/briefing.mjs'
 import { publicImRelay } from './im-relay.mjs'
 import { readJsonFromRequest } from './http-json.mjs'
 import { assertSqliteBackupPath, backupPublicRow, listSqliteBackups, restoreSqliteBackup, takeSqliteBackup } from './db-backup.mjs'
+import { workbenchApiHeaders } from './security-headers.mjs'
 import { findSessionDir, readSessionTree, writeSessionTree } from './session-tree.mjs'
 import { invalidateHostSessionList, listHostSessions, resolvePrimarySessionForRuntime } from './session-primary.mjs'
 import { decodeWorkspaceFileText, readWorkspaceFileBytes } from './files-bytes.mjs'
@@ -596,6 +597,7 @@ function sendJson(response, status, payload) {
     'Cache-Control': 'no-store',
     'Access-Control-Allow-Headers': CORS_ALLOW_HEADERS,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    ...workbenchApiHeaders(),
     ...corsHeaders(response),
   })
   response.end(body)

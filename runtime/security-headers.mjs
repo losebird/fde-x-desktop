@@ -1,0 +1,7 @@
+export function workbenchApiHeaders() {
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'X-Frame-Options': 'DENY',
+  }
+}
