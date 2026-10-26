@@ -1,6 +1,8 @@
 import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react'
+import { useWhenCoreConnects } from '@/components/settings/core-connection'
 import { Brain, RefreshCw } from 'lucide-react'
 import { Card, Tag } from '@/components/ui'
+import { surfaceNote } from '@/components/settings/surface-note'
 import { runtimeApi } from '@/lib/runtime-api'
 import { useCurrentWorkspace } from '@/store/app'
 import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
@@ -97,13 +99,14 @@ export function SemanticSettings() {
         storeSnowflakeAccount: String(config.storeSnowflakeAccount || ''),
       })
       if (data.ready && typeof data.ready === 'object') setReady(data.ready as Record<string, unknown>)
-    }).catch((cause) => setNote(cause instanceof Error ? cause.message : '读设置失败'))
+    }).catch((cause) => setNote(surfaceNote(cause, '读设置失败')))
     void runtimeApi.memoryReady().then(setReady).catch(() => undefined)
     void runtimeApi.memoryUsage().then(setUsage).catch(() => undefined)
     void runtimeApi.memoryDeps(workspaceCwd || undefined).then(setDeps).catch(() => setDeps(null))
   }
 
   useEffect(() => { load() }, [workspaceCwd])
+  useWhenCoreConnects(load, true)
 
   useEffect(() => {
     let alive = true
@@ -134,7 +137,7 @@ export function SemanticSettings() {
             <div className="w-9 h-9 rounded-lg bg-brand-soft text-brand flex items-center justify-center shrink-0"><Brain size={16} /></div>
             <div>
               <div className="text-base font-medium">引擎状态</div>
-              <div className="text-xs text-ink-muted mt-0.5">问答模型和钥匙跟 DSH 同一套，在「AI 核心」里配。这里不填密钥。</div>
+              <div className="text-xs text-ink-muted mt-0.5">问答模型和密钥跟核心是同一套，在「AI 核心」里配。这里不填密钥。</div>
             </div>
           </div>
           <Tag kind={ready?.ready ? 'green' : 'amber'}>{ready?.ready ? '就绪' : '未就绪'}</Tag>
@@ -144,14 +147,14 @@ export function SemanticSettings() {
           <div>版本 <span className="text-ink">{String(ready?.version || '—')}</span></div>
           <div>Python <span className="text-ink break-all">{String(ready?.python || '—')}</span></div>
           <div>回环 <span className="text-ink">{ready?.port ? `127.0.0.1:${String(ready.port)}` : '—'}</span></div>
-          <div>模型 <span className="text-ink">{[ready?.llmProvider, ready?.llmModel].filter(Boolean).join(' / ') || '未读到钥匙'}</span></div>
-          <div>钥匙 <span className="text-ink">{ready?.llmReady ? '已配置（跟 DSH 模型）' : '未配置'}</span></div>
+          <div>模型 <span className="text-ink">{[ready?.llmProvider, ready?.llmModel].filter(Boolean).join(' / ') || '还没有模型'}</span></div>
+          <div>模型密钥 <span className="text-ink">{ready?.llmReady ? '已配置，跟核心模型走' : '未配置'}</span></div>
           <div>工作区 <span className="text-ink break-all">{workspace?.name || '—'}{workspaceCwd ? ` · ${workspaceCwd}` : ''}</span></div>
         </div>
         {totals ? (
           <div className="text-[11px] text-ink-subtle mb-4 space-y-0.5">
-            <div>抽取 {Number(extract?.calls || 0)} 次 · {Number(extract?.total || 0)} tok（思考 {Number(extract?.reasoning || 0)}）</div>
-            <div>检索 {Number(search?.calls || 0)} 次 · 回包 {Number(search?.bytes || 0)} 字节 · 进模型约 {Number(search?.context || 0)} tok</div>
+            <div>抽取 {Number(extract?.calls || 0)} 次 · 用量 {Number(extract?.total || 0)}（思考 {Number(extract?.reasoning || 0)}）</div>
+            <div>检索 {Number(search?.calls || 0)} 次 · 回包 {Number(search?.bytes || 0)} 字节 · 进模型约 {Number(search?.context || 0)}</div>
           </div>
         ) : (
           <div className="text-[11px] text-ink-subtle mb-4">还没有用量记录。抽取和检索会记在这里。</div>
@@ -166,22 +169,22 @@ export function SemanticSettings() {
             void runtimeApi.memoryRetryReady().then((data) => {
               setReady(data)
               setNote(data.ready ? '已就绪' : String(data.detail || data.reason || '仍未就绪'))
-            }).catch((cause) => setNote(cause instanceof Error ? cause.message : '再探失败')).finally(() => setBusy(false))
+            }).catch((cause) => setNote(surfaceNote(cause, '再探失败'))).finally(() => setBusy(false))
           }}><RefreshCw size={14} /> 再探就绪</button>
           <button type="button" className="btn" disabled={busy} onClick={() => {
             setBusy(true)
             setNote('正在重载核心…')
             void runtimeApi.reloadAi().then((status) => {
-              setNote(status.connected ? '4318 与 DSH 已重载，正在读取引擎…' : '核心已停下')
+              setNote(status.connected ? '核心已重新接上，正在读取引擎。' : '核心已停下。')
               load()
-            }).catch((cause) => setNote(cause instanceof Error ? cause.message : '重载失败')).finally(() => setBusy(false))
+            }).catch((cause) => setNote(surfaceNote(cause, '重载失败'))).finally(() => setBusy(false))
           }}>重载核心</button>
         </div>
       </Card>
 
       <Card>
         <div className="text-base font-medium mb-1">引擎与抽取</div>
-        <div className="text-xs text-ink-muted mb-4">这些项会写入 semantic-os 配置，不含密钥。扫 DSH 会话文件里的聊天；文件没变就跳过。</div>
+        <div className="text-xs text-ink-muted mb-4">这些项写进语义引擎，不含密钥。扫核心会话里的聊天；文件没变就跳过。</div>
         <div className="space-y-3">
           <Field label="Python 路径" hint="空着就用 FDE-X 家目录里已经装好的语义引擎。">
             <input className="input w-full font-mono text-xs" value={draft.pythonPath} onChange={setField('pythonPath')} />
@@ -205,7 +208,7 @@ export function SemanticSettings() {
             void runtimeApi.memoryIngestNow().then((data) => {
               setNote(data.started ? '已开始扫会话' : `抽取完成 ${String(data.ingested ?? '')}`)
               void runtimeApi.memoryIngestStatus().then(setIngest).catch(() => undefined)
-            }).catch((cause) => setNote(cause instanceof Error ? cause.message : '抽取失败'))
+            }).catch((cause) => setNote(surfaceNote(cause, '抽取失败')))
           }}>立刻扫一轮会话</button>
         </div>
       </Card>
@@ -228,7 +231,7 @@ export function SemanticSettings() {
               setProbeMsg(graphRow?.ok ? '探测完成' : String(graphRow?.detail || data.detail || '未就绪'))
             }).catch((cause) => {
               setDeps(null)
-              setProbeMsg(cause instanceof Error ? cause.message : '探测失败')
+              setProbeMsg(surfaceNote(cause, '探测失败'))
             }).finally(() => setProbing(false))
           }}>{probing ? '正在探测…' : '重新探测'}</button>
           {graph && !graph.ok && (
@@ -239,7 +242,7 @@ export function SemanticSettings() {
                 setDeps(data)
                 const graphRow = asRecord(data.graph)
                 setProbeMsg(graphRow?.ok ? '依赖已补齐' : String(graphRow?.detail || data.detail || '补装未完成'))
-              }).catch((cause) => setProbeMsg(cause instanceof Error ? cause.message : '补装失败')).finally(() => setProbing(false))
+              }).catch((cause) => setProbeMsg(surfaceNote(cause, '补装失败'))).finally(() => setProbing(false))
             }}>补装缺失依赖</button>
           )}
           {probeMsg && <span className="text-xs text-ink-muted">{probeMsg}</span>}
@@ -279,7 +282,7 @@ export function SemanticSettings() {
                 const rows = Array.isArray(data.people) ? data.people as Array<Record<string, unknown>> : []
                 setPeopleText(rows.map((row) => [row.id, row.displayName || row.name, row.status, row.businessAccount].filter(Boolean).join('\t')).join('\n'))
                 setPeopleMsg(rows.length ? `${rows.length} 人` : '花名册是空的')
-              }).catch((cause) => setPeopleMsg(cause instanceof Error ? cause.message : '读取失败'))
+              }).catch((cause) => setPeopleMsg(surfaceNote(cause, '读取失败')))
             }}>加载花名册</button>
             <button type="button" className="btn" onClick={() => {
               const people = peopleText.split(/\n/).map((line) => {
@@ -291,7 +294,7 @@ export function SemanticSettings() {
                 return { id: parts[0], displayName, name: displayName, status, businessAccount }
               }).filter(Boolean) as Array<Record<string, unknown>>
               setPeopleMsg('')
-              void runtimeApi.saveMemoryPeople(people).then(() => setPeopleMsg('已保存花名册')).catch((cause) => setPeopleMsg(cause instanceof Error ? cause.message : '保存失败'))
+              void runtimeApi.saveMemoryPeople(people).then(() => setPeopleMsg('已保存花名册')).catch((cause) => setPeopleMsg(surfaceNote(cause, '保存失败')))
             }}>保存花名册</button>
           </div>
           <textarea
@@ -326,7 +329,7 @@ export function SemanticSettings() {
               storeDatabricksAccount: draft.storeDatabricksAccount,
               storeSnowflakeUrl: draft.storeSnowflakeUrl,
               storeSnowflakeAccount: draft.storeSnowflakeAccount,
-            }).then(() => setNote('已保存')).catch((cause) => setNote(cause instanceof Error ? cause.message : '保存失败')).finally(() => setBusy(false))
+            }).then(() => setNote('已保存')).catch((cause) => setNote(surfaceNote(cause, '保存失败'))).finally(() => setBusy(false))
           }}
         >保存语义配置</button>
       </Card>

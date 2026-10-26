@@ -3,8 +3,10 @@ import { readFile } from 'node:fs/promises'
 import { access } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { delimiter, join } from 'node:path'
+import { lookup as dnsLookup } from 'node:dns/promises'
+import { BlockList, isIP } from 'node:net'
 import { listBusinessConnections } from '../db.mjs'
-import { FDE_AI_WORKSPACE, FDE_RESOURCES } from '../config.mjs'
+import { FDE_AI_WORKSPACE, FDE_RESOURCES, resolveAllowedRequestOrigin } from '../config.mjs'
 import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { desktopProcessPath } from '../desktop-process-path.mjs'
@@ -223,6 +225,177 @@ function headerMap(headers) {
     out[name] = String(value ?? '')
   }
   return out
+}
+
+const PROBE_TIMEOUT_MS = 10_000
+const PROBE_HEADER_DROP = new Set(['cookie', 'set-cookie', 'host', 'connection', 'content-length', 'transfer-encoding'])
+
+function stringEnv(env) {
+  if (!env || typeof env !== 'object' || Array.isArray(env)) return {}
+  const out = {}
+  for (const [key, value] of Object.entries(env)) {
+    const name = String(key || '').trim()
+    if (!name || name === 'PATH' || name === 'Path' || name.includes('=') || name.includes('\0')) continue
+    if (value == null) continue
+    out[name] = String(value)
+  }
+  return out
+}
+
+function probeHeaderMap(headers) {
+  const out = {}
+  for (const [key, value] of Object.entries(headerMap(headers))) {
+    if (PROBE_HEADER_DROP.has(key.toLowerCase())) continue
+    out[key] = value
+  }
+  return out
+}
+
+export function entryFromProbeDraft(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: '请求体必须是对象' }
+  const transport = body.transport
+  if (transport !== 'stdio' && transport !== 'streamable-http') {
+    return { error: 'transport 必须是 stdio 或 streamable-http' }
+  }
+  if (transport === 'streamable-http') {
+    const urlValue = typeof body.url === 'string' ? body.url.trim() : ''
+    if (!urlValue) return { error: 'streamable-http 需要 url' }
+    let parsed
+    try {
+      parsed = new URL(urlValue)
+    } catch {
+      return { error: 'url 不合法' }
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return { error: 'url 只接受 http 或 https' }
+    return { entry: { transport, url: urlValue, headers: probeHeaderMap(body.headers) } }
+  }
+  const command = typeof body.command === 'string' ? body.command.trim() : ''
+  if (!command) return { error: 'stdio 需要 command' }
+  if (Array.isArray(body.args) && body.args.length > 64) return { error: 'args 不能超过 64 项' }
+  const args = Array.isArray(body.args) ? body.args.map((item) => String(item)) : []
+  const cwd = typeof body.cwd === 'string' ? body.cwd.trim() : ''
+  const env = stringEnv(body.env)
+  return {
+    entry: {
+      transport,
+      command,
+      args,
+      ...(cwd ? { cwd } : {}),
+      ...(Object.keys(env).length ? { env } : {}),
+    },
+  }
+}
+
+// Loopback is intentionally absent. A local MCP on 127.0.0.0/8 or ::1 is a
+// legitimate probe target. Everything else here is non-global: private,
+// shared (CGNAT, including 100.100.100.200), link-local (including
+// 169.254.169.254), ULA, unspecified, multicast, or reserved.
+const probeBlock = new BlockList()
+probeBlock.addSubnet('0.0.0.0', 8, 'ipv4')
+probeBlock.addSubnet('10.0.0.0', 8, 'ipv4')
+probeBlock.addSubnet('100.64.0.0', 10, 'ipv4')
+probeBlock.addSubnet('169.254.0.0', 16, 'ipv4')
+probeBlock.addSubnet('172.16.0.0', 12, 'ipv4')
+probeBlock.addSubnet('192.0.0.0', 24, 'ipv4')
+probeBlock.addSubnet('192.168.0.0', 16, 'ipv4')
+probeBlock.addSubnet('198.18.0.0', 15, 'ipv4')
+probeBlock.addSubnet('224.0.0.0', 4, 'ipv4')
+probeBlock.addSubnet('240.0.0.0', 4, 'ipv4')
+probeBlock.addAddress('::', 'ipv6')
+probeBlock.addSubnet('fc00::', 7, 'ipv6')
+probeBlock.addSubnet('fe80::', 10, 'ipv6')
+probeBlock.addSubnet('ff00::', 8, 'ipv6')
+
+function ipv6Groups(ip) {
+  const lower = ip.toLowerCase()
+  if (lower.includes('.')) return null
+  const halves = lower.split('::')
+  if (halves.length > 2) return null
+  const parse = (part) => {
+    if (!part) return []
+    const bits = part.split(':')
+    if (bits.some((bit) => !/^[0-9a-f]{1,4}$/.test(bit))) return null
+    return bits.map((bit) => Number.parseInt(bit, 16))
+  }
+  const left = parse(halves[0])
+  if (!left) return null
+  if (halves.length === 1) return left.length === 8 ? left : null
+  const right = parse(halves[1])
+  if (!right) return null
+  const missing = 8 - left.length - right.length
+  if (missing < 1) return null
+  return [...left, ...Array(missing).fill(0), ...right]
+}
+
+function embeddedTransitionIpv4(ip) {
+  const groups = ipv6Groups(ip)
+  if (!groups || groups.length !== 8) return ''
+  const quad = (hi, lo) => `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`
+  if (groups[0] === 0x64 && groups[1] === 0xff9b && groups[2] === 0 && groups[3] === 0 && groups[4] === 0 && groups[5] === 0) {
+    return quad(groups[6], groups[7])
+  }
+  if (groups[0] === 0x2002) return quad(groups[1], groups[2])
+  return ''
+}
+
+export function probeAddressBlocked(ip) {
+  const raw = String(ip || '').trim().replace(/^\[|\]$/g, '').split('%')[0]
+  const family = isIP(raw)
+  if (family !== 4 && family !== 6) return true
+  if (probeBlock.check(raw, family === 6 ? 'ipv6' : 'ipv4')) return true
+  if (family !== 6) return false
+  const embedded = embeddedTransitionIpv4(raw)
+  return embedded !== '' && isIP(embedded) === 4 && probeBlock.check(embedded, 'ipv4')
+}
+
+export async function probeHttpTargetError(urlValue, resolveHost = dnsLookup) {
+  let parsed
+  try {
+    parsed = new URL(String(urlValue || ''))
+  } catch {
+    return 'url 不合法'
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return 'url 只接受 http 或 https'
+  let host = parsed.hostname
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
+  host = host.split('%')[0]
+  if (!host) return 'url 不合法'
+  let addresses
+  if (isIP(host)) {
+    addresses = [host]
+  } else {
+    let found
+    try {
+      found = await resolveHost(host, { all: true, verbatim: true })
+    } catch {
+      return '无法解析该地址'
+    }
+    const rows = Array.isArray(found) ? found : [found]
+    addresses = rows.map((row) => {
+      if (typeof row === 'string') return row
+      if (row && typeof row.address === 'string') return row.address
+      return ''
+    }).filter((address) => address)
+  }
+  if (!addresses.length) return '无法解析该地址'
+  if (addresses.some((address) => probeAddressBlocked(address))) return '该地址不在探测允许范围内'
+  return ''
+}
+
+function withProbeTimeout(promise, ms = PROBE_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ ok: false, message: 'timeout' }), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value && typeof value === 'object' ? value : { ok: false, message: 'timeout' })
+      },
+      () => {
+        clearTimeout(timer)
+        resolve({ ok: false, message: 'timeout' })
+      },
+    )
+  })
 }
 
 function jsonRpcParse(text) {
@@ -448,7 +621,7 @@ async function probeMcpStdioInitialize(entry, timeoutMs = 8000) {
   return await new Promise((resolve) => {
     const spawnCwd = String(entry.cwd || '').trim()
     const child = spawn(resolved, args, {
-      env: { ...process.env, PATH: pathEnv },
+      env: { ...process.env, ...stringEnv(entry.env), PATH: pathEnv },
       cwd: spawnCwd || undefined,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -593,6 +766,37 @@ export async function handleMcpRoutes(request, response, url, ctx) {
     const mcp = Array.isArray(bag.raw?.mcp) ? bag.raw.mcp : bag.items.map((row) => row.fields)
     const resourceTools = Array.isArray(bag.raw?.resourceTools) ? bag.raw.resourceTools : []
     sendJson(response, 200, { data: { mcp, resourceTools, actions: bag.actions }, correlationId: currentCorrelationId })
+    return true
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v1/mcp/probe') {
+    const origin = resolveAllowedRequestOrigin(request, ctx.allowedOrigins || [])
+    if (!origin) {
+      sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', currentCorrelationId)
+      return true
+    }
+    let body
+    try {
+      body = await readJson(request)
+    } catch (error) {
+      const tooLarge = error instanceof Error && error.message === 'request_too_large'
+      sendError(response, 400, 'validation_error', tooLarge ? '请求体过大' : '请求体不是合法的 JSON', currentCorrelationId)
+      return true
+    }
+    const built = entryFromProbeDraft(body)
+    if (built.error) {
+      sendError(response, 400, 'validation_error', built.error, currentCorrelationId)
+      return true
+    }
+    if (built.entry.transport === 'streamable-http') {
+      const targetError = await probeHttpTargetError(built.entry.url)
+      if (targetError) {
+        sendError(response, 400, 'validation_error', targetError, currentCorrelationId)
+        return true
+      }
+    }
+    const health = await withProbeTimeout(checkMcpHealth(built.entry))
+    sendJson(response, 200, { data: health, correlationId: currentCorrelationId })
     return true
   }
 

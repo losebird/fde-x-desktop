@@ -1,83 +1,138 @@
-// Skills 管理:当前会话 catalog 包 + Face 额外命名空间
-import { useCallback, useEffect, useState } from 'react'
-import { Sparkles, Search } from 'lucide-react'
-import clsx from 'clsx'
-import { PageTitle, Card, Tag } from '@/components/ui'
-import { runtimeApi, type SkillBagItem } from '@/lib/runtime-api'
-import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Sparkles } from 'lucide-react'
+import { PageTitle } from '@/components/ui'
+import { InstallDialog } from '@/components/skills/InstallDialog'
+import { SkillDetail } from '@/components/skills/SkillDetail'
+import { SkillList } from '@/components/skills/SkillList'
+import {
+  SurfaceBanner,
+  SurfaceButton,
+  SurfaceEmpty,
+  SurfaceGuide,
+  SurfaceSearch,
+  SurfaceSegmented,
+  classifySurfaceFailure,
+  humanizeSurfaceMessage,
+  SURFACE_CORE_DOWN,
+} from '@/components/surface'
+import type { SurfacePhase } from '@/components/surface'
 import { openFilesAtPath } from '@/lib/app-platform'
-import { useApp } from '@/store/app'
+import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
+import { runtimeApi, type SkillBagItem } from '@/lib/runtime-api'
+import { useApp } from '@/store/app'
 
-type SkillRoot = { path: string; source: string }
 type BundleFile = { rel: string; type: string }
+type SkillRoot = { path: string; source: string }
+type FilterId = 'all' | 'enabled' | 'disabled'
 
-function hasInvocableBit(row: SkillBagItem) {
-  return typeof row.modelInvocable === 'boolean'
+function workspaceCwd() {
+  const folder = loadCurrentWorkspaceCwd()
+  return folder.ok ? folder.cwd : ''
 }
 
-function canManageBundle(row: SkillBagItem | null) {
+function canManage(row: SkillBagItem | null) {
   return Boolean(row && row.origin === 'catalog' && row.path)
 }
 
+function pause(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+type SkillIntent = { generation: number; enabled: boolean }
+type SkillWrite = { ticket: number; enabled: boolean }
+
+function overlayIntents(rows: SkillBagItem[], intents: Map<string, SkillIntent>, settle: boolean) {
+  return rows.map((row) => {
+    if (!row.path) return row
+    const intent = intents.get(row.path)
+    if (!intent) return row
+    if (settle && row.modelInvocable === intent.enabled) {
+      intents.delete(row.path)
+      return row
+    }
+    return { ...row, modelInvocable: intent.enabled }
+  })
+}
+
 export default function Skills() {
-  const [skills, setSkills] = useState<SkillBagItem[]>([])
-  const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<'all' | 'enabled' | 'disabled'>('all')
-  const [active, setActive] = useState<SkillBagItem | null>(null)
+  const frame = useRef<HTMLDivElement>(null)
+  const workspaceId = useApp((s) => s.activeWorkspaceId)
+  const [shellWidth, setShellWidth] = useState(0)
+  const [phase, setPhase] = useState<SurfacePhase>('loading')
+  const [failure, setFailure] = useState('')
   const [note, setNote] = useState('')
+  const [skills, setSkills] = useState<SkillBagItem[]>([])
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<FilterId>('all')
+  const [picked, setPicked] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [files, setFiles] = useState<BundleFile[]>([])
   const [editor, setEditor] = useState<{ rel: string; text: string } | null>(null)
   const [newRel, setNewRel] = useState('')
-  const [showInstall, setShowInstall] = useState(false)
+  const [installOpen, setInstallOpen] = useState(false)
   const [roots, setRoots] = useState<SkillRoot[]>([])
-  const [draft, setDraft] = useState({ source: '', root: '' })
+  const [source, setSource] = useState('')
+  const [root, setRoot] = useState('')
+  const [installError, setInstallError] = useState('')
   const [sessionId, setSessionId] = useState('')
-  const workspaceId = useApp((s) => s.activeWorkspaceId)
+  const intents = useRef(new Map<string, SkillIntent>())
+  const writes = useRef(new Map<string, SkillWrite>())
+  const draining = useRef(new Set<string>())
+  const ticketRef = useRef(0)
+  const listEpoch = useRef(0)
 
-  const workspaceCwd = () => {
-    const folder = loadCurrentWorkspaceCwd()
-    return folder.ok ? folder.cwd : ''
-  }
+  const applyListed = useCallback((rows: SkillBagItem[]) => {
+    rememberModuleBag('skills', rows)
+    const next = overlayIntents(rows, intents.current, true)
+    setSkills(next)
+    return next
+  }, [])
 
   const load = useCallback(() => {
+    const epoch = listEpoch.current
     const cached = lastModuleBag<SkillBagItem[]>('skills')
     if (cached?.length) {
-      setSkills(cached)
-      setActive((current) => current || cached[0] || null)
+      setSkills(overlayIntents(cached, intents.current, false))
+      setPhase('ready')
     }
     void (async () => {
       try {
         const status = await runtimeApi.aiStatus()
+        if (epoch !== listEpoch.current) return
         if (!status.connected) {
-          setNote('核心未接通')
+          if (!cached?.length) {
+            setPhase('coreDown')
+            setFailure(SURFACE_CORE_DOWN)
+            return
+          }
+          setNote(SURFACE_CORE_DOWN)
+          setPhase('ready')
           return
-        }
-        const first = (await runtimeApi.listAiSkills()).items
-        if (first.length) {
-          setNote('')
-          setSkills(first)
-          setActive((current) => first.find((row) => row.id === current?.id) || first[0] || null)
-          rememberModuleBag('skills', first)
         }
         const target = await currentAiTarget()
-        if (!target.ok) {
-          setSessionId('')
-          if (!first.length) setNote(target.error)
+        if (epoch !== listEpoch.current) return
+        const sid = target.ok ? target.sessionId : ''
+        setSessionId(sid)
+        const mapped = (await runtimeApi.listAiSkills(sid || undefined)).items
+        if (epoch !== listEpoch.current) return
+        rememberModuleBag('skills', mapped)
+        const next = overlayIntents(mapped, intents.current, true)
+        setSkills(next)
+        setPicked((current) => (current && next.some((row) => row.id === current) ? current : null))
+        setNote('')
+        setFailure('')
+        setPhase(next.length ? 'ready' : 'empty')
+      } catch (cause) {
+        if (epoch !== listEpoch.current) return
+        const failed = classifySurfaceFailure(cause, '技能列表没有读出来。')
+        if (lastModuleBag<SkillBagItem[]>('skills')?.length) {
+          setNote(failed.message)
+          setPhase('ready')
           return
         }
-        setSessionId(target.sessionId)
-        const mapped = (await runtimeApi.listAiSkills(target.sessionId)).items
-        setNote('')
-        setSkills(mapped)
-        setActive((current) => mapped.find((row) => row.id === current?.id) || mapped[0] || null)
-        rememberModuleBag('skills', mapped)
-      } catch (cause) {
-        if (!lastModuleBag<SkillBagItem[]>('skills')?.length) {
-          setSkills([])
-          setNote(cause instanceof Error ? cause.message : '读不到 Skills')
-        }
+        setPhase(failed.phase)
+        setFailure(failed.message)
       }
     })()
   }, [])
@@ -93,102 +148,207 @@ export default function Skills() {
   }, [load])
 
   useEffect(() => {
-    if (!canManageBundle(active) || !active?.path) {
+    const node = frame.current?.closest('.stage-content') ?? frame.current
+    if (!node) return
+    const measure = () => setShellWidth(node.getBoundingClientRect().width)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [phase])
+
+  const wide = shellWidth >= 860
+  const canFilter = skills.some((row) => typeof row.modelInvocable === 'boolean')
+  const enabledCount = skills.filter((row) => row.modelInvocable === true).length
+  const disabledCount = skills.filter((row) => row.modelInvocable === false).length
+  const filtered = skills.filter((row) => {
+    if (canFilter && filter === 'enabled' && row.modelInvocable !== true) return false
+    if (canFilter && filter === 'disabled' && row.modelInvocable !== false) return false
+    if (query && !row.name.includes(query) && !(row.description || '').includes(query)) return false
+    return true
+  })
+  const shown = wide
+    ? (filtered.find((row) => row.id === picked) || filtered[0] || null)
+    : (filtered.find((row) => row.id === picked) || null)
+
+  useEffect(() => {
+    if (!canManage(shown) || !shown?.path) {
       setFiles([])
       setEditor(null)
       return
     }
-    const cwd = workspaceCwd()
-    void runtimeApi.listSkillBundleFiles(active.path, cwd, sessionId).then((data) => {
+    const path = shown.path
+    void runtimeApi.listSkillBundleFiles(path, workspaceCwd(), sessionId).then((data) => {
       setFiles(Array.isArray(data.files) ? data.files : [])
     }).catch(() => setFiles([]))
-  }, [active?.path, active?.origin, workspaceId, sessionId])
+  }, [shown, sessionId, workspaceId])
 
-  const canFilterEnabled = skills.some(hasInvocableBit)
-  const filtered = skills.filter((s) => {
-    if (canFilterEnabled && filter === 'enabled' && s.modelInvocable !== true) return false
-    if (canFilterEnabled && filter === 'disabled' && s.modelInvocable !== false) return false
-    if (q && !s.name.includes(q) && !(s.description || '').includes(q)) return false
-    return true
-  })
-  const enabledCount = skills.filter((s) => s.modelInvocable === true).length
-  const subtitle = note
-    || (canFilterEnabled
-      ? `已安装 ${skills.length} 个 · 启用 ${enabledCount} 个`
-      : `已安装 ${skills.length} 个`)
+  const readSkills = useCallback(async () => {
+    const target = await currentAiTarget()
+    const sid = target.ok ? target.sessionId : ''
+    setSessionId(sid)
+    return (await runtimeApi.listAiSkills(sid || undefined)).items
+  }, [])
 
-  const runInvocable = (row: SkillBagItem, modelInvocable: boolean) => {
+  const readUntil = useCallback(async (ready: (rows: SkillBagItem[]) => boolean) => {
+    const deadline = Date.now() + 2500
+    let rows = await readSkills()
+    while (!ready(rows) && Date.now() < deadline) {
+      await pause(200)
+      rows = await readSkills()
+    }
+    return rows
+  }, [readSkills])
+
+  const publish = (rows: SkillBagItem[], message: string) => {
+    const next = applyListed(rows)
+    setPicked((current) => (current && next.some((row) => row.id === current) ? current : null))
+    setNote(message)
+    setFailure('')
+    setPhase(next.length ? 'ready' : 'empty')
+  }
+
+  const flushToggle = (path: string) => {
+    if (draining.current.has(path)) return
+    draining.current.add(path)
+    void (async () => {
+      try {
+        while (writes.current.has(path)) {
+          const job = writes.current.get(path)
+          if (!job) break
+          writes.current.delete(path)
+          try {
+            const target = await currentAiTarget()
+            const sid = target.ok ? target.sessionId : ''
+            if (sid) setSessionId(sid)
+            const saved = await runtimeApi.setSkillModelInvocable({
+              path,
+              modelInvocable: job.enabled,
+              cwd: workspaceCwd(),
+              sessionId: sid,
+            })
+            if (intents.current.get(path)?.generation !== job.ticket) continue
+            intents.current.set(path, { generation: job.ticket, enabled: saved.modelInvocable })
+            const epoch = listEpoch.current
+            const listed = await runtimeApi.listAiSkills(sid || undefined).then((data) => data.items, () => null)
+            if (intents.current.get(path)?.generation !== job.ticket || epoch !== listEpoch.current) continue
+            if (listed) applyListed(listed)
+            else {
+              setSkills((current) => current.map((item) => (
+                item.path === path ? { ...item, modelInvocable: saved.modelInvocable } : item
+              )))
+            }
+            const after = intents.current.get(path)
+            if (after && after.generation !== job.ticket) continue
+            setNote(saved.modelInvocable ? '已启用。' : '已停用。')
+            setFailure('')
+          } catch (cause) {
+            if (intents.current.get(path)?.generation !== job.ticket || writes.current.has(path)) continue
+            intents.current.delete(path)
+            setNote(classifySurfaceFailure(cause, '没能改启用状态。').message)
+            const target = await currentAiTarget().catch(() => null)
+            const sid = target && target.ok ? target.sessionId : ''
+            const listed = await runtimeApi.listAiSkills(sid || undefined).then((data) => data.items, () => null)
+            if (!listed || intents.current.has(path) || writes.current.has(path)) continue
+            applyListed(listed)
+          }
+        }
+      } finally {
+        draining.current.delete(path)
+        if (writes.current.has(path)) flushToggle(path)
+        else if (writes.current.size === 0) setBusy(false)
+      }
+    })()
+  }
+
+  const runToggle = (row: SkillBagItem, enabled: boolean) => {
     if (!row.path) return
+    const path = row.path
+    const ticket = ++ticketRef.current
+    listEpoch.current = ticket
+    intents.current.set(path, { generation: ticket, enabled })
+    writes.current.set(path, { ticket, enabled })
+    setSkills((current) => current.map((item) => (
+      item.path === path ? { ...item, modelInvocable: enabled } : item
+    )))
     setBusy(true)
-    void runtimeApi.setSkillModelInvocable({ path: row.path, modelInvocable, cwd: workspaceCwd(), sessionId }).then(() => {
-      load()
-    }).catch((cause) => {
-      setNote(cause instanceof Error ? cause.message : '改不了启停')
-    }).finally(() => setBusy(false))
+    flushToggle(path)
   }
 
   const openInstall = () => {
-    setShowInstall(true)
+    setInstallError('')
+    setInstallOpen(true)
     void runtimeApi.listSkillRoots(workspaceCwd()).then((data) => {
       const next = Array.isArray(data.roots) ? data.roots : []
       setRoots(next)
-      setDraft((current) => ({ ...current, root: current.root || (next[0] ? next[0].path : '') }))
-    }).catch(() => setRoots([]))
+      setRoot((current) => current || (next[0] ? next[0].path : ''))
+    }).catch((cause) => {
+      setRoots([])
+      setInstallError(classifySurfaceFailure(cause, '没有读到安装位置。').message)
+    })
   }
 
   const saveInstall = () => {
-    if (!draft.source || !draft.root) {
-      setNote('需要 source 和 root')
+    if (!source.trim()) {
+      setInstallError('要填写来源目录。')
+      return
+    }
+    if (!root) {
+      setInstallError('要选择安装位置。')
       return
     }
     setBusy(true)
-    void runtimeApi.installSkillBundle({ source: draft.source, root: draft.root, cwd: workspaceCwd() }).then(() => {
-      setShowInstall(false)
-      setDraft({ source: '', root: draft.root })
-      load()
+    setInstallError('')
+    void runtimeApi.installSkillBundle({ source: source.trim(), root, cwd: workspaceCwd() }).then(async (installed) => {
+      setInstallOpen(false)
+      setSource('')
+      const rows = await readUntil((items) => items.some((item) => item.path === installed.path || item.id === installed.name))
+      publish(rows, '已安装。')
+      setPicked(installed.name)
     }).catch((cause) => {
-      setNote(cause instanceof Error ? cause.message : '安装失败')
+      setInstallError(classifySurfaceFailure(cause, '没有安装成功。').message)
     }).finally(() => setBusy(false))
   }
 
   const runUninstall = (row: SkillBagItem) => {
     if (!row.path) return
     setBusy(true)
-    void runtimeApi.uninstallSkillBundle(row.path, workspaceCwd(), sessionId).then(() => {
-      setActive(null)
-      load()
+    const path = row.path
+    void runtimeApi.uninstallSkillBundle(path, workspaceCwd(), sessionId).then(async () => {
+      const rows = await readUntil((items) => !items.some((item) => item.path === path))
+      setPicked(null)
+      publish(rows, '已卸载。')
     }).catch((cause) => {
-      setNote(cause instanceof Error ? cause.message : '卸载失败')
+      setNote(classifySurfaceFailure(cause, '没能卸载。').message)
     }).finally(() => setBusy(false))
   }
 
   const openBundleFile = (rel: string, type: string) => {
-    if (type === 'dir' || !active?.path) return
-    const abs = active.bundleRoot ? `${active.bundleRoot.replace(/\/$/, '')}/${rel}` : ''
+    if (type === 'dir' || !shown?.path) return
+    const abs = shown.bundleRoot ? `${shown.bundleRoot.replace(/\/$/, '')}/${rel}` : ''
     if (abs && openFilesAtPath(abs)) return
-    const cwd = workspaceCwd()
-    void runtimeApi.readSkillBundleFile(active.path, rel, cwd, sessionId).then((data) => {
+    void runtimeApi.readSkillBundleFile(shown.path, rel, workspaceCwd(), sessionId).then((data) => {
       setEditor({ rel: data.rel, text: data.text })
     }).catch((cause) => {
-      setNote(cause instanceof Error ? cause.message : '读不了文件')
+      setNote(classifySurfaceFailure(cause, '没有读到文件。').message)
     })
   }
 
   const saveEditor = () => {
-    if (!editor || !active?.path) return
+    if (!editor || !shown?.path) return
     setBusy(true)
-    void runtimeApi.writeSkillBundleFile({ path: active.path, rel: editor.rel, text: editor.text, cwd: workspaceCwd(), sessionId }).then(() => {
-      setNote('')
+    void runtimeApi.writeSkillBundleFile({ path: shown.path, rel: editor.rel, text: editor.text, cwd: workspaceCwd(), sessionId }).then(() => {
+      setNote('文件已保存。')
       load()
     }).catch((cause) => {
-      setNote(cause instanceof Error ? cause.message : '写不了文件')
+      setNote(classifySurfaceFailure(cause, '没有写进文件。').message)
     }).finally(() => setBusy(false))
   }
 
   const addBundleFile = () => {
     const rel = newRel.trim()
-    const path = active?.path
-    if (!rel || !path) return
+    if (!rel || !shown?.path) return
+    const path = shown.path
     setBusy(true)
     void runtimeApi.writeSkillBundleFile({ path, rel, text: '', cwd: workspaceCwd(), sessionId }).then(() => {
       setNewRel('')
@@ -196,13 +356,13 @@ export default function Skills() {
     }).then((data) => {
       if (data) setFiles(Array.isArray(data.files) ? data.files : [])
     }).catch((cause) => {
-      setNote(cause instanceof Error ? cause.message : '新建失败')
+      setNote(classifySurfaceFailure(cause, '没有建成新文件。').message)
     }).finally(() => setBusy(false))
   }
 
   const removeBundleFile = (rel: string) => {
-    const path = active?.path
-    if (!path) return
+    if (!shown?.path) return
+    const path = shown.path
     setBusy(true)
     void runtimeApi.removeSkillBundleFile(path, rel, workspaceCwd(), sessionId).then(() => {
       if (editor?.rel === rel) setEditor(null)
@@ -210,233 +370,121 @@ export default function Skills() {
     }).then((data) => {
       if (data) setFiles(Array.isArray(data.files) ? data.files : [])
     }).catch((cause) => {
-      setNote(cause instanceof Error ? cause.message : '删除失败')
+      setNote(classifySurfaceFailure(cause, '没能删除文件。').message)
     }).finally(() => setBusy(false))
   }
 
+  const connect = () => {
+    setNote('正在连接核心…')
+    void runtimeApi.connectAi().then(() => {
+      setNote('')
+      load()
+    }).catch((cause) => {
+      setNote(classifySurfaceFailure(cause, '没有连上核心。').message)
+    })
+  }
+
+  const guide = phase === 'coreDown'
+    ? <SurfaceButton variant="primary" onClick={connect}>连接核心</SurfaceButton>
+    : <SurfaceButton onClick={load}>再试一次</SurfaceButton>
+
   return (
-    <div>
-      <PageTitle
-        title="技能"
-        subtitle={subtitle}
-        actions={
-          <button type="button" className="btn-primary" disabled={busy} onClick={openInstall}><Sparkles size={14} /> 安装新技能</button>
-        }
-      />
-
-      <div className="grid grid-cols-1 @3xl:grid-cols-[1fr_360px] gap-6">
-        <div>
-          <Card className="mb-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              {canFilterEnabled ? (
-                <div className="flex items-center gap-1">
-                  {(['all', 'enabled', 'disabled'] as const).map((k) => (
-                    <button
-                      key={k}
-                      onClick={() => setFilter(k)}
-                      className={clsx('px-3 py-1.5 rounded text-sm', filter === k ? 'bg-ink text-white' : 'hover:bg-surface-2 text-ink-muted')}
-                    >
-                      {k === 'all' ? '全部' : k === 'enabled' ? '启用中' : '已停用'}
-                    </button>
-                  ))}
-                </div>
-              ) : <div />}
-              <div className="relative">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle" />
-                <input
-                  className="input pl-8 h-8 w-52"
-                  placeholder="搜索 Skill"
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                />
-              </div>
-            </div>
-          </Card>
-
-          {filtered.length === 0 ? (
-            <Card><div className="text-sm text-ink-muted py-12 text-center">没有匹配的 Skill</div></Card>
-          ) : (
-            <div className="grid grid-cols-1 @lg:grid-cols-2 gap-3">
-              {filtered.map((s) => (
-                <div
-                  key={s.id}
-                  className={clsx('card p-4 hover:shadow-pop transition-shadow cursor-pointer', active?.id === s.id && 'ring-1 ring-brand')}
-                  onClick={() => setActive(s)}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="text-2xl shrink-0"><Sparkles size={22} className="text-ink-muted" /></div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <div className="text-sm font-medium truncate">{s.name}</div>
-                        {typeof s.modelInvocable === 'boolean' && (
-                          <Tag kind={s.modelInvocable ? 'green' : 'default'}>{s.modelInvocable ? '启用' : '停用'}</Tag>
-                        )}
-                      </div>
-                      {s.description && <div className="text-xs text-ink-muted mt-1.5 line-clamp-2">{s.description}</div>}
-                      {Array.isArray(s.methods) && s.methods.length > 0 && (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {s.methods.map((method) => <Tag key={method}>{method}</Tag>)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {Array.isArray(s.triggers) && s.triggers.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1">
-                      {s.triggers.map((t) => <span key={t} className="tag bg-surface-2 border border-line text-ink-muted text-[11px]">{t}</span>)}
-                    </div>
-                  )}
-                  <div className="mt-3 flex items-center justify-between">
-                    <button
-                      className={clsx('btn h-7 px-2 text-xs', s.modelInvocable && 'bg-brand-soft border-brand/30 text-brand')}
-                      disabled={busy || !canManageBundle(s)}
-                      title={canManageBundle(s) ? undefined : '当前没有启停 Remote'}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        runInvocable(s, s.modelInvocable === false)
-                      }}
-                    >
-                      {s.modelInvocable === false ? '启用' : '停用'}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+    <div ref={frame}>
+      <PageTitle title="技能" />
+      {phase === 'loading' ? (
+        <div aria-busy="true" className="space-y-2">
+          <div className="h-8 rounded-kit bg-kit-muted" />
+          <div className="h-16 rounded-kit-lg bg-kit-muted" />
+          <div className="h-16 rounded-kit-lg bg-kit-muted" />
         </div>
-
-        <div>
-          {active && (
-            <Card>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="text-4xl"><Sparkles size={36} className="text-ink-muted" /></div>
-                <div>
-                  <div className="text-base font-medium">{active.name}</div>
-                  {typeof active.modelInvocable === 'boolean' && (
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <Tag kind={active.modelInvocable ? 'green' : 'default'}>{active.modelInvocable ? '启用' : '停用'}</Tag>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {active.description && <p className="text-sm text-ink-muted mb-4">{active.description}</p>}
-              {active.path && (
-                <>
-                  <div className="text-xs text-ink-muted mb-1.5">路径</div>
-                  <div className="text-xs font-mono text-ink-muted break-all mb-4">{active.path}</div>
-                </>
-              )}
-              {Array.isArray(active.methods) && active.methods.length > 0 && (
-                <>
-                  <div className="text-xs text-ink-muted mb-1.5">方法</div>
-                  <div className="flex flex-wrap gap-1.5 mb-4">
-                    {active.methods.map((method) => <Tag key={method}>{method}</Tag>)}
-                  </div>
-                </>
-              )}
-              {Array.isArray(active.triggers) && active.triggers.length > 0 && (
-                <>
-                  <div className="text-xs text-ink-muted mb-1.5">触发词</div>
-                  <div className="flex flex-wrap gap-1.5 mb-4">
-                    {active.triggers.map((t) => <Tag key={t}>{t}</Tag>)}
-                  </div>
-                </>
-              )}
-
-              {canManageBundle(active) && (
-                <>
-                  <div className="text-xs text-ink-muted mb-1.5">文件</div>
-                  <div className="space-y-1 mb-3 max-h-48 overflow-y-auto">
-                    {files.map((file) => (
-                      <div key={file.rel} className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          className="btn-ghost text-xs font-mono flex-1 text-left truncate h-7"
-                          disabled={file.type === 'dir'}
-                          onClick={() => openBundleFile(file.rel, file.type)}
-                        >
-                          {file.rel}
-                        </button>
-                        {file.type === 'file' && (
-                          <button type="button" className="btn h-7 px-2 text-xs" disabled={busy} onClick={() => removeBundleFile(file.rel)}>删除</button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex gap-1.5 mb-3">
-                    <input className="input flex-1 font-mono text-xs h-8" value={newRel} onChange={(e) => setNewRel(e.target.value)} placeholder="scripts/run.mjs" />
-                    <button type="button" className="btn h-8 px-2 text-xs" disabled={busy || !newRel.trim()} onClick={addBundleFile}>新增</button>
-                  </div>
-                  {editor && (
-                    <div className="mb-3">
-                      <div className="text-xs font-mono text-ink-muted mb-1">{editor.rel}</div>
-                      <textarea className="input font-mono text-xs" rows={10} value={editor.text} onChange={(e) => setEditor({ ...editor, text: e.target.value })} />
-                      <button type="button" className="btn mt-2 h-8 px-2 text-xs" disabled={busy} onClick={saveEditor}>保存文件</button>
-                    </div>
-                  )}
-                </>
-              )}
-
-              <div className="flex gap-2 mt-4">
-                <button
-                  className={clsx('btn flex-1', active.modelInvocable && 'bg-brand-soft border-brand/30 text-brand')}
-                  disabled={busy || !canManageBundle(active)}
-                  title={canManageBundle(active) ? undefined : '当前没有启停 Remote'}
-                  onClick={() => runInvocable(active, active.modelInvocable === false)}
-                >
-                  {active.modelInvocable === false ? '启用此 Skill' : '停用此 Skill'}
-                </button>
-                {canManageBundle(active) && (
-                  <button type="button" className="btn" disabled={busy} onClick={() => runUninstall(active)}>卸载</button>
-                )}
-              </div>
-            </Card>
-          )}
-        </div>
-      </div>
-
-      {showInstall && (
-        <div className="fixed inset-0 z-40 bg-ink/20 flex items-start justify-end" onClick={() => setShowInstall(false)}>
-          <div className="bg-surface w-[480px] h-full border-l border-line p-5 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-medium">安装 Skill</h3>
-              <button type="button" className="btn-ghost p-1" onClick={() => setShowInstall(false)}>×</button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-ink-muted">源包</label>
-                <div className="flex gap-1.5 mt-1">
-                  <input className="input flex-1 font-mono text-xs" value={draft.source} onChange={(e) => setDraft({ ...draft, source: e.target.value })} placeholder="/path/to/skill" />
-                  <button
-                    type="button"
-                    className="btn h-8 px-2 text-xs"
-                    onClick={() => {
-                      void runtimeApi.pickAiWorkspaceDirectory().then((path) => {
-                        if (path) setDraft((current) => ({ ...current, source: path }))
-                      })
-                    }}
-                  >
-                    选择
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-ink-muted">安装到</label>
-                <select className="input mt-1" value={draft.root} onChange={(e) => setDraft({ ...draft, root: e.target.value })}>
-                  {roots.map((row) => (
-                    <option key={row.path} value={row.path}>{row.source} · {row.path}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <button type="button" className="btn" onClick={() => setShowInstall(false)}>取消</button>
-                <button type="button" className="btn-primary" disabled={busy || !draft.source.trim() || !draft.root} onClick={saveInstall}>
-                  {busy ? '保存中' : '保存'}
-                </button>
-              </div>
+      ) : null}
+      {phase === 'unreachable' || phase === 'error' || phase === 'coreDown' ? (
+        <SurfaceGuide
+          title={phase === 'unreachable' ? '连不上本机核心' : phase === 'coreDown' ? '核心还没接通' : '这一步没有完成'}
+          body={failure}
+          action={guide}
+        />
+      ) : null}
+      {phase === 'empty' ? (
+        <SurfaceEmpty
+          icon={Sparkles}
+          title="还没有技能"
+          body="从一个本机目录安装之后，这里会列出它。"
+          action={<SurfaceButton variant="primary" onClick={openInstall}>安装技能</SurfaceButton>}
+        />
+      ) : null}
+      {phase === 'ready' ? (
+        <div className="space-y-3">
+          {note ? <SurfaceBanner tone="quiet">{humanizeSurfaceMessage(note, note)}</SurfaceBanner> : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {canFilter ? (
+              <SurfaceSegmented
+                label="筛选"
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  { id: 'all', label: `全部 ${skills.length}` },
+                  { id: 'enabled', label: `启用 ${enabledCount}` },
+                  { id: 'disabled', label: `停用 ${disabledCount}` },
+                ]}
+              />
+            ) : (
+              <div className="text-kit-sm text-kit-secondary">全部 {skills.length}</div>
+            )}
+            <div className="ml-auto">
+              <SurfaceButton variant="primary" disabled={busy} onClick={openInstall}>安装技能</SurfaceButton>
             </div>
           </div>
+          <div className={wide ? 'grid grid-cols-[minmax(0,1fr)_minmax(260px,340px)] gap-3' : 'space-y-3'}>
+            {(!picked || wide) ? (
+              <div className="min-w-0 space-y-2">
+                <SurfaceSearch aria-label="搜索技能" placeholder="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)} />
+                {filtered.length ? (
+                  <SkillList rows={filtered} selected={shown?.id || ''} onOpen={setPicked} onToggle={runToggle} />
+                ) : (
+                  <SurfaceEmpty icon={Sparkles} title="没有匹配的技能" body="换个词，或改一下筛选。" />
+                )}
+              </div>
+            ) : null}
+            {(picked || wide) ? (
+              <SkillDetail
+                row={shown}
+                showBack={!wide}
+                busy={busy}
+                files={files}
+                editor={editor}
+                newRel={newRel}
+                onBack={() => setPicked(null)}
+                onToggle={runToggle}
+                onUninstall={runUninstall}
+                onOpenFile={openBundleFile}
+                onRemoveFile={removeBundleFile}
+                onNewRel={setNewRel}
+                onAddFile={addBundleFile}
+                onEdit={(text) => setEditor((current) => (current ? { ...current, text } : current))}
+                onSaveFile={saveEditor}
+              />
+            ) : null}
+          </div>
         </div>
-      )}
+      ) : null}
+      <InstallDialog
+        open={installOpen}
+        source={source}
+        root={root}
+        roots={roots}
+        error={installError}
+        busy={busy}
+        onOpenChange={setInstallOpen}
+        onSource={setSource}
+        onRoot={setRoot}
+        onPick={() => {
+          void runtimeApi.pickAiWorkspaceDirectory().then((path) => {
+            if (path) setSource(path)
+          })
+        }}
+        onSave={saveInstall}
+      />
     </div>
   )
 }

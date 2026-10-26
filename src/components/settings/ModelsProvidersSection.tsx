@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react'
+import { useCoreBoot } from '@/components/settings/core-connection'
 import { capacityFieldText, formatCapacity, parseCapacity } from '@/components/settings/model-capacity'
+import { surfaceNote } from '@/components/settings/surface-note'
 import { mergeModelRows } from '../../../runtime/models-settings-rows.mjs'
 import clsx from 'clsx'
 import { Tag } from '@/components/ui'
@@ -325,6 +327,7 @@ export function ModelsProvidersSection({
   setNote: (value: string) => void
   onModelsRefresh: () => void
 }) {
+  const boot = useCoreBoot(!connected)
   const [snapshot, setSnapshot] = useState<ModelsSettingsSnapshot | null>(null)
   const [loadError, setLoadError] = useState('')
   const [listOpen, setListOpen] = useState(false)
@@ -336,7 +339,7 @@ export function ModelsProvidersSection({
     void runtimeApi.getModelsSettings().then((data) => {
       setSnapshot(data)
     }).catch((cause) => {
-      setLoadError(cause instanceof Error ? cause.message : '加载失败')
+      setLoadError(surfaceNote(cause, '加载失败'))
       void runtimeApi.listAiProviders().then((legacy) => {
         setSnapshot(legacyModelsSnapshotFromProviders(legacy))
         setLoadError('')
@@ -359,12 +362,16 @@ export function ModelsProvidersSection({
   return (
     <>
       {!connected && (
-        <div className="mb-3 text-xs text-ink-muted">先打开 AI 页连上核心，保存才会进正在跑的 DSH；未连接时只能看快照。</div>
+        <div className="mb-3 text-kit-sm text-kit-secondary">
+          {boot.kind === 'starting' || boot.kind === 'installing' || boot.kind === 'failed' || boot.kind === 'iui-failed' || boot.kind === 'verify_failed'
+            ? boot.text
+            : '核心还没接通。现在只能看快照，保存要等核心接上。'}
+        </div>
       )}
       {note && <div className="mb-3 text-xs text-ink-muted">{note}</div>}
       {snapshot?.legacy && !loadError && (
         <div className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          本地 BFF 尚无 models-settings 接口（旧 4318 进程）。列表来自 <span className="font-mono">/api/v1/ai/providers</span>；保存编辑前请点「重载核心」。
+          当前核心还是旧接口。列表是快照，保存前请点「重载核心」。
         </div>
       )}
       {loadError && <div className="mb-3 text-xs text-accent-red">{loadError}</div>}
@@ -400,7 +407,7 @@ export function ModelsProvidersSection({
                       <span
                         className={clsx(
                           'w-2 h-2 rounded-full shrink-0',
-                          row.credentialConfigured ? 'bg-accent-green' : 'bg-accent-red',
+                          row.credentialConfigured ? 'bg-kit-brand' : 'bg-kit-danger',
                         )}
                         title={row.credentialConfigured ? 'API 密钥已配置' : 'API 密钥缺失'}
                       />
@@ -450,7 +457,7 @@ export function ModelsProvidersSection({
                               setEditor(null)
                               load()
                               onModelsRefresh()
-                            }).catch((cause) => setNote(cause instanceof Error ? cause.message : '删除失败')).finally(() => setBusy(false))
+                            }).catch((cause) => setNote(surfaceNote(cause, '删除失败'))).finally(() => setBusy(false))
                           }}
                         >
                           <Trash2 size={12} />
@@ -621,7 +628,7 @@ function ProviderEditorCard({
           onSaved()
           onClose()
         }).catch((cause) => {
-          const message = cause instanceof Error ? cause.message : '保存失败'
+          const message = surfaceNote(cause, '保存失败')
           setFormError(message)
           setNote(message)
         }).finally(() => setBusy(false))
@@ -640,7 +647,7 @@ function ProviderEditorCard({
         onSaved()
         onClose()
       }).catch((cause) => {
-        const message = cause instanceof Error ? cause.message : '保存失败'
+        const message = surfaceNote(cause, '保存失败')
         setFormError(message)
         setNote(message)
       }).finally(() => setBusy(false))
@@ -676,7 +683,7 @@ function ProviderEditorCard({
       onSaved()
       onClose()
     }).catch((cause) => {
-      const message = cause instanceof Error ? cause.message : '保存失败'
+      const message = surfaceNote(cause, '保存失败')
       setFormError(message)
       setNote(message)
     }).finally(() => setBusy(false))
@@ -730,7 +737,7 @@ function ProviderEditorCard({
                   setKeyDraft('')
                   setNote('密钥已清除，请重载核心。')
                   onSaved()
-                }).catch((cause) => setFormError(cause instanceof Error ? cause.message : '清除失败')).finally(() => setBusy(false))
+                }).catch((cause) => setFormError(surfaceNote(cause, '清除失败'))).finally(() => setBusy(false))
               }}
             >
               清除密钥
@@ -823,7 +830,7 @@ function ProviderEditorCard({
                         ...(f.reasoningEfforts !== undefined ? { reasoningEfforts: f.reasoningEfforts } : {}),
                       })))
                       setDiscoverPick(new Set(found.filter((f) => !known.has(f.id)).map((f) => f.id)))
-                    }).catch((cause) => setFormError(cause instanceof Error ? cause.message : '获取失败')).finally(() => setBusy(false))
+                    }).catch((cause) => setFormError(surfaceNote(cause, '获取失败'))).finally(() => setBusy(false))
                   }}
                 >
                   获取可用模型
@@ -939,7 +946,7 @@ function AddCatalogCard({
             setBusy(true)
             setFormError('')
             void runtimeApi.addAiProvider({ provider, apiKey: key.trim() }).then(onSaved).catch((cause) => {
-              setFormError(cause instanceof Error ? cause.message : '保存失败')
+              setFormError(surfaceNote(cause, '保存失败'))
               setNote(formError)
             }).finally(() => setBusy(false))
           }}
@@ -1002,7 +1009,7 @@ function AddCustomCard({
         ...(m.reasoningEfforts !== undefined ? { reasoningEfforts: m.reasoningEfforts } : {}),
         ...(Array.isArray(m.input) ? { input: m.input } : {}),
       })),
-    }).then(onSaved).catch((cause) => setFormError(cause instanceof Error ? cause.message : '创建失败')).finally(() => setBusy(false))
+    }).then(onSaved).catch((cause) => setFormError(surfaceNote(cause, '创建失败'))).finally(() => setBusy(false))
   }
 
   return (
@@ -1054,7 +1061,7 @@ function AddCustomCard({
                   ...(f.reasoningEfforts !== undefined ? { reasoningEfforts: f.reasoningEfforts } : {}),
                 })))
                 setDiscoverPick(new Set(found.filter((f) => !known.has(f.id)).map((f) => f.id)))
-              }).catch((cause) => setFormError(cause instanceof Error ? cause.message : '获取失败')).finally(() => setBusy(false))
+              }).catch((cause) => setFormError(surfaceNote(cause, '获取失败'))).finally(() => setBusy(false))
             }}
           >
             获取可用模型

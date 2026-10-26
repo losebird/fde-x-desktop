@@ -1,6 +1,6 @@
 # FDE-X 生产接线规格（coding agent 唯一执行件）
 
-执行本文件前先读完 **§0–§3 与 §0.5**。§0.5 覆盖前文所有冲突条款。旧日记、会话岛、`dsh-integration-contract.md` 的 plugin 路线作废。
+执行本文件前先读完 **§0–§3、§0.5 与 §0.6**。§0.5 覆盖前文所有冲突条款。§0.6 只放开三块面板的样式与交互，不放松 §0.5 的引擎、安全、顶栏与其余页面。旧日记、会话岛、`dsh-integration-contract.md` 的 plugin 路线作废。
 
 **壳层补缺见 §15。** 创建应用、早报、IM 采纳、文件发给 AI、应用工作面 **已开工并进 main**。§15 里过时的「空草稿 / 未开工」以本节与 §0.5 现网占用为准。不得借「顺手」改壳或 restyle。
 
@@ -131,6 +131,30 @@ DSH 进程 **必须挂上** `dsh-lan-assist` 与 `dsh-semantic-os`（只要 Host
 **IUI 内置插件例外（2026-10-17 解禁）：** `@losebird/iui`（钉 `0.13.0-iui.27` @ `77c23c7c`）与 lan-assist / semantic-os 同为内置 Host 插件，profile 启动时自动挂上，打包进 `resources/plugins/iui`，用户机不构建。它的 client 只在现有 `/dsh-app/` 会话 iframe 内渲染 `iui-html` 围栏，这是「浏览器不加载插件 client」的唯一例外，不进 FDE 页面、不新开顶栏、不新开路由。IUI 只在 `standard` preset 生效：提示段、工具、技能目录由 `fde-x-dsh-bridge` 按会话 preset 门控，应用构建与早报不带。
 
 **死页：** 阶段 H 只删文件，不准改 `App.tsx` / `IMScreen` / `Briefing` 路由。`/tasks` `/schedule` 仍开计划面板。
+
+### 0.6 三块面板样式授权（2026-10-16）
+
+用户授权。只放行现有右侧面板里的三块，允许改样式与交互，做到可上线的专业水准。其余页面和外壳仍按 §0.1、§0.4、§0.5，不准借这一节改。
+
+| 允许 | 路径 |
+|---|---|
+| 连接器 | `src/pages/MCP.tsx`、`src/components/connectors/**` |
+| 技能 | `src/pages/Skills.tsx`、`src/components/skills/**` |
+| 设置 | `src/pages/Settings.tsx`、`src/components/settings/**`、基础组件 `src/components/surface/**` |
+
+设置分类以现网 8 个为基线，不再加第九个：账户、外观、通知、快捷键、AI 核心、语义记忆、运行环境、存储与数据。§10 里「六分区」以这 8 个为准。
+
+仍然禁止：
+
+- 新顶栏模块。三块保持现有右侧面板，不另做一页。
+- 改 AI 对话页（DSH Host iframe）以及三块以外的页面、外壳（`IMScreen`、`StagePanel`、`FloatingPanel`、`ThumbnailStack`、顶栏）。
+- 暗色主题、i18n。
+- 为单个设置字段硬编码。表单仍由 Host `settings/describe` schema 驱动，只改渲染器。
+- 用空值判断捂崩溃。未接通、空、加载、错误是四种要设计的状态。
+- 引入整套带样式的重型 UI 库。基础组件可以用 Radix 或 shadcn 的无样式原语，样式走本节的 kit token。
+- 改已有全局类 `.btn`、`.card`、`.input` 和已有 `brand` / `rounded` / `shadow-card` 的取值。新样式只用 `kit-*` token，避免带偏其它页。
+
+Token 在 `:root` 的 `--kit-*` 与 `tailwind.config.js` 的 `kit` 键。色板沿用浅色与主色 `#2F6B3A`。`pnpm lint` 检查 `src/components/surface`、`src/components/settings`、`src/components/connectors`、`src/components/skills`、以及 `MCP.tsx` / `Skills.tsx` / `Settings.tsx`。`pnpm check:surface` 检查报错改写：先按 `RuntimeApiError` 的 `status` / `code` 映射，正则只兜底；`Failed to fetch` 与 `runtime_unreachable` 归到核心未接通（`unreachable`），不当成一条技术报错。`pnpm visual` 用标题文字和 ARIA 角色定位三块右侧面板，不靠外壳 className。
 
 ---
 
