@@ -13,6 +13,7 @@ import { useApp } from '@/store/app'
 import type { FileNode } from '@/lib/types'
 import { PageTitle, Card, Tag, Empty } from '@/components/ui'
 import { runtimeApi, type WorkspaceFileVersion } from '@/lib/runtime-api'
+import { sanitizeOfficeHtml } from '../../runtime/office-html.mjs'
 import { DocxPackage, type DocxBlockView, type DocxRunView } from '@/lib/office-docx'
 import { currentAiTarget } from '@/lib/ai-target'
 import { attachToCurrentAi } from '@/lib/current-turn'
@@ -388,7 +389,7 @@ function OfficeDocPreview({ url, editing, onHtml }: { url: string; editing?: boo
           }))),
         },
       )
-      const next = result.value || '<p>（空文档）</p>'
+      const next = sanitizeOfficeHtml(result.value || '<p>（空文档）</p>')
       if (alive) {
         setHtml(next)
         onHtml?.(next)
@@ -416,8 +417,8 @@ function OfficeDocPreview({ url, editing, onHtml }: { url: string; editing?: boo
         className="fde-word-page"
         contentEditable={Boolean(editing)}
         suppressContentEditableWarning
-        onInput={(event) => onHtml?.(event.currentTarget.innerHTML)}
-        dangerouslySetInnerHTML={{ __html: html }}
+        onInput={(event) => onHtml?.(sanitizeOfficeHtml(event.currentTarget.innerHTML))}
+        dangerouslySetInnerHTML={{ __html: sanitizeOfficeHtml(html) }}
       />
     </div>
   )
