@@ -1209,8 +1209,9 @@ export class RuntimeApi {
     return this.joinInflight(this.connectInflight, signal)
   }
 
-  async retryIui(signal?: AbortSignal): Promise<void> {
-    await this.request('/api/v1/ai/iui/retry', { method: 'POST', signal })
+  async retryIui(signal?: AbortSignal): Promise<AiRuntimeStatus> {
+    const result = await this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/iui/retry', { method: 'POST', signal })
+    return result.data
   }
 
   async disconnectAi(signal?: AbortSignal): Promise<AiRuntimeStatus> {

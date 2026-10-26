@@ -16,6 +16,50 @@ const listeners = new Set<CoreListener>()
 let watchTimer = 0
 let watchGeneration = 0
 let watching = false
+let lastDelivered: AiRuntimeStatus | null = null
+let dropBaseline = ''
+let baselineHits = 0
+let sawMovement = false
+let retryPromise: Promise<void> | null = null
+
+function snapshotKey(status: AiRuntimeStatus) {
+  return JSON.stringify({
+    state: status.state,
+    connected: status.connected,
+    lastError: status.lastError ?? null,
+    iui: status.iui ?? null,
+  })
+}
+
+function deliver(status: AiRuntimeStatus) {
+  lastDelivered = status
+  for (const listener of [...listeners]) {
+    if (listeners.has(listener)) listener(status)
+  }
+}
+
+function installingStatus(previous: AiRuntimeStatus | null): AiRuntimeStatus {
+  const base: AiRuntimeStatus = previous ?? {
+    state: 'starting',
+    connected: false,
+    version: '',
+    pid: null,
+    origin: null,
+    workspace: '',
+    semanticMemoryMode: 'external-adapter',
+    credentialsMode: 'ephemeral-copy',
+    startedAt: null,
+    lastError: null,
+    recentLogs: [],
+  }
+  return {
+    ...base,
+    state: 'starting',
+    connected: false,
+    lastError: null,
+    iui: { state: 'installing', phase: 'stage', progress: { completed: 0, total: 4 } },
+  }
+}
 
 export type CoreBootGuidance = {
   kind: 'starting' | 'installing' | 'failed' | 'iui-failed' | 'verify_failed' | 'down' | 'ready'
@@ -26,7 +70,7 @@ export class ContractError extends Error {
   readonly field: string
 
   constructor(field: string) {
-    super(`运行时状态格式不对：${field}`)
+    super('运行状态不完整，这一页暂时显示不了。')
     this.name = 'ContractError'
     this.field = field
   }
@@ -67,7 +111,11 @@ export function iuiStatusLine(iui: IuiStatus) {
   throw new ContractError('iui.state')
 }
 
-const FAILED_COPY = '本地核心还没接通。请重新执行 `pnpm dev`；本机第二套请用 `pnpm run dev:peer`。'
+function coreDownCopy(status: AiRuntimeStatus | null | undefined) {
+  const reason = status?.lastError?.trim()
+  if (reason) return `本地核心还没接通。${reason}`
+  return '本地核心还没接通。请稍候或重启应用。'
+}
 
 function processGone(status: AiRuntimeStatus | null | undefined) {
   return status?.pid == null
@@ -84,16 +132,16 @@ function isTerminalStatus(status: AiRuntimeStatus) {
 
 export function coreBootGuidance(status: AiRuntimeStatus | null | undefined): CoreBootGuidance {
   const iui = status?.iui
-  if (iui?.state === 'failed') return { kind: 'iui-failed', text: iuiStatusLine(iui) }
-  if (iui?.state === 'verify_failed') return { kind: 'verify_failed', text: iuiStatusLine(iui) }
-  if (status?.state === 'error') return { kind: 'failed', text: FAILED_COPY }
   if (iui?.state === 'installing') return { kind: 'installing', text: iuiStatusLine(iui) }
+  if (iui?.state === 'verify_failed') return { kind: 'verify_failed', text: iuiStatusLine(iui) }
+  if (status?.state === 'error') return { kind: 'failed', text: coreDownCopy(status) }
+  if (iui?.state === 'failed') return { kind: 'iui-failed', text: iuiStatusLine(iui) }
   if (status?.connected || status?.state === 'connected') return { kind: 'ready', text: '' }
   const state = String(status?.state || '')
   const failed = state === 'error' || state === 'failed'
     || (timedOut(status) && processGone(status))
     || (Boolean(status?.lastError) && processGone(status) && !STARTING_STATES.has(state) && state !== 'idle' && state !== '')
-  if (failed) return { kind: 'failed', text: FAILED_COPY }
+  if (failed) return { kind: 'failed', text: coreDownCopy(status) }
   if (STARTING_STATES.has(state)) {
     const bits: string[] = []
     if (status?.version) bits.push(status.version)
@@ -114,13 +162,40 @@ function stopWatch() {
   watchTimer = 0
 }
 
+function acceptWatchedStatus(status: AiRuntimeStatus) {
+  const key = snapshotKey(status)
+  if (!dropBaseline || key !== dropBaseline) {
+    if (dropBaseline) {
+      sawMovement = true
+      baselineHits = 0
+    }
+    return true
+  }
+  if (sawMovement) {
+    dropBaseline = ''
+    baselineHits = 0
+    return true
+  }
+  baselineHits += 1
+  if (baselineHits < 2) return false
+  dropBaseline = ''
+  baselineHits = 0
+  return true
+}
+
 function watchTick() {
   const generation = watchGeneration
   void runtimeApi.aiStatus().then((status) => {
     if (generation !== watchGeneration) return
-    for (const listener of [...listeners]) {
-      if (listeners.has(listener)) listener(status)
+    if (!acceptWatchedStatus(status)) {
+      if (generation !== watchGeneration || listeners.size === 0) {
+        watching = false
+        return
+      }
+      watchTimer = window.setTimeout(watchTick, WATCH_MS)
+      return
     }
+    deliver(status)
     if (generation !== watchGeneration || listeners.size === 0 || isTerminalStatus(status)) {
       stopWatch()
       return
@@ -141,12 +216,36 @@ function ensureWatch() {
   watchTick()
 }
 
-/** Start the shared status watch again after a terminal failure. Listeners stay put. */
-export function resumeCoreWatch() {
-  watchGeneration += 1
-  watching = false
-  window.clearTimeout(watchTimer)
-  watchTimer = 0
+export function runIuiRetry() {
+  if (retryPromise) return retryPromise
+  retryPromise = runIuiRetryNow().finally(() => {
+    retryPromise = null
+  })
+  return retryPromise
+}
+
+async function runIuiRetryNow() {
+  const previous = lastDelivered
+  const baseline = previous ? snapshotKey(previous) : ''
+  stopWatch()
+  dropBaseline = baseline
+  baselineHits = 0
+  sawMovement = false
+  deliver(installingStatus(previous))
+  let posted: AiRuntimeStatus
+  try {
+    posted = await runtimeApi.retryIui()
+  } catch (error) {
+    dropBaseline = ''
+    baselineHits = 0
+    if (previous) deliver(previous)
+    throw error
+  }
+  if (!baseline || snapshotKey(posted) !== baseline) {
+    sawMovement = true
+    deliver(posted)
+    if (listeners.size === 0 || isTerminalStatus(posted)) return
+  }
   if (listeners.size === 0) return
   ensureWatch()
 }
