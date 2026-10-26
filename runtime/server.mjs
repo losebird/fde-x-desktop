@@ -93,7 +93,7 @@ import { refreshLanAssistConnectionLamp } from './biz/connection-lamp.mjs'
 import { handleEventsRoutes } from './routes/events.mjs'
 import { handleAppsRoutes, requestAppWorkspace } from './routes/apps.mjs'
 import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.mjs'
-import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp } from './apps/share.mjs'
+import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp, publicShareCors } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, persistUiToken, resolveUiToken, verifyUiToken } from './routes/bridge.mjs'
@@ -303,8 +303,18 @@ async function resolveFileRoot(sessionId) {
 
 const allowedOrigins = new Set(FDE_ALLOWED_ORIGINS)
 
+function requestPathname(request) {
+  try {
+    return new URL(request?.url || '/', 'http://127.0.0.1').pathname
+  } catch {
+    return ''
+  }
+}
+
 function corsHeaders(response) {
   const origin = response.req?.headers.origin
+  const share = publicShareCors(origin, requestPathname(response.req))
+  if (share) return share
   if (typeof origin === 'string' && allowedOrigins.has(origin)) {
     return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' }
   }

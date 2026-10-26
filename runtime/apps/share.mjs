@@ -46,6 +46,14 @@ export function lanFaceForbidden(request, pathname, { staticDir } = {}) {
   return !isPublicAppFace(pathname, { staticDir })
 }
 
+/** Sandboxed share documents send Origin: null. Only the share capability mouth answers them. */
+export function publicShareCors(origin, pathname) {
+  if (origin === 'null' && pathHasPrefix(pathname, '/api/v1/app-share/')) {
+    return { 'Access-Control-Allow-Origin': 'null', Vary: 'Origin' }
+  }
+  return null
+}
+
 const SKIP_IFACE = /^(utun|awdl|llw|bridge|vmnet|vboxnet|vnic|docker|br-|cni|flannel|tailscale|zt)/i
 
 export function lanIpv4Rank(address, iface) {

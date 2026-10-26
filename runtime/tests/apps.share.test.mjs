@@ -16,10 +16,12 @@ import {
   liveShareIdsByApp,
   mintShare,
   pickLanIpv4,
+  publicShareCors,
   publicShareUrl,
   resolveLiveShare,
   revokeLiveSharesForApp,
 } from '../apps/share.mjs'
+import { WEB_APP_CSP_SANDBOX, WEB_APP_IFRAME_SANDBOX, webAppHtmlHeaders } from '../apps/web-host.mjs'
 import { handleAppShareRoutes } from '../routes/app-share.mjs'
 import { handleAppsRoutes } from '../routes/apps.mjs'
 import { handlePublicAppDocument } from '../routes/public-app.mjs'
@@ -227,6 +229,48 @@ describe('app live share occupancy', () => {
     assert.equal(isPublicAppFace('/ai'), false)
     assert.equal(isPublicAppFace('/src/main.tsx', { staticDir: '' }), true)
     assert.equal(isPublicAppFace('/src/main.tsx', { staticDir: '/pack/dist' }), false)
+  })
+
+  test('serveWebAppAsset puts CSP sandbox on HTML', async () => {
+    const { mkdtemp, writeFile, mkdir, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { serveWebAppAsset } = await import('../apps/web-host.mjs')
+    const cwd = await mkdtemp(join(tmpdir(), 'fde-web-csp-'))
+    const spec = { spec: 'fde-web/v1', slug: 'csp-probe', name: 'csp', entry: 'index.html', bundleRoot: 'apps/csp-probe' }
+    await mkdir(join(cwd, 'apps/csp-probe'), { recursive: true })
+    await writeFile(join(cwd, 'apps/csp-probe/index.html'), '<html><head></head><body>hi</body></html>')
+    const headers = {}
+    const response = {
+      writeHead(status, head) { this.status = status; Object.assign(headers, head) },
+      end() {},
+    }
+    const ok = serveWebAppAsset({ method: 'GET' }, response, {
+      spec,
+      workspaceCwd: cwd,
+      relPath: '',
+      livePrefix: '/a/x',
+      storePrefix: '/api/v1/app-share/x/store',
+    })
+    assert.equal(ok, true)
+    assert.match(headers['Content-Security-Policy'], /^sandbox /)
+    assert.equal(headers['Content-Security-Policy'].includes('allow-same-origin'), false)
+    await rm(cwd, { recursive: true, force: true })
+  })
+
+  test('hosted web HTML is sandboxed without same-origin', () => {
+    assert.equal(WEB_APP_IFRAME_SANDBOX.includes('allow-same-origin'), false)
+    assert.match(WEB_APP_CSP_SANDBOX, /^sandbox /)
+    assert.equal(WEB_APP_CSP_SANDBOX.includes('allow-same-origin'), false)
+    const headers = webAppHtmlHeaders()
+    assert.equal(headers['Content-Security-Policy'], WEB_APP_CSP_SANDBOX)
+    assert.equal(headers['X-Content-Type-Options'], 'nosniff')
+  })
+
+  test('Origin null CORS is only for the share capability mouth', () => {
+    assert.equal(publicShareCors('null', '/api/v1/app-share/abc/store/k')['Access-Control-Allow-Origin'], 'null')
+    assert.equal(publicShareCors('null', '/api/v1/ai/sessions'), null)
+    assert.equal(publicShareCors('http://127.0.0.1:5174', '/api/v1/app-share/abc'), null)
   })
 
   test('LAN URL prefers 192.168 on en0 over overlay/utun', () => {

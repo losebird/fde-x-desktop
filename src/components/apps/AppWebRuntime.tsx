@@ -1,5 +1,6 @@
 import { runtimeApi } from '@/lib/runtime-api'
 import { appIsTrashed, type FdeAppDetail } from '@/lib/app-spec'
+import { WEB_APP_IFRAME_SANDBOX } from '../../../runtime/apps/web-host.mjs'
 
 type Props = {
   app: FdeAppDetail
@@ -42,6 +43,8 @@ export function AppWebRuntime({
         src={liveSrc}
         className="w-full min-h-[560px] bg-white"
         data-app-web-host="true"
+        sandbox={WEB_APP_IFRAME_SANDBOX}
+        referrerPolicy="no-referrer"
       />
     </div>
   )

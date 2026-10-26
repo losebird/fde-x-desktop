@@ -62,6 +62,19 @@ const BRIDGE_SRC = `(() => {
   window.fdeApp = api
 })();`
 
+/** Opaque origin: scripts run, they cannot read the workbench same-origin GET APIs. */
+export const WEB_APP_IFRAME_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals'
+export const WEB_APP_CSP_SANDBOX = `sandbox ${WEB_APP_IFRAME_SANDBOX}`
+
+export function webAppHtmlHeaders(mime = 'text/html; charset=utf-8') {
+  return {
+    'Content-Type': mime,
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': WEB_APP_CSP_SANDBOX,
+    'X-Content-Type-Options': 'nosniff',
+  }
+}
+
 function sendBytes(response, status, mime, bytes, extraHeaders = {}) {
   response.writeHead(status, {
     'Content-Type': mime,
@@ -125,12 +138,18 @@ export function serveWebAppAsset(request, response, {
     })
     bytes = Buffer.from(injected, 'utf8')
   }
+  const htmlHeaders = mime.startsWith('text/html') ? webAppHtmlHeaders(mime) : {}
   if (method === 'HEAD') {
-    response.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-store', 'Content-Length': bytes.length })
+    response.writeHead(200, {
+      'Content-Type': mime,
+      'Cache-Control': 'no-store',
+      'Content-Length': bytes.length,
+      ...htmlHeaders,
+    })
     response.end()
     return true
   }
-  sendBytes(response, 200, mime, bytes)
+  sendBytes(response, 200, mime, bytes, htmlHeaders)
   return true
 }
 
