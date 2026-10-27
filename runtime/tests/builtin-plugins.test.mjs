@@ -16,8 +16,8 @@ const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'iui')
 
 describe('builtin plugin registry', { concurrency: 1 }, () => {
   test('the table is the bundle and stage list', () => {
-    assert.deepEqual(builtinBundleNames(), ['dsh-lan-assist', 'dsh-semantic-os', '@losebird/iui'])
-    assert.deepEqual(builtinStageDirs(), ['dsh-lan-assist', 'dsh-semantic-os', 'iui'])
+    assert.deepEqual(builtinBundleNames(), ['dsh-semantic-os', '@losebird/iui'])
+    assert.deepEqual(builtinStageDirs(), ['dsh-semantic-os', 'iui'])
     assert.equal(pluginEnvKey('iui'), 'FDE_PLUGIN_IUI')
     assert.equal(pluginEnvKey('@losebird/iui'), 'FDE_PLUGIN__LOSEBIRD_IUI')
     assert.deepEqual(IUI.modes, ['standard'])
@@ -55,7 +55,7 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
       const packagePath = join(home, 'profiles', 'fde-x', 'package.json')
       const manifest = JSON.parse(await readFile(packagePath, 'utf8'))
       assert.ok(manifest.dsh.profile.bundles.includes('@losebird/iui'))
-      assert.ok(manifest.dsh.profile.bundles.includes('dsh-lan-assist'))
+      assert.equal(manifest.dsh.profile.bundles.includes('dsh-lan-assist'), false)
       const linked = join(home, 'profiles', 'fde-x', 'node_modules', '@losebird', 'iui')
       assert.equal((await lstat(linked)).isSymbolicLink(), true)
       assert.equal(JSON.parse(await readFile(join(linked, 'package.json'), 'utf8')).version, IUI.source.version)
@@ -256,7 +256,7 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
       assert.match(warnings.join('\n'), /builtin_plugin_link_failed/)
       const manifest = JSON.parse(await readFile(join(home, 'profiles', 'fde-x', 'package.json'), 'utf8'))
       assert.equal(manifest.dsh.profile.bundles.includes('@losebird/iui'), false)
-      assert.equal(manifest.dsh.profile.bundles.includes('dsh-lan-assist'), true)
+      assert.equal(manifest.dsh.profile.bundles.includes('dsh-lan-assist'), false)
     } finally {
       console.warn = originalWarn
       restoreEnv(saved)
@@ -266,24 +266,26 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
 
   test('refresh replaces an unpinned home copy and leaves the source', async () => {
     const home = await mkdtemp(join(tmpdir(), 'fde-home-'))
-    const source = await mkdtemp(join(tmpdir(), 'fde-lan-'))
+    const source = await mkdtemp(join(tmpdir(), 'fde-sem-'))
     const savedRefresh = process.env.FDE_REFRESH_PLUGINS
     const savedLan = process.env.FDE_PLUGIN_DSH_LAN_ASSIST
     const savedSem = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
     const savedIui = process.env.FDE_PLUGIN_IUI
+    await writeFile(join(source, 'package.json'), `${JSON.stringify({ name: 'dsh-semantic-os' })}\n`)
+    await writeFile(join(source, 'index.js'), 'export {}\n')
     await writeFile(join(source, 'marker.txt'), 'first')
-    process.env.FDE_PLUGIN_DSH_LAN_ASSIST = source
-    process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = await tinyPlugin(home, 'sem')
+    delete process.env.FDE_PLUGIN_DSH_LAN_ASSIST
+    process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = source
     delete process.env.FDE_PLUGIN_IUI
     delete process.env.FDE_REFRESH_PLUGINS
     try {
       const connector = new DshCoreConnector({ dshHome: home, cwd: home })
       await connector.ensureIsolatedProfile()
-      assert.equal(await readFile(join(home, 'vendor', 'dsh-lan-assist', 'marker.txt'), 'utf8'), 'first')
+      assert.equal(await readFile(join(home, 'vendor', 'dsh-semantic-os', 'marker.txt'), 'utf8'), 'first')
       await writeFile(join(source, 'marker.txt'), 'second')
       process.env.FDE_REFRESH_PLUGINS = '1'
       await connector.ensureIsolatedProfile()
-      assert.equal(await readFile(join(home, 'vendor', 'dsh-lan-assist', 'marker.txt'), 'utf8'), 'second')
+      assert.equal(await readFile(join(home, 'vendor', 'dsh-semantic-os', 'marker.txt'), 'utf8'), 'second')
       assert.equal(await readFile(join(source, 'marker.txt'), 'utf8'), 'second')
     } finally {
       if (savedRefresh === undefined) delete process.env.FDE_REFRESH_PLUGINS

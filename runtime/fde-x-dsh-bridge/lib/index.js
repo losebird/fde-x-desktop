@@ -425,6 +425,21 @@ function installIuiModeGate(ctx, config) {
   })
 }
 
+function registerLanAssistHttpTools(ctx) {
+  const root = process.env.FDE_LAN_ASSIST_ROOT
+  if (!root) return Promise.resolve()
+  const { pathToFileURL } = require('node:url')
+  const { defineTool } = loadDshTools()
+  return import(pathToFileURL(join(root, 'tools.js')).href).then((mod) => {
+    const port = process.env.FDE_RUNTIME_PORT || '4318'
+    const secretary = mod.createHttpSecretary(`http://127.0.0.1:${port}/lan-assist`)
+    mod.registerTools(ctx, { defineTool }, secretary, {
+      noteToolSheet: () => ({ emit: false }),
+      notePostSettledHopTool: () => undefined,
+    })
+  })
+}
+
 function apply(ctx, config) {
   if (Config && Config.dict) {
     for (const field of Object.values(Config.dict)) {
@@ -452,6 +467,11 @@ function apply(ctx, config) {
     registerTools(ctx, { defineTool, config })
     installWorkflowToolLimit(ctx)
     writeBridgeToolsStatus({ ok: true, tools: FDE_TOOL_NAMES, workflowLimit: true })
+    void registerLanAssistHttpTools(ctx).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      if (ctx.logger && typeof ctx.logger.warn === 'function') ctx.logger.warn(`[fde-x-dsh-bridge] lan-assist tools: ${message}`)
+      else console.warn(`[fde-x-dsh-bridge] lan-assist tools: ${message}`)
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     writeBridgeToolsStatus({ ok: false, error: message })

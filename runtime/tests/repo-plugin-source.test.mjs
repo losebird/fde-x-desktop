@@ -276,9 +276,9 @@ if (process.env.PR4_CASE) {
       await connector.ensureIsolatedProfile()
       const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'fde-x', 'package.json'), 'utf8'))
       assert.equal(connector.state, 'idle', connector.lastError || '')
-      assert.equal(manifest.dsh.profile.bundles.includes('dsh-lan-assist'), true)
+      assert.equal(manifest.dsh.profile.bundles.includes('dsh-lan-assist'), false)
       assert.equal(manifest.dsh.profile.bundles.includes('dsh-semantic-os'), false)
-      assert.equal(readFileSync(join(home, 'vendor', 'dsh-lan-assist', 'index.js'), 'utf8'), 'export {}\n')
+      assert.equal(existsSync(join(home, 'vendor', 'dsh-lan-assist')), false)
     } finally {
       for (const [key, value] of Object.entries(saved)) {
         if (value === undefined) delete process.env[key]
@@ -294,8 +294,7 @@ if (process.env.PR4_CASE) {
   test('repo kind points at runtime/plugins', () => {
     const lan = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-lan-assist')
     const sem = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-semantic-os')
-    assert.equal(lan.source.kind, 'repo')
-    assert.equal(lan.source.path, 'runtime/plugins/dsh-lan-assist')
+    assert.equal(lan, undefined)
     assert.equal(sem.source.kind, 'repo')
     assert.equal(sem.source.path, 'runtime/plugins/dsh-semantic-os')
     const dev = readFileSync(join(repoRoot, 'scripts', 'dev.mjs'), 'utf8')
@@ -308,9 +307,9 @@ if (process.env.PR4_CASE) {
     const got = await child('clean')
     assert.equal(got.state, 'idle')
     assert.equal(got.lastError, null)
-    assert.equal(got.lanMatch, true)
+    assert.equal(got.lanMatch, false)
     assert.equal(got.semExists, true)
-    assert.equal(got.bundles.includes('dsh-lan-assist'), true)
+    assert.equal(got.bundles.includes('dsh-lan-assist'), false)
     assert.equal(got.bundles.includes('dsh-semantic-os'), true)
   })
 

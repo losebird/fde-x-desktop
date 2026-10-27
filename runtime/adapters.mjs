@@ -31,7 +31,7 @@ export async function inspectAdapters({ aiRuntime } = {}) {
     },
     {
       capability: 'im-business-adapter',
-      paths: [join(profileModules, 'dsh-lan-assist')],
+      paths: [],
       detail: 'IM 与业务系统操作能力的防腐适配入口',
     },
     {
@@ -103,20 +103,20 @@ export async function inspectAdapters({ aiRuntime } = {}) {
       }
     }
     if (definition.capability === 'im-business-adapter') {
-      if (!available) {
-        return {
-          capability: definition.capability,
-          state: 'unavailable',
-          detail: `${definition.detail}；未发现本机安装`,
-          checkedAt: checkedAt(),
-        }
-      }
       let lanAssistState = null
       if (aiRuntime && typeof aiRuntime.lanAssist === 'function') {
         try {
           lanAssistState = await withProbeTimeout(aiRuntime.lanAssist('/state', { search: { sessionId: '' } }))
         } catch {
           lanAssistState = null
+        }
+      }
+      if (!lanAssistState) {
+        return {
+          capability: definition.capability,
+          state: 'unavailable',
+          detail: `${definition.detail}；BFF 闸未接通`,
+          checkedAt: checkedAt(),
         }
       }
       const health = imBusinessAdapterHealthFromState(lanAssistState, {

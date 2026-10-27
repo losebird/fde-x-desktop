@@ -552,6 +552,7 @@ export class DshCoreConnector {
       env: hostChildEnv({
         FDE_LAN_ASSIST_BFF: '1',
         FDE_RUNTIME_PORT: String(process.env.FDE_RUNTIME_PORT || FDE_RUNTIME_PORT || '4318'),
+        FDE_LAN_ASSIST_ROOT: join(this.runtimeDirectory, 'plugins', 'dsh-lan-assist'),
         DSH_HOME: this.dshHome,
         DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE || 'danger-full-access',
         DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT,

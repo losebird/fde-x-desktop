@@ -1,7 +1,6 @@
 import { IUI_PIN } from './iui-pin.mjs'
 
 export const BUILTIN_PLUGINS = [
-  { dir: 'dsh-lan-assist', module: 'dsh-lan-assist', source: { kind: 'repo', path: 'runtime/plugins/dsh-lan-assist' }, health: 'im-business-adapter' },
   { dir: 'dsh-semantic-os', module: 'dsh-semantic-os', source: { kind: 'repo', path: 'runtime/plugins/dsh-semantic-os' }, health: 'semantic-memory' },
   {
     dir: 'iui',
