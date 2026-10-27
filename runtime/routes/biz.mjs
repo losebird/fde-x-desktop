@@ -450,18 +450,48 @@ function patchFromRollbackChanges(changes) {
   return patch
 }
 
-export async function capturePendingSheet(aiRuntime, previewId) {
+function sheetFromStateRaw(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const sheet = raw.sheet && typeof raw.sheet === 'object' ? raw.sheet : raw
+  return sheet && typeof sheet === 'object' ? sheet : null
+}
+
+export async function capturePendingSheet(aiRuntime, previewId, sessionId) {
   try {
-    const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
-    const raw = state?.officialRoundSheet
-    const sheet = raw?.sheet && typeof raw.sheet === 'object' ? raw.sheet : raw
-    if (!sheet || typeof sheet !== 'object') return null
-    const pid = String(sheet.preview_id || sheet.previewId || '').trim()
-    if (pid && previewId && pid !== previewId) return null
-    return sheet
+    const wanted = String(previewId || '').trim()
+    const sid = String(sessionId || '').trim()
+    const state = await aiRuntime.lanAssist('/state', { search: { sessionId: sid } })
+    const candidates = [state?.pendingSheet, state?.officialRoundSheet]
+    let fallback = null
+    for (const raw of candidates) {
+      const sheet = sheetFromStateRaw(raw)
+      if (!sheet) continue
+      const pid = String(sheet.preview_id || sheet.previewId || '').trim()
+      if (wanted && pid && pid !== wanted) continue
+      if (wanted && pid === wanted) return sheet
+      if (!fallback) fallback = sheet
+    }
+    return fallback
   } catch {
     return null
   }
+}
+
+export function auditChangesFromWrite(body, sheet, written) {
+  if (Array.isArray(body?.changes) && body.changes.length) return body.changes
+  if (Array.isArray(sheet?.changes) && sheet.changes.length) return sheet.changes
+  const line0 = Array.isArray(written?.lines) ? written.lines[0] : null
+  if (Array.isArray(line0?.changes) && line0.changes.length) return line0.changes
+  const patch = (written && written.patch && typeof written.patch === 'object' && !Array.isArray(written.patch))
+    ? written.patch
+    : (sheet && sheet.patch && typeof sheet.patch === 'object' && !Array.isArray(sheet.patch) ? sheet.patch : null)
+  if (!patch) return []
+  const fields = (sheet && Array.isArray(sheet.rows) && sheet.rows[0] && sheet.rows[0].fields) || {}
+  return Object.keys(patch).map((field) => ({
+    field,
+    from: fields[field],
+    to: patch[field],
+  }))
 }
 
 export async function auditWorkstationWrite({ db, aiRuntime }, { body, written, pendingSheet }) {
@@ -473,9 +503,7 @@ export async function auditWorkstationWrite({ db, aiRuntime }, { body, written, 
   const bizCwd = requestedCwd
   const sheet = pendingSheet && typeof pendingSheet === 'object' ? pendingSheet : null
   const line0 = Array.isArray(written?.lines) ? written.lines[0] : null
-  const auditChanges = Array.isArray(body?.changes)
-    ? body.changes
-    : (Array.isArray(sheet?.changes) ? sheet.changes : (Array.isArray(line0?.changes) ? line0.changes : []))
+  const auditChanges = auditChangesFromWrite(body, sheet, written)
   const traceId = String(body?.trace_id || written?.trace_id || written?.traceId || createId('trace'))
   const isRollbackWrite = Boolean(rollbackOfTraceId)
   const original = isRollbackWrite ? getBizWriteAuditByTraceId(db, rollbackOfTraceId, workspaceCwd) : null
@@ -548,7 +576,7 @@ export async function auditWorkstationWrite({ db, aiRuntime }, { body, written, 
 export async function postWorkstationBizWrite({ db, aiRuntime }, body) {
   const writeSource = String(body?.source || '').trim()
   const requestedCwd = canonicalWorkspaceCwd(body?.workspace || body?.workspaceCwd || '') || ''
-  const pendingSheet = await capturePendingSheet(aiRuntime, body?.preview_id)
+  const pendingSheet = await capturePendingSheet(aiRuntime, body?.preview_id, body?.sessionId || body?.session_id)
   const written = await aiRuntime.lanAssist('/write', {
     method: 'POST',
     body: {
