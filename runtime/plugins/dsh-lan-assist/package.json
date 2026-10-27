@@ -92,13 +92,6 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "inject": [
-        "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-cordis-client-runner"
-      ],
-      "platform": "web"
     }
   },
   "peerDependencies": {
@@ -113,7 +106,6 @@
   },
   "exports": {
     ".": "./index.js",
-    "./client": "./client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   }

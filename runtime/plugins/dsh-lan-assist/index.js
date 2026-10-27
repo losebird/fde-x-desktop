@@ -1,5 +1,6 @@
 /**
- * Host plugin: LAN mailbox + same-origin /lan-assist + tools/commands.
+ * Host plugin: tools + /lan-assist HTTP only.
+ * FDE pages are the human mouth (业务记录, IM). Do not load client.js in the iframe.
  * Followup happens after a human adopt or 拟回 click. Typed chat is already a session.
  * @module dsh-lan-assist
  */
