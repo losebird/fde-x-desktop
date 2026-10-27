@@ -160,10 +160,10 @@ export default function Skills() {
   const wide = shellWidth >= 860
   const canFilter = skills.some((row) => typeof row.modelInvocable === 'boolean')
   const enabledCount = skills.filter((row) => row.modelInvocable === true).length
-  const disabledCount = skills.filter((row) => row.modelInvocable === false).length
+  const disabledCount = skills.length - enabledCount
   const filtered = skills.filter((row) => {
     if (canFilter && filter === 'enabled' && row.modelInvocable !== true) return false
-    if (canFilter && filter === 'disabled' && row.modelInvocable !== false) return false
+    if (canFilter && filter === 'disabled' && row.modelInvocable === true) return false
     if (query && !row.name.includes(query) && !(row.description || '').includes(query)) return false
     return true
   })
