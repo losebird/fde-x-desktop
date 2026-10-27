@@ -194,7 +194,7 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
 
   ctx.tools.register(defineTool({
     name: 'biz_preview',
-    description: '查、改、删、建、过审都走这里，预览出现在业务页。工具回执只有槽结果和 next（pick-rows / confirm / continue / stop），不含行体。next=continue 时改槽再调；pick-rows 或 confirm 后不要再调、不要提问、不要调用 biz_write、不要代点。写令牌确认面在本会话确认卡。对话里禁止 biz_write。不要用 bash 查库。闸只验证槽，不理解原话。where 只收当前型自己的列，关联沿图放 from 或 steps（把话里提到的相关型一次走完，不限两个；不要把父名写在子表关系列上），改值放 patch，过审落到哪一档放 patch 或 to（该型状态列的枚举 code 或标签）。某一格对不上整句停。speech 放用户整句原话，闸按你写的 from/steps hop，不从 speech 补节点、不从口令猜名字、不从上一张表补槽。批量改行/删除/过审把这一次的 where/from/steps 写全并带 batch=true，发一张集合令牌一次确认。没连上 / 不在名下 / 未登记型不发令牌。',
+    description: '查、改、删、建、过审都走这里，预览出现在业务页。工具回执只有槽结果和 next（pick-rows / confirm / continue / stop），不含行体。next=continue 时改槽再调；pick-rows 或 confirm 后不要再调、不要提问、不要调用 biz_write、不要代点。写令牌确认面在业务记录。对话里禁止 biz_write。不要用 bash 查库。闸只验证槽，不理解原话。where 只收当前型自己的列，关联沿图放 from 或 steps（把话里提到的相关型一次走完，不限两个；不要把父名写在子表关系列上），改值放 patch，过审落到哪一档放 patch 或 to（该型状态列的枚举 code 或标签）。某一格对不上整句停。speech 放用户整句原话，闸按你写的 from/steps hop，不从 speech 补节点、不从口令猜名字、不从上一张表补槽。批量改行/删除/过审把这一次的 where/from/steps 写全并带 batch=true，发一张集合令牌一次确认。没连上 / 不在名下 / 未登记型不发令牌。',
     parameters: {
       system: { type: 'string', description: '系统' },
       env: { type: 'string', description: '环境' },
@@ -257,7 +257,7 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
 
   ctx.tools.register(defineTool({
     name: 'biz_write',
-    description: '写令牌确认面在本会话确认卡。对话里不要调用，不要代点。无令牌 / 过期 / 已用过都拒。',
+    description: '写令牌确认面在业务记录。对话里不要调用，不要代点。无令牌 / 过期 / 已用过都拒。',
     parameters: {
       preview_id: { type: 'string', required: true, description: '刚才预览发的令牌' },
       trace_id: { type: 'string', description: '同一笔只许成功一次' },

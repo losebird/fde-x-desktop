@@ -9,7 +9,7 @@ import { taskHandoffPrompt } from '../plan/task-handoff.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pluginDir = join(root, 'plugins', 'dsh-lan-assist')
-const DENY = '预览已出，请在本会话确认卡过账；不要代点。'
+const DENY = '预览已出，请在业务记录过账；不要代点。'
 
 test('biz handoff prompt stops after confirm and forbids acting as the click', () => {
   const built = taskHandoffPrompt({
@@ -17,7 +17,7 @@ test('biz handoff prompt stops after confirm and forbids acting as the click', (
     title: '改等级',
     sourceRef: 'biz:客户:C-1',
   })
-  assert.match(built.prompt, /请在本会话确认卡过账/)
+  assert.match(built.prompt, /请在业务记录过账/)
   assert.match(built.prompt, /next=confirm/)
   assert.match(built.prompt, /fde_plan_task_propose/)
   assert.match(built.prompt, /fde_submit_result/)
@@ -27,19 +27,19 @@ test('biz handoff prompt stops after confirm and forbids acting as the click', (
   assert.match(built.prompt, /chrome-devtools/)
   assert.match(built.prompt, /cua-driver/)
   assert.match(built.prompt, /不要代点/)
-  assert.match(built.prompt, /确认只由人点本会话确认卡/)
+  assert.match(built.prompt, /确认只由人点业务记录/)
 })
 
 test('biz tool copy names the workstation confirm surface and forbids a chat click', () => {
   const tools = readFileSync(join(pluginDir, 'tools.js'), 'utf8')
-  assert.equal(tools.includes('写令牌确认面在本会话确认卡'), true)
+  assert.equal(tools.includes('写令牌确认面在业务记录'), true)
   assert.equal(tools.includes('不要代点'), true)
   assert.equal(tools.includes('过账只在右侧'), false)
   const letter = briefFollowup({
     quote: '把等级改成 A',
     catalog: [{ name: 'biz_preview' }],
   })
-  assert.match(letter, /写令牌确认面在本会话确认卡/)
+  assert.match(letter, /写令牌确认面在业务记录/)
   assert.match(letter, /不要代点/)
   assert.equal(letter.includes('写才 biz_write'), false)
   assert.match(letter, /人到右边业务页看表/)

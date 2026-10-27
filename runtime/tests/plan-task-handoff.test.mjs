@@ -19,7 +19,7 @@ test('handoff prompt names one task and an fde-biz session', () => {
   assert.match(built.prompt, /回复供应商报价/)
   assert.match(built.prompt, /biz:采购单:PO-2026-001/)
   assert.match(built.prompt, /biz_preview/)
-  assert.match(built.prompt, /请在本会话确认卡过账/)
+  assert.match(built.prompt, /请在业务记录过账/)
   assert.equal(built.prompt.includes('fde_app_records_query'), false)
   assert.equal(built.prompt.includes('fde_app_records_propose'), false)
   assert.equal(built.prompt.includes('请在右侧确认'), false)
@@ -47,7 +47,7 @@ test('handoff prompt for an app ledger keeps app record tools', () => {
   assert.match(built.prompt, /fde_app_records_query/)
   assert.match(built.prompt, /fde_app_records_propose/)
   assert.equal(built.prompt.includes('biz_preview'), false)
-  assert.equal(built.prompt.includes('请在本会话确认卡过账'), false)
+  assert.equal(built.prompt.includes('请在业务记录过账'), false)
 })
 
 test('handoff prompt for a hand-built task omits app record tools', () => {

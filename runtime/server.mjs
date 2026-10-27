@@ -809,9 +809,7 @@ const FDE_DSH_HEAD_HOOK = `<script data-fde-dsh-hook>
 </script>`
 
 const FDE_DSH_STRIP_STYLE = `<style data-fde-dsh-strip>
-.dla-ask-wrap,.dla-ask-btn,.dla-badge,.dla-chat-pop,.dla-chat-scrim,.dla-chat-pair-ask{display:none!important}
-.dla-overlay:not(.is-shell){display:none!important}
-.dla-overlay.is-shell{display:flex!important}
+.dla-ask-wrap,.dla-ask-btn,.dla-badge,.dla-chat-pop,.dla-chat-scrim,.dla-chat-pair-ask,.dla-overlay{display:none!important}
 .dsos-root,.dsos-bar{display:none!important}
 html[data-fde-session-canvas] [data-sidebar-collapsed],
 html[data-fde-session-canvas] [data-rightbar-collapsed]{grid-template-columns:0 minmax(0,1fr) 0!important}
@@ -1035,7 +1033,7 @@ function proxyLanAssistWrite(request, response, url) {
     const previewId = String(body.preview_id || body.previewId || '').trim()
     const source = String(body.source || '').trim()
     const peek = (source === 'workstation' && previewId)
-      ? capturePendingSheet(aiRuntime, previewId).catch(() => null)
+      ? capturePendingSheet(aiRuntime, previewId, body.sessionId || body.session_id).catch(() => null)
       : Promise.resolve(null)
     void peek.then((pendingSheet) => {
       const target = new URL(aiRuntime.origin)

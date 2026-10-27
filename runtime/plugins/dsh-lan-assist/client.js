@@ -4149,7 +4149,7 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'dla-dock-toggle', onClick: () => setCollapsed(true) }, '收起'),
           ),
           dock.mode === 'preview'
-            ? h('p', { className: 'dla-dock-speak' }, dock.prompt || '请在本会话确认卡过账。确认前不会改库。')
+            ? h('p', { className: 'dla-dock-speak' }, dock.prompt || '请在业务记录过账。确认前不会改库。')
             : (dock.mode === 'receipt' || dock.mode === 'compensate')
               ? h('div', { className: 'dla-dock-speak is-rows' },
                 ...((dock.preview && Array.isArray(dock.preview.lines) && dock.preview.lines.length
@@ -4666,17 +4666,18 @@ window.__ModuleLoader__.load({
       const sheetKey = sheet
         ? [sheet.sessionId || '', sheet.workspace || '', sheet.kind, sheet.no, sheet.preview_id, sheet.action, sheet.batch ? 'batch' : '', listOf(sheet.nos).join(','), sheet.askRest || '', sheet.pickField ? 'field' : '', listOf(sheet.fieldChoices).map((row) => row && row.name).join(','), listOf(sheet.rows).map((row) => row && row.no).join(',')].join('|')
         : ''
+      const confirmableWrite = !!(sheet && sheet.action && sheet.action !== '现查' && (sheet.preview_id || sheet.batch))
       useEffect(() => {
         if (!inWorkbenchShell()) return
-        if (sheet && sheet.action && sheet.action !== '现查' && (sheet.preview_id || sheet.batch)) {
+        if (confirmableWrite) {
           setFace('biz')
           setOpen(true)
+        } else {
+          setOpen(false)
         }
       }, [sheetKey])
       useEffect(() => {
         if (!sheetKey) return
-        setFace('biz')
-        setOpen(true)
         setPicked((sheet.rows && sheet.rows.length === 1) ? 0 : -1)
         setPickedField(-1)
         setBatchNod(false)
@@ -4955,7 +4956,8 @@ window.__ModuleLoader__.load({
       }
       const badgeCount = inbox.length + (sheet && sheet.canWrite ? 1 : 0)
       const inShell = inWorkbenchShell()
-      return h('div', { className: 'dla-overlay' + (inShell ? ' is-shell' : ''), style: { pointerEvents: (inShell && !open) ? 'none' : 'auto' } },
+      const showOverlayPanel = open && (!inShell || confirmableWrite)
+      return h('div', { className: 'dla-overlay' + (inShell ? ' is-shell' : ''), style: { pointerEvents: (inShell && !showOverlayPanel) ? 'none' : 'auto' } },
         inShell ? null : h('button', {
           type: 'button',
           className: 'dla-badge',
@@ -4966,7 +4968,7 @@ window.__ModuleLoader__.load({
           },
           title: '工作台 · 待你点的单',
         }, '工作台', badgeCount > 0 ? h('b', null, String(badgeCount)) : null),
-        open ? h('div', { className: 'dla-sec-backdrop', onClick: () => setOpen(false) },
+        showOverlayPanel ? h('div', { className: 'dla-sec-backdrop', onClick: () => setOpen(false) },
           h('div', {
             className: 'dla-sec-panel is-sheet' + (inShell ? ' is-shell' : ''),
             style: { width: panelSize.w + 'px', height: panelSize.h + 'px', right: panelSize.right + 'px', maxHeight: 'none' },

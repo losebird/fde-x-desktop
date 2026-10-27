@@ -404,10 +404,10 @@ test('a proposal with no preview keeps confirm on the plan only', async () => {
   rmSync(dbPath, { force: true })
 })
 
-test('write previews confirm on the session card, not records', async () => {
+test('write previews confirm on 业务记录, not the session overlay', async () => {
   const { sheetConfirmsOnPlanCard, sheetConfirmsOnSessionCard } = await import('../biz/confirm-mouth.mjs')
   const write = { action: '改行', preview_id: PREVIEW }
-  assert.equal(sheetConfirmsOnSessionCard(write), true)
+  assert.equal(sheetConfirmsOnSessionCard(write), false)
   assert.equal(sheetConfirmsOnPlanCard(write), false)
   assert.equal(sheetConfirmsOnSessionCard({ action: '现查', preview_id: write.preview_id }), false)
   assert.equal(sheetConfirmsOnSessionCard({ ...write, confirmMouth: 'plan' }), false)

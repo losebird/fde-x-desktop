@@ -78,7 +78,7 @@ test('planPageSpeech replaces right-side confirm copy with the session card hint
   assert.equal(planPageSpeech('请在右侧确认过账'), SESSION_CARD_HINT)
   assert.equal(planPageSpeech('先预览，请在右侧确认'), `先预览，\n${SESSION_CARD_HINT}`)
   assert.equal(planPageSpeech('已生成预览'), `已生成预览\n${SESSION_CARD_HINT}`)
-  assert.equal(SESSION_CARD_HINT, '请在本会话确认卡过账')
+  assert.equal(SESSION_CARD_HINT, '请在业务记录过账')
 })
 
 test('plan page speech is rewritten only when the round already asks for the plan page', () => {
@@ -98,7 +98,7 @@ test('plan page speech is rewritten only when the round already asks for the pla
   assert.equal(result.speak.includes('请在右侧确认'), true)
 })
 
-test('workstation confirm hint is the session card', async () => {
+test('workstation confirm hint is 业务记录', async () => {
   const { WORKSTATION_CONFIRM_HINT } = await import('../plugins/dsh-lan-assist/write.js')
   const { readFileSync } = await import('node:fs')
   const { join } = await import('node:path')

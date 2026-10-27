@@ -39,8 +39,8 @@ body,
   height: 100%;
 }
 
-/* lan-assist badge stays hidden; in-shell overlay is the session confirm card. */
-.dla-overlay:not(.is-shell),
+/* lan-assist overlay never occupies FDE-X; 业务记录 is the write confirm mouth. */
+.dla-overlay,
 .dla-badge {
   display: none !important;
 }
