@@ -288,8 +288,6 @@ export function listBusinessConnections(db, { workspaceId = 'ws_personal' } = {}
            OR (
              workspace_id = 'ws_personal'
              AND provider IN (${SHARED_BUSINESS_CONNECTION_PROVIDERS.map(() => '?').join(', ')})
-             AND credential_ref IS NOT NULL
-             AND credential_ref != ''
            )
         ORDER BY name ASC
       `).all(workspaceId, ...SHARED_BUSINESS_CONNECTION_PROVIDERS)
@@ -321,18 +319,24 @@ export function updateBusinessConnectionStatusByProvider(db, provider, status, l
   if (!wantProvider || !wantStatus) return { changed: 0 }
   const now = isoNow()
   const healthJson = lastHealth && typeof lastHealth === 'object' ? JSON.stringify(lastHealth) : null
-  const rows = db.prepare(`
-    SELECT id, status FROM business_connections WHERE workspace_id = ? AND provider = ?
-  `).all(workspaceId, wantProvider)
+  const scopes = [workspaceId]
+  if (workspaceId !== 'ws_personal' && SHARED_BUSINESS_CONNECTION_PROVIDERS.includes(wantProvider)) {
+    scopes.push('ws_personal')
+  }
   let changed = 0
-  for (const row of rows) {
-    if (row.status === wantStatus && !healthJson) continue
-    db.prepare(`
-      UPDATE business_connections
-      SET status = ?, updated_at = ?, last_health_json = COALESCE(?, last_health_json)
-      WHERE workspace_id = ? AND id = ?
-    `).run(wantStatus, now, healthJson, workspaceId, row.id)
-    changed += 1
+  for (const scope of scopes) {
+    const rows = db.prepare(`
+      SELECT id, status FROM business_connections WHERE workspace_id = ? AND provider = ?
+    `).all(scope, wantProvider)
+    for (const row of rows) {
+      if (row.status === wantStatus && !healthJson) continue
+      db.prepare(`
+        UPDATE business_connections
+        SET status = ?, updated_at = ?, last_health_json = COALESCE(?, last_health_json)
+        WHERE workspace_id = ? AND id = ?
+      `).run(wantStatus, now, healthJson, scope, row.id)
+      changed += 1
+    }
   }
   return { changed }
 }

@@ -94,24 +94,19 @@ describe('biz surfaces and live execute', () => {
     const personal = listBusinessConnections(db, { workspaceId: 'ws_personal' })
     const scoped = listBusinessConnections(db, { workspaceId: wsId })
     assert.ok(personal.some((c) => c.id === 'conn_lan_assist'))
-    assert.equal(scoped.filter((c) => c.id === 'conn_lan_assist').length, 0)
+    assert.ok(scoped.some((c) => c.id === 'conn_lan_assist'))
     db.close()
   })
 
-  test('an empty-credential lan-assist adapter stays in the personal workspace', () => {
+  test('shared lan-assist is listed for every workspace even without credential_ref', () => {
     const db = openDatabase(`/tmp/fde-biz-conn-empty-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     const wsId = 'ws_other_guard'
     const before = listBusinessConnections(db, { workspaceId: wsId })
     db.prepare(`UPDATE business_connections SET credential_ref = ? WHERE id = ?`).run('cred_lan', 'conn_lan_assist')
     const after = listBusinessConnections(db, { workspaceId: wsId })
     db.close()
-    assert.deepEqual({
-      before: before.some((row) => row.id === 'conn_lan_assist'),
-      after: after.some((row) => row.id === 'conn_lan_assist'),
-    }, {
-      before: false,
-      after: true,
-    })
+    assert.equal(before.some((row) => row.id === 'conn_lan_assist'), true)
+    assert.equal(after.some((row) => row.id === 'conn_lan_assist'), true)
   })
 
   test('biz_surfaces insert and list', () => {
