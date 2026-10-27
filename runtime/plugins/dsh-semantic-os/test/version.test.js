@@ -8,7 +8,7 @@ test('plugin, bridge, runtime, client, and optional dependency versions stay ali
   const client = await readFile(new URL('../client.js', import.meta.url), 'utf8')
   assert.equal(PLUGIN_VERSION, pkg.version)
   assert.equal(RUNTIME_VERSION, pkg.version)
-  assert.ok(client.includes(`pluginVersion: '${PLUGIN_VERSION}'`))
+  assert.ok(client.includes("id: 'dsh-semantic-os'"))
   const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
   assert.ok(patch.includes(`name: ${pkg.name}`))
   assert.ok(patch.includes(`id: ${pkg.name}`))

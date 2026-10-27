@@ -1275,7 +1275,8 @@ def read_edge_rows(cwd: str) -> list[dict[str, Any]]:
                 src, tgt, et = str(row[0] or ""), str(row[1] or ""), str(row[2] or "related_to")
                 if src and tgt:
                     out.append({"source": src, "target": tgt, "type": et})
-            return out
+            if out:
+                return out
         except Exception:
             pass
     path = Path(os.path.realpath(cwd)) / ".dsh" / "semantic-os" / "graph.json"

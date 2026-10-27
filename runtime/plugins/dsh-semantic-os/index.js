@@ -1,5 +1,5 @@
 /**
- * Host plugin: one semantica==0.6.7 sidecar, same-origin /semantic-os, host tools.
+ * Host plugin: one semantica==0.7.0 sidecar, same-origin /semantic-os, host tools.
  * apply() never throws on doctor fail — the plugin stays not-ready.
  * @module dsh-semantic-os
  */

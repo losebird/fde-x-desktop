@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "reviewed": {
     "certifi": {
-      "version": "2026.7.22",
+      "version": "2026.10.23",
       "license": "MPL-2.0",
       "source": "https://github.com/certifi/python-certifi"
     },
@@ -16,15 +16,21 @@
       "license": "MIT",
       "source": "https://github.com/zowens/py-rust-stemmers"
     },
-    "soxr": {
-      "version": "1.1.0",
-      "license": "LGPL-2.1-or-later",
-      "source": "https://github.com/dofuuz/python-soxr"
-    },
     "tqdm": {
-      "version": "4.70.0",
+      "version": "4.70.1",
       "license": "MPL-2.0 AND MIT",
       "source": "https://github.com/tqdm/tqdm"
+    }
+  },
+  "models": {
+    "zh_core_web_sm": {
+      "version": "3.8.0",
+      "license": "MIT",
+      "source": "https://github.com/explosion/spacy-models"
+    },
+    "BAAI/bge-small-zh-v1.5": {
+      "license": "MIT",
+      "source": "https://huggingface.co/BAAI/bge-small-zh-v1.5"
     }
   }
 }

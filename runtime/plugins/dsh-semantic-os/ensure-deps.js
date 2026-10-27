@@ -1,5 +1,5 @@
 /**
- * Install missing pieces for personal use: semantica 0.6.7, FAISS, FalkorDB.
+ * Install missing pieces for personal use: semantica 0.7.0, FAISS, FalkorDB.
  * Docker first. No Docker: OS-specific store.
  * macOS: brew install libomp then falkordblite.
  * Linux: apt/dnf/yum libgomp then falkordblite. Homebrew is not required.
@@ -10,13 +10,18 @@
 
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { resolveBundledRuntime } from './runtime-bundle.js'
 import { resolveInstalledRuntime } from './runtime-install.js'
 
-const EXPECTED = '0.6.7'
+const EXPECTED = '0.7.0'
+const SEMANTICA_EXTRAS = 'explorer,graph-embeddings,documents,parse-pdf,nlp-spacy,tripletstore-oxigraph'
+const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url))
+const RUNTIME_REQUIREMENTS = join(PLUGIN_ROOT, 'runtime', 'requirements.txt')
+const RUNTIME_CONSTRAINTS = join(PLUGIN_ROOT, 'runtime', 'constraints.txt')
 const IMAGE = process.env.DSH_FALKORDB_IMAGE || 'falkordb/falkordb:v4.0.3'
 const NAME = 'dsh-falkordb'
 const LITE_DETAIL = '没 Docker，用官方嵌入式包开店'
@@ -315,7 +320,8 @@ async function ensureVenvPython() {
 }
 
 async function pipInstall(python, spec) {
-  return run([python, '-m', 'pip', 'install', '-q', spec], { timeoutMs: 300000 })
+  const extra = Array.isArray(spec) ? spec : [spec]
+  return run([python, '-m', 'pip', 'install', '-q', ...extra], { timeoutMs: 900_000 })
 }
 
 async function startFalkorDocker() {
@@ -420,8 +426,8 @@ export async function ensureDeps(options = {}) {
           source: 'bundled-invalid',
         }
       }
-      progress({ step: 'installing_semantica', current: 2, total: 6, detail: `Installing semantica[explorer]==${EXPECTED}` })
-      await pipInstall(python, `semantica[explorer]==${EXPECTED}`)
+      progress({ step: 'installing_semantica', current: 2, total: 6, detail: `Installing semantica[${SEMANTICA_EXTRAS}]==${EXPECTED}` })
+      await pipInstall(python, ['-r', RUNTIME_REQUIREMENTS, '-c', RUNTIME_CONSTRAINTS])
       wheel = await probeSemantica(python)
     }
     progress({ step: 'installing_vector', current: 3, total: 6, detail: 'Preparing FAISS vector search' })
