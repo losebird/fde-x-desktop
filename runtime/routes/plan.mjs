@@ -597,7 +597,11 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       if (!wanted || cancelledPreviews.has(wanted)) return
       if (!aiRuntime || typeof aiRuntime.lanAssist !== 'function') return
       cancelledPreviews.add(wanted)
-      await aiRuntime.lanAssist('/write/cancel', { method: 'POST', body: { preview_id: wanted } })
+      try {
+        await aiRuntime.lanAssist('/write/cancel', { method: 'POST', body: { preview_id: wanted } })
+      } catch {
+        // Expired or already gone tokens still let the proposal cancel.
+      }
     }
     const taskId = operation && operation.plan && operation.plan.taskId
     if (operation && operation.state === 'awaiting_approval' && aiRuntime && typeof aiRuntime.lanAssist === 'function') {
@@ -636,7 +640,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       const status = raw === 'open' || raw === 'used' || raw === 'expired' ? raw : 'absent'
       const audit = postedPreviewAudit(db, previewId)
       confirmStep = planConfirmStep({ previewId, status, audit })
-      if (decision === 'reject' && confirmStep.voidOnReject) {
+      if (decision === 'reject' && confirmStep.voidOnReject && status !== 'expired') {
         await cancelPreview(previewId)
       }
       if (decision === 'confirm' && confirmStep.step === 'refuse') {

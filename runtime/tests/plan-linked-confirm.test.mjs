@@ -111,6 +111,7 @@ function runtimeFor(previewId, indexValue, hooks = {}) {
       }
       if (path === '/write/cancel') {
         cancels.push(String((opts.body && opts.body.preview_id) || ''))
+        if (hooks.onCancel) return hooks.onCancel(opts.body || {})
         return { ok: true }
       }
       return { ok: true }
@@ -262,6 +263,31 @@ test('an expired preview refuses confirm and leaves the plan off the card list',
     '/api/v1/plan/task-proposals?workspaceId=ws_chip',
   )
   assert.equal((listed.json().data || []).length, 0)
+  db.close()
+  rmSync(dbPath, { force: true })
+})
+
+test('rejecting an expired preview cancels the proposal even if write/cancel throws', async () => {
+  const { db, dbPath } = openFixture('expired-reject')
+  addTask(db, 'task_expired_reject')
+  const proposalId = propose(db, 'task_expired_reject', '已确认')
+  attachPreview(db, proposalId, PREVIEW)
+  const { aiRuntime, writes, cancels } = runtimeFor(PREVIEW, 'expired', {
+    onCancel() {
+      throw new Error('token gone')
+    },
+  })
+  const response = await planRequest(
+    db,
+    aiRuntime,
+    'POST',
+    `/api/v1/plan/task-proposals/${proposalId}/reject`,
+    { workspaceId: 'ws_chip' },
+  )
+  assert.equal(response.status, 200, response.body)
+  assert.equal(writes.length, 0)
+  assert.deepEqual(cancels, [])
+  assert.equal(proposalRow(db, proposalId).state, 'cancelled')
   db.close()
   rmSync(dbPath, { force: true })
 })
