@@ -57,6 +57,10 @@ function withWorkspaceCwd(path: string): string {
   return `${path}${path.includes('?') ? '&' : '?'}cwd=${encodeURIComponent(cwd)}`
 }
 
+function withAppWorkspace(path: string): string {
+  return withWorkspaceCwd(withWorkspaceId(path))
+}
+
 function workspaceCwdBody(body: Record<string, unknown> = {}): Record<string, unknown> {
   const cwd = currentWorkspaceCwd()
   return cwd ? { ...body, cwd } : body
@@ -2681,9 +2685,19 @@ export class RuntimeApi {
     return Array.isArray(result.data) ? result.data : []
   }
 
+  appLiveUrl(appId: string, workspaceCwd?: string): string {
+    const params = new URLSearchParams()
+    const cwd = String(workspaceCwd || currentWorkspaceCwd() || '').trim()
+    const workspaceId = currentWorkspaceId()
+    if (cwd) params.set('cwd', cwd)
+    if (workspaceId) params.set('workspaceId', workspaceId)
+    const query = params.toString()
+    return `${this.baseUrl}/api/v1/apps/${encodeURIComponent(appId)}/live/${query ? `?${query}` : ''}`
+  }
+
   async getDeclarativeApp(appId: string, signal?: AbortSignal) {
     const result = await this.request<{ ok: boolean; data: import('@/lib/app-spec').FdeAppDetail }>(
-      `/api/v1/apps/${encodeURIComponent(appId)}`,
+      withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}`),
       { signal, cache: 'no-store' },
     )
     return result.data
@@ -2708,7 +2722,7 @@ export class RuntimeApi {
   }, signal?: AbortSignal) {
     let response: Response
     try {
-      response = await fetch(`${this.baseUrl}/api/v1/apps/${encodeURIComponent(appId)}/spec`, await withPageToken(`/api/v1/apps/${encodeURIComponent(appId)}/spec`, {
+      response = await fetch(`${this.baseUrl}${withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}/spec`)}`, await withPageToken(withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}/spec`), {
         method: 'PUT',
         signal,
         headers: { 'Content-Type': 'application/json' },
@@ -2744,35 +2758,35 @@ export class RuntimeApi {
 
   async activateDeclarativeApp(appId: string, signal?: AbortSignal) {
     return this.request<{ ok: boolean; data?: { status: string }; errors?: { path: string; message: string }[] }>(
-      `/api/v1/apps/${encodeURIComponent(appId)}/activate`,
+      withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}/activate`),
       { method: 'POST', signal },
     )
   }
 
   async trashDeclarativeApp(appId: string, signal?: AbortSignal) {
     return this.request<{ ok: boolean; data?: { deletedAt?: string } }>(
-      `/api/v1/apps/${encodeURIComponent(appId)}`,
+      withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}`),
       { method: 'DELETE', signal },
     )
   }
 
   async restoreDeclarativeApp(appId: string, signal?: AbortSignal) {
     return this.request<{ ok: boolean; data?: { status?: string } }>(
-      `/api/v1/apps/${encodeURIComponent(appId)}/restore`,
+      withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}/restore`),
       { method: 'POST', signal },
     )
   }
 
   async purgeDeclarativeApp(appId: string, signal?: AbortSignal) {
     return this.request<{ ok: boolean; data?: { dropped?: string[] } }>(
-      `/api/v1/apps/${encodeURIComponent(appId)}/purge`,
+      withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}/purge`),
       { method: 'POST', signal },
     )
   }
 
   async rollbackDeclarativeApp(appId: string, revision: number, signal?: AbortSignal) {
     return this.request<{ ok: boolean; data: { revision: number } }>(
-      `/api/v1/apps/${encodeURIComponent(appId)}/rollback`,
+      withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}/rollback`),
       {
         method: 'POST',
         signal,
@@ -2784,7 +2798,7 @@ export class RuntimeApi {
 
   async getAppShare(appId: string, signal?: AbortSignal) {
     const result = await this.request<{ ok: boolean; data: { shareId: string; url: string; urls?: { kind: string; url: string }[]; createdAt?: string } | null }>(
-      `/api/v1/apps/${encodeURIComponent(appId)}/share`,
+      withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}/share`),
       { signal },
     )
     return result.data
@@ -2792,7 +2806,7 @@ export class RuntimeApi {
 
   async mintAppShare(appId: string, signal?: AbortSignal) {
     const result = await this.request<{ ok: boolean; data: { shareId: string; url: string; urls?: { kind: string; url: string }[]; createdAt?: string } }>(
-      `/api/v1/apps/${encodeURIComponent(appId)}/share`,
+      withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}/share`),
       { method: 'POST', signal },
     )
     return result.data
@@ -2800,7 +2814,7 @@ export class RuntimeApi {
 
   async revokeAppShare(appId: string, signal?: AbortSignal) {
     return this.request<{ ok: boolean; data: { revoked: number } }>(
-      `/api/v1/apps/${encodeURIComponent(appId)}/share`,
+      withAppWorkspace(`/api/v1/apps/${encodeURIComponent(appId)}/share`),
       { method: 'DELETE', signal },
     )
   }

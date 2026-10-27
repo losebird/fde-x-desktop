@@ -439,6 +439,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
       relPath: rel,
       livePrefix: `/api/v1/apps/${encodeURIComponent(app.id)}/live`,
       storePrefix: `/api/v1/apps/${encodeURIComponent(app.id)}/store`,
+      liveQuery: url.search || '',
       db,
       appId: app.id,
       workspaceId: app.workspaceId,

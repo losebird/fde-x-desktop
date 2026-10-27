@@ -194,6 +194,7 @@ export function AppRuntime({ app, workspaceCwd, previewMode: _previewMode, varia
       <AppPublicSurface.Provider value={publicSurface}>
         <AppWebRuntime
           app={app}
+          workspaceCwd={workspaceCwd}
           publicSurface={publicSurface}
           variant={variant}
           pendingMaterialize={pendingMaterialize}

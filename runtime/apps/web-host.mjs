@@ -7,10 +7,11 @@ export { WEB_APP_CSP_SANDBOX, WEB_APP_IFRAME_SANDBOX }
 const BRIDGE_SRC = `(() => {
   const script = document.currentScript
   const storeBase = script && script.getAttribute('data-fde-store') || ''
+  const query = script && script.getAttribute('data-fde-query') || ''
   const boot = window.__FDE_BOOT__ && typeof window.__FDE_BOOT__ === 'object' ? window.__FDE_BOOT__ : {}
   const mem = Object.assign({}, boot.localStorage && typeof boot.localStorage === 'object' ? boot.localStorage : {})
   async function req(path, method, body) {
-    const res = await fetch(path, {
+    const res = await fetch(path + query, {
       method: method || 'GET',
       headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -83,9 +84,10 @@ function sendBytes(response, status, mime, bytes, extraHeaders = {}) {
   response.end(bytes)
 }
 
-export function injectWebBridge(html, { storePrefix, livePrefix }) {
+export function injectWebBridge(html, { storePrefix, livePrefix, liveQuery = '' }) {
   const boot = ''
-  const tag = `<script>window.__FDE_BOOT__=window.__FDE_BOOT__||{}</script><script src="${livePrefix}/__fde/bridge.js" data-fde-store="${storePrefix}"></script>`
+  const query = String(liveQuery || '')
+  const tag = `<script>window.__FDE_BOOT__=window.__FDE_BOOT__||{}</script><script src="${livePrefix}/__fde/bridge.js${query}" data-fde-store="${storePrefix}" data-fde-query="${query}"></script>`
   const text = String(html || '')
   if (text.includes('__fde/bridge.js')) return text
   if (/<head[^>]*>/i.test(text)) return text.replace(/<head[^>]*>/i, (m) => `${m}${tag}`)
@@ -111,6 +113,7 @@ export function serveWebAppAsset(request, response, {
   relPath,
   livePrefix,
   storePrefix,
+  liveQuery = '',
   db,
   appId,
   workspaceId,
@@ -134,6 +137,7 @@ export function serveWebAppAsset(request, response, {
     const injected = injectWebBridgeWithBoot(html, { localStorage: ls && typeof ls === 'object' ? ls : {} }, {
       livePrefix,
       storePrefix,
+      liveQuery,
     })
     bytes = Buffer.from(injected, 'utf8')
   }

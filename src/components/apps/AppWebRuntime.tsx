@@ -4,6 +4,7 @@ import { WEB_APP_IFRAME_SANDBOX } from '../../../runtime/apps/web-sandbox.mjs'
 
 type Props = {
   app: FdeAppDetail
+  workspaceCwd?: string
   publicSurface?: boolean
   variant?: 'dialog' | 'workspace'
   onRequestDelete?: () => void
@@ -13,6 +14,7 @@ type Props = {
 
 export function AppWebRuntime({
   app,
+  workspaceCwd,
   publicSurface = false,
   variant,
   onRequestDelete,
@@ -22,7 +24,7 @@ export function AppWebRuntime({
   const trashed = appIsTrashed(app)
   const liveSrc = runtimeApi.shareId
     ? `/a/${encodeURIComponent(runtimeApi.shareId)}/`
-    : `${runtimeApi.baseUrl}/api/v1/apps/${encodeURIComponent(app.id)}/live/`
+    : runtimeApi.appLiveUrl(app.id, workspaceCwd)
 
   return (
     <div className={variant === 'dialog' || variant === 'workspace' ? '' : 'border-t border-line'}>
