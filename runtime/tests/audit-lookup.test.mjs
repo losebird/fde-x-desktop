@@ -22,6 +22,10 @@ describe('audit lookup bind', () => {
     )
     assert.equal(auditRecordNo(null, { no: 'TK-22' }, { no: 'internal-1' }), 'TK-22')
     assert.equal(auditRecordNo(null, {}, { recordNo: 'WO-9' }), 'WO-9')
+    assert.equal(
+      auditRecordNo(null, {}, { kind: 'receipt', lines: [{ no: 'EXP20250503296', kind: '费用报销' }] }),
+      'EXP20250503296',
+    )
   })
 
   test('writeAuditFields uses vocab kind and original 单号 on rollback', () => {
@@ -45,6 +49,20 @@ describe('audit lookup bind', () => {
     assert.equal(posted.kind, '请假申请')
     assert.equal(posted.action, '过审')
     assert.equal(posted.recordNo, 'LV-1')
+    const overlay = writeAuditFields(
+      null,
+      { source: 'workstation' },
+      {
+        kind: 'receipt',
+        receiptId: '3717',
+        lines: [{ no: 'EXP20250503296', kind: '费用报销', action: '改行' }],
+      },
+      null,
+      false,
+    )
+    assert.equal(overlay.kind, '费用报销')
+    assert.equal(overlay.action, '改行')
+    assert.equal(overlay.recordNo, 'EXP20250503296')
   })
 
   test('captureLookupBind keeps where, hop, and original speech', () => {

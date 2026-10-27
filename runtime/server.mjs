@@ -95,7 +95,7 @@ import { handleAppsRoutes, requestAppWorkspace } from './routes/apps.mjs'
 import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.mjs'
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp, publicShareCors } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
-import { handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
+import { auditWorkstationWrite, capturePendingSheet, handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, persistUiToken, resolveUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
 import { handleSearchRoute } from './routes/search.mjs'
@@ -1013,7 +1013,79 @@ function proxySemanticOs(request, response, url) {
   sendUp()
 }
 
+function isLanAssistWriteProxy(url, method) {
+  return String(method || '').toUpperCase() === 'POST' && String(url.pathname || '') === '/lan-assist/write'
+}
+
+function proxyLanAssistWrite(request, response, url) {
+  if (!aiRuntime.origin || !aiRuntime.cookie) {
+    sendError(response, 503, 'ai/not-connected', '核心未接通，无法打开 DSH 页面')
+    return
+  }
+  const chunks = []
+  request.on('data', (chunk) => chunks.push(chunk))
+  request.on('end', () => {
+    const buf = Buffer.concat(chunks)
+    let body = {}
+    try {
+      body = JSON.parse(buf.toString('utf8') || '{}')
+    } catch {
+      body = {}
+    }
+    const previewId = String(body.preview_id || body.previewId || '').trim()
+    const source = String(body.source || '').trim()
+    const peek = (source === 'workstation' && previewId)
+      ? capturePendingSheet(aiRuntime, previewId).catch(() => null)
+      : Promise.resolve(null)
+    void peek.then((pendingSheet) => {
+      const target = new URL(aiRuntime.origin)
+      const path = dshProxyPath(url) || '/'
+      const headers = { ...request.headers, host: target.host, cookie: aiRuntime.cookie, origin: aiRuntime.origin }
+      headers['accept-encoding'] = 'identity'
+      headers['content-length'] = String(buf.length)
+      delete headers['if-none-match']
+      delete headers['if-modified-since']
+      delete headers.connection
+      const up = httpRequest({
+        hostname: target.hostname,
+        port: target.port,
+        path,
+        method: 'POST',
+        headers,
+      }, (incoming) => {
+        const headersOut = outboundProxyHeaders(incoming)
+        const type = String(incoming.headers['content-type'] || '')
+        const parts = []
+        incoming.on('data', (chunk) => parts.push(chunk))
+        incoming.on('end', () => {
+          const out = Buffer.concat(parts)
+          if (source === 'workstation' && type.includes('json')) {
+            try {
+              const written = JSON.parse(out.toString('utf8') || '{}')
+              if (written && written.ok !== false) {
+                void auditWorkstationWrite({ db, aiRuntime }, { body, written, pendingSheet }).catch(() => undefined)
+              }
+            } catch { /* overlay write still returns */ }
+          }
+          delete headersOut['content-encoding']
+          headersOut['content-length'] = String(out.length)
+          response.writeHead(incoming.statusCode || 200, headersOut)
+          response.end(out)
+        })
+      })
+      up.on('error', () => {
+        if (!response.headersSent) sendError(response, 502, 'dsh_proxy', '无法打开 DSH 页面')
+      })
+      up.end(buf)
+    })
+  })
+}
+
 function proxyDsh(request, response, url) {
+  if (isLanAssistWriteProxy(url, request.method)) {
+    proxyLanAssistWrite(request, response, url)
+    return
+  }
   if (!aiRuntime.origin || !aiRuntime.cookie) {
     sendError(response, 503, 'ai/not-connected', '核心未接通，无法打开 DSH 页面')
     return

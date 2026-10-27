@@ -73,7 +73,9 @@ export function auditRecordNo(sheet, body, written) {
   const fromSheet = String(sheet?.no || sheet?.clue || '').trim()
   const fromBody = String(body?.no || '').trim()
   const fromWritten = String(written?.no || written?.recordNo || '').trim()
-  return fromSheet || fromBody || fromWritten
+  const line0 = Array.isArray(written?.lines) ? written.lines[0] : null
+  const fromLine = String(line0?.no || '').trim()
+  return fromSheet || fromBody || fromWritten || fromLine
 }
 
 /**
@@ -84,10 +86,11 @@ export function writeAuditFields(sheet, body, written, original, rollback) {
   const src = sheet && typeof sheet === 'object' ? sheet : {}
   const payload = written && typeof written === 'object' ? written : {}
   const prior = original && typeof original === 'object' ? original : {}
-  const kind = effectiveBizKind(src.kind, body?.kind, prior.kind)
+  const line0 = Array.isArray(payload.lines) ? payload.lines[0] : null
+  const kind = effectiveBizKind(src.kind, body?.kind, line0?.kind, payload.kind, prior.kind)
   const action = rollback
     ? '回退'
-    : String(src.action || body?.action || payload.action || '')
+    : String(src.action || body?.action || payload.action || line0?.action || '')
   const recordNo = auditRecordNo(src, body, payload) || String(prior.recordNo || '').trim()
   return { kind, action, recordNo }
 }

@@ -450,7 +450,7 @@ function patchFromRollbackChanges(changes) {
   return patch
 }
 
-async function capturePendingSheet(aiRuntime, previewId) {
+export async function capturePendingSheet(aiRuntime, previewId) {
   try {
     const state = await aiRuntime.lanAssist('/state', { search: { sessionId: '' } })
     const raw = state?.officialRoundSheet
@@ -464,29 +464,18 @@ async function capturePendingSheet(aiRuntime, previewId) {
   }
 }
 
-export async function postWorkstationBizWrite({ db, aiRuntime }, body) {
-  const writeSource = String(body?.source || '').trim()
+export async function auditWorkstationWrite({ db, aiRuntime }, { body, written, pendingSheet }) {
+  if (!written || written.ok === false) return { written, traceId: '' }
+  const writeSource = String(body?.source || '').trim() || 'workstation'
   const requestedCwd = canonicalWorkspaceCwd(body?.workspace || body?.workspaceCwd || '') || ''
   const rollbackOfTraceId = String(body?.rollback_of_trace_id || body?.rollbackOfTraceId || '').trim()
   const workspaceCwd = requestedCwd
-  const pendingSheet = await capturePendingSheet(aiRuntime, body?.preview_id)
-  const written = await aiRuntime.lanAssist('/write', {
-    method: 'POST',
-    body: {
-      preview_id: body?.preview_id,
-      trace_id: body?.trace_id,
-      source: writeSource,
-      ...(requestedCwd ? { workspace: requestedCwd } : {}),
-    },
-  })
-  if (written && written.ok === false) {
-    return { written, traceId: '' }
-  }
   const bizCwd = requestedCwd
   const sheet = pendingSheet && typeof pendingSheet === 'object' ? pendingSheet : null
+  const line0 = Array.isArray(written?.lines) ? written.lines[0] : null
   const auditChanges = Array.isArray(body?.changes)
     ? body.changes
-    : (Array.isArray(sheet?.changes) ? sheet.changes : [])
+    : (Array.isArray(sheet?.changes) ? sheet.changes : (Array.isArray(line0?.changes) ? line0.changes : []))
   const traceId = String(body?.trace_id || written?.trace_id || written?.traceId || createId('trace'))
   const isRollbackWrite = Boolean(rollbackOfTraceId)
   const original = isRollbackWrite ? getBizWriteAuditByTraceId(db, rollbackOfTraceId, workspaceCwd) : null
@@ -512,7 +501,7 @@ export async function postWorkstationBizWrite({ db, aiRuntime }, body) {
       kind: audit.kind,
       action: audit.action,
       recordNo: audit.recordNo,
-      receiptId: String(written?.receipt_id || written?.receiptId || ''),
+      receiptId: String(written?.receipt_id || written?.receiptId || line0?.receiptId || ''),
       sessionId: String(sheet?.sessionId || body?.session_id || body?.sessionId || lookupBind.sessionId || ''),
       source: writeSource,
       changes: auditChanges,
@@ -544,7 +533,7 @@ export async function postWorkstationBizWrite({ db, aiRuntime }, body) {
     kind: audit.kind,
     action: audit.action,
     traceId,
-    receiptId: String(written?.receipt_id || written?.receiptId || ''),
+    receiptId: String(written?.receipt_id || written?.receiptId || line0?.receiptId || ''),
     recordNo: audit.recordNo,
     operationId: typeof body?.operationId === 'string' ? body.operationId : undefined,
   }, { workspaceCwd: bizCwd, source: 'bff' })
@@ -554,6 +543,25 @@ export async function postWorkstationBizWrite({ db, aiRuntime }, body) {
     if (!lampIdent.error) reconcileLanAssistConnectionLamp(db, gateState, { bizSucceeded: true, workspaceId: lampIdent.workspaceId })
   } catch {}
   return { written, traceId }
+}
+
+export async function postWorkstationBizWrite({ db, aiRuntime }, body) {
+  const writeSource = String(body?.source || '').trim()
+  const requestedCwd = canonicalWorkspaceCwd(body?.workspace || body?.workspaceCwd || '') || ''
+  const pendingSheet = await capturePendingSheet(aiRuntime, body?.preview_id)
+  const written = await aiRuntime.lanAssist('/write', {
+    method: 'POST',
+    body: {
+      preview_id: body?.preview_id,
+      trace_id: body?.trace_id,
+      source: writeSource,
+      ...(requestedCwd ? { workspace: requestedCwd } : {}),
+    },
+  })
+  if (written && written.ok === false) {
+    return { written, traceId: '' }
+  }
+  return auditWorkstationWrite({ db, aiRuntime }, { body, written, pendingSheet })
 }
 
 function enrichTraceRows(db, workspace, traceRows, limit) {
