@@ -113,6 +113,7 @@ export async function listWorkflowCatalog(aiRuntime, cwd) {
   const presets = []
   for (const row of inventory.presets) {
     if (!row || typeof row.id !== 'string' || !row.id) continue
+    if (row.id === 'fde-workflow') continue
     let snap
     try {
       snap = await presetSession(aiRuntime, cwd, origin, cookie, row.id)

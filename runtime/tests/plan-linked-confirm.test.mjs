@@ -238,7 +238,7 @@ test('a plan failure after a successful post can be retried without a second pos
   rmSync(dbPath, { force: true })
 })
 
-test('an expired preview disables confirm and leaves the plan awaiting', async () => {
+test('an expired preview refuses confirm and leaves the plan off the card list', async () => {
   const { db, dbPath } = openFixture('expired')
   addTask(db, 'task_expired')
   const proposalId = propose(db, 'task_expired', '已确认')
@@ -261,12 +261,7 @@ test('an expired preview disables confirm and leaves the plan awaiting', async (
     'GET',
     '/api/v1/plan/task-proposals?workspaceId=ws_chip',
   )
-  const card = listed.json().data[0].card
-  assert.equal(card.confirm.enabled, false)
-  assert.match(card.notice, /重新交给 AI/)
-  assert.match(card.business.lines.join('\n'), /等级/)
-  assert.match(card.business.lines.join('\n'), /B/)
-  assert.match(card.business.lines.join('\n'), /A/)
+  assert.equal((listed.json().data || []).length, 0)
   db.close()
   rmSync(dbPath, { force: true })
 })

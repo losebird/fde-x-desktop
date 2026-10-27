@@ -33,9 +33,14 @@ export function workflowToolTier(tier: string): WorkflowToolTier {
   return 'danger'
 }
 
+export function isRetiredWorkflowPreset(id: string) {
+  return id === 'fde-workflow'
+}
+
 export function readStepPreset(step: { kind?: string; config?: { presetId?: unknown } }): string {
   if (!step || step.kind !== 'ai' || !step.config || typeof step.config !== 'object') return ''
-  return typeof step.config.presetId === 'string' ? step.config.presetId : ''
+  const id = typeof step.config.presetId === 'string' ? step.config.presetId : ''
+  return isRetiredWorkflowPreset(id) ? '' : id
 }
 
 export function readStepTools(step: { kind?: string; config?: { tools?: unknown } }): string[] | null {

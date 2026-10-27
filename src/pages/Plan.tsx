@@ -24,7 +24,7 @@ import { PlanHistoryDrawer } from '@/components/plan/PlanHistoryDrawer'
 import { PlanTaskProposals } from '@/components/plan/PlanTaskProposals'
 import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
-import { readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
+import { isRetiredWorkflowPreset, readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
 import { PLAN_DAY_HOURS, planDayOffsetMinutes, planNowMarker, scheduleInstants } from '../../runtime/plan/plan-day-hours.mjs'
 import { scheduleTriggerLabel } from '../../runtime/plan/schedule-outcome.mjs'
 import { planTaskMenu } from '../../runtime/plan/task-menu.mjs'
@@ -1377,6 +1377,12 @@ function WorkflowTab() {
   }
 
   function applyPreset(id: string) {
+    if (isRetiredWorkflowPreset(id)) {
+      setPresetId('')
+      setPendingDanger([])
+      setToolNote('')
+      return
+    }
     setPresetId(id)
     if (!id || !catalog) {
       setPendingDanger([])
@@ -1581,7 +1587,7 @@ function WorkflowTab() {
                   </div>
                   {w.steps.filter((s) => s.kind === 'ai').map((s) => {
                     const explicit = readStepTools(s)
-                    const shown = explicit ?? (catalog?.defaults ?? [])
+                    const shown = explicit ?? []
                     const fromPreset = readStepPreset(s)
                     const presetName = catalog?.presets.find((row) => row.id === fromPreset)?.name || fromPreset
                     return (
@@ -1711,11 +1717,11 @@ function WorkflowTab() {
                     <label className="text-xs text-ink-muted">{workflowToolCopy.presetLabel}</label>
                     <select className="input mt-1.5 w-full" value={presetId} onChange={(event) => applyPreset(event.target.value)}>
                       <option value="">{workflowToolCopy.presetNone}</option>
-                      {catalog.presets.map((preset) => (
+                      {catalog.presets.filter((preset) => !isRetiredWorkflowPreset(preset.id)).map((preset) => (
                         <option key={preset.id} value={preset.id} disabled={Boolean(preset.unavailable)}>{preset.name}</option>
                       ))}
                     </select>
-                    {catalog.presets.filter((preset) => preset.unavailable).map((preset) => (
+                    {catalog.presets.filter((preset) => !isRetiredWorkflowPreset(preset.id) && preset.unavailable).map((preset) => (
                       <div key={`${preset.id}-unavailable`} className="mt-1 text-xs text-ink-muted">{preset.name} {preset.unavailable}</div>
                     ))}
                   </div>

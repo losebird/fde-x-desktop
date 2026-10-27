@@ -263,22 +263,21 @@ function sheetChangesOf(change) {
 
 export function listPlanTaskCards(db, workspaceId, tokenIndex) {
   const index = tokenIndex && typeof tokenIndex === 'object' ? tokenIndex : {}
-  return listOpenPlanTaskProposals(db, workspaceId).map((item) => {
+  return listOpenPlanTaskProposals(db, workspaceId).flatMap((item) => {
     const previewId = parseLivePreviewId(item.change && item.change.previewId)
     const diff = sheetChangesOf(item.change)
     const audit = previewId ? postedPreviewAudit(db, previewId) : null
     const raw = previewId ? index[previewId] : null
     const status = raw === 'open' || raw === 'used' || raw === 'expired' ? raw : 'absent'
-    return {
-      ...item,
-      card: planCardView({
-        previewId,
-        token: previewId ? { status } : null,
-        audit,
-        sheetChanges: diff.changes,
-        action: diff.action,
-      }),
+    const facts = {
+      previewId,
+      token: previewId ? { status } : null,
+      audit,
+      sheetChanges: diff.changes,
+      action: diff.action,
     }
+    if (planConfirmStep(facts).step === 'refuse') return []
+    return [{ ...item, card: planCardView(facts) }]
   })
 }
 
