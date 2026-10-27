@@ -367,13 +367,26 @@ window.__ModuleLoader__.load({
       return String(cwd || '').trim()
     }
 
-    function liveSessionWorkspace() {
+    function liveSessionRecord() {
       try {
-        const api = sessionsApi
-        if (!api) return ''
+        const api = sessionsApi || (typeof window !== 'undefined' && window.__fdeXSessions)
+        if (!api) return null
         const cur = api.current || api.active || api.selected
         const session = typeof cur === 'function' ? cur() : cur
-        return workspaceOf(session)
+        return session && typeof session === 'object' ? session : null
+      } catch { return null }
+    }
+
+    function liveSessionId() {
+      try {
+        const session = liveSessionRecord()
+        return String((session && (session.id || session.sessionId || (session.session && session.session.id))) || '').trim()
+      } catch { return '' }
+    }
+
+    function liveSessionWorkspace() {
+      try {
+        return workspaceOf(liveSessionRecord())
       } catch { return '' }
     }
 
@@ -4080,7 +4093,8 @@ window.__ModuleLoader__.load({
     function SecretaryDock(props) {
       useSleepWatch()
       const session = props.session
-      const { state, refresh } = useMailbox(session && session.sessionId, (snap) => snap && { dock: snap.dock })
+      const sid = String((session && (session.id || session.sessionId)) || liveSessionId() || '').trim()
+      const { state, refresh } = useMailbox(sid, (snap) => snap && { dock: snap.dock })
       const [collapsed, setCollapsed] = useState(true)
       const [toast, setToast] = useState('')
       const dock = state && state.dock
@@ -4617,12 +4631,8 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         function tick() {
           try {
-            const api = sessionsApi
-            if (!api) return
-            const cur = api.current || api.active || api.selected
-            const session = typeof cur === 'function' ? cur() : cur
-            const id = String((session && (session.id || session.sessionId || (session.session && session.session.id))) || '').trim()
-            const ws = workspaceOf(session)
+            const id = liveSessionId()
+            const ws = liveSessionWorkspace()
             if (id) setLiveSid((was) => was === id ? was : id)
             if (ws) setLastWorkspace((was) => was === ws ? was : ws)
           } catch { /* sessions stay off the overlay tree */ }

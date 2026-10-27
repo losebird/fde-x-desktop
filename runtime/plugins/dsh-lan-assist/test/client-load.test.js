@@ -33,6 +33,8 @@ test('client.js parses and registers dsh-lan-assist on ModuleLoader.load', () =>
   assert.match(source, /正在过账/)
   assert.match(source, /source: 'workstation'/)
   assert.match(source, /function writeBody\(/)
+  assert.match(source, /function liveSessionId\(/)
+  assert.match(source, /session.id \|\| session.sessionId/)
   assert.match(source, /chatModes/)
   assert.doesNotMatch(source, /function PeopleRail\(/)
   assert.match(source, /function chatPeople\(/)
