@@ -1,6 +1,6 @@
 # 语义插件 · 架构与流程
 
-用户装的是插件包（画面在 `dist/`）加离线运行时（`runtime-dist/`，Semantica 0.6.7）。不跑 Vite，不在语义页里现 pip。
+用户装的是插件包（画面在 `dist/`）加离线运行时（`runtime-dist/`，Semantica 0.7.0）。不跑 Vite，不在语义页里现 pip。
 
 ## 四件套
 

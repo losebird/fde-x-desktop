@@ -10,12 +10,12 @@ The full matrix (when green) is:
 - `dsh-semantic-os-<version>-linux-x64`
 - `dsh-semantic-os-<version>-win32-x64`
 
-Linux runtimes must stay on CPU torch (`torch==2.13.0+cpu`). Do not publish a Linux tree that pulled `cuda-toolkit`.
+Recommended fdex070 runtimes ship without torch. Do not publish a tree that pulled `cuda-toolkit` or a GPU torch wheel.
 
 1. Trigger `Build platform runtimes` for the release tag (`fail-fast: false`).
 2. For each **passed** native job, require:
    - managed Python staging on the target OS/CPU;
-   - complete `semantica[explorer]==0.6.5` dependency installation;
+   - complete `semantica[explorer,graph-embeddings,documents,parse-pdf,nlp-spacy,tripletstore-oxigraph]==0.7.0` dependency installation;
    - `pip check` and capability imports;
    - sidecar health, token rejection, and authorized graph operation;
    - license inventory, pinned review policy, and copied license texts;

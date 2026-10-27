@@ -56,7 +56,7 @@ test('runtime resolver verifies manifest file hashes', async () => {
     const executable = join(root, 'python', 'python')
     await writeFile(executable, '#!/bin/sh\n', 'utf8')
     await chmod(executable, 0o755)
-    await writeFile(join(root, 'constraints.txt'), 'semantica==0.6.7\n', 'utf8')
+    await writeFile(join(root, 'constraints.txt'), 'semantica==0.7.0\n', 'utf8')
     const data = await import('node:fs/promises').then((fs) => fs.readFile(executable))
     const sha256 = createHash('sha256').update(data).digest('hex')
     await writeFile(join(root, 'runtime-manifest.json'), JSON.stringify({

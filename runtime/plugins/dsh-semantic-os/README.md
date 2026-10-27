@@ -4,7 +4,7 @@
 
 它不是公司 Wiki，也别拿它当现账。单据现在待不待审，要现查。
 
-引擎是安装包里那份离线 `semantica==0.6.7`。页面已经打进 `dist/`，装的人不用编前端。浏览器不打 sidecar 回环，也不嵌官方 Explorer。
+引擎是安装包里那份离线 `semantica==0.7.0`。页面已经打进 `dist/`，装的人不用编前端。浏览器不打 sidecar 回环，也不嵌官方 Explorer。
 
 ## 什么时候用得上
 
@@ -102,11 +102,11 @@ GitHub 上这条 Release 的日期是 **2026-08-29**（建 tag 那天）。安�
 
 日常用不用自己装 Python。runtime 落在 `${DSH_HOME:-~/.dsh}/semantic-os/runtime/<version>/<platform-arch>`，切换版本是整份替换。失败会留下旧的。卸插件默认不删图。
 
-Apple Silicon 包几百 MB，装完大约 1.5 GB。第一次拉引擎可能要一两分钟（Torch / ONNX），以后十几秒。`startTimeoutMs` 默认 180 秒。FalkorDB、Docker 是可选的，没有也能跑。
+Apple Silicon 包几百 MB，装完大约 1.2 GB。第一次拉引擎可能要一两分钟（ONNX），以后十几秒。`startTimeoutMs` 默认 180 秒。FalkorDB、Docker 是可选的，没有也能跑。
 
 人名单同步默认不打本机、私网、link-local、云元数据。真要内网同步，打开 `peopleAllowPrivateNetwork`。
 
-源码开发或修包才碰系统 Python，顺序是 `DSH_SEMANTICA_PYTHON`、设置里填的路径、插件私有 venv、平台默认。版本必须是 `semantica` 0.6.7。doctor 不过就是未就绪，不会把 Loader 弄挂。点「再探」会先停旧进程再拉新的。
+源码开发或修包才碰系统 Python，顺序是 `DSH_SEMANTICA_PYTHON`、设置里填的路径、插件私有 venv、平台默认。版本必须是 `semantica` 0.7.0。doctor 不过就是未就绪，不会把 Loader 弄挂。点「再探」会先停旧进程再拉新的。
 
 ```sh
 dsh plugin --profile web add /path/to/dsh-semantic-os

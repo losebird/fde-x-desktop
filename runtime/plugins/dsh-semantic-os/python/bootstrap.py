@@ -1,4 +1,4 @@
-"""Product ASGI wrapper around official semantica==0.6.7 engine.
+"""Product ASGI wrapper around official semantica==0.7.0 engine.
 
 Does not rewrite engine Python. Binds 127.0.0.1 only. Each graph request
 loads FalkorDB first when the store is up; graph.json is backup only.
@@ -51,7 +51,7 @@ except ImportError:
     from align import delete_alignment, list_alignments, save_alignment, suggest_alignments
     from onto_versions import compare_versions, create_version, list_versions, snapshot_structure
 
-EXPECTED_VERSION = "0.6.7"
+EXPECTED_VERSION = "0.7.0"
 GRAPH_REL = Path(".dsh") / "semantic-os" / "graph.json"
 READY_PREFIX = "DSH_SEMANTIC_OS "
 _WORKSPACE_LOCKS: dict[str, asyncio.Lock] = {}
