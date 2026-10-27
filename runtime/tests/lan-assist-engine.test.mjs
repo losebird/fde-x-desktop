@@ -47,10 +47,15 @@ test('BFF lan-assist invoke serves /state without DSH', async () => {
       getSecret: async () => '',
     },
     loadVocab: async () => [],
-    saveVocab: async () => ({ ok: true }),
     send: async () => ({ ok: true }),
   })
   assert.equal(lanAssistBffReady(), true)
   const state = await invokeLanAssist('/state', { search: { sessionId: '' } })
   assert.equal(state.ok, true)
+  const published = await invokeLanAssist('/catalog/publish', {
+    method: 'POST',
+    body: { workspace: '/tmp/ws', kind: '费用报销', confirm: true },
+  })
+  assert.equal(published.ok, false)
+  assert.equal(published.error, 'VOCAB_IN_MEMORY')
 })

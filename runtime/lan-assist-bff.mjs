@@ -13,6 +13,10 @@ let runtime = null
 let followupFn = async () => ({ ok: false, error: 'NO_FOLLOWUP' })
 let loadVocabFn = async () => []
 
+async function refuseVocabWrite() {
+  return { ok: false, error: 'VOCAB_IN_MEMORY', hint: '词表在记忆模块配置。' }
+}
+
 export function lanAssistBffReady() {
   return Boolean(runtime && runtime.secretary)
 }
@@ -113,7 +117,7 @@ export async function bootLanAssistBff(adapters = {}) {
       : { configured: false, connected: false, error: '' }),
     publicDoors: () => publicDoors(port),
     loadVocab: (workspace) => loadVocabFn(workspace),
-    saveVocab: adapters.saveVocab || (async () => ({ ok: true })),
+    saveVocab: adapters.saveVocab || refuseVocabWrite,
     looksLikeChoice: adapters.looksLikeChoice,
     ingestPaths: adapters.ingestPaths,
   })
