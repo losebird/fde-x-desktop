@@ -694,21 +694,23 @@ print(is_fast_read_op("record_decision"))
 
 test('list_decisions hides 作废 and 已冲正 boards', () => {
   const out = py(`
-import json, sys
+import json, os, sys, tempfile
 sys.path.insert(0, "python")
-from unittest.mock import patch
+from semantica.context.context_graph import ContextGraph
+from stores import write_primary
 from bootstrap import run_list_decisions
-rows = [
-  {"id": "live", "type": "decision", "properties": {"status": "已生效", "outcome": "过了", "timestamp": "2026-08-29T00:00:00+08:00"}},
-  {"id": "void", "type": "decision", "properties": {"status": "作废", "outcome": "expect-NO_BECAUSE", "timestamp": "2026-08-28T00:00:00+08:00"}},
-  {"id": "rev", "type": "decision", "properties": {"status": "已冲正", "outcome": "冲了", "timestamp": "2026-08-27T00:00:00+08:00"}},
-]
-with patch("bootstrap.read_node_rows", return_value=(rows, {"ok": True})):
-  got = run_list_decisions("/ws", {})
-print(json.dumps({"ids": [d["decision_id"] for d in got["decisions"]], "total": got["total"]}))
+home = tempfile.mkdtemp(); os.environ["DSH_HOME"] = home
+cwd = tempfile.mkdtemp()
+g = ContextGraph()
+g.record_decision("rel", "live s", "r", "过了", 0.9, metadata={"status": "已生效"})
+g.record_decision("rel", "void s", "r", "废了", 0.9, metadata={"status": "作废"})
+g.record_decision("rel", "rev s", "r", "冲了", 0.9, metadata={"status": "已冲正"})
+write_primary(g, cwd)
+got = run_list_decisions(cwd, {})
+print(json.dumps({"outcomes": [d.get("outcome") for d in got["decisions"]], "total": got["total"]}))
 `)
   const got = JSON.parse(out)
-  assert.deepEqual(got.ids, ['live'])
+  assert.deepEqual(got.outcomes, ['过了'])
   assert.equal(got.total, 1)
 })
 

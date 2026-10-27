@@ -26,6 +26,7 @@ from typing import Any
 try:
     from stores import primary_status, read_primary, write_primary, rebuild_vectors, schedule_rebuild_vectors, search_vectors, vector_index_status, vector_status, read_node_rows, read_edge_rows, read_memory_card_rows, read_nodes_by_id, patch_node_props, insert_memory_card, insert_edge, upsert_entity, is_archive_node, forget_node_rows
     import graph_store
+    from semantic_sync import get_vs, save_vs, vec_put, vec_reconcile, iter_decision_nodes
     from board import board_status_of, is_precedent, may_cite, memory_still_counts, resolve_board, resolve_memory_nod, resolve_memory_retire, resolve_memory_source, resolve_memory_renew, resolve_health_mute, resolve_memory_edge, suggest_memory_edge, then_label, display_iso, is_memory_card
     from reference import hold_reference, leave_person, resolve_reference
     from sight import may_read_file_body, resolve_sight
@@ -41,6 +42,7 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from stores import primary_status, read_primary, write_primary, rebuild_vectors, schedule_rebuild_vectors, search_vectors, vector_index_status, vector_status, read_node_rows, read_edge_rows, read_memory_card_rows, read_nodes_by_id, patch_node_props, insert_memory_card, insert_edge, upsert_entity, is_archive_node, forget_node_rows
     import graph_store
+    from semantic_sync import get_vs, save_vs, vec_put, vec_reconcile, iter_decision_nodes
     from board import board_status_of, is_precedent, may_cite, memory_still_counts, resolve_board, resolve_memory_nod, resolve_memory_retire, resolve_memory_source, resolve_memory_renew, resolve_health_mute, resolve_memory_edge, suggest_memory_edge, then_label, display_iso, is_memory_card
     from reference import hold_reference, leave_person, resolve_reference
     from sight import may_read_file_body, resolve_sight
@@ -313,6 +315,22 @@ def holdings_of(graph: Any, person: str = "") -> list[dict[str, Any]]:
     return rows
 
 
+def _query_graph(cwd: str):
+    """Unslimmed graph for decision queries. Drafts stay visible here."""
+    try:
+        marker = graph_store.oxigraph_dir(cwd) / ".migrated-070-decisions"
+        if not marker.is_file():
+            try:
+                from migrations.migrate_070_decisions import migrate as migrate_decisions
+                migrate_decisions(cwd)
+            except Exception:
+                pass
+        graph, _meta = graph_store.read_graph(cwd)
+        return graph
+    except Exception:
+        return None
+
+
 def run_list_decisions(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Newest first. Default hides auto-extract clones so the board stays readable."""
     args = args or {}
@@ -321,12 +339,17 @@ def run_list_decisions(cwd: str, args: dict[str, Any] | None = None) -> dict[str
         limit = max(1, min(int(args.get("limit") or 80), 200))
     except (TypeError, ValueError):
         limit = 80
-    rows, _st = read_node_rows(cwd)
+    graph = _query_graph(cwd)
+    nodes = list(iter_decision_nodes(graph)) if graph is not None else []
+    if not nodes:
+        try:
+            rows, _st = read_node_rows(cwd)
+        except Exception:
+            rows = []
+        nodes = [row for row in rows if str(row.get("type") or "").lower() == "decision"]
     items = []
-    for row in rows:
-        if str(row.get("type") or "").lower() != "decision":
-            continue
-        packed = pack_official_decision(row)
+    for node in nodes:
+        packed = pack_official_decision(node)
         if not packed["decision_id"]:
             continue
         if not include_auto and packed["metadata"]["auto"]:
@@ -715,6 +738,47 @@ def _is_recallable_draft(node: Any) -> bool:
     return status in ("", "起草")
 
 
+def _status_of_decision(node: Any) -> str:
+    packed = pack_official_decision(node)
+    return str(packed.get("status") or packed["metadata"].get("status") or "")
+
+
+def _pack_precedent_hit(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    dec = row.get("decision") if isinstance(row.get("decision"), dict) else row
+    nid = str(dec.get("id") or dec.get("decision_id") or "")
+    if not nid:
+        return None
+    meta = dec.get("metadata") if isinstance(dec.get("metadata"), dict) else {}
+    props = {
+        "category": dec.get("category"),
+        "scenario": dec.get("scenario"),
+        "reasoning": dec.get("reasoning"),
+        "outcome": dec.get("outcome"),
+        "confidence": dec.get("confidence"),
+        "timestamp": dec.get("timestamp"),
+        "status": meta.get("status") or dec.get("status") or "",
+        "decision_maker": dec.get("decision_maker"),
+    }
+    packed = pack_official_decision({
+        "id": nid,
+        "type": "decision",
+        "content": dec.get("scenario") or "",
+        "properties": {k: v for k, v in props.items() if v is not None},
+        "metadata": meta,
+    })
+    if row.get("similarity") is not None:
+        packed["similarity"] = row.get("similarity")
+    return packed
+
+
+def _keep_scored_node(node: Any, include_drafts: bool) -> bool:
+    if is_precedent(node):
+        return True
+    return include_drafts and _is_recallable_draft(node)
+
+
 def run_score_decisions(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Same book as list_decisions. Default 已生效 only. include_drafts adds human 起草."""
     args = args or {}
@@ -726,34 +790,91 @@ def run_score_decisions(cwd: str, args: dict[str, Any] | None = None) -> dict[st
         limit = max(1, min(int(args.get("limit") or args.get("max_results") or 10), 50))
     except (TypeError, ValueError):
         limit = 10
-    seed_words = set(scenario.lower().split())
-    rows, _st = read_node_rows(cwd)
-    scored: list[tuple[float, dict[str, Any]]] = []
-    for row in rows:
-        if str(row.get("type") or "").lower() != "decision":
-            continue
-        packed_node = {
-            "id": str(row.get("id") or ""),
-            "type": "decision",
-            "properties": row.get("properties") if isinstance(row.get("properties"), dict) else {},
-            "content": row.get("content"),
-        }
-        if not packed_node["id"] or packed_node["id"] == exclude_id:
-            continue
-        if is_precedent(packed_node):
+    graph = _query_graph(cwd)
+    seen: dict[str, dict[str, Any]] = {}
+    if graph is None:
+        try:
+            rows, _st = read_node_rows(cwd)
+        except Exception:
+            rows = []
+        for row in rows:
+            if str(row.get("type") or "").lower() != "decision":
+                continue
+            packed = pack_official_decision(row)
+            nid = packed["decision_id"]
+            if not nid or (exclude_id and nid == exclude_id):
+                continue
+            if not _keep_scored_node({"id": nid, "type": "decision", "properties": packed, "metadata": packed.get("metadata") or {}}, include_drafts):
+                continue
+            if scenario:
+                blob = " ".join([str(packed.get("scenario") or ""), str(packed.get("outcome") or "")])
+                if scenario[:8] not in blob and blob[:8] not in scenario:
+                    continue
+            seen[nid] = packed
+        rows_out = list(seen.values())[:limit]
+        return {"ok": True, "precedents": rows_out, "decisions": rows_out}
+    if graph is not None and scenario and hasattr(graph, "find_precedents_by_scenario"):
+        try:
+            hits = graph.find_precedents_by_scenario(
+                scenario,
+                category=category or None,
+                limit=max(limit * 3, 10),
+                similarity_threshold=0.3,
+                include_superseded=False,
+            ) or []
+        except Exception:
+            hits = []
+        for row in hits:
+            packed = _pack_precedent_hit(row)
+            if not packed:
+                continue
+            nid = packed["decision_id"]
+            if exclude_id and nid == exclude_id:
+                continue
+            node = {"id": nid, "type": "decision", "properties": packed, "metadata": packed.get("metadata") or {}}
+            if not _keep_scored_node(node, include_drafts):
+                continue
+            seen[nid] = packed
+    if graph is not None:
+        for node in iter_decision_nodes(graph):
+            packed = pack_official_decision(node)
+            nid = packed["decision_id"]
+            if not nid or (exclude_id and nid == exclude_id):
+                continue
+            if not _keep_scored_node({"id": nid, "type": "decision", "properties": packed, "metadata": packed.get("metadata") or {}}, include_drafts):
+                continue
+            if nid not in seen:
+                seen[nid] = packed
+    if scenario:
+        try:
+            vs = get_vs(cwd)
+            filters = {} if include_drafts else {"status": "已生效"}
+            semantic = vs.search_decisions(scenario, filters=filters or None, limit=limit) or []
+            for row in semantic:
+                meta = row.get("metadata") if isinstance(row, dict) else {}
+                if not isinstance(meta, dict):
+                    meta = {}
+                nid = str(meta.get("decision_id") or row.get("decision_id") or "").strip()
+                if not nid or (exclude_id and nid == exclude_id):
+                    continue
+                status = str(meta.get("status") or "")
+                if status == "已生效":
+                    pass
+                elif include_drafts and status in ("", "起草"):
+                    pass
+                else:
+                    continue
+                if nid not in seen:
+                    packed = pack_official_decision({"id": nid, "type": "decision", "properties": meta, "metadata": meta})
+                    packed["similarity"] = row.get("similarity") or row.get("score")
+                    seen[nid] = packed
+                elif row.get("similarity") is not None:
+                    seen[nid]["similarity"] = row.get("similarity")
+        except Exception:
             pass
-        elif include_drafts and _is_recallable_draft(packed_node):
-            pass
-        else:
-            continue
-        score = official_precedent_score(category, seed_words, packed_node, scenario)
-        if scenario and score <= 0 and not category:
-            continue
-        packed = pack_official_decision(packed_node)
-        packed["score"] = round(float(score), 4)
-        scored.append((score, packed))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    rows_out = [row for _, row in scored[:limit]]
+    rows_out = list(seen.values())
+    rows_out.sort(key=lambda row: float(row.get("similarity") or 0), reverse=True)
+    rows_out = rows_out[:limit]
     return {"ok": True, "precedents": rows_out, "decisions": rows_out}
 
 
@@ -770,48 +891,6 @@ def run_find_precedents(cwd: str, args: dict[str, Any] | None = None) -> dict[st
     next_args = dict(args or {})
     next_args["include_drafts"] = False
     return run_score_decisions(cwd, next_args)
-
-
-def _compact_decision_text(value: Any) -> str:
-    return "".join(str(value or "").lower().split())
-
-
-def _substring_overlap(seed: str, other: str) -> float:
-    """Chinese boards have no spaces; word-split overlap is 0. Do not touch search_text."""
-    a = _compact_decision_text(seed)
-    b = _compact_decision_text(other)
-    if len(a) < 2 or len(b) < 2:
-        return 0.0
-    if a in b or b in a:
-        return 1.0
-    window = 4 if min(len(a), len(b)) >= 4 else 2
-    total = max(len(a) - window + 1, 1)
-    hits = 0
-    for i in range(0, len(a) - window + 1):
-        if a[i:i + window] in b:
-            hits += 1
-    return hits / total if total else 0.0
-
-
-def official_precedent_score(seed_category: str, seed_words: set[str], node: dict, scenario: str = "") -> float:
-    """Official word overlap plus compact-substring for CJK. No min score."""
-    other = decision_props(node)
-    score = 0.0
-    if seed_category and str(other.get("category") or "").lower() == seed_category.lower():
-        score += 0.5
-    other_blob = " ".join([
-        str(other.get("scenario") or ""),
-        str(other.get("outcome") or ""),
-        str(other.get("reasoning") or ""),
-    ])
-    other_words = set(other_blob.lower().split())
-    if seed_words and other_words:
-        overlap = len(seed_words & other_words) / max(len(seed_words | other_words), 1)
-        score += 0.5 * overlap
-    seed = str(scenario or " ".join(seed_words)).strip()
-    if seed:
-        score += 0.5 * _substring_overlap(seed, other_blob)
-    return score
 
 
 _CAUSAL_EDGE_TYPES = {
@@ -836,7 +915,7 @@ def _id_list(value: Any) -> list[str]:
 
 
 def attach_decision_causal_edges(graph: Any, decision_id: str, args: dict[str, Any] | None = None) -> dict[str, int]:
-    """依据 --supports--> 决策 --leads_to--> 后果. Not ABOUT / 出自 / 包含."""
+    """Decision-decision edges use native causal types. Evidence keeps supports/leads_to."""
     args = args or {}
     did = str(decision_id or "").strip()
     if not did:
@@ -848,67 +927,66 @@ def attach_decision_causal_edges(graph: Any, decision_id: str, args: dict[str, A
     for src in because:
         if src == did:
             continue
-        if get_node(graph, src) is None:
+        src_node = get_node(graph, src)
+        if src_node is None:
             skipped += 1
             continue
-        src_node = get_node(graph, src)
-        et = "PRECEDENT_FOR" if str(node_type_of(src_node) or "").lower() == "decision" else "supports"
-        ensure_edge(graph, src, did, et)
+        if str(node_type_of(src_node) or "").lower() == "decision" and hasattr(graph, "add_causal_relationship"):
+            try:
+                graph.add_causal_relationship(src, did, "PRECEDENT_FOR")
+            except Exception:
+                ensure_edge(graph, src, did, "PRECEDENT_FOR")
+        else:
+            ensure_edge(graph, src, did, "supports")
         supports += 1
     outcomes = 0
     for tgt in leads:
         if tgt == did:
             continue
-        if get_node(graph, tgt) is None:
+        tgt_node = get_node(graph, tgt)
+        if tgt_node is None:
             skipped += 1
             continue
-        ensure_edge(graph, did, tgt, "leads_to")
+        if str(node_type_of(tgt_node) or "").lower() == "decision" and hasattr(graph, "add_causal_relationship"):
+            try:
+                graph.add_causal_relationship(did, tgt, "CAUSED")
+            except Exception:
+                ensure_edge(graph, did, tgt, "leads_to")
+        else:
+            ensure_edge(graph, did, tgt, "leads_to")
         outcomes += 1
     return {"supports": supports, "leads_to": outcomes, "skipped": skipped}
 
 
-def walk_causal_chain(graph: Any, decision_id: str, direction: str = "upstream", max_depth: int = 5) -> list[dict[str, Any]]:
-    """Only supports/causes/leads_to. Not session 包含 / 出自 neighbors."""
+def pack_causal_chain(graph: Any, decision_id: str, direction: str = "upstream", max_depth: int = 5) -> list[dict[str, Any]]:
     start = str(decision_id or "").strip()
-    if not start:
+    if not start or graph is None or not hasattr(graph, "get_causal_chain"):
         return []
     try:
         depth = max(1, min(int(max_depth or 5), 20))
     except (TypeError, ValueError):
         depth = 5
-    going_down = str(direction or "").strip().lower() == "downstream"
-    incoming: dict[str, list[tuple[str, str]]] = {}
-    outgoing: dict[str, list[tuple[str, str]]] = {}
-    for _, edge in iter_edges(graph):
-        src, tgt, et = edge_ends(edge)
-        if et not in _CAUSAL_EDGE_TYPES or not src or not tgt:
+    try:
+        raw = graph.get_causal_chain(start, direction=str(direction or "upstream"), max_depth=depth) or []
+    except Exception:
+        return []
+    chain = []
+    for item in raw:
+        nid = str(getattr(item, "decision_id", None) or (item.get("id") if isinstance(item, dict) else "") or "")
+        if not nid:
             continue
-        outgoing.setdefault(src, []).append((tgt, et))
-        incoming.setdefault(tgt, []).append((src, et))
-    seen = {start}
-    chain: list[dict[str, Any]] = []
-    frontier = [(start, 0)]
-    while frontier:
-        nid, hop = frontier.pop(0)
-        if hop >= depth:
-            continue
-        raw = outgoing.get(nid, []) if going_down else incoming.get(nid, [])
-        allow = _CAUSAL_DOWN if going_down else _CAUSAL_UP
-        nxt = [(other, et) for other, et in raw if et in allow]
-        for other, et in nxt:
-            if other in seen:
-                continue
-            seen.add(other)
-            node = get_node(graph, other)
-            chain.append({
-                "id": other,
-                "type": node_type_of(node) if node is not None else "",
-                "relationship": et,
-                "hop": hop + 1,
-                "content": node_content(node) if node is not None else other,
-            })
-            frontier.append((other, hop + 1))
-    chain.sort(key=lambda row: (int(row.get("hop") or 0), str(row.get("id") or "")))
+        meta = getattr(item, "metadata", None) if not isinstance(item, dict) else (item.get("metadata") or {})
+        if not isinstance(meta, dict):
+            meta = {}
+        chain.append({
+            "id": nid,
+            "type": "decision",
+            "relationship": meta.get("causal_relationship") or meta.get("relationship") or "",
+            "hop": int(meta.get("causal_distance") or 1),
+            "content": getattr(item, "scenario", None) or (item.get("scenario") if isinstance(item, dict) else nid),
+            "scenario": getattr(item, "scenario", None) or (item.get("scenario") if isinstance(item, dict) else ""),
+            "outcome": getattr(item, "outcome", None) or (item.get("outcome") if isinstance(item, dict) else ""),
+        })
     return chain
 
 
@@ -919,17 +997,33 @@ def score_decisions(
     exclude_id: str = "",
     limit: int = 10,
 ) -> list[dict]:
-    seed_words = set(str(scenario or "").lower().split())
-    scored: list[tuple[float, dict]] = []
-    for node in graph.find_nodes(node_type="decision"):
-        nid = str(node.get("id") or "")
+    if graph is None or not hasattr(graph, "find_precedents_by_scenario"):
+        return []
+    try:
+        hits = graph.find_precedents_by_scenario(
+            str(scenario or ""),
+            category=category or None,
+            limit=max(int(limit or 10), 1),
+            similarity_threshold=0.3,
+            include_superseded=False,
+        ) or []
+    except Exception:
+        return []
+    out = []
+    for row in hits:
+        packed = _pack_precedent_hit(row)
+        if not packed:
+            continue
+        nid = packed["decision_id"]
         if exclude_id and nid == exclude_id:
             continue
+        node = {"id": nid, "type": "decision", "properties": packed, "metadata": packed.get("metadata") or {}}
         if not is_precedent(node):
             continue
-        scored.append((official_precedent_score(category, seed_words, node, scenario), node))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return [node for _, node in scored[:limit]]
+        out.append(node)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _slim_workbench(graph: Any) -> int:
@@ -962,13 +1056,26 @@ def load_session(cwd: str):
     from semantica.explorer.session import GraphSession
 
     path = graph_path(cwd)
+    marker = graph_store.oxigraph_dir(cwd) / ".migrated-070-decisions"
+    if not marker.is_file():
+        try:
+            from migrations.migrate_070_decisions import migrate as migrate_decisions
+            migrate_decisions(cwd)
+        except Exception:
+            pass
     mem, st = read_primary(cwd)
     if mem is None:
         session = GraphSession(ContextGraph())
     else:
         session = GraphSession(mem)
-    _slim_workbench(session.graph)
     coerce_decision_timestamps(session)
+    try:
+        vs = get_vs(cwd)
+        vec_reconcile(vs, session.graph)
+    except Exception:
+        vs = None
+    session._vs = vs
+    _slim_workbench(session.graph)
     session._fdex_base = graph_store.baseline_of(session.graph)
     return session, path
 
@@ -983,6 +1090,10 @@ def save_session(session: Any, path: Path) -> None:
         wrote = write_primary(session.graph, cwd, base=getattr(session, "_fdex_base", None))
         if wrote.get("ok"):
             session._fdex_base = graph_store.baseline_of(session.graph)
+    except Exception:
+        pass
+    try:
+        save_vs(cwd, getattr(session, "_vs", None) or get_vs(cwd))
     except Exception:
         pass
     try:
@@ -2697,6 +2808,19 @@ def _brief_snippet(text: str, limit: int = 240) -> str:
     return blob[: limit - 1] + "…"
 
 
+def _label_overlap(seed: str, other: str) -> float:
+    a = "".join(str(seed or "").lower().split())
+    b = "".join(str(other or "").lower().split())
+    if len(a) < 2 or len(b) < 2:
+        return 0.0
+    if a in b or b in a:
+        return 1.0
+    window = 4 if min(len(a), len(b)) >= 4 else 2
+    total = max(len(a) - window + 1, 1)
+    hits = sum(1 for i in range(0, len(a) - window + 1) if a[i:i + window] in b)
+    return hits / total if total else 0.0
+
+
 def _brief_keep_hit(node: dict[str, Any]) -> bool:
     nid = str(node.get("id") or "")
     ntype = str(node.get("type") or "").lower()
@@ -2753,46 +2877,34 @@ def run_brief_for_decision(cwd: str, args: dict[str, Any] | None = None) -> dict
         if may_cite(node) and nid not in because:
             because.append(nid)
     rows, _st = read_node_rows(cwd)
-    decision_nodes = []
-    for row in rows:
-        if str(row.get("type") or "").lower() != "decision":
-            continue
-        packed = {
-            "id": str(row.get("id") or ""),
-            "type": "decision",
-            "properties": row.get("properties") if isinstance(row.get("properties"), dict) else {},
-            "metadata": row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
-            "content": row.get("content"),
-        }
-        if packed["id"]:
-            decision_nodes.append(packed)
-    seed_words = set(scenario.lower().split())
-    scored: list[tuple[float, dict[str, Any]]] = []
-    draft_scored: list[tuple[float, dict[str, Any]]] = []
-    for node in decision_nodes:
-        score = official_precedent_score(category, seed_words, node, scenario)
-        if is_precedent(node):
-            scored.append((score, node))
-        elif _is_recallable_draft(node):
-            draft_scored.append((score, node))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    draft_scored.sort(key=lambda item: item[0], reverse=True)
+    prec_pack = run_find_precedents(cwd, {"scenario": scenario, "category": category, "limit": 5})
+    query_pack = run_query_decisions(cwd, {"query": scenario, "category": category, "limit": 8})
     precedents = []
-    for score, node in scored[:5]:
-        if score <= 0 and not category:
-            continue
-        packed = _pack_decision_row(node)
-        packed["score"] = round(float(score), 4)
+    for row in prec_pack.get("precedents") or []:
+        packed = _pack_decision_row({
+            "id": row.get("decision_id") or row.get("id"),
+            "type": "decision",
+            "properties": row,
+            "metadata": row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+            "content": row.get("scenario") or "",
+        })
+        packed["similarity"] = row.get("similarity")
         precedents.append(packed)
         nid = packed.get("id") or ""
         if nid and nid not in because:
             because.append(nid)
     drafts = []
-    for score, node in draft_scored[:5]:
-        if score <= 0 and not category:
+    for row in query_pack.get("decisions") or []:
+        status = str(row.get("status") or (row.get("metadata") or {}).get("status") or "")
+        if status not in ("", "起草"):
             continue
-        packed = _pack_decision_row(node)
-        packed["score"] = round(float(score), 4)
+        packed = _pack_decision_row({
+            "id": row.get("decision_id") or row.get("id"),
+            "type": "decision",
+            "properties": row,
+            "metadata": row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+            "content": row.get("scenario") or "",
+        })
         drafts.append(packed)
     options = []
     seen_opt: set[str] = set()
@@ -2823,7 +2935,7 @@ def run_brief_for_decision(cwd: str, args: dict[str, Any] | None = None) -> dict
         if not packed["id"] or packed["id"] in seen_ev or not may_cite(packed):
             continue
         label = str(packed.get("content") or packed["properties"].get("content") or packed["properties"].get("label") or "")
-        score = _substring_overlap(scenario, label)
+        score = _label_overlap(scenario, label)
         if score <= 0:
             continue
         memories.append((score, packed, label))
@@ -6751,6 +6863,13 @@ def run_tool(op: str, cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             if not existing_leads:
                 return {"error": "NO_LEADS_TO"}
             args["leads_to"] = existing_leads
+        clipped = {}
+        for key, value in (metadata or {}).items():
+            if isinstance(value, str) and len(value) > 1000:
+                clipped[key] = value[:1000]
+            else:
+                clipped[key] = value
+        metadata = clipped
         decision_id = graph.record_decision(
             category=args["category"],
             scenario=args["scenario"],
@@ -6763,7 +6882,18 @@ def run_tool(op: str, cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             valid_from=args.get("valid_from"),
             valid_until=args.get("valid_until"),
         )
+        if hasattr(graph, "add_node_attribute") and decision_id:
+            extra = {"status": metadata.get("status") or "起草"}
+            if metadata.get("receipt_id"):
+                extra["receipt_id"] = metadata["receipt_id"]
+            graph.add_node_attribute(str(decision_id), extra)
         causal = attach_decision_causal_edges(graph, str(decision_id or ""), args)
+        try:
+            vs = get_vs(cwd)
+            vec_put(vs, graph, str(decision_id or ""), str(metadata.get("status") or "起草"))
+            session._vs = vs
+        except Exception:
+            pass
         coerce_decision_timestamps(session)
         mutating = True
         result = {
@@ -6900,7 +7030,7 @@ def run_tool(op: str, cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             max_depth = int(args.get("max_depth") or 5)
         except (TypeError, ValueError):
             max_depth = 5
-        chain = walk_causal_chain(graph, decision_id, direction=direction, max_depth=max_depth)
+        chain = pack_causal_chain(graph, decision_id, direction=direction, max_depth=max_depth)
         result = {"chain": jsonable(chain), "decision_id": decision_id, "direction": direction}
 
     elif op == "add_entity":
