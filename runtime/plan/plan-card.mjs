@@ -276,7 +276,7 @@ export function listPlanTaskCards(db, workspaceId, tokenIndex) {
       sheetChanges: diff.changes,
       action: diff.action,
     }
-    if (planConfirmStep(facts).step === 'refuse') return []
+    if (planConfirmStep(facts).step !== 'decide') return []
     return [{ ...item, card: planCardView(facts) }]
   })
 }

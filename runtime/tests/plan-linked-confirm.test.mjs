@@ -669,14 +669,14 @@ test('two open handoff mints refuse confirm without writing', async () => {
   rmSync(dbPath, { force: true })
 })
 
-test('stampPlanConfirmMouth stamps completed runs with awaiting plan proposals', () => {
+test('stampPlanConfirmMouth leaves confirm on the session card', () => {
   const { db, dbPath } = openFixture('mouth-stamp')
   addTask(db, 'task_mouth')
   startTaskAiRun(db, { taskId: 'task_mouth', sessionId: 'sess_mouth', requestId: 'req_mouth' })
   propose(db, 'task_mouth', '待确认')
   completeTaskAiRun(db, 'task_mouth')
   const stamped = stampPlanConfirmMouth(db, { sessionId: 'sess_mouth', kind: '客户' })
-  assert.equal(stamped.confirmMouth, 'plan')
+  assert.equal(stamped.confirmMouth, undefined)
   const other = stampPlanConfirmMouth(db, { sessionId: 'sess_other', kind: '客户' })
   assert.equal(other.confirmMouth, undefined)
   db.close()

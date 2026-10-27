@@ -2,7 +2,7 @@ import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  PLAN_PAGE_HINT,
+  SESSION_CARD_HINT,
   handoffRoundAsksPlanPage,
   markHandoffToken,
   openHandoffMints,
@@ -74,11 +74,11 @@ test('openHandoffMints keeps only open handoff tokens with a session', () => {
   assert.deepEqual(mints[0].changes, [{ field: 'level', label: '等级', from: 'B', to: 'A' }])
 })
 
-test('planPageSpeech replaces right-side confirm copy with the plan page hint', () => {
-  assert.equal(planPageSpeech('请在右侧确认过账'), PLAN_PAGE_HINT)
-  assert.equal(planPageSpeech('先预览，请在右侧确认'), `先预览，\n${PLAN_PAGE_HINT}`)
-  assert.equal(planPageSpeech('已生成预览'), `已生成预览\n${PLAN_PAGE_HINT}`)
-  assert.equal(PLAN_PAGE_HINT, '请到计划页确认并过账')
+test('planPageSpeech replaces right-side confirm copy with the session card hint', () => {
+  assert.equal(planPageSpeech('请在右侧确认过账'), SESSION_CARD_HINT)
+  assert.equal(planPageSpeech('先预览，请在右侧确认'), `先预览，\n${SESSION_CARD_HINT}`)
+  assert.equal(planPageSpeech('已生成预览'), `已生成预览\n${SESSION_CARD_HINT}`)
+  assert.equal(SESSION_CARD_HINT, '请在本会话确认卡过账')
 })
 
 test('plan page speech is rewritten only when the round already asks for the plan page', () => {
@@ -89,11 +89,11 @@ test('plan page speech is rewritten only when the round already asks for the pla
   }
   assert.equal(handoffRoundAsksPlanPage('把等级改成 A'), false)
   assert.equal(rewritePlanHandoffSpeech(result, false), result)
-  assert.equal(handoffRoundAsksPlanPage(`用 biz_preview 改业务。\n${PLAN_PAGE_HINT}`), true)
+  assert.equal(handoffRoundAsksPlanPage(`用 biz_preview 改业务。\n${SESSION_CARD_HINT}`), true)
   const next = rewritePlanHandoffSpeech(result, true)
-  assert.equal(next.speak, `已生成预览\n${PLAN_PAGE_HINT}`)
-  assert.equal(next.hint, PLAN_PAGE_HINT)
-  assert.equal(next.sheet.speak, PLAN_PAGE_HINT)
-  assert.equal(next.sheet.hint, PLAN_PAGE_HINT)
+  assert.equal(next.speak, `已生成预览\n${SESSION_CARD_HINT}`)
+  assert.equal(next.hint, SESSION_CARD_HINT)
+  assert.equal(next.sheet.speak, SESSION_CARD_HINT)
+  assert.equal(next.sheet.hint, SESSION_CARD_HINT)
   assert.equal(result.speak.includes('请在右侧确认'), true)
 })

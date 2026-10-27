@@ -1,5 +1,5 @@
 import { planTaskSource } from '../app-source.mjs'
-import { PLAN_PAGE_HINT } from '../plugins/dsh-lan-assist/handoff-mints.js'
+import { SESSION_CARD_HINT } from '../plugins/dsh-lan-assist/handoff-mints.js'
 
 export function taskHandoffPrompt(task, note = '') {
   const title = String(task?.title || '').trim() || '待办'
@@ -15,9 +15,9 @@ export function taskHandoffPrompt(task, note = '') {
     if (source.kind === 'biz-record' || source.kind === 'biz-trace') {
       lines.push(
         '用 biz_preview 改业务。',
-        PLAN_PAGE_HINT,
-        'biz_preview 回执 next=confirm 之后，先说「请到计划页确认并过账」，再调 fde_plan_task_propose 收口这条待办，再调 fde_submit_result，然后停止。',
-        '禁止再调任何工具。禁止 playwright、chrome-devtools、cua-driver、浏览器和 GUI 代点计划页。不要代点。确认只由人点计划卡「确认并过账」。',
+        SESSION_CARD_HINT,
+        'biz_preview 回执 next=confirm 之后，先说「请在本会话确认卡过账」，再调 fde_plan_task_propose 收口这条待办，再调 fde_submit_result，然后停止。',
+        '禁止再调任何工具。禁止 playwright、chrome-devtools、cua-driver、浏览器和 GUI 代点确认卡。不要代点。确认只由人点本会话确认卡。',
       )
     } else {
       lines.push(
@@ -32,8 +32,9 @@ export function taskHandoffPrompt(task, note = '') {
   )
   const extra = String(note || '').trim()
   if (extra) lines.push(`补充：${extra}`)
+  const bizDuty = source && (source.kind === 'biz-record' || source.kind === 'biz-trace')
   return {
-    preset: 'standard',
+    preset: bizDuty ? 'fde-biz' : 'standard',
     sessionTitle: `待办 · ${title}`,
     prompt: lines.join('\n'),
   }

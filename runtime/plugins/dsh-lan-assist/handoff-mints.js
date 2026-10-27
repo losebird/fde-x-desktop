@@ -1,7 +1,9 @@
-export const PLAN_PAGE_HINT = '请到计划页确认并过账'
+export const SESSION_CARD_HINT = '请在本会话确认卡过账'
+export const PLAN_PAGE_HINT = SESSION_CARD_HINT
 
 const RIGHT_CONFIRM = '请在右侧确认过账'
 const RIGHT_CONFIRM_SHORT = '请在右侧确认'
+const LEGACY_PLAN_HINT = '请到计划页确认并过账'
 
 export function markHandoffToken(token, event) {
   if (!token || typeof token !== 'object' || !event) return
@@ -38,10 +40,11 @@ export function planPageSpeech(speak) {
   let text = String(speak || '')
   text = text.split(RIGHT_CONFIRM).join('')
   text = text.split(RIGHT_CONFIRM_SHORT).join('')
+  text = text.split(LEGACY_PLAN_HINT).join('')
   text = text.trim()
-  if (!text) return PLAN_PAGE_HINT
-  if (text.includes(PLAN_PAGE_HINT)) return text
-  return `${text}\n${PLAN_PAGE_HINT}`
+  if (!text) return SESSION_CARD_HINT
+  if (text.includes(SESSION_CARD_HINT)) return text
+  return `${text}\n${SESSION_CARD_HINT}`
 }
 
 export function handoffRoundAsksPlanPage(...parts) {
@@ -70,7 +73,7 @@ export function speechForPlanHandoffMint(result, event) {
 const armedConfirmSessions = new Set()
 const HANDOFF_CONFIRM_ALLOW = new Set(['fde_plan_task_propose', 'fde_submit_result'])
 
-export const HANDOFF_CONFIRM_DENY = '预览已出，请到计划页确认并过账；不要代点。'
+export const HANDOFF_CONFIRM_DENY = '预览已出，请在本会话确认卡过账；不要代点。'
 
 export function armHandoffConfirmWindow(sessionId) {
   const sid = String(sessionId || '').trim()
