@@ -1,7 +1,7 @@
 import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { bootLanAssistBff, invokeLanAssist, lanAssistBffReady } from '../lan-assist-bff.mjs'
+import { bootLanAssistBff, invokeLanAssist, lanAssistBffReady, setLanAssistVocabSaver } from '../lan-assist-bff.mjs'
 import {
   WORKSTATION_CONFIRM_HINT,
   createGate,
@@ -52,10 +52,19 @@ test('BFF lan-assist invoke serves /state without DSH', async () => {
   assert.equal(lanAssistBffReady(), true)
   const state = await invokeLanAssist('/state', { search: { sessionId: '' } })
   assert.equal(state.ok, true)
+})
+
+test('BFF vocab write-back goes through saveVocab into memory', async () => {
+  const saved = []
+  setLanAssistVocabSaver(async (workspace, concept) => {
+    saved.push({ workspace, concept })
+    return { ok: true }
+  })
   const published = await invokeLanAssist('/catalog/publish', {
     method: 'POST',
-    body: { workspace: '/tmp/ws', kind: '费用报销', confirm: true },
+    body: { workspace: '/tmp/ws', kind: '费用报销', can: ['现查'], confirm: true },
   })
-  assert.equal(published.ok, false)
-  assert.equal(published.error, 'VOCAB_IN_MEMORY')
+  assert.equal(published.ok, true)
+  assert.equal(saved.length, 1)
+  assert.equal(saved[0].workspace, '/tmp/ws')
 })

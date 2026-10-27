@@ -78,3 +78,14 @@ export async function loadMemoryWorkspaceVocab(aiRuntime, workspaceCwd) {
     empty: collapsed.kinds.length === 0,
   }
 }
+
+export async function saveMemoryWorkspaceVocab(aiRuntime, workspaceCwd, concept) {
+  const cwd = canonicalWorkspaceCwd(workspaceCwd)
+  if (!cwd) return { ok: false, error: 'NO_CWD', hint: '这封没绑工作区，不能改词表。' }
+  const row = concept && typeof concept === 'object' ? concept : {}
+  return aiRuntime.semanticOs('/python', {
+    op: 'upsert_workspace_vocab',
+    cwd,
+    args: { concepts: [row] },
+  })
+}

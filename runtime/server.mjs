@@ -95,8 +95,8 @@ import { handleAppsRoutes, requestAppWorkspace } from './routes/apps.mjs'
 import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.mjs'
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp, publicShareCors } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
-import { loadMemoryWorkspaceVocab } from './biz/memory-vocab.mjs'
-import { bootLanAssistBff, handleLanAssistHttp, kindsFromVocabRows, setLanAssistVocabLoader } from './lan-assist-bff.mjs'
+import { loadMemoryWorkspaceVocab, saveMemoryWorkspaceVocab } from './biz/memory-vocab.mjs'
+import { bootLanAssistBff, handleLanAssistHttp, kindsFromVocabRows, setLanAssistVocabLoader, setLanAssistVocabSaver } from './lan-assist-bff.mjs'
 import { auditWorkstationWrite, capturePendingSheet, handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, persistUiToken, resolveUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
@@ -3827,6 +3827,13 @@ void bootLanAssistBff().then(() => {
       return kindsFromVocabRows(found.kinds)
     } catch {
       return []
+    }
+  })
+  setLanAssistVocabSaver(async (workspace, concept) => {
+    try {
+      return await saveMemoryWorkspaceVocab(aiRuntime, workspace, concept)
+    } catch (error) {
+      return { ok: false, error: 'VOCAB_FAILED', hint: error instanceof Error ? error.message : '词表没写下。' }
     }
   })
 }).catch((error) => {

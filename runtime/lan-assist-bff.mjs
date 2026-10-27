@@ -12,10 +12,7 @@ import { createLanAssistCore, createLocalHandler, createStore, dispatch } from '
 let runtime = null
 let followupFn = async () => ({ ok: false, error: 'NO_FOLLOWUP' })
 let loadVocabFn = async () => []
-
-async function refuseVocabWrite() {
-  return { ok: false, error: 'VOCAB_IN_MEMORY', hint: '词表在记忆模块配置。' }
-}
+let saveVocabFn = async () => ({ ok: false, error: 'NO_SEMANTIC', hint: '词表写回还没接到记忆图。' })
 
 export function lanAssistBffReady() {
   return Boolean(runtime && runtime.secretary)
@@ -27,6 +24,10 @@ export function setLanAssistFollowup(fn) {
 
 export function setLanAssistVocabLoader(fn) {
   if (typeof fn === 'function') loadVocabFn = fn
+}
+
+export function setLanAssistVocabSaver(fn) {
+  if (typeof fn === 'function') saveVocabFn = fn
 }
 
 async function onLanFrame(secretary, sse, port, frame, meta) {
@@ -96,6 +97,7 @@ export async function bootLanAssistBff(adapters = {}) {
   if (runtime) return runtime
   followupFn = adapters.followup || followupFn
   if (typeof adapters.loadVocab === 'function') loadVocabFn = adapters.loadVocab
+  if (typeof adapters.saveVocab === 'function') saveVocabFn = adapters.saveVocab
   const port = Number(process.env.DSH_LAN_ASSIST_PORT || DEFAULT_LAN_PORT)
   const host = String(adapters.lanHost || '0.0.0.0')
   const store = adapters.store || createStore()
@@ -117,7 +119,7 @@ export async function bootLanAssistBff(adapters = {}) {
       : { configured: false, connected: false, error: '' }),
     publicDoors: () => publicDoors(port),
     loadVocab: (workspace) => loadVocabFn(workspace),
-    saveVocab: adapters.saveVocab || refuseVocabWrite,
+    saveVocab: (workspace, concept) => saveVocabFn(workspace, concept),
     looksLikeChoice: adapters.looksLikeChoice,
     ingestPaths: adapters.ingestPaths,
   })

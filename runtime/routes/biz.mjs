@@ -1295,10 +1295,11 @@ export async function handleBizRoutes(request, response, url, deps) {
     const body = await readJson(request)
     const resolvedCatalog = bizWorkspace(url, body, aiRuntime)
     if (rejectWorkspace(resolvedCatalog, response, correlationId, sendError)) return true
-    sendJson(response, 200, {
-      data: { ok: false, error: 'VOCAB_IN_MEMORY', hint: '词表在记忆模块配置。' },
-      correlationId,
+    const result = await aiRuntime.lanAssist('/catalog/publish', {
+      method: 'POST',
+      body: { ...body, workspace: resolvedCatalog.cwd, confirm: body.confirm === true },
     })
+    sendJson(response, 200, { data: stripSecrets(result), correlationId })
     return true
   }
 
