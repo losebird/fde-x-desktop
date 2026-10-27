@@ -40,6 +40,7 @@ test('createLanAssistCore boots secretary and gate without DSH ctx', async () =>
 
 test('BFF lan-assist invoke serves /state without DSH', async () => {
   await bootLanAssistBff({
+    lan: false,
     store: {
       get: async () => ({ self: {}, lookups: [] }),
       update: async () => undefined,

@@ -95,7 +95,8 @@ import { handleAppsRoutes, requestAppWorkspace } from './routes/apps.mjs'
 import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.mjs'
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp, publicShareCors } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
-import { bootLanAssistBff, handleLanAssistHttp } from './lan-assist-bff.mjs'
+import { loadMemoryWorkspaceVocab } from './biz/memory-vocab.mjs'
+import { bootLanAssistBff, handleLanAssistHttp, kindsFromVocabRows, setLanAssistVocabLoader } from './lan-assist-bff.mjs'
 import { auditWorkstationWrite, capturePendingSheet, handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, persistUiToken, resolveUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
@@ -3819,7 +3820,16 @@ server.on('upgrade', (request, socket, head) => {
 
 void ensureTypertVerbs().catch(() => undefined)
 
-void bootLanAssistBff().catch((error) => {
+void bootLanAssistBff().then(() => {
+  setLanAssistVocabLoader(async (workspace) => {
+    try {
+      const found = await loadMemoryWorkspaceVocab(aiRuntime, workspace)
+      return kindsFromVocabRows(found.kinds)
+    } catch {
+      return []
+    }
+  })
+}).catch((error) => {
   console.error('lan_assist_bff_boot_failed', error)
 })
 
