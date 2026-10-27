@@ -96,7 +96,7 @@ test('chosen ledger projection is ingested even if .dsh is gitignored', () => {
 import json, os, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, "python")
-from bootstrap import collect_files
+from bootstrap import list_ingest_files
 root = Path(tempfile.mkdtemp())
 (root / ".gitignore").write_text(".dsh/\\n", encoding="utf-8")
 ledger = root / ".dsh" / "lan-assist"
@@ -104,8 +104,8 @@ ledger.mkdir(parents=True)
 target = ledger / "mail.projection.md"
 target.write_text("- 出自 req_1:v1\\n", encoding="utf-8")
 (root / "notes.md").write_text("keep\\n", encoding="utf-8")
-chosen = collect_files(str(root), [str(target)])
-walk = collect_files(str(root), None)
+chosen = list_ingest_files(str(root), [str(target)])
+walk = list_ingest_files(str(root), None)
 print(json.dumps({
   "chosen": [str(p) for p in chosen],
   "walk_has_ledger": any(p.name == "mail.projection.md" for p in walk),

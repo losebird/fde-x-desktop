@@ -1627,41 +1627,7 @@ TEXT_EXTS = {".md", ".txt", ".rst", ".json", ".csv", ".yml", ".yaml", ".py", ".j
 IMAGE_FILE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 EYES_FILE_EXTS = IMAGE_FILE_EXTS | {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"}
 OFFICE_FILE_EXTS = {".docx", ".xlsx", ".pptx"}
-
-
-def office_plain_text(path: Path) -> str:
-    """Unzip Office XML and keep the words. Not vision — just read the file."""
-    import zipfile
-    suffix = path.suffix.lower()
-    if suffix not in OFFICE_FILE_EXTS:
-        return ""
-    try:
-        with zipfile.ZipFile(path) as zf:
-            names = zf.namelist()
-            chunks: list[str] = []
-            if suffix == ".docx":
-                want = [n for n in names if n.startswith("word/") and n.endswith(".xml")]
-            elif suffix == ".pptx":
-                want = [n for n in names if n.startswith("ppt/slides/") and n.endswith(".xml")]
-            else:
-                want = [n for n in names if n.startswith("xl/") and n.endswith(".xml")]
-            for name in want:
-                raw = zf.read(name).decode("utf-8", errors="ignore")
-                raw = re.sub(r"<w:tab\\b[^/]*/>", "\t", raw)
-                raw = re.sub(r"</w:p>", "\n", raw)
-                raw = re.sub(r"</a:p>", "\n", raw)
-                raw = re.sub(r"<[^>]+>", "", raw)
-                raw = raw.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
-                raw = re.sub(r"\n{3,}", "\n\n", raw).strip()
-                if raw:
-                    chunks.append(raw)
-            return "\n".join(chunks).strip()
-    except Exception:
-        return ""
-
-
-def looks_like_zip_dump(text: str) -> bool:
-    return str(text or "").startswith("PK")
+ZH_SPLITTERS = ["\n\n", "\n", "。", "！", "？", "；", "，", ""]
 
 
 def policy_dir(cwd: str) -> Path:
@@ -1753,9 +1719,9 @@ def save_mtimes(cwd: str, data: dict[str, float]) -> None:
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def collect_files(cwd: str, paths: list[str] | None) -> list[Path]:
+def list_ingest_files(cwd: str, paths: list[str] | None = None) -> list[Path]:
+    """FileIngestor.scan_directory plus gitignore. Chosen paths skip gitignore."""
     root = Path(os.path.realpath(cwd))
-    patterns = load_gitignore(root)
     out: list[Path] = []
     if paths:
         for raw in paths:
@@ -1768,7 +1734,6 @@ def collect_files(cwd: str, paths: list[str] | None) -> list[Path]:
                 item.relative_to(root)
             except ValueError:
                 continue
-            # Chosen paths are a nod. gitignore only applies to a full-tree walk.
             if item.is_file():
                 out.append(item)
             elif item.is_dir():
@@ -1776,76 +1741,131 @@ def collect_files(cwd: str, paths: list[str] | None) -> list[Path]:
                     if child.is_file():
                         out.append(child)
         return out
-    for child in root.rglob("*"):
-        if not child.is_file():
+    from semantica.ingest import FileIngestor
+    patterns = load_gitignore(root)
+    try:
+        scanned = FileIngestor().scan_directory(str(root), recursive=True) or []
+    except Exception:
+        scanned = []
+    for info in scanned:
+        path = Path(str(info.get("path") or ""))
+        if not path.is_file():
             continue
-        rel = str(child.relative_to(root))
+        try:
+            rel = str(path.relative_to(root))
+        except ValueError:
+            continue
         if ignored(rel, patterns):
             continue
-        if child.suffix.lower() not in TEXT_EXTS and child.suffix.lower() not in EYES_FILE_EXTS:
+        if path.suffix.lower() not in TEXT_EXTS and path.suffix.lower() not in EYES_FILE_EXTS:
             continue
-        out.append(child)
+        out.append(path)
     return out
 
 
+def _as_ingest_text(obj: Any) -> str:
+    if obj is None:
+        return ""
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, dict):
+        return str(obj.get("full_text") or obj.get("text") or obj.get("content") or "")
+    text = getattr(obj, "text", None) or getattr(obj, "full_text", None)
+    if isinstance(text, (bytes, bytearray)):
+        try:
+            return text.decode("utf-8")
+        except Exception:
+            return ""
+    if text:
+        return str(text)
+    content = getattr(obj, "content", None)
+    if isinstance(content, (bytes, bytearray)):
+        try:
+            return content.decode("utf-8")
+        except Exception:
+            return ""
+    if content and not isinstance(content, (dict, list)):
+        return str(content)
+    sheets = getattr(obj, "sheets", None)
+    if isinstance(sheets, dict):
+        chunks: list[str] = []
+        for sheet in sheets.values():
+            headers = getattr(sheet, "headers", None) or []
+            if headers:
+                chunks.append("\t".join(str(h) for h in headers))
+            for row in getattr(sheet, "data", None) or []:
+                if isinstance(row, dict):
+                    chunks.append("\t".join(str(v) for v in row.values()))
+                elif isinstance(row, (list, tuple)):
+                    chunks.append("\t".join(str(v) for v in row))
+        return "\n".join(chunks)
+    slides = getattr(obj, "slides", None)
+    if isinstance(slides, list):
+        chunks = []
+        for slide in slides:
+            parts = [getattr(slide, "title", "") or "", getattr(slide, "text", "") or "", getattr(slide, "notes", "") or ""]
+            blob = "\n".join(p for p in parts if p)
+            if blob:
+                chunks.append(blob)
+        return "\n\n".join(chunks)
+    return ""
+
+
+def ingest_plain_text(path: Path) -> str:
+    """Native parsers by suffix. Images stay on dsh_describe_image."""
+    ext = path.suffix.lower()
+    try:
+        if ext in {".pdf", ".docx"}:
+            from semantica.parse import DocumentParser
+            return _as_ingest_text(DocumentParser().parse_document(str(path)))
+        if ext == ".xlsx":
+            from semantica.parse import ExcelParser
+            return _as_ingest_text(ExcelParser().parse(str(path)))
+        if ext == ".pptx":
+            from semantica.parse import PPTXParser
+            return _as_ingest_text(PPTXParser().parse(str(path)))
+        if ext in IMAGE_FILE_EXTS:
+            return str(dsh_describe_image(str(path)).get("text") or "")
+        from semantica.ingest import FileIngestor
+        return _as_ingest_text(FileIngestor().ingest_file(str(path)))
+    except Exception:
+        return ""
+
+
 def run_ingest_directory(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
-    from semantica.ingest import FileIngestor
     from semantica.provenance import ProvenanceManager
+    from semantica.split import TextSplitter
 
     root = Path(os.path.realpath(cwd))
     wanted = [str(x) for x in (args.get("paths") or []) if str(x).strip()]
-    files = collect_files(cwd, wanted or None)
+    files = list_ingest_files(cwd, wanted or None)
     prev = load_mtimes(cwd)
     incremental = []
     for path in files:
-        key = str(path)
         try:
             mtime = path.stat().st_mtime
         except OSError:
             continue
-        if prev.get(key) == mtime:
+        if prev.get(str(path)) == mtime:
             continue
         incremental.append((path, mtime))
 
-    ingestor = FileIngestor()
     ingested = []
     texts = []
     parse_failed = []
     session, graph_file = load_session(cwd)
     graph = session.graph
     try:
-        tracker = ProvenanceManager()
+        tracker = ProvenanceManager(storage_path=str(root / ".dsh" / "provenance.db"))
     except Exception:
         tracker = None
-
+    splitter = TextSplitter(method="recursive", chunk_size=800, chunk_overlap=100, separators=ZH_SPLITTERS)
+    chunk_texts: list[str] = []
+    chunk_meta: list[dict[str, Any]] = []
     read_body = may_read_file_body(args)
     for path, mtime in incremental:
         real = os.path.realpath(str(path))
-        text = ""
-        if read_body:
-            try:
-                obj = ingestor.ingest_file(str(path), read_content=True)
-            except TypeError:
-                obj = ingestor.ingest_file(str(path))
-            except Exception:
-                obj = None
-            if obj is not None:
-                if hasattr(obj, "text"):
-                    try:
-                        text = obj.text or ""
-                    except Exception:
-                        text = ""
-                if not text and getattr(obj, "content", None):
-                    try:
-                        text = obj.content.decode("utf-8", errors="ignore") if isinstance(obj.content, (bytes, bytearray)) else str(obj.content)
-                    except Exception:
-                        text = ""
-            if path.suffix.lower() in OFFICE_FILE_EXTS and (not has_cjk(text) or looks_like_zip_dump(text)):
-                office = office_plain_text(path)
-                if office:
-                    text = office
-            if looks_like_zip_dump(text) and not has_cjk(text):
-                text = ""
+        text = ingest_plain_text(path) if read_body else ""
         node_id = f"file:{real}"
         stored = (text.strip()[:DOC_TEXT_LIMIT] if text.strip() else path.name)
         stamped = iso_utc_from_mtime(mtime)
@@ -1862,19 +1882,50 @@ def run_ingest_directory(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
         if tracker is not None:
             try:
                 tracker.track_entity(node_id, source=real)
-            except TypeError:
-                try:
-                    tracker.track_entity(node_id)
-                except Exception:
-                    pass
             except Exception:
                 pass
-        ingested.append({"path": real, "name": path.name})
         if text.strip():
             texts.append({"path": real, "text": text[:20000]})
+            try:
+                chunks = splitter.split(text) or []
+            except Exception:
+                chunks = []
+            for index, chunk in enumerate(chunks):
+                blob = str(getattr(chunk, "text", None) or chunk or "")
+                if not blob.strip():
+                    continue
+                chunk_id = f"{node_id}#c{index}"
+                chunk_texts.append(blob)
+                chunk_meta.append({"path": real, "node_id": node_id, "chunk": index})
+                if tracker is not None:
+                    try:
+                        tracker.track_chunk(
+                            chunk_id,
+                            node_id,
+                            source_path=real,
+                            start_index=int(getattr(chunk, "start_index", 0) or 0),
+                            end_index=int(getattr(chunk, "end_index", 0) or 0),
+                        )
+                    except Exception:
+                        pass
+            ingested.append({"path": real, "name": path.name, "chunks": len(chunks)})
         else:
             parse_failed.append({"path": real, "name": path.name, "reason": "NO_TEXT"})
+            ingested.append({"path": real, "name": path.name})
         prev[str(path)] = mtime
+
+    if chunk_texts:
+        try:
+            vs = get_vs(cwd)
+            for start in range(0, len(chunk_texts), 256):
+                vs.add_documents(
+                    chunk_texts[start:start + 256],
+                    metadata=chunk_meta[start:start + 256],
+                    parallel=False,
+                )
+            save_vs(cwd, vs)
+        except Exception:
+            pass
 
     save_mtimes(cwd, prev)
     save_session(session, graph_file)
@@ -1885,6 +1936,7 @@ def run_ingest_directory(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
         "parse_failed": parse_failed,
         "parse_failed_count": len(parse_failed),
         "skipped": len(files) - len(incremental),
+        "chunks": len(chunk_texts),
     }
 
 
