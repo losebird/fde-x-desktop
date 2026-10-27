@@ -4876,6 +4876,14 @@ window.__ModuleLoader__.load({
         })
         return { preview, id: String((preview && preview.preview_id) || '').trim() }
       }
+      function writeBody(previewId, extra) {
+        return Object.assign({
+          preview_id: previewId,
+          source: 'workstation',
+          sessionId: (sheet && sheet.sessionId) || liveSid || '',
+          workspace: (sheet && sheet.workspace) || liveWs || '',
+        }, extra || {})
+      }
       async function runWrite() {
         if (hopNext) return continuePicked()
         if (sheet && sheet.batch && sheet.preview_id) {
@@ -4887,10 +4895,9 @@ window.__ModuleLoader__.load({
           if (pickLock.current) { say('正在过账'); return }
           pickLock.current = true
           try {
-            const result = await post('/write', {
-              preview_id: sheet.preview_id,
+            const result = await post('/write', writeBody(sheet.preview_id, {
               confirm: sheet.action === '删除',
-            })
+            }))
             say(result && result.ok === false
               ? (result.hint || result.speak || result.error || '没写成')
               : (result && result.speak) || '写了但没回执，不能记已处理。')
@@ -4922,7 +4929,7 @@ window.__ModuleLoader__.load({
               return
             }
           }
-          let result = await post('/write', { preview_id: previewId })
+          let result = await post('/write', writeBody(previewId))
           const stale = result && result.ok === false && /EXPIRED|STALE|NEED_PREVIEW/.test(String(result.error || ''))
           if (stale) {
             const again = await previewOnce(patch)
@@ -4932,7 +4939,7 @@ window.__ModuleLoader__.load({
               refresh()
               return
             }
-            result = await post('/write', { preview_id: previewId })
+            result = await post('/write', writeBody(previewId))
           }
           const speak = ({
             USED: result && (result.hint || result.speak || '这张预览已经用过。要写再预览一次。'),
