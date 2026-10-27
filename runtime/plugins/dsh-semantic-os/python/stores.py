@@ -95,6 +95,8 @@ def read_node_rows(cwd: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         nodes, _edges = graph_store.read_all(cwd)
     except GraphStoreBusy as exc:
         return [], {"ok": False, "via": "oxigraph", "detail": str(exc)}
+    except Exception as exc:
+        return [], {"ok": False, "via": "oxigraph", "detail": str(exc)[:240]}
     out = [graph_store.row_of(node) for node in nodes.values() if isinstance(node, dict)]
     packed = {**st, "nodes": len(out), "via": "oxigraph"}
     with _ROWS_LOCK:

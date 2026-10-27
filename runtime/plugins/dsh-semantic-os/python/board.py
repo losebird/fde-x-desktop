@@ -1,6 +1,6 @@
 """Board write policy: 起草 / 已生效 / 已冲正 / 作废.
 
-Does not talk to the graph. Callers pass a dict of record_decision args.
+Status writes go through ContextGraph.add_node_attribute when a graph is passed.
 """
 
 from __future__ import annotations
@@ -142,16 +142,48 @@ def resolve_board(args: dict[str, Any] | None, cwd: str = "", existing: list[Any
 
 
 def board_status_of(node: Any) -> str:
-    props = {}
+    props: dict[str, Any] = {}
+    meta: dict[str, Any] = {}
     if isinstance(node, dict):
         raw = node.get("properties")
-        props = raw if isinstance(raw, dict) else node
-    return str(props.get("status") or props.get("board_status") or "").strip()
+        props = raw if isinstance(raw, dict) else {}
+        packed = node.get("metadata")
+        meta = packed if isinstance(packed, dict) else {}
+        if not props and not meta:
+            props = node
+    else:
+        raw = getattr(node, "properties", None)
+        props = raw if isinstance(raw, dict) else {}
+        packed = getattr(node, "metadata", None)
+        meta = packed if isinstance(packed, dict) else {}
+    return str(
+        props.get("status")
+        or props.get("board_status")
+        or meta.get("status")
+        or meta.get("board_status")
+        or ""
+    ).strip()
 
 
 def is_precedent(node: Any) -> bool:
     """Only 已生效 boards count as last-time-we-decided-this."""
     return board_status_of(node) == "已生效"
+
+
+def apply_status(graph: Any, did: str, status: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Write board status onto a native decision node. Does not delete."""
+    did = str(did or "").strip()
+    status = str(status or "").strip()
+    if not did or not status:
+        return {"error": "NO_PATH"}
+    attrs = {"status": status}
+    if extra:
+        attrs.update({str(k): v for k, v in extra.items() if v is not None})
+    if status == "作废":
+        attrs.setdefault("valid_until", datetime.now(timezone.utc).isoformat())
+    if graph is not None and hasattr(graph, "add_node_attribute"):
+        graph.add_node_attribute(did, attrs)
+    return {"ok": True, "id": did, "status": status, "attributes": attrs}
 
 
 def resolve_memory_nod(args: dict[str, Any] | None) -> dict[str, Any]:
