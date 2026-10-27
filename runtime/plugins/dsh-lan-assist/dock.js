@@ -396,7 +396,7 @@ const DOCK_STEPS = [
   (b) => {
     const item = b.inbox.find((row) => (
       (row.kind === 'receipt' || row.kind === 'compensate')
-      && (!b.sessionId || !row.sessionId || row.sessionId === b.sessionId)
+      && (!b.sessionId || row.sessionId === b.sessionId)
     ))
     return noteCard(item, {
       sign: item && item.kind === 'compensate' ? '秘书不执行冲正' : '有回执才算写上了',

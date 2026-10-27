@@ -218,12 +218,9 @@ window.__ModuleLoader__.load({
         do {
           mailboxQueued = false
           let sid = ''
-          let global = false
           mailboxSubs.forEach((sub) => {
-            if (!sub.sid) global = true
-            else sid = sub.sid
+            if (sub.sid) sid = sub.sid
           })
-          if (global) sid = ''
           const q = sid ? `?sessionId=${encodeURIComponent(sid)}` : ''
           const next = await get('/state' + q)
           const ok = next && next.ok !== false
