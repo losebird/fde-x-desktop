@@ -26,7 +26,7 @@ const MIME = {
  * @param {import('node:http').ServerResponse} response
  * @returns {boolean} true if handled
  */
-export function tryServeStatic(rootDir, request, response) {
+export function tryServeStatic(rootDir, request, response, { spaFallback = true } = {}) {
   if (!rootDir || request.method !== 'GET' && request.method !== 'HEAD') return false
   const url = new URL(request.url ?? '/', 'http://127.0.0.1')
   if (url.pathname.startsWith('/api/')) return false
@@ -50,7 +50,7 @@ export function tryServeStatic(rootDir, request, response) {
 
   if (!existsSync(filePath) || !statSync(filePath).isFile()) {
     const fallback = join(root, 'index.html')
-    if (existsSync(fallback) && statSync(fallback).isFile()) {
+    if (spaFallback && existsSync(fallback) && statSync(fallback).isFile()) {
       filePath = fallback
     } else {
       return false

@@ -158,6 +158,7 @@ import {
   FDE_RUNTIME_DIR,
   FDE_RUNTIME_PORT,
   advertisedRuntimeOrigin,
+  FDE_APP_ROOT,
   FDE_STATIC_DIR,
   FDE_WEB_PORT,
 } from './config.mjs'
@@ -1075,6 +1076,14 @@ const server = createServer(async (request, response) => {
   if (lanFaceForbidden(request, url.pathname, { staticDir: FDE_STATIC_DIR })) {
     sendError(response, 403, 'lan_face_refused', '局域网只开放已分享的应用页', currentCorrelationId)
     return
+  }
+
+  if (
+    (request.method === 'GET' || request.method === 'HEAD')
+    && (url.pathname.startsWith('/brand/') || url.pathname === '/favicon.ico')
+  ) {
+    const brandRoot = FDE_STATIC_DIR || join(FDE_APP_ROOT, 'public')
+    if (tryServeStatic(brandRoot, request, response, { spaFallback: false })) return
   }
 
   if (request.method === 'OPTIONS') {
