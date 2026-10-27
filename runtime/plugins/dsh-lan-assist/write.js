@@ -20,8 +20,7 @@ import {
   settledHopKey,
 } from './query-settle.mjs'
 import { redactEnvelopeText, refLabel } from './ref.js'
-
-export const WORKSTATION_CONFIRM_HINT = '请在右侧确认过账'
+import { SESSION_CARD_HINT } from './handoff-mints.js'
 import {
   bindSpokenCells,
   bindWhereRelationTerms,
@@ -33,6 +32,7 @@ import {
 } from './relation-bind.js'
 
 export { relationSchemaField } from './relation-bind.js'
+export const WORKSTATION_CONFIRM_HINT = SESSION_CARD_HINT
 
 export const SYSTEM_TABLES = ['users', 'fields', 'aiMessages']
 export const PREVIEW_TTL_MS = 90_000

@@ -20,6 +20,7 @@ import {
 } from '../biz/systems-store.mjs'
 
 
+import { SESSION_CARD_HINT } from '../plugins/dsh-lan-assist/handoff-mints.js'
 import { parseLivePreviewId } from '../biz/confirm-mouth.mjs'
 import { stampPlanConfirmMouth } from '../biz/plan-mouth-stamp.mjs'
 import { projectWriteConfirm } from '../biz/write-confirm.mjs'
@@ -1414,7 +1415,7 @@ export async function handleBizRoutes(request, response, url, deps) {
     const workspaceCwd = requestedCwd
     const writeSource = String(body.source || '').trim()
     if (writeSource !== 'workstation') {
-      sendError(response, 403, 'biz_write_forbidden', '请在右侧确认过账', correlationId)
+      sendError(response, 403, 'biz_write_forbidden', SESSION_CARD_HINT, correlationId)
       return true
     }
     const boundHeld = takeBoundPreview(body.preview_id)

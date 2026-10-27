@@ -177,7 +177,7 @@ test('改行 preview names old value to new value, not status to field', async (
   assert.match(dock.speak, /029-88880000/)
   assert.match(dock.speak, /12345678901/)
   assert.doesNotMatch(dock.speak, /从 inactive → phone/)
-  assert.match(dock.prompt, /请到右边确认/)
+  assert.match(dock.prompt, /请在本会话确认卡过账/)
   const snap = await A.snapshot()
   assert.equal(snap.pendingSheet.canWrite, true)
   assert.equal(snap.pendingSheet.rows[0].no, 'CUST-020')

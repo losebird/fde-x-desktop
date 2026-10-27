@@ -4149,7 +4149,7 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'dla-dock-toggle', onClick: () => setCollapsed(true) }, '收起'),
           ),
           dock.mode === 'preview'
-            ? h('p', { className: 'dla-dock-speak' }, dock.prompt || '请到右边确认。确认前不会改库。')
+            ? h('p', { className: 'dla-dock-speak' }, dock.prompt || '请在本会话确认卡过账。确认前不会改库。')
             : (dock.mode === 'receipt' || dock.mode === 'compensate')
               ? h('div', { className: 'dla-dock-speak is-rows' },
                 ...((dock.preview && Array.isArray(dock.preview.lines) && dock.preview.lines.length
@@ -4884,7 +4884,7 @@ window.__ModuleLoader__.load({
             say('批量删除要再确认一次。')
             return
           }
-          if (pickLock.current) return
+          if (pickLock.current) { say('正在过账'); return }
           pickLock.current = true
           try {
             const result = await post('/write', {
@@ -4901,7 +4901,7 @@ window.__ModuleLoader__.load({
           return
         }
         if (!sheet || !chosen || !chosen.no) { say('对上多条，先勾一张。'); return }
-        if (pickLock.current) return
+        if (pickLock.current) { say('正在过账'); return }
         pickLock.current = true
         try {
           const patch = Object.assign({}, dirtyPatch)

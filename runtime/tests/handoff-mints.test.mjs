@@ -97,3 +97,13 @@ test('plan page speech is rewritten only when the round already asks for the pla
   assert.equal(next.sheet.hint, SESSION_CARD_HINT)
   assert.equal(result.speak.includes('请在右侧确认'), true)
 })
+
+test('workstation confirm hint is the session card', async () => {
+  const { WORKSTATION_CONFIRM_HINT } = await import('../plugins/dsh-lan-assist/write.js')
+  const { readFileSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  assert.equal(WORKSTATION_CONFIRM_HINT, SESSION_CARD_HINT)
+  const dock = readFileSync(join(import.meta.dirname, '..', 'plugins', 'dsh-lan-assist', 'dock.js'), 'utf8')
+  assert.match(dock, /SESSION_CARD_HINT/)
+  assert.doesNotMatch(dock, /请到右边确认/)
+})

@@ -10,6 +10,7 @@ import { letterGoneFor } from './hall.js'
 import { speakNamedRef } from './ref.js'
 import { speakGuestNet } from './miss.js'
 import { speakNods } from './probe.js'
+import { SESSION_CARD_HINT } from './handoff-mints.js'
 
 export function clip(text, n) {
   const s = String(text || '').replace(/\s+/g, ' ').trim()
@@ -271,7 +272,7 @@ const DOCK_STEPS = [
       speak: ok
         ? (pending.speak || `将改${label}。这是预览，不是过账。`)
         : (pending.speak || pending.hint || '先预览。'),
-      prompt: ok ? '请到右边确认。确认前不会改库。' : '请到右边看。确认前不会改库。',
+      prompt: ok ? `${SESSION_CARD_HINT}。确认前不会改库。` : `${SESSION_CARD_HINT}。确认前不会改库。`,
       sign: speakNods('post'),
       nod: speakNods('post'),
       sourceQuote: '',
