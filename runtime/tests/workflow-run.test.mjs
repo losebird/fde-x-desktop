@@ -174,7 +174,7 @@ test('带页面令牌的 run 返回 200，并插入 queued', async (t) => {
   if (created) {
     assert.equal(calls.find((call) => call.endpoint === 'session/create').args.request.agentPreset, 'standard')
   } else {
-    assert.equal(JSON.parse(step.error_json).message, '核心 AI 暂不支持限制步骤工具，未运行')
+    assert.match(JSON.parse(step.error_json).message, /未运行|没有核对上/)
   }
   assert.equal(storedText(db, runId).includes(tokenText), false)
 
@@ -390,7 +390,7 @@ test('步骤会话不带着未确认的写工具运行', async (t) => {
     const run = db.prepare('SELECT state FROM workflow_runs WHERE id = ?').get(payload.data.id)
     const step = db.prepare('SELECT error_json FROM workflow_run_steps WHERE run_id = ?').get(payload.data.id)
     assert.equal(run.state, 'failed')
-    assert.equal(JSON.parse(step.error_json).message, '核心 AI 暂不支持限制步骤工具，未运行')
+    assert.match(JSON.parse(step.error_json).message, /未运行|没有核对上/)
   }
 })
 

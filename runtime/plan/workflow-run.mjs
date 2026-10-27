@@ -3,7 +3,7 @@ import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { taskSourceProblem } from '../app-source.mjs'
 import { appendAudit, createId } from '../db.mjs'
 import { dutyPresetForWorkflowSteps, isDutyPickerPreset } from '../duty-policy.mjs'
-import { WORKFLOW_TOOLS, discardWorkflowAllow, stageWorkflowAllow, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
+import { WORKFLOW_TOOLS, discardWorkflowAllow, stageWorkflowAllow } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
 import { listWorkflowCatalog } from './workflow-catalog.mjs'
 import { isHostJobId } from '../host-catalog.mjs'
 import { toolTier, waitsForBackground, waitsForPerson } from './tool-risk.mjs'
@@ -23,7 +23,6 @@ const systemStepClock = {
 const MANUAL_TRIGGER_JSON = '{"kind":"manual"}'
 const AI_DOWN = '核心 AI 运行时尚未连接'
 const MEMORY_ONLY = '没有记忆 M1，这一步只留提案'
-const TOOLS_UNRESTRICTED = '核心 AI 暂不支持限制步骤工具，未运行'
 const TOOLS_MISMATCH = '工作流会话可见工具不是查询和提案这三项，未运行'
 const TOOLS_MISMATCH_CUSTOM = '工作流会话可见工具和这一步选中的工具不一致，未运行'
 const TOOLS_UNCHECKED = '工作流会话的可见工具没有核对上，未运行'
@@ -365,13 +364,6 @@ async function performRun(deps, ctx) {
     return
   }
 
-  if (!workflowLimitReady()) {
-    failSteps(db, aiSteps, TOOLS_UNRESTRICTED, now)
-    failSteps(db, memorySteps, MEMORY_ONLY, now)
-    skipSteps(db, skipStepsList, now)
-    markRunFailed(db, ctx.runId, now)
-    return
-  }
   const cwd = workspaceCwd(db, ctx.workspaceId)
   if (!cwd) {
     failSteps(db, aiSteps, '工作区没有可用目录，未开会话', now)
