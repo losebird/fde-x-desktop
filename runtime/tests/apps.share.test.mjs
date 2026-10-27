@@ -387,6 +387,63 @@ describe('app live share occupancy', () => {
     vite.close()
   })
 
+  test('missing or revoked /a/:shareId is a 404 page, not the workbench shell', async () => {
+    const { db, appId } = dbWithActive()
+    const minted = mintShare(db, { appId, slug: 'visits', workspaceCwd: CWD })
+    revokeLiveSharesForApp(db, appId)
+    const vite = createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end('<!doctype html><html lang="zh-CN"><script type="module" src="/@vite/client"></script><title>FDE-X Desktop</title></html>')
+    })
+    await new Promise((resolve) => vite.listen(0, '127.0.0.1', resolve))
+    const webPort = vite.address().port
+    const bff = createServer((req, res) => {
+      const url = new URL(req.url || '/', 'http://127.0.0.1')
+      if (handlePublicAppDocument(req, res, url, { staticDir: '', webPort, db })) return
+      res.writeHead(500)
+      res.end('unhandled')
+    })
+    await new Promise((resolve) => bff.listen(0, '127.0.0.1', resolve))
+    const bffPort = bff.address().port
+    const missing = await fetch(`http://127.0.0.1:${bffPort}/a/does-not-exist`)
+    const missingText = await missing.text()
+    assert.equal(missing.status, 404)
+    assert.match(missingText, /分享不存在或已停止/)
+    assert.doesNotMatch(missingText, /FDE-X Desktop/)
+    assert.doesNotMatch(missingText, /@vite\/client/)
+    const revoked = await fetch(`http://127.0.0.1:${bffPort}/a/${minted.id}`)
+    assert.equal(revoked.status, 404)
+    assert.match(await revoked.text(), /分享不存在或已停止/)
+    bff.close()
+    vite.close()
+    db.close()
+  })
+
+  test('live ledger /a/:shareId still gets the public document', async () => {
+    const { db, appId } = dbWithActive()
+    const minted = mintShare(db, { appId, slug: 'visits', workspaceCwd: CWD })
+    const vite = createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end('<!doctype html><html data-public-app="true"></html>')
+    })
+    await new Promise((resolve) => vite.listen(0, '127.0.0.1', resolve))
+    const webPort = vite.address().port
+    const bff = createServer((req, res) => {
+      const url = new URL(req.url || '/', 'http://127.0.0.1')
+      if (handlePublicAppDocument(req, res, url, { staticDir: '', webPort, db })) return
+      res.writeHead(500)
+      res.end('unhandled')
+    })
+    await new Promise((resolve) => bff.listen(0, '127.0.0.1', resolve))
+    const bffPort = bff.address().port
+    const res = await fetch(`http://127.0.0.1:${bffPort}/a/${minted.id}`)
+    assert.equal(res.status, 200)
+    assert.match(await res.text(), /data-public-app/)
+    bff.close()
+    vite.close()
+    db.close()
+  })
+
   test('public URL is LAN path /a/:shareId', () => {
     const url = publicShareUrl('tok_abc', { port: 4318, host: '192.168.1.8' })
     assert.equal(url, 'http://192.168.1.8:4318/a/tok_abc')

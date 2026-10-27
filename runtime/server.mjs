@@ -3646,6 +3646,7 @@ const server = createServer(async (request, response) => {
     if (handlePublicAppDocument(request, response, url, {
       staticDir: FDE_STATIC_DIR,
       webPort: FDE_WEB_PORT,
+      db,
     })) {
       return
     }
