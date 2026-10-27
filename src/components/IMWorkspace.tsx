@@ -136,7 +136,7 @@ function Modal({ title, onClose, children, wide = false }: { title: string; onCl
 }
 
 function fileIcon(kind: FileNode['kind']) {
-  return kind === 'image' ? '🖼️' : kind === 'folder' ? '📁' : kind === 'sheet' ? '📊' : kind === 'ppt' ? '📽️' : kind === 'web' ? '🌐' : '📄'
+  return kind === 'image' ? '🖼️' : kind === 'folder' ? '📁' : kind === 'sheet' ? '📊' : kind === 'ppt' ? '📽️' : kind === 'web' ? '🌐' : kind === 'video' ? '🎬' : kind === 'audio' ? '🎵' : '📄'
 }
 
 function kindFromName(name: string): FileNode['kind'] {
@@ -150,6 +150,7 @@ function kindFromName(name: string): FileNode['kind'] {
   if (lower.endsWith('.pptx') || lower.endsWith('.ppt')) return 'ppt'
   if (lower.endsWith('.docx') || lower.endsWith('.doc')) return 'doc'
   if (lower.endsWith('.mp3') || lower.endsWith('.wav') || lower.endsWith('.m4a')) return 'audio'
+  if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov') || lower.endsWith('.mkv')) return 'video'
   if (lower.endsWith('.ts') || lower.endsWith('.tsx') || lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.py') || lower.endsWith('.css')) return 'code'
   return 'doc'
 }

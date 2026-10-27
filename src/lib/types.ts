@@ -73,7 +73,7 @@ export interface ScheduleEvent {
 export interface FileNode {
   id: ID
   name: string
-  kind: 'folder' | 'image' | 'doc' | 'sheet' | 'pdf' | 'code' | 'json' | 'markdown' | 'audio' | 'web' | 'ppt'
+  kind: 'folder' | 'image' | 'doc' | 'sheet' | 'pdf' | 'code' | 'json' | 'markdown' | 'audio' | 'video' | 'web' | 'ppt'
   size: number // bytes
   updatedAt: string
   starred?: boolean

@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Folder, FolderOpen, FileText, Image as ImageIcon, FileCode, FileJson,
-  FileSpreadsheet, FileAudio, File as FilePdf, Star, ChevronRight, Search,
+  FileSpreadsheet, FileAudio, FileVideo, File as FilePdf, Star, ChevronRight, Search,
   Upload, Plus, Trash2, ArrowLeft, Download, Eye, MoreHorizontal, Hash, Send,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -32,6 +32,7 @@ function kindFromName(name: string): FileNode['kind'] {
   if (ext === 'pptx' || ext === 'ppt') return 'ppt'
   if (ext === 'docx' || ext === 'doc') return 'doc'
   if (ext === 'mp3' || ext === 'wav' || ext === 'm4a') return 'audio'
+  if (ext === 'mp4' || ext === 'webm' || ext === 'mov' || ext === 'mkv') return 'video'
   if (
     ext === 'txt' || ext === 'text' || ext === 'log' || ext === 'yml' || ext === 'yaml' || ext === 'toml'
     || ext === 'ini' || ext === 'cfg' || ext === 'conf' || ext === 'sh' || ext === 'bash' || ext === 'zsh'
@@ -43,7 +44,7 @@ function kindFromName(name: string): FileNode['kind'] {
 }
 
 function isBinaryKind(kind: FileNode['kind']) {
-  return kind === 'image' || kind === 'pdf' || kind === 'web' || kind === 'ppt' || kind === 'audio' || kind === 'doc' || kind === 'sheet'
+  return kind === 'image' || kind === 'pdf' || kind === 'web' || kind === 'ppt' || kind === 'audio' || kind === 'video' || kind === 'doc' || kind === 'sheet'
 }
 
 function canEditInPlace(file?: FileNode | null) {
@@ -159,7 +160,7 @@ function AuthedFileMedia({
 }: {
   url: string
   title: string
-  kind: 'img' | 'frame'
+  kind: 'img' | 'frame' | 'video' | 'audio'
   className?: string
   alt?: string
   sandbox?: string
@@ -187,6 +188,12 @@ function AuthedFileMedia({
   if (kind === 'img') {
     return <img src={src} alt={alt || title} className={className} />
   }
+  if (kind === 'video') {
+    return <video src={src} title={title} controls className={className} />
+  }
+  if (kind === 'audio') {
+    return <audio src={src} title={title} controls className={className} />
+  }
   return <iframe title={title} src={src} className={className} sandbox={sandbox} />
 }
 
@@ -201,6 +208,7 @@ const ICON_BY_KIND: Record<FileNode['kind'], typeof FileText> = {
   json: FileJson,
   markdown: FileText,
   audio: FileAudio,
+  video: FileVideo,
   web: FileCode,
   ppt: FileText,
 }
@@ -316,8 +324,13 @@ function renderPreview(
       <div className="bg-surface border border-line rounded p-10 text-center">
         <FileAudio size={48} className="mx-auto text-accent-blue" />
         <div className="mt-3 text-sm">{file.name}</div>
-        <audio controls className="mt-4 w-full" src={raw} />
+        <AuthedFileMedia url={raw} title={file.name} kind="audio" className="mt-4 w-full" />
       </div>
+    )
+  }
+  if (file.kind === 'video') {
+    return (
+      <AuthedFileMedia url={raw} title={file.name} kind="video" className="w-full max-h-[560px] rounded border border-line bg-black" />
     )
   }
   if (file.kind === 'doc' && /\.docx$/i.test(file.name)) {
@@ -336,7 +349,20 @@ function renderPreview(
       <div className="bg-surface border border-line rounded p-10 text-center">
         <div className="text-sm">{file.name}</div>
         <div className="text-xs text-ink-muted mt-2">PPT 请下载后用本地软件打开</div>
-        <a className="btn mt-4 inline-flex" href={raw} download={file.name}><Download size={14} /> 下载</a>
+        <button
+          type="button"
+          className="btn mt-4 inline-flex"
+          onClick={() => {
+            void fetchWithPageToken(raw).then((res) => res.blob()).then((blob) => {
+              const href = URL.createObjectURL(blob)
+              const link = document.createElement('a')
+              link.href = href
+              link.download = file.name
+              link.click()
+              URL.revokeObjectURL(href)
+            })
+          }}
+        ><Download size={14} /> 下载</button>
       </div>
     )
     if (sessionId) return <HostOfficePreview key={epoch} sessionId={sessionId} path={file.id} epoch={epoch} fallback={fallback} />
