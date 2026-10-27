@@ -22,7 +22,6 @@ MODULES = [
     "faiss",
     "fastembed",
     "onnxruntime",
-    "falkordb",
     "fastapi",
     "uvicorn",
     "websockets",
@@ -36,6 +35,7 @@ MODULES = [
     "semantica.export",
     "semantica.vector_store",
     "semantica.kg",
+    "semantica.triplet_store",
 ]
 
 for module in MODULES:

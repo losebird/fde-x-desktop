@@ -24,7 +24,6 @@ for (let allowSdist = 0; allowSdist <= 1; allowSdist += 1) {
         args.splice(4, 0, '--extra-index-url', 'https://download.pytorch.org/whl/cpu')
       }
       if (allowSdist) {
-        args.splice(4, 0, '--no-binary=falkordblite')
         args.push('wheel')
       }
       execFileSync(python, args, { stdio: 'inherit', env: process.env })
@@ -38,6 +37,6 @@ for (let allowSdist = 0; allowSdist <= 1; allowSdist += 1) {
       while (Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(1000, until - Date.now()))
     }
   }
-  if (allowSdist === 0) console.error('binary-only wheelhouse failed; retrying with falkordblite sdist and wheel')
+  if (allowSdist === 0) console.error('binary-only wheelhouse failed; retrying with sdist and wheel')
 }
 throw last || new Error('wheelhouse download failed')

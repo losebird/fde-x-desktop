@@ -2,8 +2,6 @@ semantica[explorer,graph-embeddings,documents,parse-pdf,nlp-spacy,tripletstore-o
 pyshacl
 faiss-cpu
 fastembed
-falkordb
-falkordblite; platform_system != "Windows"
 python-pptx
 langdetect
 zh_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/zh_core_web_sm-3.8.0/zh_core_web_sm-3.8.0-py3-none-any.whl

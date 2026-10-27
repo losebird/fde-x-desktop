@@ -1,7 +1,7 @@
 """Product ASGI wrapper around official semantica==0.7.0 engine.
 
 Does not rewrite engine Python. Binds 127.0.0.1 only. Each graph request
-loads FalkorDB first when the store is up; graph.json is backup only.
+loads the Oxigraph workspace store; graph.json is import-only during 0.7.0 migrate.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from typing import Any
 
 try:
     from stores import primary_status, read_primary, write_primary, rebuild_vectors, schedule_rebuild_vectors, search_vectors, vector_index_status, vector_status, read_node_rows, read_edge_rows, read_memory_card_rows, read_nodes_by_id, patch_node_props, insert_memory_card, insert_edge, upsert_entity, is_archive_node, forget_node_rows
+    import graph_store
     from board import board_status_of, is_precedent, may_cite, memory_still_counts, resolve_board, resolve_memory_nod, resolve_memory_retire, resolve_memory_source, resolve_memory_renew, resolve_health_mute, resolve_memory_edge, suggest_memory_edge, then_label, display_iso, is_memory_card
     from reference import hold_reference, leave_person, resolve_reference
     from sight import may_read_file_body, resolve_sight
@@ -39,6 +40,7 @@ try:
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from stores import primary_status, read_primary, write_primary, rebuild_vectors, schedule_rebuild_vectors, search_vectors, vector_index_status, vector_status, read_node_rows, read_edge_rows, read_memory_card_rows, read_nodes_by_id, patch_node_props, insert_memory_card, insert_edge, upsert_entity, is_archive_node, forget_node_rows
+    import graph_store
     from board import board_status_of, is_precedent, may_cite, memory_still_counts, resolve_board, resolve_memory_nod, resolve_memory_retire, resolve_memory_source, resolve_memory_renew, resolve_health_mute, resolve_memory_edge, suggest_memory_edge, then_label, display_iso, is_memory_card
     from reference import hold_reference, leave_person, resolve_reference
     from sight import may_read_file_body, resolve_sight
@@ -931,7 +933,7 @@ def score_decisions(
 
 
 def _slim_workbench(graph: Any) -> int:
-    """Drop diary/file/mail nodes from the in-memory workbench. Cabinet rows stay in FalkorDB."""
+    """Drop diary/file/mail nodes from the in-memory workbench. Cabinet rows stay in Oxigraph."""
     nodes = getattr(graph, "nodes", None) or {}
     items = list(nodes.items()) if isinstance(nodes, dict) else []
     drop = []
@@ -961,40 +963,26 @@ def load_session(cwd: str):
 
     path = graph_path(cwd)
     mem, st = read_primary(cwd)
-    if mem is not None and not st.get("empty"):
-        session = GraphSession(mem)
-        _slim_workbench(session.graph)
-        coerce_decision_timestamps(session)
-        return session, path
-    if path.is_file():
-        session = GraphSession.from_file(str(path))
-    else:
+    if mem is None:
         session = GraphSession(ContextGraph())
+    else:
+        session = GraphSession(mem)
     _slim_workbench(session.graph)
     coerce_decision_timestamps(session)
-    if st.get("ok") and (st.get("empty") or mem is None):
-        try:
-            write_primary(session.graph, cwd)
-        except Exception:
-            pass
+    session._fdex_base = graph_store.baseline_of(session.graph)
     return session, path
 
 
 def save_session(session: Any, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f".{path.stem}.{os.getpid()}.tmp{path.suffix}")
+    cwd = str(path.parents[2]) if path.parts else ""
     try:
-        session.graph.save_to_file(str(temp))
-        os.replace(temp, path)
-    finally:
-        try:
-            if temp.exists():
-                temp.unlink()
-        except OSError:
-            pass
+        cwd = os.path.realpath(getattr(session, "cwd", None) or cwd)
+    except Exception:
+        cwd = os.path.realpath(cwd or "")
     try:
-        cwd = str(path.parents[2])
-        write_primary(session.graph, cwd)
+        wrote = write_primary(session.graph, cwd, base=getattr(session, "_fdex_base", None))
+        if wrote.get("ok"):
+            session._fdex_base = graph_store.baseline_of(session.graph)
     except Exception:
         pass
     try:
@@ -1201,6 +1189,7 @@ def ontology_event_iso(cwd: str) -> str:
     for rel in (
         os.path.join(root, ".dsh", "semantic-os", "ontology-versions.json"),
         os.path.join(root, ".dsh", "semantic-os", "ontology", "policy", "generated-from-classes.ttl"),
+        os.path.join(root, ".dsh", "semantic-os", "oxigraph"),
         os.path.join(root, ".dsh", "semantic-os", "graph.json"),
     ):
         iso = file_mtime_iso(rel)
@@ -1216,7 +1205,7 @@ def file_mtime_iso(src_path: str) -> str | None:
     if raw.startswith("file:"):
         raw = raw[5:]
     try:
-        if os.path.isfile(raw):
+        if os.path.isfile(raw) or os.path.isdir(raw):
             return iso_utc_from_mtime(os.path.getmtime(raw))
     except OSError:
         return None
@@ -1286,7 +1275,7 @@ def run_lineage(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
     nid = str(args.get("id") or "").strip()
     if not nid:
         return {"ok": False, "error": "NO_PATH", "id": "", "hops": [], "path": "", "detail": "没有编号。"}
-    # Fast path: read raw node/edge rows from FalkorDB/graph.json and never
+    # Fast path: read raw node/edge rows from Oxigraph and never
     # import semantica, so lineage does not pay the ~12s onnxruntime import.
     rows, _st = read_node_rows(cwd)
     by_id: dict[str, dict[str, Any]] = {str(r.get("id") or ""): r for r in rows}
@@ -2323,7 +2312,7 @@ def _rank_search_hit(hit: dict[str, Any], q: str, intent: str = "查询") -> flo
 def run_search_text(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
     """Search node id, type, and stored text. File content counts, not only extracted entities.
 
-    Fast path: reads raw rows from FalkorDB/graph.json and never imports semantica,
+    Fast path: reads raw rows from Oxigraph and never imports semantica,
     so a search does not pay the ~12s onnxruntime import (semantica.context pulls
     onnxruntime; text search only needs TF-IDF sparse complement, not onnx embeddings).
     """
@@ -3043,7 +3032,7 @@ def _stable_edge_ids(src: str, tgt: str, et: str) -> tuple[str, str]:
 
 
 def run_list_graph_nodes(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Paginated nodes for Explore. Reads FalkorDB/graph.json, no ContextGraph."""
+    """Paginated nodes for Explore. Reads Oxigraph, no ContextGraph."""
     args = args or {}
     want_type = str(args.get("type") or args.get("node_type") or "").strip()
     search = str(args.get("search") or args.get("q") or "").strip()
@@ -4228,7 +4217,7 @@ RETRIEVAL_NEEDLE = (
     ("N2", "only-arm64", "only-arm64"),
     ("N3", "采购单", "采购单"),
     ("N4", "两柜", "两柜"),
-    ("N5", "FalkorDB 主账本", "FalkorDB"),
+    ("N5", "Oxigraph 主账本", "Oxigraph"),
     ("N6", "不要硬编码", "硬编码"),
     ("N7", "开场工作记忆 800", "800"),
     ("N8", "假后果", "假后果"),
@@ -5505,10 +5494,11 @@ def run_backup_graph(cwd: str, args: dict[str, Any] | None = None) -> dict[str, 
         return {"error": allowed.get("error") or "NO_DEST"}
     dest = Path(os.path.realpath(str(allowed["dest"])))
     dest.parent.mkdir(parents=True, exist_ok=True)
-    src = graph_path(cwd)
-    if not src.is_file():
-        return {"error": "NO_GRAPH"}
-    dest.write_bytes(src.read_bytes())
+    from semantica.context.context_graph import ContextGraph
+    nodes, edges = graph_store.read_all(cwd)
+    graph = ContextGraph()
+    graph.from_dict({"nodes": list(nodes.values()), "edges": edges})
+    graph.save_to_file(str(dest))
     return {"ok": True, "kind": "备份", "path": str(dest), "bytes": dest.stat().st_size}
 
 
@@ -5522,24 +5512,16 @@ def run_restore_graph(cwd: str, args: dict[str, Any] | None = None) -> dict[str,
     src = Path(os.path.realpath(str(allowed["dest"])))
     if not src.is_file():
         return {"error": "NO_BACKUP"}
-    dest = graph_path(cwd)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(src.read_bytes())
+    from semantica.context.context_graph import ContextGraph
+    graph = ContextGraph()
+    graph.load_from_file(str(src))
     try:
-        packed = json.loads(src.read_text(encoding="utf-8"))
-    except Exception:
-        packed = {}
-    bag = type("Bag", (), {
-        "nodes": packed.get("nodes") if isinstance(packed, dict) else {},
-        "edges": packed.get("edges") if isinstance(packed, dict) else [],
-    })()
-    try:
-        wrote = write_primary(bag, cwd, replace=True)
+        wrote = write_primary(graph, cwd, replace=True)
     except Exception as exc:
-        return {"ok": False, "error": "PRIMARY_WRITE", "detail": str(exc)[:200], "path": str(dest)}
+        return {"ok": False, "error": "PRIMARY_WRITE", "detail": str(exc)[:200], "path": str(src)}
     if not wrote.get("ok"):
-        return {"ok": False, "error": "PRIMARY_WRITE", "detail": wrote, "path": str(dest)}
-    return {"ok": True, "kind": "恢复", "path": str(dest), "primary": "falkor", "wrote": wrote.get("wrote"), "mode": wrote.get("mode")}
+        return {"ok": False, "error": "PRIMARY_WRITE", "detail": wrote, "path": str(src)}
+    return {"ok": True, "kind": "恢复", "path": str(src), "primary": "oxigraph", "wrote": wrote.get("wrote"), "mode": wrote.get("mode")}
 
 
 def run_erase_ledger(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -7337,8 +7319,8 @@ def main() -> None:
 if __name__ == "__main__":
     def _stop_lite(_signum=None, _frame=None):
         try:
-            from stores import close_lite
-            close_lite()
+            from stores import close_store
+            close_store()
         except Exception:
             pass
         if _signum is not None:

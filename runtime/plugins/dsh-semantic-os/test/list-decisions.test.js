@@ -723,7 +723,7 @@ human = {"id": "e8061ff0-4d9d-4976-8428-adeb4c451a9b", "type": "decision", "prop
   "decision_maker": "user",
 }}
 auto = {"id": "aaaa", "type": "decision", "properties": {
-  "outcome": "缓存 falkordblite 失败状态，失败一次后快速跳过",
+  "outcome": "缓存 oxigraph 失败状态，失败一次后快速跳过",
   "source": "session_ingest", "auto": True, "timestamp": "2026-08-22T13:00:00Z",
   "decision_maker": "auto-extract",
 }}
