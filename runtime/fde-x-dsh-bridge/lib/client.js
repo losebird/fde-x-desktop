@@ -178,12 +178,6 @@ window.__ModuleLoader__.load({
           var raw = typeof input === "string" ? input : (input && input.url) || "";
           try {
             var lan = new URL(raw, location.href);
-            if (lan.pathname === "/lan-assist/state" && method === "GET") {
-              return Promise.resolve(new Response(JSON.stringify({ ok: true }), {
-                status: 200,
-                headers: { "content-type": "application/json", "cache-control": "no-store" }
-              }));
-            }
             if (lan.pathname === "/lan-assist/sleep" && method === "POST") {
               return Promise.resolve(new Response(JSON.stringify({ ok: true, asleep: false }), {
                 status: 200,

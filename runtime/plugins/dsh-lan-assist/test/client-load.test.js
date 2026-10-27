@@ -185,6 +185,7 @@ test('client.js parses and registers dsh-lan-assist on ModuleLoader.load', () =>
   assert.match(source, /pointerEvents: \(inShell && !open\) \? 'none'/)
   assert.match(source, /inWorkbenchShell/)
   assert.match(source, /data-fdex/)
+  assert.match(source, /data-fde-session-canvas/)
   assert.match(source, /setOpen\(true\)/)
   assert.match(source, /is-shell/)
   assert.match(source, /liveSessionWorkspace/)

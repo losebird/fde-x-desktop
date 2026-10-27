@@ -39,8 +39,8 @@ body,
   height: 100%;
 }
 
-/* lan-assist overlay must never appear; IM/业务应用 own those surfaces. */
-.dla-overlay,
+/* lan-assist badge stays hidden; in-shell overlay is the session confirm card. */
+.dla-overlay:not(.is-shell),
 .dla-badge {
   display: none !important;
 }

@@ -809,7 +809,9 @@ const FDE_DSH_HEAD_HOOK = `<script data-fde-dsh-hook>
 </script>`
 
 const FDE_DSH_STRIP_STYLE = `<style data-fde-dsh-strip>
-.dla-ask-wrap,.dla-ask-btn,.dla-overlay,.dla-badge,.dla-chat-pop,.dla-chat-scrim,.dla-chat-pair-ask,.dla-sec-backdrop,.dla-sec-panel{display:none!important}
+.dla-ask-wrap,.dla-ask-btn,.dla-badge,.dla-chat-pop,.dla-chat-scrim,.dla-chat-pair-ask{display:none!important}
+.dla-overlay:not(.is-shell){display:none!important}
+.dla-overlay.is-shell{display:flex!important}
 .dsos-root,.dsos-bar{display:none!important}
 html[data-fde-session-canvas] [data-sidebar-collapsed],
 html[data-fde-session-canvas] [data-rightbar-collapsed]{grid-template-columns:0 minmax(0,1fr) 0!important}

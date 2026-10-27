@@ -382,7 +382,11 @@ window.__ModuleLoader__.load({
 
     function inWorkbenchShell() {
       try {
-        if (typeof document !== 'undefined' && document.documentElement.getAttribute('data-fdex') === '1') return true
+        if (typeof document !== 'undefined') {
+          const root = document.documentElement
+          if (root.getAttribute('data-fdex') === '1') return true
+          if (root.hasAttribute('data-fde-session-canvas')) return true
+        }
         return typeof navigator !== 'undefined' && /Electron/i.test(String(navigator.userAgent || ''))
       } catch { return false }
     }
