@@ -1,5 +1,6 @@
 /**
  * Host plugin: one semantica==0.6.7 sidecar, same-origin /semantic-os, host tools.
+ * FDE Memory is the human mouth. Do not load client.js in the DSH iframe.
  * apply() never throws on doctor fail — the plugin stays not-ready.
  * @module dsh-semantic-os
  */
