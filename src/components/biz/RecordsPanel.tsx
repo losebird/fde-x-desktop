@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { sheetConfirmsOnPlanCard } from '../../../runtime/biz/confirm-mouth.mjs'
+import { sheetConfirmsOnPlanCard, sheetConfirmsOnSessionCard } from '../../../runtime/biz/confirm-mouth.mjs'
 import { canonicalWorkspaceCwd } from '../../../runtime/cwd.mjs'
 import { ArrowLeft, Bot, CircleAlert, Plus, Search } from 'lucide-react'
 import clsx from 'clsx'
@@ -1134,7 +1134,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
   }
 
   const applyPendingSheet = useCallback((sheet: Record<string, unknown>, surfaceId?: string) => {
-    if (sheetConfirmsOnPlanCard(sheet)) return true
+    if (sheetConfirmsOnPlanCard(sheet) || sheetConfirmsOnSessionCard(sheet)) return true
     if (!shouldStageRoundEndPending(sheet)) return false
     const connected = kindCatalog
     let next = sheet
@@ -1370,7 +1370,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       }
       const liveSid = String(liveSessionIdRef.current || '').trim()
       if (!sheetBelongsToLiveSession(stamped, liveSid)) return
-      if (sheetConfirmsOnPlanCard(stamped)) return
+      if (sheetConfirmsOnPlanCard(stamped) || sheetConfirmsOnSessionCard(stamped)) return
       if (shouldFocusBizRecordsForPending(stamped)) {
         useApp.getState().focusBizRecordsPanel()
       }

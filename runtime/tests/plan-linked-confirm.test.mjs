@@ -404,6 +404,15 @@ test('a proposal with no preview keeps confirm on the plan only', async () => {
   rmSync(dbPath, { force: true })
 })
 
+test('write previews confirm on the session card, not records', async () => {
+  const { sheetConfirmsOnPlanCard, sheetConfirmsOnSessionCard } = await import('../biz/confirm-mouth.mjs')
+  const write = { action: '改行', preview_id: PREVIEW }
+  assert.equal(sheetConfirmsOnSessionCard(write), true)
+  assert.equal(sheetConfirmsOnPlanCard(write), false)
+  assert.equal(sheetConfirmsOnSessionCard({ action: '现查', preview_id: write.preview_id }), false)
+  assert.equal(sheetConfirmsOnSessionCard({ ...write, confirmMouth: 'plan' }), false)
+})
+
 test('handoff sheet does not auto-open the business drawer', () => {
   const panel = readFileSync(new URL('../../src/components/biz/RecordsPanel.tsx', import.meta.url), 'utf8')
   const pendingAt = panel.indexOf("useEvents(['biz.sheet.pending']")
@@ -415,12 +424,13 @@ test('handoff sheet does not auto-open the business drawer', () => {
   const focusAt = pending.indexOf('focusBizRecordsPanel')
   assert.ok(guardAt >= 0)
   assert.ok(focusAt > guardAt)
-  assert.match(pending, /if \(sheetConfirmsOnPlanCard\([^)]*\)\) return/)
+  assert.match(pending, /sheetConfirmsOnSessionCard/)
+  assert.match(pending, /if \(sheetConfirmsOnPlanCard\([^)]*\) \|\| sheetConfirmsOnSessionCard\([^)]*\)\) return/)
   const apply = panel.slice(applyAt, pendingAt)
-  const applyGuard = apply.indexOf('sheetConfirmsOnPlanCard')
+  const applyGuard = apply.indexOf('sheetConfirmsOnSessionCard')
   assert.ok(applyGuard >= 0)
   assert.ok(applyGuard < apply.indexOf('setDrawer'))
-  assert.match(apply, /if \(sheetConfirmsOnPlanCard\([^)]*\)\) return/)
+  assert.match(apply, /if \(sheetConfirmsOnPlanCard\([^)]*\) \|\| sheetConfirmsOnSessionCard\([^)]*\)\) return/)
   const run = panel.slice(runAt, runAt + 2500)
   assert.equal(run.includes('setDrawer('), true)
   assert.equal(run.includes('sheetConfirmsOnPlanCard'), false)
