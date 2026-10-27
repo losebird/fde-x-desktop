@@ -43,6 +43,17 @@ describe('apps materialize', () => {
     db.close()
   })
 
+  test('planMaterializeDdl skips injected field names', () => {
+    const db = openDatabase(`/tmp/fde-apps-mat-inject-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
+    const spec = JSON.parse(JSON.stringify(SUPPLIER_VISITS_SPEC))
+    spec.entities[0].fields.push({ name: 'phone"; DROP TABLE x; --', type: 'text', label: '坏列' })
+    const { ddl } = planMaterializeDdl(spec, db)
+    assert.equal(ddl.some((s) => s.includes('DROP TABLE')), false)
+    assert.equal(ddl.some((s) => s.includes('phone";')), false)
+    assert.ok(ddl.some((s) => s.includes('"supplier"')))
+    db.close()
+  })
+
   test('ddl whitelist rejects DROP', () => {
     const db = openDatabase(`/tmp/fde-apps-mat4-${Date.now()}.sqlite`, join(repoRoot, 'runtime/migrations'))
     assert.throws(() => execControlledDdl(db, 'DROP TABLE app_x__y'))

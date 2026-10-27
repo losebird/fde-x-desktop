@@ -1,4 +1,5 @@
 import { createId, execControlledDdl } from '../db.mjs'
+import { recordQueryColumn } from './records.mjs'
 import { detectBreakingSpecChange, quoteTable, tableNameForEntity } from './spec.mjs'
 
 /**
@@ -37,7 +38,9 @@ export function planMaterializeDdl(spec, db, previousSpec = null) {
 
     const fieldDefs = []
     for (const field of ent.fields) {
-      fieldDefs.push(`"${field.name}" ${sqliteType(String(field.type))}`)
+      const column = recordQueryColumn(spec, ent.name, field.name)
+      if (!column) continue
+      fieldDefs.push(`${quoteTable(column)} ${sqliteType(String(field.type))}`)
     }
 
     if (!exists) {
@@ -52,11 +55,11 @@ export function planMaterializeDdl(spec, db, previousSpec = null) {
       ddl.push(createSql)
       applied.push(createSql)
       for (const field of ent.fields) {
-        if (field.unique) {
-          const idx = `CREATE UNIQUE INDEX IF NOT EXISTS "${table}__${field.name}__uniq" ON ${quoted} ("${field.name}")`
-          ddl.push(idx)
-          applied.push(idx)
-        }
+        const column = recordQueryColumn(spec, ent.name, field.name)
+        if (!column || !field.unique) continue
+        const idx = `CREATE UNIQUE INDEX IF NOT EXISTS ${quoteTable(`${table}__${column}__uniq`)} ON ${quoted} (${quoteTable(column)})`
+        ddl.push(idx)
+        applied.push(idx)
       }
       continue
     }
@@ -64,12 +67,13 @@ export function planMaterializeDdl(spec, db, previousSpec = null) {
     const info = db.prepare(`PRAGMA table_info(${quoted})`).all()
     const existingCols = new Set(info.map((row) => row.name))
     for (const field of ent.fields) {
-      if (existingCols.has(field.name)) continue
-      const alter = `ALTER TABLE ${quoted} ADD COLUMN "${field.name}" ${sqliteType(String(field.type))}`
+      const column = recordQueryColumn(spec, ent.name, field.name)
+      if (!column || existingCols.has(column)) continue
+      const alter = `ALTER TABLE ${quoted} ADD COLUMN ${quoteTable(column)} ${sqliteType(String(field.type))}`
       ddl.push(alter)
       applied.push(alter)
       if (field.unique) {
-        const idx = `CREATE UNIQUE INDEX IF NOT EXISTS "${table}__${field.name}__uniq" ON ${quoted} ("${field.name}")`
+        const idx = `CREATE UNIQUE INDEX IF NOT EXISTS ${quoteTable(`${table}__${column}__uniq`)} ON ${quoted} (${quoteTable(column)})`
         ddl.push(idx)
         applied.push(idx)
       }
