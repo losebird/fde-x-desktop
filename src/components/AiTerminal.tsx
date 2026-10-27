@@ -41,6 +41,7 @@ export function AiTerminal({
     let fitTimer = 0
     const applyFit = () => {
       if (!termRef.current) return
+      if (host.clientWidth < 2 || host.clientHeight < 2) return
       fit.fit()
       const cols = term.cols
       const rows = term.rows
