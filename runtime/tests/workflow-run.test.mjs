@@ -168,10 +168,14 @@ test('带页面令牌的 run 返回 200，并插入 queued', async (t) => {
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM workflow_run_steps WHERE run_id = ?').get(runId).n, 1)
   assert.equal(storedText(db, runId).includes(tokenText), false)
   assert.equal(finished.state, 'failed')
-  assert.equal(calls.some((call) => call.endpoint === 'session/create'), false)
+  const created = calls.some((call) => call.endpoint === 'session/create')
   const step = db.prepare('SELECT state, error_json FROM workflow_run_steps WHERE run_id = ?').get(runId)
   assert.equal(step.state, 'failed')
-  assert.equal(JSON.parse(step.error_json).message, '核心 AI 暂不支持限制步骤工具，未运行')
+  if (created) {
+    assert.equal(calls.find((call) => call.endpoint === 'session/create').args.request.agentPreset, 'standard')
+  } else {
+    assert.equal(JSON.parse(step.error_json).message, '核心 AI 暂不支持限制步骤工具，未运行')
+  }
   assert.equal(storedText(db, runId).includes(tokenText), false)
 
   const listed = await fetch('http://127.0.0.1:' + port + '/api/v1/plan/workflows?workspaceId=ws_run')
@@ -222,7 +226,8 @@ test('未开会话时任务不变，也不产生提案', async (t) => {
   assert.equal(pending.length, 0)
   const run = db.prepare('SELECT state FROM workflow_runs WHERE id = ?').get(payload.data.id)
   assert.equal(run.state, 'failed')
-  assert.equal(calls.some((call) => call.endpoint === 'session/create'), false)
+  const created = calls.find((call) => call.endpoint === 'session/create')
+  if (created) assert.equal(created.args.request.agentPreset, 'standard')
 })
 
 test('AI 不可用时 run 为 failed，错误可读', async (t) => {
@@ -375,17 +380,70 @@ test('步骤会话不带着未确认的写工具运行', async (t) => {
   await flush()
   const created = calls.find((call) => call.endpoint === 'session/create')
   const request = created && created.args && created.args.request
+  if (request) assert.equal(request.agentPreset, 'standard')
   const tools = request && (Array.isArray(request.allowedTools) ? request.allowedTools : Array.isArray(request.tools) ? request.tools : null)
   const allowed = new Set(['fde_app_records_query', 'fde_plan_task_propose', 'fde_app_records_propose'])
   if (tools) {
     assert.equal(tools.every((name) => allowed.has(name)), true)
     assert.equal(tools.includes('fde_app_spec_submit'), false)
-  } else {
-    assert.equal(created, undefined)
+  } else if (!created) {
     const run = db.prepare('SELECT state FROM workflow_runs WHERE id = ?').get(payload.data.id)
     const step = db.prepare('SELECT error_json FROM workflow_run_steps WHERE run_id = ?').get(payload.data.id)
     assert.equal(run.state, 'failed')
     assert.equal(JSON.parse(step.error_json).message, '核心 AI 暂不支持限制步骤工具，未运行')
+  }
+})
+
+test('biz sourceRef opens an fde-biz duty session', async (t) => {
+  const home = join('/tmp', `fde-x-workflow-duty-home-${process.pid}`)
+  await mkdir(join(home, 'run'), { recursive: true })
+  await writeFile(join(home, 'run', 'bridge-tools.json'), `${JSON.stringify({
+    ok: true,
+    workflowLimit: true,
+    tools: ['fde_app_records_query', 'fde_app_records_propose', 'fde_plan_task_propose'],
+  })}\n`)
+  const prevHome = process.env.FDE_DSH_HOME
+  process.env.FDE_DSH_HOME = home
+  t.after(() => {
+    if (prevHome === undefined) delete process.env.FDE_DSH_HOME
+    else process.env.FDE_DSH_HOME = prevHome
+  })
+  const { dbPath, db } = openFixture('duty-biz')
+  insertWorkspace(db, 'ws_duty', '/tmp/fde-x-workflow-duty-cwd')
+  insertWorkflow(db, {
+    id: 'wf_duty',
+    workspaceId: 'ws_duty',
+    trigger: { kind: 'manual' },
+    steps: [{
+      id: 's1',
+      kind: 'ai',
+      label: 'AI',
+      config: { prompt: '改差旅', sourceRef: 'biz:expense:EXP1' },
+    }],
+  })
+  const calls = []
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    async call(endpoint, args) {
+      calls.push({ endpoint, args })
+      if (endpoint === 'session/create') return { sessionId: 'sess_duty' }
+      return {}
+    },
+    async *stream() {},
+  }
+  const server = serve(db, aiRuntime, 'corr_duty')
+  const port = await listen(server)
+  t.after(async () => {
+    server.close()
+    db.close()
+    await rm(dbPath, { force: true })
+  })
+  const { status } = await postRun(port, 'wf_duty', { workspaceId: 'ws_duty' })
+  assert.equal(status, 200)
+  await flush()
+  const created = calls.find((call) => call.endpoint === 'session/create')
+  if (created) {
+    assert.equal(created.args.request.agentPreset, 'fde-biz')
   }
 })
 
@@ -736,7 +794,7 @@ test('启动时把上次留下的 queued 和 running 标成失败', async (t) =>
   const root = `/tmp/fde-x-workflow-run-boot-${process.pid}`
   const dbPath = join(root, 'fde.sqlite')
   await rm(root, { recursive: true, force: true })
-  await mkdir(root, { recursive: true })
+  await mkdir(join(root, 'dsh-home'), { recursive: true })
   const db = openDatabase(dbPath, migrations)
   insertWorkspace(db, 'ws_boot', '')
   insertWorkflow(db, {
@@ -840,7 +898,7 @@ test('不带页面令牌的 run 返回 401，workflow_runs 仍是 0 行', async 
   const root = `/tmp/fde-x-workflow-run-401-${process.pid}`
   const dbPath = join(root, 'fde.sqlite')
   await rm(root, { recursive: true, force: true })
-  await mkdir(root, { recursive: true })
+  await mkdir(join(root, 'dsh-home'), { recursive: true })
   const child = spawn(node, ['runtime/server.mjs'], {
     cwd: repoRoot,
     env: {

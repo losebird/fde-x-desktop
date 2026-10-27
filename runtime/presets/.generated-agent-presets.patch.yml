@@ -282,6 +282,23 @@
 
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+    - id: preset-fde-biz
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: fde-biz
+        name: FDE 业务值班
+        description: 业务查询与会话卡确认；不在计划页过账。
+        order: 93
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              complete: true
+              includeRuntimeContext: false
+              prefix: >-
+                你处理业务值班。用 biz_describe / biz_preview 查询和改行。
+                确认只在本会话确认卡。不要到计划页过账。不要代点。
+                完成后用 fde_submit_result 交结论并停止。
     - id: preset-fde-briefing
       name: '@deepseek-ai/dsh-agent-preset'
       config:

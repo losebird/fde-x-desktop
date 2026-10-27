@@ -1,4 +1,4 @@
-const IUI_MODES = ['standard']
+const IUI_MODES = ['standard', 'fde-biz']
 const IUI_SECTION_NAME = 'iui:fence'
 const IUI_TOOL_NAMES = ['get_trip_stop_images', 'get_place_images']
 const IUI_SKILL_NAME = 'iui'
@@ -71,7 +71,7 @@ function deniedServer(server, preset, mount, sessionId) {
     if (briefingAllowServers(sessionId).includes(name)) return ''
     return name
   }
-  if (preset === 'standard' && table.standardDenyServers.includes(name)) return name
+  if ((preset === 'standard' || preset === 'fde-biz') && table.standardDenyServers.includes(name)) return name
   return ''
 }
 

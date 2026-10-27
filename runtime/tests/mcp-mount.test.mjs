@@ -320,6 +320,7 @@ test('a briefing allow file opens only that session and never a browser server',
   assert.equal(policy.deniedServer('mail', 'fde-briefing', mount, sessionB), 'mail')
   assert.equal(policy.deniedServer('mail', 'fde-briefing', mount), 'mail')
   assert.equal(policy.deniedServer('playwright', 'standard', mount, sessionA), 'playwright')
+  assert.equal(policy.deniedServer('playwright', 'fde-biz', mount, sessionA), 'playwright')
   assert.equal(policy.deniedServer('mail', 'standard', mount, sessionA), '')
   assert.equal(policy.deniedServer('mail', 'fde-app-builder', mount, sessionA), '')
   rmSync(join(home, 'run', 'briefing-allow', `${sessionA}.json`))

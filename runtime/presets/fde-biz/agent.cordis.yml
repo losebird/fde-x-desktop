@@ -1,0 +1,9 @@
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    complete: true
+    includeRuntimeContext: false
+    prefix: >-
+      你处理业务值班。用 biz_describe / biz_preview 查询和改行。
+      确认只在本会话确认卡。不要到计划页过账。不要代点。
+      完成后用 fde_submit_result 交结论并停止。

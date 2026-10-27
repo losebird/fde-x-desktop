@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { canonicalWorkspaceCwd } from '../cwd.mjs'
-import { planAppSource } from '../app-source.mjs'
+import { taskSourceProblem } from '../app-source.mjs'
 import { appendAudit, createId } from '../db.mjs'
-import { WORKFLOW_PRESET, WORKFLOW_TOOLS, discardWorkflowAllow, stageWorkflowAllow, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
+import { dutyPresetForWorkflowSteps, isDutyPickerPreset } from '../duty-policy.mjs'
+import { WORKFLOW_TOOLS, discardWorkflowAllow, stageWorkflowAllow, workflowLimitReady } from '../fde-x-dsh-bridge/lib/workflow-limit.js'
 import { listWorkflowCatalog } from './workflow-catalog.mjs'
 import { isHostJobId } from '../host-catalog.mjs'
 import { toolTier, waitsForBackground, waitsForPerson } from './tool-risk.mjs'
@@ -84,7 +85,7 @@ export function hasIllegalSourceRef(steps) {
       : null
     if (!config) continue
     const sourceRef = typeof config.sourceRef === 'string' ? config.sourceRef.trim() : ''
-    if (sourceRef && !planAppSource(sourceRef)) return true
+    if (sourceRef && taskSourceProblem(sourceRef)) return true
   }
   return false
 }
@@ -196,6 +197,11 @@ function namesEqual(expected, actual) {
   const left = [...expected].sort()
   const right = Array.isArray(actual) ? actual.map((name) => (typeof name === 'string' ? name : '')).sort() : []
   return left.length === right.length && left.every((name, index) => name === right[index])
+}
+
+function toolsCovered(needed, visible) {
+  const have = new Set(Array.isArray(visible) ? visible.filter((name) => typeof name === 'string') : [])
+  return Array.isArray(needed) && needed.every((name) => have.has(name))
 }
 
 function mismatchMessage(tools) {
@@ -418,8 +424,10 @@ async function performRun(deps, ctx) {
     await failPrepared(TOOLS_DIVERGE)
     return
   }
-  const persona = head.presetId ? await personaFor(aiRuntime, cwd, head.presetId) : null
-  if (head.presetId && !persona) {
+  const duty = dutyPresetForWorkflowSteps(aiSteps)
+  const personaId = isDutyPickerPreset(head.presetId) ? head.presetId : ''
+  const persona = personaId ? await personaFor(aiRuntime, cwd, personaId) : null
+  if (personaId && !persona) {
     await failPrepared(TOOLS_PERSONA)
     return
   }
@@ -428,7 +436,7 @@ async function performRun(deps, ctx) {
   let created
   try {
     created = await aiRuntime.call('session/create', {
-      request: { cwd, agentPreset: WORKFLOW_PRESET, sessionId: requestedId },
+      request: { cwd, agentPreset: duty, sessionId: requestedId },
     })
   } catch (error) {
     discardWorkflowAllow(requestedId, allowHome)
@@ -446,7 +454,7 @@ async function performRun(deps, ctx) {
     await failPrepared(TOOLS_UNCHECKED, { requestedId, actualId })
     return
   }
-  if (!namesEqual(head.tools, visible.tools)) {
+  if (!toolsCovered(head.tools, visible.tools)) {
     await failPrepared(mismatchMessage(head.tools), { requestedId, actualId })
     return
   }
@@ -457,7 +465,7 @@ async function performRun(deps, ctx) {
   session = { requestedId, sessionId: actualId, tools: [...head.tools].sort() }
   await renameSession(aiRuntime, actualId, ctx.workflowName)
   try {
-    claimRunning(db, ctx.runId, aiSteps, session.sessionId, session.tools, isoNow())
+    claimRunning(db, ctx.runId, aiSteps, session.sessionId, session.tools, isoNow(), duty)
   } catch (error) {
     await releasePrepared()
     throw error
@@ -492,12 +500,12 @@ function stepText(step) {
   return `${prompt}\n来源：${sourceRef}`
 }
 
-function claimRunning(db, runId, steps, sessionId, tools, now) {
+function claimRunning(db, runId, steps, sessionId, tools, now, preset) {
   const run = db.prepare(`
     UPDATE workflow_runs
     SET state = 'running', started_at = COALESCE(started_at, ?), output_json = ?
     WHERE id = ? AND state = 'queued'
-  `).run(now, JSON.stringify({ sessionId, tools }), runId)
+  `).run(now, JSON.stringify({ sessionId, tools, preset }), runId)
   if (run.changes !== 1) throw new Error('运行没能进入 running')
   for (const step of steps) {
     const updated = db.prepare(`

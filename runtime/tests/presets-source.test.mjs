@@ -17,6 +17,7 @@ test('user directory wins as user; FDE disk ids stay fde', () => {
   const fdeIds = fdePresetIdsFromDisk()
   assert.ok(fdeIds.has('fde-app-builder'))
   assert.ok(fdeIds.has('fde-workflow'))
+  assert.ok(fdeIds.has('fde-biz'))
   assert.equal(classifyPresetSource('fde-app-builder', { kind: 'user', path: '/tmp/x' }), 'fde')
 })
 
@@ -28,8 +29,10 @@ test('generated patch registers FDE folders as dsh-agent-preset inserts', async 
   assert.match(text, /id: fde-app-builder/)
   assert.match(text, /id: fde-briefing/)
   assert.match(text, /id: fde-workflow/)
+  assert.match(text, /id: fde-biz/)
   assert.match(text, /name: FDE 应用构建/)
   assert.match(text, /name: FDE 工作流/)
+  assert.match(text, /name: FDE 业务值班/)
   assert.doesNotMatch(text, /^- include:/m)
   assert.doesNotMatch(text, /new URL\('skills\/'/)
   assert.doesNotMatch(text, /\/workspace\//)
