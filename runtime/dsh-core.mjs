@@ -29,6 +29,7 @@ import { stageIuiArtifactIfAbsent, sweepStaleIuiPartials } from './iui-stage.mjs
 import { iuiProfileDir, promoteInstalledIui } from './iui-status.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
 import { invokeLanAssist, lanAssistBffReady } from './lan-assist-bff.mjs'
+import { invokeSemanticOs, semanticOsBffReady } from './semantic-os-bff.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 import { linkPackagedPeers } from './packaged-peer.mjs'
 import { firstMissingClosure, natsContentDigest, natsDependencyError, natsStampFields, sourceStamp, syncRepoCache } from './plugin-repo-source.mjs'
@@ -553,6 +554,7 @@ export class DshCoreConnector {
         FDE_LAN_ASSIST_BFF: '1',
         FDE_RUNTIME_PORT: String(process.env.FDE_RUNTIME_PORT || FDE_RUNTIME_PORT || '4318'),
         FDE_LAN_ASSIST_ROOT: join(this.runtimeDirectory, 'plugins', 'dsh-lan-assist'),
+        FDE_SEMANTIC_OS_BFF: '1',
         DSH_HOME: this.dshHome,
         DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE || 'danger-full-access',
         DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT,
@@ -1272,6 +1274,9 @@ export class DshCoreConnector {
   }
 
   async semanticOs(path, options = {}) {
+    if (semanticOsBffReady()) {
+      return invokeSemanticOs(path, options)
+    }
     this.assertConnected()
     if (path === '/python') {
       const op = options.op

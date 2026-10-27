@@ -47,6 +47,9 @@ export const Config = Schema.object({
  * @param {Record<string, unknown>} config
  */
 export function apply(ctx, config) {
+  if (String(process.env.FDE_SEMANTIC_OS_BFF || '') === '1') {
+    return
+  }
   let current = () => mergeConfig(config || {})
   loadOverlaySync()
 

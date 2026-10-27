@@ -97,6 +97,7 @@ import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp, publicShareCors }
 import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { loadMemoryWorkspaceVocab, saveMemoryWorkspaceVocab } from './biz/memory-vocab.mjs'
 import { bootLanAssistBff, handleLanAssistHttp, kindsFromVocabRows, setLanAssistVocabLoader, setLanAssistVocabSaver } from './lan-assist-bff.mjs'
+import { bootSemanticOsBff, handleSemanticOsHttp } from './semantic-os-bff.mjs'
 import { auditWorkstationWrite, capturePendingSheet, handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, persistUiToken, resolveUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
@@ -1186,6 +1187,7 @@ const server = createServer(async (request, response) => {
   }
 
   if (requestTouchesSemanticOs(request)) {
+    if (handleSemanticOsHttp(request, response)) return
     proxySemanticOs(request, response, url)
     return
   }
@@ -3819,6 +3821,10 @@ server.on('upgrade', (request, socket, head) => {
 })
 
 void ensureTypertVerbs().catch(() => undefined)
+
+void bootSemanticOsBff().catch((error) => {
+  console.error('semantic_os_bff_boot_failed', error)
+})
 
 void bootLanAssistBff().then(() => {
   setLanAssistVocabLoader(async (workspace) => {

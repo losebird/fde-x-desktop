@@ -253,7 +253,7 @@
         "runtime/plugins/dsh-semantic-os/gate.js": "75b59eef827a6017ddfcbc810087cf2c22416815e81907ff560f01a2f58e380d",
         "runtime/plugins/dsh-semantic-os/graph-label.js": "3d407eedd04aa40c4454b67e6a87a0af5386f35a92d12e4f3f6ca884075a6bb3",
         "runtime/plugins/dsh-semantic-os/http.js": "564c9b5a37a4c00c1bf9e33a180484230863e89db88373fa038685c6c9b520ff",
-        "runtime/plugins/dsh-semantic-os/index.js": "1cf144634a21f81019b5ce2913d52fcfc04658385b6181aa08d786900f949698",
+        "runtime/plugins/dsh-semantic-os/index.js": "7a9bf0a60f442d4f6e494b80662a2225b22528f92994292e7df3b4af349f33cd",
         "runtime/plugins/dsh-semantic-os/ingest.js": "1f4f2df2275c44dae54ae45b7ef6b484380ebd61a283f90d149f023af1ae56f9",
         "runtime/plugins/dsh-semantic-os/installer.js": "af80fae92fda52b8a640c0cdb4ae4f6a0e16353855fb4e802567e6dd3d4f1277",
         "runtime/plugins/dsh-semantic-os/opening-brief.js": "c867b9b31214caa47df9b86d0e3e5bc522276e69d5411e09c6b39b2a7a5b71ff",
