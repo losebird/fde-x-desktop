@@ -1304,15 +1304,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       }
       if (sid) clearBizPendingSheet(sid)
       const painted = displayedSheetRef.current
-      if (
-        painted
-        && sheetBelongsToSession(painted, sid)
-        && shouldStageRoundEndPending(painted)
-        && !isBizPreviewDismissed(painted)
-      ) {
-        return
-      }
-      if (liveSessionIdRef.current === sid) clearDisplayedForSession()
+      if (painted && sheetBelongsToSession(painted, sid)) return
     }).catch(() => undefined)
   }, [activeAiSessionId, runtimeReady, workspaceCwd])
 
@@ -1668,6 +1660,20 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       }
     })
   }, [applySheet, commitListRestore, resolveSurfaceSheet, surfaceHistoryLabel])
+
+  const loadSurfaceRef = useRef(loadSurface)
+  loadSurfaceRef.current = loadSurface
+  useEffect(() => {
+    if (!runtimeReady || !workspaceCwd) return
+    if (!sessionSurfaces.length) return
+    void (async () => {
+      const ok = await hydrateFromPendingRef.current()
+      if (ok) return
+      if (displayedSheetRef.current) return
+      const latest = sessionSurfaces[0]
+      if (latest) await loadSurfaceRef.current(latest)
+    })()
+  }, [activeAiSessionId, runtimeReady, sessionSurfaces, workspaceCwd])
 
   const selectKind = useCallback((nextKind: string, nextRelation?: string) => {
     const pendingSheet = peekActivePending()
