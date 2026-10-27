@@ -25,10 +25,16 @@ test('catalog chrome is denied or emptied so DSH fallback does not paint', () =>
 })
 
 test('composer and session conversation slots stay allowed', () => {
-  assert.equal(occupancyAction({ name: 'conversation.input.dock' }), 'allow')
   assert.equal(occupancyAction({ name: 'conversation.session' }), 'allow')
   assert.equal(occupancyAction({ name: 'conversation.session.header.actions' }), 'allow')
   assert.equal(occupancyAction({ name: 'conversation.hero.agentPreset' }), 'allow')
+})
+
+test('lan-assist face slots stay off the session canvas', () => {
+  assert.equal(occupancyAction({ name: 'conversation.input.dock' }), 'deny')
+  assert.equal(occupancyAction({ name: 'conversation.input.dock', id: 'lan-assist-dock' }), 'deny')
+  assert.equal(occupancyAction({ name: 'shell.overlay', id: 'lan-assist-chat' }), 'deny')
+  assert.equal(occupancyAction({ name: 'conversation.input.left', id: 'lan-assist-ask' }), 'deny')
 })
 
 test('tab kinds land on host-catalog surfaces, terminal stays on the AI page', () => {

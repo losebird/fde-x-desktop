@@ -18,6 +18,9 @@ export function occupancyAction(options = {}) {
   if (name === 'conversation.session.header.corner') return 'deny'
   if (name === 'rightbar' || name === 'rightbar.session' || name.startsWith('sidebar.right')) return 'deny'
   if (name === 'sidebar' || name.startsWith('sidebar.')) return 'deny'
+  if (name === 'conversation.input.dock') return 'deny'
+  if (name === 'shell.overlay') return 'deny'
+  if (name === 'conversation.input.left' && id.includes('lan-assist')) return 'deny'
   return 'allow'
 }
 

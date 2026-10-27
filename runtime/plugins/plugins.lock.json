@@ -92,7 +92,7 @@
         "runtime/plugins/dsh-lan-assist/nudge.js": "2ec101c3d026f746cca0dc233d8348bdca78738879f67417975320133afa67b9",
         "runtime/plugins/dsh-lan-assist/operation-kind-sheet.mjs": "c3b11e5ee724abc517170cf74106c032729e80b4b366c3e9f1b709f59e4f8a1a",
         "runtime/plugins/dsh-lan-assist/package-lock.json": "2734fc9501cb9ec54ef48df51e0071f78c8ba57948d9b68ee6fc4e9d1c15a9e3",
-        "runtime/plugins/dsh-lan-assist/package.json": "2bc036df52eef008b2d3803fc4f34f59ccf2cad95bc745eb01868e6fbc39ec78",
+        "runtime/plugins/dsh-lan-assist/package.json": "c8ee9e1f6b55d397363d3774d0c875de3db75e7aa53ebe84241b81baad04cc89",
         "runtime/plugins/dsh-lan-assist/pair.js": "a11a767c9e090b8b213ce88cda03d98f952e35f309d4af1311139774c6725257",
         "runtime/plugins/dsh-lan-assist/peers.js": "d7093fe44a3483907530b5f3f8b3ed22531375daf753e2a1ddc793f3715289d9",
         "runtime/plugins/dsh-lan-assist/plan-receipt.mjs": "c18564bd90978b2407f58a72a08a36aca50f060ff28a15283b7b05da205c244d",
