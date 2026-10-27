@@ -17,6 +17,7 @@ import {
   mutateHostGoal,
 } from '../host-catalog.mjs'
 import { decidePlanTask } from '../plan/task-proposals.mjs'
+import { quotedAssignments } from '../sql-ident.mjs'
 import {
   awaitingPreviewIds,
   bindAwaitingProposal,
@@ -837,15 +838,14 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
     if (typeof body.location === 'string' || body.location === null) patch.location = body.location
     if (body.kind && EVENT_KINDS.has(body.kind)) patch.event_kind = body.kind
     if (typeof body.allDay === 'boolean') patch.all_day = body.allDay ? 1 : 0
-    const keys = Object.keys(patch)
-    if (!keys.length) {
+    const assigned = quotedAssignments(patch, new Set(['workflow_id', 'recurrence', 'title', 'start_at', 'end_at', 'location', 'event_kind', 'all_day']))
+    if (!assigned.keys.length) {
       planOk(response, 200, mapEvent(existing), correlationId)
       return true
     }
     const beforeView = eventHistoryView(existing)
     const now = isoNow()
-    const sets = keys.map((k) => `${k} = ?`).join(', ')
-    db.prepare(`UPDATE calendar_events SET ${sets}, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(...keys.map((k) => patch[k]), now, ident.workspaceId, id)
+    db.prepare(`UPDATE calendar_events SET ${assigned.sql}, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(...assigned.values, now, ident.workspaceId, id)
     const row = db.prepare('SELECT * FROM calendar_events WHERE workspace_id = ? AND id = ?').get(ident.workspaceId, id)
     planWrote(response, 200, mapEvent(row), correlationId, db, {
       workspaceId: row.workspace_id,
@@ -1051,15 +1051,14 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
       }
       patch.definition_json = JSON.stringify(definition)
     }
-    const keys = Object.keys(patch)
-    if (!keys.length) {
+    const assigned = quotedAssignments(patch, new Set(['name', 'status', 'trigger_json', 'definition_json']))
+    if (!assigned.keys.length) {
       planOk(response, 200, mapWorkflow(existing), correlationId)
       return true
     }
     const beforeView = workflowHistoryView(existing)
     const now = isoNow()
-    const sets = keys.map((k) => `${k} = ?`).join(', ')
-    db.prepare(`UPDATE workflows SET ${sets}, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(...keys.map((k) => patch[k]), now, ident.workspaceId, id)
+    db.prepare(`UPDATE workflows SET ${assigned.sql}, updated_at = ? WHERE workspace_id = ? AND id = ?`).run(...assigned.values, now, ident.workspaceId, id)
     const row = db.prepare('SELECT * FROM workflows WHERE workspace_id = ? AND id = ?').get(ident.workspaceId, id)
     writeToolAudit(db, correlationId, row.workspace_id, id, toolChange)
     planWrote(response, 200, mapWorkflow(row), correlationId, db, {

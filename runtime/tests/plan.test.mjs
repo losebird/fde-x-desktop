@@ -17,11 +17,17 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 let child
 let pageToken = ''
 
-function writeHeaders() {
+function authHeaders() {
   return {
     Origin: origin,
-    'Content-Type': 'application/json',
     'x-fde-ui-token': pageToken,
+  }
+}
+
+function writeHeaders() {
+  return {
+    ...authHeaders(),
+    'Content-Type': 'application/json',
   }
 }
 
@@ -77,7 +83,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
     assert.equal(created.status, 201)
   }
 
-  const missing = await fetch(`${base}/api/v1/plan/tasks`)
+  const missing = await fetch(`${base}/api/v1/plan/tasks`, { headers: authHeaders() })
   assert.equal(missing.status, 400)
   const missingBody = await missing.json()
   assert.equal(missingBody.ok, false)
@@ -100,12 +106,12 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
   })
   assert.equal(createB.status, 201)
 
-  const listA = await fetch(`${base}/api/v1/plan/tasks?workspaceId=${wsA}`)
+  const listA = await fetch(`${base}/api/v1/plan/tasks?workspaceId=${wsA}`, { headers: authHeaders() })
   const listABody = await listA.json()
   assert.equal(listABody.data.length, 1)
   assert.equal(listABody.data[0].title, '验收 A')
 
-  const listB = await fetch(`${base}/api/v1/plan/tasks?workspaceId=${wsB}`)
+  const listB = await fetch(`${base}/api/v1/plan/tasks?workspaceId=${wsB}`, { headers: authHeaders() })
   const listBBody = await listB.json()
   assert.equal(listBBody.data.length, 1)
   assert.equal(listBBody.data[0].title, '其它区')
@@ -134,7 +140,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
     headers: writeHeaders(),
   })
   assert.equal(del.status, 200)
-  const after = await fetch(`${base}/api/v1/plan/tasks?workspaceId=${wsA}`)
+  const after = await fetch(`${base}/api/v1/plan/tasks?workspaceId=${wsA}`, { headers: authHeaders() })
   const afterBody = await after.json()
   assert.equal(afterBody.data.length, 0)
 
@@ -152,7 +158,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
   const eventA = (await createEvent.json()).data
   const from = Date.parse('2026-01-01T00:00:00.000Z')
   const to = Date.parse('2027-01-01T00:00:00.000Z')
-  const listEvents = await fetch(`${base}/api/v1/plan/events?workspaceId=${wsA}&from=${from}&to=${to}`)
+  const listEvents = await fetch(`${base}/api/v1/plan/events?workspaceId=${wsA}&from=${from}&to=${to}`, { headers: authHeaders() })
   const listEventsBody = await listEvents.json()
   assert.equal(listEventsBody.data.length, 1)
   assert.equal(listEventsBody.data[0].title, '本地会')
@@ -176,7 +182,7 @@ test('plan CRUD, workspace isolation, status validation', async (t) => {
     body: JSON.stringify({ workspaceId: wsA, name: '本地流' }),
   })
   assert.equal(createWf.status, 201)
-  const listWf = await fetch(`${base}/api/v1/plan/workflows?workspaceId=${wsA}`)
+  const listWf = await fetch(`${base}/api/v1/plan/workflows?workspaceId=${wsA}`, { headers: authHeaders() })
   const listWfBody = await listWf.json()
   assert.equal(listWfBody.data.length, 1)
   assert.equal(listWfBody.data[0].name, '本地流')
