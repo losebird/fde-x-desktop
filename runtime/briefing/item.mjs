@@ -16,6 +16,14 @@ function dropEmptyOriginSub(value) {
   return sub
 }
 
+function isInstructionCue(text) {
+  const value = String(text || '').trim()
+  if (!value) return false
+  if (/^回答提示$/.test(value)) return true
+  if (/^先用一两句话概括/.test(value)) return true
+  return false
+}
+
 function hrefOf(value) {
   if (isRecord(value) && value.panel) return value
   if (typeof value === 'string' && value.trim()) return value.trim()
@@ -35,7 +43,7 @@ export function unwrapMarkdownLink(text) {
 export function presentBriefingItem(item) {
   if (typeof item === 'string') {
     const unwrapped = unwrapMarkdownLink(item)
-    if (!unwrapped.text) return null
+    if (!unwrapped.text || isInstructionCue(unwrapped.text)) return null
     return {
       text: unwrapped.text,
       ...(unwrapped.href ? { href: unwrapped.href } : {}),
@@ -54,7 +62,7 @@ export function presentBriefingItem(item) {
   const bodyish = firstString(item.body)
   const unwrapped = unwrapMarkdownLink(titleish || bodyish)
   const text = unwrapped.text
-  if (!text) return null
+  if (!text || isInstructionCue(text)) return null
   const href = hrefOf(item.href) || hrefOf(item.url) || hrefOf(item.link) || unwrapped.href
   const sub = dropEmptyOriginSub(
     firstString(item.sub, item.from, item.source, item.author)

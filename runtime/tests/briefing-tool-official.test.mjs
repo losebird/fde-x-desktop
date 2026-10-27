@@ -80,6 +80,11 @@ test('presentBriefingItem drops an empty session: origin sub', () => {
   assert.equal(item.sub, undefined)
 })
 
+test('presentBriefingItem drops MCP instruction cues', () => {
+  assert.equal(presentBriefingItem('回答提示'), null)
+  assert.equal(presentBriefingItem({ text: '先用一两句话概括，再挑最重要的 3–8 条' }), null)
+})
+
 test('presentBriefingItem folds title body url', () => {
   const item = presentBriefingItem({
     title: 'Anthropic 提交 S-1，拟以 ANT 登陆纳斯达克',
