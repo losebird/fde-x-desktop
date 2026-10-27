@@ -8,9 +8,10 @@ import { useCoreBoot } from '@/components/settings/core-connection'
 import { IuiRetryButton } from '@/components/settings/IuiRetryButton'
 import { useHostSettings, type HostNsEntry } from '@/components/settings/use-host-settings'
 import type { SettingsNsHome } from '@/lib/settings-ns-home'
+import { openRef } from '@/lib/open-ref'
 
 function openRuntime() {
-  window.dispatchEvent(new CustomEvent('fde-x-settings-open', { detail: { section: 'runtime' } }))
+  openRef({ panel: 'settings', section: 'runtime' })
 }
 
 export function HostNsPanel({

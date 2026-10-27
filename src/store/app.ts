@@ -159,6 +159,8 @@ interface UIState {
   setMemoryBrowse: (patch: Partial<AppState['memoryBrowse']>) => void
   briefingBrowse: { settingsOpen: boolean; land: number }
   setBriefingBrowse: (patch: Partial<AppState['briefingBrowse']>) => void
+  settingsBrowse: { section: string }
+  setSettingsBrowse: (patch: Partial<AppState['settingsBrowse']>) => void
   imBrowse: { threadId: string | null; topicId: string | null; lane: 'workspace' | 'unassigned' }
   setImBrowse: (patch: Partial<AppState['imBrowse']>) => void
 
@@ -656,6 +658,9 @@ export const useApp = create<AppState>()(
       briefingBrowse: { settingsOpen: false, land: 0 },
       setBriefingBrowse: (patch) =>
         set((s) => ({ briefingBrowse: { ...s.briefingBrowse, ...patch } })),
+      settingsBrowse: { section: 'appearance' },
+      setSettingsBrowse: (patch) =>
+        set((s) => ({ settingsBrowse: { ...s.settingsBrowse, ...patch } })),
       imBrowse: { threadId: null, topicId: null, lane: 'workspace' },
       setImBrowse: (patch) =>
         set((s) => {

@@ -12,6 +12,7 @@ import { ShortcutsSection } from '@/components/settings/sections/Shortcuts'
 import { CoreSettings } from '@/components/settings/CoreSettings'
 import { SemanticSettings } from '@/components/settings/SemanticSettings'
 import { StatusErrorBoundary } from '@/components/settings/StatusErrorBoundary'
+import { useApp } from '@/store/app'
 
 const SECTIONS: Array<{ id: string; label: string; icon: LucideIcon }> = [
   { id: 'account', label: '账户', icon: User },
@@ -25,10 +26,22 @@ const SECTIONS: Array<{ id: string; label: string; icon: LucideIcon }> = [
 ]
 
 export default function Settings() {
-  const [section, setSection] = useState('appearance')
+  const landed = useApp((s) => s.settingsBrowse.section)
+  const setSettingsBrowse = useApp((s) => s.setSettingsBrowse)
+  const initial = SECTIONS.some((item) => item.id === landed) ? landed : 'appearance'
+  const [section, setSection] = useState(initial)
   const frame = useRef<HTMLDivElement>(null)
   const [wide, setWide] = useState(false)
   const current = SECTIONS.find((item) => item.id === section) ?? SECTIONS[1]
+
+  useEffect(() => {
+    if (SECTIONS.some((item) => item.id === landed)) setSection(landed)
+  }, [landed])
+
+  const pickSection = (id: string) => {
+    setSection(id)
+    setSettingsBrowse({ section: id })
+  }
 
   useEffect(() => {
     const node = frame.current
@@ -55,7 +68,7 @@ export default function Settings() {
       <div className={wide ? 'grid grid-cols-[200px_minmax(0,1fr)] items-start gap-6' : 'grid items-start gap-6'}>
         {wide ? (
           <div className="rounded-kit-lg border border-kit-line bg-kit-card p-2 shadow-kit">
-            <SurfaceNav value={section} onChange={setSection} items={SECTIONS} />
+            <SurfaceNav value={section} onChange={pickSection} items={SECTIONS} />
           </div>
         ) : (
           <label className="block">
@@ -64,7 +77,7 @@ export default function Settings() {
               aria-label="分类"
               className={`${kitControl} h-8`}
               value={section}
-              onChange={(event) => setSection(event.target.value)}
+              onChange={(event) => pickSection(event.target.value)}
             >
               {SECTIONS.map((item) => (
                 <option key={item.id} value={item.id}>{item.label}</option>

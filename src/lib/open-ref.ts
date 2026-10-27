@@ -123,6 +123,7 @@ export function openRef(href: OpenRefHref) {
   }
   if (panel === 'settings') {
     if (href.section) {
+      app.setSettingsBrowse({ section: href.section })
       window.dispatchEvent(new CustomEvent('fde-x-settings-open', { detail: { section: href.section } }))
     }
     app.togglePanel('settings', 'full')
