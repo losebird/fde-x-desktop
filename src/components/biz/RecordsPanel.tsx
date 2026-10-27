@@ -2208,7 +2208,7 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
     />
   ) : null
 
-  if (!connectorOptions.length) {
+  if (!connectorOptions.length && !kindCatalog.length) {
     if (previewDrawer) {
       return (
         <div className="space-y-3">

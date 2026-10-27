@@ -11,7 +11,7 @@ const src = readFileSync(join(repoRoot, 'src/components/biz/RecordsPanel.tsx'), 
 test('empty connector and empty table returns mount the same confirm drawer', () => {
   assert.equal(src.split('<BizPreviewDrawer').length - 1, 1)
   const assignAt = src.indexOf('const previewDrawer')
-  const emptyConnectorsAt = src.indexOf('if (!connectorOptions.length)')
+  const emptyConnectorsAt = src.indexOf('if (!connectorOptions.length && !kindCatalog.length)')
   const noRowsAt = src.indexOf('if (!hasSurfacedData)')
   assert.ok(assignAt >= 0 && assignAt < emptyConnectorsAt, 'previewDrawer is built before the empty-connector return')
   const assignBlock = src.slice(assignAt, emptyConnectorsAt)
