@@ -12,6 +12,7 @@ import {
   insertRecord,
   listRecords,
   patchRecord,
+  recordQueryColumn,
 } from '../apps/records.mjs'
 
 const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)), '..')
@@ -91,6 +92,22 @@ describe('apps crud', () => {
     })
     assert.equal(listRecords(db, SUPPLIER_VISITS_SPEC, 'visit', CWD_B).total, 0)
     db.close()
+  })
+
+  test('recordQueryColumn allows ref display columns and rejects junk', () => {
+    const spec = {
+      entities: [{
+        name: 'visit',
+        fields: [
+          { name: 'supplier', type: 'text' },
+          { name: 'owner', type: 'ref', ref: 'biz:person' },
+        ],
+      }],
+    }
+    assert.equal(recordQueryColumn(spec, 'visit', 'supplier'), 'supplier')
+    assert.equal(recordQueryColumn(spec, 'visit', 'owner__display'), 'owner__display')
+    assert.equal(recordQueryColumn(spec, 'visit', 'supplier__display'), '')
+    assert.equal(recordQueryColumn(spec, 'visit', 'id" = 1'), '')
   })
 
   test('listRecords ignores injected filter and sort keys', () => {

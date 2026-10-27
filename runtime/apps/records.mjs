@@ -15,7 +15,12 @@ export function recordQueryColumn(spec, entityName, key) {
   if (SYSTEM_COLUMNS.includes(name)) return name
   const ent = Array.isArray(spec?.entities) ? spec.entities.find((row) => row && row.name === entityName) : null
   const fields = Array.isArray(ent?.fields) ? ent.fields : []
-  return fields.some((field) => field && field.name === name) ? name : ''
+  if (fields.some((field) => field && field.name === name)) return name
+  if (name.endsWith('__display')) {
+    const base = name.slice(0, -'__display'.length)
+    if (fields.some((field) => field && field.name === base && field.type === 'ref')) return name
+  }
+  return ''
 }
 
 /**
@@ -203,13 +208,18 @@ export function insertRecord(db, spec, entityName, workspaceCwd, input) {
   const placeholders = ['?', '?', '?', '?']
   for (const field of ent.fields) {
     if (input[field.name] === undefined) continue
-    cols.push(`"${field.name}"`)
+    const column = recordQueryColumn(spec, entityName, field.name)
+    if (!column) continue
+    cols.push(quoteTable(column))
     placeholders.push('?')
     vals.push(serializeField(field, input[field.name]))
-    if (field.type === 'ref' && typeof field.ref === 'string' && field.ref.startsWith('biz:') && input[`${field.name}__display`]) {
-      cols.push(`"${field.name}__display"`)
+    const displayName = `${field.name}__display`
+    if (field.type === 'ref' && typeof field.ref === 'string' && field.ref.startsWith('biz:') && input[displayName]) {
+      const displayCol = recordQueryColumn(spec, entityName, displayName)
+      if (!displayCol) continue
+      cols.push(quoteTable(displayCol))
       placeholders.push('?')
-      vals.push(String(input[`${field.name}__display`]))
+      vals.push(String(input[displayName]))
     }
   }
   db.prepare(
@@ -231,7 +241,9 @@ export function patchRecord(db, spec, entityName, workspaceCwd, rid, input) {
   const vals = [Date.now()]
   for (const field of ent.fields) {
     if (input[field.name] === undefined) continue
-    sets.push(`"${field.name}" = ?`)
+    const column = recordQueryColumn(spec, entityName, field.name)
+    if (!column) continue
+    sets.push(`${quoteTable(column)} = ?`)
     vals.push(serializeField(field, input[field.name]))
   }
   const match = cwdMatch(db, workspaceCwd)
