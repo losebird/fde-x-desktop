@@ -59,6 +59,7 @@
     "resolve.js",
     "vocab/spoken.js",
     "http.js",
+    "engine.js",
     "tools.js",
     "commands.js",
     "vendor/office",

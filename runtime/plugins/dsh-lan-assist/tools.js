@@ -59,6 +59,36 @@ export function toolWorkspace(exec) {
   return header ? String(header.cwd || '').trim() : ''
 }
 
+export function createHttpSecretary(baseUrl) {
+  const base = String(baseUrl || '').replace(/\/$/, '')
+  async function post(path, body) {
+    const response = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    })
+    return response.json()
+  }
+  async function get(path, search = {}) {
+    const url = new URL(`${base}${path}`)
+    for (const [key, value] of Object.entries(search)) {
+      if (value != null && value !== '') url.searchParams.set(key, String(value))
+    }
+    const response = await fetch(url)
+    return response.json()
+  }
+  return {
+    snapshot: (sessionId) => get('/state', { sessionId }),
+    hall: (sessionId) => get('/state', { sessionId }),
+    describeBiz: (spec) => get('/catalog', spec || {}),
+    openTrace: (spec) => get('/traces', spec || {}),
+    previewBiz: (spec) => post('/preview', spec),
+    commitWrite: (spec) => post('/write', spec),
+    compose: (spec) => post('/compose', spec),
+    speakFindMiss: async () => '没对上这个同事。',
+  }
+}
+
 export function registerTools(ctx, { defineTool }, secretary, rounds) {
   ctx.tools.register(defineTool({
     name: 'ask_colleague',

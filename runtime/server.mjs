@@ -95,6 +95,7 @@ import { handleAppsRoutes, requestAppWorkspace } from './routes/apps.mjs'
 import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.mjs'
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp, publicShareCors } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
+import { bootLanAssistBff, handleLanAssistHttp } from './lan-assist-bff.mjs'
 import { auditWorkstationWrite, capturePendingSheet, handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, persistUiToken, resolveUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
@@ -1186,6 +1187,10 @@ const server = createServer(async (request, response) => {
   if (requestTouchesSemanticOs(request)) {
     proxySemanticOs(request, response, url)
     return
+  }
+
+  if (url.pathname === '/lan-assist' || url.pathname.startsWith('/lan-assist/')) {
+    if (handleLanAssistHttp(request, response)) return
   }
 
   if (shouldProxyDsh(url)) {
@@ -3813,6 +3818,10 @@ server.on('upgrade', (request, socket, head) => {
 })
 
 void ensureTypertVerbs().catch(() => undefined)
+
+void bootLanAssistBff().catch((error) => {
+  console.error('lan_assist_bff_boot_failed', error)
+})
 
 server.listen(port, host, () => {
   const bound = server.address()

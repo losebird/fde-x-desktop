@@ -28,6 +28,7 @@ import { reconcilePinnedVendor } from './plugin-vendor.mjs'
 import { stageIuiArtifactIfAbsent, sweepStaleIuiPartials } from './iui-stage.mjs'
 import { iuiProfileDir, promoteInstalledIui } from './iui-status.mjs'
 import { availableProductBundles } from './product-bundles.mjs'
+import { invokeLanAssist, lanAssistBffReady } from './lan-assist-bff.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 import { linkPackagedPeers } from './packaged-peer.mjs'
 import { firstMissingClosure, natsContentDigest, natsDependencyError, natsStampFields, sourceStamp, syncRepoCache } from './plugin-repo-source.mjs'
@@ -549,6 +550,8 @@ export class DshCoreConnector {
       : hostArgs, {
       cwd: this.cwd,
       env: hostChildEnv({
+        FDE_LAN_ASSIST_BFF: '1',
+        FDE_RUNTIME_PORT: String(process.env.FDE_RUNTIME_PORT || FDE_RUNTIME_PORT || '4318'),
         DSH_HOME: this.dshHome,
         DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE || 'danger-full-access',
         DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT,
@@ -1388,9 +1391,17 @@ export class DshCoreConnector {
   }
 
   async lanAssist(path, options = {}) {
-    this.assertConnected()
     const allowed = new Set(['/state', '/thread', '/attach', '/attach/copy', '/send', '/reply', '/reply/draft', '/compose', '/place', '/read', '/shout', '/sleep', '/withdraw', '/presend/cancel', '/pair/mint', '/pair/handshake', '/pair/accept', '/pair/reject', '/name', '/note', '/unpair', '/peer/flags', '/door', '/group/create', '/group/update', '/group/dissolve', '/preview', '/translate', '/write', '/lookup/config', '/catalog/publish', '/catalog', '/traces', '/focus-kind', '/relay/config'])
     if (!allowed.has(path)) throw new AiRemoteError('ai/forbidden', 'IM 路径不允许')
+    if (lanAssistBffReady()) {
+      const payload = await invokeLanAssist(path, options)
+      if (payload && payload.ok === false) {
+        const message = String(payload.hint || payload.error || 'IM 调用失败')
+        throw new AiRemoteError(String(payload.error || 'ai/im-error'), message, { payload })
+      }
+      return payload
+    }
+    this.assertConnected()
     const url = new URL(`/lan-assist${path}`, this.origin)
     if (options.search && typeof options.search === 'object') {
       for (const [key, value] of Object.entries(options.search)) {
