@@ -320,10 +320,12 @@ describe('app live share occupancy', () => {
     assert.equal(headers['X-Content-Type-Options'], 'nosniff')
   })
 
-  test('Origin null CORS is only for the share capability mouth', () => {
+  test('Origin null CORS is only for sandboxed hosted-web store mouths', () => {
     assert.equal(publicShareCors('null', '/api/v1/app-share/abc/store/k')['Access-Control-Allow-Origin'], 'null')
+    assert.equal(publicShareCors('null', '/api/v1/apps/app_1/store/localStorage')['Access-Control-Allow-Origin'], 'null')
     assert.equal(publicShareCors('null', '/api/v1/ai/sessions'), null)
     assert.equal(publicShareCors('http://127.0.0.1:5174', '/api/v1/app-share/abc'), null)
+    assert.equal(publicShareCors('http://127.0.0.1:5174', '/api/v1/apps/app_1/store/k'), null)
   })
 
   test('LAN URL prefers 192.168 on en0 over overlay/utun', () => {

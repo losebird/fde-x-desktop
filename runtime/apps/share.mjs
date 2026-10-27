@@ -45,9 +45,14 @@ export function lanFaceForbidden(request, pathname, { staticDir } = {}) {
   return !isPublicAppFace(pathname, { staticDir })
 }
 
-/** Sandboxed share documents send Origin: null. Only the share capability mouth answers them. */
+/** Sandboxed hosted-web documents send Origin: null. Public share and workbench live store are that mouth. */
 export function publicShareCors(origin, pathname) {
-  if (origin === 'null' && pathHasPrefix(pathname, '/api/v1/app-share/')) {
+  if (origin !== 'null') return null
+  const path = String(pathname || '')
+  if (pathHasPrefix(path, '/api/v1/app-share/')) {
+    return { 'Access-Control-Allow-Origin': 'null', Vary: 'Origin' }
+  }
+  if (/^\/api\/v1\/apps\/[^/]+\/store(?:\/|$)/.test(path)) {
     return { 'Access-Control-Allow-Origin': 'null', Vary: 'Origin' }
   }
   return null

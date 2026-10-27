@@ -43,6 +43,7 @@ import {
 import {
   liveShareForApp,
   mintShare,
+  publicShareCors,
   publicShareUrl,
   requestListenPort,
   revokeLiveSharesForApp,
@@ -273,10 +274,13 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
   const writeMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method ?? '')
   if (writeMethod) {
-    const origin = resolveAllowedRequestOrigin(request, allowedOrigins)
-    if (!origin) {
-      sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', correlationId)
-      return true
+    const originHeader = request.headers.origin
+    if (!publicShareCors(originHeader, pathname)) {
+      const origin = resolveAllowedRequestOrigin(request, allowedOrigins)
+      if (!origin) {
+        sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', correlationId)
+        return true
+      }
     }
   }
 

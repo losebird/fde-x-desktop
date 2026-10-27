@@ -1072,10 +1072,16 @@ const server = createServer(async (request, response) => {
   const currentCorrelationId = correlationId(request)
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? `${host}:${port}`}`)
 
+  if (lanFaceForbidden(request, url.pathname, { staticDir: FDE_STATIC_DIR })) {
+    sendError(response, 403, 'lan_face_refused', '局域网只开放已分享的应用页', currentCorrelationId)
+    return
+  }
+
   if (request.method === 'OPTIONS') {
     const origin = request.headers.origin
     const publicFace = isPublicAppFace(url.pathname)
-    if (!publicFace && typeof origin === 'string' && !allowedOrigins.has(origin)) {
+    const sandboxed = publicShareCors(origin, url.pathname)
+    if (!publicFace && !sandboxed && typeof origin === 'string' && !allowedOrigins.has(origin)) {
       response.writeHead(403, { 'Cache-Control': 'no-store' })
       response.end()
       return
@@ -1083,14 +1089,11 @@ const server = createServer(async (request, response) => {
     response.writeHead(204, {
       'Access-Control-Allow-Headers': CORS_ALLOW_HEADERS,
       'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      ...(typeof origin === 'string' ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
+      ...(sandboxed || (typeof origin === 'string' && (publicFace || allowedOrigins.has(origin)))
+        ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' }
+        : {}),
     })
     response.end()
-    return
-  }
-
-  if (lanFaceForbidden(request, url.pathname, { staticDir: FDE_STATIC_DIR })) {
-    sendError(response, 403, 'lan_face_refused', '局域网只开放已分享的应用页', currentCorrelationId)
     return
   }
 
@@ -1131,7 +1134,7 @@ const server = createServer(async (request, response) => {
   const writeMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method ?? '')
   if (writeMethod) {
     const origin = request.headers.origin
-    if (typeof origin !== 'string' || !allowedOrigins.has(origin)) {
+    if (!publicShareCors(origin, url.pathname) && (typeof origin !== 'string' || !allowedOrigins.has(origin))) {
       sendError(response, 403, 'origin_not_allowed', '当前页面来源不被允许', currentCorrelationId)
       return
     }

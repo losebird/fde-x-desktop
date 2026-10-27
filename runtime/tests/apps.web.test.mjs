@@ -91,6 +91,51 @@ describe('hosted web app occupancy', () => {
     rmSync(CWD, { recursive: true, force: true })
   })
 
+  test('sandboxed live iframe can PUT store with Origin null', async () => {
+    const cwd = `/tmp/fde-web-store-${Date.now()}`
+    mkdirSync(cwd, { recursive: true })
+    const sqlite = db()
+    sqlite.prepare(`UPDATE workspaces SET metadata_json = ? WHERE id = 'ws_personal'`).run(JSON.stringify({ cwd }))
+    const spec = webSpec(`store-${Date.now().toString(36)}`)
+    const created = createAppDraft(sqlite, { workspaceId: 'ws_personal', workspaceCwd: cwd, spec })
+    assert.equal(created.ok, true, JSON.stringify(created.errors || created))
+    writeBundleFiles(cwd, spec, [{
+      path: 'index.html',
+      content: '<!doctype html><html><body>ok</body></html>',
+    }])
+    const activated = activateApp(sqlite, created.data.appId, { workspaceId: 'ws_personal' })
+    assert.equal(activated.kind, 'ok', JSON.stringify(activated))
+    const env = { status: 0, body: null }
+    const handled = await handleAppsRoutes(
+      {
+        method: 'PUT',
+        url: `/api/v1/apps/${created.data.appId}/store/localStorage?cwd=${encodeURIComponent(cwd)}`,
+        headers: { origin: 'null', host: '127.0.0.1:4318' },
+        socket: { remoteAddress: '127.0.0.1' },
+      },
+      {},
+      new URL(`http://127.0.0.1/api/v1/apps/${created.data.appId}/store/localStorage?cwd=${encodeURIComponent(cwd)}`),
+      {
+        db: sqlite,
+        allowedOrigins: new Set(['http://127.0.0.1:5174']),
+        correlationId: 'corr_store',
+        sendJson(_res, code, payload) { env.status = code; env.body = payload },
+        sendError(_res, code, err, message) { env.status = code; env.body = { error: { code: err, message } } },
+        readJson: async () => ({ value: { wall: '2400' } }),
+      },
+    )
+    assert.equal(handled, true)
+    assert.equal(env.status, 200, JSON.stringify(env.body))
+    assert.equal(getDocument(sqlite, {
+      appId: created.data.appId,
+      workspaceCwd: cwd,
+      key: 'localStorage',
+      workspaceId: 'ws_personal',
+    }).wall, '2400')
+    sqlite.close()
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
   test('bridge submit writes files; public /a serves the bundle not FDE spa', async () => {
     const cwd = `/tmp/fde-web-pub-${Date.now()}`
     mkdirSync(cwd, { recursive: true })
