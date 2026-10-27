@@ -1,10 +1,7 @@
 /**
- * Install missing pieces for personal use: semantica 0.7.0, FAISS, FalkorDB.
- * Docker first. No Docker: OS-specific store.
- * macOS: brew install libomp then falkordblite.
- * Linux: apt/dnf/yum libgomp then falkordblite. Homebrew is not required.
- * Windows: Docker Desktop, else WSL lite on 6379. Homebrew is not required.
- * File backup only after the OS-specific path fails.
+ * Install missing pieces for personal use: semantica 0.7.0, FAISS, Oxigraph.
+ * macOS: brew install libomp when faiss needs it.
+ * Linux: apt/dnf/yum libgomp when faiss needs it.
  * @module dsh-semantic-os/ensure-deps
  */
 
@@ -22,16 +19,7 @@ const SEMANTICA_EXTRAS = 'explorer,graph-embeddings,documents,parse-pdf,nlp-spac
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url))
 const RUNTIME_REQUIREMENTS = join(PLUGIN_ROOT, 'runtime', 'requirements.txt')
 const RUNTIME_CONSTRAINTS = join(PLUGIN_ROOT, 'runtime', 'constraints.txt')
-const IMAGE = process.env.DSH_FALKORDB_IMAGE || 'falkordb/falkordb:v4.0.3'
-const NAME = 'dsh-falkordb'
-const LITE_DETAIL = '没 Docker，用官方嵌入式包开店'
-const LITE_PROBE = [
-  'try:',
-  '    from redislite.falkordb_client import FalkorDB',
-  'except Exception:',
-  '    from falkordblite import FalkorDB',
-  'print("ok")',
-].join('\n')
+const OXIGRAPH_PROBE = 'import pyoxigraph; print("ok")'
 
 function dshHome() {
   return process.env.DSH_HOME || join(homedir(), '.dsh')
@@ -104,8 +92,8 @@ async function probeFaiss(python) {
   return out.code === 0
 }
 
-async function probeFalkorClient(python) {
-  const out = await run([python, '-c', 'import falkordb; print("ok")'], { timeoutMs: 15000 })
+async function probeOxigraph(python) {
+  const out = await run([python, '-c', OXIGRAPH_PROBE], { timeoutMs: 15000 })
   return out.code === 0
 }
 
@@ -200,39 +188,6 @@ function spawnDetached(argv) {
   }
 }
 
-async function startWindowsWslLite() {
-  const wsl = await which('wsl')
-  if (!wsl) {
-    return { ok: false, detail: '这台 Windows 没有 Docker Desktop，也没有 WSL。原生 Windows 开不了嵌入式图库，先用文件备份。' }
-  }
-  const ping = await run([wsl, '-e', 'true'], { timeoutMs: 15000 })
-  if (ping.code !== 0) {
-    return { ok: false, detail: '这台 Windows 的 WSL 没起来。先开 WSL 或装 Docker Desktop，否则先用文件备份。' }
-  }
-  await run([wsl, '-e', 'bash', '-lc', 'python3 -m pip install -q falkordblite || python -m pip install -q falkordblite'], { timeoutMs: 300000 })
-  const script = [
-    'import os, time',
-    'from pathlib import Path',
-    'try:',
-    '    from redislite.falkordb_client import FalkorDB',
-    'except Exception:',
-    '    from falkordblite import FalkorDB',
-    'dest = Path.home() / ".dsh" / "semantic-os" / "falkordb"',
-    'dest.mkdir(parents=True, exist_ok=True)',
-    'FalkorDB(str(dest / "graph.db"), serverconfig={"port": "6379", "bind": "127.0.0.1"})',
-    'while True:',
-    '    time.sleep(60)',
-  ].join('; ')
-  const launched = spawnDetached([wsl, '-e', 'bash', '-lc', `python3 -c ${JSON.stringify(script)}`])
-  if (!launched) return { ok: false, detail: 'WSL 里没能拉起嵌入式图库，先用文件备份。' }
-  for (let i = 0; i < 8; i += 1) {
-    const live = await probeFalkorServer()
-    if (live.ok) return { ok: true, via: 'falkordblite-wsl', detail: '没 Docker，用 WSL 里的官方嵌入式包开店' }
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-  }
-  return { ok: false, detail: 'WSL 里装了嵌入式包，但 6379 还没起来。先用文件备份。' }
-}
-
 async function ensureOpenMp() {
   if (process.platform === 'darwin') {
     if (findLibomp()) return { ok: true, detail: '' }
@@ -265,41 +220,18 @@ async function resolveProbePython() {
   return process.env.DSH_SEMANTICA_PYTHON || 'python3'
 }
 
-async function probeFalkorServer(python) {
-  const host = process.env.FALKORDB_HOST || '127.0.0.1'
-  const port = process.env.FALKORDB_PORT || '6379'
-  const resolved = python || await resolveProbePython()
-  const out = await run([resolved, '-c', `from falkordb import FalkorDB; g=FalkorDB(host=${JSON.stringify(host)}, port=${Number(port)}).select_graph("dsh_ping"); g.query("RETURN 1"); print("ok")`], { timeoutMs: 8000 })
-  if (out.code === 0 && out.stdout.includes('ok')) {
-    return { ok: true, via: 'tcp', host, port: Number(port), detail: '' }
-  }
-  const raw = String(out.stderr || out.stdout || '').toLowerCase()
-  const detail = /111|econnrefused|connection refused/.test(raw)
-    ? '本机 6379 没人听。'
-    : '图库 TCP 没起来。'
-  return { ok: false, via: '', host, port: Number(port), detail }
-}
-
-async function probeFalkorLite(python) {
-  const out = await run([python, '-c', LITE_PROBE], { timeoutMs: 30000 })
-  if (out.code === 0 && out.stdout.includes('ok')) {
-    return { ok: true, via: 'falkordblite', detail: LITE_DETAIL }
-  }
-  return { ok: false, via: '', detail: liteFailDetail(out.stderr || out.stdout) }
-}
-
 async function probeGraphStore(python) {
-  const tcp = await probeFalkorServer(python)
-  if (tcp.ok) return tcp
-  const lite = await probeFalkorLite(python)
-  if (lite.ok) return lite
-  return {
-    ok: false,
-    via: '',
-    host: tcp.host,
-    port: tcp.port,
-    detail: lite.detail || tcp.detail || '图库没起来，先用文件备份。',
-  }
+  const ok = await probeOxigraph(python)
+  if (ok) return { ok: true, via: 'oxigraph', detail: '本机图库（Oxigraph）' }
+  return { ok: false, via: '', detail: 'pyoxigraph 没装上' }
+}
+
+async function exportLegacyFalkor(python) {
+  const script = join(PLUGIN_ROOT, 'python', 'migrations', '070_export_falkordb.py')
+  const home = dshHome()
+  const out = await run([python, script, home], { timeoutMs: 120000 })
+  if (out.code === 0) return { ok: true, detail: out.stdout.trim().slice(0, 240) }
+  return { ok: false, detail: (out.stderr || out.stdout || 'export skipped').slice(0, 240) }
 }
 
 async function ensureVenvPython() {
@@ -324,32 +256,10 @@ async function pipInstall(python, spec) {
   return run([python, '-m', 'pip', 'install', '-q', ...extra], { timeoutMs: 900_000 })
 }
 
-async function startFalkorDocker() {
-  const docker = await which('docker')
-  if (!docker) return { ok: false, via: '', detail: '没有 Docker。' }
-  const running = await run([docker, 'inspect', '-f', '{{.State.Running}}', NAME], { timeoutMs: 8000 })
-  if (running.stdout.trim() === 'true') return { ok: true, via: 'docker', detail: '' }
-  const exists = running.code === 0
-  if (exists) {
-    const started = await run([docker, 'start', NAME], { timeoutMs: 30000 })
-    if (started.code === 0) return { ok: true, via: 'docker', detail: '' }
-  }
-  const pulled = await run([
-    docker, 'run', '-d',
-    '--name', NAME,
-    '--restart', 'unless-stopped',
-    '-p', '127.0.0.1:6379:6379',
-    IMAGE,
-  ], { timeoutMs: 180000 })
-  if (pulled.code === 0) return { ok: true, via: 'docker', detail: '' }
-  return { ok: false, via: 'docker', detail: (pulled.stderr || pulled.stdout || 'docker run failed').slice(0, 240) }
-}
-
 async function collectStatus(python, extra = {}) {
   const wheel = extra.wheel || await probeSemantica(python)
   const faiss = extra.faiss != null ? extra.faiss : await probeFaiss(python)
   const live = extra.live || await probeGraphStore(python)
-  const liteOk = live.ok && live.via === 'falkordblite'
   return {
     ok: Boolean(wheel.ok),
     python,
@@ -357,10 +267,8 @@ async function collectStatus(python, extra = {}) {
     vector: { ok: Boolean(faiss), via: faiss ? 'faiss' : '', detail: faiss ? '' : 'FAISS 没装上' },
     graph: {
       ok: Boolean(live.ok),
-      via: live.ok ? (live.via === 'tcp' ? 'falkordb' : (live.via || 'falkordb')) : '',
-      detail: live.ok ? (liteOk ? LITE_DETAIL : '主账本在 FalkorDB') : (live.detail || '图库没起来，先用文件备份'),
-      host: live.host || '127.0.0.1',
-      port: live.port || 6379,
+      via: live.ok ? 'oxigraph' : '',
+      detail: live.ok ? '本机图库（Oxigraph）' : (live.detail || '图库没起来'),
     },
   }
 }
@@ -413,7 +321,7 @@ export async function ensureDeps(options = {}) {
         source: 'bundled-missing',
       }
     }
-    progress({ step: 'creating_venv', current: 1, total: 6, detail: runtime.ok ? 'Preparing bundled offline runtime' : 'Creating private Python environment' })
+    progress({ step: 'creating_venv', current: 1, total: 4, detail: runtime.ok ? 'Preparing bundled offline runtime' : 'Creating private Python environment' })
     const python = runtime.ok ? runtime.python : await ensureVenvPython()
     let wheel = await probeSemantica(python)
     if (!wheel.ok) {
@@ -426,57 +334,24 @@ export async function ensureDeps(options = {}) {
           source: 'bundled-invalid',
         }
       }
-      progress({ step: 'installing_semantica', current: 2, total: 6, detail: `Installing semantica[${SEMANTICA_EXTRAS}]==${EXPECTED}` })
+      progress({ step: 'installing_semantica', current: 2, total: 4, detail: `Installing semantica[${SEMANTICA_EXTRAS}]==${EXPECTED}` })
       await pipInstall(python, ['-r', RUNTIME_REQUIREMENTS, '-c', RUNTIME_CONSTRAINTS])
       wheel = await probeSemantica(python)
     }
-    progress({ step: 'installing_vector', current: 3, total: 6, detail: 'Preparing FAISS vector search' })
+    progress({ step: 'installing_vector', current: 3, total: 4, detail: 'Preparing FAISS vector search' })
     let faiss = await probeFaiss(python)
     if (!faiss && !runtime.ok) {
+      await ensureOpenMp()
       await pipInstall(python, 'faiss-cpu')
       faiss = await probeFaiss(python)
     }
-    progress({ step: 'installing_graph_client', current: 4, total: 6, detail: 'Preparing FalkorDB client' })
-    let client = await probeFalkorClient(python)
-    if (!client && !runtime.ok) {
-      await pipInstall(python, 'falkordb')
-      client = await probeFalkorClient(python)
-    }
-    progress({ step: 'preparing_graph_store', current: 5, total: 6, detail: runtime.ok ? 'Checking optional graph store' : 'Preparing graph store' })
-    const existingServer = await probeFalkorServer()
-    const server = existingServer.ok ? existingServer : await startFalkorDocker()
-    let live
-    if (existingServer.ok || server.ok) {
-      live = existingServer.ok ? existingServer : await probeFalkorServer()
-      live = { ...live, via: live.via || server.via }
-    } else if (process.platform === 'win32') {
-      const wsl = await startWindowsWslLite()
-      live = wsl.ok
-        ? wsl
-        : { ok: false, via: '', detail: wsl.detail || (runtime.ok ? '离线运行时使用文件后端；外部 FalkorDB 是可选增强。' : '这台 Windows 没有 Docker Desktop，也没有可用的 WSL，先用文件备份。') }
-    } else if (runtime.ok) {
-      const lite = await probeFalkorLite(python)
-      live = lite.ok
-        ? { ok: true, via: 'falkordblite', detail: LITE_DETAIL }
-        : { ok: false, via: '', detail: '离线运行时使用文件后端；外部 FalkorDB 是可选增强。' }
-    } else {
-      const omp = await ensureOpenMp()
-      let lite = await probeFalkorLite(python)
-      if (!lite.ok && !runtime.ok) {
-        await pipInstall(python, 'falkordblite')
-        if (!omp.ok) await ensureOpenMp()
-        lite = await probeFalkorLite(python)
-      }
-      if (!lite.ok && !omp.ok) lite = { ...lite, detail: omp.detail }
-      live = lite.ok
-        ? { ok: true, via: 'falkordblite', detail: LITE_DETAIL }
-        : { ok: false, via: '', detail: lite.detail || server.detail || '图库没起来，先用文件备份。' }
-    }
-    progress({ step: 'verifying', current: 6, total: 6, detail: 'Verifying installed components' })
+    progress({ step: 'verifying', current: 4, total: 4, detail: 'Verifying Oxigraph and migrating old graphs' })
+    await exportLegacyFalkor(python)
+    const live = await probeGraphStore(python)
     const status = await collectStatus(python, { wheel, faiss, live })
     status.source = runtime.ok ? 'bundled' : 'online-fallback'
     status.runtime = runtime.ok ? { key: runtime.key, packageName: runtime.packageName, runtimeVersion: runtime.manifest.runtimeVersion, manifestDigest: runtime.manifestDigest, verified: runtime.verified } : null
-    if (!status.graph.ok) status.graph.detail = live.detail || server.detail || status.graph.detail
+    if (!status.graph.ok) status.graph.detail = live.detail || status.graph.detail
     try {
       const dest = join(dshHome(), 'semantic-os', 'deps.json')
       await writeFile(dest, `${JSON.stringify(status, null, 2)}\n`, 'utf8')

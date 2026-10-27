@@ -324,7 +324,7 @@
   "reason.complete": "Reasoning complete",
   "reason.noNew": "No new facts were inferred.",
   "store.title": "Graph stores",
-  "store.lead": "Local file is the default. Neo4j / FalkorDB / RDF / Databricks / Snowflake follow what this machine has. Unconfigured stays honest. FalkorDB is optional too.",
+  "store.lead": "The on-disk graph (Oxigraph) is the default. Neo4j / RDF / Databricks / Snowflake follow what this machine has. Unconfigured stays honest.",
   "store.local": "Local file",
   "store.neo4j": "Neo4j",
   "store.rdf": "RDF",

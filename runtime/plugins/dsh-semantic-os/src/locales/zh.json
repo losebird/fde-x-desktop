@@ -324,7 +324,7 @@
   "reason.complete": "推理完成",
   "reason.noNew": "这组事实和规则没有推出新事实。",
   "store.title": "存图后端",
-  "store.lead": "本地文件是默认。Neo4j / FalkorDB / RDF / Databricks / Snowflake 按本机装了什么用，没配就标未配置。FalkorDB 也是可选，没配就是未配置。",
+  "store.lead": "本机图库（Oxigraph）是默认。Neo4j / RDF / Databricks / Snowflake 按本机装了什么用，没配就标未配置。",
   "store.local": "本地文件",
   "store.neo4j": "Neo4j",
   "store.rdf": "RDF",

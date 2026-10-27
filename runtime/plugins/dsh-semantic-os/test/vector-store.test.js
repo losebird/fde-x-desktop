@@ -150,6 +150,8 @@ graph_dir.mkdir(parents=True, exist_ok=True)
 graph_path = graph_dir / "graph.json"
 save_session(session, graph_path)
 stores._rebuild_from_texts = orig
+from stores import read_node_rows
+rows, _st = read_node_rows(cwd)
 print(json.dumps({
   "first_queued": one.get("queued"),
   "second_merged": two.get("merged") or two.get("queued"),
@@ -158,7 +160,7 @@ print(json.dumps({
   "count": status.get("count"),
   "legacy": status.get("legacy_faiss"),
   "top": (hits[0]["id"] if hits else ""),
-  "graph_written": graph_path.is_file() and graph_path.stat().st_size > 0,
+  "graph_written": any(str(row.get("id") or "") == "ok" for row in rows),
 }, ensure_ascii=False))
 `)
   const got = JSON.parse(out)
