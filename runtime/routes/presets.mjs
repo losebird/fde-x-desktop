@@ -9,6 +9,7 @@ import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { createId } from '../db.mjs'
 import { collectBag, mutateBag, describeKindVerbs } from '../catalog-collect.mjs'
 import { withPresetDisplay } from '../preset-display.mjs'
+import { isDutyPickerPreset } from '../duty-policy.mjs'
 
 async function loadPresetRoster(aiRuntime) {
   const bag = await collectBag(aiRuntime, 'agent')
@@ -58,9 +59,6 @@ export function generatedAgentPresetPatchPath() {
 }
 
 function presetInsertOrder(a, b) {
-  // The briefing preset's last rows move on other branches. Keep this insert ahead of them.
-  if (a === 'fde-workflow') return -1
-  if (b === 'fde-workflow') return 1
   if (a < b) return -1
   if (a > b) return 1
   return 0
@@ -68,7 +66,7 @@ function presetInsertOrder(a, b) {
 
 export async function writeGeneratedAgentPresetPatch(root = fdePresetRoot()) {
   const dest = generatedAgentPresetPatchPath()
-  const ids = [...fdePresetIdsFromDisk(root)].sort(presetInsertOrder)
+  const ids = [...fdePresetIdsFromDisk(root)].filter(isDutyPickerPreset).sort(presetInsertOrder)
   const inserts = []
   for (const id of ids) {
     const dir = join(root, id)
