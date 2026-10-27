@@ -996,6 +996,7 @@ export class DshCoreConnector {
       profileName: this.profileName,
       requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...extras, 'fde-x-dsh-bridge'],
     })
+    await rm(join(modules, 'dsh-lan-assist'), { recursive: true, force: true }).catch(() => undefined)
     const cordisYml = join(dir, 'cordis.yml')
     try {
       await access(cordisYml)

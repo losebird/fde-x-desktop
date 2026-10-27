@@ -3,16 +3,19 @@ import { dirname } from 'node:path'
 
 /** Merge Host-persisted profile bundle selection with FDE isolation scaffolding. */
 
+export const RETIRED_PROFILE_BUNDLES = ['dsh-lan-assist']
+
 export function mergeProfileManifest(existing, { profileName, requiredBundles }) {
   const prev = existing && typeof existing === 'object' ? existing : {}
   const dsh = prev.dsh && typeof prev.dsh === 'object' ? prev.dsh : {}
   const profile = dsh.profile && typeof dsh.profile === 'object' ? dsh.profile : {}
+  const retired = new Set(RETIRED_PROFILE_BUNDLES)
   const kept = Array.isArray(profile.bundles)
-    ? profile.bundles.filter((name) => typeof name === 'string' && name.trim())
+    ? profile.bundles.filter((name) => typeof name === 'string' && name.trim() && !retired.has(name))
     : []
   const bundles = []
   for (const name of [...requiredBundles, ...kept]) {
-    if (typeof name === 'string' && name.trim() && !bundles.includes(name)) bundles.push(name)
+    if (typeof name === 'string' && name.trim() && !retired.has(name) && !bundles.includes(name)) bundles.push(name)
   }
   return {
     ...prev,

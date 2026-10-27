@@ -22,15 +22,25 @@ test('mergeProfileManifest keeps Host-selected bundles across FDE start', () => 
     },
   }, {
     profileName: 'fde-x',
-    requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-lan-assist', 'dsh-semantic-os'],
+    requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-semantic-os'],
   })
   assert.deepEqual(merged.dsh.profile.bundles, [
     '@deepseek-ai/dsh-base',
     '@deepseek-ai/dsh-web-app',
-    'dsh-lan-assist',
     'dsh-semantic-os',
     '@deepseek-ai/dsh-experimental-schedule-bundle',
   ])
+})
+
+test('mergeProfileManifest drops retired dsh-lan-assist even if Host kept it', () => {
+  const merged = mergeProfileManifest({
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dsh-lan-assist', 'dsh-semantic-os'] } },
+  }, {
+    profileName: 'fde-x',
+    requiredBundles: ['@deepseek-ai/dsh-base', 'dsh-semantic-os'],
+  })
+  assert.equal(merged.dsh.profile.bundles.includes('dsh-lan-assist'), false)
+  assert.ok(merged.dsh.profile.bundles.includes('dsh-semantic-os'))
 })
 
 test('mergeProfileManifest bootstraps an empty profile with required bundles only', () => {
