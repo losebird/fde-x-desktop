@@ -3368,7 +3368,19 @@ def run_list_graph_nodes(cwd: str, args: dict[str, Any] | None = None) -> dict[s
     except (TypeError, ValueError):
         limit = 100
     cursor = _b64_cursor_decode(str(args.get("cursor") or ""))
-    rows, _st = read_node_rows(cwd)
+    rows, st = _read_graph_rows(cwd)
+    if st.get("ok") is False:
+        return {
+            "ok": False,
+            "error": st.get("error") or "GRAPH_BUSY",
+            "detail": st.get("detail") or "",
+            "nodes": [],
+            "total": 0,
+            "skip": skip,
+            "limit": limit,
+            "next_cursor": None,
+            "has_more": False,
+        }
     filtered: list[dict[str, Any]] = []
     for row in rows:
         nid = str(row.get("id") or "")
@@ -3478,8 +3490,28 @@ def keep_workbench_node(nid: str, ntype: str, status: str = "") -> bool:
     return True
 
 
+def _read_graph_rows(cwd: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Oxigraph rows. An empty store still holding leftover graph.json is restored once."""
+    rows, st = read_node_rows(cwd)
+    if st.get("ok") is False:
+        return rows, st
+    if rows:
+        return rows, st
+    try:
+        from migrations.migrate_070 import rehydrate_from_graph_json
+        hydrated = rehydrate_from_graph_json(cwd)
+    except graph_store.GraphStoreBusy as exc:
+        return [], {"ok": False, "via": "oxigraph", "detail": str(exc), "error": "GRAPH_BUSY"}
+    except Exception:
+        return rows, st
+    if not hydrated.get("nodes"):
+        return rows, st
+    forget_node_rows(cwd)
+    return read_node_rows(cwd)
+
+
 def _workbench_nodes(cwd: str) -> list[dict[str, Any]]:
-    rows, _st = read_node_rows(cwd)
+    rows, _st = _read_graph_rows(cwd)
     out: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -3558,7 +3590,26 @@ def run_get_graph_summary(cwd: str, args: dict[str, Any] | None = None) -> dict[
 
 def run_graph_stats(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     _ = args
-    rows = _workbench_nodes(cwd)
+    raw, st = _read_graph_rows(cwd)
+    if st.get("ok") is False:
+        return {
+            "ok": False,
+            "error": st.get("error") or "GRAPH_BUSY",
+            "detail": st.get("detail") or "",
+            "node_count": 0,
+            "edge_count": 0,
+            "node_types": {},
+            "edge_types": {},
+            "density": 0.0,
+        }
+    rows = [
+        row for row in raw
+        if isinstance(row, dict) and keep_workbench_node(
+            str(row.get("id") or ""),
+            str(row.get("type") or ""),
+            _workbench_status(row),
+        )
+    ]
     edges = _workbench_edges(cwd)
     node_types: dict[str, int] = {}
     for row in rows:
@@ -3572,6 +3623,7 @@ def run_graph_stats(cwd: str, args: dict[str, Any] | None = None) -> dict[str, A
     ecount = len(edges)
     density = (2.0 * ecount / (ncount * (ncount - 1))) if ncount > 1 else 0.0
     return {
+        "ok": True,
         "node_count": ncount,
         "edge_count": ecount,
         "node_types": node_types,

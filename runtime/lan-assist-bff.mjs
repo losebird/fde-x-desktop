@@ -184,6 +184,18 @@ export async function invokeLanAssist(path, options = {}) {
       no: String(search.no || ''),
     })
   }
+  if (method === 'GET' && path === '/thread') {
+    if (typeof secretary.threadOf !== 'function') return { ok: false, error: 'NO_THREAD', requests: [], conversations: [] }
+    return secretary.threadOf({
+      peerId: String(search.peerId || ''),
+      requestId: String(search.messageId || search.requestId || ''),
+      groupId: String(search.groupId || ''),
+    })
+  }
+  if (method === 'GET' && path === '/attach') {
+    if (typeof secretary.getAttachment !== 'function') return { ok: false, error: 'NO_FILE' }
+    return secretary.getAttachment(String(search.requestId || ''), search.index)
+  }
   const result = await dispatch(secretary, path, options.body || {}, followupFn, {})
   if (runtime.sse && path !== '/sleep') runtime.sse.emit('mailbox', { type: path.slice(1) || 'post' })
   return result

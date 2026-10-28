@@ -88,6 +88,15 @@ export async function bootSemanticOsBff(adapters = {}) {
   return runtime
 }
 
+export async function stopSemanticOsBff() {
+  const current = runtime
+  runtime = null
+  if (!current) return
+  try { await current.extractQueue?.stop?.() } catch { /* ignore */ }
+  try { current.sessionIngest?.stop?.() } catch { /* ignore */ }
+  try { await current.sidecar?.dispose?.() } catch { /* ignore */ }
+}
+
 export function handleSemanticOsHttp(request, response) {
   if (!runtime || typeof runtime.handler !== 'function') return false
   const host = String(request.headers.host || `127.0.0.1:${FDE_RUNTIME_PORT}`)

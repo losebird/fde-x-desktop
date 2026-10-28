@@ -55,6 +55,47 @@ print(json.dumps({"via": st.get("via"), "nodes": len(rows), "edges": len(edges),
   }
 })
 
+test('empty oxigraph with leftover graph.json rehydrates workbench stats', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'dsos-rehydrate-'))
+  const home = mkdtempSync(join(tmpdir(), 'dsos-home-'))
+  try {
+    const dir = join(cwd, '.dsh', 'semantic-os')
+    mkdirSync(join(dir, 'oxigraph'), { recursive: true })
+    writeFileSync(join(dir, 'oxigraph', '.migrated-070'), '{"nodes":0,"edges":0}\n')
+    writeFileSync(join(dir, 'graph.json'), JSON.stringify({
+      nodes: [
+        { id: 'person:zhang', type: 'Person', content: '张三' },
+        { id: 'memory:card-1', type: '记忆卡片', content: '工单' },
+      ],
+      edges: [{ source: 'person:zhang', target: 'memory:card-1', type: 'related_to' }],
+    }))
+    const out = py(`
+import json, os, sys
+sys.path.insert(0, ${JSON.stringify(pyDir)})
+os.environ["DSH_HOME"] = ${JSON.stringify(home)}
+from bootstrap import run_graph_stats, run_list_graph_nodes
+cwd = ${JSON.stringify(cwd)}
+stats = run_graph_stats(cwd, {})
+listed = run_list_graph_nodes(cwd, {"limit": 20})
+print(json.dumps({
+  "ok": stats.get("ok"),
+  "nodes": stats.get("node_count"),
+  "edges": stats.get("edge_count"),
+  "listed": len(listed.get("nodes") or []),
+  "labels": [row.get("content") or row.get("label") for row in (listed.get("nodes") or [])],
+}))
+`)
+    const got = JSON.parse(out)
+    assert.equal(got.ok, true)
+    assert.equal(got.nodes, 2)
+    assert.equal(got.listed, 2)
+    assert.ok(got.labels.some((text) => String(text).includes('张三')))
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('save after slim keeps hidden Entity, DATE, and draft decisions', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'dsos-oxi-keep-'))
   const home = mkdtempSync(join(tmpdir(), 'dsos-home-'))

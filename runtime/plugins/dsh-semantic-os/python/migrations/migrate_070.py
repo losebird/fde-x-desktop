@@ -111,3 +111,46 @@ def migrate(cwd: str, dsh_home: str | Path | None = None) -> dict[str, Any]:
         apply(cwd, puts, [])
     marker.write_text(json.dumps({"nodes": len(nodes), "edges": len(edges)}, ensure_ascii=False) + "\n", encoding="utf-8")
     return {"ok": True, "nodes": len(nodes), "edges": len(edges), "name": name}
+
+
+def rehydrate_from_graph_json(cwd: str) -> dict[str, Any]:
+    """Load graph.json into Oxigraph when the live store has no workbench nodes."""
+    from graph_store import apply, edge_subject, node_subject
+
+    gj = Path(os.path.realpath(cwd or "")) / ".dsh" / "semantic-os" / "graph.json"
+    if not gj.is_file():
+        return {"ok": True, "skipped": True, "reason": "no_graph_json"}
+    try:
+        data = json.loads(gj.read_text(encoding="utf-8"))
+    except Exception:
+        return {"ok": False, "error": "BAD_GRAPH_JSON"}
+    bag = data.get("nodes") if isinstance(data, dict) else None
+    nodes: dict[str, dict[str, Any]] = {}
+    if isinstance(bag, list):
+        for node in bag:
+            parsed = _node_from_graph_json(node)
+            if parsed:
+                nodes[parsed["id"]] = parsed
+    elif isinstance(bag, dict):
+        for nid, node in bag.items():
+            parsed = _node_from_graph_json(node, str(nid))
+            if parsed:
+                nodes[parsed["id"]] = parsed
+    edges: list[tuple[str, str, str]] = []
+    for edge in (data.get("edges") if isinstance(data, dict) else None) or []:
+        if not isinstance(edge, dict):
+            continue
+        src = str(edge.get("source") or edge.get("source_id") or "")
+        tgt = str(edge.get("target") or edge.get("target_id") or "")
+        et = str(edge.get("type") or edge.get("edge_type") or "related_to")
+        if src and tgt:
+            edges.append((src, tgt, et))
+    puts = []
+    for nid, node in nodes.items():
+        puts.append((node_subject(nid), node))
+    for src, tgt, et in edges:
+        if src and tgt:
+            puts.append((edge_subject(src, tgt, et), {"source": src, "target": tgt, "type": et}))
+    if puts:
+        apply(cwd, puts, [])
+    return {"ok": True, "nodes": len(nodes), "edges": len(edges)}

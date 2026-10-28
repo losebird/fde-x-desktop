@@ -172,3 +172,44 @@ test('harvestTurnToolResults keeps this-turn last result per tool', async () => 
   assert.equal(harvest.ended, true)
   assert.equal(harvest.byTool['mcp__mail__imap_search'].text.includes('最新一封'), true)
 })
+
+test('harvest ignores a stale NO_ADAPTER turn/end before this turn/start', async () => {
+  const aiRuntime = {
+    async *stream() {
+      yield {
+        type: 'event',
+        event: {
+          type: 'turn/end',
+          data: {
+            requestId: 'old-turn',
+            reason: { kind: 'error', error: { code: 'NO_ADAPTER' } },
+          },
+        },
+      }
+      yield { type: 'event', event: { type: 'turn/start', data: { requestId: 'brq_now', turn: 3 } } }
+      yield { type: 'event', event: { type: 'turn/end', data: { requestId: 'brq_now', turn: 3 } } }
+    },
+  }
+  const harvest = await harvestTurnToolResults(aiRuntime, 'sess', { timeoutMs: 1000, requestId: 'brq_now' })
+  assert.equal(harvest.ended, true)
+  assert.equal(harvest.turnFailure, null)
+})
+
+test('harvest ignores leftover turn/end that arrives before turn/start', async () => {
+  const aiRuntime = {
+    async *stream() {
+      yield {
+        type: 'event',
+        event: {
+          type: 'turn/end',
+          data: { reason: { kind: 'error', error: { code: 'NO_ADAPTER' } } },
+        },
+      }
+      yield { type: 'event', event: { type: 'turn/start', data: { turn: 4 } } }
+      yield { type: 'event', event: { type: 'turn/end', data: { turn: 4 } } }
+    },
+  }
+  const harvest = await harvestTurnToolResults(aiRuntime, 'sess', { timeoutMs: 1000 })
+  assert.equal(harvest.ended, true)
+  assert.equal(harvest.turnFailure, null)
+})

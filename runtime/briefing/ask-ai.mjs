@@ -156,7 +156,7 @@ export async function runBriefingAgent(deps, {
     }
   }
 
-  const harvest = await harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs })
+  const harvest = await harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs, requestId: agentRequestId })
   const turnError = briefingTurnFailureText(harvest.turnFailure)
   return {
     ok: harvest.ended && !turnError,

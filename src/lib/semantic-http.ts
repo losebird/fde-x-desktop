@@ -5,6 +5,33 @@ type FetchFn = typeof fetch
 
 const GRAPH_UPDATES_PATH = '/ws/graph-updates'
 const SEMANTIC_GRAPH_UPDATES_PATH = '/semantic-os/ws/graph-updates'
+const EXPLORER_API_ROOTS = [
+  'graph', 'temporal', 'enrich', 'provenance', 'reason', 'decisions',
+  'import', 'export', 'sparql', 'ontology', 'vocabulary', 'analytics',
+  'annotations', 'coverage',
+]
+
+function isExplorerApiPath(pathname: string): boolean {
+  if (!pathname.startsWith('/api/')) return false
+  const rest = pathname.slice('/api/'.length)
+  if (!rest) return false
+  return EXPLORER_API_ROOTS.some((root) => rest === root || rest.startsWith(`${root}/`))
+}
+
+function rewriteExplorerApi(url: string): string {
+  try {
+    const parsed = new URL(url, window.location.origin)
+    if (isExplorerApiPath(parsed.pathname)) {
+      parsed.pathname = `/semantic-os${parsed.pathname}`
+      return `${parsed.pathname}${parsed.search}`
+    }
+  } catch {
+    /* keep */
+  }
+  const path = url.split('?')[0]
+  if (isExplorerApiPath(path) && url.startsWith('/api/')) return `/semantic-os${url}`
+  return url
+}
 
 const hosts: HostBind[] = []
 let wrapped = false
@@ -33,16 +60,17 @@ function hostCwd(): string {
 }
 
 function withSemanticCwdQuery(url: string, cwd: string) {
-  if (!cwd) return url
+  const rewritten = rewriteExplorerApi(url)
+  if (!cwd) return rewritten
   try {
-    const parsed = new URL(url, window.location.origin)
-    if (!parsed.pathname.startsWith('/semantic-os')) return url
+    const parsed = new URL(rewritten, window.location.origin)
+    if (!parsed.pathname.startsWith('/semantic-os')) return rewritten
     if (!parsed.searchParams.get('cwd')) parsed.searchParams.set('cwd', cwd)
     return `${parsed.pathname}${parsed.search}`
   } catch {
-    if (!url.startsWith('/semantic-os')) return url
-    if (/[?&]cwd=/.test(url)) return url
-    return `${url}${url.includes('?') ? '&' : '?'}cwd=${encodeURIComponent(cwd)}`
+    if (!rewritten.startsWith('/semantic-os')) return rewritten
+    if (/[?&]cwd=/.test(rewritten)) return rewritten
+    return `${rewritten}${rewritten.includes('?') ? '&' : '?'}cwd=${encodeURIComponent(cwd)}`
   }
 }
 

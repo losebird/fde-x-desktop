@@ -132,6 +132,9 @@ export async function handleProduct(req, res, url, opts) {
   if (pathname === `${PREFIX}/api/graph/stats` && req.method === 'GET') {
     return serveGraphStats(req, res, url, sidecar, authorize)
   }
+  if (pathname === `${PREFIX}/api/graph/summary` && req.method === 'GET') {
+    return serveGraphStats(req, res, url, sidecar, authorize)
+  }
   if (pathname === `${PREFIX}/api/analytics` && req.method === 'GET') {
     return serveGraphStats(req, res, url, sidecar, authorize)
   }
@@ -830,6 +833,9 @@ async function serveGraphNodes(req, res, url, sidecar, authorize) {
       cursor: url.searchParams.get('cursor') || '',
     },
   }).catch(() => null)
+  if (result && (result.error === 'GRAPH_BUSY' || (result.ok === false && result.detail))) {
+    return json(res, 503, { ok: false, error: 'GRAPH_BUSY', detail: result.detail || '', nodes: [], total: 0 })
+  }
   if (!result || result.error) return json(res, 502, { ok: false, error: 'NODES_FAILED' })
   return json(res, 200, cleanGraphPayload(result))
 }
@@ -851,6 +857,9 @@ async function serveGraphEdges(req, res, url, sidecar, authorize) {
       cursor: url.searchParams.get('cursor') || '',
     },
   }).catch(() => null)
+  if (result && (result.error === 'GRAPH_BUSY' || (result.ok === false && result.detail))) {
+    return json(res, 503, { ok: false, error: 'GRAPH_BUSY', detail: result.detail || '', edges: [], total: 0 })
+  }
   if (!result || result.error) return json(res, 502, { ok: false, error: 'EDGES_FAILED' })
   return json(res, 200, result)
 }
@@ -861,7 +870,10 @@ async function serveGraphStats(req, res, url, sidecar, authorize) {
   if (!cwd) return json(res, 400, { ok: false, error: 'NO_CWD' })
   if (!sidecar.snapshot().ready) return json(res, 503, { ok: false, error: 'NOT_READY' })
   const result = await postPython(sidecar, { op: 'graph_stats', cwd, args: {} }).catch(() => null)
-  if (!result || result.error) return json(res, 502, { ok: false, error: 'STATS_FAILED' })
+  if (result && (result.error === 'GRAPH_BUSY' || (result.ok === false && result.detail))) {
+    return json(res, 503, { ok: false, error: 'GRAPH_BUSY', detail: result.detail || '', node_count: 0, edge_count: 0 })
+  }
+  if (!result || result.error) return json(res, 502, { ok: false, error: result?.error || 'STATS_FAILED', detail: result?.detail || '' })
   return json(res, 200, result)
 }
 

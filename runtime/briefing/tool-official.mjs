@@ -171,7 +171,16 @@ function toolResultPayload(event) {
   return { callId, error, text }
 }
 
-export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs = 180_000 } = {}) {
+function eventRequestId(event) {
+  const data = isRecord(event?.data) ? event.data : {}
+  if (typeof data.requestId === 'string' && data.requestId.trim()) return data.requestId.trim()
+  if (typeof data.promptRequestId === 'string' && data.promptRequestId.trim()) return data.promptRequestId.trim()
+  const request = isRecord(data.request) ? data.request : {}
+  if (typeof request.requestId === 'string' && request.requestId.trim()) return request.requestId.trim()
+  return ''
+}
+
+export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs = 180_000, requestId = '' } = {}) {
   const byTool = {}
   if (!aiRuntime || typeof aiRuntime.stream !== 'function' || !sessionId) {
     return { byTool, ended: false }
@@ -179,6 +188,7 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), timeoutMs)
   const names = new Map()
+  const wanted = String(requestId || '').trim()
   let inTurn = false
   let ended = false
   let turnFailure = null
@@ -191,13 +201,15 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
     }, abort.signal)) {
       const event = eventFromFollowFrame(frame)
       if (!event || typeof event.type !== 'string') continue
+      const rid = eventRequestId(event)
+      if (wanted && rid && rid !== wanted) continue
       if (event.type === 'turn/start') {
         inTurn = true
         names.clear()
         for (const key of Object.keys(byTool)) delete byTool[key]
         continue
       }
-      if (!inTurn) inTurn = true
+      if (!inTurn) continue
       if (event.type === 'tool/call') {
         const data = isRecord(event.data) ? event.data : {}
         const name = typeof data.name === 'string' ? data.name : ''

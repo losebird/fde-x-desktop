@@ -54,6 +54,16 @@ test('BFF lan-assist invoke serves /state without DSH', async () => {
   assert.equal(state.ok, true)
 })
 
+test('BFF GET /thread is empty-ok for a group, not dispatch NOT_FOUND', async () => {
+  const thread = await invokeLanAssist('/thread', { search: { groupId: 'g_missing' } })
+  assert.equal(thread.ok, true)
+  assert.equal(Array.isArray(thread.requests), true)
+  assert.equal(thread.requests.length, 0)
+  const peer = await invokeLanAssist('/thread', { search: { peerId: 'pk_nobody' } })
+  assert.equal(peer.ok, true)
+  assert.equal(Array.isArray(peer.requests), true)
+})
+
 test('BFF vocab write-back goes through saveVocab into memory', async () => {
   const saved = []
   setLanAssistVocabSaver(async (workspace, concept) => {

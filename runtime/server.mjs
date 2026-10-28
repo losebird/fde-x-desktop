@@ -97,7 +97,7 @@ import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp, publicShareCors }
 import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { loadMemoryWorkspaceVocab, saveMemoryWorkspaceVocab } from './biz/memory-vocab.mjs'
 import { bootLanAssistBff, handleLanAssistHttp, kindsFromVocabRows, setLanAssistVocabLoader, setLanAssistVocabSaver } from './lan-assist-bff.mjs'
-import { bootSemanticOsBff, handleSemanticOsHttp } from './semantic-os-bff.mjs'
+import { bootSemanticOsBff, handleSemanticOsHttp, stopSemanticOsBff } from './semantic-os-bff.mjs'
 import { auditWorkstationWrite, capturePendingSheet, handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, persistUiToken, resolveUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
@@ -3942,11 +3942,14 @@ let closing = false
 async function close() {
   if (closing) return
   closing = true
-  await aiRuntime.stop().catch(() => undefined)
+  await Promise.all([
+    stopSemanticOsBff().catch(() => undefined),
+    aiRuntime.stop().catch(() => undefined),
+  ])
   try {
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections()
   } catch { /* Node 旧版本没有 closeAllConnections */ }
-  const failsafe = setTimeout(() => process.exit(0), 1500)
+  const failsafe = setTimeout(() => process.exit(0), 4000)
   failsafe.unref?.()
   server.close(() => {
     clearTimeout(failsafe)

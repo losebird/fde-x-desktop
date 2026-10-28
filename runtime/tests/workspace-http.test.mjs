@@ -78,6 +78,14 @@ test('latin1 and semantic seams keep session create one-handed', async () => {
   assert.equal(capturedUrl(captured[0]), '/semantic-os/api/graph?cwd=%2Ftmp%2Fws-a')
 
   captured.length = 0
+  await window.fetch('/api/graph/nodes')
+  assert.equal(capturedUrl(captured[0]), '/semantic-os/api/graph/nodes?cwd=%2Ftmp%2Fws-a')
+
+  captured.length = 0
+  await window.fetch('/api/graph/summary')
+  assert.equal(capturedUrl(captured[0]), '/semantic-os/api/graph/summary?cwd=%2Ftmp%2Fws-a')
+
+  captured.length = 0
   await window.fetch('/semantic-os/ingest/start?cwd=%2Ftmp%2Fws-a', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

@@ -145,6 +145,14 @@ test('vocab concept patch refuses unowned cwd, empty pack, and rows', async () =
   assert.equal(notReady.body.error, 'NOT_READY')
 })
 
+test('GET graph/summary aliases stats, not NO_EXPLORER', async () => {
+  const denied = await request(handler(false), '/semantic-os/api/graph/summary?cwd=/private/foreign')
+  assert.equal(denied.status, 403)
+  const listed = await request(handler(true), '/semantic-os/api/graph/summary?cwd=/workspace')
+  assert.equal(listed.status, 503)
+  assert.equal(listed.body.error, 'NOT_READY')
+})
+
 test('GET vocabulary/concepts lists SKOS, not NO_EXPLORER', async () => {
   const denied = await request(handler(false), '/semantic-os/api/vocabulary/concepts?cwd=/private/foreign')
   assert.equal(denied.status, 403)
