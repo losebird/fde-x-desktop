@@ -1063,6 +1063,13 @@ def load_session(cwd: str):
             migrate_decisions(cwd)
         except Exception:
             pass
+    align_marker = graph_store.oxigraph_dir(cwd) / ".migrated-070-align"
+    if not align_marker.is_file():
+        try:
+            from migrations.migrate_070_align import migrate as migrate_align
+            migrate_align(cwd)
+        except Exception:
+            pass
     mem, st = read_primary(cwd)
     if mem is None:
         session = GraphSession(ContextGraph())
@@ -1105,6 +1112,34 @@ def save_session(session: Any, path: Path) -> None:
 
 def has_cjk(text: str) -> bool:
     return any(0x4E00 <= ord(ch) <= 0x9FFF for ch in str(text or ""))
+
+
+def detect_language(text: str) -> str:
+    blob = str(text or "").strip()
+    if not blob:
+        return ""
+    try:
+        from semantica.normalize.language_detector import LanguageDetector
+        return str(LanguageDetector().detect(blob) or "")
+    except Exception:
+        return "zh-cn" if has_cjk(blob) else ""
+
+
+_EXTRACT_CACHE: set[str] = set()
+
+
+def ensure_extract_cache(cwd: str = "") -> None:
+    key = os.path.realpath(cwd or "")
+    if key in _EXTRACT_CACHE:
+        return
+    try:
+        from semantica.semantic_extract.methods import configure_cache
+        dest = Path(key or ".") / ".dsh" / "extract_cache.sqlite"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        configure_cache(backend="sqlite", path=str(dest))
+        _EXTRACT_CACHE.add(key)
+    except Exception:
+        pass
 
 
 
@@ -1589,24 +1624,29 @@ def dsh_chat_extract(text: str) -> dict[str, list]:
 
 def make_ner(text: str = ""):
     from semantica.semantic_extract import NamedEntityRecognizer
-    opts = llm_extract_kwargs() if has_cjk(text) else {}
-    if opts:
-        try:
-            return NamedEntityRecognizer(**opts)
-        except Exception:
-            pass
+    if has_cjk(text):
+        return NamedEntityRecognizer(methods=["ml"], model="zh_core_web_sm")
     return NamedEntityRecognizer()
 
 
 def make_rel(text: str = ""):
     from semantica.semantic_extract import RelationExtractor
-    opts = llm_extract_kwargs() if has_cjk(text) else {}
+    opts = llm_extract_kwargs()
     if opts:
-        try:
-            return RelationExtractor(**opts)
-        except Exception:
-            pass
+        return RelationExtractor(method="llm", provider=opts.get("provider") or "openai", llm_model=opts.get("llm_model"))
     return RelationExtractor()
+
+
+def _entity_json(row: Any) -> dict[str, Any]:
+    if isinstance(row, dict):
+        label = str(row.get("text") or row.get("name") or "").strip()
+        etype = str(row.get("type") or row.get("label") or "其它").strip() or "其它"
+    else:
+        label = str(getattr(row, "text", None) or getattr(row, "name", "") or "").strip()
+        etype = str(getattr(row, "label", None) or getattr(row, "type", "") or "其它").strip() or "其它"
+    if not label:
+        return {}
+    return {"text": label, "label": etype, "type": etype, "id": label}
 
 
 def resolve_cwd(raw: str | None) -> tuple[str | None, str | None]:
@@ -1916,14 +1956,16 @@ def run_ingest_directory(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
 
     if chunk_texts:
         try:
-            vs = get_vs(cwd)
+            from stores import _open_doc_vs, _save_doc_vs, _vector_fingerprint
+            vs = _open_doc_vs(cwd)
             for start in range(0, len(chunk_texts), 256):
                 vs.add_documents(
                     chunk_texts[start:start + 256],
-                    metadata=chunk_meta[start:start + 256],
+                    metadata=[{**row, "kind": "node"} for row in chunk_meta[start:start + 256]],
                     parallel=False,
                 )
-            save_vs(cwd, vs)
+            ids = [str(row.get("node_id") or "") for row in chunk_meta]
+            _save_doc_vs(cwd, vs, ids, _vector_fingerprint(ids, chunk_texts))
         except Exception:
             pass
 
@@ -2475,9 +2517,8 @@ def _rank_search_hit(hit: dict[str, Any], q: str, intent: str = "查询") -> flo
 def run_search_text(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
     """Search node id, type, and stored text. File content counts, not only extracted entities.
 
-    Fast path: reads raw rows from Oxigraph and never imports semantica,
-    so a search does not pay the ~12s onnxruntime import (semantica.context pulls
-    onnxruntime; text search only needs TF-IDF sparse complement, not onnx embeddings).
+    Literal Oxigraph hits plus native VectorStore / GraphSession.search.
+    fdex ranking stays in this thin layer.
     """
     q = str(args.get("q") or args.get("query") or "").strip()
     routed = route_intent(q) if q else {"intent": "闲聊", "tool": ""}
@@ -2628,7 +2669,44 @@ def run_search_text(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
                 "score": 90 + int(100 * float(row.get("score") or 0)),
                 "hop_distance": None,
                 "semantic_similarity": float(row.get("score") or 0),
-                "via": "faiss",
+                "via": "vector",
+            })
+            seen.add(hid)
+    except Exception:
+        pass
+    try:
+        from semantica.context.context_graph import ContextGraph
+        from semantica.explorer.session import GraphSession
+        nodes, edges = graph_store.read_all(cwd)
+        g = ContextGraph()
+        g.from_dict({"nodes": list(nodes.values()), "edges": edges})
+        for row in GraphSession(g).search(q, limit=max(int(args.get("limit") or 12), 8)) or []:
+            if not isinstance(row, dict):
+                continue
+            node = row.get("node") if isinstance(row.get("node"), dict) else row
+            hid = str(node.get("id") or row.get("id") or "")
+            if not hid or hid in seen:
+                continue
+            node_row = by_id.get(hid)
+            if node_row is not None and not _row_in_window(node_row):
+                continue
+            raw = str((node_row or {}).get("content") or node.get("content") or hid)
+            ntype = str((node_row or {}).get("type") or node.get("type") or "Entity")
+            stamped = _row_time_iso(node_row) if node_row else None
+            content = _clip_search_snippet(raw, q)
+            hits.append({
+                "node": {
+                    "id": hid,
+                    "type": ntype,
+                    "content": content,
+                    "properties": {"content": content},
+                    "valid_from": stamped,
+                    "valid_until": None,
+                },
+                "score": 70 + int(100 * float(row.get("score") or 0)),
+                "hop_distance": None,
+                "semantic_similarity": float(row.get("score") or 0) if row.get("score") is not None else None,
+                "via": "graph-session",
             })
             seen.add(hid)
     except Exception:
@@ -3421,32 +3499,87 @@ def run_graph_stats(cwd: str, args: dict[str, Any] | None = None) -> dict[str, A
     }
 
 
-def run_graph_analytics(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Degree ranking over the book. One node pass, one edge pass. No ContextGraph."""
-    _ = args
-    rows = _workbench_nodes(cwd)
-    edges = _workbench_edges(cwd)
-    ncount = len(rows)
-    ecount = len(edges)
-    degree: dict[str, int] = {}
-    for edge in edges:
-        if not isinstance(edge, dict):
+def _analytics_graph(cwd: str) -> dict[str, Any]:
+    entities = []
+    for row in _workbench_nodes(cwd):
+        nid = str(row.get("id") or "")
+        if not nid:
             continue
+        label = str(row.get("content") or nid)
+        entities.append({"id": nid, "type": str(row.get("type") or "Entity"), "name": label, "text": label})
+    relationships = []
+    for edge in _workbench_edges(cwd):
         src = str(edge.get("source") or "")
         tgt = str(edge.get("target") or "")
-        if src:
-            degree[src] = degree.get(src, 0) + 1
-        if tgt:
-            degree[tgt] = degree.get(tgt, 0) + 1
-    n = max(ncount - 1, 1)
-    ranked = sorted(degree.items(), key=lambda item: item[1], reverse=True)[:10]
+        if src and tgt:
+            relationships.append({"source": src, "target": tgt, "type": str(edge.get("type") or "related_to")})
+    return {"entities": entities, "relationships": relationships}
+
+
+def run_graph_analytics(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    _ = args
+    packed = _analytics_graph(cwd)
+    ncount = len(packed["entities"])
+    ecount = len(packed["relationships"])
+    empty = {
+        "node_count": ncount,
+        "edge_count": ecount,
+        "top_nodes_by_pagerank": [],
+        "community_count": 0,
+        "top_degree": [],
+        "engine": "semantica",
+    }
+    if ncount == 0:
+        return empty
+    analysis: dict[str, Any] = {}
+    pagerank: Any = {}
+    try:
+        from semantica.kg.graph_analyzer import GraphAnalyzer
+        analysis = GraphAnalyzer().analyze(packed) or {}
+    except Exception:
+        analysis = {}
+    try:
+        from semantica.kg.centrality_calculator import CentralityCalculator
+        pagerank = CentralityCalculator().calculate_pagerank(packed, max_iterations=100) or {}
+    except Exception:
+        pagerank = (analysis.get("centrality") if isinstance(analysis, dict) else {}) or {}
+
+    def _score_map(raw: Any) -> dict[str, float]:
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, float] = {}
+        for key, value in raw.items():
+            if isinstance(value, (int, float)):
+                out[str(key)] = float(value)
+            elif isinstance(value, dict):
+                nested = value.get("score", value.get("pagerank", value.get("value")))
+                if isinstance(nested, (int, float)):
+                    out[str(key)] = float(nested)
+                else:
+                    out.update(_score_map(value))
+        return out
+
+    scores = _score_map(pagerank)
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)[:10]
+    comms = analysis.get("communities") if isinstance(analysis, dict) else {}
+    community_count = 0
+    if isinstance(comms, dict):
+        raw = comms.get("communities")
+        if isinstance(raw, list):
+            community_count = len(raw)
+        elif isinstance(raw, (int, float)):
+            community_count = int(raw)
+        elif isinstance(comms.get("node_assignments"), dict):
+            community_count = len(set(comms["node_assignments"].values()))
+    elif isinstance(comms, list):
+        community_count = len(comms)
     return {
         "node_count": ncount,
         "edge_count": ecount,
-        "top_nodes_by_pagerank": [[nid, round(count / n, 6)] for nid, count in ranked],
-        "community_count": 0,
-        "top_degree": [[nid, count] for nid, count in ranked],
-        "engine": "degree",
+        "top_nodes_by_pagerank": [[str(nid), float(score)] for nid, score in ranked],
+        "community_count": community_count,
+        "top_degree": [[str(nid), float(score)] for nid, score in ranked],
+        "engine": "semantica",
     }
 
 
@@ -3652,6 +3785,18 @@ def run_temporal_bounds(cwd: str, args: dict[str, Any] | None = None) -> dict[st
     from datetime import datetime, timezone, timedelta
 
     _ = args
+    try:
+        session, _path = load_session(cwd)
+        bounds = session.get_temporal_bounds() if hasattr(session, "get_temporal_bounds") else None
+        if isinstance(bounds, dict) and (bounds.get("min") or bounds.get("max") or bounds.get("start")):
+            lo = bounds.get("min") or bounds.get("start") or bounds.get("from")
+            hi = bounds.get("max") or bounds.get("end") or bounds.get("to")
+            start = parse_time_value(lo)
+            end = parse_time_value(hi)
+            if start is not None and end is not None and start.year >= 2000 and end.year >= 2000:
+                return {"min": display_iso(start), "max": display_iso(end), "count": int(bounds.get("count") or 0), "empty": False, "via": "graph-session"}
+    except Exception:
+        pass
     rows, _st = read_node_rows(cwd)
     starts: list[Any] = []
     ends: list[Any] = []
@@ -3749,22 +3894,6 @@ def _dedup_keep(row: dict[str, Any]) -> bool:
     return True
 
 
-def _trigram_set(text: str) -> set[str]:
-    padded = f"  {text.lower()} "
-    if len(padded) < 3:
-        return {padded}
-    return {padded[i:i + 3] for i in range(len(padded) - 2)}
-
-
-def _jaccard(a: set[str], b: set[str]) -> float:
-    if not a or not b:
-        return 0.0
-    inter = len(a & b)
-    if inter == 0:
-        return 0.0
-    return inter / float(len(a | b))
-
-
 def run_enrich_dedup(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Entity-only duplicate scan. Never pairwise-compares Document bodies."""
     args = args or {}
@@ -3788,40 +3917,43 @@ def run_enrich_dedup(cwd: str, args: dict[str, Any] | None = None) -> dict[str, 
         label = _dedup_label(row)
         entities.append({
             "id": nid,
+            "text": label,
             "label": label,
             "type": str(row.get("type") or "entity"),
-            "grams": _trigram_set(label),
         })
         if len(entities) >= _DEDUP_MAX_ENTITIES:
             break
     duplicates: list[dict[str, Any]] = []
     compared = 0
-    n = len(entities)
-    for i in range(n):
-        left = entities[i]
-        for j in range(i + 1, n):
-            compared += 1
-            if compared > _DEDUP_MAX_PAIRS:
-                break
-            score = _jaccard(left["grams"], entities[j]["grams"])
-            if left["label"] == entities[j]["label"]:
-                score = 1.0
-            if score < threshold:
+    try:
+        from semantica.deduplication.duplicate_detector import DuplicateDetector
+        cands = DuplicateDetector().detect_duplicates(entities, threshold=threshold) or []
+        compared = len(cands)
+        for cand in cands:
+            left = getattr(cand, "entity1", None) or {}
+            right = getattr(cand, "entity2", None) or {}
+            if not isinstance(left, dict):
+                left = {}
+            if not isinstance(right, dict):
+                right = {}
+            score = float(getattr(cand, "similarity_score", 0) or 0)
+            if score < threshold and str(left.get("text") or left.get("label") or "") != str(right.get("text") or right.get("label") or ""):
                 continue
-            right = entities[j]
+            a_label = str(left.get("text") or left.get("label") or "")
+            b_label = str(right.get("text") or right.get("label") or "")
             duplicates.append({
-                "entity_a": {"id": left["id"], "text": left["label"], "label": left["label"], "type": left["type"]},
-                "entity_b": {"id": right["id"], "text": right["label"], "label": right["label"], "type": right["type"]},
+                "entity_a": {"id": left.get("id"), "text": a_label, "label": a_label, "type": left.get("type") or "entity"},
+                "entity_b": {"id": right.get("id"), "text": b_label, "label": b_label, "type": right.get("type") or "entity"},
                 "similarity": round(score, 4),
                 "score": round(score, 4),
             })
-        if compared > _DEDUP_MAX_PAIRS:
-            break
+    except Exception:
+        duplicates = []
     duplicates.sort(key=lambda row: -float(row.get("score") or 0))
     return {
         "duplicates": duplicates[:200],
         "total_flagged": len(duplicates),
-        "scanned": n,
+        "scanned": len(entities),
         "compared": compared,
         "threshold": threshold,
     }
@@ -4294,11 +4426,7 @@ def run_generate_shacl(cwd: str, args: dict[str, Any] | None = None) -> dict[str
     classes = [row for row in _workbench_nodes(cwd) if str(row.get("type") or "") == "owl:Class"]
     dest = policy_dir(cwd)
     dest.mkdir(parents=True, exist_ok=True)
-    lines = [
-        "@prefix sh: <http://www.w3.org/ns/shacl#> .",
-        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
-        "",
-    ]
+    packed_classes = []
     shapes: list[dict[str, Any]] = []
     for row in classes:
         nid = str(row.get("id") or "")
@@ -4306,13 +4434,9 @@ def run_generate_shacl(cwd: str, args: dict[str, Any] | None = None) -> dict[str
             continue
         label = str(row.get("content") or nid)
         target = nid if "://" in nid else f"urn:dsh:{nid}"
-        shape_id = f"{target}Shape"
-        lines.append(f"<{shape_id}> a sh:NodeShape ;")
-        lines.append(f"  sh:targetClass <{target}> ;")
-        lines.append(f'  rdfs:label "{_ttl_escape(label)}" .')
-        lines.append("")
+        packed_classes.append({"name": label or nid, "iri": target, "label": label})
         shapes.append({
-            "id": shape_id,
+            "id": f"{target}Shape",
             "target_class": target,
             "targetClass": target,
             "label": label,
@@ -4320,7 +4444,15 @@ def run_generate_shacl(cwd: str, args: dict[str, Any] | None = None) -> dict[str
             "constraints": [],
             "violation_count": 0,
         })
-    turtle = "\n".join(lines)
+    turtle = ""
+    if packed_classes:
+        try:
+            from semantica.ontology.ontology_generator import SHACLGenerator
+            gen = SHACLGenerator()
+            graph = gen.generate({"classes": packed_classes, "properties": []})
+            turtle = gen.serialize(graph, format="turtle")
+        except Exception as exc:
+            turtle = f"# SHACL_FAILED {exc}"
     (dest / "generated-from-classes.ttl").write_text(turtle, encoding="utf-8")
     return {
         "ok": True,
@@ -5292,14 +5424,10 @@ def run_pipeline(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             if item.get("extracted_by") == "dsh-llm":
                 entities = item.get("entities") or []
                 relations = item.get("relations") or []
-            elif has_cjk(text):
-                # Official Semantica NER is English-pattern based. Chinese must
-                # come from the DSH LLM; falling back here produced junk like DATE 1000.
-                entities = []
-                relations = []
             else:
+                ensure_extract_cache(cwd)
                 entities = ner.extract_entities(text)
-                relations = rel.extract_relations(text, entities)
+                relations = rel.extract_relations(text, entities) if llm_extract_kwargs() or not has_cjk(text) else []
             out.append({"path": item.get("path"), "text": text, "entities": entities, "relations": relations})
         extracted_box.extend(out)
         steps_done.append("extract")
@@ -5971,6 +6099,23 @@ class _DatalogPredMap:
 
 
 def run_datalog(facts: list, rules: list) -> dict[str, Any]:
+    try:
+        from semantica.reasoning.reasoner import Reasoner
+        inferred = Reasoner().infer_facts(list(facts or []), rules=list(rules or []))
+        if inferred:
+            packed = jsonable(inferred)
+            return {
+                "engine": "reasoner",
+                "conclusions": packed,
+                "inferred_facts": packed,
+                "derived_facts": packed,
+            }
+    except Exception:
+        pass
+    return _run_datalog_engine(facts, rules)
+
+
+def _run_datalog_engine(facts: list, rules: list) -> dict[str, Any]:
     """Official DatalogReasoner only. Does not rewrite the engine."""
     from semantica.reasoning import DatalogReasoner
 
@@ -6020,27 +6165,25 @@ def run_graph_path(cwd: str, args: dict[str, Any] | None = None) -> dict[str, An
     tgt = str(args.get("target") or args.get("to") or "").strip()
     if not src or not tgt:
         return {"path": [], "edges": [], "error": "NO_ENDS"}
-    adj: dict[str, list[str]] = {}
-    for edge in _workbench_edges(cwd):
-        a = str(edge.get("source") or "")
-        b = str(edge.get("target") or "")
-        adj.setdefault(a, []).append(b)
-        adj.setdefault(b, []).append(a)
     if src == tgt:
         return {"path": [src], "edges": []}
-    seen = {src}
-    queue = [(src, [src])]
-    while queue:
-        node, trail = queue.pop(0)
-        for nxt in adj.get(node) or []:
-            if nxt in seen:
-                continue
-            step = trail + [nxt]
-            if nxt == tgt:
-                return {"path": step, "edges": [{"source": step[i], "target": step[i + 1]} for i in range(len(step) - 1)]}
-            seen.add(nxt)
-            queue.append((nxt, step))
-    return {"path": [], "edges": [], "empty": True, "detail": "这两点之间没有路。"}
+    try:
+        import networkx as nx
+        from semantica.kg.path_finder import PathFinder
+        graph = nx.Graph()
+        for edge in _workbench_edges(cwd):
+            a = str(edge.get("source") or "")
+            b = str(edge.get("target") or "")
+            if a and b:
+                graph.add_edge(a, b)
+        if src not in graph or tgt not in graph:
+            return {"path": [], "edges": [], "empty": True, "detail": "这两点之间没有路。"}
+        step = PathFinder().find_shortest_path(graph, src, tgt) or []
+    except Exception:
+        step = []
+    if not step:
+        return {"path": [], "edges": [], "empty": True, "detail": "这两点之间没有路。"}
+    return {"path": list(step), "edges": [{"source": step[i], "target": step[i + 1]} for i in range(len(step) - 1)]}
 
 
 def run_graph_neighborhood(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -6052,27 +6195,27 @@ def run_graph_neighborhood(cwd: str, args: dict[str, Any] | None = None) -> dict
         hops = 1
     if not seed:
         return {"nodes": [], "edges": [], "empty": True, "detail": "未出候选"}
-    keep = {seed}
-    frontier = {seed}
+    nodes = _workbench_nodes(cwd)
     edges = _workbench_edges(cwd)
-    for _ in range(hops):
-        nxt: set[str] = set()
-        for edge in edges:
-            a = str(edge.get("source") or "")
-            b = str(edge.get("target") or "")
-            if a in frontier and b not in keep:
-                nxt.add(b)
-            if b in frontier and a not in keep:
-                nxt.add(a)
-        keep.update(nxt)
-        frontier = nxt
-        if not frontier:
-            break
-    nodes = [row for row in _workbench_nodes(cwd) if str(row.get("id") or "") in keep]
+    keep = {seed}
+    try:
+        from semantica.context.context_graph import ContextGraph
+        graph = ContextGraph()
+        graph.from_dict({"nodes": nodes, "edges": edges})
+        for row in graph.get_neighbors(seed, hops=hops) or []:
+            if isinstance(row, dict):
+                nid = str(row.get("id") or row.get("node_id") or "")
+            else:
+                nid = str(getattr(row, "id", None) or getattr(row, "node_id", "") or "")
+            if nid:
+                keep.add(nid)
+    except Exception:
+        keep = {seed}
+    shown = [row for row in nodes if str(row.get("id") or "") in keep]
     links = [edge for edge in edges if str(edge.get("source") or "") in keep and str(edge.get("target") or "") in keep]
-    empty = len(nodes) <= 1 and not links
+    empty = len(shown) <= 1 and not links
     return {
-        "nodes": nodes,
+        "nodes": shown,
         "edges": links,
         "center": seed,
         "hops": hops,
@@ -6198,48 +6341,66 @@ def _sparql_labels(cwd: str, query: str, empty: dict[str, Any]) -> dict[str, Any
     return {"head": {"vars": ["s", "p", "o"]}, "results": {"bindings": bindings}}
 
 
+def _as_iri(nid: str, kind: str = "n") -> str:
+    raw = str(nid or "")
+    if "://" in raw:
+        return raw
+    return f"urn:dsh:{kind}:{raw}"
+
+
+def _sparql_json(result: Any) -> dict[str, Any]:
+    variables = list(getattr(result, "variables", None) or [])
+    bindings = list(getattr(result, "bindings", None) or [])
+    if isinstance(result, dict):
+        variables = list(result.get("variables") or result.get("head", {}).get("vars") or variables)
+        bindings = list(result.get("bindings") or result.get("results", {}).get("bindings") or bindings)
+    return {"head": {"vars": [str(v) for v in variables]}, "results": {"bindings": bindings}}
+
+
 def run_sparql(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     """SPARQL over the slim workbench. Diary nodes are not in the graph."""
+    import tempfile
     args = args or {}
     query = str(args.get("query") or args.get("q") or "")
     empty = {"head": {"vars": []}, "results": {"bindings": []}}
     if not query.strip():
         return {**empty, "error": "empty query"}
     try:
-        from rdflib import Graph, Literal, RDF, RDFS, URIRef
-    except Exception:
-        return _sparql_labels(cwd, query, empty)
-    g = Graph()
-    for row in _workbench_nodes(cwd):
-        nid = str(row.get("id") or "")
-        if not nid:
-            continue
-        subj = URIRef(nid if "://" in nid else f"urn:dsh:{nid}")
-        ntype = str(row.get("type") or "Entity")
-        g.add((subj, RDF.type, URIRef(ntype if "://" in ntype else f"urn:dsh:type:{ntype}")))
-        label = str(row.get("content") or "")[:800]
-        if label:
-            g.add((subj, RDFS.label, Literal(label)))
-    for edge in _workbench_edges(cwd):
-        src = str(edge.get("source") or "")
-        tgt = str(edge.get("target") or "")
-        et = str(edge.get("type") or "related_to")
-        if not src or not tgt:
-            continue
-        pred = URIRef(et if "://" in et else f"urn:dsh:rel:{et}")
-        g.add((
-            URIRef(src if "://" in src else f"urn:dsh:{src}"),
-            pred,
-            URIRef(tgt if "://" in tgt else f"urn:dsh:{tgt}"),
-        ))
-    try:
-        got = g.query(query)
-        raw = got.serialize(format="json")
-        packed = json.loads(raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else raw)
-        if isinstance(packed, dict):
+        from semantica.semantic_extract.types import Triplet
+        from semantica.triplet_store import TripletStore
+        from semantica.reasoning.sparql_reasoner import SPARQLReasoner
+        RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+        trips = []
+        for row in _workbench_nodes(cwd):
+            nid = str(row.get("id") or "")
+            if not nid:
+                continue
+            subj = _as_iri(nid)
+            ntype = str(row.get("type") or "Entity")
+            trips.append(Triplet(subj, RDF_TYPE, ntype if "://" in ntype else _as_iri(ntype, "type")))
+            label = str(row.get("content") or "")[:800]
+            if label:
+                trips.append(Triplet(subj, RDFS_LABEL, label))
+        for edge in _workbench_edges(cwd):
+            src = str(edge.get("source") or "")
+            tgt = str(edge.get("target") or "")
+            et = str(edge.get("type") or "related_to")
+            if src and tgt:
+                trips.append(Triplet(_as_iri(src), et if "://" in et else _as_iri(et, "rel"), _as_iri(tgt)))
+        with tempfile.TemporaryDirectory(prefix="dsos-sparql-") as tmp:
+            ts = TripletStore(backend="oxigraph", path=tmp)
+            if trips:
+                ts.add_triplets(trips)
+            got = SPARQLReasoner(triplet_store=ts).execute_query(query)
+        packed = _sparql_json(got)
+        if packed.get("head", {}).get("vars") or packed.get("results", {}).get("bindings"):
             return packed
-        return {**empty, "error": "SPARQL_FAILED"}
+        return packed
     except Exception as exc:
+        fallback = _sparql_labels(cwd, query, empty)
+        if fallback.get("results", {}).get("bindings"):
+            return fallback
         return {**empty, "error": str(exc), "error_line": 1}
 
 
@@ -6797,17 +6958,11 @@ def run_tool(op: str, cwd: str, args: dict[str, Any]) -> dict[str, Any]:
         text = scrub_text(args.get("text") or "")
         if not text:
             return {"error": "text is required"}
-        from semantica.semantic_extract import NamedEntityRecognizer
-        entities = []
-        method = "default"
-        packed = dsh_chat_extract(text) if has_cjk(text) else {"entities": [], "relations": []}
-        entities = packed.get("entities") if isinstance(packed, dict) else packed
-        method = "dsh-model" if entities else ("skip" if has_cjk(text) else "default")
-        if not entities and not has_cjk(text):
-            from semantica.semantic_extract import NamedEntityRecognizer
-            entities = NamedEntityRecognizer().extract_entities(text)
-            method = "default"
-        return {"entities": jsonable(entities), "relations": jsonable(packed.get("relations") if isinstance(packed, dict) else []), "extractMethod": method}
+        ensure_extract_cache(cwd)
+        method = "zh_core_web_sm" if has_cjk(text) else "default"
+        entities = [_entity_json(row) for row in (make_ner(text).extract_entities(text) or [])]
+        entities = [row for row in entities if row]
+        return {"entities": jsonable(entities), "relations": [], "extractMethod": method, "language": detect_language(text)}
 
     if op == "extract_relations":
         allowed = may_extract(args)
@@ -6818,15 +6973,15 @@ def run_tool(op: str, cwd: str, args: dict[str, Any]) -> dict[str, Any]:
         text = scrub_text(args.get("text") or "")
         if not text:
             return {"error": "text is required"}
-        from semantica.semantic_extract import NamedEntityRecognizer, RelationExtractor, TripletExtractor
-        if has_cjk(text):
-            packed = dsh_chat_extract(text)
-            rels = packed.get("relations") or [] if isinstance(packed, dict) else []
-            return {"relations": jsonable(rels), "triplets": [], "extractMethod": "dsh-model" if rels else "skip"}
+        ensure_extract_cache(cwd)
+        from semantica.semantic_extract import TripletExtractor
+        opts = llm_extract_kwargs()
+        if has_cjk(text) and not opts:
+            return {"relations": [], "triplets": [], "extractMethod": "skip", "language": detect_language(text)}
         ner_ents = make_ner(text).extract_entities(text)
         relations = make_rel(text).extract_relations(text, ner_ents)
         triplets = TripletExtractor().extract_triplets(text)
-        return {"relations": jsonable(relations), "triplets": jsonable(triplets)}
+        return {"relations": jsonable(relations), "triplets": jsonable(triplets), "extractMethod": "llm" if opts else "default"}
 
     if op == "record_decision":
         required = ["category", "scenario", "reasoning", "outcome", "confidence"]

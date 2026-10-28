@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 function pythonBin() {
+  if (process.env.DSH_RUNTIME_PYTHON) return process.env.DSH_RUNTIME_PYTHON
   const bundled = new URL('../runtime-dist/darwin-arm64/python/bin/python3', import.meta.url).pathname
   if (existsSync(bundled)) return bundled
   return 'python3'
@@ -16,45 +17,42 @@ function py(code) {
     cwd: new URL('..', import.meta.url).pathname,
     encoding: 'utf8',
     env: { ...process.env, PYTHONPATH: 'python' },
+    timeout: 180000,
   })
   if (r.status !== 0) throw new Error(r.stderr || r.stdout)
   return r.stdout.trim()
 }
 
-test('rebuild writes sparse matrix and never densifies into FAISS', () => {
+test('rebuild uses VectorStore with parallel=False and Chinese model', () => {
   const out = py(`
-import inspect, json, sys, tempfile
-from pathlib import Path
+import inspect, json, sys
 sys.path.insert(0, "python")
-from stores import VECTOR_ALGO, rebuild_vectors, search_vectors, vector_dir
 import stores
-
-src = inspect.getsource(stores._write_sparse_index) + inspect.getsource(stores.rebuild_vectors) + inspect.getsource(stores.search_vectors)
+src = inspect.getsource(stores._rebuild_from_texts) + inspect.getsource(stores.search_vectors) + inspect.getsource(stores.make_vector_store)
 print(json.dumps({
-  "toarray": ".toarray()" in inspect.getsource(stores._write_sparse_index),
-  "flat": "IndexFlatIP" in src,
-  "faiss_write": "faiss.write_index" in src,
-  "faiss_read": "faiss.read_index" in src,
-  "min_df": "min_df=1" in inspect.getsource(stores._write_sparse_index),
-  "max_features": "max_features" in inspect.getsource(stores._write_sparse_index),
+  "vectorstore": "VectorStore" in src,
+  "parallel": "parallel=False" in inspect.getsource(stores._rebuild_from_texts),
+  "model": stores.VEC_MODEL == "BAAI/bge-small-zh-v1.5",
+  "set_text_model": "set_text_model" in inspect.getsource(stores.make_vector_store),
+  "tfidf": "TfidfVectorizer" in src,
+  "algo": stores.VECTOR_ALGO,
 }))
 `)
   const got = JSON.parse(out)
-  assert.equal(got.toarray, false)
-  assert.equal(got.flat, false)
-  assert.equal(got.faiss_write, false)
-  assert.equal(got.faiss_read, false)
-  assert.equal(got.min_df, true)
-  assert.equal(got.max_features, false)
+  assert.equal(got.vectorstore, true)
+  assert.equal(got.parallel, true)
+  assert.equal(got.model, true)
+  assert.equal(got.set_text_model, true)
+  assert.equal(got.tfidf, false)
+  assert.equal(got.algo, 'faiss-bge-small-zh-v1.5')
 })
 
-test('legacy index.faiss is ignored and sparse search matches CSR cosine', () => {
+test('native VectorStore search matches Chinese node text', { timeout: 180000 }, () => {
   const out = py(`
 import json, sys, tempfile
-from pathlib import Path
 from types import SimpleNamespace
 sys.path.insert(0, "python")
-from stores import rebuild_vectors, search_vectors, vector_dir
+from stores import rebuild_vectors, search_vectors, vector_dir, VECTOR_ALGO
 
 cwd = tempfile.mkdtemp(prefix="dsos-vec-")
 graph = SimpleNamespace(nodes={
@@ -64,27 +62,62 @@ graph = SimpleNamespace(nodes={
 })
 built = rebuild_vectors(cwd, graph)
 dest = vector_dir(cwd)
-no_faiss = not (dest / "index.faiss").is_file()
-(dest / "index.faiss").write_bytes(b"not-a-real-faiss-index" * 100)
 hits = search_vectors(cwd, "不镜像权限内数据", 3)
 print(json.dumps({
   "algo": built.get("algo"),
   "count": built.get("count"),
-  "has_matrix": (dest / "matrix.npz").is_file(),
-  "no_faiss_after_rebuild": no_faiss,
+  "has_index": (dest / "index.bin").is_file(),
+  "has_store": (dest / "store_data.json").is_file(),
+  "no_matrix": not (dest / "matrix.npz").is_file(),
   "top": (hits[0]["id"] if hits else ""),
   "ids": [row["id"] for row in hits],
   "search_empty_query": search_vectors(cwd, "   "),
 }, ensure_ascii=False))
 `)
   const got = JSON.parse(out)
-  assert.equal(got.algo, 'tfidf-charwb-24-sparse-v1')
+  assert.equal(got.algo, 'faiss-bge-small-zh-v1.5')
   assert.equal(got.count, 3)
-  assert.equal(got.has_matrix, true)
-  assert.equal(got.no_faiss_after_rebuild, true)
+  assert.equal(got.has_index, true)
+  assert.equal(got.has_store, true)
+  assert.equal(got.no_matrix, true)
   assert.equal(got.top, 'n-board')
   assert.ok(got.ids.includes('n-board'))
   assert.deepEqual(got.search_empty_query, [])
+})
+
+test('six Chinese rewrite queries hit top-1', { timeout: 180000 }, () => {
+  const out = py(`
+import json, sys, tempfile
+from types import SimpleNamespace
+sys.path.insert(0, "python")
+from stores import rebuild_vectors, search_vectors
+
+cwd = tempfile.mkdtemp(prefix="dsos-vec-zh-")
+graph = SimpleNamespace(nodes={
+  "n-clean": {"content": "洗净这一站是 semantica normalize，不是脱敏"},
+  "n-board": {"content": "型进语义，行走连接器现查，不镜像权限内数据"},
+  "n-ticket": {"content": "采购单 PO-12 只是单号引用"},
+  "n-zhang": {"content": "张三在杭州的阿里巴巴集团上班"},
+  "n-vocab": {"content": "词表在线改，不要整文件上传"},
+  "n-darwin": {"content": "要不要只发 darwin-arm64 这一包"},
+})
+rebuild_vectors(cwd, graph)
+qs = [
+  ("n-clean", "规范化而不是脱敏"),
+  ("n-board", "不把权限内数据镜像出来"),
+  ("n-ticket", "PO-12 采购单号"),
+  ("n-zhang", "杭州阿里巴巴的张三"),
+  ("n-vocab", "在线改词表"),
+  ("n-darwin", "只发 darwin-arm64 包"),
+]
+hits = []
+for want, q in qs:
+  row = search_vectors(cwd, q, 1)
+  hits.append({"want": want, "got": (row[0]["id"] if row else ""), "q": q})
+print(json.dumps({"hits": hits, "ok": sum(1 for row in hits if row["want"] == row["got"])}))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.ok, 6)
 })
 
 test('legacy-only vectors directory returns no complement hits', () => {
@@ -105,14 +138,14 @@ print(json.dumps(search_vectors(${JSON.stringify(cwd)}, "洗净")))
   assert.deepEqual(JSON.parse(out), [])
 })
 
-test('schedule merges later writes and save_session survives rebuild failure', () => {
+test('schedule merges later writes and save_session survives rebuild failure', { timeout: 180000 }, () => {
   const out = py(`
 import json, sys, tempfile, time
 from pathlib import Path
 from types import SimpleNamespace
 sys.path.insert(0, "python")
 import stores
-from stores import schedule_rebuild_vectors, wait_vector_rebuild, vector_index_status, vector_dir, search_vectors
+from stores import schedule_rebuild_vectors, wait_vector_rebuild, vector_index_status, search_vectors
 
 cwd = tempfile.mkdtemp(prefix="dsos-async-")
 first = SimpleNamespace(nodes={"n1": {"content": "型进语义，行走连接器现查"}})
@@ -127,7 +160,7 @@ def slow_rebuild(cwd, ids, texts):
 stores._rebuild_from_texts = slow_rebuild
 one = schedule_rebuild_vectors(cwd, first)
 two = schedule_rebuild_vectors(cwd, second)
-waited = wait_vector_rebuild(cwd, 20)
+waited = wait_vector_rebuild(cwd, 60)
 stores._rebuild_from_texts = orig_rebuild
 status = vector_index_status(cwd)
 hits = search_vectors(cwd, "不镜像权限内数据", 3)
@@ -203,6 +236,7 @@ print(json.dumps({
   "score_id": "200 if q == nid" in src,
   "score_prefix": "160 if raw_content.startswith(q)" in src,
   "score_sub": "else 120" in src,
+  "graph_session": "GraphSession" in src,
 }))
 `)
   const got = JSON.parse(out)
@@ -211,4 +245,5 @@ print(json.dumps({
   assert.equal(got.score_id, true)
   assert.equal(got.score_prefix, true)
   assert.equal(got.score_sub, true)
+  assert.equal(got.graph_session, true)
 })

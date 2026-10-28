@@ -47,17 +47,13 @@ def _extract(text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     except Exception:
         return [], []
     try:
-        if _has_cjk(blob):
-            packed = bootstrap.dsh_chat_extract(blob) or {}
-            ents = [_norm_entity(row) for row in (packed.get("entities") or [])]
-            rels = [_norm_rel(row) for row in (packed.get("relations") or [])]
-            return [row for row in ents if row], [row for row in rels if row]
         ner = bootstrap.make_ner(blob)
         ents = [_norm_entity(row) for row in (ner.extract_entities(blob) or [])]
         ents = [row for row in ents if row]
         rels = []
         try:
-            rels = [_norm_rel(row) for row in (bootstrap.make_rel(blob).extract_relations(blob, ents) or [])]
+            if bootstrap.llm_extract_kwargs() or not _has_cjk(blob):
+                rels = [_norm_rel(row) for row in (bootstrap.make_rel(blob).extract_relations(blob, ents) or [])]
         except Exception:
             pass
         return ents, [row for row in rels if row]
