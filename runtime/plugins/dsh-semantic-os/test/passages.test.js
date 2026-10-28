@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 function pythonBin() {
+  if (process.env.DSH_RUNTIME_PYTHON) return process.env.DSH_RUNTIME_PYTHON
   const bundled = new URL('../runtime-dist/darwin-arm64/python/bin/python3', import.meta.url).pathname
   if (existsSync(bundled)) return bundled
   return 'python3'
@@ -14,12 +15,13 @@ function py(code, extraEnv = {}) {
     cwd: new URL('..', import.meta.url).pathname,
     encoding: 'utf8',
     env: { ...process.env, PYTHONPATH: 'python', ...extraEnv },
+    timeout: 180000,
   })
   if (r.status !== 0) throw new Error(r.stderr || r.stdout)
   return r.stdout.trim()
 }
 
-test('FAISS passage index finds a log chunk by nearby wording', () => {
+test('FAISS passage index finds a log chunk by nearby wording', { timeout: 180000 }, () => {
   const out = py(`
 import json, sys, tempfile
 sys.path.insert(0, "python")
@@ -34,10 +36,11 @@ built = index_passages(cwd, [
     {"id": "session:s1:9", "text": "词表在线改，不要整文件上传"},
 ])
 hits = search_passages(cwd, "darwin 包怎么发", 3)
+dest = passage_dir(cwd)
 print(json.dumps({
     "skip": False,
     "count": built.get("count"),
-    "has_index": (passage_dir(cwd) / "index.faiss").is_file(),
+    "has_index": (dest / "index.bin").is_file() and (dest / "store_data.json").is_file(),
     "top": (hits[0]["id"] if hits else ""),
     "ids": [row["id"] for row in hits],
     "empty": search_passages(cwd, "   "),
@@ -51,7 +54,7 @@ print(json.dumps({
   assert.deepEqual(got.empty, [])
 })
 
-test('passage index drops oldest rows when over cap', () => {
+test('passage index drops oldest rows when over cap', { timeout: 180000 }, () => {
   const out = py(`
 import json, os, sys, tempfile
 os.environ["DSH_SEMANTIC_OS_PASSAGE_MAX"] = "2"

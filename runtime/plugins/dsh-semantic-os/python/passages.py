@@ -1,4 +1,4 @@
-"""FAISS passage index over DSH log chunks. Ids are session:id:seq (or file:/mail:)."""
+"""Passage index over DSH log chunks via native VectorStore. Ids are session:id:seq."""
 
 from __future__ import annotations
 
@@ -8,10 +8,12 @@ import threading
 from pathlib import Path
 from typing import Any
 
-PASSAGE_ALGO = "faiss-ip-hash256-v1"
+from stores import VECTOR_ALGO, VEC_MODEL, _search_hit, make_vector_store
+
+PASSAGE_ALGO = VECTOR_ALGO
 PASSAGE_TEXT = 1200
 _LOCK = threading.Lock()
-_MEM: dict[str, tuple[Any, list[str]]] = {}
+_MEM: dict[str, Any] = {}
 
 
 def _passage_max() -> int:
@@ -28,15 +30,18 @@ def passage_dir(cwd: str) -> Path:
 
 def faiss_status() -> dict[str, Any]:
     try:
+        from semantica.vector_store import VectorStore  # noqa: F401
         import faiss  # noqa: F401
-        import numpy  # noqa: F401
         return {"ok": True, "via": "faiss", "detail": "", "algo": PASSAGE_ALGO}
     except Exception as exc:
         return {"ok": False, "via": "faiss", "detail": str(exc)[:200], "algo": PASSAGE_ALGO}
 
 
+def _ready(dest: Path) -> bool:
+    return (dest / "index.bin").is_file() and (dest / "store_data.json").is_file()
+
+
 def passage_index_status(cwd: str) -> dict[str, Any]:
-    """Settings-facing FAISS log-chunk index. Not the old graph TF-IDF complement."""
     st = faiss_status()
     dest = passage_dir(cwd)
     meta: dict[str, Any] = {}
@@ -48,7 +53,7 @@ def passage_index_status(cwd: str) -> dict[str, Any]:
                 meta = packed
         except Exception:
             meta = {}
-    ready = bool(st.get("ok") and (dest / "index.faiss").is_file())
+    ready = bool(st.get("ok") and _ready(dest))
     count = int(meta.get("count") or 0) if ready else 0
     if not st.get("ok"):
         state = "unavailable"
@@ -67,42 +72,6 @@ def passage_index_status(cwd: str) -> dict[str, Any]:
         "count": count,
         "algo": PASSAGE_ALGO if ready else (st.get("algo") or ""),
     }
-
-
-def _embed(texts: list[str]):
-    import numpy as np
-    from sklearn.feature_extraction.text import HashingVectorizer
-    from sklearn.preprocessing import normalize
-
-    vec = HashingVectorizer(
-        n_features=256,
-        analyzer="char_wb",
-        ngram_range=(2, 4),
-        alternate_sign=False,
-        norm=None,
-    )
-    matrix = vec.transform(texts)
-    matrix = normalize(matrix, norm="l2", axis=1, copy=False)
-    return np.asarray(matrix.toarray(), dtype="float32")
-
-
-def _load_store(dest: Path) -> dict[str, str]:
-    path = dest / "texts.json"
-    if not path.is_file():
-        return {}
-    try:
-        packed = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    if not isinstance(packed, dict):
-        return {}
-    out: dict[str, str] = {}
-    for key, value in packed.items():
-        nid = str(key or "").strip()
-        text = str(value or "").strip()
-        if nid and text:
-            out[nid] = text[:PASSAGE_TEXT]
-    return out
 
 
 def _load_meta(dest: Path) -> dict[str, Any]:
@@ -125,18 +94,6 @@ def _load_times(dest: Path) -> dict[str, str]:
             stamp = str(value or "").strip()
             if nid and stamp:
                 out[nid] = stamp
-    legacy = dest / "times.json"
-    if legacy.is_file():
-        try:
-            packed = json.loads(legacy.read_text(encoding="utf-8"))
-        except Exception:
-            packed = {}
-        if isinstance(packed, dict):
-            for key, value in packed.items():
-                nid = str(key or "").strip()
-                stamp = str(value or "").strip()
-                if nid and stamp and nid not in out:
-                    out[nid] = stamp
     return out
 
 
@@ -144,67 +101,42 @@ def _load_ids(dest: Path) -> list[str]:
     ids = _load_meta(dest).get("ids")
     if isinstance(ids, list) and ids:
         return [str(x).strip() for x in ids if str(x).strip()]
-    return list(_load_store(dest).keys())
+    return []
 
 
-def _write_index(dest: Path, index: Any, ids: list[str], times: dict[str, str] | None = None) -> None:
-    import faiss
+def _load_store(dest: Path) -> dict[str, str]:
+    texts = _load_meta(dest).get("texts")
+    if isinstance(texts, dict):
+        return {str(k): str(v) for k, v in texts.items() if str(k).strip() and str(v).strip()}
+    return {}
 
+
+def _open_vs(dest: Path):
+    key = str(dest)
+    hit = _MEM.get(key)
+    if hit is not None:
+        return hit
+    vs = make_vector_store()
+    if _ready(dest):
+        try:
+            vs.load(str(dest))
+        except Exception:
+            vs = make_vector_store()
+    _MEM[key] = vs
+    return vs
+
+
+def _write_meta(dest: Path, ids: list[str], times: dict[str, str], texts: dict[str, str]) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    kept_times = {nid: times[nid] for nid in ids if times and times.get(nid)} if times else {}
-    dim = int(getattr(index, "d", 256) or 256)
     meta = {
         "count": len(ids),
         "algo": PASSAGE_ALGO,
-        "dim": dim,
+        "model": VEC_MODEL,
         "ids": ids,
-        "times": kept_times,
+        "times": {nid: times[nid] for nid in ids if times.get(nid)},
+        "texts": {nid: texts[nid] for nid in ids if texts.get(nid)},
     }
-    tmp = dest / f".index.{os.getpid()}.faiss"
-    tmp_meta = dest / f".meta.{os.getpid()}.json"
-    try:
-        faiss.write_index(index, str(tmp))
-        tmp_meta.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, dest / "index.faiss")
-        os.replace(tmp_meta, dest / "meta.json")
-        for name in ("texts.json", "times.json"):
-            legacy = dest / name
-            if legacy.is_file():
-                try:
-                    legacy.unlink()
-                except OSError:
-                    pass
-        _MEM.pop(str(dest), None)
-    finally:
-        for path in (tmp, tmp_meta):
-            try:
-                if path.exists():
-                    path.unlink()
-            except OSError:
-                pass
-    _MEM[str(dest)] = (index, ids)
-
-
-def _open_index(dest: Path):
-    import faiss
-
-    key = str(dest)
-    loaded = _MEM.get(key)
-    if loaded is not None:
-        return loaded
-    path = dest / "index.faiss"
-    if not path.is_file():
-        return None
-    ids = _load_ids(dest)
-    try:
-        flags = int(getattr(faiss, "IO_FLAG_MMAP", 0) or 0)
-        index = faiss.read_index(str(path), flags) if flags else faiss.read_index(str(path))
-    except Exception:
-        return None
-    if index.ntotal != len(ids):
-        return None
-    _MEM[key] = (index, ids)
-    return (index, ids)
+    (dest / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
 
 def index_passages(cwd: str, rows: list[Any] | None = None) -> dict[str, Any]:
@@ -213,19 +145,11 @@ def index_passages(cwd: str, rows: list[Any] | None = None) -> dict[str, Any]:
         return st
     dest = passage_dir(cwd)
     with _LOCK:
-        import faiss
-
         times = _load_times(dest)
+        texts = _load_store(dest)
         cap = _passage_max()
-        opened = _open_index(dest)
-        if opened is None:
-            index = faiss.IndexFlatIP(256)
-            ids: list[str] = []
-        else:
-            index, ids = opened
+        ids = _load_ids(dest)
         known = set(ids)
-        new_ids: list[str] = []
-        new_texts: list[str] = []
         updated = 0
         for row in rows or []:
             if not isinstance(row, dict):
@@ -237,24 +161,29 @@ def index_passages(cwd: str, rows: list[Any] | None = None) -> dict[str, Any]:
             stamp = str(row.get("time") or row.get("timestamp") or row.get("valid_from") or "").strip()
             if stamp:
                 times[nid] = stamp
+            blob = text[:PASSAGE_TEXT]
+            texts[nid] = blob
             if nid in known:
                 continue
-            if len(ids) + len(new_ids) >= cap:
-                continue
             known.add(nid)
-            new_ids.append(nid)
-            new_texts.append(text[:PASSAGE_TEXT])
+            ids.append(nid)
             updated += 1
-        if new_texts:
-            matrix = _embed(new_texts)
-            if index.ntotal == 0 and int(matrix.shape[1]) != int(index.d):
-                index = faiss.IndexFlatIP(int(matrix.shape[1]))
-            index.add(matrix)
-            ids.extend(new_ids)
-        if not ids and not (dest / "index.faiss").is_file():
+        if len(ids) > cap:
+            ids = ids[-cap:]
+            updated = max(updated, 1)
+        if not ids and not _ready(dest):
             return {**st, "count": 0, "updated": 0, "cap": cap}
-        if updated or (dest / "texts.json").is_file() or (dest / "times.json").is_file() or "ids" not in _load_meta(dest):
-            _write_index(dest, index, ids, times)
+        if updated or not _ready(dest) or "ids" not in _load_meta(dest):
+            vs = make_vector_store()
+            vs.add_documents(
+                [texts[nid] for nid in ids],
+                metadata=[{"node_id": nid, "kind": "passage", "time": times.get(nid, "")} for nid in ids],
+                parallel=False,
+            )
+            dest.mkdir(parents=True, exist_ok=True)
+            vs.save(str(dest))
+            _MEM[str(dest)] = vs
+            _write_meta(dest, ids, times, {nid: texts[nid] for nid in ids if texts.get(nid)})
         return {**st, "count": len(ids), "updated": updated, "cap": cap}
 
 
@@ -286,7 +215,6 @@ def search_passages(cwd: str, query: str, limit: int = 8) -> list[dict[str, Any]
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
     queries = _passage_queries(q)
-    # Expansions first so a long recall wrapper does not bury 8/28.
     ordered = queries[1:] + queries[:1] if len(queries) > 1 else queries
     for pq in ordered:
         for row in _search_passages_one(cwd, pq, limit, dest):
@@ -298,31 +226,22 @@ def search_passages(cwd: str, query: str, limit: int = 8) -> list[dict[str, Any]
     return merged[: max(int(limit or 8), 24)]
 
 
-def _search_passages_one(cwd: str, q: str, limit: int, dest) -> list[dict[str, Any]]:
-    if not q:
+def _search_passages_one(cwd: str, q: str, limit: int, dest: Path) -> list[dict[str, Any]]:
+    if not q or not _ready(dest):
         return []
     times = _load_times(dest)
-    faiss_rows: list[dict[str, Any]] = []
-    st = faiss_status()
-    loaded = _open_index(dest) if st.get("ok") else None
-    if loaded is not None:
-        index, ids = loaded
-        if ids and index.ntotal > 0:
-            k = min(max(int(limit or 8), 1), len(ids))
-            qv = _embed([q])
-            scores, positions = index.search(qv, k)
-            for score, pos in zip(scores[0].tolist(), positions[0].tolist()):
-                if pos < 0 or pos >= len(ids):
-                    continue
-                if float(score) <= 0:
-                    continue
-                faiss_rows.append({"id": ids[pos], "score": float(score), "time": times.get(ids[pos], "")})
+    try:
+        vs = _open_vs(dest)
+        rows = vs.search(q, limit=max(int(limit or 8), 1)) or []
+    except Exception:
+        return []
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for row in faiss_rows:
-        nid = str(row.get("id") or "")
-        if not nid or nid in seen:
+    for row in rows:
+        hit = _search_hit(row)
+        if not hit or hit["id"] in seen or hit["score"] <= 0:
             continue
-        seen.add(nid)
-        out.append(row)
+        seen.add(hit["id"])
+        packed = {"id": hit["id"], "score": hit["score"], "time": times.get(hit["id"], "")}
+        out.append(packed)
     return out[: max(int(limit or 8), 24)]

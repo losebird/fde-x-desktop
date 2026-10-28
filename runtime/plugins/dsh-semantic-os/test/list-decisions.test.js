@@ -58,7 +58,7 @@ print(json.dumps({
   assert.equal(got.lock_nod, true)
   assert.equal(got.lock_analytics, false)
   assert.equal(got.fast_analytics, true)
-  assert.equal(got.engine, 'degree')
+  assert.equal(got.engine, 'semantica')
   assert.equal(got.nodes, 2)
   assert.equal(got.edges, 3)
   assert.ok(got.top && got.top.length)

@@ -211,21 +211,32 @@ def close_store() -> None:
 close_lite = close_store
 
 
-VECTOR_ALGO = "tfidf-charwb-24-sparse-v1"
+VECTOR_ALGO = "faiss-bge-small-zh-v1.5"
+VEC_MODEL = "BAAI/bge-small-zh-v1.5"
+VEC_DIM = 512
 LEGACY_FAISS_NAME = "index.faiss"
-_VECTOR_MEM: dict[tuple[str, str], tuple[Any, Any, list[str]]] = {}
+_VECTOR_MEM: dict[str, Any] = {}
 _VECTOR_LOCK = threading.Lock()
 _VECTOR_PENDING: dict[str, tuple[list[str], list[str]]] = {}
 _VECTOR_RUNNING: set[str] = set()
 _VECTOR_ERROR: dict[str, str] = {}
 
 
+def make_vector_store():
+    from semantica.vector_store import VectorStore
+
+    vs = VectorStore(backend="faiss", dimension=VEC_DIM)
+    vs.embedder.set_text_model("fastembed", VEC_MODEL)
+    return vs
+
+
 def vector_status() -> dict[str, Any]:
     try:
-        from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: F401
-        return {"ok": True, "via": "tfidf-sparse", "detail": ""}
+        from semantica.vector_store import VectorStore  # noqa: F401
+        import faiss  # noqa: F401
+        return {"ok": True, "via": "faiss", "detail": "", "algo": VECTOR_ALGO}
     except Exception as exc:
-        return {"ok": False, "via": "tfidf-sparse", "detail": str(exc)[:200]}
+        return {"ok": False, "via": "faiss", "detail": str(exc)[:200], "algo": VECTOR_ALGO}
 
 
 def vector_dir(cwd: str) -> Path:
@@ -270,95 +281,44 @@ def _read_vector_meta(dest: Path) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def _sparse_ready(dest: Path, meta: dict[str, Any] | None = None) -> bool:
+def _vector_ready(dest: Path, meta: dict[str, Any] | None = None) -> bool:
     packed = meta if meta is not None else _read_vector_meta(dest)
     return (
         str(packed.get("algo") or "") == VECTOR_ALGO
-        and (dest / "matrix.npz").is_file()
-        and (dest / "tfidf.pkl").is_file()
-        and (dest / "ids.json").is_file()
+        and (dest / "index.bin").is_file()
+        and (dest / "store_data.json").is_file()
     )
 
 
-def _drop_legacy_faiss(dest: Path) -> None:
-    legacy = dest / LEGACY_FAISS_NAME
-    try:
-        if legacy.is_file():
-            legacy.unlink()
-    except OSError:
-        pass
+def _remember_vectors(cwd: str, vs: Any) -> None:
+    _VECTOR_MEM[os.path.realpath(cwd or "")] = vs
 
 
-def _remember_vectors(cwd: str, digest: str, vec: Any, matrix: Any, ids: list[str]) -> None:
+def _open_doc_vs(cwd: str):
     root = os.path.realpath(cwd or "")
-    stale = [key for key in _VECTOR_MEM if key[0] == root and key[1] != digest]
-    for key in stale:
-        _VECTOR_MEM.pop(key, None)
-    _VECTOR_MEM[(root, digest)] = (vec, matrix, ids)
-
-
-def _load_sparse_vectors(cwd: str) -> tuple[Any, Any, list[str]] | None:
-    dest = vector_dir(cwd)
-    meta = _read_vector_meta(dest)
-    if not _sparse_ready(dest, meta):
-        return None
-    digest = str(meta.get("fp") or "")
-    key = (os.path.realpath(cwd or ""), digest)
-    hit = _VECTOR_MEM.get(key)
+    hit = _VECTOR_MEM.get(root)
     if hit is not None:
         return hit
-    import pickle
-    from scipy.sparse import load_npz
-
-    try:
-        packed = json.loads((dest / "ids.json").read_text(encoding="utf-8"))
-        ids = [str(item) for item in (packed.get("ids") or [])]
-        vec = pickle.loads((dest / "tfidf.pkl").read_bytes())
-        matrix = load_npz(dest / "matrix.npz")
-    except Exception:
-        return None
-    if not ids or matrix.shape[0] != len(ids):
-        return None
-    _remember_vectors(cwd, digest, vec, matrix, ids)
-    return vec, matrix, ids
+    dest = vector_dir(cwd)
+    vs = make_vector_store()
+    if _vector_ready(dest):
+        try:
+            vs.load(str(dest))
+        except Exception:
+            vs = make_vector_store()
+    _remember_vectors(cwd, vs)
+    return vs
 
 
-def _write_sparse_index(dest: Path, cwd: str, ids: list[str], texts: list[str], digest: str) -> None:
-    import pickle
-    from scipy.sparse import save_npz
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.preprocessing import normalize
-
-    vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4), min_df=1)
-    matrix = vec.fit_transform(texts)
-    matrix = normalize(matrix, norm="l2", axis=1, copy=False)
+def _save_doc_vs(cwd: str, vs: Any, ids: list[str], digest: str) -> None:
+    dest = vector_dir(cwd)
     dest.mkdir(parents=True, exist_ok=True)
-    suffix = f".{os.getpid()}.{threading.get_ident()}"
-    tmp_matrix = dest / f".matrix{suffix}.npz"
-    tmp_pkl = dest / f".tfidf{suffix}.pkl"
-    tmp_ids = dest / f".ids{suffix}.json"
-    tmp_meta = dest / f".meta{suffix}.json"
-    try:
-        save_npz(tmp_matrix, matrix)
-        tmp_pkl.write_bytes(pickle.dumps(vec))
-        tmp_ids.write_text(json.dumps({"ids": ids}, ensure_ascii=False), encoding="utf-8")
-        tmp_meta.write_text(
-            json.dumps({"fp": digest, "count": len(ids), "algo": VECTOR_ALGO}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        os.replace(tmp_matrix, dest / "matrix.npz")
-        os.replace(tmp_pkl, dest / "tfidf.pkl")
-        os.replace(tmp_ids, dest / "ids.json")
-        os.replace(tmp_meta, dest / "meta.json")
-    finally:
-        for tmp in (tmp_matrix, tmp_pkl, tmp_ids, tmp_meta):
-            try:
-                if tmp.exists():
-                    tmp.unlink()
-            except OSError:
-                pass
-    _drop_legacy_faiss(dest)
-    _remember_vectors(cwd, digest, vec, matrix, ids)
+    vs.save(str(dest))
+    (dest / "meta.json").write_text(
+        json.dumps({"fp": digest, "count": len(ids), "algo": VECTOR_ALGO, "ids": ids}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _remember_vectors(cwd, vs)
 
 
 def rebuild_vectors(cwd: str, graph: Any) -> dict[str, Any]:
@@ -375,9 +335,18 @@ def _rebuild_from_texts(cwd: str, ids: list[str], texts: list[str]) -> dict[str,
     dest = vector_dir(cwd)
     digest = _vector_fingerprint(ids, texts)
     meta = _read_vector_meta(dest)
-    if _sparse_ready(dest, meta) and str(meta.get("fp") or "") == digest:
+    if _vector_ready(dest, meta) and str(meta.get("fp") or "") == digest:
         return {**st, "count": len(ids), "skipped": True, "algo": VECTOR_ALGO}
-    _write_sparse_index(dest, cwd, ids, texts, digest)
+    vs = make_vector_store()
+    for start in range(0, len(texts), 256):
+        batch_ids = ids[start:start + 256]
+        batch_texts = texts[start:start + 256]
+        vs.add_documents(
+            batch_texts,
+            metadata=[{"node_id": nid, "kind": "node"} for nid in batch_ids],
+            parallel=False,
+        )
+    _save_doc_vs(cwd, vs, ids, digest)
     return {**st, "count": len(ids), "skipped": False, "algo": VECTOR_ALGO}
 
 
@@ -429,8 +398,8 @@ def vector_index_status(cwd: str) -> dict[str, Any]:
     st = vector_status()
     dest = vector_dir(cwd)
     meta = _read_vector_meta(dest)
-    ready = _sparse_ready(dest, meta)
-    legacy = (dest / LEGACY_FAISS_NAME).is_file()
+    ready = _vector_ready(dest, meta)
+    legacy = (dest / LEGACY_FAISS_NAME).is_file() and not ready
     root = _vector_root(cwd)
     with _VECTOR_LOCK:
         building = root in _VECTOR_RUNNING or root in _VECTOR_PENDING
@@ -463,39 +432,41 @@ def vector_index_status(cwd: str) -> dict[str, Any]:
     }
 
 
+def _search_hit(row: Any) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        nid = str(meta.get("node_id") or row.get("id") or "").strip()
+        score = float(row.get("score") or 0)
+    else:
+        meta = getattr(row, "metadata", None)
+        meta = meta if isinstance(meta, dict) else {}
+        nid = str(meta.get("node_id") or getattr(row, "id", "") or "").strip()
+        score = float(getattr(row, "score", 0) or 0)
+    if not nid:
+        return None
+    return {"id": nid, "score": score}
+
+
 def search_vectors(cwd: str, query: str, limit: int = 8) -> list[dict[str, Any]]:
-    if not str(query or "").strip():
+    q = str(query or "").strip()
+    if not q:
         return []
-    loaded = _load_sparse_vectors(cwd)
-    if loaded is None:
-        return []
-    vec, matrix, ids = loaded
-    try:
-        import numpy as np
-        from sklearn.preprocessing import normalize
-    except Exception:
+    dest = vector_dir(cwd)
+    if not _vector_ready(dest):
         return []
     try:
-        q = vec.transform([query])
-        q = normalize(q, norm="l2", axis=1, copy=False)
-        scores = matrix.dot(q.T)
-        if getattr(scores, "ndim", 1) == 2 and scores.shape[1] == 1:
-            scores = scores.toarray().ravel()
-        else:
-            scores = np.asarray(scores).ravel()
+        vs = _open_doc_vs(cwd)
+        rows = vs.search(q, limit=max(int(limit or 8), 1)) or []
     except Exception:
         return []
-    if scores.size == 0:
-        return []
-    k = min(max(int(limit or 8), 1), scores.size)
-    top = np.argpartition(scores, -k)[-k:]
-    top = top[np.argsort(scores[top])[::-1]]
-    out = []
-    for pos in top.tolist():
-        if pos < 0 or pos >= len(ids):
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        hit = _search_hit(row)
+        if not hit or hit["id"] in seen or hit["score"] <= 0:
             continue
-        score = float(scores[pos])
-        if score <= 0:
-            continue
-        out.append({"id": ids[pos], "score": score})
-    return out
+        seen.add(hit["id"])
+        out.append(hit)
+    return out[: max(int(limit or 8), 1)]
