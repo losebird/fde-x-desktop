@@ -119,6 +119,7 @@ export function createExtractQueue({
   let timer = null
   let stopped = false
   let processing = false
+  let recovered = false
   let idleAt = Date.now()
   const state = { queued: 0, processed: 0, failed: 0, parseFailed: 0 }
 
@@ -195,18 +196,21 @@ export function createExtractQueue({
       const text = String((node && (node.content || (node.properties && node.properties.content))) || '')
       return { path: id, text }
     }).filter((row) => row.path.startsWith('session:') || row.path.startsWith('file:'))
-    return enqueue(cwd, rows, CAUSES.hit, q)
+    return enqueue(cwd, rows.slice(0, 3), CAUSES.hit, q)
   }
 
   async function pump() {
     if (stopped || processing) return
     processing = true
     try {
-      if (store && typeof store.reclaimRunning === 'function') {
-        await store.reclaimRunning().catch(() => undefined)
-      }
-      if (store && typeof store.requeueFailed === 'function') {
-        await store.requeueFailed('NOT_READY').catch(() => undefined)
+      if (!recovered) {
+        recovered = true
+        if (store && typeof store.reclaimRunning === 'function') {
+          await store.reclaimRunning().catch(() => undefined)
+        }
+        if (store && typeof store.requeueFailed === 'function') {
+          await store.requeueFailed('NOT_READY').catch(() => undefined)
+        }
       }
       while (!stopped) {
         if (chatBusy()) {
@@ -289,8 +293,8 @@ export function createExtractQueue({
       if (retry && Number(job.attempts || 0) <= Number(maxRetries || 0) && !stopped) {
         await store.requeue(job.id)
         closed = true
-        kick()
-        return
+        kick(800)
+        return { wait: true }
       }
       state.failed += 1
       await store.finish(job.id, 'failed', msg || 'failed')

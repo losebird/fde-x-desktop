@@ -12,6 +12,8 @@ import { clipSnippet } from './session-find.js'
 
 export const WINDOW = 1600
 export const MAX_JOBS = 200
+export const JOB_TTL_MS = 24 * 60 * 60 * 1000
+export const MAX_ATTEMPTS = 8
 export const CAUSES = Object.freeze({
   hit: 'hit',
   nod: 'nod',
@@ -116,9 +118,24 @@ export function createJobStore(opts = {}) {
 
   function claim() {
     return withStore((store) => {
-      const staleBefore = Date.now() - 90_000
+      const now = Date.now()
+      const staleBefore = now - 90_000
+      const expireBefore = now - JOB_TTL_MS
       for (const row of store.jobs) {
-        if (row && row.status === 'running' && Number(row.startedAt || 0) < staleBefore) {
+        if (!row) continue
+        if ((row.status === 'queued' || row.status === 'running') && Number(row.createdAt || 0) > 0 && Number(row.createdAt) < expireBefore) {
+          row.status = 'failed'
+          row.detail = 'EXPIRED'
+          row.finishedAt = now
+          continue
+        }
+        if (row.status === 'queued' && Number(row.attempts || 0) > MAX_ATTEMPTS) {
+          row.status = 'failed'
+          row.detail = 'TOO_MANY_ATTEMPTS'
+          row.finishedAt = now
+          continue
+        }
+        if (row.status === 'running' && Number(row.startedAt || 0) < staleBefore) {
           row.status = 'queued'
           delete row.startedAt
         }
@@ -128,7 +145,7 @@ export function createJobStore(opts = {}) {
       if (!next) return null
       next.status = 'running'
       next.attempts = Number(next.attempts || 0) + 1
-      next.startedAt = Date.now()
+      next.startedAt = now
       return { ...next }
     })
   }

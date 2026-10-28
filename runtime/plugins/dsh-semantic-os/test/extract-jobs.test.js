@@ -78,6 +78,31 @@ test('requeueFailed puts NOT_READY jobs back and drops live duplicates', async (
   assert.equal(snap.running, 1)
 })
 
+test('claim expires leftover queued jobs older than a day', async () => {
+  const jobs = store()
+  await jobs.enqueue({ cwd: '/ws', source: 'session:old:1', window: 'stale window', cause: 'hit' })
+  const first = await jobs.claim()
+  await jobs.requeue(first.id)
+  const packed = JSON.parse(await (await import('node:fs/promises')).readFile(jobs.path, 'utf8'))
+  packed.jobs[0].createdAt = Date.now() - 48 * 60 * 60 * 1000
+  await (await import('node:fs/promises')).writeFile(jobs.path, `${JSON.stringify(packed)}\n`)
+  assert.equal(await jobs.claim(), null)
+  const snap = await jobs.snapshot()
+  assert.equal(snap.failed, 1)
+  assert.equal(snap.queued, 0)
+})
+
+test('claim fails a job that already exceeded attempts', async () => {
+  const jobs = store()
+  await jobs.enqueue({ cwd: '/ws', source: 'session:hot:1', window: 'spin window', cause: 'hit' })
+  const packedMod = JSON.parse(await (await import('node:fs/promises')).readFile(jobs.path, 'utf8'))
+  packedMod.jobs[0].attempts = 9
+  await (await import('node:fs/promises')).writeFile(jobs.path, `${JSON.stringify(packedMod)}\n`)
+  assert.equal(await jobs.claim(), null)
+  const snap = await jobs.snapshot()
+  assert.equal(snap.failed, 1)
+})
+
 test('claim will not start a second running job', async () => {
   const jobs = store()
   await jobs.enqueue({ cwd: '/ws', source: 'session:s1:1', window: 'one window', cause: 'hit' })

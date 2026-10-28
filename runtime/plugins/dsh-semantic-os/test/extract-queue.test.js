@@ -246,6 +246,23 @@ test('extract queue requeues Chinese jobs until the LLM extract is available', a
   await queue.stop()
 })
 
+test('enqueueHits keeps three nearest session windows', async () => {
+  const sources = []
+  const queue = makeQueue({
+    getExtract: () => null,
+    postPython: async (payload) => {
+      if (payload.op === 'apply_extracted_window') sources.push(payload.args.source)
+    },
+  })
+  const hits = Array.from({ length: 8 }, (_, i) => ({
+    node: { id: `session:s${i}:1`, content: `hello window ${i}` },
+  }))
+  await queue.enqueueHits('/ws', hits, 'hello')
+  await waitFor(() => queue.snapshot().processed === 3)
+  assert.equal(sources.length, 3)
+  await queue.stop()
+})
+
 test('extract queue keeps one live job per session window', async () => {
   const sources = []
   const storeDir = mkdtempSync(join(tmpdir(), 'dsos-jobs-'))
