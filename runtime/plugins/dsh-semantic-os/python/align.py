@@ -60,8 +60,8 @@ def list_alignments(cwd: str, uri: str = "") -> list[dict[str, Any]]:
 
 def save_alignment(cwd: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
     body = body or {}
-    src = str(body.get("source_uri") or "").strip()
-    tgt = str(body.get("target_uri") or "").strip()
+    src = str(body.get("source_uri") or body.get("source") or "").strip()
+    tgt = str(body.get("target_uri") or body.get("target") or "").strip()
     rel = str(body.get("relation") or "skos:relatedMatch").strip()
     if not src or not tgt:
         return {"error": "NO_ENDS"}

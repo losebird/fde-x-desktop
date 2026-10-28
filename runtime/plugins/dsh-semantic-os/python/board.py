@@ -222,7 +222,7 @@ def resolve_memory_source(args: dict[str, Any] | None) -> dict[str, Any]:
     packed = resolve_memory_retire(args)
     if packed.get("error"):
         return packed
-    source = str((args or {}).get("source") or (args or {}).get("path") or "").strip()
+    source = str((args or {}).get("source") or (args or {}).get("path") or (args or {}).get("origin") or "").strip()
     if not source.startswith(("session:", "file:")):
         return {"error": "NO_PATH"}
     return {"id": packed["id"], "source": source}

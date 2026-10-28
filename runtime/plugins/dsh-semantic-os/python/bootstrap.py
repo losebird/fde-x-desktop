@@ -2000,6 +2000,22 @@ def run_ingest_directory(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             timestamp=stamped,
             valid_from=stamped,
         )
+        try:
+            graph_store.put_node(cwd, {
+                "id": node_id,
+                "type": "Document",
+                "content": stored,
+                "properties": {
+                    "source": real,
+                    "path": real,
+                    "filename": path.name,
+                    "timestamp": stamped,
+                    "valid_from": stamped,
+                },
+            })
+            forget_node_rows(cwd)
+        except Exception:
+            pass
         if tracker is not None:
             try:
                 tracker.track_entity(node_id, source=real)
@@ -5897,8 +5913,17 @@ def run_export_graph(session, graph, args: dict[str, Any]) -> dict[str, Any]:
                         "target": edge.get("target") or edge.get("target_id"),
                     })
             out = tmp / "graph.csv"
-            CSVExporter().export(rows, str(out))
-            data = out.read_text(encoding="utf-8")
+            try:
+                CSVExporter().export(rows, str(out))
+                data = out.read_text(encoding="utf-8")
+            except Exception:
+                lines = ["kind,id,type,content,source,target"]
+                for row in rows:
+                    cell = lambda key: str(row.get(key) or "").replace('"', '""')
+                    lines.append(
+                        f"{cell('kind')},{cell('id')},{cell('type')},{cell('content')},{cell('source')},{cell('target')}"
+                    )
+                data = "\n".join(lines) + "\n"
         else:
             from semantica.export import JSONExporter
             out = tmp / "graph.json"
@@ -6261,7 +6286,20 @@ class _DatalogPredMap:
         return out
 
 
+def _as_datalog_rule(raw: Any) -> Any:
+    if not isinstance(raw, str):
+        return raw
+    text = raw.strip()
+    matched = re.match(r"(?i)^IF\s+(.+?)\s+THEN\s+(.+)$", text)
+    if matched:
+        head = matched.group(2).rstrip(".").strip()
+        body = matched.group(1).strip()
+        return f"{head} :- {body}."
+    return text
+
+
 def run_datalog(facts: list, rules: list) -> dict[str, Any]:
+    rules = [_as_datalog_rule(row) for row in (rules or [])]
     try:
         from semantica.reasoning.reasoner import Reasoner
         inferred = Reasoner().infer_facts(list(facts or []), rules=list(rules or []))
@@ -6587,7 +6625,12 @@ def run_list_ontology_versions(cwd: str, args: dict[str, Any] | None = None) -> 
 
 
 def run_create_ontology_version(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    return create_version(cwd, args or {})
+    args = dict(args or {})
+    if not str(args.get("uri") or args.get("ontology_uri") or "").strip():
+        scheme = str((run_vocab_types(cwd, {}) or {}).get("scheme") or "").strip()
+        if scheme:
+            args["uri"] = scheme
+    return create_version(cwd, args)
 
 
 def run_compare_ontology_versions(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:

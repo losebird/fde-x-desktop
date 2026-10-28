@@ -168,22 +168,26 @@ def index_passages(cwd: str, rows: list[Any] | None = None) -> dict[str, Any]:
             known.add(nid)
             ids.append(nid)
             updated += 1
+        ids = [nid for nid in ids if str(texts.get(nid) or "").strip()]
         if len(ids) > cap:
             ids = ids[-cap:]
             updated = max(updated, 1)
         if not ids and not _ready(dest):
             return {**st, "count": 0, "updated": 0, "cap": cap}
         if updated or not _ready(dest) or "ids" not in _load_meta(dest):
-            vs = make_vector_store()
-            vs.add_documents(
-                [texts[nid] for nid in ids],
-                metadata=[{"node_id": nid, "kind": "passage", "time": times.get(nid, "")} for nid in ids],
-                parallel=False,
-            )
-            dest.mkdir(parents=True, exist_ok=True)
-            vs.save(str(dest))
-            _MEM[str(dest)] = vs
-            _write_meta(dest, ids, times, {nid: texts[nid] for nid in ids if texts.get(nid)})
+            try:
+                vs = make_vector_store()
+                vs.add_documents(
+                    [texts[nid] for nid in ids],
+                    metadata=[{"node_id": nid[:200], "kind": "passage", "time": str(times.get(nid, "") or "")[:200]} for nid in ids],
+                    parallel=False,
+                )
+                dest.mkdir(parents=True, exist_ok=True)
+                vs.save(str(dest))
+                _MEM[str(dest)] = vs
+                _write_meta(dest, ids, times, {nid: texts[nid] for nid in ids if texts.get(nid)})
+            except Exception as exc:
+                return {**st, "ok": False, "error": "PYTHON_FAILED", "detail": str(exc)[:240], "count": len(ids), "updated": 0, "cap": cap}
         return {**st, "count": len(ids), "updated": updated, "cap": cap}
 
 

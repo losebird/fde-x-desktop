@@ -94,15 +94,18 @@ def run_semantica_capabilities(_cwd: str = "", _args: dict[str, Any] | None = No
         "cli": flag("CLI", True),
     }
     optional: dict[str, bool] = {}
-    for name, mod in (
-        ("viz", "semantica.visualization"),
-        ("media", "semantica.parse.media"),
+    for name, mods in (
+        ("viz", ("semantica.visualization",)),
+        ("media", ("semantica.parse.media_parser", "semantica.parse.media")),
     ):
-        try:
-            __import__(mod)
-            optional[name] = True
-        except Exception:
-            optional[name] = False
+        optional[name] = False
+        for mod in mods:
+            try:
+                __import__(mod)
+                optional[name] = True
+                break
+            except Exception:
+                continue
     optional["torch"] = False
     connectors = []
     for name in CONNECTOR_EXTRAS:
@@ -301,13 +304,13 @@ def run_truth_maintenance(cwd: str, args: dict[str, Any] | None = None) -> dict[
         ))
     session = TruthMaintenanceSession(rules=rules)
     assertions = []
-    for i, fact in enumerate(args.get("facts") or ["Person(张三)"]):
+    for i, fact in enumerate(args.get("facts") or ["Person(zhang)"]):
         if isinstance(fact, dict):
             assertions.append(FactSupport(support_id=str(fact.get("id") or f"s{i}"), fact=str(fact.get("fact") or "")))
         else:
             assertions.append(FactSupport(support_id=f"s{i}", fact=str(fact)))
     delta = session.apply(assertions=assertions)
-    target = str(args.get("explain") or "Employee(张三)")
+    target = str(args.get("explain") or "Employee(zhang)")
     explained = session.explain(target)
     return {
         "ok": True,

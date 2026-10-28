@@ -4,7 +4,7 @@
  */
 
 import { request as httpRequest } from 'node:http'
-import { realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -962,13 +962,14 @@ async function serveOntologyVersionCompare(req, res, sidecar, authorize, pathnam
 }
 
 async function serveOntologyPack(req, res, sidecar, authorize, op) {
+  const body = await readJson(req)
   let queryCwd = ''
   try {
     queryCwd = new URL(req.url || '/', 'http://dsh.local').searchParams.get('cwd') || ''
   } catch {
     queryCwd = ''
   }
-  const cwd = header(req.headers, 'x-dsh-cwd') || queryCwd || ''
+  const cwd = body.cwd || header(req.headers, 'x-dsh-cwd') || queryCwd || ''
   if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
   if (!cwd) return json(res, 400, { ok: false, error: 'NO_CWD' })
   if (!sidecar.snapshot().ready) return json(res, 503, { ok: false, error: 'NOT_READY' })
@@ -1410,9 +1411,32 @@ async function serveProbe(res, sidecar, getConfig) {
 
 function serveCliHelp(res, sidecar) {
   const snap = sidecar.snapshot()
-  const python = snap.python || process.env.DSH_SEMANTICA_PYTHON || ''
-  const argv = python ? [python, '-c', "import shutil,sys; p=shutil.which('semantica'); sys.exit(0 if p else 2)"] : []
+  const python = snap.python || process.env.DSH_SEMANTICA_PYTHON || process.env.DSH_RUNTIME_PYTHON || ''
+  const sibling = python ? join(dirname(python), process.platform === 'win32' ? 'semantica.exe' : 'semantica') : ''
   return new Promise((resolve) => {
+    const runHelp = (bin) => {
+      if (!bin) {
+        json(res, 200, { ok: false, help: '', error: 'cli_missing' })
+        resolve(undefined)
+        return
+      }
+      const help = spawn(bin, ['--help'], { windowsHide: true })
+      let text = ''
+      help.stdout?.on('data', (c) => { text += String(c) })
+      help.stderr?.on('data', (c) => { text += String(c) })
+      help.on('error', () => {
+        json(res, 200, { ok: false, help: '', error: 'cli_missing' })
+        resolve(undefined)
+      })
+      help.on('exit', (code) => {
+        json(res, 200, { ok: code === 0, help: text.slice(0, 4000), exit: code })
+        resolve(undefined)
+      })
+    }
+    if (sibling && existsSync(sibling)) {
+      runHelp(sibling)
+      return
+    }
     const cmd = python || (process.platform === 'win32' ? 'py' : 'python3')
     const extra = python ? [] : (process.platform === 'win32' ? ['-3'] : [])
     const proc = spawn(cmd, [...extra, '-c', "import shutil; print(shutil.which('semantica') or '')"], {
@@ -1424,22 +1448,7 @@ function serveCliHelp(res, sidecar) {
       json(res, 200, { ok: false, help: '', error: 'cli_missing' })
       resolve(undefined)
     })
-    proc.on('exit', () => {
-      const bin = out.trim()
-      if (!bin) {
-        json(res, 200, { ok: false, help: '', error: 'cli_missing' })
-        resolve(undefined)
-        return
-      }
-      const help = spawn(bin, ['--help'], { windowsHide: true })
-      let text = ''
-      help.stdout?.on('data', (c) => { text += String(c) })
-      help.stderr?.on('data', (c) => { text += String(c) })
-      help.on('exit', (code) => {
-        json(res, 200, { ok: code === 0, help: text.slice(0, 4000), exit: code })
-        resolve(undefined)
-      })
-    })
+    proc.on('exit', () => runHelp(out.trim()))
   })
 }
 
