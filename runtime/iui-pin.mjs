@@ -8,3 +8,17 @@ export const IUI_PIN = {
     sha256: '9fffca3342019fea28ddc1e4328ea06afa045571998e5635ce470c5f239f0d64',
   },
 }
+
+/** FDE library descriptor. Not a Host builtin plugin. */
+export const IUI_LIBRARY = {
+  dir: 'iui',
+  module: '@losebird/iui',
+  source: {
+    kind: 'pinned',
+    version: IUI_PIN.version,
+    commit: IUI_PIN.commit,
+    sha256: IUI_PIN.artifact.sha256,
+  },
+  health: 'ui-sandbox',
+  modes: ['standard'],
+}

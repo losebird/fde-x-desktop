@@ -22,25 +22,25 @@ test('mergeProfileManifest keeps Host-selected bundles across FDE start', () => 
     },
   }, {
     profileName: 'fde-x',
-    requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-semantic-os'],
+    requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
   })
   assert.deepEqual(merged.dsh.profile.bundles, [
     '@deepseek-ai/dsh-base',
     '@deepseek-ai/dsh-web-app',
-    'dsh-semantic-os',
     '@deepseek-ai/dsh-experimental-schedule-bundle',
   ])
 })
 
-test('mergeProfileManifest drops retired dsh-lan-assist even if Host kept it', () => {
+test('mergeProfileManifest drops retired dsh-lan-assist and dsh-semantic-os even if Host kept them', () => {
   const merged = mergeProfileManifest({
-    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dsh-lan-assist', 'dsh-semantic-os'] } },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dsh-lan-assist', 'dsh-semantic-os', '@losebird/iui'] } },
   }, {
     profileName: 'fde-x',
-    requiredBundles: ['@deepseek-ai/dsh-base', 'dsh-semantic-os'],
+    requiredBundles: ['@deepseek-ai/dsh-base'],
   })
   assert.equal(merged.dsh.profile.bundles.includes('dsh-lan-assist'), false)
-  assert.ok(merged.dsh.profile.bundles.includes('dsh-semantic-os'))
+  assert.equal(merged.dsh.profile.bundles.includes('dsh-semantic-os'), false)
+  assert.equal(merged.dsh.profile.bundles.includes('@losebird/iui'), false)
 })
 
 test('mergeProfileManifest bootstraps an empty profile with required bundles only', () => {
@@ -75,7 +75,7 @@ test('writeMergedProfileManifest creates a missing profile file', async () => {
     profileName: 'fde-x',
     requiredBundles: ['@deepseek-ai/dsh-base', '@losebird/iui'],
   })
-  assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base', '@losebird/iui'])
+  assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base'])
   assert.equal(await readFile(packagePath, 'utf8'), `${JSON.stringify(manifest, null, 2)}\n`)
   await rm(root, { recursive: true, force: true })
 })

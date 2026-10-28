@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 
 /** Merge Host-persisted profile bundle selection with FDE isolation scaffolding. */
 
-export const RETIRED_PROFILE_BUNDLES = ['dsh-lan-assist']
+export const RETIRED_PROFILE_BUNDLES = ['dsh-lan-assist', 'dsh-semantic-os', '@losebird/iui']
 
 export function mergeProfileManifest(existing, { profileName, requiredBundles }) {
   const prev = existing && typeof existing === 'object' ? existing : {}

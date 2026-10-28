@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { pathToFileURL, fileURLToPath } from 'node:url'
-import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
+import { IUI_LIBRARY } from '../iui-pin.mjs'
 
 const require = createRequire(import.meta.url)
 const policy = require(join(dirname(fileURLToPath(import.meta.url)), '..', 'mode-policy.cjs'))
@@ -56,7 +56,7 @@ test('pinned IUI registrations match the mode gate list', async () => {
   const dir = process.env.FDE_PLUGIN_IUI
   assert.equal(typeof dir, 'string', 'FDE_PLUGIN_IUI must point at the pinned @losebird/iui tree')
   assert.ok(dir.length > 0, 'FDE_PLUGIN_IUI must point at the pinned @losebird/iui tree')
-  const builtin = BUILTIN_PLUGINS.find((plugin) => plugin.module === '@losebird/iui')
+  const builtin = IUI_LIBRARY
   const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'))
   const pinFile = JSON.parse(await readFile(join(dir, 'fde-plugin-pin.json'), 'utf8'))
   assert.equal(pkg.name, '@losebird/iui')

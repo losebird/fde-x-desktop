@@ -7,3 +7,5 @@
           - chrome-devtools
           - playwright
         briefingDenyUserMcp: true
+    - id: iui
+      name: '@losebird/iui'

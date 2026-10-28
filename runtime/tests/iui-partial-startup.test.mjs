@@ -7,10 +7,10 @@ import { mkdtemp, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
+import { IUI_LIBRARY } from '../iui-pin.mjs'
 import { createCoreConnector } from '../dsh-core.mjs'
 
-const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.module === '@losebird/iui')
+const IUI = IUI_LIBRARY
 
 function sha(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')

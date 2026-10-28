@@ -23,6 +23,7 @@ import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { hostChildEnv, resolveHostSpawn } from './host-spawn.mjs'
 import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
 import { BUILTIN_PLUGINS, pluginEnvKey } from './builtin-plugins.mjs'
+import { IUI_LIBRARY } from './iui-pin.mjs'
 import { readProfileManifestFile, writeMergedProfileManifest } from './profile-manifest.mjs'
 import { reconcilePinnedVendor } from './plugin-vendor.mjs'
 import { stageIuiArtifactIfAbsent, sweepStaleIuiPartials } from './iui-stage.mjs'
@@ -32,7 +33,7 @@ import { invokeLanAssist, lanAssistBffReady } from './lan-assist-bff.mjs'
 import { invokeSemanticOs, semanticOsBffReady } from './semantic-os-bff.mjs'
 import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 import { linkPackagedPeers } from './packaged-peer.mjs'
-import { firstMissingClosure, natsContentDigest, natsDependencyError, natsStampFields, sourceStamp, syncRepoCache } from './plugin-repo-source.mjs'
+import { ensureVendorRoot, firstMissingClosure, natsContentDigest, natsDependencyError, natsStampFields, sourceStamp, syncRepoCache } from './plugin-repo-source.mjs'
 import { sweepStaleCredentialTemps } from './dsh-credentials.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
@@ -555,6 +556,7 @@ export class DshCoreConnector {
         FDE_RUNTIME_PORT: String(process.env.FDE_RUNTIME_PORT || FDE_RUNTIME_PORT || '4318'),
         FDE_LAN_ASSIST_ROOT: join(this.runtimeDirectory, 'plugins', 'dsh-lan-assist'),
         FDE_SEMANTIC_OS_BFF: '1',
+        FDE_SEMANTIC_OS_ROOT: join(this.runtimeDirectory, 'plugins', 'dsh-semantic-os'),
         DSH_HOME: this.dshHome,
         DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE || 'danger-full-access',
         DSH_LAN_ASSIST_PORT: process.env.DSH_LAN_ASSIST_PORT || CONFIG_LAN_PORT,
@@ -801,9 +803,9 @@ export class DshCoreConnector {
         if (!row.natsIntegrity || version !== row.natsVersion || content !== row.natsContent) return 'miss'
       }
     }
-    const iui = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'iui')
-    if (iui && !existsSync(join(modules, iui.module))) return 'miss'
+    if (!existsSync(join(modules, IUI_LIBRARY.module))) return 'miss'
     if (!existsSync(join(modules, 'fde-x-dsh-bridge'))) return 'miss'
+    if (existsSync(join(modules, 'dsh-semantic-os'))) return 'miss'
     return 'ready'
   }
 
@@ -981,24 +983,27 @@ export class DshCoreConnector {
     const packagePath = join(dir, 'package.json')
     await readProfileManifestFile(packagePath)
     await mkdir(modules, { recursive: true })
+    await ensureVendorRoot(this.dshHome)
     this.pluginLinkFailures = []
     const extras = []
     for (const plugin of BUILTIN_PLUGINS) {
       if (repoPluginSkipped(plugin)) continue
       if (await this.linkBuiltinPlugin(plugin, modules)) extras.push(plugin.module)
     }
+    extras.push(...availableProductBundles())
+    await this.linkBuiltinPlugin(IUI_LIBRARY, modules)
     const optional = this.pluginLinkFailures.length ? this.pluginLinkFailures.join('；') : ''
     if (this.state === 'error' && this.lastError) {
       this.lastError = optional ? `${this.lastError}；${optional}` : this.lastError
     } else {
       this.lastError = optional || null
     }
-    extras.push(...availableProductBundles())
     await writeMergedProfileManifest(packagePath, {
       profileName: this.profileName,
       requiredBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...extras, 'fde-x-dsh-bridge'],
     })
     await rm(join(modules, 'dsh-lan-assist'), { recursive: true, force: true }).catch(() => undefined)
+    await rm(join(modules, 'dsh-semantic-os'), { recursive: true, force: true }).catch(() => undefined)
     const cordisYml = join(dir, 'cordis.yml')
     try {
       await access(cordisYml)
@@ -1274,127 +1279,38 @@ export class DshCoreConnector {
   }
 
   async semanticOs(path, options = {}) {
-    if (semanticOsBffReady()) {
-      return invokeSemanticOs(path, options)
+    if (!semanticOsBffReady()) {
+      throw new AiRemoteError('ai/not-ready', '记忆服务尚未启动')
     }
-    this.assertConnected()
-    if (path === '/python') {
-      const op = options.op
-      const allowedOps = new Set([
-        'add_node',
-        'list_memory_cards',
-        'open_node',
-        'draft_memory_card',
-        'nod_memory_card',
-        'record_decision',
-        'index_passages',
-        'find_precedents',
-        'brief_for_decision',
-        'query_decisions',
-        'lineage',
-        'list_graph_nodes',
-        'memory_health',
-        'enrich_dedup',
-        'retire_memory_card',
-        'source_memory_card',
-        'nod_memory_edge',
-        'mute_health_kind',
-        'renew_memory_card',
-      ])
-      if (!allowedOps.has(op)) {
-        throw new AiRemoteError('ai/forbidden', '记忆操作不允许')
-      }
-      const { cwd, ascii } = semanticCwd(options, this.cwd)
-      const url = new URL('/semantic-os/python', this.origin)
-      if (cwd) url.searchParams.set('cwd', cwd)
-      const headers = {
-        'content-type': 'application/json',
-        cookie: this.cookie,
-        origin: this.origin,
-      }
-      if (ascii) headers['x-dsh-cwd'] = ascii
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ op, cwd, args: options.args ?? {} }),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new AiRemoteError(payload.error || 'ai/memory-error', payload.hint || payload.error || `记忆调用失败：HTTP ${response.status}`)
-      }
-      return payload
+    try {
+      return await invokeSemanticOs(path, options)
+    } catch (error) {
+      throw new AiRemoteError(
+        (error && error.code) || 'ai/memory-error',
+        error instanceof Error ? error.message : '记忆调用失败',
+      )
     }
-    const semanticPages = new Set(['/ready', '/retry-ready', '/settings', '/deps', '/usage', '/session-ingest', '/session-ingest/now', '/people', '/settings/probe', '/extract-session', '/api/enrich/merge'])
-    if (semanticPages.has(path)) {
-      const { cwd: requestCwd, ascii: asciiCwd } = semanticCwd(options, this.cwd)
-      const url = new URL(`/semantic-os${path}`, this.origin)
-      if (requestCwd) url.searchParams.set('cwd', requestCwd)
-      const method = options.method ?? ((path === '/ready' || path === '/deps' || path === '/usage' || path === '/session-ingest' || path === '/people' || path === '/settings/probe' || (path === '/settings' && !options.body)) ? 'GET' : 'POST')
-      const headers = {
-        'content-type': 'application/json',
-        cookie: this.cookie,
-        origin: this.origin,
-      }
-      if (asciiCwd) headers['x-dsh-cwd'] = asciiCwd
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new AiRemoteError(payload.error || 'ai/memory-error', payload.hint || payload.error || `语义设置失败：HTTP ${response.status}`)
-      }
-      return payload
-    }
-    if (path !== '/find') throw new AiRemoteError('ai/forbidden', '记忆路径不允许')
-    const found = semanticCwd(options, this.cwd)
-    const url = new URL(`/semantic-os${path}`, this.origin)
-    if (found.cwd) url.searchParams.set('cwd', found.cwd)
-    const findHeaders = {
-      'content-type': 'application/json',
-      cookie: this.cookie,
-      origin: this.origin,
-    }
-    if (found.ascii) findHeaders['x-dsh-cwd'] = found.ascii
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: findHeaders,
-      body: JSON.stringify({ query: options.query ?? '', cwd: found.cwd }),
-    })
-    const payload = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      throw new AiRemoteError(payload.error || 'ai/memory-error', payload.hint || payload.error || `记忆搜索失败：HTTP ${response.status}`)
-    }
-    return payload
   }
 
   /** Persist workspace SKOS concepts (same path as Memory vocabulary UI). */
   async patchWorkspaceVocab(cwd, body) {
-    this.assertConnected()
     const workspace = canonicalWorkspaceCwd(cwd) || canonicalWorkspaceCwd(this.cwd) || this.cwd
-    const { cwd: requestCwd, ascii } = semanticCwd({ cwd: workspace }, this.cwd)
-    if (!requestCwd) throw new AiRemoteError('ai/forbidden', '工作区路径无效')
-    const url = new URL('/semantic-os/api/vocabulary/concepts', this.origin)
-    const headers = {
-      'content-type': 'application/json',
-      cookie: this.cookie,
-      origin: this.origin,
+    if (!workspace) throw new AiRemoteError('ai/forbidden', '工作区路径无效')
+    if (!semanticOsBffReady()) {
+      throw new AiRemoteError('ai/not-ready', '记忆服务尚未启动')
     }
-    if (ascii) headers['x-dsh-cwd'] = ascii
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ ...body, cwd: requestCwd }),
-    })
-    const payload = await response.json().catch(() => ({}))
-    if (!response.ok || payload.ok === false) {
+    try {
+      return await invokeSemanticOs('/api/vocabulary/concepts', {
+        method: 'POST',
+        cwd: workspace,
+        body: { ...body, cwd: workspace },
+      })
+    } catch (error) {
       throw new AiRemoteError(
-        payload.error || 'ai/vocab-error',
-        payload.hint || payload.error || `词表写入失败：HTTP ${response.status}`,
+        (error && error.code) || 'ai/vocab-error',
+        error instanceof Error ? error.message : '词表写入失败',
       )
     }
-    return payload
   }
 
   async lanAssist(path, options = {}) {
@@ -1724,7 +1640,7 @@ export class DshCoreConnector {
   async retryIuiInternal() {
     if (this.state === 'connected' && this.iui && this.iui.state === 'enabled') return this.status()
     if (this.startPromise) await Promise.allSettled([this.startPromise])
-    const plugin = BUILTIN_PLUGINS.find((row) => row.module === '@losebird/iui')
+    const plugin = IUI_LIBRARY
     this.publishIui({ state: 'installing', phase: 'stage', progress: { completed: 0, total: 4 } })
     const modules = join(this.dshHome, 'profiles', this.profileName, 'node_modules')
     await mkdir(modules, { recursive: true })
@@ -1739,8 +1655,7 @@ export class DshCoreConnector {
 
 export function createCoreConnector(options) {
   const connector = new DshCoreConnector(options)
-  const plugin = BUILTIN_PLUGINS.find((row) => row.module === '@losebird/iui')
-  if (plugin) sweepStaleIuiPartials(dirname(connector.pinnedArtifactPath(plugin)))
+  sweepStaleIuiPartials(dirname(connector.pinnedArtifactPath(IUI_LIBRARY)))
   connector.beginIuiInstall()
   return connector
 }

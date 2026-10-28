@@ -7,13 +7,13 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
+import { IUI_LIBRARY } from '../iui-pin.mjs'
 import { generationDshBin } from '../generation.mjs'
 import { createPageTokenClient } from './support/page-token-fetch.mjs'
 import { goodIuiTar, writeFakeDshCredentials } from './support/iui-home-fixture.mjs'
 
 const page = createPageTokenClient()
-const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.module === '@losebird/iui')
+const IUI = IUI_LIBRARY
 const goodTar = goodIuiTar(IUI.source.commit)
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')

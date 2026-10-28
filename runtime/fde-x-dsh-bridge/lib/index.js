@@ -425,6 +425,23 @@ function installIuiModeGate(ctx, config) {
   })
 }
 
+function registerSemanticOsHttpTools(ctx) {
+  const root = process.env.FDE_SEMANTIC_OS_ROOT
+  if (!root) return Promise.resolve()
+  const { pathToFileURL } = require('node:url')
+  const { defineTool } = loadDshTools()
+  return import(pathToFileURL(join(root, 'tools.js')).href).then(async (mod) => {
+    const { createHttpSidecar } = await import(pathToFileURL(join(root, 'sidecar-client.js')).href)
+    const port = process.env.FDE_RUNTIME_PORT || '4318'
+    const sidecar = createHttpSidecar(`http://127.0.0.1:${port}/semantic-os`)
+    const writes = { mark() {} }
+    mod.registerTools(ctx, { defineTool }, sidecar, writes, null, {
+      getPersistence: () => null,
+      getExtract: () => null,
+    })
+  })
+}
+
 function registerLanAssistHttpTools(ctx) {
   const root = process.env.FDE_LAN_ASSIST_ROOT
   if (!root) return Promise.resolve()
@@ -471,6 +488,11 @@ function apply(ctx, config) {
       const message = error instanceof Error ? error.message : String(error)
       if (ctx.logger && typeof ctx.logger.warn === 'function') ctx.logger.warn(`[fde-x-dsh-bridge] lan-assist tools: ${message}`)
       else console.warn(`[fde-x-dsh-bridge] lan-assist tools: ${message}`)
+    })
+    void registerSemanticOsHttpTools(ctx).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      if (ctx.logger && typeof ctx.logger.warn === 'function') ctx.logger.warn(`[fde-x-dsh-bridge] semantic-os tools: ${message}`)
+      else console.warn(`[fde-x-dsh-bridge] semantic-os tools: ${message}`)
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

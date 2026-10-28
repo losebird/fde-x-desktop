@@ -7,20 +7,22 @@
 import { existsSync, statSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, extname, join } from 'node:path'
 import { postPython } from './ingest.js'
-import { describePath, pathsFromText } from './eyes-media.js'
+import { describePath, extractEyesText, pathsFromText } from './eyes-media.js'
 
 export const DEFAULT_SESSION_INGEST_INTERVAL_MIN = 30
 
+function dshHome() {
+  return process.env.DSH_HOME || process.env.FDE_DSH_HOME || join(homedir(), '.dsh-fde-x')
+}
+
 function cursorPath() {
-  const home = process.env.DSH_HOME || join(homedir(), '.dsh')
-  return join(home, 'semantic-os', 'session-cursors.json')
+  return join(dshHome(), 'semantic-os', 'session-cursors.json')
 }
 
 function stampPath() {
-  const home = process.env.DSH_HOME || join(homedir(), '.dsh')
-  return join(home, 'semantic-os', 'session-stamps.json')
+  return join(dshHome(), 'semantic-os', 'session-stamps.json')
 }
 
 function textFromContent(content) {
@@ -40,7 +42,28 @@ function imagePartsFromContent(content) {
 }
 
 function attachmentHome() {
-  return process.env.DSH_HOME || join(homedir(), '.dsh')
+  return dshHome()
+}
+
+const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif'])
+
+async function picturedOf({ sidecar, cwd, path, mediaType, getEyes }) {
+  const extracted = await extractEyesText(path)
+  if (extracted) return extracted
+  const ext = extname(String(path || '')).toLowerCase()
+  const looksImage = IMAGE_EXTS.has(ext) || String(mediaType || '').startsWith('image/')
+  if (looksImage && sidecar) {
+    const got = await postPython(sidecar, {
+      op: 'describe_image',
+      cwd,
+      args: { path, mediaType: mediaType || '' },
+    }).catch(() => null)
+    const text = String(got && got.text || '').trim()
+    if (text) return text
+  }
+  const eyes = typeof getEyes === 'function' ? getEyes() : null
+  if (eyes) return describePath(eyes, path)
+  return ''
 }
 
 function imageFileFromPart(part) {
@@ -406,11 +429,10 @@ export function createSessionIngest(opts) {
           }
           if (seq < fromSeq || imagesThisSession >= 16) continue
           if (!mayLook(event)) continue
-          const eyes = typeof getEyes === 'function' ? getEyes() : null
           const media = []
           for (const part of eventImages(event)) {
             const file = imageFileFromPart(part)
-            if (file) media.push({ path: file.path, kind: 'image', id: file.id })
+            if (file) media.push({ path: file.path, kind: 'image', id: file.id, mediaType: file.mediaType })
           }
           for (const found of pathsFromText(text)) {
             media.push({ path: found, kind: 'file', id: found })
@@ -435,7 +457,13 @@ export function createSessionIngest(opts) {
               filePaths.push(file.path)
               continue
             }
-            const pictured = await describePath(eyes, file.path)
+            const pictured = await picturedOf({
+              sidecar,
+              cwd,
+              path: file.path,
+              mediaType: file.mediaType || '',
+              getEyes,
+            })
             await recordLook(file.id || file.path, pictured)
             if (!pictured) continue
             const row = {
@@ -450,7 +478,13 @@ export function createSessionIngest(opts) {
           }
           for (const filePath of filePaths) {
             if (imagesThisSession >= 16) break
-            const pictured = await describePath(eyes, filePath)
+            const pictured = await picturedOf({
+              sidecar,
+              cwd,
+              path: filePath,
+              mediaType: '',
+              getEyes,
+            })
             await recordLook(filePath, pictured)
             if (!pictured) continue
             const item = {

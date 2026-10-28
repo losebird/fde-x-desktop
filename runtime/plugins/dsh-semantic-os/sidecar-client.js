@@ -3,7 +3,47 @@ import { request as httpRequest } from 'node:http'
 export const DEFAULT_SIDECAR_TIMEOUT_MS = 60_000
 export const DEFAULT_SIDECAR_MAX_BYTES = 16 * 1024 * 1024
 
+/** Host tools talk to BFF `/semantic-os` instead of a Host-owned sidecar. */
+export function createHttpSidecar(baseUrl) {
+  const base = String(baseUrl || '').replace(/\/$/, '')
+  return {
+    snapshot() {
+      return { ready: true, port: 1 }
+    },
+    getApiKey() {
+      return ''
+    },
+    request(options = {}) {
+      const rawPath = String(options.path || '/_dsh/python')
+      const path = rawPath === '/_dsh/python' ? '/python' : rawPath
+      const url = new URL(`${base}${path.startsWith('/') ? path : `/${path}`}`)
+      if (options.cwd) url.searchParams.set('cwd', String(options.cwd))
+      const method = String(options.method || 'POST').toUpperCase()
+      const body = options.body == null
+        ? undefined
+        : (typeof options.body === 'string' || Buffer.isBuffer(options.body) ? options.body : JSON.stringify(options.body))
+      return fetch(url, {
+        method,
+        headers: {
+          'content-type': 'application/json',
+          origin: url.origin,
+          host: url.host,
+        },
+        body,
+        signal: options.signal,
+      }).then(async (response) => {
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          return { error: payload.error || 'HTTP', detail: payload.hint || payload.error || '', status: response.status }
+        }
+        return payload
+      }).catch((error) => ({ error: 'FETCH', detail: error instanceof Error ? error.message : String(error) }))
+    },
+  }
+}
+
 export function requestSidecar(sidecar, options = {}) {
+  if (sidecar && typeof sidecar.request === 'function') return sidecar.request(options)
   const snap = sidecar.snapshot()
   if (!snap.ready || !snap.port) return Promise.resolve({ error: 'NOT_READY', reason: snap.reason || 'not_ready' })
   const method = String(options.method || 'POST').toUpperCase()

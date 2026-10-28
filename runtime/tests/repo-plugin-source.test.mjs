@@ -226,21 +226,12 @@ if (process.env.PR4_CASE) {
     })
   }
 
-  test('a git checkout passed in FDE_PLUGIN_* is not the install body', () => {
+  test('semantic-os is not a Host builtin so FDE_PLUGIN_* cannot install it', () => {
     const checkout = mkdtempSync(join(tmpdir(), 'fde-pin-checkout-'))
     writeFileSync(join(checkout, '.git'), 'gitdir: fake\n')
-    const saved = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
-    process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = checkout
     try {
-      const connector = new DshCoreConnector({ dshHome: checkout, cwd: checkout })
-      const sem = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-semantic-os')
-      assert.equal(
-        connector.repoPluginSource(sem),
-        join(repoRoot, 'runtime', 'plugins', 'dsh-semantic-os'),
-      )
+      assert.equal(BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-semantic-os'), undefined)
     } finally {
-      if (saved === undefined) delete process.env.FDE_PLUGIN_DSH_SEMANTIC_OS
-      else process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = saved
       rmSync(checkout, { recursive: true, force: true })
     }
   })
@@ -295,8 +286,7 @@ if (process.env.PR4_CASE) {
     const lan = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-lan-assist')
     const sem = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'dsh-semantic-os')
     assert.equal(lan, undefined)
-    assert.equal(sem.source.kind, 'repo')
-    assert.equal(sem.source.path, 'runtime/plugins/dsh-semantic-os')
+    assert.equal(sem, undefined)
     const dev = readFileSync(join(repoRoot, 'scripts', 'dev.mjs'), 'utf8')
     const peer = readFileSync(join(repoRoot, 'scripts', 'dev-peer.mjs'), 'utf8')
     assert.equal(dev.includes('linkVendorTarget'), false)
@@ -308,20 +298,20 @@ if (process.env.PR4_CASE) {
     assert.equal(got.state, 'idle')
     assert.equal(got.lastError, null)
     assert.equal(got.lanMatch, false)
-    assert.equal(got.semExists, true)
+    assert.equal(got.semExists, false)
     assert.equal(got.bundles.includes('dsh-lan-assist'), false)
-    assert.equal(got.bundles.includes('dsh-semantic-os'), true)
+    assert.equal(got.bundles.includes('dsh-semantic-os'), false)
   })
 
-  test('upgrade keeps runtime-dist and replaces plugin bytes', async () => {
+  test('upgrade does not replace leftover semantic-os vendor as a Host plugin', async () => {
     const got = await child('upgrade')
     assert.equal(got.state, 'idle')
     assert.equal(got.lastError, null)
     assert.equal(got.keep, 'keep-runtime-dist\n')
-    assert.equal(got.replaced, true)
+    assert.equal(got.replaced, false)
   })
 
-  test('old vendor symlink is not written through and runtime-dist is kept', async () => {
+  test('old vendor symlink is not written through', async () => {
     const got = await child('symlink')
     assert.equal(got.userUntouched, true)
     assert.equal(got.vendorIsLink, false)
@@ -330,27 +320,22 @@ if (process.env.PR4_CASE) {
     assert.equal(got.lastError, null)
   })
 
-  test('missing repo plugin sets state error', async () => {
+  test('missing repo plugin for retired Host plugins does not fail the profile', async () => {
     const got = await child('missing-index')
-    assert.equal(got.state, 'error')
-    assert.match(got.lastError, /index\.js/)
+    assert.equal(got.state, 'idle', got.lastError || '')
   })
 
-  test('missing nats sets connector error', async () => {
+  test('missing nats on retired lan-assist does not fail the profile', async () => {
     const got = await child('missing-nats')
-    assert.equal(got.state, 'error')
-    assert.match(got.lastError, /NATS_DEPENDENCY_MISSING/)
-    assert.equal(/NO_NATS/.test(got.lastError || ''), false)
+    assert.equal(got.state, 'idle', got.lastError || '')
   })
 
-  test('deleting nats from a temp copy sets connector error', async () => {
+  test('deleting nats from a temp copy of retired lan-assist does not fail the profile', async () => {
     const got = await child('deleted-nats')
-    assert.equal(got.state, 'error')
-    assert.match(got.lastError, /NATS_DEPENDENCY_MISSING/)
-    assert.equal(/NO_NATS/.test(got.lastError || ''), false)
+    assert.equal(got.state, 'idle', got.lastError || '')
   })
 
-  test('a changed lock after a ready profile is an error', async () => exclusive(async () => {
+  test('a changed retired-plugin lock hash does not fail Host profile install', async () => exclusive(async () => {
     const lockPath = join(repoRoot, 'runtime', 'plugins', 'plugins.lock.json')
     const raw = readFileSync(lockPath)
     const home = await mkdtemp(join(tmpdir(), 'fde-pr4-lock-'))
@@ -379,8 +364,7 @@ if (process.env.PR4_CASE) {
       assert.notEqual(next, raw.toString('utf8'))
       writeFileSync(lockPath, next)
       await connector.ensureIsolatedProfile()
-      assert.equal(connector.state, 'error')
-      assert.match(connector.lastError, /mismatch index\.js/)
+      assert.equal(connector.state, 'idle', connector.lastError || '')
     } finally {
       writeFileSync(lockPath, raw)
       if (savedVendor === undefined) delete process.env.FDE_VENDOR_DIR
@@ -400,7 +384,7 @@ if (process.env.PR4_CASE) {
     }
   }))
 
-  test('deleting installed nats after a ready profile is an error', async () => {
+  test('deleting leftover lan-assist nats does not fail Host profile install', async () => {
     const home = await mkdtemp(join(tmpdir(), 'fde-pr4-nats-'))
     const emptyVendor = await mkdtemp(join(tmpdir(), 'fde-empty-vendor-'))
     const savedVendor = process.env.FDE_VENDOR_DIR
@@ -422,9 +406,7 @@ if (process.env.PR4_CASE) {
       const natsDir = join(home, 'vendor', 'dsh-lan-assist', 'node_modules', 'nats')
       rmSync(natsDir, { recursive: true, force: true })
       await connector.ensureIsolatedProfile()
-      assert.equal(connector.state, 'error')
-      assert.match(connector.lastError, /NATS_DEPENDENCY_MISSING/)
-      assert.equal(existsSync(natsDir), false)
+      assert.equal(connector.state, 'idle', connector.lastError || '')
     } finally {
       if (savedVendor === undefined) delete process.env.FDE_VENDOR_DIR
       else process.env.FDE_VENDOR_DIR = savedVendor
@@ -443,7 +425,7 @@ if (process.env.PR4_CASE) {
     }
   })
 
-  test('a changed plugin file after a ready profile is an error', async () => exclusive(async () => {
+  test('editing a retired plugin file does not fail Host profile install', async () => exclusive(async () => {
     const indexPath = join(repoRoot, 'runtime', 'plugins', 'dsh-lan-assist', 'index.js')
     const raw = readFileSync(indexPath)
     const home = await mkdtemp(join(tmpdir(), 'fde-pr4-tree-'))
@@ -466,8 +448,7 @@ if (process.env.PR4_CASE) {
       assert.equal(connector.state, 'idle')
       writeFileSync(indexPath, Buffer.concat([raw, Buffer.from('\n')]))
       await connector.ensureIsolatedProfile()
-      assert.equal(connector.state, 'error')
-      assert.match(connector.lastError, /mismatch index\.js/)
+      assert.equal(connector.state, 'idle', connector.lastError || '')
     } finally {
       writeFileSync(indexPath, raw)
       if (savedVendor === undefined) delete process.env.FDE_VENDOR_DIR
@@ -526,45 +507,10 @@ if (process.env.PR4_CASE) {
     }
   }
 
-  test('a swapped installed nats version is not left idle', async () => {
+  test('Host profile does not install lan-assist vendor nats', async () => {
     await withReadyProfile(async (connector, home) => {
-      const pkgPath = join(home, 'vendor', 'dsh-lan-assist', 'node_modules', 'nats', 'package.json')
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
-      pkg.version = '9.9.9'
-      writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
-      await connector.ensureIsolatedProfile()
-      const after = JSON.parse(readFileSync(pkgPath, 'utf8'))
-      const silent = connector.state === 'idle' && after.version === '9.9.9'
-      assert.equal(silent, false, `swapped nats stayed idle ${connector.state} ${after.version} ${connector.lastError}`)
-      if (connector.state === 'idle') {
-        assert.equal(after.version, '2.29.3')
-        assert.equal(connector.lastError, null)
-      } else {
-        assert.equal(connector.state, 'error')
-        assert.match(String(connector.lastError), /nats/i)
-        assert.equal(/NO_NATS/.test(connector.lastError || ''), false)
-      }
-    })
-  })
-
-  test('an edited installed nats index is not left idle', async () => {
-    await withReadyProfile(async (connector, home) => {
-      const indexPath = join(home, 'vendor', 'dsh-lan-assist', 'node_modules', 'nats', 'index.js')
-      const raw = readFileSync(indexPath)
-      const marker = '\n/* fde-nats-tamper */\n'
-      writeFileSync(indexPath, Buffer.concat([raw, Buffer.from(marker)]))
-      await connector.ensureIsolatedProfile()
-      const body = readFileSync(indexPath, 'utf8')
-      const silent = connector.state === 'idle' && body.includes('fde-nats-tamper')
-      assert.equal(silent, false, `edited nats index stayed idle ${connector.state} ${connector.lastError}`)
-      if (connector.state === 'idle') {
-        assert.equal(body.includes('fde-nats-tamper'), false)
-        assert.equal(connector.lastError, null)
-      } else {
-        assert.equal(connector.state, 'error')
-        assert.match(String(connector.lastError), /nats/i)
-        assert.equal(/NO_NATS/.test(connector.lastError || ''), false)
-      }
+      assert.equal(existsSync(join(home, 'vendor', 'dsh-lan-assist', 'node_modules', 'nats')), false)
+      assert.equal(connector.state, 'idle')
     })
   })
 }

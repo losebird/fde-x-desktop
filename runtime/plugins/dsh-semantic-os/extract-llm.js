@@ -105,9 +105,43 @@ async function streamOnce(llm, opts) {
   return { text: blocksToText(assembler), usage }
 }
 
+async function completeJsonHttp(prompt, maxTokens) {
+  const route = readDshLlm()
+  if (!route.chatCompletions || !route.apiKey || !route.model || !route.baseUrl) {
+    return { text: '', usage: null, via: 'skip' }
+  }
+  const url = `${String(route.baseUrl).replace(/\/$/, '')}/chat/completions`
+  const ac = typeof AbortController === 'function' ? new AbortController() : null
+  const timer = ac ? setTimeout(() => ac.abort(), EXTRACT_MS) : null
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${route.apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: route.model,
+        messages: [{ role: 'user', content: String(prompt || '') }],
+        temperature: 0,
+        max_tokens: maxTokens,
+      }),
+      signal: ac ? ac.signal : undefined,
+    })
+    const body = await response.json().catch(() => ({}))
+    const text = String((((body.choices || [])[0] || {}).message || {}).content || '').trim()
+    return { text, usage: pickUsage(body), via: text ? 'dsh-llm' : 'skip' }
+  } catch (error) {
+    if (ac && ac.signal && ac.signal.aborted) return { text: '', usage: null, via: 'timeout' }
+    return { text: '', usage: null, via: 'skip' }
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 async function completeJson(ctx, prompt, maxTokens) {
-  const llm = ctx.llm || (typeof ctx.get === 'function' ? ctx.get('llm') : null)
-  if (!llm || typeof llm.stream !== 'function') return { text: '', usage: null, via: 'skip' }
+  const llm = ctx && (ctx.llm || (typeof ctx.get === 'function' ? ctx.get('llm') : null))
+  if (!llm || typeof llm.stream !== 'function') return completeJsonHttp(prompt, maxTokens)
   const route = readDshLlm()
   const llmMod = await importPeer('@deepseek-ai/dsh-llm')
   const messages = [llmMod.createUserMessage({
@@ -143,7 +177,7 @@ async function completeJson(ctx, prompt, maxTokens) {
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx
  */
-export function createExtract(ctx) {
+export function createExtract(ctx = {}) {
   return {
     async extract(text, types) {
       const raw = String(text || '').trim()

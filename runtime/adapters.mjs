@@ -22,7 +22,6 @@ export async function inspectAdapters({ aiRuntime } = {}) {
   const dshBin = process.env.FDE_DSH_BIN
   const dshHome = aiRuntime?.dshHome || process.env.FDE_DSH_HOME || join(homedir(), '.dsh-fde-x')
   const profileName = process.env.FDE_DSH_PROFILE || 'fde-x'
-  const profileModules = join(dshHome, 'profiles', profileName, 'node_modules')
   const definitions = [
     {
       capability: 'ai-runtime',
@@ -36,8 +35,8 @@ export async function inspectAdapters({ aiRuntime } = {}) {
     },
     {
       capability: 'semantic-memory',
-      paths: [join(profileModules, 'dsh-semantic-os')],
-      detail: '保留 FalkorDB/FalkorDBLite 与语义索引，不迁入事务 SQLite',
+      paths: [],
+      detail: '记忆 sidecar 由 BFF 拉起，不挂 Host 插件',
     },
   ]
 
@@ -76,7 +75,7 @@ export async function inspectAdapters({ aiRuntime } = {}) {
         }
       }
     }
-    if (definition.capability === 'semantic-memory' && aiRuntime && typeof aiRuntime.semanticOs === 'function' && aiRuntime.status?.().connected) {
+    if (definition.capability === 'semantic-memory' && aiRuntime && typeof aiRuntime.semanticOs === 'function') {
       try {
         const ready = await withProbeTimeout(aiRuntime.semanticOs('/ready', { method: 'GET' }))
         if (ready && ready.ready) {

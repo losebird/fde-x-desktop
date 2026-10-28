@@ -1,20 +1,4 @@
-import { IUI_PIN } from './iui-pin.mjs'
-
-export const BUILTIN_PLUGINS = [
-  { dir: 'dsh-semantic-os', module: 'dsh-semantic-os', source: { kind: 'repo', path: 'runtime/plugins/dsh-semantic-os' }, health: 'semantic-memory' },
-  {
-    dir: 'iui',
-    module: '@losebird/iui',
-    source: {
-      kind: 'pinned',
-      version: IUI_PIN.version,
-      commit: IUI_PIN.commit,
-      sha256: IUI_PIN.artifact.sha256,
-    },
-    health: 'ui-sandbox',
-    modes: ['standard'],
-  },
-]
+export const BUILTIN_PLUGINS = []
 
 export function pluginEnvKey(dir) {
   return `FDE_PLUGIN_${String(dir).replace(/[^A-Za-z0-9]/g, '_').toUpperCase()}`

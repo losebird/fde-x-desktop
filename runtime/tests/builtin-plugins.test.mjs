@@ -7,17 +7,15 @@ import { cp, lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'nod
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { IUI_PIN } from '../iui-pin.mjs'
+import { IUI_LIBRARY as IUI, IUI_PIN } from '../iui-pin.mjs'
 import { BUILTIN_PLUGINS, builtinBundleNames, builtinStageDirs, pluginEnvKey } from '../builtin-plugins.mjs'
 import { PLUGIN_PIN_FILE } from '../plugin-vendor.mjs'
 import { DshCoreConnector } from '../dsh-core.mjs'
 
-const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.dir === 'iui')
-
 describe('builtin plugin registry', { concurrency: 1 }, () => {
   test('the table is the bundle and stage list', () => {
-    assert.deepEqual(builtinBundleNames(), ['dsh-semantic-os', '@losebird/iui'])
-    assert.deepEqual(builtinStageDirs(), ['dsh-semantic-os', 'iui'])
+    assert.deepEqual(builtinBundleNames(), [])
+    assert.deepEqual(builtinStageDirs(), [])
     assert.equal(pluginEnvKey('iui'), 'FDE_PLUGIN_IUI')
     assert.equal(pluginEnvKey('@losebird/iui'), 'FDE_PLUGIN__LOSEBIRD_IUI')
     assert.deepEqual(IUI.modes, ['standard'])
@@ -26,11 +24,11 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     assert.equal(IUI.source.sha256, IUI_PIN.artifact.sha256)
   })
 
-  test('the iui row is loaded from pins.mjs', async () => {
+  test('IUI is a library pin, not a Host builtin', async () => {
     const source = await readFile(new URL('../builtin-plugins.mjs', import.meta.url), 'utf8')
     assert.equal(source.includes(IUI_PIN.commit), false)
     assert.equal(source.includes(IUI_PIN.artifact.sha256), false)
-    assert.match(source, /from '\.\/iui-pin\.mjs'/)
+    assert.equal(source.includes("from './iui-pin.mjs'"), false)
     assert.equal(IUI.source.version, IUI_PIN.version)
     assert.equal(IUI.source.commit, IUI_PIN.commit)
     assert.equal(IUI.source.sha256, IUI_PIN.artifact.sha256)
@@ -54,7 +52,7 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
       await connector.ensureIsolatedProfile()
       const packagePath = join(home, 'profiles', 'fde-x', 'package.json')
       const manifest = JSON.parse(await readFile(packagePath, 'utf8'))
-      assert.ok(manifest.dsh.profile.bundles.includes('@losebird/iui'))
+      assert.equal(manifest.dsh.profile.bundles.includes('@losebird/iui'), false)
       assert.equal(manifest.dsh.profile.bundles.includes('dsh-lan-assist'), false)
       const linked = join(home, 'profiles', 'fde-x', 'node_modules', '@losebird', 'iui')
       assert.equal((await lstat(linked)).isSymbolicLink(), true)
@@ -264,7 +262,7 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     }
   })
 
-  test('refresh replaces an unpinned home copy and leaves the source', async () => {
+  test('semantic-os env does not install a Host plugin', async () => {
     const home = await mkdtemp(join(tmpdir(), 'fde-home-'))
     const source = await mkdtemp(join(tmpdir(), 'fde-sem-'))
     const savedRefresh = process.env.FDE_REFRESH_PLUGINS
@@ -273,7 +271,6 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     const savedIui = process.env.FDE_PLUGIN_IUI
     await writeFile(join(source, 'package.json'), `${JSON.stringify({ name: 'dsh-semantic-os' })}\n`)
     await writeFile(join(source, 'index.js'), 'export {}\n')
-    await writeFile(join(source, 'marker.txt'), 'first')
     delete process.env.FDE_PLUGIN_DSH_LAN_ASSIST
     process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = source
     delete process.env.FDE_PLUGIN_IUI
@@ -281,12 +278,9 @@ describe('builtin plugin registry', { concurrency: 1 }, () => {
     try {
       const connector = new DshCoreConnector({ dshHome: home, cwd: home })
       await connector.ensureIsolatedProfile()
-      assert.equal(await readFile(join(home, 'vendor', 'dsh-semantic-os', 'marker.txt'), 'utf8'), 'first')
-      await writeFile(join(source, 'marker.txt'), 'second')
-      process.env.FDE_REFRESH_PLUGINS = '1'
-      await connector.ensureIsolatedProfile()
-      assert.equal(await readFile(join(home, 'vendor', 'dsh-semantic-os', 'marker.txt'), 'utf8'), 'second')
-      assert.equal(await readFile(join(source, 'marker.txt'), 'utf8'), 'second')
+      const manifest = JSON.parse(await readFile(join(home, 'profiles', 'fde-x', 'package.json'), 'utf8'))
+      assert.equal(manifest.dsh.profile.bundles.includes('dsh-semantic-os'), false)
+      assert.equal(existsSync(join(home, 'profiles', 'fde-x', 'node_modules', 'dsh-semantic-os')), false)
     } finally {
       if (savedRefresh === undefined) delete process.env.FDE_REFRESH_PLUGINS
       else process.env.FDE_REFRESH_PLUGINS = savedRefresh

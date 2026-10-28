@@ -1,48 +1,42 @@
 import './support/no-stray-processes.mjs'
-import { mkdtemp, mkdir, cp, readFile, readlink, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readlink, rm, writeFile } from 'node:fs/promises'
 import { existsSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { pathToFileURL } from 'node:url'
-import { DshCoreConnector } from '../dsh-core.mjs'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { generationInstallRoot } from '../generation.mjs'
 import { linkPackagedPeers } from '../packaged-peer.mjs'
 
-const SNAPSHOT = process.env.FDE_PLUGIN_DSH_SEMANTIC_OS || ''
+const LIBRARY = fileURLToPath(new URL('../plugins/dsh-semantic-os/peers.js', import.meta.url))
 
 test('importPeer resolves schemastery staged under resources/dsh', async (t) => {
-  const peers = SNAPSHOT && existsSync(join(SNAPSHOT, 'peers.js'))
   const staged = join(generationInstallRoot(), 'node_modules', '@deepseek-ai', 'schemastery', 'package.json')
-  if (!peers || !existsSync(staged)) {
-    t.skip('snapshot peers.js or the staged schemastery package is missing')
+  if (!existsSync(LIBRARY) || !existsSync(staged)) {
+    t.skip('library peers.js or the staged schemastery package is missing')
     return
   }
   const root = await mkdtemp(join(tmpdir(), 'fde-peer-'))
   const home = join(root, 'dsh-home')
   const resources = join(root, 'resources')
-  const pluginSrc = join(root, 'plugin')
   const packageDir = join(resources, 'dsh', 'node_modules', '@deepseek-ai', 'schemastery')
   await mkdir(join(packageDir, '..'), { recursive: true })
   symlinkSync(join(generationInstallRoot(), 'node_modules', '@deepseek-ai', 'schemastery'), packageDir)
-  await mkdir(pluginSrc, { recursive: true })
-  await cp(join(SNAPSHOT, 'peers.js'), join(pluginSrc, 'peers.js'))
   const previous = {
     FDE_RESOURCES: process.env.FDE_RESOURCES,
-    FDE_PLUGIN_DSH_SEMANTIC_OS: process.env.FDE_PLUGIN_DSH_SEMANTIC_OS,
     DSH_HOME: process.env.DSH_HOME,
     FDE_DSH_HOME: process.env.FDE_DSH_HOME,
   }
   process.env.FDE_RESOURCES = resources
-  process.env.FDE_PLUGIN_DSH_SEMANTIC_OS = pluginSrc
   process.env.DSH_HOME = home
   process.env.FDE_DSH_HOME = home
   try {
-    const core = new DshCoreConnector({ dshHome: home, profileName: 'fde-x' })
-    await core.ensureIsolatedProfile()
-    const peersUrl = pathToFileURL(join(home, 'profiles', 'fde-x', 'node_modules', 'dsh-semantic-os', 'peers.js'))
-    const { importPeer } = await import(peersUrl.href)
+    await linkPackagedPeers({
+      dshHome: home,
+      env: { FDE_RESOURCES: resources },
+    })
+    const { importPeer } = await import(pathToFileURL(LIBRARY).href)
     const loaded = await importPeer('@deepseek-ai/schemastery')
     assert.equal(typeof loaded.default, 'function')
   } finally {

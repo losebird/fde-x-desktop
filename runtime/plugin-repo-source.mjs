@@ -282,13 +282,16 @@ async function prepareVendorRoot(dshHome) {
     return
   }
   if (!isLink) return
+  let parked = false
   for (const dir of ['dsh-lan-assist', 'dsh-semantic-os']) {
     const dist = join(vendor, dir, 'runtime-dist')
     if (!existsSync(dist)) continue
     const tmp = await mkdtemp(join(tmpdir(), 'fde-runtime-dist-'))
     await cp(dist, join(tmp, 'runtime-dist'), { recursive: true, dereference: true })
     parkedFromLink.set(`${dshHome}\0${dir}`, tmp)
+    parked = true
   }
+  if (!parked) return
   await unlink(vendor)
   await mkdir(vendor, { recursive: true })
 }
@@ -323,6 +326,19 @@ async function restoreRuntimeDist(dest, parked) {
   await rm(target, { recursive: true, force: true })
   await rename(join(parked, 'runtime-dist'), target)
   await rm(parked, { recursive: true, force: true })
+}
+
+export async function ensureVendorRoot(dshHome) {
+  await prepareVendorRoot(dshHome)
+  const prefix = `${dshHome}\0`
+  for (const [key, tmp] of [...parkedFromLink.entries()]) {
+    if (!key.startsWith(prefix)) continue
+    parkedFromLink.delete(key)
+    const pluginDir = key.slice(prefix.length)
+    const dest = join(dshHome, 'vendor', pluginDir)
+    await mkdir(dest, { recursive: true })
+    await restoreRuntimeDist(dest, tmp)
+  }
 }
 
 export async function detachVendorLink(dshHome, pluginDir) {

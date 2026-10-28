@@ -1,14 +1,13 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { BUILTIN_PLUGINS } from './builtin-plugins.mjs'
+import { IUI_LIBRARY } from './iui-pin.mjs'
 import { withProbeTimeout } from './live-probe.mjs'
 
 export function iuiBuiltin() {
-  const plugin = BUILTIN_PLUGINS.find((row) => row.module === '@losebird/iui')
-  if (!plugin || plugin.source.kind !== 'pinned') {
-    throw new Error('builtin table is missing pinned @losebird/iui')
+  if (!IUI_LIBRARY || IUI_LIBRARY.source.kind !== 'pinned') {
+    throw new Error('IUI library pin is missing')
   }
-  return plugin
+  return IUI_LIBRARY
 }
 
 export function iuiProfileDir(dshHome, profileName) {

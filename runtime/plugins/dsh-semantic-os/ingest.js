@@ -6,8 +6,11 @@
  */
 
 import { realpathSync } from 'node:fs'
-import { describePath, isEyesPath } from './eyes-media.js'
+import { extname } from 'node:path'
+import { extractEyesText } from './eyes-media.js'
 import { postPython as callPython } from './sidecar-client.js'
+
+const LEGACY_OFFICE = new Set(['.doc', '.xls', '.ppt'])
 
 
 const STATES = new Set(['idle', 'queued', 'running', 'canceling', 'done', 'failed', 'cancelled'])
@@ -16,7 +19,7 @@ const STATES = new Set(['idle', 'queued', 'running', 'canceling', 'done', 'faile
  * @param {{ sidecar: { snapshot: Function, getApiKey: Function }, onGraphWrite?: Function }} opts
  */
 export function createIngest(opts) {
-  const { sidecar, getEyes } = opts
+  const { sidecar } = opts
   /** @type {Map<string, Job>} */
   const jobs = new Map()
 
@@ -133,13 +136,12 @@ export function createIngest(opts) {
       job.ingest = ingestBody
       job.pipeline = { stage: 'extract', status: 'running' }
       const texts = Array.isArray(ingestBody && ingestBody.texts) ? ingestBody.texts.slice() : []
-      const eyes = typeof getEyes === 'function' ? getEyes() : null
       const files = Array.isArray(ingestBody && ingestBody.files) ? ingestBody.files : []
       if (job.nodded) {
         for (const file of files) {
           const path = file && file.path ? String(file.path) : ''
-          if (!isEyesPath(path)) continue
-          const pictured = await describePath(eyes, path)
+          if (!LEGACY_OFFICE.has(extname(path).toLowerCase())) continue
+          const pictured = await extractEyesText(path)
           await postPython(sidecar, {
             op: 'record_sight',
             cwd: job.cwd,

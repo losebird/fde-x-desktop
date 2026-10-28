@@ -9,14 +9,14 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
+import { IUI_LIBRARY } from '../iui-pin.mjs'
 import { createPageTokenClient } from './support/page-token-fetch.mjs'
 import { writeFakeDshCredentials } from './support/iui-home-fixture.mjs'
 
 const page = createPageTokenClient()
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const IUI = BUILTIN_PLUGINS.find((plugin) => plugin.module === '@losebird/iui')
+const IUI = IUI_LIBRARY
 const REBUILD = 'node scripts/pack/build-iui.mjs --out ~/.dsh/vendor/iui'
 
 function freePort() {
