@@ -15,7 +15,7 @@ Recommended fdex070 runtimes ship without torch. Do not publish a tree that pull
 1. Trigger `Build platform runtimes` for the release tag (`fail-fast: false`).
 2. For each **passed** native job, require:
    - managed Python staging on the target OS/CPU;
-   - complete `semantica[explorer,graph-embeddings,documents,parse-pdf,nlp-spacy,tripletstore-oxigraph]==0.7.0` dependency installation;
+   - complete `semantica[explorer,graph-embeddings,documents,parse-pdf,nlp-spacy,tripletstore-oxigraph,media]==0.7.0` dependency installation;
    - `pip check` and capability imports;
    - sidecar health, token rejection, and authorized graph operation;
    - license inventory, pinned review policy, and copied license texts;

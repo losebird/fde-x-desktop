@@ -36,6 +36,8 @@ MODULES = [
     "semantica.vector_store",
     "semantica.kg",
     "semantica.triplet_store",
+    "librosa",
+    "cv2",
 ]
 
 for module in MODULES:

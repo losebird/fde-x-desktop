@@ -15,7 +15,7 @@ import { resolveBundledRuntime } from './runtime-bundle.js'
 import { resolveInstalledRuntime } from './runtime-install.js'
 
 const EXPECTED = '0.7.0'
-const SEMANTICA_EXTRAS = 'explorer,graph-embeddings,documents,parse-pdf,nlp-spacy,tripletstore-oxigraph'
+const SEMANTICA_EXTRAS = 'explorer,graph-embeddings,documents,parse-pdf,nlp-spacy,tripletstore-oxigraph,media'
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url))
 const RUNTIME_REQUIREMENTS = join(PLUGIN_ROOT, 'runtime', 'requirements.txt')
 const RUNTIME_CONSTRAINTS = join(PLUGIN_ROOT, 'runtime', 'constraints.txt')
