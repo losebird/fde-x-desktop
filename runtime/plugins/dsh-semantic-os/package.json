@@ -1,7 +1,7 @@
 {
   "name": "dsh-semantic-os",
   "version": "0.1.1",
-  "description": "Semantic OS for DeepSeek Harness: semantica==0.6.7 sidecar plus a product Semantic tab canvas.",
+  "description": "Semantic OS for DeepSeek Harness: semantica==0.7.0 sidecar plus a product Semantic tab canvas.",
   "type": "module",
   "main": "index.js",
   "files": [

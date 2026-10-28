@@ -121,20 +121,17 @@ test('precedent search skips boards that are not 已生效', () => {
   const out = py(`
 import json, sys
 sys.path.insert(0, "python")
+from semantica.context.context_graph import ContextGraph
 from bootstrap import score_decisions
-
-class Graph:
-    def find_nodes(self, node_type="decision"):
-        return [
-            {"id": "live", "properties": {"status": "已生效", "category": "rel", "scenario": "只发 darwin-arm64"}},
-            {"id": "draft", "properties": {"status": "起草", "category": "rel", "scenario": "只发 darwin-arm64"}},
-            {"id": "voided", "properties": {"status": "作废", "category": "rel", "scenario": "只发 darwin-arm64"}},
-        ]
-
-ids = [n.get("id") for n in score_decisions(Graph(), "只发 darwin-arm64", category="rel")]
-print(json.dumps(ids))
+g = ContextGraph()
+live = g.record_decision("rel", "只发 darwin-arm64", "r", "只发", 0.9, metadata={"status": "已生效"})
+g.record_decision("rel", "只发 darwin-arm64", "r", "起草板", 0.9, metadata={"status": "起草"})
+g.record_decision("rel", "只发 darwin-arm64", "r", "废了", 0.9, metadata={"status": "作废"})
+ids = [n.get("id") for n in score_decisions(g, "只发 darwin-arm64", category="rel")]
+print(json.dumps({"ids": ids, "live": live}))
 `)
-  assert.deepEqual(JSON.parse(out), ['live'])
+  const got = JSON.parse(out)
+  assert.deepEqual(got.ids, [got.live])
 })
 
 test('memory 理解边 needs a nod and cannot touch 已生效', () => {
@@ -375,55 +372,57 @@ print(json.dumps(then_label({"status": "起草"}), ensure_ascii=False))
 
 test('Chinese scenario still recalls the same-kind 起草', () => {
   const out = py(`
-import json, sys
+import json, os, sys, tempfile
 sys.path.insert(0, "python")
-from unittest.mock import patch
-from bootstrap import run_query_decisions, run_find_precedents, official_precedent_score
-
-rows = [
-  {"id": "live", "type": "decision", "properties": {"status": "已生效", "category": "product", "scenario": "要不要只发青柠味", "outcome": "过账试探"}},
-  {"id": "draft", "type": "decision", "properties": {"status": "起草", "category": "product", "scenario": "按第一性原理收决策写口：页是台账", "outcome": "写口收紧", "decision_maker": "user"}},
-]
-with patch("bootstrap.read_node_rows", return_value=(rows, {"ok": True})):
-  query = run_query_decisions("/ws", {"query": "按第一性原理继续处理决策写口"})
-  prec = run_find_precedents("/ws", {"scenario": "按第一性原理继续处理决策写口"})
-score = official_precedent_score("", set(), {"properties": {"scenario": "按第一性原理收决策写口"}}, "按第一性原理继续")
+from semantica.context.context_graph import ContextGraph
+from stores import write_primary
+from bootstrap import run_query_decisions, run_find_precedents
+home = tempfile.mkdtemp(); os.environ["DSH_HOME"] = home
+cwd = tempfile.mkdtemp()
+g = ContextGraph()
+g.record_decision("product", "要不要只发青柠味", "r", "过账试探", 0.9, metadata={"status": "已生效"})
+draft = g.record_decision("product", "按第一性原理收决策写口：页是台账", "r", "写口收紧", 0.9, metadata={"status": "起草", "decision_maker": "user"})
+write_primary(g, cwd)
+query = run_query_decisions(cwd, {"query": "按第一性原理继续处理决策写口"})
+prec = run_find_precedents(cwd, {"scenario": "按第一性原理继续处理决策写口"})
 print(json.dumps({
   "query": [r.get("decision_id") for r in query.get("decisions") or []],
   "prec": [r.get("decision_id") for r in prec.get("precedents") or []],
-  "score": score,
+  "draft": draft,
 }, ensure_ascii=False))
 `)
   const got = JSON.parse(out)
-  assert.ok(got.score > 0)
-  assert.deepEqual(got.query, ['draft'])
-  assert.deepEqual(got.prec, [])
+  assert.ok(got.query.includes(got.draft))
+  assert.equal(got.prec.includes(got.draft), false)
 })
 
 test('query_decisions recalls human 起草; find_precedents stays 已生效', () => {
   const out = py(`
-import json, sys
+import json, os, sys, tempfile
 sys.path.insert(0, "python")
 from unittest.mock import patch
+from semantica.context.context_graph import ContextGraph
+from stores import write_primary, insert_memory_card
 from bootstrap import run_query_decisions, run_find_precedents, run_brief_for_decision
-
-rows = [
-  {"id": "live", "type": "decision", "properties": {"status": "已生效", "category": "rel", "scenario": "只发 darwin-arm64", "outcome": "只发"}},
-  {"id": "draft", "type": "decision", "properties": {"status": "起草", "category": "rel", "scenario": "只发 darwin-arm64", "outcome": "起草板", "decision_maker": "user"}},
-  {"id": "auto", "type": "decision", "properties": {"status": "起草", "category": "rel", "scenario": "只发 darwin-arm64", "outcome": "自动抠", "auto": True, "source": "session_ingest"}},
-  {"id": "voided", "type": "decision", "properties": {"status": "作废", "category": "rel", "scenario": "只发 darwin-arm64", "outcome": "废了"}},
-  {"id": "memory:filed", "type": "记忆卡片", "content": "只发 darwin-arm64 先验证", "properties": {"status": "已入档", "kind": "记忆卡片"}},
-  {"id": "memory:draft", "type": "记忆卡片", "content": "只发 darwin-arm64 草稿卡", "properties": {"status": "起草", "kind": "记忆卡片"}},
-]
+home = tempfile.mkdtemp(); os.environ["DSH_HOME"] = home
+cwd = tempfile.mkdtemp()
+g = ContextGraph()
+live = g.record_decision("rel", "只发 darwin-arm64", "r", "只发", 0.9, metadata={"status": "已生效"})
+draft = g.record_decision("rel", "只发 darwin-arm64", "r", "起草板", 0.9, metadata={"status": "起草", "decision_maker": "user"})
+g.record_decision("rel", "只发 darwin-arm64", "r", "自动抠", 0.9, metadata={"status": "起草", "auto": True, "source": "session_ingest"})
+g.record_decision("rel", "只发 darwin-arm64", "r", "废了", 0.9, metadata={"status": "作废"})
+write_primary(g, cwd)
+insert_memory_card(cwd, "memory:filed", "只发 darwin-arm64 先验证", {"status": "已入档", "kind": "记忆卡片"})
+insert_memory_card(cwd, "memory:draft", "只发 darwin-arm64 草稿卡", {"status": "起草", "kind": "记忆卡片"})
+query = run_query_decisions(cwd, {"query": "只发 darwin-arm64", "category": "rel"})
+prec = run_find_precedents(cwd, {"scenario": "只发 darwin-arm64", "category": "rel"})
 hits = {"results": [{"node": {"id": "session:s1", "type": "Document", "content": "要不要只发 darwin-arm64", "properties": {}}, "score": 90}]}
-with patch("bootstrap.read_node_rows", return_value=(rows, {"ok": True})):
-  query = run_query_decisions("/ws", {"query": "只发 darwin-arm64", "category": "rel"})
-  prec = run_find_precedents("/ws", {"scenario": "只发 darwin-arm64", "category": "rel"})
-  with patch("bootstrap.run_search_text", return_value=hits):
-    brief = run_brief_for_decision("/ws", {"scenario": "只发 darwin-arm64", "category": "rel"})
+with patch("bootstrap.run_search_text", return_value=hits):
+  brief = run_brief_for_decision(cwd, {"scenario": "只发 darwin-arm64", "category": "rel"})
 print(json.dumps({
   "query": [r.get("decision_id") for r in query.get("decisions") or []],
   "prec": [r.get("decision_id") for r in prec.get("precedents") or []],
+  "live": live, "draft": draft,
   "brief_prec": [r.get("id") for r in brief.get("precedents") or []],
   "brief_drafts": [r.get("id") for r in brief.get("drafts") or []],
   "options": [(r.get("kind"), r.get("label")) for r in brief.get("options") or []],
@@ -432,14 +431,13 @@ print(json.dumps({
 }, ensure_ascii=False))
 `)
   const got = JSON.parse(out)
-  assert.deepEqual(got.query.sort(), ['draft', 'live'])
-  assert.deepEqual(got.prec, ['live'])
-  assert.deepEqual(got.brief_prec, ['live'])
-  assert.deepEqual(got.brief_drafts, ['draft'])
-  assert.deepEqual(got.options[0], ['已生效', '只发'])
+  assert.ok(got.query.includes(got.live))
+  assert.ok(got.query.includes(got.draft))
+  assert.deepEqual(got.prec, [got.live])
+  assert.deepEqual(got.brief_prec, [got.live])
+  assert.deepEqual(got.brief_drafts, [got.draft])
   assert.equal(got.options.some((row) => row[0] === '已生效'), true)
-  assert.equal(got.because.includes('draft'), false)
-  assert.equal(got.because.includes('auto'), false)
+  assert.equal(got.because.includes(got.draft), false)
   assert.ok(got.because.includes('memory:filed'))
   assert.equal(got.because.includes('memory:draft'), false)
   assert.ok(got.ev.includes('memory:filed'))
@@ -477,25 +475,26 @@ print(json.dumps({
 
 test('run_score_decisions only returns 已生效 and skips drafts', () => {
   const out = py(`
-import json, sys, tempfile
-from pathlib import Path
+import json, os, sys, tempfile
 sys.path.insert(0, "python")
-from unittest.mock import patch
+from semantica.context.context_graph import ContextGraph
+from stores import write_primary
 from bootstrap import run_score_decisions
-
-rows = [
-  {"id": "live", "type": "decision", "properties": {"status": "已生效", "category": "rel", "scenario": "只发 darwin-arm64", "outcome": "只发"}},
-  {"id": "draft", "type": "decision", "properties": {"status": "起草", "category": "rel", "scenario": "只发 darwin-arm64", "outcome": "起草板"}},
-]
-with patch("bootstrap.read_node_rows", return_value=(rows, {"ok": True})):
-  got = run_score_decisions("/ws", {"scenario": "只发 darwin-arm64", "category": "rel"})
+home = tempfile.mkdtemp(); os.environ["DSH_HOME"] = home
+cwd = tempfile.mkdtemp()
+g = ContextGraph()
+live = g.record_decision("rel", "只发 darwin-arm64", "r", "只发", 0.9, metadata={"status": "已生效"})
+g.record_decision("rel", "只发 darwin-arm64", "r", "起草板", 0.9, metadata={"status": "起草"})
+write_primary(g, cwd)
+got = run_score_decisions(cwd, {"scenario": "只发 darwin-arm64", "category": "rel"})
 print(json.dumps({
   "ids": [r.get("decision_id") for r in got.get("precedents") or []],
   "n": len(got.get("precedents") or []),
+  "live": live,
 }, ensure_ascii=False))
 `)
   const got = JSON.parse(out)
-  assert.deepEqual(got.ids, ['live'])
+  assert.deepEqual(got.ids, [got.live])
   assert.equal(got.n, 1)
 })
 

@@ -236,7 +236,7 @@ test('extract queue requeues Chinese jobs until the LLM extract is available', a
     concurrency: 1,
     maxRetries: 8,
   })
-  queue.enqueue('/ws', [{ path: 'session:s1', text: '你好世界，sidecar 和 FalkorDB。' }])
+  queue.enqueue('/ws', [{ path: 'session:s1', text: '你好世界，sidecar 和 Oxigraph。' }])
   await new Promise((resolve) => setTimeout(resolve, 80))
   assert.ok(!ops.includes('apply_extracted_window'))
   extract = {

@@ -19,7 +19,7 @@ async function withHome(fn) {
 }
 
 const ready = {
-  semantica: { ok: true, version: '0.6.7' },
+  semantica: { ok: true, version: '0.7.0' },
   graph: { ok: true, via: 'test' },
   vector: { ok: true, via: 'test' },
 }
@@ -36,7 +36,7 @@ test('fast path verifies and records an already-ready environment', async () => 
     assert.equal(installed, 0)
     assert.equal(installer.snapshot().phase, 'ready')
     const manifest = JSON.parse(await readFile(installStatePath(), 'utf8'))
-    assert.equal(manifest.status.semantica.version, '0.6.7')
+    assert.equal(manifest.status.semantica.version, '0.7.0')
   })
 })
 

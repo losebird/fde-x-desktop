@@ -98,6 +98,6 @@ def may_erase(args: dict[str, Any] | None) -> dict[str, Any]:
         return {"error": "NOT_ERASE"}
     if not _truthy(args.get("confirm") or args.get("nodded") or args.get("点头")):
         return {"error": "NOT_NODDED"}
-    if kind not in {"pii", "引用", "reference", "workspace"}:
+    if kind not in {"pii", "引用", "reference", "workspace", "entity"}:
         kind = "pii"
     return {"ok": True, "kind": kind}

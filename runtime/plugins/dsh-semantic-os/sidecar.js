@@ -1,5 +1,5 @@
 /**
- * One semantica==0.6.7 sidecar process.
+ * One semantica==0.7.0 sidecar process.
  * retryReady = dispose then spawn. Changing a live child's env is a no-op.
  * @module dsh-semantic-os/sidecar
  */
@@ -17,7 +17,7 @@ import { mkdirSync } from 'node:fs'
 
 const BOOTSTRAP = join(dirname(fileURLToPath(import.meta.url)), 'python', 'bootstrap.py')
 const READY_PREFIX = 'DSH_SEMANTIC_OS '
-const EXPECTED_VERSION = '0.6.7'
+const EXPECTED_VERSION = '0.7.0'
 
 /**
  * @typedef {{
@@ -148,6 +148,7 @@ export function createSidecar(getConfig) {
     mkdirSync(cacheRoot, { recursive: true })
     const env = {
       ...process.env,
+      OMP_NUM_THREADS: process.env.OMP_NUM_THREADS || '1',
       SEMANTICA_API_KEY: apiKey,
       DSH_SEMANTICA_PORT: '0',
       DSH_LLM_PROVIDER: llm.dshProvider || llm.semanticaProvider || '',
@@ -322,7 +323,7 @@ export async function resolvePython(configured) {
   return {
     ok: false,
     reason: 'wheel_missing',
-    detail: 'no python with semantica==0.6.7 (set DSH_SEMANTICA_PYTHON)',
+    detail: 'no python with semantica==0.7.0 (set DSH_SEMANTICA_PYTHON)',
     version: null,
     command: null,
     argv: [],

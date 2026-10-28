@@ -91,6 +91,13 @@ def save_alignment(cwd: str, body: dict[str, Any] | None = None) -> dict[str, An
     rows = [item for item in _load(cwd) if str(item.get("id") or "") != row["id"]]
     rows.append(row)
     _save(cwd, rows)
+    try:
+        from semantica.ontology import OntologyEngine
+        import graph_store
+        engine = OntologyEngine(store=graph_store.open_store(cwd))
+        engine.create_alignment(src, tgt, row["predicate_uri"])
+    except Exception:
+        pass
     return row
 
 

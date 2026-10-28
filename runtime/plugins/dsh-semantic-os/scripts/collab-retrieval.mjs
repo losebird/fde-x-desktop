@@ -69,7 +69,7 @@ try {
   // ---- 1. 并发写图：20 个并发 add_entity，验证 per-cwd 锁不丢数据 ----
   const before = await callPython('get_graph_summary')
   const entities = Array.from({ length: 20 }, (_, i) => `entity-${i}`)
-  await Promise.all(entities.map((id) => callPython('add_entity', { id, label: `Entity ${id}`, type: 'Test' })))
+  await Promise.all(entities.map((id) => callPython('add_entity', { id, label: `Entity ${id}`, type: 'Person' })))
   const after = await callPython('get_graph_summary')
   const concurrencyOk = after.node_count >= before.node_count + 20
   record('concurrent 20 writes preserved (per-cwd lock)', concurrencyOk, `before=${before.node_count} after=${after.node_count}`)

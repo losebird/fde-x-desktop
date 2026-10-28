@@ -9,25 +9,19 @@ MODULES = [
     "pandas",
     "scipy",
     "sklearn",
-    "umap",
     "spacy",
-    "transformers",
-    "torch",
-    "sentence_transformers",
+    "zh_core_web_sm",
+    "pptx",
+    "langdetect",
+    "pyoxigraph",
     "rdflib",
     "networkx",
-    "matplotlib",
-    "seaborn",
-    "plotly",
     "openpyxl",
     "docx",
     "PIL",
-    "librosa",
-    "cv2",
     "faiss",
     "fastembed",
     "onnxruntime",
-    "falkordb",
     "fastapi",
     "uvicorn",
     "websockets",
@@ -39,10 +33,15 @@ MODULES = [
     "semantica.pipeline",
     "semantica.reasoning",
     "semantica.export",
+    "semantica.vector_store",
+    "semantica.kg",
+    "semantica.triplet_store",
+    "librosa",
+    "cv2",
 ]
 
 for module in MODULES:
     importlib.import_module(module)
 
-assert importlib.metadata.version("semantica") == "0.6.7"
+assert importlib.metadata.version("semantica") == "0.7.0"
 print(f"runtime capability imports verified: {len(MODULES)}")

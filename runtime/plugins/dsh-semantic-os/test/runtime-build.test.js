@@ -8,10 +8,11 @@ test('runtime wheel resolution always uses the staged interpreter', async () => 
   assert.ok(build.includes("download-wheelhouse.js'), python"))
   assert.ok(build.includes("execFileSync(python, ['-m', 'pip', 'install', '--break-system-packages'"))
   assert.ok(download.includes('execFileSync(python, args'))
-  assert.ok(download.includes("'--no-binary=falkordblite'"))
+  assert.equal(download.includes("'--no-binary=falkordblite'"), false)
   assert.ok(download.includes("https://download.pytorch.org/whl/cpu"))
   const constraints = await readFile(new URL('../runtime/constraints.txt', import.meta.url), 'utf8')
-  assert.ok(constraints.includes('torch==2.13.0+cpu; sys_platform == "linux"'))
+  assert.ok(constraints.includes('semantica==0.7.0'))
+  assert.equal(constraints.includes('torch=='), false)
   assert.ok(download.includes("args.push('wheel')"))
   assert.ok(build.includes('resolve(process.env.DSH_RUNTIME_PYTHON)'))
   assert.equal(build.includes("execFileSync('python3', ['-m', 'pip'"), false)
@@ -21,7 +22,7 @@ test('public release may ship passed platforms without waiting for all five', as
   const release = await readFile(new URL('../RELEASE.md', import.meta.url), 'utf8')
   assert.equal(release.includes('valid only when all five'), false)
   assert.match(release, /every platform whose CI job passed/)
-  assert.match(release, /torch==2\.13\.0\+cpu/)
+  assert.match(release, /without torch/)
 })
 
 test('release CI media path uses PLUGIN_VERSION, not a hardcoded 0.1.0', async () => {
@@ -61,7 +62,8 @@ test('Windows installer looks for dsh.cmd next to npm and copies the helper into
   assert.ok(media.includes('resolve-windows-tools.js'))
   assert.ok(cmd.includes('%APPDATA%\\npm'))
   assert.ok(deps.includes("process.platform === 'win32'"))
-  assert.ok(deps.indexOf('startWindowsWslLite') < deps.indexOf('} else if (runtime.ok)'))
+  assert.equal(deps.includes('startWindowsWslLite'), false)
+  assert.ok(deps.includes('probeOxigraph'))
 })
 
 test('Windows installer cmd does not quote a trailing backslash path', async () => {

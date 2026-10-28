@@ -74,7 +74,7 @@ try {
   })
   clearTimeout(timer)
   const health = await callJson(ready.port, '/_dsh/health')
-  if (health.status !== 200 || health.body.version !== '0.6.7') throw new Error(`health failed: ${JSON.stringify(health)}`)
+  if (health.status !== 200 || health.body.version !== '0.7.0') throw new Error(`health failed: ${JSON.stringify(health)}`)
   const command = { method: 'POST', body: { op: 'get_graph_summary', cwd, args: {} }, headers: { 'x-dsh-cwd': cwd } }
   const unauthorized = await callJson(ready.port, '/_dsh/python', command)
   if (unauthorized.status !== 403) throw new Error(`management endpoint accepted no token: ${JSON.stringify(unauthorized)}`)

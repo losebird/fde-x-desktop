@@ -112,7 +112,7 @@ try {
   record('lineage', !r.error && r.ok === true, r.source)
 
   // 2. decisions
-  r = await callPython('record_decision', { category: 'test', scenario: 'ship feature A', reasoning: 'user asked', outcome: 'approved', confidence: 0.9 })
+  r = await callPython('record_decision', { category: 'test', scenario: 'ship feature A', reasoning: 'user asked', outcome: 'approved', confidence: 0.9, because: ['alice'] })
   record('record_decision', !r.error && r.status === 'recorded', r.decision_id)
   const decisionId = r.decision_id
 

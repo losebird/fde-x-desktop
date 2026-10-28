@@ -1,5 +1,7 @@
-semantica[explorer]==0.6.7
+semantica[explorer,graph-embeddings,documents,parse-pdf,nlp-spacy,tripletstore-oxigraph,media]==0.7.0
 pyshacl
 faiss-cpu
-falkordb
-falkordblite; platform_system != "Windows"
+fastembed
+python-pptx
+langdetect
+zh_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/zh_core_web_sm-3.8.0/zh_core_web_sm-3.8.0-py3-none-any.whl
