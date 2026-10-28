@@ -38,6 +38,7 @@ try:
     from passages import faiss_status, index_passages, passage_index_status, search_passages
     from align import delete_alignment, list_alignments, save_alignment, suggest_alignments
     from onto_versions import compare_versions, create_version, list_versions, snapshot_structure
+    from native_entry import FAST_OPS, GRAPH_OPS, explorer_enabled
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from stores import primary_status, read_primary, write_primary, rebuild_vectors, schedule_rebuild_vectors, search_vectors, vector_index_status, vector_status, read_node_rows, read_edge_rows, read_memory_card_rows, read_nodes_by_id, patch_node_props, insert_memory_card, insert_edge, upsert_entity, is_archive_node, forget_node_rows
@@ -54,6 +55,7 @@ except ImportError:
     from passages import faiss_status, index_passages, passage_index_status, search_passages
     from align import delete_alignment, list_alignments, save_alignment, suggest_alignments
     from onto_versions import compare_versions, create_version, list_versions, snapshot_structure
+    from native_entry import FAST_OPS, GRAPH_OPS, explorer_enabled
 
 EXPECTED_VERSION = "0.7.0"
 GRAPH_REL = Path(".dsh") / "semantic-os" / "graph.json"
@@ -5527,32 +5529,36 @@ def run_pipeline(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
 def run_policy_check(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
     copy_default_policy(cwd)
     dest = policy_dir(cwd)
+    decision = args.get("decision") if isinstance(args.get("decision"), dict) else (args.get("args") if isinstance(args.get("args"), dict) else {})
+    if not decision:
+        decision = {"tool": str(args.get("tool") or ""), "category": str(args.get("category") or "")}
+    native: Any = True
     try:
-        from semantica.ontology.policy_engine import PolicyEngine
-    except Exception:
-        try:
-            from semantica.ontology import PolicyEngine
-        except Exception:
-            return {"ok": True, "engine": False, "copied": dest.exists()}
-    try:
-        engine = PolicyEngine()
-        if hasattr(engine, "load") and dest.exists():
-            try:
-                engine.load(str(dest))
-            except Exception:
-                pass
-        tool = str(args.get("tool") or "")
-        payload = {"tool": tool, "args": args.get("args") or {}}
-        if hasattr(engine, "check_compliance"):
-            value = engine.check_compliance(payload)
-        elif hasattr(engine, "evaluate"):
-            value = engine.evaluate(payload)
-        else:
-            return {"ok": True, "engine": True, "value": True}
-        truth = bool(value) if not isinstance(value, dict) else bool(value.get("ok", value.get("allowed", True)))
-        return {"ok": truth, "engine": True, "value": truth}
+        session, _path = load_session(cwd)
+        if hasattr(session.graph, "check_decision_rules"):
+            native = session.graph.check_decision_rules(decision)
+        if hasattr(session.graph, "enforce_decision_policy"):
+            native = session.graph.enforce_decision_policy(decision_data=decision)
     except Exception as exc:
-        return {"ok": True, "engine": True, "detail": str(exc), "value": True}
+        native = {"ok": True, "detail": str(exc)[:200]}
+    engine_ok = False
+    engine_value: Any = native
+    try:
+        from semantica.context.policy_engine import PolicyEngine
+        session, _path = load_session(cwd)
+        engine = PolicyEngine(session.graph)
+        engine_ok = True
+        if hasattr(engine, "check_compliance"):
+            engine_value = engine.check_compliance(decision)
+    except Exception as exc:
+        if engine_ok:
+            engine_value = {"ok": True, "detail": str(exc)[:200]}
+    truth = True
+    if isinstance(native, dict):
+        truth = bool(native.get("ok", native.get("compliant", native.get("allowed", True))))
+    elif native is False:
+        truth = False
+    return {"ok": truth, "engine": engine_ok or native is not True, "value": jsonable(engine_value), "copied": dest.exists()}
 
 
 def import_node_label(node: dict) -> str:
@@ -5824,6 +5830,32 @@ def run_erase_ledger(cwd: str, args: dict[str, Any] | None = None) -> dict[str, 
     kind = allowed.get("kind") or "pii"
     session, path = load_session(cwd)
     graph = session.graph
+    entity_id = str(args.get("entity_id") or args.get("id") or "").strip()
+    if entity_id and kind != "workspace":
+        try:
+            from semantica.context.erasure import ErasureCoordinator
+            from native_entry import flag as _flag
+            if not _flag("ERASURE", True):
+                return {"ok": False, "error": "FLAG_OFF", "flag": "ERASURE"}
+            vs = None
+            try:
+                vs = get_vs(cwd)
+            except Exception:
+                vs = None
+            receipt = ErasureCoordinator(graph=graph, memory=None, vector_store=vs).erase_entity(entity_id)
+            save_session(session, path)
+            stores = getattr(receipt, "stores", None) or {}
+            graph_status = stores.get("graph") if isinstance(stores, dict) else {}
+            return {
+                "ok": True,
+                "kind": "擦除",
+                "what": kind,
+                "id": entity_id,
+                "receipt": jsonable(receipt),
+                "graph": graph_status or {"status": "erased"},
+            }
+        except Exception as exc:
+            return {"ok": False, "error": "ERASE_FAILED", "detail": str(exc)[:240], "id": entity_id}
     changed = 0
     if kind == "workspace":
         nodes = list(iter_nodes(graph))
@@ -6856,7 +6888,8 @@ _GRAPH_LOAD_OPS = frozenset({
     "ingest_directory", "run_pipeline", "search_text", "lineage",
     "upsert_documents", "stamp_session_times", "store_status", "describe_image",
     "policy_check", "import_graph", "copy_default_policy", "detect_conflicts",
-    "export_owl",
+    "export_owl", "community_rag", "schema_gate", "bootstrap_schema",
+    "trust_tiers", "truth_maintenance", "detect_value_conflicts",
 })
 
 
@@ -6888,6 +6921,9 @@ def run_tool(op: str, cwd: str, args: dict[str, Any]) -> dict[str, Any]:
     fast = _FAST_READ_OPS.get(op)
     if fast is not None:
         return fast(cwd, args)
+    entry = FAST_OPS.get(op)
+    if entry is not None:
+        return entry(cwd, args)
     if op == "nod_memory_card":
         return run_nod_memory_card(cwd, args)
     if op == "retire_memory_card":
@@ -7477,6 +7513,9 @@ def run_tool(op: str, cwd: str, args: dict[str, Any]) -> dict[str, Any]:
     elif op == "export_owl":
         return run_export_owl(cwd, args)
 
+    elif op in GRAPH_OPS:
+        return GRAPH_OPS[op](cwd, args)
+
     else:
         return {"error": f"unknown op {op}"}
 
@@ -7531,24 +7570,51 @@ def install_product_middleware(app: Any) -> None:
             raw = request.headers.get("X-DSH-CWD") or request.query_params.get("cwd")
             cwd, err = resolve_cwd(raw)
             if path.startswith("/api/"):
+                if cwd:
+                    async with _EXPLORER_LOCK:
+                        lock = await workspace_lock(cwd or "")
+                        async with lock:
+                            session, graph_file = await asyncio.to_thread(load_session, cwd or "")
+                            request.app.state.session = session
+                            try:
+                                prov = str(Path(cwd) / ".dsh" / "provenance.db")
+                                session.set_provenance_storage_path(prov)
+                            except Exception:
+                                pass
+                            response = await call_next(request)
+                            if request.method not in ("GET", "HEAD", "OPTIONS"):
+                                try:
+                                    await asyncio.to_thread(save_session, session, graph_file)
+                                except Exception:
+                                    traceback.print_exc()
+                            return response
+                if explorer_enabled():
+                    return await call_next(request)
                 if err:
                     return JSONResponse({"error": err, "detail": "graph ops require X-DSH-CWD"}, status_code=400)
-                async with _EXPLORER_LOCK:
-                    lock = await workspace_lock(cwd or "")
-                    async with lock:
-                        session, graph_file = await asyncio.to_thread(load_session, cwd or "")
-                        request.app.state.session = session
-                        response = await call_next(request)
-                        if request.method not in ("GET", "HEAD", "OPTIONS"):
-                            try:
-                                await asyncio.to_thread(save_session, session, graph_file)
-                            except Exception:
-                                traceback.print_exc()
-                        return response
             return await call_next(request)
 
     app.add_middleware(ProductMiddleware)
 
+
+
+def build_sidecar_app():
+    """Product FastAPI app. Explorer REST is mounted when the flag is on."""
+    from fastapi import FastAPI
+    from semantica.context.agent_memory import AgentMemory
+    from semantica.context.context_graph import ContextGraph
+    from semantica.explorer.session import GraphSession
+
+    if explorer_enabled():
+        from semantica.explorer.app import create_app
+        app = create_app(
+            session=GraphSession(ContextGraph()),
+            agent_memory=AgentMemory(),
+        )
+    else:
+        app = FastAPI()
+    install_product_middleware(app)
+    return app
 
 
 def apply_dsh_llm() -> None:
@@ -7635,8 +7701,7 @@ def main() -> None:
     port = listener.getsockname()[1]
 
     apply_dsh_llm()
-    app = FastAPI()
-    install_product_middleware(app)
+    app = build_sidecar_app()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
 
     # The socket is already bound and listening, so a ready announcement can

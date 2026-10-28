@@ -265,13 +265,13 @@
         "runtime/plugins/dsh-semantic-os/python/agent_mem.py": "e9f18117185f328588f8d5626d6fc53da53ccf3b7caecf6c25eede75f70de87a",
         "runtime/plugins/dsh-semantic-os/python/align.py": "aa6ee0445b3e44167a4997514d782bbbfbe584cfb132a4cfbf60a44663f42bf4",
         "runtime/plugins/dsh-semantic-os/python/board.py": "c0c0a1a9f1fafd42ee462ccd54a0db5a0e8e316295444ef2d663540dd6675f05",
-        "runtime/plugins/dsh-semantic-os/python/bootstrap.py": "411b2c2dbde722cd310477b2763a785da258a44a64586baa018544d74727995c",
+        "runtime/plugins/dsh-semantic-os/python/bootstrap.py": "08a4343a75423f851e12d83e49713c4e1a2849b3c55263b1527f3147440a4355",
         "runtime/plugins/dsh-semantic-os/python/extract_clean.py": "22b2ef8f8a13fdf7c5e7c5dfe9c9505e622ad05e548ec7a5020be0ee359663b7",
         "runtime/plugins/dsh-semantic-os/python/grade.py": "a1c348db7e9d66bf2645bd752e3b3f25277ffdd2d3d44c25a903cd5d8afcfdd7",
         "runtime/plugins/dsh-semantic-os/python/graph_store.py": "0df90f39bbb8f2a00987eebe3d22052955d7a8068ac7a80b56c3b935b1819a76",
         "runtime/plugins/dsh-semantic-os/python/intent.py": "94ef4907b0f04544a4cae0ef18614a103594259acaf226174ec7cb6abc42be2b",
         "runtime/plugins/dsh-semantic-os/python/kind.py": "70cdca6deab6b61749a44a8e104e5439e544f2c5be2c6d2d2581ea78822a5006",
-        "runtime/plugins/dsh-semantic-os/python/ledger.py": "b61fb38c9541e273db50f66e9814493401a7f65e07f0773b83c5e80a16a6dbd1",
+        "runtime/plugins/dsh-semantic-os/python/ledger.py": "e0a0a072f22071e592b0c96bc78a67ad39306a43301b35c73f7a2549c8d8dfe5",
         "runtime/plugins/dsh-semantic-os/python/migrations/070_export_falkordb.py": "48a7949bd47010bad0b48f938f5ffdd0368e86dae6d3ff8e2132a515be8a5057",
         "runtime/plugins/dsh-semantic-os/python/migrations/__init__.py": "16ea4c4691064dc9996990a721eb629cad07908f5cd8eb187a5c6d9b84ecc6f9",
         "runtime/plugins/dsh-semantic-os/python/migrations/migrate_070.py": "a1116ea3d339fa301300fc7ea865d181e5e655250d8546d0c870b9f81e252661",
@@ -516,7 +516,10 @@
         "runtime/plugins/dsh-semantic-os/vocab/zh-ecom.ttl": "96ff5c49b9dcac4065102fa3a029b2252a2f9ccd633b9cf3f3aaf32ac7ef9707",
         "runtime/plugins/dsh-semantic-os/workspace-authority.js": "8ac59f14449eff405cf130273597a06c64de52c2e528078386ff7842b13e1877",
         "runtime/plugins/dsh-semantic-os/python/migrations/migrate_070_align.py": "52c7c3266e650dd7902c7322b5bdaf3731af71032cdcb67aedcf13244a6694d5",
-        "runtime/plugins/dsh-semantic-os/test/native-overlap.test.js": "42a4d4942c5d14705eb0c445877515567cefb3a2b2183fcb325f79f3d1fdb23a"
+        "runtime/plugins/dsh-semantic-os/test/native-overlap.test.js": "42a4d4942c5d14705eb0c445877515567cefb3a2b2183fcb325f79f3d1fdb23a",
+        "runtime/plugins/dsh-semantic-os/python/native_entry.py": "dcc5622f6f2b47a7b094d3b04935a30f0a46b7256c6a0f96453fa2ad6cac840f",
+        "runtime/plugins/dsh-semantic-os/test/explorer-api.test.js": "d8459d6b9999ed5662f3c38ab27c6b892aed2fed2d05d2852a46448958fbb01a",
+        "runtime/plugins/dsh-semantic-os/test/feat-entry.test.js": "72795aee6d641e962469d0557ee4200ae1b0e6de7c465ab77733d7a0b437ba80"
       }
     }
   }
