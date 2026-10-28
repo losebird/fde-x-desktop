@@ -106,22 +106,36 @@ function errorText(error) {
   return error instanceof Error ? error.message : String(error)
 }
 
+const PROMOTABLE_IUI = new Set(['installing', 'absent', 'installed'])
+
 export async function promoteInstalledIui(aiRuntime, dshHome, profileName) {
-  const current = aiRuntime && aiRuntime.iui
-  if (!current || current.state !== 'installing') {
-    return { record: current || { state: 'absent' }, readError: '' }
+  if (!aiRuntime) return { record: { state: 'absent' }, readError: '' }
+  const current = aiRuntime.iui || { state: 'absent' }
+  if (!PROMOTABLE_IUI.has(current.state)) {
+    return { record: current, readError: '' }
   }
   const plugin = iuiBuiltin()
-  const installed = await readInstalledIui(iuiProfileDir(dshHome, profileName))
+  let installed
+  try {
+    installed = await readInstalledIui(iuiProfileDir(dshHome, profileName))
+  } catch (error) {
+    return { record: current, readError: errorText(error) }
+  }
   const connected = Boolean(aiRuntime.status && aiRuntime.status().connected)
-  if (!installed.present || installed.parseError || installed.version !== plugin.source.version || !connected || typeof aiRuntime.call !== 'function') {
+  if (!installed.present || installed.parseError) {
     return { record: current, readError: '' }
+  }
+  if (current.state === 'absent') {
+    aiRuntime.iui = { state: 'installed', version: installed.version }
+  }
+  if (!connected || typeof aiRuntime.call !== 'function') {
+    return { record: aiRuntime.iui, readError: '' }
   }
   let listed
   try {
     listed = await withProbeTimeout(aiRuntime.call('pluginManager/listPlugins', {}))
   } catch (error) {
-    return { record: current, readError: errorText(error) }
+    return { record: aiRuntime.iui, readError: errorText(error) }
   }
   const enabled = iuiEnabledFromList(listed, plugin.module)
   if (enabled === true) {
@@ -132,7 +146,7 @@ export async function promoteInstalledIui(aiRuntime, dshHome, profileName) {
     aiRuntime.iui = { state: 'installed', version: installed.version }
     return { record: aiRuntime.iui, readError: '' }
   }
-  return { record: current, readError: '' }
+  return { record: aiRuntime.iui, readError: '' }
 }
 
 export async function describeIui(aiRuntime, dshHome, profileName) {
@@ -140,7 +154,7 @@ export async function describeIui(aiRuntime, dshHome, profileName) {
   const verification = aiRuntime && aiRuntime.iui
   if (verification && verification.state === 'verify_failed') return iuiVerifyFailedPhrase(verification)
   if (verification && verification.state === 'failed') return iuiFailedPhrase(verification)
-  if (verification && verification.state === 'installing') {
+  if (!verification || verification.state === 'installing' || verification.state === 'absent' || verification.state === 'installed') {
     await promoteInstalledIui(aiRuntime, dshHome, profileName)
   }
   const now = aiRuntime && aiRuntime.iui
@@ -152,7 +166,7 @@ export async function describeIui(aiRuntime, dshHome, profileName) {
       present: true,
       version: now.version,
       parseError: false,
-      pinVersion: plugin.source.version,
+      pinVersion: now.version,
       enabled: true,
       connected: true,
       readError: '',

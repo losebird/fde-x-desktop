@@ -5,6 +5,22 @@ import { bootSemanticOsBff, semanticOsBffReady } from '../semantic-os-bff.mjs'
 import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
 import { RETIRED_PROFILE_BUNDLES } from '../profile-manifest.mjs'
 
+test('loopback Vite Origin is trusted for BFF memory writes', async () => {
+  const { isTrustedRequest } = await import('../plugins/dsh-semantic-os/http.js')
+  assert.equal(isTrustedRequest({
+    method: 'GET',
+    headers: { host: '127.0.0.1:4318', origin: 'http://127.0.0.1:5174' },
+  }), true)
+  assert.equal(isTrustedRequest({
+    method: 'POST',
+    headers: {
+      host: '127.0.0.1:4318',
+      origin: 'http://127.0.0.1:5174',
+      'sec-fetch-site': 'cross-site',
+    },
+  }), true)
+})
+
 test('semantic-os is retired from Host builtins', () => {
   assert.equal(BUILTIN_PLUGINS.some((plugin) => plugin.dir === 'dsh-semantic-os'), false)
   assert.equal(RETIRED_PROFILE_BUNDLES.includes('dsh-semantic-os'), true)

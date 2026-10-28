@@ -434,14 +434,17 @@ export class DshCoreConnector {
   async settleIuiEnabled(attempts = 8) {
     let readError = ''
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      if (!this.iui || this.iui.state !== 'installing') return
+      const state = this.iui && this.iui.state
+      if (state === 'enabled' || state === 'failed' || state === 'verify_failed') return
       if (this.state !== 'connected') return
       const result = await promoteInstalledIui(this, this.dshHome, this.profileName)
       readError = result.readError
-      if (!this.iui || this.iui.state !== 'installing') return
+      const next = this.iui && this.iui.state
+      if (next === 'enabled' || next === 'failed' || next === 'verify_failed') return
+      if (next === 'installed' && !readError) return
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
-    if (this.iui && this.iui.state === 'installing' && readError) {
+    if (this.iui && this.iui.state !== 'enabled' && readError) {
       console.warn('iui_enable_pending', readError)
     }
   }
@@ -701,6 +704,8 @@ export class DshCoreConnector {
   }
 
   pinnedInstallDir(plugin) {
+    const pinned = join(this.dshHome, 'pinned', plugin.dir)
+    if (existsSync(join(pinned, 'package.json'))) return pinned
     const shared = join(this.dshHome, 'vendor', plugin.dir)
     const artifactPath = this.pinnedArtifactPath(plugin)
     if (!artifactPath || !existsSync(artifactPath) || !existsSync(shared)) return shared
@@ -727,6 +732,8 @@ export class DshCoreConnector {
       return candidates
     }
     candidates.push(join(FDE_VENDOR_DIR, plugin.dir))
+    candidates.push(join(this.dshHome, 'pinned', plugin.dir))
+    candidates.push(join(this.dshHome, 'vendor', plugin.dir))
     if (plugin.module !== plugin.dir) {
       const moduleEnv = process.env[pluginEnvKey(plugin.module)]
       if (moduleEnv && moduleEnv !== fromEnv) candidates.push(moduleEnv)

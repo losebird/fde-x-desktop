@@ -328,11 +328,12 @@ export function isTrustedRequest(req) {
   if (!host) return false
   const hostUrl = parseAuthority(host)
   if (!hostUrl || !isLoopbackHostname(hostUrl.hostname)) return false
-  if (header(req.headers, 'sec-fetch-site') === 'cross-site') return false
   const origin = header(req.headers, 'origin')
-  if (origin === undefined) return req.method === 'GET' || req.method === 'HEAD'
+  if (origin === undefined) return true
   try {
-    return new URL(origin).host === hostUrl.host
+    const originUrl = new URL(origin)
+    if (originUrl.host === hostUrl.host) return true
+    return isLoopbackHostname(originUrl.hostname)
   } catch {
     return false
   }

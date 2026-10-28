@@ -240,7 +240,15 @@ export async function handleProduct(req, res, url, opts) {
     if (sidecar.snapshot().ready) {
       try {
         const live = await postPython(sidecar, { op: 'store_status', cwd, args: {} })
-        if (live && live.graph) status.graph = { ...status.graph, ...live.graph }
+        if (live && live.graph) {
+          status.graph = {
+            ...status.graph,
+            ...live.graph,
+            detail: live.graph.ok
+              ? (live.graph.detail || '本机图库（Oxigraph）')
+              : (live.graph.detail || status.graph.detail),
+          }
+        }
         if (live && live.vector) status.vector = { ...status.vector, ...live.vector }
         if (live && live.passages) status.vector = { ...status.vector, ...live.passages }
       } catch { /* keep probe */ }

@@ -886,6 +886,25 @@ function outboundSemanticHeaders(incoming, response) {
   return mergePageCors(outboundProxyHeaders(incoming), corsHeaders(response))
 }
 
+function attachPageCors(request, response) {
+  const extra = corsHeaders({ req: request })
+  if (!Object.keys(extra).length) return
+  for (const [key, value] of Object.entries(extra)) {
+    response.setHeader(key, value)
+  }
+  const orig = response.writeHead.bind(response)
+  response.writeHead = (status, statusMessage, headers) => {
+    let hdrs = headers
+    let msg = statusMessage
+    if (statusMessage && typeof statusMessage === 'object') {
+      hdrs = statusMessage
+      msg = undefined
+    }
+    const merged = { ...(hdrs && !Array.isArray(hdrs) ? hdrs : {}), ...extra }
+    return msg === undefined ? orig(status, merged) : orig(status, msg, merged)
+  }
+}
+
 function destroySocketPair(a, b) {
   if (a && !a.destroyed) a.destroy()
   if (b && !b.destroyed) b.destroy()
@@ -1187,6 +1206,7 @@ const server = createServer(async (request, response) => {
   }
 
   if (requestTouchesSemanticOs(request)) {
+    attachPageCors(request, response)
     if (handleSemanticOsHttp(request, response)) return
     proxySemanticOs(request, response, url)
     return

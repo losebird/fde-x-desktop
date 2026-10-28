@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { resolveBundledRuntime } from './runtime-bundle.js'
 import { resolveInstalledRuntime } from './runtime-install.js'
@@ -25,10 +25,44 @@ function dshHome() {
   return process.env.DSH_HOME || join(homedir(), '.dsh')
 }
 
+function venvDir() {
+  return join(dshHome(), 'semantic-os', 'venv')
+}
+
 function venvPython() {
   return process.platform === 'win32'
-    ? join(dshHome(), 'semantic-os', 'venv', 'Scripts', 'python.exe')
-    : join(dshHome(), 'semantic-os', 'venv', 'bin', 'python')
+    ? join(venvDir(), 'Scripts', 'python.exe')
+    : join(venvDir(), 'bin', 'python')
+}
+
+function pythonFitsSemantica(ver) {
+  return Boolean(ver && ver.major === 3 && ver.minor >= 10 && ver.minor < 14)
+}
+
+async function pythonMinor(python) {
+  const out = await run([python, '-c', 'import sys; print("%d.%d" % (sys.version_info.major, sys.version_info.minor))'], { timeoutMs: 5000 })
+  const match = /^(\d+)\.(\d+)/.exec(String(out.stdout || '').trim())
+  if (!match) return null
+  return { major: Number(match[1]), minor: Number(match[2]) }
+}
+
+async function findCompatiblePython() {
+  const names = [
+    process.env.DSH_SEMANTICA_PYTHON,
+    'python3.12',
+    'python3.11',
+    'python3.13',
+    'python3',
+    'python',
+  ].filter(Boolean)
+  const seen = new Set()
+  for (const name of names) {
+    const cmd = String(name).includes('/') || String(name).includes('\\') ? name : (await which(name))
+    if (!cmd || seen.has(cmd)) continue
+    seen.add(cmd)
+    if (pythonFitsSemantica(await pythonMinor(cmd))) return cmd
+  }
+  return (await which('python3')) || 'python3'
 }
 
 let activeInstallSignal = null
@@ -242,12 +276,19 @@ async function ensureVenvPython() {
   }
   const vpy = venvPython()
   if ((await probeSemantica(vpy)).ok) return vpy
-  const py = (await which('python3')) || (await which('python')) || 'python3'
-  await mkdir(join(dshHome(), 'semantic-os'), { recursive: true })
-  const made = await run([py, '-m', 'venv', join(dshHome(), 'semantic-os', 'venv')], { timeoutMs: 120000 })
-  if (made.code !== 0 && !(await probeSemantica(vpy)).ok) {
-    return py
+  const existing = existsSync(vpy) ? await pythonMinor(vpy) : null
+  if (!pythonFitsSemantica(existing)) {
+    await rm(venvDir(), { recursive: true, force: true })
+    const py = await findCompatiblePython()
+    await mkdir(join(dshHome(), 'semantic-os'), { recursive: true })
+    const made = await run([py, '-m', 'venv', venvDir()], { timeoutMs: 120000 })
+    if (made.code !== 0 && !(await probeSemantica(venvPython())).ok) return py
+    return venvPython()
   }
+  const py = await findCompatiblePython()
+  await mkdir(join(dshHome(), 'semantic-os'), { recursive: true })
+  const made = await run([py, '-m', 'venv', venvDir()], { timeoutMs: 120000 })
+  if (made.code !== 0 && !(await probeSemantica(vpy)).ok) return py
   return vpy
 }
 
@@ -280,6 +321,12 @@ export async function probeDeps(options = {}) {
   if (!options.fresh && probeCache.value && Date.now() - probeCache.at < 30000) return probeCache.value
   let runtime = await resolveInstalledRuntime({ verifyFiles: false })
   if (!runtime.ok) runtime = await resolveBundledRuntime({ verifyFiles: false })
+  if (runtime.ok) {
+    const bundledWheel = await probeSemantica(runtime.python)
+    if (!bundledWheel.ok) {
+      runtime = { ok: false, error: bundledWheel.detail || `bundled runtime is not semantica ${EXPECTED}` }
+    }
+  }
   // Full tree verification only when a caller explicitly supplies a trusted digest
   // that differs from the current manifest; a bare status probe stays fast.
   if (runtime.ok && typeof options.trustedRuntimeDigest === 'string' && runtime.manifestDigest !== options.trustedRuntimeDigest) {
@@ -311,6 +358,12 @@ export async function ensureDeps(options = {}) {
     activeInstallSignal = options.signal || null
     let runtime = await resolveInstalledRuntime({ verifyFiles: true })
     if (!runtime.ok) runtime = await resolveBundledRuntime({ verifyFiles: true })
+    if (runtime.ok) {
+      const bundledWheel = await probeSemantica(runtime.python)
+      if (!bundledWheel.ok) {
+        runtime = { ok: false, error: bundledWheel.detail || `bundled runtime is not semantica ${EXPECTED}` }
+      }
+    }
     const allowOnline = options.allowOnline !== false && process.env.DSH_SEMANTIC_OS_OFFLINE !== '1'
     if (!runtime.ok && !allowOnline) {
       return {
@@ -335,8 +388,11 @@ export async function ensureDeps(options = {}) {
         }
       }
       progress({ step: 'installing_semantica', current: 2, total: 4, detail: `Installing semantica[${SEMANTICA_EXTRAS}]==${EXPECTED}` })
-      await pipInstall(python, ['-r', RUNTIME_REQUIREMENTS, '-c', RUNTIME_CONSTRAINTS])
+      const pip = await pipInstall(python, ['-r', RUNTIME_REQUIREMENTS, '-c', RUNTIME_CONSTRAINTS])
       wheel = await probeSemantica(python)
+      if (!wheel.ok && pip.code !== 0) {
+        wheel = { ...wheel, detail: String(pip.stderr || pip.stdout || 'pip failed').slice(0, 400) }
+      }
     }
     progress({ step: 'installing_vector', current: 3, total: 4, detail: 'Preparing FAISS vector search' })
     let faiss = await probeFaiss(python)

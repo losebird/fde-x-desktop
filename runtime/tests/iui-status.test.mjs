@@ -9,6 +9,7 @@ import {
   describeIui,
   iuiBuiltin,
   iuiEnabledFromList,
+  iuiProfileDir,
   iuiStatusPhrase,
   iuiVerifyFailedPhrase,
   readInstalledIui,
@@ -108,6 +109,30 @@ test('the AI core row carries an enabled IUI phrase', async () => {
     assert.match(ai.detail, new RegExp(`IUI ${pin.replaceAll('.', '\\.')} · 已启用（标准对话）`))
     const others = rows.filter((row) => row.capability !== 'ai-runtime')
     assert.equal(others.some((row) => String(row.detail).includes('IUI')), false)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('an existing IUI tree is not reported as missing', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'fde-iui-keep-'))
+  const dir = iuiProfileDir(home, 'fde-x')
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'package.json'), JSON.stringify({ name: '@losebird/iui', version: '0.13.0-iui.26' }))
+  const runtime = {
+    iui: { state: 'absent' },
+    dshHome: home,
+    status: () => ({ connected: true, state: 'connected', version: '0.2.0-rc.2', pid: 9 }),
+    async call(endpoint) {
+      assert.equal(endpoint, 'pluginManager/listPlugins')
+      return [{ moduleName: '@losebird/iui', enabled: true, patchId: 'iui' }]
+    },
+  }
+  try {
+    const phrase = await describeIui(runtime, home, 'fde-x')
+    assert.equal(phrase, 'IUI 0.13.0-iui.26 · 已启用（标准对话）')
+    assert.equal(runtime.iui.state, 'enabled')
+    assert.equal(runtime.iui.version, '0.13.0-iui.26')
   } finally {
     await rm(home, { recursive: true, force: true })
   }

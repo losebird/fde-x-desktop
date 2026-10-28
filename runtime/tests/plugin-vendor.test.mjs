@@ -60,6 +60,21 @@ test('reconcilePinnedVendor replaces a mismatched vendor from an unchanged sourc
   await rm(root, { recursive: true, force: true })
 })
 
+test('reconcilePinnedVendor keeps an existing tree when no source is available', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fde-vendor-'))
+  const vendor = join(root, 'vendor', 'iui')
+  await writeTree(vendor, { ...PIN, marker: 'stay' })
+  const result = await reconcilePinnedVendor({
+    vendorDir: vendor,
+    pin: { version: '0.13.0-iui.27', commit: '77c23c7c3e9cfc991e0bed9fb44b0a4ea66fd57c' },
+    candidates: [join(root, 'missing')],
+    pid: 14,
+  })
+  assert.deepEqual(result, { ok: true, action: 'keep-existing' })
+  assert.equal(await readFile(join(vendor, 'marker.txt'), 'utf8'), 'stay')
+  await rm(root, { recursive: true, force: true })
+})
+
 test('reconcilePinnedVendor leaves the vendor when the source pin mismatches', async () => {
   const root = await mkdtemp(join(tmpdir(), 'fde-vendor-'))
   const vendor = join(root, 'vendor', 'iui')
@@ -91,7 +106,7 @@ test('reconcilePinnedVendor does not delete a vendor that is its own source', as
     candidates: [vendor],
     pid: 14,
   })
-  assert.deepEqual(result, { ok: false, action: 'source-is-vendor' })
+  assert.deepEqual(result, { ok: true, action: 'keep-existing' })
   assert.equal(await readFile(join(real, 'marker.txt'), 'utf8'), 'shared')
   assert.equal((await lstat(vendor)).isSymbolicLink(), true)
   assert.equal(existsSync(`${vendor}.staging-14`), false)

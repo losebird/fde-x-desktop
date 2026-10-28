@@ -91,7 +91,10 @@ export async function bootSemanticOsBff(adapters = {}) {
 export function handleSemanticOsHttp(request, response) {
   if (!runtime || typeof runtime.handler !== 'function') return false
   const host = String(request.headers.host || `127.0.0.1:${FDE_RUNTIME_PORT}`)
-  const headers = { ...request.headers, origin: `http://${host}` }
+  const headers = {
+    ...request.headers,
+    origin: request.headers.origin || `http://${host}`,
+  }
   const wrapped = new Proxy(request, {
     get(target, prop) {
       if (prop === 'headers') return headers

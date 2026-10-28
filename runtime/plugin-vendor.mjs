@@ -134,9 +134,14 @@ export async function reconcilePinnedVendor({
   }
 
   const source = await firstReadable(candidates)
-  if (!source) return { ok: false, action: 'missing-source' }
+  if (!source) {
+    if (existsSync(join(vendorDir, 'package.json'))) {
+      return { ok: true, action: 'keep-existing' }
+    }
+    return { ok: false, action: 'missing-source' }
+  }
   if (existsSync(vendorDir) && sameRealPath(source, vendorDir)) {
-    return { ok: false, action: 'source-is-vendor' }
+    return { ok: true, action: 'keep-existing' }
   }
 
   const staging = `${vendorDir}.staging-${pid}`
