@@ -12,6 +12,7 @@ import { postPython } from './ingest.js'
 import { describePath, extractEyesText, pathsFromText } from './eyes-media.js'
 
 export const DEFAULT_SESSION_INGEST_INTERVAL_MIN = 30
+export const SESSION_STAMP_BUDGET = 4
 
 function dshHome() {
   return process.env.DSH_HOME || process.env.FDE_DSH_HOME || join(homedir(), '.dsh-fde-x')
@@ -300,17 +301,6 @@ export function createSessionIngest(opts) {
       stamps.push({ id: `session:${id}:${seq}`, timestamp: stamped })
     }
     if (!stamps.length) return { ok: true, attempted: 0, stamped: 0 }
-    const rows = []
-    for (const event of (packed && packed.events) || []) {
-      const seq = event && Number.isFinite(event.seq) ? event.seq : -1
-      const stamped = eventTime(event)
-      const text = eventText(event).trim()
-      if (seq < 0 || !stamped || !text) continue
-      rows.push({ id: `session:${id}:${seq}`, text: text.slice(0, 20_000), time: stamped })
-    }
-    if (rows.length) {
-      await postPython(sidecar, { op: 'index_passages', cwd, args: { rows } }).catch(() => null)
-    }
     const chunk = 4000
     let n = 0
     for (let i = 0; i < stamps.length; i += chunk) {
@@ -372,6 +362,7 @@ export function createSessionIngest(opts) {
       let stampsDirty = false
       const list = Array.isArray(headers) ? headers : []
       sessions = list.length
+      let stampLeft = opts.force ? Number.POSITIVE_INFINITY : SESSION_STAMP_BUDGET
       for (const header of list) {
         const id = headerId(header)
         const cwd = String(headerCwd(header) || '').replace(/[\r\n\t]/g, '')
@@ -392,8 +383,9 @@ export function createSessionIngest(opts) {
         const fromSeq = Number.isFinite(Number(cursors[id])) ? Number(cursors[id]) + 1 : 0
         const rec = stampRecord(stamps[id])
         let stampResult = null
-        if (opts.force || (!rec && fromSeq > 0)) {
+        if (opts.force || (!rec && fromSeq > 0 && stampLeft > 0)) {
           stampResult = await stampExisting(persistence, cwd, id)
+          stampLeft -= 1
         }
         let packed
         try {
@@ -498,8 +490,16 @@ export function createSessionIngest(opts) {
             fresh.push(item)
           }
         }
+        if (texts.length) {
+          if (maxSeq >= 0) cursors[id] = maxSeq
+        } else if (maxSeq >= fromSeq) {
+          cursors[id] = maxSeq
+        }
+        if (stampResult && stampResult.ok) {
+          stamps[id] = { cursor: Number(cursors[id]) || 0, at: Date.now() }
+          stampsDirty = true
+        }
         if (!texts.length) {
-          if (maxSeq >= fromSeq) cursors[id] = maxSeq
           skipped += 1
           continue
         }
@@ -513,11 +513,6 @@ export function createSessionIngest(opts) {
         }
         ingested += 1
         if (typeof onGraphWrite === 'function') onGraphWrite(cwd, fresh.length ? 'session_index' : 'session_backfill')
-        if (maxSeq >= 0) cursors[id] = maxSeq
-        if (stampResult && stampResult.ok && stampResult.stamped === stampResult.attempted) {
-          stamps[id] = { cursor: Number(cursors[id]) || 0, at: Date.now() }
-          stampsDirty = true
-        }
         } catch (err) {
           skipped += 1
           error = err instanceof Error ? err.message : String(err)

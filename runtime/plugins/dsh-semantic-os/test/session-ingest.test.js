@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { adaptSessionPersistence, createSessionIngest, eventTime, headerCwd, headerId, mayLook } from '../session-ingest.js'
+import { adaptSessionPersistence, createSessionIngest, eventTime, headerCwd, headerId, mayLook, SESSION_STAMP_BUDGET } from '../session-ingest.js'
 
 test('mayLook treats see_file as a 点头', () => {
   assert.equal(mayLook({ type: 'user/message', data: { content: '请看发票' } }), false)
@@ -434,6 +434,50 @@ test('a legacy numeric stamp is not treated as done', async () => {
       const stamps = await readStamps(root)
       assert.equal(stamps.s1.cursor, 1)
       assert.ok(Number.isFinite(stamps.s1.at))
+    } finally {
+      server.close()
+    }
+  })
+})
+
+test('stamp backfill is budgeted per tick', async () => {
+  await withHome(async () => {
+    const { createServer } = await import('node:http')
+    const calls = []
+    const server = createServer((req, res) => {
+      const chunks = []
+      req.on('data', (chunk) => chunks.push(chunk))
+      req.on('end', () => {
+        const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        calls.push(payload)
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(payload.op === 'stamp_session_times' ? { ok: true, stamped: 1 } : { ok: true }))
+      })
+    })
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const ids = Array.from({ length: SESSION_STAMP_BUDGET + 2 }, (_, i) => `s${i}`)
+    const persistence = {
+      async list() { return ids.map((id) => ({ id, cwd: process.cwd() })) },
+      async readFrom(_id, from) {
+        if (from === 0) return { events: [event(0, 'first', 1787660875673)] }
+        return { events: [] }
+      },
+    }
+    const ingest = createSessionIngest({
+      sidecar: fakeSidecar(server.address().port),
+      getPersistence: () => persistence,
+      getEyes: () => null,
+      getExtract: () => null,
+      extractQueue: { enqueue: () => undefined },
+      getConfig: () => ({}),
+    })
+    try {
+      assert.equal((await ingest.tick()).ok, true)
+      assert.equal(calls.filter((row) => row.op === 'stamp_session_times').length, 0)
+      assert.equal((await ingest.tick()).ok, true)
+      assert.equal(calls.filter((row) => row.op === 'stamp_session_times').length, SESSION_STAMP_BUDGET)
+      assert.equal((await ingest.tick()).ok, true)
+      assert.equal(calls.filter((row) => row.op === 'stamp_session_times').length, SESSION_STAMP_BUDGET + 2)
     } finally {
       server.close()
     }
