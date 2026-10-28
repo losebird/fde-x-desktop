@@ -186,7 +186,7 @@ const runtimeProxy = {
     target: runtimeUrl,
     changeOrigin: true,
     ws: true,
-    rewrite: () => '/semantic-os/ws/graph-updates',
+    rewrite: (path) => path.replace(/^\/ws\/graph-updates/, '/semantic-os/ws/graph-updates'),
   },
   '/api': {
     target: runtimeUrl,

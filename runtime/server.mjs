@@ -97,7 +97,7 @@ import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp, publicShareCors }
 import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { loadMemoryWorkspaceVocab, saveMemoryWorkspaceVocab } from './biz/memory-vocab.mjs'
 import { bootLanAssistBff, handleLanAssistHttp, kindsFromVocabRows, setLanAssistVocabLoader, setLanAssistVocabSaver } from './lan-assist-bff.mjs'
-import { bootSemanticOsBff, handleSemanticOsHttp, stopSemanticOsBff } from './semantic-os-bff.mjs'
+import { bootSemanticOsBff, handleSemanticOsHttp, handleSemanticOsUpgrade, stopSemanticOsBff } from './semantic-os-bff.mjs'
 import { auditWorkstationWrite, capturePendingSheet, handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, persistUiToken, resolveUiToken, verifyUiToken } from './routes/bridge.mjs'
 import { handleContextPackRoute } from './routes/context.mjs'
@@ -3800,6 +3800,7 @@ server.on('upgrade', (request, socket, head) => {
     url.pathname = '/semantic-os/ws/graph-updates'
     request.url = `${url.pathname}${url.search}`
   }
+  if (handleSemanticOsUpgrade(request, socket, head)) return
   if (!aiRuntime.origin || url.pathname.startsWith('/api/v1')) {
     socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n')
     socket.destroy()

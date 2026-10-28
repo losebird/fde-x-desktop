@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import test from 'node:test'
-import { createHandler, webSocketAccept } from '../http.js'
+import { createHandler, createUpgradeHandler, webSocketAccept } from '../http.js'
 
 async function request(handler, path) {
   const server = createServer(handler)
@@ -29,6 +29,42 @@ function handler(allowed) {
 
 test('websocket accept key matches RFC 6455 sample', () => {
   assert.equal(webSocketAccept('dGhlIHNhbXBsZSBub25jZQ=='), 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=')
+})
+
+test('graph-updates upgrade is 101 for an authorized cwd', async () => {
+  const { request: httpRequest } = await import('node:http')
+  const upgrade = createUpgradeHandler({ snapshot: () => ({}) }, { allows: async () => true })
+  const server = createServer()
+  server.on('upgrade', (req, socket, head) => { void upgrade(req, socket, head) })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const key = 'dGhlIHNhbXBsZSBub25jZQ=='
+    const got = await new Promise((resolve, reject) => {
+      const req = httpRequest({
+        hostname: '127.0.0.1',
+        port: server.address().port,
+        path: '/semantic-os/ws/graph-updates?cwd=/workspace',
+        headers: {
+          Connection: 'Upgrade',
+          Upgrade: 'websocket',
+          'Sec-WebSocket-Key': key,
+          'Sec-WebSocket-Version': '13',
+        },
+      })
+      req.on('upgrade', (res, socket) => {
+        const accept = res.headers['sec-websocket-accept']
+        socket.destroy()
+        resolve({ status: 101, accept })
+      })
+      req.on('response', (res) => resolve({ status: res.statusCode }))
+      req.on('error', reject)
+      req.end()
+    })
+    assert.equal(got.status, 101)
+    assert.equal(got.accept, webSocketAccept(key))
+  } finally {
+    server.close()
+  }
 })
 
 test('proxy graph routes reject unowned cwd before reaching sidecar', async () => {

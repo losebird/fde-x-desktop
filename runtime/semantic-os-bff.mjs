@@ -4,7 +4,7 @@
 import { realpathSync } from 'node:fs'
 import { createExtract } from './plugins/dsh-semantic-os/extract-llm.js'
 import { createExtractQueue } from './plugins/dsh-semantic-os/extract-queue.js'
-import { createHandler } from './plugins/dsh-semantic-os/http.js'
+import { createHandler, createUpgradeHandler } from './plugins/dsh-semantic-os/http.js'
 import { createIngest, postPython } from './plugins/dsh-semantic-os/ingest.js'
 import { mergeConfig } from './plugins/dsh-semantic-os/persist.js'
 import { createWriteLog } from './plugins/dsh-semantic-os/product.js'
@@ -76,7 +76,8 @@ export async function bootSemanticOsBff(adapters = {}) {
     getPersistence: () => persistence,
     getExtract: () => extract,
   })
-  runtime = { sidecar, handler, writes, sessionIngest, extractQueue, persistence, extract }
+  const upgrade = createUpgradeHandler(sidecar, workspaceAuthority)
+  runtime = { sidecar, handler, upgrade, writes, sessionIngest, extractQueue, persistence, extract }
   if (adapters.start === false) {
     void extractQueue.stop()
   } else {
@@ -95,6 +96,19 @@ export async function stopSemanticOsBff() {
   try { await current.extractQueue?.stop?.() } catch { /* ignore */ }
   try { current.sessionIngest?.stop?.() } catch { /* ignore */ }
   try { await current.sidecar?.dispose?.() } catch { /* ignore */ }
+}
+
+export function handleSemanticOsUpgrade(request, socket, head) {
+  if (!runtime || typeof runtime.upgrade !== 'function') return false
+  let pathname = ''
+  try {
+    pathname = new URL(request.url || '/', 'http://dsh.local').pathname
+  } catch {
+    return false
+  }
+  if (pathname !== '/semantic-os/ws/graph-updates' && pathname !== '/ws/graph-updates') return false
+  void runtime.upgrade(request, socket, head)
+  return true
 }
 
 export function handleSemanticOsHttp(request, response) {
