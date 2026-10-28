@@ -267,17 +267,41 @@ window.__ModuleLoader__.load({
           return origCreate(opts)
         }
       }
+      var origConnectWorkspace = null
       function wrapConnect() {
         var uiWorkspace = ctx.get ? ctx.get("uiWorkspace") : undefined
         if (!uiWorkspace || typeof uiWorkspace.connectWorkspace !== "function" || uiWorkspace.connectWorkspace.__fdeReuse) return
-        var origConnect = uiWorkspace.connectWorkspace.bind(uiWorkspace)
+        origConnectWorkspace = uiWorkspace.connectWorkspace.bind(uiWorkspace)
         var wrapped = function (workspaceId) {
           var existing = pickExisting(workspaceId)
           if (existing) return Promise.resolve(existing)
-          return origConnect(workspaceId)
+          return origConnectWorkspace(workspaceId)
         }
         wrapped.__fdeReuse = true
         uiWorkspace.connectWorkspace = wrapped
+      }
+      function isReleasedError(err) {
+        var msg = err && err.message ? String(err.message) : String(err || "")
+        return /released/i.test(msg)
+      }
+      function openOrHydrate(sid, workspaceId) {
+        var page = ctx.get ? (ctx.get("ui") || ctx.get("uiWorkspace")) : undefined
+        var run = function () {
+          if (page && typeof page.openSession === "function") return page.openSession(sid)
+          if (typeof sessions.open === "function") return sessions.open(sid)
+        }
+        var recover = function (err) {
+          if (!isReleasedError(err)) throw err
+          if (origConnectWorkspace && workspaceId) return origConnectWorkspace(workspaceId)
+          throw err
+        }
+        try {
+          var out = run()
+          if (out && typeof out.then === "function") return Promise.resolve(out).catch(recover)
+          return out
+        } catch (err) {
+          return recover(err)
+        }
       }
       wrapConnect()
       var wrapTries = 0
@@ -433,8 +457,10 @@ window.__ModuleLoader__.load({
               }
               var current = listed && listed.current
               if (current !== data.sessionId) {
-                if (ui && typeof ui.openSession === "function") ui.openSession(data.sessionId)
-                else sessions.open(data.sessionId)
+                Promise.resolve(openOrHydrate(data.sessionId, data.workspaceId)).catch(function (err) {
+                  var msg = err && err.message ? String(err.message) : "打开会话失败"
+                  if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: msg }, "*")
+                })
               }
               bindWorkspace(data.sessionId, data.workspaceId)
               startTurnWatch(data.sessionId, data.requestId)
