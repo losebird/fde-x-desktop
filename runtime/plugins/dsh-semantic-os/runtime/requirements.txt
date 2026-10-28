@@ -1,4 +1,4 @@
-semantica[explorer,graph-embeddings,documents,parse-pdf,nlp-spacy,tripletstore-oxigraph]==0.7.0
+semantica[explorer,graph-embeddings,documents,parse-pdf,nlp-spacy,tripletstore-oxigraph,media]==0.7.0
 pyshacl
 faiss-cpu
 fastembed

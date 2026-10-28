@@ -123,6 +123,41 @@ print(json.dumps({"exists": db.is_file(), "chain": chain}, ensure_ascii=False, d
   assert.equal(chain.valid, true, JSON.stringify(got.chain))
 })
 
+test('parse.media ingest writes audio duration into the document text', () => {
+  const out = py(`
+import json, os, sys, tempfile, wave
+from pathlib import Path
+sys.path.insert(0, "python")
+from bootstrap import ingest_plain_text, list_ingest_files, run_ingest_directory
+home = tempfile.mkdtemp(); os.environ["DSH_HOME"] = home
+cwd = Path(tempfile.mkdtemp())
+wav = cwd / "clip.wav"
+with wave.open(str(wav), "w") as fh:
+    fh.setnchannels(1)
+    fh.setsampwidth(2)
+    fh.setframerate(8000)
+    fh.writeframes(b"\\x00\\x00" * 8000)
+names = [p.name for p in list_ingest_files(str(cwd), None)]
+text = ingest_plain_text(wav)
+got = run_ingest_directory(str(cwd), {"paths": [str(wav)], "nodded": True})
+print(json.dumps({
+  "listed": "clip.wav" in names,
+  "audio": "音频" in text,
+  "fmt": ".wav" in text,
+  "duration": "时长" in text,
+  "count": got.get("count"),
+  "stored": any("音频" in (row.get("text") or "") for row in got.get("texts") or []),
+}, ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.listed, true)
+  assert.equal(got.audio, true)
+  assert.equal(got.fmt, true)
+  assert.equal(got.duration, true)
+  assert.equal(got.count, 1)
+  assert.equal(got.stored, true)
+})
+
 test('add_documents ingest path sets parallel=False', () => {
   const src = readFileSync(new URL('../python/bootstrap.py', import.meta.url), 'utf8')
   const idx = src.indexOf('vs.add_documents')

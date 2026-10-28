@@ -1667,7 +1667,10 @@ def resolve_cwd(raw: str | None) -> tuple[str | None, str | None]:
 SKIP_DIR_NAMES = {".git", "node_modules", ".dsh", "__pycache__", ".venv", "venv", "dist", "build", "runtime", "runtime-dist", "release-dist"}
 TEXT_EXTS = {".md", ".txt", ".rst", ".json", ".csv", ".yml", ".yaml", ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".xml", ".toml"}
 IMAGE_FILE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-EYES_FILE_EXTS = IMAGE_FILE_EXTS | {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"}
+AUDIO_FILE_EXTS = {".mp3", ".wav", ".flac", ".aac"}
+VIDEO_FILE_EXTS = {".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"}
+MEDIA_FILE_EXTS = AUDIO_FILE_EXTS | VIDEO_FILE_EXTS
+EYES_FILE_EXTS = IMAGE_FILE_EXTS | MEDIA_FILE_EXTS | {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}
 OFFICE_FILE_EXTS = {".docx", ".xlsx", ".pptx"}
 ZH_SPLITTERS = ["\n\n", "\n", "。", "！", "？", "；", "，", ""]
 
@@ -1802,6 +1805,23 @@ def list_ingest_files(cwd: str, paths: list[str] | None = None) -> list[Path]:
         if path.suffix.lower() not in TEXT_EXTS and path.suffix.lower() not in EYES_FILE_EXTS:
             continue
         out.append(path)
+    seen = {os.path.realpath(str(p)) for p in out}
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in MEDIA_FILE_EXTS:
+            continue
+        try:
+            rel = str(path.relative_to(root))
+        except ValueError:
+            continue
+        if ignored(rel, patterns):
+            continue
+        key = os.path.realpath(str(path))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(path)
     return out
 
 
@@ -1853,6 +1873,63 @@ def _as_ingest_text(obj: Any) -> str:
     return ""
 
 
+def _media_ingest_text(path: Path) -> str:
+    """Format parse.media metadata into searchable text. Images stay on dsh_describe_image."""
+    from semantica.parse.media_parser import MediaParser
+    from semantica.utils.progress_tracker import get_progress_tracker
+
+    parser = MediaParser()
+    if not hasattr(parser, "progress_tracker"):
+        parser.progress_tracker = get_progress_tracker()
+    packed = parser.parse_media(str(path))
+    if not isinstance(packed, dict):
+        packed = {}
+    meta = packed.get("metadata") if isinstance(packed.get("metadata"), dict) else {}
+    kind = str(packed.get("type") or "")
+    ext = path.suffix.lower()
+    if ext in AUDIO_FILE_EXTS and not meta.get("duration"):
+        try:
+            import librosa
+            meta["duration"] = float(librosa.get_duration(path=str(path)))
+            meta["sample_rate"] = int(librosa.get_samplerate(str(path)))
+        except Exception:
+            pass
+    if ext in VIDEO_FILE_EXTS and not meta.get("width"):
+        try:
+            import cv2
+            cap = cv2.VideoCapture(str(path))
+            if cap.isOpened():
+                meta["width"] = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0) or None
+                meta["height"] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0) or None
+                fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)
+                frames = float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                if fps > 0 and frames > 0:
+                    meta["duration"] = frames / fps
+                    meta["fps"] = fps
+            cap.release()
+        except Exception:
+            pass
+    label = "音频" if ext in AUDIO_FILE_EXTS or kind == "audio" else "视频"
+    lines = [f"{label} {path.name}", f"格式 {ext or meta.get('format') or ''}"]
+    duration = meta.get("duration")
+    if isinstance(duration, (int, float)) and duration > 0:
+        lines.append(f"时长 {duration:.2f} 秒")
+    sample_rate = meta.get("sample_rate")
+    if sample_rate:
+        lines.append(f"采样率 {int(sample_rate)}")
+    width, height = meta.get("width"), meta.get("height")
+    if width and height:
+        lines.append(f"尺寸 {int(width)}x{int(height)}")
+    for key, title in (("title", "标题"), ("artist", "作者"), ("album", "专辑"), ("codec", "编码")):
+        value = meta.get(key)
+        if value:
+            lines.append(f"{title} {value}")
+    size = meta.get("file_size")
+    if size:
+        lines.append(f"大小 {int(size)} 字节")
+    return "\n".join(lines)
+
+
 def ingest_plain_text(path: Path) -> str:
     """Native parsers by suffix. Images stay on dsh_describe_image."""
     ext = path.suffix.lower()
@@ -1868,6 +1945,8 @@ def ingest_plain_text(path: Path) -> str:
             return _as_ingest_text(PPTXParser().parse(str(path)))
         if ext in IMAGE_FILE_EXTS:
             return str(dsh_describe_image(str(path)).get("text") or "")
+        if ext in MEDIA_FILE_EXTS:
+            return _media_ingest_text(path)
         from semantica.ingest import FileIngestor
         return _as_ingest_text(FileIngestor().ingest_file(str(path)))
     except Exception:
