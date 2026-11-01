@@ -14,7 +14,10 @@ export function occupancyAction(options = {}) {
   }
   if (name === 'conversation.hero.agentPreset') return 'allow'
   if (name === 'conversation.hero' || name.startsWith('conversation.hero.')) return 'empty'
-  if (name === 'conversation.session.header.actions') return 'allow'
+  if (name === 'conversation.session.header.actions') {
+    if (/rightbar|sidebar\.right|agent-team|agentTeam|ui-agent-team/i.test(id)) return 'deny'
+    return 'allow'
+  }
   if (name === 'conversation.session.header.corner') return 'deny'
   if (name === 'rightbar' || name === 'rightbar.session' || name.startsWith('sidebar.right')) return 'deny'
   if (name === 'sidebar' || name.startsWith('sidebar.')) return 'deny'

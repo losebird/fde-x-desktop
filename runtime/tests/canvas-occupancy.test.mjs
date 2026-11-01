@@ -1,4 +1,7 @@
 import './support/no-stray-processes.mjs'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { landKindFromTab, occupancyAction } from '../canvas-occupancy.mjs'
@@ -18,6 +21,8 @@ test('catalog chrome is denied or emptied so DSH fallback does not paint', () =>
   assert.equal(occupancyAction({ name: 'rightbar.session' }), 'deny')
   assert.equal(occupancyAction({ name: 'sidebar.right.pane.tab', key: '@deepseek-ai/dsh-client-ui-sidebar-files' }), 'deny')
   assert.equal(occupancyAction({ name: 'conversation.session.header.actions' }), 'allow')
+  assert.equal(occupancyAction({ name: 'conversation.session.header.actions', id: 'rightbar' }), 'deny')
+  assert.equal(occupancyAction({ name: 'conversation.session.header.actions', id: '@deepseek-ai/dsh-experimental-client-ui-agent-team' }), 'deny')
   assert.equal(occupancyAction({ name: 'conversation.session.header.corner' }), 'deny')
   assert.equal(occupancyAction({ name: 'conversation.hero.workspace' }), 'empty')
   assert.equal(occupancyAction({ name: 'conversation.hero.brand.mark' }), 'empty')
@@ -35,6 +40,22 @@ test('lan-assist face slots stay off the session canvas', () => {
   assert.equal(occupancyAction({ name: 'conversation.input.dock', id: 'lan-assist-dock' }), 'deny')
   assert.equal(occupancyAction({ name: 'shell.overlay', id: 'lan-assist-chat' }), 'deny')
   assert.equal(occupancyAction({ name: 'conversation.input.left', id: 'lan-assist-ask' }), 'deny')
+})
+
+test('core patch disables Host catalog column plugins', () => {
+  const patch = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'dsh-core.patch.yml'), 'utf8')
+  for (const id of [
+    'ui-sidebar-files',
+    'ui-plan',
+    'ui-goal',
+    'ui-jobs',
+    'ui-schedule',
+    'ui-skill',
+    'ui-deliverables',
+    'ui-agent-team',
+  ]) {
+    assert.match(patch, new RegExp(`- id: ${id}\\n  disabled: true`))
+  }
 })
 
 test('tab kinds land on host-catalog surfaces, terminal stays on the AI page', () => {

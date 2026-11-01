@@ -725,10 +725,45 @@ const FDE_DSH_CLIPBOARD_PATCH = (() => {
 
 const FDE_DSH_HEAD_HOOK = `<script data-fde-dsh-hook>
 (function () {
+  var origConsoleError = console.error.bind(console)
+  console.error = function () {
+    var head = arguments[0]
+    var next = arguments[1]
+    var text = typeof head === "string" ? head : ""
+    var detail = next && next.message ? String(next.message) : String(next || "")
+    if (/Sidebar Session opening failed/.test(text) && /released/i.test(detail || text)) return
+    return origConsoleError.apply(console, arguments)
+  }
+  function wrapRelease(ref) {
+    if (!ref || typeof ref.release !== "function" || ref.release.__fdeIdem) return
+    var orig = ref.release.bind(ref)
+    ref.release = function () {
+      try { return orig() } catch (err) {
+        var msg = err && err.message ? String(err.message) : String(err || "")
+        if (/released/i.test(msg)) return
+        throw err
+      }
+    }
+    ref.release.__fdeIdem = true
+  }
   function hookCtx(ctx) {
     try {
       var sessions = (ctx.get && ctx.get("sessions")) || ctx.sessions
       if (sessions && typeof sessions.open === "function") window.__fdeXSessions = sessions
+      if (sessions && typeof sessions.binding === "function" && !sessions.binding.__fdeRel) {
+        var origBind = sessions.binding.bind(sessions)
+        sessions.binding = function (sid) {
+          var bound = origBind(sid)
+          try {
+            wrapRelease(bound)
+            wrapRelease(bound && bound.session)
+            wrapRelease(bound && bound.ref)
+            wrapRelease(bound && bound.reference)
+          } catch (e) {}
+          return bound
+        }
+        sessions.binding.__fdeRel = true
+      }
       var ui = (ctx.get && ctx.get("uiWorkspace")) || ctx.uiWorkspace
       if (ui && typeof ui.openSession === "function") window.__fdeXUiWorkspace = ui
     } catch (e) {}
@@ -763,7 +798,7 @@ const FDE_DSH_HEAD_HOOK = `<script data-fde-dsh-hook>
     var patchClipboard =
       id.indexOf("dsh-client-ui-primitives") !== -1 || id.indexOf("dsh-web-frontend") !== -1
     var patchSession = id.indexOf("session-controller") !== -1 || id.indexOf("ui-workspace") !== -1
-    var patchSlots = id.indexOf("ui-renderer") !== -1
+    var patchSlots = id.indexOf("ui-renderer") !== -1 || id.indexOf("ui-layout") !== -1 || id.indexOf("ui-session") !== -1
     if (!patchClipboard && !patchSession && !patchSlots) return
     var inner = reg.factory
     if (typeof inner !== "function") return
@@ -817,6 +852,12 @@ const FDE_DSH_STRIP_STYLE = `<style data-fde-dsh-strip>
 html[data-fde-session-canvas] [data-sidebar-collapsed],
 html[data-fde-session-canvas] [data-rightbar-collapsed]{grid-template-columns:0 minmax(0,1fr) 0!important}
 html[data-fde-session-canvas] [data-sidebar-right-session]{display:none!important}
+html[data-fde-session-canvas] button[aria-label="打开右侧边栏"],
+html[data-fde-session-canvas] button[aria-label="Open right sidebar"],
+html[data-fde-session-canvas] button[aria-label="智能体团队"],
+html[data-fde-session-canvas] button[aria-label="Agent team"],
+html[data-fde-session-canvas] button[aria-label="更多操作"],
+html[data-fde-session-canvas] button[aria-label="More actions"]{display:none!important}
 html[data-fde-session-canvas] [data-phase="hero"] [data-composer-seat] :has(> [data-slot="conversation.composer.bar"]) > :not([data-slot="conversation.composer.bar"]):not([data-slot="conversation.input.dock"]):not(:has([data-slot="conversation.hero.agentPreset"])){display:none!important}
 html[data-fde-session-canvas] [data-phase="hero"] [data-composer-seat] :has(> [data-slot="conversation.hero.agentPreset"]) > :not([data-slot="conversation.hero.agentPreset"]){display:none!important}
 </style>`

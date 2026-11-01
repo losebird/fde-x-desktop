@@ -39,3 +39,30 @@
 
 - id: ui-sidebar-documentpreview
   disabled: true
+
+- id: ui-plan
+  disabled: true
+
+- id: ui-goal
+  disabled: true
+
+- id: ui-jobs
+  disabled: true
+
+- id: ui-schedule
+  disabled: true
+
+- id: ui-skill
+  disabled: true
+
+- id: ui-deliverables
+  disabled: true
+
+- id: ui-reference
+  disabled: true
+
+- id: ui-workflow-run
+  disabled: true
+
+- id: ui-agent-team
+  disabled: true
