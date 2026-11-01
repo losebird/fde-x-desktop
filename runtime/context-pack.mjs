@@ -57,7 +57,7 @@ async function semanticReady(aiRuntime) {
 }
 
 async function semanticFind(aiRuntime, query, cwd) {
-  return aiRuntime.semanticOs('/find', { query, ...(cwd ? { cwd } : {}) })
+  return aiRuntime.semanticOs('/find', { method: 'POST', query, ...(cwd ? { cwd } : {}) })
 }
 
 async function semanticPython(aiRuntime, op, args, cwd) {

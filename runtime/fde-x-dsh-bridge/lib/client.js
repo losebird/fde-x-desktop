@@ -274,7 +274,9 @@ window.__ModuleLoader__.load({
         origConnectWorkspace = uiWorkspace.connectWorkspace.bind(uiWorkspace)
         var wrapped = function (workspaceId) {
           var existing = pickExisting(workspaceId)
-          if (existing) return Promise.resolve(existing)
+          if (existing) {
+            return Promise.resolve(openOrHydrate(existing, workspaceId)).then(function () { return existing })
+          }
           return origConnectWorkspace(workspaceId)
         }
         wrapped.__fdeReuse = true
@@ -455,14 +457,11 @@ window.__ModuleLoader__.load({
                 if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: "DSH 列表里还没有这条会话，无法打开输入框" }, "*")
                 return
               }
-              var current = listed && listed.current
-              if (current !== data.sessionId) {
-                Promise.resolve(openOrHydrate(data.sessionId, data.workspaceId)).catch(function (err) {
-                  var msg = err && err.message ? String(err.message) : "打开会话失败"
-                  if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: msg }, "*")
-                })
-              }
               bindWorkspace(data.sessionId, data.workspaceId)
+              Promise.resolve(openOrHydrate(data.sessionId, data.workspaceId)).catch(function (err) {
+                var msg = err && err.message ? String(err.message) : "打开会话失败"
+                if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-error", message: msg }, "*")
+              })
               startTurnWatch(data.sessionId, data.requestId)
             } catch (e) {}
           }

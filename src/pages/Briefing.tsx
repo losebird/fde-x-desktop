@@ -202,6 +202,11 @@ export default function Briefing() {
       return
     }
     if (!href || typeof href !== 'object') return
+    const url = typeof href.url === 'string' ? href.url.trim() : ''
+    if (/^https?:\/\//i.test(url)) {
+      openAppHref(url)
+      return
+    }
     if (!href.panel) return
     openRef(href as OpenRefHref)
   }
@@ -277,7 +282,10 @@ export default function Briefing() {
                     )}
                     <ol className="relative pl-6">
                       <span className="absolute left-2 top-1 bottom-1 w-px bg-line" />
-                      {(section.items || []).map((e) => (
+                      {(section.items || []).map((raw) => {
+                        const e = presentBriefingItem(raw)
+                        if (!e) return null
+                        return (
                         <li key={e.ref || e.text} className="relative py-2.5 pl-3">
                           <span className="absolute -left-[19px] top-3 w-3 h-3 rounded-full border-2 border-surface bg-brand" />
                           <button type="button" className="text-sm font-medium text-left w-full" onClick={() => openItem(e.href)}>
@@ -285,7 +293,8 @@ export default function Briefing() {
                           </button>
                           {e.sub && <div className="text-xs text-ink-muted mt-0.5">{e.sub}</div>}
                         </li>
-                      ))}
+                        )
+                      })}
                     </ol>
                   </Card>
                 </div>
@@ -307,12 +316,16 @@ export default function Briefing() {
                       {(section.items || []).length === 0 && !section.error && (
                         <li className="text-sm text-ink-muted py-2.5 first:pt-0 last:pb-0">暂无内容</li>
                       )}
-                      {(section.items || []).map((t) => (
+                      {(section.items || []).map((raw) => {
+                        const t = presentBriefingItem(raw)
+                        if (!t) return null
+                        return (
                         <li key={t.ref || t.text} className="py-2.5 first:pt-0 last:pb-0 flex items-center gap-3">
                           <span className={clsx('w-2 h-2 rounded-full shrink-0', priorityDot.med)} />
                           <button type="button" className="flex-1 truncate text-sm text-left" onClick={() => openItem(t.href)}>{t.text}</button>
                         </li>
-                      ))}
+                        )
+                      })}
                     </ul>
                     {section.overdue && section.overdue.length > 0 && (
                       <ul className="mt-3 space-y-2 border-t border-line pt-3">

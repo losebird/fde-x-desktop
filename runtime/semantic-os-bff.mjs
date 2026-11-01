@@ -141,7 +141,7 @@ export async function invokeSemanticOs(path, options = {}) {
     url = new URL(`/semantic-os${path}`, origin)
     if (options.cwd) url.searchParams.set('cwd', String(options.cwd))
   }
-  const method = String(options.method || (path === '/python' ? 'POST' : 'GET')).toUpperCase()
+  const method = String(options.method || (path === '/python' || path === '/find' ? 'POST' : 'GET')).toUpperCase()
   const headers = {
     origin,
     host: `127.0.0.1:${port}`,
@@ -149,7 +149,14 @@ export async function invokeSemanticOs(path, options = {}) {
   }
   const body = path === '/python'
     ? JSON.stringify({ op: options.op, cwd: options.cwd, args: options.args ?? {} })
-    : (options.body != null ? JSON.stringify(options.body) : undefined)
+    : path === '/find'
+      ? JSON.stringify({
+        query: options.query,
+        q: options.query,
+        cwd: options.cwd,
+        ...(options.body && typeof options.body === 'object' ? options.body : {}),
+      })
+      : (options.body != null ? JSON.stringify(options.body) : undefined)
   const response = await fetch(url, { method, headers, body })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {

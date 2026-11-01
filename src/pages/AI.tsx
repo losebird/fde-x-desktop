@@ -172,7 +172,8 @@ export default function AI() {
   const bffOriginRef = useRef('')
   const bridgeReadyRef = useRef(false)
   const dshFramePathRef = useRef('')
-  const pendingDshRef = useRef<{ op: string; extra: Record<string, unknown> } | null>(null)
+  const pendingDshRef = useRef<Array<{ op: string; extra: Record<string, unknown> }>>([])
+  const prevSelectWorkspaceId = useRef(activeWorkspaceId)
   const flushDshRef = useRef<() => void>(() => {})
   const forkWaitRef = useRef<number | null>(null)
   const forkPendingRef = useRef(false)
@@ -335,16 +336,25 @@ export default function AI() {
   }, [sessionLane, activeWorkspaceId])
 
   function postPendingDsh() {
-    const pending = pendingDshRef.current
-    if (!pending || !bridgeReadyRef.current) return
+    if (!bridgeReadyRef.current) return
     const origin = runtimeOrigin(bffOriginRef.current || runtimeStatus?.bffOrigin)
     if (!origin) return
-    dshFrameRef.current?.contentWindow?.postMessage({ type: 'fde-x-dsh', op: pending.op, ...pending.extra }, origin)
+    const queued = pendingDshRef.current
+    if (!queued.length) return
+    pendingDshRef.current = []
+    const frame = dshFrameRef.current?.contentWindow
+    if (!frame) {
+      pendingDshRef.current = queued
+      return
+    }
+    for (const pending of queued) {
+      frame.postMessage({ type: 'fde-x-dsh', op: pending.op, ...pending.extra }, origin)
+    }
   }
   flushDshRef.current = postPendingDsh
 
   function tellDsh(op: string, extra: Record<string, unknown> = {}) {
-    pendingDshRef.current = { op, extra }
+    pendingDshRef.current = [...pendingDshRef.current, { op, extra }]
     postPendingDsh()
   }
 
@@ -690,12 +700,24 @@ export default function AI() {
     if (!runtimeConnected || !activeId) return
     const row = visibleSessions.find((session) => session.sessionId === activeId)
     if (!row) return
-    tellDsh('select', {
-      sessionId: activeId,
-      ...(row.title ? { title: row.title } : {}),
-      ...hostWorkspaceField(activeWorkspaceId),
-      ...(activeWorkspace?.cwd ? { cwd: activeWorkspace.cwd } : {}),
-    })
+    const workspaceId = hostWorkspaceId(activeWorkspace?.id)
+    const unnamed = Boolean(row.blank) || !row.title || row.title === '未命名会话'
+    const workspaceChanged = prevSelectWorkspaceId.current !== activeWorkspaceId
+    prevSelectWorkspaceId.current = activeWorkspaceId
+    const land = () => {
+      if (workspaceChanged && workspaceId) tellDsh('connectWorkspace', { workspaceId })
+      tellDsh('select', {
+        sessionId: activeId,
+        ...(row.title ? { title: row.title } : {}),
+        ...hostWorkspaceField(activeWorkspaceId),
+        ...(activeWorkspace?.cwd ? { cwd: activeWorkspace.cwd } : {}),
+      })
+    }
+    if (unnamed && workspaceId) {
+      void runtimeApi.bindAiSession(activeId, workspaceId).catch(() => undefined).finally(land)
+      return
+    }
+    land()
   }, [runtimeConnected, activeId, activeWorkspaceId])
 
   useEffect(() => {

@@ -50,12 +50,13 @@ test('core patch disables Host catalog column plugins', () => {
     'ui-goal',
     'ui-jobs',
     'ui-schedule',
-    'ui-skill',
     'ui-deliverables',
     'ui-agent-team',
   ]) {
     assert.match(patch, new RegExp(`- id: ${id}\\n  disabled: true`))
   }
+  assert.doesNotMatch(patch, /- id: ui-skill\n  disabled: true/)
+  assert.doesNotMatch(patch, /- id: ui-reference\n  disabled: true/)
 })
 
 test('tab kinds land on host-catalog surfaces, terminal stays on the AI page', () => {

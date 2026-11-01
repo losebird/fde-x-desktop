@@ -1730,6 +1730,15 @@ export class RuntimeApi {
     return result.data.items
   }
 
+  async bindAiSession(sessionId: string, workspaceId: string, signal?: AbortSignal): Promise<void> {
+    await this.request(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/workspace`, {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId }),
+    })
+  }
+
   async exportAiSession(sessionId: string, signal?: AbortSignal, workspaceId?: string): Promise<AiSessionTree> {
     const result = await this.request<{ data: AiSessionTree }>(
       withWorkspaceId(`/api/v1/ai/sessions/${encodeURIComponent(sessionId)}/export`, workspaceId),

@@ -62,6 +62,7 @@ test('memory scope without explicit query uses workspace folder name', async () 
     semanticOs: async (path, options) => {
       if (path === '/ready') return { ready: true }
       if (path === '/find') {
+        assert.equal(options.method, 'POST')
         findQuery = options.query
         return { items: [] }
       }

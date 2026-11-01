@@ -21,11 +21,26 @@ function isInstructionCue(text) {
   if (!value) return false
   if (/^回答提示$/.test(value)) return true
   if (/^先用一两句话概括/.test(value)) return true
+  if (/不要展示接口地址/.test(value)) return true
+  if (/每条[：:].*标题链接/.test(value)) return true
+  if (/只根据上面的内容回答/.test(value)) return true
+  if (/不要用训练记忆/.test(value)) return true
+  if (/User-Agent/.test(value)) return true
+  return false
+}
+
+function isToolDump(text) {
+  const value = String(text || '').trim()
+  if (!value.startsWith('{') && !value.startsWith('[')) return false
+  if (/"mailbox"\s*:/.test(value)) return true
+  if (/"searchCriteria"\s*:/.test(value)) return true
+  if (/"tool"\s*:/.test(value) && /"arguments"\s*:/.test(value)) return true
   return false
 }
 
 function hrefOf(value) {
   if (isRecord(value) && value.panel) return value
+  if (isRecord(value) && typeof value.url === 'string' && value.url.trim()) return value.url.trim()
   if (typeof value === 'string' && value.trim()) return value.trim()
   return ''
 }
@@ -42,8 +57,9 @@ export function unwrapMarkdownLink(text) {
 
 export function presentBriefingItem(item) {
   if (typeof item === 'string') {
+    if (isToolDump(item)) return null
     const unwrapped = unwrapMarkdownLink(item)
-    if (!unwrapped.text || isInstructionCue(unwrapped.text)) return null
+    if (!unwrapped.text || isInstructionCue(unwrapped.text) || isToolDump(unwrapped.text)) return null
     return {
       text: unwrapped.text,
       ...(unwrapped.href ? { href: unwrapped.href } : {}),
@@ -62,12 +78,13 @@ export function presentBriefingItem(item) {
   const bodyish = firstString(item.body)
   const unwrapped = unwrapMarkdownLink(titleish || bodyish)
   const text = unwrapped.text
-  if (!text || isInstructionCue(text)) return null
+  if (!text || isInstructionCue(text) || isToolDump(text)) return null
   const href = hrefOf(item.href) || hrefOf(item.url) || hrefOf(item.link) || unwrapped.href
   const sub = dropEmptyOriginSub(
     firstString(item.sub, item.from, item.source, item.author)
       || (titleish && bodyish && bodyish !== text ? bodyish : ''),
   )
+  if (isToolDump(text) || isToolDump(sub) || isToolDump([text, sub].filter(Boolean).join('\n'))) return null
   return {
     text,
     ...(sub ? { sub } : {}),

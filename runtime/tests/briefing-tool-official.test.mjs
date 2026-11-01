@@ -83,6 +83,14 @@ test('presentBriefingItem drops an empty session: origin sub', () => {
 test('presentBriefingItem drops MCP instruction cues', () => {
   assert.equal(presentBriefingItem('回答提示'), null)
   assert.equal(presentBriefingItem({ text: '先用一两句话概括，再挑最重要的 3–8 条' }), null)
+  assert.equal(presentBriefingItem('不要展示接口地址、参数、User-Agent 这类技术细节。'), null)
+  assert.equal(presentBriefingItem('{"mailbox":"INBOX","searchCriteria":["UNSEEN"]}'), null)
+  assert.equal(presentBriefingItem({ text: '{"mailbox":"INBOX","searchCriteria":["UNSEEN"]}' }), null)
+  assert.equal(presentBriefingItem({ title: '每条：标题链接到 AIHOT；写来源和北京时间' }), null)
+  assert.equal(presentBriefingItem({
+    text: '{',
+    sub: '"mailbox": "INBOX", "searchCriteria": [ "UNSEEN" ], "messages": [] }',
+  }), null)
 })
 
 test('presentBriefingItem folds title body url', () => {

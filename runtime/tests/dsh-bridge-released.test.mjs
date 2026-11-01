@@ -7,6 +7,10 @@ test('select recovers a released Host session by reconnecting the workspace', ()
   assert.match(src, /function openOrHydrate/)
   assert.match(src, /origConnectWorkspace/)
   assert.match(src, /released/i)
+  assert.match(src, /bindWorkspace\(data\.sessionId, data\.workspaceId\)/)
+  assert.match(src, /openOrHydrate\(data\.sessionId, data\.workspaceId\)/)
+  assert.doesNotMatch(src, /if \(current !== data\.sessionId\)/)
+  assert.match(src, /openOrHydrate\(existing, workspaceId\)/)
 })
 
 test('occupancy hook makes Host session release idempotent', () => {

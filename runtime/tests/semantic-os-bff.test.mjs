@@ -1,6 +1,7 @@
 import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { bootSemanticOsBff, semanticOsBffReady } from '../semantic-os-bff.mjs'
 import { BUILTIN_PLUGINS } from '../builtin-plugins.mjs'
 import { RETIRED_PROFILE_BUNDLES } from '../profile-manifest.mjs'
@@ -19,6 +20,13 @@ test('loopback Vite Origin is trusted for BFF memory writes', async () => {
       'sec-fetch-site': 'cross-site',
     },
   }), true)
+})
+
+test('invokeSemanticOs posts /find instead of GET', () => {
+  const src = readFileSync(new URL('../semantic-os-bff.mjs', import.meta.url), 'utf8')
+  assert.match(src, /path === '\/python' \|\| path === '\/find' \? 'POST'/)
+  assert.match(src, /path === '\/find'/)
+  assert.match(src, /query: options\.query/)
 })
 
 test('semantic-os is retired from Host builtins', () => {

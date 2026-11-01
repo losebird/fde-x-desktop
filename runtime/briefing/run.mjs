@@ -1,6 +1,6 @@
 import { canonicalWorkspaceCwd } from '../cwd.mjs'
 import { emit } from '../events.mjs'
-import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
+import { invalidateHostSessionList, resolvePrimarySessionForRuntime } from '../session-primary.mjs'
 import { stageBriefingSessionAllow } from './session.mjs'
 import { collectInternalSection } from './collectors.mjs'
 import { runBriefingAgent } from './ask-ai.mjs'
@@ -200,6 +200,10 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
         )
         sessionId = agent.sessionId || sessionId
         if (!agent.ok) agentError = agent.error || '发送早报 prompt 失败'
+        invalidateHostSessionList()
+        if (sessionId) {
+          emit('ai.session.changed', { sessionId, kind: 'prompted' }, { workspaceCwd, sessionId })
+        }
       }
       for (const row of agent.blocked || []) {
         const idx = sections.findIndex((section) => section.id === row.id)

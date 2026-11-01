@@ -854,10 +854,15 @@ html[data-fde-session-canvas] [data-rightbar-collapsed]{grid-template-columns:0 
 html[data-fde-session-canvas] [data-sidebar-right-session]{display:none!important}
 html[data-fde-session-canvas] button[aria-label="打开右侧边栏"],
 html[data-fde-session-canvas] button[aria-label="Open right sidebar"],
-html[data-fde-session-canvas] button[aria-label="智能体团队"],
-html[data-fde-session-canvas] button[aria-label="Agent team"],
+html[data-fde-session-canvas] [aria-label="智能体团队"],
+html[data-fde-session-canvas] [aria-label="Agent team"],
 html[data-fde-session-canvas] button[aria-label="更多操作"],
-html[data-fde-session-canvas] button[aria-label="More actions"]{display:none!important}
+html[data-fde-session-canvas] button[aria-label="More actions"],
+html[data-fde-session-canvas] [aria-label="选择工作区"],
+html[data-fde-session-canvas] input[placeholder*="选择工作区"],
+html[data-fde-session-canvas] [data-slot="conversation.hero"],
+html[data-fde-session-canvas] [data-slot="conversation.hero.title"],
+html[data-fde-session-canvas] [data-slot="conversation.hero.workspace"]{display:none!important}
 html[data-fde-session-canvas] [data-phase="hero"] [data-composer-seat] :has(> [data-slot="conversation.composer.bar"]) > :not([data-slot="conversation.composer.bar"]):not([data-slot="conversation.input.dock"]):not(:has([data-slot="conversation.hero.agentPreset"])){display:none!important}
 html[data-fde-session-canvas] [data-phase="hero"] [data-composer-seat] :has(> [data-slot="conversation.hero.agentPreset"]) > :not([data-slot="conversation.hero.agentPreset"]){display:none!important}
 </style>`
@@ -2236,6 +2241,30 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    const aiBindMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)\/workspace$/)
+    if (request.method === 'POST' && aiBindMatch) {
+      const body = await readJson(request)
+      const sessionId = decodeURIComponent(aiBindMatch[1])
+      const workspaceId = typeof body.workspaceId === 'string' ? body.workspaceId.trim() : ''
+      if (!workspaceId || workspaceId.startsWith('ws_')) {
+        sendError(response, 400, 'validation_error', '需要 DSH 工作区', currentCorrelationId)
+        return
+      }
+      try {
+        await aiRuntime.call('session/create', { request: { sessionId, workspaceId } })
+      } catch (error) {
+        try {
+          await aiRuntime.call('workspace/insertSessionBefore', { request: { workspaceId, sessionId } })
+        } catch {
+          sendError(response, 502, 'bind_failed', error instanceof Error ? error.message : '会话没有挂上工作区', currentCorrelationId)
+          return
+        }
+      }
+      invalidateHostSessionList()
+      sendJson(response, 200, { data: { sessionId, workspaceId }, correlationId: currentCorrelationId })
+      return
+    }
+
     const aiSessionGetMatch = url.pathname.match(/^\/api\/v1\/ai\/sessions\/([^/]+)$/)
     if (request.method === 'GET' && aiSessionGetMatch) {
       const sessionId = decodeURIComponent(aiSessionGetMatch[1])
@@ -2632,7 +2661,7 @@ const server = createServer(async (request, response) => {
       if (!resolvedSearch) return
       const query = url.searchParams.get('q') || ''
       const cwd = resolvedSearch.cwd
-      const result = await aiRuntime.semanticOs('/find', { query, ...(cwd ? { cwd } : {}) })
+      const result = await aiRuntime.semanticOs('/find', { method: 'POST', query, ...(cwd ? { cwd } : {}) })
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
       return
     }

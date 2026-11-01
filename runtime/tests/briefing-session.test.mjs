@@ -156,6 +156,17 @@ for (const row of missingSessionBodies) {
   })
 }
 
+test('resolveBriefingSession skips emit when the caller omitted it', async () => {
+  const sessionId = await resolveBriefingSession({
+    call: async (endpoint) => {
+      if (endpoint === 'session/list') return { items: [] }
+      if (endpoint === 'session/create') return { sessionId: 'sess-no-emit' }
+      throw new Error(endpoint)
+    },
+  }, '/ws/a')
+  assert.equal(sessionId, 'sess-no-emit')
+})
+
 test('resolveBriefingSession returns sess-ok when session/create returns a sessionId', async () => {
   const sessionId = await resolveBriefingSession({
     call: async (endpoint) => {
