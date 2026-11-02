@@ -569,7 +569,71 @@ export async function collectBag(aiRuntime, kind, input = {}, verbs) {
     }
     return bag
   }
+  const vocabBag = await collectVocabKindBag(aiRuntime, key, input)
+  if (vocabBag) {
+    bag.href = vocabBag.href
+    bag.actions = unique([...(bag.actions || []), ...vocabBag.actions])
+    bag.items = vocabBag.items
+    bag.raw = vocabBag.raw
+  }
   return bag
+}
+
+async function collectVocabKindBag(aiRuntime, kind, input = {}) {
+  const cwd = String(input.cwd || input.workspace || '').trim()
+  if (!cwd || !aiRuntime) return null
+  let vocab
+  try {
+    const { loadBizVocab } = await import('./biz/vocab-sheet.mjs')
+    vocab = await loadBizVocab(aiRuntime, cwd)
+  } catch {
+    return null
+  }
+  const kinds = Array.isArray(vocab?.kinds) ? vocab.kinds : []
+  if (!kinds.length) return null
+  const { resolveConnectedKind } = await import('./biz/connected-kind.mjs')
+  const resolved = resolveConnectedKind(kind, { kinds, aliases: vocab.aliases || {} })
+  if (!resolved) return null
+  const row = kinds.find((item) => item && item.kind === resolved) || { kind: resolved, can: ['现查'] }
+  const actions = unique([...(Array.isArray(row.can) ? row.can : []), '现查'])
+  const href = { panel: 'data' }
+  const kindItem = {
+    kind: resolved,
+    id: resolved,
+    title: String(row.label || resolved),
+    href,
+    fields: row && typeof row === 'object' ? row : { kind: resolved },
+  }
+  let items = [kindItem]
+  let raw = { kind: resolved, vocab: row }
+  try {
+    if (typeof aiRuntime.lanAssist === 'function') {
+      const preview = await aiRuntime.lanAssist('/preview', {
+        method: 'POST',
+        body: { action: '现查', kind: resolved, workspace: cwd, speech: '现查' },
+      })
+      const sheet = preview && preview.sheet && typeof preview.sheet === 'object' ? preview.sheet : preview
+      const rows = Array.isArray(sheet?.matches) ? sheet.matches
+        : Array.isArray(sheet?.rows) ? sheet.rows
+          : []
+      if (rows.length) {
+        items = rows.map((match, index) => {
+          const no = String(match?.no || match?.id || match?.fields?.id || index)
+          return {
+            kind: resolved,
+            id: no,
+            title: String(match?.fields?.requestNo || match?.fields?.title || no),
+            href,
+            fields: match && typeof match === 'object' ? match : { no },
+          }
+        })
+      }
+      raw = { kind: resolved, vocab: row, preview: sheet }
+    }
+  } catch {
+    /* kind + actions still occupy the catalog even when 现查 is down */
+  }
+  return { href, actions, items, raw }
 }
 
 async function sessionIdForBagItem(aiRuntime, kind, input, verbs) {

@@ -30,6 +30,7 @@ export function asPrimarySessionRow(row) {
     origin: row.origin,
     parentSessionId: row.parentSessionId,
     updatedAt: Number(row.updatedAt || 0),
+    running: sessionIsRunning(row),
   }
 }
 
@@ -44,6 +45,10 @@ export function pickPrimarySessionId(sessions, input = {}) {
   const primary = rows.filter(isPrimarySession)
   const pool = canonicalWorkspaceCwd(cwd) ? primary.filter((row) => sameWorkspaceCwd(row.cwd, cwd)) : []
   const ranked = [...pool].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+  if (input.preferIdle) {
+    const idle = ranked.find((row) => !row.running)
+    if (idle) return idle.sessionId
+  }
   return ranked[0] ? ranked[0].sessionId : ''
 }
 

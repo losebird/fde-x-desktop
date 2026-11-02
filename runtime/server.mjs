@@ -3069,7 +3069,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/files/mkdir') {
       const body = await readJson(request)
-      const name = safeWorkspaceRel(body.name)
+      const name = safeWorkspaceRel(body.name || body.path || body.dir)
       if (!name) {
         sendError(response, 400, 'validation_error', '目录名不合法', currentCorrelationId)
         return

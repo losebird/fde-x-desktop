@@ -152,6 +152,7 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
     const collectSessionId = await resolvePrimarySessionForRuntime(aiRuntime, {
       sessionId: input.sessionId,
       cwd: workspaceCwd,
+      preferIdle: true,
     })
     const sections = []
     for (const def of internalDefs) {
@@ -180,7 +181,7 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
       updateBriefingContent(db, briefingId, { status: 'running', sections }, workspaceCwd)
       sessionId = String(input.sessionId || '').trim()
       if (!sessionId) {
-        sessionId = await resolvePrimarySessionForRuntime(aiRuntime, { cwd: workspaceCwd })
+        sessionId = await resolvePrimarySessionForRuntime(aiRuntime, { cwd: workspaceCwd, preferIdle: true })
       }
       let agent = { ok: false, blocked: [], toolResults: {} }
       if (!sessionId) {

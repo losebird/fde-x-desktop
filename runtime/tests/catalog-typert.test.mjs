@@ -495,6 +495,52 @@ test('collectBag skill keeps Host skills and appends extra skill namespaces', as
   assert.equal(empty.items.length, 0)
 })
 
+test('collectBag fills a workspace vocab kind from 现查 matches', async () => {
+  const aiRuntime = {
+    async semanticOs(_path, options) {
+      if (options?.op === 'list_graph_nodes') {
+        return {
+          nodes: [{
+            type: 'skos:Concept',
+            properties: {
+              prefLabel: '请假申请',
+              resource: 'leave_requests',
+              catalogVersion: 'schema:1',
+              can: ['现查', '改行'],
+              aliases: ['审批单'],
+            },
+          }],
+        }
+      }
+      return {}
+    },
+    async lanAssist(path) {
+      if (path === '/catalog') {
+        return {
+          ok: true,
+          kinds: [{
+            kind: '请假申请',
+            resource: 'leave_requests',
+            catalogVersion: 'schema:1',
+            fields: ['no', 'status'],
+            can: ['现查', '改行'],
+            aliases: ['审批单'],
+          }],
+        }
+      }
+      if (path === '/preview') {
+        return { ok: true, matches: [{ no: 'LV-1', fields: { requestNo: 'LV-1' } }] }
+      }
+      return { ok: true }
+    },
+  }
+  const bag = await collectBag(aiRuntime, '审批单', { cwd: '/tmp/vocab-ws' }, [])
+  assert.equal(bag.href.panel, 'data')
+  assert.ok(bag.actions.includes('现查'))
+  assert.equal(bag.items[0].id, 'LV-1')
+  assert.equal(bag.items[0].title, 'LV-1')
+})
+
 test('collectBag plugin maps inventory entries onto settings core', async () => {
   const verbs = verbsFromTypertText(`
       namespace: 'pluginInventory',

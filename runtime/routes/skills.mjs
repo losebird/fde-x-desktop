@@ -58,6 +58,36 @@ export async function handleSkillRoutes(request, response, url, ctx) {
     return true
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/v1/skills/bundle') {
+    const skillPath = url.searchParams.get('path') || ''
+    const cwd = cwdFrom(url, undefined, aiRuntime, response, currentCorrelationId, sendError)
+    if (!cwd) return true
+    const sessionId = sessionFrom(url)
+    if (skillPath) {
+      try {
+        const { bundleRoot } = await managedBundle(aiRuntime, { cwd, sessionId, skillPath })
+        const files = await listBundleFiles(bundleRoot)
+        sendJson(response, 200, { data: { bundleRoot, files }, correlationId: currentCorrelationId })
+      } catch (error) {
+        sendError(response, error.code === 'bundle_not_in_roots' ? 403 : 400, error.code || 'skill_bundle', error.message, currentCorrelationId)
+      }
+      return true
+    }
+    const bag = await collectBag(aiRuntime, 'skill', { cwd, sessionId })
+    sendJson(response, 200, {
+      data: {
+        items: (bag.items || []).map((row) => ({
+          id: row.id,
+          title: row.title,
+          path: row.fields && row.fields.path,
+          bundleRoot: row.fields && row.fields.bundleRoot,
+        })),
+      },
+      correlationId: currentCorrelationId,
+    })
+    return true
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/v1/skills/bundle/files') {
     const skillPath = url.searchParams.get('path') || ''
     const cwd = cwdFrom(url, undefined, aiRuntime, response, currentCorrelationId, sendError)

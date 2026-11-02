@@ -93,6 +93,7 @@ export const httpWorkspaceRoutes = [
   { id: 'corpus', file: 'runtime/routes/corpus.mjs', method: 'GET', path: '/api/v1/corpus/file:note.md', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'mcp-servers', file: 'runtime/routes/mcp.mjs', method: 'POST', path: '/api/v1/mcp/servers', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime', extra: { serverName: 'matrix-mcp' } },
   { id: 'skills-roots', file: 'runtime/routes/skills.mjs', method: 'GET', path: '/api/v1/skills/roots', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
+  { id: 'skills-bundle', file: 'runtime/routes/skills.mjs', method: 'GET', path: '/api/v1/skills/bundle', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-bundle-files', file: 'runtime/routes/skills.mjs', method: 'GET', path: '/api/v1/skills/bundle/files', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-bundle-file', file: 'runtime/routes/skills.mjs', method: 'GET', path: '/api/v1/skills/bundle/file', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-bundle-file-put', file: 'runtime/routes/skills.mjs', method: 'PUT', path: '/api/v1/skills/bundle/file', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },

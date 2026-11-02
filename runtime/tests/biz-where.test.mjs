@@ -124,6 +124,13 @@ describe('biz preview where pass-through', () => {
     assert.equal(out.payload.steps[1].kind, 'MidB')
   })
 
+  test('translateBizIntent defaults a missing action to 现查 when kind is present', () => {
+    const out = translateBizIntent({ kind: '请假申请' }, '/tmp/ws')
+    assert.equal(out.error, undefined)
+    assert.equal(out.payload.action, '现查')
+    assert.equal(out.payload.kind, '请假申请')
+  })
+
   test('translateBizIntent binds a spoken alias to the connected table kind', () => {
     const kinds = [
       { kind: 'LongKind', resource: 'res_a', catalogVersion: 'schema:1', fields: ['a', 'b'], can: ['现查', '过审'] },

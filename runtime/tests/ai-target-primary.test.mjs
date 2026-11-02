@@ -1,7 +1,7 @@
 import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { invalidateHostSessionList, isPrimarySession, listHostSessions, resolvePrimarySessionId } from '../session-primary.mjs'
+import { invalidateHostSessionList, isPrimarySession, listHostSessions, pickPrimarySessionId, resolvePrimarySessionId } from '../session-primary.mjs'
 
 const parent = {
   sessionId: 'parent-1',
@@ -35,6 +35,15 @@ test('resolvePrimarySessionId opens subagents at the parent', () => {
   assert.equal(resolvePrimarySessionId('missing', rows), 'missing')
   assert.equal(resolvePrimarySessionId('', rows), '')
   assert.equal(resolvePrimarySessionId('orphan', [{ ...child, sessionId: 'orphan', parentSessionId: '' }]), '')
+})
+
+test('pickPrimarySessionId preferIdle skips a running latest session', () => {
+  const rows = [
+    { sessionId: 'busy', cwd: '/ws/a', updatedAt: 9, running: true },
+    { sessionId: 'idle', cwd: '/ws/a', updatedAt: 8, running: false },
+  ]
+  assert.equal(pickPrimarySessionId(rows, { cwd: '/ws/a' }), 'busy')
+  assert.equal(pickPrimarySessionId(rows, { cwd: '/ws/a', preferIdle: true }), 'idle')
 })
 
 test('listHostSessions reuses one Host list within the hold window', async () => {

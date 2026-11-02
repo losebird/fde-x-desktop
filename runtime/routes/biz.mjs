@@ -234,10 +234,9 @@ function normalizeFromHop(raw, action, gateVocabExtra, depth = 0) {
 
 export function translateBizIntent(body, cwd = FDE_AI_WORKSPACE, vocabExtra = {}) {
   const rawAction = typeof body.action === 'string' ? body.action.trim() : ''
-  const action = resolveGateAction(rawAction)
-  if (!action) return { error: '操作无法翻译成业务闸动作' }
-
   let kind = typeof body.kind === 'string' ? body.kind.trim() : ''
+  const action = resolveGateAction(rawAction) || (kind ? '现查' : '')
+  if (!action) return { error: '操作无法翻译成业务闸动作' }
   let system = typeof body.system === 'string' ? body.system : ''
   let no = typeof body.no === 'string' ? body.no : ''
   const speech = typeof body.speech === 'string' ? body.speech : rawAction
@@ -1177,7 +1176,7 @@ export async function handleBizRoutes(request, response, url, deps) {
       return true
     }
     if (routed?.type === 'mcp') {
-      const action = resolveGateAction(typeof body.action === 'string' ? body.action : '') || String(body.action || '').trim()
+      const action = resolveGateAction(typeof body.action === 'string' ? body.action : '') || String(body.action || '').trim() || (kind ? '现查' : '')
       const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
       const args = boundSlotArgs({ ...body, kind, action }, requestedCwd)
       const source = mcpSourceFromSystem(routed.system)
