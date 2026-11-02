@@ -13,6 +13,18 @@ const ICON: Record<string, LucideIcon> = {
   Plug, Wand2, Brain, Settings,
 }
 
+const ACCENT_RING: Record<string, string> = {
+  'bg-slate-700': 'ring-slate-700',
+  'bg-amber-500': 'ring-amber-500',
+  'bg-blue-500': 'ring-blue-500',
+  'bg-emerald-500': 'ring-emerald-500',
+  'bg-cyan-500': 'ring-cyan-500',
+  'bg-rose-500': 'ring-rose-500',
+  'bg-indigo-500': 'ring-indigo-500',
+  'bg-fuchsia-500': 'ring-fuchsia-500',
+  'bg-slate-500': 'ring-slate-500',
+}
+
 export function IMTopNav() {
   const panels = useApp((state) => state.panels)
   const floating = useApp((state) => state.floating)
@@ -45,7 +57,7 @@ export function IMTopNav() {
               onClick={() => panel.id === 'im' && !isActive ? openIMPanel() : togglePanel(panel.id, isActive ? 'tab' : 'full')}
               className={clsx(
                 'flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs transition-colors',
-                isActive && 'ring-2 ring-brand/20',
+                isActive && ['ring-2', ACCENT_RING[panel.accent] || 'ring-slate-500'],
                 isOpen
                   ? 'bg-surface text-ink shadow-sm font-medium'
                   : 'text-ink-muted hover:bg-surface hover:text-ink',
