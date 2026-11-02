@@ -22,9 +22,10 @@ test('empty connector and empty table returns mount the same confirm drawer', ()
 
   const emptyConnectors = src.slice(emptyConnectorsAt, noRowsAt)
   const mountedInEmpty = emptyConnectors.indexOf('{previewDrawer}')
-  const bareEmpty = emptyConnectors.indexOf('return <Empty title="先在设置登记业务连接器"')
+  const bareEmpty = emptyConnectors.indexOf('return <Empty title="先在连接器里登记业务连接器"')
   assert.ok(mountedInEmpty >= 0 && bareEmpty > mountedInEmpty, 'a live drawer sits above the no-connector empty state')
-  assert.match(emptyConnectors, /先在设置登记业务连接器/)
+  assert.match(emptyConnectors, /先在连接器里登记业务连接器/)
+  assert.equal(emptyConnectors.includes('先在设置登记业务连接器'), false)
 
   const mainAt = src.indexOf('\n  return (', noRowsAt)
   const noRows = src.slice(noRowsAt, mainAt)

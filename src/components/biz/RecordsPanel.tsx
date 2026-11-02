@@ -2219,11 +2219,11 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
       return (
         <div className="space-y-3">
           {previewDrawer}
-          <Empty title="先在设置登记业务连接器" hint="登记后可在此对 AI 浮现的业务行做过账" />
+          <Empty title="先在连接器里登记业务连接器" hint="连接器 → 业务连接器。登记后可在此对 AI 浮现的业务行做过账" />
         </div>
       )
     }
-    return <Empty title="先在设置登记业务连接器" hint="登记后可在此对 AI 浮现的业务行做过账" />
+    return <Empty title="先在连接器里登记业务连接器" hint="连接器 → 业务连接器。登记后可在此对 AI 浮现的业务行做过账" />
   }
 
   const officialSheet = listSheetMeta || peekActivePending()

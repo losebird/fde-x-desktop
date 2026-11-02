@@ -2464,9 +2464,9 @@ function ContactManager({
               <button
                 type="button"
                 className="text-xs text-ink-muted mb-4 hover:text-ink"
-                onClick={() => openRef({ panel: 'settings', section: 'runtime' })}
+                onClick={() => openRef({ panel: 'mcp', section: 'business' })}
               >
-                {relayConnected ? '本机中继已接通。' : relayConfigured ? '本机中继已配置，还没连上。' : '本机中继未接通。跨网投递去设置 → 运行环境。'}
+                {relayConnected ? '本机中继已接通。' : relayConfigured ? '本机中继已配置，还没连上。' : '本机中继未接通。跨网投递去连接器 → 业务连接器。'}
               </button>
               <div className="flex flex-wrap gap-2 mb-4">
                 <button type="button" className="btn" disabled={busy} onClick={() => void run(async () => {

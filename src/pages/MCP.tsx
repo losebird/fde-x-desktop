@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Plug, Plus } from 'lucide-react'
 import { PageTitle } from '@/components/ui'
+import { BusinessConnectors } from '@/components/connectors/BusinessConnectors'
 import { BusinessList } from '@/components/connectors/BusinessList'
+import { ImRelayCard } from '@/components/connectors/ImRelayCard'
 import {
   draftInput,
   emptyDraft,
@@ -29,6 +31,7 @@ import {
 } from '@/components/surface'
 import type { SurfacePhase } from '@/components/surface'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { landMcpSegment, onMcpSegment, takeMcpSegment, type McpSegment } from '@/lib/mcp-browse'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
 import {
   runtimeApi,
@@ -39,7 +42,7 @@ import {
 } from '@/lib/runtime-api'
 
 type McpBag = { mcp: McpServerV2[]; connectors: McpConnectorCard[]; resourceTools: string[] }
-type Segment = 'servers' | 'business'
+type Segment = McpSegment
 
 function applyBag(bag: McpBag, setMcp: (rows: McpServerV2[]) => void, setConnectors: (rows: McpConnectorCard[]) => void, setResourceTools: (rows: string[]) => void) {
   setMcp(bag.mcp || [])
@@ -57,7 +60,7 @@ export default function MCP() {
   const [connectors, setConnectors] = useState<McpConnectorCard[]>([])
   const [resourceTools, setResourceTools] = useState<string[]>([])
   const [connected, setConnected] = useState(false)
-  const [segment, setSegment] = useState<Segment>('servers')
+  const [segment, setSegment] = useState<Segment>(() => takeMcpSegment())
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
   const [healthNotes, setHealthNotes] = useState<Record<string, string>>({})
@@ -116,6 +119,7 @@ export default function MCP() {
   }, [showBag])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => onMcpSegment(setSegment), [])
 
   useEffect(() => {
     const node = frame.current?.closest('.stage-content') ?? frame.current
@@ -359,7 +363,7 @@ export default function MCP() {
             <SurfaceSegmented
               label="范围"
               value={segment}
-              onChange={setSegment}
+              onChange={landMcpSegment}
               options={[
                 { id: 'servers', label: `服务器 ${mcp.length}` },
                 { id: 'business', label: `业务连接器 ${connectors.length}` },
@@ -375,9 +379,11 @@ export default function MCP() {
             </div>
           </div>
           {segment === 'business' ? (
-            connectors.length ? <BusinessList rows={connectors} /> : (
-              <SurfaceEmpty icon={Plug} title="还没有业务连接器" body="到设置里登记之后，这里会列出它们。" />
-            )
+            <div className="space-y-3">
+              <ImRelayCard />
+              <BusinessConnectors onChanged={load} />
+              {connectors.length ? <BusinessList rows={connectors} /> : null}
+            </div>
           ) : (
             <div className={wide ? 'grid grid-cols-[minmax(0,1fr)_minmax(260px,340px)] gap-3' : 'space-y-3'}>
               {(!picked || wide) ? (

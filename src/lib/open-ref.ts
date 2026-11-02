@@ -1,5 +1,6 @@
 import { openFilesAtPath } from '@/lib/app-platform'
 import { applyDataLand } from '@/lib/data-browse'
+import { landMcpSegment } from '@/lib/mcp-browse'
 import { revealAi } from '@/lib/reveal-ai'
 import { useApp } from '@/store/app'
 
@@ -114,6 +115,11 @@ export function openRef(href: OpenRefHref) {
   if (panel === 'briefing') {
     app.setBriefingBrowse({ land: Number(app.briefingBrowse?.land || 0) + 1 })
     app.togglePanel('briefing', 'full')
+    return
+  }
+  if (panel === 'mcp') {
+    if (href.section === 'business' || href.tab === 'business') landMcpSegment('business')
+    app.togglePanel('mcp', 'full')
     return
   }
   if (panel === 'files') {

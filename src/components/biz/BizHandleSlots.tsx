@@ -1,3 +1,5 @@
+import { SurfaceField, SurfaceSelect } from '@/components/surface'
+
 type Props = {
   serverName: string
   tools: string[]
@@ -22,22 +24,21 @@ function SlotSelect({
 }) {
   const listed = value && !tools.includes(value) ? [value, ...tools] : tools
   return (
-    <label className="text-xs text-ink-muted">
-      {label}
-      <select className="input mt-1" value={value || ''} onChange={(event) => onChange(event.target.value)}>
+    <SurfaceField label={label}>
+      <SurfaceSelect value={value || ''} onChange={(event) => onChange(event.target.value)}>
         <option value="">{optional ? '不绑（不能写）' : '选择工具'}</option>
         {listed.map((tool) => (
           <option key={tool} value={tool}>{tool}</option>
         ))}
-      </select>
-    </label>
+      </SurfaceSelect>
+    </SurfaceField>
   )
 }
 
 export function BizHandleSlots({ serverName, tools, describe, list, write, onChange }: Props) {
   void serverName
   return (
-    <div className="grid grid-cols-1 gap-2">
+    <div className="grid grid-cols-1 gap-3">
       <SlotSelect label="describe（词表）" value={describe} tools={tools} onChange={(tool) => onChange('describe', tool)} />
       <SlotSelect label="list（现查）" value={list} tools={tools} onChange={(tool) => onChange('list', tool)} />
       <SlotSelect label="write（过账）" value={write} optional tools={tools} onChange={(tool) => onChange('write', tool)} />
