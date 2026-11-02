@@ -16,7 +16,7 @@ function iframeDragShield(on: boolean) {
 }
 
 function panelMaxWidth(overlay: boolean) {
-  return overlay ? 1280 : Math.max(400, Math.min(1280, window.innerWidth - 728))
+  return overlay ? 1280 : Math.max(400, Math.min(1280, window.innerWidth - 640))
 }
 
 export function StagePanel({ item, overlay }: { item?: SidePanelItem; overlay?: boolean }) {
@@ -27,8 +27,8 @@ export function StagePanel({ item, overlay }: { item?: SidePanelItem; overlay?: 
   const openFloating = useApp((s) => s.openFloating)
   const [dragging, setDragging] = useState(false)
 
-  // 面板最大宽度:overlay 不受视口限制;吸附模式给主区至少 640px，并扣掉最右功能栏 88px
-  const maxW = overlay ? 1280 : Math.max(400, Math.min(1280, (typeof window !== 'undefined' ? window.innerWidth : 1440) - 728))
+  // 面板最大宽度:overlay 不受视口限制;吸附模式给主区至少 640px
+  const maxW = overlay ? 1280 : Math.max(400, Math.min(1280, (typeof window !== 'undefined' ? window.innerWidth : 1440) - 640))
 
   const panelId = item?.id
   const overlayMode = Boolean(overlay)
@@ -127,7 +127,7 @@ export function StagePanel({ item, overlay }: { item?: SidePanelItem; overlay?: 
         <div className="flex-1" />
         <button
           className="p-1.5 rounded hover:bg-line text-ink-muted"
-          title="最小化到缩略图栈"
+          title="最小化到顶栏"
           onClick={() => setPanelState(item.id, 'tab')}
         >
           <Minus size={14} />

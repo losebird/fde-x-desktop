@@ -50,7 +50,7 @@ function planFailure(error: unknown) {
 // 每个工作台 item(早报 / 计划 / 文件 / AI / 数据 / MCP / Skills / 记忆 / 设置)
 // 都是 SidePanelItem,处于 4 状态之一:
 //   closed - 不在 UI
-//   tab    - 缩略图,占约 80px 宽,在 IM 左侧堆叠
+//   tab    - 停靠在顶栏按钮（高亮，舞台收起）
 //   half   - 半展开(60% width),peeking
 //   full   - 全展开(用户设定 width),可拖拽
 //

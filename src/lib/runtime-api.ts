@@ -225,7 +225,12 @@ export interface McpConnectorCard {
   lookupRegistered: boolean
 }
 
-export type McpRecipeField = { key: string; label: string; secret?: boolean }
+export type McpRecipeField = {
+  key: string
+  label: string
+  secret?: boolean
+  options?: Array<{ value: string; label: string }>
+}
 
 export type McpRecipe = {
   id: string
@@ -2146,6 +2151,32 @@ export class RuntimeApi {
         workspaceCwd,
         ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
         ...(omit.length ? { omit } : {}),
+      }),
+    })
+    return result.data
+  }
+
+  async openBriefingMail(input: {
+    workspaceCwd?: string
+    uid?: number | string
+    mailbox?: string
+    subject?: string
+    from?: string
+    text?: string
+    signal?: AbortSignal
+  } = {}): Promise<{ url: string; landed?: boolean }> {
+    const workspaceCwd = canonicalWorkspaceCwd(input.workspaceCwd) || currentWorkspaceCwd()
+    const result = await this.request<{ ok: true; data: { url: string; landed?: boolean } }>('/api/v1/briefing/mail', {
+      method: 'POST',
+      signal: input.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceCwd,
+        ...(input.uid != null && String(input.uid).trim() ? { uid: Number(input.uid) || input.uid } : {}),
+        ...(input.mailbox ? { mailbox: input.mailbox } : {}),
+        ...(input.subject ? { subject: input.subject } : {}),
+        ...(input.from ? { from: input.from } : {}),
+        ...(input.text ? { text: input.text } : {}),
       }),
     })
     return result.data

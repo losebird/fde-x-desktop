@@ -15,6 +15,7 @@ import {
 import { ServerDetail } from '@/components/connectors/ServerDetail'
 import { ServerEditor } from '@/components/connectors/ServerEditor'
 import { ServerList } from '@/components/connectors/ServerList'
+import { nextMailServerName } from '../../runtime/mail-providers.mjs'
 import {
   SurfaceBanner,
   SurfaceButton,
@@ -188,9 +189,10 @@ export default function MCP() {
     }
     setErrors({})
     setSaveNote('')
+    const taken = mcp.map((row) => row.serverName)
     setDraft({
       ...emptyDraft(),
-      name: recipe.serverName,
+      name: recipe.id === 'mail' ? nextMailServerName(taken) : recipe.serverName,
       transport: recipe.transport,
       command: recipe.command || '',
       args: Array.isArray(recipe.args) ? recipe.args.join('\n') : '',

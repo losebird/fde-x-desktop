@@ -290,7 +290,7 @@ export default function Skills() {
 
   const saveInstall = () => {
     if (!source.trim()) {
-      setInstallError('要填写来源目录。')
+      setInstallError('要填写来源。')
       return
     }
     if (!root) {
@@ -299,7 +299,9 @@ export default function Skills() {
     }
     setBusy(true)
     setInstallError('')
-    void runtimeApi.installSkillBundle({ source: source.trim(), root, cwd: workspaceCwd() }).then(async (installed) => {
+    const abort = new AbortController()
+    const timer = window.setTimeout(() => abort.abort(), 90_000)
+    void runtimeApi.installSkillBundle({ source: source.trim(), root, cwd: workspaceCwd() }, abort.signal).then(async (installed) => {
       setInstallOpen(false)
       setSource('')
       const rows = await readUntil((items) => items.some((item) => item.path === installed.path || item.id === installed.name))
@@ -307,7 +309,10 @@ export default function Skills() {
       setPicked(installed.name)
     }).catch((cause) => {
       setInstallError(classifySurfaceFailure(cause, '没有安装成功。').message)
-    }).finally(() => setBusy(false))
+    }).finally(() => {
+      window.clearTimeout(timer)
+      setBusy(false)
+    })
   }
 
   const runUninstall = (row: SkillBagItem) => {

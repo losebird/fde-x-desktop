@@ -3,6 +3,19 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { harvestTurnToolResults, itemsFromToolResult } from '../briefing/tool-official.mjs'
 import { digestBeats, digestItems, presentBriefingItem } from '../briefing/item.mjs'
+import { webmailUrlFromHost } from '../briefing/mail-open.mjs'
+
+test('itemsFromToolResult keeps mail uid for land', () => {
+  const items = itemsFromToolResult(JSON.stringify({
+    mailbox: 'INBOX',
+    messages: [
+      { uid: 12, subject: '账单', from: 'a@qq.com' },
+    ],
+  }))
+  assert.equal(items.length, 1)
+  assert.equal(items[0].href.kind, 'mail')
+  assert.equal(items[0].href.uid, 12)
+})
 
 test('itemsFromToolResult maps a JSON collection without slicing', () => {
   const items = itemsFromToolResult(JSON.stringify({
@@ -78,6 +91,35 @@ test('presentBriefingItem drops an empty session: origin sub', () => {
   const item = presentBriefingItem({ text: '已取消的资产领用归还', sub: 'session:' })
   assert.equal(item.text, '已取消的资产领用归还')
   assert.equal(item.sub, undefined)
+})
+
+test('presentBriefingItem opens 原文 and mail uid land', () => {
+  const news = presentBriefingItem({
+    text: '数字生命卡兹克分享折腾一年的Agent自动化系统架构',
+    sub: '公众号：数字生命卡兹克 原文：https://mp.weixin.qq.com/s?id=abc',
+  })
+  assert.equal(news.href, 'https://mp.weixin.qq.com/s?id=abc')
+  const mail = presentBriefingItem({
+    subject: '2 new notifications',
+    from: 'AI Agent <noreply@skool.com>',
+    uid: 4412,
+    mailbox: 'INBOX',
+  })
+  assert.deepEqual(mail.href, {
+    kind: 'mail',
+    uid: 4412,
+    mailbox: 'INBOX',
+    subject: '2 new notifications',
+    from: 'AI Agent <noreply@skool.com>',
+  })
+  const stored = presentBriefingItem({
+    text: '2 new notifications since 1:34 am (Nov 1, 2026)',
+    sub: 'AI Agent大師學院 "(Skool)" <noreply@skool.com>',
+  })
+  assert.equal(stored.href.kind, 'mail')
+  assert.equal(stored.href.mailbox, 'INBOX')
+  assert.doesNotMatch(JSON.stringify(stored.href), /gmail/i)
+  assert.equal(presentBriefingItem({ text: 'AIHOT 精选 · 过去 24 小时', sub: '1 条，从新到旧' }), null)
 })
 
 test('presentBriefingItem drops MCP instruction cues', () => {
@@ -203,6 +245,23 @@ test('harvest ignores a stale NO_ADAPTER turn/end before this turn/start', async
   assert.equal(harvest.turnFailure, null)
 })
 
+test('harvest ends on a matching requestId turn/end even without turn/start', async () => {
+  const aiRuntime = {
+    async *stream() {
+      yield {
+        type: 'event',
+        event: {
+          type: 'turn/end',
+          data: { requestId: 'brq_late', turn: 5 },
+        },
+      }
+    },
+  }
+  const harvest = await harvestTurnToolResults(aiRuntime, 'sess', { timeoutMs: 1000, requestId: 'brq_late' })
+  assert.equal(harvest.ended, true)
+  assert.equal(harvest.turnFailure, null)
+})
+
 test('harvest ignores leftover turn/end that arrives before turn/start', async () => {
   const aiRuntime = {
     async *stream() {
@@ -221,3 +280,12 @@ test('harvest ignores leftover turn/end that arrives before turn/start', async (
   assert.equal(harvest.ended, true)
   assert.equal(harvest.turnFailure, null)
 })
+
+test('webmailUrlFromHost follows the configured IMAP host', () => {
+  assert.equal(webmailUrlFromHost('imap.qq.com', 'a@qq.com'), 'https://mail.qq.com/')
+  assert.equal(webmailUrlFromHost('imap.gmail.com', 'a@gmail.com'), 'https://mail.google.com/mail/')
+  assert.equal(webmailUrlFromHost('imap.163.com', 'a@163.com'), 'https://mail.163.com/')
+  assert.equal(webmailUrlFromHost('imap.example.com', 'a@example.com'), 'https://mail.example.com/')
+})
+
+

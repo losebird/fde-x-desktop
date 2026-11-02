@@ -20,6 +20,12 @@ const CODE_MESSAGE: Record<string, string> = {
   id_conflict: '这个名字已经有了。换一个再保存。',
   forbidden: '现在没有权限做这一步。',
   host_action_missing: '当前核心没有这一步。先重载核心再试。',
+  missing_skill_md: '这个地址里没有 SKILL.md。',
+  skill_source_fetch_failed: '没能从这个地址下载技能。',
+  ambiguous_skill_pack: '这个仓库里有多份技能，请用带目录的地址。',
+  invalid_skill_source: '来源可以是本机目录、GitHub 地址、npx skills add，或 clawhub install。',
+  clawhub_missing: '本机没有 clawhub。先安装 clawhub CLI。',
+  npx_skill_failed: 'npx skills 没有装上。',
 }
 
 const FALLBACK_RULES: Array<{ test: RegExp; say: string }> = [

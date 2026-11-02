@@ -195,6 +195,18 @@ export default function Briefing() {
     }).finally(() => setRunning(false))
   }
 
+  const openMailLand = () => {
+    void currentAiTarget().then((target) => runtimeApi.openBriefingMail({
+      workspaceCwd: target.ok ? target.cwd : undefined,
+    })).then((mail) => {
+      const url = String(mail.url || '').trim()
+      if (/^https?:\/\//i.test(url)) openAppHref(url)
+      else setAiNote('当前邮箱没有网页入口')
+    }).catch((cause) => {
+      setAiNote(cause instanceof Error ? cause.message : '没打开邮箱')
+    })
+  }
+
   const openItem = (href?: OpenRefHref | Record<string, unknown> | string) => {
     if (typeof href === 'string') {
       const url = href.trim()
@@ -202,6 +214,10 @@ export default function Briefing() {
       return
     }
     if (!href || typeof href !== 'object') return
+    if (href.kind === 'mail' || href.uid) {
+      openMailLand()
+      return
+    }
     const url = typeof href.url === 'string' ? href.url.trim() : ''
     if (/^https?:\/\//i.test(url)) {
       openAppHref(url)
@@ -342,9 +358,10 @@ export default function Briefing() {
               )
             }
 
+            const presented = (section.items || []).map((raw) => presentBriefingItem(raw)).filter(Boolean)
             return (
               <div key={section.id}>
-                <SectionTitle title={section.title} count={(section.items || []).length} />
+                <SectionTitle title={section.title} count={presented.length} />
                 <Card>
                   {section.error && (
                     <div className="text-sm text-accent-red mb-2 flex items-center justify-between gap-2">
@@ -356,13 +373,10 @@ export default function Briefing() {
                     {section.pendingAgent && !section.error && (
                       <li className="text-sm text-ink-muted py-2.5 first:pt-0 last:pb-0">采集中</li>
                     )}
-                    {(section.items || []).length === 0 && !section.error && !section.pendingAgent && (
+                    {presented.length === 0 && !section.error && !section.pendingAgent && (
                       <li className="text-sm text-ink-muted py-2.5 first:pt-0 last:pb-0">暂无内容</li>
                     )}
-                    {(section.items || []).map((raw) => {
-                      const item = presentBriefingItem(raw)
-                      if (!item) return null
-                      return (
+                    {presented.map((item) => (
                       <li key={item.ref || item.text} className="py-2.5 first:pt-0 last:pb-0 flex items-start gap-3">
                         {section.type === 'im' ? <MessageSquare size={14} className={clsx('mt-0.5 shrink-0', sectionMarkClass(section.type))} /> : <FileText size={14} className={clsx('mt-0.5 shrink-0', sectionMarkClass(section.type))} />}
                         <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openItem(item.href)}>
@@ -371,8 +385,7 @@ export default function Briefing() {
                         </button>
                         <Clock size={12} className="text-ink-subtle mt-1 shrink-0" />
                       </li>
-                      )
-                    })}
+                    ))}
                   </ul>
                 </Card>
               </div>

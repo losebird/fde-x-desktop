@@ -26,11 +26,17 @@ export function InstallDialog({
   onSave: () => void
 }) {
   return (
-    <SurfaceDialog open={open} onOpenChange={onOpenChange} title="安装技能" description="从本机目录装进一个技能根。">
+    <SurfaceDialog open={open} onOpenChange={onOpenChange} title="安装技能" description="来源可以是 GitHub 地址、npx skills add、clawhub install，或本机目录。装进下面选的技能根。">
       <div className="space-y-3">
-        <SurfaceField label="来源目录">
+        <SurfaceField label="来源">
           <div className="flex gap-2">
-            <SurfaceInput aria-label="来源目录" className="font-mono" value={source} onChange={(event) => onSource(event.target.value)} />
+            <SurfaceInput
+              aria-label="来源"
+              className="font-mono"
+              placeholder="npx skills add owner/repo  ·  clawhub install slug  ·  GitHub 地址"
+              value={source}
+              onChange={(event) => onSource(event.target.value)}
+            />
             <SurfaceButton onClick={onPick}>选择</SurfaceButton>
           </div>
         </SurfaceField>

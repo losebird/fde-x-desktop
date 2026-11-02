@@ -14,7 +14,6 @@ const require = createRequire(import.meta.url)
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const bridge = require(join(root, 'runtime', 'fde-x-dsh-bridge', 'lib', 'index.js'))
 const tools = require(join(root, 'runtime', 'fde-x-dsh-bridge', 'lib', 'tools.js'))
-const catalog = require(join(root, 'runtime', 'fde-x-dsh-bridge', 'lib', 'mcp-catalog.js'))
 const compress = promisify(zstdCompress)
 const ZSTD_CHECKSUM = { params: { [zlibConstants.ZSTD_c_checksumFlag]: 1 } }
 
@@ -196,32 +195,10 @@ test('loading a second server keeps the first server on the next request', async
   assert.equal(names.includes('mcp__playwright__click'), false)
 })
 
-test('turn end unloads MCP so the next request is catalog-only', async () => {
+test('turn/end keeps a loaded MCP server on the next request', async () => {
   const bus = createBus()
   bridge.installIuiModeGate(bus, bus.config)
-  const sessionId = 'sess-unload'
-  await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
-  const registered = []
-  tools.registerTools({
-    get config() { throw new Error('cannot get property "config" without inject') },
-    tools: { register(spec) { registered.push(spec) } },
-  }, { defineTool: (spec) => spec, config: bus.config })
-  const load = registered.find((spec) => spec.name === 'fde_mcp_load')
-  await load.execute({ server: 'mail' }, { agent: agent(sessionId) })
-  const loaded = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
-  assert.equal(loaded.tools.some((row) => row.name === 'mcp__mail__imap_search'), true)
-  catalog.unloadSessionMcp(sessionId)
-  const after = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
-  assert.equal(after.tools.some((row) => row.name === 'mcp__mail__imap_search'), false)
-  assert.equal(after.tools.some((row) => row.name === 'fde_mcp_load'), true)
-  const text = after.sections.find((row) => row && row.name === 'fde:mcp-catalog').text
-  assert.match(text, /mail \//)
-})
-
-test('session turn/end unloads MCP through the Host event', async () => {
-  const bus = createBus()
-  bridge.installIuiModeGate(bus, bus.config)
-  const sessionId = 'sess-turn-event'
+  const sessionId = 'sess-keep-loaded'
   await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
   const registered = []
   tools.registerTools({
@@ -232,7 +209,9 @@ test('session turn/end unloads MCP through the Host event', async () => {
   await load.execute({ server: 'mail' }, { agent: agent(sessionId) })
   bus.emit('session/event', { id: sessionId }, { type: 'turn/end', data: { turn: 1 } })
   const after = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
-  assert.equal(after.tools.some((row) => row.name === 'mcp__mail__imap_search'), false)
+  assert.equal(after.tools.some((row) => row.name === 'mcp__mail__imap_search'), true)
+  const catalog = after.sections.find((row) => row && row.name === 'fde:mcp-catalog')
+  assert.equal(catalog.text.includes('mail /'), false)
 })
 
 test('a host restart restores every loaded server from the session log', async () => {
@@ -272,11 +251,11 @@ test('a host restart restores every loaded server from the session log', async (
   }
 })
 
-test('a host restart after turn/end does not restore loaded MCP', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'fde-mcp-unload-log-'))
+test('a host restart after turn/end still restores loaded MCP', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'fde-mcp-keep-log-'))
   const previous = process.env.FDE_DSH_SESSION_ROOT
   process.env.FDE_DSH_SESSION_ROOT = home
-  const sessionId = 'sess-restart-unloaded'
+  const sessionId = 'sess-restart-keep'
   try {
     await writeLoadLog(home, sessionId, ['mail', 'ai-hot'], [{ seq: 99, type: 'turn/end', data: { turn: 1 } }])
     const rows = [
@@ -288,11 +267,10 @@ test('a host restart after turn/end does not restore loaded MCP', async () => {
     const bus = createBus(() => rows)
     bridge.installIuiModeGate(bus, bus.config)
     const assembled = await bus.waterfall('system-prompt/assemble', null, { agent: agent(sessionId) })
-    assert.equal(assembled.tools.some((row) => row.name === 'mcp__mail__imap_search'), false)
-    assert.equal(assembled.tools.some((row) => row.name === 'mcp__ai-hot__aihot_get_latest'), false)
-    const catalogText = assembled.sections.find((row) => row && row.name === 'fde:mcp-catalog').text
-    assert.match(catalogText, /mail \//)
-    assert.match(catalogText, /ai-hot \//)
+    assert.equal(assembled.tools.some((row) => row.name === 'mcp__mail__imap_search'), true)
+    assert.equal(assembled.tools.some((row) => row.name === 'mcp__ai-hot__aihot_get_latest'), true)
+    const catalogSection = (assembled.sections || []).find((row) => row && row.name === 'fde:mcp-catalog')
+    assert.equal(catalogSection, undefined)
   } finally {
     if (previous == null) delete process.env.FDE_DSH_SESSION_ROOT
     else process.env.FDE_DSH_SESSION_ROOT = previous

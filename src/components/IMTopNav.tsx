@@ -1,7 +1,7 @@
 // 顶部导航：AI 固定为主工作区；IM、早报、计划等统一控制右侧功能面板。
 import {
   Newspaper, ClipboardList, Folder, Database,
-  Plug, Wand2, Brain, Settings, Command, MessageCircleMore,
+  Plug, Wand2, Brain, Settings, Command, MessageCircleMore, X,
   type LucideIcon,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -15,7 +15,9 @@ const ICON: Record<string, LucideIcon> = {
 
 export function IMTopNav() {
   const panels = useApp((state) => state.panels)
+  const floating = useApp((state) => state.floating)
   const togglePanel = useApp((state) => state.togglePanel)
+  const closePanel = useApp((state) => state.closePanel)
   const openIMPanel = useApp((state) => state.openIMPanel)
   const setPaletteOpen = useApp((state) => state.setPaletteOpen)
 
@@ -27,28 +29,53 @@ export function IMTopNav() {
         const Icon = ICON[panel.icon] ?? ClipboardList
         const isOpen = panel.state !== 'closed'
         const isActive = panel.state === 'full' || panel.state === 'half'
+        const isFloating = Boolean(floating[panel.view])
         const badge = panel.badge
+        const titleParts = [panel.label]
+        if (panel.id === 'im') titleParts.push('AI 可自动调用')
+        else if (panel.pinned) titleParts.push('默认钉住')
+        if (isActive) titleParts.push('当前打开')
+        else if (isOpen) titleParts.push('已停靠')
+        if (isFloating) titleParts.push('浮窗中')
+        if (panel.dirty) titleParts.push('有未保存内容')
         return (
-          <button
-            key={panel.id}
-            type="button"
-            onClick={() => panel.id === 'im' && !isActive ? openIMPanel() : togglePanel(panel.id, isActive ? 'tab' : 'full')}
-            className={clsx(
-              'flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs transition-colors',
-              isOpen
-                ? 'bg-surface text-ink shadow-sm font-medium'
-                : 'text-ink-muted hover:bg-surface hover:text-ink',
+          <div key={panel.id} className="relative group">
+            <button
+              type="button"
+              onClick={() => panel.id === 'im' && !isActive ? openIMPanel() : togglePanel(panel.id, isActive ? 'tab' : 'full')}
+              className={clsx(
+                'flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs transition-colors',
+                isActive && 'ring-2 ring-brand/20',
+                isOpen
+                  ? 'bg-surface text-ink shadow-sm font-medium'
+                  : 'text-ink-muted hover:bg-surface hover:text-ink',
+              )}
+              title={titleParts.join(' · ')}
+            >
+              <Icon size={12} />
+              <span className="hidden md:inline">{panel.label}</span>
+              {panel.dirty && <span className="w-1.5 h-1.5 rounded-full bg-accent-amber" title="有未保存的改动" />}
+              {!!badge && badge > 0 && (
+                <span className="min-w-3.5 h-3.5 px-1 rounded-full bg-accent-red text-white text-[9px] flex items-center justify-center">
+                  {badge > 99 ? '99+' : badge}
+                </span>
+              )}
+            </button>
+            {isOpen && (
+              <button
+                type="button"
+                className="absolute -top-0.5 -right-0.5 z-10 w-3.5 h-3.5 rounded-full bg-ink/70 hover:bg-accent-red text-white flex items-center justify-center opacity-0 group-hover:opacity-100"
+                title={`关闭${panel.label}`}
+                aria-label={`关闭${panel.label}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  closePanel(panel.id)
+                }}
+              >
+                <X size={9} strokeWidth={2.5} />
+              </button>
             )}
-            title={`${panel.label}${panel.id === 'im' ? ' · AI 可自动调用' : panel.pinned ? ' · 默认钉住' : ''}`}
-          >
-            <Icon size={12} />
-            <span className="hidden md:inline">{panel.label}</span>
-            {!!badge && badge > 0 && (
-              <span className="min-w-3.5 h-3.5 px-1 rounded-full bg-accent-red text-white text-[9px] flex items-center justify-center">
-                {badge > 99 ? '99+' : badge}
-              </span>
-            )}
-          </button>
+          </div>
         )
       })}
       <div className="w-px h-4 bg-line mx-1" />

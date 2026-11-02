@@ -487,12 +487,28 @@ test('collectBag skill keeps Host skills and appends extra skill namespaces', as
       return { skills: [{ name: 'note' }] }
     },
   }
-  const first = await collectBag(firstPaintRuntime, 'skill', {}, verbs)
-  assert.equal(listed, 0)
-  assert.equal(first.items.length, 1)
-  assert.equal(first.items[0].fields.origin, 'face')
-  const empty = await collectBag(undefined, 'skill', {}, verbsFromTypertText(SAMPLE))
-  assert.equal(empty.items.length, 0)
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'fde-skill-bag-'))
+  const prevHome = process.env.FDE_DSH_HOME
+  const prevAgents = process.env.DSH_AGENTS_HOME
+  process.env.FDE_DSH_HOME = home
+  process.env.DSH_AGENTS_HOME = join(home, 'agents')
+  try {
+    const first = await collectBag(firstPaintRuntime, 'skill', {}, verbs)
+    assert.equal(listed, 0)
+    assert.equal(first.items.length, 1)
+    assert.equal(first.items[0].fields.origin, 'face')
+    const empty = await collectBag(undefined, 'skill', {}, verbsFromTypertText(SAMPLE))
+    assert.equal(empty.items.length, 0)
+  } finally {
+    if (prevHome == null) delete process.env.FDE_DSH_HOME
+    else process.env.FDE_DSH_HOME = prevHome
+    if (prevAgents == null) delete process.env.DSH_AGENTS_HOME
+    else process.env.DSH_AGENTS_HOME = prevAgents
+    await rm(home, { recursive: true, force: true })
+  }
 })
 
 test('collectBag fills a workspace vocab kind from 现查 matches', async () => {

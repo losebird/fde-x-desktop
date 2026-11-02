@@ -357,6 +357,28 @@ export async function collectBag(aiRuntime, kind, input = {}, verbs) {
         fields: { id: ns, name: ns, methods, origin: 'face' },
       })
     }
+    const { listSkillManifests } = await import('./skill-bundle.mjs')
+    const disk = await listSkillManifests(aiRuntime, input.cwd || input.workspaceCwd || '')
+    const seenDisk = new Set(bag.items.map((row) => row.id))
+    for (const row of disk) {
+      if (seenDisk.has(row.name)) continue
+      seenDisk.add(row.name)
+      bag.items.push({
+        kind: 'skill',
+        id: row.name,
+        title: row.name,
+        href: { panel: 'skills' },
+        fields: {
+          id: row.name,
+          name: row.name,
+          description: row.description,
+          path: row.path,
+          bundleRoot: row.bundleRoot,
+          origin: 'catalog',
+          modelInvocable: true,
+        },
+      })
+    }
     bag.raw = { items: bag.items.map((row) => ({ ...(row.fields && typeof row.fields === 'object' ? row.fields : {}), id: row.id, name: row.title })) }
     return bag
   }

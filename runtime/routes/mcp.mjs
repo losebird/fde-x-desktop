@@ -12,6 +12,8 @@ import { resolveHttpWorkspace } from '../http-workspace.mjs'
 import { desktopProcessPath } from '../desktop-process-path.mjs'
 import { loadBizVocab, vocabCatalogVersion } from '../biz/vocab-sheet.mjs'
 import { collectBag } from '../catalog-collect.mjs'
+import { writeMailEnvFile } from '../briefing/mail-open.mjs'
+import { isMailMcpServerName, isMailProbeEntry, mailImapErrorText } from '../mail-providers.mjs'
 import { resolvePrimarySessionForRuntime } from '../session-primary.mjs'
 import {
   decorateDiscoveredMcpRows,
@@ -575,6 +577,13 @@ function jsonRpcMessagesFromStdio(text) {
   return messages
 }
 
+function mcpToolResultText(result) {
+  if (!result || typeof result !== 'object') return ''
+  if (typeof result.text === 'string') return result.text
+  const content = Array.isArray(result.content) ? result.content : []
+  return content.map((row) => (row && typeof row.text === 'string' ? row.text : '')).filter(Boolean).join('\n')
+}
+
 function firstStderrLine(text) {
   return String(text || '')
     .split('\n')
@@ -640,14 +649,45 @@ async function probeMcpStdioInitialize(entry, timeoutMs = 8000) {
       resolve(result)
     }
     const timer = setTimeout(() => finish({ ok: false, message: 'timeout' }), timeoutMs)
+    let phase = 'init'
     const consider = () => {
       for (const message of jsonRpcMessagesFromStdio(out)) {
-        if (message && message.id === 1 && message.result !== undefined) {
-          finish({ ok: true, message: 'MCP 可达' })
+        if (phase === 'init' && message && message.id === 1 && message.result !== undefined) {
+          if (!isMailProbeEntry(entry)) {
+            finish({ ok: true, message: 'MCP 可达' })
+            return
+          }
+          phase = 'mailbox'
+          try {
+            child.stdin.write(mcpStdioFrame({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }))
+            child.stdin.write(mcpStdioFrame({
+              jsonrpc: '2.0',
+              id: 2,
+              method: 'tools/call',
+              params: { name: 'imap_list_mailboxes', arguments: {} },
+            }))
+          } catch (error) {
+            finish({ ok: false, message: error instanceof Error ? error.message : String(error) })
+          }
+          continue
+        }
+        if (phase === 'init' && message && message.id === 1 && message.error) {
+          finish({ ok: false, message: String(message.error.message || message.error.code || 'MCP error') })
           return
         }
-        if (message && message.id === 1 && message.error) {
-          finish({ ok: false, message: String(message.error.message || message.error.code || 'MCP error') })
+        if (phase === 'mailbox' && message && message.id === 2) {
+          if (message.error) {
+            finish({ ok: false, message: mailImapErrorText(message.error.message) || String(message.error.message || message.error.code || 'MCP error') })
+            return
+          }
+          const text = mcpToolResultText(message.result)
+          const folded = mailImapErrorText(text)
+          if (message.result?.isError || folded) {
+            finish({ ok: false, message: folded || text || '邮箱登录失败' })
+            return
+          }
+          finish({ ok: true, message: '邮箱登录成功' })
+          return
         }
       }
     }
@@ -708,7 +748,7 @@ export async function checkMcpHealth(entry) {
   }
   const command = String(entry.command || '').trim()
   if (!command) return { ok: false, message: '缺少 command' }
-  return probeMcpStdioInitialize(entry)
+  return probeMcpStdioInitialize(entry, isMailProbeEntry(entry) ? 20_000 : 8_000)
 }
 
 export function mcpArchiveWriteNote(connected) {
@@ -782,7 +822,10 @@ export async function handleMcpRoutes(request, response, url, ctx) {
         return true
       }
     }
-    const health = await withProbeTimeout(checkMcpHealth(built.entry))
+    const health = await withProbeTimeout(
+      checkMcpHealth(built.entry),
+      isMailProbeEntry(built.entry) ? 20_000 : PROBE_TIMEOUT_MS,
+    )
     sendJson(response, 200, { data: health, correlationId: currentCorrelationId })
     return true
   }
@@ -854,6 +897,7 @@ export async function handleMcpRoutes(request, response, url, ctx) {
         return true
       }
       entry = { serverName, transport, command, args, env, ...(cwd ? { cwd } : {}) }
+      if (serverName === 'mail' && env) writeMailEnvFile(env)
     }
     const next = upsertMcpPatchEntry(text, entry)
     await writeNormalizedPatch(archivePath, next)

@@ -1,11 +1,61 @@
 import { randomBytes } from 'node:crypto'
+import { collectBag } from '../catalog-collect.mjs'
 import { buildContextPack, renderContextForPrompt } from '../context-pack.mjs'
 import { callHostMcp, mcpPublicName } from '../host-mcp-call.mjs'
+import { isMailMcpRow, isMailMcpServerName, mailImapErrorText, mailToolOf } from '../mail-providers.mjs'
 import { waitUntilSessionIdle } from '../session-primary.mjs'
-import { briefingTurnFailureText, harvestTurnToolResults } from './tool-official.mjs'
+import { briefingTurnFailureText, harvestTurnToolResults, itemsFromToolResult } from './tool-official.mjs'
 
 function briefingRequestId() {
   return `brq_${randomBytes(12).toString('hex')}`
+}
+
+export function briefingToolErrorText(raw) {
+  const folded = mailImapErrorText(raw)
+  if (folded) return folded
+  const text = String(raw || '').trim()
+  let inner = text
+  try {
+    const parsed = JSON.parse(text)
+    if (parsed && typeof parsed === 'object' && typeof parsed.error === 'string') inner = parsed.error
+  } catch {
+    /* keep */
+  }
+  return inner || text
+}
+
+export function mailHarvestLabel(row) {
+  const env = row && row.env && typeof row.env === 'object' ? row.env : {}
+  const host = String(env.IMAP_HOST || '').toLowerCase()
+  if (host.includes('gmail') || host.includes('googlemail')) return 'Gmail'
+  if (host.includes('qq.com') || host.includes('foxmail')) return 'QQ 邮箱'
+  if (host.includes('163.com')) return '163 邮箱'
+  if (host.includes('126.com')) return '126 邮箱'
+  if (host.includes('outlook') || host.includes('office365') || host.includes('hotmail') || host.includes('live.com')) return 'Outlook'
+  const user = String(env.EMAIL_USER || env.IMAP_USER || '').trim()
+  if (user.includes('@')) return user.split('@')[1]
+  return String(row?.serverName || row?.server || '邮箱').trim()
+}
+
+export function mergeMailboxHarvest(results, limit = 8) {
+  const rows = Array.isArray(results) ? results : []
+  const cap = Number(limit)
+  const max = Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : 8
+  const buckets = rows.map((row) => (Array.isArray(row?.items) ? row.items : []))
+  const items = []
+  for (let index = 0; items.length < max; index += 1) {
+    let added = false
+    for (const bucket of buckets) {
+      if (index < bucket.length) {
+        items.push(bucket[index])
+        added = true
+        if (items.length >= max) break
+      }
+    }
+    if (!added) break
+  }
+  const errors = rows.map((row) => String(row?.error || '').trim()).filter(Boolean)
+  return { items, error: errors.join('；') }
 }
 
 export function fenceUntrustedBriefingText(text, max = 80) {
@@ -57,6 +107,7 @@ export async function runBriefingAgent(deps, {
   internalSections,
   timeoutMs = 180_000,
   omit,
+  onMcpCollected,
 }) {
   const { db, aiRuntime } = deps
   if (!aiRuntime?.status?.().connected) {
@@ -73,7 +124,63 @@ export async function runBriefingAgent(deps, {
 
   const blocked = []
   const toolResults = {}
-  for (const block of sections.filter((row) => row.enabled && row.type === 'mcp')) {
+  const mcpBlocks = sections.filter((row) => row.enabled && row.type === 'mcp')
+  const mailBlocks = mcpBlocks.filter((row) => isMailMcpServerName(blockParams(row).server))
+  const otherBlocks = mcpBlocks.filter((row) => !isMailMcpServerName(blockParams(row).server))
+  const sink = mailBlocks[0]
+  if (sink) {
+    let mcpRows = []
+    try {
+      const bag = await collectBag(aiRuntime, 'mcp', { project: true, cwd: workspaceCwd })
+      mcpRows = Array.isArray(bag.raw?.mcp) ? bag.raw.mcp : []
+    } catch {
+      mcpRows = []
+    }
+    const targets = mcpRows.filter((row) => isMailMcpRow(row) && row.disabled !== true)
+    const list = targets.length
+      ? targets
+      : mailBlocks.map((row) => ({ serverName: blockParams(row).server, tools: [blockParams(row).tool] }))
+    const args = blockParams(sink).args
+    const limit = Number(blockParams(sink).limit) || Number(args?.limit) || 8
+    const harvest = []
+    const perBox = Math.max(1, Math.ceil(limit / Math.max(1, list.length)))
+    for (const row of list) {
+      const label = mailHarvestLabel(row)
+      const tool = mailToolOf(row, blockParams(sink).tool)
+      const named = mcpPublicName(row.serverName, tool)
+      if (named.error) {
+        harvest.push({ error: `${label}：${named.error}`, items: [] })
+        continue
+      }
+      const called = await callBlock(aiRuntime, {
+        params: { server: row.serverName, tool, args },
+      }, sessionId)
+      if (called.error) {
+        harvest.push({ error: `${label}：${briefingToolErrorText(called.error)}`, items: [] })
+        continue
+      }
+      harvest.push({
+        items: itemsFromToolResult(called.text, { limit: perBox }).map((item) => ({
+          ...item,
+          sub: [label, item.sub].filter(Boolean).join(' · '),
+        })),
+      })
+    }
+    const merged = mergeMailboxHarvest(harvest, limit)
+    const payload = {
+      text: merged.items.length ? JSON.stringify(merged.items) : '',
+      items: merged.items,
+      ...(merged.error ? { error: merged.error } : {}),
+    }
+    if (!merged.items.length && merged.error) {
+      blocked.push({ id: sink.id, error: merged.error })
+    } else {
+      const toolKey = String(blockParams(sink).tool || '').trim()
+      if (toolKey) toolResults[toolKey] = payload
+      toolResults[sink.id] = payload
+    }
+  }
+  for (const block of otherBlocks) {
     const called = await callBlock(aiRuntime, block, sessionId)
     if (called.error) {
       blocked.push({ id: block.id, error: called.error })
@@ -81,6 +188,11 @@ export async function runBriefingAgent(deps, {
     }
     const key = String(blockParams(block).tool || '').trim()
     if (key) toolResults[key] = { text: called.text }
+    toolResults[block.id] = { text: called.text }
+  }
+
+  if (typeof onMcpCollected === 'function') {
+    await onMcpCollected({ toolResults, blocked })
   }
 
   const aiBlocks = sections.filter((row) => row.enabled && row.type === 'ai')
@@ -137,6 +249,13 @@ export async function runBriefingAgent(deps, {
     contextText,
   })
 
+  const harvestAbort = new AbortController()
+  const harvestPromise = harvestTurnToolResults(aiRuntime, sessionId, {
+    timeoutMs,
+    requestId: agentRequestId,
+    signal: harvestAbort.signal,
+  })
+  await new Promise((resolve) => setImmediate(resolve))
   try {
     await aiRuntime.call('session/prompt', {
       request: {
@@ -147,6 +266,7 @@ export async function runBriefingAgent(deps, {
       },
     })
   } catch (error) {
+    harvestAbort.abort()
     return {
       ok: false,
       error: error instanceof Error ? error.message : '发送早报 prompt 失败',
@@ -156,7 +276,7 @@ export async function runBriefingAgent(deps, {
     }
   }
 
-  const harvest = await harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs, requestId: agentRequestId })
+  const harvest = await harvestPromise
   const turnError = briefingTurnFailureText(harvest.turnFailure)
   return {
     ok: harvest.ended && !turnError,

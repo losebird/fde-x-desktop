@@ -39,7 +39,7 @@ function tryJson(text) {
 function collectionRows(parsed) {
   if (Array.isArray(parsed)) return parsed
   if (!isRecord(parsed)) return null
-  for (const key of ['items', 'results']) {
+  for (const key of ['items', 'results', 'messages', 'emails', 'articles', 'posts']) {
     if (Array.isArray(parsed[key])) return parsed[key]
   }
   const arrays = Object.values(parsed).filter((value) => (
@@ -180,13 +180,18 @@ function eventRequestId(event) {
   return ''
 }
 
-export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs = 180_000, requestId = '' } = {}) {
+export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs = 180_000, requestId = '', signal } = {}) {
   const byTool = {}
   if (!aiRuntime || typeof aiRuntime.stream !== 'function' || !sessionId) {
     return { byTool, ended: false }
   }
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), timeoutMs)
+  const onAbort = () => abort.abort()
+  if (signal) {
+    if (signal.aborted) abort.abort()
+    else signal.addEventListener('abort', onAbort, { once: true })
+  }
   const names = new Map()
   const wanted = String(requestId || '').trim()
   let inTurn = false
@@ -209,6 +214,14 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
         for (const key of Object.keys(byTool)) delete byTool[key]
         continue
       }
+      if (event.type === 'turn/end') {
+        if (inTurn || (wanted && rid === wanted)) {
+          ended = true
+          turnFailure = briefingTurnFailure(event)
+          break
+        }
+        continue
+      }
       if (!inTurn) continue
       if (event.type === 'tool/call') {
         const data = isRecord(event.data) ? event.data : {}
@@ -224,11 +237,6 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
         byTool[name] = { text: payload.text, error: payload.error }
         continue
       }
-      if (event.type === 'turn/end') {
-        ended = true
-        turnFailure = briefingTurnFailure(event)
-        break
-      }
     }
   } catch (error) {
     if (!(error && error.name === 'AbortError')) {
@@ -236,6 +244,7 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
     }
   } finally {
     clearTimeout(timer)
+    if (signal) signal.removeEventListener('abort', onAbort)
     abort.abort()
   }
   return { byTool, ended, turnFailure }

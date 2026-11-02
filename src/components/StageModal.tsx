@@ -121,7 +121,7 @@ export function StageModal({
           <div className="flex-1" />
           <button
             className="p-1.5 rounded hover:bg-line text-ink-muted"
-            title="最小化到缩略图(tab 态)"
+            title="最小化到顶栏"
             onClick={() => setPanelState(item.id, 'tab')}
           >
             <Minus size={14} />

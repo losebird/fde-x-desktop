@@ -224,7 +224,7 @@ test('runBriefingAgent calls the host with block params and puts the text in the
       })
       assert.deepEqual(result.blocked, [])
       assert.equal(result.toolResults['mcp__ai-hot__aihot_get_latest'].text, 'fake-news-item')
-      assert.equal(result.toolResults.imap_search.text, 'fake-mail-item')
+      assert.equal(result.toolResults.imap_search.items[0].text, 'fake-mail-item')
       assert.equal(fetches.length, 2)
       const news = fetches.find((row) => row.body.name === 'mcp__ai-hot__aihot_get_latest')
       const mail = fetches.find((row) => row.body.name === 'mcp__mail__imap_search')
@@ -243,6 +243,10 @@ test('runBriefingAgent calls the host with block params and puts the text in the
       assert.doesNotMatch(text, /必须在本轮调用/)
       assert.doesNotMatch(text, /会话未投影/)
       assert.equal(calls.filter((row) => row.endpoint === 'session/follow').length, 1)
+      const followAt = calls.findIndex((row) => row.endpoint === 'session/follow')
+      const promptAt = calls.findIndex((row) => row.endpoint === 'session/prompt')
+      assert.ok(followAt >= 0 && promptAt >= 0)
+      assert.ok(followAt < promptAt)
     } finally {
       globalThis.fetch = original
     }

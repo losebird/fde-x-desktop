@@ -1,4 +1,5 @@
-import { SurfaceBanner, SurfaceButton, SurfaceDialog, SurfaceField, SurfaceInput, SurfaceSegmented, SurfaceTextarea } from '@/components/surface'
+import { SurfaceBanner, SurfaceButton, SurfaceDialog, SurfaceField, SurfaceInput, SurfaceSelect, SurfaceSegmented, SurfaceTextarea } from '@/components/surface'
+import { mailProviderById } from '../../../runtime/mail-providers.mjs'
 import { TemplatePicker } from '@/components/connectors/TemplatePicker'
 import type { DraftErrors, McpDraft } from '@/components/connectors/draft'
 import type { McpDiscoverRow, McpRecipe } from '@/lib/runtime-api'
@@ -78,31 +79,61 @@ export function ServerEditor({
         </div>
         {draft.transport === 'stdio' ? (
           <>
-            {fields.filter((field) => field.key !== 'url').map((field) => (
-              <SurfaceField key={field.key} label={field.label}>
-                <SurfaceInput
-                  aria-label={field.label}
-                  type={field.secret ? 'password' : 'text'}
-                  value={draft.fieldValues[field.key] || ''}
-                  onChange={(event) => onChange({ fieldValues: { ...draft.fieldValues, [field.key]: event.target.value } })}
-                />
+            {fields.filter((field) => {
+              if (field.key === 'url') return false
+              if (draft.recipeId !== 'mail') return true
+              const provider = String(draft.fieldValues.MAIL_PROVIDER || '')
+              if (['IMAP_HOST', 'IMAP_PORT', 'SMTP_HOST', 'SMTP_PORT'].includes(field.key)) {
+                return provider === 'custom'
+              }
+              return true
+            }).map((field) => (
+              <SurfaceField
+                key={field.key}
+                label={field.label}
+                error={errors[field.key as keyof typeof errors]}
+                hint={field.key === 'IMAP_PASS' ? (mailProviderById(draft.fieldValues.MAIL_PROVIDER)?.hint || '') : undefined}
+              >
+                {Array.isArray(field.options) && field.options.length ? (
+                  <SurfaceSelect
+                    aria-label={field.label}
+                    value={draft.fieldValues[field.key] || ''}
+                    onChange={(event) => onChange({ fieldValues: { ...draft.fieldValues, [field.key]: event.target.value } })}
+                  >
+                    <option value="">选择厂家</option>
+                    {field.options.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </SurfaceSelect>
+                ) : (
+                  <SurfaceInput
+                    aria-label={field.label}
+                    type={field.secret ? 'password' : 'text'}
+                    value={draft.fieldValues[field.key] || ''}
+                    onChange={(event) => onChange({ fieldValues: { ...draft.fieldValues, [field.key]: event.target.value } })}
+                  />
+                )}
               </SurfaceField>
             ))}
-            <SurfaceField label="启动命令" error={errors.command}>
-              <SurfaceInput
-                aria-label="启动命令"
-                className="font-mono"
-                value={draft.command}
-                aria-invalid={Boolean(errors.command)}
-                onChange={(event) => onChange({ command: event.target.value })}
-              />
-            </SurfaceField>
-            <SurfaceField label="参数" hint="一行一个。">
-              <SurfaceTextarea aria-label="参数" className="font-mono" rows={3} value={draft.args} onChange={(event) => onChange({ args: event.target.value })} />
-            </SurfaceField>
-            <SurfaceField label="环境变量" error={errors.env} hint="每行写成 名称=值。">
-              <SurfaceTextarea aria-label="环境变量" className="font-mono" rows={4} value={draft.env} aria-invalid={Boolean(errors.env)} onChange={(event) => onChange({ env: event.target.value })} />
-            </SurfaceField>
+            {draft.recipeId === 'mail' ? null : (
+              <>
+                <SurfaceField label="启动命令" error={errors.command}>
+                  <SurfaceInput
+                    aria-label="启动命令"
+                    className="font-mono"
+                    value={draft.command}
+                    aria-invalid={Boolean(errors.command)}
+                    onChange={(event) => onChange({ command: event.target.value })}
+                  />
+                </SurfaceField>
+                <SurfaceField label="参数" hint="一行一个。">
+                  <SurfaceTextarea aria-label="参数" className="font-mono" rows={3} value={draft.args} onChange={(event) => onChange({ args: event.target.value })} />
+                </SurfaceField>
+                <SurfaceField label="环境变量" error={errors.env} hint="每行写成 名称=值。">
+                  <SurfaceTextarea aria-label="环境变量" className="font-mono" rows={4} value={draft.env} aria-invalid={Boolean(errors.env)} onChange={(event) => onChange({ env: event.target.value })} />
+                </SurfaceField>
+              </>
+            )}
           </>
         ) : (
           <>

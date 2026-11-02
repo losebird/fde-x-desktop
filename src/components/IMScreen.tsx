@@ -1,4 +1,4 @@
-// 工作台主壳：AI 永久作为主工作区，IM 与业务能力统一从右侧功能面板打开。
+// 工作台主壳：AI 永久作为主工作区，IM 与业务能力从顶栏打开功能面板。
 import { useEffect } from 'react'
 import { useEvents } from '@/lib/events'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -13,7 +13,6 @@ import { CommandPalette } from './CommandPalette'
 import { FloatingPanel } from './FloatingPanel'
 import { IMMiniHeader } from './IMMiniHeader'
 import { StagePanel } from './StagePanel'
-import { ThumbnailStack } from './ThumbnailStack'
 
 const ROUTE_PANEL: Record<string, string> = {
   im: 'im',
@@ -124,7 +123,6 @@ export function IMScreen() {
           <StagePanel item={activePanel} overlay={false} />
         </div>
       </div>
-      <ThumbnailStack />
       <CommandPalette />
       <FloatingPanel />
       <Outlet />

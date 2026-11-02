@@ -494,6 +494,11 @@ export function BriefingSettingsDrawer({
                     />
                     summarize
                   </label>
+                  {/^mail(?:-|$)/.test(String(section.params?.server || '')) && (
+                    <div className="text-xs text-ink-muted">
+                      已接的多家邮箱会汇总进这一块。到连接器页添加邮箱：选厂家，填账号和密码。
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -13,6 +13,8 @@ test('mail recipe points at the bundled launcher', () => {
   assert.equal(mail.available, true)
   assert.equal(mail.transport, 'stdio')
   assert.equal(mail.args[0].endsWith('mail-mcp-launch.mjs'), true)
+  assert.equal(mail.fields.some((field) => field.key === 'MAIL_PROVIDER'), true)
+  assert.equal(mail.fields.some((field) => field.key === 'IMAP_USER'), true)
   assert.equal(mail.fields.some((field) => field.key === 'IMAP_HOST'), true)
 })
 

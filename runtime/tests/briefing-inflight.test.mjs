@@ -4,9 +4,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { openDatabase } from '../db.mjs'
-import { createBriefingRun, getBriefing, getLatestBriefing, getOrCreateDefinition } from '../briefing/store.mjs'
+import { defaultSchedule, defaultSections } from '../briefing/defaults.mjs'
+import { createBriefingRun, getBriefing, getLatestBriefing, getOrCreateDefinition, saveDefinition } from '../briefing/store.mjs'
 import { runBriefing } from '../briefing/run.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -187,4 +189,86 @@ test('Briefing land uses onOpen=0; openRef increments land', () => {
   const routes = readFileSync(join(repoRoot, 'runtime/routes/briefing.mjs'), 'utf8')
   assert.match(routes, /skipIfCanvas: true/)
   assert.match(routes, /canvasSessionId/)
+})
+
+test('MCP sections leave 采集中 as soon as host collect returns, before harvest ends', async () => {
+  const path = '/tmp/fde-x-briefing-mcp-flush.sqlite'
+  const cwd = '/tmp/fde-x-briefing-mcp-flush-ws'
+  await rm(path, { force: true }).catch(() => undefined)
+  const db = makeDb(path)
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT OR REPLACE INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_mcp_flush', 't', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd }), now, now)
+  getOrCreateDefinition(db, cwd)
+  const sections = defaultSections().map((row) => (
+    row.type === 'ai' ? row : { ...row, enabled: false }
+  ))
+  sections.push({
+    id: 'news',
+    type: 'mcp',
+    title: '行业资讯',
+    enabled: true,
+    render: 'list',
+    params: { server: 'ai-hot', tool: 'mcp__ai-hot__aihot_get_latest', args: { limit: 3 } },
+  })
+  saveDefinition(db, cwd, { sections, schedule: defaultSchedule() })
+
+  const home = await mkdtemp(join(tmpdir(), 'fde-briefing-mcp-flush-'))
+  const previous = process.env.FDE_DSH_HOME
+  process.env.FDE_DSH_HOME = home
+  await mkdir(join(home, 'run'), { recursive: true })
+  await writeFile(join(home, 'run', 'bridge.token'), 'bridge-token\n')
+
+  let releaseFollow
+  const followGate = new Promise((resolve) => { releaseFollow = resolve })
+  let flushedBeforeHarvest = false
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ ok: true, text: 'fake-news-item' }),
+  })
+  const aiRuntime = {
+    dshHome: home,
+    status: () => ({ connected: true, origin: 'http://127.0.0.1:9' }),
+    call: async (endpoint) => {
+      if (endpoint === 'session/list') {
+        return { items: [{ sessionId: 'sess-flush', cwd, origin: 'user', updatedAt: 2, running: false }] }
+      }
+      if (endpoint === 'session/create') {
+        assert.fail('briefing must not create an fde-briefing session')
+      }
+      if (endpoint === 'session/prompt') {
+        const latest = getLatestBriefing(db, cwd)
+        const news = (latest?.sections || []).find((row) => row.id === 'news')
+        assert.equal(news?.pendingAgent, false)
+        assert.equal(news?.items?.[0]?.text, 'fake-news-item')
+        flushedBeforeHarvest = true
+        releaseFollow()
+        return {}
+      }
+      return {}
+    },
+    async *stream(endpoint) {
+      if (endpoint !== 'session/follow') return
+      await followGate
+      yield { type: 'event', event: { type: 'turn/start', data: {} } }
+      yield { type: 'event', event: { type: 'turn/end', data: {} } }
+    },
+  }
+  try {
+    const result = await runBriefing({ db, aiRuntime }, { workspaceCwd: cwd, mode: 'full', sessionId: 'sess-flush' })
+    assert.equal(flushedBeforeHarvest, true)
+    const news = (result.briefing?.sections || []).find((row) => row.id === 'news')
+    assert.equal(news?.pendingAgent, false)
+    assert.equal(news?.items?.[0]?.text, 'fake-news-item')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (previous == null) delete process.env.FDE_DSH_HOME
+    else process.env.FDE_DSH_HOME = previous
+    db.close()
+    await rm(home, { recursive: true, force: true })
+  }
 })

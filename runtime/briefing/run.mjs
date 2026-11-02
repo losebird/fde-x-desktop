@@ -4,6 +4,7 @@ import { invalidateHostSessionList, resolvePrimarySessionForRuntime } from '../s
 import { stageBriefingSessionAllow } from './session.mjs'
 import { collectInternalSection } from './collectors.mjs'
 import { runBriefingAgent } from './ask-ai.mjs'
+import { isMailMcpServerName } from '../mail-providers.mjs'
 import { itemsFromToolResult } from './tool-official.mjs'
 import { digestBeats, presentBriefingItem } from './item.mjs'
 import {
@@ -50,6 +51,56 @@ function explainMissingSubmit(agentError) {
 function presentItems(items) {
   if (!Array.isArray(items)) return items
   return items.map((row) => presentBriefingItem(row)).filter(Boolean)
+}
+
+function mcpHitForSection(section, def, toolResults) {
+  const tool = String(def?.params?.tool || '').trim()
+  if (tool && toolResults[tool]) return toolResults[tool]
+  if (toolResults[section.id]) return toolResults[section.id]
+  return null
+}
+
+function applyMcpSections(sections, enabled, toolResults, blocked, { requireHit = true } = {}) {
+  for (const row of blocked || []) {
+    const idx = sections.findIndex((section) => section.id === row.id)
+    if (idx < 0) continue
+    sections[idx] = { ...sections[idx], error: row.error, pendingAgent: false, items: [] }
+  }
+  for (const section of sections) {
+    if (section.type !== 'mcp' || !section.pendingAgent) continue
+    const def = enabled.find((row) => row.id === section.id)
+    const hit = mcpHitForSection(section, def, toolResults)
+    if (!hit) {
+      if (!requireHit) continue
+      const tool = String(def?.params?.tool || '').trim()
+      section.error = tool ? `本轮未调用 ${tool}` : '缺少 tool'
+      section.pendingAgent = false
+      section.items = []
+      continue
+    }
+    const items = Array.isArray(hit.items)
+      ? hit.items.slice(0, Number(def?.params?.limit) || 8)
+      : itemsFromToolResult(hit.text, { limit: Number(def?.params?.limit) || 8 })
+    if (hit.error && !items.length) {
+      section.error = hit.error === true ? '工具执行失败' : String(hit.error)
+      section.pendingAgent = false
+      section.items = []
+      continue
+    }
+    section.items = items
+    section.pendingAgent = false
+    section.fetchedAt = new Date().toISOString()
+    if (hit.error) section.error = hit.error === true ? '工具执行失败' : String(hit.error)
+  }
+  const mailIds = enabled
+    .filter((row) => row.type === 'mcp' && isMailMcpServerName(row.params?.server))
+    .map((row) => row.id)
+  if (mailIds.length > 1) {
+    const sinkId = mailIds[0]
+    for (let index = sections.length - 1; index >= 0; index -= 1) {
+      if (mailIds.includes(sections[index].id) && sections[index].id !== sinkId) sections.splice(index, 1)
+    }
+  }
 }
 
 function mergeAgentSections(existing, submitted, pendingError = '超时') {
@@ -197,6 +248,11 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
             sections: enabled,
             internalSections: sections.filter((s) => s.type !== 'mcp' && s.type !== 'ai'),
             omit: input.omit,
+            onMcpCollected: async ({ toolResults, blocked }) => {
+              applyMcpSections(sections, enabled, toolResults, blocked, { requireHit: false })
+              updateBriefingContent(db, briefingId, { status: 'running', sections }, workspaceCwd)
+              emit('briefing.ready', { briefingId, workspaceCwd, status: 'running' }, { workspaceCwd })
+            },
           },
         )
         sessionId = agent.sessionId || sessionId
@@ -206,33 +262,8 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode) {
           emit('ai.session.changed', { sessionId, kind: 'prompted' }, { workspaceCwd, sessionId })
         }
       }
-      for (const row of agent.blocked || []) {
-        const idx = sections.findIndex((section) => section.id === row.id)
-        if (idx < 0) continue
-        sections[idx] = { ...sections[idx], error: row.error, pendingAgent: false, items: [] }
-      }
       const toolResults = agent.toolResults && typeof agent.toolResults === 'object' ? agent.toolResults : {}
-      for (const section of sections) {
-        if (section.type !== 'mcp' || !section.pendingAgent) continue
-        const def = enabled.find((row) => row.id === section.id)
-        const tool = String(def?.params?.tool || '').trim()
-        const hit = tool ? toolResults[tool] : null
-        if (!hit) {
-          section.error = tool ? `本轮未调用 ${tool}` : '缺少 tool'
-          section.pendingAgent = false
-          section.items = []
-          continue
-        }
-        if (hit.error) {
-          section.error = '工具执行失败'
-          section.pendingAgent = false
-          section.items = []
-          continue
-        }
-        section.items = itemsFromToolResult(hit.text, { limit: Number(def?.params?.limit) || 8 })
-        section.pendingAgent = false
-        section.fetchedAt = new Date().toISOString()
-      }
+      applyMcpSections(sections, enabled, toolResults, agent.blocked, { requireHit: true })
       const latest = getBriefing(db, briefingId, workspaceCwd) || findBriefingByAgentRequest(db, agent.agentRequestId || '') || { sections: [] }
       const merged = mergeAgentSections(
         sections,

@@ -1,5 +1,6 @@
 import { humanizeSurfaceMessage } from '@/components/surface/phase'
 import type { McpServerV2 } from '@/lib/runtime-api'
+import { applyMailProviderToEnv } from '../../../runtime/mail-providers.mjs'
 
 export type McpDraft = {
   name: string
@@ -19,6 +20,9 @@ export type DraftErrors = {
   url?: string
   env?: string
   headers?: string
+  MAIL_PROVIDER?: string
+  IMAP_USER?: string
+  IMAP_PASS?: string
 }
 
 const NAME_RE = /^[A-Za-z0-9_-]{1,32}$/u
@@ -113,6 +117,11 @@ export function validateDraft(draft: McpDraft, existing: string[], editing: stri
   }
   if (draft.transport === 'stdio') {
     if (!draft.command.trim()) errors.command = '要填写启动命令。'
+    if (draft.recipeId === 'mail') {
+      if (!String(draft.fieldValues.MAIL_PROVIDER || '').trim()) errors.MAIL_PROVIDER = '请选择邮箱厂家。'
+      if (!String(draft.fieldValues.IMAP_USER || '').trim()) errors.IMAP_USER = '请填写邮箱账号。'
+      if (!String(draft.fieldValues.IMAP_PASS || '').trim()) errors.IMAP_PASS = '请填写密码或授权码。'
+    }
     const envProblem = lineProblems(draft.env, '=')[0]
     if (envProblem) errors.env = envProblem
   } else {
@@ -137,7 +146,7 @@ export function draftInput(draft: McpDraft, editing: string, cwd?: string) {
   const fieldEnv = Object.fromEntries(
     Object.entries(draft.fieldValues).filter(([key, value]) => key !== 'url' && String(value || '').trim()),
   )
-  const mergedEnv = { ...(parseEnv(draft.env) || {}), ...fieldEnv }
+  const mergedEnv = applyMailProviderToEnv(parseEnv(draft.env) || {}, fieldEnv)
   if (draft.transport === 'stdio') {
     return {
       serverName,
@@ -157,8 +166,9 @@ export function draftInput(draft: McpDraft, editing: string, cwd?: string) {
 }
 
 export function probeCopy(result: { ok: boolean; message: string }) {
-  if (result.ok) return '连接成功。'
   const message = result.message || ''
+  if (result.ok) return message === '邮箱登录成功' ? '邮箱登录成功。' : '连接成功。'
+  if (message === '邮箱账号或授权码无效' || message === '邮箱安全连接失败（证书）') return message
   if (message === 'timeout') return '没有在限定时间内响应。'
   if (/找不到文件/.test(message)) return message
   if (/PATH 里找不到/.test(message)) return '本机找不到这个命令。'

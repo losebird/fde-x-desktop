@@ -61,10 +61,6 @@ function loadedServersFromLog(text) {
   for (const line of String(text).split('\n')) {
     if (!line.trim()) continue
     const event = unwrapLogEvent(JSON.parse(line))
-    if (event && event.type === 'turn/end') {
-      loaded.clear()
-      continue
-    }
     for (const server of serversFromEvent(event)) loaded.add(server)
   }
   return [...loaded]
@@ -95,13 +91,6 @@ async function readLoadedServers(sessionId) {
     for (const server of loadedServersFromLog(text)) servers.push(server)
   }
   return [...new Set(servers)]
-}
-
-function unloadSessionMcp(sessionId) {
-  const id = String(sessionId || '').trim()
-  if (!id) return
-  const set = loadedBySession.get(id)
-  if (set) set.clear()
 }
 
 async function sessionLoaded(sessionId) {
@@ -201,5 +190,4 @@ module.exports = {
   applyMcpCatalog,
   loadMcpServer,
   sessionLoaded,
-  unloadSessionMcp,
 }

@@ -26,6 +26,9 @@ function isInstructionCue(text) {
   if (/只根据上面的内容回答/.test(value)) return true
   if (/不要用训练记忆/.test(value)) return true
   if (/User-Agent/.test(value)) return true
+  if (/^AIHOT 精选/.test(value)) return true
+  if (/不可信外部资料/.test(value)) return true
+  if (/安全边界/.test(value) && /外部信源/.test(value)) return true
   return false
 }
 
@@ -39,10 +42,32 @@ function isToolDump(text) {
 }
 
 function hrefOf(value) {
-  if (isRecord(value) && value.panel) return value
+  if (isRecord(value) && (value.panel || value.kind === 'mail' || value.uid)) return value
   if (isRecord(value) && typeof value.url === 'string' && value.url.trim()) return value.url.trim()
   if (typeof value === 'string' && value.trim()) return value.trim()
   return ''
+}
+
+function firstHttpUrl(text) {
+  const match = String(text || '').match(/https?:\/\/[^\s)>\]]+/i)
+  return match ? match[0].replace(/[),，。]+$/u, '') : ''
+}
+
+function sourceHrefFromText(...values) {
+  const blob = values.filter(Boolean).join('\n')
+  const marked = blob.match(/原文[：:]\s*(https?:\/\/[^\s)>\]]+)/i)
+  if (marked) return marked[1].replace(/[),，。]+$/u, '')
+  return firstHttpUrl(blob)
+}
+
+function mailLandHref(item, text, from) {
+  const uid = Number(item.uid || item.UID || 0)
+  const mailbox = firstString(item.mailbox) || 'INBOX'
+  if (uid > 0) {
+    return { kind: 'mail', uid, mailbox, ...(text ? { subject: text } : {}), ...(from ? { from } : {}) }
+  }
+  if (!from || !/@/.test(from)) return ''
+  return { kind: 'mail', mailbox, ...(text ? { subject: text } : {}), from }
 }
 
 export function unwrapMarkdownLink(text) {
@@ -79,12 +104,20 @@ export function presentBriefingItem(item) {
   const unwrapped = unwrapMarkdownLink(titleish || bodyish)
   const text = unwrapped.text
   if (!text || isInstructionCue(text) || isToolDump(text)) return null
-  const href = hrefOf(item.href) || hrefOf(item.url) || hrefOf(item.link) || unwrapped.href
   const sub = dropEmptyOriginSub(
-    firstString(item.sub, item.from, item.source, item.author)
+    firstString(item.sub, item.from, item.source, item.author, item.snippet, item.preview)
       || (titleish && bodyish && bodyish !== text ? bodyish : ''),
   )
   if (isToolDump(text) || isToolDump(sub) || isToolDump([text, sub].filter(Boolean).join('\n'))) return null
+  const from = firstString(item.from, item.sub, sub)
+  const href = hrefOf(item.href)
+    || hrefOf(item.url)
+    || hrefOf(item.link)
+    || hrefOf(item.webLink)
+    || hrefOf(item.htmlLink)
+    || unwrapped.href
+    || sourceHrefFromText(text, sub, bodyish)
+    || mailLandHref(item, text, from)
   return {
     text,
     ...(sub ? { sub } : {}),

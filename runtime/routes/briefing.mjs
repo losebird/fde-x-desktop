@@ -237,6 +237,30 @@ export async function handleBriefingRoutes(request, response, url, deps) {
     return true
   }
 
+  if (request.method === 'POST' && pathname === '/api/v1/briefing/mail') {
+    const body = await readJson(request)
+    const resolvedBody = briefingCwdFromBody(body, url, aiRuntime?.cwd)
+    if (resolvedBody.error || !resolvedBody.cwd) {
+      briefingError(response, 400, 'workspace_invalid', '工作区必须是绝对路径', correlationId, cors)
+      return true
+    }
+    try {
+      const { openBriefingMail } = await import('../briefing/mail-open.mjs')
+      const mail = await openBriefingMail()
+      briefingOk(response, 200, mail, correlationId, cors)
+    } catch (error) {
+      briefingError(
+        response,
+        502,
+        error?.code || 'mail_open_failed',
+        error instanceof Error ? error.message : '没打开邮箱',
+        correlationId,
+        cors,
+      )
+    }
+    return true
+  }
+
   if (request.method === 'GET' && pathname === '/api/v1/briefing/latest') {
     const cwd = requireWorkspaceQuery(url, response, correlationId, aiRuntime?.cwd, cors)
     if (!cwd) return true

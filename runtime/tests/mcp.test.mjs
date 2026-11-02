@@ -282,6 +282,84 @@ process.stdin.on('data', (chunk) => {
   assert.match(health.message, /MCP 可达/)
 })
 
+test('checkMcpHealth mail stdio logs into IMAP after initialize', async () => {
+  const { chmod, mkdtemp, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-mail-ok-'))
+  const bin = join(dir, 'fake-mail-mcp')
+  await writeFile(bin, `#!/usr/bin/env node
+let buf = ''
+process.stdin.on('data', (chunk) => {
+  buf += chunk
+  if (buf.includes('"id":1') && !buf.includes('imap_list_mailboxes')) {
+    process.stdout.write(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'mail', version: '0' } },
+    }) + '\\n')
+  }
+  if (buf.includes('imap_list_mailboxes')) {
+    process.stdout.write(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 2,
+      result: { content: [{ type: 'text', text: '{"mailboxes":["INBOX"]}' }] },
+    }) + '\\n')
+  }
+})
+`)
+  await chmod(bin, 0o755)
+  const health = await checkMcpHealth({
+    transport: 'stdio',
+    command: bin,
+    args: [],
+    serverName: 'mail-2',
+    env: { IMAP_HOST: 'imap.gmail.com' },
+  })
+  assert.equal(health.ok, true)
+  assert.equal(health.message, '邮箱登录成功')
+})
+
+test('checkMcpHealth mail stdio surfaces IMAP invalid credentials', async () => {
+  const { chmod, mkdtemp, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-mail-bad-'))
+  const bin = join(dir, 'fake-mail-mcp')
+  await writeFile(bin, `#!/usr/bin/env node
+let buf = ''
+process.stdin.on('data', (chunk) => {
+  buf += chunk
+  if (buf.includes('"id":1') && !buf.includes('imap_list_mailboxes')) {
+    process.stdout.write(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'mail', version: '0' } },
+    }) + '\\n')
+  }
+  if (buf.includes('imap_list_mailboxes')) {
+    process.stdout.write(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 2,
+      result: {
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid credentials (Failure)' }) }],
+      },
+    }) + '\\n')
+  }
+})
+`)
+  await chmod(bin, 0o755)
+  const health = await checkMcpHealth({
+    transport: 'stdio',
+    command: bin,
+    args: [],
+    env: { IMAP_HOST: 'imap.gmail.com' },
+  })
+  assert.equal(health.ok, false)
+  assert.equal(health.message, '邮箱账号或授权码无效')
+})
+
 test('checkMcpHealth stdio keeps stdin open until initialize result', async () => {
   const { chmod, mkdtemp, writeFile } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')

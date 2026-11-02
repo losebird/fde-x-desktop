@@ -388,7 +388,7 @@ function installIuiModeGate(ctx, config) {
     throw new Error('IUI mode gate requires ctx.on')
   }
   const mountOf = () => resolveMcpMount(config)
-  const { applyMcpCatalog, sessionLoaded, unloadSessionMcp } = require('./mcp-catalog.js')
+  const { applyMcpCatalog, sessionLoaded } = require('./mcp-catalog.js')
   const { toolSessionId } = require('./tools.js')
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembled = await next()
@@ -418,11 +418,6 @@ function installIuiModeGate(ctx, config) {
     if (resumePastIuiHtmlDeny(decision, preset)) return next()
     return decision
   }, true)
-  ctx.on('session/event', (session, event) => {
-    if (!event || event.type !== 'turn/end') return
-    const id = session && (session.id || session.sessionId || (session.header && (session.header.id || session.header.sessionId)))
-    unloadSessionMcp(id)
-  })
 }
 
 function registerSemanticOsHttpTools(ctx) {
