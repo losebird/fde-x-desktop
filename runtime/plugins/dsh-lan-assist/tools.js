@@ -3,6 +3,7 @@
  * @module dsh-lan-assist/tools
  */
 
+import { indexKindCatalog } from './catalog.js'
 import { messageIdOf, requestIdOf } from './conversation.js'
 import { armHandoffConfirmWindow } from './handoff-mints.js'
 import { planReceipt } from './plan-receipt.mjs'
@@ -172,9 +173,9 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
 
   ctx.tools.register(defineTool({
     name: 'biz_describe',
-    description: '读本工作区已登记业务目录：型、能做的动作、字段与列（name/title/slot，日期列 slot=date）、企业别名、可执行关系、目录版本。能过审的型带状态列枚举（code=标签）。不是现查，不发令牌，不写库。填槽前先看这个。',
+    description: '读本工作区已登记业务目录。不填 kind 只回型名和别名短名单。填 kind 只看这一型的动作、字段、列、关系、状态枚举。不是现查，不发令牌，不写库。填槽前先看这个。',
     parameters: {
-      kind: { type: 'string', description: '可选。只看这一型。' },
+      kind: { type: 'string', description: '可选。不填只回型名短名单；填了只看这一型的字段和列。' },
     },
     output: {
       schema: { type: 'string' },
@@ -182,11 +183,12 @@ export function registerTools(ctx, { defineTool }, secretary, rounds) {
     },
     isConcurrencySafe: () => true,
     async execute(args, exec) {
+      const kind = String((args && args.kind) || '').trim()
       const result = await secretary.describeBiz({
-        kind: args && args.kind,
+        kind,
         workspace: toolWorkspace(exec),
       })
-      return JSON.stringify(result)
+      return JSON.stringify(kind ? result : indexKindCatalog(result))
     },
     presentCall(args) {
       const kind = args && args.kind ? String(args.kind) : '目录'

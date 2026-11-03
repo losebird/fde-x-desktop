@@ -107,17 +107,74 @@ function clipSkillDescription(value) {
   return String(value || '').split('\n')[0].trim().slice(0, 80)
 }
 
+function catalogSource(message) {
+  if (message && message.source && typeof message.source === 'object') return message.source
+  const data = message && message.data
+  if (data && data.source && typeof data.source === 'object') return data.source
+  return null
+}
+
+function catalogIdentity(entries) {
+  if (!Array.isArray(entries)) return ''
+  return entries.map((entry) => JSON.stringify([
+    entry && entry.name ? String(entry.name) : '',
+    clipSkillDescription(entry && entry.description),
+  ])).join('\n')
+}
+
+function visibleCatalogIdentity(agent) {
+  const session = agent && agent.session
+  if (!session || typeof session.eventAt !== 'function') return ''
+  const seq = Number(session.seq)
+  if (!Number.isSafeInteger(seq) || seq <= 0) return ''
+  const nodes = session.surface && session.surface.nodes
+  const visible = nodes && typeof nodes[Symbol.iterator] === 'function' ? new Set(nodes) : null
+  for (let index = seq - 1; index >= 0; index -= 1) {
+    let event
+    try {
+      event = session.eventAt(index)
+    } catch {
+      continue
+    }
+    if (!event || event.type !== 'user/message') continue
+    const source = event.data && event.data.source
+    if (!source || source.kind !== 'skill-catalog') continue
+    if (visible && !visible.has(event.seq) && !visible.has(index)) continue
+    return catalogIdentity(source.entries)
+  }
+  return ''
+}
+
+function dropRedundantSkillCatalog(messages, agent) {
+  if (!Array.isArray(messages)) return messages
+  const historyId = visibleCatalogIdentity(agent)
+  const catalogAt = []
+  for (let index = 0; index < messages.length; index += 1) {
+    const source = catalogSource(messages[index])
+    if (source && source.kind === 'skill-catalog') catalogAt.push(index)
+  }
+  if (catalogAt.length === 0) return messages
+  const drop = new Set()
+  const remaining = []
+  for (const index of catalogAt) {
+    const identity = catalogIdentity(catalogSource(messages[index]).entries)
+    if (historyId && identity === historyId) drop.add(index)
+    else remaining.push(index)
+  }
+  if (remaining.length > 1) {
+    for (const index of remaining.slice(0, -1)) drop.add(index)
+  }
+  if (drop.size === 0) return messages
+  return messages.filter((_, index) => !drop.has(index))
+}
+
 function compactSkillCatalog(message) {
-  const source = message && message.source
+  const source = catalogSource(message)
   if (!source || source.kind !== 'skill-catalog' || !Array.isArray(source.entries)) return message
-  const entries = source.entries.map((entry) => {
-    if (!entry || typeof entry !== 'object' || typeof entry.description !== 'string') return entry
-    return { ...entry, description: clipSkillDescription(entry.description) }
-  })
   const byName = new Map()
-  for (const entry of entries) {
+  for (const entry of source.entries) {
     if (entry && entry.name && typeof entry.description === 'string' && entry.description) {
-      byName.set(String(entry.name), entry.description)
+      byName.set(String(entry.name), clipSkillDescription(entry.description))
     }
   }
   const content = Array.isArray(message.content)
@@ -130,7 +187,7 @@ function compactSkillCatalog(message) {
       return { ...part, text }
     })
     : message.content
-  return { ...message, content, source: { ...source, entries } }
+  return { ...message, content }
 }
 
 function gateSkillMessage(message) {
@@ -150,13 +207,14 @@ function gateSkillMessage(message) {
   return { ...message, content, source: { ...source, entries } }
 }
 
-function gatePreStepDecision(decision, preset) {
+function gatePreStepDecision(decision, preset, agent) {
   if (!decision || typeof decision !== 'object' || !Array.isArray(decision.messages)) return decision
   if (decision.kind === 'reject') return decision
   let messages = decision.messages.map(compactSkillCatalog)
   if (!iuiAllowedForPreset(preset)) {
     messages = messages.map(gateSkillMessage).filter(Boolean)
   }
+  messages = dropRedundantSkillCatalog(messages, agent)
   return { ...decision, messages }
 }
 

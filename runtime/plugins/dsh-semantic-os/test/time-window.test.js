@@ -57,6 +57,33 @@ print("iso", at3.isoformat(), a3, b3, _row_in_query_window(row, at3, a3, b3))
   assert.match(out, /iso 2026-08-23T06:50:40.879000\+00:00 None None True/)
 })
 
+test('relative speech uses the same host-local calendar window as YYYY-MM-DD', () => {
+  const out = py(`${SETUP}
+from bootstrap import _query_clock, _local_day_window, _local_hours_window
+from datetime import date
+today = datetime.now().astimezone().date()
+yest = today - timedelta(days=1)
+want_lo, want_hi = _local_day_window(yest)
+at, a, b = _query_clock("昨天")
+print("yest-ok", at is None and a == want_lo and b == want_hi)
+at2, a2, b2 = _query_clock("昨天聊了哪些事情?")
+print("utter-ok", a2 == want_lo and b2 == want_hi)
+at3, a3, b3 = _query_clock("2026-08-23")
+day_lo, day_hi = _local_day_window(date(2026, 8, 23))
+print("abs-ok", at3 is None and a3 == day_lo and b3 == day_hi)
+m_lo, m_hi = _local_hours_window(today, 5, 12)
+at4, a4, b4 = _query_clock("今天上午")
+print("morning-ok", at4 is None and a4 == m_lo and b4 == m_hi)
+at5, a5, b5 = _query_clock("当时聊了什么")
+print("anaphora", a5 is None and b5 is None)
+`)
+  assert.match(out, /yest-ok True/)
+  assert.match(out, /utter-ok True/)
+  assert.match(out, /abs-ok True/)
+  assert.match(out, /morning-ok True/)
+  assert.match(out, /anaphora True/)
+})
+
 test('YYYY-MM-DD query covers the host-local calendar day; ISO timestamp is an instant', () => {
   const out = py(`${SETUP}
 at, a, b = _query_window("2026-08-23")

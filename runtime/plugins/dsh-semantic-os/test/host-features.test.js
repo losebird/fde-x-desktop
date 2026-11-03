@@ -48,6 +48,10 @@ test('bridge: listBridgePeers returns the other cwd once', async () => {
     assert.deepEqual(await listBridgePeers('/here'), ['/there'])
     assert.deepEqual(await listBridgePeers('/there'), ['/here'])
     assert.deepEqual(await listBridgePeers('/none'), [])
+    const other = await mkdtemp(join(tmpdir(), 'dsos-bridge-home-'))
+    await createBridge({ sourceCwd: '/x', targetCwd: '/y' })
+    assert.deepEqual(await listBridgePeers('/x', other), [])
+    await rm(other, { recursive: true, force: true })
   })
 })
 

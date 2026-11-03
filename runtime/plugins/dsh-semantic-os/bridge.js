@@ -15,13 +15,13 @@ function home() {
   return process.env.DSH_HOME || join(homedir(), '.dsh')
 }
 
-export function bridgePath() {
-  return join(home(), 'semantic-os', 'bridge', 'index.json')
+export function bridgePath(homeDir) {
+  return join(homeDir || home(), 'semantic-os', 'bridge', 'index.json')
 }
 
-async function load() {
+async function load(homeDir) {
   try {
-    const raw = JSON.parse(await readFile(bridgePath(), 'utf8'))
+    const raw = JSON.parse(await readFile(bridgePath(homeDir), 'utf8'))
     if (!raw || typeof raw !== 'object') return { protocol: BRIDGE_PROTOCOL, links: [] }
     const links = Array.isArray(raw.links) ? raw.links : []
     return { protocol: Number(raw.protocol) || BRIDGE_PROTOCOL, links }
@@ -30,15 +30,15 @@ async function load() {
   }
 }
 
-async function save(doc) {
-  const path = bridgePath()
+async function save(doc, homeDir) {
+  const path = bridgePath(homeDir)
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, `${JSON.stringify(doc, null, 2)}\n`, 'utf8')
   return doc
 }
 
-export async function listBridges(cwd) {
-  const doc = await load()
+export async function listBridges(cwd, homeDir) {
+  const doc = await load(homeDir)
   if (!cwd) return doc.links
   return doc.links.filter((row) => row.sourceCwd === cwd || row.targetCwd === cwd)
 }
@@ -52,11 +52,11 @@ export function peerCwdOf(link, cwd) {
   return ''
 }
 
-export async function listBridgePeers(cwd) {
+export async function listBridgePeers(cwd, homeDir) {
   const here = String(cwd || '')
   const peers = []
   const seen = new Set()
-  for (const row of await listBridges(here)) {
+  for (const row of await listBridges(here, homeDir)) {
     const peer = peerCwdOf(row, here)
     if (!peer || seen.has(peer)) continue
     seen.add(peer)

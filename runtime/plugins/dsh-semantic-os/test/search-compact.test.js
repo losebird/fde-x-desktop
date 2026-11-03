@@ -203,6 +203,37 @@ test('search_text lists that day\'s session when the query is 昨天聊了什么
   }
 })
 
+test('search_text 昨天聊了什么 fills the host-local previous day when date is omitted', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'dsos-search-yest-'))
+  try {
+    const stamp = execFileSync(process.env.DSH_RUNTIME_PYTHON || 'python3', ['-c', [
+      'from datetime import datetime, timedelta, timezone',
+      'day = datetime.now().astimezone().date() - timedelta(days=1)',
+      'start = datetime(day.year, day.month, day.day, 15, 8, 0).astimezone()',
+      'print(start.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"))',
+    ].join('\n')], { encoding: 'utf8' }).trim()
+    const older = execFileSync(process.env.DSH_RUNTIME_PYTHON || 'python3', ['-c', [
+      'from datetime import datetime, timedelta, timezone',
+      'day = datetime.now().astimezone().date() - timedelta(days=3)',
+      'start = datetime(day.year, day.month, day.day, 15, 8, 0).astimezone()',
+      'print(start.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"))',
+    ].join('\n')], { encoding: 'utf8' }).trim()
+    writeGraph(cwd, [
+      { id: 'session:session-yest:10', content: '哈喽', valid_from: stamp },
+      { id: 'session:session-old:10', content: '哈喽', valid_from: older },
+    ])
+    const got = search(cwd, { q: '昨天聊了什么' })
+    const ids = (got.results || []).map((row) => String(row.node && row.node.id || ''))
+    assert.ok(ids.some((id) => id.includes('session-yest')))
+    assert.equal(ids.some((id) => id.includes('session-old')), false)
+    const pinned = search(cwd, { q: '昨天聊了什么', date: '2020-01-01' })
+    const pinnedIds = (pinned.results || []).map((row) => String(row.node && row.node.id || ''))
+    assert.equal(pinnedIds.some((id) => id.includes('session-yest')), false)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
 test('Host clips sidecar 全文 before the model sees search_text', () => {
   const body = `开头垫话。${'甲'.repeat(80)}要不要只发 darwin-arm64${'乙'.repeat(800)}`
   const leaked = {

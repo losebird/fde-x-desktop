@@ -2697,11 +2697,11 @@ def run_search_text(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
     routed = route_intent(q) if q else {"intent": "闲聊", "tool": ""}
     intent = str(args.get("intent") or routed.get("intent") or "查询")
     date_raw = args.get("date") or args.get("at") or args.get("when") or ""
-    at, date_from, date_to = _query_window(
-        date_raw,
-        args.get("date_from") or args.get("from") or "",
-        args.get("date_to") or args.get("to") or "",
-    )
+    raw_from = args.get("date_from") or args.get("from") or ""
+    raw_to = args.get("date_to") or args.get("to") or ""
+    if not str(date_raw).strip() and not str(raw_from).strip() and not str(raw_to).strip() and q and is_time_recall(q):
+        date_raw = q
+    at, date_from, date_to = _query_window(date_raw, raw_from, raw_to)
     recall = bool((date_from or date_to or at) and (not q or is_time_recall(q)))
     if intent == "闲聊" and not recall:
         return {
@@ -3965,6 +3965,52 @@ def _bound_time(raw: Any, *, end: bool):
     return parse_time_value(text)
 
 
+def _local_hours_window(day, hour_from: int, hour_to: int):
+    """Host-local [hour_from, hour_to) on that civil day. hour_to 24 is next midnight."""
+    start = _host_local(day.year, day.month, day.day, hour_from, 0, 0)
+    if hour_to >= 24:
+        end = _host_local(day.year, day.month, day.day, 0, 0, 0) + timedelta(days=1) - timedelta(microseconds=1)
+    else:
+        end = _host_local(day.year, day.month, day.day, hour_to, 0, 0) - timedelta(microseconds=1)
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+
+def _speech_clock(text: str):
+    """Relative speech → the same (instant, from, to) as YYYY-MM-DD / HH:MM. Host calendar."""
+    raw = str(text or "")
+    if not raw:
+        return None
+    today = datetime.now().astimezone().date()
+    shift = None
+    for token, days in (("前天", -2), ("昨天", -1), ("今天", 0)):
+        if token in raw:
+            shift = days
+            break
+    hours = None
+    for token, span in (
+        ("凌晨", (0, 5)),
+        ("今早", (5, 12)),
+        ("上午", (5, 12)),
+        ("傍晚", (17, 19)),
+        ("今晚", (18, 24)),
+        ("晚上", (18, 24)),
+        ("下午", (12, 18)),
+    ):
+        if token in raw:
+            hours = span
+            if token in ("今早", "今晚") and shift is None:
+                shift = 0
+            break
+    if shift is None and hours is None:
+        return None
+    if shift is None:
+        shift = 0
+    day = today + timedelta(days=shift)
+    if hours is None:
+        return (None, *_local_day_window(day))
+    return (None, *_local_hours_window(day, hours[0], hours[1]))
+
+
 def _query_clock(raw: Any):
     """Split a query clock into (instant, from, to). Naive wall times follow this machine."""
     import re
@@ -3991,6 +4037,9 @@ def _query_clock(raw: Any):
         if parts:
             lo, hi = _local_window(day.date(), *parts)
             return None, lo, hi
+    spoken = _speech_clock(text)
+    if spoken is not None:
+        return spoken
     at = parse_time_value(text)
     return at, None, None
 

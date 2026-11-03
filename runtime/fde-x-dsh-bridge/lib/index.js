@@ -401,7 +401,7 @@ function installIuiModeGate(ctx, config) {
   }, true)
   ctx.on('agent/pre-step', async (payload, next) => {
     const decision = await next()
-    return gatePreStepDecision(decision, presetFromAgent(payload && payload.agent))
+    return gatePreStepDecision(decision, presetFromAgent(payload && payload.agent), payload && payload.agent)
   }, true)
   ctx.on('tools/pre-execute', async (exec, next) => {
     const preset = presetFromAgent(exec && exec.agent)

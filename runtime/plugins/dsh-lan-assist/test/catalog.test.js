@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { briefFollowup, buildCatalog, describeKindCatalog, detectPoison, extractReplyDraft, listExecutableRelations, listKindAliases, packKindConcept, pickNamed, speakCatalogLine, speakKindCatalog } from '../catalog.js'
+import { briefFollowup, buildCatalog, describeKindCatalog, detectPoison, extractReplyDraft, indexKindCatalog, listExecutableRelations, listKindAliases, packKindConcept, pickNamed, speakCatalogLine, speakKindCatalog } from '../catalog.js'
+import { registerTools } from '../tools.js'
 import { createSecretary } from '../secretary.js'
 import { emptyState } from '../store.js'
 import { afterHandshake } from './pair-finish.js'
@@ -331,6 +332,61 @@ test('describeBiz is workspace catalog, not live ERP', async () => {
   const noCwd = await secretary.describeBiz({})
   assert.equal(noCwd.ok, false)
   assert.equal(noCwd.error, 'NO_CWD')
+})
+
+test('indexKindCatalog keeps names and aliases, drops fields and columns', () => {
+  const indexed = indexKindCatalog({
+    ok: true,
+    catalogVersion: ['v2'],
+    kinds: [{
+      kind: '工单',
+      can: ['现查', '改行'],
+      fields: ['单号', '状态'],
+      columns: [{ name: 'no', title: '单号', slot: 'identity' }],
+      aliases: ['ticket', '工单'],
+      relations: [{ from: '客户', to: '工单', field: 'customerId' }],
+    }],
+    relations: [{ from: '客户', to: '工单', field: 'customerId' }],
+  })
+  assert.deepEqual(indexed, {
+    ok: true,
+    catalogVersion: ['v2'],
+    kinds: [{ kind: '工单', aliases: ['ticket'] }],
+    hint: '点名 kind 再取字段、列、关系。',
+  })
+  assert.equal(indexKindCatalog({ ok: false, error: 'NO_CWD' }).error, 'NO_CWD')
+})
+
+test('biz_describe empty kind returns the name index, named kind keeps the schema', async () => {
+  const tools = []
+  const full = {
+    ok: true,
+    catalogVersion: ['v2'],
+    kinds: [{
+      kind: '工单',
+      can: ['现查'],
+      fields: ['单号'],
+      columns: [{ name: 'no', title: '单号', slot: 'identity' }],
+      aliases: ['ticket'],
+    }],
+    relations: [{ from: '客户', to: '工单', field: 'customerId' }],
+  }
+  const secretary = {
+    describeBiz: async (spec) => {
+      if (!String(spec && spec.kind || '').trim()) return full
+      return { ...full, kinds: full.kinds.filter((row) => row.kind === spec.kind), relations: [] }
+    },
+  }
+  registerTools({ tools: { register: (row) => tools.push(row) } }, { defineTool: (row) => row }, secretary)
+  const describe = tools.find((row) => row.name === 'biz_describe')
+  const exec = { agent: { session: { header: { cwd: '/ws' } } } }
+  const unnamed = JSON.parse(await describe.execute({}, exec))
+  assert.deepEqual(unnamed.kinds, [{ kind: '工单', aliases: ['ticket'] }])
+  assert.equal(JSON.stringify(unnamed).includes('columns'), false)
+  assert.equal(JSON.stringify(unnamed).includes('单号'), false)
+  const named = JSON.parse(await describe.execute({ kind: '工单' }, exec))
+  assert.deepEqual(named.kinds[0].fields, ['单号'])
+  assert.equal(named.kinds[0].columns[0].name, 'no')
 })
 
 test('kind aliases come from catalog clues role=型, not package spoken.json', () => {

@@ -29,7 +29,24 @@ test('standard drops the IUI fence and keeps the tools and skill catalog', () =>
   assert.equal(decision.messages[0].content[0].text.includes('`iui`'), true)
 })
 
-test('standard skill catalog keeps every name and clips the description', () => {
+function catalogAgent(entries, seq = 1) {
+  const event = {
+    type: 'user/message',
+    seq,
+    data: { source: { kind: 'skill-catalog', form: 'catalog', entries } },
+  }
+  return {
+    session: {
+      seq: seq + 1,
+      surface: { nodes: [seq] },
+      eventAt(index) {
+        return index === seq ? event : undefined
+      },
+    },
+  }
+}
+
+test('standard skill catalog clips the model line and leaves durable entries', () => {
   const long = `${'token '.repeat(40)}end`
   const decision = policy.gatePreStepDecision({
     kind: 'continue',
@@ -40,9 +57,89 @@ test('standard skill catalog keeps every name and clips the description', () => 
   }, 'standard')
   const entry = decision.messages[0].source.entries[0]
   assert.equal(entry.name, 'sales-call-prep')
-  assert.equal(entry.description.length, 80)
-  assert.equal(decision.messages[0].content[0].text.includes('sales-call-prep'), true)
-  assert.equal(decision.messages[0].content[0].text.includes('end'), false)
+  assert.equal(entry.description, long)
+  const line = decision.messages[0].content[0].text
+  assert.equal(line.includes('sales-call-prep'), true)
+  assert.equal(line.includes('end'), false)
+  const clipped = line.match(/^- `sales-call-prep`: (.+)$/m)[1]
+  assert.equal(clipped.length, 80)
+})
+
+test('identical skill catalog already on the surface is not injected again', () => {
+  const entries = [{ name: 'search-digest', description: `${'token '.repeat(40)}end` }]
+  const decision = policy.gatePreStepDecision({
+    kind: 'continue',
+    messages: [{
+      source: { kind: 'skill-catalog', form: 'catalog', update: true, entries },
+      content: [{ type: 'text', text: `- \`search-digest\`: ${entries[0].description}` }],
+    }, {
+      source: { kind: 'user' },
+      content: [{ type: 'text', text: '昨天聊了哪些事情?' }],
+    }],
+  }, 'standard', catalogAgent(entries))
+  assert.equal(decision.messages.length, 1)
+  assert.equal(decision.messages[0].content[0].text, '昨天聊了哪些事情?')
+})
+
+test('a changed skill catalog still replaces the previous table', () => {
+  const prior = [{ name: 'search-digest', description: 'old digest' }]
+  const next = [{ name: 'search-digest', description: 'old digest' }, { name: 'project-memory', description: 'graph' }]
+  const decision = policy.gatePreStepDecision({
+    kind: 'continue',
+    messages: [{
+      source: { kind: 'skill-catalog', form: 'catalog', update: true, entries: next },
+      content: [{ type: 'text', text: '- `search-digest`: old digest\n- `project-memory`: graph' }],
+    }],
+  }, 'standard', catalogAgent(prior))
+  assert.equal(decision.messages.length, 1)
+  assert.deepEqual(decision.messages[0].source.entries.map((entry) => entry.name), ['search-digest', 'project-memory'])
+})
+
+test('a skill catalog returns after the visible copy is pruned', () => {
+  const entries = [{ name: 'search-digest', description: 'digest' }]
+  const hidden = {
+    type: 'user/message',
+    seq: 1,
+    data: { source: { kind: 'skill-catalog', form: 'catalog', entries } },
+  }
+  const agent = {
+    session: {
+      seq: 2,
+      surface: { nodes: [] },
+      eventAt(index) {
+        return index === 1 ? hidden : undefined
+      },
+    },
+  }
+  const decision = policy.gatePreStepDecision({
+    kind: 'continue',
+    messages: [{
+      source: { kind: 'skill-catalog', form: 'catalog', entries },
+      content: [{ type: 'text', text: '- `search-digest`: digest' }],
+    }],
+  }, 'standard', agent)
+  assert.equal(decision.messages.length, 1)
+  assert.equal(decision.messages[0].source.kind, 'skill-catalog')
+})
+
+test('duplicate skill catalogs in one step collapse to one table', () => {
+  const entries = [{ name: 'search-digest', description: 'digest' }]
+  const catalog = (update) => ({
+    source: { kind: 'skill-catalog', form: 'catalog', update, entries },
+    content: [{ type: 'text', text: '- `search-digest`: digest' }],
+  })
+  const decision = policy.gatePreStepDecision({
+    kind: 'continue',
+    messages: [
+      catalog(false),
+      { source: { kind: 'user' }, content: [{ type: 'text', text: 'keep me' }] },
+      catalog(true),
+    ],
+  }, 'standard')
+  assert.equal(decision.messages.length, 2)
+  assert.equal(decision.messages[0].source.kind, 'user')
+  assert.equal(decision.messages[1].source.kind, 'skill-catalog')
+  assert.equal(decision.messages[1].source.update, true)
 })
 
 test('app-build and briefing drop the IUI section, tools, and skill line', () => {

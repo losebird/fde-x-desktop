@@ -120,7 +120,7 @@ def _speech_has_connector_lookup(raw: str) -> bool:
 
 _TIME_MARK = re.compile(r"昨天|今天|前天|今早|今晚|上午|下午|晚上|凌晨|傍晚|那会儿|当时")
 _TALK_MARK = re.compile(r"(都)?(聊了|说了|谈了|沟通了|讨论过|说过)(些|点)?")
-_WHAT_MARK = re.compile(r"什么|啥|哪些事|哪些")
+_WHAT_MARK = re.compile(r"什么|啥|哪些事情|哪些事儿|哪些事|哪些")
 _FILLER_MARK = re.compile(r"[吗呢啊呀？?\s的都点了]")
 _PREFIX_MARK = re.compile(r"^(还记得|记得)?(我们)?")
 

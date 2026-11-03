@@ -28,7 +28,7 @@ export function isSessionTailQuery(query) {
 
 const TIME_MARK = /昨天|今天|前天|今早|今晚|上午|下午|晚上|凌晨|傍晚|那会儿|当时/g
 const TALK_MARK = /(都)?(聊了|说了|谈了|沟通了|讨论过|说过)(些|点)?/g
-const WHAT_MARK = /什么|啥|哪些事|哪些/g
+const WHAT_MARK = /什么|啥|哪些事情|哪些事儿|哪些事|哪些/g
 const FILLER_MARK = /[吗呢啊呀？?\s的都点了]/g
 
 const CONTINUE_MARK = /接着干|接着处理|还没做完|未完成|上次没做完|上次还没做完/

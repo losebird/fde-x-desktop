@@ -61,6 +61,7 @@ sys.path.insert(0, "python")
 from intent import is_time_recall, route_intent
 print(json.dumps({
   "day": is_time_recall("昨天聊了什么"),
+  "things": is_time_recall("昨天聊了哪些事情?"),
   "morning": is_time_recall("今天上午聊了啥"),
   "ticket": is_time_recall("工单昨天"),
   "intent": route_intent("昨天聊了什么")["intent"],
@@ -68,6 +69,7 @@ print(json.dumps({
 `)
   const got = JSON.parse(out)
   assert.equal(got.day, true)
+  assert.equal(got.things, true)
   assert.equal(got.morning, true)
   assert.equal(got.ticket, false)
   assert.equal(got.intent, '查询')

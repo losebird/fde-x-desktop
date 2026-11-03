@@ -105,6 +105,7 @@ test('work node is a local hit when the request names it', () => {
 
 test('time-recall with a date keeps that day\'s session even when the body is 哈喽', () => {
   assert.equal(isTimeRecallQuery('昨天聊了什么'), true)
+  assert.equal(isTimeRecallQuery('昨天聊了哪些事情?'), true)
   assert.equal(isTimeRecallQuery('今天上午聊了啥'), true)
   assert.equal(isTimeRecallQuery('工单昨天'), false)
   const packed = {

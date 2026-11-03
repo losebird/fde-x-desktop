@@ -188,6 +188,24 @@ export function describeKindCatalog(vocab, extra = {}) {
   }
 }
 
+/** Model-facing empty `biz_describe`: kind names and aliases only. */
+export function indexKindCatalog(catalog) {
+  if (!catalog || typeof catalog !== 'object' || catalog.ok === false) return catalog
+  const kinds = Array.isArray(catalog.kinds) ? catalog.kinds : []
+  return {
+    ok: true,
+    catalogVersion: catalog.catalogVersion,
+    kinds: kinds.map((row) => {
+      const kind = String((row && (row.kind || row.name || row.label)) || '').trim()
+      const aliases = Array.isArray(row && row.aliases)
+        ? [...new Set(row.aliases.map((item) => String(item || '').trim()).filter((item) => item && item !== kind))]
+        : []
+      return aliases.length ? { kind, aliases } : { kind }
+    }).filter((row) => row.kind),
+    hint: '点名 kind 再取字段、列、关系。',
+  }
+}
+
 function catalogRowsForDescribe(vocab, extra = {}) {
   const raw = Array.isArray(vocab) ? vocab : []
   const stems = new Set(
@@ -382,7 +400,7 @@ export function briefFollowup(spec) {
   const kindLines = speakKindCatalog(spec && spec.vocab)
   for (const line of kindLines) lines.push(line)
   if (catalog.some((row) => row && (row.name === 'biz_describe' || row.name === 'biz.describe'))) {
-    lines.push('填槽前先 biz_describe。只读目录：型、能做的动作、字段、别名、关系、目录版本。能过审的型带状态列枚举（code=标签）。不是现查，不发令牌。')
+    lines.push('填槽前先 biz_describe。不填 kind 只回型名和别名。点名 kind 再取字段、列、关系、状态枚举。不是现查，不发令牌。')
   }
   if (catalog.some((row) => row && (row.name === 'biz_traces' || row.name === 'biz.traces'))) {
     lines.push('打开回执走 biz_traces，读工作区账本，不是现查。没有工作区拒。')
