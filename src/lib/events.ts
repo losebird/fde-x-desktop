@@ -32,6 +32,9 @@ export const FDE_EVENT_TYPES_V1 = [
   'memory.engine.changed',
   'ai.result.ready',
   'operation.executed',
+  'task.done',
+  'task.due.soon',
+  'mcp.health.changed',
 ] as const
 
 const SESSION_SINCE_KEY = 'fde-x-events-since'

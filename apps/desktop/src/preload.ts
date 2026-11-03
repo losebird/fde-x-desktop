@@ -5,4 +5,5 @@ contextBridge.exposeInMainWorld('fdeDesktop', {
   openExternal: (url: string) => ipcRenderer.invoke('fde:open-external', url),
   appInfo: () => ipcRenderer.invoke('fde:app-info'),
   uiToken: () => ipcRenderer.invoke('fde:ui-token'),
+  notify: (payload: { title: string; body?: string }) => ipcRenderer.invoke('fde:notify', payload),
 })

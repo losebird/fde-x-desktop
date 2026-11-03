@@ -17,6 +17,7 @@ import {
   type SessionTitleNotice,
 } from '@/lib/ai-session-list'
 import { currentAiTarget, isPrimarySession, resolvePrimarySessionId } from '@/lib/ai-target'
+import { useCreateMouth } from '@/lib/create-mouth'
 import { useApp } from '@/store/app'
 import { clearAskAiNotice, getAskAiNotice, subscribeAskAiNotice } from '@/lib/ask-ai'
 import { attachToCurrentAi, assistantMatchesFill, registerCurrentTurnSink, selectCurrentTurn } from '@/lib/current-turn'
@@ -154,6 +155,7 @@ export default function AI() {
   const [creatingSession, setCreatingSession] = useState(false)
   const [createSessionError, setCreateSessionError] = useState('')
   const [agentMenuOpen, setAgentMenuOpen] = useState(false)
+  useCreateMouth('session', () => setAgentMenuOpen(true))
   const [chatMenu, setChatMenu] = useState<{ id: string } | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')

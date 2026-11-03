@@ -10,6 +10,7 @@ import {
   type SettingsNsHome,
 } from '@/lib/settings-ns-home'
 import { dirtyTopLevelOps, rootObjectUid, type SettingsCatalog } from '@/lib/settings-schema'
+import { settingsNsTitle } from '@/lib/settings-copy'
 import { SURFACE_CORE_DOWN, classifySurfaceFailure, type SurfacePhase } from '@/components/surface/phase'
 
 export type HostNsEntry = {
@@ -71,7 +72,7 @@ export function useHostSettings() {
           return {
             ns,
             home: settingsNsHome(ns, owned),
-            title: heading,
+            title: settingsNsTitle(ns, heading),
             hint,
             revision: Number(fields.revision || 0),
             schema,

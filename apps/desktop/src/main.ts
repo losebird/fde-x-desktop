@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainInvokeEvent } from 'electron'
 import type { ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -278,6 +278,16 @@ app.whenReady().then(() => {
     resources: resolvePackagedResources(),
   }))
   ipcMain.handle('fde:ui-token', () => uiToken)
+  ipcMain.handle('fde:notify', (_event: IpcMainInvokeEvent, payload: { title?: string; body?: string } = {}) => {
+    if (!Notification.isSupported()) return { ok: false }
+    const notice = new Notification({
+      title: String(payload.title || 'FDE-X'),
+      body: String(payload.body || ''),
+      silent: false,
+    })
+    notice.show()
+    return { ok: true }
+  })
 
   return createWindow()
 }).catch((error: unknown) => {

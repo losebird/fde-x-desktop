@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { canonicalWorkspaceCwd } from '../cwd.mjs'
+import { emit } from '../events.mjs'
 import { taskSourceProblem } from '../app-source.mjs'
 import { appendAudit, createId } from '../db.mjs'
 import { dutyPresetForWorkflowSteps, isDutyPickerPreset } from '../duty-policy.mjs'
@@ -474,7 +475,15 @@ async function performRun(deps, ctx) {
   failSteps(db, memorySteps, MEMORY_ONLY, finished)
   skipSteps(db, skipStepsList, finished)
   if (memorySteps.length > 0) markRunFailed(db, ctx.runId, finished)
-  else markRunSucceeded(db, ctx.runId, finished)
+  else {
+    markRunSucceeded(db, ctx.runId, finished)
+    emit('task.changed', {
+      id: ctx.runId,
+      op: 'run',
+      status: 'done',
+      title: ctx.workflowName,
+    }, { workspaceCwd: workspaceCwd(db, ctx.workspaceId), sessionId: session.sessionId })
+  }
 }
 
 function workspaceCwd(db, workspaceId) {

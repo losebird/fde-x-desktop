@@ -11,6 +11,7 @@ import type {
 import { seedUser } from '@/data/seed'
 import { runtimeApi } from '@/lib/runtime-api'
 import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
+import type { CreateMouth } from '@/lib/create-mouth'
 import { clearAppRecordFocus, emptyDataBrowse, type DataBrowse, type DataView } from '@/lib/data-browse'
 import { imBrowseOccupancy } from '@/lib/im-letter-home'
 import {
@@ -131,6 +132,14 @@ interface UIState {
   setAiInboxDraft: (text: string) => void
   imMuted: boolean
   setIMMuted: (v: boolean) => void
+  taskDoneNotify: boolean
+  setTaskDoneNotify: (v: boolean) => void
+  taskDueSoonNotify: boolean
+  setTaskDueSoonNotify: (v: boolean) => void
+  mcpDownNotify: boolean
+  setMcpDownNotify: (v: boolean) => void
+  muteBlocksIm: boolean
+  setMuteBlocksIm: (v: boolean) => void
   sidebarCollapsed: boolean
   toggleSidebar: () => void
 
@@ -187,6 +196,9 @@ interface UIState {
   // 命令面板
   paletteOpen: boolean
   setPaletteOpen: (v: boolean) => void
+  createMouth: { kind: CreateMouth; seq: number } | null
+  openCreateMouth: (kind: CreateMouth) => void
+  clearCreateMouth: () => void
 
   // 兼容旧 code:保留 drawers 接口,内部映射到 panels。
   drawers: Record<string, { visible: boolean; width: number }>
@@ -269,6 +281,7 @@ interface State {
   // notifications
   markNotifRead: (id: ID) => void
   markAllNotifRead: () => void
+  addNotification: (row: Notification) => void
   // utility
   resetDemo: () => void
 }
@@ -523,6 +536,14 @@ export const useApp = create<AppState>()(
       setAiInboxDraft: (text) => set({ aiInboxDraft: text }),
       imMuted: true,
       setIMMuted: (v) => set({ imMuted: v }),
+      taskDoneNotify: true,
+      setTaskDoneNotify: (v) => set({ taskDoneNotify: v }),
+      taskDueSoonNotify: true,
+      setTaskDueSoonNotify: (v) => set({ taskDueSoonNotify: v }),
+      mcpDownNotify: true,
+      setMcpDownNotify: (v) => set({ mcpDownNotify: v }),
+      muteBlocksIm: false,
+      setMuteBlocksIm: (v) => set({ muteBlocksIm: v }),
       sidebarCollapsed: false,
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
@@ -724,6 +745,11 @@ export const useApp = create<AppState>()(
 
       paletteOpen: false,
       setPaletteOpen: (v) => set({ paletteOpen: v }),
+      createMouth: null,
+      openCreateMouth: (kind) => set((s) => ({
+        createMouth: { kind, seq: (s.createMouth?.seq || 0) + 1 },
+      })),
+      clearCreateMouth: () => set({ createMouth: null }),
 
       // ===== 抽屉兼容层 =====
       drawers: defaultDrawers(),
@@ -1215,6 +1241,8 @@ export const useApp = create<AppState>()(
         set((s) => ({ notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)) })),
       markAllNotifRead: () =>
         set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })) })),
+      addNotification: (row) =>
+        set((s) => ({ notifications: [row, ...s.notifications].slice(0, 40) })),
 
       resetDemo: () =>
         set(() => ({
@@ -1237,6 +1265,10 @@ export const useApp = create<AppState>()(
         workspaces: state.workspaces,
         activeWorkspaceId: state.activeWorkspaceId,
         imMuted: state.imMuted,
+        taskDoneNotify: state.taskDoneNotify,
+        taskDueSoonNotify: state.taskDueSoonNotify,
+        mcpDownNotify: state.mcpDownNotify,
+        muteBlocksIm: state.muteBlocksIm,
         imComposerDrafts: state.imComposerDrafts,
         aiComposerDrafts: state.aiComposerDrafts,
         activeAiSessionId: state.activeAiSessionId,

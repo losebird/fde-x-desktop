@@ -1213,6 +1213,15 @@ export class RuntimeApi {
     return this.joinInflight(this.connectInflight, signal)
   }
 
+  async setNotifyPrefs(input: { taskDueSoonNotify?: boolean; mcpDownNotify?: boolean }, signal?: AbortSignal): Promise<void> {
+    await this.request('/api/v1/notify/prefs', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+  }
+
   async retryIui(signal?: AbortSignal): Promise<AiRuntimeStatus> {
     const result = await this.request<{ data: AiRuntimeStatus }>('/api/v1/ai/iui/retry', { method: 'POST', signal })
     return result.data

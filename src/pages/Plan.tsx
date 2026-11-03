@@ -8,6 +8,7 @@ import {
 import { askAiForResult } from '@/lib/ask-ai'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { canonicalWorkspaceCwd } from '../../runtime/cwd.mjs'
+import { useCreateMouth } from '@/lib/create-mouth'
 import { openRef } from '@/lib/open-ref'
 import { planTaskSource } from '@/lib/plan-app-source'
 import type { JsonSchemaLite } from '@/lib/json-schema-lite'
@@ -238,6 +239,7 @@ function TodoTab() {
   const [q, setQ] = useState('')
   const [tag, setTag] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
+  useCreateMouth('task', () => setShowNew(true))
   const [organizeOpen, setOrganizeOpen] = useState(false)
   const [organizeLoading, setOrganizeLoading] = useState(false)
   const [organizeError, setOrganizeError] = useState('')
@@ -987,6 +989,7 @@ function ScheduleTab() {
   const toggleWorkflow = useApp((s) => s.toggleWorkflow)
   const [view, setView] = useState<'day' | 'week'>('day')
   const [openNew, setOpenNew] = useState(false)
+  useCreateMouth('event', () => setOpenNew(true))
   const [saving, setSaving] = useState(false)
   const [clock, setClock] = useState(() => new Date())
   const [draft, setDraft] = useState(emptyEventDraft)
@@ -1375,6 +1378,7 @@ function WorkflowTab() {
     setToolNote('')
     setShowNew(true)
   }
+  useCreateMouth('workflow', openNew)
 
   function applyPreset(id: string) {
     if (isRetiredWorkflowPreset(id)) {

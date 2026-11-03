@@ -1,6 +1,7 @@
 // 工作台主壳：AI 永久作为主工作区，IM 与业务能力从顶栏打开功能面板。
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useEvents } from '@/lib/events'
+import { applyTaskNotice, onTaskToast, requestOsNotifyPermission } from '@/lib/task-notify'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { onBizSheetPending } from '@/lib/biz-records-auto-open'
@@ -75,16 +76,32 @@ export function IMScreen() {
   const imVisible = imPaneOpen(imPanelState, imFloating)
   const mailbox = useImMailbox()
 
+  const muteBlocksIm = useApp((state) => state.muteBlocksIm)
+  const imMuted = useApp((state) => state.imMuted)
   useEffect(() => {
     const here = loadCurrentWorkspaceCwd()
-    const n = imUnreadMouth(mailbox.sheet, imVisible, here.ok ? here.cwd : '')
+    const n = muteBlocksIm && imMuted ? 0 : imUnreadMouth(mailbox.sheet, imVisible, here.ok ? here.cwd : '')
     const badge = n || undefined
     const im = useApp.getState().panels.find((panel) => panel.id === 'im')
     if (im?.badge === badge) return
     useApp.getState().setPanelBadge('im', badge)
-  }, [mailbox.revision, mailbox.sheet, imVisible, activeWorkspaceId])
+  }, [mailbox.revision, mailbox.sheet, imVisible, activeWorkspaceId, muteBlocksIm, imMuted])
 
   useEvents(['biz.sheet.pending'], onBizSheetPending)
+  useEvents(['task.changed', 'task.done', 'ai.result.ready', 'task.due.soon', 'mcp.health.changed'], applyTaskNotice)
+  const [taskToast, setTaskToast] = useState('')
+  useEffect(() => {
+    let timer = 0
+    const stop = onTaskToast((notice) => {
+      setTaskToast(notice.title)
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => setTaskToast(''), 6000)
+    })
+    return () => {
+      stop()
+      window.clearTimeout(timer)
+    }
+  }, [])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -116,6 +133,20 @@ export function IMScreen() {
     <div className="h-screen w-screen flex overflow-hidden bg-neutral-50">
       <div className="flex-1 min-w-0 flex flex-col">
         <IMMiniHeader />
+        {taskToast && (
+          <div
+            className="shrink-0 px-3 py-2 text-sm bg-brand/10 text-ink border-b border-line"
+            onClick={() => {
+              void requestOsNotifyPermission().then((perm) => {
+                if (perm === 'granted') {
+                  new Notification(taskToast)
+                }
+              })
+            }}
+          >
+            {taskToast}
+          </div>
+        )}
         <div className="flex-1 min-h-0 flex relative">
           <main className="flex-1 min-w-0 min-h-0 bg-white">
             <AI />

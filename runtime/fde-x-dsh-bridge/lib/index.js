@@ -1,5 +1,6 @@
 const { randomBytes, timingSafeEqual } = require('node:crypto')
-const { existsSync, mkdirSync, writeFileSync } = require('node:fs')
+const { request: httpRequest } = require('node:http')
+const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs')
 const { mkdir, readdir, readFile, writeFile } = require('node:fs/promises')
 const { createRequire } = require('node:module')
 const { homedir } = require('node:os')
@@ -418,6 +419,43 @@ function installIuiModeGate(ctx, config) {
     if (resumePastIuiHtmlDeny(decision, preset)) return next()
     return decision
   }, true)
+  ctx.on('session/event', (session, event) => {
+    if (!event || event.type !== 'turn/end') return
+    const reason = event.data && event.data.reason
+    const kind = reason && typeof reason.kind === 'string' ? reason.kind : 'completed'
+    if (kind && kind !== 'completed') return
+    const sessionId = session && (session.id || session.sessionId || (session.header && (session.header.id || session.header.sessionId)))
+    if (!sessionId) return
+    const title = String((session && (session.title || session.name)) || '').trim()
+    const cwd = String((session && session.cwd) || process.env.FDE_AI_WORKSPACE || '').trim()
+    postSessionTurnEnd(sessionId, title, cwd)
+  })
+}
+
+function postSessionTurnEnd(sessionId, title, cwd) {
+  const port = process.env.FDE_RUNTIME_PORT || '4318'
+  const home = process.env.DSH_HOME || join(homedir(), '.dsh-fde-x')
+  let token = ''
+  try {
+    token = readFileSync(join(home, '.ui-token'), 'utf8').trim()
+  } catch {
+    token = ''
+  }
+  const payload = JSON.stringify({ sessionId, title, cwd })
+  const req = httpRequest({
+    hostname: '127.0.0.1',
+    port: Number(port),
+    path: '/api/v1/ai/turn-end',
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(payload),
+      ...(token ? { 'x-fde-ui-token': token } : {}),
+      Origin: 'http://127.0.0.1:5174',
+    },
+  }, (res) => { res.resume() })
+  req.on('error', () => undefined)
+  req.end(payload)
 }
 
 function registerSemanticOsHttpTools(ctx) {

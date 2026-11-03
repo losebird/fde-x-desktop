@@ -4,6 +4,7 @@ import { SurfaceButton } from '@/components/surface/Button'
 import { SurfaceField, SurfaceInput, SurfaceSelect, SurfaceTextarea } from '@/components/surface/Field'
 import { SurfaceSegmented } from '@/components/surface/Segmented'
 import { SurfaceSwitch } from '@/components/surface/Switch'
+import { hostText } from '@/lib/host-text'
 import {
   catalogRowKey,
   catalogRowLabel,
@@ -20,6 +21,7 @@ import {
   unionConstOptions,
   type SettingsCatalog,
 } from '@/lib/settings-schema'
+import { settingsFieldTitle, settingsNsTitle, settingsOptionLabel } from '@/lib/settings-copy'
 
 type Schema = Record<string, unknown>
 
@@ -40,9 +42,9 @@ function defaultFor(schema: Schema, uid: unknown) {
   return ''
 }
 
-function fieldCopy(meta: Record<string, unknown>, name: string) {
-  const title = typeof meta.title === 'string' && meta.title.trim() ? meta.title.trim() : name
-  const hint = typeof meta.description === 'string' && meta.description.trim() ? meta.description.trim() : ''
+function fieldCopy(meta: Record<string, unknown>, name: string, ns = '') {
+  const title = settingsFieldTitle(ns, name, hostText(meta.title))
+  const hint = hostText(meta.description)
   return { title, hint }
 }
 
@@ -106,7 +108,7 @@ function JsonValueField({
 function summaryOf(value: unknown) {
   if (value === true) return '开'
   if (value === false) return '关'
-  if (typeof value === 'string' && value.trim()) return value
+  if (typeof value === 'string' && value.trim()) return settingsOptionLabel(value)
   if (typeof value === 'number') return String(value)
   if (Array.isArray(value)) return `${value.length} 项`
   if (value && typeof value === 'object') {
@@ -117,7 +119,8 @@ function summaryOf(value: unknown) {
     const bits = keys.map((key) => {
       const item = rec[key]
       if (typeof item === 'boolean') return item ? '开' : '关'
-      if (typeof item === 'number' || typeof item === 'string') return String(item)
+      if (typeof item === 'number') return String(item)
+      if (typeof item === 'string') return settingsOptionLabel(item)
       if (Array.isArray(item)) return `${item.length} 项`
       return ''
     }).filter(Boolean).slice(0, 3)
@@ -142,6 +145,7 @@ function FieldEditor({
   catalogs,
   compact,
   disabled,
+  ns = '',
   onChange,
 }: {
   schema: Schema
@@ -153,12 +157,14 @@ function FieldEditor({
   catalogs?: SettingsCatalog[]
   compact?: boolean
   disabled?: boolean
+  ns?: string
   onChange: (next: unknown) => void
 }) {
   const node = schemaNode(schema, uid)
   const type = String(node?.type || '')
   const meta = node?.meta && typeof node.meta === 'object' ? node.meta as Record<string, unknown> : {}
-  const copy = fieldCopy(meta, name)
+  const copy = fieldCopy(meta, name, ns)
+  const heading = name ? settingsFieldTitle(ns, name, hostText(meta.title)) : ''
   const enums = unionConstOptions(schema, uid)
   const slot = secretSlot(secrets, path)
   const wrap = (body: ReactNode) => (compact ? body : <FieldShell label={copy.title} hint={copy.hint}>{body}</FieldShell>)
@@ -208,7 +214,7 @@ function FieldEditor({
           <SurfaceSegmented
             value={value === undefined || value === null ? '' : String(value)}
             disabled={disabled}
-            options={enums.map((option) => ({ id: String(option), label: String(option) }))}
+            options={enums.map((option) => ({ id: String(option), label: settingsOptionLabel(option) }))}
             onChange={(id) => {
               const hit = enums.find((option) => String(option) === id)
               if (hit !== undefined) onChange(hit)
@@ -228,7 +234,7 @@ function FieldEditor({
           }}
         >
           {enums.map((option) => (
-            <option key={String(option)} value={String(option)}>{String(option)}</option>
+            <option key={String(option)} value={String(option)}>{settingsOptionLabel(option)}</option>
           ))}
         </SurfaceSelect>
       </FieldShell>
@@ -244,7 +250,7 @@ function FieldEditor({
       const extras = fields.filter((field) => !required.includes(field.name))
       return (
         <div className="space-y-3">
-          {name ? <div className="text-xs font-medium text-ink">{name}</div> : null}
+          {heading ? <div className="text-xs font-medium text-ink">{heading}</div> : null}
           <CatalogObjectPicker
             catalog={catalog}
             required={required}
@@ -261,6 +267,7 @@ function FieldEditor({
               secrets={secrets}
               catalogs={catalogs}
               disabled={disabled}
+              ns={ns}
               onChange={onChange}
             />
           )}
@@ -270,7 +277,7 @@ function FieldEditor({
     if (objectFieldsAreScalar(schema, uid)) {
       return (
         <div className="space-y-3">
-          {name ? <div className="text-xs font-medium text-ink">{name}</div> : null}
+          {heading ? <div className="text-xs font-medium text-ink">{heading}</div> : null}
           <ScalarCluster
             schema={schema}
             fields={fields}
@@ -279,6 +286,7 @@ function FieldEditor({
             secrets={secrets}
             catalogs={catalogs}
             disabled={disabled}
+            ns={ns}
             onChange={onChange}
           />
         </div>
@@ -288,7 +296,7 @@ function FieldEditor({
     const rest = fields.filter((field) => !scalars.includes(field))
     return (
       <div className="space-y-3">
-        {name ? <div className="text-xs font-medium text-ink">{name}</div> : null}
+        {heading ? <div className="text-xs font-medium text-ink">{heading}</div> : null}
         {scalars.length > 0 && (
           <ScalarCluster
             schema={schema}
@@ -298,6 +306,7 @@ function FieldEditor({
             secrets={secrets}
             catalogs={catalogs}
             disabled={disabled}
+            ns={ns}
             onChange={onChange}
           />
         )}
@@ -312,6 +321,7 @@ function FieldEditor({
             secrets={secrets}
             catalogs={catalogs}
             disabled={disabled}
+            ns={ns}
             onChange={(next) => onChange({ ...record, [field.name]: next })}
           />
         ))}
@@ -328,13 +338,14 @@ function FieldEditor({
         <ScalarObjectTable
           schema={schema}
           uid={innerUid}
-          name={name}
+          name={heading}
           path={path}
           rows={keys.map((key) => ({ key, value: record[key] }))}
           keyed
           secrets={secrets}
           catalogs={catalogs}
           disabled={disabled}
+          ns={ns}
           onChange={(nextRows) => {
             const next: Record<string, unknown> = {}
             for (const row of nextRows) next[row.key] = row.value
@@ -346,7 +357,7 @@ function FieldEditor({
     }
     return (
       <div className="space-y-2">
-        {name ? <div className="text-xs font-medium text-ink">{name}</div> : null}
+        {heading ? <div className="text-xs font-medium text-ink">{heading}</div> : null}
         {keys.map((key) => (
           <div key={key} className="rounded-lg border border-line p-3 space-y-3">
             <div className="flex items-center justify-between gap-2">
@@ -373,6 +384,7 @@ function FieldEditor({
               secrets={secrets}
               catalogs={catalogs}
               disabled={disabled}
+              ns={ns}
               onChange={(next) => onChange({ ...record, [key]: next })}
             />
           </div>
@@ -407,12 +419,13 @@ function FieldEditor({
         <ScalarObjectTable
           schema={schema}
           uid={innerUid}
-          name={name}
+          name={heading}
           path={path}
           rows={rows.map((row, index) => ({ key: String(index), value: row }))}
           secrets={secrets}
           catalogs={catalogs}
           disabled={disabled}
+          ns={ns}
           onChange={(nextRows) => onChange(nextRows.map((row) => row.value))}
           onAdd={() => onChange([...rows, defaultFor(schema, innerUid)])}
         />
@@ -443,6 +456,7 @@ function FieldEditor({
               secrets={secrets}
               catalogs={catalogs}
               disabled={disabled}
+              ns={ns}
               onChange={(next) => {
                 const copy = rows.slice()
                 copy[index] = next
@@ -466,7 +480,7 @@ function FieldEditor({
   if (type === 'const') {
     return (
       <div className="text-sm">
-        {name ? <span className="text-ink-muted mr-2">{name}</span> : null}
+        {heading ? <span className="text-ink-muted mr-2">{heading}</span> : null}
         <span className="font-mono text-xs">{String(node?.value ?? value ?? '')}</span>
       </div>
     )
@@ -507,6 +521,7 @@ function ScalarCluster({
   secrets,
   catalogs,
   disabled,
+  ns = '',
   onChange,
 }: {
   schema: Schema
@@ -516,6 +531,7 @@ function ScalarCluster({
   secrets?: unknown
   catalogs?: SettingsCatalog[]
   disabled?: boolean
+  ns?: string
   onChange: (next: Record<string, unknown>) => void
 }) {
   return (
@@ -531,6 +547,7 @@ function ScalarCluster({
           secrets={secrets}
           catalogs={catalogs}
           disabled={disabled}
+          ns={ns}
           onChange={(next) => onChange({ ...record, [field.name]: next })}
         />
       ))}
@@ -611,6 +628,7 @@ function ScalarObjectTable({
   secrets,
   catalogs,
   disabled,
+  ns = '',
   onChange,
   onAdd,
   onAddKey,
@@ -624,6 +642,7 @@ function ScalarObjectTable({
   secrets?: unknown
   catalogs?: SettingsCatalog[]
   disabled?: boolean
+  ns?: string
   onChange: (next: Array<{ key: string; value: unknown }>) => void
   onAdd?: () => void
   onAddKey?: (key: string) => void
@@ -646,7 +665,7 @@ function ScalarObjectTable({
             <tr className="text-left text-xs text-ink-muted">
               {keyed ? <th className="py-1 pr-2 font-medium">键</th> : null}
               {fields.map((field) => (
-                <th key={field.name} className="py-1 pr-2 font-medium">{field.name}</th>
+                <th key={field.name} className="py-1 pr-2 font-medium">{settingsFieldTitle(ns, field.name)}</th>
               ))}
               <th className="py-1 w-14" />
             </tr>
@@ -670,6 +689,7 @@ function ScalarObjectTable({
                         catalogs={catalogs}
                         compact
                         disabled={disabled}
+                        ns={ns}
                         onChange={(next) => {
                           const copy = rows.slice()
                           copy[index] = { key: row.key, value: { ...record, [field.name]: next } }
@@ -959,7 +979,7 @@ export function SettingsDescribeForm({
           onClick={() => setOpen((current) => !current)}
         >
           {open ? <ChevronDown size={14} className="shrink-0 text-kit-tertiary" /> : <ChevronRight size={14} className="shrink-0 text-kit-tertiary" />}
-          <span className="truncate text-kit font-medium text-kit-ink">{title || ns}</span>
+          <span className="truncate text-kit font-medium text-kit-ink">{settingsNsTitle(ns, title)}</span>
           {summary ? <span className="ml-auto truncate text-kit-meta text-kit-secondary max-w-[45%]">{summary}</span> : null}
           {dirtyCount ? <span className="shrink-0 text-kit-meta text-kit-warn">未保存 {dirtyCount} 项</span> : null}
         </button>
@@ -968,7 +988,7 @@ export function SettingsDescribeForm({
             bare
             checked={Boolean(draft[headerBool.name])}
             disabled={disabled}
-            label={headerBool.name}
+            label={settingsFieldTitle(ns, headerBool.name)}
             onCheckedChange={(next) => setDraft({ ...draft, [headerBool.name]: next })}
           />
         ) : null}
@@ -985,6 +1005,7 @@ export function SettingsDescribeForm({
               secrets={secrets}
               catalogs={catalogs}
               disabled={disabled}
+              ns={ns}
               onChange={setDraft}
             />
           ) : null}
@@ -998,6 +1019,7 @@ export function SettingsDescribeForm({
               secrets={secrets}
               catalogs={catalogs}
               disabled={disabled}
+              ns={ns}
               onChange={(next) => {
                 if (next && typeof next === 'object' && !Array.isArray(next)) setDraft(next as Record<string, unknown>)
               }}
@@ -1014,6 +1036,7 @@ export function SettingsDescribeForm({
                   secrets={secrets}
                   catalogs={catalogs}
                   disabled={disabled}
+                  ns={ns}
                   onChange={setDraft}
                 />
               )}
@@ -1028,6 +1051,7 @@ export function SettingsDescribeForm({
                   secrets={secrets}
                   catalogs={catalogs}
                   disabled={disabled}
+                  ns={ns}
                   onChange={(next) => setDraft({ ...draft, [field.name]: next })}
                 />
               ))}

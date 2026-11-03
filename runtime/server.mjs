@@ -86,6 +86,7 @@ import { handleSkillRoutes } from './routes/skills.mjs'
 import { AiRemoteError, createCoreConnector } from './dsh-core.mjs'
 import { createFollowNormalizer } from './ai-stream.mjs'
 import { configureEventBus, emit, emitSessionCreated } from './events.mjs'
+import { startNotifyWatch, writeNotifyPrefs } from './notify-watch.mjs'
 import { startLanAssistStateWatch, subscribeLanAssistMailbox } from './lan-assist-state-watch.mjs'
 import { migrateBoundWorkspaceSources, readBizSystems } from './biz/systems-store.mjs'
 import { startSemanticReadyWatch } from './semantic-ready-watch.mjs'
@@ -1541,6 +1542,32 @@ const server = createServer(async (request, response) => {
         details: { pid: status.pid, version: status.version },
       })
       sendJson(response, 200, { data: status, correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/ai/turn-end') {
+      const body = await readJson(request)
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
+      if (!sessionId) {
+        sendError(response, 400, 'missing_session', '缺少 sessionId', currentCorrelationId)
+        return
+      }
+      emit('task.done', {
+        source: 'session',
+        sessionId,
+        title: typeof body.title === 'string' ? body.title.trim() : '',
+      }, { workspaceCwd: null, sessionId })
+      sendJson(response, 200, { ok: true, correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/notify/prefs') {
+      const body = await readJson(request)
+      const prefs = writeNotifyPrefs(aiRuntime.dshHome || FDE_DSH_HOME, {
+        taskDueSoonNotify: body.taskDueSoonNotify,
+        mcpDownNotify: body.mcpDownNotify,
+      })
+      sendJson(response, 200, { data: prefs, correlationId: currentCorrelationId })
       return
     }
 
@@ -3953,6 +3980,7 @@ server.listen(port, host, () => {
     })
   }, 15_000)
   if (typeof workflowScheduleTimer.unref === 'function') workflowScheduleTimer.unref()
+  startNotifyWatch({ db, aiRuntime })
   void reclaimStrayRuntime({
     keep: [process.pid, process.ppid],
     runtimePort: actualPort,

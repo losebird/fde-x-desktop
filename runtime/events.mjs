@@ -1,4 +1,5 @@
 import { canonicalWorkspaceCwd, canonicalWorkspaceCwdSql, sameWorkspaceCwd } from './cwd.mjs'
+import { osNotifyFromEnvelope } from './os-notify.mjs'
 
 function storedEventCwd(workspaceCwd) {
   if (workspaceCwd == null) return null
@@ -25,7 +26,7 @@ let cleanupDone = false
 
 const MAX_RETAINED = 10_000
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000
-const PROCESS_LEVEL_EVENT_TYPES = new Set(['memory.engine.changed'])
+const PROCESS_LEVEL_EVENT_TYPES = new Set(['memory.engine.changed', 'task.done', 'mcp.health.changed'])
 
 /**
  * @param {import('node:sqlite').DatabaseSync} db
@@ -131,6 +132,12 @@ export function emit(type, payload, { workspaceCwd = null, sessionId, source = '
     }
   } else {
     console.warn('event_bus_not_configured')
+  }
+
+  try {
+    osNotifyFromEnvelope(type, envelope.payload)
+  } catch (error) {
+    console.warn('os_notify_failed', error)
   }
 
   for (const fn of subscribers) {

@@ -1,22 +1,14 @@
 // 工作台顶栏：品牌、全局功能导航与状态操作合并为一行。
-import { Bell, Volume2, VolumeX, Plus } from 'lucide-react'
+import { Volume2, VolumeX } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { useNavigate } from 'react-router-dom'
-import { imPaneOpen, imUnreadMouth, normalizeCwd } from '@/lib/im-letter-home'
-import { useImMailbox } from '@/lib/im-mailbox'
+import { CreateMenu } from './CreateMenu'
 import { IMTopNav } from './IMTopNav'
+import { NotifyInbox } from './NotifyInbox'
 
 export function IMMiniHeader() {
   const muted = useApp((s) => s.imMuted)
   const setMuted = useApp((s) => s.setIMMuted)
-  const imPanelState = useApp((s) => s.panels.find((panel) => panel.id === 'im')?.state)
-  const imFloating = useApp((s) => Boolean(s.floating.im))
-  const workspaces = useApp((s) => s.workspaces)
-  const activeWorkspaceId = useApp((s) => s.activeWorkspaceId)
-  const mailbox = useImMailbox()
-  const currentHome = normalizeCwd(workspaces.find((row) => row.id === activeWorkspaceId)?.cwd)
-  const unread = imUnreadMouth(mailbox.sheet, imPaneOpen(imPanelState, imFloating), currentHome)
-  const markAll = useApp((s) => s.markAllNotifRead)
   const nav = useNavigate()
 
   return (
@@ -43,30 +35,8 @@ export function IMMiniHeader() {
         {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
         {muted && <span className="absolute bottom-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent-amber" />}
       </button>
-      <button
-        className="btn-ghost h-7 w-7 p-0 relative"
-        title="通知中心"
-        onClick={() => { markAll(); togglePanelBriefing() }}
-      >
-        <Bell size={14} />
-        {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 text-[9px] px-1 rounded-full bg-accent-red text-white">
-            {unread}
-          </span>
-        )}
-      </button>
-      <button
-        className="btn-ghost h-7 px-2 text-xs flex items-center gap-1"
-        title="新建"
-        onClick={() => useApp.getState().togglePanel('im', 'full')}
-      >
-        <Plus size={12} /> 新建
-      </button>
+      <NotifyInbox />
+      <CreateMenu />
     </div>
   )
-}
-
-// 通知 → 默认弹出早报页作为通知落点
-function togglePanelBriefing() {
-  useApp.getState().togglePanel('briefing', 'full')
 }

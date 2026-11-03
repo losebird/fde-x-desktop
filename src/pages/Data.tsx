@@ -27,6 +27,7 @@ import { AppRuntime } from '@/components/apps/AppRuntime'
 import { appIsTrashed, isHostedAppSpec, specHasUse, type FdeAppDetail } from '@/lib/app-spec'
 import { runDeclaredPlatformUse } from '@/lib/app-platform'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { useCreateMouth } from '@/lib/create-mouth'
 import { RecordsPanel } from '@/components/biz/RecordsPanel'
 import { OperationControlPanel } from '@/components/biz/OperationControlPanel'
 import { clearAppRecordFocus, dataLandView } from '@/lib/data-browse'
@@ -573,6 +574,7 @@ function Overview({
   onOpenOperations: () => void
 }) {
   const [showCreate, setShowCreate] = useState(false)
+  useCreateMouth('app', () => setShowCreate(true))
   const [hasAiSession, setHasAiSession] = useState(false)
   const [draftPreview, setDraftPreview] = useState<{ appId: string; screens: string[]; dataSources: string[]; permissions: string[] } | null>(null)
   const [draftHint, setDraftHint] = useState('')
