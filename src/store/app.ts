@@ -228,8 +228,10 @@ interface State {
   news: NewsItem[]
   metrics: MetricCard[]
   planServiceError: string | null
+  planUnattended: boolean
   selectedTaskId: ID | null
   hydratePlan: (workspaceId: ID) => Promise<void>
+  setPlanUnattended: (on: boolean) => Promise<void>
   selectTask: (id: ID | null) => void
 
   // tasks
@@ -779,6 +781,7 @@ export const useApp = create<AppState>()(
       },
 
       planServiceError: null,
+      planUnattended: false,
       workflowRunSubmitIds: [] as ID[],
       selectedTaskId: null,
       selectTask: (id) => set({ selectedTaskId: id }),
@@ -792,13 +795,14 @@ export const useApp = create<AppState>()(
           const cwd = canonicalWorkspaceCwd(ws.cwd)
           const bagInput = cwd ? { workspaceId, cwd } : null
           const emptyBag = { items: [] as Array<{ kind: string; id: string; title: string; href?: unknown; fields?: unknown }> }
-          const [tasks, events, workflows, goalBag, scheduleBag, jobBag] = await Promise.all([
+          const [tasks, events, workflows, goalBag, scheduleBag, jobBag, unattended] = await Promise.all([
             runtimeApi.listTasks(workspaceId),
             runtimeApi.listEvents(workspaceId, from, to),
             runtimeApi.listWorkflows(workspaceId),
             bagInput ? runtimeApi.catalogBag('goal', bagInput).catch(() => emptyBag) : Promise.resolve(emptyBag),
             bagInput ? runtimeApi.catalogBag('schedule', bagInput).catch(() => emptyBag) : Promise.resolve(emptyBag),
             bagInput ? runtimeApi.catalogBag('job', bagInput).catch(() => emptyBag) : Promise.resolve(emptyBag),
+            runtimeApi.getPlanUnattended(workspaceId).catch(() => false),
           ])
           const hostTasks = (goalBag.items || [])
             .map((item) => taskFromHostBagItem(item as Record<string, unknown>, workspaceId))
@@ -813,11 +817,19 @@ export const useApp = create<AppState>()(
             tasks: mergePlanRows(tasks, hostTasks),
             events: mergePlanRows(events, hostEvents),
             workflows: mergePlanRows(workflows, hostWorkflows),
+            planUnattended: unattended === true,
             planServiceError: null,
           })
         } catch {
           set({ planServiceError: PLAN_UNAVAILABLE })
         }
+      },
+
+      setPlanUnattended: async (on) => {
+        const workspaceId = get().activeWorkspaceId
+        if (!workspaceId) return
+        const next = await runtimeApi.setPlanUnattended(workspaceId, on === true)
+        set({ planUnattended: next === true })
       },
 
       // ===== Data mutations =====

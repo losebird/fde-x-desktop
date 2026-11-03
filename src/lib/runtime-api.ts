@@ -1172,6 +1172,23 @@ export class RuntimeApi {
     return this.mapPlanWorkflow(row)
   }
 
+  async getPlanUnattended(workspaceId: string, signal?: AbortSignal): Promise<boolean> {
+    const row = await this.planRequest<{ on?: boolean }>(
+      `/api/v1/plan/unattended?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { signal },
+    )
+    return row.on === true
+  }
+
+  async setPlanUnattended(workspaceId: string, on: boolean): Promise<boolean> {
+    const row = await this.planRequest<{ on?: boolean }>('/api/v1/plan/unattended', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId, on: on === true }),
+    })
+    return row.on === true
+  }
+
   async listPlanHistory(workspaceId: string, targetRef: string, signal?: AbortSignal): Promise<PlanHistory> {
     const params = new URLSearchParams({ workspaceId, targetRef })
     return this.planRequest<PlanHistory>(`/api/v1/plan/history?${params}`, { signal })

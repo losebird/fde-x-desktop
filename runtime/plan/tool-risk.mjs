@@ -22,6 +22,8 @@ const TOOL_RISK = {
 
   fde_app_records_propose: 'propose',
   fde_plan_task_propose: 'propose',
+  biz_describe: 'read',
+  biz_preview: 'propose',
 
   bash: 'danger',
   write: 'danger',

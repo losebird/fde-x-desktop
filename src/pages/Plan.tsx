@@ -16,6 +16,7 @@ import clsx from 'clsx'
 import { useApp, useCurrentWorkflows, useCurrentTasks } from '@/store/app'
 import type { Task, ScheduleEvent, Workflow, WorkflowStep } from '@/lib/types'
 import { Card, Tag, Empty, PageTitle } from '@/components/ui'
+import { SurfaceSwitch } from '@/components/surface/Switch'
 import { useEvents } from '@/lib/events'
 import { ContextChips } from '@/components/ai/ContextChips'
 import { buildContextPack, type ContextPack } from '@/lib/context-pack'
@@ -78,6 +79,8 @@ export default function Plan() {
   const workspaces = useApp((s) => s.workspaces)
   const hydratePlan = useApp((s) => s.hydratePlan)
   const planServiceError = useApp((s) => s.planServiceError)
+  const planUnattended = useApp((s) => s.planUnattended)
+  const setPlanUnattended = useApp((s) => s.setPlanUnattended)
 
   const workspaceCwd = useMemo(() => {
     const row = workspaces.find((w) => w.id === activeWorkspaceId)
@@ -111,23 +114,41 @@ export default function Plan() {
         title="计划"
         subtitle="待办 + 日程 + 自动化工作流 —— 一次性动作、有时间锚点的事、重复触发的规则。"
         actions={
-          <div className="flex border border-line rounded overflow-hidden" data-plan-tab={active}>
-            {[
-              { k: 'todo', label: '待办', icon: Circle },
-              { k: 'schedule', label: '日程', icon: CalIcon },
-              { k: 'workflow', label: '工作流', icon: Repeat },
-            ].map((t) => (
-              <button
-                key={t.k}
-                onClick={() => setActive(t.k as Tab)}
-                className={clsx(
-                  'px-3 py-1.5 text-sm flex items-center gap-1.5',
-                  active === t.k ? 'bg-ink text-white' : 'hover:bg-surface-2 text-ink-muted',
-                )}
-              >
-                <t.icon size={14} /> {t.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-3">
+            <div className="flex border border-line rounded overflow-hidden" data-plan-tab={active}>
+              {[
+                { k: 'todo', label: '待办', icon: Circle },
+                { k: 'schedule', label: '日程', icon: CalIcon },
+                { k: 'workflow', label: '工作流', icon: Repeat },
+              ].map((t) => (
+                <button
+                  key={t.k}
+                  onClick={() => setActive(t.k as Tab)}
+                  className={clsx(
+                    'px-3 py-1.5 text-sm flex items-center gap-1.5',
+                    active === t.k ? 'bg-ink text-white' : 'hover:bg-surface-2 text-ink-muted',
+                  )}
+                >
+                  <t.icon size={14} /> {t.label}
+                </button>
+              ))}
+            </div>
+            <div
+              className="flex items-center gap-2 shrink-0"
+              data-plan-unattended={planUnattended ? 'on' : 'off'}
+              title={planUnattended
+                ? '无人值守开着：计划跑出的业务预览会自动过账'
+                : '无人值守关着：业务预览停在确认卡'}
+            >
+              <span className="text-sm text-ink">无人值守</span>
+              <SurfaceSwitch
+                bare
+                checked={planUnattended}
+                onCheckedChange={(on) => void setPlanUnattended(on)}
+                label="无人值守"
+              />
+              <span className="text-xs text-ink-muted tabular-nums w-4">{planUnattended ? '开' : '关'}</span>
+            </div>
           </div>
         }
       />

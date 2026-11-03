@@ -9,6 +9,9 @@ import { listWorkflowCatalog } from './workflow-catalog.mjs'
 import { isHostJobId } from '../host-catalog.mjs'
 import { toolTier, waitsForBackground, waitsForPerson } from './tool-risk.mjs'
 import { delayDurationMs } from './delay-ms.mjs'
+import { readPlanUnattended } from './unattended.mjs'
+import { parseLivePreviewId } from '../biz/confirm-mouth.mjs'
+import { capturePendingSheet, postWorkstationBizWrite } from '../routes/biz.mjs'
 
 const STEP_TIMEOUT_MS = 15 * 60 * 1000
 const STEP_TIMED_OUT = '运行超时'
@@ -330,6 +333,43 @@ function armStepDeadline(wait) {
   }
 }
 
+function mergeRunOutput(db, runId, extra) {
+  const row = db.prepare('SELECT output_json FROM workflow_runs WHERE id = ?').get(runId)
+  let output = {}
+  try {
+    output = JSON.parse(row?.output_json || '{}') || {}
+  } catch {
+    output = {}
+  }
+  if (typeof output !== 'object' || Array.isArray(output)) output = {}
+  Object.assign(output, extra)
+  db.prepare('UPDATE workflow_runs SET output_json = ? WHERE id = ?').run(JSON.stringify(output), runId)
+}
+
+async function maybeUnattendedPost(deps, ctx, sessionId) {
+  if (!sessionId) return ''
+  if (!readPlanUnattended(deps.db, ctx.workspaceId)) return ''
+  const sheet = await capturePendingSheet(deps.aiRuntime, '', sessionId)
+  if (!sheet || typeof sheet !== 'object') return ''
+  const previewId = parseLivePreviewId(sheet.preview_id || sheet.previewId)
+  if (!previewId) return ''
+  const token = String(sheet.writeToken || sheet.write_token || '').trim()
+  if (token && token !== 'open' && token !== 'live') return ''
+  const cwd = workspaceCwd(deps.db, ctx.workspaceId)
+  try {
+    const posted = await postWorkstationBizWrite({ db: deps.db, aiRuntime: deps.aiRuntime }, {
+      preview_id: previewId,
+      source: 'workstation',
+      workspace: cwd,
+      sessionId,
+    })
+    if (!posted || !posted.written || posted.written.ok === false) return '业务预览自动过账失败'
+    return '已自动过账'
+  } catch {
+    return '业务预览自动过账失败'
+  }
+}
+
 async function runAiStep(wait, aiRuntime, sessionId, step) {
   const deadline = armStepDeadline(wait)
   try {
@@ -514,6 +554,8 @@ async function performRun(deps, ctx) {
         return
       }
       markStepSucceeded(db, step.id, isoNow())
+      const posted = await maybeUnattendedPost(deps, ctx, session.sessionId)
+      if (posted) mergeRunOutput(db, ctx.runId, { message: posted })
       continue
     }
     if (step.kind === 'memory.add') {

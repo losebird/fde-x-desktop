@@ -38,6 +38,7 @@ import {
   workflowHistoryView,
 } from '../plan/history.mjs'
 import { hasIllegalSourceRef, readLatestRunCards, readWorkflowRuns, startWorkflowRun } from '../plan/workflow-run.mjs'
+import { readPlanUnattended, writePlanUnattended } from '../plan/unattended.mjs'
 import { listSelectableTools, listWorkflowCatalog } from '../plan/workflow-catalog.mjs'
 import { rejectPreset, rejectToolList, toolChangeAudit, withoutStepPersona } from '../plan/tool-risk.mjs'
 import {
@@ -321,6 +322,35 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
 
   const method = request.method ?? 'GET'
   const segments = url.pathname.split('/').filter(Boolean)
+
+  if (url.pathname === '/api/v1/plan/unattended') {
+    if (method === 'GET') {
+      const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
+      if (!workspaceId) return true
+      if (!workspaceExists(db, workspaceId)) {
+        planError(response, 404, 'missing_workspace', '工作区未登记', correlationId)
+        return true
+      }
+      planOk(response, 200, { on: readPlanUnattended(db, workspaceId) }, correlationId)
+      return true
+    }
+    if (method === 'PATCH' || method === 'POST') {
+      if (rejectScheduleToken(request, response, correlationId, uiToken)) return true
+      const body = await readJson(request)
+      const workspaceId = requireWorkspaceId(body.workspaceId || url.searchParams.get('workspaceId'), response, correlationId)
+      if (!workspaceId) return true
+      if (!workspaceExists(db, workspaceId)) {
+        planError(response, 404, 'missing_workspace', '工作区未登记', correlationId)
+        return true
+      }
+      if (!writePlanUnattended(db, workspaceId, body.on === true)) {
+        planError(response, 404, 'missing_workspace', '工作区未登记', correlationId)
+        return true
+      }
+      planOk(response, 200, { on: readPlanUnattended(db, workspaceId) }, correlationId)
+      return true
+    }
+  }
 
   if (method === 'GET' && url.pathname === '/api/v1/plan/history') {
     const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
