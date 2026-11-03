@@ -31,6 +31,7 @@ import { useCreateMouth } from '@/lib/create-mouth'
 import { RecordsPanel } from '@/components/biz/RecordsPanel'
 import { OperationControlPanel } from '@/components/biz/OperationControlPanel'
 import { clearAppRecordFocus, dataLandView } from '@/lib/data-browse'
+import { useEvents } from '@/lib/events'
 
 type Tone = 'default' | 'red' | 'amber' | 'blue' | 'purple' | 'teal' | 'green'
 
@@ -187,6 +188,10 @@ export default function Data() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEvents(['app.spec.submitted', 'app.activated'], () => {
+    void refresh()
+  }, workspace?.cwd ? { workspace: workspace.cwd } : undefined)
 
   const pendingApproval = operations.filter((item) => item.state === 'awaiting_approval').length
   const unresolved = countHomeOperationExceptions(operations)

@@ -12,17 +12,24 @@ export type InboxRow = {
   land: OpenRefHref
 }
 
-export function landNoticeHref(href?: string): OpenRefHref {
+export function landNoticeHref(href?: string, sessionId?: string, cwd?: string): OpenRefHref {
   const key = String(href || '').trim()
+  const sid = String(sessionId || '').trim()
+  const workspaceCwd = String(cwd || '').trim()
+  const aiLand = (): OpenRefHref => ({
+    panel: 'ai',
+    ...(sid ? { sessionId: sid } : {}),
+    ...(workspaceCwd ? { workspaceCwd } : {}),
+  })
   if (key === 'plan' || key === '/tasks' || key === 'todo') return { panel: 'plan' }
-  if (key === 'ai' || key === '/ai') return { panel: 'ai' }
+  if (key === 'ai' || key === '/ai') return aiLand()
   if (key === 'briefing' || key === '/briefing') return { panel: 'briefing' }
   if (key === 'im' || key === '/im') return { panel: 'im' }
   if (key === 'memory' || key === '/memory') return { panel: 'memory' }
   if (key === 'settings' || key === '/settings') return { panel: 'settings' }
   if (key === 'files' || key === '/files') return { panel: 'files' }
   if (key === 'mcp' || key === '/mcp') return { panel: 'mcp' }
-  return { panel: 'ai' }
+  return aiLand()
 }
 
 export function inboxFromNotifications(rows: NoticeRow[]): InboxRow[] {
@@ -34,7 +41,7 @@ export function inboxFromNotifications(rows: NoticeRow[]): InboxRow[] {
       title: row.title,
       body: row.body,
       ts: row.ts,
-      land: landNoticeHref(row.href),
+      land: landNoticeHref(row.href, row.sessionId, row.cwd),
     }))
 }
 

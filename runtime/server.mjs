@@ -663,6 +663,17 @@ async function readWorkspaceBaseline() {
   return { items: [], archivedSessionIds: [] }
 }
 
+function sessionListTitle(row) {
+  if (!row || typeof row !== 'object') return ''
+  const values = row.projections && row.projections.values && typeof row.projections.values === 'object'
+    ? row.projections.values
+    : {}
+  if (typeof values.title === 'string' && values.title.trim()) return values.title.trim()
+  if (typeof row.title === 'string' && row.title.trim()) return row.title.trim()
+  if (typeof row.name === 'string' && row.name.trim()) return row.name.trim()
+  return ''
+}
+
 function toAiSessionSummary(item) {
   const values = item?.projections?.values && typeof item.projections.values === 'object'
     ? item.projections.values
@@ -1554,10 +1565,22 @@ const server = createServer(async (request, response) => {
         sendError(response, 400, 'missing_session', '缺少 sessionId', currentCorrelationId)
         return
       }
+      let title = typeof body.title === 'string' ? body.title.trim() : ''
+      let cwd = typeof body.cwd === 'string' ? body.cwd.trim() : ''
+      if (!title || title === '未命名会话' || !cwd) {
+        const listed = await listHostSessions(aiRuntime).catch(() => [])
+        const row = listed.find((item) => String(item?.sessionId || item?.id || '') === sessionId)
+        if (!title || title === '未命名会话') {
+          const fromList = sessionListTitle(row)
+          if (fromList) title = fromList
+        }
+        if (!cwd) cwd = String(row?.cwd || '').trim()
+      }
       emit('task.done', {
         source: 'session',
         sessionId,
-        title: typeof body.title === 'string' ? body.title.trim() : '',
+        title,
+        cwd,
       }, { workspaceCwd: null, sessionId })
       sendJson(response, 200, { ok: true, correlationId: currentCorrelationId })
       return
@@ -2342,7 +2365,10 @@ const server = createServer(async (request, response) => {
         })
       } catch { /* 审计失败不能把已创建的会话打成失败 */ }
       if (session?.sessionId) {
-        emitSessionCreated(emit, { sessionId: session.sessionId, workspaceCwd: cwd || null })
+        emitSessionCreated(emit, {
+          sessionId: session.sessionId,
+          workspaceCwd: cwd || workspaceCwdForId(db, workspaceId) || null,
+        })
       }
       sendJson(response, 201, { data: session, correlationId: currentCorrelationId })
       return

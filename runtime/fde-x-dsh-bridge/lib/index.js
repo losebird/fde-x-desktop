@@ -318,6 +318,62 @@ function createFdeSessionHandler(ctx) {
         json(res, 200, { ok: true })
         return
       }
+      if (req.method === 'POST' && path === '/adopt-iui-app') {
+        const body = await readBody(req, 8 * 1024 * 1024)
+        const html = String(body.html || '').trim()
+        const title = String(body.title || '').trim()
+        const sessionId = String(body.sessionId || '').trim()
+        if (!html) {
+          json(res, 400, { ok: false, error: 'html_required' })
+          return
+        }
+        const agent = sessions.get(sessionId) || [...sessions.values()].find(Boolean)
+        const cwd = agent && agent.session && agent.session.header && agent.session.header.cwd
+        if (!cwd) {
+          json(res, 400, { ok: false, error: 'NO_CWD' })
+          return
+        }
+        const port = process.env.FDE_RUNTIME_PORT || '4318'
+        const home = process.env.FDE_DSH_HOME || process.env.DSH_HOME || join(homedir(), '.dsh-fde-x')
+        let token = ''
+        try {
+          token = String(readFileSync(join(home, '.ui-token'), 'utf8')).trim()
+        } catch { /* Host-local */ }
+        const payload = JSON.stringify({ html, title, cwd, workspaceCwd: cwd })
+        const adopted = await new Promise((resolve) => {
+          const request = httpRequest({
+            hostname: '127.0.0.1',
+            port,
+            path: '/api/v1/apps/adopt-iui',
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'content-length': Buffer.byteLength(payload),
+              Origin: 'http://127.0.0.1:5174',
+              ...(token ? { 'x-fde-ui-token': token } : {}),
+            },
+          }, (incoming) => {
+            const chunks = []
+            incoming.on('data', (chunk) => chunks.push(chunk))
+            incoming.on('end', () => {
+              const raw = Buffer.concat(chunks).toString('utf8')
+              try {
+                resolve({ status: incoming.statusCode || 500, body: JSON.parse(raw) })
+              } catch {
+                resolve({ status: incoming.statusCode || 500, body: { ok: false, error: raw.slice(0, 200) } })
+              }
+            })
+          })
+          request.on('error', (error) => resolve({ status: 0, body: { ok: false, error: error.message } }))
+          request.end(payload)
+        })
+        if (!adopted.body || adopted.body.ok === false || adopted.status >= 400) {
+          json(res, adopted.status >= 400 ? adopted.status : 502, adopted.body || { ok: false, error: 'adopt_failed' })
+          return
+        }
+        json(res, 200, { ok: true, ...(adopted.body.data || adopted.body) })
+        return
+      }
       json(res, 404, { ok: false, error: 'not_found' })
     } catch (error) {
       json(res, 400, { ok: false, error: error instanceof Error ? error.message : '失败' })
@@ -464,10 +520,29 @@ function installIuiModeGate(ctx, config) {
     if (kind && kind !== 'completed') return
     const sessionId = session && (session.id || session.sessionId || (session.header && (session.header.id || session.header.sessionId)))
     if (!sessionId) return
-    const title = String((session && (session.title || session.name)) || '').trim()
-    const cwd = String((session && session.cwd) || process.env.FDE_AI_WORKSPACE || '').trim()
+    const title = sessionDisplayTitle(session)
+    const cwd = String((session && session.cwd) || (session.header && session.header.cwd) || process.env.FDE_AI_WORKSPACE || '').trim()
     postSessionTurnEnd(sessionId, title, cwd)
   })
+}
+
+function sessionDisplayTitle(session) {
+  if (!session || typeof session !== 'object') return ''
+  const header = session.header || (session.session && session.session.header) || {}
+  const values = session.projections && session.projections.values && typeof session.projections.values === 'object'
+    ? session.projections.values
+    : {}
+  const nested = session.session && typeof session.session === 'object' ? session.session : {}
+  return String(
+    (typeof values.title === 'string' && values.title)
+    || session.title
+    || session.name
+    || nested.title
+    || nested.name
+    || header.title
+    || header.name
+    || '',
+  ).trim()
 }
 
 function postSessionTurnEnd(sessionId, title, cwd) {

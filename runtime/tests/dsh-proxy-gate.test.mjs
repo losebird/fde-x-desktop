@@ -10,6 +10,8 @@ test('iframe path always proxies to Host', () => {
   assert.equal(shouldProxyDshPath('/dsh-app', { livePath }), true)
   assert.equal(shouldProxyDshPath('/dsh-app/', { hostOrigin, staticDir: '/pack/dist', livePath }), true)
   assert.equal(shouldProxyDshPath('/dsh-app/assets/client.js', { staticDir: '/pack/dist', livePath }), true)
+  assert.equal(shouldProxyDshPath('/fde-session/adopt-iui-app', { hostOrigin, staticDir: '/pack/dist', livePath }), true)
+  assert.equal(shouldProxyDshPath('/fde-session/adopt-iui-app', { hostOrigin, livePath }), true)
 })
 
 test('packaged static keeps FDE routes', () => {

@@ -318,6 +318,8 @@ export interface Notification {
   ts: string
   read?: boolean
   href?: string
+  sessionId?: string
+  cwd?: string
 }
 
 export interface NewsItem {

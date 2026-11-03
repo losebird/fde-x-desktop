@@ -2,13 +2,21 @@ import type { FdeEvent } from '@/lib/events'
 import type { Notification as NoticeRow } from '@/lib/types'
 import { useApp } from '@/store/app'
 
-type Notice = { title: string; body?: string; href?: 'plan' | 'ai' | 'mcp'; gate: 'done' | 'due' | 'mcp' }
+type Notice = { title: string; body?: string; href?: 'plan' | 'ai' | 'mcp'; sessionId?: string; cwd?: string; gate: 'done' | 'due' | 'mcp' }
 
 export function noticeFromEvent(event: FdeEvent): Notice | null {
   const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {}
   if (event.type === 'task.done' && payload.source === 'session') {
     const title = String(payload.title || '').trim()
-    return { title: title ? `会话完成：${title}` : '会话任务完成', href: 'ai', gate: 'done' }
+    const sessionId = String(payload.sessionId || event.sessionId || '').trim()
+    const cwd = String(payload.cwd || event.workspaceCwd || '').trim()
+    return {
+      title: title ? `会话完成：${title}` : '会话任务完成',
+      href: 'ai',
+      ...(sessionId ? { sessionId } : {}),
+      ...(cwd ? { cwd } : {}),
+      gate: 'done',
+    }
   }
   if (event.type === 'task.changed' && payload.status === 'done') {
     const title = String(payload.title || '').trim()
@@ -61,6 +69,8 @@ export function applyTaskNotice(event: FdeEvent) {
     ts: new Date(event.ts || Date.now()).toISOString(),
     read: false,
     href: notice.href,
+    ...(notice.sessionId ? { sessionId: notice.sessionId } : {}),
+    ...(notice.cwd ? { cwd: notice.cwd } : {}),
   }
   state.addNotification(row)
   showOsNotice(notice)

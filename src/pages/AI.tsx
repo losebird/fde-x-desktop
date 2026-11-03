@@ -110,11 +110,16 @@ function sessionIdForWorkspace(input: {
 }) {
   const { connected, workspaceCwd, chatId, addressed, storedActiveAiSessionId, remoteSessions, workspaceSessions } = input
   if (!connected) return ''
+  const stored = String(storedActiveAiSessionId || '').trim()
+  if (stored) {
+    const inWorkspace = workspaceSessions.some((session) => session.sessionId === stored)
+    if (inWorkspace) return stored
+    const row = remoteSessions.find((session) => session.sessionId === stored)
+    if (!row) return stored
+    if (!workspaceCwd || !row.cwd || row.cwd === workspaceCwd) return stored
+  }
   if (!workspaceCwd) {
     if (chatId) return chatId
-    if (storedActiveAiSessionId && remoteSessions.some((session) => session.sessionId === storedActiveAiSessionId)) {
-      return storedActiveAiSessionId
-    }
     return ''
   }
   if (addressed?.cwd === workspaceCwd && chatId) return chatId
@@ -462,10 +467,11 @@ export default function AI() {
     window.addEventListener('fde-x-ai-transcript', onTranscript as EventListener)
     window.addEventListener('fde-x-ai-restore', onRestore as EventListener)
     function onOpen(event: Event) {
-      const detail = (event as CustomEvent<{ sessionId?: string; title?: string; accessory?: string }>).detail
+      const detail = (event as CustomEvent<{ sessionId?: string; title?: string; accessory?: string; cwd?: string }>).detail
       const sid = String(detail?.sessionId || '').trim()
       const title = String(detail?.title || '').trim()
       const accessory = String(detail?.accessory || '').trim()
+      const cwd = String(detail?.cwd || workspaceCwdRef.current || '').trim()
       if (accessory) setSessionAccessory(accessory)
       if (!sid) {
         if (!accessory) nav('/ai')
@@ -479,7 +485,7 @@ export default function AI() {
         tellDsh('select', {
           sessionId: sid,
           ...(title ? { title } : {}),
-          ...(workspaceCwdRef.current ? { cwd: workspaceCwdRef.current } : {}),
+          ...(cwd ? { cwd } : {}),
         })
       }).catch(() => undefined)
     }
@@ -621,11 +627,6 @@ export default function AI() {
       ac.abort()
     }
   }, [runtimeConnected])
-  useEvents(['ai.session.changed'], () => {
-    void reloadRemoteSessions().catch((error) => {
-      setRuntimeError(displayError(error))
-    })
-  })
   useEvents(['memory.engine.changed'], (event) => {
     const payload = event.payload
     if (!payload || typeof payload !== 'object') return

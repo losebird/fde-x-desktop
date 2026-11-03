@@ -208,6 +208,10 @@ const runtimeProxy = {
     changeOrigin: true,
     ws: true,
   },
+  '/fde-session': {
+    target: runtimeUrl,
+    changeOrigin: true,
+  },
   '/plugins': {
     target: runtimeUrl,
     changeOrigin: true,

@@ -109,6 +109,8 @@ test('workspace filter keeps an empty-cwd engine event and still drops other emp
   assert.equal(matchesWorkspaceFilter({ type: 'memory.engine.changed', workspaceCwd: other }, absDir), false)
   assert.equal(matchesWorkspaceFilter({ type: 'memory.engine.changed', workspaceCwd: absDir }, absDir), true)
   assert.equal(matchesWorkspaceFilter({ type: 'im.unread.changed', workspaceCwd: null }, absDir), false)
+  assert.equal(matchesWorkspaceFilter({ type: 'ai.session.changed', workspaceCwd: null }, absDir), false)
+  assert.equal(matchesWorkspaceFilter({ type: 'ai.session.changed', workspaceCwd: absDir }, absDir), true)
   const recent = listRecentEvents(db, { workspaceCwd: absDir })
   const replay = listEventsAfter(db, { workspaceCwd: absDir })
   for (const rows of [recent, replay]) {

@@ -3,6 +3,7 @@ import { pathHasPrefix } from './path-prefix.mjs'
 
 export function shouldProxyDshPath(pathname, { hostOrigin, staticDir, livePath } = {}) {
   if (pathname === '/dsh-app' || pathname.startsWith('/dsh-app/')) return true
+  if (pathHasPrefix(pathname, '/fde-session')) return true
   if (staticDir) return false
   if (!hostOrigin) return false
   if (pathname.startsWith('/api/v1')) return false

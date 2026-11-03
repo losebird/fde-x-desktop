@@ -27,6 +27,7 @@ import {
   writeBoundRecord,
 } from '../apps/bound-records.mjs'
 import { resolveOperateSkills } from '../biz/systems-store.mjs'
+import { adoptIuiPage } from '../apps/adopt-iui.mjs'
 import {
   activateApp,
   appIsTrashed,
@@ -351,6 +352,38 @@ export async function handleAppsRoutes(request, response, url, deps) {
       })),
       correlationId,
     })
+    return true
+  }
+
+  if (request.method === 'POST' && pathname === '/api/v1/apps/adopt-iui') {
+    const body = await readJson(request)
+    const explicit = resolveHttpWorkspace({
+      body,
+      role: 'path',
+      whenAbsent: 'omit',
+      slots: [['body', 'workspaceCwd'], ['body', 'cwd']],
+    })
+    if (rejectAppWorkspace(explicit, response, correlationId, sendError)) return true
+    const base = explicit.source === 'request' ? explicit : resolveHttpWorkspace({
+      runtimeCwd: aiRuntime?.cwd,
+      fallbackCwd: FDE_AI_WORKSPACE,
+      slots: [],
+    })
+    if (rejectAppWorkspace(base, response, correlationId, sendError)) return true
+    const ident = resolveWorkspaceIdOrFail(db, { ...base })
+    if (rejectAppWorkspace(ident, response, correlationId, sendError)) return true
+    const adopted = adoptIuiPage({
+      db,
+      workspaceId: ident.workspaceId,
+      workspaceCwd: ident.cwd || base.cwd || '',
+      title: body.title,
+      html: body.html,
+    })
+    if (!adopted.ok) {
+      sendJson(response, 422, { ok: false, errors: adopted.errors, correlationId })
+      return true
+    }
+    sendJson(response, 201, { ok: true, data: adopted, correlationId })
     return true
   }
 

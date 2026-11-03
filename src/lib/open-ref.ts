@@ -3,6 +3,7 @@ import { applyDataLand } from '@/lib/data-browse'
 import { landMcpSegment } from '@/lib/mcp-browse'
 import { revealAi } from '@/lib/reveal-ai'
 import { useApp } from '@/store/app'
+import { canonicalWorkspaceCwd, sameWorkspaceCwd } from '../../runtime/cwd.mjs'
 
 export { revealAi }
 
@@ -29,6 +30,7 @@ export type OpenRefHref = {
   workspaceAppId?: string | null
   appRid?: string
   accessory?: string
+  workspaceCwd?: string
 }
 
 const PLAN_TABS = new Set(['todo', 'schedule', 'workflow'])
@@ -56,11 +58,11 @@ export function landRef(kind: string, extra: OpenRefHref = {}) {
     return
   }
   if (key === 'session') {
-    revealAi(extra.sessionId)
+    openRef({ ...extra, panel: 'ai', sessionId: extra.sessionId })
     return
   }
   if (key === 'terminal') {
-    revealAi(extra.sessionId, 'terminal')
+    openRef({ ...extra, panel: 'ai', sessionId: extra.sessionId, accessory: 'terminal' })
     return
   }
   if (key === 'plugin') {
@@ -74,14 +76,26 @@ export function landRef(kind: string, extra: OpenRefHref = {}) {
   openRef({ ...extra, panel: 'settings', section: extra.section || 'core' })
 }
 
+function workspaceIdForCwd(cwd: string): string {
+  const want = canonicalWorkspaceCwd(cwd)
+  if (!want) return ''
+  const hit = useApp.getState().workspaces.find((row) => sameWorkspaceCwd(row.cwd || '', want))
+  return hit?.id || ''
+}
+
 export function openRef(href: OpenRefHref) {
   const app = useApp.getState()
+  const landCwd = String(href.workspaceCwd || '').trim()
+  if (landCwd) {
+    const workspaceId = workspaceIdForCwd(landCwd)
+    if (workspaceId) app.setActiveWorkspace(workspaceId)
+  }
   if (href.sessionId) app.setActiveAiSessionId(href.sessionId)
   if (href.agentId) app.setActiveAgent(href.agentId)
 
   const panel = String(href.panel || '')
   if (panel === 'ai') {
-    revealAi(href.sessionId, href.accessory)
+    revealAi(href.sessionId, href.accessory, { cwd: landCwd })
     return
   }
   if (panel === 'im') {
