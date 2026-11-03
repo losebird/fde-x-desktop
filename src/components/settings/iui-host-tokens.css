@@ -1,0 +1,23 @@
+/* IUI settings.section expects Host --dsw tokens. Map them from the FDE kit
+   only inside the hung IUI card so other Settings pages stay on kit classes. */
+[data-iui-settings-host] {
+  --dsw-alias-label-primary: var(--kit-ink);
+  --dsw-alias-label-secondary: var(--kit-secondary);
+  --dsw-alias-label-tertiary: var(--kit-secondary);
+  --dsw-alias-label-error: var(--kit-danger);
+  --dsw-alias-label-primary-foreground: #ffffff;
+  --dsw-alias-bg-base: var(--kit-card);
+  --dsw-alias-bg-layer-1: var(--kit-card);
+  --dsw-alias-bg-layer-2: var(--kit-card);
+  --dsw-alias-bg-layer-3: var(--kit-muted);
+  --dsw-alias-border-l2: var(--kit-line);
+  --dsw-alias-border-l3: var(--kit-line-strong);
+  --dsw-alias-brand-primary: var(--kit-brand);
+  --dsw-alias-state-business-primary: var(--kit-brand);
+  --dsw-alias-state-warn-primary: var(--kit-warn);
+  --dsw-alias-switch-thumb: #ffffff;
+  --dsw-radius-md: var(--kit-radius);
+  --dsw-focus-ring-width: 2px;
+  --dsw-focus-ring-color: var(--kit-brand);
+  --dsl-g-accent: var(--kit-brand);
+}

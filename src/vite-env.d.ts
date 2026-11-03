@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference path="./types/iui-client.d.ts" />
 
 interface FdeDesktopBridge {
   pickDirectory: () => Promise<{ path: string | null }>

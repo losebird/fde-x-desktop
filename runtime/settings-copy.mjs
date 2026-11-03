@@ -5,6 +5,17 @@ const NS_TITLE = {
   'ui-theme': '界面主题',
   locale: '语言',
   iui: 'IUI 交互',
+  'session-log-deepseek': '会话日志',
+  'agent-default-model': '默认模型',
+  'bash-sandbox': '终端沙箱',
+  permission: '权限',
+  subagent: '子代理',
+  'web-search-deepseek': '网页搜索',
+  'agent-loop': '代理循环',
+  'subagent-model-selection-settings': '子代理模型',
+  'dsh-experimental-speech-to-text': '语音输入',
+  'speech-to-text': '语音输入',
+  'fde-x-dsh-bridge': 'FDE 桥',
 }
 
 const FIELD_TITLE = {
@@ -29,6 +40,16 @@ const FIELD_TITLE = {
   structuredOutputsProbeUrl: '结构化探测地址',
   structuredOutputsProbeKey: '结构化探测密钥',
   developerTools: '开发者工具',
+  reasoningEffort: '推理力度',
+  standardDenyServers: '默认拒绝的连接器',
+  enabled: '启用',
+  cwd: '工作目录',
+  timeoutMs: '超时（毫秒）',
+  maxTimeoutMs: '最长超时（毫秒）',
+  maxOutputBytes: '输出上限',
+  maxSpillBytes: '溢出上限',
+  graceMs: '宽限（毫秒）',
+  defaultPreset: '默认预设',
 }
 
 const FIELD_TITLE_BY_NS = {

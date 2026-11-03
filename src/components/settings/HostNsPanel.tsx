@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Inbox } from 'lucide-react'
 import { SurfaceBanner } from '@/components/surface/Banner'
 import { SurfaceButton } from '@/components/surface/Button'
@@ -9,6 +10,8 @@ import { IuiRetryButton } from '@/components/settings/IuiRetryButton'
 import { useHostSettings, type HostNsEntry } from '@/components/settings/use-host-settings'
 import type { SettingsNsHome } from '@/lib/settings-ns-home'
 import { openRef } from '@/lib/open-ref'
+
+const IuiHostSection = lazy(() => import('@/components/settings/IuiHostSection').then((mod) => ({ default: mod.IuiHostSection })))
 
 function openRuntime() {
   openRef({ panel: 'settings', section: 'runtime' })
@@ -23,12 +26,23 @@ export function HostNsPanel({
   title: string
   hint: string
 }) {
-  const { entries, catalogs, busy, note, phase, message, load, save, connect } = useHostSettings()
+  const { entries, catalogs, busy, note, phase, message, load, save, connect, writable } = useHostSettings()
   const boot = useCoreBoot(phase === 'coreDown')
-  const rows = entries.filter((row) => row.home === home)
-  const blocked = rows.length === 0 && (phase === 'loading' || phase === 'unreachable' || phase === 'coreDown' || phase === 'error')
+  const iui = home === 'core' ? entries.find((row) => row.ns === 'iui') : undefined
+  const rows = entries.filter((row) => row.home === home && row.ns !== 'iui')
+  const blocked = rows.length === 0 && !iui && (phase === 'loading' || phase === 'unreachable' || phase === 'coreDown' || phase === 'error')
+  const showHost = rows.length > 0 || !iui
 
   return (
+    <>
+    {iui ? (
+      <section className="rounded-kit-lg border border-kit-line bg-kit-card p-4 shadow-kit">
+        <Suspense fallback={<div className="h-9 rounded-kit bg-kit-muted" aria-busy="true" aria-label="正在读取" />}>
+          <IuiHostSection entry={iui} writable={writable} onReload={load} />
+        </Suspense>
+      </section>
+    ) : null}
+    {showHost ? (
     <section className="rounded-kit-lg border border-kit-line bg-kit-card p-4 shadow-kit">
       <h3 className="text-kit-title font-medium text-kit-ink">{title}</h3>
       <p className="mb-3 mt-1 text-kit-sm leading-5 text-kit-secondary">{hint}</p>
@@ -89,11 +103,11 @@ export function HostNsPanel({
           action={<SurfaceButton onClick={() => load()}>重试</SurfaceButton>}
         />
       ) : null}
-      {!blocked && rows.length === 0 ? (
+      {!blocked && rows.length === 0 && !iui ? (
         <SurfaceEmpty icon={Inbox} title="这一节没有可改的项" body="核心里这一类现在是空的。" />
       ) : null}
       {rows.length > 0 ? (
-        <div className="space-y-2">
+        <div className="space-y-6">
           {rows.map((entry: HostNsEntry) => (
             <SettingsDescribeForm
               key={entry.ns}
@@ -112,5 +126,7 @@ export function HostNsPanel({
         </div>
       ) : null}
     </section>
+    ) : null}
+    </>
   )
 }

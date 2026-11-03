@@ -29,6 +29,12 @@ test('catalog chrome is denied or emptied so DSH fallback does not paint', () =>
   assert.equal(occupancyAction({ name: 'conversation.hero.agentPreset' }), 'allow')
 })
 
+test('hero occupancy CSS lines IUI starter chips with the composer', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'server.mjs'), 'utf8')
+  assert.match(src, /data-iui-starters="shown"/)
+  assert.match(src, /justify-content:flex-start/)
+})
+
 test('composer and session conversation slots stay allowed', () => {
   assert.equal(occupancyAction({ name: 'conversation.session' }), 'allow')
   assert.equal(occupancyAction({ name: 'conversation.session.header.actions' }), 'allow')

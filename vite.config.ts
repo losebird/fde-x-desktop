@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { createConnection } from 'node:net'
@@ -16,13 +16,57 @@ import {
   defaultRuntimeUrl,
 } from './runtime/config.mjs'
 import { ensureGenerationHost } from './runtime/generation.mjs'
+import { IUI_PIN } from './runtime/iui-pin.mjs'
 
 const runtimeUrl = process.env.FDE_RUNTIME_URL ?? process.env.VITE_FDE_RUNTIME_URL ?? defaultRuntimeUrl()
 const runtimePort = Number(new URL(runtimeUrl).port || FDE_RUNTIME_PORT)
 const devAllowedOrigins = FDE_ALLOWED_ORIGINS
 const srcDir = fileURLToPath(new URL('./src', import.meta.url))
+const appRoot = fileURLToPath(new URL('.', import.meta.url))
 const reactDir = fileURLToPath(new URL('./node_modules/react', import.meta.url))
 const reactDomDir = fileURLToPath(new URL('./node_modules/react-dom', import.meta.url))
+const iuiStubDir = fileURLToPath(new URL('./src/components/settings/iui-src-stub', import.meta.url))
+const iuiPrimitivesShim = fileURLToPath(new URL('./src/components/settings/iui-primitives-shim.tsx', import.meta.url))
+const iuiTailwindStub = fileURLToPath(new URL('./src/components/settings/iui-tailwind-stub.ts', import.meta.url))
+const iuiTailwindcssStub = fileURLToPath(new URL('./src/components/settings/iui-tailwindcss-stub.ts', import.meta.url))
+
+function resolveIuiSrc() {
+  const candidates = [
+    process.env.FDE_IUI_SRC,
+    join(FDE_DSH_HOME, 'iui-src', IUI_PIN.commit),
+    '/Users/zxz/Documents/ai-project/IUI',
+  ]
+  for (const dir of candidates) {
+    if (!dir) continue
+    if (existsSync(join(dir, 'src/client/settings/IuiSettingsSection.tsx'))) return dir
+  }
+  return ''
+}
+
+const iuiSrc = resolveIuiSrc()
+const iuiClientRoot = iuiSrc ? join(iuiSrc, 'src') : iuiStubDir
+
+function iuiSettingsLocalePlugin(): Plugin {
+  return {
+    name: 'iui-settings-locale-export',
+    enforce: 'pre',
+    resolveId(id) {
+      const norm = id.replace(/\\/g, '/')
+      if (norm.endsWith('themes/tailwind-jit.ts') || norm.endsWith('themes/tailwind-jit')) return iuiTailwindStub
+      return null
+    },
+    transform(code, id) {
+      const norm = id.replace(/\\/g, '/')
+      if (!norm.endsWith('/client/settings/index.ts')) return
+      if (code.includes('export { zh as iuiSettingsZh }')) return
+      if (!code.includes('\nconst zh')) return
+      return {
+        code: `${code}\nexport { zh as iuiSettingsZh, en as iuiSettingsEn }\n`,
+        map: null,
+      }
+    },
+  }
+}
 
 function waitForPort(port: number, host: string, timeoutMs = 4000) {
   return new Promise<boolean>((resolve) => {
@@ -196,7 +240,7 @@ const runtimeProxy = {
 }
 
 export default defineConfig(({ command }) => ({
-  plugins: [react(), fdeRuntimePlugin()],
+  plugins: [react(), iuiSettingsLocalePlugin(), fdeRuntimePlugin()],
   envPrefix: ['VITE_', 'FDE_'],
   define: {
     'import.meta.env.VITE_FDE_RUNTIME_URL': JSON.stringify(
@@ -208,6 +252,9 @@ export default defineConfig(({ command }) => ({
   },
   resolve: {
     alias: [
+      { find: /^@iui/, replacement: iuiClientRoot },
+      { find: '@deepseek-ai/dsh-client-ui-primitives', replacement: iuiPrimitivesShim },
+      { find: /^tailwindcss$/, replacement: iuiTailwindcssStub },
       { find: '@', replacement: srcDir },
       { find: /^react$/, replacement: reactDir },
       { find: /^react-dom$/, replacement: reactDomDir },
@@ -220,6 +267,9 @@ export default defineConfig(({ command }) => ({
   server: {
     host: '127.0.0.1',
     port: 5173,
+    fs: {
+      allow: [appRoot, ...(iuiSrc ? [iuiSrc] : [])],
+    },
     proxy: runtimeProxy,
   },
   preview: {

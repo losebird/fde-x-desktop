@@ -8,7 +8,9 @@ test('ns titles use Chinese display names', () => {
   assert.equal(settingsNsTitle('ui-theme', 'ui-theme'), '界面主题')
   assert.equal(settingsNsTitle('locale', 'locale'), '语言')
   assert.equal(settingsNsTitle('iui', 'iui'), 'IUI 交互')
-  assert.equal(settingsNsTitle('subagent', '子代理'), '子代理')
+  assert.equal(settingsNsTitle('subagent', 'subagent'), '子代理')
+  assert.equal(settingsNsTitle('agent-default-model', 'agent-default-model'), '默认模型')
+  assert.equal(settingsNsTitle('fde-x-dsh-bridge', 'fde-x-dsh-bridge'), 'FDE 桥')
 })
 
 test('field titles prefer Host Chinese then dictionary', () => {
@@ -17,6 +19,8 @@ test('field titles prefer Host Chinese then dictionary', () => {
   assert.equal(settingsFieldTitle('iui', 'fenceFeedback', 'fenceFeedback'), '围栏反馈')
   assert.equal(settingsFieldTitle('iui', 'jevApiKey', ''), 'JEV API 密钥')
   assert.equal(settingsFieldTitle('iui', 'unknownField', '自定义标题'), '自定义标题')
+  assert.equal(settingsFieldTitle('agent-default-model', 'reasoningEffort', ''), '推理力度')
+  assert.equal(settingsFieldTitle('fde-x-dsh-bridge', 'standardDenyServers', ''), '默认拒绝的连接器')
 })
 
 test('option labels stay as values when unknown', () => {

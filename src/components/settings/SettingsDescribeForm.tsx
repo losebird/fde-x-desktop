@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
 import { SurfaceButton } from '@/components/surface/Button'
 import { SurfaceField, SurfaceInput, SurfaceSelect, SurfaceTextarea } from '@/components/surface/Field'
 import { SurfaceSegmented } from '@/components/surface/Segmented'
@@ -535,7 +534,7 @@ function ScalarCluster({
   onChange: (next: Record<string, unknown>) => void
 }) {
   return (
-    <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 gap-3">
       {fields.map((field) => (
         <FieldEditor
           key={field.name}
@@ -879,12 +878,10 @@ function SaveRow({
 }) {
   if (!count) return null
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-kit-line pt-3">
-      <span className="text-kit-sm text-kit-secondary">未保存 {count} 项</span>
-      <span className="flex gap-2">
-        <SurfaceButton variant="ghost" disabled={disabled} onClick={onRevert}>还原</SurfaceButton>
-        <SurfaceButton variant="primary" disabled={disabled} onClick={onSave}>保存</SurfaceButton>
-      </span>
+    <div className="flex items-center gap-2 rounded-full border border-kit-line bg-kit-card px-4 py-2">
+      <span className="min-w-0 flex-1 text-kit-sm text-kit-ink">{count === 1 ? '1 项改动未保存' : `${count} 项改动未保存`}</span>
+      <SurfaceButton variant="ghost" disabled={disabled} onClick={onRevert}>放弃</SurfaceButton>
+      <SurfaceButton variant="primary" disabled={disabled} onClick={onSave}>保存</SurfaceButton>
     </div>
   )
 }
@@ -951,7 +948,6 @@ export function SettingsDescribeForm({
   const fields = objectFieldEntries(schema, rootUid)
   const initial = value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {}
   const [draft, setDraft] = useState<Record<string, unknown>>(initial)
-  const [open, setOpen] = useState(true)
   const valueRef = useRef(value)
   valueRef.current = value
 
@@ -961,7 +957,6 @@ export function SettingsDescribeForm({
   }, [ns, revision])
 
   const dirtyCount = dirtyTopLevelOps(initial, draft).length
-  const summary = summaryOf(value)
   const boolFields = fields.filter((field) => String(schemaNode(schema, field.uid)?.type || '') === 'boolean')
   const headerBool = boolFields.length === 1 ? boolFields[0] : null
   const bodyFields = headerBool ? fields.filter((field) => field.name !== headerBool.name) : fields
@@ -970,32 +965,21 @@ export function SettingsDescribeForm({
   if (!rootUid || !fields.length) return null
 
   return (
-    <div className="rounded-kit border border-kit-line">
-      <div className="flex items-center gap-2 px-3 py-2.5">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          aria-expanded={open}
-          onClick={() => setOpen((current) => !current)}
-        >
-          {open ? <ChevronDown size={14} className="shrink-0 text-kit-tertiary" /> : <ChevronRight size={14} className="shrink-0 text-kit-tertiary" />}
-          <span className="truncate text-kit font-medium text-kit-ink">{settingsNsTitle(ns, title)}</span>
-          {summary ? <span className="ml-auto truncate text-kit-meta text-kit-secondary max-w-[45%]">{summary}</span> : null}
-          {dirtyCount ? <span className="shrink-0 text-kit-meta text-kit-warn">未保存 {dirtyCount} 项</span> : null}
-        </button>
+    <section className="flex flex-col gap-2" data-host-settings-ns={ns}>
+      <h3 className="m-0 text-[13px] font-semibold tracking-wide text-kit-secondary">{settingsNsTitle(ns, title)}</h3>
+      {hint ? <p className="m-0 text-kit-sm leading-5 text-kit-secondary">{hint}</p> : null}
+      <div className="overflow-hidden rounded-kit-lg border border-kit-line">
         {headerBool ? (
-          <SurfaceSwitch
-            bare
-            checked={Boolean(draft[headerBool.name])}
-            disabled={disabled}
-            label={settingsFieldTitle(ns, headerBool.name)}
-            onCheckedChange={(next) => setDraft({ ...draft, [headerBool.name]: next })}
-          />
+          <div className="border-b border-kit-line px-4">
+            <SurfaceSwitch
+              checked={Boolean(draft[headerBool.name])}
+              disabled={disabled}
+              label={settingsFieldTitle(ns, headerBool.name)}
+              onCheckedChange={(next) => setDraft({ ...draft, [headerBool.name]: next })}
+            />
+          </div>
         ) : null}
-      </div>
-      {open && (
-        <div className="px-3 pb-3 space-y-3 border-t border-line pt-3">
-          {hint ? <div className="text-xs text-ink-muted leading-5">{hint}</div> : null}
+        <div className="space-y-3 px-4 py-3">
           {allBoolean && boolFields.length > 1 ? (
             <ScalarCluster
               schema={schema}
@@ -1059,12 +1043,7 @@ export function SettingsDescribeForm({
           ) : null}
           <SaveRow count={dirtyCount} disabled={disabled} onSave={() => onSave(draft)} onRevert={() => setDraft({ ...initial })} />
         </div>
-      )}
-      {!open && dirtyCount > 0 && (
-        <div className="px-3 pb-3">
-          <SaveRow count={dirtyCount} disabled={disabled} onSave={() => onSave(draft)} onRevert={() => setDraft({ ...initial })} />
-        </div>
-      )}
-    </div>
+      </div>
+    </section>
   )
 }

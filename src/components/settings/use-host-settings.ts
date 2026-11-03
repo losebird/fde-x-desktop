@@ -22,6 +22,8 @@ export type HostNsEntry = {
   schema: Record<string, unknown>
   value: unknown
   secrets: unknown
+  user: unknown
+  base: unknown
 }
 
 function conflictCause(cause: unknown) {
@@ -37,6 +39,7 @@ export function useHostSettings() {
   const [note, setNote] = useState('')
   const [phase, setPhase] = useState<SurfacePhase>('loading')
   const [message, setMessage] = useState('')
+  const [writable, setWritable] = useState(true)
 
   const load = useCallback(() => {
     setPhase((current) => (current === 'ready' ? 'ready' : 'loading'))
@@ -78,9 +81,12 @@ export function useHostSettings() {
             schema,
             value: fields.value,
             secrets: fields.secrets,
+            user: fields.user,
+            base: fields.base,
           }
         }).filter((row): row is HostNsEntry => Boolean(row))
         setEntries(nextEntries)
+        setWritable(settingsBag.raw?.writable !== false)
         const bagError = settingsBag.error ? String(settingsBag.error) : ''
         const connected = Boolean(status?.connected)
         if (!nextEntries.length && !connected) {
@@ -141,5 +147,5 @@ export function useHostSettings() {
     }).finally(() => setBusy(false))
   }
 
-  return { entries, catalogs, busy, note, phase, message, load, save, connect }
+  return { entries, catalogs, busy, note, phase, message, load, save, connect, writable }
 }

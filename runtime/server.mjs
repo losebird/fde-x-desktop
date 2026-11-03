@@ -866,6 +866,8 @@ html[data-fde-session-canvas] [data-slot="conversation.hero.title"],
 html[data-fde-session-canvas] [data-slot="conversation.hero.workspace"]{display:none!important}
 html[data-fde-session-canvas] [data-phase="hero"] [data-composer-seat] :has(> [data-slot="conversation.composer.bar"]) > :not([data-slot="conversation.composer.bar"]):not([data-slot="conversation.input.dock"]):not(:has([data-slot="conversation.hero.agentPreset"])){display:none!important}
 html[data-fde-session-canvas] [data-phase="hero"] [data-composer-seat] :has(> [data-slot="conversation.hero.agentPreset"]) > :not([data-slot="conversation.hero.agentPreset"]){display:none!important}
+html[data-fde-session-canvas] [data-phase="hero"] [data-iui-starters="shown"]{justify-content:flex-start!important;box-sizing:border-box;width:100%;gap:8px!important;margin:0 0 12px!important;padding:0 16px 0 20px}
+html[data-fde-session-canvas] [data-phase="hero"] [data-iui-starter]{flex:none}
 </style>`
 
 function dshProxyPath(url) {

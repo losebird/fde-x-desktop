@@ -1946,6 +1946,7 @@ export class RuntimeApi {
     actions: string[]
     items: Array<{ kind: string; id: string; title: string; href?: unknown; fields?: unknown }>
     error?: string
+    raw?: { writable?: unknown }
   }> {
     const query = new URLSearchParams({ kind })
     if (opts?.sessionId) query.set('sessionId', opts.sessionId)

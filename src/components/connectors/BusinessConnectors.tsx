@@ -3,15 +3,8 @@ import { useWhenCoreConnects } from '@/components/settings/core-connection'
 import { surfaceNote } from '@/components/settings/surface-note'
 import { SurfaceBanner, SurfaceButton, SurfaceField, SurfaceInput, SurfaceSelect } from '@/components/surface'
 import { BizHandleSlots } from '@/components/biz/BizHandleSlots'
-import { SkillBagPicker } from '@/components/biz/SkillBagPicker'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
-import type { FdeAppSkillBind } from '@/lib/app-spec'
-import { runtimeApi, type McpServerV2, type SkillBagItem } from '@/lib/runtime-api'
-
-function skillsFromOperate(raw: unknown): FdeAppSkillBind[] {
-  const operate = raw && typeof raw === 'object' ? (raw as { operate?: { skills?: FdeAppSkillBind[] } }).operate : null
-  return Array.isArray(operate?.skills) ? operate.skills : []
-}
+import { runtimeApi, type McpServerV2 } from '@/lib/runtime-api'
 
 function toolsFromRow(row: Record<string, unknown>) {
   const tools = row.tools && typeof row.tools === 'object' ? row.tools as { describe?: string; list?: string; write?: string } : {}
@@ -25,15 +18,11 @@ function toolsFromRow(row: Record<string, unknown>) {
 export function BusinessConnectors({ onChanged }: { onChanged?: () => void }) {
   const [lookupNote, setLookupNote] = useState('')
   const [lookup, setLookup] = useState({ system: '', env: '测试', baseUrl: '', token: '', account: '', password: '' })
-  const [lookupSkills, setLookupSkills] = useState<FdeAppSkillBind[]>([])
   const [mcpBag, setMcpBag] = useState<McpServerV2[]>([])
-  const [skillBag, setSkillBag] = useState<SkillBagItem[]>([])
   const [bizSystems, setBizSystems] = useState<Array<Record<string, unknown>>>([])
   const [draftSystem, setDraftSystem] = useState({ name: '', serverName: '', describe: '', list: '', write: '' })
-  const [draftSkills, setDraftSkills] = useState<FdeAppSkillBind[]>([])
   const [editingId, setEditingId] = useState('')
   const [editRow, setEditRow] = useState({ name: '', serverName: '', describe: '', list: '', write: '' })
-  const [editSkills, setEditSkills] = useState<FdeAppSkillBind[]>([])
   const [sourceSaving, setSourceSaving] = useState(false)
 
   const load = useCallback(() => {
@@ -57,21 +46,16 @@ export function BusinessConnectors({ onChanged }: { onChanged?: () => void }) {
           env: String(lookupFields.env || prev.env),
           baseUrl: String(lookupFields.baseUrl || prev.baseUrl),
         }))
-        setLookupSkills(skillsFromOperate(lookupFields))
       }
     }).catch((cause) => setLookupNote(surfaceNote(cause, '读不到业务系统。')))
     void (async () => {
       const cwd = loadCurrentWorkspaceCwd()
       const target = await currentAiTarget().catch(() => ({ ok: false as const, error: '' }))
-      const [servers, skills] = await Promise.all([
-        runtimeApi.listMcpServers({
-          sessionId: target.ok ? target.sessionId : '',
-          cwd: target.ok ? target.cwd : (cwd.ok ? cwd.cwd : ''),
-        }).catch(() => ({ mcp: [] as McpServerV2[] })),
-        runtimeApi.listAiSkills(target.ok ? target.sessionId : undefined).catch(() => ({ items: [] as SkillBagItem[] })),
-      ])
+      const servers = await runtimeApi.listMcpServers({
+        sessionId: target.ok ? target.sessionId : '',
+        cwd: target.ok ? target.cwd : (cwd.ok ? cwd.cwd : ''),
+      }).catch(() => ({ mcp: [] as McpServerV2[] }))
       setMcpBag(servers.mcp)
-      setSkillBag(skills.items)
     })()
   }, [])
 
@@ -100,14 +84,6 @@ export function BusinessConnectors({ onChanged }: { onChanged?: () => void }) {
       .finally(() => setSourceSaving(false))
   }
 
-  const saveLookupSkills = () => {
-    setSourceSaving(true)
-    void runtimeApi.putBizSystems({ lookup: { operate: { skills: lookupSkills } } })
-      .then(() => done('已保存 lookup 技能'))
-      .catch((cause) => setLookupNote(surfaceNote(cause, '保存失败')))
-      .finally(() => setSourceSaving(false))
-  }
-
   const addMcpSystem = () => {
     if (!draftSystem.name || !draftSystem.serverName || !draftSystem.describe || !draftSystem.list) {
       setLookupNote('名称、服务器、describe、list 必填')
@@ -122,11 +98,9 @@ export function BusinessConnectors({ onChanged }: { onChanged?: () => void }) {
         list: draftSystem.list,
         ...(draftSystem.write ? { write: draftSystem.write } : {}),
       },
-      ...(draftSkills.length ? { operate: { skills: draftSkills } } : {}),
     }).then((data) => {
       setBizSystems(data.systems)
       setDraftSystem({ name: '', serverName: '', describe: '', list: '', write: '' })
-      setDraftSkills([])
       done('已保存 MCP 业务系统')
     }).catch((cause) => setLookupNote(surfaceNote(cause, '保存失败')))
       .finally(() => setSourceSaving(false))
@@ -196,10 +170,6 @@ export function BusinessConnectors({ onChanged }: { onChanged?: () => void }) {
         </SurfaceField>
         <SurfaceButton type="submit" disabled={sourceSaving}>保存连接</SurfaceButton>
       </form>
-      <div className="mt-4 space-y-2">
-        <SkillBagPicker kit skills={skillBag} value={lookupSkills} onChange={setLookupSkills} />
-        <SurfaceButton disabled={sourceSaving} onClick={saveLookupSkills}>保存 lookup 技能</SurfaceButton>
-      </div>
 
       <h3 className="mt-6 text-kit-title font-medium text-kit-ink">MCP 业务系统</h3>
       <p className="mb-3 mt-1 text-kit-sm text-kit-secondary">从已装的服务器里选一台，再点它的三个工具。</p>
@@ -223,7 +193,6 @@ export function BusinessConnectors({ onChanged }: { onChanged?: () => void }) {
                   }
                   setEditingId(id)
                   setEditRow({ name: String(row.name), serverName: String(row.serverName), ...tools })
-                  setEditSkills(skillsFromOperate(row))
                 }}
               >
                 {expanded ? '收起' : '改'}
@@ -278,7 +247,6 @@ export function BusinessConnectors({ onChanged }: { onChanged?: () => void }) {
                       list: editRow.list,
                       ...(editRow.write ? { write: editRow.write } : {}),
                     },
-                    operate: { skills: editSkills },
                   }).then((data) => {
                     setBizSystems(data.systems)
                     done('已保存')
@@ -307,7 +275,6 @@ export function BusinessConnectors({ onChanged }: { onChanged?: () => void }) {
                     onChange={(slot, tool) => setEditRow((current) => ({ ...current, [slot]: tool }))}
                   />
                 ) : null}
-                <SkillBagPicker kit skills={skillBag} value={editSkills} onChange={setEditSkills} />
                 <SurfaceButton type="submit" disabled={sourceSaving}>保存</SurfaceButton>
               </form>
             ) : null}
@@ -343,7 +310,6 @@ export function BusinessConnectors({ onChanged }: { onChanged?: () => void }) {
             onChange={(slot, tool) => setDraftSystem((current) => ({ ...current, [slot]: tool }))}
           />
         ) : null}
-        <SkillBagPicker kit skills={skillBag} value={draftSkills} onChange={setDraftSkills} />
         <SurfaceButton type="submit" disabled={sourceSaving}>添加 MCP 系统</SurfaceButton>
       </form>
     </section>
