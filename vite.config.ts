@@ -15,6 +15,7 @@ import {
   FDE_RUNTIME_RELOAD_WAIT_MS,
   defaultRuntimeUrl,
 } from './runtime/config.mjs'
+import { injectPageTokenHtml, isPageTokenValue } from './runtime/page-token-html.mjs'
 import { ensureGenerationHost } from './runtime/generation.mjs'
 import { IUI_PIN } from './runtime/iui-pin.mjs'
 
@@ -147,20 +148,19 @@ function fdeRuntimePlugin(): Plugin {
 
   return {
     name: 'fde-x-runtime',
-    transformIndexHtml(html) {
-      let token = uiToken
-      try {
-        const fromFile = readFileSync(join(FDE_DSH_HOME, '.ui-token'), 'utf8').trim()
-        if (/^[0-9a-f]{64}$/u.test(fromFile)) token = fromFile
-      } catch {
-        /* BFF has not minted yet */
-      }
-      if (!/^[0-9a-f]{64}$/u.test(token)) return html
-      const meta = `<meta name="fde-ui-token" content="${token}" />`
-      if (html.includes('name="fde-ui-token"')) {
-        return html.replace(/<meta name="fde-ui-token" content="[^"]*"\s*\/?>/, meta)
-      }
-      return html.replace('</head>', `${meta}\n</head>`)
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        if (!ctx?.server) return html
+        let token = uiToken
+        try {
+          const fromFile = readFileSync(join(FDE_DSH_HOME, '.ui-token'), 'utf8').trim()
+          if (isPageTokenValue(fromFile)) token = fromFile
+        } catch {
+          /* BFF has not minted yet */
+        }
+        return injectPageTokenHtml(html, token)
+      },
     },
     async configureServer(server) {
       const host = FDE_RUNTIME_HOST

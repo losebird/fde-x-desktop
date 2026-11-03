@@ -73,16 +73,36 @@ function ensureCanvasCss(id: CanvasId) {
 
 function ensureHostCss() {
   const id = 'fde-semantic-host-css'
-  if (document.getElementById(id)) return
-  const style = document.createElement('style')
-  style.id = id
-  style.textContent = `
-    [data-fde-semantic-canvas]{height:100%;min-height:0;display:flex;flex-direction:column}
-    [data-fde-semantic-canvas] .dsh-explore-host,
-    [data-fde-semantic-canvas] .explore-host,
-    [data-fde-semantic-canvas] .explore-host-wrap{flex:1;min-height:0;height:100%;width:100%}
-  `
+  let style = document.getElementById(id)
+  if (!style) {
+    style = document.createElement('style')
+    style.id = id
+    style.textContent = `
+      [data-fde-semantic-canvas]{height:100%;min-height:0;min-width:0;display:flex;flex-direction:column}
+      [data-fde-semantic-canvas].dsh-explore-host .palantir-bg,
+      [data-fde-semantic-canvas].dsh-explore-host .explore-shell,
+      [data-fde-semantic-canvas].dsh-explore-host .explore-main-grid,
+      [data-fde-semantic-canvas].dsh-explore-host .explore-scene-stack,
+      [data-fde-semantic-canvas].dsh-explore-host .explore-scene-card,
+      [data-fde-semantic-canvas].dsh-explore-host .explore-scene-shell,
+      [data-fde-semantic-canvas].dsh-explore-host .explore-scene-stage{flex:1 1 auto;min-height:0;min-width:0;height:100%;width:100%}
+      [data-fde-semantic-canvas].dsh-explore-host .explore-command-deck,
+      [data-fde-semantic-canvas].dsh-explore-host .explore-command-deck .sem-surface,
+      [data-fde-semantic-canvas].dsh-explore-host .explore-toolbar{position:static!important;height:auto!important;flex:0 0 auto!important}
+      [data-fde-semantic-canvas].dsh-explore-host .explore-workflow-bar{grid-template-columns:minmax(0,1fr) auto!important;align-items:start!important}
+      [data-fde-semantic-canvas].dsh-explore-host .explore-toolbelt{grid-column:1/-1!important;position:static!important;inset:auto!important;width:auto!important;max-width:100%!important;max-height:none!important;overflow:visible!important;display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:flex-start!important;justify-content:flex-start!important;gap:8px!important;z-index:auto}
+      [data-fde-semantic-canvas].dsh-explore-host .explore-tool-cluster{position:static!important;flex:0 0 auto;max-width:100%}
+      [data-fde-semantic-canvas].dsh-explore-host .explore-inspector-shell{position:absolute;top:8px;right:8px;bottom:8px;width:min(280px,42%);max-width:42%}
+      [data-fde-semantic-canvas].dsh-explore-host .explore-plugin-dock{height:min(180px,26%)!important;max-height:min(180px,26%)!important}
+      [data-fde-semantic-canvas].dsh-explore-host .explore-scene-stage canvas{display:block}
+    `
+  }
   document.head.appendChild(style)
+}
+
+function pingCanvasResize(el: HTMLElement) {
+  if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return
+  window.dispatchEvent(new Event('resize'))
 }
 
 function loadCanvasModule(id: CanvasId) {
@@ -258,7 +278,17 @@ export default function Memory() {
         if (typeof stop === 'function') stop()
         return
       }
-      if (typeof stop === 'function') unmount = stop
+      ensureHostCss()
+      const ping = () => { if (!cancelled) pingCanvasResize(el) }
+      requestAnimationFrame(ping)
+      const later = window.setTimeout(ping, 160)
+      const ro = new ResizeObserver(ping)
+      ro.observe(el)
+      unmount = () => {
+        ro.disconnect()
+        window.clearTimeout(later)
+        if (typeof stop === 'function') stop()
+      }
     }).catch((error) => {
       if (!cancelled) setCanvasError(error instanceof Error ? error.message : '画布加载失败')
     })

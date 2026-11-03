@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainInvokeEvent } from 'electron'
-import type { ChildProcess } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { execFile, type ChildProcess } from 'node:child_process'
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -43,6 +43,75 @@ function desktopDev() {
 
 function pageUrl(port: number) {
   return `${pageOrigin(port)}/ai`
+}
+
+const GLASS = '/System/Library/Sounds/Glass.aiff'
+
+function noticeIconPath() {
+  const icns = join(process.resourcesPath, 'icon.icns')
+  if (existsSync(icns)) return icns
+  const png = join(import.meta.dirname, '../build/icon.png')
+  return existsSync(png) ? png : undefined
+}
+
+function playGlass() {
+  if (process.platform === 'darwin' && existsSync(GLASS)) {
+    execFile('afplay', [GLASS], () => undefined)
+  }
+}
+
+type OsNoticePayload = {
+  title?: string
+  body?: string
+  id?: string
+  href?: string
+  sessionId?: string
+  cwd?: string
+}
+
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function showDesktopNotice(payload: OsNoticePayload) {
+  const title = String(payload.title || 'FDE-X')
+  const body = String(payload.body || '')
+  playGlass()
+  const unfocused = Boolean(mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused())
+  if (unfocused) app.dock?.bounce('informational')
+  if (!Notification.isSupported()) return
+  const icon = noticeIconPath()
+  const notice = new Notification({
+    title,
+    body,
+    silent: true,
+    ...(icon ? { icon } : {}),
+  })
+  notice.on('click', () => {
+    focusMainWindow()
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send('fde:notice-open', {
+      id: payload.id || '',
+      href: payload.href || '',
+      sessionId: payload.sessionId || '',
+      cwd: payload.cwd || '',
+    })
+  })
+  notice.on('failed', (_event, error) => {
+    console.warn('fde_notify_failed', error)
+    try {
+      const log = pack
+        ? join(pack.roots.base, 'notify-failed.log')
+        : join(app.getPath('userData'), 'notify-failed.log')
+      appendFileSync(log, `${new Date().toISOString()} ${error}\n`)
+    } catch {
+      /* diagnostic only */
+    }
+  })
+  notice.show()
 }
 
 function bffPortFile(base: string) {
@@ -182,6 +251,24 @@ function openMainWindow() {
     return { action: 'deny' }
   })
   loadMain(bffPort)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.alt || input.shift || input.isAutoRepeat) return
+    if (!input.meta && !input.control) return
+    const key = String(input.key || '')
+    const lower = key.toLowerCase()
+    let name = ''
+    if (lower === 'k') name = 'search'
+    else if (lower === 'n') name = 'session'
+    else if (lower === 't') name = 'task'
+    else if (lower === 'e') name = 'event'
+    else if (key === '0') name = 'briefing'
+    else if (key === ';') name = 'mute-im'
+    else if (key === 'ArrowUp') name = 'session-prev'
+    else if (key === 'ArrowDown') name = 'session-next'
+    if (!name) return
+    event.preventDefault()
+    mainWindow?.webContents.send('fde:shortcut', name)
+  })
 }
 
 async function createWindow() {
@@ -261,6 +348,7 @@ async function gracefulShutdown() {
 }
 
 app.whenReady().then(() => {
+  if (Notification.isSupported()) Notification.removeAll()
   ipcMain.handle('fde:pick-directory', async () => {
     const result = mainWindow
       ? await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] })
@@ -278,14 +366,8 @@ app.whenReady().then(() => {
     resources: resolvePackagedResources(),
   }))
   ipcMain.handle('fde:ui-token', () => uiToken)
-  ipcMain.handle('fde:notify', (_event: IpcMainInvokeEvent, payload: { title?: string; body?: string } = {}) => {
-    if (!Notification.isSupported()) return { ok: false }
-    const notice = new Notification({
-      title: String(payload.title || 'FDE-X'),
-      body: String(payload.body || ''),
-      silent: false,
-    })
-    notice.show()
+  ipcMain.handle('fde:notify', (_event: IpcMainInvokeEvent, payload: OsNoticePayload = {}) => {
+    showDesktopNotice(payload)
     return { ok: true }
   })
 

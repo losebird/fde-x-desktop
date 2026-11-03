@@ -7,7 +7,20 @@ import {
   deliverOsNotify,
   notifyHelperPaths,
   osNotifyFromEnvelope,
+  osascriptNotifyArgs,
 } from '../os-notify.mjs'
+
+test('osNotify skips when the packaged BFF has FDE_STATIC_DIR', async () => {
+  const { osNotify } = await import('../os-notify.mjs')
+  const previous = process.env.FDE_STATIC_DIR
+  process.env.FDE_STATIC_DIR = '/tmp/fde-static'
+  try {
+    assert.equal(osNotify({ title: 'FDE-X', body: '会话完成' }), undefined)
+  } finally {
+    if (previous == null) delete process.env.FDE_STATIC_DIR
+    else process.env.FDE_STATIC_DIR = previous
+  }
+})
 
 test('osNotifyFromEnvelope is silent under node:test', () => {
   osNotifyFromEnvelope('task.done', { source: 'session', title: '验收' })
@@ -47,15 +60,17 @@ test('deliverOsNotify skips a helper macOS has already refused', () => {
   const used = deliverOsNotify({ title: 'FDE-X', body: '会话完成' }, {
     platform: 'darwin',
     paths,
-    exists: (p) => p === paths.bin,
+    exists: (p) => p === paths.bin || p === '/System/Library/Sounds/Glass.aiff',
     execFile: (cmd, args) => {
       calls.push({ cmd, args })
       return { unref() {} }
     },
   })
-  assert.equal(used.used, 'sound')
-  assert.equal(calls.length, 1)
-  assert.equal(calls[0].cmd, 'afplay')
+  assert.equal(used.used, 'osascript')
+  assert.equal(calls[0].cmd, 'osascript')
+  assert.equal(calls[0].args[1], 'tell application id "com.fde-x.workstation"')
+  assert.match(calls[0].args.join('\n'), /会话完成/)
+  assert.equal(calls[1].cmd, 'afplay')
 })
 
 test('deliverOsNotify falls back to osascript when helper is missing', () => {
@@ -71,6 +86,14 @@ test('deliverOsNotify falls back to osascript when helper is missing', () => {
   })
   assert.equal(used.used, 'osascript')
   assert.equal(calls[0].cmd, 'osascript')
-  assert.match(calls[0].args[1], /任务完成/)
+  assert.equal(calls[0].args[1], 'tell application id "com.fde-x.workstation"')
+  assert.match(calls[0].args.join('\n'), /任务完成/)
   assert.equal(calls[1].cmd, 'afplay')
+})
+
+test('osascriptNotifyArgs attributes the banner to FDE-X', () => {
+  const args = osascriptNotifyArgs('FDE-X', '会话完成：后台')
+  assert.equal(args[1], 'tell application id "com.fde-x.workstation"')
+  assert.match(args[3], /会话完成：后台/)
+  assert.equal(args[5], 'end tell')
 })

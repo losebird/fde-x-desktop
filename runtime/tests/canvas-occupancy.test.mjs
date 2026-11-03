@@ -35,6 +35,15 @@ test('hero occupancy CSS lines IUI starter chips with the composer', () => {
   assert.match(src, /justify-content:flex-start/)
 })
 
+test('session canvas collapses the DSH sidebar column when Host leaves it expanded', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'server.mjs'), 'utf8')
+  assert.match(src, /\[class\$="_frame"\]:has\(> \[class\$="_sidebarCol"\]\):has\(> \[class\$="_centerCol"\]\)/)
+  assert.match(src, /\[class\$="_frame"\] > \[class\$="_sidebarCol"\]/)
+  assert.doesNotMatch(src, /_sidebarCol"\]\{display:none/)
+  assert.match(src, /grid-template-columns:0 minmax\(0,1fr\) 0!important/)
+  assert.match(src, /transition:none!important/)
+})
+
 test('composer and session conversation slots stay allowed', () => {
   assert.equal(occupancyAction({ name: 'conversation.session' }), 'allow')
   assert.equal(occupancyAction({ name: 'conversation.session.header.actions' }), 'allow')

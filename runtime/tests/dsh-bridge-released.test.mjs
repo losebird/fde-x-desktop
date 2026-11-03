@@ -13,6 +13,12 @@ test('select recovers a released Host session by reconnecting the workspace', ()
   assert.match(src, /openOrHydrate\(existing, workspaceId\)/)
 })
 
+test('turn watch posts running false when the assistant turn completes', () => {
+  const src = readFileSync(new URL('../fde-x-dsh-bridge/lib/client.js', import.meta.url), 'utf8')
+  assert.match(src, /op: "turn", running: false/)
+  assert.match(src, /postedRunning = undefined/)
+})
+
 test('occupancy hook makes Host session release idempotent', () => {
   const src = readFileSync(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(src, /Sidebar Session opening failed/)

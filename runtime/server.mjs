@@ -122,7 +122,7 @@ import {
   restoreWriteRoot,
 } from './session-bind.mjs'
 import { mergePageCors } from './proxy-cors.mjs'
-import { tryServeStatic } from './routes/static.mjs'
+import { tryServeStatic, workbenchStaticOpts } from './routes/static.mjs'
 import { shouldProxyDshPath } from './dsh-proxy-gate.mjs'
 import { pathHasPrefix } from './path-prefix.mjs'
 import {
@@ -862,7 +862,11 @@ const FDE_DSH_STRIP_STYLE = `<style data-fde-dsh-strip>
 .dla-ask-wrap,.dla-ask-btn,.dla-badge,.dla-chat-pop,.dla-chat-scrim,.dla-chat-pair-ask,.dla-overlay{display:none!important}
 .dsos-root,.dsos-bar{display:none!important}
 html[data-fde-session-canvas] [data-sidebar-collapsed],
-html[data-fde-session-canvas] [data-rightbar-collapsed]{grid-template-columns:0 minmax(0,1fr) 0!important}
+html[data-fde-session-canvas] [data-rightbar-collapsed],
+html[data-fde-session-canvas] [class$="_frame"]:has(> [class$="_sidebarCol"]):has(> [class$="_centerCol"]){grid-template-columns:0 minmax(0,1fr) 0!important;transition:none!important}
+html[data-fde-session-canvas] [class$="_frame"] > [class$="_sidebarCol"]{min-width:0!important;overflow:hidden!important;border:none!important;background:none!important;visibility:hidden!important}
+html[data-fde-session-canvas] [class$="_frame"] > [class$="_handle"]{display:none!important}
+html[data-fde-session-canvas] [class$="_centerCol"]{border-left:none!important}
 html[data-fde-session-canvas] [data-sidebar-right-session]{display:none!important}
 html[data-fde-session-canvas] button[aria-label="打开右侧边栏"],
 html[data-fde-session-canvas] button[aria-label="Open right sidebar"],
@@ -1384,7 +1388,7 @@ const server = createServer(async (request, response) => {
         response.end()
         return
       }
-      if (FDE_STATIC_DIR && tryServeStatic(FDE_STATIC_DIR, request, response)) return
+      if (FDE_STATIC_DIR && tryServeStatic(FDE_STATIC_DIR, request, response, workbenchStaticOpts(uiToken))) return
       if (url.pathname === '/favicon.ico') {
         response.writeHead(204)
         response.end()
@@ -3873,7 +3877,7 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    if (FDE_STATIC_DIR && tryServeStatic(FDE_STATIC_DIR, request, response)) {
+    if (FDE_STATIC_DIR && tryServeStatic(FDE_STATIC_DIR, request, response, workbenchStaticOpts(uiToken))) {
       return
     }
 

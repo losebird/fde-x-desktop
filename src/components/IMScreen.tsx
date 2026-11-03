@@ -1,6 +1,7 @@
 // 工作台主壳：AI 永久作为主工作区，IM 与业务能力从顶栏打开功能面板。
 import { useEffect, useState } from 'react'
 import { useEvents } from '@/lib/events'
+import { activateOsNotice } from '@/lib/notify-inbox'
 import { applyTaskNotice, onTaskToast, requestOsNotifyPermission } from '@/lib/task-notify'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '@/store/app'
@@ -9,6 +10,7 @@ import { runtimeApi } from '@/lib/runtime-api'
 import { imPaneOpen, imUnreadMouth } from '@/lib/im-letter-home'
 import { useImMailbox } from '@/lib/im-mailbox'
 import { loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { applyWorkbenchShortcut, handleWorkbenchKeydown } from '@/lib/workbench-shortcuts'
 import AI from '@/pages/AI'
 import { CommandPalette } from './CommandPalette'
 import { FloatingPanel } from './FloatingPanel'
@@ -104,11 +106,18 @@ export function IMScreen() {
   }, [])
 
   useEffect(() => {
+    const stopNotice = window.fdeDesktop?.onNoticeOpen?.((payload) => {
+      activateOsNotice(payload)
+    })
+    return () => { stopNotice?.() }
+  }, [])
+
+  useEffect(() => {
+    const stopDesktop = window.fdeDesktop?.onShortcut?.((name) => {
+      applyWorkbenchShortcut(name as Parameters<typeof applyWorkbenchShortcut>[0])
+    })
     const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault()
-        setPaletteOpen(true)
-      }
+      if (handleWorkbenchKeydown(event)) return
       if (event.key === 'Escape') {
         const state = useApp.getState()
         if (state.paletteOpen) {
@@ -126,7 +135,10 @@ export function IMScreen() {
       }
     }
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    return () => {
+      stopDesktop?.()
+      window.removeEventListener('keydown', onKey, true)
+    }
   }, [setPaletteOpen])
 
   return (

@@ -22,3 +22,6 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSUserNotificationAlertStyle: alert
+    NSUserNotificationsUsageDescription: 任务完成时在后台提醒你。

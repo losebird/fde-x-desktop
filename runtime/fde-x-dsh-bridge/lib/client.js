@@ -369,7 +369,7 @@ window.__ModuleLoader__.load({
         }
         return String(best || "").trim()
       }
-      var turnWatch = { sid: "", timer: 0, lastText: "", sawRun: false, pending: [] }
+      var turnWatch = { sid: "", timer: 0, lastText: "", sawRun: false, pending: [], postedRunning: undefined }
       function stopTurnWatch() {
         if (turnWatch.timer) clearTimeout(turnWatch.timer)
         turnWatch.timer = 0
@@ -377,6 +377,7 @@ window.__ModuleLoader__.load({
         turnWatch.sawRun = false
         turnWatch.lastText = ""
         turnWatch.pending = []
+        turnWatch.postedRunning = undefined
       }
       function startTurnWatch(sid, requestId) {
         var id = String(sid || "")
@@ -389,6 +390,7 @@ window.__ModuleLoader__.load({
           turnWatch.lastText = lastAssistantText(session)
           turnWatch.sawRun = false
           turnWatch.pending = []
+          turnWatch.postedRunning = undefined
         }
         var rid = String(requestId || "")
         if (rid) turnWatch.pending.push(rid)
@@ -399,7 +401,7 @@ window.__ModuleLoader__.load({
           var sess = bound && bound.session
           var nowText = lastAssistantText(sess)
           var snap = sess && sess.getSnapshot ? sess.getSnapshot() : null
-          var running = !!(snap && snap.running)
+          var running = !!(snap && snap.running) || !!(sess && sess.running)
           if (turnWatch.postedRunning !== running) {
             turnWatch.postedRunning = running
             if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: id, op: "turn", running: running }, "*")
@@ -409,7 +411,11 @@ window.__ModuleLoader__.load({
             turnWatch.lastText = nowText
             turnWatch.sawRun = false
             var doneId = turnWatch.pending.length ? turnWatch.pending.shift() : ""
-            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: id, op: "assistant", text: nowText, requestId: doneId }, "*")
+            if (window.parent !== window) {
+              window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: id, op: "turn", running: false }, "*")
+              window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: id, op: "assistant", text: nowText, requestId: doneId }, "*")
+            }
+            turnWatch.postedRunning = false
           }
           turnWatch.timer = setTimeout(poll, 500)
         }

@@ -72,14 +72,24 @@ function currentWorkspaceFromStore(): string {
   return activeWorkspaceCwdFromState(useApp.getState())
 }
 
-function dispatchEvent(event: FdeEvent) {
-  if (event.id) {
-    try {
-      sessionStorage.setItem(SESSION_SINCE_KEY, event.id)
-    } catch {
-      // ignore quota / private mode
-    }
+function readSinceId() {
+  try {
+    return localStorage.getItem(SESSION_SINCE_KEY) || ''
+  } catch {
+    return ''
   }
+}
+
+function writeSinceId(id: string) {
+  try {
+    localStorage.setItem(SESSION_SINCE_KEY, id)
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function dispatchEvent(event: FdeEvent) {
+  if (event.id) writeSinceId(event.id)
   for (const listener of listeners) {
     if (listener.workspace && event.workspaceCwd != null && !sameWorkspaceCwd(event.workspaceCwd, listener.workspace)) {
       continue
@@ -135,6 +145,8 @@ function startPolling(workspace: string) {
   pollTimer = window.setInterval(() => {
     const params = new URLSearchParams()
     if (workspace) params.set('workspace', workspace)
+    const since = readSinceId()
+    if (since) params.set('since', since)
     params.set('limit', '50')
     void fetch(`/api/v1/events/recent?${params.toString()}`)
       .then((res) => (res.ok ? res.json() : null))
@@ -174,7 +186,7 @@ function connectEventStream(workspace: string) {
   const params = new URLSearchParams()
   if (workspace) params.set('workspace', workspace)
   try {
-    const since = sessionStorage.getItem(SESSION_SINCE_KEY)
+    const since = readSinceId()
     if (since) params.set('since', since)
   } catch {
     // ignore

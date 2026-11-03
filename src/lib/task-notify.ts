@@ -1,13 +1,18 @@
 import type { FdeEvent } from '@/lib/events'
+import { activateOsNotice } from '@/lib/notify-inbox'
 import type { Notification as NoticeRow } from '@/lib/types'
 import { useApp } from '@/store/app'
 
 type Notice = { title: string; body?: string; href?: 'plan' | 'ai' | 'mcp'; sessionId?: string; cwd?: string; gate: 'done' | 'due' | 'mcp' }
 
+function displayTitle(raw: unknown) {
+  return String(raw || '').replace(/<\|[^|]*\|>/g, '').replace(/\s+/g, ' ').trim()
+}
+
 export function noticeFromEvent(event: FdeEvent): Notice | null {
   const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {}
   if (event.type === 'task.done' && payload.source === 'session') {
-    const title = String(payload.title || '').trim()
+    const title = displayTitle(payload.title)
     const sessionId = String(payload.sessionId || event.sessionId || '').trim()
     const cwd = String(payload.cwd || event.workspaceCwd || '').trim()
     return {
@@ -19,14 +24,14 @@ export function noticeFromEvent(event: FdeEvent): Notice | null {
     }
   }
   if (event.type === 'task.changed' && payload.status === 'done') {
-    const title = String(payload.title || '').trim()
+    const title = displayTitle(payload.title)
     return { title: title ? `任务完成：${title}` : '任务完成', href: 'plan', gate: 'done' }
   }
   if (event.type === 'ai.result.ready') {
     return { title: '任务完成', href: 'ai', gate: 'done' }
   }
   if (event.type === 'task.due.soon') {
-    const title = String(payload.title || '').trim()
+    const title = displayTitle(payload.title)
     return { title: title ? `即将到期：${title}` : '任务即将到期', href: 'plan', gate: 'due' }
   }
   if (event.type === 'mcp.health.changed' && payload.ok === false) {
@@ -42,15 +47,46 @@ export function requestOsNotifyPermission(): Promise<NotificationPermission | 'u
   return Notification.requestPermission()
 }
 
-function showOsNotice(notice: Notice) {
+function playNoticeSound() {
+  try {
+    const Ctor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!Ctor) return
+    const ctx = new Ctor()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sine'
+    osc.frequency.value = 880
+    gain.gain.value = 0.08
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start()
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18)
+    osc.stop(ctx.currentTime + 0.2)
+    osc.onended = () => { void ctx.close() }
+  } catch {
+    /* sound is best-effort */
+  }
+}
+
+function showOsNotice(notice: Notice, id: string) {
+  const payload = {
+    title: notice.title,
+    body: notice.body || '',
+    id,
+    href: notice.href,
+    sessionId: notice.sessionId,
+    cwd: notice.cwd,
+  }
   const desktop = typeof window !== 'undefined' ? window.fdeDesktop : undefined
   if (desktop?.notify) {
-    void desktop.notify({ title: notice.title, body: notice.body || '' })
+    void desktop.notify(payload)
     return
   }
+  playNoticeSound()
   if (typeof Notification === 'undefined') return
   if (Notification.permission === 'granted') {
-    new Notification(notice.title, { body: notice.body, silent: false, requireInteraction: true })
+    const os = new Notification(notice.title, { body: notice.body, silent: false, requireInteraction: true })
+    os.onclick = () => activateOsNotice(payload)
   }
 }
 
@@ -61,8 +97,10 @@ export function applyTaskNotice(event: FdeEvent) {
   if (notice.gate === 'done' && !state.taskDoneNotify) return
   if (notice.gate === 'due' && !state.taskDueSoonNotify) return
   if (notice.gate === 'mcp' && !state.mcpDownNotify) return
+  const rowId = event.id ? `n_${event.id}` : ''
+  if (rowId && state.notifications.some((row) => row.id === rowId)) return
   const row: NoticeRow = {
-    id: `n_${event.id}`,
+    id: rowId || `n_${Date.now()}`,
     kind: 'success',
     title: notice.title,
     body: notice.body,
@@ -73,7 +111,7 @@ export function applyTaskNotice(event: FdeEvent) {
     ...(notice.cwd ? { cwd: notice.cwd } : {}),
   }
   state.addNotification(row)
-  showOsNotice(notice)
+  showOsNotice(notice, row.id)
   emitTaskToast(notice)
 }
 

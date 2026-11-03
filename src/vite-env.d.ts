@@ -6,7 +6,9 @@ interface FdeDesktopBridge {
   openExternal: (url: string) => Promise<void>
   appInfo: () => Promise<{ version: string; bffPort: number; resources: string }>
   uiToken?: () => Promise<string>
-  notify?: (payload: { title: string; body?: string }) => Promise<{ ok: boolean }>
+  notify?: (payload: { title: string; body?: string; id?: string; href?: string; sessionId?: string; cwd?: string }) => Promise<{ ok: boolean }>
+  onShortcut?: (cb: (name: string) => void) => () => void
+  onNoticeOpen?: (cb: (payload: { id?: string; href?: string; sessionId?: string; cwd?: string }) => void) => () => void
 }
 
 interface Window {

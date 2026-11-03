@@ -14,6 +14,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DSH_NPM_VERSION, IUI_PIN, SEMANTIC_RUNTIME } from './pins.mjs'
+import { IUI_LIBRARY } from '../../runtime/iui-pin.mjs'
 import { NODE_DIST_VERSION, nodeDistArchiveName, nodeDistPresent, nodeDistUrls } from './node-dist.mjs'
 import { stagePluginTree } from './plugin-stage.mjs'
 import { REQUIRED_PLUGINS, readLock } from '../plugins/lock-check.mjs'
@@ -651,6 +652,28 @@ async function main() {
     console.log(`[stage] plugin ${plugin.dir} ← artifact ${IUI_PIN.artifact.url || artifactPath}`)
   }
 
+  {
+    const artifactPath = process.env.FDE_IUI_ARTIFACT || defaultIuiArtifactPath(repoRoot, IUI_PIN.commit)
+    const to = join(pluginsRoot, IUI_LIBRARY.dir)
+    await stageIuiArtifact({ dest: to, pin: IUI_PIN, artifactPath })
+    const tarName = `iui-${IUI_PIN.commit}.tar.gz`
+    await cp(artifactPath, join(to, tarName))
+    console.log(`[stage] plugin ${IUI_LIBRARY.dir} ← artifact ${artifactPath} (+ ${tarName})`)
+  }
+  for (const name of REQUIRED_PLUGINS) {
+    const from = join(repoRoot, 'runtime', 'plugins', name)
+    const to = join(pluginsRoot, name)
+    if (name === 'dsh-lan-assist') await stageLanAssist(from, to, { strict: !allowMissing })
+    else {
+      const staged = await stagePluginTree(from, to, { strict: !allowMissing })
+      if (!staged) {
+        console.error(`[stage] missing plugin ${name}: ${from}`)
+        process.exit(1)
+      }
+    }
+    console.log(`[stage] plugin ${name} ← runtime/plugins/${name}`)
+  }
+
   const dshDest = join(resourcesRoot, 'dsh')
   const dshStaged = await stageDsh(dshDest)
 
@@ -665,7 +688,11 @@ async function main() {
     platformKey: runtimeKey,
     dsh: { version: DSH_NPM_VERSION, staged: dshStaged },
     node: { version: NODE_DIST_VERSION, staged: nodeStaged },
-    plugins: bundledPluginVersions(BUILTIN_PLUGINS, pluginsRoot, locked.lock && locked.lock.plugins),
+    plugins: bundledPluginVersions([
+      IUI_LIBRARY,
+      ...REQUIRED_PLUGINS.map((dir) => ({ dir, source: { kind: 'repo' } })),
+      ...BUILTIN_PLUGINS,
+    ], pluginsRoot, locked.lock && locked.lock.plugins),
     semanticRuntime: {
       runtimeVersion: SEMANTIC_RUNTIME.runtimeVersion,
       key: runtimeKey,

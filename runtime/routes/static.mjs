@@ -1,5 +1,7 @@
-import { createReadStream, existsSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
+import { injectPageTokenHtml } from '../page-token-html.mjs'
+import { pathHasPrefix } from '../path-prefix.mjs'
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -26,10 +28,22 @@ const MIME = {
  * @param {import('node:http').ServerResponse} response
  * @returns {boolean} true if handled
  */
-export function tryServeStatic(rootDir, request, response, { spaFallback = true } = {}) {
+function pathSkipped(pathname, prefixes) {
+  for (const prefix of prefixes || []) {
+    if (pathHasPrefix(pathname, prefix) || pathname === prefix) return true
+  }
+  return false
+}
+
+export function workbenchStaticOpts(uiToken) {
+  return { spaFallback: true, uiToken, skipPrefixes: ['/a'] }
+}
+
+export function tryServeStatic(rootDir, request, response, { spaFallback = true, uiToken = '', skipPrefixes = [] } = {}) {
   if (!rootDir || request.method !== 'GET' && request.method !== 'HEAD') return false
   const url = new URL(request.url ?? '/', 'http://127.0.0.1')
   if (url.pathname.startsWith('/api/')) return false
+  if (pathSkipped(url.pathname, skipPrefixes)) return false
 
   const root = resolve(rootDir)
   let rel = decodeURIComponent(url.pathname)
@@ -59,9 +73,25 @@ export function tryServeStatic(rootDir, request, response, { spaFallback = true 
 
   const ext = extname(filePath).toLowerCase()
   const type = MIME[ext] || 'application/octet-stream'
+  if (ext === '.html') {
+    let html = readFileSync(filePath, 'utf8')
+    html = injectPageTokenHtml(html, uiToken)
+    const body = Buffer.from(html)
+    response.writeHead(200, {
+      'Content-Type': type,
+      'Cache-Control': 'no-store',
+      'Content-Length': body.length,
+    })
+    if (request.method === 'HEAD') {
+      response.end()
+      return true
+    }
+    response.end(body)
+    return true
+  }
   response.writeHead(200, {
     'Content-Type': type,
-    'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
+    'Cache-Control': 'public, max-age=31536000, immutable',
   })
   if (request.method === 'HEAD') {
     response.end()

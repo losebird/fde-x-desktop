@@ -17,6 +17,7 @@ import {
   type SessionTitleNotice,
 } from '@/lib/ai-session-list'
 import { currentAiTarget, isPrimarySession, resolvePrimarySessionId } from '@/lib/ai-target'
+import { sessionIdForWorkspace } from '@/lib/session-pick'
 import { useCreateMouth } from '@/lib/create-mouth'
 import { useApp } from '@/store/app'
 import { clearAskAiNotice, getAskAiNotice, subscribeAskAiNotice } from '@/lib/ask-ai'
@@ -86,47 +87,7 @@ function hostWorkspaceField(id?: string | null) {
   return workspaceId ? { workspaceId } : {}
 }
 
-function latestSessionId(rows: Array<{ sessionId: string; updatedAt?: number }>) {
-  let latestId = ''
-  let latestTime = -Infinity
-  for (const row of rows) {
-    const time = Number(row.updatedAt) || 0
-    if (time >= latestTime) {
-      latestTime = time
-      latestId = row.sessionId
-    }
-  }
-  return latestId
-}
 
-function sessionIdForWorkspace(input: {
-  connected: boolean
-  workspaceCwd?: string
-  chatId?: string
-  addressed?: { cwd?: string }
-  storedActiveAiSessionId: string
-  remoteSessions: Array<{ sessionId: string }>
-  workspaceSessions: Array<{ sessionId: string; updatedAt?: number }>
-}) {
-  const { connected, workspaceCwd, chatId, addressed, storedActiveAiSessionId, remoteSessions, workspaceSessions } = input
-  if (!connected) return ''
-  const stored = String(storedActiveAiSessionId || '').trim()
-  if (stored) {
-    const inWorkspace = workspaceSessions.some((session) => session.sessionId === stored)
-    if (inWorkspace) return stored
-    const row = remoteSessions.find((session) => session.sessionId === stored)
-    if (!row) return stored
-    if (!workspaceCwd || !row.cwd || row.cwd === workspaceCwd) return stored
-  }
-  if (!workspaceCwd) {
-    if (chatId) return chatId
-    return ''
-  }
-  if (addressed?.cwd === workspaceCwd && chatId) return chatId
-  if (addressed?.cwd && addressed.cwd !== workspaceCwd) return latestSessionId(workspaceSessions)
-  if (chatId && !addressed) return chatId
-  return latestSessionId(workspaceSessions)
-}
 
 function pinnedIdsFromBag(bag: unknown) {
   if (!bag || typeof bag !== 'object') return []
@@ -769,6 +730,8 @@ export default function AI() {
         return
       }
       if (data?.type === 'fde-x-dsh-ready' && data.op === 'assistant' && typeof data.text === 'string') {
+        const doneId = typeof data.sessionId === 'string' ? data.sessionId : ''
+        if (doneId) setIframeRunningId((current) => (current === doneId ? '' : current))
         const bind = useApp.getState().imFillBind
         if (bind && assistantMatchesFill(bind, { sessionId: data.sessionId, requestId: data.requestId })) {
           const body = extractComposerBody(data.text)
@@ -831,6 +794,7 @@ export default function AI() {
   useEffect(() => subscribeAskAiNotice(() => setAskAiNotice(getAskAiNotice())), [])
 
   const selectChat = (sessionId: string) => {
+    setActiveAiSessionId(sessionId)
     nav(`/ai/${sessionId}`)
     const row = visibleSessions.find((session) => session.sessionId === sessionId)
     tellDsh('select', {
@@ -840,6 +804,18 @@ export default function AI() {
       ...(activeWorkspace?.cwd ? { cwd: activeWorkspace.cwd } : {}),
     })
   }
+
+  useEffect(() => {
+    const onStep = (event: Event) => {
+      const dir = Number((event as CustomEvent).detail) || 0
+      if (!dir || visibleSessions.length === 0) return
+      const index = visibleSessions.findIndex((session) => session.sessionId === activeId)
+      const next = visibleSessions[(Math.max(index, 0) + dir + visibleSessions.length) % visibleSessions.length]
+      if (next) selectChat(next.sessionId)
+    }
+    window.addEventListener('fde-x-session-step', onStep)
+    return () => window.removeEventListener('fde-x-session-step', onStep)
+  }, [visibleSessions, activeId, activeWorkspaceId, activeWorkspace?.cwd])
 
   const createRemoteSession = (presetId?: string) => {
     const workspaceId = hostWorkspaceId(activeWorkspace?.id)

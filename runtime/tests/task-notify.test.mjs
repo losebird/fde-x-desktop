@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+
+function displayTitle(raw) {
+  return String(raw || '').replace(/<\|[^|]*\|>/g, '').replace(/\s+/g, ' ').trim()
+}
 
 function noticeFromEvent(event) {
   const payload = event.payload && typeof event.payload === 'object' ? event.payload : {}
   if (event.type === 'task.done' && payload.source === 'session') {
-    const title = String(payload.title || '').trim()
+    const title = displayTitle(payload.title)
     const sessionId = String(payload.sessionId || event.sessionId || '').trim()
     const cwd = String(payload.cwd || event.workspaceCwd || '').trim()
     return {
@@ -16,12 +23,12 @@ function noticeFromEvent(event) {
     }
   }
   if (event.type === 'task.changed' && payload.status === 'done') {
-    const title = String(payload.title || '').trim()
+    const title = displayTitle(payload.title)
     return { title: title ? `任务完成：${title}` : '任务完成', href: 'plan', gate: 'done' }
   }
   if (event.type === 'ai.result.ready') return { title: '任务完成', href: 'ai', gate: 'done' }
   if (event.type === 'task.due.soon') {
-    const title = String(payload.title || '').trim()
+    const title = displayTitle(payload.title)
     return { title: title ? `即将到期：${title}` : '任务即将到期', href: 'plan', gate: 'due' }
   }
   if (event.type === 'mcp.health.changed' && payload.ok === false) {
@@ -39,6 +46,14 @@ test('task.changed done becomes a plan notice', () => {
 
 test('todo updates do not notify', () => {
   assert.equal(noticeFromEvent({ type: 'task.changed', payload: { status: 'todo', title: '写周报' } }), null)
+})
+
+test('session titles drop model end tokens', () => {
+  const notice = noticeFromEvent({
+    type: 'task.done',
+    payload: { source: 'session', title: '测试<|eos|>', sessionId: 'session-a' },
+  })
+  assert.equal(notice.title, '会话完成：测试')
 })
 
 test('session turn-end becomes a session notice', () => {
@@ -98,4 +113,32 @@ test('mcp down becomes a connector notice', () => {
   const notice = noticeFromEvent({ type: 'mcp.health.changed', payload: { ok: false, serverName: 'playwright' } })
   assert.equal(notice.title, '连接器异常：playwright')
   assert.equal(notice.href, 'mcp')
+})
+
+test('packaged notices go through the desktop bridge, not in-page audio', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../src/lib/task-notify.ts'), 'utf8')
+  const show = src.slice(src.indexOf('function showOsNotice'))
+  assert.match(show, /desktop\?\.notify/)
+  assert.match(show, /sessionId: notice.sessionId/)
+  assert.match(show, /id,/)
+  assert.ok(show.indexOf('desktop?.notify') < show.indexOf('playNoticeSound()'))
+})
+
+test('applyTaskNotice does not re-alert an event already in the bell', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../src/lib/task-notify.ts'), 'utf8')
+  assert.match(src, /notifications.some\(\(row\) => row.id === rowId\)/)
+})
+
+test('event stream remembers since across app restarts', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../src/lib/events.ts'), 'utf8')
+  assert.match(src, /localStorage.getItem\(SESSION_SINCE_KEY\)/)
+  assert.match(src, /localStorage.setItem\(SESSION_SINCE_KEY/)
+  assert.doesNotMatch(src, /sessionStorage.setItem\(SESSION_SINCE_KEY/)
+})
+
+test('activateOsNotice marks the bell row read and lands the session', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../src/lib/notify-inbox.ts'), 'utf8')
+  assert.match(src, /function activateOsNotice/)
+  assert.match(src, /markNotifRead\(id\)/)
+  assert.match(src, /openRef\(landNoticeHref/)
 })

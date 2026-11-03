@@ -1,6 +1,7 @@
 import { mailOnLane, normalizeCwd, talkKey, type UnreadSheet, type UnreadTalk } from '@/lib/im-letter-home'
-import type { OpenRefHref } from '@/lib/open-ref'
+import { openRef, type OpenRefHref } from '@/lib/open-ref'
 import type { Notification as NoticeRow } from '@/lib/types'
+import { useApp } from '@/store/app'
 
 export type InboxRow = {
   id: string
@@ -30,6 +31,13 @@ export function landNoticeHref(href?: string, sessionId?: string, cwd?: string):
   if (key === 'files' || key === '/files') return { panel: 'files' }
   if (key === 'mcp' || key === '/mcp') return { panel: 'mcp' }
   return aiLand()
+}
+
+export function activateOsNotice(payload: { id?: string; href?: string; sessionId?: string; cwd?: string } | null | undefined) {
+  const row = payload && typeof payload === 'object' ? payload : {}
+  const id = String(row.id || '').trim()
+  if (id) useApp.getState().markNotifRead(id)
+  openRef(landNoticeHref(row.href, row.sessionId, row.cwd))
 }
 
 export function inboxFromNotifications(rows: NoticeRow[]): InboxRow[] {

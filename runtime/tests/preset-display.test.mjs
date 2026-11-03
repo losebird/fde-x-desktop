@@ -31,6 +31,18 @@ test('shipped preset without name gets Host display copy', async () => {
   assert.ok(String(labeled.description || '').includes('任务'))
 })
 
+test('packaged Host trees still supply display.js', async () => {
+  const src = await import('node:fs')
+  const path = await import('node:path')
+  const { FDE_RESOURCES, FDE_RUNTIME_DIR } = await import('../config.mjs')
+  const rel = 'node_modules/@deepseek-ai/dsh-agent-preset-registry/lib/types/display.js'
+  const hits = [
+    path.join(FDE_RESOURCES, 'dsh', rel),
+    path.join(FDE_RUNTIME_DIR, 'host-pin', rel),
+  ].filter((file) => src.existsSync(file))
+  assert.ok(hits.length > 0 || src.existsSync(path.join(FDE_RUNTIME_DIR, '.host-generation', rel)))
+})
+
 test('named declaration keeps its own copy', async () => {
   const labeled = await withPresetDisplay({ id: 'fde-app-builder', name: 'FDE 应用构建', description: '声明式应用构建' })
   assert.equal(labeled.name, 'FDE 应用构建')

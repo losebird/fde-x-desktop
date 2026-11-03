@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { FDE_RESOURCES, FDE_RUNTIME_DIR } from './config.mjs'
 import { generationInstallRoot } from './generation.mjs'
 
 export function parseBuiltInPresetCopy(source, locale = 'zh') {
@@ -24,18 +25,33 @@ export function parseBuiltInPresetCopy(source, locale = 'zh') {
 
 let cached = null
 
+function presetPackageRoots() {
+  return [
+    generationInstallRoot(),
+    join(FDE_RESOURCES, 'dsh'),
+    join(FDE_RUNTIME_DIR, 'host-pin'),
+  ]
+}
+
+function findPresetPackageFile(rel) {
+  for (const root of presetPackageRoots()) {
+    const file = join(root, 'node_modules', '@deepseek-ai', rel)
+    if (existsSync(file)) return file
+  }
+  return ''
+}
+
 export async function loadPresetDisplay() {
   if (cached) return cached
-  const root = generationInstallRoot()
-  const displayFile = join(root, 'node_modules', '@deepseek-ai', 'dsh-agent-preset-registry', 'lib', 'types', 'display.js')
-  const localeFile = join(root, 'node_modules', '@deepseek-ai', 'dsh-client-ui-agent-preset', 'lib', 'client.js')
-  if (!existsSync(displayFile)) {
+  const displayFile = findPresetPackageFile('dsh-agent-preset-registry/lib/types/display.js')
+  const localeFile = findPresetPackageFile('dsh-client-ui-agent-preset/lib/client.js')
+  if (!displayFile) {
     cached = (preset) => ({ name: preset.name || preset.id, description: preset.description })
     return cached
   }
   const { presetDisplayText } = await import(pathToFileURL(displayFile).href)
   let dict = {}
-  if (existsSync(localeFile)) {
+  if (localeFile) {
     dict = parseBuiltInPresetCopy(await readFile(localeFile, 'utf8'), 'zh')
   }
   cached = (preset) => presetDisplayText(preset, (key) => dict[key] || key)

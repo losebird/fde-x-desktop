@@ -5,6 +5,7 @@ const { mkdir, readdir, readFile, writeFile } = require('node:fs/promises')
 const { createRequire } = require('node:module')
 const { homedir } = require('node:os')
 const { join } = require('node:path')
+const { bffPageOrigin, bffTokenHome } = require('./bff-post.js')
 
 const SKIP_SESSION_FILES = new Set(['session.lock'])
 const PREFIX = '/fde-session'
@@ -334,7 +335,7 @@ function createFdeSessionHandler(ctx) {
           return
         }
         const port = process.env.FDE_RUNTIME_PORT || '4318'
-        const home = process.env.FDE_DSH_HOME || process.env.DSH_HOME || join(homedir(), '.dsh-fde-x')
+        const home = bffTokenHome()
         let token = ''
         try {
           token = String(readFileSync(join(home, '.ui-token'), 'utf8')).trim()
@@ -349,7 +350,7 @@ function createFdeSessionHandler(ctx) {
             headers: {
               'content-type': 'application/json',
               'content-length': Buffer.byteLength(payload),
-              Origin: 'http://127.0.0.1:5174',
+              Origin: bffPageOrigin(),
               ...(token ? { 'x-fde-ui-token': token } : {}),
             },
           }, (incoming) => {
@@ -547,7 +548,7 @@ function sessionDisplayTitle(session) {
 
 function postSessionTurnEnd(sessionId, title, cwd) {
   const port = process.env.FDE_RUNTIME_PORT || '4318'
-  const home = process.env.DSH_HOME || join(homedir(), '.dsh-fde-x')
+  const home = bffTokenHome()
   let token = ''
   try {
     token = readFileSync(join(home, '.ui-token'), 'utf8').trim()
@@ -564,7 +565,7 @@ function postSessionTurnEnd(sessionId, title, cwd) {
       'content-type': 'application/json',
       'content-length': Buffer.byteLength(payload),
       ...(token ? { 'x-fde-ui-token': token } : {}),
-      Origin: 'http://127.0.0.1:5174',
+      Origin: bffPageOrigin(),
     },
   }, (res) => { res.resume() })
   req.on('error', () => undefined)

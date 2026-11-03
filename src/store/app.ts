@@ -1268,7 +1268,7 @@ export const useApp = create<AppState>()(
     {
       name: 'scene-39-workstation',
       storage: createJSONStorage(() => localStorage),
-      version: 18,
+      version: 19,
       partialize: (state) => ({
         panels: state.panels,
         drawers: state.drawers,
@@ -1284,6 +1284,7 @@ export const useApp = create<AppState>()(
         imComposerDrafts: state.imComposerDrafts,
         aiComposerDrafts: state.aiComposerDrafts,
         activeAiSessionId: state.activeAiSessionId,
+        notifications: state.notifications.slice(0, 40),
       }),
       // 升级映射:
       //   v3 → v4 重置面板默认宽度(640→560 等,避免旧宽度把 IM 挤窄)

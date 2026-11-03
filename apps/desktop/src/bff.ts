@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 
@@ -10,6 +11,23 @@ export function desktopChildEnv(env: BffEnv) {
   const merged: BffEnv = { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' }
   for (const key of SOCKS_PROXY_KEYS) delete merged[key]
   return merged
+}
+
+export function readUiTokenFile(home?: string) {
+  const dir = String(home || '').trim()
+  if (!dir) return ''
+  try {
+    const value = readFileSync(join(dir, '.ui-token'), 'utf8').trim()
+    return /^[0-9a-f]{64}$/u.test(value) ? value : ''
+  } catch {
+    return ''
+  }
+}
+
+export function resolveAnnouncedUiToken(stdoutToken?: string, dshHome?: string) {
+  const fromStdout = String(stdoutToken || '').trim()
+  if (/^[0-9a-f]{64}$/u.test(fromStdout)) return fromStdout
+  return readUiTokenFile(dshHome)
 }
 
 export async function spawnBff(
@@ -57,7 +75,11 @@ export async function spawnBff(
     })
   })
 
-  return { child, port: announced.port, uiToken: announced.uiToken }
+  return {
+    child,
+    port: announced.port,
+    uiToken: resolveAnnouncedUiToken(announced.uiToken, env.FDE_DSH_HOME),
+  }
 }
 
 export function serverEntryForApp(appRoot: string): string {
