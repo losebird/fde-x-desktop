@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { openDatabase } from '../db.mjs'
 import { handlePlanRequest } from '../routes/plan.mjs'
+import { delayDurationMs } from '../plan/delay-ms.mjs'
 const node = process.execPath
 const origin = 'http://127.0.0.1:5173'
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -129,6 +130,12 @@ async function flush() {
     await new Promise((resolve) => setImmediate(resolve))
   }
 }
+
+test('delay duration reads seconds and minutes', () => {
+  assert.equal(delayDurationMs({}), 0)
+  assert.equal(delayDurationMs({ waitSeconds: 5 }), 5000)
+  assert.equal(delayDurationMs({ waitMinutes: 1, waitSeconds: 2 }), 62000)
+})
 
 test('带页面令牌的 run 返回 200，并插入 queued', async (t) => {
   const { dbPath, db } = openFixture('queued')
@@ -308,6 +315,83 @@ test('没有 ai 步骤时不把 run 标成成功', async (t) => {
   const step = db.prepare('SELECT error_json FROM workflow_run_steps WHERE run_id = ?').get(payload.data.id)
   assert.equal(JSON.parse(step.error_json).message, '没有记忆 M1，这一步只留提案')
   assert.equal(calls.includes('session/create'), false)
+})
+
+test('只有等待步骤时 run 成功，不开会话', async (t) => {
+  const { dbPath, db } = openFixture('delay')
+  insertWorkspace(db, 'ws_delay', '/tmp/fde-x-workflow-run-cwd')
+  insertWorkflow(db, {
+    id: 'wf_delay',
+    workspaceId: 'ws_delay',
+    trigger: { kind: 'manual' },
+    steps: [{ id: 's_wait', kind: 'delay', label: '等待', config: {} }],
+  })
+  const calls = []
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    async call(endpoint) {
+      calls.push(endpoint)
+      return { sessionId: 'sess_should_not' }
+    },
+    async *stream() {},
+  }
+  const server = serve(db, aiRuntime, 'corr_delay')
+  const port = await listen(server)
+  t.after(async () => {
+    server.close()
+    db.close()
+    await rm(dbPath, { force: true })
+  })
+
+  const { status, payload } = await postRun(port, 'wf_delay', { workspaceId: 'ws_delay' })
+  assert.equal(status, 200, `run status ${status}`)
+  await flush()
+  const run = db.prepare('SELECT state FROM workflow_runs WHERE id = ?').get(payload.data.id)
+  assert.equal(run.state, 'succeeded')
+  const step = db.prepare('SELECT state, error_json FROM workflow_run_steps WHERE run_id = ?').get(payload.data.id)
+  assert.equal(step.state, 'succeeded')
+  assert.equal(step.error_json, null)
+  assert.equal(calls.includes('session/create'), false)
+})
+
+test('等待后再跑 AI 会开会话', async (t) => {
+  const { dbPath, db } = openFixture('delay-ai')
+  insertWorkspace(db, 'ws_mix', '/tmp/fde-x-workflow-run-cwd')
+  insertWorkflow(db, {
+    id: 'wf_mix',
+    workspaceId: 'ws_mix',
+    trigger: { kind: 'manual' },
+    steps: [
+      { id: 's_wait', kind: 'delay', label: '等待', config: { waitSeconds: 0 } },
+      { id: 's_ai', kind: 'ai', label: 'AI', config: { prompt: '说一声好' } },
+    ],
+  })
+  const calls = []
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    origin: 'http://127.0.0.1:9',
+    cookie: 'x=1',
+    async call(endpoint, args) {
+      calls.push({ endpoint, args })
+      return { sessionId: 'sess_mix' }
+    },
+    async *stream() {
+      yield { type: 'event', event: { type: 'turn/end' } }
+    },
+  }
+  const server = serve(db, aiRuntime, 'corr_mix')
+  const port = await listen(server)
+  t.after(async () => {
+    server.close()
+    db.close()
+    await rm(dbPath, { force: true })
+  })
+
+  const { status, payload } = await postRun(port, 'wf_mix', { workspaceId: 'ws_mix' })
+  assert.equal(status, 200)
+  await flush()
+  const created = calls.some((call) => call.endpoint === 'session/create')
+  assert.equal(created, true)
 })
 
 test('缺少提示、Host job、未知 id 不插入 run', async (t) => {

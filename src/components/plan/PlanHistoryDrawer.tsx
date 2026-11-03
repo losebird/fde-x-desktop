@@ -81,7 +81,11 @@ function HistoryCard({ entry }: { entry: PlanHistoryEntry }) {
             {run.trigger === 'schedule' ? '按日程跑了一次' : '手动跑了一次'}
             {runOutcomeLabel(entry) ? ` · ${runOutcomeLabel(entry)}` : ''}
           </div>
-          {run.message ? <div className="mt-1 text-[12px] text-ink-muted">{run.message}</div> : null}
+          {run.message ? (
+            <div className={run.state === 'failed' ? 'mt-1 text-[12px] text-accent-red' : 'mt-1 text-[12px] text-ink-muted'}>
+              {run.message}
+            </div>
+          ) : null}
           {run.sessionId ? (
             <button
               type="button"

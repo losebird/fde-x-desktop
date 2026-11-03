@@ -176,11 +176,25 @@ function changeEntry(row) {
   return entry
 }
 
-function runEntry(row) {
+function stepFailureMessage(db, runId) {
+  const rows = db.prepare(`
+    SELECT error_json FROM workflow_run_steps
+    WHERE run_id = ? AND state = 'failed'
+    ORDER BY CAST(sequence_no AS INTEGER) ASC, rowid ASC
+  `).all(runId)
+  for (const row of rows) {
+    const err = jsonOf(row.error_json, {})
+    if (typeof err.message === 'string' && err.message.trim()) return err.message.trim()
+  }
+  return ''
+}
+
+function runEntry(db, row) {
   const trigger = jsonOf(row.trigger_json, {})
   const output = jsonOf(row.output_json, {})
   const kind = trigger.kind === 'schedule' ? 'schedule' : 'manual'
-  const message = typeof output.message === 'string' ? output.message : ''
+  const fromOutput = typeof output.message === 'string' ? output.message.trim() : ''
+  const message = fromOutput || (row.state === 'failed' ? stepFailureMessage(db, row.id) : '')
   const run = {
     id: row.id,
     state: row.state,
@@ -220,7 +234,7 @@ function runRows(db, workflowId) {
 }
 
 function workflowRuns(db, workflowId) {
-  return runRows(db, workflowId).map(runEntry)
+  return runRows(db, workflowId).map((row) => runEntry(db, row))
 }
 
 function eventRuns(db, eventId, workflowId) {
@@ -228,7 +242,7 @@ function eventRuns(db, eventId, workflowId) {
   return runRows(db, workflowId).filter((row) => {
     const trigger = jsonOf(row.trigger_json, {})
     return trigger.kind === 'schedule' && trigger.eventId === eventId
-  }).map(runEntry)
+  }).map((row) => runEntry(db, row))
 }
 
 export function readPlanHistory(db, { workspaceId, targetRef }) {

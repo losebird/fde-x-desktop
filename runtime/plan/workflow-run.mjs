@@ -8,6 +8,7 @@ import { WORKFLOW_TOOLS, discardWorkflowAllow, stageWorkflowAllow } from '../fde
 import { listWorkflowCatalog } from './workflow-catalog.mjs'
 import { isHostJobId } from '../host-catalog.mjs'
 import { toolTier, waitsForBackground, waitsForPerson } from './tool-risk.mjs'
+import { delayDurationMs } from './delay-ms.mjs'
 
 const STEP_TIMEOUT_MS = 15 * 60 * 1000
 const STEP_TIMED_OUT = '运行超时'
@@ -299,6 +300,13 @@ function readStepWait(deps) {
   return { ms: rawMs, clock }
 }
 
+function sleepClock(clock, ms) {
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve) => {
+    clock.arm(ms, resolve)
+  })
+}
+
 function armStepDeadline(wait) {
   const abort = new AbortController()
   let kind = 'open'
@@ -344,37 +352,59 @@ async function runAiStep(wait, aiRuntime, sessionId, step) {
   }
 }
 
+function claimRun(db, runId, output, now) {
+  const run = db.prepare(`
+    UPDATE workflow_runs
+    SET state = 'running', started_at = COALESCE(started_at, ?), output_json = ?
+    WHERE id = ? AND state = 'queued'
+  `).run(now, JSON.stringify(output || {}), runId)
+  if (run.changes !== 1) throw new Error('运行没能进入 running')
+}
+
+function markStepRunning(db, stepId, now) {
+  const updated = db.prepare(`
+    UPDATE workflow_run_steps
+    SET state = 'running', started_at = COALESCE(started_at, ?)
+    WHERE id = ? AND state = 'queued'
+  `).run(now, stepId)
+  if (updated.changes !== 1) throw new Error('步骤没能进入 running')
+}
+
 async function performRun(deps, ctx) {
   const { db, aiRuntime } = deps
   const wait = readStepWait(deps)
   const now = isoNow()
   const aiSteps = ctx.steps.filter((step) => step.kind === 'ai')
+  const delaySteps = ctx.steps.filter((step) => step.kind === 'delay')
   const memorySteps = ctx.steps.filter((step) => step.kind === 'memory.add')
-  const skipStepsList = ctx.steps.filter((step) => step.kind !== 'ai' && step.kind !== 'memory.add')
-  if (aiSteps.length === 0) {
+  const skipStepsList = ctx.steps.filter((step) => step.kind !== 'ai' && step.kind !== 'memory.add' && step.kind !== 'delay')
+  if (aiSteps.length === 0 && delaySteps.length === 0) {
     failSteps(db, memorySteps, MEMORY_ONLY, now)
-    failSteps(db, skipStepsList, '没有可执行的 ai 步骤', now)
+    failSteps(db, skipStepsList, '没有可执行的步骤', now)
     markRunFailed(db, ctx.runId, now)
     return
   }
-  if (!runtimeConnected(aiRuntime)) {
+  if (aiSteps.length > 0 && !runtimeConnected(aiRuntime)) {
     failSteps(db, aiSteps, AI_DOWN, now)
     failSteps(db, memorySteps, MEMORY_ONLY, now)
+    skipSteps(db, delaySteps, now)
     skipSteps(db, skipStepsList, now)
     markRunFailed(db, ctx.runId, now)
     return
   }
 
-  const cwd = workspaceCwd(db, ctx.workspaceId)
-  if (!cwd) {
+  const cwd = aiSteps.length > 0 ? workspaceCwd(db, ctx.workspaceId) : ''
+  if (aiSteps.length > 0 && !cwd) {
     failSteps(db, aiSteps, '工作区没有可用目录，未开会话', now)
     failSteps(db, memorySteps, MEMORY_ONLY, now)
+    skipSteps(db, delaySteps, now)
     skipSteps(db, skipStepsList, now)
     markRunFailed(db, ctx.runId, now)
     return
   }
   const allowHome = aiRuntime && aiRuntime.dshHome
   let session = null
+  let duty = 'standard'
   const releaseSession = async (requestedId, actualId) => {
     discardWorkflowAllow(requestedId, allowHome)
     if (actualId && actualId !== requestedId) discardWorkflowAllow(actualId, allowHome)
@@ -391,99 +421,121 @@ async function performRun(deps, ctx) {
     const failedAt = isoNow()
     failSteps(db, aiSteps, message, failedAt)
     failSteps(db, memorySteps, MEMORY_ONLY, failedAt)
+    skipSteps(db, delaySteps, failedAt)
     skipSteps(db, skipStepsList, failedAt)
     markRunFailed(db, ctx.runId, failedAt)
   }
   const shapes = []
-  for (const step of aiSteps) {
-    const tools = stepTools(step)
-    if (!tools) {
-      await failPrepared(TOOLS_EMPTY)
+  if (aiSteps.length > 0) {
+    for (const step of aiSteps) {
+      const tools = stepTools(step)
+      if (!tools) {
+        await failPrepared(TOOLS_EMPTY)
+        return
+      }
+      if (tools.some((name) => waitsForPerson(name))) {
+        await failPrepared(TOOLS_WAIT)
+        return
+      }
+      if (tools.some((name) => waitsForBackground(name))) {
+        await failPrepared(TOOLS_BACKGROUND)
+        return
+      }
+      shapes.push({ step, tools, presetId: stepPreset(step) })
+    }
+    const head = shapes[0]
+    const compatible = shapes.every((item) => item.presetId === head.presetId && namesEqual(item.tools, head.tools))
+    if (!compatible) {
+      await failPrepared(TOOLS_DIVERGE)
       return
     }
-    if (tools.some((name) => waitsForPerson(name))) {
-      await failPrepared(TOOLS_WAIT)
+    duty = dutyPresetForWorkflowSteps(aiSteps)
+    const personaId = isDutyPickerPreset(head.presetId) ? head.presetId : ''
+    const persona = personaId ? await personaFor(aiRuntime, cwd, personaId) : null
+    if (personaId && !persona) {
+      await failPrepared(TOOLS_PERSONA)
       return
     }
-    if (tools.some((name) => waitsForBackground(name))) {
-      await failPrepared(TOOLS_BACKGROUND)
+    const requestedId = `session-${randomUUID()}`
+    stageWorkflowAllow(requestedId, head.tools, allowHome, persona)
+    let created
+    try {
+      created = await aiRuntime.call('session/create', {
+        request: { cwd, agentPreset: duty, sessionId: requestedId },
+      })
+    } catch (error) {
+      discardWorkflowAllow(requestedId, allowHome)
+      await releasePrepared()
+      throw error
+    }
+    const actualId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
+    if (!actualId) {
+      discardWorkflowAllow(requestedId, allowHome)
+      await releasePrepared()
+      throw new Error('工作流会话没有建立')
+    }
+    const visible = await readVisibleTools(aiRuntime, actualId)
+    if (visible.kind !== 'listed') {
+      await failPrepared(TOOLS_UNCHECKED, { requestedId, actualId })
       return
     }
-    shapes.push({ step, tools, presetId: stepPreset(step) })
+    if (!toolsCovered(head.tools, visible.tools)) {
+      await failPrepared(mismatchMessage(head.tools), { requestedId, actualId })
+      return
+    }
+    if (head.tools.some((name) => toolTier(name) === 'danger') && visible.approval !== 'never') {
+      await failPrepared(TOOLS_ASK, { requestedId, actualId })
+      return
+    }
+    session = { requestedId, sessionId: actualId, tools: [...head.tools].sort() }
+    await renameSession(aiRuntime, actualId, ctx.workflowName)
   }
-  const head = shapes[0]
-  const compatible = shapes.every((item) => item.presetId === head.presetId && namesEqual(item.tools, head.tools))
-  if (!compatible) {
-    await failPrepared(TOOLS_DIVERGE)
-    return
-  }
-  const duty = dutyPresetForWorkflowSteps(aiSteps)
-  const personaId = isDutyPickerPreset(head.presetId) ? head.presetId : ''
-  const persona = personaId ? await personaFor(aiRuntime, cwd, personaId) : null
-  if (personaId && !persona) {
-    await failPrepared(TOOLS_PERSONA)
-    return
-  }
-  const requestedId = `session-${randomUUID()}`
-  stageWorkflowAllow(requestedId, head.tools, allowHome, persona)
-  let created
   try {
-    created = await aiRuntime.call('session/create', {
-      request: { cwd, agentPreset: duty, sessionId: requestedId },
-    })
+    const output = session
+      ? { sessionId: session.sessionId, tools: session.tools, preset: duty }
+      : {}
+    claimRun(db, ctx.runId, output, isoNow())
   } catch (error) {
-    discardWorkflowAllow(requestedId, allowHome)
     await releasePrepared()
     throw error
   }
-  const actualId = created && typeof created.sessionId === 'string' ? created.sessionId : ''
-  if (!actualId) {
-    discardWorkflowAllow(requestedId, allowHome)
-    await releasePrepared()
-    throw new Error('工作流会话没有建立')
-  }
-  const visible = await readVisibleTools(aiRuntime, actualId)
-  if (visible.kind !== 'listed') {
-    await failPrepared(TOOLS_UNCHECKED, { requestedId, actualId })
-    return
-  }
-  if (!toolsCovered(head.tools, visible.tools)) {
-    await failPrepared(mismatchMessage(head.tools), { requestedId, actualId })
-    return
-  }
-  if (head.tools.some((name) => toolTier(name) === 'danger') && visible.approval !== 'never') {
-    await failPrepared(TOOLS_ASK, { requestedId, actualId })
-    return
-  }
-  session = { requestedId, sessionId: actualId, tools: [...head.tools].sort() }
-  await renameSession(aiRuntime, actualId, ctx.workflowName)
-  try {
-    claimRunning(db, ctx.runId, aiSteps, session.sessionId, session.tools, isoNow(), duty)
-  } catch (error) {
-    await releasePrepared()
-    throw error
-  }
-  for (const item of shapes) {
-    const outcome = await runAiStep(wait, aiRuntime, session.sessionId, item.step)
-    if (outcome.kind === 'timeout') {
-      await failPrepared(STEP_TIMED_OUT)
+  for (const step of ctx.steps) {
+    if (step.kind === 'delay') {
+      markStepRunning(db, step.id, isoNow())
+      await sleepClock(wait.clock, delayDurationMs(step.config))
+      markStepSucceeded(db, step.id, isoNow())
+      continue
+    }
+    if (step.kind === 'ai') {
+      markStepRunning(db, step.id, isoNow())
+      const outcome = await runAiStep(wait, aiRuntime, session.sessionId, step)
+      if (outcome.kind === 'timeout') {
+        await failPrepared(STEP_TIMED_OUT)
+        return
+      }
+      markStepSucceeded(db, step.id, isoNow())
+      continue
+    }
+    if (step.kind === 'memory.add') {
+      const failedAt = isoNow()
+      failSteps(db, [step], MEMORY_ONLY, failedAt)
+      failSteps(db, aiSteps, MEMORY_ONLY, failedAt)
+      skipSteps(db, delaySteps, failedAt)
+      skipSteps(db, skipStepsList, failedAt)
+      markRunFailed(db, ctx.runId, failedAt)
+      await releasePrepared()
       return
     }
-    markStepSucceeded(db, item.step.id, isoNow())
+    markStepSkipped(db, step.id, isoNow())
   }
   const finished = isoNow()
-  failSteps(db, memorySteps, MEMORY_ONLY, finished)
-  skipSteps(db, skipStepsList, finished)
-  if (memorySteps.length > 0) markRunFailed(db, ctx.runId, finished)
-  else {
-    markRunSucceeded(db, ctx.runId, finished)
-    emit('task.changed', {
-      id: ctx.runId,
-      op: 'run',
-      status: 'done',
-      title: ctx.workflowName,
-    }, { workspaceCwd: workspaceCwd(db, ctx.workspaceId), sessionId: session.sessionId })
-  }
+  markRunSucceeded(db, ctx.runId, finished)
+  emit('task.changed', {
+    id: ctx.runId,
+    op: 'run',
+    status: 'done',
+    title: ctx.workflowName,
+  }, { workspaceCwd: workspaceCwd(db, ctx.workspaceId), sessionId: session ? session.sessionId : undefined })
 }
 
 function workspaceCwd(db, workspaceId) {
@@ -499,23 +551,6 @@ function stepText(step) {
   const sourceRef = typeof step.config.sourceRef === 'string' ? step.config.sourceRef.trim() : ''
   if (!sourceRef) return prompt
   return `${prompt}\n来源：${sourceRef}`
-}
-
-function claimRunning(db, runId, steps, sessionId, tools, now, preset) {
-  const run = db.prepare(`
-    UPDATE workflow_runs
-    SET state = 'running', started_at = COALESCE(started_at, ?), output_json = ?
-    WHERE id = ? AND state = 'queued'
-  `).run(now, JSON.stringify({ sessionId, tools, preset }), runId)
-  if (run.changes !== 1) throw new Error('运行没能进入 running')
-  for (const step of steps) {
-    const updated = db.prepare(`
-      UPDATE workflow_run_steps
-      SET state = 'running', started_at = COALESCE(started_at, ?)
-      WHERE id = ? AND state = 'queued'
-    `).run(now, step.id)
-    if (updated.changes !== 1) throw new Error('步骤没能进入 running')
-  }
 }
 
 function markStepSucceeded(db, stepId, now) {

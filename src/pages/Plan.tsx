@@ -27,6 +27,7 @@ import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
 import { isRetiredWorkflowPreset, readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
 import { PLAN_DAY_HOURS, planDayOffsetMinutes, planNowMarker, scheduleInstants } from '../../runtime/plan/plan-day-hours.mjs'
+import { delayDurationMs } from '../../runtime/plan/delay-ms.mjs'
 import { scheduleTriggerLabel } from '../../runtime/plan/schedule-outcome.mjs'
 import { planTaskMenu } from '../../runtime/plan/task-menu.mjs'
 import { taskHandoffPrompt } from '../../runtime/plan/task-handoff.mjs'
@@ -1279,7 +1280,7 @@ function emptyWorkflowDraft(): {
   triggerPatterns: string
   triggerOn: 'task.done' | 'file.save' | 'order.new' | 'im.received'
   emoji: string
-  stepKind: 'ai' | 'delay'
+  waitSeconds: string
   prompt: string
   sourceRef: string
 } {
@@ -1292,20 +1293,36 @@ function emptyWorkflowDraft(): {
     triggerPatterns: '',
     triggerOn: 'task.done',
     emoji: '🤖',
-    stepKind: 'ai',
+    waitSeconds: '',
     prompt: '',
     sourceRef: '',
   }
 }
 
-function workflowRunWords(workflow: Workflow): { hold: string; outcome: string } {
+function delayStepLabel(step: WorkflowStep): string {
+  const ms = delayDurationMs(step.config)
+  if (ms <= 0) return step.label || '等待'
+  if (ms < 60_000) return `等待 ${Math.round(ms / 1000)} 秒`
+  return `等待 ${Math.round(ms / 60_000)} 分钟`
+}
+
+const WORKFLOW_CATEGORY_LABEL: Record<Workflow['category'], string> = {
+  system: '系统',
+  data: '数据',
+  im: 'IM',
+  file: '文件',
+  memory: '记忆',
+}
+
+function workflowRunWords(workflow: Workflow): { hold: string; outcome: string; live: boolean } {
   const hold = workflow.status === 'active' ? '已启用' : '已暂停'
   const state = workflow.runs[0]?.state
-  if (state === 'queued') return { hold: '', outcome: '排队' }
-  if (state === 'running' || state === 'waiting') return { hold: '', outcome: '运行中' }
-  if (state === 'succeeded') return { hold, outcome: '成功' }
-  if (state === 'failed' || state === 'cancelled') return { hold, outcome: '失败' }
-  return { hold, outcome: '' }
+  if (state === 'queued') return { hold, outcome: '正在排队', live: true }
+  if (state === 'running' || state === 'waiting') return { hold, outcome: '正在跑', live: true }
+  if (state === 'succeeded') return { hold, outcome: '上次成功', live: false }
+  if (state === 'failed') return { hold, outcome: '上次失败', live: false }
+  if (state === 'cancelled' || state === 'canceled') return { hold, outcome: '上次取消', live: false }
+  return { hold, outcome: '', live: false }
 }
 
 function WorkflowTab() {
@@ -1463,10 +1480,20 @@ function WorkflowTab() {
     if (!draft.name.trim()) return
     const prompt = draft.prompt.trim()
     const sourceRef = draft.sourceRef.trim()
-    if (draft.stepKind === 'ai' && !prompt) return
+    const waitSeconds = Number(draft.waitSeconds)
+    const hasWait = Number.isFinite(waitSeconds) && waitSeconds > 0
+    if (!hasWait && !prompt) return
+    const steps: WorkflowStep[] = []
+    if (hasWait) {
+      steps.push({
+        id: uid('s'),
+        kind: 'delay',
+        label: '等待',
+        config: { waitSeconds },
+      })
+    }
     let confirmDanger: string[] | undefined
-    let step: WorkflowStep
-    if (draft.stepKind === 'ai') {
+    if (prompt) {
       if (!catalog) {
         setToolNote(catalogNote || workflowToolCopy.unavailable)
         return
@@ -1484,14 +1511,12 @@ function WorkflowTab() {
       confirmDanger = tools.filter((name) => tiers.get(name) === 'danger').sort()
       const config: WorkflowStep['config'] = presetId ? { prompt, tools, presetId } : { prompt, tools }
       if (sourceRef) config.sourceRef = sourceRef
-      step = {
+      steps.push({
         id: uid('s'),
         kind: 'ai',
         label: 'AI',
         config,
-      }
-    } else {
-      step = { id: uid('s'), kind: 'delay', label: '等待', config: {} }
+      })
     }
     void addWorkflow({
       name: draft.name.trim(),
@@ -1500,7 +1525,7 @@ function WorkflowTab() {
       trigger: buildTrigger(),
       emoji: draft.emoji,
       status: 'paused',
-      steps: [step],
+      steps,
     }, confirmDanger).then(() => {
       setDraft(emptyWorkflowDraft())
       setSelectedTools(null)
@@ -1559,15 +1584,8 @@ function WorkflowTab() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="text-sm font-medium">{w.name}</div>
-                    {words.hold ? (
-                      <Tag kind={w.status === 'active' ? 'green' : 'default'}>{words.hold}</Tag>
-                    ) : null}
-                    <Tag kind="blue">{w.category}</Tag>
-                    {words.outcome ? (
-                      <Tag kind={words.outcome === '成功' ? 'green' : words.outcome === '失败' ? 'red' : 'amber'}>
-                        {words.outcome}
-                      </Tag>
-                    ) : null}
+                    <Tag kind={w.status === 'active' ? 'green' : 'default'}>{words.hold}</Tag>
+                    <Tag kind="blue">{WORKFLOW_CATEGORY_LABEL[w.category] || w.category}</Tag>
                   </div>
                   <div className="text-xs text-ink-muted mt-1">{w.description}</div>
                   {/* trigger 信息 */}
@@ -1584,7 +1602,7 @@ function WorkflowTab() {
                   <div className="mt-3 flex items-center gap-1 flex-wrap">
                     {w.steps.map((s, i) => (
                       <span key={s.id} className="flex items-center gap-1">
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 border border-line">{s.label}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 border border-line">{s.kind === 'delay' ? delayStepLabel(s) : s.label}</span>
                         {i < w.steps.length - 1 && <span className="text-ink-subtle">→</span>}
                       </span>
                     ))}
@@ -1604,11 +1622,30 @@ function WorkflowTab() {
                       </div>
                     )
                   })}
-                  {w.lastRunAt && (
-                    <div className="mt-2 text-[11px] text-ink-muted flex items-center gap-3 flex-wrap">
-                      <span>上次运行: {new Date(w.lastRunAt).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+                  {(w.lastRunAt || words.outcome) ? (
+                    <div className={clsx(
+                      'mt-2 text-[12px] flex items-center gap-1.5 flex-wrap',
+                      words.live ? 'text-accent-amber' : words.outcome === '上次失败' ? 'text-accent-red' : 'text-ink-muted',
+                    )}>
+                      {words.live ? (
+                        <span>{words.outcome}</span>
+                      ) : (
+                        <>
+                          {w.lastRunAt ? (
+                            <span>
+                              上次运行 {new Date(w.lastRunAt).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          ) : null}
+                          {words.outcome ? (
+                            <>
+                              {w.lastRunAt ? <span aria-hidden>·</span> : null}
+                              <span>{words.outcome.replace(/^上次/, '')}</span>
+                            </>
+                          ) : null}
+                        </>
+                      )}
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
                   <button type="button" className="btn" data-plan-edit="workflow" data-plan-edit-id={w.id} onClick={() => setEditWorkflow(w)}>编辑</button>
@@ -1699,18 +1736,22 @@ function WorkflowTab() {
             </div>
           )}
           <div>
-            <label className="text-xs text-ink-muted">步骤</label>
-            <select className="input mt-1.5 w-full" value={draft.stepKind} onChange={(e) => setDraft({ ...draft, stepKind: e.target.value === 'delay' ? 'delay' : 'ai' })}>
-              <option value="ai">AI</option>
-              <option value="delay">等待</option>
-            </select>
+            <label className="text-xs text-ink-muted">先等待（秒，可空）</label>
+            <input
+              className="input mt-1.5 w-full"
+              type="number"
+              min="0"
+              value={draft.waitSeconds}
+              onChange={(e) => setDraft({ ...draft, waitSeconds: e.target.value })}
+              placeholder="空则马上进入下一步"
+            />
           </div>
-          {draft.stepKind === 'ai' && (
+          <div>
+            <label className="text-xs text-ink-muted">提示</label>
+            <textarea className="input mt-1.5 w-full" rows={3} value={draft.prompt} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} placeholder="这一步让 AI 做什么；可空则只等待" />
+          </div>
+          {draft.prompt.trim() ? (
             <>
-              <div>
-                <label className="text-xs text-ink-muted">提示</label>
-                <textarea className="input mt-1.5 w-full" rows={3} value={draft.prompt} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} placeholder="这一步让 AI 做什么" />
-              </div>
               <div>
                 <label className="text-xs text-ink-muted">来源引用 (可选)</label>
                 <input className="input mt-1.5 w-full" value={draft.sourceRef} onChange={(e) => setDraft({ ...draft, sourceRef: e.target.value })} placeholder="app:app_ 后接 32 位十六进制" />
@@ -1743,7 +1784,7 @@ function WorkflowTab() {
                 <div className="text-xs text-ink-muted">{catalogNote || workflowToolCopy.loading}</div>
               )}
             </>
-          )}
+          ) : null}
           <div>
             <label className="text-xs text-ink-muted">图标</label>
             <div className="flex flex-wrap gap-2 mt-1.5">
@@ -1766,7 +1807,7 @@ function WorkflowTab() {
           )}
           <div className="flex justify-end gap-2 pt-4 border-t border-line">
             <button className="btn" onClick={() => setShowNew(false)}>取消</button>
-            <button className="btn-primary" onClick={submit} disabled={draft.stepKind === 'ai' && pendingDanger.length > 0}>创建</button>
+            <button className="btn-primary" onClick={submit} disabled={Boolean(draft.prompt.trim()) && pendingDanger.length > 0}>创建</button>
           </div>
         </div>
       </RightDrawer>

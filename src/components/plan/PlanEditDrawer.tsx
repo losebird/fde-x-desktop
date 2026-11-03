@@ -7,6 +7,7 @@ import { RuntimeApiError, runtimeApi } from '@/lib/runtime-api'
 import type { ScheduleEvent, Task, Workflow, WorkflowStep } from '@/lib/types'
 import { readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
 import { PLAN_DAY_HOURS } from '../../../runtime/plan/plan-day-hours.mjs'
+import { delayDurationMs } from '../../../runtime/plan/delay-ms.mjs'
 import { useApp, useCurrentWorkflows } from '@/store/app'
 
 function PlanDrawer({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
@@ -408,6 +409,8 @@ function WorkflowEdit({
   const host = isHostJobId(base.id)
   const save = useEditSave(onClose, onReload)
   const aiStep = base.steps.find((step) => step.kind === 'ai') ?? null
+  const delayStep = base.steps.find((step) => step.kind === 'delay') ?? null
+  const originalWait = delayStep ? String(Math.round(delayDurationMs(delayStep.config) / 1000) || '') : ''
   const originalTools = aiStep ? readStepTools(aiStep) : null
   const [name, setName] = useState(base.name)
   const [description, setDescription] = useState(base.description)
@@ -418,6 +421,7 @@ function WorkflowEdit({
   const [triggerExpr, setTriggerExpr] = useState(base.trigger.kind === 'cron' ? base.trigger.expr : '0 9 * * *')
   const [triggerPatterns, setTriggerPatterns] = useState(base.trigger.kind === 'keyword' ? base.trigger.patterns.join(', ') : '')
   const [triggerOn, setTriggerOn] = useState(base.trigger.kind === 'event' ? base.trigger.on : 'task.done' as const)
+  const [waitSeconds, setWaitSeconds] = useState(originalWait)
   const [prompt, setPrompt] = useState(aiStep && typeof aiStep.config.prompt === 'string' ? aiStep.config.prompt : '')
   const [showTools, setShowTools] = useState(Boolean(originalTools))
   const [toolsDirty, setToolsDirty] = useState(false)
@@ -483,16 +487,35 @@ function WorkflowEdit({
   }
 
   function nextSteps() {
-    if (!aiStep) return null
-    const promptChanged = prompt !== (typeof aiStep.config.prompt === 'string' ? aiStep.config.prompt : '')
-    if (!promptChanged && !toolsDirty) return null
-    const tools = toolsDirty ? selectedTools : originalTools
-    return base.steps.map((step) => {
-      if (step.id !== aiStep.id) return step
-      const config: WorkflowStep['config'] = { ...step.config, prompt: prompt.trim() }
+    const wait = Number(waitSeconds)
+    const hasWait = Number.isFinite(wait) && wait > 0
+    const waitChanged = waitSeconds !== originalWait
+    const promptText = prompt.trim()
+    const originalPrompt = aiStep && typeof aiStep.config.prompt === 'string' ? aiStep.config.prompt : ''
+    const promptChanged = promptText !== originalPrompt
+    if (!waitChanged && !promptChanged && !toolsDirty) return null
+    const next: WorkflowStep[] = []
+    if (hasWait) {
+      const existing = delayStep
+      next.push({
+        id: existing?.id || `s_wait_${base.id}`,
+        kind: 'delay',
+        label: '等待',
+        config: { ...(existing?.config || {}), waitSeconds: wait },
+      })
+    }
+    if (promptText) {
+      const tools = toolsDirty ? selectedTools : originalTools
+      const config: WorkflowStep['config'] = { ...(aiStep?.config || {}), prompt: promptText }
       if (tools) config.tools = tools
-      return { ...step, kind: step.kind, label: step.label, id: step.id, config }
-    })
+      next.push({
+        id: aiStep?.id || `s_ai_${base.id}`,
+        kind: 'ai',
+        label: 'AI',
+        config,
+      })
+    }
+    return next
   }
 
   function changed() {
@@ -628,13 +651,24 @@ function WorkflowEdit({
           </select>
         </div>
       ) : null}
-      {aiStep ? (
+      {!host ? (
         <div>
-          <label className="text-xs text-ink-muted">提示</label>
-          <textarea className="input mt-1.5 w-full" rows={3} value={prompt} disabled={host} onChange={(event) => setPrompt(event.target.value)} />
+          <label className="text-xs text-ink-muted">先等待（秒，可空）</label>
+          <input className="input mt-1.5 w-full" type="number" min="0" value={waitSeconds} onChange={(event) => setWaitSeconds(event.target.value)} />
         </div>
       ) : null}
-      {!host && aiStep && showTools && catalog ? (
+      {!host ? (
+        <div>
+          <label className="text-xs text-ink-muted">提示</label>
+          <textarea className="input mt-1.5 w-full" rows={3} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="这一步让 AI 做什么；可空则只等待" />
+        </div>
+      ) : aiStep ? (
+        <div>
+          <label className="text-xs text-ink-muted">提示</label>
+          <textarea className="input mt-1.5 w-full" rows={3} value={prompt} disabled onChange={(event) => setPrompt(event.target.value)} />
+        </div>
+      ) : null}
+      {!host && (aiStep || prompt.trim()) && showTools && catalog ? (
         <WorkflowToolPicker
           tools={catalog.tools}
           selected={selectedTools}
@@ -645,8 +679,8 @@ function WorkflowEdit({
           onCancelDanger={() => setPendingDanger([])}
         />
       ) : null}
-      {!host && aiStep && showTools && !catalog ? <div className="text-xs text-ink-muted">{catalogNote || workflowToolCopy.loading}</div> : null}
-      {!host && aiStep && !showTools ? (
+      {!host && (aiStep || prompt.trim()) && showTools && !catalog ? <div className="text-xs text-ink-muted">{catalogNote || workflowToolCopy.loading}</div> : null}
+      {!host && (aiStep || prompt.trim()) && !showTools ? (
         <button type="button" className="btn" onClick={() => setShowTools(true)}>改工具</button>
       ) : null}
       <div>

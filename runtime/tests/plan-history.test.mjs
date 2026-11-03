@@ -366,6 +366,29 @@ describe('plan history', { concurrency: 1 }, () => {
       '2026-10-19T09:00:00.000Z',
       null,
     )
+    insertRun.run(
+      `wfr_fail_${workflow.id}`,
+      workflow.id,
+      'failed',
+      JSON.stringify({ kind: 'manual' }),
+      null,
+      `fail:${workflow.id}`,
+      '2026-10-19T09:10:00.000Z',
+      '2026-10-19T09:10:00.003Z',
+      '2026-10-19T09:10:00.000Z',
+      null,
+    )
+    db.prepare(`
+      INSERT INTO workflow_run_steps
+        (id, run_id, step_key, sequence_no, state, input_json, output_json, error_json, started_at, finished_at)
+      VALUES (?, ?, ?, '1', 'failed', '{}', NULL, ?, NULL, ?)
+    `).run(
+      `wrs_fail_${workflow.id}`,
+      `wfr_fail_${workflow.id}`,
+      's_wait',
+      JSON.stringify({ message: '没有可执行的 ai 步骤' }),
+      '2026-10-19T09:10:00.003Z',
+    )
     db.close()
 
     const wfEntries = entriesOf(await history(workspaceId, ref('workflows', workflow.id)))
@@ -386,11 +409,14 @@ describe('plan history', { concurrency: 1 }, () => {
       before: 'paused',
       after: 'active',
     })
-    const manual = wfEntries.find((entry) => entry.kind === 'run' && entry.run && entry.run.trigger === 'manual')
+    const manuals = wfEntries.filter((entry) => entry.kind === 'run' && entry.run && entry.run.trigger === 'manual')
+    const manual = manuals.find((entry) => entry.run.state === 'succeeded')
     assert.ok(manual)
-    assert.equal(manual.run.state, 'succeeded')
     assert.equal(manual.run.message, '完成')
     assert.equal(manual.run.sessionId, 'ses_hist')
+    const failed = manuals.find((entry) => entry.run.state === 'failed')
+    assert.ok(failed)
+    assert.equal(failed.run.message, '没有可执行的 ai 步骤')
 
     const eventEntries = entriesOf(await history(workspaceId, ref('events', event.id)))
     const titles = eventEntries
