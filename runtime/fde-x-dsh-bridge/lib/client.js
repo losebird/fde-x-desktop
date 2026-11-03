@@ -400,6 +400,10 @@ window.__ModuleLoader__.load({
           var nowText = lastAssistantText(sess)
           var snap = sess && sess.getSnapshot ? sess.getSnapshot() : null
           var running = !!(snap && snap.running)
+          if (turnWatch.postedRunning !== running) {
+            turnWatch.postedRunning = running
+            if (window.parent !== window) window.parent.postMessage({ type: "fde-x-dsh-ready", sessionId: id, op: "turn", running: running }, "*")
+          }
           if (running) turnWatch.sawRun = true
           if (turnWatch.sawRun && !running && nowText && nowText !== turnWatch.lastText) {
             turnWatch.lastText = nowText

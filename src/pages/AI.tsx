@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
-  CircleAlert, GitBranch, LoaderCircle, MessageSquare, MoreHorizontal,
+  CircleAlert, GitBranch, LoaderCircle, MoreHorizontal,
   PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2, Wifi, WifiOff, X,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -155,6 +155,7 @@ export default function AI() {
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [sessionNotice, setSessionNotice] = useState('')
   const [remoteSessions, setRemoteSessions] = useState<AiSessionSummary[]>([])
+  const [iframeRunningId, setIframeRunningId] = useState('')
   const [presetRoster, setPresetRoster] = useState<Array<{ id: string; name?: string; description?: string }>>([])
   const [loadingRuntime, setLoadingRuntime] = useState(true)
   const [creatingSession, setCreatingSession] = useState(false)
@@ -321,6 +322,8 @@ export default function AI() {
   const sessionListGate = useRef({ generation: 0 })
   const sessionListCacheRef = useRef(new Map<string, AiSessionSummary[]>())
 
+  const reloadRemoteSessionsRef = useRef<(signal?: AbortSignal, notice?: SessionTitleNotice | null) => Promise<AiSessionSummary[]>>(async () => [])
+
   async function reloadRemoteSessions(signal?: AbortSignal, notice?: SessionTitleNotice | null) {
     const state = useApp.getState()
     const workspaceId = sessionListWorkspaceId(state.activeWorkspaceId, state.workspaces)
@@ -333,6 +336,7 @@ export default function AI() {
       setRemoteSessions(applySessionList(rows, notice ?? null, { appendMissing: sessionLane !== 'archived' }))
     })
   }
+  reloadRemoteSessionsRef.current = reloadRemoteSessions
 
   useEffect(() => {
     if (!runtimeConnected) return
@@ -341,6 +345,14 @@ export default function AI() {
     if (cached) setRemoteSessions(applySessionList(cached, null, { appendMissing: sessionLane !== 'archived' }))
     void reloadRemoteSessions().catch(() => undefined)
   }, [sessionLane, activeWorkspaceId])
+
+  useEffect(() => {
+    if (!runtimeConnected) return
+    const timer = window.setInterval(() => {
+      void reloadRemoteSessionsRef.current().catch(() => undefined)
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [runtimeConnected, sessionLane, activeWorkspaceId])
 
   function postPendingDsh() {
     if (!bridgeReadyRef.current) return
@@ -741,6 +753,11 @@ export default function AI() {
         setRuntimeError(data.message)
         return
       }
+      if (data?.type === 'fde-x-dsh-ready' && data.op === 'turn') {
+        const sid = typeof data.sessionId === 'string' ? data.sessionId : ''
+        setIframeRunningId(data.running === true ? sid : (current) => (current === sid ? '' : current))
+        return
+      }
       if (data?.type === 'fde-x-dsh-ready' && data.op === 'composed') {
         inboxInflightRef.current = false
         setAiInboxDraft('')
@@ -999,11 +1016,14 @@ export default function AI() {
                   <ul className="p-2 space-y-1">
                     {visibleSessions.map((session) => {
                       const active = session.sessionId === activeId
+                      const running = session.running === true || session.sessionId === iframeRunningId
                       return (
-                        <li key={session.sessionId}>
+                        <li key={session.sessionId} data-session-running={running ? 'true' : 'false'}>
                           <div className={clsx('w-full px-2 py-2 rounded flex items-start gap-2 group', active ? 'bg-brand-soft' : 'hover:bg-surface-2')}>
                             <button type="button" className="flex-1 min-w-0 text-left flex items-start gap-2" onClick={() => selectChat(session.sessionId)}>
-                              <MessageSquare size={16} className="mt-0.5 shrink-0 text-ink-muted" />
+                              {running ? (
+                                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand animate-pulse" title="正在回复" aria-label="正在回复" />
+                              ) : null}
                               <div className="min-w-0">
                                 {renamingId === session.sessionId ? (
                                   <input
@@ -1022,11 +1042,15 @@ export default function AI() {
                                     }}
                                   />
                                 ) : (
-                                  <div className={clsx('text-sm truncate', active && 'font-medium')}>{session.title}</div>
+                                  <div className={clsx('text-sm truncate', active && 'font-medium', running && 'text-ink')}>{session.title}</div>
                                 )}
                                 <div className="text-[11px] text-ink-muted truncate mt-0.5">
-                                  {pinnedSessionIds.includes(session.sessionId) ? '置顶 · ' : ''}
-                                  {new Date(session.updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                  {running ? '正在回复' : (
+                                    <>
+                                      {pinnedSessionIds.includes(session.sessionId) ? '置顶 · ' : ''}
+                                      {new Date(session.updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             </button>
@@ -1102,17 +1126,28 @@ export default function AI() {
                   </ul>
                 ) : (
                   <div className="py-2 space-y-1">
-                    {visibleSessions.map((session) => (
-                      <button
-                        key={session.sessionId}
-                        type="button"
-                        title={session.title}
-                        onClick={() => selectChat(session.sessionId)}
-                        className={clsx('w-full flex justify-center py-1.5', session.sessionId === activeId ? 'bg-brand-soft' : 'hover:bg-surface-2')}
-                      >
-                        <MessageSquare size={16} className="text-ink-muted" />
-                      </button>
-                    ))}
+                    {visibleSessions.map((session) => {
+                      const running = session.running === true || session.sessionId === iframeRunningId
+                      return (
+                        <button
+                          key={session.sessionId}
+                          type="button"
+                          title={running ? `${session.title} · 正在回复` : session.title}
+                          data-session-running={running ? 'true' : 'false'}
+                          onClick={() => selectChat(session.sessionId)}
+                          className={clsx('w-full flex justify-center py-1.5', session.sessionId === activeId ? 'bg-brand-soft' : 'hover:bg-surface-2')}
+                          aria-label={running ? `${session.title}，正在回复` : session.title}
+                        >
+                          <span
+                            className={clsx(
+                              'block rounded-full shrink-0',
+                              running ? 'h-2.5 w-2.5 bg-brand animate-pulse' : 'h-2 w-2 border border-ink-subtle',
+                            )}
+                            aria-hidden
+                          />
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
               </div>
