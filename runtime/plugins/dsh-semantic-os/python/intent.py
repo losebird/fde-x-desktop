@@ -118,6 +118,35 @@ def _speech_has_connector_lookup(raw: str) -> bool:
     return _speech_has_role(raw, "现查路由")
 
 
+_TIME_MARK = re.compile(r"昨天|今天|前天|今早|今晚|上午|下午|晚上|凌晨|傍晚|那会儿|当时")
+_TALK_MARK = re.compile(r"(都)?(聊了|说了|谈了|沟通了|讨论过|说过)(些|点)?")
+_WHAT_MARK = re.compile(r"什么|啥|哪些事|哪些")
+_FILLER_MARK = re.compile(r"[吗呢啊呀？?\s的都点了]")
+_PREFIX_MARK = re.compile(r"^(还记得|记得)?(我们)?")
+
+
+_CONTINUE_MARK = re.compile(r"接着干|接着处理|还没做完|未完成|上次没做完|上次还没做完")
+
+
+def is_continue_query(text: Any) -> bool:
+    raw = _text(text)
+    if not raw:
+        return False
+    return bool(_CONTINUE_MARK.search(raw))
+
+
+def is_time_recall(text: Any) -> bool:
+    raw = _text(text)
+    if not raw:
+        return False
+    raw = _PREFIX_MARK.sub("", raw)
+    raw = _TIME_MARK.sub("", raw)
+    raw = _TALK_MARK.sub("", raw)
+    raw = _WHAT_MARK.sub("", raw)
+    raw = _FILLER_MARK.sub("", raw)
+    return not raw.strip()
+
+
 def route_intent(text: Any) -> dict[str, str]:
     raw = _text(text)
     if not raw:

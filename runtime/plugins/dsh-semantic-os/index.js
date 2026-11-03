@@ -115,6 +115,7 @@ export function apply(ctx, config) {
     extractQueue,
     getConfig: () => current(),
     onGraphWrite: (cwd, op) => writes.mark(cwd, op),
+    startFileIngest: (cwd) => ingest.start(cwd, 'session-tick', []),
   })
   const indexCommit = attachSessionIndexCommit({
     sidecar,

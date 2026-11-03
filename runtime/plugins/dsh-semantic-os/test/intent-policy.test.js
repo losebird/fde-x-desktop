@@ -35,6 +35,44 @@ print(json.dumps({
   assert.equal(got.cards.tool, 'list_memory_cards')
 })
 
+test('接着干 is a continue query', () => {
+  const out = py(`
+import json, sys
+sys.path.insert(0, "python")
+from intent import is_continue_query, route_intent
+print(json.dumps({
+  "go": is_continue_query("接着干"),
+  "open": is_continue_query("上次还没做完"),
+  "ticket": is_continue_query("工单状态"),
+  "intent": route_intent("接着处理值班隔离")["intent"],
+}, ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.go, true)
+  assert.equal(got.open, true)
+  assert.equal(got.ticket, false)
+  assert.equal(got.intent, '查询')
+})
+
+test('昨天聊了什么 is a time-recall query, 工单昨天 is not', () => {
+  const out = py(`
+import json, sys
+sys.path.insert(0, "python")
+from intent import is_time_recall, route_intent
+print(json.dumps({
+  "day": is_time_recall("昨天聊了什么"),
+  "morning": is_time_recall("今天上午聊了啥"),
+  "ticket": is_time_recall("工单昨天"),
+  "intent": route_intent("昨天聊了什么")["intent"],
+}, ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.day, true)
+  assert.equal(got.morning, true)
+  assert.equal(got.ticket, false)
+  assert.equal(got.intent, '查询')
+})
+
 test('闲聊 does not search; 业务动作 and 催待办 stay on existing tools', () => {
   const out = py(`
 import json, sys

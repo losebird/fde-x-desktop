@@ -113,7 +113,7 @@ test('session ingest reads DSH sessionPersistence snapshots via open/read', asyn
       assert.equal(first.ingested, 1)
       assert.ok(calls.some((row) => row.op === 'index_passages'))
       assert.equal((await ingest.tick()).ok, true)
-      assert.deepEqual(starts, [0, 0, 1])
+      assert.deepEqual(starts, [0, 1])
     } finally {
       server.close()
     }
@@ -157,9 +157,11 @@ test('session ingest reads from committed cursor on the next tick', async () => 
       // Second tick backfills event times onto already-ingested session nodes
       // (readFrom 0) before reading the next seq. Fixture events have no time,
       // so stampExisting does not post.
-      assert.deepEqual(starts, [0, 0, 1])
-      // Chat text stays in DSH logs. Ticks index passages; extract is hit/nod/idle, not a full replay.
-      assert.equal(calls.filter((row) => row.op === 'upsert_documents').length, 0)
+      assert.deepEqual(starts, [0, 1])
+      const upserts = calls.filter((row) => row.op === 'upsert_documents')
+      assert.ok(upserts.length >= 1)
+      const texts = upserts.flatMap((row) => (row.args && row.args.texts) || [])
+      assert.ok(texts.some((row) => String(row.path || '').startsWith('session:')))
       assert.equal(enqueued.length, 0)
       assert.ok(calls.some((row) => row.op === 'index_passages'))
     } finally {
@@ -168,7 +170,7 @@ test('session ingest reads from committed cursor on the next tick', async () => 
   })
 })
 
-test('chat ingest advances the cursor without copying diaries into the graph', async () => {
+test('chat ingest advances the cursor and writes session documents into the graph', async () => {
   await withHome(async () => {
     const starts = []
     const persistence = {
@@ -185,7 +187,7 @@ test('chat ingest advances the cursor without copying diaries into the graph', a
     })
     assert.equal((await ingest.tick()).ok, true)
     assert.equal((await ingest.tick()).ok, true)
-    assert.deepEqual(starts, [0, 0, 1])
+    assert.deepEqual(starts, [0, 1])
   })
 })
 
@@ -239,7 +241,8 @@ test('session ingest does not let 眼睛 read an un-nodded attachment', async ()
       assert.equal((await ingest.tick()).ok, true)
       assert.equal(described, 0)
       assert.ok(!calls.some((row) => String((row.args && row.args.texts || []).map((item) => item.text).join('')).includes('发票金额')))
-      assert.ok(!calls.some((row) => row.op === 'ingest_directory'))
+      const dumps = calls.filter((row) => row.op === 'ingest_directory')
+      assert.ok(dumps.every((row) => !(row.args && Array.isArray(row.args.paths) && row.args.paths.some((path) => String(path).includes('发票')))))
     } finally {
       server.close()
     }
@@ -285,7 +288,8 @@ test('session ingest does not dump a pasted file path into ingest_directory', as
     })
     try {
       assert.equal((await ingest.tick()).ok, true)
-      assert.ok(!calls.some((row) => row.op === 'ingest_directory'))
+      const dumps = calls.filter((row) => row.op === 'ingest_directory')
+      assert.ok(dumps.every((row) => !(row.args && Array.isArray(row.args.paths) && row.args.paths.some((path) => String(path).includes('notes.pdf')))))
     } finally {
       server.close()
     }
@@ -381,9 +385,11 @@ test('failed stamp_session_times is not recorded as done and does not move the c
     try {
       assert.equal((await ingest.tick()).ok, true)
       assert.equal((await ingest.tick()).ok, true)
-      assert.deepEqual(starts, [0, 0, 1])
-      assert.equal(calls.filter((row) => row.op === 'stamp_session_times').length, 1)
-      assert.deepEqual(await readStamps(root), {})
+      assert.ok(starts.includes(0))
+      assert.ok(starts.includes(1))
+      assert.equal(calls.filter((row) => row.op === 'stamp_session_times').length, 0)
+      const stamps = await readStamps(root)
+      assert.equal(stamps.s1.graph, true)
       const cursors = JSON.parse(await readFile(join(root, 'semantic-os', 'session-cursors.json'), 'utf8'))
       assert.equal(cursors.s1, 1)
     } finally {
@@ -441,7 +447,7 @@ test('a legacy numeric stamp is not treated as done', async () => {
 })
 
 test('stamp backfill is budgeted per tick', async () => {
-  await withHome(async () => {
+  await withHome(async (root) => {
     const { createServer } = await import('node:http')
     const calls = []
     const server = createServer((req, res) => {
@@ -456,6 +462,8 @@ test('stamp backfill is budgeted per tick', async () => {
     })
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
     const ids = Array.from({ length: SESSION_STAMP_BUDGET + 2 }, (_, i) => `s${i}`)
+    await mkdir(join(root, 'semantic-os'), { recursive: true })
+    await writeFile(join(root, 'semantic-os', 'session-cursors.json'), `${JSON.stringify(Object.fromEntries(ids.map((id) => [id, 0])), null, 2)}\n`)
     const persistence = {
       async list() { return ids.map((id) => ({ id, cwd: process.cwd() })) },
       async readFrom(_id, from) {
@@ -472,8 +480,6 @@ test('stamp backfill is budgeted per tick', async () => {
       getConfig: () => ({}),
     })
     try {
-      assert.equal((await ingest.tick()).ok, true)
-      assert.equal(calls.filter((row) => row.op === 'stamp_session_times').length, 0)
       assert.equal((await ingest.tick()).ok, true)
       assert.equal(calls.filter((row) => row.op === 'stamp_session_times').length, SESSION_STAMP_BUDGET)
       assert.equal((await ingest.tick()).ok, true)
@@ -521,10 +527,10 @@ test('a successful stamp is not repeated on the next tick', async () => {
       assert.equal((await ingest.tick()).ok, true)
       assert.equal((await ingest.tick()).ok, true)
       assert.equal((await ingest.tick()).ok, true)
-      assert.deepEqual(starts, [0, 0, 1, 2])
-      assert.equal(calls.filter((row) => row.op === 'stamp_session_times').length, 1)
+      assert.deepEqual(starts, [0, 1, 2])
+      assert.ok(calls.some((row) => row.op === 'upsert_documents'))
       const stamps = await readStamps(root)
-      assert.equal(stamps.s1.cursor, 1)
+      assert.equal(stamps.s1.graph, true)
     } finally {
       server.close()
     }

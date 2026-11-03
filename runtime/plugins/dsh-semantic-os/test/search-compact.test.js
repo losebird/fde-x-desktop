@@ -35,7 +35,8 @@ function search(cwd, args) {
     'from bootstrap import run_search_text',
     `print(json.dumps(run_search_text(${JSON.stringify(cwd)}, ${JSON.stringify(args)}), ensure_ascii=False))`,
   ].join('\n')
-  return JSON.parse(execFileSync('python3', ['-c', script], { encoding: 'utf8' }))
+  const bin = process.env.DSH_RUNTIME_PYTHON || 'python3'
+  return JSON.parse(execFileSync(bin, ['-c', script], { encoding: 'utf8' }))
 }
 
 test('search_text gives the model a 摘录, not the whole session', () => {
@@ -168,6 +169,40 @@ test('search_text ranks by intent without a second search engine', () => {
   }
 })
 
+test('search_text hits compact work node by the request words, not a 接着干 dump', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'dsos-search-work-'))
+  try {
+    writeGraph(cwd, [{
+      id: 'work:task_0859f608',
+      content: '验证·值班隔离·业务\nbiz:费用报销:EXP20250503296\n进行中',
+      valid_from: '2026-10-27T16:53:00+08:00',
+    }])
+    const got = search(cwd, { q: '值班隔离' })
+    assert.ok((got.results || []).some((row) => String(row.node && row.node.id || '') === 'work:task_0859f608'))
+    const dump = search(cwd, { q: '接着干' })
+    assert.equal((dump.results || []).some((row) => String(row.node && row.node.id || '') === 'work:task_0859f608'), false)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('search_text lists that day\'s session when the query is 昨天聊了什么', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'dsos-search-day-'))
+  try {
+    writeGraph(cwd, [{
+      id: 'session:session-36509409-dba6-4227-b729-428722042829:10',
+      content: '哈喽',
+      valid_from: '2026-11-01T14:08:14.826Z',
+    }])
+    const got = search(cwd, { q: '昨天聊了什么', date: '2026-11-01' })
+    assert.ok((got.results || []).some((row) => String(row.node && row.node.id || '').includes('36509409')))
+    const hello = search(cwd, { q: '哈喽', date: '2026-11-01' })
+    assert.ok((hello.results || []).some((row) => String(row.node && row.node.content || '').includes('哈喽')))
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
 test('Host clips sidecar 全文 before the model sees search_text', () => {
   const body = `开头垫话。${'甲'.repeat(80)}要不要只发 darwin-arm64${'乙'.repeat(800)}`
   const leaked = {
@@ -184,7 +219,7 @@ test('Host clips sidecar 全文 before the model sees search_text', () => {
     query: 'darwin-arm64',
   }
   const got = clipSearchPayload(leaked)
-  assert.equal(got.results.length, 12)
+  assert.equal(got.results.length, 4)
   assert.equal(got.total, 40)
   const node = got.results[0].node
   assert.ok(String(node.content).includes('darwin-arm64'))

@@ -26,6 +26,28 @@ export function isSessionTailQuery(query) {
   return /^[0-9a-f]{6,12}$/i.test(String(query || '').trim())
 }
 
+const TIME_MARK = /昨天|今天|前天|今早|今晚|上午|下午|晚上|凌晨|傍晚|那会儿|当时/g
+const TALK_MARK = /(都)?(聊了|说了|谈了|沟通了|讨论过|说过)(些|点)?/g
+const WHAT_MARK = /什么|啥|哪些事|哪些/g
+const FILLER_MARK = /[吗呢啊呀？?\s的都点了]/g
+
+const CONTINUE_MARK = /接着干|接着处理|还没做完|未完成|上次没做完|上次还没做完/
+
+export function isContinueQuery(query) {
+  return CONTINUE_MARK.test(String(query || '').trim())
+}
+
+export function isTimeRecallQuery(query) {
+  let text = String(query || '').trim()
+  if (!text) return false
+  text = text.replace(/^(还记得|记得)?(我们)?/, '')
+  text = text.replace(TIME_MARK, '')
+  text = text.replace(TALK_MARK, '')
+  text = text.replace(WHAT_MARK, '')
+  text = text.replace(FILLER_MARK, '')
+  return text.length === 0
+}
+
 export function topicQuery(query) {
   let text = String(query || '').trim()
   text = text.replace(WRAPPER, '').replace(TAIL, '').trim()
@@ -306,6 +328,7 @@ export function excerptsFromFind(grouped, _merged, query) {
 
 function hitKind(id, via) {
   if (String(id).startsWith('session:')) return 'session'
+  if (String(id).startsWith('work:')) return 'file'
   if (String(id).startsWith('file:')) return via === 'bridge' ? null : 'file'
   return null
 }
@@ -338,7 +361,7 @@ export function groupSemanticHits(packed, input) {
       const sid = String((parsed && parsed.sessionId) || '').toLowerCase()
       const q = query.toLowerCase()
       if (sid.slice(-8) !== q && !sid.replace(/-/g, '').includes(q) && !sid.includes(q)) continue
-    } else {
+    } else if (!(isTimeRecallQuery(query) && String((input && (input.date || input.at)) || '').trim())) {
       const hay = `${id}\n${node.content || ''}\n${(node.properties && node.properties.content) || ''}`
       if (query && !hitCoversQuery(hay, query, via)) continue
     }

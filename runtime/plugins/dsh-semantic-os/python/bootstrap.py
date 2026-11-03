@@ -1802,6 +1802,8 @@ def list_ingest_files(cwd: str, paths: list[str] | None = None) -> list[Path]:
             continue
         if ignored(rel, patterns):
             continue
+        if ".dsh" in path.parts or "node_modules" in path.parts:
+            continue
         if path.suffix.lower() not in TEXT_EXTS and path.suffix.lower() not in EYES_FILE_EXTS:
             continue
         out.append(path)
@@ -1930,11 +1932,70 @@ def _media_ingest_text(path: Path) -> str:
     return "\n".join(lines)
 
 
+def _compact_cjk_ocr(text: str) -> str:
+    """Tesseract chi_sim inserts spaces between glyphs; search needs 候补池 not 候 补 池."""
+    return re.sub(r"(?<=[\u4e00-\u9fff])[ \t]+(?=[\u4e00-\u9fff])", "", text)
+
+
+def _ocr_work_dir() -> Path:
+    """Leptonica cannot read /tmp on this Mac (com.apple.provenance). Keep pages under DSH_HOME."""
+    import tempfile
+
+    home = os.environ.get("DSH_HOME") or os.environ.get("FDE_DSH_HOME") or str(Path.home() / ".dsh-fde-x")
+    root = Path(home) / "semantic-os" / "ocr-tmp"
+    root.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix="pdf-", dir=str(root)))
+
+
+def _ocr_pdf_pages(path: Path, limit: int = 12) -> str:
+    """Scanned PDFs have no text layer. Render pages and OCR locally (no LLM tokens)."""
+    import shutil
+
+    tess = shutil.which("tesseract")
+    if tess is None:
+        return ""
+    tmp = _ocr_work_dir()
+    try:
+        proc = subprocess.run(
+            ["pdftoppm", "-png", "-f", "1", "-l", str(limit), "-r", "150", str(path), str(tmp / "p")],
+            capture_output=True,
+            timeout=90,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return ""
+        chunks: list[str] = []
+        for img in sorted(tmp.glob("p*.png"))[:limit]:
+            subprocess.run(["xattr", "-c", str(img)], capture_output=True, check=False)
+            ocr = subprocess.run(
+                [tess, str(img), "stdout", "-l", "chi_sim+eng", "--psm", "6"],
+                capture_output=True,
+                timeout=90,
+                check=False,
+            )
+            blob = (ocr.stdout.decode("utf-8", "replace") if ocr.returncode == 0 else "").strip()
+            if blob:
+                chunks.append(_compact_cjk_ocr(blob))
+        return "\n\n".join(chunks)
+    except Exception:
+        return ""
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def ingest_plain_text(path: Path) -> str:
     """Native parsers by suffix. Images stay on dsh_describe_image."""
     ext = path.suffix.lower()
     try:
-        if ext in {".pdf", ".docx"}:
+        if ext == ".pdf":
+            from semantica.parse import DocumentParser
+            text = _as_ingest_text(DocumentParser().parse_document(str(path)))
+            if len(text.strip()) < 40:
+                pictured = _ocr_pdf_pages(path)
+                if pictured.strip():
+                    return pictured
+            return text
+        if ext == ".docx":
             from semantica.parse import DocumentParser
             return _as_ingest_text(DocumentParser().parse_document(str(path)))
         if ext == ".xlsx":
@@ -2011,7 +2072,9 @@ def run_ingest_directory(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
                     "filename": path.name,
                     "timestamp": stamped,
                     "valid_from": stamped,
+                    "event_time": stamped,
                 },
+                "valid_from": stamped,
             })
             forget_node_rows(cwd)
         except Exception:
@@ -2350,8 +2413,9 @@ def repair_missing_lineage(graph: Any) -> int:
 
 
 def run_upsert_documents(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
-    session, graph_file = load_session(cwd)
-    graph = session.graph
+    """Cabinet write: session:/file:/mail: rows go to Oxigraph, not the slimmed workbench."""
+    from stores import forget_node_rows
+
     count = 0
     for row in list(args.get("texts") or []):
         if not isinstance(row, dict):
@@ -2360,7 +2424,8 @@ def run_upsert_documents(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
         src_text = scrub_text(row.get("text") or "")
         if not src_path or not src_text.strip():
             continue
-        extra = {}
+        nid = document_id(src_path)
+        extra = {"source": src_path, "path": src_path}
         if row.get("role"):
             extra["role"] = row.get("role")
         if row.get("messageId"):
@@ -2370,22 +2435,32 @@ def run_upsert_documents(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             extra["timestamp"] = stamped
             extra["valid_from"] = stamped
             extra["event_time"] = stamped
-        upsert_document(graph, src_path, src_text, extra)
+        stored = src_text[:DOC_TEXT_LIMIT] if src_text.strip() else src_path
+        data = {
+            "id": nid,
+            "type": "Document",
+            "content": stored,
+            "properties": extra,
+        }
+        if stamped:
+            data["valid_from"] = stamped
+        graph_store.put_node(cwd, data)
+        if nid.startswith("session:") and nid.count(":") >= 2:
+            parent = "session:" + nid.split(":")[1]
+            if parent != nid:
+                graph_store.put_edge(cwd, parent, nid, "包含")
         count += 1
-        link_session_message(graph, src_path)
-    repaired = repair_missing_lineage(graph)
-    repaired += repair_session_links(graph)
-    save_session(session, graph_file)
-    return {"ok": True, "count": count, "repaired": repaired}
+    forget_node_rows(cwd)
+    return {"ok": True, "count": count, "repaired": 0}
 
 
 def run_stamp_session_times(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
-    """Write event times onto existing session: nodes. Does not re-extract."""
+    """Write event times onto existing session: cabinet rows. Does not re-extract."""
+    from stores import patch_node_props
+
     stamps = args.get("stamps") if isinstance(args.get("stamps"), list) else []
     if not stamps:
         return {"ok": True, "stamped": 0}
-    session, graph_file = load_session(cwd)
-    graph = session.graph
     n = 0
     for row in stamps:
         if not isinstance(row, dict):
@@ -2394,17 +2469,13 @@ def run_stamp_session_times(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
         stamped = str(row.get("timestamp") or row.get("valid_from") or "").strip()
         if not nid.startswith("session:") or not stamped:
             continue
-        node = get_node(graph, nid)
-        if node is None:
-            continue
-        set_node_props(node, timestamp=stamped, valid_from=stamped, event_time=stamped)
-        try:
-            setattr(node, "valid_from", stamped)
-        except Exception:
-            pass
-        n += 1
-    if n:
-        save_session(session, graph_file)
+        got = patch_node_props(cwd, nid, {
+            "timestamp": stamped,
+            "valid_from": stamped,
+            "event_time": stamped,
+        })
+        if got.get("ok"):
+            n += 1
     return {"ok": True, "stamped": n}
 
 
@@ -2568,6 +2639,9 @@ def _rank_search_hit(hit: dict[str, Any], q: str, intent: str = "查询") -> flo
         score -= 250
     if nid.startswith("session:"):
         score += 80
+    body = str(node.get("content") or "")
+    if nid.startswith("file:") and q and q in body and len(body.strip()) > 40:
+        score += 280
     if nid.startswith("file:") and re.search(r"\.(js|mjs|cjs|ts|tsx|py)$", nid, flags=re.I):
         score -= 240
     props = node.get("properties") if isinstance(node.get("properties"), dict) else {}
@@ -2617,10 +2691,19 @@ def run_search_text(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
     Literal Oxigraph hits plus native VectorStore / GraphSession.search.
     fdex ranking stays in this thin layer.
     """
+    from intent import is_time_recall, route_intent
+
     q = str(args.get("q") or args.get("query") or "").strip()
     routed = route_intent(q) if q else {"intent": "闲聊", "tool": ""}
     intent = str(args.get("intent") or routed.get("intent") or "查询")
-    if not q or intent == "闲聊":
+    date_raw = args.get("date") or args.get("at") or args.get("when") or ""
+    at, date_from, date_to = _query_window(
+        date_raw,
+        args.get("date_from") or args.get("from") or "",
+        args.get("date_to") or args.get("to") or "",
+    )
+    recall = bool((date_from or date_to or at) and (not q or is_time_recall(q)))
+    if intent == "闲聊" and not recall:
         return {
             "results": [],
             "total": 0,
@@ -2631,12 +2714,17 @@ def run_search_text(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             "expanded": [],
             "live_facts": [],
         }
-    date_raw = args.get("date") or args.get("at") or args.get("when") or ""
-    at, date_from, date_to = _query_window(
-        date_raw,
-        args.get("date_from") or args.get("from") or "",
-        args.get("date_to") or args.get("to") or "",
-    )
+    if not q and not (date_from or date_to or at):
+        return {
+            "results": [],
+            "total": 0,
+            "query": q,
+            "intent": intent or "闲聊",
+            "missing": [],
+            "sources": [],
+            "expanded": [],
+            "live_facts": [],
+        }
     rows, _st = read_node_rows(cwd)
     hits: list[dict[str, Any]] = []
     by_id: dict[str, dict[str, Any]] = {}
@@ -2663,8 +2751,12 @@ def run_search_text(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             str(row.get("content") or ""),
             json.dumps(props, ensure_ascii=False),
         ])
-        if q not in blob:
-            continue
+        if q and q not in blob:
+            if not (recall and nid.startswith(("session:", "mail:", "file:", "work:"))):
+                continue
+        elif not q:
+            if not nid.startswith(("session:", "mail:", "file:", "work:")):
+                continue
         ntype = str(row.get("type") or props.get("type") or "Entity")
         raw_content = str(row.get("content") or props.get("content") or nid)
         content = _clip_search_snippet(raw_content, q)
@@ -2686,7 +2778,7 @@ def run_search_text(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
         })
     seen = {str((row.get("node") or {}).get("id") or "") for row in hits}
     try:
-        for hit in search_vectors(cwd, q):
+        for hit in (search_vectors(cwd, q) if q else []):
             hid = str(hit.get("id") or "")
             if not hid or hid in seen:
                 continue
@@ -2719,11 +2811,9 @@ def run_search_text(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             store = _load_store(passage_dir(cwd))
         except Exception:
             store = {}
-        for row in search_passages(cwd, q, 8):
+        for row in (search_passages(cwd, q, 8) if q else []):
             hid = str(row.get("id") or "")
             if not hid or hid in seen:
-                continue
-            if hid.startswith("session:"):
                 continue
             node_row = by_id.get(hid)
             if node_row is not None:
@@ -2753,6 +2843,11 @@ def run_search_text(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
                     stamped = _row_time_iso(orow)
                     if stamped:
                         break
+            if at is not None or date_from is not None or date_to is not None:
+                if not stamped:
+                    continue
+                if not _row_in_window({"properties": {"valid_from": stamped, "timestamp": stamped, "event_time": stamped}}):
+                    continue
             content = _clip_search_snippet(raw, q)
             hits.append({
                 "node": {

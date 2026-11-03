@@ -1254,7 +1254,7 @@ async function serveFind(req, res, sidecar, authorize, opts) {
     })
   }
   let merged = own
-  let grouped = groupSemanticHits(merged, { query: q, limit: 20 })
+  let grouped = groupSemanticHits(merged, { query: q, limit: 20, date })
   if (opts && typeof opts.getPersistence === 'function') {
     try {
       const vec = await postPython(sidecar, { op: 'search_passages', cwd, args: { query: q, limit: 8 } }).catch(() => null)
@@ -1265,7 +1265,7 @@ async function serveFind(req, res, sidecar, authorize, opts) {
         args: searchArgs,
         getPersistence: opts.getPersistence,
       })
-      grouped = groupSemanticHits(merged, { query: q, limit: 20 })
+      grouped = groupSemanticHits(merged, { query: q, limit: 20, date })
     } catch { /* ranked python hits still stand */ }
   }
   const excerpts = excerptsFromFind(grouped, merged, q)

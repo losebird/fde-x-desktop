@@ -4,7 +4,7 @@
  */
 
 import { adaptSessionPersistence, eventText, eventTime, headerCwd, headerId } from './session-ingest.js'
-import { clipSnippet, hitCoversQuery, parseSessionNodeId, queryTokens, rankHit, sortHits, topicQuery } from './session-find.js'
+import { clipSnippet, hitCoversQuery, isTimeRecallQuery, parseSessionNodeId, queryTokens, rankHit, sortHits, topicQuery } from './session-find.js'
 import { listBridgePeers } from './bridge.js'
 
 const SEARCH_LIMIT = 12
@@ -151,7 +151,8 @@ async function searchOneCwd(persistence, cwd, query, args, via) {
       if (!text) continue
       const iso = eventTime(event)
       if (!coversQueryWindow(iso, args)) continue
-      if (!text.includes(q) && !`session:${id}:${seq}`.includes(q)) continue
+      const dated = Boolean(String(args.date || args.at || args.date_from || args.from || '').trim())
+      if (!(isTimeRecallQuery(q) && dated) && !text.includes(q) && !`session:${id}:${seq}`.includes(q)) continue
       hits.push(packHit(`session:${id}:${seq}`, text, iso, q, cwd, via))
       if (hits.length >= want) return hits
     }

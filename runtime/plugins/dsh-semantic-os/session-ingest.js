@@ -13,6 +13,8 @@ import { describePath, extractEyesText, pathsFromText } from './eyes-media.js'
 
 export const DEFAULT_SESSION_INGEST_INTERVAL_MIN = 30
 export const SESSION_STAMP_BUDGET = 4
+export const SESSION_GRAPH_BUDGET_FORCE = 16
+export const FILE_INGEST_BUDGET = 2
 
 function dshHome() {
   return process.env.DSH_HOME || process.env.FDE_DSH_HOME || join(homedir(), '.dsh-fde-x')
@@ -218,7 +220,7 @@ export function adaptSessionPersistence(raw) {
  * }} opts
  */
 export function createSessionIngest(opts) {
-  const { sidecar, getPersistence, getEyes, getExtract, extractQueue, getConfig, onGraphWrite } = opts
+  const { sidecar, getPersistence, getEyes, getExtract, extractQueue, getConfig, onGraphWrite, startFileIngest } = opts
   /** @type {ReturnType<typeof setInterval> | null} */
   let timer = null
   /** @type {ReturnType<typeof setTimeout> | null} */
@@ -280,9 +282,69 @@ export function createSessionIngest(opts) {
 
   function stampRecord(raw) {
     if (raw && typeof raw === 'object' && Number.isFinite(Number(raw.cursor))) {
-      return { cursor: Number(raw.cursor), at: Number(raw.at) || 0 }
+      return { cursor: Number(raw.cursor), at: Number(raw.at) || 0, graph: Boolean(raw.graph) }
     }
     return null
+  }
+
+  function documentRows(id, events) {
+    const texts = []
+    for (const event of events || []) {
+      const seq = event && Number.isFinite(event.seq) ? event.seq : -1
+      const text = eventText(event).trim()
+      if (seq < 0 || !text) continue
+      const stamped = eventTime(event)
+      texts.push({
+        path: `session:${id}:${seq}`,
+        text: text.slice(0, 20_000),
+        role: event.type === 'user/message' ? 'user' : 'assistant',
+        messageId: (event.data && (event.data.id || (event.data.message && event.data.message.id))) || '',
+        ...(stamped ? { timestamp: stamped } : {}),
+      })
+    }
+    return texts.concat(workRows(texts))
+  }
+
+  function workRows(texts) {
+    const out = []
+    const seen = new Set()
+    for (const row of texts) {
+      const text = String(row.text || '')
+      if (!text.includes('只处理这一条待办')) continue
+      const matched = /任务\s+(\S+)：([^\n]+)/.exec(text)
+      if (!matched) continue
+      const taskId = String(matched[1] || '').trim()
+      if (!taskId || seen.has(taskId)) continue
+      seen.add(taskId)
+      const source = /来源：([^\n]+)/.exec(text)
+      const body = [String(matched[2] || '').trim(), source ? String(source[1] || '').trim() : '', '进行中']
+        .filter(Boolean)
+        .join('\n')
+        .slice(0, 160)
+      out.push({
+        path: `work:${taskId}`,
+        text: body,
+        role: 'work',
+        ...(row.timestamp ? { timestamp: row.timestamp } : {}),
+      })
+    }
+    return out
+  }
+
+  async function upsertSessionDocuments(cwd, texts) {
+    if (!texts.length) return { ok: true, count: 0 }
+    const chunk = 80
+    let count = 0
+    for (let i = 0; i < texts.length; i += chunk) {
+      const body = await postPython(sidecar, {
+        op: 'upsert_documents',
+        cwd,
+        args: { texts: texts.slice(i, i + chunk) },
+      }).catch(() => null)
+      if (!body || body.error) return { ok: false, count, error: (body && body.error) || 'UPSERT_FAILED' }
+      count += Number(body.count) || 0
+    }
+    return { ok: true, count }
   }
 
   async function stampExisting(persistence, cwd, id) {
@@ -292,15 +354,14 @@ export function createSessionIngest(opts) {
     } catch {
       return { ok: false, attempted: 0, stamped: 0 }
     }
-    const stamps = []
-    for (const event of (packed && packed.events) || []) {
-      const seq = event && Number.isFinite(event.seq) ? event.seq : -1
-      const stamped = eventTime(event)
-      if (seq < 0 || !stamped) continue
-      if (!eventText(event).trim()) continue
-      stamps.push({ id: `session:${id}:${seq}`, timestamp: stamped })
-    }
-    if (!stamps.length) return { ok: true, attempted: 0, stamped: 0 }
+    const events = (packed && packed.events) || []
+    const texts = documentRows(id, events)
+    const put = await upsertSessionDocuments(cwd, texts)
+    if (!put.ok) return { ok: false, attempted: texts.length, stamped: 0 }
+    const stamps = texts
+      .filter((row) => row.timestamp)
+      .map((row) => ({ id: row.path, timestamp: row.timestamp }))
+    if (!stamps.length) return { ok: true, attempted: texts.length, stamped: 0, graph: true }
     const chunk = 4000
     let n = 0
     for (let i = 0; i < stamps.length; i += chunk) {
@@ -309,10 +370,10 @@ export function createSessionIngest(opts) {
         cwd,
         args: { stamps: stamps.slice(i, i + chunk) },
       }).catch(() => null)
-      if (!body || body.error) return { ok: false, attempted: stamps.length, stamped: n }
+      if (!body || body.error) return { ok: false, attempted: stamps.length, stamped: n, graph: true }
       n += Number(body.stamped) || 0
     }
-    return { ok: true, attempted: stamps.length, stamped: n }
+    return { ok: true, attempted: stamps.length, stamped: n, graph: true }
   }
 
   function scheduleNotReadyRetry() {
@@ -355,6 +416,7 @@ export function createSessionIngest(opts) {
     let ingested = 0
     let skipped = 0
     let error = ''
+    const fileCwds = []
     try {
       const headers = await persistence.list()
       const cursors = await loadCursors()
@@ -362,7 +424,7 @@ export function createSessionIngest(opts) {
       let stampsDirty = false
       const list = Array.isArray(headers) ? headers : []
       sessions = list.length
-      let stampLeft = opts.force ? Number.POSITIVE_INFINITY : SESSION_STAMP_BUDGET
+      let stampLeft = opts.force ? SESSION_GRAPH_BUDGET_FORCE : SESSION_STAMP_BUDGET
       for (const header of list) {
         const id = headerId(header)
         const cwd = String(headerCwd(header) || '').replace(/[\r\n\t]/g, '')
@@ -379,11 +441,12 @@ export function createSessionIngest(opts) {
           skipped += 1
           continue
         }
+        if (!fileCwds.includes(cwd)) fileCwds.push(cwd)
         try {
         const fromSeq = Number.isFinite(Number(cursors[id])) ? Number(cursors[id]) + 1 : 0
         const rec = stampRecord(stamps[id])
         let stampResult = null
-        if (opts.force || (!rec && fromSeq > 0 && stampLeft > 0)) {
+        if (opts.force || (((!rec || !rec.graph) && fromSeq > 0 && stampLeft > 0))) {
           stampResult = await stampExisting(persistence, cwd, id)
           stampLeft -= 1
         }
@@ -496,7 +559,7 @@ export function createSessionIngest(opts) {
           cursors[id] = maxSeq
         }
         if (stampResult && stampResult.ok) {
-          stamps[id] = { cursor: Number(cursors[id]) || 0, at: Date.now() }
+          stamps[id] = { cursor: Number(cursors[id]) || 0, at: Date.now(), graph: true }
           stampsDirty = true
         }
         if (!texts.length) {
@@ -504,12 +567,19 @@ export function createSessionIngest(opts) {
           continue
         }
         if (fresh.length) {
+          const docs = documentRows(id, events.filter((event) => {
+            const seq = event && Number.isFinite(event.seq) ? event.seq : -1
+            return seq >= fromSeq
+          }))
+          await upsertSessionDocuments(cwd, docs)
           const rows = fresh
             .filter((row) => String(row.path || '').startsWith('session:') || String(row.path || '').startsWith('file:') || String(row.path || '').startsWith('mail:'))
             .map((row) => ({ id: row.path, text: row.text, time: row.timestamp }))
           if (rows.length) {
-            void postPython(sidecar, { op: 'index_passages', cwd, args: { rows } }).catch(() => undefined)
+            await postPython(sidecar, { op: 'index_passages', cwd, args: { rows } }).catch(() => null)
           }
+          stamps[id] = { cursor: Number(cursors[id]) || 0, at: Date.now(), graph: true }
+          stampsDirty = true
         }
         ingested += 1
         if (typeof onGraphWrite === 'function') onGraphWrite(cwd, fresh.length ? 'session_index' : 'session_backfill')
@@ -521,6 +591,10 @@ export function createSessionIngest(opts) {
       }
       await saveCursors(cursors)
       if (stampsDirty) await saveStamps(stamps)
+      const fileBudget = opts.force ? FILE_INGEST_BUDGET : 1
+      if (typeof startFileIngest === 'function') {
+        for (const fileCwd of fileCwds.slice(0, fileBudget)) startFileIngest(fileCwd)
+      }
       last = { at: Date.now(), ok: !error, sessions, ingested, skipped, error }
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)

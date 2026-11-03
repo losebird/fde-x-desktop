@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { composeFindResults, excerptsFromFind, groupOfficialSearch, groupSemanticHits, parseSessionNodeId } from '../session-find.js'
+import { composeFindResults, excerptsFromFind, groupOfficialSearch, groupSemanticHits, isTimeRecallQuery, parseSessionNodeId } from '../session-find.js'
 
 const list = {
   current: 'sess-a',
@@ -88,6 +88,35 @@ test('semantic hits keep local files and bridged sessions, drop bridged files', 
   assert.equal(semantic.items[1].workspace, 'eyes')
   assert.equal(semantic.items[2].kind, 'file')
   assert.equal(semantic.items[2].via, 'local')
+})
+
+test('work node is a local hit when the request names it', () => {
+  const packed = {
+    query: '值班隔离',
+    results: [
+      { node: { id: 'work:task_0859', content: '验证·值班隔离·业务\n进行中' } },
+    ],
+  }
+  const hit = groupSemanticHits(packed, { query: '值班隔离', list, workspaces })
+  assert.deepEqual(hit.items.map((row) => row.id), ['work:task_0859'])
+  const dump = groupSemanticHits({ ...packed, query: '接着干' }, { query: '接着干', list, workspaces })
+  assert.equal(dump.items.length, 0)
+})
+
+test('time-recall with a date keeps that day\'s session even when the body is 哈喽', () => {
+  assert.equal(isTimeRecallQuery('昨天聊了什么'), true)
+  assert.equal(isTimeRecallQuery('今天上午聊了啥'), true)
+  assert.equal(isTimeRecallQuery('工单昨天'), false)
+  const packed = {
+    query: '昨天聊了什么',
+    results: [
+      { node: { id: 'session:sess-a:10', content: '哈喽', valid_from: '2026-11-01T14:08:14.826Z' } },
+    ],
+  }
+  const miss = groupSemanticHits(packed, { query: '昨天聊了什么', list, workspaces })
+  assert.equal(miss.items.length, 0)
+  const hit = groupSemanticHits(packed, { query: '昨天聊了什么', date: '2026-11-01', list, workspaces })
+  assert.deepEqual(hit.items.map((row) => row.id), ['session:sess-a:10'])
 })
 
 test('semantic hits must contain the query in id or body', () => {

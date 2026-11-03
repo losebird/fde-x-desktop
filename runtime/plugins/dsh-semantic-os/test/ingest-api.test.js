@@ -165,3 +165,31 @@ test('add_documents ingest path sets parallel=False', () => {
   const slice = src.slice(idx, idx + 280)
   assert.match(slice, /parallel=False/)
 })
+
+test('scanned pdf with no text layer OCRs locally into ingest text', () => {
+  const src = readFileSync(new URL('../python/bootstrap.py', import.meta.url), 'utf8')
+  const ocrFn = src.slice(src.indexOf('def _ocr_pdf_pages'), src.indexOf('def ingest_plain_text'))
+  assert.match(ocrFn, /tesseract/)
+  assert.doesNotMatch(ocrFn, /dsh_describe_image/)
+  const out = py(`
+import json, os, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, "python")
+from PIL import Image, ImageDraw, ImageFont
+from bootstrap import ingest_plain_text
+
+home = tempfile.mkdtemp(); os.environ["DSH_HOME"] = home
+cwd = Path(tempfile.mkdtemp())
+font = ImageFont.truetype("/System/Library/Fonts/STHeiti Light.ttc", 48)
+img = Image.new("RGB", (1100, 280), "white")
+draw = ImageDraw.Draw(img)
+draw.text((40, 90), "候补池黄金时段", font=font, fill="black")
+pdf = cwd / "scan.pdf"
+img.save(pdf, "PDF", resolution=150)
+text = ingest_plain_text(pdf)
+compact = "".join(text.split())
+print(json.dumps({"text": text, "hit": ("候补池" in compact) or ("黄金" in compact)}, ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.hit, true, got.text)
+})
