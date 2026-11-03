@@ -1,11 +1,11 @@
 /** IUI pack pin. The packaged runtime copies only runtime/, so this file stays here. */
 export const IUI_PIN = {
   repo: 'https://github.com/losebird/IUI.git',
-  commit: 'f428b504a4d39ee70362631dee98a17e1317ac22',
+  commit: '03f2826b69cf909804e8904e8ab61b6c3ece0820',
   version: '0.13.0-iui.27',
   artifact: {
     url: '',
-    sha256: '85ab613cfa64930bc4b2171835530277f5e7c6596b32c9e37de80fda91670afe',
+    sha256: 'da079b4900c4d35b3191f74afb7585404491615330c502d81e42896a1caba268',
   },
 }
 
