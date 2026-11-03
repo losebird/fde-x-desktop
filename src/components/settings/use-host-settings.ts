@@ -88,7 +88,7 @@ export function useHostSettings() {
         setEntries(nextEntries)
         setWritable(settingsBag.raw?.writable !== false)
         const bagError = settingsBag.error ? String(settingsBag.error) : ''
-        const connected = Boolean(status?.connected)
+        const connected = Boolean(status?.connected || status?.state === 'connected')
         if (!nextEntries.length && !connected) {
           setPhase('coreDown')
           setMessage(SURFACE_CORE_DOWN)

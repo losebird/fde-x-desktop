@@ -1996,7 +1996,7 @@ export function IMWorkspace({ compact = false }: { compact?: boolean }) {
                         </div>
                         {pairCode && <div className="mt-2 font-mono text-sm text-ink">{pairCode}</div>}
                         {pairHint && <div className="mt-1">{pairHint}</div>}
-                        <div className="mt-3 text-[11px] text-ink-subtle">本机第二套：另开终端 <span className="font-mono">pnpm run dev:peer</span>。门牌填对面 IM 里显示的「本机门牌」，不要填 5174/5175。</div>
+                        <div className="mt-3 text-[11px] text-ink-subtle">本机第二套：另开终端 <span className="font-mono">pnpm run dev:peer</span>，对面开码后这边只填六位配对码。</div>
                       </div>
                     )}
                     {people.length > 0 && peopleHere.length === 0 && peopleOpen.length === 0 && (
@@ -2380,7 +2380,6 @@ function ContactManager({
   const [name, setName] = useState(selfName)
   const [avatar, setAvatar] = useState(selfAvatar || 'leaf')
   const [peerCode, setPeerCode] = useState('')
-  const [door, setDoor] = useState('')
   const [minted, setMinted] = useState('')
   const [hint, setHint] = useState('')
   const [groupName, setGroupName] = useState(focused?.kind === 'topic-group' ? focused.name : '')
@@ -2460,7 +2459,7 @@ function ContactManager({
           {panel === 'add' && (
             <div>
               <div className="text-sm font-medium mb-1">添加同事</div>
-              <div className="text-xs text-ink-muted mb-2">在这边开码或填码。本机门牌 <span className="font-mono">{doorPort ? `127.0.0.1:${doorPort}` : '连接后显示'}</span></div>
+              <div className="text-xs text-ink-muted mb-2">开码后把六位数字给对面。对面只填配对码。本机门牌 <span className="font-mono">{doorPort ? `127.0.0.1:${doorPort}` : '连接后显示'}</span></div>
               <button
                 type="button"
                 className="text-xs text-ink-muted mb-4 hover:text-ink"
@@ -2479,11 +2478,9 @@ function ContactManager({
                 {minted && <span className="input h-8 px-2 font-mono text-sm">{minted}</span>}
               </div>
               <label className="block text-xs text-ink-muted mb-1">对方配对码</label>
-              <input className="input w-full mb-3" value={peerCode} onChange={(e) => setPeerCode(e.target.value)} placeholder="六位数字" />
-              <label className="block text-xs text-ink-muted mb-1">对方门牌</label>
-              <input className="input w-full mb-4 font-mono" value={door} onChange={(e) => setDoor(e.target.value)} placeholder="127.0.0.1:19527" />
-              <button type="button" className="btn-primary" disabled={busy || !peerCode.trim() || !door.trim()} onClick={() => void run(async () => {
-                const data = await runtimeApi.imPairHandshake({ peerCode: peerCode.trim(), door: door.trim() })
+              <input className="input w-full mb-4" value={peerCode} onChange={(e) => setPeerCode(e.target.value)} placeholder="六位数字" inputMode="numeric" maxLength={6} />
+              <button type="button" className="btn-primary" disabled={busy || !/^\d{6}$/.test(peerCode.trim())} onClick={() => void run(async () => {
+                const data = await runtimeApi.imPairHandshake({ peerCode: peerCode.trim() })
                 setHint(data.ok === false ? String(data.hint ?? data.error ?? '握手失败') : '已发出，等对面 IM 点确定')
                 await onRefresh()
               })}>填码配对</button>

@@ -250,7 +250,20 @@ export async function apply(ctx, config) {
     return result
   }
 
-  lan = createLanServer({ port, host, onFrame: onLanFrame })
+  lan = createLanServer({
+    port,
+    host,
+    onFrame: onLanFrame,
+    who: async () => {
+      try {
+        const snap = await secretary.snapshot()
+        const code = snap && snap.pairCode
+        return { pairing: Boolean(code && code.code && !code.expired) }
+      } catch {
+        return { pairing: false }
+      }
+    },
+  })
 
   function refuseWorkstationChatAsk(request, next) {
     const round = sessionRounds.peek(toolSessionId(request))

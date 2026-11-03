@@ -28,7 +28,7 @@ import { terminalCloseAction } from '@/lib/terminal-occupancy'
 import { useEvents } from '@/lib/events'
 import { combineAbortSignal } from '../../runtime/live-probe.mjs'
 import { resolveBffOrigin } from '../../runtime/bff-origin.mjs'
-import { useCoreBoot } from '@/components/settings/core-connection'
+import { publishCoreStatus, useCoreBoot, useCoreStatus } from '@/components/settings/core-connection'
 import { IuiRetryButton } from '@/components/settings/IuiRetryButton'
 import { StatusErrorBoundary } from '@/components/settings/StatusErrorBoundary'
 import {
@@ -112,7 +112,8 @@ export default function AI() {
   const setAiInboxDraft = useApp((s) => s.setAiInboxDraft)
   const workspaceCwd = liveWorkspaces.find((item) => item.id === activeWorkspaceId)?.cwd
 
-  const [runtimeStatus, setRuntimeStatus] = useState<AiRuntimeStatus | null>(null)
+  const core = useCoreStatus()
+  const runtimeStatus = core.status
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [sessionNotice, setSessionNotice] = useState('')
   const [remoteSessions, setRemoteSessions] = useState<AiSessionSummary[]>([])
@@ -160,7 +161,7 @@ export default function AI() {
   const terminalBagRef = useRef(terminalBag)
   terminalBagRef.current = terminalBag
 
-  const runtimeConnected = runtimeStatus?.connected === true
+  const runtimeConnected = core.connected
   const workspaceSessions = useMemo(
     () => remoteSessions.filter((session) => {
       if (!isPrimarySession(session)) return false
@@ -514,7 +515,7 @@ export default function AI() {
         let status = await runtimeApi.aiStatus(abort.signal)
         if (!status.connected) status = await runtimeApi.connectAi(abort.signal)
         if (!active) return
-        setRuntimeStatus(status)
+        publishCoreStatus(status)
         const [roster, dshWorkspaces, workspaceBag] = await Promise.all([
           runtimeApi.listAiPresets(abort.signal).catch(() => ({ presets: [] as Array<{ id: string }> })),
           runtimeApi.listAiWorkspaces(abort.signal).catch(() => []),
@@ -554,9 +555,9 @@ export default function AI() {
         if (!active || abort.signal.aborted) return
         setRuntimeError(displayError(error))
         try {
-          setRuntimeStatus(await runtimeApi.aiStatus())
+          publishCoreStatus(await runtimeApi.aiStatus())
         } catch {
-          setRuntimeStatus(null)
+          /* keep last shared snapshot */
         }
       } finally {
         if (active) setLoadingRuntime(false)

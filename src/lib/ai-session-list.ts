@@ -66,10 +66,15 @@ export function resetRenamedSessionTitles(): void {
   heldTitles = new Map()
 }
 
+export function displaySessionTitle(raw: unknown) {
+  if (typeof raw !== 'string') return ''
+  return raw.replace(/<\|[^|]*\|>/g, '').replace(/\s+/g, ' ').trim()
+}
+
 function cleanNotice(input: { sessionId?: unknown; title?: unknown; cwd?: unknown } | null | undefined): SessionTitleNotice | null {
   if (!input || typeof input !== 'object') return null
   const sessionId = String(input.sessionId ?? '').trim()
-  const title = typeof input.title === 'string' ? input.title.trim() : ''
+  const title = displaySessionTitle(input.title)
   if (!sessionId || !title) return null
   const cwd = typeof input.cwd === 'string' ? input.cwd.trim() : ''
   return cwd ? { sessionId, title, cwd } : { sessionId, title }
@@ -139,19 +144,21 @@ export function applySessionList<T extends SessionListRow>(
   const next = list.map((row) => {
     const sessionId = String(row?.sessionId || '')
     if (sessionId) seen.add(sessionId)
+    const stripped = displaySessionTitle(row?.title)
+    const base = stripped && stripped !== row.title ? { ...row, title: stripped } : row
     const fromEvent = clean && clean.sessionId === sessionId ? clean : undefined
     if (fromEvent) {
-      if (row.title === fromEvent.title) return row
-      return { ...row, title: fromEvent.title }
+      if (base.title === fromEvent.title) return base
+      return { ...base, title: fromEvent.title }
     }
     const held = heldTitles.get(sessionId)
-    if (!held) return row
-    if (isPlaceholderTitle(row?.title)) {
-      if (row.title === held.title) return row
-      return { ...row, title: held.title }
+    if (!held) return base
+    if (isPlaceholderTitle(base?.title)) {
+      if (base.title === held.title) return base
+      return { ...base, title: held.title }
     }
-    if (typeof row.title === 'string' && row.title.trim() !== held.title) heldTitles.delete(sessionId)
-    return row
+    if (typeof base.title === 'string' && base.title.trim() !== held.title) heldTitles.delete(sessionId)
+    return base
   })
   const appendMissing = options?.appendMissing !== false
   if (appendMissing && clean && !seen.has(clean.sessionId)) {

@@ -18,6 +18,7 @@ import {
 import type { SurfacePhase } from '@/components/surface'
 import { openFilesAtPath } from '@/lib/app-platform'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
+import { useWhenCoreConnects } from '@/components/settings/core-connection'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
 import { runtimeApi, type SkillBagItem } from '@/lib/runtime-api'
 import { useApp } from '@/store/app'
@@ -138,6 +139,7 @@ export default function Skills() {
   }, [])
 
   useEffect(() => { load() }, [load, workspaceId])
+  useWhenCoreConnects(load, phase === 'coreDown' || note === SURFACE_CORE_DOWN)
 
   useEffect(() => {
     const onVis = () => {

@@ -44,6 +44,7 @@ export function ServerDetail({
     )
   }
   const resources = resourceTools.filter((name) => name.includes(row.serverName))
+  const tools = Array.isArray(row.tools) ? row.tools : []
   const on = !row.disabled && row.status !== 'disabled'
   return (
     <div className="rounded-kit-lg border border-kit-line bg-kit-card px-3 py-3">
@@ -83,10 +84,10 @@ export function ServerDetail({
         </div>
       ) : null}
       <div className="mt-3 border-t border-kit-line pt-3">
-        <div className="text-kit-sm font-medium text-kit-ink">工具 {row.tools.length}</div>
-        {row.tools.length ? (
+        <div className="text-kit-sm font-medium text-kit-ink">工具 {tools.length}</div>
+        {tools.length ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {row.tools.map((name) => (
+            {tools.map((name) => (
               <span key={name} className="rounded-kit bg-kit-muted px-2 py-0.5 text-kit-meta text-kit-ink">{toolLabel(row.serverName, name)}</span>
             ))}
           </div>

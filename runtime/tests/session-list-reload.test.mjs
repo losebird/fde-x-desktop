@@ -172,6 +172,13 @@ function resetTitles(mod) {
   if (typeof mod.resetRenamedSessionTitles === 'function') mod.resetRenamedSessionTitles()
 }
 
+test('session list strips model end tokens from Host titles', async () => {
+  const mod = await sessionListModule()
+  resetTitles(mod)
+  const next = applyListed(mod, [{ sessionId: 's1', title: '测试<|eos|>' }], null)
+  assert.equal(next[0].title, '测试')
+})
+
 test('gated apply writes the renamed event title when GET is unnamed or missing the id', async () => {
   const source = readFileSync(AI_PAGE, 'utf8')
   assert.equal([...source.matchAll(/ai\.session\.changed/g)].length, 1)

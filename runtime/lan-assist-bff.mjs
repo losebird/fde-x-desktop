@@ -8,6 +8,7 @@ import { collapseKindsToConnectedTables } from './plugins/dsh-lan-assist/lookup.
 import { createNatsTransport, relayCredsPath, relayUrl, setRelayStore } from './plugins/dsh-lan-assist/nats-relay.js'
 import { createLanFirstTransport, createLanTransport } from './plugins/dsh-lan-assist/transport.js'
 import { createLanAssistCore, createLocalHandler, createStore, dispatch } from './lan-assist-engine.mjs'
+import { discoverPairDoors, ownLanPort, PAIR_DOOR_MISSING_HINT } from './im-pair-discover.mjs'
 
 let runtime = null
 let followupFn = async () => ({ ok: false, error: 'NO_FOLLOWUP' })
@@ -128,6 +129,15 @@ export async function bootLanAssistBff(adapters = {}) {
     port,
     host,
     onFrame: (frame, meta) => onLanFrame(secretary, sse, port, frame, meta),
+    who: async () => {
+      try {
+        const snap = await secretary.snapshot()
+        const code = snap && snap.pairCode
+        return { pairing: Boolean(code && code.code && !code.expired) }
+      } catch {
+        return { pairing: false }
+      }
+    },
   })
   runtime.lan = lan
   runtime.handler = createLocalHandler({
@@ -196,7 +206,30 @@ export async function invokeLanAssist(path, options = {}) {
     if (typeof secretary.getAttachment !== 'function') return { ok: false, error: 'NO_FILE' }
     return secretary.getAttachment(String(search.requestId || ''), search.index)
   }
-  const result = await dispatch(secretary, path, options.body || {}, followupFn, {})
+  const body = options.body && typeof options.body === 'object' ? { ...options.body } : {}
+  if (path === '/pair/handshake' && !String(body.door || '').trim() && !String(body.session || '').trim()) {
+    const lanPort = Number(runtime.lan && runtime.lan.port) || ownLanPort()
+    const doors = await discoverPairDoors({ skipDoors: publicDoors(lanPort).concat(`127.0.0.1:${lanPort}`) })
+    if (!doors.length) {
+      return { ok: false, error: 'NOT_FOUND', hint: PAIR_DOOR_MISSING_HINT }
+    }
+    let last = { ok: false, error: 'NOT_FOUND', hint: PAIR_DOOR_MISSING_HINT }
+    for (const door of doors) {
+      last = await dispatch(secretary, path, { ...body, door }, followupFn, {})
+      if (last && last.ok !== false) {
+        if (runtime.sse) runtime.sse.emit('mailbox', { type: 'pair/handshake' })
+        return last
+      }
+      const err = String(last && last.error || '')
+      if (err && err !== 'CODE_MISMATCH' && err !== 'UNREACHABLE' && err !== 'TIMEOUT' && err !== 'BAD_DOOR') {
+        if (runtime.sse && path !== '/sleep') runtime.sse.emit('mailbox', { type: path.slice(1) || 'post' })
+        return last
+      }
+    }
+    if (runtime.sse) runtime.sse.emit('mailbox', { type: 'pair/handshake' })
+    return last
+  }
+  const result = await dispatch(secretary, path, body, followupFn, {})
   if (runtime.sse && path !== '/sleep') runtime.sse.emit('mailbox', { type: path.slice(1) || 'post' })
   return result
 }

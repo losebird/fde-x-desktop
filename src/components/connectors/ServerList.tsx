@@ -15,7 +15,8 @@ function rowHint(row: McpServerV2) {
   if (row.status === 'failed' || row.status === 'disabled' || row.status === 'needs-reload') {
     return `${via} · ${statusLabel(row.status)}`
   }
-  return `${via} · ${row.tools.length} 个工具`
+  const tools = Array.isArray(row.tools) ? row.tools : []
+  return `${via} · ${tools.length} 个工具`
 }
 
 export function ServerList({

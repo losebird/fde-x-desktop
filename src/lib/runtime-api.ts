@@ -2455,7 +2455,7 @@ export class RuntimeApi {
     return result.data
   }
 
-  async imPairHandshake(body: { peerCode: string; door: string; peerName?: string }, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  async imPairHandshake(body: { peerCode: string; door?: string; peerName?: string }, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/im/pair/handshake', {
       method: 'POST',
       signal,

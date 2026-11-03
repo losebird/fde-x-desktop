@@ -27,8 +27,14 @@ export function createLanServer(opts) {
       res.end()
       return
     }
-    if (req.method === 'GET' && (req.url === '/' || req.url === '/who')) {
-      json(res, 200, { ok: true, service: 'dsh-lan-assist', port })
+    if (req.method === 'GET' && (req.url === '/' || req.url === '/who' || String(req.url || '').startsWith('/who?'))) {
+      let extra = {}
+      try {
+        extra = typeof opts.who === 'function' ? await opts.who() : {}
+      } catch {
+        extra = {}
+      }
+      json(res, 200, { ok: true, service: 'dsh-lan-assist', port, pairing: Boolean(extra && extra.pairing) })
       return
     }
     if (req.method !== 'POST' || req.url !== '/frame') {

@@ -18,6 +18,7 @@ import { DocxPackage, type DocxBlockView, type DocxRunView } from '@/lib/office-
 import { currentAiTarget } from '@/lib/ai-target'
 import { attachToCurrentAi } from '@/lib/current-turn'
 import { consumeFilePick } from '@/lib/app-platform'
+import { useWhenCoreConnects } from '@/components/settings/core-connection'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
 
 function kindFromName(name: string): FileNode['kind'] {
@@ -660,6 +661,7 @@ export default function Files() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [filesReady, setFilesReady] = useState(false)
   const [filesError, setFilesError] = useState('')
+  const [filesCoreTick, setFilesCoreTick] = useState(0)
   const [editMode, setEditMode] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
@@ -836,7 +838,12 @@ export default function Files() {
       }
     })()
     return () => { alive = false }
-  }, [activeWsId, workspaceCwd])
+  }, [activeWsId, workspaceCwd, filesCoreTick])
+
+  useWhenCoreConnects(() => {
+    setFilesError('')
+    setFilesCoreTick((n) => n + 1)
+  }, filesError.includes('核心未接通'))
 
   const navigate = useNavigate()
   useEffect(() => {

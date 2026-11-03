@@ -29,15 +29,15 @@ export function InstallDialog({
     <SurfaceDialog open={open} onOpenChange={onOpenChange} title="安装技能" description="来源可以是 GitHub 地址、npx skills add、clawhub install，或本机目录。装进下面选的技能根。">
       <div className="space-y-3">
         <SurfaceField label="来源">
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <SurfaceInput
               aria-label="来源"
-              className="font-mono"
+              className="min-w-0 flex-1 font-mono"
               placeholder="npx skills add owner/repo  ·  clawhub install slug  ·  GitHub 地址"
               value={source}
               onChange={(event) => onSource(event.target.value)}
             />
-            <SurfaceButton onClick={onPick}>选择</SurfaceButton>
+            <SurfaceButton className="h-8 shrink-0 whitespace-nowrap px-2.5" onClick={onPick}>选择目录</SurfaceButton>
           </div>
         </SurfaceField>
         <SurfaceField label="安装位置">

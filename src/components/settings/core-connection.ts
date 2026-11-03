@@ -132,9 +132,9 @@ function isTerminalStatus(status: AiRuntimeStatus) {
 
 export function coreBootGuidance(status: AiRuntimeStatus | null | undefined): CoreBootGuidance {
   const iui = status?.iui
+  if (status?.connected || status?.state === 'connected') return { kind: 'ready', text: '' }
   if (iui?.state === 'installing') return { kind: 'installing', text: iuiStatusLine(iui) }
   if (iui?.state === 'verify_failed') return { kind: 'verify_failed', text: iuiStatusLine(iui) }
-  if (status?.connected || status?.state === 'connected') return { kind: 'ready', text: '' }
   if (status?.state === 'error') return { kind: 'failed', text: coreDownCopy(status) }
   if (iui?.state === 'failed') return { kind: 'iui-failed', text: iuiStatusLine(iui) }
   const state = String(status?.state || '')
@@ -196,11 +196,11 @@ function watchTick() {
       return
     }
     deliver(status)
-    if (generation !== watchGeneration || listeners.size === 0 || isTerminalStatus(status)) {
+    if (generation !== watchGeneration || listeners.size === 0) {
       stopWatch()
       return
     }
-    watchTimer = window.setTimeout(watchTick, WATCH_MS)
+    watchTimer = window.setTimeout(watchTick, isCoreConnected(status) ? 2000 : WATCH_MS)
   }).catch(() => {
     if (generation !== watchGeneration || listeners.size === 0) {
       watching = false
@@ -253,6 +253,14 @@ async function runIuiRetryNow() {
 /** One status read shared by every waiting panel. Stops when nobody is waiting, or the status is terminal. */
 export function subscribeCoreStatus(listener: CoreListener) {
   listeners.add(listener)
+  if (lastDelivered) {
+    try {
+      coreBootGuidance(lastDelivered)
+      listener(lastDelivered)
+    } catch {
+      /* incomplete snapshot must not crash a newly opened panel */
+    }
+  }
   ensureWatch()
   let active = true
   return () => {
@@ -260,6 +268,24 @@ export function subscribeCoreStatus(listener: CoreListener) {
     active = false
     listeners.delete(listener)
     if (listeners.size === 0) stopWatch()
+  }
+}
+
+export function isCoreConnected(status: AiRuntimeStatus | null | undefined) {
+  return Boolean(status?.connected || status?.state === 'connected')
+}
+
+export function publishCoreStatus(status: AiRuntimeStatus) {
+  deliver(status)
+}
+
+/** Live core snapshot shared by the AI banner, settings, connectors, skills, and files. */
+export function useCoreStatus() {
+  const [status, setStatus] = useState<AiRuntimeStatus | null>(lastDelivered)
+  useEffect(() => subscribeCoreStatus(setStatus), [])
+  return {
+    status,
+    connected: isCoreConnected(status),
   }
 }
 
@@ -272,7 +298,7 @@ export function useWhenCoreConnects(onConnect: () => void, enabled: boolean) {
     if (!enabled) return
     let stopped = false
     const unsubscribe = subscribeCoreStatus((status) => {
-      if (stopped || !status.connected) return
+      if (stopped || !isCoreConnected(status)) return
       stopped = true
       unsubscribe()
       callback.current()

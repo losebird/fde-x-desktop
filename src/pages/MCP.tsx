@@ -32,6 +32,7 @@ import {
 import type { SurfacePhase } from '@/components/surface'
 import { currentAiTarget, loadCurrentWorkspaceCwd } from '@/lib/ai-target'
 import { landMcpSegment, onMcpSegment, takeMcpSegment, type McpSegment } from '@/lib/mcp-browse'
+import { useCoreStatus, useWhenCoreConnects } from '@/components/settings/core-connection'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
 import {
   runtimeApi,
@@ -52,6 +53,7 @@ function applyBag(bag: McpBag, setMcp: (rows: McpServerV2[]) => void, setConnect
 
 export default function MCP() {
   const frame = useRef<HTMLDivElement>(null)
+  const { connected } = useCoreStatus()
   const [shellWidth, setShellWidth] = useState(0)
   const [phase, setPhase] = useState<SurfacePhase>('loading')
   const [failure, setFailure] = useState('')
@@ -59,7 +61,6 @@ export default function MCP() {
   const [mcp, setMcp] = useState<McpServerV2[]>([])
   const [connectors, setConnectors] = useState<McpConnectorCard[]>([])
   const [resourceTools, setResourceTools] = useState<string[]>([])
-  const [connected, setConnected] = useState(false)
   const [segment, setSegment] = useState<Segment>(() => takeMcpSegment())
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
@@ -88,7 +89,6 @@ export default function MCP() {
     }
     void (async () => {
       try {
-        const status = await runtimeApi.aiStatus()
         const folder = loadCurrentWorkspaceCwd()
         const target = await currentAiTarget().catch(() => ({ ok: false as const, error: '' }))
         const data = await runtimeApi.listMcpServers({
@@ -102,7 +102,6 @@ export default function MCP() {
         }
         rememberModuleBag('mcp', first)
         showBag(first)
-        setConnected(Boolean(status.connected))
         setPhase('ready')
         setFailure('')
       } catch (cause) {
@@ -119,6 +118,7 @@ export default function MCP() {
   }, [showBag])
 
   useEffect(() => { load() }, [load])
+  useWhenCoreConnects(load, phase === 'ready' && !connected)
   useEffect(() => onMcpSegment(setSegment), [])
 
   useEffect(() => {
@@ -139,16 +139,17 @@ export default function MCP() {
   }, [unsettled, load])
 
   const wide = shellWidth >= 860
+  const toolsOf = (row: McpServerV2) => (Array.isArray(row.tools) ? row.tools : [])
   const filtered = mcp.filter((row) => (
     row.serverName.includes(query)
     || (row.command || '').includes(query)
     || (row.url || '').includes(query)
-    || row.tools.some((tool) => tool.includes(query))
+    || toolsOf(row).some((tool) => tool.includes(query))
   ))
   const shownName = wide ? (picked && filtered.some((row) => row.serverName === picked) ? picked : filtered[0]?.serverName ?? null) : picked
   const shown = mcp.find((row) => row.serverName === shownName) || null
   const loadedCount = mcp.filter((row) => row.status === 'loaded').length
-  const toolCount = mcp.reduce((sum, row) => sum + row.tools.length, 0)
+  const toolCount = mcp.reduce((sum, row) => sum + toolsOf(row).length, 0)
   const busy = saving || reloading
 
   const changeDraft = (patch: Partial<McpDraft>) => {
