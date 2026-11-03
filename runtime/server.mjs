@@ -97,7 +97,7 @@ import { handleAppShareRoutes, handlePublicWebBundle } from './routes/app-share.
 import { isPublicAppFace, lanFaceForbidden, liveShareIdsByApp, publicShareCors } from './apps/share.mjs'
 import { handlePublicAppDocument } from './routes/public-app.mjs'
 import { loadMemoryWorkspaceVocab, saveMemoryWorkspaceVocab } from './biz/memory-vocab.mjs'
-import { bootLanAssistBff, handleLanAssistHttp, kindsFromVocabRows, setLanAssistVocabLoader, setLanAssistVocabSaver } from './lan-assist-bff.mjs'
+import { bootLanAssistBff, handleLanAssistHttp, kindsFromVocabRows, setLanAssistFollowup, setLanAssistVocabLoader, setLanAssistVocabSaver } from './lan-assist-bff.mjs'
 import { bootSemanticOsBff, handleSemanticOsHttp, handleSemanticOsUpgrade, stopSemanticOsBff } from './semantic-os-bff.mjs'
 import { auditWorkstationWrite, capturePendingSheet, handleBizRoutes, recordSurfaceFromPreview } from './routes/biz.mjs'
 import { ensureBridgeToken, handleAiResultGet, handleBridgeRoutes, persistUiToken, resolveUiToken, verifyUiToken } from './routes/bridge.mjs'
@@ -3947,6 +3947,31 @@ void bootSemanticOsBff().catch((error) => {
 })
 
 void bootLanAssistBff().then(() => {
+  setLanAssistFollowup(async (spec) => {
+    const sessionId = String((spec && spec.sessionId) || '').trim()
+    const text = String((spec && spec.text) || '').trim()
+    if (!sessionId || !text) return { ok: false, error: 'NO_SESSION' }
+    const origin = String(aiRuntime.origin || '').trim()
+    if (!origin) return { ok: false, error: 'HOST_OFFLINE' }
+    try {
+      const token = String(bridgeToken || '').trim()
+      const response = await fetch(new URL('/fde-session/wrote-followup', origin), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { 'x-fde-bridge-token': token } : {}),
+        },
+        body: JSON.stringify({ sessionId, text }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload.ok === false) {
+        return { ok: false, error: String(payload.error || response.status) }
+      }
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
   setLanAssistVocabLoader(async (workspace) => {
     try {
       const found = await loadMemoryWorkspaceVocab(aiRuntime, workspace)

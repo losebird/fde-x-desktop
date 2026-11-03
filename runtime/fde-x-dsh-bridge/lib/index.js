@@ -1,4 +1,4 @@
-const { randomBytes, timingSafeEqual } = require('node:crypto')
+const { randomBytes, randomUUID, timingSafeEqual } = require('node:crypto')
 const { request: httpRequest } = require('node:http')
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs')
 const { mkdir, readdir, readFile, writeFile } = require('node:fs/promises')
@@ -278,6 +278,44 @@ function createFdeSessionHandler(ctx) {
           return
         }
         json(res, 400, { ok: false, error: '请用工作台复原接口；导出已可用' })
+        return
+      }
+      if (req.method === 'POST' && path === '/wrote-followup') {
+        let expected = ''
+        try {
+          expected = String(await readFile(bridgeTokenPath(), 'utf8')).trim()
+        } catch (error) {
+          if (!error || error.code !== 'ENOENT') throw error
+        }
+        if (!sameToken(headerToken(req), expected)) {
+          json(res, 401, { ok: false, error: 'bridge_unauthorized' })
+          return
+        }
+        const body = await readBody(req, 256 * 1024)
+        const sessionId = String(body.sessionId || '').trim()
+        const text = String(body.text || '').trim()
+        if (!sessionId || !text) {
+          json(res, 400, { ok: false, error: 'sessionId_and_text_required' })
+          return
+        }
+        const agent = sessions.get(sessionId)
+        if (!agent || typeof agent.followup !== 'function') {
+          json(res, 404, { ok: false, error: 'session_agent_unavailable' })
+          return
+        }
+        const content = [{ type: 'text', text }]
+        const source = { kind: 'dsh-lan-assist', form: 'wrote' }
+        let message
+        try {
+          const llm = require('@deepseek-ai/dsh-llm')
+          const create = llm.createUserMessage || (llm.default && llm.default.createUserMessage)
+          if (typeof create === 'function') message = create({ content, source })
+        } catch { /* fall through */ }
+        if (!message || typeof message.id !== 'string' || !message.id) {
+          message = { role: 'user', id: randomUUID(), content, source }
+        }
+        agent.followup(message)
+        json(res, 200, { ok: true })
         return
       }
       json(res, 404, { ok: false, error: 'not_found' })

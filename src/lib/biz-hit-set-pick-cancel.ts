@@ -12,8 +12,9 @@ export {
   shouldCancelDshAfterWritePreview,
 }
 
-/** Workstation holds the pick or the write token: leftover chat Ask is not a confirm mouth. */
+/** Pick-rows leftover Ask still cancels chat. A live write token waits on 业务记录 without killing the turn. */
 export function shouldAbortLeftoverAskForWritePreview(sheet: Record<string, unknown>): boolean {
+  if (isConfirmableWritePreview(sheet)) return false
   return isWorkstationHeldWrite(sheet)
 }
 

@@ -142,6 +142,40 @@ test('duplicate skill catalogs in one step collapse to one table', () => {
   assert.equal(decision.messages[1].source.update, true)
 })
 
+test('a later time-context is dropped when one is already on the surface', () => {
+  const event = {
+    type: 'user/message',
+    seq: 1,
+    data: { source: { kind: 'time-context' } },
+  }
+  const agent = {
+    session: {
+      seq: 2,
+      surface: { nodes: [1] },
+      eventAt(index) {
+        return index === 1 ? event : undefined
+      },
+    },
+  }
+  const decision = policy.gatePreStepDecision({
+    kind: 'continue',
+    messages: [
+      { source: { kind: 'time-context' }, content: [{ type: 'text', text: 'Time sampled turn 2' }] },
+      { source: { kind: 'user' }, content: [{ type: 'text', text: 'hello' }] },
+    ],
+  }, 'standard', agent)
+  assert.equal(decision.messages.length, 1)
+  assert.equal(decision.messages[0].content[0].text, 'hello')
+})
+
+test('assembly tools stay in name order', () => {
+  const assembly = policy.gatePromptAssembly({
+    sections: [],
+    tools: [{ name: 'write' }, { name: 'bash' }, { name: 'read' }],
+  }, 'standard')
+  assert.deepEqual(assembly.tools.map((tool) => tool.name), ['bash', 'read', 'write'])
+})
+
 test('app-build and briefing drop the IUI section, tools, and skill line', () => {
   for (const preset of ['fde-app-builder', 'fde-briefing', '']) {
     const assembly = policy.gatePromptAssembly({

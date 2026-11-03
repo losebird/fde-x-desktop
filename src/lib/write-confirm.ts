@@ -109,6 +109,10 @@ export function resolveWriteDrawerFace(input: {
 }): WriteDrawerFace {
   if (input.leaving || input.dismissed) return 'closed'
   const openId = String(input.open?.previewId || '').trim()
+  if (openId) {
+    const openStatus = writeTokenStatus({ preview_id: openId }, input.tokenIndex)
+    if (openStatus === 'used' || openStatus === 'expired') return 'posted'
+  }
   const openPosted = input.open?.gateReason === POSTED_GATE && Boolean(openId)
   const sheet = input.sheet && typeof input.sheet === 'object' ? input.sheet : null
   if (!sheet) return openPosted ? 'posted' : 'closed'

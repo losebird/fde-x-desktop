@@ -7,7 +7,7 @@
 
 import { OPENING_TTL_MS, PLUGIN } from './home.js'
 import { randomHex } from './crypto.js'
-import { packSheet, speakBundlePreview, speakBundleReceipt, WORKSTATION_CONFIRM_HINT, writtenIdentityNos } from './write.js'
+import { packSheet, sessionWroteNotice, speakBundlePreview, speakBundleReceipt, WORKSTATION_CONFIRM_HINT, writtenIdentityNos } from './write.js'
 import { relatedFilterField, relatedHopId } from './lookup.js'
 import { briefFollowup } from './catalog.js'
 
@@ -616,24 +616,30 @@ export function createGate(bag) {
     const sid = ok && !failed && String(pending.sessionId || spec.sessionId || '').trim()
     const wroteRows = results.filter((row) => row && row.ok && !row.failed)
     const wroteNos = wroteRows.flatMap((row) => writtenIdentityNos(row))
-    sid && await reopenReplyDraft(sid) && (result.followup = {
-      sessionId: sid,
-      plugin: PLUGIN,
-      workspace: pending.workspace || '',
-      roundClose: 'wrote',
-      wroteIdentity: {
-        kind: String((pending && pending.kind) || spec.kind || '').trim(),
-        no: wroteNos.length === 1 ? wroteNos[0] : '',
-        nos: wroteNos,
-      },
-      text: briefFollowup({
-        quote: [result.speak, '库里已改上。回信要用现在的值，不要沿用预览前的旧号。'].filter(Boolean).join('\n'),
-        catalog: catalogOf(),
-        vocab: await vocabOf(pending.workspace || spec.workspace || ''),
+    if (sid) {
+      const draft = await reopenReplyDraft(sid)
+      const letter = Boolean(draft && draft.ok && !draft.skipped)
+      result.followup = {
+        sessionId: sid,
+        plugin: PLUGIN,
         workspace: pending.workspace || '',
-        kind: 'wrote',
-      }),
-    })
+        roundClose: 'wrote',
+        wroteIdentity: {
+          kind: String((pending && pending.kind) || spec.kind || '').trim(),
+          no: wroteNos.length === 1 ? wroteNos[0] : '',
+          nos: wroteNos,
+        },
+        text: letter
+          ? briefFollowup({
+            quote: [result.speak, '库里已改上。回信要用现在的值，不要沿用预览前的旧号。'].filter(Boolean).join('\n'),
+            catalog: catalogOf(),
+            vocab: await vocabOf(pending.workspace || spec.workspace || ''),
+            workspace: pending.workspace || '',
+            kind: 'wrote',
+          })
+          : sessionWroteNotice(results),
+      }
+    }
     return result
   }
 

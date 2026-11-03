@@ -583,6 +583,9 @@ export async function postWorkstationBizWrite({ db, aiRuntime }, body) {
       trace_id: body?.trace_id,
       source: writeSource,
       ...(requestedCwd ? { workspace: requestedCwd } : {}),
+      ...(String(body?.sessionId || body?.session_id || '').trim()
+        ? { sessionId: String(body.sessionId || body.session_id).trim() }
+        : {}),
     },
   })
   if (written && written.ok === false) {

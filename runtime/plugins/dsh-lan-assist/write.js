@@ -902,6 +902,22 @@ export function speakBundleReceipt(results) {
   return lines.join('\n')
 }
 
+/** Occupancy notice: 现查 the written row, then one sentence. Do not hunt 账本/files. */
+export function sessionWroteNotice(results) {
+  const rows = Array.isArray(results) ? results.filter((row) => row && row.ok && !row.failed) : []
+  if (!rows.length) {
+    return '业务记录已确认过账。请现查核对库里是否已改上，用一句话回报。不要翻账本，不要搜文件，不要再改行。'
+  }
+  const labels = rows.map((row) => writtenReceiptLabel(row)).filter(Boolean)
+  const changes = rows.map((row) => {
+    const change = patchChange(row.patch, null)
+    return change && change.speak ? String(change.speak).replace(/。+$/g, '') : ''
+  }).filter(Boolean)
+  const who = labels.length ? labels.join('、') : '这张单'
+  const want = changes.length ? `核对是否${changes.join('；')}` : '核对库里是否已改上'
+  return `业务记录已确认过账：${who}。请只现查这一张，${want}，用一句话回报用户。不要翻账本，不要搜文件，不要再改行。`
+}
+
 export function speakAlreadyWritten(ref) {
   const label = refLabel(ref) || '这张单'
   return `同一封再点，不会二次过账。${label}已经有回执。`

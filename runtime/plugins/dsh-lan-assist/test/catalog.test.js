@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { briefFollowup, buildCatalog, describeKindCatalog, detectPoison, extractReplyDraft, indexKindCatalog, listExecutableRelations, listKindAliases, packKindConcept, pickNamed, speakCatalogLine, speakKindCatalog } from '../catalog.js'
+import { sessionWroteNotice } from '../write.js'
 import { registerTools } from '../tools.js'
 import { createSecretary } from '../secretary.js'
 import { emptyState } from '../store.js'
@@ -332,6 +333,21 @@ test('describeBiz is workspace catalog, not live ERP', async () => {
   const noCwd = await secretary.describeBiz({})
   assert.equal(noCwd.ok, false)
   assert.equal(noCwd.error, 'NO_CWD')
+})
+
+test('sessionWroteNotice asks for 现查 check, not a ledger hunt', () => {
+  const text = sessionWroteNotice([{
+    ok: true,
+    kind: '费用报销',
+    no: 'EXP20250503296',
+    patch: { remarks: '命中验一' },
+  }])
+  assert.match(text, /业务记录已确认过账：费用报销 EXP20250503296/)
+  assert.match(text, /只现查这一张/)
+  assert.match(text, /命中验一/)
+  assert.match(text, /不要翻账本/)
+  assert.doesNotMatch(text, /有回执才算写上了/)
+  assert.doesNotMatch(text, /不要再调工具/)
 })
 
 test('indexKindCatalog keeps names and aliases, drops fields and columns', () => {

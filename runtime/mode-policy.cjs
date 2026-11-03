@@ -96,7 +96,7 @@ function gatePromptAssembly(assembly, preset, mount, sessionId) {
   const tools = allowed || !Array.isArray(assembly.tools)
     ? assembly.tools
     : assembly.tools.filter((tool) => !tool || !IUI_TOOL_NAMES.includes(tool.name))
-  return stripDeniedMcpTools({ ...assembly, sections, tools }, preset, table, sessionId)
+  return stabilizeAssemblyTools(stripDeniedMcpTools({ ...assembly, sections, tools }, preset, table, sessionId))
 }
 
 function stripIuiSkillLine(text) {
@@ -122,6 +122,29 @@ function catalogIdentity(entries) {
   ])).join('\n')
 }
 
+function visibleInjectKind(agent, kind) {
+  const session = agent && agent.session
+  if (!session || typeof session.eventAt !== 'function') return false
+  const seq = Number(session.seq)
+  if (!Number.isSafeInteger(seq) || seq <= 0) return false
+  const nodes = session.surface && session.surface.nodes
+  const visible = nodes && typeof nodes[Symbol.iterator] === 'function' ? new Set(nodes) : null
+  for (let index = seq - 1; index >= 0; index -= 1) {
+    let event
+    try {
+      event = session.eventAt(index)
+    } catch {
+      continue
+    }
+    if (!event || event.type !== 'user/message') continue
+    const source = event.data && event.data.source
+    if (!source || source.kind !== kind) continue
+    if (visible && !visible.has(event.seq) && !visible.has(index)) continue
+    return true
+  }
+  return false
+}
+
 function visibleCatalogIdentity(agent) {
   const session = agent && agent.session
   if (!session || typeof session.eventAt !== 'function') return ''
@@ -143,6 +166,36 @@ function visibleCatalogIdentity(agent) {
     return catalogIdentity(source.entries)
   }
   return ''
+}
+
+function dropLaterInjectKind(messages, agent, kind) {
+  if (!Array.isArray(messages) || !kind) return messages
+  const historyHas = visibleInjectKind(agent, kind)
+  const at = []
+  for (let index = 0; index < messages.length; index += 1) {
+    const source = catalogSource(messages[index])
+    if (source && source.kind === kind) at.push(index)
+  }
+  if (at.length === 0) return messages
+  const drop = new Set()
+  if (historyHas) {
+    for (const index of at) drop.add(index)
+  } else if (at.length > 1) {
+    for (const index of at.slice(1)) drop.add(index)
+  }
+  if (drop.size === 0) return messages
+  return messages.filter((_, index) => !drop.has(index))
+}
+
+function stabilizeAssemblyTools(assembly) {
+  if (!assembly || typeof assembly !== 'object' || !Array.isArray(assembly.tools)) return assembly
+  const names = assembly.tools.map((tool) => String((tool && tool.name) || ''))
+  const ordered = names.slice().sort()
+  if (names.every((name, index) => name === ordered[index])) return assembly
+  const tools = assembly.tools.slice().sort((left, right) => (
+    String((left && left.name) || '').localeCompare(String((right && right.name) || ''))
+  ))
+  return { ...assembly, tools }
 }
 
 function dropRedundantSkillCatalog(messages, agent) {
@@ -215,6 +268,8 @@ function gatePreStepDecision(decision, preset, agent) {
     messages = messages.map(gateSkillMessage).filter(Boolean)
   }
   messages = dropRedundantSkillCatalog(messages, agent)
+  messages = dropLaterInjectKind(messages, agent, 'time-context')
+  messages = dropLaterInjectKind(messages, agent, 'runtime-context')
   return { ...decision, messages }
 }
 

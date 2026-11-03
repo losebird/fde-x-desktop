@@ -2045,6 +2045,29 @@ export function RecordsPanel({ connections, runtimeReady, vocab, onPlanWithTarge
         speech: String(writeSheet.speech || drawer.sheet.speech || ''),
       })
       if (written && written.ok === false) {
+        if (String(written.error || '') === 'USED') {
+          const usedId = String(previewId || drawer.previewId || '').trim()
+          const settled = commitPostedWrite({
+            openPreviewId: drawer.previewId,
+            previewId: usedId,
+            writeSheet,
+            listed: null,
+            tokenIndex: writePreviewRef.current,
+            dismissed: false,
+            hasChanges: false,
+            alreadyAtTarget: false,
+          })
+          writePreviewRef.current = settled.tokenIndex
+          postedHoldRef.current = usedId
+          setDrawer((prev) => {
+            if (!prev || (prev.previewId !== drawer.previewId && prev.previewId !== usedId)) return prev
+            return { ...prev, previewId: usedId || prev.previewId, canWrite: false, gateReason: '已过账' }
+          })
+          setError('')
+          setNotice('已过账')
+          void loadSurfaces()
+          return
+        }
         const hint = typeof written.hint === 'string' && written.hint.trim()
           ? written.hint
           : (typeof written.speak === 'string' && written.speak.trim()

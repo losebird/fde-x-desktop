@@ -24,7 +24,7 @@ test('leftover Ask aborts when the workstation holds a write or pick', async () 
   }), true)
   assert.equal(isWorkstationHeldWrite({ action: '现查', listed: true, rows: [{ no: 'HIT-1' }] }), false)
 
-  assert.equal(shouldAbortLeftoverAskForWritePreview({ action: '改行', preview_id: 'pv1', picked: true }), true)
+  assert.equal(shouldAbortLeftoverAskForWritePreview({ action: '改行', preview_id: 'pv1', picked: true }), false)
   assert.equal(shouldAbortLeftoverAskForWritePreview({
     action: '改行',
     listed: true,
@@ -35,8 +35,8 @@ test('leftover Ask aborts when the workstation holds a write or pick', async () 
     action: '过审',
     preview_id: 'pv1',
     changes: [{ field: 'status' }],
-  }), true)
-  assert.equal(shouldAbortLeftoverAskForWritePreview({ action: '新建', preview_id: 'pv1', canWrite: true }), true)
+  }), false)
+  assert.equal(shouldAbortLeftoverAskForWritePreview({ action: '新建', preview_id: 'pv1', canWrite: true }), false)
   assert.equal(shouldAbortLeftoverAskForWritePreview({ action: '新建', preview_id: 'pv1', changes: [] }), true)
   assert.equal(shouldAbortLeftoverAskForWritePreview({ action: '现查', preview_id: 'pv1' }), false)
   assert.equal(shouldAbortLeftoverAskForWritePreview({ action: '改行', preview_id: '' }), false)

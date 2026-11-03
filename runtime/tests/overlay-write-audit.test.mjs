@@ -17,6 +17,11 @@ test('BFF overlay write proxy audits through the workstation write path', () => 
   assert.match(src, /auditWorkstationWrite/)
   assert.match(src, /capturePendingSheet/)
   assert.match(src, /body.sessionId \|\| body.session_id/)
+  assert.match(src, /setLanAssistFollowup/)
+  assert.match(src, /fde-session\/wrote-followup/)
+  const write = readFileSync(join(repoRoot, 'runtime/routes/biz.mjs'), 'utf8')
+  assert.match(write, /postWorkstationBizWrite/)
+  assert.match(write, /sessionId: String\(body.sessionId \|\| body.session_id\)/)
 })
 
 test('overlay write envelope lands a 操作记录 row', async () => {
