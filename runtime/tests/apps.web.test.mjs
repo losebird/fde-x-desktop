@@ -91,6 +91,47 @@ describe('hosted web app occupancy', () => {
     rmSync(CWD, { recursive: true, force: true })
   })
 
+  test('live css and js resolve by app id without a workspace query', async () => {
+    const cwd = `/tmp/fde-web-assets-${Date.now()}`
+    mkdirSync(cwd, { recursive: true })
+    const sqlite = db()
+    const spec = webSpec(`assets-${Date.now().toString(36)}`)
+    const created = createAppDraft(sqlite, { workspaceId: 'ws_personal', workspaceCwd: cwd, spec })
+    assert.equal(created.ok, true, JSON.stringify(created.errors || created))
+    writeBundleFiles(cwd, spec, [
+      { path: 'index.html', content: '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><script src="app.js"></script></body></html>' },
+      { path: 'styles.css', content: '.app{display:grid}' },
+      { path: 'app.js', content: 'window.__desk=1' },
+    ])
+    const activated = activateApp(sqlite, created.data.appId, { workspaceId: 'ws_personal' })
+    assert.equal(activated.kind, 'ok', JSON.stringify(activated))
+    const env = { status: 0, body: null, headers: {} }
+    const response = {
+      headersSent: false,
+      writableEnded: false,
+      writeHead(code, headers) { env.status = code; env.headers = headers || {} },
+      end(buf) { env.body = buf ? String(buf) : '' },
+    }
+    const handled = await handleAppsRoutes(
+      { method: 'GET', url: `/api/v1/apps/${created.data.appId}/live/styles.css`, headers: { host: '127.0.0.1:4318' }, socket: { remoteAddress: '127.0.0.1' } },
+      response,
+      new URL(`http://127.0.0.1/api/v1/apps/${created.data.appId}/live/styles.css`),
+      {
+        db: sqlite,
+        allowedOrigins: new Set(['http://127.0.0.1:5174']),
+        correlationId: 'corr_live_css',
+        sendJson(res, code, payload) { env.status = code; env.body = JSON.stringify(payload) },
+        sendError(res, code, err, message) { env.status = code; env.body = JSON.stringify({ error: { code: err, message } }) },
+        readJson: async () => ({}),
+      },
+    )
+    assert.equal(handled, true)
+    assert.equal(env.status, 200)
+    assert.match(String(env.body), /display:grid/)
+    sqlite.close()
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
   test('sandboxed live iframe can PUT store with Origin null', async () => {
     const cwd = `/tmp/fde-web-store-${Date.now()}`
     mkdirSync(cwd, { recursive: true })

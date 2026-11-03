@@ -68,10 +68,16 @@ export function isSlugTaken(db, workspaceId, slug, excludeAppId, { activeOnly = 
  * @param {string} appId
  */
 export function getAppById(db, appId, workspaceId) {
-  const row = db.prepare(`
-    SELECT ${APP_COLUMNS}
-    FROM business_apps WHERE workspace_id = ? AND id = ?
-  `).get(workspaceId, appId)
+  const ws = String(workspaceId || '').trim()
+  const row = ws
+    ? db.prepare(`
+        SELECT ${APP_COLUMNS}
+        FROM business_apps WHERE workspace_id = ? AND id = ?
+      `).get(ws, appId)
+    : db.prepare(`
+        SELECT ${APP_COLUMNS}
+        FROM business_apps WHERE id = ?
+      `).get(appId)
   if (!row) return null
   const revisions = db.prepare(`
     SELECT revision, change_note, created_at, materialize_status

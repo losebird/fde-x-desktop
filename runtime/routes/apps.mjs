@@ -170,6 +170,20 @@ function requireOwnedApp(db, url, body, appId, response, correlationId, sendErro
   return app
 }
 
+function requireLiveApp(db, url, appId, response, correlationId, sendError) {
+  const ident = requestAppWorkspace(db, url, null)
+  let app = null
+  if (!ident.error && ident.workspaceId) {
+    app = getAppById(db, appId, ident.workspaceId)
+  }
+  if (!app) app = getAppById(db, appId)
+  if (!app || appIsTrashed(app)) {
+    sendError(response, 404, 'not_found', '应用不存在', correlationId)
+    return null
+  }
+  return app
+}
+
 function sendInvokeError(sendError, response, error, correlationId) {
   const code = String(error?.code || 'invoke_failed')
   const status = code === 'no_session' || code === 'not_projected' || code === 'timeout' ? 503 : 400
@@ -458,7 +472,7 @@ export async function handleAppsRoutes(request, response, url, deps) {
 
   const liveMatch = pathname.match(/^\/api\/v1\/apps\/([^/]+)\/live(?:\/(.*))?$/)
   if (liveMatch && (request.method === 'GET' || request.method === 'HEAD')) {
-    const app = requireOwnedApp(db, url, null, decodeURIComponent(liveMatch[1]), response, correlationId, sendError)
+    const app = requireLiveApp(db, url, decodeURIComponent(liveMatch[1]), response, correlationId, sendError)
     if (!app) return true
     if (appIsTrashed(app)) {
       sendError(response, 404, 'not_found', '应用不存在', correlationId)
