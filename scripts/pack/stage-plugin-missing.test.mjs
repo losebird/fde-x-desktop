@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { IUI_PIN } from '../../runtime/iui-pin.mjs'
 
 const repo = fileURLToPath(new URL('../..', import.meta.url))
 const rel = 'runtime/plugins/dsh-semantic-os/LICENSE'
@@ -49,7 +50,7 @@ test('FDE_ALLOW_MISSING_PLUGINS=1 lets a local stage continue', { timeout: 18000
   const dest = isolatedRepo()
   const abs = join(dest, rel)
   const out = join(tmpdir(), `pr5-stage-allow-${process.pid}-${Date.now()}`)
-  const artifact = join(process.env.HOME || '', '.dsh', 'iui', 'iui-77c23c7c3e9cfc991e0bed9fb44b0a4ea66fd57c.tar.gz')
+  const artifact = join(process.env.HOME || '', '.dsh', 'vendor', 'iui', `iui-${IUI_PIN.commit}.tar.gz`)
   assert.equal(existsSync(artifact), true, artifact)
   renameSync(abs, `${abs}.pr5-allow`)
   try {
