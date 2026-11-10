@@ -39,7 +39,7 @@ const COVER_LABEL: Record<string, string> = {
   decision: '决策',
 }
 const OWN_CHROME = new Set(['io', 'admin'])
-const DRAWERS = ['entity', 'decision', 'health', 'lineage', 'find', 'import', 'export', 'registry', 'bridge'] as const
+const DRAWERS = ['entity', 'decision', 'health', 'lineage', 'find', 'import', 'export', 'registry', 'bridge', 'temporal'] as const
 
 type CanvasId = (typeof CANVASES)[number]['id']
 type DrawerId = (typeof DRAWERS)[number]
@@ -157,6 +157,7 @@ export default function Memory() {
   const [ingest, setIngest] = useState<Record<string, unknown> | null>(null)
   const [toast, setToast] = useState('')
   const hostRef = useRef<HTMLDivElement>(null)
+  const pageRef = useRef<HTMLDivElement>(null)
   const cwdRef = useRef(cwd)
 
   useEffect(() => {
@@ -164,6 +165,14 @@ export default function Memory() {
     cwdRef.current = cwd
     setMemoryBrowse({ pane: 'home', drawer: '', cardId: '', originId: '' })
   }, [cwd, setMemoryBrowse])
+
+  useEffect(() => {
+    const el = pageRef.current
+    if (!el || !cwd) return
+    el.setAttribute('data-cwd', cwd)
+    el.dataset.cwd = cwd
+    return installSemanticOsHttp(el, cwd)
+  }, [cwd])
 
   useEffect(() => {
     const onMsg = (event: MessageEvent) => {
@@ -228,6 +237,7 @@ export default function Memory() {
     if (pane === 'explore') {
       actions.push(
         { id: 'add-entity', label: '加实体', onClick: () => setDrawer('entity') },
+        { id: 'temporal', label: '时序工具', onClick: () => setDrawer('temporal') },
         { id: 'copy-path', label: '复制出处', onClick: () => {
           const selected = selectedNodeId(hostRef.current)
           if (!selected) {
@@ -273,22 +283,28 @@ export default function Memory() {
         if (!cancelled) setCanvasError('语义画布未就绪。请重启本地核心后再打开。')
         return
       }
-      const stop = mod.mount(el, { cwd, hostActions })
-      if (cancelled) {
-        if (typeof stop === 'function') stop()
-        return
+      const start = () => {
+        if (cancelled) return
+        const stop = mod.mount(el, { cwd, hostActions })
+        if (cancelled) {
+          if (typeof stop === 'function') stop()
+          return
+        }
+        ensureHostCss()
+        const ping = () => { if (!cancelled) pingCanvasResize(el) }
+        requestAnimationFrame(ping)
+        const later = window.setTimeout(ping, 160)
+        const ro = new ResizeObserver(ping)
+        ro.observe(el)
+        unmount = () => {
+          ro.disconnect()
+          window.clearTimeout(later)
+          if (typeof stop === 'function') stop()
+        }
       }
-      ensureHostCss()
-      const ping = () => { if (!cancelled) pingCanvasResize(el) }
-      requestAnimationFrame(ping)
-      const later = window.setTimeout(ping, 160)
-      const ro = new ResizeObserver(ping)
-      ro.observe(el)
-      unmount = () => {
-        ro.disconnect()
-        window.clearTimeout(later)
-        if (typeof stop === 'function') stop()
-      }
+      // Floating Memory is position:fixed; wait one frame so the host has a box
+      // before explore's first /api/graph/nodes (retry used to be 0).
+      requestAnimationFrame(() => requestAnimationFrame(start))
     }).catch((error) => {
       if (!cancelled) setCanvasError(error instanceof Error ? error.message : '画布加载失败')
     })
@@ -478,7 +494,7 @@ export default function Memory() {
   )
 
   return (
-    <div className="relative h-full min-h-0 min-w-0 flex flex-col dsos-root" data-dsos-semantic="" data-cwd={cwd || undefined} data-memory-pane={pane}>
+    <div ref={pageRef} className="relative h-full min-h-0 min-w-0 flex flex-col dsos-root" data-dsos-semantic="" data-cwd={cwd || undefined} data-memory-pane={pane}>
       {pane === 'home' ? home : pane === 'cards' ? <CardsArchive cwd={cwd} onBack={goHome} /> : pane === 'studio' ? studio : canvas}
       {drawer && cwd && (
         <aside className="absolute inset-y-0 right-0 w-full max-w-md bg-surface border-l border-line shadow-lg z-10 flex flex-col min-h-0">
@@ -501,6 +517,7 @@ export default function Memory() {
             {drawer === 'export' && <button type="button" className="btn" onClick={exportRdf}>导出 RDF</button>}
             {drawer === 'registry' && <RegistryPanel cwd={cwd} />}
             {drawer === 'bridge' && <BridgePanel cwd={cwd} />}
+            {drawer === 'temporal' && <TemporalPanel cwd={cwd} host={hostRef.current} />}
           </div>
         </aside>
       )}
@@ -633,6 +650,134 @@ function CardsArchive({ cwd, onBack }: { cwd: string; onBack: () => void }) {
   )
 }
 
+function dayOf(value: unknown): string {
+  const raw = String(value || '')
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return ''
+  return `${match[1]}/${match[2]}/${match[3]}`
+}
+
+function spanUntil(value: unknown): string {
+  return dayOf(value) || '至今'
+}
+
+function shortNode(id: unknown, label?: unknown): string {
+  const name = String(label || '').trim()
+  if (name) return name.length > 18 ? `${name.slice(0, 17)}…` : name
+  const raw = String(id || '').trim()
+  return raw.length > 12 ? `${raw.slice(0, 8)}…` : raw || '这条'
+}
+
+const ALLEN_SAY: Record<string, string> = {
+  before: 'A 整段都在 B 之前，中间还空着。',
+  after: 'A 整段都在 B 之后。',
+  meets: 'A 刚结束，B 马上开始。',
+  'met-by': 'B 刚结束，A 马上开始。',
+  met_by: 'B 刚结束，A 马上开始。',
+  overlaps: '这两条有一段重叠。',
+  'overlapped-by': '这两条有一段重叠，B 先开始。',
+  overlapped_by: '这两条有一段重叠，B 先开始。',
+  during: 'A 整段都落在 B 里面。',
+  contains: 'A 把 B 整段包在里面。',
+  starts: '同时开始，A 更早结束。',
+  'started-by': '同时开始，B 更早结束。',
+  started_by: '同时开始，B 更早结束。',
+  finishes: '同时结束，A 更晚开始。',
+  'finished-by': '同时结束，B 更晚开始。',
+  finished_by: '同时结束，B 更晚开始。',
+  equals: '起止是同一段日子。',
+}
+
+function temporalError(code: unknown): string {
+  const key = String(code || '')
+  if (key === 'NO_NODE') return '图上找不到这两个节点。'
+  if (key === 'NO_INTERVAL') return '这两条没有有效期，没法比日子。'
+  if (key === 'NO_PATH') return '选两个节点，再看它们中间隔几步。'
+  return key ? `没算出来：${key}` : '没算出来。'
+}
+
+function formatAllen(body: Record<string, unknown>): string {
+  const a = (body.a && typeof body.a === 'object') ? body.a as Record<string, unknown> : {}
+  const b = (body.b && typeof body.b === 'object') ? body.b as Record<string, unknown> : {}
+  const rel = String(body.relation || '').toLowerCase()
+  const say = ALLEN_SAY[rel] || (rel ? `这两段日子的关系是 ${rel}。` : '比不出这两段日子。')
+  const aFrom = dayOf(a.from)
+  const bFrom = dayOf(b.from)
+  const lines: string[] = []
+  if (aFrom) lines.push(`A（${shortNode(body.id1 || a.id, a.label)}）从 ${aFrom} 到 ${spanUntil(a.until)}。`)
+  if (bFrom) lines.push(`B（${shortNode(body.id2 || b.id, b.label)}）从 ${bFrom} 到 ${spanUntil(b.until)}。`)
+  lines.push(say)
+  return lines.join('\n')
+}
+
+function formatDistance(body: Record<string, unknown>): string {
+  const history = Array.isArray(body.history) ? body.history as Array<Record<string, unknown>> : []
+  const linked = history.filter((row) => row.hop_count != null && row.hop_count !== '')
+  if (!linked.length) return '这两条在滑过的时间点上没有连上。'
+  const hops = linked.map((row) => Number(row.hop_count))
+  const lo = Math.min(...hops)
+  const hi = Math.max(...hops)
+  const hopText = lo === hi ? (lo === 1 ? '中间隔 1 步' : `中间隔 ${lo} 步`) : `中间隔 ${lo}～${hi} 步`
+  const start = dayOf(linked[0]?.timestamp)
+  const end = dayOf(linked[linked.length - 1]?.timestamp)
+  const when = start && end ? `${start} 到 ${end}，${hopText}` : hopText
+  const events = Array.isArray(body.events) ? body.events as Array<Record<string, unknown>> : []
+  const last = events[events.length - 1]
+  const drop = last && last.to == null ? `后来在 ${dayOf(last.timestamp) || '更晚'} 变成没连上。` : ''
+  return [when + '。', drop].filter(Boolean).join('')
+}
+
+function formatPatterns(body: Record<string, unknown>): string {
+  const count = Number(body.count || 0)
+  if (!count) return '图里还没扫到成串出现的时间模式。'
+  return `扫到 ${count} 条成串的时间模式。`
+}
+
+function formatTemporalHuman(op: string, body: Record<string, unknown>): string {
+  if (body && body.ok === false) return temporalError(body.error)
+  if (op === 'temporal_allen') return formatAllen(body)
+  if (op === 'temporal_distance') return formatDistance(body)
+  if (op === 'temporal_patterns') return formatPatterns(body)
+  return '算完了。'
+}
+
+function TemporalPanel({ cwd, host }: { cwd: string; host: HTMLElement | null }) {
+  const picked = selectedNodeId(host)
+  const [id1, setId1] = useState(picked)
+  const [id2, setId2] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [out, setOut] = useState('')
+  const run = (op: string, args: Record<string, unknown>) => {
+    setBusy(true)
+    setErr('')
+    setOut('')
+    void runtimeApi.semanticPython(op, args, cwd).then((body) => {
+      setOut(formatTemporalHuman(op, body))
+    }).catch((cause) => setErr(cause instanceof Error ? cause.message : '没算出来')).finally(() => setBusy(false))
+  }
+  return (
+    <form className="flex flex-col gap-3 text-sm" onSubmit={(e) => e.preventDefault()}>
+      <p className="text-xs text-ink-muted">选两个节点。可以比它们的有效期怎么叠、中间隔几步，或扫图里有没有成串的时间模式。</p>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-ink-muted">节点 A</span>
+        <input className="input w-full" value={id1} onChange={(e) => setId1(e.target.value)} placeholder="图上的节点 id" />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-ink-muted">节点 B</span>
+        <input className="input w-full" value={id2} onChange={(e) => setId2(e.target.value)} placeholder="另一个节点 id" />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn-primary" disabled={busy || !id1 || !id2} onClick={() => run('temporal_allen', { id1, id2 })}>两段日子怎么叠</button>
+        <button type="button" className="btn" disabled={busy || !id1 || !id2} onClick={() => run('temporal_distance', { source: id1, target: id2 })}>中间隔几步</button>
+        <button type="button" className="btn" disabled={busy} onClick={() => run('temporal_patterns', { pattern_type: 'sequence' })}>有没有成串</button>
+      </div>
+      {err && <div className="text-xs text-accent-red">{err}</div>}
+      {out && <div className="text-sm whitespace-pre-wrap break-all border border-line rounded p-2 bg-surface">{out}</div>}
+    </form>
+  )
+}
+
 function drawerTitle(id: DrawerId) {
   const labels: Record<DrawerId, string> = {
     entity: '加实体',
@@ -644,6 +789,7 @@ function drawerTitle(id: DrawerId) {
     export: '导出',
     registry: '词表登记',
     bridge: '工作区桥接',
+    temporal: '时序工具',
   }
   return labels[id]
 }
@@ -681,6 +827,7 @@ function EntityForm({ cwd, onDone }: { cwd: string; onDone: () => void }) {
 }
 
 function DecisionForm({ cwd, onDone }: { cwd: string; onDone: () => void }) {
+  const sessionId = useApp((state) => state.activeAiSessionId)
   const [form, setForm] = useState({ category: '', scenario: '', reasoning: '', outcome: '', confidence: '0.8', title: '' })
   const [brief, setBrief] = useState<PackedDecisionBrief>({ faces: [], options: [], because: [] })
   const [picked, setPicked] = useState<string[]>([])
@@ -698,17 +845,13 @@ function DecisionForm({ cwd, onDone }: { cwd: string; onDone: () => void }) {
     }, cwd).then((data) => {
       const packed = packDecisionBrief(data)
       setBrief(packed)
-      setPicked(packed.because)
+      setPicked([])
     }).catch((cause) => setErr(cause instanceof Error ? cause.message : '依据没装上')).finally(() => setBusy(false))
   }
   const because = citableBecause(brief.faces, picked)
   const submit = (event: FormEvent) => {
     event.preventDefault()
     setErr('')
-    if (!because.length) {
-      setErr('图里没有可引用的依据')
-      return
-    }
     setBusy(true)
     void runtimeApi.semanticPython('record_decision', {
       category: form.category,
@@ -717,17 +860,18 @@ function DecisionForm({ cwd, onDone }: { cwd: string; onDone: () => void }) {
       outcome: form.outcome,
       confidence: Number(form.confidence),
       title: form.title,
-      because,
+      ...(because.length ? { because } : {}),
+      ...(sessionId ? { session_id: sessionId } : {}),
     }, cwd).then(onDone).catch((cause) => setErr(cause instanceof Error ? cause.message : '没记下')).finally(() => setBusy(false))
   }
   return (
     <form onSubmit={submit}>
-      <Field label="类别"><input className="input w-full" value={form.category} onChange={set('category')} required /></Field>
-      <Field label="情境"><textarea className="input w-full min-h-20" value={form.scenario} onChange={set('scenario')} onBlur={loadBrief} required /></Field>
-      <Field label="理由"><textarea className="input w-full min-h-20" value={form.reasoning} onChange={set('reasoning')} required /></Field>
-      <Field label="结果"><input className="input w-full" value={form.outcome} onChange={set('outcome')} required /></Field>
-      <Field label="把握"><input className="input w-full" value={form.confidence} onChange={set('confidence')} /></Field>
-      <Field label="标题"><input className="input w-full" value={form.title} onChange={set('title')} /></Field>
+      <Field label="类别"><input className="input w-full" value={form.category} onChange={set('category')} placeholder="例如 验收、发版、人事" required /></Field>
+      <Field label="情境"><textarea className="input w-full min-h-20" value={form.scenario} onChange={set('scenario')} onBlur={loadBrief} placeholder="例如：这次验收要不要只发验收包？" required /></Field>
+      <Field label="理由"><textarea className="input w-full min-h-20" value={form.reasoning} onChange={set('reasoning')} placeholder="例如：先在本机跑通，再决定是否全量" required /></Field>
+      <Field label="结果"><input className="input w-full" value={form.outcome} onChange={set('outcome')} placeholder="例如：只发验收包" required /></Field>
+      <Field label="把握"><input className="input w-full" value={form.confidence} onChange={set('confidence')} placeholder="0 到 1，例如 0.8" /></Field>
+      <Field label="标题"><input className="input w-full" value={form.title} onChange={set('title')} placeholder="可选，例如 验收发包" /></Field>
       <div className="mb-3">
         <div className="text-xs font-medium mb-1">依据</div>
         <button type="button" className="btn h-7 px-2 mb-2" disabled={busy || !form.scenario.trim()} onClick={loadBrief}>看依据</button>
@@ -739,7 +883,8 @@ function DecisionForm({ cwd, onDone }: { cwd: string; onDone: () => void }) {
             onClick={() => setForm({ ...form, outcome: option.label })}
           >{option.label}</button>
         ))}
-        {brief.faces.length === 0 && <div className="text-xs text-ink-muted">图里没有可引用的依据</div>}
+        {brief.faces.length === 0 && <div className="text-xs text-ink-muted">没有可引用的依据也可以记下</div>}
+        {brief.faces.length > 0 && <div className="text-xs text-ink-muted mb-1">默认不勾，需要的再勾</div>}
         {brief.faces.map((face) => (
           <label key={face.id} className="block text-xs text-ink-muted py-1">
             {face.citable ? (
@@ -757,7 +902,7 @@ function DecisionForm({ cwd, onDone }: { cwd: string; onDone: () => void }) {
         ))}
       </div>
       {err && <div className="text-xs text-accent-red mb-2">{err}</div>}
-      <button type="submit" className="btn-primary" disabled={busy || !because.length}>记下</button>
+      <button type="submit" className="btn-primary" disabled={busy}>记下</button>
     </form>
   )
 }

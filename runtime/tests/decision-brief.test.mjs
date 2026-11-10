@@ -30,8 +30,10 @@ test('brief bag cites because ids and keeps drafts display-only', () => {
 test('decision form does not use scenario text as because', async () => {
   const src = await readFile(resolve(srcRoot, '../pages/Memory.tsx'), 'utf8')
   assert.match(src, /citableBecause/)
-  assert.match(src, /if \(!because\.length\)/)
+  assert.match(src, /\.\.\.\(because\.length \? \{ because \} : \{\}\)/)
   assert.equal(src.includes('form.scenario.trim().slice'), false)
   assert.equal(/because:\s*form\.scenario/.test(src), false)
   assert.equal(src.includes('依据 id'), false)
+  assert.equal(src.includes('setPicked(packed.because)'), false)
+  assert.match(src, /setPicked\(\[\]\)/)
 })

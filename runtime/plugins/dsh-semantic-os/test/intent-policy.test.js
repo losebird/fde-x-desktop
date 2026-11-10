@@ -30,7 +30,7 @@ print(json.dumps({
   assert.equal(got.source.intent, '出处')
   assert.equal(got.source.tool, 'lineage')
   assert.equal(got.board.intent, '拍板')
-  assert.equal(got.board.tool, 'brief_for_decision')
+  assert.equal(got.board.tool, 'find_precedents')
   assert.equal(got.cards.intent, '查询')
   assert.equal(got.cards.tool, 'list_memory_cards')
 })

@@ -21,6 +21,7 @@ SUBJ_META = "urn:fdex:meta"
 NODE_PREFIX = "urn:fdex:n:"
 EDGE_PREFIX = "urn:fdex:e:"
 ARCHIVE_ID_PREFIXES = ("session:", "file:", "mail:")
+VERSION_MARK = "#v"
 ARCHIVE_TYPES = frozenset({"Document", "document"})
 DECISION_TYPES = frozenset({"decision", "Decision"})
 BUSY_DETAIL = "另一个 fdex 正在用这个工作区的图库，稍后再试"
@@ -54,6 +55,49 @@ def is_archive_node(nid: str, ntype: str = "") -> bool:
 
 def is_decision_node(nid: str, ntype: str = "") -> bool:
     return str(ntype or "").lower() == "decision" or str(nid or "").startswith("decision:")
+
+
+def is_version_id(nid: str) -> bool:
+    return VERSION_MARK in str(nid or "")
+
+
+def live_id_of(nid: str) -> str:
+    raw = str(nid or "")
+    cut = raw.find(VERSION_MARK)
+    return raw[:cut] if cut > 0 else raw
+
+
+def version_id_of(nid: str, recorded: Any) -> str:
+    stamp = str(recorded or "").replace(":", "").replace("+", "").replace(" ", "")
+    return f"{live_id_of(nid)}{VERSION_MARK}{stamp or time.time_ns()}"
+
+
+def looks_like_decision(data: dict[str, Any] | None) -> bool:
+    """True for typed decision nodes and rows that still carry board fields."""
+    if not isinstance(data, dict):
+        return False
+    nid = str(data.get("id") or "")
+    ntype = str(data.get("type") or data.get("node_type") or "")
+    if is_decision_node(nid, ntype):
+        return True
+    props = data.get("properties") if isinstance(data.get("properties"), dict) else {}
+    status = str(data.get("status") or props.get("status") or props.get("board_status") or "")
+    scenario = str(data.get("scenario") or props.get("scenario") or "")
+    return bool(scenario) and status in {"起草", "已生效", "作废", "已冲正"}
+
+
+def is_stub_entity(data: dict[str, Any] | None) -> bool:
+    """add_edge mints these when a slimmed workbench is missing an endpoint."""
+    if not isinstance(data, dict):
+        return False
+    ntype = str(data.get("type") or data.get("node_type") or "").lower()
+    if ntype not in {"entity", "unknown", ""}:
+        return False
+    if looks_like_decision(data):
+        return False
+    nid = str(data.get("id") or "")
+    content = str(data.get("content") or "")
+    return (not content) or content == nid
 
 
 def node_subject(nid: str) -> str:
@@ -179,9 +223,30 @@ def read_all(cwd: str) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]
                 edges.append(data)
                 continue
             nid = str(data.get("id") or node_id_of(subj))
+            if is_version_id(nid):
+                continue
             nodes[nid] = data
         elif subj.startswith(EDGE_PREFIX):
             edges.append(data)
+    return nodes, edges
+
+
+def read_all_versions(cwd: str) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Live nodes plus superseded #v copies for bitemporal time travel."""
+    store = open_store(cwd)
+    best = _best_by_subject(_payloads_for(store))
+    nodes: dict[str, dict[str, Any]] = {}
+    edges: list[dict[str, Any]] = []
+    for subj, packed in best.items():
+        data = packed.get("data")
+        if not isinstance(data, dict):
+            continue
+        if subj.startswith(EDGE_PREFIX):
+            edges.append(data)
+            continue
+        if subj.startswith(NODE_PREFIX) or data.get("id"):
+            nid = str(data.get("id") or node_id_of(subj))
+            nodes[nid] = data
     return nodes, edges
 
 
@@ -201,7 +266,7 @@ def row_of(data: dict[str, Any]) -> dict[str, Any]:
     props = data.get("properties") if isinstance(data.get("properties"), dict) else {}
     content = str(data.get("content") or props.get("content") or nid)
     out_props = dict(props)
-    for key in ("valid_from", "valid_until", "timestamp", "event_time"):
+    for key in ("valid_from", "valid_until", "recorded_at", "superseded_at", "timestamp", "event_time"):
         if data.get(key) is not None and key not in out_props:
             out_props[key] = data.get(key)
     return {"id": nid, "type": ntype, "content": content, "properties": out_props}
@@ -240,11 +305,55 @@ def apply(cwd: str, puts: list[tuple[str, dict[str, Any]]], dels: list[str]) -> 
     return {"ok": True, "via": "oxigraph", "rev": rev, "wrote": len(puts), "deleted": len(dels)}
 
 
+def _prop(row: dict[str, Any], key: str) -> Any:
+    props = row.get("properties") if isinstance(row.get("properties"), dict) else {}
+    return row.get(key) if row.get(key) is not None else props.get(key)
+
+
+def _materially_changed(stored: dict[str, Any], incoming: dict[str, Any]) -> bool:
+    keys = ("content", "type", "valid_from", "valid_until", "scenario", "outcome", "status")
+    for key in keys:
+        old = _prop(stored, key)
+        new = _prop(incoming, key)
+        if new is None:
+            continue
+        if str(old or "") != str(new or ""):
+            return True
+    return False
+
+
 def put_node(cwd: str, data: dict[str, Any]) -> dict[str, Any]:
     nid = str(data.get("id") or "")
     if not nid:
         return {"error": "NO_PATH"}
-    apply(cwd, [(node_subject(nid), data)], [])
+    payload = dict(data)
+    stored = read_one(cwd, nid)
+    extra: list[tuple[str, dict[str, Any]]] = []
+    if isinstance(stored, dict) and _materially_changed(stored, payload) and not is_stub_entity(payload):
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        archived = dict(stored)
+        archived["superseded_at"] = now_iso
+        if isinstance(archived.get("properties"), dict):
+            archived["properties"] = {**archived["properties"], "superseded_at": now_iso}
+        recorded = _prop(stored, "recorded_at") or now_iso
+        vid = version_id_of(nid, recorded)
+        archived["id"] = vid
+        archived["live_id"] = nid
+        extra.append((node_subject(vid), archived))
+        payload["recorded_at"] = now_iso
+        payload.pop("superseded_at", None)
+    elif isinstance(stored, dict):
+        for key in ("recorded_at", "valid_from"):
+            if payload.get(key) is None:
+                prev = _prop(stored, key)
+                if prev is not None:
+                    payload[key] = prev
+    try:
+        from temporal import stamp_bitemporal
+        payload = stamp_bitemporal(payload, keep_recorded=True)
+    except Exception:
+        pass
+    apply(cwd, extra + [(node_subject(nid), payload)], [])
     return {"ok": True, "id": nid, "via": "oxigraph"}
 
 
@@ -355,7 +464,7 @@ def write_graph(graph: Any, cwd: str, replace: bool = False, base: dict[str, str
         if not src or not tgt:
             continue
         data = {"source": src, "target": tgt, "type": et}
-        for key in ("weight", "metadata", "properties", "valid_from", "valid_until", "id"):
+        for key in ("weight", "metadata", "properties", "valid_from", "valid_until", "recorded_at", "superseded_at", "id"):
             if edge.get(key) is not None:
                 data[key] = edge.get(key)
         current[edge_subject(src, tgt, et)] = data
@@ -364,13 +473,24 @@ def write_graph(graph: Any, cwd: str, replace: bool = False, base: dict[str, str
             pass
     stored_nodes, stored_edges = read_all(cwd)
     for nid, node in stored_nodes.items():
-        if is_decision_node(nid, str(node.get("type") or "")):
+        if is_decision_node(nid, str(node.get("type") or "")) or looks_like_decision(node):
             decision_ids.add(nid)
     puts: list[tuple[str, dict[str, Any]]] = []
     for subj, data in current.items():
         digest = hashlib.sha256(_dumps(data).encode("utf-8")).hexdigest()
         if base is not None and base.get(subj) == digest:
             continue
+        if subj.startswith(NODE_PREFIX):
+            stored = stored_nodes.get(node_id_of(subj))
+            if isinstance(stored, dict) and looks_like_decision(stored) and is_stub_entity(data):
+                continue
+            if isinstance(stored, dict) and stored.get("recorded_at") and not data.get("recorded_at"):
+                data["recorded_at"] = stored.get("recorded_at")
+            try:
+                from temporal import stamp_bitemporal
+                data = stamp_bitemporal(data)
+            except Exception:
+                pass
         puts.append((subj, data))
     dels: list[str] = []
     if replace:

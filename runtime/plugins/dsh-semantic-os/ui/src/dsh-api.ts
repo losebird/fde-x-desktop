@@ -1,4 +1,4 @@
-import { rewriteApiNode, searchNodes, shouldHideOnCanvas } from "./dsh-graph-label";
+import { rewriteApiNode, searchNodes, shouldHideOnCanvas, visibleActiveIds } from "./dsh-graph-label";
 import { clearWorkspaceCwd, setWorkspaceCwd, workspaceCwd } from "./dsh-workspace";
 
 const API_PREFIX = "/semantic-os/api/";
@@ -129,6 +129,11 @@ function graphNonempty(payload: unknown): boolean {
   return false;
 }
 
+function withCwdQuery(path: string, cwd: string): string {
+  if (!cwd || /[?&]cwd=/.test(path)) return path
+  return `${path}${path.includes("?") ? "&" : "?"}cwd=${encodeURIComponent(cwd)}`
+}
+
 async function interceptImport(
   orig: typeof fetch,
   cwd: string,
@@ -149,9 +154,7 @@ async function interceptImport(
   const text = await file.text();
   let nonempty = false;
   try {
-    const listed = await orig(`/semantic-os/nodes?cwd=${encodeURIComponent(cwd)}`, {
-      headers: { "x-dsh-cwd": cwd },
-    });
+    const listed = await orig(withCwdQuery(`/semantic-os/nodes`, cwd));
     const payload = await listed.json().catch(() => null);
     nonempty = graphNonempty(payload);
   } catch {
@@ -332,9 +335,7 @@ async function interceptGraphSearch(
   } catch {
     /* keep */
   }
-  const listed = await orig(`/semantic-os/api/graph/nodes?limit=1000`, {
-    headers: { "x-dsh-cwd": cwd },
-  });
+  const listed = await orig(withCwdQuery(`/semantic-os/api/graph/nodes?limit=1000`, cwd));
   const payload = await listed.json().catch(() => null);
   const nodes = payload && typeof payload === "object" && Array.isArray((payload as { nodes?: unknown[] }).nodes)
     ? (payload as { nodes: Array<{ id?: unknown; type?: unknown; content?: unknown; properties?: Record<string, unknown> }> }).nodes
@@ -345,9 +346,7 @@ async function interceptGraphSearch(
 
 
 async function interceptTemporalBounds(orig: typeof fetch, cwd: string): Promise<Response> {
-  const res = await orig(`/semantic-os/api/temporal/bounds`, {
-    headers: { "x-dsh-cwd": cwd },
-  });
+  const res = await orig(withCwdQuery(`/semantic-os/api/temporal/bounds`, cwd));
   if (!res.ok) {
     return jsonResponse(200, { min: null, max: null, count: 0, empty: true });
   }
@@ -367,17 +366,12 @@ async function interceptTemporalSnapshot(
   if (!data || typeof data !== "object") return jsonResponse(res.status, data);
   const row = data as { active_node_ids?: unknown; active_node_count?: number };
   const ids = Array.isArray(row.active_node_ids) ? row.active_node_ids.map((id) => String(id)) : [];
-  const listed = await orig(`/semantic-os/api/graph/nodes?limit=1000`, {
-    headers: { "x-dsh-cwd": cwd },
-  });
+  const listed = await orig(withCwdQuery(`/semantic-os/api/graph/nodes?limit=1000`, cwd));
   const payload = await listed.json().catch(() => null);
   const nodes = payload && typeof payload === "object" && Array.isArray((payload as { nodes?: unknown[] }).nodes)
     ? (payload as { nodes: Array<{ id?: unknown; type?: unknown; content?: unknown; properties?: Record<string, unknown> }> }).nodes
     : [];
-  const hidden = new Set(
-    nodes.filter((node) => shouldHideOnCanvas(node)).map((node) => String(node.id || "")).filter(Boolean),
-  );
-  const visibleIds = ids.filter((id) => !hidden.has(id));
+  const visibleIds = visibleActiveIds(ids, nodes);
   return jsonResponse(res.status, {
     ...row,
     active_node_ids: visibleIds,

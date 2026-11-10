@@ -9,7 +9,8 @@ import { postPython } from './ingest.js'
 
 const PLUGIN_TOOLS = new Set([
   'extract_entities', 'extract_relations', 'record_decision', 'query_decisions',
-  'find_precedents', 'get_causal_chain', 'add_entity', 'add_relationship',
+  'find_precedents', 'get_causal_chain', 'analyze_decision_impact', 'check_decision_rules', 'add_entity', 'add_relationship',
+  'update_node', 'delete_node',
   'run_reasoning', 'get_graph_analytics', 'export_graph', 'get_graph_summary',
   'search_text', 'lineage', 'brief_for_decision', 'query_graph', 'route_intent',
   'export_ledger', 'backup_graph', 'restore_graph', 'erase_ledger',
@@ -27,6 +28,7 @@ export function registerGate(ctx, opts) {
   let chain = Promise.resolve()
   const writeTools = new Set([
     'extract_entities', 'extract_relations', 'record_decision', 'add_entity', 'add_relationship',
+    'update_node', 'delete_node',
     'upsert_workspace_vocab', 'nod_memory_card', 'nod_memory_edge', 'retire_memory_card',
     'source_memory_card', 'renew_memory_card', 'mute_health_kind',
     'draft_memory_card', 'erase_ledger', 'restore_graph',
@@ -60,16 +62,6 @@ async function decide(exec, next, sidecar, getConfig, opts) {
   if (isDecisionsRestWrite(name, args)) {
     return deny('gate.hard.refuseDecisionsWrite', name, opts, exec)
   }
-  if (name === 'record_decision' && !hasDecisionEvidence(args)) {
-    return deny('gate.hard.decisionNeedsBrief', name, opts, exec)
-  }
-  if (name === 'record_decision' && wantsLiveBoard(args) && nodKind(args) !== '业务过账') {
-    return deny('gate.hard.nodNotPosting', name, opts, exec)
-  }
-  if (name === 'record_decision' && wantsLiveBoard(args) && !hasLiveBoard(args)) {
-    return deny(liveBoardDenyReason(args), name, opts, exec)
-  }
-
   if (name === 'export_graph' || name === 'backup_graph' || name === 'restore_graph') {
     const dest = String(args.path || args.dest || args.output || '')
     if (dest && !insideCwd(cwd, dest)) {

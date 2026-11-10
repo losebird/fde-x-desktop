@@ -1281,11 +1281,22 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, hostAc
     }));
   }, []);
 
-  const { data: summary, isLoading, isFetching } = useLoadGraph({
+  const { data: summary, isLoading, isFetching, isError, error } = useLoadGraph({
     enabled: true,
     onGraphReady: applyGraphReadySummary,
     onProgress: handleLoadProgress,
   });
+
+  useEffect(() => {
+    if (!isError) return
+    const message = error instanceof Error ? error.message : "图没拉开"
+    setLoadingProgress(createGraphLoadProgress({
+      phase: "bootstrapping",
+      title: "图没拉开",
+      message,
+      progressKind: "indeterminate",
+    }))
+  }, [isError, error]);
 
   useEffect(() => {
     if (isLayoutRunning) {
@@ -1353,7 +1364,11 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, hostAc
             }
           });
           prevActiveIdsRef.current = nextActiveIds;
-          setActiveNodeCount(data.active_node_count);
+          let visible = 0;
+          graph.forEachNode((_id, attrs) => {
+            if (!attrs.hidden) visible += 1;
+          });
+          setActiveNodeCount(visible);
           setGraphVersion((current) => current + 1);
           sceneRef.current?.getRuntime()?.requestRender();
         });
@@ -1964,7 +1979,7 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, hostAc
     viewMode,
   ]);
 
-  const showLoadingOverlay = !graphReady && (isLoading || isFetching || Boolean(loadingProgress));
+  const showLoadingOverlay = !graphReady && (isLoading || isFetching || isError || Boolean(loadingProgress));
   const showSettlingStatus = graphReady && loadingProgress?.phase === "stabilizing_layout";
   const hasGraphContent = Boolean(summary?.nodeCount);
   const activePath = pathResult?.path ?? EMPTY_PATH;

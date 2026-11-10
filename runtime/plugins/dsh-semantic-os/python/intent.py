@@ -156,7 +156,7 @@ def route_intent(text: Any) -> dict[str, str]:
     if _speech_has_role(raw, "定了") and not _speech_has_role(raw, "拍板"):
         return {"intent": "查询", "tool": "search_text"}
     if _speech_has_role(raw, "拍板"):
-        return {"intent": "拍板", "tool": "brief_for_decision"}
+        return {"intent": "拍板", "tool": "find_precedents"}
     if _speech_has_role(raw, "记忆卡"):
         return {"intent": "查询", "tool": "list_memory_cards"}
     if _speech_holds_workstation_write(raw):

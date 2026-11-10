@@ -320,6 +320,23 @@ interface EdgeListResponse {
 
 const PAGE_LIMIT = 1000;
 
+async function graphLoadError(response: Response): Promise<Error> {
+  let code = "";
+  try {
+    const body = await response.clone().json() as { error?: string };
+    code = String(body?.error || "");
+  } catch {
+    /* keep status */
+  }
+  if (code === "GRAPH_BUSY" || response.status === 503) {
+    return new Error("图库正被占用，先关掉 5174 / 另一窗口再开");
+  }
+  if (code === "NO_CWD" || response.status === 400) {
+    return new Error("工作区路径还没带上，稍后再开探索");
+  }
+  return new Error(`Fetch failed: ${response.status}`);
+}
+
 async function fetchAllNodes(
   signal: AbortSignal,
   onProgress?: (progress: GraphLoadProgress) => void,
@@ -337,7 +354,7 @@ async function fetchAllNodes(
 
     const response = await fetch(url.toString(), { signal });
     if (!response.ok) {
-      throw new Error(`Fetch failed: ${response.status}`);
+      throw await graphLoadError(response);
     }
 
     const data: NodeListResponse = await response.json();
@@ -392,7 +409,7 @@ async function fetchAllEdges(
 
     const response = await fetch(url.toString(), { signal });
     if (!response.ok) {
-      throw new Error(`Fetch failed: ${response.status}`);
+      throw await graphLoadError(response);
     }
 
     const data: EdgeListResponse = await response.json();
@@ -464,7 +481,8 @@ export function useLoadGraph(options: UseLoadGraphOptions = {}) {
     queryKey: ["graph", "full-load", workspaceCwd()],
     enabled,
     staleTime: Infinity,
-    retry: 0,
+    retry: 4,
+    retryDelay: (count) => 700 * (count + 1),
     queryFn: async ({ signal }): Promise<GraphLoadSummary> => {
       const startedAt = performance.now();
       onProgress?.(createGraphLoadProgress({

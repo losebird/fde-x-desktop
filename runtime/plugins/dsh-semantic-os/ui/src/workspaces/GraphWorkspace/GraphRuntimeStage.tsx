@@ -360,7 +360,11 @@ export const GraphRuntimeStage = forwardRef<GraphStageHandle, GraphRuntimeStageP
             });
 
             prevActiveIdsRef.current = nextActiveIds;
-            onActiveNodeCountChange(data.active_node_count);
+            let visible = 0;
+            graph.forEachNode((_id, attrs) => {
+              if (!attrs.hidden) visible += 1;
+            });
+            onActiveNodeCountChange(visible);
             sceneRef.current?.getRuntime()?.requestRender();
           });
         } catch (error) {

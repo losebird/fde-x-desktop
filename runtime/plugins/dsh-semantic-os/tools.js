@@ -28,7 +28,7 @@ const TOOLS = [
   },
   {
     name: 'record_decision',
-    description: 'Record a board decision after the user has chosen. Assist in chat first; call this only when they confirm. Omit status to stay 起草. status=已生效 needs because, leads_to, and receipt_id. Auto extract cannot become 已生效. tenant_cwd must match this workspace.',
+    description: 'Record a Semantica board after the user has chosen. Assist in chat first; call this only when they confirm. Omit status to record as 已生效. because / leads_to / receipt_id are optional causal fields. Auto extract stays 起草. tenant_cwd must match this workspace. Workspace decision rules block this write with RULE_CONFLICT; they do not block talking.',
     parameters: {
       category: { type: 'string', required: true, description: 'Decision category, e.g. loan_approval' },
       scenario: { type: 'string', required: true, description: 'Natural-language situation description' },
@@ -36,12 +36,12 @@ const TOOLS = [
       outcome: { type: 'string', required: true, description: 'Decision outcome, e.g. approved' },
       confidence: { type: 'number', required: true, description: 'Confidence score 0-1' },
       decision_maker: { type: 'string', description: 'Who or what made the decision' },
-      because: { type: 'array', items: { type: 'string' }, description: 'Evidence / premise node ids. Each gets a supports edge into this decision.' },
+      because: { type: 'array', items: { type: 'string' }, description: 'Optional evidence / premise node ids. Each gets a supports edge into this decision.' },
       leads_to: { type: 'array', items: { type: 'string' }, description: 'Consequence node ids. This decision gets a leads_to edge into each.' },
-      status: { type: 'string', description: '起草 / 已生效 / 已冲正 / 作废. Default 起草. 已生效 needs because, leads_to, receipt_id, and nod_kind=业务过账.' },
-      receipt_id: { type: 'string', description: 'Business receipt id. Required for 已生效.' },
+      status: { type: 'string', description: '起草 / 已生效 / 已冲正 / 作废. Default 已生效 (Semantica: recorded is live). Auto extract stays 起草.' },
+      receipt_id: { type: 'string', description: 'Optional business receipt id.' },
       tenant_cwd: { type: 'string', description: 'Workspace this envelope belongs to. Must match the session cwd.' },
-      nod_kind: { type: 'string', description: '会签同意 / 本机工具 / 业务过账. Only 业务过账 can be 已生效.' },
+      nod_kind: { type: 'string', description: '会签同意 / 本机工具 / 业务过账. Optional. Any of these can record 已生效.' },
       trace_id: { type: 'string', description: 'Envelope / followup / receipt line. Same id cannot record 已生效 twice.' },
       system: { type: 'string', description: 'Business system for a 业务引用, e.g. 采购.' },
       environment: { type: 'string', description: '测试 or 生产. Same ticket in two environments is two references.' },
@@ -131,7 +131,7 @@ const TOOLS = [
   },
   {
     name: 'query_decisions',
-    description: 'Query recorded decisions by natural language, category, or list recent decisions. Returns 已生效 plus human 起草. Auto extract is hidden. Hits stay 当时.',
+    description: 'Query recorded decisions by natural language, category, or list recent decisions. Returns 已生效 plus human 起草. Auto extract is hidden. Hits stay 当时. Empty graph returns [].',
     parameters: {
       query: { type: 'string', description: 'Natural language query' },
       category: { type: 'string', description: 'Filter by category' },
@@ -140,7 +140,7 @@ const TOOLS = [
   },
   {
     name: 'find_precedents',
-    description: 'Find past decisions similar to a given scenario using find_similar_decisions. Only returns 已生效.',
+    description: 'Find past recorded decisions similar to a scenario. Call this before 拍板 or brief_for_decision. Auto 起草 / 作废 / 已冲正 are omitted. Empty graph returns [].',
     parameters: {
       scenario: { type: 'string', required: true, description: 'Scenario description to find precedents for' },
       max_results: { type: 'integer', description: 'Max results (default 5)' },
@@ -148,11 +148,32 @@ const TOOLS = [
   },
   {
     name: 'get_causal_chain',
-    description: 'Walk only supports/causes/leads_to edges from a recorded decision. upstream = evidence that supports it; downstream = what it leads to. Not session neighbors.',
+    description: 'Walk causal edges (supports/CAUSED/PRECEDENT_FOR/leads_to) from a recorded decision. upstream = evidence that supports it; downstream = what it leads to. Empty graph or unknown id returns [].',
     parameters: {
       decision_id: { type: 'string', required: true, description: 'Decision ID to trace' },
       direction: { type: 'string', description: 'upstream or downstream' },
       max_depth: { type: 'integer', description: 'Max chain depth (default 5)' },
+    },
+  },
+  {
+    name: 'analyze_decision_impact',
+    description: 'Analyse downstream impact of a recorded decision. Default lists boards this one CAUSED. include_indirect=true adds official analyze_decision_influence scores. Empty graph or unknown id returns [].',
+    parameters: {
+      decision_id: { type: 'string', required: true, description: 'Decision ID to analyse' },
+      max_depth: { type: 'integer', description: 'Max influence depth (default 3)' },
+      include_indirect: { type: 'boolean', description: 'Add official influence scores (may load embeddings). Default false.' },
+    },
+  },
+  {
+    name: 'check_decision_rules',
+    description: 'Check a proposed board against workspace decision rules (official check_decision_rules / policy). Empty rules allow. Conflicts only block record_decision, not talking. Read-only.',
+    parameters: {
+      category: { type: 'string', description: 'Decision category' },
+      scenario: { type: 'string', description: 'Situation' },
+      reasoning: { type: 'string', description: 'Why' },
+      outcome: { type: 'string', description: 'Proposed outcome' },
+      confidence: { type: 'number', description: 'Confidence 0-1' },
+      decision_maker: { type: 'string', description: 'Who would record it' },
     },
   },
   {
@@ -173,6 +194,21 @@ const TOOLS = [
       source: { type: 'string', required: true, description: 'Source node ID' },
       target: { type: 'string', required: true, description: 'Target node ID' },
       type: { type: 'string', description: 'Relationship type' },
+    },
+  },
+  {
+    name: 'update_node',
+    description: 'Update properties of an existing node (e.g. mark an action todo/doing/done with a note) and persist. Requires node_id and a non-empty properties object.',
+    parameters: {
+      node_id: { type: 'string', required: true, description: 'Node id to update' },
+      properties: { type: 'object', required: true, description: 'Property key-values to merge onto the node' },
+    },
+  },
+  {
+    name: 'delete_node',
+    description: 'Archive a node (soft delete: marks status=archived, keeps it for history). Use to retire an action you no longer track.',
+    parameters: {
+      node_id: { type: 'string', required: true, description: 'Node id to archive' },
     },
   },
   {
@@ -232,15 +268,59 @@ const TOOLS = [
   },
   {
     name: 'export_graph',
-    description: 'Export the current knowledge graph. REST-aligned formats are json and csv; other formats use sidecar Python exporters. For audit use export_ledger.',
+    description: 'Export the current knowledge graph. REST-aligned formats are json and csv; other formats use sidecar Python exporters. Pass id/decision_id with format=turtle for one board\'s W3C PROV-O (依据 + 因果). For the whole ledger use export_ledger.',
     parameters: {
       format: { type: 'string', description: 'json, csv, turtle, ttl, nt, xml, json-ld' },
+      id: { type: 'string', description: 'Optional node/decision id. With turtle, export that board\'s PROV only.' },
+      decision_id: { type: 'string', description: 'Same as id for a recorded board' },
     },
   },
   {
     name: 'get_graph_summary',
     description: 'Return a high-level summary of the current knowledge graph: node count, decision count, status.',
     parameters: {},
+  },
+  {
+    name: 'temporal_snapshot',
+    description: 'Time travel: list graph node ids valid at a moment (valid_from/valid_until). Optional recorded_as_of is the ledger write-time axis (bitemporal). Undated nodes stay visible. Memory 02 slider uses this.',
+    parameters: {
+      at: { type: 'string', required: true, description: 'ISO datetime or YYYY-MM-DD for valid time' },
+      recorded_as_of: { type: 'string', description: 'Optional ISO datetime: how the ledger looked when recorded' },
+    },
+  },
+  {
+    name: 'temporal_diff',
+    description: 'Compare which nodes are valid at from_time vs to_time. Returns added_nodes and removed_nodes.',
+    parameters: {
+      from_time: { type: 'string', required: true, description: 'ISO datetime or YYYY-MM-DD' },
+      to_time: { type: 'string', required: true, description: 'ISO datetime or YYYY-MM-DD' },
+    },
+  },
+  {
+    name: 'temporal_allen',
+    description: 'Allen interval algebra (before/meets/overlaps/during/equals/…). Pass interval1/interval2 as start/end, or two node ids to use their valid intervals. Deterministic Semantica engine, no LLM.',
+    parameters: {
+      interval1: { type: 'string', description: 'e.g. 2020-01-01/2021-06-01 or 2020-01-01/OPEN' },
+      interval2: { type: 'string', description: 'Second interval, same shape' },
+      id1: { type: 'string', description: 'Optional node id instead of interval1' },
+      id2: { type: 'string', description: 'Optional node id instead of interval2' },
+    },
+  },
+  {
+    name: 'temporal_patterns',
+    description: 'Semantica TemporalPatternDetector: sequence or cycle patterns on dated edges.',
+    parameters: {
+      pattern_type: { type: 'string', description: 'sequence (default) or cycle' },
+    },
+  },
+  {
+    name: 'temporal_distance',
+    description: 'Hop distance between two nodes sampled across valid-time snapshots (Semantica distance-history).',
+    parameters: {
+      source: { type: 'string', required: true, description: 'Source node id' },
+      target: { type: 'string', required: true, description: 'Target node id' },
+      samples: { type: 'integer', description: 'Snapshots to sample, default 10' },
+    },
   },
   {
     name: 'query_graph',
@@ -255,7 +335,7 @@ const TOOLS = [
   },
   {
     name: 'route_intent',
-    description: 'Classify one utterance as 查询 / 出处 / 拍板 / 业务动作 / 现况 / 催待办 / 闲聊 and name the existing tool. Does not search. 查询 → search_text; 现况 → biz_preview (live connector); 待审记忆 / 记忆卡片 → list_memory_cards; 闲聊 returns an empty tool. Follow the returned tool when you call this. Do not search_text when the tool is biz_preview.',
+    description: 'Classify one utterance as 查询 / 出处 / 拍板 / 业务动作 / 现况 / 催待办 / 闲聊 and name the existing tool. Does not search. 查询 → search_text; 拍板 → find_precedents; 业务动作 → brief_for_decision; 现况 → biz_preview (live connector); 待审记忆 / 记忆卡片 → list_memory_cards; 闲聊 returns an empty tool. Follow the returned tool when you call this. Do not search_text when the tool is biz_preview.',
     parameters: {
       text: { type: 'string', required: true, description: 'The utterance to classify' },
     },
@@ -283,9 +363,10 @@ const TOOLS = [
   },
   {
     name: 'lineage',
-    description: 'Trace where a graph node came from (出自). Given a node id like a person name, returns the session: or file: source path and hops.',
+    description: 'Trace where a graph node came from (出自) and, for a recorded board, its 依据 and 因果 (supports/CAUSED/PRECEDENT_FOR). format=turtle returns W3C PROV-O on the existing lineage mouth. Empty graph returns empty hops.',
     parameters: {
-      id: { type: 'string', required: true, description: 'Node id (e.g. 张伟)' },
+      id: { type: 'string', required: true, description: 'Node id (e.g. 张伟 or a decision_id)' },
+      format: { type: 'string', description: 'Optional turtle/prov to include a PROV-O export' },
     },
   },
   {
@@ -353,7 +434,7 @@ const TOOLS = [
 const READ_TOOLS = new Set([
   'search_text', 'lineage', 'brief_for_decision',
   'query_graph', 'route_intent', 'list_memory_cards', 'open_node', 'query_decisions',
-  'find_precedents', 'get_causal_chain',
+  'find_precedents', 'get_causal_chain', 'analyze_decision_impact', 'check_decision_rules',
 ])
 
 export function runHostSearch(sidecar, args, exec, writes, corpus) {
@@ -513,7 +594,7 @@ async function callTool(sidecar, op, args, exec, writes, corpus) {
       signal: exec?.signal,
       timeoutMs: op === 'search_text' ? 8_000 : 2 * 60 * 1000,
     })
-    const mutating = ['extract_entities', 'extract_relations', 'record_decision', 'add_entity', 'add_relationship', 'upsert_workspace_vocab', 'nod_memory_card', 'nod_memory_edge', 'retire_memory_card', 'source_memory_card', 'renew_memory_card', 'mute_health_kind', 'draft_memory_card'].includes(op)
+    const mutating = ['extract_entities', 'extract_relations', 'record_decision', 'add_entity', 'add_relationship', 'update_node', 'delete_node', 'upsert_workspace_vocab', 'nod_memory_card', 'nod_memory_edge', 'retire_memory_card', 'source_memory_card', 'renew_memory_card', 'mute_health_kind', 'draft_memory_card'].includes(op)
     if (mutating && writes && cwd && !(body && typeof body === 'object' && body.error)) writes.mark(cwd, op)
     let packed = body
     if (op === 'search_text') packed = await foldCorpusSearch(body, nextArgs, cwd, corpus, sidecar)

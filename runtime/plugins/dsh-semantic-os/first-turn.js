@@ -22,7 +22,7 @@ export function routeIntent(text) {
   if (!raw) return { intent: '闲聊', tool: '' }
   if (hasRole(raw, '出处')) return { intent: '出处', tool: 'lineage' }
   if (hasRole(raw, '定了') && !hasRole(raw, '拍板')) return { intent: '查询', tool: 'search_text' }
-  if (hasRole(raw, '拍板')) return { intent: '拍板', tool: 'brief_for_decision' }
+  if (hasRole(raw, '拍板')) return { intent: '拍板', tool: 'find_precedents' }
   if (hasRole(raw, '记忆卡')) return { intent: '查询', tool: 'list_memory_cards' }
   if (speechHoldsWorkstationWrite(raw)) return { intent: '现况', tool: 'biz_preview' }
   if (speechHasConnectorLookup(raw, spokenSeed)) return { intent: '现况', tool: 'biz_preview' }

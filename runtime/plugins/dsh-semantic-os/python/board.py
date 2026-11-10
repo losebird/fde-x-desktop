@@ -114,31 +114,24 @@ def resolve_board(args: dict[str, Any] | None, cwd: str = "", existing: list[Any
     nod = nod_kind_of(args)
     if is_auto_extract(args):
         return {"status": "起草", **({"nod_kind": nod} if nod else {})}
-    if wanted == "已生效":
-        if nod != "业务过账":
-            return {"error": "NOD_NOT_POSTING"}
-        because = _id_list(args.get("because") or args.get("evidence") or args.get("supports"))
-        leads = _id_list(args.get("leads_to") or args.get("consequences") or args.get("causes"))
-        receipt = _receipt_id(args)
-        if not because:
-            return {"error": "NO_BECAUSE"}
-        if not leads:
-            return {"error": "NO_LEADS_TO"}
-        if not receipt:
-            return {"error": "NO_RECEIPT"}
-        trace = _trace_id(args)
+    if wanted in {"已冲正", "作废"}:
+        return {"status": wanted}
+    # Semantica: a human record_decision is a live board. 起草 only when asked, or auto extract.
+    status = wanted if wanted in {"起草", "已生效"} else "已生效"
+    packed: dict[str, Any] = {"status": status}
+    if nod:
+        packed["nod_kind"] = nod
+    receipt = _receipt_id(args)
+    if receipt:
+        packed["receipt_id"] = receipt
+    trace = _trace_id(args)
+    if trace:
+        packed["trace_id"] = trace
+    if status == "已生效":
         live = _existing_live_id(existing, trace, receipt)
         if live:
             return {"error": "DUPLICATE_LIVE", "decision_id": live}
-        packed = {"status": "已生效", "receipt_id": receipt}
-        if nod:
-            packed["nod_kind"] = nod
-        if trace:
-            packed["trace_id"] = trace
-        return packed
-    if wanted in {"起草", "已冲正", "作废"}:
-        return {"status": wanted}
-    return {"status": "起草"}
+    return packed
 
 
 def board_status_of(node: Any) -> str:
@@ -166,8 +159,9 @@ def board_status_of(node: Any) -> str:
 
 
 def is_precedent(node: Any) -> bool:
-    """Only 已生效 boards count as last-time-we-decided-this."""
-    return board_status_of(node) == "已生效"
+    """Recorded boards count as last-time-we-decided-this. Auto 起草 / 作废 / 已冲正 do not."""
+    status = board_status_of(node)
+    return status not in {"起草", "作废", "已冲正"}
 
 
 def apply_status(graph: Any, did: str, status: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -317,7 +311,7 @@ def memory_still_counts(node: Any, at: datetime | None = None) -> bool:
 
 
 def may_cite(node: Any) -> bool:
-    """A 起草 / 作废 / 已冲正 board is not 依据. Expired 记忆卡片 are not 依据.
+    """A 起草 / 作废 / 已冲正 board is not 依据. Recorded Semantica boards are. Expired 记忆卡片 are not 依据.
     New 记忆卡片 encode live (已入档) like Semantica AgentMemory.store.
     Vocab / OWL classes are names, not 依据."""
     if not isinstance(node, dict):

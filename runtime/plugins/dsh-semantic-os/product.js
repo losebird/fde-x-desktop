@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process'
 import { listBridges, createBridge, deleteBridge, BRIDGE_PROTOCOL, PLUGIN_VERSION } from './bridge.js'
 import { postPython } from './ingest.js'
 import { loadOverlay, mergeConfig, saveOverlay } from './persist.js'
-import { addAnnotation, listAnnotations } from './annotations.js'
+import { addAnnotation, deleteAnnotation, listAnnotations } from './annotations.js'
 import { listPeople, savePeople, listLeftIds } from './people.js'
 import { cleanGraphPayload } from './graph-label.js'
 import { ensureDeps, probeDeps } from './ensure-deps.js'
@@ -30,6 +30,11 @@ const PROBES = [
   ['graph', 'GET', '/api/graph/stats'],
   ['ontology', 'GET', '/api/ontology/registry'],
   ['temporal', 'GET', '/api/temporal/bounds'],
+  ['temporal', 'GET', '/api/temporal/snapshot'],
+  ['temporal', 'GET', '/api/temporal/diff'],
+  ['temporal', 'GET', '/api/temporal/allen'],
+  ['temporal', 'GET', '/api/temporal/patterns'],
+  ['temporal', 'GET', '/api/temporal/distance-history'],
   ['vocabulary', 'GET', '/api/vocabulary/schemes'],
   ['provenance', 'GET', '/api/provenance'],
   ['sparql', 'POST', '/api/sparql'],
@@ -135,8 +140,38 @@ export async function handleProduct(req, res, url, opts) {
   if (pathname === `${PREFIX}/api/graph/summary` && req.method === 'GET') {
     return serveGraphStats(req, res, url, sidecar, authorize)
   }
+  if (pathname === `${PREFIX}/api/analytics/validation` && req.method === 'GET') {
+    return serveAlignPython(req, res, url, sidecar, authorize, 'analytics_validation')
+  }
   if (pathname === `${PREFIX}/api/analytics` && req.method === 'GET') {
     return serveGraphStats(req, res, url, sidecar, authorize)
+  }
+  if (pathname === `${PREFIX}/api/annotations` && req.method === 'GET') {
+    return serveExplorerAnnotationsGet(req, res, url, authorize)
+  }
+  if (pathname === `${PREFIX}/api/annotations` && req.method === 'POST') {
+    return serveExplorerAnnotationsPost(req, res, url, authorize)
+  }
+  if (pathname.startsWith(`${PREFIX}/api/annotations/`) && req.method === 'DELETE') {
+    return serveExplorerAnnotationsDelete(req, res, url, pathname, authorize)
+  }
+  if (pathname === `${PREFIX}/api/memories` && req.method === 'GET') {
+    return serveAlignPython(req, res, url, sidecar, authorize, 'list_memories', {
+      skip: url.searchParams.get('skip') || url.searchParams.get('offset') || 0,
+      limit: url.searchParams.get('limit') || 100,
+    })
+  }
+  if (pathname === `${PREFIX}/api/graph/distance-matrix` && req.method === 'POST') {
+    return serveAlignPythonBody(req, res, url, sidecar, authorize, 'distance_matrix')
+  }
+  if (pathname === `${PREFIX}/api/decisions/causal-distance` && req.method === 'GET') {
+    return serveAlignPython(req, res, url, sidecar, authorize, 'causal_distance', {
+      source: url.searchParams.get('source') || '',
+      target: url.searchParams.get('target') || '',
+    })
+  }
+  if (pathname === `${PREFIX}/api/enrich/extract` && req.method === 'POST') {
+    return serveAlignPythonBody(req, res, url, sidecar, authorize, 'enrich_extract')
   }
   if (pathname.startsWith(`${PREFIX}/api/ontology/shacl`)) {
     return serveShaclSafe(req, res, url, sidecar, authorize)
@@ -189,12 +224,30 @@ export async function handleProduct(req, res, url, opts) {
   if (pathname.startsWith(`${PREFIX}/api/decisions/`) && pathname.endsWith('/precedents') && req.method === 'GET') {
     return serveDecisionPrecedents(req, res, url, pathname, sidecar, authorize)
   }
+  if (pathname.startsWith(`${PREFIX}/api/decisions/`) && pathname.endsWith('/impact') && req.method === 'GET') {
+    return serveDecisionImpact(req, res, url, pathname, sidecar, authorize)
+  }
+  if (pathname.startsWith(`${PREFIX}/api/decisions/`) && pathname.endsWith('/prov') && req.method === 'GET') {
+    return serveDecisionProv(req, res, url, pathname, sidecar, authorize)
+  }
 
   if (pathname === `${PREFIX}/api/temporal/bounds` && req.method === 'GET') {
     return serveTemporalBounds(req, res, url, sidecar, authorize)
   }
   if (pathname === `${PREFIX}/api/temporal/snapshot` && req.method === 'GET') {
     return serveTemporalSnapshot(req, res, url, sidecar, authorize)
+  }
+  if (pathname === `${PREFIX}/api/temporal/diff` && req.method === 'GET') {
+    return serveTemporalDiff(req, res, url, sidecar, authorize)
+  }
+  if (pathname === `${PREFIX}/api/temporal/allen` && req.method === 'GET') {
+    return serveTemporalAllen(req, res, url, sidecar, authorize)
+  }
+  if (pathname === `${PREFIX}/api/temporal/patterns` && req.method === 'GET') {
+    return serveTemporalPatterns(req, res, url, sidecar, authorize)
+  }
+  if ((pathname === `${PREFIX}/api/temporal/distance-history` || pathname === `${PREFIX}/api/temporal/distance`) && req.method === 'GET') {
+    return serveTemporalDistance(req, res, url, sidecar, authorize)
   }
   if (pathname === `${PREFIX}/api/enrich/dedup` && req.method === 'POST') {
     return serveEnrichDedup(req, res, sidecar, authorize)
@@ -658,6 +711,50 @@ async function serveDecisionPrecedents(req, res, url, pathname, sidecar, authori
   return json(res, 200, precedents)
 }
 
+async function serveDecisionImpact(req, res, url, pathname, sidecar, authorize) {
+  const cwd = header(req.headers, 'x-dsh-cwd') || url.searchParams.get('cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  const raw = pathname.slice(`${PREFIX}/api/decisions/`.length, pathname.length - '/impact'.length)
+  let decisionId = ''
+  try { decisionId = decodeURIComponent(raw) } catch { decisionId = raw }
+  if (!decisionId) return json(res, 400, { detail: 'decision_id is required' })
+  const result = await postPython(sidecar, {
+    op: 'analyze_decision_impact',
+    cwd,
+    args: { decision_id: decisionId },
+  }).catch(() => null)
+  const influenced = result && Array.isArray(result.influenced) ? result.influenced : []
+  const downstream = result && Array.isArray(result.downstream) ? result.downstream : []
+  return json(res, 200, {
+    decision_id: decisionId,
+    influenced,
+    downstream,
+    total_influenced: Number(result && result.total_influenced) || influenced.length,
+  })
+}
+
+async function serveDecisionProv(req, res, url, pathname, sidecar, authorize) {
+  const cwd = header(req.headers, 'x-dsh-cwd') || url.searchParams.get('cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  const raw = pathname.slice(`${PREFIX}/api/decisions/`.length, pathname.length - '/prov'.length)
+  let decisionId = ''
+  try { decisionId = decodeURIComponent(raw) } catch { decisionId = raw }
+  if (!decisionId) return json(res, 400, { detail: 'decision_id is required' })
+  const result = await postPython(sidecar, {
+    op: 'export_decision_prov',
+    cwd,
+    args: { decision_id: decisionId, format: 'turtle' },
+  }).catch(() => null)
+  return json(res, 200, {
+    decision_id: decisionId,
+    format: 'turtle',
+    prov: (result && result.prov) || '',
+    used: (result && Array.isArray(result.used)) ? result.used : [],
+    generated: (result && Array.isArray(result.generated)) ? result.generated : [],
+    hops: (result && Array.isArray(result.hops)) ? result.hops : [],
+  })
+}
+
 async function serveSkosSchemes(req, res, url, sidecar, authorize) {
   const cwd = header(req.headers, 'x-dsh-cwd') || url.searchParams.get('cwd') || ''
   if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
@@ -812,8 +909,72 @@ async function serveTemporalSnapshot(req, res, url, sidecar, authorize) {
   const cwd = header(req.headers, 'x-dsh-cwd') || url.searchParams.get('cwd') || ''
   if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
   const at = url.searchParams.get('at') || ''
-  const result = await postPython(sidecar, { op: 'temporal_snapshot', cwd, args: { at } }).catch(() => null)
+  const recordedAsOf = url.searchParams.get('recorded_as_of') || url.searchParams.get('as_of') || ''
+  const result = await postPython(sidecar, {
+    op: 'temporal_snapshot',
+    cwd,
+    args: { at, recorded_as_of: recordedAsOf },
+  }).catch(() => null)
   if (!result || result.error) return json(res, 200, { active_node_ids: [], active_node_count: 0, at })
+  return json(res, 200, result)
+}
+
+async function serveTemporalDiff(req, res, url, sidecar, authorize) {
+  const cwd = header(req.headers, 'x-dsh-cwd') || url.searchParams.get('cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  const fromTime = url.searchParams.get('from_time') || url.searchParams.get('from') || ''
+  const toTime = url.searchParams.get('to_time') || url.searchParams.get('to') || ''
+  const result = await postPython(sidecar, {
+    op: 'temporal_diff',
+    cwd,
+    args: { from_time: fromTime, to_time: toTime },
+  }).catch(() => null)
+  if (!result || result.error) return json(res, 200, { added_nodes: [], removed_nodes: [], from_time: fromTime, to_time: toTime })
+  return json(res, 200, result)
+}
+
+async function serveTemporalAllen(req, res, url, sidecar, authorize) {
+  const cwd = header(req.headers, 'x-dsh-cwd') || url.searchParams.get('cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  const result = await postPython(sidecar, {
+    op: 'temporal_allen',
+    cwd,
+    args: {
+      interval1: url.searchParams.get('interval1') || '',
+      interval2: url.searchParams.get('interval2') || '',
+      id1: url.searchParams.get('id1') || url.searchParams.get('source') || '',
+      id2: url.searchParams.get('id2') || url.searchParams.get('target') || '',
+    },
+  }).catch(() => null)
+  if (!result || result.error) return json(res, 200, { ok: false, relation: '', error: result && result.error ? result.error : 'ALLEN_FAILED' })
+  return json(res, 200, result)
+}
+
+async function serveTemporalPatterns(req, res, url, sidecar, authorize) {
+  const cwd = header(req.headers, 'x-dsh-cwd') || url.searchParams.get('cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  const result = await postPython(sidecar, {
+    op: 'temporal_patterns',
+    cwd,
+    args: { pattern_type: url.searchParams.get('pattern_type') || url.searchParams.get('type') || 'sequence' },
+  }).catch(() => null)
+  if (!result || result.error) return json(res, 200, { patterns: [], count: 0 })
+  return json(res, 200, result)
+}
+
+async function serveTemporalDistance(req, res, url, sidecar, authorize) {
+  const cwd = header(req.headers, 'x-dsh-cwd') || url.searchParams.get('cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  const result = await postPython(sidecar, {
+    op: 'temporal_distance',
+    cwd,
+    args: {
+      source: url.searchParams.get('source') || url.searchParams.get('id1') || '',
+      target: url.searchParams.get('target') || url.searchParams.get('id2') || '',
+      samples: url.searchParams.get('samples') || '10',
+    },
+  }).catch(() => null)
+  if (!result || result.error) return json(res, 200, { history: [], events: [], error: result && result.error ? result.error : 'DISTANCE_FAILED' })
   return json(res, 200, result)
 }
 
@@ -1025,14 +1186,18 @@ async function serveOwnedApi(req, res, url, pathname, sidecar, authorize) {
   }
   if ((rest === 'provenance' || rest.startsWith('provenance/')) && req.method === 'GET') {
     const id = url.searchParams.get('node_id') || url.searchParams.get('id') || ''
-    const result = await postPython(sidecar, { op: 'lineage', cwd, args: { id } }).catch(() => null)
+    const fmt = String(url.searchParams.get('format') || '').toLowerCase()
+    const op = (fmt === 'turtle' || fmt === 'ttl' || fmt === 'rdf' || fmt === 'prov')
+      ? 'export_decision_prov'
+      : 'lineage'
+    const result = await postPython(sidecar, { op, cwd, args: { id, format: fmt } }).catch(() => null)
     return json(res, 200, result || { ok: false, id, hops: [] })
   }
   if (rest === 'enrich/links' && (req.method === 'GET' || req.method === 'POST')) {
     return json(res, 200, { links: [], results: [], empty: true, detail: '没有标记对' })
   }
   if (rest === 'enrich/merge' && req.method === 'POST') {
-    return json(res, 400, { ok: false, error: 'CONFIRM_REQUIRED' })
+    return serveAlignPythonBody(req, res, url, sidecar, authorize, 'enrich_merge')
   }
   if (req.method === 'GET' && rest.startsWith('ontology/')) {
     if (rest === 'ontology/proposals' || rest.startsWith('ontology/proposals/')) return json(res, 200, [])
@@ -1709,6 +1874,69 @@ async function serveExport(req, res, sidecar, writes, authorize) {
   await writeFile(abs, text.endsWith('\n') ? text : `${text}\n`, 'utf8')
   if (writes) writes.mark(cwd, 'export')
   return json(res, 200, { ok: true, format, dest: abs })
+}
+
+function alignStatus(result) {
+  if (!result) return 502
+  if (result.error === 'CONFIRM_REQUIRED') return 400
+  if (result.error === 'NO_CWD') return 400
+  if (result.error === 'NO_TEXT' || result.error === 'NO_PATH' || result.error === 'NO_PROPERTIES') return 400
+  if (result.error === 'NO_NODE' || result.error === 'NO_NOTE') return 404
+  if (result.error === 'ENGINE_MISSING' || Number(result.status) === 503) return 503
+  if (result.error === 'TOO_MANY') return 413
+  if (result.ok === false && result.error) return 400
+  return 200
+}
+
+async function serveExplorerAnnotationsGet(req, res, url, authorize) {
+  const cwd = url.searchParams.get('cwd') || header(req.headers, 'x-dsh-cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  if (!cwd) return json(res, 400, { ok: false, error: 'NO_CWD' })
+  const result = await listAnnotations(cwd, url.searchParams.get('node_id'))
+  if (!result.ok) return json(res, 400, result)
+  return json(res, 200, result.items)
+}
+
+async function serveExplorerAnnotationsPost(req, res, url, authorize) {
+  const body = await readJson(req)
+  const cwd = body.cwd || url.searchParams.get('cwd') || header(req.headers, 'x-dsh-cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  if (!cwd) return json(res, 400, { ok: false, error: 'NO_CWD' })
+  const result = await addAnnotation(cwd, body.content || body.note, body.node_id || body.path, body)
+  return json(res, result.ok ? 201 : 400, result.ok ? result.item : result)
+}
+
+async function serveExplorerAnnotationsDelete(req, res, url, pathname, authorize) {
+  const cwd = url.searchParams.get('cwd') || header(req.headers, 'x-dsh-cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  if (!cwd) return json(res, 400, { ok: false, error: 'NO_CWD' })
+  const id = decodeURIComponent(pathname.slice(`${PREFIX}/api/annotations/`.length))
+  const result = await deleteAnnotation(cwd, id)
+  if (!result.ok) return json(res, result.error === 'NO_NOTE' ? 404 : 400, result)
+  res.writeHead(204, { 'cache-control': 'no-store' })
+  res.end()
+}
+
+async function serveAlignPython(req, res, url, sidecar, authorize, op, extraArgs = {}) {
+  const cwd = url.searchParams.get('cwd') || header(req.headers, 'x-dsh-cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  if (!cwd) return json(res, 400, { ok: false, error: 'NO_CWD' })
+  if (!sidecar || !sidecar.snapshot || !sidecar.snapshot().ready) return json(res, 503, { ok: false, error: 'NOT_READY' })
+  const result = await postPython(sidecar, { op, cwd, args: extraArgs }).catch(() => null)
+  const status = alignStatus(result)
+  return json(res, status, result && result.error === 'NO_EXPLORER' ? { ok: false, error: 'ALIGN_FAILED' } : (result || { ok: false, error: 'ALIGN_FAILED' }))
+}
+
+async function serveAlignPythonBody(req, res, url, sidecar, authorize, op) {
+  const body = await readJson(req)
+  const cwd = body.cwd || url.searchParams.get('cwd') || header(req.headers, 'x-dsh-cwd') || ''
+  if (!(await authorize(cwd))) return json(res, 403, { ok: false, error: 'CWD_NOT_AUTHORIZED' })
+  if (!cwd) return json(res, 400, { ok: false, error: 'NO_CWD' })
+  if (!sidecar || !sidecar.snapshot || !sidecar.snapshot().ready) return json(res, 503, { ok: false, error: 'NOT_READY' })
+  const { cwd: _c, ...args } = body
+  const result = await postPython(sidecar, { op, cwd, args }).catch(() => null)
+  const status = alignStatus(result)
+  return json(res, status, result && result.error === 'NO_EXPLORER' ? { ok: false, error: 'ALIGN_FAILED' } : (result || { ok: false, error: 'ALIGN_FAILED' }))
 }
 
 function sidecarJson(sidecar, { method, path, cwd, body, timeoutMs }) {

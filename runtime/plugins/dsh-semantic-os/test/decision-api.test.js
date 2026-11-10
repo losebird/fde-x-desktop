@@ -101,3 +101,84 @@ print(json.dumps({
   assert.ok(got.after.includes(got.draft))
   assert.equal(got.after.length, got.before.length)
 })
+
+test('record_decision without because is live and listed', () => {
+  const out = py(`
+import json, os, sys, tempfile
+sys.path.insert(0, "python")
+from bootstrap import run_tool, run_list_decisions, run_find_precedents
+home = tempfile.mkdtemp(); os.environ["DSH_HOME"] = home
+cwd = tempfile.mkdtemp()
+first = run_tool("record_decision", cwd, {
+  "category": "rel",
+  "scenario": "没有依据也要不要记下",
+  "reasoning": "Semantica 记下即落图",
+  "outcome": "记下",
+  "confidence": 0.9,
+})
+did = str(first.get("decision_id") or "")
+listed = run_list_decisions(cwd, {"limit": 80})
+ids = [r.get("decision_id") for r in listed.get("decisions") or []]
+prec = run_find_precedents(cwd, {"scenario": "没有依据也要不要记下", "max_results": 10})
+pids = [r.get("decision_id") for r in prec.get("precedents") or []]
+print(json.dumps({
+  "first": first,
+  "did": did,
+  "status": first.get("board_status"),
+  "list": ids,
+  "prec": pids,
+}, ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.ok(got.did, JSON.stringify(got.first))
+  assert.equal(got.status, '已生效')
+  assert.equal(got.first.error, undefined, JSON.stringify(got.first))
+  assert.ok(got.list.includes(got.did), JSON.stringify(got.list))
+  assert.ok(got.prec.includes(got.did), JSON.stringify(got.prec))
+})
+
+test('recorded draft lists after slim and is citable as because', () => {
+  const out = py(`
+import json, os, sys, tempfile
+sys.path.insert(0, "python")
+from bootstrap import run_tool, run_list_decisions, load_session, save_session, graph_path
+import graph_store
+home = tempfile.mkdtemp(); os.environ["DSH_HOME"] = home
+cwd = tempfile.mkdtemp()
+first = run_tool("record_decision", cwd, {
+  "category": "rel",
+  "scenario": "全量验收要不要只发验收包",
+  "reasoning": "真机",
+  "outcome": "要发",
+  "confidence": 0.9,
+  "session_id": "probe-session",
+})
+did = str(first.get("decision_id") or "")
+session, path = load_session(cwd)
+save_session(session, path)
+listed = run_list_decisions(cwd, {"include_auto": True, "limit": 80})
+ids = [r.get("decision_id") for r in listed.get("decisions") or []]
+stored = graph_store.read_one(cwd, did) or {}
+second = run_tool("record_decision", cwd, {
+  "category": "rel",
+  "scenario": "第二块板要不要引用第一块",
+  "reasoning": "because",
+  "outcome": "引用",
+  "confidence": 0.9,
+  "because": [did],
+})
+print(json.dumps({
+  "first": first,
+  "did": did,
+  "list": ids,
+  "type": stored.get("type"),
+  "second": second,
+}, ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.ok(got.did, JSON.stringify(got.first))
+  assert.equal(String(got.type || '').toLowerCase(), 'decision')
+  assert.ok(got.list.includes(got.did), JSON.stringify(got.list))
+  assert.equal(got.second.error, undefined, JSON.stringify(got.second))
+  assert.ok(got.second.decision_id)
+})

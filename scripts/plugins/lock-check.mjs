@@ -7,7 +7,7 @@ export const REQUIRED_PLUGINS = ['dsh-lan-assist', 'dsh-semantic-os']
 
 const SHA40 = /^[a-f0-9]{40}$/u
 const HEX64 = /^[a-f0-9]{64}$/u
-const SKIP_DIR = new Set(['node_modules', '.git', '.tmp-npm', '.nsc-local'])
+const SKIP_DIR = new Set(['node_modules', '.git', '.tmp-npm', '.nsc-local', '__pycache__'])
 
 function sha256(buf) {
   return createHash('sha256').update(buf).digest('hex')

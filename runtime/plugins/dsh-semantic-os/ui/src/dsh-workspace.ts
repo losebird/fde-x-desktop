@@ -1,20 +1,30 @@
-/** Active Semantic-tab cwd. Visible root wins so switching sessions does not keep the last mount. */
+/** Active Semantic-tab cwd. Mount bind wins until a connected host with data-cwd is in the DOM. */
 
-export function workspaceCwd(): string {
-  if (typeof document === "undefined") return "";
-  const roots = document.querySelectorAll(".dsos-root")
-  for (let i = 0; i < roots.length; i++) {
-    const el = roots[i]
-    if (!(el instanceof HTMLElement)) continue
-    if (el.offsetParent === null && el.getClientRects().length === 0) continue
-    const cwd = el.getAttribute("data-cwd") || ""
-    if (cwd) return cwd
-  }
-  const marked = document.querySelector(".dsos-root[data-dsos-semantic]")
-  if (marked) return marked.getAttribute("data-cwd") || ""
-  return ""
+let boundCwd = ""
+
+function cwdFromElement(el: Element | null): string {
+  if (!(el instanceof HTMLElement) || !el.isConnected) return ""
+  return el.getAttribute("data-cwd") || ""
 }
 
-export function setWorkspaceCwd(_next?: string, _owner?: object): void {}
+export function workspaceCwd(): string {
+  if (typeof document === "undefined") return boundCwd
+  const roots = document.querySelectorAll(".dsos-root")
+  for (let i = roots.length - 1; i >= 0; i--) {
+    const cwd = cwdFromElement(roots[i])
+    if (cwd) return cwd
+  }
+  const marked = cwdFromElement(document.querySelector(".dsos-root[data-dsos-semantic]"))
+  if (marked) return marked
+  const any = cwdFromElement(document.querySelector("[data-cwd]"))
+  if (any) return any
+  return boundCwd
+}
 
-export function clearWorkspaceCwd(_expected?: string, _owner?: object): void {}
+export function setWorkspaceCwd(next?: string, _owner?: object): void {
+  boundCwd = String(next || "").trim()
+}
+
+export function clearWorkspaceCwd(expected?: string, _owner?: object): void {
+  if (!expected || boundCwd === expected) boundCwd = ""
+}

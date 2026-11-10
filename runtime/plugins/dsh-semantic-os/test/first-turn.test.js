@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   createFirstTurnCache,
   firstHumanSpeech,
+  flipFirstTurn,
   formatHandoff,
   needsSearch,
   parseSearchHits,
@@ -13,7 +14,7 @@ import {
 
 test('routeIntent matches the python keyword table', () => {
   assert.deepEqual(routeIntent('PO-12 出自哪次会话'), { intent: '出处', tool: 'lineage' })
-  assert.deepEqual(routeIntent('要不要过 PO-12'), { intent: '拍板', tool: 'brief_for_decision' })
+  assert.deepEqual(routeIntent('要不要过 PO-12'), { intent: '拍板', tool: 'find_precedents' })
   assert.deepEqual(routeIntent('帮我把 PO-12 过账'), { intent: '业务动作', tool: 'brief_for_decision' })
   assert.deepEqual(routeIntent('哈哈随便聊聊'), { intent: '闲聊', tool: '' })
   assert.deepEqual(routeIntent('这个项目里上次怎么定的'), { intent: '查询', tool: 'search_text' })
@@ -22,6 +23,21 @@ test('routeIntent matches the python keyword table', () => {
   assert.equal(needsSearch('查询'), true)
   assert.equal(needsSearch('拍板'), false)
   assert.equal(needsSearch('闲聊'), false)
+})
+
+test('拍板 first-turn names find_precedents and does not search_text', async () => {
+  let n = 0
+  const flipped = await flipFirstTurn({
+    text: '要不要过 PO-12',
+    search: async () => {
+      n += 1
+      return { results: [{ node: { id: 'session:x:1', content: 'should not run' } }] }
+    },
+  })
+  assert.equal(flipped.intent, '拍板')
+  assert.equal(flipped.tool, 'find_precedents')
+  assert.equal(n, 0)
+  assert.deepEqual(flipped.hits, [])
 })
 
 test('firstHumanSpeech only when exactly one human line', () => {

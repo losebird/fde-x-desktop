@@ -95,6 +95,20 @@ export function sanitize(input, opts = {}) {
     if (src[key] === undefined) continue
     out[key] = Boolean(src[key])
   }
+  if (src.connectors !== undefined) {
+    if (!src.connectors || typeof src.connectors !== 'object' || Array.isArray(src.connectors)) {
+      throw new Error('connectors must be an object')
+    }
+    /** @type {Record<string, { url?: string, account?: string }>} */
+    const bag = {}
+    for (const [name, row] of Object.entries(src.connectors)) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) continue
+      const url = typeof row.url === 'string' ? row.url.trim() : ''
+      const account = typeof row.account === 'string' ? row.account.trim() : ''
+      bag[String(name).toLowerCase()] = { url, account }
+    }
+    out.connectors = bag
+  }
   if (!opts.partial && out.startTimeoutMs === undefined) {
     out.startTimeoutMs = DEFAULT_START_TIMEOUT_MS
   }

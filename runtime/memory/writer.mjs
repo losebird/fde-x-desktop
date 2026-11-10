@@ -2,6 +2,7 @@ import { resolveWorkspaceIdOrFail } from '../briefing/workspace.mjs'
 import { getOperation, memoryWriteCardByOrigins } from '../db.mjs'
 import { subscribe } from '../events.mjs'
 import { cardFromOpenedNode, nodeMayCite, nodeWasOpened } from './cards.mjs'
+import { noteDecisionSkip } from './decision-skip.mjs'
 import { draftCard, memoryWriterSkipCount } from './draft.mjs'
 import { instanceOriginOf } from './identity.mjs'
 
@@ -93,7 +94,10 @@ export async function recordDecisionFromChoice(deps, input = {}) {
     return { skipped: true, reason: 'incomplete' }
   }
   const because = await resolveCitableBecause(deps, cwd, input.refs)
-  if (!because.length) return { skipped: true, reason: 'NO_BECAUSE' }
+  if (!because.length) {
+    noteDecisionSkip(cwd, 'NO_BECAUSE', { scenario: scenario.slice(0, 200) })
+    return { skipped: true, reason: 'NO_BECAUSE' }
+  }
   const leadsTo = uniqueIds(input.leadsTo)
   const leads = leadsTo.length ? await resolveCitableBecause(deps, cwd, leadsTo) : []
   const confidence = Number(input.confidence)

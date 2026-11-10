@@ -31,7 +31,7 @@ test('spoken seed write says exclude 现查 and include connector writes', () =>
 test('JS routeIntent keeps memory query, source, board, and chat', () => {
   assert.deepEqual(routeIntent('这个项目里上次怎么定的'), { intent: '查询', tool: 'search_text' })
   assert.deepEqual(routeIntent('PO-12 出自哪次会话'), { intent: '出处', tool: 'lineage' })
-  assert.deepEqual(routeIntent('要不要过 PO-12'), { intent: '拍板', tool: 'brief_for_decision' })
+  assert.deepEqual(routeIntent('要不要过 PO-12'), { intent: '拍板', tool: 'find_precedents' })
   assert.deepEqual(routeIntent('帮我把 PO-12 过账'), { intent: '业务动作', tool: 'brief_for_decision' })
   assert.deepEqual(routeIntent('哈哈随便聊聊'), { intent: '闲聊', tool: '' })
   assert.deepEqual(routeIntent('有哪些待审记忆'), { intent: '查询', tool: 'list_memory_cards' })
@@ -112,13 +112,13 @@ print(json.dumps({
   assert.equal(got.rewrite.intent, '现况')
   assert.equal(got.rewrite.tool, 'biz_preview')
   assert.equal(got.memory.tool, 'search_text')
-  assert.equal(got.board.tool, 'brief_for_decision')
+  assert.equal(got.board.tool, 'find_precedents')
   assert.equal(got.post.tool, 'brief_for_decision')
   assert.equal(got.source.tool, 'lineage')
 })
 
 test('board speech still wins when it also contains a write say', () => {
-  assert.deepEqual(routeIntent('要不要过一下'), { intent: '拍板', tool: 'brief_for_decision' })
+  assert.deepEqual(routeIntent('要不要过一下'), { intent: '拍板', tool: 'find_precedents' })
 })
 
 test('list-only 现查 speech goes to biz_preview', () => {

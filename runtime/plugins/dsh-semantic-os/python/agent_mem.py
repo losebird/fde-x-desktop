@@ -175,7 +175,12 @@ def store_agent_memory(
         return {"ok": False, "error": "EMPTY"}
     mem = load_agent_memory(cwd)
     if mem is None:
-        return {"ok": False, "error": "NO_SEMANTICA"}
+        from uuid import uuid4
+        card_id = str(memory_id or "").strip() or f"memory:{uuid4().hex[:12]}"
+        if not card_id.startswith("memory:"):
+            card_id = f"memory:{card_id}"
+        _file_graph_card(cwd, card_id, blob, metadata or {})
+        return {"ok": True, "id": card_id, "via": "graph"}
     opts: dict[str, Any] = {
         "skip_vector": not bool(getattr(mem, "vector_store", None)),
         "skip_graph": not bool(getattr(mem, "knowledge_graph", None)),
@@ -194,9 +199,97 @@ def store_agent_memory(
         folder = memory_dir(cwd)
         folder.mkdir(parents=True, exist_ok=True)
         mem.save(str(folder))
-        return {"ok": True, "id": mid}
+        card_id = str(mid or "").strip()
+        if card_id and not card_id.startswith("memory:"):
+            card_id = f"memory:{card_id}"
+        if card_id:
+            try:
+                _file_graph_card(cwd, card_id, blob, metadata or {})
+            except Exception:
+                pass
+        return {"ok": True, "id": card_id or mid}
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
+
+
+def _file_graph_card(cwd: str, card_id: str, content: str, metadata: dict[str, Any]) -> None:
+    try:
+        import graph_store
+    except Exception:
+        return
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    props = {
+        "content": content,
+        "status": "已入档",
+        "kind": "记忆卡片",
+        "valid_from": metadata.get("updated_at") or metadata.get("valid_from") or now,
+        **{k: v for k, v in metadata.items() if v is not None},
+    }
+    graph_store.put_node(cwd, {
+        "id": card_id,
+        "type": "记忆卡片",
+        "content": content,
+        "properties": props,
+    })
+
+
+def list_agent_memory_snapshot(cwd: str, skip: int = 0, limit: int = 100) -> dict[str, Any]:
+    mem = load_agent_memory(cwd)
+    items: list[dict[str, Any]] = []
+    total = 0
+    if mem is not None:
+        try:
+            if hasattr(mem, "list_snapshot"):
+                records, total = mem.list_snapshot(offset=skip, limit=limit)
+            else:
+                records = list((getattr(mem, "memory_items", {}) or {}).values())
+                total = len(records)
+                records = records[skip:skip + limit]
+        except Exception:
+            records = []
+            total = 0
+        for row in records or []:
+            if not isinstance(row, dict):
+                continue
+            meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            mid = str(row.get("memory_id") or row.get("id") or "")
+            if mid and not mid.startswith("memory:"):
+                mid = f"memory:{mid}"
+            content = str(row.get("content") or "")
+            excerpt = " ".join(content.split())[:160]
+            items.append({
+                "id": mid,
+                "type": str(meta.get("type") or "general"),
+                "excerpt": excerpt,
+                "updated_at": str(meta.get("updated_at") or row.get("timestamp") or "") or None,
+            })
+    if not items:
+        try:
+            import graph_store
+            from board import is_memory_card, board_status_of, memory_still_counts
+            nodes, _edges = graph_store.read_all(cwd)
+            filed = []
+            for row in nodes.values():
+                if not isinstance(row, dict) or not is_memory_card(row):
+                    continue
+                if board_status_of(row) != "已入档" or not memory_still_counts(row):
+                    continue
+                filed.append(row)
+            total = len(filed)
+            for row in filed[skip:skip + limit]:
+                nid = str(row.get("id") or "")
+                props = row.get("properties") if isinstance(row.get("properties"), dict) else {}
+                content = str(row.get("content") or props.get("content") or "")
+                items.append({
+                    "id": nid,
+                    "type": str(props.get("type") or "general"),
+                    "excerpt": " ".join(content.split())[:160],
+                    "updated_at": str(props.get("updated_at") or props.get("valid_from") or row.get("recorded_at") or "") or None,
+                })
+        except Exception:
+            pass
+    return {"ok": True, "items": items, "total": total or len(items), "skip": skip, "limit": limit}
 
 
 def retrieve_agent_memory(cwd: str, query: str, max_results: int = 8) -> list[dict[str, Any]]:

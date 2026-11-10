@@ -163,6 +163,36 @@ print(json.dumps({"ids": sorted(nodes)}))
   }
 })
 
+test('write_graph does not overwrite a decision with an entity stub', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'dsos-oxi-stub-'))
+  const home = mkdtempSync(join(tmpdir(), 'dsos-home-'))
+  try {
+    const out = py(`
+import json, os, sys
+sys.path.insert(0, ${JSON.stringify(pyDir)})
+os.environ["DSH_HOME"] = ${JSON.stringify(home)}
+from semantica.context.context_graph import ContextGraph
+from stores import write_primary
+import graph_store
+cwd = ${JSON.stringify(cwd)}
+g = ContextGraph()
+did = g.record_decision("rel", "起草板不能被桩覆盖", "r", "草", 0.9, metadata={"status": "起草"})
+write_primary(g, cwd)
+stub = ContextGraph()
+stub.add_node(did, "entity", content=did)
+graph_store.write_graph(stub, cwd)
+stored = graph_store.read_one(cwd, did) or {}
+print(json.dumps({"did": did, "type": stored.get("type"), "scenario": (stored.get("properties") or {}).get("scenario") or stored.get("content")}))
+`)
+    const got = JSON.parse(out)
+    assert.equal(String(got.type || '').toLowerCase(), 'decision')
+    assert.match(String(got.scenario || ''), /起草板不能被桩覆盖/)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('close_store is the lite alias', () => {
   const src = py(`
 import stores, json

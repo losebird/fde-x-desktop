@@ -685,7 +685,7 @@ test('fast-read set includes query_decisions and find_precedents', () => {
 import sys
 sys.path.insert(0, "python")
 from bootstrap import is_fast_read_op
-print(is_fast_read_op("query_decisions"), is_fast_read_op("find_precedents"))
+print(is_fast_read_op("query_decisions"), is_fast_read_op("find_precedents"), is_fast_read_op("get_causal_chain"))
 print(is_fast_read_op("record_decision"))
 `)
   assert.match(out, /True True/)

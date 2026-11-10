@@ -68,6 +68,34 @@ def iter_decision_nodes(graph: Any) -> list[Any]:
     return out
 
 
+def iter_vector_decisions(cwd: str) -> list[dict[str, Any]]:
+    """Decision rows remembered by FAISS even when Oxigraph only has an Entity stub."""
+    out: list[dict[str, Any]] = []
+    try:
+        vs = get_vs(cwd)
+    except Exception:
+        return out
+    if vs is None:
+        return out
+    try:
+        rows = vs.iter_vectors(batch_size=200) or []
+    except Exception:
+        return out
+    for row in rows:
+        meta = row.get("metadata") if isinstance(row, dict) else {}
+        if not isinstance(meta, dict):
+            continue
+        did = str(meta.get("decision_id") or "").strip()
+        if not did:
+            continue
+        packed = dict(meta)
+        packed["id"] = did
+        packed["decision_id"] = did
+        packed["type"] = "decision"
+        out.append(packed)
+    return out
+
+
 def get_vs(cwd: str):
     key = os.path.realpath(cwd or "")
     with _LOCK:

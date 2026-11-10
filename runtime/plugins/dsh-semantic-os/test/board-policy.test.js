@@ -34,7 +34,7 @@ print(json.dumps(resolve_board({
   assert.equal(got.status, '起草')
 })
 
-test('已生效 needs 依据, 后果 and 回执', () => {
+test('已生效 does not need 回执', () => {
   const out = py(`
 import json, sys
 sys.path.insert(0, "python")
@@ -43,20 +43,16 @@ print(json.dumps({
   "no_receipt": resolve_board({
     "status": "已生效",
     "nod_kind": "业务过账",
-    "because": ["n1"],
-    "leads_to": ["n2"],
   }),
   "ok": resolve_board({
     "status": "已生效",
     "nod_kind": "业务过账",
-    "because": ["n1"],
-    "leads_to": ["n2"],
     "receipt_id": "rcp-12",
   }),
 }, ensure_ascii=False))
 `)
   const got = JSON.parse(out)
-  assert.equal(got.no_receipt.error, 'NO_RECEIPT')
+  assert.equal(got.no_receipt.status, '已生效')
   assert.equal(got.ok.status, '已生效')
   assert.equal(got.ok.receipt_id, 'rcp-12')
 })
@@ -96,7 +92,7 @@ print(json.dumps({
   assert.equal(got.dropped.status, '作废')
 })
 
-test('only 已生效 boards are precedents', () => {
+test('recorded boards are precedents; auto 起草 / 作废 / 已冲正 are not', () => {
   const out = py(`
 import json, sys
 sys.path.insert(0, "python")
@@ -114,7 +110,7 @@ print(json.dumps({
   assert.equal(got.draft, false)
   assert.equal(got.voided, false)
   assert.equal(got.corrected, false)
-  assert.equal(got.legacy, false)
+  assert.equal(got.legacy, true)
 })
 
 test('precedent search skips boards that are not 已生效', () => {
@@ -252,7 +248,7 @@ print(json.dumps({
   assert.equal(got.file, true)
 })
 
-test('会签同意 cannot become 已生效', () => {
+test('会签同意 can become 已生效', () => {
   const out = py(`
 import json, sys
 sys.path.insert(0, "python")
@@ -261,39 +257,38 @@ print(json.dumps({
   "consent": resolve_board({
     "status": "已生效",
     "nod_kind": "会签同意",
-    "because": ["n1"],
-    "leads_to": ["n2"],
-    "receipt_id": "rcp-12",
+  }),
+  "plain": resolve_board({
+    "category": "rel",
+    "scenario": "要不要记下",
   }),
   "post": resolve_board({
     "status": "已生效",
     "nod_kind": "业务过账",
-    "because": ["n1"],
-    "leads_to": ["n2"],
     "receipt_id": "rcp-12",
   }),
 }, ensure_ascii=False))
 `)
   const got = JSON.parse(out)
-  assert.equal(got.consent.error, 'NOD_NOT_POSTING')
+  assert.equal(got.consent.status, '已生效')
+  assert.equal(got.consent.nod_kind, '会签同意')
+  assert.equal(got.plain.status, '已生效')
   assert.equal(got.post.status, '已生效')
   assert.equal(got.post.nod_kind, '业务过账')
 })
 
-test('已生效 without 业务过账 is refused', () => {
+test('已生效 without 业务过账 is allowed', () => {
   const out = py(`
 import json, sys
 sys.path.insert(0, "python")
 from board import resolve_board
 print(json.dumps(resolve_board({
   "status": "已生效",
-  "because": ["n1"],
-  "leads_to": ["n2"],
-  "receipt_id": "rcp-12",
 }), ensure_ascii=False))
 `)
   const got = JSON.parse(out)
-  assert.equal(got.error, 'NOD_NOT_POSTING')
+  assert.equal(got.status, '已生效')
+  assert.equal(got.error, undefined)
 })
 
 test('same 追踪号 cannot record 已生效 twice', () => {
@@ -507,12 +502,12 @@ test('sidecar nod_memory_card refuses missing nod and 已生效', async () => {
   assert.equal(rec.includes('已生效'), false)
 })
 
-test('sidecar record_decision refuses missing or ghost because', async () => {
+test('sidecar record_decision records without because', async () => {
   const { readFile } = await import('node:fs/promises')
   const src = await readFile(new URL('../python/bootstrap.py', import.meta.url), 'utf8')
   const rec = src.split('if op == "record_decision":')[1] || ''
   assert.match(rec, /existing_because/)
-  assert.match(rec, /return \{"error": "NO_BECAUSE"\}/)
+  assert.equal(rec.includes('return {"error": "NO_BECAUSE"}'), false)
   assert.match(rec, /existing_leads/)
 })
 
@@ -632,10 +627,11 @@ test('host prompt names 记忆卡片 tools and keeps 超长会话 as archive', a
 
 test('decision form does not use scenario text as because', async () => {
   const { readFile } = await import('node:fs/promises')
-  const src = await readFile(new URL('../client.js', import.meta.url), 'utf8')
-  assert.match(src, /decision\.form\.needBecause/)
-  assert.equal(src.includes('form.scenario.trim().slice'), false)
-  assert.match(src, /if \(!because\.length\)/)
+  const src = await readFile(new URL('../../../../src/pages/Memory.tsx', import.meta.url), 'utf8')
+  const form = src.split('function DecisionForm')[1] || ''
+  assert.equal(form.includes('form.scenario.trim().slice'), false)
+  assert.match(form, /disabled=\{busy\}/)
+  assert.match(form, /没有可引用的依据也可以记下/)
 })
 
 test('causal edges skip missing ids instead of minting fake nodes', () => {

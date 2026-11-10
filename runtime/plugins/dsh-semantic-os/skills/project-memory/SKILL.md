@@ -11,17 +11,16 @@ Use this skill before recording a board, writing a 记忆卡片, or upserting vo
 
 - `search_text` hits are 摘录 (`id` + `then` + nearby text). `total` is the full hit count; a page is not 图里没有.
 - After a 摘录, open the diary with `open_node(id)`. `truncated` means the archive is longer.
-- `lineage` answers 出自. `query_graph` walks edges.
+- `lineage` answers 出自. For a recorded board it also walks 依据 and 因果. `format=turtle` (or `export_graph` with that id) is the W3C PROV-O audit. `query_graph` walks edges.
 - Graph facts are 当时, never 现在. Do not tell the user a ticket is still 待审 from the graph; that needs `biz_preview`.
 - Only after `search_text` returns nothing may you say it is not in the graph.
 
 ## Board
 
-- When the user is choosing, call `brief_for_decision` first, show options, then wait.
-- After they confirm, `record_decision` with `because` ids from the brief. The gate rejects a board with no because. Never put scenario text in because.
-- Omit status to stay 起草. `status=已生效` needs `leads_to`, `receipt_id`, and `nod_kind=业务过账`.
-- Same `trace_id` or `receipt_id` cannot record 已生效 twice.
-- `query_decisions` recalls 已生效 plus human 起草. `find_precedents` only returns 已生效.
+- When the user is choosing, call `find_precedents` first, then `brief_for_decision`, show options, then wait.
+- After they confirm, `record_decision`. `because` is optional (supports edges when ids exist). Never put scenario text in because. `check_decision_rules` first if the workspace has rules; `RULE_CONFLICT` means do not write. Empty rules allow. Rules never block talking.
+- Omit status to record as 已生效 (Semantica: recorded is live). Auto extract stays 起草. Same `trace_id` or `receipt_id` cannot record 已生效 twice.
+- `query_decisions` and `find_precedents` recall recorded boards. Auto 起草 / 作废 / 已冲正 are omitted from precedents. `get_causal_chain` walks supports/CAUSED/PRECEDENT_FOR from a decision_id. `analyze_decision_impact` lists boards this one CAUSED. Empty graph returns [].
 
 ## Memory cards
 

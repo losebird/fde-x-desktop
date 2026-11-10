@@ -64,6 +64,17 @@ export function shouldHideOnCanvas(node: LabelNode): boolean {
   return false;
 }
 
+/** Snapshot ids that also sit on the canvas graph (hides session: diary rows). */
+export function visibleActiveIds(activeIds: string[], canvasNodes: LabelNode[]): string[] {
+  const keep = new Set(
+    canvasNodes
+      .filter((node) => !shouldHideOnCanvas(node))
+      .map((node) => asTrimmedString(node.id))
+      .filter(Boolean),
+  );
+  return activeIds.filter((id) => keep.has(id));
+}
+
 export function rewriteApiNode<T extends LabelNode>(node: T): T {
   const label = displayLabel(node);
   const props = { ...(propertyBag(node)) };

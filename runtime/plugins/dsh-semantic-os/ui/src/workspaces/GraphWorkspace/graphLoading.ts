@@ -51,6 +51,7 @@ export function getGraphLoadStageLabel(phase: Exclude<GraphLoadPhase, "ready">):
 export function createGraphLoadProgress(input: {
   phase: GraphLoadPhase;
   message: string;
+  title?: string;
   progressKind: GraphLoadProgressKind;
   loaded?: number | null;
   total?: number | null;
@@ -66,7 +67,7 @@ export function createGraphLoadProgress(input: {
 
   return {
     phase: input.phase,
-    title: getGraphLoadTitle(input.phase),
+    title: input.title || getGraphLoadTitle(input.phase),
     message: input.message,
     progressKind: input.progressKind,
     loaded: input.loaded ?? null,

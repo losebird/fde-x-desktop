@@ -11,6 +11,7 @@ import { createWriteLog } from './plugins/dsh-semantic-os/product.js'
 import { createSessionIngest } from './plugins/dsh-semantic-os/session-ingest.js'
 import { createSidecar } from './plugins/dsh-semantic-os/sidecar.js'
 import { createWorkspaceAuthority } from './plugins/dsh-semantic-os/workspace-authority.js'
+import { ensureProjectMemorySkill } from './plugins/dsh-semantic-os/skill-install.js'
 import { FDE_AI_WORKSPACE, FDE_DSH_HOME, FDE_RUNTIME_PORT } from './config.mjs'
 import { createDiskSessionPersistence } from './semantic-os-session-persist.mjs'
 
@@ -78,6 +79,7 @@ export async function bootSemanticOsBff(adapters = {}) {
   })
   const upgrade = createUpgradeHandler(sidecar, workspaceAuthority)
   runtime = { sidecar, handler, upgrade, writes, sessionIngest, extractQueue, persistence, extract }
+  void ensureProjectMemorySkill(FDE_DSH_HOME).catch(() => undefined)
   if (adapters.start === false) {
     void extractQueue.stop()
   } else {

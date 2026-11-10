@@ -34,7 +34,7 @@
 
 分析里有 SPARQL，还有往前推、模式匹配、逻辑规则。默认只预览，不会把推出来的边偷偷写进图。
 
-决策页是台账、因果、先例。只有带回执的业务过账才叫已生效。
+决策页是台账、因果、先例。人记下即落图（Semantica）。自动抽取仍是起草。
 
 导入导出认 json / csv。RDF 看你这台机器有没有导出器。失败会回到上一份，不会把图写烂。
 
@@ -52,7 +52,7 @@
 
 出处用 `lineage`，要带编号。
 
-拍板先 `brief_for_decision` 把依据摆出来，你点了头再 `record_decision`。要记成已生效：依据、回执、`nod_kind=业务过账`，三项缺一不可。
+拍板先 `brief_for_decision` 把依据摆出来，你点了头再 `record_decision`。记下默认已生效。`because` / 回执 / `nod_kind` 可选。
 
 记忆：`draft_memory_card` 入档，`list_memory_cards` 列表，梳理里退休、续期、连理解边。
 

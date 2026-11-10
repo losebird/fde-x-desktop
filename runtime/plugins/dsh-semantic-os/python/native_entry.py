@@ -24,6 +24,10 @@ MCP_NATIVE = (
     "lineage",
     "list_memory_cards",
     "query_decisions",
+    "analyze_decision_impact",
+    "check_decision_rules",
+    "update_node",
+    "delete_node",
 )
 
 CONNECTOR_EXTRAS = (
@@ -108,8 +112,19 @@ def run_semantica_capabilities(_cwd: str = "", _args: dict[str, Any] | None = No
                 continue
     optional["torch"] = False
     connectors = []
+    try:
+        from align_ops import run_connector_status
+        packed = run_connector_status("", {})
+        by_name = {str(row.get("name")): row for row in (packed.get("connectors") or []) if isinstance(row, dict)}
+    except Exception:
+        by_name = {}
     for name in CONNECTOR_EXTRAS:
-        connectors.append({"name": name, "extra": True, "connected": False})
+        row = by_name.get(name) or {}
+        connectors.append({
+            "name": name,
+            "extra": True,
+            "connected": bool(row.get("connected")),
+        })
     return {
         "ok": True,
         "flags": extras,

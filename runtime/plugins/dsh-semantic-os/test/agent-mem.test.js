@@ -172,7 +172,7 @@ print(json.dumps({"ids": [h["memory_id"] for h in hits], "forgot": dropped.get("
   }
 })
 
-test('已生效 still needs a receipt after AgentMemory hook', () => {
+test('已生效 does not need a receipt after AgentMemory hook', () => {
   const out = py(`
 import json, sys
 sys.path.insert(0, "python")
@@ -180,10 +180,9 @@ from board import resolve_board
 print(json.dumps(resolve_board({
   "status": "已生效",
   "nod_kind": "业务过账",
-  "because": ["n1"],
-  "leads_to": ["n2"],
 }), ensure_ascii=False))
 `)
   const got = JSON.parse(out)
-  assert.equal(got.error, 'NO_RECEIPT')
+  assert.equal(got.status, '已生效')
+  assert.equal(got.error, undefined)
 })

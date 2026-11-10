@@ -183,3 +183,78 @@ test('graph-updates websocket is rewritten onto the Host semantic-os path', asyn
   stop()
   assert.equal(window.WebSocket, FakeWS)
 })
+
+test('canvas enrich/merge rewrite stamps confirm; official body stays nod-gated until wrap', async () => {
+  const captured = []
+  const nativeFetch = async (input, init) => {
+    captured.push({ input, init })
+    return new Response(JSON.stringify({ merged_into: 'p1', edges_updated: 1 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  globalThis.window = globalThis
+  globalThis.location = { origin: 'http://127.0.0.1:5174' }
+  window.location = globalThis.location
+  window.Headers = Headers
+  window.fetch = nativeFetch
+
+  const srcRoot = resolve(process.cwd(), 'src/lib')
+  const { installSemanticOsHttp, stampOfficialMergeBody } = await import(pathToFileURL(resolve(srcRoot, 'semantic-http.ts')).href)
+  const official = JSON.stringify({ primary_id: 'p1', duplicate_ids: ['d1'] })
+  assert.equal(JSON.parse(official).confirm, undefined)
+  const stamped = JSON.parse(stampOfficialMergeBody(official))
+  assert.equal(stamped.confirm, true)
+  assert.equal(stamped.nodded, true)
+  assert.equal(stamped.primary_id, 'p1')
+
+  const stop = installSemanticOsHttp(hostEl('/tmp/ws-a'), '/tmp/ws-a')
+  captured.length = 0
+  await window.fetch('/api/enrich/merge', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: official,
+  })
+  assert.equal(captured.length, 1)
+  assert.equal(String(capturedUrl(captured[0])).startsWith('/semantic-os/api/enrich/merge'), true)
+  const sent = JSON.parse(String(captured[0].init.body))
+  assert.equal(sent.confirm, true)
+  assert.equal(sent.nodded, true)
+  assert.deepEqual(sent.duplicate_ids, ['d1'])
+  stop()
+})
+
+test('graph nodes fetch retries GRAPH_BUSY then succeeds', async () => {
+  const captured = []
+  let n = 0
+  const nativeFetch = async (input) => {
+    captured.push(String(input))
+    n += 1
+    if (n < 3) {
+      return new Response(JSON.stringify({ ok: false, error: 'GRAPH_BUSY' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    return new Response(JSON.stringify({ nodes: [{ id: 'a' }], total: 1 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  globalThis.window = globalThis
+  globalThis.location = { origin: 'http://127.0.0.1:5174' }
+  window.location = globalThis.location
+  window.Headers = Headers
+  window.fetch = nativeFetch
+  const srcRoot = resolve(process.cwd(), 'src/lib')
+  const { installSemanticOsHttp } = await import(pathToFileURL(resolve(srcRoot, 'semantic-http.ts')).href)
+  const stop = installSemanticOsHttp(hostEl('/tmp/ws-a'), '/tmp/ws-a')
+  const res = await window.fetch('/api/graph/nodes?limit=1000')
+  const body = await res.json()
+  stop()
+  assert.equal(res.status, 200)
+  assert.equal(body.nodes[0].id, 'a')
+  assert.equal(captured.length, 3)
+  assert.ok(captured[0].includes('/semantic-os/api/graph/nodes'))
+  assert.ok(captured[0].includes('cwd='))
+})

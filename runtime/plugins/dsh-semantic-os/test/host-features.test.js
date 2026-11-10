@@ -118,8 +118,7 @@ test('gate: hard gates deny when not ready, no cwd, or export escapes cwd', asyn
   assert.match(escape.reason, /gate\.hard\.exportOutsideCwd/)
 
   const noEvidence = await handler(exec('record_decision', { outcome: '发' }, '/ws'), next)
-  assert.equal(noEvidence.kind, 'deny')
-  assert.equal(noEvidence.reason, 'gate.hard.decisionNeedsBrief')
+  assert.equal(noEvidence.kind, 'allow')
 
   const withEvidence = await handler(exec('record_decision', { because: ['n1'] }, '/ws'), next)
   assert.equal(withEvidence.kind, 'allow')
@@ -127,26 +126,17 @@ test('gate: hard gates deny when not ready, no cwd, or export escapes cwd', asyn
   const liveNoReceipt = await handler(exec('record_decision', {
     status: '已生效',
     nod_kind: '业务过账',
-    because: ['n1'],
-    leads_to: ['n2'],
   }, '/ws'), next)
-  assert.equal(liveNoReceipt.kind, 'deny')
-  assert.equal(liveNoReceipt.reason, 'gate.hard.decisionNeedsReceipt')
+  assert.equal(liveNoReceipt.kind, 'allow')
 
   const liveNoNod = await handler(exec('record_decision', {
     status: '已生效',
-    because: ['n1'],
-    leads_to: ['n2'],
-    receipt_id: 'rcp-12',
   }, '/ws'), next)
-  assert.equal(liveNoNod.kind, 'deny')
-  assert.equal(liveNoNod.reason, 'gate.hard.nodNotPosting')
+  assert.equal(liveNoNod.kind, 'allow')
 
   const liveOk = await handler(exec('record_decision', {
     status: '已生效',
     nod_kind: '业务过账',
-    because: ['n1'],
-    leads_to: ['n2'],
     receipt_id: 'rcp-12',
   }, '/ws'), next)
   assert.equal(liveOk.kind, 'allow')
@@ -154,12 +144,8 @@ test('gate: hard gates deny when not ready, no cwd, or export escapes cwd', asyn
   const consent = await handler(exec('record_decision', {
     status: '已生效',
     nod_kind: '会签同意',
-    because: ['n1'],
-    leads_to: ['n2'],
-    receipt_id: 'rcp-12',
   }, '/ws'), next)
-  assert.equal(consent.kind, 'deny')
-  assert.equal(consent.reason, 'gate.hard.nodNotPosting')
+  assert.equal(consent.kind, 'allow')
 
   const erase = await handler(exec('erase_ledger', { kind: 'pii' }, '/ws'), next)
   assert.equal(erase.kind, 'deny')

@@ -350,7 +350,7 @@ export function apply(ctx, config) {
       order: 119,
       text: () => [
         'This cwd has a local knowledge graph of prior chats, files, and recorded decisions. Hits are 当时, never live ERP.',
-        'route_intent names which graph tool fits an utterance; it does not search. Follow its tool field when you call it. 现况 → biz_preview (live connector). Do not search_text when the tool is biz_preview.',
+        'route_intent names which graph tool fits an utterance; it does not search. Follow its tool field when you call it. 现况 → biz_preview (live connector). 拍板 → find_precedents before brief_for_decision. query_decisions lists recorded boards; get_causal_chain walks a board; analyze_decision_impact lists boards it CAUSED. check_decision_rules only blocks record_decision. lineage/export_graph on a board id export W3C PROV-O (依据+因果). Empty graph returns []. Do not search_text when the tool is biz_preview.',
         'Graph ops without a session cwd return NO_CWD. If the engine is not ready they return NOT_READY.',
       ].join(' '),
     })
